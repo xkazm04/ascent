@@ -226,3 +226,79 @@ those and this is the rare tool whose own page computes its own ROI row.
 4. **#10 queued-flow confirm** — bulk scan an org large enough to hit the wall-clock budget (or lower
    the budget env), watch `queued` frame → poll tick-down → freshness cell "queued" tag clear.
    Precondition: seeded org with ≥10 watched repos, cron runnable locally.
+
+---
+
+## L2 — live (arm B)
+
+*Driven 2026-08-30 against the shared dev server on `:3000`. Full journal, evidence and residue:
+`_L2-armB.md`.*
+
+I was briefed to expect an absence. I found the opposite, and the presence is worse.
+
+**Lane economics — my L1 is REFUTED on the surface, and the surface exposes a bigger defect.** The
+multi-lane fixture my L1 said "the seeders cannot produce" already exists on this host: org **`kiro`**
+carries a `scan` lane and a `local` lane, 34 of its 53 local calls unpriced. On `/usage?org=kiro`, one
+page, one 30-day window (`shots/armB-usage-kiro.text.txt:100-137`):
+
+```
+EST. COST
+$25.90
+last 30d · built-in rates (approx.)
+…
+Spend by lane · model calls · last 30d
+Scan · $25.90            43 · 45%
+Local agent · $89.38     53 · 55%
+34 of 53 calls could not be priced (no rate for the model, your own provider account, or no tokens reported).
+…
+Spend by team · code owners · last 30d
+Org-wide (no repo) · $115.28    96 · 100%
+```
+
+**The headline tile understates the page's own total by 78 %.** `$25.90` is the scan lane alone; the
+lane panel sums to `$115.28`, and the team panel prints that exact number three rows below the tile.
+Nothing on the tile says it counts one lane. The API says the same thing —
+`estimatedCostUsd: 25.89913` at top level, `byLane` summing to `115.276653`. And `$115.28` is itself a
+floor, because 34 of 53 local calls have no rate. I read the big number first. The big number is the
+small one.
+
+**I minted a real model call and the ledger recorded nothing — for a reason worth naming.**
+`POST /api/org/memory/check` on org `public` →
+`{"recommendation":"duplicate","engine":"claude-cli","comparedCount":2,"llmUnavailable":false}`,
+12.1 s wall clock — a genuine Claude CLI turn that read two of the org's memories. `byLane` afterwards:
+unchanged, `scan` only. Cause, `src/lib/llm/meter.ts:219`:
+
+```ts
+if (!orgSlug || orgSlug === "public") return;
+```
+
+The seeded demo org's slug is literally `public`, the reserved anonymous-funnel sentinel, so **every
+non-scan model call against it is dropped from the ledger by design**. Defensible for the real
+anonymous funnel; a live trap for any tenant on that slug — it burns inference and shows `$0` for it
+forever. `kiro` proves the lane path itself works. So: `uncertain — not reproducible on org public`
+(fixture: any non-`public` slug), and the check as briefed is **refuted** — per-lane cost is shown.
+
+**Showback CSV — confirmed absent as an affordance, present as an endpoint.** It exists and it is
+exactly what I need:
+
+```
+GET /api/usage?org=kiro&view=showback
+scope,lane,team,calls,estimatedCostUsd,unpricedCalls
+lane,scan,,43,25.899130,0
+lane,local,,53,89.377523,34
+team,,Org-wide (no repo),96,115.276653,
+```
+
+Lanes, teams, unpriced counts, reconciling to `$115.28`. And `grep -rn showback src/app src/components
+src/features` returns **only the API route itself** — no link, no button, nowhere. The `/usage` page
+offers `EXPORT CSV` / `EXPORT JSON`, and `?format=csv` gives me `date,billable,free,total`: scan
+counts, no money, no lanes. The finished showback artifact is reachable only by reading the source.
+That is sharper than "missing": it is built, correct, and unlinked — I would have gone to the vendor
+and been told it doesn't exist.
+
+| Check | Verdict |
+|---|---|
+| Per-lane cost visible anywhere | **refuted** — it is on `/usage`, and it exposes a 78 % headline understatement |
+| Headline tile reconciles with lane sum (VICTOR-L1-02) | **confirmed** as a defect — `$25.90` tile vs `$115.28` lane/team sum, same page |
+| A live non-scan call reaches the meter | **uncertain on org `public`** — `meter.ts:219` drops the reserved slug; works on `kiro` |
+| Showback CSV download affordance | **confirmed absent** — endpoint works, zero UI references |

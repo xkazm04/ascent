@@ -356,3 +356,113 @@ when observed is slower than pasting the brief into the agent myself.
 | 6 | **705/706** — observe a drive's silent model switch (needs ≥3 lanes × 2 models per dim first — expensive; deprioritize), and diff the remote brief against a local lane's prompt | as #2 plus a second model's worth of history; #706 needs only the MCP token |
 
 *Report ends. — P.*
+
+---
+
+## L2 — live (arm C)
+
+Driven 2026-08-31 08:00–08:30 UTC against the shared self-hosted instance (`:3000`, `dbMode:pglite`,
+`autopilotEnabled() === true`), org **`kiro`** — 2 paired repos and the 20-run campaign of 2026-08-30
+as found fixtures. Full journal, evidence and residue ledger: [`_L2-armC.md`](_L2-armC.md).
+
+**Host constraint that shaped the arm:** `LLM_PROVIDER=claude-cli` is over its **weekly** subscription
+cap until Sep 1 20:00 (evidenced in run `768acbbe`'s own lane log). No lane in this arm could produce
+a real agent report.
+
+| Finding | L2 verdict |
+|---|---|
+| **702** — unverified claim rendered as "closed by the rescan" | **confirmed — and worse than filed** |
+| **704** — per-lane ¢/point rendered nowhere | **confirmed** |
+| **701** — cockpit read kills a running remote run | **mechanism confirmed**; local half **confirmed safe**; remote half **uncertain — not reproducible on this host** |
+| 703 · 705 · 706 · L2-D | not attempted — preconditions unsatisfiable here (cloud posture; engine capped; GitHub App absent) |
+
+### 702 — confirmed, and the mechanism is worse than the L1 reading
+
+Every L1 point held: the label is unconditional (`CockpitVerdicts.tsx:31`), the row carries no
+`verified` discriminator (confirmed against the live API payload), and the test at
+`lane-outcomes.test.ts:99-105` still contradicts its own title.
+
+What L2 adds is **why no divergent row exists in the corpus** — all 46 stored `resolved` outcomes are
+also in their lane's `closedIds`, which looked at first like a refutation and is in fact a tautology:
+
+```
+agent writes "RESOLVED: x"  →  lane-commit.ts stamps `Ascent-Resolves: x` into the commit
+  →  engine.ts:394 parseResolvedIds(commit messages)  →  loop-lane.ts:383 closedIds
+  →  recordLaneOutcomes writes `resolved`             →  panel prints "closed by the rescan"
+```
+
+The claimant and the "verifier" are the same actor one hop apart. `lane-commit.ts`'s own header states
+the contract — *"the trailer is a CLAIM, never a verdict"* — and the cockpit renders it as the verdict.
+
+Two further live facts:
+
+- **The two surfaces disagree about the same repos.** The cockpit reports 46 items *closed by the
+  rescan*; `GET /api/org/backlog?org=kiro&includeClosed=1` reports
+  `{"tracked":12,"open":3,"inProgress":9,"done":0,"dismissed":0}`. Item timelines confirm it: a
+  `lane_verdict → resolved` event and a `status: open -> in_progress`, with **no `-> done`**. Cause:
+  `scans-persist.ts` puts the trailer set through the movement witness (`decideInProgress`) before
+  closing a ledger row; `rescanWorktree` hands `recordLaneOutcomes` the **raw, ungated** set.
+- **A silent agent claims its whole batch.** The local run started for check 701 timed out with
+  **0 item verdicts** and the lane still wrote *"5 Ascent-Resolves trailer(s) (the session named no
+  ids, so the whole armed batch is claimed)"*. Only a `stop` landing one step before the rescan
+  prevented 5 rows rendering as "closed by the rescan" for a session that reported nothing.
+
+*Correction to the L1 frequency estimate:* the divergent case is not "common" — on this build it is
+**invisible**, because the trailer path makes the two sets identical by construction. Systemic, not
+occasional.
+
+### 704 — confirmed
+
+`GET /api/org/loop/e85d11c8…?org=kiro` returns `economics[0].microsPerVerifiedPoint = 156684150`
+(**156.68¢/point**, `xkazm04/kp`, that lane, that run), and the sibling systedo lane spent **$10.19
+for 0 verified points** → the `null` "not measured" case the spec named. With that run **open** in the
+cockpit, the full page text carries **zero `¢` characters above the org-wide `REMEDIATION PRICE
+LIST`**; the wiring audit reproduces live (`grep -rn "\.economics" src/features src/app` → 0 hits).
+14 lanes across the corpus carry a non-null figure. The org-wide aggregate renders well — and is
+exactly what averages away the $10.19-for-nothing lane one panel above it.
+
+### 701 — mechanism confirmed; local half safe; remote half not reproducible here
+
+`markStaleRunsStopped` still selects `{phase:"running"}` filtered only by `!isLive(id)`, with **no
+executor exclusion anywhere in the sweep** — though `executor` exists on the lane
+(`schema.prisma:1842`). Two live controls:
+
+- **A `curating` remote run survives a read** (correct — the sweep only touches `running`). A real
+  remote run was armed via `executor:"remote-agent"` and was unharmed by a subsequent GET.
+- **A live LOCAL run is protected.** 6 × `GET /api/org/loop?org=kiro` from a second client over ~24 s
+  left it `phase=running error=null` every time. This *isolates* the defect rather than excusing it:
+  the reads do fire the sweep, and the only thing that spared the run was its live-registry entry —
+  precisely what `startRemoteRun` documents it never creates.
+
+The remote half could not be closed because `attachRemoteClaim` is reachable only through
+`claim_followups`, which refused: *"xkazm04/kp is at autonomy tier T0."* Raising it is blocked twice
+over — see the two new findings below — and a fresh passport scan is impossible while the engine is
+capped. Resolves **`uncertain — not reproducible on this host`**; closing fixture named in `_L2-armC.md`.
+
+### New — gaps the L1 surface model could not see
+
+- **C-4 · Agent admission is not wired into the door it exists for.** `repoGate` (`work-tools.ts:52-62`)
+  resolves the claim gate from the **derived** `autonomyTier` and never consults `listOrgAdmissions`.
+  An owner who records `T2 / agents-allowed` still gets a T0 refusal — moonshot #8's "recorded,
+  overridable decision" is invisible to the only gate that would act on it.
+- **C-5 · An org whose slug ≠ its repos' owner namespace can never admit its own repos.**
+  `repoUnderOrg` (`admission/route.ts:42-43`) requires `owner === org`, so org `kiro` cannot grant
+  admission to `xkazm04/kp` at all. Permanently T0 ⇒ the whole #3 remote protocol is unreachable for
+  it. `kiro` is this host's real working org, not a test artifact.
+- **C-6 · `stop` is cooperative and the cockpit does not say so.** `stopLoopRun` sets
+  `state.stopRequested` and returns `{"ok":true}` without signalling the in-flight `claude -p`. The
+  run read `RUNNING` for **19 min 43 s** after the stop, settling only at the 20-minute agent timeout.
+  No `stopRequested` on the run row ⇒ no "stopping…" state; an operator will press it again or
+  conclude it failed.
+- **C-7 · A timed-out lane's error message becomes the commit subject** —
+  `fix: Agent session exceeded 20 min and was stopped` over 1605 insertions across 15 files.
+  (Adjacent to L2-B-02: the sheet header renders `agentConfig` — `opus` — with no engine label beside it.)
+
+### Residue
+
+Two `LoopRun` rows created (`dc3f8752` remote, `a5a2bf9f` local) — **both stopped, none stuck**; the
+5 recommendations the local run claimed were **released** (backlog counts byte-identical before and
+after); 2 org API tokens minted and **both revoked**, raw values redacted from artifacts; the
+admission grant was **rejected before any write** (state byte-identical). One branch
+`ascent/loop-20260831080428-xkazm04-kp` left in the paired copy carrying real agent work — 1 of 27
+such branches there. `:3000` was never restarted. Full ledger in `_L2-armC.md`.

@@ -685,3 +685,148 @@ did not exist before the chip shipped, and it is the kind of thing this Characte
 | `TOMAS-L1-01` / B2 (touches Sam's entry) | public scan walled | **RESOLVED for Sam's path.** `scanAuthGate` exempts the anonymous public funnel by default; the burst limiter and monthly quota are unchanged and independent of the flag. | `src/lib/scan-gates.ts:73-100` |
 | `SAM-L1-02` half A | `scoreIntegrity` rendered by nothing | **RESOLVED.** Chip mounted in the header from a shared `integrityNotes`, and the record is now genuinely persisted. | `ReportHeader.tsx:136`; `ScoreIntegrityChip.tsx`; `attribution.ts:271-305` |
 | `SAM-L1-01` majority | detectors discard the path they matched | **RESOLVED for path-triggered signals** (D1 fully, D2 framework/e2e/coverage, D5 docs, D6, D9), plus D1/D4 model claims now carry `path: "quote"`. Residue is D3/D8/text-triggered — kept as a narrowed finding. | `analyze/index.ts:291-295`; `engine.ts:60-64` |
+
+---
+
+## L2 — live (arm A)
+
+*Anonymous arm, port 3100, real `claude-cli` (opus) scan of `sindresorhus/p-limit` — 155.4 s,
+score 27/100, `integrity · widened D2, D6 · blend 95%`. Construction: `_L2-PREFLIGHT.md` § Arm A.
+Full per-check evidence and the raw per-dimension DOM dump (`shots/armA-dimloop.json`):
+`_L2-armA.md`.*
+
+| Finding | L1 | L2 (live) |
+|---|---|---|
+| `SAM-L1-11` | confirmed | **confirmed in mechanism, refuted on the number** — the track says **±6**, not ±25 (`LLM_GUARDBAND` narrowed 25→6 in r8). D1 and D4 plot an inert LLM tick; D9 could not be discriminated this run (llm == signal). |
+| `SAM-L1-02` | confirmed | **confirmed** — chip says D2/D6 "DOUBLED", both tracks assert ±6 **and draw a 28.32-wide band identical to every unwidened dimension**. |
+| `SAM-L1-04` | confirmed | **confirmed** — address bar unchanged, whole-DOM sweep finds one hit and it's a share-card PNG. DB-off arm not run → that half stays uncertain. |
+| `SAM-L1-01` | confirmed | **confirmed for D3/D5/D8**; the D1 contrast is weaker than stated, and the LLM prose *does* cite the paths the EVIDENCE list omits. |
+| `SAM-L1-06` | confirmed | **corroborated** — "Flagged for review" names D2 and D6 with the model's claim and states no outcome, while the header three inches above says both were widened. |
+
+### Sam's L2 verdict — first person
+
+I ran a real one. `p-limit` — small, well-made, someone else's, so I couldn't flatter myself.
+155 seconds, live model, 27/100. The narrative was better than I expected: it told me `main` is
+unprotected with zero required approvals while 76% of CI runs are green, and then said the thing I'd
+have written in the ticket myself — *"excellent feedback latency wasted on an ungated gate."* That's
+a staff-engineer sentence. I'd forward it.
+
+Then I opened the provenance track, which is the part I actually came for, because a score I can't
+audit is a score I can't defend in a design review.
+
+**First: the number in my own L1 was wrong and I want that on the record.** I wrote ±25. The track
+says **±6**. They narrowed it in r8 and I was reading a stale constant. Good — ±25 was a full
+maturity level of slack and it deserved to die.
+
+**Second: everything I said about the shape was right, and the live run proves it in a way the code
+read couldn't.** D1: signal 0, model said 3, blended **0**. D8: signal 0, model said 4, blended
+**2**. Same starting point, same size of judgment, and only one of them moves. That's not a
+rounding artifact — that's D1 being claim-scored, the model's number recorded and thrown away. D4 is
+the same: signal 25, model 24, blended 25, when a 0.57-weight blend would have given me 24. And on
+all three the SVG still draws a ±6 guardband and still plots a tick labelled **"LLM judgment"**
+inside it. The picture is telling me a negotiation happened. On D1, D4 and D9 there is no
+negotiation — there's a number the model isn't allowed to touch, and a diagram implying it did.
+That's the opposite of what a provenance widget is for.
+
+D9 I can't prove from this run. The model returned exactly 24 against a signal of 24, so signal,
+LLM tick and blended marker all landed on the same pixel. The code is unambiguous — D9 is the one
+fully deterministic dimension and never enters the blend — but live, this scan couldn't
+discriminate it. Honest gap; a fixture where the model disagrees on D9 would close it.
+
+**Third, and this is the one I'd fix first, because it's a contradiction rather than an
+omission.** The header chip on this scan reads *"integrity · widened D2, D6"* and spells it out:
+*the model flagged the detector as suspect on D2, D6, so its guardband there was **DOUBLED**.*
+I then opened D2's track. Title: **"the LLM can move the score at most ±6 from the signal."** Not
+±12. And I measured the rectangle — width **28.32**. D6: 28.32. D3, D4, D5, D7, D9: 28.32,
+28.32, 28.32, 28.32, 28.32. The widened band isn't mislabelled, it's **not drawn**. So the page
+tells me three things about the same dimension, in three different places, and two of them are
+wrong. If I were the one being asked to trust this number in front of a VP, that single page would
+be the reason I didn't.
+
+Same page, lower down: **"Flagged for review"** lists D2 and D6 with the model's actual objection —
+and both objections are *good* ("D2 reported 1 test file, but `index.test-d.ts` is a second test
+file running under `tsd`"; "D6 reported only 'Formatter configured', but `npm test` runs xo and tsd
+in CI"). Those are detector bugs I could go fix. But the section never tells me what *happened* to
+each claim. It doesn't say "this one widened the band." It doesn't say "this one was ineligible."
+The header knows. The list doesn't say. One word per row closes it.
+
+Evidence lists: **D3 still cites nothing.** `GitHub Actions CI present` · `CI runs tests` ·
+`Default-branch CI mostly green (76% of last 21 runs green)`. Three lines, zero paths, and I
+expanded every collapsible on the page to be sure. D5 gives me `Substantial README (4970 chars, 16
+sections)` — the file is actually `readme.md` and it's never named. D8 gives me `No dedicated AI
+process/harness detected`.
+
+But I have to soften my own finding here, because the live page shows something my static read
+didn't: **the narrative above the evidence list names the files.** D3's prose says
+`.github/workflows/main.yml` runs `npm test` on Node 24/22/20 with `fail-fast: false`. D5's says
+`readme.md` and `index.d.ts`. So I'm not actually left hunting — I'm left with a paragraph that
+cites its sources and a list *labelled EVIDENCE* that doesn't. That's a smaller gap than I claimed
+and it points somewhere different: the deterministic detectors are the thing lagging the model, not
+the UI. Lower severity, clearer owner.
+
+And the permalink: third run, still nothing. Scan finished, address bar still
+`/report?repo=sindresorhus%2Fp-limit`. I swept every anchor and button in the document. One hit —
+`/api/report/share-card`, a PNG. Meanwhile the pricing page's Free card sells **"Public report
+permalink"** as a bullet. I can't put a query-string URL in a README and I can't put a PNG in CI.
+
+**Verdict: the scoring is worth defending; the page that explains the scoring is not yet.** The
+model output cleared my bar — specific, cited, and willing to say its own detectors are wrong. The
+provenance layer under it is currently drawing a mechanism that doesn't exist on three dimensions
+and contradicting its own header on two more. Fix the track to read the per-dimension band
+(`widened ? 12 : 6`) and to suppress the LLM tick on claim-scored and deterministic dimensions, put
+one outcome word on each flagged row, and this becomes the most auditable score in the category.
+
+*— "The number's good. The diagram explaining the number is lying to me."*
+
+---
+
+## L2 — live (arm B)
+
+*Driven 2026-08-30 against the shared dev server on `:3000` (PGlite, `LLM_PROVIDER=claude-cli`).
+Full journal, evidence and residue: `_L2-armB.md`.*
+
+**SAM-L1-09 — the observation holds, my diagnosis does not.**
+
+The payload first. `GET /api/recommendations?repo=vercel/next.js` (`shots/armB-sam-recs.json`) returns
+three persisted rows whose keys are `id, title, dimension, impact, effort, rationale, explore,
+levelUnlock, status, assigneeLogin, targetDate, projectedPoints, unlocks, **expectedLift**` —
+`expectedLift` is on the wire and is `null` on all three. `&sort=measured` answers `sort:"priority"`.
+
+The rendered Roadmap tab (`/report/vercel/next.js?tab=roadmap`, `shots/armB-sam-roadmap.text.txt`)
+carries no measured clause and no priority/measured toggle — `grep -ci "measured|expected lift|sort by"`
+→ **0**. So the *prediction* is confirmed exactly.
+
+But I wrote that this proves *"the data exists and only the UI seam is missing"*, and that is wrong.
+The seam is there: `src/components/report/ExpectedLiftBasis.tsx:29` renders `expectedLiftClause`, and
+`RecommendationTracker.tsx:79-81` holds the sort state —
+
+```ts
+const [sortMode, setSortMode] = useState<RoadmapSortMode>("priority");
+const anyMeasured = items.some((i) => expectedLiftClause(lifts?.get(roadmapLiftKey(i))) !== null);
+const ordered = sortRoadmap(items, lifts, anyMeasured ? sortMode : "priority");
+```
+
+The toggle is deliberately conditional on at least one publishable basis, and the API's
+`sort:"priority"` downgrade is the *same* refusal, stated in its own comment. Both are a designed
+decision not to order by zero measurements. **What is absent is the data, not the UI.** That is a
+better product than I credited, and it moves the finding from "wire the seam" to "there is no path to
+ever produce an outcome row".
+
+Measured arm: `uncertain — not reproducible on this host`. `expectedLiftClause` returns null below
+`OUTCOME_MIN_SAMPLES`, no seeder produces outcome rows, and there is no app path to insert them.
+**Fixture:** ≥3 `kind:"recommendation"` outcome rows sharing one `recommendationMatchKey` and one
+instrument.
+
+*Seen in passing, on the same capture — SAM-L1-05 is confirmed on screen.* Every roadmap row's
+concrete move sits inside a rationale paragraph: *"AI Tooling & Conventions scored 65/100. Substantive,
+machine-readable guidance (build/test commands, an architecture map, the rules a change must never
+break) is what lets an AI contribution land consistently and on-spec."* The only non-prose fields are
+`impact: high`, `effort: low`, `↑ up to +6 pts`. I still have to write my own ticket.
+
+| Check | Verdict |
+|---|---|
+| No measured clause / no sort toggle renders | **confirmed as observed** |
+| "Only the UI seam is missing" | **refuted** — `ExpectedLiftBasis` + a conditional sort toggle both exist; the outcome ledger does not |
+| API carries `expectedLift` and honours `sort=measured` | **confirmed** (`expectedLift` present, null; `sort` correctly downgrades on an empty ledger) |
+| Measured ordering exercised end to end | **uncertain — not reproducible on this host** (no outcome rows constructible) |
+| SAM-L1-05 (move buried in prose) — incidental | **confirmed** live |

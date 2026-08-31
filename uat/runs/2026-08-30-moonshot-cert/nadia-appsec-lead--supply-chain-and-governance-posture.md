@@ -325,3 +325,96 @@ Ordered by evidentiary value per minute of L2 time.
 8. **NADIA-L1-08 / 10 / 11** — cheap DOM/artifact reads; fold into whichever session is already on the tab. *Precondition:* seeded org; #10–11 need a downloaded pack.
 
 **Blocked at L2 on this host:** none. Unlike the forecast fixture gap, every surface here is single-scan-reachable — though findings 01 and 06 need a ledger deliberately grown past its caps, which the standard seeders do not produce.
+
+---
+
+## L2 — live (arm B)
+
+*Driven 2026-08-30 against the shared dev server on `:3000` (PGlite, auth bypass, org `public`).
+Full journal, evidence paths and residue: `_L2-armB.md`.*
+
+**NADIA-L1-07 — confirmed, and the audit log convicts the product in its own words.** I set the
+precondition by API (`POST /api/org/gate-policy` with
+`requireChecks:["control.prepush.lint","guardrail.never-commit"]`, accepted and stored), then opened
+Governance. The product **renders the bar read-only**:
+
+```
+▸ Minimum overall level L3
+▸ Overall score ≥ 50
+▸ Every dimension ≥ 40
+▸ Reported controls must not be failing: control.prepush.lint, guardrail.never-commit
+```
+`shots/armB-nadia07-before.text.txt:73-80`
+
+Then I changed **one unrelated field** — Min overall 50 → 55 — and clicked Save policy. After:
+
+```
+▸ Minimum overall level L3
+▸ Overall score ≥ 55
+▸ Every dimension ≥ 40
+```
+`shots/armB-nadia07-after.text.txt:73-78` · `GET` → `{"policy":{"minLevel":"L3","minOverall":55,"minDimension":40}}`
+
+No warning, no diff, no confirmation. And the row the app wrote for its own save:
+
+```json
+{"action":"org.gate_policy","actorId":"developer","meta":{
+  "action":"set","status":"min L3 · min overall 55 · no dim < 40",
+  "policy":{"minLevel":"L3","minOverall":55,"minDimension":40},
+  "previousPolicy":{"minLevel":"L3","minOverall":50,"minDimension":40,
+                    "requireChecks":["control.prepush.lint","guardrail.never-commit"]}}}
+```
+
+`previousPolicy` names the deleted control bar; `policy` and the human-readable `status` mention
+nothing. The system knows precisely what it destroyed and the operator is never told. My L1 said the
+field had no UI mention at all — it is worse than that: **visible, unsettable, and silently deleted by
+an adjacent save.**
+
+**NADIA-L1-04 — confirmed.** `GET /api/org/controls?org=public&format=csv` → `200 application/json`;
+the param is ignored. The only CSVs on the tab are the change-management evidence pack
+(`/api/org/conformance-pack?…file=manifest|sample|findings`), a different population. Meanwhile
+`/api/audit/verify` **publishes the full `SEAL_RECIPE`** — exact row-digest field order, day-root
+construction, the UTC day rule. I am told exactly how to recompute a chain and given no rows to
+recompute it over. That is the shape of a control I cannot take to an examiner.
+
+**NADIA-L1-05 / 06 — seal UI confirmed absent.** Live empty state:
+
+```
+- heading "Control observations"
+- paragraph: No control observations yet. They accumulate as this org's repositories are scanned and
+  probed; an installed GitHub App also adds the actor behind each change.
+```
+`shots/armB-nadia07-after.aria.yaml:261-263`
+
+No button, no link, no seal list, no chain-status indicator anywhere in the product. The only mention
+of verification in the whole UI is a **non-interactive `<code>` string** — `ControlTimelineCard.tsx:135`,
+*"Verify this ledger's integrity at /api/audit/verify?org={slug}"* — and it sits inside the card's
+**non-empty** branch, so a new org is never told the ledger is verifiable at all. Lazy sealing
+confirmed as the only creation path: `GET /api/audit/verify?org=public` →
+`{"chainOk":true,"seals":[],"unsealedDays":[],"sealedOnThisRequest":[],"recipe":{…}}`, and it wrote
+`{"action":"controls.verify","meta":{"sealedNow":0}}`. Seals exist only as a side effect of a URL
+nobody is shown.
+
+**A naming hazard I missed at L1.** The Governance tab already uses the word **SEALED** for something
+else — the AI-stance perimeter's *"Repos and paths closed to AI authorship entirely"*
+(`shots/armB-nadia07-after.text.txt:388-390`). So on the one tab where I go looking for the
+tamper-evident ledger seal, "SEALED" means a posture control, and the thing an examiner actually asks
+about has no word on screen at all.
+
+**NADIA-L1-01 / 02 / 03 — `uncertain — not reproducible on this host.`** `GET /api/org/controls?org=public`
+→ `{"timeline":[],"coverage":[],"truncated":false,"limit":200}`. I tried to build the fixture:
+`POST /api/report/conformance` with a five-finding doctor payload for `vercel/swr` and `prisma/prisma`
+returned `{"ok":true,"recorded":false,"stale":false}` both times — neither repo is **watched** — and
+`POST /api/org/watch` is hard-gated on `isAppConfigured()`, which is `false` here
+(`autoscan.githubApp:false`). **Fixture that closes it:** an installed GitHub App (or a direct
+`WatchedRepo` row), then the same conformance POST. The `truncated` flag's *absence at the UI* is
+separately confirmed — `grep -rn truncated src/features/standing/governance` has no consumer and
+nothing on the tab discloses a cap — but on an empty ledger the cap itself stays untested.
+
+| Check | Verdict |
+|---|---|
+| NADIA-L1-07 (`requireChecks` wiped by an unrelated save) | **confirmed** — plus the audit row proving the app knew |
+| NADIA-L1-04 (no ledger CSV; recipe published without rows) | **confirmed** |
+| NADIA-L1-05 / 06 (no seal affordance; lazy sealing only) | **confirmed absent** |
+| `truncated` unread at the UI | **confirmed absent** (cap itself untested — empty ledger) |
+| NADIA-L1-01 / 02 / 03 (populated control table) | **uncertain — not reproducible on this host** (no GitHub App ⇒ no watched repo ⇒ `recorded:false`) |

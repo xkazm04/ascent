@@ -558,3 +558,82 @@ If I didn't get past it — nobody. I'd have forgotten the name by Thursday.
 They fixed the timing claim. They fixed the dead Enterprise button. They fixed the empty-table state. They fixed the *policy* behind the login wall. Then they shipped the button that still enforces it.
 
 *— "huh. That's actually not wrong. Let me in."*
+
+---
+
+## L2 — live (arm A)
+
+*Anonymous arm, port 3100, `ASCENT_AUTH_BYPASS` unset · `PUBLIC_SCAN_QUOTA_DISABLED` unset ·
+`ASCENT_SELF_HOSTED=0` · `LLM_PROVIDER=claude-cli`. Construction and the anonymity assertion:
+`_L2-PREFLIGHT.md` § Arm A. Full per-check evidence: `_L2-armA.md`.*
+
+| Finding | L1 | L2 (live) |
+|---|---|---|
+| `TOMAS-L1-01` | confirmed | **confirmed** — dialog shows the sign-in panel; cookie-less `POST /api/scan` → 200 in 3.3 s |
+| `TOMAS-L1-08` | confirmed | **confirmed, worse** — `/report?repo=…` doesn't even gate: the scan starts on page load |
+| `TOMAS-L1-02` | confirmed | **confirmed** — "Unlimited free public scans" vs "4 free public scans left this month" / `/api/quota limit:5` |
+| `TOMAS-L1-10` | confirmed | **confirmed** — no source link anywhere; the only github.com URL on the page is the Feedback issues link |
+| `TOMAS-L1-S2` | confirmed | **confirmed** — self-host band above four numeric cards, no lead wall |
+
+### Tomáš's L2 verdict — first person
+
+I gave it the two minutes I said I would, and this time I actually got the two minutes, because I
+was actually anonymous.
+
+The landing is good. It says AGPL, it says run it yourself, it says the plans buy operation not
+capability — three sentences that would take most vendors a discovery call to admit. So I clicked
+the one thing a landing page like that is for. "Scan a repository."
+
+And the dialog told me, in the same box, both things. Top half: *paste any GitHub repo and a live
+model reads it, under two minutes.* Bottom half: **Sign in to scan. Scanning is for signed-in
+members on this deployment.** Not a repo field. Not a placeholder. A GitHub OAuth button.
+
+I have seen this exact move a hundred times and it is always the same move: the demo is the bait,
+the account is the price. So I did what I do — I went round the front. `/report?repo=` with a repo
+name in the query string. It did not ask me to sign in. It did not even show me a card asking me to
+confirm. **It just started scanning.** Two and a half minutes later I had a 27/100 on a real
+library, nine dimensions, per-dimension evidence, a roadmap, an integrity chip explaining which
+detectors the model had flagged as suspect. Anonymously. No account. Free.
+
+That is the whole thing, and I want to be precise about why it bothers me more than a plain wall
+would. A wall is a business decision I can argue with. **This is not a wall — it's a wall that
+isn't there, painted onto the door people actually use.** Every visitor who behaves normally
+bounces off a lock; the only ones who get the product are the ones who guess a URL. They are
+turning away exactly the buyers who trust the front door, and converting the ones who don't.
+
+And then, having reached the report the polite way was closed to me, I got the honest number:
+**"4 free public scans left this month."** On the pricing page, one click away, the Free card says
+**"Unlimited free public scans."** Both true statements about the same account, four minutes apart.
+Neither is a lie so much as neither knows the other exists — which is worse, because it tells me
+nobody has walked this funnel end to end recently.
+
+Same page, one more: the Free card lists **"Public report permalink."** I finished the scan and
+looked for it. The address bar still said `/report?repo=p-limit`. I swept every link and button on
+the page. There is no permalink. There is a share-card PNG. They are billing a feature — at $0, but
+billing it — that the product never hands you.
+
+The self-hosting is where it hurts most, because self-hosting is the reason I would have taken this
+seriously. "Open source · run it yourself" is a button on the hero. I clicked it. It goes to
+`/pricing#self-host`. On `/pricing` the self-host band is genuinely the best thing on the site — it
+sits **above** the price cards, which is a choice I respect, and it tells me every gated capability
+is simply on if I run it myself. Then it says "Self-hosting guide: docs/SELF-HOSTING.md" and that is
+**plain text**. Not a link. A file path, in a repository I am never told the name of. I searched the
+page source. There is exactly one github.com URL on the whole site, and it's the footer's Feedback
+link pointing at an issues tracker — so the repo *is* on the page, I just have to strip
+`/issues` off a support link to find the source of the product they spent three paragraphs telling
+me is open source.
+
+What's fixed is real and I'll say so. The prices are numbers — $0, $5, $10 — one click from
+anywhere, with a full credit ledger, and not one of the three priced tiers routes me into a form.
+The bespoke tier opens an enquiry dialog instead of a dead "contact us." Four percent of B2B
+products publish a price. And the scan itself, when I finally got one, is not a toy: it named the
+unprotected `main`, the 10% review rate, the mutable action tags, and it told me which of its own
+detectors it thought were wrong. That is a product with a spine.
+
+**Verdict: unchanged — L2-conditional, and the condition is one expression.** The server already
+decided anonymous public scans are free. The button in front of it never got the message. Pass
+`gated && publicScanSignInRequired()` and the single blocker on this journey disappears; fix the
+Free card's two bullets and set `NEXT_PUBLIC_SOURCE_REPO_URL`, and I would have run my own repos
+through this before the meeting rather than after it.
+
+*— "So it does work. You just didn't want me to find out."*

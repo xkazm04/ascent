@@ -309,3 +309,70 @@ this journey is a clean pass.
 
 *A standard you have to enforce is a standard that already lost — and for once the tool agrees with
 me. It just forgot to hand me the enforce button for the day I need it anyway.*
+
+---
+
+## L2 — live (arm B)
+
+*Driven 2026-08-30 against the shared dev server on `:3000`, org `public` (48 repos).
+Full journal, evidence and residue: `_L2-armB.md`.*
+
+**PRIYA-L1-01 (l2_priority HIGH) — confirmed, and materially worse than I wrote.** The Governance
+policy editor's complete field list, read off the rendered page (`shots/armB-gov.text.txt:81-110`):
+
+```
+EDIT POLICY
+  Minimum level                  any | L1 | L2 | L3 | L4 | L5
+  Min overall
+  Min per-dimension
+  Security floor (D9 ≥)
+  Forbid "ungoverned" posture
+  Require a protected default branch
+  OTHER DIMENSION FLOORS  (Enforced by the gate; not exposed as a CI input.)
+    Add a floor →  D1 … D8
+  [Save policy]  [Reset to default]
+```
+
+No `requireChecks` control. Confirmed. But my claim that *"no UI surface mentions the field exists"* is
+**refuted** — and the truth is worse. I set the field by API and the Active-policy summary, six rows
+above the editor, rendered it:
+
+> `▸ Reported controls must not be failing: control.prepush.lint, guardrail.never-commit`
+
+Then I changed **one unrelated number** in the editor — Min overall 50 → 55 — clicked Save policy, and
+that line was gone (`shots/armB-nadia07-{before,after}.text.txt`; `GET` →
+`{"minLevel":"L3","minOverall":55,"minDimension":40}`). The app's own audit row carries the deleted
+field under `previousPolicy` and says nothing about it in `policy` or in the human-readable `status`.
+So the field is **visible, unsettable, and silently destroyed by an adjacent save** — the terminal step
+of my journey doesn't merely dead-end at "write the column directly", it actively undoes the write the
+next time anyone touches the form.
+
+**PRIYA-L1-02 (l2_priority MEDIUM) — confirmed, under the strongest conditions I could arrange.** This
+capture was taken while `requireChecks` was **actively set** and printed six rows above:
+
+```
+Where the fleet fails — Repos failing each gate condition (counted once per repo).
+  Below required level                       8 repos
+  A dimension below floor                   33 repos
+  Ungoverned posture                         0 repos
+  Below overall score                       15 repos
+  Unprotected default branch                 0 repos
+  AI changes merged without human review     0 repos
+  AI authorship in a blocked repository      0 repos
+  A required control is failing              0 repos      ← structural, not measured
+  Scored nothing — not judged                0 repos
+```
+`shots/armB-nadia07-before.text.txt:118-136`
+
+Four of those nine are pinned to 0 by construction (`evaluateGateLite` has no ledger or PR inputs) and
+render as identical live meter rows beside five genuinely measured ones. I had just declared two
+required controls; the dashboard told me zero repos fail them. `governance.ts`'s own comment —
+*"these stay 0 honestly, because the criteria were never DUE here"* — is exactly right and never
+reaches the screen. Render "not judged fleet-wide" for those rows; the fix should travel with the
+editor.
+
+| Check | Verdict |
+|---|---|
+| PRIYA-L1-01 — `requireChecks` absent from the editor | **confirmed** |
+| PRIYA-L1-01 — "no UI mentions the field exists" | **refuted** — it renders read-only in Active policy, then is deleted by the next save |
+| PRIYA-L1-02 — structural `0 repos` rendered as a measured meter | **confirmed**, with `requireChecks` actively set |

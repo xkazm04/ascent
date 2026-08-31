@@ -379,3 +379,71 @@ and sitting one function call away from the surface that needs it.
 > asks — the honest answer today is "I couldn't find out either."
 >
 > One call site. You've already done the hard part twice.
+
+---
+
+## L2 — live (arm B)
+
+*Driven 2026-08-30 against the shared dev server on `:3000` (PGlite, `ASCENT_AUTH_BYPASS=1`,
+`LLM_PROVIDER=claude-cli`). Org `public`: 48 repos, 93 scans, real multi-day history. Full journal,
+evidence paths and residue: `_L2-armB.md`.*
+
+I went in expecting the preflight's warning that no seeded org can produce a forecast. That is stale —
+`public` produces one, and the fixture I needed for the low-data checks turned out to be free: the org
+shell already accepts `?range=custom&from=&to=`, and `/api/usage?org=public` told me the scan days are
+08-10, 08-14, **08-22 (×25)** and **08-23 (×10)**. So I selected a window containing exactly two scan
+days. No backdating, no rows written.
+
+**DANA-L1-013 — confirmed, with a correction to my own surface model.** `forecastBasis` still has zero
+non-test callers, and its doc comment at `forecast.ts:382` asserts a caller that does not exist:
+*"(Called by the executive briefing's trajectory clause — moonshot #26.)"* Live, the Briefing tab reads
+`Trajectory / Declining at -2/wk, staying within L4 · Integrated for now. / trend confidence 34% ·
+noisy` (`shots/armB-exec.aria.yaml:82-84`). No basis, no compaction note. But *"every forecast Dana
+reads"* is one forecast: the `Trajectory` card in `features/standing/overview/` is imported only by
+`/trends` and `PersonalOverview` — the org **Overview tab renders no trajectory at all**
+(`shots/armB-orgpicker.text.txt`, full capture, zero matches for trajectory/forecast/ETA/confidence).
+The fleet GPS lives on Briefing only.
+
+**DANA-L1-001 — confirmed, and it is worse read live than on paper.** Same org, two windows, the
+"Copy briefing for LLM" clipboard:
+
+- `range=90d` (n ≥ 3): `- Trajectory: Declining at -2/wk, staying within L4 · Integrated for now. (trend confidence 34%, noisy)`
+- `custom 08-21→08-24` (n = 2): `- Trajectory: Climbing at +35/wk, staying within L4 · Integrated for now.`
+
+`shots/armB-brief-90d.md:10` · `shots/armB-brief-lowdata.md:10`. The screen agrees
+(`shots/armB-exec-lowdata.aria.yaml:82-83` goes straight from the headline to *vs previous period*).
+The weaker the evidence, the more confident the sentence. And `+35/wk` is a two-point blip presented
+as a weekly rate. The board PDF carries the identical conditional (`briefing-document.tsx:127`); both
+windows download 200 (6982 B vs 6597 B, `shots/armB-briefing-*.pdf`).
+
+**DANA-L1-002 — confirmed by contradiction, on screen, one click apart.** In that same window:
+
+```
+Briefing  →  Climbing at +35/wk, staying within L4 · Integrated for now.
+Delivery  →  Not enough history to project: 2 distinct scan days
+             (a line through ≤ 2 points fits perfectly no matter how noisy the data).
+```
+`shots/armB-exec-lowdata.aria.yaml:83` · `shots/armB-delivery-lowdata.text.txt:41,43,45`
+
+Delivery renders `forecastInsufficiency` verbatim and independently confirms `points = 2`. The
+deliverable I put in front of a board projects from a sample the tab next to it refuses to project
+from. This is the one I would not ship past.
+
+**DANA-L1-017 — confirmed as a strength, on the artifact.** The PDF generates (200,
+`application/pdf`, `ascent-briefing-public-2026-08-30.pdf`) and every composed line names its
+denominator: *"fleet +2 pts across 48 scanned repos"*, *"1 of 1 repos with a comparable prior scan
+moved (of 48 scanned)"*, *"shared by 2 of the 48 scanned repositories"* — three different
+denominators, each stated in place, because they live in the shared `movementLine` /
+`valueRealizedLine` / `nextMoveLine`. The **loop-proof line does not appear**: `briefingProofLine`
+returns null rather than "0 · 0" and this org has no rollout proof data, so that half of the claim is
+**unexercised on this host** (fixture: an org with practice-application + loop-run rows), not refuted.
+
+Senior bar on the export: **passes on reconciliation, fails on trajectory honesty** — and it is the
+same page.
+
+| Check | Verdict |
+|---|---|
+| DANA-L1-013 (forecastBasis / compaction unrendered) | **confirmed** (+ correction: Overview has no trajectory at all) |
+| DANA-L1-001 (lowData hedge deleted, not replaced) | **confirmed** — screen, markdown and PDF path |
+| DANA-L1-002 (presentability gate never consulted) | **confirmed** — Briefing vs Delivery contradict in one session |
+| DANA-L1-017 (shared composed lines — STRENGTH) | **confirmed**; loop-proof line uncertain (unexercised) |
