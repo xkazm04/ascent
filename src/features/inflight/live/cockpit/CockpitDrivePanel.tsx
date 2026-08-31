@@ -17,8 +17,9 @@
 
 import { deltaHex, Kicker, signedDelta } from "@/components/ui";
 import { InlineEmpty, TILE_LEDGER } from "@/components/org/shared/ui";
+import { DriveRunRow } from "./CockpitDriveRunRow";
 import { driveProgress, driveVerdict, type DriveVerdictTone } from "./driveModel";
-import type { DriveRunRecord, DriveStatus } from "./driveTypes";
+import type { DriveStatus } from "./driveTypes";
 import type { LoopRunDetail } from "./loopTypes";
 
 export interface CockpitDrivePanelProps {
@@ -126,31 +127,6 @@ function DebtLine({
         </div>
       )}
     </div>
-  );
-}
-
-function DriveRunRow({ record, index }: { record: DriveRunRecord; index: number }) {
-  const moved = record.debtAfter != null ? record.debtBefore - record.debtAfter : null;
-  return (
-    <li className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 bg-ink px-4 py-2.5">
-      <span className="type-caption text-slate-400">
-        run {index + 1} · {record.repos.length} {record.repos.length === 1 ? "repo" : "repos"}
-      </span>
-      <span className="type-caption tabular-nums">
-        {moved == null ? (
-          <span className="text-slate-600">in flight</span>
-        ) : (
-          <>
-            <span className="text-slate-500">
-              {record.debtBefore} → {record.debtAfter}
-            </span>
-            <span className="ml-2" style={{ color: deltaHex(moved) }}>
-              {signedDelta(-moved)}
-            </span>
-          </>
-        )}
-      </span>
-    </li>
   );
 }
 

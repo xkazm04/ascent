@@ -686,10 +686,27 @@ export interface AgentPerimeter {
  */
 export function buildAgentBrief(
   items: readonly FollowUpItem[],
-  ctx: { org: string; generatedAt: string; scanNote?: string },
+  ctx: {
+    org: string;
+    generatedAt: string;
+    scanNote?: string;
+    /**
+     * THE ORGANIZATION'S STANDARD for these rows' dimensions — the same `buildLaneBrief` text a LOCAL
+     * lane's agent gets, assembled by the caller from `loadLaneBriefInput`.
+     *
+     * It was absent here until 2026-08-31 (`PRIYA-L1-706`): a local lane worked under the org's
+     * playbooks, mined house pattern, memory and skills, and a remote lane — the same rows, the same
+     * organization — worked under none of them, which made a remote close structurally unable to be
+     * evidence that a playbook is applied. `null` when the org has published nothing for these
+     * dimensions, in which case the section is omitted rather than headed and empty.
+     */
+    standard?: string | null;
+  },
   perimeter: AgentPerimeter,
 ): string {
-  const out = [buildFixPrompt(items, { ...ctx, commitPolicy: "agent" }), "", "---", "", "## Working perimeter", ""];
+  const out = [buildFixPrompt(items, { ...ctx, commitPolicy: "agent" })];
+  if (ctx.standard) out.push("", "---", "", "## Your organization's standard", "", ctx.standard);
+  out.push("", "---", "", "## Working perimeter", "");
   out.push(
     `- Repository \`${perimeter.repo}\` · autonomy tier ${perimeter.autonomyTier ?? "not assessed"}${
       perimeter.requiresHumanReview ? " · a human review is required before this work merges" : ""

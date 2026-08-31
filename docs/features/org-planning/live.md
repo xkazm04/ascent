@@ -998,10 +998,19 @@ regenerating the Prisma client into a `node_modules` this worktree *shares with 
 checkout*; the widening is durable, reversible, backward-compatible in both directions, and is the
 technique `runsJson` / `measurementJson` already use. `laneKindOf` reads it back for the ledger.
 
-**Cloud parity: unchanged, and local-only for now.** Every branch of the rule reads a filesystem path,
-and the routes are behind `selfHostGuard()`. On the managed cloud path practices and the foundation
-keep going out as GitHub-App draft PRs exactly as before — a hosted equivalent needs the sandboxed
-executor the "no hosted dispatch" gap below already names.
+**Cloud parity: the lane-KIND rule is local-only, and that is now the whole of it.** Every branch of
+the rule reads a filesystem path, so on managed cloud `proposeLaneKind(null, …)` returns the backlog
+lane and practices and the foundation keep going out as GitHub-App draft PRs exactly as before. The
+hosted equivalent is no longer missing: **moonshot #3's `remote-agent` executor** is how work leaves
+this deployment without a checkout on it, and `POST /api/org/loop` accepts it on cloud
+(see [Remote runs](#remote-runs-the-agent-neutral-work-protocol)). What that executor does not yet do
+is *decide a kind* — it has no disk to read — so a remote lane is always a backlog lane.
+
+<!-- This paragraph used to point at a "no hosted dispatch" gap "below". Moonshot #3 shipped the
+     dispatch and correctly DELETED that gap from the Known-gaps list, and the pointer survived it —
+     the exact failure mode this repo's docs constitution names, in miniature (PRIYA-L1-707). If you
+     rewrite a gap, grep for inbound references to it in the same change. -->
+
 
 **UI: one tag per lane, no new panel.** `laneKindTag` renders `.ai/ foundation` / `practice starter`
 beside the repo name in the curation panel (with the reason under it) and on the outcome-ledger row.
@@ -1652,6 +1661,25 @@ with that reason rather than quietly exceeding the budget. A retried lane re-run
 model choice is not a termination reason). It returns `null` — meaning "keep the configured model" —
 unless two models are measured at `n >= 3` on **every** dimension the step is aiming at.
 
+**And it shows its evidence** (`PRIYA-L1-705`). Until 2026-08-31 the switch reached the operator as
+nothing at all: a run armed with a model nobody chose, and no record of what chose it — an
+evidence-led decision that cannot show its evidence is indistinguishable from a guess, which is what
+**G18** exists to forbid. `driveModelBasis(prices, dimIds, configured)` shares `pickDriveModel`'s
+body (one read of one price list, so the line and the choice cannot describe different prices) and
+returns one sentence carrying **every price compared and the `n` behind each**:
+
+```
+Model switched opus → sonnet on measured cost over D3, D5: sonnet 4.23¢/pt (n≥4) vs opus 9.10¢/pt (n≥3). Minimum 3 lanes per cell.
+```
+
+It rides on the run's `DriveRunRecord.modelBasis` (carried in `runsJson`, the same JSON-in-TEXT
+widening `reposJson` uses — no column) and renders under that run's row in the drive panel
+(`CockpitDriveRunRow`). The `n` reported per model is the **smallest** cell it rested on, not the
+largest: a price is only as trustworthy as its thinnest evidence. `null` — and therefore no line at
+all — whenever `pickDriveModel` declines *and* whenever the winner **is** the configured model: the
+evidence agreeing with the operator's pick is not a switch, and logging it would be the reassurance
+G18 names.
+
 **UI** (`?tab=live`): a cost chip on each `LaneRail` (`sonnet · 4 turns · 48.00¢`, or the literal
 `cost unknown`, in the counters' own muted type — a cost is not a verdict, so it gets no colour); a
 per-cell figure on the **outcome sheet's project-header row**, one per (run × repo); and
@@ -1832,6 +1860,24 @@ does. **The rescan is still the only thing that closes a follow-up.**
 | `claimedBy` | The claimant's opaque actor id, `agent:<token name>`. Null = nobody has claimed into this lane yet. |
 | `leaseUntil` | When that claim lapses. Null = no lease held, which is **not** "expired". |
 
+**A remote agent now gets the organization's standard too** (`PRIYA-L1-706`). `buildAgentBrief` was
+`buildFixPrompt` plus the working perimeter and the protocol — the fence and the rules, with nothing
+about *how this organization does the work*. The local lane has assembled that since moonshot #25, so
+one organization briefed a local agent with its playbooks, mined house pattern, memory and skills and
+a remote one with none of them, on the same rows. `get_fix_brief` now calls the very same
+`loadLaneBriefInput` → `buildLaneBrief` pair the engine calls (a second, "equivalent" assembly is
+exactly how the two would drift apart again) and the text lands as `## Your organization's standard`,
+**before** the perimeter — the standard is what the work should look like, the perimeter is the fence
+around it, which is the local prompt's order too. An org that has published nothing for these
+dimensions gets **no heading**: a heading over an empty section reads to a model as "there are no
+rules here". A failed read degrades to no standard rather than failing the brief.
+
+*What this does NOT yet do:* a remote close still cannot stamp `PlaybookApplication` adoption
+evidence. That stamp needs two things a remote lane has neither of — the lane's own recorded brief
+provenance (`briefJson`, written by the engine at dispatch, and nothing writes it for a claim that
+arrives over MCP) and a rescan of a worktree this deployment drove. Carrying the standard is the
+first of the two, not both, and the gap below says so.
+
 **A remote lane carries no cost envelope.** #27's figures are parsed out of a `claude -p` session
 envelope Ascent spawned, and there is no such session here, so `costMicros` stays **null** — unknown,
 never zero. The cockpit renders "cost unknown" beside an `agent` chip, the claimant and a lease
@@ -1865,6 +1911,13 @@ to a process this deployment is driving, and there is none.
 - **The `Resume drive` button is live before hydration** (L2-C-01). It is server-rendered and
   enabled, so a click landing before React attaches its handler is swallowed with no request and no
   error. Generic Next.js behaviour, unusually expensive on this particular control.
+- **A remote close cannot stamp playbook adoption evidence** (`PRIYA-L1-706`, narrowed 2026-08-31).
+  The brief half is fixed — `get_fix_brief` carries the org's standard now — but
+  `stampPlaybookApplications` fires from `runLane`, off the lane's recorded `briefJson` provenance
+  crossed with the rescan's adjudicated closes. A remote lane has neither: nothing writes `briefJson`
+  for a claim that arrives over MCP, and no rescan of a worktree this deployment drove attributes the
+  close. So an organization whose remediation runs remotely accumulates no evidence that its
+  playbooks are applied, however faithfully its agents follow them.
 - **`agent.ts` does not strip `CLAUDECODE` / `CLAUDE_CODE_ENTRYPOINT` from the spawn env** (L2-F-02).
   It strips `ANTHROPIC_API_KEY`; a self-hosted Ascent started from inside a Claude Code session hands
   the harness's own markers to every agent it spawns, and a nested `claude` that inherits them
