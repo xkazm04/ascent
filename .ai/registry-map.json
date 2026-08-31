@@ -494,7 +494,10 @@
           ],
           "grounding": "use_when",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "conformant",
+          "evidence": "src/lib/llm/json.ts:15-23,74-150 parseJsonLoose never silently drops a malformed model reply: fast parse -> fenced-block recovery -> jsonc cleanup -> balanced-brace scan, and total failure throws a typed ProviderParseError with a truncated snippet rather than degrading silently. Realizes llm-assisted-scanning's 'model as unreliable sensor, malformed output counted not dropped' discipline. Contrast: the sibling 'Scan Pipeline & Ingestion' context is recorded deviation for governance/posture/exposure fetches still doing .catch(()=>null) with score-bearing folds — this parsing layer is markedly more careful than that sibling ingestion layer, i.e. the discipline is uneven across the same pipeline's own stages.",
+          "evaluatedAt": "2026-08-31",
+          "evaluatedAgainst": "sha256:5215e21162717d59"
         },
         {
           "subject": "eval-harness",
@@ -1535,7 +1538,10 @@
           ],
           "grounding": "use_when",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "conformant",
+          "evidence": "src/app/api/org/import/route.ts:456,463 explicitly records recordScanOutcome(org, repo, { ok: false, error: msg }) on a per-repo scan failure inside the bulk import/rescan loop rather than swallowing it via .catch(()=>null) — realizes sensor-pipeline's 'every sensor failure isolated and reported as skipped, never silently empty' for the org-level sweep, in contrast to the sibling 'Scan Pipeline & Ingestion' context's recorded deviation (governance/posture/exposure fetches that DO swallow with score-bearing folds).",
+          "evaluatedAt": "2026-08-31",
+          "evaluatedAgainst": "sha256:5215e21162717d59"
         }
       ],
       "governance": "weak"
@@ -1918,7 +1924,10 @@
           ],
           "grounding": "use_when",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "conformant",
+          "evidence": "src/lib/integrations/otlp.ts:54-56,118-127,142-212 parseOtlpMetrics counts every dropped BYOM telemetry datapoint by SkipReason (unknown-metric/no-repo-attr/unsupported-host) and reports `received` alongside `skipped`, rather than a connector that silently stores nothing while looking like it works — the ingestion-side analog of usage-ledgers' 'failures are spend' and spend-attribution's counted-unattributed-bucket discipline.",
+          "evaluatedAt": "2026-08-31",
+          "evaluatedAgainst": "sha256:5215e21162717d59"
         },
         {
           "subject": "deployment-contract",
@@ -2160,7 +2169,10 @@
           ],
           "grounding": "use_when",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "developer-view.ts:19-20 is explicitly DB-import-free ('PURE module — no @/lib/db import, because every Developer component is a client component') and developer-view-load.ts's getDeveloperView() runs server-side, called from page.tsx:56-59 (a Server Component) which passes the resolved DeveloperView as props. No browser-held DB credential and no broker route relaying an upstream failure exist in this context, so every technique's precondition (client-held credential, or a broker reporting an upstream failure) fails to hold.",
+          "evaluatedAt": "2026-08-31",
+          "evaluatedAgainst": "sha256:5215e21162717d59"
         }
       ],
       "governance": "governed"
@@ -2355,7 +2367,10 @@
           ],
           "grounding": "use_when",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "conformant",
+          "evidence": "src/lib/org/playbook-brief.ts:5-27 (playbookMarkdown) is a deterministic, self-contained single artifact (title, dimension, summary, checklist steps, explicit 'Ask') meant to be pasted into a developer's own local coding agent Ascent cannot observe — realizes single-artifact-prompt-construction. src/lib/db/playbooks.ts:184-215 stampPlaybookApplications marks a playbook adopted ONLY when (a) it was IN THE loop lane's brief the agent actually saw, and (b) a real rescan verified the close ('the agent's claim is not the trigger — the verifier is') — a precise, well-anchored realization of evidence-based-auto-close that specifically guards the coincidental-close failure mode the golden path names as the subject's hardest problem.",
+          "evaluatedAt": "2026-08-31",
+          "evaluatedAgainst": "sha256:5215e21162717d59"
         },
         {
           "subject": "fleet-orchestration",
@@ -2381,7 +2396,10 @@
           ],
           "grounding": "use_when",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "Playbook authoring is a single prefillable form seeded from PLAYBOOK_TEMPLATES (src/lib/org/playbook-templates.ts:14-19) with no sequence of dependent decisions converging on one commit — the golden path itself names exactly this shape ('a form wearing pagination... if every step could be shown at once with no loss of meaning, show them at once') as the canonical non-wizard case. 'Steps' in this context names checklist items inside the generated artifact (playbook-brief.ts), not UI wizard steps — the matcher's why=[\"apply\",\"steps\",\"flows\"] looks like a lexical collision on that word, not a real match.",
+          "evaluatedAt": "2026-08-31",
+          "evaluatedAgainst": "sha256:5215e21162717d59"
         },
         {
           "subject": "agent-instruction-files",
@@ -2808,7 +2826,10 @@
           ],
           "grounding": "use_when",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "This context (src/app/api/org/skills/*, org/tokens) is a versioned skill-CATALOG — promoting a generated SKILL.md into an org library, gated by plan entitlement (promote/route.ts:1-13,43-55) — with no recall/decay/consolidation of retrieved knowledge across agent turns anywhere in it. None of agent-memory's techniques (memory-value-model, recall-injection, decay-and-forgetting, consolidation, coverage-instrumentation, baseline-ladder) have a precondition that holds here; the actual memory system (recall.ts/decay.ts/org-memory-lifecycle.ts) is a separate context ('Org Knowledge & Skills/Org Memory') already judged conformant in the map. This reads as a matcher lexical collision on \"skills\"/\"library\"/\"generated\" rather than a real match — worth a coverage-question note to the registry rather than a technique-level verdict.",
+          "evaluatedAt": "2026-08-31",
+          "evaluatedAgainst": "sha256:5215e21162717d59"
         },
         {
           "subject": "design-tokens",
@@ -3416,7 +3437,10 @@
           ],
           "grounding": "use_when",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "conformant",
+          "evidence": "src/lib/register/data.ts:117-144 REGISTER_REPO_SELECT is a structural Prisma select carrying no sensitive/internal columns, and isPrivate is re-asserted at the scan query, the repo query, AND per-row in registerEntryFrom:155 — three independent checks, matching omit-the-column-not-the-value's structural-exclusion discipline; leaderboard/page.tsx:61 and portfolio.ts:80-82/32 degrade every DB or authorization failure to null/empty via .catch(()=>null) rather than surfacing a raw error, matching opaque-upstream-errors' spirit for a public surface. Separately noted (not scored as a technique deviation): leaderboard/page.tsx:98-101 renders getDbMode()/dbModeLabel() ('Served live from Aurora DSQL') to every anonymous visitor of this crawlable public page — the SAME value api/health/route.ts:29-38 explicitly reasons 'describes deployment TOPOLOGY... shouldn't be handed to an anonymous caller' and gates behind CRON_SECRET. I did not mark this a deviation because it discloses only a coarse backend-family label (no hostname/credential/error-body), and the codebase treats it as a deliberate trust-building UI element (also on the landing page, IndexGallery.tsx) rather than an oversight — but it is a real inconsistency in how the project applies its own stated topology-disclosure rule, worth registry attention.",
+          "evaluatedAt": "2026-08-31",
+          "evaluatedAgainst": "sha256:5215e21162717d59"
         },
         {
           "subject": "readiness-passports",
@@ -3477,7 +3501,10 @@
           ],
           "grounding": "use_when",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "conformant",
+          "evidence": "src/lib/plans.ts:80-444 is the single tier model every surface reads (id-vs-label split lines 26-31, decideScanCharge/decideCharge naming unlimited/allowance/credit/denied lines 348-409, selfHosted() short-circuit at planAllows:439-444) and src/app/api/billing/webhook/route.ts realizes lifecycle revocation end to end (ENTITLING_SUB_STATUSES grace :52, retainedHigherPlan downgrade guard :70-73, proportional refund clawback :222-251, stale-paid fence :162-183) — the model, gate, page and webhook agree by construction.",
+          "evaluatedAt": "2026-08-31",
+          "evaluatedAgainst": "sha256:5215e21162717d59"
         }
       ],
       "governance": "governed"
@@ -3617,7 +3644,10 @@
           ],
           "grounding": "lexical-only",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "conformant",
+          "evidence": "src/lib/db/usage.ts:59-76 isBillableScan is the ONE billable predicate shared by the chart/CSV/gate paths (comment names the drift bug this prevents); byRepo/byLane/byTeam (lines 111-129) carry multi-axis attribution and estimatedCostUsd/costBasis (102-110) is null rather than a fake price when unpriceable — realizes usage-ledgers, spend-attribution and spend-observability for the reporting surface. Enforcement techniques (budget-enforcement, preflight-estimation, reversible-debit-and-settle) are not-applicable here — this context is the read/reporting side; the gate is Credits & Entitlements, judged separately with a recorded deviation.",
+          "evaluatedAt": "2026-08-31",
+          "evaluatedAgainst": "sha256:5215e21162717d59"
         },
         {
           "subject": "usage-analytics",
@@ -3809,7 +3839,10 @@
           ],
           "grounding": "use_when",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "conformant",
+          "evidence": "src/lib/db/client.ts reads DATABASE_URL/DSQL config via plain process.env, never NEXT_PUBLIC_-prefixed, and src/lib/db/index.ts:4 imports \"server-only\" so a client-component import of the DB barrel fails the build by design (comment cites ADR 2026-08-28-server-only-boundary); env.ts documents the NEXT_PUBLIC_ split explicitly. Prisma/DSQL is reached exclusively server-side — there is no browser-held credential or RLS-style policy engine fronting this store (unlike Supabase, which is deliberately regime-one for auth only, per supabase/client.ts:1-4 and .env.example:145).",
+          "evaluatedAt": "2026-08-31",
+          "evaluatedAgainst": "sha256:5215e21162717d59"
         },
         {
           "subject": "client-state",
