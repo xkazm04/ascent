@@ -28,6 +28,9 @@ class RepoIndex {
   readonly lowerPaths: string[];
   readonly contentByLowerPath: Map<string, string>;
   readonly workflowText: string;
+  /** The same workflow bodies `workflowText` concatenates, kept PER FILE so a signal fired by a
+   *  workflow's body can name the workflow it came from. See `workflowMatch`. */
+  readonly workflowFiles: { path: string; text: string }[];
   readonly manifestText: string;
   private _pathText?: string;
   private _allText?: string;
@@ -40,11 +43,10 @@ class RepoIndex {
       snap.files.map((f) => [f.path.toLowerCase(), f.content]),
     );
 
-    this.workflowText = snap.files
+    this.workflowFiles = snap.files
       .filter((f) => /^\.github\/workflows\/.+\.ya?ml$/i.test(f.path))
-      .map((f) => f.content)
-      .join("\n")
-      .toLowerCase();
+      .map((f) => ({ path: f.path, text: f.content.toLowerCase() }));
+    this.workflowText = this.workflowFiles.map((f) => f.text).join("\n");
 
     this.manifestText = snap.files
       .filter((f) =>
@@ -91,6 +93,27 @@ class RepoIndex {
       if (hit) return hit;
     }
     return undefined;
+  }
+
+  /**
+   * The workflow FILE whose body matches `re`, or undefined when none does — the path-recovery
+   * `first()` performs for path-triggered signals, done for the ones triggered by workflow TEXT.
+   *
+   * UAT `SAM-L1-01` (2026-08-30, recurrence 2): "a paragraph that cites its sources and a list
+   * labelled EVIDENCE that doesn't." The LLM narrative above the evidence list already names
+   * `.github/workflows/main.yml`; the deterministic detectors matched inside that very file and then
+   * threw the name away, because `workflowText` flattens every workflow into one blob. Keeping the
+   * bodies per file makes the citation exact rather than plausible — this names the file the matching
+   * line was actually read from, never a guess. Undefined stays undefined: a signal that fired off the
+   * MANIFEST (or nothing at all) attaches no detail, same rule as `first()`.
+   */
+  workflowMatch(re: RegExp): string | undefined {
+    return this.workflowFiles.find((f) => re.test(f.text))?.path;
+  }
+
+  /** Every fetched workflow file's path, in tree order. */
+  get workflowPaths(): string[] {
+    return this.workflowFiles.map((f) => f.path);
   }
 
   /** How many paths match the regex? */
@@ -169,13 +192,16 @@ export function guidanceQuality(text: string): { points: number; label: string }
  * contract) and D8 (the executable harness + memory).
  */
 function aiStandard(idx: RepoIndex): {
-  d1: { points: number; label: string }[];
-  d8: { points: number; label: string }[];
+  d1: { points: number; label: string; detail?: string }[];
+  d8: { points: number; label: string; detail?: string }[];
 } {
-  const d1: { points: number; label: string }[] = [];
-  const d8: { points: number; label: string }[] = [];
-  if (idx.has(/^\.ai\/manifest\.ya?ml$/)) {
-    d1.push({ points: 2, label: "Found .ai/manifest.yaml (agent-facing contract)" });
+  const d1: { points: number; label: string; detail?: string }[] = [];
+  const d8: { points: number; label: string; detail?: string }[] = [];
+  // Every award below is triggered by a file the index walked, so each carries that file (SAM-L1-01 —
+  // these were the last D1/D8 awards whose detail was dropped even though the source was in hand).
+  const manifestPath = idx.first(/^\.ai\/manifest\.ya?ml$/);
+  if (manifestPath) {
+    d1.push({ points: 2, label: "Found .ai/manifest.yaml (agent-facing contract)", detail: manifestPath });
     // #13 — sourced through the shared reader instead of three inline regexes, so the ONE place that
     // decides what a manifest says is the same one the readout, the skill and the fleet matrix use.
     // Points and label text are unchanged and pinned byte-for-byte by signals.test.ts: this lane
@@ -186,20 +212,25 @@ function aiStandard(idx: RepoIndex): {
     const readout = readManifestYaml(idx.content(".ai/manifest.yaml") ?? idx.content(".ai/manifest.yml"));
     const placed = readout.controls.prePush.length > 0 || readout.controls.ciHardPass.length > 0;
     if (readout.status === "ok" && readout.capabilities.length > 0 && placed)
-      d1.push({ points: 4, label: "Manifest declares capabilities + control placement" });
+      d1.push({ points: 4, label: "Manifest declares capabilities + control placement", detail: manifestPath });
   }
-  if (idx.has(/^\.ai\/doctor\.mjs$/)) {
+  const doctorPath = idx.first(/^\.ai\/doctor\.mjs$/);
+  if (doctorPath) {
     const lefthook = (idx.content("lefthook.yml") || idx.content("lefthook.yaml") || "").toLowerCase();
-    const wired = /doctor\.mjs/.test(idx.workflowText) || /doctor\.mjs/.test(lefthook);
+    // The wiring claim's evidence is the file that DOES the wiring, so name it — a workflow by path
+    // (the point of `workflowMatch`), or the local hook config by name.
+    const wiredIn = idx.workflowMatch(/doctor\.mjs/) ?? (/doctor\.mjs/.test(lefthook) ? "lefthook.yml" : undefined);
     d8.push(
-      wired
-        ? { points: 8, label: "Executable conformance (.ai/doctor.mjs) wired into CI/hook" }
-        : { points: 2, label: ".ai/doctor.mjs present (not yet wired into CI/hook)" },
+      wiredIn
+        ? { points: 8, label: "Executable conformance (.ai/doctor.mjs) wired into CI/hook", detail: `${doctorPath} ← ${wiredIn}` }
+        : { points: 2, label: ".ai/doctor.mjs present (not yet wired into CI/hook)", detail: doctorPath },
     );
   }
-  const mem = idx.count(/^\.ai\/memory\/\d{4}-.*\.md$/);
-  if (mem >= 2) d8.push({ points: 6, label: `Structured memory in use (.ai/memory, ${mem} entries)` });
-  else if (mem === 1) d8.push({ points: 1, label: ".ai/memory seeded (not yet used)" });
+  const MEMORY_PATH = /^\.ai\/memory\/\d{4}-.*\.md$/;
+  const memPaths = idx.lowerPaths.filter((p) => MEMORY_PATH.test(p));
+  const mem = memPaths.length;
+  if (mem >= 2) d8.push({ points: 6, label: `Structured memory in use (.ai/memory, ${mem} entries)`, detail: namedList(memPaths) });
+  else if (mem === 1) d8.push({ points: 1, label: ".ai/memory seeded (not yet used)", detail: memPaths[0] });
   return { d1, d8 };
 }
 
@@ -310,7 +341,7 @@ const d1: Detector = (idx, snap) => {
   if (guidance) for (const g of guidanceQuality(guidance)) s.add(g.points, g.label, node?.path);
 
   // The `.ai/` standard's agent-facing contract is high-signal machine-readable guidance.
-  for (const g of aiStandardCached(idx).d1) s.add(g.points, g.label);
+  for (const g of aiStandardCached(idx).d1) s.add(g.points, g.label, g.detail);
 
   if (s.signals.length === 0)
     s.note("No machine-readable AI/agent guidance detected", "e.g. CLAUDE.md, AGENTS.md, .cursorrules");
@@ -450,12 +481,23 @@ const d2: Detector = (idx) => {
 // ---------------------------------------------------------------------------
 // D3 — CI/CD & Automation
 // ---------------------------------------------------------------------------
+// Hoisted so the presence CHECK and the path-citation beside it can never test different things —
+// the failure mode the `found()` helper (D1) exists to prevent, applied to the CI paths.
+const GHA_WORKFLOW_PATH = /^\.github\/workflows\/.+\.ya?ml$/;
+const OTHER_CI_PATH =
+  /(^|\/)(\.gitlab-ci\.yml|\.circleci\/|azure-pipelines\.yml|jenkinsfile|\.travis\.yml|bitbucket-pipelines\.yml)/i;
+
+/** Render up to `cap` cited paths as one evidence detail, with an honest "+N more" tail. */
+function namedList(paths: string[], cap = 4): string | undefined {
+  if (paths.length === 0) return undefined;
+  const shown = paths.slice(0, cap).join(", ");
+  return paths.length > cap ? `${shown} +${paths.length - cap} more` : shown;
+}
+
 const d3: Detector = (idx, snap) => {
   const s = new Scorer();
-  const hasGha = idx.has(/^\.github\/workflows\/.+\.ya?ml$/);
-  const otherCi = idx.has(
-    /(^|\/)(\.gitlab-ci\.yml|\.circleci\/|azure-pipelines\.yml|jenkinsfile|\.travis\.yml|bitbucket-pipelines\.yml)/i,
-  );
+  const hasGha = idx.has(GHA_WORKFLOW_PATH);
+  const otherCi = idx.has(OTHER_CI_PATH);
   // Off-GitHub CI / merge-queue evidence. World-class Go/Rust/systems repos gate on CI + code review
   // OUTSIDE GitHub Actions (Gerrit, bors/homu, Buildkite, LUCI), so a `.github/workflows`-only detector
   // scored them a false 0 ("No CI pipeline detected"). Read committed markers + commit-message trailers
@@ -467,15 +509,17 @@ const d3: Detector = (idx, snap) => {
   const genericCi = idx.has(/^\.ci\//) || idx.has(/(^|\/)(cloudbuild\.ya?ml|\.teamcity\/)/i);
   const offGhSystem = gerritCi ? "Gerrit" : borsCi ? "bors/merge-queue" : buildkiteCi ? "Buildkite" : genericCi ? "external CI" : null;
 
-  if (hasGha) s.add(35, "GitHub Actions CI present");
-  else if (otherCi) s.add(35, "CI pipeline present");
+  if (hasGha) s.add(35, "GitHub Actions CI present", idx.first(GHA_WORKFLOW_PATH));
+  else if (otherCi) s.add(35, "CI pipeline present", idx.first(OTHER_CI_PATH));
   else if (offGhSystem) s.add(35, `Off-GitHub CI detected (${offGhSystem})`, "review/build gate runs outside GitHub Actions");
   else s.note("No CI pipeline detected");
 
-  const wfCount = idx.count(/^\.github\/workflows\/.+\.ya?ml$/);
-  if (wfCount >= 2) s.add(10, `Multiple CI workflows (${wfCount})`);
+  const wfCount = idx.count(GHA_WORKFLOW_PATH);
+  // Name the workflows rather than only counting them (SAM-L1-01): "Multiple CI workflows (4)" is a
+  // number a reader cannot re-derive, and the tree carries every path. Capped so a repo with dozens
+  // of workflows doesn't render an evidence line the width of the page.
+  if (wfCount >= 2) s.add(10, `Multiple CI workflows (${wfCount})`, namedList(idx.lowerPaths.filter((p) => GHA_WORKFLOW_PATH.test(p))));
 
-  const wf = idx.workflowText;
   // For off-GitHub CI there is no workflow YAML, so the test/lint/build sub-signals below would read
   // empty and score 0. Fall back to the build tooling the gate invokes (Makefile/justfile/Taskfile) —
   // an off-GitHub gate with a `test`/`lint` target almost always runs it. Only consulted when GHA is
@@ -483,30 +527,34 @@ const d3: Detector = (idx, snap) => {
   const buildScripts = offGhSystem
     ? ((idx.content("makefile") || "") + "\n" + (idx.content("justfile") || "") + "\n" + (idx.content("taskfile.yml") || idx.content("taskfile.yaml") || "")).toLowerCase()
     : "";
-  if (/(npm|pnpm|yarn|bun) (run )?test|pytest|go test|cargo test|gradle test|jest|vitest/.test(wf))
-    s.add(15, "CI runs tests");
+  // Each sub-signal is now resolved to the workflow FILE whose body matched, not merely to the
+  // concatenated blob (SAM-L1-01): "CI runs tests" is a claim about a specific job in a specific
+  // workflow, and the reader has to be able to open it. The off-GitHub fallbacks below have no
+  // workflow to name and say so in words instead.
+  const testsWf = idx.workflowMatch(/(npm|pnpm|yarn|bun) (run )?test|pytest|go test|cargo test|gradle test|jest|vitest/);
+  if (testsWf) s.add(15, "CI runs tests", testsWf);
   else if (offGhSystem && /go test|cargo test|pytest|npm test|make test|\btest:/.test(buildScripts))
     s.add(15, "CI runs tests", "inferred from build tooling invoked by the off-GitHub gate");
-  if (/lint|eslint|ruff|flake8|golangci|prettier --check|biome/.test(wf))
-    s.add(10, "CI runs linting");
+  const lintWf = idx.workflowMatch(/lint|eslint|ruff|flake8|golangci|prettier --check|biome/);
+  if (lintWf) s.add(10, "CI runs linting", lintWf);
   else if (offGhSystem && /golangci|clippy|go vet|ruff|eslint|\blint:/.test(buildScripts))
     s.add(10, "CI runs linting", "inferred from build tooling invoked by the off-GitHub gate");
-  if (/(npm|pnpm|yarn|bun) (run )?build|go build|cargo build|gradle build|docker build/.test(wf))
-    s.add(5, "CI runs a build");
+  const buildWf = idx.workflowMatch(/(npm|pnpm|yarn|bun) (run )?build|go build|cargo build|gradle build|docker build/);
+  if (buildWf) s.add(5, "CI runs a build", buildWf);
   else if (offGhSystem && /go build|cargo build|make build|\bbuild:/.test(buildScripts))
     s.add(5, "CI runs a build", "inferred from build tooling invoked by the off-GitHub gate");
 
-  if (
-    idx.has(/(^|\/)(release-please|\.changeset\/|\.releaserc)/) ||
-    /semantic-release|release-please|changesets|softprops\/action-gh-release/.test(
-      wf + idx.manifestText,
-    )
-  )
-    s.add(15, "Automated release tooling");
-  if (/vercel|netlify|deploy|kubectl|aws |gcloud|fly deploy/.test(wf))
-    s.add(15, "Automated deploy step");
-  if (idx.has(/\.(tf|tf\.json)$/) || idx.has(/(^|\/)(cdk\.json|pulumi\.ya?ml|serverless\.yml)$/))
-    s.add(10, "Infrastructure-as-Code present");
+  // Release tooling can fire from a config PATH, from a workflow body, or from the manifest. Cite the
+  // first two; a manifest-only hit stays unsourced rather than naming a file that did not fire it.
+  const releaseText = /semantic-release|release-please|changesets|softprops\/action-gh-release/;
+  const releasePath = idx.first(/(^|\/)(release-please|\.changeset\/|\.releaserc)/);
+  const releaseWf = idx.workflowMatch(releaseText);
+  if (releasePath || releaseWf || releaseText.test(idx.manifestText))
+    s.add(15, "Automated release tooling", releasePath ?? releaseWf);
+  const deployWf = idx.workflowMatch(/vercel|netlify|deploy|kubectl|aws |gcloud|fly deploy/);
+  if (deployWf) s.add(15, "Automated deploy step", deployWf);
+  const iac = idx.first(/\.(tf|tf\.json)$/, /(^|\/)(cdk\.json|pulumi\.ya?ml|serverless\.yml)$/);
+  if (iac) s.add(10, "Infrastructure-as-Code present", iac);
 
   // Delivery-as-code: a declarative, auditable, reversible path to production — what lets
   // autonomy compound (the L4→L5 jump). Scope to CORE paths (exclude examples/benches/fixtures/docs/
@@ -515,21 +563,33 @@ const d3: Detector = (idx, snap) => {
   // "migrate"/"feature-flag"/"policy" — the reference-scan audit's D3 false-positive cluster (P1-3).
   const corePaths = idx.lowerPaths.filter((p) => !NONCORE.test(p) && !VENDOR.test(p));
   const deliver = corePaths.join(" ") + " " + idx.workflowText;
-  if (corePaths.some((p) => /\.rego$/.test(p)) || /conftest|open-policy-agent|policy-as-code/.test(deliver))
-    s.add(8, "Policy-as-code (OPA/conftest)");
+  // Where a delivery-as-code signal actually fired: the core path that matched, else the workflow file
+  // whose body did. Undefined when the hit came only from the joined `deliver` haystack (a path
+  // FRAGMENT, or a cross-file match) — there is no single file to name, so nothing is named.
+  const deliveryCite = (pathRe: RegExp, textRe: RegExp): string | undefined =>
+    corePaths.find((p) => pathRe.test(p)) ?? idx.workflowMatch(textRe);
+
+  const POLICY_TEXT = /conftest|open-policy-agent|policy-as-code/;
+  if (corePaths.some((p) => /\.rego$/.test(p)) || POLICY_TEXT.test(deliver))
+    s.add(8, "Policy-as-code (OPA/conftest)", deliveryCite(/\.rego$/, POLICY_TEXT));
+  const GITOPS_PATH = /(^|\/)(\.argocd|argocd|flux-system|clusters)\//;
+  const GITOPS_TEXT = /argoproj\.io|kind:\s*application\b|fluxcd|toolkit\.fluxcd\.io|kustomization\.ya?ml/;
+  if (corePaths.some((p) => GITOPS_PATH.test(p)) || GITOPS_TEXT.test(deliver))
+    s.add(8, "GitOps delivery (ArgoCD/Flux)", deliveryCite(GITOPS_PATH, GITOPS_TEXT));
+  const FLAGS_TEXT = /argo-rollouts|kind:\s*rollout\b|flagger|launchdarkly|unleash|flagsmith|openfeature|split\.io/;
+  if (FLAGS_TEXT.test(deliver)) s.add(8, "Progressive delivery / feature flags", idx.workflowMatch(FLAGS_TEXT));
+  const MIGRATION_PATH = /(^|\/)(migrations?|migrate)\/.+\.(sql|rb|py|ts|js|go)$/;
+  const MIGRATION_TEXT = /flyway|liquibase|alembic|prisma migrate|knex.*migrat|db:migrate|sequelize.*migrat/;
   if (
-    corePaths.some((p) => /(^|\/)(\.argocd|argocd|flux-system|clusters)\//.test(p)) ||
-    /argoproj\.io|kind:\s*application\b|fluxcd|toolkit\.fluxcd\.io|kustomization\.ya?ml/.test(deliver)
-  )
-    s.add(8, "GitOps delivery (ArgoCD/Flux)");
-  if (/argo-rollouts|kind:\s*rollout\b|flagger|launchdarkly|unleash|flagsmith|openfeature|split\.io/.test(deliver))
-    s.add(8, "Progressive delivery / feature flags");
-  if (
-    corePaths.some((p) => /(^|\/)(migrations?|migrate)\/.+\.(sql|rb|py|ts|js|go)$/.test(p)) ||
+    corePaths.some((p) => MIGRATION_PATH.test(p)) ||
     idx.has(/(^|\/)(alembic\.ini|liquibase\.properties)$/) ||
-    /flyway|liquibase|alembic|prisma migrate|knex.*migrat|db:migrate|sequelize.*migrat/.test(deliver)
+    MIGRATION_TEXT.test(deliver)
   )
-    s.add(8, "Versioned DB migrations");
+    s.add(
+      8,
+      "Versioned DB migrations",
+      deliveryCite(MIGRATION_PATH, MIGRATION_TEXT) ?? idx.first(/(^|\/)(alembic\.ini|liquibase\.properties)$/),
+    );
 
   return s.result("D3");
 };
@@ -721,33 +781,40 @@ const ZERO_WARNING_GATE = /--max-warnings[= ]*0|-d[= ]+warnings|--deny[= ]+warni
 
 const d6: Detector = (idx, snap) => {
   const s = new Scorer();
-  const linterConfigured =
-    idx.has(/(^|\/)(\.eslintrc|eslint\.config)\.[a-z]+$/) ||
-    idx.has(/(^|\/)(ruff\.toml|biome\.json|\.golangci\.ya?ml|\.rubocop\.yml)$/) ||
-    /eslint|ruff|biome|golangci|rubocop|flake8/.test(idx.manifestText);
-  if (linterConfigured) s.add(20, "Linter configured");
+  // Cite the config file that fired it (SAM-L1-01). A manifest-DEPENDENCY hit names nothing: there is
+  // no standalone config to open, and pointing at package.json would misdescribe what matched.
+  const linterConfig = idx.first(
+    /(^|\/)(\.eslintrc|eslint\.config)\.[a-z]+$/,
+    /(^|\/)(ruff\.toml|biome\.json|\.golangci\.ya?ml|\.rubocop\.yml)$/,
+  );
+  const linterConfigured = Boolean(linterConfig) || /eslint|ruff|biome|golangci|rubocop|flake8/.test(idx.manifestText);
+  if (linterConfigured) s.add(20, "Linter configured", linterConfig);
 
-  if (
-    idx.has(/(^|\/)\.prettierrc/) ||
-    idx.has(/(^|\/)(\.editorconfig)$/) ||
-    /prettier|black|gofmt|rustfmt/.test(idx.manifestText)
-  )
-    s.add(10, "Formatter configured");
+  const formatterConfig = idx.first(/(^|\/)\.prettierrc/, /(^|\/)(\.editorconfig)$/);
+  if (formatterConfig || /prettier|black|gofmt|rustfmt/.test(idx.manifestText))
+    s.add(10, "Formatter configured", formatterConfig);
 
   // Guardrails enforced INLINE in CI — the Rust/Go norm (e.g. `cargo clippy -D warnings`, `go vet`,
   // `ruff check`, `tsc --noEmit` run in a workflow) with no standalone config file. Detected #1 gap in
   // the reference-scan audit: D6 used to read only config files + manifests, so it scored 0 and even
   // contradicted D3's own "CI runs linting" on the same repo. Credit the full 20 when no standalone
   // linter config was found (the gap this closes), else a small top-up (both config + CI enforcement).
-  const ciGuardrail =
-    /cargo clippy|cargo fmt|rustfmt|go vet|staticcheck|golangci-lint|ruff (check|format)|\bmypy\b|pyright|\bty check\b|eslint|biome (check|ci|lint)|prettier --check|tsc\b[^\n]*--noemit|--no-?emit|npm run (lint|typecheck|check)|(pnpm|yarn) (lint|typecheck|check)|make (lint|fmt|format|check)|task (lint|check)|taplo|spotless|treefmt/.test(
-      idx.workflowText,
+  // Resolved to the workflow FILE the gate runs in, not the blob — "enforced in CI" is a claim about
+  // one job in one workflow, and that is the file a reader has to open to check it (SAM-L1-01).
+  const ciGuardrail = idx.workflowMatch(
+    /cargo clippy|cargo fmt|rustfmt|go vet|staticcheck|golangci-lint|ruff (check|format)|\bmypy\b|pyright|\bty check\b|eslint|biome (check|ci|lint)|prettier --check|tsc\b[^\n]*--noemit|--no-?emit|npm run (lint|typecheck|check)|(pnpm|yarn) (lint|typecheck|check)|make (lint|fmt|format|check)|task (lint|check)|taplo|spotless|treefmt/,
+  );
+  if (ciGuardrail)
+    s.add(
+      linterConfigured ? 5 : 20,
+      linterConfigured ? "Guardrails also enforced in CI" : "Lint/format/type-check enforced in CI",
+      ciGuardrail,
     );
-  if (ciGuardrail) s.add(linterConfigured ? 5 : 20, linterConfigured ? "Guardrails also enforced in CI" : "Lint/format/type-check enforced in CI");
 
+  const tsconfigPath = idx.first(/(^|\/)tsconfig\.json$/);
   const tsconfig = idx.content("tsconfig.json") || "";
-  if (/"strict"\s*:\s*true/.test(tsconfig)) s.add(20, "TypeScript strict mode");
-  else if (tsconfig) s.add(10, "TypeScript configured");
+  if (/"strict"\s*:\s*true/.test(tsconfig)) s.add(20, "TypeScript strict mode", tsconfigPath);
+  else if (tsconfig) s.add(10, "TypeScript configured", tsconfigPath);
   else if (idx.has(/(^|\/)(mypy\.ini|\.mypy\.ini)$/) || /mypy|pyright/.test(idx.manifestText))
     // Undefined detail when the MANIFEST text triggered this rather than a config file: naming a file
     // that did not fire the signal would be worse than an unsourced label.
@@ -898,52 +965,53 @@ const d8: Detector = (idx) => {
   const s = new Scorer();
   const blob = idx.allText;
 
-  // Evals / golden tests for AI/LLM output.
+  // Evals / golden tests for AI/LLM output. The path branches cite the directory/config that fired
+  // them (SAM-L1-01 — D8 was the last dimension rendering as bare labels); a hit that came only from
+  // the text blob names nothing, because there is no one file it can honestly point at.
+  const evalPath = idx.first(/(^|\/)(evals?|\.?promptfoo|golden)\//, /(^|\/)promptfoo\.(ya?ml|json)$/);
   if (
-    idx.has(/(^|\/)(evals?|\.?promptfoo|golden)\//) ||
-    idx.has(/(^|\/)promptfoo\.(ya?ml|json)$/) ||
+    evalPath ||
     // Anchor to real eval EVIDENCE (maturity-model-scoring-engine #2): a dedicated evals//golden/ dir or
     // promptfoo config (checked above), or a SPECIFIC eval-tool token. The bare `\bevals?\b` was DROPPED
     // — against all tree paths it credited a plain `src/eval.ts` (or a `json-eval` dep) a 30-point lift
     // from a filename: the single biggest false signal on the keyless/mock demo path.
     /promptfoo|llm[\s-]?eval|golden[\s-]?test/.test(blob)
   )
-    s.add(30, "AI-output eval / golden-test harness");
+    s.add(30, "AI-output eval / golden-test harness", evalPath);
 
   // Structured prompt / agent / skill library. A committed `.claude/skills/` (or `.agents/skills/`)
   // is a mandatory, named skill library — the same high-signal harness as a prompts/ dir (P1-4).
-  if (
-    idx.has(/^(prompts|\.prompts)\//) ||
-    idx.count(/^\.claude\/agents\//) >= 1 ||
-    idx.count(/^\.(claude|agents)\/skills?\//) >= 1 ||
-    idx.count(/(^|\/)agents?\//) >= 2
-  )
-    s.add(25, "Structured prompt / agent / skill library");
+  const libraryPath = idx.first(
+    /^(prompts|\.prompts)\//,
+    /^\.claude\/agents\//,
+    /^\.(claude|agents)\/skills?\//,
+    ...(idx.count(/(^|\/)agents?\//) >= 2 ? [/(^|\/)agents?\//] : []),
+  );
+  if (libraryPath) s.add(25, "Structured prompt / agent / skill library", libraryPath);
 
   // Agent-readable operational docs / runbooks / ADRs.
-  if (
-    idx.has(/(^|\/)(runbooks?|docs\/agents?|docs\/runbooks?)\//) ||
-    idx.has(ADR_PATH) ||
-    idx.has(ADR_HINT)
-  )
-    s.add(20, "Agent-readable runbooks / ADRs");
+  const runbookPath = idx.first(/(^|\/)(runbooks?|docs\/agents?|docs\/runbooks?)\//, ADR_PATH, ADR_HINT);
+  if (runbookPath) s.add(20, "Agent-readable runbooks / ADRs", runbookPath);
 
-  // AI contribution process (review gate / DoD).
+  // AI contribution process (review gate / DoD). CONTRIBUTING.md's prose is a third trigger; when it
+  // is the one that fired, the file it was read from IS the citation.
+  const contributingPath = idx.first(/(^|\/)contributing\.md$/);
   const contributing = (idx.content("contributing.md") || "").toLowerCase();
-  if (
-    idx.has(/(^|\/)(pull_request_template|\.github\/pull_request_template)/) ||
-    idx.has(/(^|\/)(ai[-_]policy|ai[-_]tools|ai[-_]contributing)\.mdx?$/) ||
-    /definition of done|ai[- ]generated|co-?authored|agent/.test(contributing)
-  )
-    s.add(15, "AI contribution process (PR template / DoD / AI policy)");
+  const processPath = idx.first(
+    /(^|\/)(pull_request_template|\.github\/pull_request_template)/,
+    /(^|\/)(ai[-_]policy|ai[-_]tools|ai[-_]contributing)\.mdx?$/,
+  );
+  const contributingFired = /definition of done|ai[- ]generated|co-?authored|agent/.test(contributing);
+  if (processPath || contributingFired)
+    s.add(15, "AI contribution process (PR template / DoD / AI policy)", processPath ?? contributingPath);
 
   // Structured tickets (Plan & Design): issue templates with acceptance criteria / DoD give an
   // agent a well-formed task to work from, not a one-line prompt.
-  if (idx.has(/^\.github\/issue_template(\/|\.)/) || idx.has(/^\.github\/issue_template$/))
-    s.add(10, "Structured issue templates");
+  const issueTemplatePath = idx.first(/^\.github\/issue_template(\/|\.)/, /^\.github\/issue_template$/);
+  if (issueTemplatePath) s.add(10, "Structured issue templates", issueTemplatePath);
 
   // The `.ai/` standard's executable conformance + structured memory — scored by evidence of use.
-  for (const g of aiStandardCached(idx).d8) s.add(g.points, g.label);
+  for (const g of aiStandardCached(idx).d8) s.add(g.points, g.label, g.detail);
 
   if (s.signals.length === 0)
     s.note("No dedicated AI process/harness detected", "e.g. evals, prompt library, agent runbooks");

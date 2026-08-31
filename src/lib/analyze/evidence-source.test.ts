@@ -92,6 +92,91 @@ describe("D5/D6/D9 presence evidence cites its path", () => {
   });
 });
 
+// UAT `SAM-L1-01` recurrence 2 (2026-08-30). The walker's reframe: the LLM narrative above the list
+// already names `.github/workflows/main.yml`, so the DETECTORS lag the model, not the UI. `workflowText`
+// flattened every workflow into one blob, which is why a workflow-body signal had no name to cite —
+// not because naming one would be a fabrication. Keeping the bodies per file makes it exact.
+describe("a signal fired by a workflow BODY cites the workflow file", () => {
+  const wf = (path: string, content: string) => snap([path], [{ path, content }]);
+
+  it("names the workflow behind CI runs tests / linting / a build", () => {
+    const s = wf(
+      ".github/workflows/main.yml",
+      "jobs:\n  ci:\n    steps:\n      - run: npm test\n      - run: npm run lint\n      - run: npm run build\n",
+    );
+    expect(lineFor(s, "D3", /CI runs tests/)).toContain(".github/workflows/main.yml");
+    expect(lineFor(s, "D3", /CI runs linting/)).toContain(".github/workflows/main.yml");
+    expect(lineFor(s, "D3", /CI runs a build/)).toContain(".github/workflows/main.yml");
+  });
+
+  it("names the workflow that matched, not merely the first workflow in the tree", () => {
+    const s = snap(
+      [".github/workflows/docs.yml", ".github/workflows/release.yml"],
+      [
+        { path: ".github/workflows/docs.yml", content: "jobs:\n  docs:\n    steps:\n      - run: echo hi\n" },
+        { path: ".github/workflows/release.yml", content: "jobs:\n  r:\n    steps:\n      - uses: softprops/action-gh-release@v2\n" },
+      ],
+    );
+    const line = lineFor(s, "D3", /Automated release tooling/);
+    expect(line).toContain(".github/workflows/release.yml");
+    expect(line).not.toContain("docs.yml");
+  });
+
+  it("names the workflows behind the multi-workflow award instead of only counting them", () => {
+    const s = snap([".github/workflows/ci.yml", ".github/workflows/release.yml"]);
+    const line = lineFor(s, "D3", /Multiple CI workflows/);
+    expect(line).toContain(".github/workflows/ci.yml");
+    expect(line).toContain(".github/workflows/release.yml");
+  });
+
+  it("names the workflow enforcing the D6 guardrail", () => {
+    const s = wf(".github/workflows/checks.yml", "jobs:\n  q:\n    steps:\n      - run: npx tsc --noEmit\n");
+    expect(lineFor(s, "D6", /enforced in CI/)).toContain(".github/workflows/checks.yml");
+  });
+
+  it("cites the linter/formatter/tsconfig CONFIG file, and stays unsourced on a manifest-only hit", () => {
+    const configured = snap(["eslint.config.mjs", ".prettierrc", "tsconfig.json"], [
+      { path: "tsconfig.json", content: '{"compilerOptions":{"strict":true}}' },
+    ]);
+    expect(lineFor(configured, "D6", /Linter configured/)).toContain("eslint.config.mjs");
+    expect(lineFor(configured, "D6", /Formatter configured/)).toContain(".prettierrc");
+    expect(lineFor(configured, "D6", /TypeScript strict mode/)).toContain("tsconfig.json");
+
+    // Only a devDependency says "eslint": there is no standalone config to open, so nothing is named.
+    const manifestOnly = snap(["package.json"], [
+      { path: "package.json", content: '{"devDependencies":{"eslint":"^9","prettier":"^3"}}' },
+    ]);
+    expect(lineFor(manifestOnly, "D6", /Linter configured/)).toBe("Linter configured");
+    expect(lineFor(manifestOnly, "D6", /Formatter configured/)).toBe("Formatter configured");
+  });
+});
+
+describe("D8's harness evidence cites its path", () => {
+  it("cites the prompt library, the runbooks/ADRs and the issue templates", () => {
+    const s = snap([
+      "prompts/review.md",
+      "docs/adr/0001-pick-a-db.md",
+      ".github/ISSUE_TEMPLATE/bug.md",
+      ".ai/doctor.mjs",
+      ".ai/memory/2026-01-a.md",
+      ".ai/memory/2026-02-b.md",
+    ]);
+    expect(lineFor(s, "D8", /prompt \/ agent \/ skill library/)).toContain("prompts/review.md");
+    expect(lineFor(s, "D8", /runbooks \/ ADRs/)).toContain("docs/adr/0001-pick-a-db.md");
+    expect(lineFor(s, "D8", /Structured issue templates/)).toContain(".github/issue_template/bug.md");
+    expect(lineFor(s, "D8", /doctor\.mjs present/)).toContain(".ai/doctor.mjs");
+    expect(lineFor(s, "D8", /Structured memory in use/)).toContain(".ai/memory/2026-01-a.md");
+  });
+
+  it("names the workflow that WIRES the doctor, since that is what the wiring claim rests on", () => {
+    const s = snap(
+      [".ai/doctor.mjs", ".github/workflows/conformance.yml"],
+      [{ path: ".github/workflows/conformance.yml", content: "jobs:\n  c:\n    steps:\n      - run: node .ai/doctor.mjs\n" }],
+    );
+    expect(lineFor(s, "D8", /wired into CI\/hook/)).toContain(".github/workflows/conformance.yml");
+  });
+});
+
 describe("a signal fired by TEXT, not by a path, stays unsourced", () => {
   it("does not invent a file when SAST was detected in a workflow body", () => {
     // The workflow is named something else entirely; only its CONTENT mentions semgrep, so the

@@ -259,16 +259,29 @@ re-derive the regex by hand.
 (Claude Code guidance) (docs/claude.md)"*. The **quality** claims about a guidance file cite the file
 they were read from, since the claim is about that file's contents.
 
-**A signal fired by TEXT stays unsourced, deliberately.** Several detectors match either a path *or*
-the combined manifest/workflow text blob. When the blob fired one there is no file to point at, so
-`first()` returns `undefined` and no detail is attached — naming a plausible file would be a
-fabrication in the one place the product is asking to be trusted. `evidence-source.test.ts` pins both
-directions.
+**A workflow-body signal cites the WORKFLOW FILE.** `RepoIndex.workflowMatch(re)` is `first()`'s twin
+for the other trigger: workflow bodies are kept per file (`workflowFiles`) as well as concatenated
+(`workflowText`), so *"CI runs tests"* names `.github/workflows/main.yml` rather than the blob. This
+is exact, not plausible — it names the file the matching line was actually read from. UAT `SAM-L1-01`
+recurrence 2 (2026-08-30) reframed the gap this way: the LLM narrative above the evidence list already
+cited the workflow paths, so *the deterministic detectors were lagging the model*, not the UI.
 
-Covered so far: D1 (all presence + quality signals), D2's framework/e2e/coverage config, D5's
-document set, D6's type-check / pre-commit / CODEOWNERS, D9's SAST / SCA / SECURITY.md /
-threat-model. Not yet: the purely text-blob signals in D3/D8/D9, which have no path to cite at all,
-and the count/ratio signals, whose detail is already a number. Backlog `B4` tracks the sweep.
+**A signal fired by MANIFEST text stays unsourced, deliberately.** Several detectors match a path, a
+workflow body, *or* the manifest blob. A dependency named in `package.json` is not a standalone
+config a reader can open, so no detail is attached — naming a plausible file would be a fabrication in
+the one place the product is asking to be trusted. `evidence-source.test.ts` pins both directions.
+
+Covered: D1 (all presence + quality signals, plus the `.ai/` manifest awards), D2's
+framework/e2e/coverage config, **all of D3** (the CI presence path, the named workflow list, the
+tests/lint/build jobs, release/deploy, IaC and the delivery-as-code cluster), D5's document set, D6's
+linter/formatter/tsconfig configs and the CI guardrail's workflow, **all of D8** (eval harness, prompt
+library, runbooks/ADRs, contribution process, issue templates, `.ai/doctor.mjs` + the file that wires
+it, and the memory entries), and D9's SAST / SCA / SECURITY.md / threat-model.
+
+Still bare, and each for a stated reason rather than by omission: D9's text-only checks (the same
+manifest-blob case above); D2's assertion-substance sample, whose `detail` is a measurement rather than
+a path and is deliberately left untouched (guardrail **G6**); and the count/ratio signals, whose detail
+is already a number.
 
 The same pass also computes `classifyArchetype()` (**solo / team / org**, selects the
 weighting lens later), `detectAiUsage()` (AI-commit fraction, tracked separately from the
