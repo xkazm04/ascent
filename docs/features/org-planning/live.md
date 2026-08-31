@@ -255,10 +255,21 @@ Three rules now hold, and they are the vocabulary the whole loop answers to:
    after the restatement read, the dimension's own movement, and `attributeDelta` over the two
    engines (a mock end, or a move inside the ±noise band, closes nothing). The commit trailers come
    back separately as `claimedIds` and are never folded into a count.
-2. **Every outcome row carries `verified`.** `true` only when the rescan closed that id in that lane.
-   It is **derived**, not stored: the lane row already persists the adjudicated set, and
-   `listRunOutcomes` joins it lane-by-lane — so an A/B run's two arms, which arm the same batch,
-   cannot verify each other's claims. A row from a payload without the field reads as unverified.
+2. **Every outcome row carries `verified`, read from its own `verifiedAt` stamp.**
+   `LaneItemOutcome.verifiedAt` is written by `recordLaneOutcomes` at the moment the rescan's
+   adjudicated set (rule 1) named the id, and `listRunOutcomes` reads the column. `verified` is
+   `true` only for a `resolved` row with a stamp; **null is never verified**, on any path.
+   *This replaced a read-time join and had to.* `verified` was first derived by joining the lane's
+   `closedIdsJson` — exact for new rows, but every lane written before rule 1 stored the raw
+   commit-trailer set there, which is the agent's own claim. The tautology re-entered through the
+   join: a recertification sweep of the only corpus that exists found **36 of 36** historical rows
+   returning `verified: true` and not one rendering the new label. A stamp is per-row, so an A/B
+   run's two arms — which arm the same batch — cannot verify each other's claims by construction.
+   A row from a payload without the field reads as unverified.
+   **There is no backfill, and that is the fix, not a shortfall.** Every pre-column row has a null
+   stamp and now reads *"claimed resolved — awaiting the rescan"*, which is what those rows are:
+   nothing adjudicated them, and no migration can invent an adjudication that never happened. The
+   next rescan is what earns them a stamp.
 3. **The panel says which one it means.** A verified close reads *"closed by the rescan"* in the
    accent tone; an unverified one reads *"claimed resolved — awaiting the rescan"* in a muted italic,
    with a title explaining that the item is still open. The lane counters and the run band say
