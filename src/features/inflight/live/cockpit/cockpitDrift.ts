@@ -17,6 +17,7 @@
 // bodies the run actually touched.
 
 import { attributeDelivered, type Attribution } from "@/lib/maturity/attribution";
+import { baseRelationOf } from "@/lib/db/loop-runs-types";
 import { layoutBodies, type ObservatoryBody, type ObservatoryHistory, type ObservatorySeed } from "../observatory";
 import type { LoopLaneOutcome, LoopRunDetail } from "./loopTypes";
 
@@ -102,7 +103,12 @@ export function scanningRepos(detail: LoopRunDetail | null): ReadonlySet<string>
  * survive the run. `runLane` now refuses to rescan such a lane at all, but the rows written before it
  * did are still in the database and the ledger renders them — so the refusal lives on BOTH sides.
  */
-export const laneAttribution = (o: LoopLaneOutcome): Attribution => attributeDelivered(o.before, o.after, o.commits);
+export const laneAttribution = (o: LoopLaneOutcome): Attribution =>
+  // The fourth input is the lane's own base finding, recovered from the disclosure row it persisted
+  // (`baseRelationOf`): a pair whose two ends were taken on divergent commits measured two different
+  // trees, and its difference is not a lift or a regression in either direction. A lane that never
+  // made the determination reads `unknown`, which refuses nothing.
+  attributeDelivered(o.before, o.after, o.commits, baseRelationOf(o.deliverables));
 
 export interface RunAttribution {
   /** Summed movement across the lanes whose movement is ATTRIBUTABLE; null when no lane is. */
