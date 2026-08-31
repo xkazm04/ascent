@@ -12,7 +12,7 @@ import { Surface } from "@/components/ui";
 import { Bar } from "./usagePanels";
 import { LANE_LABEL, type UsageLane } from "@/lib/llm/meter";
 // Deep path, not the barrel: the `@/lib/db` re-export is a Director-owned line that lands at merge.
-import type { LaneUsage, TeamUsage } from "@/lib/db/usage-events";
+import { UNKNOWN_LANE, type LaneKey, type LaneUsage, type TeamUsage } from "@/lib/db/usage-events";
 
 /** Per-lane accent, from the brand's own tokens — no hand-picked hexes. The scan lane keeps the
  *  accent it has everywhere else on this page; the rest step through the tone scale so the bars are
@@ -24,6 +24,19 @@ const LANE_COLOR: Record<UsageLane, string> = {
   briefing: "var(--color-tone-falling)",
   local: "var(--color-tone-flat)",
 };
+
+/** MC-B31: a ledger row tagged with a lane this build does not know is real spend, and the team panel
+ *  beside this one counts it. It gets its own named row rather than vanishing — an unexplained gap
+ *  between two totals on one page is worse than an honestly odd row. */
+const UNKNOWN_LANE_LABEL = "Unrecognized lane";
+
+function laneLabel(lane: LaneKey): string {
+  return lane === UNKNOWN_LANE ? UNKNOWN_LANE_LABEL : LANE_LABEL[lane];
+}
+
+function laneColor(lane: LaneKey): string {
+  return lane === UNKNOWN_LANE ? "var(--color-tone-flat)" : LANE_COLOR[lane];
+}
 
 /** "$1.23", or the honest absence. A null cost is NOT rendered as $0.00 — see the header. */
 function cost(usd: number | null): string {
@@ -57,11 +70,19 @@ export function LanePanels({
             byLane.map((l) => (
               <div key={l.lane}>
                 <Bar
-                  label={`${LANE_LABEL[l.lane]} · ${cost(l.estimatedCostUsd)}`}
+                  label={`${laneLabel(l.lane)} · ${cost(l.estimatedCostUsd)}`}
                   value={l.calls}
                   total={laneTotal}
-                  color={LANE_COLOR[l.lane]}
+                  color={laneColor(l.lane)}
+                  pattern={l.lane === UNKNOWN_LANE}
                 />
+                {l.lane === UNKNOWN_LANE && (
+                  <p className="mt-1 type-body-sm text-slate-500">
+                    Recorded under a lane name this version does not know (a newer or rolled-back
+                    build). Counted here so this panel and the team panel agree on the period&apos;s
+                    total.
+                  </p>
+                )}
                 {l.unpricedCalls > 0 && (
                   <p className="mt-1 type-body-sm text-slate-500">
                     {l.unpricedCalls.toLocaleString()} of {l.calls.toLocaleString()} call
@@ -75,7 +96,7 @@ export function LanePanels({
         </div>
         <p className="mt-3 type-body-sm text-slate-500">
           The scan lane is counted from stored scans; every other lane is counted from the model-call
-          ledger. A lane that ran nothing in the period is not listed.
+          ledger. A lane that ran nothing in the period is not listed, and no lane that ran is dropped.
         </p>
       </Surface>
 
