@@ -37,6 +37,12 @@ const CFG = {
   model: flag("model", "opus"),
   effort: flag("effort", null),
   maxCycles: Number(flag("max-cycles", "1")),
+  // Product-side knobs. All are nullable server-side, so an omitted one means "the deployment's
+  // default" rather than a value this script invented.
+  delivery: flag("delivery", null), // branch | land | pr — what happens to a lane's branch
+  batchSize: flag("batch-size", null), // items armed per lane (cap 12)
+  agentTimeoutMin: flag("agent-timeout-min", null), // per-session ceiling for a larger change
+  verifyMode: flag("verify", null), // on | off — the in-cycle degradation guard
   concurrency: Number(flag("concurrency", "2")),
   // A run is long: an agent session alone is capped at 20 minutes per lane, and a rescan follows it.
   runTimeoutMs: Number(flag("run-timeout-min", "75")) * 60_000,
@@ -239,6 +245,10 @@ async function main() {
           concurrency: CFG.concurrency,
           model: CFG.model,
           ...(CFG.effort ? { effort: CFG.effort } : {}),
+          ...(CFG.delivery ? { delivery: CFG.delivery } : {}),
+          ...(CFG.batchSize ? { batchSize: Number(CFG.batchSize) } : {}),
+          ...(CFG.agentTimeoutMin ? { agentTimeoutMs: Number(CFG.agentTimeoutMin) * 60_000 } : {}),
+          ...(CFG.verifyMode ? { verifyMode: CFG.verifyMode } : {}),
         }),
       });
       const { timedOut } = await waitForIdle(started + CFG.runTimeoutMs);
