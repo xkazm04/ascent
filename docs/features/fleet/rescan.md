@@ -280,6 +280,21 @@ know what is still queued without claiming it, and claiming a row it will not ru
 not knowing. `oldestAgeMs` is `null`, never `0`, for an empty lane. A lane that stays deep across
 passes is an oversubscribed schedule, and this body is the only place a cron run can say so.
 
+**And it is no longer the only place a HUMAN can see it (2026-08-31, UAT `VICTOR-L1-07`).** The depth
+reached only these two JSON bodies, so a director budgeting a weekly paid cadence could learn how deep
+his backlog was only by counting per-row "queued" tags — *"I'd see 400 per-row 'queued' tags before I
+saw the number 400."* The **Repositories** tab now opens with one line above the leaderboard:
+*"Scan queue: 400 rescans waiting, oldest queued 3h ago."*
+
+It reads through `orgQueueDepth(slug)`, a deliberate sibling of `queueDepth()` rather than a reuse of
+it. `queueDepth` returns a fully-zeroed record without a database and swallows a failed count into a
+`0` — right for a cron body whose response shape must stay stable, and wrong for a dashboard, where a
+reader cannot tell "nothing is waiting" from "the queue table could not be read". `orgQueueDepth`
+returns **null** in all three of those cases and the line says
+*"Scan queue depth is unavailable — this deployment's job queue could not be read."* An empty queue
+that WAS read still gets its own sentence, because on a page about cadence "nothing waiting" is a
+measurement worth stating.
+
 `GET /api/cron/probe` returns the same shape narrowed to its lane:
 `{ lane: "probe", claimed, done, failed, skipped, truncated, queueDepth, errors }`.
 
@@ -306,7 +321,7 @@ through the calendar (a flat 30-day step fires 12.2 times a year, one day earlie
 | --- | --- |
 | `src/app/api/cron/rescan/route.ts` | The rescore lane's seeder + worker. |
 | `src/app/api/cron/probe/route.ts` | The free control lane's worker (`maxDuration = 60`, hourly). |
-| `src/lib/db/scan-jobs.ts` | The queue: `enqueueScanJob`, `enqueueDueRescans`, `enqueueProbeJob`, `claimJob`, `claimJobById`, `claimRepoWork`, `settleJob`, `reapExpiredLeases`, `queueDepth`, `listJobsForRun`. |
+| `src/lib/db/scan-jobs.ts` | The queue: `enqueueScanJob`, `enqueueDueRescans`, `enqueueProbeJob`, `claimJob`, `claimJobById`, `claimRepoWork`, `settleJob`, `reapExpiredLeases`, `queueDepth`, `orgQueueDepth` (the null-honest read the Repositories tab renders), `listJobsForRun`. |
 | `src/lib/scan-queue-worker.ts` | `drainLane` — the one implementation of the money loop, shared by the cron, the bulk scan and the import. |
 | `src/lib/scan-probe.ts` · `src/lib/scan-probe-controls.ts` | The credit-free runner and its pure `Governance`/`SecurityPosture`/repo-meta → control samplers. |
 | `src/lib/db/control-observations.ts` | `recordObservations`, `latestObservations`, `listObservationsSince` — the ledger's write side. |

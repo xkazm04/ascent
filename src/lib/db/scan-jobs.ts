@@ -445,6 +445,48 @@ export async function queueDepth(orgSlug?: string): Promise<Record<ScanLane, Lan
 }
 
 /**
+ * `queueDepth` for an OPERATOR SURFACE — null wherever the number would be a fiction.
+ *
+ * `queueDepth` above returns a fully-zeroed record without a database and swallows every count error
+ * into a 0, which is exactly right for the two cron routes: they run only where the DB is configured,
+ * and a JSON field that degrades to zero keeps their response shape stable. It is exactly wrong for a
+ * dashboard line, because a reader cannot tell "nothing is waiting" from "the queue table could not
+ * be read" — the aggregate-honesty rule this fleet's meters are built on.
+ *
+ * So: null without a database, null for an unknown org, and null when the read itself fails. A caller
+ * renders nothing (or says why) rather than reporting an empty queue it never saw. Org-scoped by
+ * construction — the counts pass the resolved `orgId` into the query, never a caller-supplied slug.
+ */
+export async function orgQueueDepth(orgSlug: string): Promise<Record<ScanLane, LaneDepth> | null> {
+  if (!isDbConfigured()) return null;
+  const orgId = await getOrgId(orgSlug).catch(() => null);
+  if (!orgId) return null;
+  const prisma = getPrisma();
+  const now = Date.now();
+  const out: Record<ScanLane, LaneDepth> = {
+    rescore: { queued: 0, oldestAgeMs: null },
+    probe: { queued: 0, oldestAgeMs: null },
+  };
+  try {
+    for (const lane of ["rescore", "probe"] as ScanLane[]) {
+      const where = { lane, state: "queued", orgId };
+      const queued = await prisma.scanJob.count({ where });
+      const oldest = queued
+        ? ((await prisma.scanJob.findFirst({
+            where,
+            orderBy: { createdAt: "asc" },
+            select: { createdAt: true },
+          })) as { createdAt: Date } | null)
+        : null;
+      out[lane] = { queued, oldestAgeMs: oldest ? now - oldest.createdAt.getTime() : null };
+    }
+  } catch {
+    return null;
+  }
+  return out;
+}
+
+/**
  * One interactive run's jobs. GATE-THEN-CONSTRAIN: the caller gates `orgSlug`, and the resolved org id
  * is passed into the query BESIDE `runId`, so a runId belonging to another org is simply not found
  * rather than being authorized by the caller-supplied pair.

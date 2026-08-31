@@ -19,6 +19,7 @@ import { SegmentsSection } from "./SegmentsSection";
 import { RepositoriesLeaderboardPanel } from "./RepositoriesLeaderboardPanel";
 import { ContextHealthPanel } from "./context-health/ContextHealthPanel";
 import { FoundationRolloutPanel } from "./FoundationRolloutPanel";
+import { QueueDepthLine } from "./QueueDepthLine";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
@@ -51,6 +52,12 @@ export async function RepositoriesTab({
   return (
     <div className="stagger-children space-y-6">
       <FleetTabs slug={slug} active="repositories" />
+      {/* The cadence backlog as ONE number, above the table whose per-row "queued" tags were the only
+          way to see it (UAT `VICTOR-L1-07`). Suspended separately so a slow queue count never holds
+          the leaderboard back. */}
+      <Suspense fallback={<OrgTabGap minH="min-h-4" />}>
+        <QueueDepthLine slug={slug} />
+      </Suspense>
       {/* The leaderboard leads. It is the answer to the question the tab's own name asks ("which
           repos do I have, and where do they stand?"), so it must not be pushed below the fold by a
           derived lens — Context Health used to sit above it and did exactly that. */}
