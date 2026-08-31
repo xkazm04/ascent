@@ -25,12 +25,14 @@
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "NODE_ENV was `development` in arm A, so the production leg of the predicate (authBypassEnabled() hard-off at env.ts:113) is inferred rather than executed — but authGateEnabled() was genuinely true on the arm, which is the whole predicate the finding turns on.",
+    "resolution": "resolved-verified",
+    "ceiling": "The wall predicate is now single-sourced, but ColdScanGate.tsx:52 still hard-codes 'free for public repositories and needs no account' without reading publicScanWallEnabled() — the doors agree only because the wall is OFF on this deployment. Turn PUBLIC_SCAN_SIGN_IN_REQUIRED on and door 2 contradicts doors 1 and 3 again. Quota copy is still two phrasings ('4 of 5 free scans left this month' vs 'capped at a few per month per visitor') — MC-B5.",
     "recurrence": 2,
     "suggested_acceptance": "BUILD — one expression: pass `gated && publicScanSignInRequired()` (or a server-resolved `scanLocked`) into ScanModal. This is the single highest-value line in the run.",
     "scope_note": "Prior run's TOMAS-L1-01 is re-raised with a CHANGED SHAPE: the server half is fixed and carried forward separately as B2-server (resolved-verified). Sam's walk independently records the same exemption as resolving his entry.",
-    "l2_priority": "DONE (arm A). Precondition satisfied by construction: ASCENT_AUTH_BYPASS empty, Supabase keys present ⇒ authGateEnabled() true."
+    "l2_priority": "DONE (arm A). Precondition satisfied by construction: ASCENT_AUTH_BYPASS empty, Supabase keys present ⇒ authGateEnabled() true.",
+    "recertify_evidence": "L2 recertify arm ANONYMOUS (:3100, ASCENT_EMPTY=1, PGLITE_DATA_DIR=.pglite/uat-armA, ASCENT_AUTH_BYPASS= / PUBLIC_SCAN_QUOTA_DISABLED= empty, ASCENT_SELF_HOSTED=0). Anonymity asserted first: shots/recert-B2-landing.aria.yaml:17 carries a bare `button \"Sign in\"`, no org name, no avatar, no identity menu; GET /api/quota → {\"enforced\":true,\"remaining\":4,\"limit\":5,\"scope\":\"anon\"}. Hero CTA 'Scan a repository' now opens a dialog containing the SCAN FORM, not a lock: shots/recert-B2-scandialog.aria.yaml:57-59 `textbox \"GitHub repository\" /placeholder: owner/repo` + `button \"Scan\"`, and the QuotaMeter at :64-65 '4 of 5 free scans left this month · Sign in for more scans'. No 'Sign in to scan' panel anywhere in the capture. Code: page.tsx:109 `const gated = publicScanWallEnabled()` → scan-gates.ts:120-121 `authGateEnabled() && publicScanSignInRequired()`, the same expression scan-gates.ts:98 applies on the endpoint's publicScan branch. Commits under test f7bfa8d2..c56ab666 (MC-B2, f6cbe4a2).",
+    "recertify_commit_range": "f7bfa8d2..c56ab666"
   },
   {
     "id": "PRIYA-L1-702",
@@ -63,7 +65,9 @@
     "recurrence": null,
     "suggested_acceptance": "BUILD — first. Store a `verified` boolean (or a sixth verdict value) on LaneOutcomeRow, route `rescanWorktree` through the same `decideInProgress` movement witness `scans-persist.ts` uses, and render 'claimed resolved — awaiting the rescan' in a distinct tone. Fix the test whose title contradicts its assertion in the same change.",
     "scope_note": "BLOCKER-GRADE ESCALATION CONSIDERED AND DECLINED. Impact is the highest triple in the run (high/high/high) and arm C proved the mechanism is systemic rather than occasional, but the Character completes her job and says so in her own words ('I would still roll this out. I would not show anyone the verdict panel until it says which of those two numbers it means'). Per the rubric that is `major` — serious friction and a verdict she would not defend — not `blocker`. It is ranked #1 in the drain order regardless, above both blockers, because drain order is impact-weighted and both blockers score lower on reachability-today or on frequency.",
-    "l2_priority": "DONE (arm C). Precondition satisfied: self-hosted + autopilot + org `kiro` with a 20-run corpus."
+    "l2_priority": "DONE (arm C). Precondition satisfied: self-hosted + autopilot + org `kiro` with a 20-run corpus.",
+    "recertify_evidence": "L2 recertify on :3000, org `kiro`, 20-run corpus — MECHANISM LANDED, SYMPTOM UNCHANGED. What is now true: the payload carries the discriminator the finding said it lacked — 36 of 36 stored `resolved` itemOutcomes across all 20 runs come back with a `verified` field (sweep over GET /api/org/loop/<id>?org=kiro), and CockpitVerdicts.tsx:52-60 renders an unverified resolved as 'claimed resolved — awaiting the rescan' in an italic muted tone with its own title. What Priya can actually see: NOTHING CHANGED. All 36 rows read `verified: true`, because `listRunOutcomes` (lane-outcomes.ts:301-321) joins verification from the lane's `closedIdsJson` — and every PRE-FIX lane's closedIds IS the raw commit-trailer set the finding indicted, so the tautology now re-enters through the join. Live capture of run 1 (uat/driver/drive-armC-openrun.mjs '/org/kiro?tab=live' '^Run 1 today'): 8 ITEM VERDICTS rows, all 8 reading 'closed by the rescan' (shots/recert-B11-run1.aria.yaml:2253-2277), ZERO reading 'claimed resolved'. The two surfaces still contradict: cockpit 'Closed 16 follow-ups' and '2 repos · 328 gaps closed' (shots/recert-B11-run1.text.txt:170,277) vs GET /api/org/backlog?org=kiro&includeClosed=1 → {tracked:17, open:3, inProgress:14, done:0}. STILL MISSING: the pre-column backfill — either clear/ignore `closedIdsJson` on lanes written before the split, or store `verified` on the row instead of joining it, so historical rows fall to `verified:false` (the direction the module's own docstring calls 'the safe direction for a trust flag'). That is MC-B19. No new loop run was started (claude-cli weekly cap); the discriminator is read-time, so a new run is not what is missing. Commits under test f7bfa8d2..c56ab666 (MC-B11, d165da23).",
+    "recertify_commit_range": "f7bfa8d2..c56ab666"
   },
   {
     "id": "PRIYA-L1-701",
@@ -122,12 +126,14 @@
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "Proven on a development build; a production build was not required because the predicate (authGateEnabled) was genuinely true on the arm.",
+    "resolution": "resolved-verified",
+    "ceiling": "The three doors agree because none of them walls. Door 2's copy is still an independent literal (ColdScanGate.tsx:52), not a read of the predicate, so the agreement is coincidental rather than structural — with the wall on, only doors 1 and 3 would move. Door 3 still starts the live scan on page load with no confirmation, which is the behaviour, not a bug, but it is unchanged.",
     "recurrence": null,
     "suggested_acceptance": "BUILD — travels with TOMAS-L1-01. Whichever answer the product gives, give it on all three doors from one predicate.",
     "scope_note": "The other half of TOMAS-L1-01; kept as a separate row because the fixes are separable (one is the hero's predicate, one is the consistency of three doors) and both halves were live-proven in the same anonymous session.",
-    "l2_priority": "DONE (arm A)."
+    "l2_priority": "DONE (arm A).",
+    "recertify_evidence": "L2 recertify ANONYMOUS arm (:3100). Door 1 — hero dialog: scan form + quota meter, no wall (shots/recert-B2-scandialog.aria.yaml:57-65). Door 2 — cold permalink /report/sindresorhus/query-string renders the calm gate: 'This repository hasn't been scanned on Ascent yet… It's free for public repositories and needs no account.' + 'Scan sindresorhus/query-string now' + teaser 'Free for public repositories: no account, no card. Free scans are capped at a few per month per visitor' (shots/recert-B2-coldgate.text.txt). Door 3 — /report?repo= still mounts ReportClient with no gate and no predicate of its own (report/page.tsx; scan-gates.ts:113-115 comment). All three now give the SAME answer to 'do I need an account to scan a public repo?': no. Commits under test f7bfa8d2..c56ab666 (MC-B2, f6cbe4a2).",
+    "recertify_commit_range": "f7bfa8d2..c56ab666"
   },
   {
     "id": "TOMAS-L1-02",
@@ -341,12 +347,14 @@
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "The blend-weight half (`effectiveBlend` invisible per-dimension) is still code-verified only — the chip's global '95%' was read live, but no per-dimension weight exists to compare it against.",
+    "resolution": "resolved-verified",
+    "ceiling": "Two units for one fact on one page: the header chip reads 'blend 95%' (0.57 realized against a configured 0.6) while every provenance track reads 'Blend weight 57%' (the absolute weight). Both are true and the chip's tooltip reconciles them ('0.57 against a configured 0.6'), but a reader who does not open the tooltip sees 95 and 57 for the same number. Filed as a new finding below.",
     "recurrence": 2,
     "suggested_acceptance": "BUILD — pass the dimension id into ProvenanceTrack and read the per-dimension band (`widened ? 12 : 6`). Sam names this the one he would fix first, because it is a contradiction rather than an omission.",
     "scope_note": "MAGNITUDE CORRECTED BY L2, not silently: every L1 statement of '±25 vs ±50' is stale by one rubric revision and reads ±6 vs ±12. The shape of the defect is exactly as filed. Distinct from SAM-L1-11 (mechanism) though they share a component; a fix to this row alone leaves SAM-L1-11 intact.",
-    "l2_priority": "DONE (arm A) — required a live claude-cli scan, since mock produces no discrepancies and therefore no widenedDims."
+    "l2_priority": "DONE (arm A) — required a live claude-cli scan, since mock produces no discrepancies and therefore no widenedDims.",
+    "recertify_evidence": "L2 recertify on :3000, live claude-cli report sindresorhus/slugify — a fixture that (like arm A's p-limit) carries widenedDims D2, D6. Header chip: 'integrity · widened D2, D6 · blend 95%' with the tooltip 'The model flagged the detector as suspect on D2, D6, so its guardband there was DOUBLED… Only 95% of the model's usual weight was applied (0.57 against a configured 0.6)' (shots/recert-B3-dims.text.txt:28-29). Per-dimension track, same page, all nine dimensions read by DOM (shots/armA-dimloop.json, regenerated): D2 <title> 'Guardband DOUBLED to ±12: the model flagged this detector as suspect, so its judgment was clamped to ±12 of the signal instead of the usual ±6' with band rect width 56.64; D6 identical, width 56.64; D3/D5/D7 'clamped to within ±6' with width 28.32. 56.64 = exactly 2 × 28.32 — the widened band is now DRAWN, not merely relabelled (arm A measured all nine at 28.32). The blend weight is now visible on every blended dimension: 'Blend weight 57%: after weighting, the model can move this score at most ±7 from the signal 46' (D2), '±3' on the ±6 dimensions — the nested clamp+reach rects Sam's `expected` asked for. Commits under test f7bfa8d2..c56ab666 (MC-B3, 904bcc21).",
+    "recertify_commit_range": "f7bfa8d2..c56ab666"
   },
   {
     "id": "SAM-L1-11",
@@ -373,12 +381,14 @@
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "D9 could not be DISCRIMINATED live: the model returned exactly the signal value (24/24/24), so signal, LLM tick and blended marker landed on one pixel. D9 rests on code (engine.ts:76,146), corroborated but not proven live. CLOSING FIXTURE: a scan where the model disagrees with the D9 signal.",
+    "resolution": "resolved-verified",
+    "ceiling": "The claim-scored panel says what it is NOT ('Cited-claim scored: no guardband and no judgment blend') and, on this fixture, that nothing was verified — but it renders no facet table, so when claimPoints > 0 the reader still cannot see WHICH citations awarded the points. That was the second half of the suggested acceptance ('render the claim facets that ARE the real provenance') and it is not built; and no fixture on this host has a non-zero claimPoints D1/D4, so the non-zero rendering is unexercised.",
     "recurrence": null,
     "suggested_acceptance": "BUILD — suppress the LLM tick and the guardband on claim-scored and deterministic dimensions, and render the claim facets that ARE the real provenance there. D1/D4 being fully reproducible is a selling point the track currently hides.",
     "scope_note": "MAGNITUDE CORRECTED BY L2 (±6, not ±25). Separately declinable from SAM-L1-02 despite sharing DimensionDetail.tsx.",
-    "l2_priority": "DONE (arm A)."
+    "l2_priority": "DONE (arm A).",
+    "recertify_evidence": "L2 recertify on :3000, sindresorhus/slugify, all nine dimensions read from the DOM (shots/armA-dimloop.json). D1 and D4 (CLAIM_SCORED): aria-label 'Score provenance: signal 0, 0 points from verified citations, score 0. No LLM judgment band on this dimension.', band rect **null**, <title>s are exactly ['Signal (deterministic): 0','Score (signal + verified citations): 0'] — no guardband, no 'LLM judgment' tick. D9 (SIGNAL_ONLY): 'Score provenance: deterministic score 24. The model does not move this number.', band **null**, titles ['Signal (deterministic): 24','Score (deterministic, unmoved): 24']. D2/D3/D5/D6/D7/D8 (blended) still draw the band and the tick, correctly. Panel copy on a claim-scored dimension: 'Cited-claim scored: no guardband and no judgment blend. The model moves this score only by citing evidence the detector missed; nothing was verified, so the score is the detector's 0.' (shots/recert-B3-dims.text.txt:179). Backing module src/lib/scoring/provenance.ts derives the three branches from the engine's own constants. Commits under test f7bfa8d2..c56ab666 (MC-B3, 904bcc21).",
+    "recertify_commit_range": "f7bfa8d2..c56ab666"
   },
   {
     "id": "SAM-L1-09",
@@ -710,12 +720,14 @@
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "@react-pdf subsets its fonts, so the PDF's text is not extractable on this host; the PDF leg rests on the identical conditional at briefing-document.tsx:127 plus the markdown, which was read verbatim. No fixture was written — the window was SELECTED, not backdated (the CLI DATABASE_URL does not reach the embedded PGlite).",
+    "resolution": "resolved-verified",
+    "ceiling": "The refusal is now correct, but the low-data window still shows a 'Change vs 2026-08-21 → 2026-08-24 start: +2' figure beside the refusal — the delta is not gated by the same presentability rule the trajectory now is. And forecastBasis's compacted tail ('N of them compacted') is still unexercised: no org on this host has retention-compacted history (DANA-L1-014's fixture gap is unclosed), so the basis line has only ever rendered its uncompacted branch.",
     "recurrence": 3,
     "suggested_acceptance": "BUILD — replace the deletion with a caveat. Dana's own words: 'The ETA I would delete from the slide before presenting.' Third run of the same finding.",
     "scope_note": null,
-    "l2_priority": "DONE (arm B)."
+    "l2_priority": "DONE (arm B).",
+    "recertify_evidence": "L2 recertify on :3000, org `public`, the same two selected windows arm B used (no rows written). LOW-DATA `?tab=executive&range=custom&from=2026-08-21&to=2026-08-24` (points=2): the hedge is no longer deleted — the clause REFUSES. Clipboard markdown shots/recert-B1-brief-lowdata.md:10 '- Trajectory: Not enough history to project: 2 distinct scan days (a line through ≤ 2 points fits perfectly no matter how noisy the data).'; on-screen card shots/recert-B1-exec-lowdata.aria.yaml:82-83 the same sentence under heading 'Trajectory'. The bare '+35/wk' arm B captured is gone. 90-DAY window: shots/recert-B1-brief-90d.md:10 '- Trajectory: Declining at -2/wk, staying within L4 · Integrated for now. (trend confidence 34% · noisy · fit over 8 scan days across 75 days)' — hedge PRESENT and now carrying its basis; on-screen shots/recert-B1-exec-90d.aria.yaml:83-84 renders the clause and the hedge as two paragraphs. Commits under test f7bfa8d2..c56ab666 (MC-B1, 4aa12080).",
+    "recertify_commit_range": "f7bfa8d2..c56ab666"
   },
   {
     "id": "DANA-L1-002",
@@ -740,12 +752,14 @@
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "The digest path (a fifth consumer that reimplements the same line at digest/route.ts:217 with no hedge in any branch) is unreachable on this host — it needs CRON_SECRET and a webhook sink.",
+    "resolution": "resolved-verified",
+    "ceiling": "The briefing now speaks Delivery's words, but it reaches them by reproducing the sentence rather than by both tabs rendering one shared component — a future edit to Delivery's copy can still drift the two apart; only the numeric rule (MIN_FORECAST_POINTS/SPAN) is genuinely shared. The digest path was not exercised live on this host (no cron secret: /api/health autoscan.cronSecret false), so 'briefing AND digest' is verified on the briefing half only.",
     "recurrence": 2,
     "suggested_acceptance": "BUILD — consult the shared gate on the briefing and digest paths. Dana: 'This is the one I would not ship past.'",
     "scope_note": null,
-    "l2_priority": "DONE (arm B)."
+    "l2_priority": "DONE (arm B).",
+    "recertify_evidence": "L2 recertify on :3000: the contradiction arm B proved one click apart is gone. Briefing (custom 08-21→08-24) → 'Not enough history to project: 2 distinct scan days (a line through ≤ 2 points fits perfectly no matter how noisy the data).' (shots/recert-B1-brief-lowdata.md:10, shots/recert-B1-exec-lowdata.aria.yaml:83). That is `forecastInsufficiency`'s string verbatim — the identical sentence Delivery renders via DeliveryFitReadout.tsx:19 and which arm B captured at shots/armB-delivery-lowdata.text.txt:41,43,45. Two tabs, one window, one org, one answer. Commits under test f7bfa8d2..c56ab666 (MC-B1, 4aa12080).",
+    "recertify_commit_range": "f7bfa8d2..c56ab666"
   },
   {
     "id": "DANA-L1-013",
@@ -771,12 +785,14 @@
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "SURFACE-MODEL CORRECTION FROM L2: 'every forecast Dana reads' is ONE forecast. The `Trajectory` card in features/standing/overview/ is imported only by /trends and PersonalOverview; the org Overview tab renders no trajectory at all (full capture, zero matches for trajectory/forecast/ETA/confidence). The fleet GPS lives on Briefing only — which narrows the fix to one call site and widens DANA-L1-004.",
+    "resolution": "resolved-verified",
+    "ceiling": "The basis reaches the screen, the markdown and the PDF, but only its uncompacted branch has ever rendered — the '…, N of them compacted' tail needs an org whose older scans retention purged, which no fixture on this host produces (DANA-L1-014, still open). So 'fit over 8 scan days across 75 days' is verified; 'fit over 5 scan days across 4 days, 3 of them compacted' is still structural.",
     "recurrence": null,
     "suggested_acceptance": "BUILD — carry the Forecast (or the basis string) onto ExecBriefing and render it. One call site; the hard part is already done twice.",
     "scope_note": "The archetype of this run's systemic theme: a payload half of a merged lane shipped without its consumer. Dana's own reaction is the cost: 'When a thing is built, tested, documented as being wired, and isn't — I stop trusting the inventory.'",
-    "l2_priority": "DONE (arm B)."
+    "l2_priority": "DONE (arm B).",
+    "recertify_evidence": "L2 recertify on :3000. forecastBasis now has a live caller and the sentence reaches all four renderers. Clipboard markdown: shots/recert-B1-brief-90d.md:10 '(trend confidence 34% · noisy · fit over 8 scan days across 75 days)'. On-screen card: shots/recert-B1-exec-90d.aria.yaml:84 'trend confidence 34% · noisy · fit over 8 scan days across 75 days' as its own paragraph. BOARD PDF: GET /api/org/briefing/pdf?org=public&range=90d → HTTP 200, 7012 B (arm B measured 6982 B), and the text extracts this time — the run decoded the FlateDecode content streams and read the hex-encoded TJ strings (shots/recert-B1-pdftext.txt, generator noted in the report): 'Declining at -2/wk, staying within L4 · Integrated for now. (trend confidence 34% · noisy · fit over 8 scan days across 75 days)' appears TWICE (narrative paragraph + the Trajectory block). The low-data PDF (6747 B, arm B 6597 B) carries the refusal: 'Trajectory: Not enough history to project: 2 distinct scan days…'. Commits under test f7bfa8d2..c56ab666 (MC-B1, 4aa12080).",
+    "recertify_commit_range": "f7bfa8d2..c56ab666"
   },
   {
     "id": "DANA-L1-014",
@@ -954,12 +970,14 @@
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "Only a hand-crafted POST can set the field today, so recurrence in the wild is capped until the editor lands — that caps FREQUENCY, not severity. Once an editor exists this becomes an every-org defect.",
+    "resolution": "resolved-verified",
+    "ceiling": "Only the round-trip half shipped. There is still NO editor for requireChecks — the recertified Governance form exposes comboboxes 'Minimum level' / 'Add a floor' and checkboxes for the security floor, ungoverned posture and protected branch, and nothing else (shots/recert-B9-after.aria.yaml:62-82); the field appears only as read-only prose in the Active-policy summary (:60). An owner still cannot set or clear a required control from the product — that is MC-X2, unbuilt. Priya's 'last mile' therefore still needs one out-of-band write, it just no longer needs re-writing after every save.",
     "recurrence": null,
     "suggested_acceptance": "BUILD — one PR, three parts: round-trip unknown policy fields through the form (or make the POST a merge), add the requireChecks editor, and carry PRIYA-L1-02's fleet-count honesty with it.",
     "scope_note": "DEDUPED: filed twice in this run — NADIA-L1-07 (broken-flow: the editor deletes it) and PRIYA-L1-01 (missing-feature, l2_priority HIGH: it is enforced but un-settable, which dead-ends Priya's journey). One underlying defect — the editor does not round-trip the field — with two faces. Nadia's id is kept because arm B proved the deletion and produced the audit row; Priya's framing supplies the journey cost. Characters: Nadia (appsec, CC8.1 poison) and Priya (platform lead, terminal step of set-and-enforce-the-standard).",
-    "l2_priority": "DONE (arm B), both faces."
+    "l2_priority": "DONE (arm B), both faces.",
+    "recertify_evidence": "L2 recertify on :3000, org `public`, arm B's exact shape re-run with uat/driver/drive-armB-gatepolicy.mjs. (1) Precondition set over HTTP: POST /api/org/gate-policy {minLevel:L3,minOverall:50,minDimension:40,requireChecks:[control.prepush.lint,guardrail.never-commit]} → {ok:true, dropped:[]}. (2) Changed ONE unrelated field in the BROWSER — Min overall 50 → 55 — and clicked 'Save policy'. (3) POLICY AFTER: {\"minLevel\":\"L3\",\"minOverall\":55,\"minDimension\":40,\"requireChecks\":[\"control.prepush.lint\",\"guardrail.never-commit\"]} — requireChecks survives BYTE-IDENTICAL; arm B's same three steps deleted it silently. The rendered summary still lists it after the save: shots/recert-B9-after.aria.yaml:60 'Reported controls must not be failing: control.prepush.lint, guardrail.never-commit'. (4) The dropped-bar audit is real, not empty-by-luck: the restore POST {policy:null} answered dropped:[{label:'minimum level'…},{label:'min overall score'…},{label:'min per-dimension score'…},{label:'required controls', was:'Reported controls must not be failing: control.prepush.lint, guardrail.never-commit'}] — a removed bar is now NAMED. Policy restored to null (residue discipline). Commits under test f7bfa8d2..c56ab666 (MC-B9, a96dd03a).",
+    "recertify_commit_range": "f7bfa8d2..c56ab666"
   },
   {
     "id": "NADIA-L1-01",
@@ -1281,12 +1299,14 @@
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "Low frequency TODAY only because NADIA-L1-07's missing editor keeps requireChecks out of most orgs. The day the editor lands this becomes an every-org trust defect — which is why the fix must travel with it.",
+    "resolution": "resolved-verified",
+    "ceiling": "Two of the four rows Priya named were fixed; the other two were judged EARNED zeros, with the reasoning committed in code (governanceReasons.ts:47-51: the rollup carries aiGovernedRate/aiPrSample and the branch-protection fields, so `provenance` — 'AI changes merged without human review' — and `governance` — 'Ungoverned posture' — are real fleet measurements that skip honest-null per repo). That is a defensible narrowing, not a miss, but it means two of the rows Priya called out still read '0 repos' and she has not been shown why. The unjudged note also does not distinguish 'never judgeable here' from 'your policy declares it' — `unjudgedBarsDeclared()` exists and computes exactly that, and the rendered row does not use the distinction to escalate the wording.",
     "recurrence": null,
     "suggested_acceptance": "BUILD — render 'not judged fleet-wide' for criteria evaluateGateLite skips by construction. Ship in the same PR as the requireChecks editor.",
     "scope_note": null,
-    "l2_priority": "DONE (arm B)."
+    "l2_priority": "DONE (arm B).",
+    "recertify_evidence": "L2 recertify on :3000, org `public`, captured WHILE requireChecks:[control.prepush.lint, guardrail.never-commit] was actively set and printed in the Active-policy summary six rows above — the same strongest-possible condition arm B used. Governance 'Where the fleet fails' now reads (shots/recert-B9-after.text.txt:132-136, aria :111): 'AI authorship in a blocked repository → not judged fleet-wide — the per-repo gate decides it → —' and 'A required control is failing → not judged fleet-wide — the per-repo gate decides it → —'. Both structural zeros are gone, replaced by the em-dash row. The genuinely measured rows are unchanged beside them ('A dimension below floor — 33 repos', 'Below required level — 8 repos', 'Below overall score — 15 repos'). Backing: FLEET_UNJUDGED_REASONS = {admission, control} (governanceReasons.ts:52) with the reason and this finding's id in its docstring. Commits under test f7bfa8d2..c56ab666 (MC-B9, a96dd03a).",
+    "recertify_commit_range": "f7bfa8d2..c56ab666"
   },
   {
     "id": "PRIYA-L1-03",
@@ -1425,12 +1445,14 @@
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "—",
+    "resolution": "resolved-verified",
+    "ceiling": "The Delivery tile is renamed; the Governance side still calls its own field 'required controls' in the Active-policy summary and 'A required control is failing' on the fail-reasons card, which is the right distinct wording — but there is no cross-reference on either tab telling a reader the two 'require…' concepts are different things, so the collision is disambiguated by wording alone.",
     "recurrence": null,
     "suggested_acceptance": "BUILD (rename) — 'Required status checks' on the Delivery tile, before the editor lands.",
     "scope_note": "Same collision family as NADIA-L1-08; kept separate because it is the one rename that must precede NADIA-L1-07's fix.",
-    "l2_priority": "NONE — fully L1-provable."
+    "l2_priority": "NONE — fully L1-provable.",
+    "recertify_evidence": "L2 recertify on :3000. /org/public?tab=delivery renders the branch-protection tile as 'REQUIRED STATUS CHECKS · 28% · branch protection' (shots/recert-B9-delivery.text.txt:503-505). Source carries the rename and this finding's id: DeliveryGovernanceSection.tsx:19-28 — `label=\"Required status checks\"` with the comment '\"Required status checks\", not \"Require checks\" (UAT PRIYA-L1-07)'. The Governance tab's GatePolicy.requireChecks keeps its own wording ('Reported controls must not be failing: …', shots/recert-B9-after.aria.yaml:60). Renamed before the editor landed, as suggested. Commits under test f7bfa8d2..c56ab666 (MC-B9, a96dd03a).",
+    "recertify_commit_range": "f7bfa8d2..c56ab666"
   },
   {
     "id": "VICTOR-L1-05",
@@ -1456,12 +1478,14 @@
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "Measured on a two-lane org; a fleet with athena/memory/briefing spend would widen the gap further. The unpriced floor (34 of 53 calls) means even the corrected total is a lower bound.",
+    "resolution": "resolved-verified",
+    "ceiling": "The headline is now the true sum AND says so, but it remains a FLOOR by a wide margin: 45 of 76 local-lane calls in the window still price at $0 (`allLanesUnpricedCalls: 45`), so the real spend is above $211.51 by an unknown amount and the page cannot say by how much. The qualifier names the count, not the exposure. Per-org attribution is still a single 'Org-wide (no repo)' bucket, so Victor still cannot get a per-team showback from this screen.",
     "recurrence": null,
     "suggested_acceptance": "BUILD — either sum all lanes into the tile or qualify it 'scan lane only'. This is the number that goes in a renewal deck.",
     "scope_note": "UPGRADED minor → major by L2: at L1 this was filed as an unqualified-headline nit (F5); the live 78% gap makes it a trust defect on the product's own billing page. NAMING CORRECTION: arm B's own verdict table labels this row 'VICTOR-L1-02' — that is a slip; VICTOR-L1-02 is the unlinked showback CSV. The headline-understatement finding is VICTOR-L1-05 and is recorded here under that id.",
-    "l2_priority": "DONE (arm B)."
+    "l2_priority": "DONE (arm B).",
+    "recertify_evidence": "L2 recertify on :3000, /usage?org=kiro, 30-day window. Tile: 'EST. COST $211.51' with the qualifier line directly under it 'last 30d · all 2 lanes · built-in rates (approx.) · floor: +45 calls unpriced' (shots/recert-B12-usage.text.txt:100-102). It AGREES with the lane table on the same screen: 'Scan · $33.17' + 'Local agent · $178.34' = $211.51 exactly (:126,128), and with 'Spend by team → Org-wide (no repo) · $211.51' (:136). Footnote :147 'The headline is the sum of every lane and a FLOOR: 45 calls in this period could not be priced and contribute $0 to it.' API agrees: allLanesCostUsd 211.509201, byLane sums to 211.509201, allLanesUnpricedCalls 45. Arm B measured tile $25.90 against an itemized $115.28 (78% understatement); the gap is now zero. Figures moved from arm B's because 22 further scan calls and 23 local calls landed on this host since — the RELATION, not the magnitude, is the check. Commits under test f7bfa8d2..c56ab666 (MC-B12, e2eaf39b).",
+    "recertify_commit_range": "f7bfa8d2..c56ab666"
   },
   {
     "id": "VICTOR-L1-02",
