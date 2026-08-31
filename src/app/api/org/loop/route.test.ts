@@ -78,10 +78,10 @@ beforeEach(() => {
 });
 
 describe("the self-host guard runs first — for the executor that needs it", () => {
-  it("404s a LOCAL start and the detail route on managed cloud", async () => {
+  it("404s a LOCAL start on managed cloud — but serves the detail read (MC-B26: a cloud org's own remote run must stay pollable)", async () => {
     gates.selfHosted = false;
     expect((await post({ action: "start", org: "acme", repos: ["acme/web"] })).status).toBe(404);
-    expect((await detail("run-acme", "org=acme")).status).toBe(404);
+    expect((await detail("run-acme", "org=acme")).status).not.toBe(404);
   });
 
   // MOONSHOT #3. The read is no longer self-hosted-only, because a cloud org can now arm a

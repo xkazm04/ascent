@@ -2451,6 +2451,6 @@ CREATE INDEX "Installation_orgId_idx" ON "Installation"("orgId");
 -- concurrent scans collide on a retryable serialization conflict. See src/lib/db/scans.ts
 -- (ensureOrgId) and docs/ARCHITECTURE.md §3. The id is a fixed sentinel UUID (the column is TEXT;
 -- under relationMode="prisma" there are no DB-level FKs, so any stable value is fine).
-INSERT INTO "Organization" ("id", "slug", "name", "plan")
-VALUES ('00000000-0000-4000-8000-000000000001', 'public', 'Public Scans', 'free')
+INSERT INTO "Organization" ("id", "slug", "name", "plan", "kind")
+VALUES ('00000000-0000-4000-8000-000000000001', 'public', 'Public Scans', 'free', 'public')
 ON CONFLICT ("slug") DO NOTHING;

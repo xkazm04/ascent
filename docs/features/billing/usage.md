@@ -32,8 +32,13 @@ real tenant on that slug burned companion/memory/agent inference and showed `$0`
 silence (UAT MC-B20 / VICTOR-L2-01, found when a genuine 12.1 s `claude-cli` turn recorded nothing).
 Whether an org is ledgered is now a property of its **row**: `recordUsageEvent` resolves the org and
 skips it only when `Organization.kind` is `public`, the flavor reserved for the shared anonymous
-funnel. An unstamped deployment simply meters everything it can attribute, which is the honest
-default — the funnel's own scans never reach this ledger anyway (the scan lane keeps its own).
+funnel. The stamp is guaranteed, not assumed (RC3-N1): the schema defaults `kind` to `"org"`, so
+`ensureOrgId` writes `kind: "public"` when it creates the funnel org, repairs an existing funnel row
+that lost it, and `init.sql`'s seed carries it — a stock deployment can never quietly meter its
+anonymous funnel. The `/usage` footer reads the same row-derived fact (`UsageSummary.unmeteredFunnel`,
+RC3-N2) instead of re-deriving it from the slug, so the meter and the page cannot disagree about
+which org is the funnel. Any other unstamped org simply meters everything it can attribute — the
+honest default; the funnel's own scans never reach this ledger anyway (the scan lane keeps its own).
 
 **Honest nulls.** `inputTokens` / `outputTokens` / `costMicros` are `null` — *never* `0` — when the
 provider reported nothing (the `claude-cli` path reports no usage at all and still writes a

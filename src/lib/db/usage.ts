@@ -5,7 +5,6 @@
 // GitHub App lands; until then everything is under the "public" org.)
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
-import { getOrgId } from "@/lib/db/org-rollup";
 import { isZeroCostProvider, priceForModel } from "@/lib/llm/config";
 import { ORG_WIDE_TEAM_LABEL, laneTotals, teamTotals, type LaneUsage, type TeamUsage } from "@/lib/db/usage-events";
 
@@ -77,6 +76,9 @@ function billableScanWhere(orgId: string) {
 
 export interface UsageSummary {
   org: string;
+  /** True when this org is the shared anonymous funnel — derived from the org ROW's kind (the same
+   *  fact the meter's skip decision reads, RC3-N2), with the slug as the only no-row fallback. */
+  unmeteredFunnel: boolean;
   periodDays: number;
   /** All-time computed-scan count for the org. */
   totalScans: number;
@@ -201,6 +203,7 @@ export async function getUsageSummary(
 
   const empty: UsageSummary = {
     org: slug,
+    unmeteredFunnel: slug === "public",
     periodDays,
     totalScans: 0,
     periodScans: 0,
@@ -222,8 +225,10 @@ export async function getUsageSummary(
     lastScanAt: null,
   };
 
-  const orgId = await getOrgId(orgSlug);
-  if (!orgId) return empty;
+  const orgRow = await prisma.organization.findUnique({ where: { slug }, select: { id: true, kind: true } });
+  if (!orgRow) return empty;
+  const orgId = orgRow.id;
+  const unmeteredFunnel = orgRow.kind === "public";
 
   // Anchor the window to UTC calendar days. `since` is the START of the oldest day shown on the
   // chart, derived from the SAME UTC-day floor the axis uses (emptyDailySeries) — so every counted
@@ -362,6 +367,7 @@ export async function getUsageSummary(
 
   return {
     org: slug,
+    unmeteredFunnel,
     periodDays,
     totalScans: total,
     periodScans: period,

@@ -136,7 +136,7 @@ describe("ensureOrgId — tenant resolution (correct id per slug)", () => {
     await ensureOrgId(DEFAULT_ORG_SLUG);
 
     expect(create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { slug: "public", name: "Public Scans" } }),
+      expect.objectContaining({ data: { slug: "public", name: "Public Scans", kind: "public" } }),
     );
   });
 

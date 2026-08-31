@@ -8,7 +8,6 @@ import type { CreditReconciliation, CreditState, QuotaEventTotals, UsageSummary 
 import type { CreditNotice } from "./creditNotice";
 import { timeAgo } from "@/lib/ui";
 import { costHeadline } from "./costHeadline";
-import { PUBLIC_ORG } from "@/lib/org-constants";
 
 export function UsageDashboard({
   org,
@@ -31,7 +30,7 @@ export function UsageDashboard({
 }) {
   // The shared anonymous funnel has no tenant behind it, so several of this page's claims are true
   // there and false everywhere else. Resolved once, here, rather than asserted in the copy.
-  const isPublicFunnel = usage.org.toLowerCase() === PUBLIC_ORG;
+  const isPublicFunnel = usage.unmeteredFunnel;
   return (
     <div className="animate-fade-up">
       <div className="type-mono-sm uppercase tracking-[0.3em] text-accent">Usage &amp; metering</div>
