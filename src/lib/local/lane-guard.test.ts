@@ -88,6 +88,24 @@ describe("the four verdicts", () => {
     expect(run).toHaveBeenCalledTimes(1);
   });
 
+  it("BASELINE-RED distinguishes 'could not START' from 'the repository is broken'", async () => {
+    // Since the lane worktree gets the paired checkout's dependency caches LINKED in
+    // (`worktree-deps.ts`), a red baseline is a real claim about the repository — so the case where
+    // the command still could not run (no `.venv` to link, an install step the loop cannot perform, a
+    // link that failed) has to be phrased as a fact about the checkout instead. Same verdict, same
+    // no-blame: a fifth verdict would be a new column and a new word for a reader to learn.
+    const run = vi.fn(async (): Promise<VerifyRun> => ({ ok: false, output: "Error: Cannot find module 'vitest'", timedOut: false }));
+    const d = deps({ run: run as unknown as GuardDeps["run"] });
+
+    const out = await verifyResult(DIR, await verifyBaseline(DIR, MS, d), MS, d);
+
+    expect(out.verdict).toBe("baseline-red");
+    expect(out.reject).toBe(false);
+    expect(out.note).toContain("could not START");
+    expect(out.note).toContain("about this checkout rather than about the repository");
+    expect(out.note).not.toContain("already failed");
+  });
+
   it("SKIPPED — nothing resolvable, and it SAYS so rather than passing silently", async () => {
     const run = vi.fn(async () => pass());
     const d = deps({ resolve: vi.fn(async () => null), run: run as unknown as GuardDeps["run"] });

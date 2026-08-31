@@ -114,8 +114,11 @@ vi.mock("@/lib/local/loop-worktree", () => ({
     dir: `/tmp/wt-${repo.replace("/", "-")}`,
     branch: branchFor ? branchFor(repo, stamp) : `ascent/loop-${stamp}-${repo.replace("/", "-")}`,
     pairedPath: path,
+    linkedDeps: [],
+    depNotes: [],
   })),
   removeLoopWorktree: vi.fn(async () => {}),
+  takeDepNotes: () => [],
 }));
 // git is only used for HEAD bookkeeping inside the lane; both calls are shaped as successes.
 // `byCwd` lets one test give different repos different commit counts — the lane's early-stop rule is

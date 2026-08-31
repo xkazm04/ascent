@@ -6,7 +6,7 @@
 // vacuously — and either way it would be Ascent's opinion masquerading as the repository's.
 
 import { describe, expect, it } from "vitest";
-import { asVerifyVerdict, firstFailureLines, resolveVerifyCommand, verifyVerdictTag } from "@/lib/local/lane-verify";
+import { asVerifyVerdict, firstFailureLines, looksUnrunnable, resolveVerifyCommand, verifyVerdictTag } from "@/lib/local/lane-verify";
 
 const manifest = (body: string) => `schema: ai-manifest\nschemaVersion: 0.1.0\n${body}`;
 
@@ -140,5 +140,32 @@ describe("firstFailureLines", () => {
 
   it("says so when a command produced no output at all", () => {
     expect(firstFailureLines("   \n\n")).toContain("no output");
+  });
+});
+
+describe("looksUnrunnable", () => {
+  // WHAT THE DEPENDENCY LINK CHANGED. A worktree used to arrive with no `node_modules`, so
+  // `baseline-red` meant nothing at all; with the caches linked in (`worktree-deps.ts`) it is a real
+  // claim about the repository — except when the command still could not START, which is a fact
+  // about the checkout. Same verdict, a different sentence, and this is the discriminator.
+  it("recognises a command that could not START, across ecosystems", () => {
+    for (const out of [
+      "Error: Cannot find module 'vitest'",
+      "code: 'ERR_MODULE_NOT_FOUND'",
+      "'vitest' is not recognized as an internal or external command",
+      "sh: 1: vitest: command not found",
+      "npm error Missing script: \"test:unit\"",
+      "npm error could not determine executable to run",
+      "ModuleNotFoundError: No module named 'pytest'",
+      "spawn ENOENT",
+    ]) {
+      expect(looksUnrunnable(out)).toBe(true);
+    }
+  });
+
+  it("does NOT mistake an ordinary test failure for a missing dependency tree", () => {
+    expect(looksUnrunnable("FAIL src/a.test.ts > adds\nAssertionError: expected 1 to be 2")).toBe(false);
+    expect(looksUnrunnable("error TS2345: Argument of type 'string' is not assignable")).toBe(false);
+    expect(looksUnrunnable("2 failed | 40 passed")).toBe(false);
   });
 });

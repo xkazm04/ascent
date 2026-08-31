@@ -74,7 +74,7 @@ const item = (id: string) => ({
   projectedPoints: 5,
 });
 
-const wt = { dir: "C:/tmp/wt", branch: "ascent/loop-x", pairedPath: "C:/paired" };
+const wt = { dir: "C:/tmp/wt", branch: "ascent/loop-x", pairedPath: "C:/paired", linkedDeps: [], depNotes: [] };
 const rescan = vi.fn(async () => ({ scanId: "scan-after", closedIds: ["a"] }));
 
 const run = (over: Partial<LaneDeps> = {}) =>

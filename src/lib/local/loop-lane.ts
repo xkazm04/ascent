@@ -56,7 +56,7 @@ import { laneReportContract, readLaneReport, type LaneReport } from "@/lib/local
 // The cost write-back and the report exclusion live in a sibling so this module stays the cycle
 // orchestrator it reads as.
 import { excludeLaneReport, recordAgentCost } from "@/lib/local/lane-cost";
-import type { LoopWorktree } from "@/lib/local/loop-worktree";
+import { takeDepNotes, type LoopWorktree } from "@/lib/local/loop-worktree";
 
 /**
  * The DEFAULT batch — how many follow-ups (or craft rungs) one cycle dispatches when a run names no
@@ -502,6 +502,13 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       startedAt: new Date(),
       error: null,
     });
+
+    // WHAT THE WORKTREE WAS GIVEN TO RUN WITH, said once. A git worktree carries tracked files only,
+    // so `createLoopWorktree` links the paired checkout's dependency caches in (`worktree-deps.ts`) —
+    // without them the repository's own `npm run test:unit` cannot start and the degradation guard
+    // reports `baseline-red` on a pristine tree. `takeDepNotes` DRAINS: the linking happened once, when
+    // the worktree was made, so the first cycle to open it reports it and cycle 2 does not repeat it.
+    for (const note of takeDepNotes(worktree)) await appendLaneLog(laneId, note);
 
     const kind: LoopLaneKind = input.kind ?? "backlog";
     // The agent's structured account of this cycle, if it wrote one. Declared here because the

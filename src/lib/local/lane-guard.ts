@@ -33,6 +33,7 @@ import {
   VERIFY_MANIFEST_PATH,
   VERIFY_PACKAGE_PATH,
   firstFailureLines,
+  looksUnrunnable,
   resolveVerifyCommand,
   type ResolvedVerify,
   type VerifyVerdict,
@@ -256,12 +257,22 @@ export async function verifyResult(
   }
   const { command, source } = baseline.resolved;
   if (!baseline.passed) {
+    // TWO WAYS TO BE RED, and the note must not conflate them. The lane worktree now arrives with the
+    // paired checkout's dependency caches LINKED in (`worktree-deps.ts`), so a red baseline is once
+    // again a claim about the repository — unless the command could not start at all, which is a fact
+    // about this checkout's environment (no `.venv` to link, an install step the loop cannot run, a
+    // link that failed) and not an accusation. Same verdict either way: not comparable, no blame.
+    const unrunnable = looksUnrunnable(baseline.note ?? "");
     return {
       verdict: "baseline-red",
       command,
       note:
-        `Verification BASELINE RED: \`${command}\` (from ${source}) already failed on this repository before the session started, ` +
-        `so this cycle cannot be judged against it and the agent is not blamed for it. First failure: ${baseline.note ?? "(no output)"}`,
+        `Verification BASELINE RED: \`${command}\` (from ${source}) ` +
+        (unrunnable
+          ? "could not START on the pristine worktree — its dependencies are not installed here and the loop could not link or provide them, " +
+            "which is a fact about this checkout rather than about the repository. So "
+          : "already failed on this repository before the session started, so ") +
+        `this cycle cannot be judged against it and the agent is not blamed for it. First failure: ${baseline.note ?? "(no output)"}`,
       reject: false,
     };
   }

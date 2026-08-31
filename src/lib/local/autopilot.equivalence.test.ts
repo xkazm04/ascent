@@ -91,8 +91,10 @@ vi.mock("@/lib/local/loop-worktree", () => ({
   branchNameFor: (repo: string, stamp: string) => `ascent/loop-${stamp}-${repo.replace("/", "-")}`,
   createLoopWorktree: vi.fn(async (path: string, repo: string, stamp: string, branchFor?: (r: string, s: string) => string) => ({
     dir: "/tmp/wt", branch: branchFor ? branchFor(repo, stamp) : `ascent/loop-${stamp}`, pairedPath: path,
+    linkedDeps: [], depNotes: [],
   })),
   removeLoopWorktree: vi.fn(async () => {}),
+  takeDepNotes: () => [],
 }));
 const git = { commits: 1 };
 vi.mock("@/lib/local/git", () => ({

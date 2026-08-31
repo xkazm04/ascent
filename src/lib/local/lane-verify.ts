@@ -176,3 +176,36 @@ export function firstFailureLines(output: string, maxLines = 6, maxChars = 800):
   const chosen = hits.length > 0 ? hits : lines.slice(-maxLines);
   return chosen.join("\n").slice(0, maxChars);
 }
+
+// ── "it failed" vs "it could not start" ──────────────────────────────────────────────────────────
+//
+// WHAT CHANGED THE MEANING OF `baseline-red`. Until the lane worktree got its dependency caches
+// linked in (`worktree-deps.ts`), a red baseline was almost never a fact about the repository: a git
+// worktree holds tracked files only, so `npm run test:unit` there could not START, and every JS/TS
+// repo reported `baseline-red` forever. With the link in place a red baseline is a real signal again —
+// "this repository's own checks were already failing before the agent arrived".
+//
+// It is not the ONLY signal, and pretending otherwise would be the dishonest ending. A repo whose
+// command needs an install step the loop cannot provide — a Python project with no `.venv` on the
+// operator's disk, a Go module whose `vendor/` is neither committed nor present, a link that could
+// not be made — still cannot start its command, and the note must say THAT rather than accuse the
+// repository of being broken. Same four verdicts (a fifth would be a new column, a new UI word and a
+// new thing for a reader to learn, for a distinction that belongs in a sentence): `baseline-red`
+// still means "not comparable, and the agent is not blamed", and the sentence names which of the two
+// reasons it was.
+//
+// Loose on purpose, like FAILURE_RE above: the ONLY consequence of a false positive is one differently
+// worded sentence in a note that is rendered exclusively for a command that has already failed.
+const UNRUNNABLE_RE =
+  /(cannot find module|module_not_found|modulenotfounderror|no module named|is not recognized as|command not found|not found: |missing script|could not determine executable|executable to run not found|is not installed|please run .{0,12}install|\bENOENT\b)/i;
+
+/**
+ * Did the command fail because it could not RUN in this checkout, rather than because the repository
+ * is broken? Recognises the shapes a missing dependency tree produces across ecosystems: node's
+ * `Cannot find module` / `ERR_MODULE_NOT_FOUND`, npm's `missing script` and
+ * `could not determine executable to run`, a shell's `command not found` / `is not recognized as`,
+ * Python's `ModuleNotFoundError: No module named`, and a bare `ENOENT` from a spawn.
+ */
+export function looksUnrunnable(output: string): boolean {
+  return UNRUNNABLE_RE.test(output);
+}

@@ -974,6 +974,7 @@ fold, two full iterations, the blocked states), and an honest **L2 not yet run**
 | Driver | `src/lib/local/loop-engine.ts` |
 | One lane | `src/lib/local/loop-lane.ts` |
 | Worktree isolation | `src/lib/local/loop-worktree.ts` |
+| Worktree dependency links | `src/lib/local/worktree-deps.ts` |
 | Single-repo shim | `src/lib/local/autopilot.ts` |
 | Routes | `src/app/api/org/loop/{route,propose/route,[id]/route}.ts` |
 | Drive engine + wire shapes | `src/lib/local/drive.ts`, `src/lib/local/drive-types.ts` |
@@ -1841,6 +1842,57 @@ gate does not finish inside the budget → `baseline-red`, honest, and it stops 
 costing every lane ten minutes for nothing. On the result run it means the session left the repository
 unable to get through its own checks → a degradation.
 
+### A worktree has to be RUNNABLE first (2026-08-31)
+
+**The guard's first live run returned `baseline-red` for both repositories, on the pristine tree,
+before the agent had touched anything.** It resolved each repo's own command correctly
+(`npm run test:unit`) and then measured a failure that was not about either repository: a
+`git worktree` contains **tracked files only**, dependencies are gitignored, so the lane checkout has
+no `node_modules` and `npm run test:unit` there cannot *start*. A red baseline is never compared
+against, so the guard protected nothing — and *every* JavaScript/TypeScript repository would have
+reported `baseline-red` forever, which are exactly the repositories the guard was built for. The same
+holds for Python (`.venv`), Go (`vendor/`) and Ruby (`vendor/bundle`).
+
+`createLoopWorktree` therefore **links** the paired checkout's dependency caches into every worktree
+it makes (`src/lib/local/worktree-deps.ts`).
+
+| | |
+| --- | --- |
+| **What is linked** | `node_modules`, `.venv`, `venv`, `vendor` — dependency **caches** only. Each is derived state a package manager rebuilds from a lockfile, conventionally gitignored, and large enough that copying it per lane would dominate the run. Build *output* (`.next`, `dist`, `build`, `target`) is deliberately absent: a lane is expected to regenerate it, and a link would let one lane's build stomp on another's. Source, config, `.git` and `.env*` are never linked. |
+| **How** | A **junction** on Windows (`fs.symlink(target, path, "junction")` — no elevation, no Developer Mode), an ordinary directory symlink elsewhere. **Never a copy**: a copied `node_modules` is minutes and gigabytes per lane, per arm, per cycle; a link is one syscall. |
+| **When** | Only if the name is a real directory in the source checkout, is **not already present** in the worktree (a committed Go `vendor/` is tracked content and is left alone), and the worktree's own git says it is **ignored** (`git check-ignore -q -- "<name>/"` — the trailing slash is load-bearing, because a `node_modules/` pattern is directory-only and git cannot tell that a not-yet-existing path is a directory). |
+| **Best-effort** | A permission error, a filesystem without symlinks, a target that vanished — each is a **note on the lane** and the next name. A lane that links nothing still runs; it verifies as `baseline-red` or `skipped` exactly as it did before. The notes are drained onto the lane log once (`takeDepNotes`), by the first cycle to open the worktree. |
+
+**It is a link, so writes reach the operator's real directory.** That is acceptable for a dependency
+cache — a package manager's install directory is one `npm ci` from repaired — and unacceptable for
+anything else, which is the whole reason the list above is caches only.
+
+**Cleanup: the links come out FIRST, and the order is a safety property.** Measured on Windows:
+`git worktree remove --force` **follows a junction** and deletes the *target* — the operator's real
+`node_modules`, not the link. So `removeLoopWorktree` (and `removeStrandedWorktrees`, which matters
+more: a hard-killed lane never reached its `finally`, so a stranded worktree is precisely the one that
+still holds its links) calls `unlinkDependencyDirs` before it asks git for anything. That helper
+removes a path **only** when the path's own `lstat` says it is a link, and calls `fs.rm` **without
+`recursive`**, so there is no code path by which it can walk into the target.
+
+**The scan is unaffected — verified, not assumed.** `LocalFsSource` lists a worktree with
+`git ls-files -c -o --exclude-standard`, which drops ignored paths; with `node_modules/` in
+`.gitignore` a junction is invisible to that listing, while a plain `git ls-files -o` walks straight
+into it. "Ignored" is therefore exactly the property that keeps a linked cache out of the file census,
+which is why it is a **precondition of linking** rather than a hope: a repository that does not ignore
+its own dependency directory gets no link and a note saying why, instead of a silently inflated tree
+and a score that moved for a reason that was not a change. `git clean -fd` (the rejection discard)
+does not touch an ignored path either, so a rejected cycle leaves the link and the target alone.
+
+**And `baseline-red` means something again.** With the caches linked, a red baseline is a real claim:
+*this repository's own checks were already failing*. It is not the only reason a command can be red —
+a repo whose command needs an install step the loop cannot provide still cannot start — so
+`looksUnrunnable` (`lane-verify.ts`) splits the note in two: *"could not START … a fact about this
+checkout rather than about the repository"* versus *"already failed on this repository before the
+session started"*. **Same four verdicts**; a fifth would be a new column, a new cockpit word and a new
+thing for a reader to learn, for a distinction that belongs in a sentence. Either way: not comparable,
+and the agent is not blamed.
+
 ### A rejected lane is never delivered
 
 The verdict is persisted on `LoopRunLane.verifyVerdict`, and **both** delivery doors check it
@@ -1869,7 +1921,10 @@ remote.
 - **The reversal is worktree-only.** `reset --hard` and `clean -fd` are the two most destructive
   commands in this codebase and they run in exactly one place: a temp checkout `createLoopWorktree`
   made minutes earlier, which `removeLoopWorktree` deletes anyway. `landLaneBranch` — the module that
-  *does* touch the operator's checkout — still never resets, stashes or switches anything.
+  *does* touch the operator's checkout — still never resets, stashes or switches anything. The one
+  place the worktree reaches *out* is the dependency **links** above, and their teardown is bounded
+  the same way: only an `lstat`-confirmed link is removed, non-recursively, and always before git is
+  asked to remove the worktree.
 - **The lane row shows it.** One word beside the cost counters (`verified`, `rejected`,
   `baseline red`, `unverified`), the full note on hover, and only `rejected` is coloured: `unverified`
   is a fact, not a fault. A lane written before the guard renders **nothing**.
@@ -1886,4 +1941,10 @@ nothing, rescans nothing, releases its claims and persists `rejected`; baseline-
 guard-off still records `skipped`; the batch-size and session-timeout parameters),
 `loop-delivery.test.ts` and `[id]/pr/route.test.ts` (a rejected lane is not landed and not PR'd, and
 the other three verdicts are not blocked), `run-limits.test.ts` (the normalizers never guess; the
-defaults are today's values) and `lane-reservation.test.ts` (the proportion at 1, 2, 5, 10, 12).
+defaults are today's values), `lane-reservation.test.ts` (the proportion at 1, 2, 5, 10, 12) and
+`worktree-deps.test.ts` — real git, real filesystem — (a worktree next to a checkout with a
+`node_modules` gets a working link and can read through it; a checkout without one is untouched and
+says nothing; a directory the repo does not ignore is refused with a reason; a link that cannot be
+made is a note, not a throw; **`removeLoopWorktree` and the stranded sweep both leave the target's
+contents intact, asserted by name**; and the census — `git ls-files -c -o --exclude-standard` and a
+real `LocalFsSource` snapshot — never sees the linked tree).

@@ -14,6 +14,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { runGit } from "@/lib/local/git";
+import { linkDependencyDirs, unlinkDependencyDirs } from "@/lib/local/worktree-deps";
 
 export interface LoopWorktree {
   /** The temp checkout the agent works in. */
@@ -22,6 +23,10 @@ export interface LoopWorktree {
   branch: string;
   /** The operator's paired working copy the worktree hangs off (needed to remove it again). */
   pairedPath: string;
+  /** Dependency caches linked in from `pairedPath` so the checkout can actually RUN (worktree-deps.ts). */
+  linkedDeps: string[];
+  /** What to say about that linking, drained onto the lane log once by `takeDepNotes`. */
+  depNotes: string[];
 }
 
 /**
@@ -72,10 +77,31 @@ export async function createLoopWorktree(
     added = await runGit(pairedPath, ["worktree", "add", "-b", branch, dir, "HEAD"]);
   }
   if (!added.ok) {
+    // No links exist yet on this path — they are made below, only after the add succeeded — so a
+    // recursive delete here cannot reach anything of the operator's.
     await rm(dir, { recursive: true, force: true }).catch(() => null);
     throw new Error(`Could not create the worktree for ${repo}: ${added.stderr || added.stdout}`);
   }
-  return { dir, branch, pairedPath };
+  // A WORKTREE IS TRACKED FILES ONLY, so it arrives with no `node_modules` and the repository's own
+  // `npm run test:unit` cannot start in it — which is how the degradation guard came to report
+  // `baseline-red` on two pristine repositories on its first live run. Link the paired checkout's
+  // dependency caches in. Best-effort by contract: `linkDependencyDirs` never throws, and a lane that
+  // links nothing behaves exactly as every lane did before this existed.
+  const deps = await linkDependencyDirs(pairedPath, dir).catch(() => ({ linked: [], notes: [] }));
+  return { dir, branch, pairedPath, linkedDeps: deps.linked, depNotes: deps.notes };
+}
+
+/**
+ * Take the worktree's linking notes for the lane log, leaving it empty.
+ *
+ * Drained rather than read because the linking happens ONCE per worktree while a worktree is worked
+ * by several cycles: the first lane to open it says what was linked, and cycle 2 does not repeat it.
+ */
+export function takeDepNotes(wt: LoopWorktree): string[] {
+  // A worktree from a test double (or an older caller) carries no array; a missing one is "nothing to
+  // say", never a throw on the lane's happy path.
+  const notes = wt.depNotes as string[] | undefined;
+  return notes ? notes.splice(0) : [];
 }
 
 /** git's own refusal when `-b <name>` names an existing branch. */
@@ -83,8 +109,23 @@ const BRANCH_EXISTS = /a branch named .* already exists/i;
 /** How many suffixed names to try. Small on purpose: past a handful, something else is wrong. */
 const BRANCH_SUFFIX_CAP = 20;
 
-/** Best-effort teardown of the temp checkout. The branch is deliberately left behind. */
+/**
+ * Best-effort teardown of the temp checkout. The branch is deliberately left behind.
+ *
+ * THE ORDER IS A SAFETY PROPERTY, NOT A STYLE CHOICE. `git worktree remove --force` FOLLOWS a
+ * junction: measured on Windows, removing a worktree that still contained a junction to the paired
+ * checkout's `node_modules` deleted the paired checkout's `node_modules` — the operator's real
+ * directory, not the link. So the links come out FIRST, through `unlinkDependencyDirs`, which removes
+ * only paths whose own `lstat` says they are links and calls `fs.rm` without `recursive` so it cannot
+ * walk into a target. By the time git is asked to remove anything there is no link left to follow.
+ *
+ * The trailing `rm(dir, { recursive: true })` is the fallback for a worktree git refused to remove.
+ * It runs after the unlink for the same reason — though Node's recursive remove is itself junction-
+ * safe (it unlinks a reparse point rather than descending into it), the guarantee should not rest on
+ * a second implementation's behaviour when ordering makes it moot.
+ */
 export async function removeLoopWorktree(wt: LoopWorktree): Promise<void> {
+  await unlinkDependencyDirs(wt.dir).catch(() => []);
   await runGit(wt.pairedPath, ["worktree", "remove", "--force", wt.dir]).catch(() => null);
   await rm(wt.dir, { recursive: true, force: true }).catch(() => null);
 }
@@ -192,6 +233,11 @@ export async function removeStrandedWorktrees(lanes: readonly StrandedLane[], de
     for (const entry of parseWorktreeList(listed.stdout)) {
       if (!entry.branch || !branches.has(entry.branch)) continue;
       if (!isLoopTempWorktree(entry.dir, tempRoot)) continue;
+      // SAME ORDER, SAME REASON as `removeLoopWorktree`, and it matters more here: a hard-killed lane
+      // never reached its `finally`, so a stranded worktree is exactly the case that still HAS its
+      // dependency links, and `worktree remove --force` follows a junction into the operator's own
+      // `node_modules`. The links come out first, by lstat, non-recursively.
+      await unlinkDependencyDirs(entry.dir).catch(() => []);
       await runGit(paired, ["worktree", "remove", "--force", entry.dir]).catch(() => null);
       await rm(entry.dir, { recursive: true, force: true }).catch(() => null);
       removed.push(entry.dir);
