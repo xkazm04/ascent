@@ -99,9 +99,20 @@ routes use for their tenancy re-check, in its own module so the check is visible
 
 ## API
 
-All four are `runtime = "nodejs"`, `dynamic = "force-dynamic"`, and behind `selfHostGuard()` — on
-managed cloud they 404 rather than 403, because a 403 would advertise a surface that does not exist
-there. The `public` funnel org is refused everywhere.
+All four are `runtime = "nodejs"` and `dynamic = "force-dynamic"`, and the `public` funnel org is
+refused everywhere.
+
+**`selfHostGuard()` now sits on the WRITE path only, and only for the executor that needs it.** The
+guard's original argument — 404 rather than 403, because a 403 advertises a surface that does not
+exist — held while every loop run was a local one. Moonshot #3 shipped the `remote-agent` executor
+and `POST /api/org/loop` accepts it on managed cloud, so the surface *does* exist there. A cloud
+owner who could arm a run was still 404'd out of reading it (`GET /api/org/loop`, fixed earlier) and
+out of previewing what it would work (`GET …/propose`) — the cockpit denying a capability the
+deployment ships (`PRIYA-L1-703`, 2026-08-30). Both reads are now ungated beyond `requireOrgAccess`.
+`propose` degrades honestly without a checkout: `getRepoLocalPath` resolves to null and
+`proposeLaneKind(null, …)` returns the **backlog** lane by construction, so a cloud proposal is the
+repo's open follow-ups and never a claim about a directory nobody read. `POST` keeps the guard for
+`executor: "local"`, which spawns an agent inside a real working copy on the server's disk.
 
 ### `GET /api/org/loop?org=<slug>`
 
@@ -994,10 +1005,19 @@ used to do this was deleted rather than kept beside it.
 
 ### Setup states (`CockpitSetup`)
 
-`hosted` (field still rendered read-only; explains loops run where the code is, links to self-hosting
-via `NEXT_PUBLIC_SOURCE_REPO_URL` or `docs/SETUP.md`) · `no-repos` (→ repositories tab) · `not-owner`
-· `autopilot-off` (shows the route's 409 fix) · `unpaired` (three steps: pair a checkout via
-`?tab=pairing` → pick repos → run).
+`hosted` (the field is still rendered read-only; the copy names the **local lane** as the
+self-hosted-only part and says outright that remote-agent runs work on this deployment, linking to
+self-hosting via `NEXT_PUBLIC_SOURCE_REPO_URL` or `docs/SETUP.md`) · `no-repos` (→ repositories tab)
+· `not-owner` · `autopilot-off` (shows the route's 409 fix) · `unpaired` (three steps: pair a
+checkout via `?tab=pairing` → pick repos → run).
+
+**`hosted` is a block on DISPATCH, never on reading (`PRIYA-L1-703`).** `LiveTab` used to read the
+active run, the run list and the run details only when `selfHosted()`, so a cloud owner's armed
+remote run rendered nowhere and the rail fell through to `hosted` — whose copy then told them the
+loop *"exists only on a self-hosted Ascent"*, contradicted by the very route that had accepted their
+run. All three reads are now unconditional; `pairedRepos` stays gated, because a checkout on this
+machine is a filesystem fact. `CockpitRail` already ranks a live run above the setup block, so a
+remote run on cloud renders its lane panel instead of the denial.
 
 Tests: `cockpit/laneStages.test.ts`, `cockpitDimensions.test.ts`, `cockpitDrift.test.ts`,
 `cockpitGate.test.ts` (one gate, two callers), `driveModel.test.ts` (the on-screen arithmetic and

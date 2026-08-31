@@ -18,7 +18,6 @@ vi.mock("next/server", () => ({
     }
   },
 }));
-vi.mock("@/lib/api/self-host", () => ({ selfHostGuard: () => null }));
 vi.mock("@/lib/auth", () => ({ PUBLIC_ORG: "public" }));
 vi.mock("@/lib/authz", () => ({ requireOrgAccess: vi.fn(async () => null) }));
 
@@ -106,9 +105,18 @@ describe("GET /api/org/loop/propose — the lane kind travels with the batch", (
     expect(p!.projectedPoints).toBe(5);
   });
 
-  it("does not claim a kind for a repo with no local pairing to read", async () => {
+  // PRIYA-L1-703: this route no longer carries `selfHostGuard`. A cloud owner can ARM a
+  // `remote-agent` run, and a curation step that 404s on the deployment whose start route says yes
+  // is the cockpit denying a capability the deployment ships. There is no self-host mock in this
+  // file precisely so the route's own behaviour is what is measured here.
+  it("answers on a deployment with no checkout at all — a backlog proposal, never a 404", async () => {
     backlog.items = [item("rec-1", "D1")];
-    const [p] = await propose();
+    const res = await GET(new Request("https://x.test/api/org/loop/propose?org=acme&repos=acme/web"));
+    expect(res.status).toBe(200);
+    const [p] = ((await res.json()) as { proposals: Proposal[] }).proposals;
+    // `proposeLaneKind(null, …)` returns BACKLOG by construction: with no working copy the file
+    // tests cannot run, and claiming `foundation` would be a claim about a directory nobody read.
     expect(p!.kind).toBe("backlog");
+    expect(p!.items).toHaveLength(1);
   });
 });
