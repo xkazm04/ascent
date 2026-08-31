@@ -98,6 +98,7 @@ import {
 import { claimOrgAuditOnce, releaseAuditClaim } from "@/lib/db/scans-audit";
 import { dispatchAlert, buildFleetDigestMessage, digestHasSignal } from "@/lib/alerts";
 import { isWithinNoise } from "@/lib/maturity/noise";
+import { forecastTrajectory } from "@/lib/maturity/forecast";
 import { dispatchExtraAlerts } from "./extra-alerts";
 
 const mockIsDb = vi.mocked(isDbConfigured);
@@ -588,5 +589,59 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     const body = await bodyOf(await GET(req({ auth: `Bearer ${SECRET}` })));
     expect(body).toMatchObject({ skippedNoSink: 1, goalAlerts: 0, spendAlerts: 0 });
     expect(mockExtra).not.toHaveBeenCalled();
+  });
+});
+
+// MC-B1 — the digest is a PUSH channel: nobody clicks through to question the sentence it states.
+// It used to print `forecastHeadline` raw, so the same two-scan-day fit the briefing headlined bare
+// went out to Slack as "Climbing at +35/wk". It now sends the SAME composed line the briefing does.
+describe("weekly digest — the trajectory line consults the presentability gate", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.CRON_SECRET = SECRET;
+    mockIsDb.mockReturnValue(true);
+    mockMovers.mockResolvedValue(null);
+    mockRecs.mockResolvedValue(null);
+    mockBenchmark.mockResolvedValue(null);
+    mockCredit.mockResolvedValue(null);
+    mockDispatch.mockResolvedValue(true);
+    mockHasSignal.mockReturnValue(true);
+    mockClaim.mockResolvedValue({ claimed: true, id: "clm_1" });
+  });
+  afterEach(() => {
+    delete process.env.CRON_SECRET;
+  });
+
+  const daily = (n: number, step: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      date: new Date(Date.parse("2026-01-01") + i * 86_400_000).toISOString().slice(0, 10),
+      value: 60 + step * i,
+    }));
+
+  async function trajectorySentTo(points: { date: string; value: number }[]) {
+    mockListOrgs.mockResolvedValue(["orgA"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/A");
+    mockRollup.mockResolvedValue({
+      ...(rollupWith() as object),
+      forecast: forecastTrajectory(points),
+    } as unknown as Awaited<ReturnType<typeof getOrgRollup>>);
+    await GET(req({ auth: `Bearer ${SECRET}` }));
+    return (mockBuild.mock.calls[0]![0] as { trajectory?: string | null }).trajectory;
+  }
+
+  it("pushes the refusal, not the slope, when the fit is below the gate", async () => {
+    const traj = await trajectorySentTo(daily(2, 5));
+    expect(traj).toContain("Not enough history to project");
+    expect(traj).not.toContain("/wk");
+  });
+
+  it("pushes the headline WITH its confidence and basis when the fit is presentable", async () => {
+    const traj = await trajectorySentTo(daily(20, 0.3));
+    expect(traj).toContain("trend confidence");
+    expect(traj).toContain("fit over 20 scan days across 19 days");
+  });
+
+  it("says nothing at all when there is no fit — absence, not a fabricated basis", async () => {
+    expect(await trajectorySentTo([{ date: "2026-01-01", value: 60 }])).toBeNull();
   });
 });

@@ -1,11 +1,16 @@
 import { describe, it, expect } from "vitest";
 import {
+  MIN_FORECAST_SPAN_DAYS,
+  composeTrajectory,
   forecastBasis,
+  forecastInsufficiency,
   forecastTrajectory,
   forecastHeadline,
   humanizeDays,
   isProjectable,
   projectGoal,
+  trajectoryLine,
+  trajectoryNote,
   type SeriesPoint,
 } from "./forecast";
 
@@ -343,5 +348,88 @@ describe("forecastBasis", () => {
       { date: "2026-01-02T01:00:00Z", value: 51 },
     ])!;
     expect(forecastBasis(f)).toBe("fit over 2 scan days across 1 day");
+  });
+});
+
+// MC-B1 / DANA-L1-001 (recurrence 3) — the composed read is the ONLY thing a presenting surface may
+// print. These pin the contract's shape: a bare slope must be unreachable through it.
+describe("composeTrajectory — the hedge is replaced, never deleted", () => {
+  it("refuses to headline a lowData fit, and hands back Delivery's own refusal instead", () => {
+    // The live arm-B capture: two scan days a day apart produced "Climbing at +35/wk" with no hedge.
+    const f = forecastTrajectory([
+      { date: "2026-08-21", value: 60 },
+      { date: "2026-08-22", value: 65 },
+    ]);
+    const t = composeTrajectory(f);
+    expect(t.headline).toBeNull();
+    expect(t.confidence).toBeNull();
+    expect(t.insufficiency).toBe(forecastInsufficiency(f));
+    expect(t.insufficiency).toContain("2 distinct scan days");
+    // The exact sentence the Delivery fit readout prints one click away — one vocabulary, one gate.
+    expect(t.insufficiency).toContain("Not enough history to project");
+  });
+
+  it("refuses a short-SPAN fit too: enough days, not enough calendar", () => {
+    const t = composeTrajectory(forecastTrajectory(series(50, 1, 5)));
+    expect(t.headline).toBeNull();
+    expect(t.insufficiency).toContain(`at least ${MIN_FORECAST_SPAN_DAYS}`);
+  });
+
+  it("says NOTHING at all when there is no fit — absence, never a fabricated basis (G4)", () => {
+    expect(composeTrajectory(null)).toEqual({ headline: null, confidence: null, basis: null, insufficiency: null });
+    // A one-point series cannot be fitted; same contract.
+    expect(composeTrajectory(forecastTrajectory([{ date: "2026-01-01", value: 50 }]))).toEqual({
+      headline: null,
+      confidence: null,
+      basis: null,
+      insufficiency: null,
+    });
+  });
+
+  it("carries BOTH halves of the hedge whenever it carries a headline — they are inseparable", () => {
+    const f = forecastTrajectory(series(50, 0.3, 20))!;
+    const t = composeTrajectory(f);
+    expect(t.headline).toBe(forecastHeadline(f));
+    expect(t.confidence).toBe(Math.round(f.fitQuality * 100));
+    expect(t.basis).toBe(forecastBasis(f)); // forecastBasis finally has a non-test caller (DANA-L1-013)
+    expect(t.insufficiency).toBeNull();
+  });
+
+  it("puts the compacted share in front of the reader when the fit rests on one", () => {
+    const pts = series(50, 0.3, 20).map((p, i) => (i < 4 ? { ...p, compacted: true } : p));
+    const t = composeTrajectory(forecastTrajectory(pts));
+    expect(t.basis).toContain("4 of them compacted");
+    expect(trajectoryNote(t)).toContain("4 of them compacted");
+  });
+});
+
+describe("trajectoryNote / trajectoryLine — one line for the push surfaces", () => {
+  it("joins confidence and basis, and marks a low-R² fit noisy", () => {
+    const noisy = forecastTrajectory([
+      { date: "2026-01-01", value: 50 },
+      { date: "2026-01-08", value: 70 },
+      { date: "2026-01-15", value: 52 },
+      { date: "2026-01-22", value: 68 },
+    ])!;
+    const note = trajectoryNote(composeTrajectory(noisy))!;
+    expect(note).toMatch(/^trend confidence \d+% · noisy · fit over 4 scan days across 21 days$/);
+  });
+
+  it("never emits a headline without its hedge attached", () => {
+    const line = trajectoryLine(forecastTrajectory(series(50, 0.3, 20)))!;
+    expect(line).toContain("trend confidence");
+    expect(line).toContain("fit over 20 scan days across 19 days");
+  });
+
+  it("emits the refusal — not the slope — for an unpresentable fit, and nothing for no fit", () => {
+    const line = trajectoryLine(
+      forecastTrajectory([
+        { date: "2026-08-21", value: 60 },
+        { date: "2026-08-22", value: 65 },
+      ]),
+    )!;
+    expect(line).toContain("Not enough history to project");
+    expect(line).not.toContain("/wk"); // the bare slope the digest used to push
+    expect(trajectoryLine(null)).toBeNull();
   });
 });

@@ -33,7 +33,7 @@
 // params (`temperature`/`top_p`) are deliberately absent — they are rejected with a 400 on this model
 // family — and adaptive thinking is left at its default with a low effort hint.
 
-import { briefingMarkdown, briefingNextMove, type ExecBriefing } from "@/lib/org/briefing";
+import { briefingMarkdown, briefingNextMove, briefingTrajectoryNote, type ExecBriefing } from "@/lib/org/briefing";
 import { withLlmTimeout } from "@/lib/llm/config";
 import { meter } from "@/lib/llm/meter";
 import { PROSE_STYLE_RULE, deEmDash } from "@/lib/llm/prose";
@@ -235,7 +235,12 @@ export function deterministicNarrative(b: ExecBriefing): string {
       `Of the ${b.coverage.scanned} scanned repositories, ${b.movement.compared} had a comparable prior scan in the period; of those, ${b.movement.up} improved and ${b.movement.down} regressed.`,
     );
   }
-  if (b.forecastHeadline) s.push(b.forecastHeadline);
+  // MC-B1 — the deterministic narrative is a briefing surface too, and an LLM handed a bare slope
+  // will repeat it as fact. State the basis with the claim, or state the refusal; never the slope
+  // alone.
+  const trajNote = briefingTrajectoryNote(b);
+  if (b.forecastHeadline) s.push(trajNote ? `${b.forecastHeadline} (${trajNote})` : b.forecastHeadline);
+  else if (b.forecastInsufficiency) s.push(b.forecastInsufficiency);
   const strongest = b.strengths[0];
   const weakest = b.risks[0];
   if (strongest && weakest) {

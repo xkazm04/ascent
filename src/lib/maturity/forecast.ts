@@ -379,7 +379,17 @@ export function humanizeDays(days: number): string {
  *
  * The compaction half is OMITTED when `compactedPoints === 0`: a caveat printed on every forecast,
  * including the ones it does not apply to, stops being read. Pure; the caller renders it verbatim.
- * (Called by the executive briefing's trajectory clause — moonshot #26.)
+ *
+ * Its caller is {@link composeTrajectory}, which puts it on every surface that prints a trajectory.
+ * (For three cycles this docstring NAMED a caller that did not exist — the sentence Dana kept asking
+ * for was composed, unit-tested three ways, and rendered nowhere. UAT DANA-L1-013 → MC-B1.)
+ *
+ * The compaction clause is wired but presently silent on the ORG path: `getOrgRollup` fits over
+ * retained `Scan` rows only and never sets `SeriesPoint.compacted`, so `compactedPoints` is 0 there
+ * by construction (DANA-L1-014). The clause appears the moment that series carries compacted points;
+ * it is deliberately NOT synthesised from org-level `getCompactionCoverage`, which counts digests
+ * across the org rather than the points behind THIS fit — that would be a fabricated basis, which
+ * G4 forbids more strongly than it forbids an absent one.
  */
 export function forecastBasis(f: Forecast): string {
   const days = `${f.points} scan ${f.points === 1 ? "day" : "days"}`;
@@ -402,4 +412,76 @@ export function forecastHeadline(f: Forecast): string {
   const dir = f.trajectory === "rising" ? "Climbing" : "Declining";
   const rate = `${f.perWeek > 0 ? "+" : ""}${f.perWeek}/wk`;
   return `${dir} at ${rate}, staying within ${lvl(f.currentLevel)} for now.`;
+}
+
+// ── The composed trajectory read ─────────────────────────────────────────────
+// ONE composition of "what may we say about this fit", so every surface that prints a trajectory —
+// the exec briefing on screen, the board PDF, the read-only share page, the "Copy for LLM" markdown
+// and the weekly digest — says the same thing about the same fit. Before this existed each renderer
+// assembled its own line and guarded its hedge on a nullable confidence figure, so the ONE case
+// where the hedge mattered most (`lowData`, where the confidence is suppressed *because* it would be
+// a lie) was the one case that rendered a bare, confident slope: "Climbing at +35/wk" off two scan
+// days, on the artifact with the org's name on it — while Delivery, one click away, refused to make
+// the same claim. (UAT DANA-L1-001, recurrence 3 → MC-B1.)
+//
+// The contract, in order:
+//   * no fit at all  → every field null. The caller says "not enough history yet" in its own voice;
+//     the basis DEGRADES TO ABSENCE, never to a fabricated one (G4 / DANA-L1-016).
+//   * a fit below the shared presentability gate → `insufficiency` carries `forecastInsufficiency`'s
+//     sentence VERBATIM (the same words the Delivery fit readout and the /trends panel print) and
+//     `headline` is null: an unpresentable fit does not get to state a slope.
+//   * a presentable fit → `headline` AND both halves of its hedge (`confidence`, `basis`). They are
+//     non-null together by construction, so a renderer cannot print the claim and drop the caveat.
+
+/** A forecast as it may be PRESENTED: the claim, its hedge, or the refusal to claim. */
+export interface TrajectoryRead {
+  /** The projected headline — only ever set when the fit cleared the presentability gate. */
+  headline: string | null;
+  /** R² as 0–100. Non-null exactly when `headline` is (the gate excludes `lowData` by construction). */
+  confidence: number | null;
+  /** What the fit stands on ({@link forecastBasis}). Non-null exactly when `headline` is. */
+  basis: string | null;
+  /** Why we are refusing to project, verbatim from {@link forecastInsufficiency}; null when projecting
+   *  or when there is no fit at all (absence, not a refusal to explain). */
+  insufficiency: string | null;
+}
+
+/** Compose the one presentable read of a fit. Pure; see the block comment above for the contract. */
+export function composeTrajectory(f: Forecast | null): TrajectoryRead {
+  const empty: TrajectoryRead = { headline: null, confidence: null, basis: null, insufficiency: null };
+  if (!f) return empty;
+  const insufficiency = forecastInsufficiency(f);
+  // The refusal already names the points and the span, so a basis clause beside it would only repeat
+  // itself — the reader gets one sentence, not two saying the same thing in different words.
+  if (insufficiency) return { ...empty, insufficiency };
+  return {
+    headline: forecastHeadline(f),
+    confidence: Math.round(f.fitQuality * 100),
+    basis: forecastBasis(f),
+    insufficiency: null,
+  };
+}
+
+/** "trend confidence 30% · noisy" — the R² hedge under a trajectory headline. `< 50` is "noisy". */
+export function forecastConfidenceNote(confidence: number | null): string | null {
+  if (confidence == null) return null;
+  return `trend confidence ${confidence}%${confidence < 50 ? " · noisy" : ""}`;
+}
+
+/** The full hedge for a presented headline: confidence AND basis, joined — "trend confidence 34% ·
+ *  noisy · fit over 9 scan days across 84 days". Null only when there is no headline to hedge. */
+export function trajectoryNote(t: TrajectoryRead): string | null {
+  const parts = [forecastConfidenceNote(t.confidence), t.basis].filter((s): s is string => !!s);
+  return parts.length ? parts.join(" · ") : null;
+}
+
+/** The whole trajectory as ONE line, for a push/summary surface that has room for exactly one (the
+ *  weekly digest). The refusal when the fit is unpresentable; null — say nothing — when there is no
+ *  fit at all; otherwise the headline with its hedge attached, never the headline alone. */
+export function trajectoryLine(f: Forecast | null): string | null {
+  const t = composeTrajectory(f);
+  if (t.insufficiency) return t.insufficiency;
+  if (!t.headline) return null;
+  const note = trajectoryNote(t);
+  return note ? `${t.headline} (${note})` : t.headline;
 }

@@ -886,6 +886,47 @@ Briefing tab (`src/app/org/[slug]/executive/page.tsx`), the board PDF
 markdown (`briefingMarkdown`). The anonymous share link (`/share/briefing/[token]`) re-runs the
 same builder against the token's window.
 
+### The trajectory clause states its basis, or it refuses to project (MC-B1, 2026-08-31)
+
+The briefing's Trajectory line consults the **same presentability gate** every other forecast surface
+does — `isProjectable` / `forecastInsufficiency` in `src/lib/maturity/forecast.ts`: at least
+`MIN_FORECAST_POINTS` (3) distinct scan days **and** `MIN_FORECAST_SPAN_DAYS` (14) of calendar span.
+One composer, `composeTrajectory(forecast)`, decides what may be said, and `buildExecBriefing` spreads
+its answer onto four fields:
+
+| Field | When set | Renders as |
+| --- | --- | --- |
+| `forecastHeadline` | only when the fit clears the gate | "On track to reach L4 · Optimizing in ~8 weeks (≈ 2026-09-20)." |
+| `forecastConfidence` | **exactly** when `forecastHeadline` is | "trend confidence 34% · noisy" (`< 50` R² is noisy) |
+| `forecastBasis` | **exactly** when `forecastHeadline` is | "fit over 9 scan days across 84 days[, 3 of them compacted]" (`forecastBasis`) |
+| `forecastInsufficiency` | a fit exists but is below the gate | "Not enough history to project: 2 distinct scan days …" — `forecastInsufficiency`'s sentence *verbatim*, the same words the Delivery fit readout and `/trends` print |
+
+All four null means **no fit at all**, and the renderers say "Not enough history yet to project a
+trajectory." The basis degrades to **absence, never to a fabricated one** (G4).
+
+Every renderer reads the line through `briefingTrajectory(b)` / `briefingTrajectoryNote(b)` rather
+than assembling its own — the Trajectory card, the board PDF, the share page, the markdown and the
+deterministic narrative — so the four artifacts a board might see cannot disagree about one fit.
+Confidence and basis are non-null *by construction* whenever a headline is, so a renderer cannot print
+the claim and drop the caveat.
+
+This replaced the inverse behavior, found three UAT cycles running (`DANA-L1-001`): on `lowData` the
+briefing **nulled** `forecastConfidence` and each renderer guarded its hedge on that null, so the least
+trustworthy fit rendered the most confidently — a live board PDF read "Trajectory: Climbing at +35/wk"
+off two scan days with no confidence line at all, while the Delivery tab one click away refused the
+same claim. `forecastBasis` — which composes exactly the missing sentence and is unit-tested three
+ways — had **zero non-test callers** despite a docstring naming one; `composeTrajectory` is that
+caller.
+
+**The compaction clause is wired but presently silent on the org path** (`DANA-L1-014`): `getOrgRollup`
+fits over retained `Scan` rows only and never sets `SeriesPoint.compacted`, so `compactedPoints` is 0
+there by construction and ", N of them compacted" cannot yet appear on a briefing. The clause travels
+end-to-end the moment that series carries compacted points (it is covered by tests that feed one in),
+and it is deliberately **not** synthesised from the org-level `getCompactionCoverage`, which counts
+digests across the org rather than the points behind *this* fit — that would be a fabricated basis,
+which G4 forbids more strongly than an absent one. The user-visible consequence on a purged-history
+org remains unverified: no fixture with a compacted tail exists on the test host.
+
 **Share links are per-grant, and say whether their figures still hold.** Every mint stamps a random
 `jti` (`signBriefingShareToken`, returned by `POST /api/org/briefing/share`), so one leaked link can
 be killed on its own by bumping `briefingShareRevocationKey(jti)` in the permanent SessionRevocation

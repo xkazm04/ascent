@@ -14,7 +14,7 @@ import {
   BriefingTiles,
 } from "@/features/bought/executive/briefingCards";
 import { TokenNotice } from "@/components/TokenNotice";
-import { buildExecBriefing, engineMixCaveat, engineMixLabel, forecastConfidenceNote, valueRealizedHeading, valueRealizedLine } from "@/lib/org/briefing";
+import { buildExecBriefing, briefingTrajectoryNote, engineMixCaveat, engineMixLabel, valueRealizedHeading, valueRealizedLine } from "@/lib/org/briefing";
 import { briefingFigureDigest, shareIntegrity, verifyBriefingShareToken } from "@/lib/briefing-share";
 import { resolveWindow } from "@/lib/window";
 import { getCreditState, getOrgBranding, getOrgId, getTechGroupIdByKey, isDbConfigured, recordAudit } from "@/lib/db";
@@ -247,16 +247,17 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
             number already returned on this page's own `briefing` object (no internal-only field, no
             link) — a board viewer reading a shared link is the LEAST equipped to know a caveat is
             missing, so gate the whole card on either signal, exactly like executive/page.tsx does. */}
-        {(briefing.forecastHeadline || briefing.regressionCount > 0) && (
+        {(briefing.forecastHeadline || briefing.forecastInsufficiency || briefing.regressionCount > 0) && (
           <Card className="mt-6">
             <SectionHeader size="sm" title="Trajectory" />
             <p className="mt-2 type-body text-slate-300">
-              {briefing.forecastHeadline ?? "Not enough history yet to project a trajectory."}
+              {briefing.forecastHeadline ?? briefing.forecastInsufficiency ?? "Not enough history yet to project a trajectory."}
             </p>
-            {/* Carry the same trend-confidence hedge the owner's page + PDF show, so a shared board link
-                can't present a noisy, low-R² projection as a firm commitment. */}
-            {briefing.forecastHeadline && forecastConfidenceNote(briefing.forecastConfidence) && (
-              <p className="mt-1 type-mono-sm text-slate-500">{forecastConfidenceNote(briefing.forecastConfidence)}</p>
+            {/* MC-B1: the same composed line the owner's page, the board PDF and the markdown get. A
+                board viewer reading a shared link is the least equipped to notice a missing caveat, so
+                the hedge travels with the claim rather than being guarded on a nullable figure. */}
+            {briefing.forecastHeadline && briefingTrajectoryNote(briefing) && (
+              <p className="mt-1 type-mono-sm text-slate-500">{briefingTrajectoryNote(briefing)}</p>
             )}
             {briefing.regressionCount > 0 && (
               <p className="mt-1 type-mono-sm text-orange-300">

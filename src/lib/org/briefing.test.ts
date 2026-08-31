@@ -2,7 +2,8 @@
 // shape: standing headline, benchmark, strengths/weaknesses, movement, and a trailing actionable ASK.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { benchmarkCaption, briefingLoopProofLine, briefingMarkdown, briefingProofLine, buildLoopProof, engineMixCaveat, movementLine, valueRealizedHeading, valueRealizedLine, type ExecBriefing } from "./briefing";
+import { benchmarkCaption, briefingLoopProofLine, briefingMarkdown, briefingProofLine, briefingTrajectoryNote, buildLoopProof, engineMixCaveat, movementLine, valueRealizedHeading, valueRealizedLine, type ExecBriefing } from "./briefing";
+import { forecastTrajectory } from "@/lib/maturity/forecast";
 
 // `buildExecBriefing` is pure assembly over five @/lib/db reads (rollup/benchmark/movers/goals +
 // a prior-window rollup it derives itself). Mock the db boundary so we can drive the assembly math
@@ -1059,5 +1060,59 @@ describe("briefingMarkdown — proof section", () => {
 
   it("omits the section entirely when there is no proof (fixture has none)", () => {
     expect(briefingMarkdown(fixture)).not.toContain("## Proof");
+  });
+});
+
+// ── MC-B1 / DANA-L1-001 (recurrence 3) ───────────────────────────────────────
+// The board artifact used to print the LEAST trustworthy fit the MOST confidently: on `lowData` the
+// confidence was nulled and every renderer guarded its hedge on that null, so "Trajectory: Climbing
+// at +35/wk" shipped bare off two scan days — while Delivery, one click away, refused the same claim.
+// The briefing now consults the SAME presentability gate and replaces the hedge instead of deleting it.
+describe("buildExecBriefing — the trajectory consults the shared presentability gate", () => {
+  /** A trend of `n` consecutive daily points from 2026-01-01, rising `step`/day. */
+  const trend = (n: number, step = 1) =>
+    Array.from({ length: n }, (_, i) => ({
+      date: new Date(Date.parse("2026-01-01") + i * 86_400_000).toISOString().slice(0, 10),
+      avg: 60 + step * i,
+    }));
+
+  it("refuses to state a slope off two scan days, and says so in Delivery's words", async () => {
+    mockRollup.mockResolvedValue(rollup({ forecast: forecastTrajectory(trend(2, 5).map((t) => ({ date: t.date, value: t.avg }))) }));
+    const b = (await buildExecBriefing("acme"))!;
+    expect(b.forecastHeadline).toBeNull();
+    expect(b.forecastConfidence).toBeNull();
+    expect(b.forecastInsufficiency).toContain("Not enough history to project");
+    expect(b.forecastInsufficiency).toContain("2 distinct scan days");
+    // …and the markdown a leader pastes into an LLM carries the refusal, never the bare slope.
+    const md = briefingMarkdown(b);
+    expect(md).toContain("- Trajectory: Not enough history to project");
+    expect(md).not.toMatch(/Trajectory:.*\/wk/);
+  });
+
+  it("states the BASIS beside a projection it is willing to make — forecastBasis's real caller", async () => {
+    mockRollup.mockResolvedValue(rollup({ forecast: forecastTrajectory(trend(20, 0.3).map((t) => ({ date: t.date, value: t.avg }))) }));
+    const b = (await buildExecBriefing("acme"))!;
+    expect(b.forecastHeadline).toBeTruthy();
+    expect(b.forecastConfidence).not.toBeNull(); // the hedge cannot go missing beside a headline
+    expect(b.forecastBasis).toBe("fit over 20 scan days across 19 days");
+    expect(b.forecastInsufficiency).toBeNull();
+    expect(briefingTrajectoryNote(b)).toContain("fit over 20 scan days across 19 days");
+    expect(briefingMarkdown(b)).toContain("fit over 20 scan days across 19 days");
+  });
+
+  it("degrades the basis to ABSENCE, never to a fabricated one, when there is no fit at all (G4)", async () => {
+    mockRollup.mockResolvedValue(rollup({ forecast: null }));
+    const b = (await buildExecBriefing("acme"))!;
+    expect(b.forecastHeadline).toBeNull();
+    expect(b.forecastBasis).toBeNull();
+    expect(b.forecastInsufficiency).toBeNull(); // nothing to refuse — the renderers say "not enough history yet"
+    expect(briefingMarkdown(b)).not.toMatch(/Trajectory:/);
+  });
+
+  it("names the compacted share of the fit when the series carries one (DANA-L1-013)", async () => {
+    const pts = trend(20, 0.3).map((t, i) => ({ date: t.date, value: t.avg, compacted: i < 4 }));
+    mockRollup.mockResolvedValue(rollup({ forecast: forecastTrajectory(pts) }));
+    const b = (await buildExecBriefing("acme"))!;
+    expect(b.forecastBasis).toContain("4 of them compacted");
   });
 });

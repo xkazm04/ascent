@@ -18,7 +18,7 @@ import { getOrgEngineMix, getOrgRecsActioned, type EngineMixEntry } from "@/lib/
 import { getOrgPractices, getPlaybookAdoption, listPlaybooks } from "@/lib/db";
 import { buildPracticeLibrarySummary } from "@/lib/org/practice-library";
 import { getImprovementEvents, type ImprovementEvent } from "@/lib/db/improvement-events";
-import { forecastHeadline } from "@/lib/maturity/forecast";
+import { composeTrajectory, forecastConfidenceNote, trajectoryNote, type TrajectoryRead } from "@/lib/maturity/forecast";
 import { DIMENSION_BY_ID, levelForScore } from "@/lib/maturity/model";
 import { providerLabel as engineLabel } from "@/lib/llm/config";
 import type { DimensionId } from "@/lib/types";
@@ -46,10 +46,31 @@ export function engineMixCaveat(mix: EngineMixEntry[]): string | null {
 
 /** "trend confidence 30% · noisy" — the same hedge the exec page shows under the trajectory headline,
  *  so the board PDF and the shared read-only link can't present a low-R² projection as a firm headline.
- *  Null when there's no confidence figure (too little history). `< 50` (R²) is the "noisy" threshold. */
-export function forecastConfidenceNote(confidence: number | null): string | null {
-  if (confidence == null) return null;
-  return `trend confidence ${confidence}%${confidence < 50 ? " · noisy" : ""}`;
+ *  Re-exported from @/lib/maturity/forecast, where it now lives beside the composer that uses it, so
+ *  the phrase has exactly one definition; this alias keeps every existing import site unchanged. */
+export { forecastConfidenceNote };
+
+/** The trajectory as the briefing's renderers must present it — the composed read of the fit behind
+ *  `forecastHeadline` / `forecastConfidence` / `forecastBasis` / `forecastInsufficiency`.
+ *
+ *  EVERY briefing surface (the Trajectory card, the board PDF, the read-only share page and the
+ *  "Copy for LLM" markdown) reads the line through this one function, so the four artifacts a board
+ *  might see cannot disagree about the same fit. Previously each assembled its own line and guarded
+ *  the hedge on `forecastConfidence != null` — and that figure is nulled precisely when the fit is
+ *  too thin to state one, so the LEAST trustworthy fit rendered the MOST confidently. (MC-B1.) */
+export function briefingTrajectory(b: ExecBriefing): TrajectoryRead {
+  return {
+    headline: b.forecastHeadline,
+    confidence: b.forecastConfidence,
+    basis: b.forecastBasis ?? null,
+    insufficiency: b.forecastInsufficiency ?? null,
+  };
+}
+
+/** The hedge a rendered briefing headline must carry: "trend confidence 34% · noisy · fit over 9 scan
+ *  days across 84 days". Null only when there is no headline to hedge. */
+export function briefingTrajectoryNote(b: ExecBriefing): string | null {
+  return trajectoryNote(briefingTrajectory(b));
 }
 
 /** One-line value-realization summary ("3 recommendations completed · fleet +6 pts · 2 repos leveled
@@ -168,10 +189,26 @@ export interface ExecBriefing {
     /** Per-dimension now/prior/delta, biggest movers first (capped). */
     dims: { dimId: string; label: string; now: number; prior: number; delta: number }[];
   } | null;
+  /** The projected trajectory sentence — set ONLY when the fit cleared the shared presentability gate
+   *  (`isProjectable`). Null both when there is no fit at all and when the fit is real but too thin to
+   *  present; `forecastInsufficiency` distinguishes those two. Never a bare slope off two scan days. */
   forecastHeadline: string | null;
   /** Trend confidence (R² as 0–100) behind the forecast headline; null when there's too little history.
-   *  Carried so the executive read shows the same "· noisy" honesty the overview Trajectory card does. */
+   *  Carried so the executive read shows the same "· noisy" honesty the overview Trajectory card does.
+   *  Non-null exactly when `forecastHeadline` is — the gate excludes `lowData`, where R² is 1 by
+   *  construction, so the hedge can no longer go missing on the fits that most need it. */
   forecastConfidence: number | null;
+  /** What the projection stands on — "fit over 9 scan days across 84 days[, 3 of them compacted]".
+   *  Non-null exactly when `forecastHeadline` is. The answer to the only question the audit committee
+   *  asks about a projection ("based on what?"), which the board artifacts previously could not give.
+   *  OPTIONAL for the same fixture-compatibility reason as `recommendations`; `buildExecBriefing`
+   *  always sets it. Read it through `briefingTrajectory(b)` / `briefingTrajectoryNote(b)`. */
+  forecastBasis?: string | null;
+  /** Why we are NOT projecting, in the same words the Delivery fit readout and the /trends panel use
+   *  ("Not enough history to project: 2 distinct scan days…"). Set when a fit exists but falls below
+   *  the shared gate; null when projecting, and null when there is no fit at all — nothing to refuse.
+   *  OPTIONAL for fixture compatibility; `buildExecBriefing` always sets it. */
+  forecastInsufficiency?: string | null;
   /** Which inference engine(s) produced this period's scores — provenance so a mock-degraded quarter
    *  is auditable in the durable briefing, not just the transient scan stream. */
   engineMix: EngineMixEntry[];
@@ -374,13 +411,20 @@ export async function buildExecBriefing(
     coverage: { scanned: rollup.scannedCount, total: rollup.repoCount },
     periodDelta: rollup.baseline ? rollup.avgOverall - rollup.baseline.avgOverall : null,
     priorPeriod,
-    forecastHeadline: rollup.forecast ? forecastHeadline(rollup.forecast) : null,
-    // forecast.ts explicitly warns NOT to render fitQuality as a hard confidence % when `lowData` is
-    // set: OLS through 1–2 points fits perfectly by construction (fitQuality=1), so a 2-scan forecast
-    // would otherwise show "trend confidence 100%" in the board PDF. Suppress the number on low data —
-    // the trajectory headline still renders, just without a bogus confidence.
-    forecastConfidence:
-      rollup.forecast && !rollup.forecast.lowData ? Math.round(rollup.forecast.fitQuality * 100) : null,
+    // ONE composition, shared with /trends and Delivery: the presentability gate decides whether this
+    // briefing may state a trajectory at all, and when it may, the hedge travels WITH the claim.
+    // The old code suppressed the confidence figure on `lowData` and left the headline standing — so
+    // the board PDF printed "Climbing at +35/wk" off two scan days with no caveat at all, while
+    // Delivery refused the same claim one click away. Replacing the hedge, not deleting it. (MC-B1.)
+    ...(() => {
+      const t = composeTrajectory(rollup.forecast);
+      return {
+        forecastHeadline: t.headline,
+        forecastConfidence: t.confidence,
+        forecastBasis: t.basis,
+        forecastInsufficiency: t.insufficiency,
+      };
+    })(),
     engineMix,
     adoptionRate:
       rollup.scannedCount > 0
@@ -549,10 +593,16 @@ export function briefingMarkdown(b: ExecBriefing): string {
       `- Peer cohort (${c.language}): ${c.overallPercentile}th percentile overall vs ${c.repos} ${c.language} repos${c.adoptionPercentile != null ? `; ${c.adoptionPercentile}th on AI adoption` : ""}`,
     );
   }
-  if (b.forecastHeadline)
-    out.push(
-      `- Trajectory: ${b.forecastHeadline}${b.forecastConfidence != null ? ` (trend confidence ${b.forecastConfidence}%${b.forecastConfidence < 50 ? ", noisy" : ""})` : ""}`,
-    );
+  // MC-B1: the markdown is what a leader pastes into an LLM and what the "Copy for LLM" button hands
+  // out, so it gets the SAME composed line as the screen and the PDF — the claim with its hedge, or
+  // the refusal to claim, never a slope on its own.
+  const traj = briefingTrajectory(b);
+  if (traj.headline) {
+    const note = trajectoryNote(traj);
+    out.push(`- Trajectory: ${traj.headline}${note ? ` (${note})` : ""}`);
+  } else if (traj.insufficiency) {
+    out.push(`- Trajectory: ${traj.insufficiency}`);
+  }
   if (b.engineMix.length) {
     const caveat = engineMixCaveat(b.engineMix);
     out.push(`- Scored by: ${engineMixLabel(b.engineMix)}${caveat ? ` (⚠ ${caveat})` : ""}`);

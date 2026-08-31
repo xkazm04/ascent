@@ -165,7 +165,10 @@ export function briefingFigureDigest(b: ExecBriefing): string {
     b.topGainers.map((x) => [x.name, x.dOverall]),
     b.topRegressions.map((x) => [x.name, x.dOverall]),
     b.goals.map((g) => [g.label, g.current, g.target]),
-    b.forecastHeadline, b.forecastConfidence,
+    // MC-B1: the basis and the refusal are load-bearing figures on the trajectory line — a briefing
+    // whose fit fell below the presentability gate since the link was sent is a CHANGED briefing, and
+    // a reader comparing the two must be told so.
+    b.forecastHeadline, b.forecastConfidence, b.forecastBasis ?? null, b.forecastInsufficiency ?? null,
     b.engineMix.map((e) => [e.provider, e.count]),
     b.proof ? [b.proof.open, b.proof.merged, b.proof.lift, b.proof.liftPractices] : null,
     (b.recommendations ?? []).map((r) => r.title),

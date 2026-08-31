@@ -31,7 +31,13 @@ vi.mock("@/lib/org/briefing", () => ({
   buildExecBriefing: mockBuildExecBriefing,
   engineMixLabel: () => "1 model",
   engineMixCaveat: () => null,
-  forecastConfidenceNote: () => null,
+  // MC-B1 — the shared page reads the trajectory hedge through the ONE briefing composer. Stubbed to
+  // the real shape (confidence · basis) rather than to null, so a test that renders a headline also
+  // proves the hedge rides along with it on the public artifact.
+  briefingTrajectoryNote: (b: { forecastConfidence: number | null; forecastBasis?: string | null }) =>
+    [b.forecastConfidence != null ? `trend confidence ${b.forecastConfidence}%` : null, b.forecastBasis ?? null]
+      .filter(Boolean)
+      .join(" · ") || null,
   valueRealizedLine: () => null,
 }));
 vi.mock("@/lib/db", () => ({
