@@ -4,6 +4,7 @@ import { AllotmentPanel } from "./AllotmentPanel";
 import { Stat, Bar, providerMeta } from "./usagePanels";
 import { AbuseLimitsPanel } from "./usageAllTimePanels";
 import { LanePanels } from "./usageLanePanels";
+import { ShowbackMatrixPanel } from "./usageShowbackPanel";
 import type { CreditReconciliation, CreditState, QuotaEventTotals, UsageSummary } from "@/lib/db";
 import type { CreditNotice } from "./creditNotice";
 import { timeAgo } from "@/lib/ui";
@@ -188,6 +189,15 @@ export function UsageDashboard({
           breakdown because it answers the next question that one raises: not "which engine", but
           "which part of the product, and for whom". */}
       <LanePanels byLane={usage.byLane} byTeam={usage.byTeam} periodDays={usage.periodDays} />
+
+      {/* MC-B45 — the join those two panels cannot make between them, and the matrix spec #11
+          promised. Directly under them because it is the same calls read a third way, not new data. */}
+      <ShowbackMatrixPanel
+        byLaneTeam={usage.byLaneTeam}
+        byLane={usage.byLane}
+        byTeam={usage.byTeam}
+        periodDays={usage.periodDays}
+      />
 
       {/* Top repos by metered volume — which repos drove the bill / token spend (per-repo attribution). */}
       {usage.byRepo.length > 0 && (

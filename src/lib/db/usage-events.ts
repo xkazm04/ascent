@@ -41,8 +41,10 @@ const _laneVocabularyIsComplete: UsageLane extends (typeof LANES)[number]
 void _laneVocabularyIsComplete;
 
 /** Whether a persisted lane string is one this build knows. A row from a future (or rolled-back)
- *  version is data, not a type — it is dropped from the typed view rather than widening it. */
-function isUsageLane(v: string | null | undefined): v is UsageLane {
+ *  version is data, not a type — it is dropped from the typed view rather than widening it.
+ *  Exported for `usage-showback.ts`, which must bucket an unrecognized lane EXACTLY as this module
+ *  does — a second copy of the rule is how two panels on one page start disagreeing (MC-B31). */
+export function isUsageLane(v: string | null | undefined): v is UsageLane {
   return v != null && (LANES as readonly string[]).includes(v);
 }
 
@@ -104,8 +106,9 @@ export interface TeamUsage {
 /** The label a team-less bucket carries. One constant so the panel, the CSV and the tests agree. */
 export const ORG_WIDE_TEAM_LABEL = "Org-wide (no repo)";
 
-/** USD from the stored micros, or null when nothing in the group was priceable. */
-function usdFromMicros(micros: number | null | undefined): number | null {
+/** USD from the stored micros, or null when nothing in the group was priceable. Exported so the
+ *  showback matrix converts micros by the same rule — null is "not priced", never 0. */
+export function usdFromMicros(micros: number | null | undefined): number | null {
   return micros == null ? null : micros / 1_000_000;
 }
 

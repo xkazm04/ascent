@@ -8,7 +8,10 @@ import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { isZeroCostProvider, priceForModel } from "@/lib/llm/config";
 import { ORG_WIDE_TEAM_LABEL, laneTotals, teamTotals, type LaneUsage, type TeamUsage } from "@/lib/db/usage-events";
 
+import { laneTeamTotals, mergeLaneTeamCells, type LaneTeamCell } from "@/lib/db/usage-showback";
+
 export type { LaneUsage, TeamUsage } from "@/lib/db/usage-events";
+export type { LaneTeamCell } from "@/lib/db/usage-showback";
 
 /** The shared anonymous funnel's slug (the value of `PUBLIC_ORG` in `@/lib/auth`, restated here so a
  *  db module does not reach into the auth layer). It has no tenant, no teams and no bill. */
@@ -130,6 +133,16 @@ export interface UsageSummary {
    */
   byTeam: TeamUsage[];
   /**
+   * Spend at the INTERSECTION of a lane and a team — the join `byLane` and `byTeam` cannot make
+   * between them, and the matrix spec #11 promised (MC-B45).
+   *
+   * SPARSE: one entry per (lane, team) pair that actually recorded calls. A missing pair is BLANK,
+   * never a zero — absence of a record is not evidence a team spent nothing on a lane. The `scan`
+   * lane's cells come from the same Scan-derived fold that produces `byTeam`'s scan half, so the
+   * matrix and both tables above it reconcile by construction. Empty for the public funnel.
+   */
+  byLaneTeam: LaneTeamCell[];
+  /**
    * Estimated cost across EVERY lane in `byLane` — the number the headline tile shows.
    *
    * `estimatedCostUsd` above prices the scan lane alone, because that is the billable unit and the
@@ -219,6 +232,7 @@ export async function getUsageSummary(
     byRepo: [],
     byLane: [],
     byTeam: [],
+    byLaneTeam: [],
     allLanesCostUsd: null,
     allLanesUnpricedCalls: 0,
     firstScanAt: null,
@@ -331,9 +345,13 @@ export async function getUsageSummary(
   // its summary is anonymously readable, so a team panel there would be an attribution surface with
   // no membership behind it.
   const isPublic = slug === PUBLIC_ORG_SLUG;
-  const [otherLanes, otherTeams, scanTeamGroups] = await Promise.all([
+  const [otherLanes, otherTeams, laneTeamCells, scanTeamGroups] = await Promise.all([
     isPublic ? Promise.resolve([]) : laneTotals(slug, since, before).catch(() => []),
     isPublic ? Promise.resolve([]) : teamTotals(slug, since, before).catch(() => []),
+    // MC-B45: the (lane × team) intersection, over the SAME window and the same ledger the two
+    // panels above read. Skipped for the public funnel for the reason the team panel is: an
+    // anonymously-readable summary must carry no attribution surface at all.
+    isPublic ? Promise.resolve([]) : laneTeamTotals(slug, since, before).catch(() => []),
     isPublic
       ? Promise.resolve([])
       : prisma.scan
@@ -361,9 +379,11 @@ export async function getUsageSummary(
       : null;
   const byLane: LaneUsage[] = [...(scanLane ? [scanLane] : []), ...otherLanes];
 
-  const byTeam: TeamUsage[] = isPublic
-    ? []
-    : mergeTeamUsage(await scanTeamUsage(prisma, scanTeamGroups), otherTeams);
+  // ONE fold of the scan lane's team split, read two ways: as the team panel's rows and as the scan
+  // ROW of the showback matrix. Two folds of the same groups would eventually disagree (MC-B45).
+  const scanCells = isPublic ? [] : await scanTeamUsage(prisma, scanTeamGroups);
+  const byTeam: TeamUsage[] = isPublic ? [] : mergeTeamUsage(scanTeamRows(scanCells), otherTeams);
+  const byLaneTeam: LaneTeamCell[] = isPublic ? [] : mergeLaneTeamCells([...scanCells, ...laneTeamCells]);
 
   return {
     org: slug,
@@ -387,6 +407,7 @@ export async function getUsageSummary(
     byRepo,
     byLane,
     byTeam,
+    byLaneTeam,
     ...foldLaneCost(byLane),
     firstScanAt: agg._min.scannedAt ? agg._min.scannedAt.toISOString() : null,
     lastScanAt: agg._max.scannedAt ? agg._max.scannedAt.toISOString() : null,
@@ -496,11 +517,16 @@ export function unpricedScanCalls(usage: ModelCallGroup[]): number {
  * owner falls into the explicit `null` (org-wide) bucket rather than dropping out of the report. An
  * inner join would silently shrink the org's total spend by however much untagged work it does, which
  * is exactly the number an operator would then reconcile against and fail to explain.
+ *
+ * Returns the scan lane's row OF THE SHOWBACK MATRIX (`LaneTeamCell[]`, one per team) rather than a
+ * bare `TeamUsage[]`: the team panel and the matrix's scan row are the same split of the same groups,
+ * and computing them twice — from two queries and two folds — is how they would come to disagree
+ * (MC-B45). `scanTeamRows` projects the panel's shape back out of these cells.
  */
 async function scanTeamUsage(
   prisma: ReturnType<typeof getPrisma>,
   groups: { repoId: string; engineProvider: string; engineModel: string | null; _count: number; _sum: { inputTokens: number | null; outputTokens: number | null } }[],
-): Promise<TeamUsage[]> {
+): Promise<LaneTeamCell[]> {
   if (groups.length === 0) return [];
   const repoIds = [...new Set(groups.map((g) => g.repoId))];
   const repos = await prisma.repository.findMany({
@@ -509,26 +535,41 @@ async function scanTeamUsage(
   });
   const teamByRepo = new Map(repos.map((r) => [r.id, r.teams[0]?.slug ?? null]));
 
-  const acc = new Map<string | null, { calls: number; models: ModelTokenUsage[] }>();
+  const acc = new Map<string | null, ModelCallGroup[]>();
   for (const g of groups) {
     // `?? null` and not `undefined`: a repo the lookup did not return is org-wide, not missing.
     const key = teamByRepo.get(g.repoId) ?? null;
-    const bucket = acc.get(key) ?? { calls: 0, models: [] };
-    bucket.calls += g._count;
-    bucket.models.push({
-      model: g.engineModel,
-      provider: g.engineProvider,
-      inputTokens: g._sum.inputTokens ?? 0,
-      outputTokens: g._sum.outputTokens ?? 0,
-    });
-    acc.set(key, bucket);
+    acc.set(key, [
+      ...(acc.get(key) ?? []),
+      {
+        model: g.engineModel,
+        provider: g.engineProvider,
+        calls: g._count,
+        inputTokens: g._sum.inputTokens ?? 0,
+        outputTokens: g._sum.outputTokens ?? 0,
+      },
+    ]);
   }
-  return [...acc.entries()].map(([teamKey, v]) => ({
+  return [...acc.entries()].map(([teamKey, models]) => ({
+    lane: "scan" as const,
     teamKey,
-    label: teamKey ?? ORG_WIDE_TEAM_LABEL,
-    calls: v.calls,
+    calls: models.reduce((n, m) => n + m.calls, 0),
     // Same fold, same refusal-to-guess as the headline estimate.
-    estimatedCostUsd: estimateLlmCostFromTable(v.models),
+    estimatedCostUsd: estimateLlmCostFromTable(models),
+    // The per-team share of the same count the `scan` LANE row reports — folded by the one definition
+    // of "could not be costed" rather than by a second, drifting one.
+    unpricedCalls: unpricedScanCalls(models),
+  }));
+}
+
+/** The `Spend by team` panel's shape, projected from the scan lane's matrix cells so the panel and
+ *  the matrix can never split. `unpricedCalls` is dropped: that panel does not report it. */
+export function scanTeamRows(cells: readonly LaneTeamCell[]): TeamUsage[] {
+  return cells.map((c) => ({
+    teamKey: c.teamKey,
+    label: c.teamKey ?? ORG_WIDE_TEAM_LABEL,
+    calls: c.calls,
+    estimatedCostUsd: c.estimatedCostUsd,
   }));
 }
 

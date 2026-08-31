@@ -125,6 +125,16 @@ lockstep: `isBillableScan()` (JS; also the daily series' fallback path), `billab
   the repo's default owner at write time (`defaultOwnerTeamForRepo`) and stamps it on the event, so
   the panel is no longer 100% `Org-wide` for everything but scans (UAT MC-B19 / VICTOR-L1-04). A lane
   that genuinely has no repo — a briefing, an org-wide memory pass — is org-wide, which is an answer.
+- `byLaneTeam`: the **lane × team intersection** — the join `byLane` and `byTeam` cannot make between
+  them, and what a finance reader actually allocates on ("Athena cost $40; what is platform's share?").
+  **Sparse**: one cell per pair that recorded calls, so a missing pair renders **blank**, never `0` —
+  absence of a record is not evidence a team spent nothing on a lane. Same rules as the two tables
+  above it: a `null` cost prints *no estimate* with `unpricedCalls` beside it, an unrecognized lane
+  folds into the same disclosed `unknown` bucket through the same `isUsageLane` predicate, and the
+  team-less bucket is a real, last-sorted column. Empty for the public funnel, whose summary is
+  anonymously readable and must carry no attribution surface at all. The `scan` row and `byTeam`'s
+  scan half come from **one** fold of one query (`scanTeamUsage` → `LaneTeamCell[]`, projected back
+  by `scanTeamRows`), so the matrix and both tables reconcile by construction rather than by luck.
 - `daily`: a **zero-filled** per-day series (stable x-axis even with gaps), aggregated per
   UTC day in SQL (`date_trunc`, portable to Aurora DSQL) with a JS row-bucketing fallback.
 - `firstScanAt` / `lastScanAt` (all-time).
@@ -141,6 +151,7 @@ day key isn't on the axis), so the billing page disagreed with itself.
 | `src/app/usage/page.tsx` | Auth-gated, org-scoped (`?org=` or active-org cookie). Stat cards (total, period, billable, distinct repos), public-vs-private + provider breakdowns, timeframe picker (`?days=`, default 30, max 365). The closing note is **conditional**: the shared funnel is told per-org attribution activates with auth / the GitHub App; a private org — which is reading its own per-team, per-repo, per-lane breakdown, i.e. that attribution — is told it is attributed and given the link to plans & credit pricing this billing page otherwise lacked (UAT MC-B31 / VICTOR-L1-06). |
 | `GET /api/usage` | `?org=` (default `public`), `?days=`, `?format=json\|csv`. Returns `UsageSummary` JSON, or a CSV/JSON file download. `503` without DB. **IDOR guard:** when auth is on, a private org requires a session with an installation in it; public is readable by any signed-in user. |
 | `GET /api/usage?view=showback` | The lane × team allocation as CSV (`scope,lane,team,calls,estimatedCostUsd,unpricedCalls`), for finance. Same route, same auth, same window — a projection, not a new surface. A row that could not be priced exports an **empty** cost cell, never `0`. The `team` column is omitted entirely for the public funnel. Kept separate from `?format=csv` on purpose: the per-day export's shape is a reconciliation artifact downstream sheets key on, and a lane is not a property of a day's scan count. **Linked from the page** as the third export button — for its first months it was built, correct, reconciling and reachable only by hand-typing the query string (UAT MC-B19). |
+| `src/app/usage/usageShowbackPanel.tsx` | **Showback · lane × team**, on the page, under the two panels it joins (MC-B45). Lanes down, teams across, `Org-wide (no repo)` last; a pair with nothing recorded is an em dash with the reason on hover, a pair that ran unpriced says *no estimate* with its unpriced count. The table scrolls inside its own container so the page body never scrolls sideways. **Before any team is attributed** — no repo in the window has a CODEOWNERS default owner — it renders no grid at all and says attribution is on and accruing, because a one-column table of `Org-wide / $0.00` reads as a finding rather than as a wait. Renders nothing when the ledger is empty; the lane table above has already said so. |
 | `src/components/usage/UsageTrend.tsx` | Stacked-bar chart (free under billable), dependency-free SVG, auto-scaled label cadence, **three** export buttons — per-day CSV, JSON, and the **Showback CSV** (`?view=showback`) — legend + summary. |
 
 ## Rate limits & the spend ceiling (`src/lib/rate-limit.ts`)
@@ -284,7 +295,10 @@ Until a route adopts `rateLimitRequestShared()`, its global ceiling remains per-
 | `src/lib/db/usage.ts` | `getUsageSummary()`: totals, provider mix, zero-filled daily series, the lane + team folds. |
 | `src/lib/llm/meter.ts` | The meter chokepoint: lane vocabulary, pure cost math (`costMicrosFor`), fire-and-forget `meter()`. |
 | `src/lib/db/usage-events.ts` | `recordUsageEvent()` (best-effort writer) + `laneTotals()` / `teamTotals()` / `listUsageEvents()`. |
+| `src/app/usage/usageDashboard.tsx` | The page's panel order: tiles → trend → provider mix → lane/team → the showback matrix. |
 | `src/app/usage/usageLanePanels.tsx` | The "Spend by lane" / "Spend by team" server panels. |
+| `src/lib/db/usage-showback.ts` | `laneTeamTotals()` (the lane × team ledger read) + `buildShowbackMatrix()` (the pure grid fold). |
+| `src/app/usage/usageShowbackPanel.tsx` | The "Showback · lane × team" server panel, and its accruing state. |
 | `src/app/usage/costHeadline.ts` | The "Est. cost" tile's value + caption: all-lane sum, lane scope, pricing basis, unpriced floor. |
 | `src/lib/db/kpi-metrics.ts` | `avgLlmCostPerActiveOrg()` — per-tenant LLM cost across every lane, beside `avgLlmCostPerScan()`. |
 | `src/lib/rate-limit.ts` | Sliding-window limiter: sync per-IP burst + sync/shared global ceiling. |
@@ -306,6 +320,11 @@ Until a route adopts `rateLimitRequestShared()`, its global ceiling remains per-
   legacy `claude` provider id. Routing it through `src/lib/llm/transports.ts` would change which
   credential and which vendor an operator's briefing bills to — an open design question (BACKLOG C3),
   not a wiring task.
+- **The showback CSV is still two flat sections, not the matrix.** `toShowbackCsv` exports one `lane`
+  scope block and one `team` scope block; the on-page panel is the only place the *intersection* is
+  read (MC-B45 built the read half). Adding a third `scope=lane×team` block would change a file shape
+  downstream sheets already key on, so it is a deliberate next step rather than a side effect —
+  **G19**: the existing itemization is untouched.
 - **No lane but `scan` is billed.** `laneAllowances` is `{}` on every tier, so the other four lanes
   are measured and shown but never charged. That is deliberate, and it is the state until a pricing
   decision is made on this data.
