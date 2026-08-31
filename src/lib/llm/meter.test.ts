@@ -111,11 +111,22 @@ describe("meter()", () => {
     expect(seen[0]!.costMicros).toBeNull();
   });
 
-  it("writes nothing for an unattributable or public-funnel call", () => {
+  it("writes nothing for an unattributable call — the only drop this seam makes", () => {
     const seen = capture();
     meter({ orgSlug: null, legKind: "scan", provider: "gemini", model: "gemini-3.7-flash", status: "success" });
-    meter({ orgSlug: "public", legKind: "scan", provider: "gemini", model: "gemini-3.7-flash", status: "success" });
+    meter({ orgSlug: "   ", legKind: "scan", provider: "gemini", model: "gemini-3.7-flash", status: "success" });
     expect(seen).toHaveLength(0);
+  });
+
+  // MC-B20 (VICTOR-L2-01): this seam used to drop every call whose slug SPELLED the funnel sentinel,
+  // so a tenant on that slug burned inference and showed $0 forever — silently. Whether an org is
+  // ledgered is now a property of its row (`Organization.kind`), decided in `recordUsageEvent`.
+  it("no slug value is a sentinel: a real call on the slug 'public' is resolved and passed on", () => {
+    const seen = capture();
+    meter({ orgSlug: "Public", legKind: "athena_turn", provider: "claude-cli", model: "sonnet", status: "success" });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.orgSlug).toBe("public");
+    expect(seen[0]!.lane).toBe("athena");
   });
 
   it("drops an event with neither a lane nor a leg kind rather than inventing a bucket", () => {

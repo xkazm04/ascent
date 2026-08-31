@@ -66,10 +66,23 @@ export interface UsageEventRow {
   createdAt: string;
 }
 
+/**
+ * The `lane` key a usage row is reported under: one of this build's lanes, or the explicit
+ * `"unknown"` bucket.
+ *
+ * UAT MC-B31 (VICTOR-L1-08): `laneTotals` used to DROP a row whose lane string this build does not
+ * know, while `teamTotals` — which groups the same rows by team and never looks at `lane` — kept
+ * counting it. Two panels on one page could therefore disagree about the same call total with nothing
+ * on screen to explain the gap. A row from a future (or rolled-back) version is still real spend, so
+ * it is now folded into ONE disclosed bucket rather than silently deleted from the ledger's own view.
+ */
+export const UNKNOWN_LANE = "unknown" as const;
+export type LaneKey = UsageLane | typeof UNKNOWN_LANE;
+
 /** Per-lane spend within a window. `inputTokens`/`outputTokens`/`estimatedCostUsd` are `null` when
  *  NOTHING in the lane reported the figure — the lane ran, we just cannot say what it cost. */
 export interface LaneUsage {
-  lane: UsageLane;
+  lane: LaneKey;
   calls: number;
   inputTokens: number | null;
   outputTokens: number | null;
@@ -105,8 +118,9 @@ function usdFromMicros(micros: number | null | undefined): number | null {
  */
 export async function recordUsageEvent(event: UsageEventInput): Promise<void> {
   if (!isDbConfigured()) return;
-  const orgId = await getOrgId(event.orgSlug).catch(() => null);
-  if (!orgId) return;
+  const org = await getUsageLedgerOrg(event.orgSlug);
+  if (!org) return;
+  const orgId = org.id;
   await bumpCounter(() =>
     getPrisma().usageEvent.create({
       data: {
@@ -134,6 +148,59 @@ export async function recordUsageEvent(event: UsageEventInput): Promise<void> {
 }
 
 /**
+ * The org row this event lands in, or `null` when there is no ledger for it.
+ *
+ * WHERE THE "DON'T METER THIS ORG" DECISION LIVES (UAT MC-B20). It used to live in `meter()`, as
+ * `orgSlug === "public"` — the anonymous funnel's sentinel, applied as a string. A tenant whose slug
+ * was that string therefore burned real inference and showed $0 forever, silently. The question the
+ * meter was really asking is a property of the ORG, not of the spelling of its slug, so it is asked
+ * HERE, where the row is in hand: an org row flavored `kind: "public"` is the shared anonymous funnel
+ * and is not ledgered; anything else is a tenant and is.
+ *
+ * `Organization.kind` is the tenant-flavor column ("org" | "personal" today). A deployment that wants
+ * its funnel org excluded stamps it `public`; an unstamped deployment simply meters everything it can
+ * attribute, which is the honest default — the funnel's own scans never reach this ledger anyway (the
+ * scan lane keeps its own, see the module header).
+ */
+async function getUsageLedgerOrg(slug: string): Promise<{ id: string } | null> {
+  const org = await getPrisma()
+    .organization.findUnique({ where: { slug }, select: { id: true, kind: true } })
+    .catch(() => null);
+  if (!org) return null;
+  return org.kind === UNMETERED_ORG_KIND ? null : { id: org.id };
+}
+
+/**
+ * The CODEOWNERS default-owner team slug for a repo, or `null` when it has none — the `teamKey` a
+ * caller stamps on its own metered events.
+ *
+ * UAT MC-B19 (VICTOR-L1-04): "Spend by team" read 100 % "Org-wide" for every non-scan lane, because
+ * the lanes that DO know their repo never resolved its owning team, while the scan lane's split
+ * (`scanTeamUsage`, src/lib/db/usage.ts) did the same join and reported real teams. One panel,
+ * two attribution qualities, no way for a reader to tell which rows were which.
+ *
+ * A LEFT join like that one: a repo with no default owner is org-wide, which is an answer, not a gap.
+ * Best-effort — attribution is observability, and a failed lookup degrades to org-wide rather than
+ * costing the caller its ledger row.
+ */
+export async function defaultOwnerTeamForRepo(orgSlug: string, repoFullName: string): Promise<string | null> {
+  if (!isDbConfigured() || !repoFullName) return null;
+  const orgId = await getOrgId(orgSlug).catch(() => null);
+  if (!orgId) return null;
+  const repo = await getPrisma()
+    .repository.findFirst({
+      where: { orgId, fullName: repoFullName },
+      select: { teams: { where: { isDefaultOwner: true }, select: { slug: true }, take: 1 } },
+    })
+    .catch(() => null);
+  return repo?.teams[0]?.slug ?? null;
+}
+
+/** `Organization.kind` of the shared anonymous funnel: an org with no tenant to bill, whose model
+ *  calls are deliberately not ledgered. See {@link getUsageLedgerOrg}. */
+export const UNMETERED_ORG_KIND = "public";
+
+/**
  * Per-lane totals over the half-open window `[since, before)` — the SAME window bounds the rest of the
  * usage summary uses. The bound is load-bearing and is never re-derived here: a second derivation is
  * how a headline tile and its own chart start disagreeing.
@@ -156,18 +223,56 @@ export async function laneTotals(orgSlug: string, since: Date, before: Date): Pr
     prisma.usageEvent.groupBy({ by: ["lane"], where: { ...where, costMicros: null }, _count: true }),
   ]);
   const unpricedByLane = new Map(unpriced.map((g) => [g.lane, g._count]));
-  return groups
-    // A row whose lane string is not in the vocabulary is data from a future (or rolled-back) version.
-    // Drop it from the typed view rather than widening `UsageLane` at runtime.
-    .filter((g) => isUsageLane(g.lane))
-    .map((g) => ({
-      lane: g.lane as UsageLane,
-      calls: g._count,
-      inputTokens: g._sum.inputTokens,
-      outputTokens: g._sum.outputTokens,
-      estimatedCostUsd: usdFromMicros(g._sum.costMicros),
-      unpricedCalls: unpricedByLane.get(g.lane) ?? 0,
-    }));
+  const rows: LaneUsage[] = [];
+  // A row whose lane string is not in this build's vocabulary is data from a future (or rolled-back)
+  // version. It is NOT widened into `UsageLane` — but nor is it dropped (MC-B31): its calls are real
+  // and `teamTotals` counts them, so dropping them here made two panels on one page contradict each
+  // other. Everything unrecognized folds into one explicit `unknown` bucket the UI names out loud.
+  let unknown: LaneUsage | null = null;
+  for (const g of groups) {
+    const cost = usdFromMicros(g._sum.costMicros);
+    const unpricedCalls = unpricedByLane.get(g.lane) ?? 0;
+    if (isUsageLane(g.lane)) {
+      rows.push({
+        lane: g.lane,
+        calls: g._count,
+        inputTokens: g._sum.inputTokens,
+        outputTokens: g._sum.outputTokens,
+        estimatedCostUsd: cost,
+        unpricedCalls,
+      });
+      continue;
+    }
+    unknown = unknown
+      ? {
+          lane: UNKNOWN_LANE,
+          calls: unknown.calls + g._count,
+          inputTokens: sumOrNull(unknown.inputTokens, g._sum.inputTokens),
+          outputTokens: sumOrNull(unknown.outputTokens, g._sum.outputTokens),
+          // Same refusal the rest of the module makes: a side with calls and no price is UNKNOWN, and
+          // unknown + known is still unknown. Adding only the priced half would print a confident
+          // figure that omits real spend.
+          estimatedCostUsd:
+            unknown.estimatedCostUsd == null || cost == null ? null : unknown.estimatedCostUsd + cost,
+          unpricedCalls: unknown.unpricedCalls + unpricedCalls,
+        }
+      : {
+          lane: UNKNOWN_LANE,
+          calls: g._count,
+          inputTokens: g._sum.inputTokens,
+          outputTokens: g._sum.outputTokens,
+          estimatedCostUsd: cost,
+          unpricedCalls,
+        };
+  }
+  if (unknown) rows.push(unknown);
+  return rows;
+}
+
+/** Token sums across two groups: `null` (not reported) never becomes 0 — see the module header. */
+function sumOrNull(a: number | null, b: number | null | undefined): number | null {
+  if (a == null) return b ?? null;
+  return b == null ? a : a + b;
 }
 
 /**
