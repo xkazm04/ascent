@@ -7,13 +7,15 @@
 // Server-safe: static copy, no hooks. Data comes from selfHostPricingData.ts.
 
 import { Kicker, Surface } from "@/components/ui";
-import { sourceRepoHref } from "@/lib/site";
+import { DOCS_ARE_UPSTREAM, selfHostGuideHref } from "@/lib/site";
 import { CAPABILITY_DIFF, ONBOARDING_STEPS, SELF_HOST_LEDE } from "./selfHostPricingData";
 
 const TH = "px-4 py-2.5 text-left type-label font-normal tracking-[0.2em]";
 
 export function SelfHostPricingBlueprint() {
-  const guideHref = sourceRepoHref("docs/SELF-HOSTING.md");
+  // MC-B22: always a link — this deployment's own guide when it names a repository, upstream's
+  // otherwise (labelled). "Further reading" that cannot be read is not further reading.
+  const guideHref = selfHostGuideHref();
   const gated = CAPABILITY_DIFF.filter((r) => r.gated);
   const ungated = CAPABILITY_DIFF.filter((r) => !r.gated);
   return (
@@ -121,18 +123,14 @@ export function SelfHostPricingBlueprint() {
             <Kicker as="span" tone="muted">
               Further reading
             </Kicker>
-            {guideHref ? (
-              <a
-                href={guideHref}
-                target="_blank"
-                rel="noreferrer"
-                className="focus-ring mt-3 inline-block rounded-xl border border-accent/50 bg-accent/10 px-4 py-2 text-center type-body-sm font-medium text-white transition hover:bg-accent/20"
-              >
-                Self-hosting guide →
-              </a>
-            ) : (
-              <span className="mt-3 type-caption text-slate-300">docs/SELF-HOSTING.md</span>
-            )}
+            <a
+              href={guideHref}
+              target="_blank"
+              rel="noreferrer"
+              className="focus-ring mt-3 inline-block rounded-xl border border-accent/50 bg-accent/10 px-4 py-2 text-center type-body-sm font-medium text-white transition hover:bg-accent/20"
+            >
+              Self-hosting guide{DOCS_ARE_UPSTREAM ? " (upstream)" : ""} →
+            </a>
             <p className="mt-3 type-note leading-relaxed text-slate-500">
               The skill reads the overlay at <span className="font-mono text-slate-400">.claude/onboarding/config.md</span>{" "}
               and runs on defaults without it.

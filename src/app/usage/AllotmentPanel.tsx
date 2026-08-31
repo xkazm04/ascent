@@ -37,6 +37,26 @@ export function allotmentRead(plan: string, billableInPeriod: number, periodDays
   return { label: p.label, included, monthlyBurn, pct, fit };
 }
 
+/**
+ * The two currencies, named. UAT MC-B21 (VICTOR-L1-01): this line used to read "Unused credits roll
+ * over. They never expire, so a quiet month is not lost" — directly under a header saying "Monthly
+ * allotment · N credits / mo". Both halves were true of DIFFERENT currencies and the reader has no
+ * way to know that, so an idle month looked free when it actually burns the whole allotment:
+ *
+ *   - the PLAN ALLOTMENT is a monthly grant. `decideScanCharge` compares `usageThisMonth` against it
+ *     (src/lib/plans.ts), so it restarts each calendar month and an unused month is simply gone.
+ *   - PREPAID CREDITS are the balance on `Organization.scanCredits`. Nothing resets them; they are
+ *     what actually rolls over.
+ *
+ * The /pricing footnote already drew this distinction correctly — this is the same sentence, on the
+ * page that shows the meter. Exported so a test can pin it: the defect was one sentence, and a
+ * sentence with no seam is a sentence that silently regresses.
+ */
+export const ALLOTMENT_CURRENCIES_NOTE =
+  "Two different currencies: this monthly allotment resets on the 1st (an unused month is not carried " +
+  "forward), while prepaid credits you buy on top roll over and never expire. The 90% mark is your " +
+  "top-up line, well before the hard 402.";
+
 const FIT_COLOR: Record<AllotmentFit, string> = {
   over: "var(--color-warn, #f59e0b)",
   under: "#94a3b8",
@@ -77,10 +97,7 @@ export function AllotmentPanel({
       <p className="mt-3 type-body-sm" style={{ color }}>
         {msg}
       </p>
-      <p className="mt-1 type-body-sm text-slate-500">
-        Unused credits roll over. They never expire, so a quiet month is not lost. The 90% mark is your
-        top-up line, well before the hard 402.
-      </p>
+      <p className="mt-1 type-body-sm text-slate-500">{ALLOTMENT_CURRENCIES_NOTE}</p>
     </Surface>
   );
 }

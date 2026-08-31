@@ -51,6 +51,7 @@ import {
   parseHits,
   hashIp,
   hashKey,
+  publicScanAllowance,
   publicScanMonthlyLimit,
   type QuotaResult,
   refundPublicScanQuota,
@@ -231,6 +232,38 @@ describe("publicScanMonthlyLimit", () => {
     expect(publicScanMonthlyLimit()).toBe(10);
     if (prev === undefined) delete process.env.PUBLIC_SCAN_MONTHLY_LIMIT;
     else process.env.PUBLIC_SCAN_MONTHLY_LIMIT = prev;
+  });
+});
+
+// MC-B38: MC-B5 made the number derived and left the sentences around it written for a constant, so
+// an operator setting 1 read "1 free public scans / month". The PHRASE is composed here, once, and
+// the copy consumes it — so a call site can no longer append its own "s".
+describe("publicScanAllowance (the phrase, not the digit)", () => {
+  function withLimit<T>(value: string | undefined, fn: () => T): T {
+    const prev = process.env.PUBLIC_SCAN_MONTHLY_LIMIT;
+    if (value === undefined) delete process.env.PUBLIC_SCAN_MONTHLY_LIMIT;
+    else process.env.PUBLIC_SCAN_MONTHLY_LIMIT = value;
+    try {
+      return fn();
+    } finally {
+      if (prev === undefined) delete process.env.PUBLIC_SCAN_MONTHLY_LIMIT;
+      else process.env.PUBLIC_SCAN_MONTHLY_LIMIT = prev;
+    }
+  }
+
+  it("is singular at a limit of 1", () => {
+    withLimit("1", () => {
+      expect(publicScanAllowance()).toEqual({ limit: 1, label: "1 free public scan", plural: false });
+    });
+  });
+
+  it("is plural at the default and at any other limit", () => {
+    withLimit(undefined, () => {
+      expect(publicScanAllowance()).toEqual({ limit: 5, label: "5 free public scans", plural: true });
+    });
+    withLimit("20", () => {
+      expect(publicScanAllowance().label).toBe("20 free public scans");
+    });
   });
 });
 

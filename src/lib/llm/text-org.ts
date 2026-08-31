@@ -101,7 +101,11 @@ export async function resolveTextRunnerForOrg(
     ...opts,
     meter: {
       ...opts.meter,
-      orgSlug: opts.meter?.orgSlug ?? (orgSlug && orgSlug !== "public" ? orgSlug : null),
+      // MC-B20: the org's OWN slug, with no string-shaped exception. A second copy of the funnel
+      // sentinel lived here and dropped attribution before `meter()` ever saw it, so a tenant on that
+      // slug was un-metered twice over. Whether an org's calls are ledgered is decided from its row
+      // (`Organization.kind`) in `recordUsageEvent`, not from what its slug happens to spell.
+      orgSlug: opts.meter?.orgSlug ?? (orgSlug || null),
       byom: opts.meter?.byom ?? byom,
     },
   };

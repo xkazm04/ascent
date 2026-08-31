@@ -15,13 +15,30 @@ const { mockGetPrisma, mockIsDbConfigured, mockGetOrgId } = vi.hoisted(() => ({
 vi.mock("@/lib/db/client", () => ({ getPrisma: mockGetPrisma, isDbConfigured: mockIsDbConfigured }));
 vi.mock("@/lib/db/org-rollup", () => ({ getOrgId: mockGetOrgId }));
 
-import { ORG_WIDE_TEAM_LABEL, laneTotals, recordUsageEvent, teamTotals } from "@/lib/db/usage-events";
+import {
+  ORG_WIDE_TEAM_LABEL,
+  defaultOwnerTeamForRepo,
+  laneTotals,
+  recordUsageEvent,
+  teamTotals,
+} from "@/lib/db/usage-events";
 import type { UsageEventInput } from "@/lib/llm/meter";
 
 type Args = Record<string, unknown>;
 
-function fakePrisma(opts: { createThrows?: unknown; groups?: Args[]; unpriced?: Args[]; teams?: Args[] } = {}) {
-  const calls = { create: [] as Args[], groupBy: [] as Args[] };
+function fakePrisma(
+  opts: {
+    createThrows?: unknown;
+    groups?: Args[];
+    unpriced?: Args[];
+    teams?: Args[];
+    /** The org row `recordUsageEvent` resolves. `null` = no such org. */
+    org?: { id: string; kind: string } | null;
+    /** The repo row `defaultOwnerTeamForRepo` resolves. */
+    repo?: { teams: { slug: string }[] } | null;
+  } = {},
+) {
+  const calls = { create: [] as Args[], groupBy: [] as Args[], repoFindFirst: [] as Args[] };
   const usageEvent = {
     create: vi.fn(async (args: Args) => {
       calls.create.push(args);
@@ -36,7 +53,20 @@ function fakePrisma(opts: { createThrows?: unknown; groups?: Args[]; unpriced?: 
       return "costMicros" in where ? (opts.unpriced ?? []) : (opts.groups ?? []);
     }),
   };
-  mockGetPrisma.mockReturnValue({ usageEvent });
+  const organization = {
+    findUnique: vi.fn(async (args: Args) => {
+      const where = args.where as { slug: string };
+      if (opts.org !== undefined) return opts.org;
+      return where.slug === "acme" ? { id: "org_acme", kind: "org" } : null;
+    }),
+  };
+  const repository = {
+    findFirst: vi.fn(async (args: Args) => {
+      calls.repoFindFirst.push(args);
+      return opts.repo ?? null;
+    }),
+  };
+  mockGetPrisma.mockReturnValue({ usageEvent, organization, repository });
   return calls;
 }
 
@@ -76,6 +106,22 @@ describe("recordUsageEvent", () => {
     expect(calls.create).toHaveLength(0);
   });
 
+  // MC-B20 (VICTOR-L2-01): the "do not meter this org" decision used to be `orgSlug === "public"` in
+  // meter(), so a TENANT on that slug burned inference and showed $0 forever, silently. It is now a
+  // property of the org ROW, asked where the row is actually known.
+  it("does not ledger the anonymous funnel - decided from the org row kind, not its slug", async () => {
+    const calls = fakePrisma({ org: { id: "org_funnel", kind: "public" } });
+    await recordUsageEvent({ ...EVENT, orgSlug: "public" });
+    expect(calls.create).toHaveLength(0);
+  });
+
+  it("DOES ledger a tenant whose slug happens to be public", async () => {
+    const calls = fakePrisma({ org: { id: "org_tenant", kind: "org" } });
+    await recordUsageEvent({ ...EVENT, orgSlug: "public" });
+    expect(calls.create).toHaveLength(1);
+    expect(((calls.create[0]!.data ?? {}) as Args).orgId).toBe("org_tenant");
+  });
+
   it("resolves the slug to an org id and writes the honest nulls through", async () => {
     const calls = fakePrisma();
     await recordUsageEvent({ ...EVENT, inputTokens: null, outputTokens: null, costMicros: null });
@@ -113,10 +159,33 @@ describe("laneTotals", () => {
     expect(where.createdAt.gte).toBe(since);
     expect(where.createdAt.lt).toBe(before);
 
-    expect(rows.map((r) => r.lane)).toEqual(["athena", "memory"]); // the unknown lane string is dropped
+    // MC-B31: a lane string this build does not know is FOLDED into an explicit `unknown` bucket, not
+    // dropped - teamTotals counts those same rows, and two panels on one page must not disagree about
+    // the period call total with nothing on screen to explain the gap.
+    expect(rows.map((r) => r.lane)).toEqual(["athena", "memory", "unknown"]);
     expect(rows[0]).toMatchObject({ calls: 4, estimatedCostUsd: 0.0015, unpricedCalls: 0 });
     // A lane nothing could price reports null cost + null tokens, NEVER 0.
     expect(rows[1]).toMatchObject({ calls: 2, inputTokens: null, estimatedCostUsd: null, unpricedCalls: 2 });
+    expect(rows[2]).toMatchObject({ calls: 9, estimatedCostUsd: 0.000001 });
+  });
+
+  it("folds EVERY unrecognized lane into one bucket, and unknown + known cost stays unknown", async () => {
+    fakePrisma({
+      groups: [
+        { lane: "from-the-future", _count: 3, _sum: { inputTokens: 30, outputTokens: 3, costMicros: 2_000 } },
+        { lane: "rolled-back", _count: 2, _sum: { inputTokens: null, outputTokens: null, costMicros: null } },
+      ],
+      unpriced: [{ lane: "rolled-back", _count: 2 }],
+    });
+    const rows = await laneTotals("acme", new Date(0), new Date(1));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      lane: "unknown",
+      calls: 5,
+      inputTokens: 30,
+      estimatedCostUsd: null, // half of it could not be priced, so the fold refuses to state a total
+      unpricedCalls: 2,
+    });
   });
 
   it("returns nothing for an unknown org", async () => {
@@ -136,5 +205,28 @@ describe("teamTotals", () => {
     const rows = await teamTotals("acme", new Date(0), new Date(1));
     expect(rows).toHaveLength(2);
     expect(rows[1]).toEqual({ teamKey: null, label: ORG_WIDE_TEAM_LABEL, calls: 5, estimatedCostUsd: null });
+  });
+});
+
+// MC-B19 (VICTOR-L1-04): the lanes that know their repo never resolved its owning team, so "Spend by
+// team" read 100 % org-wide for every non-scan lane while the scan lane split reported real teams.
+describe("defaultOwnerTeamForRepo", () => {
+  it("returns the repo CODEOWNERS default owner, scoped to the org", async () => {
+    const calls = fakePrisma({ repo: { teams: [{ slug: "@acme/platform" }] } });
+    expect(await defaultOwnerTeamForRepo("acme", "acme/api")).toBe("@acme/platform");
+    const where = calls.repoFindFirst[0]!.where as { orgId: string; fullName: string };
+    expect(where).toEqual({ orgId: "org_acme", fullName: "acme/api" });
+  });
+
+  it("a repo with no default owner is org-wide (null), not an error", async () => {
+    fakePrisma({ repo: { teams: [] } });
+    expect(await defaultOwnerTeamForRepo("acme", "acme/api")).toBeNull();
+  });
+
+  it("an unknown org or an empty repo name resolves to null without querying", async () => {
+    const calls = fakePrisma();
+    expect(await defaultOwnerTeamForRepo("ghost", "ghost/api")).toBeNull();
+    expect(await defaultOwnerTeamForRepo("acme", "")).toBeNull();
+    expect(calls.repoFindFirst).toHaveLength(0);
   });
 });

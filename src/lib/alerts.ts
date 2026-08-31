@@ -900,8 +900,18 @@ export interface SpendAnomalyInput {
   baseline: number;
   /** Ratio current/baseline, e.g. 2.4. */
   ratio: number;
-  /** Estimated USD for the period, when the usage layer could price it. */
+  /**
+   * Estimated USD for the period ACROSS EVERY INFERENCE LANE, when the usage layer could price it.
+   *
+   * MC-B32: this used to be fed `UsageSummary.estimatedCostUsd`, which prices the SCAN lane alone —
+   * the same understatement MC-B12 fixed on the `/usage` headline tile, left behind in the one place
+   * that pushes a number at an operator who is not looking at the page. The digest now sends
+   * `allLanesCostUsd`, so the alert and the page it links to state the same figure.
+   */
   estimatedCostUsd?: number | null;
+  /** Calls in the period that no basis could price. Non-zero makes `estimatedCostUsd` a FLOOR, and
+   *  the message says so — the same disclosure the lane rows and the headline tile carry. */
+  unpricedCalls?: number;
 }
 
 /** Default multiple of the trailing average that counts as a spend anomaly. */
@@ -940,7 +950,16 @@ export function buildSpendAnomalyMessage(d: SpendAnomalyInput): AlertMessage {
     d.baseline > 0
       ? `${d.periodScans} metered scans this period vs a ${Math.round(d.baseline)} trailing average (${mult}).`
       : `${d.periodScans} metered scans this period, against no prior activity.`;
-  const cost = d.estimatedCostUsd != null ? `Estimated inference cost this period: $${d.estimatedCostUsd.toFixed(2)}.` : null;
+  // "All lanes" is stated, not implied: a FinOps reader who reconciles this against an invoice must
+  // know whether the figure covers scans alone. The unpriced count makes it readable as a floor.
+  const floor =
+    d.unpricedCalls && d.unpricedCalls > 0
+      ? ` (a floor: ${d.unpricedCalls.toLocaleString()} call${d.unpricedCalls === 1 ? "" : "s"} could not be priced)`
+      : "";
+  const cost =
+    d.estimatedCostUsd != null
+      ? `Estimated inference cost this period, all lanes: $${d.estimatedCostUsd.toFixed(2)}${floor}.`
+      : null;
   const textParts = [headline, body];
   if (cost) textParts.push(cost);
   if (d.url) textParts.push("", d.url);

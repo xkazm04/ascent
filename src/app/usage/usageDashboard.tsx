@@ -8,6 +8,7 @@ import type { CreditReconciliation, CreditState, QuotaEventTotals, UsageSummary 
 import type { CreditNotice } from "./creditNotice";
 import { timeAgo } from "@/lib/ui";
 import { costHeadline } from "./costHeadline";
+import { PUBLIC_ORG } from "@/lib/org-constants";
 
 export function UsageDashboard({
   org,
@@ -28,6 +29,9 @@ export function UsageDashboard({
   runwayDays: number | null;
   notice: CreditNotice | null;
 }) {
+  // The shared anonymous funnel has no tenant behind it, so several of this page's claims are true
+  // there and false everywhere else. Resolved once, here, rather than asserted in the copy.
+  const isPublicFunnel = usage.org.toLowerCase() === PUBLIC_ORG;
   return (
     <div className="animate-fade-up">
       <div className="type-mono-sm uppercase tracking-[0.3em] text-accent">Usage &amp; metering</div>
@@ -225,7 +229,22 @@ export function UsageDashboard({
         {usage.allLanesUnpricedCalls > 0
           ? `The headline is the sum of every lane and a FLOOR: ${usage.allLanesUnpricedCalls.toLocaleString()} call${usage.allLanesUnpricedCalls === 1 ? "" : "s"} in this period could not be priced and contribute $0 to it.`
           : "The headline is the sum of every lane below."}{" "}
-        Per-org attribution activates with auth / the GitHub App.
+        {/* MC-B31 (VICTOR-L1-06): this used to tell EVERY reader that "per-org attribution activates
+            with auth / the GitHub App" — including a fully-attributed private org looking at its own
+            per-team, per-repo, per-lane breakdown, which is that attribution. It belongs to the shared
+            public funnel, which genuinely has no tenant. A private org gets the thing this page had no
+            route to instead: where the price of the next scan is written. */}
+        {isPublicFunnel ? (
+          "These are the shared public funnel's aggregate figures: per-org attribution activates with auth / the GitHub App."
+        ) : (
+          <>
+            Figures are attributed to this organization.{" "}
+            <a href="/pricing" className="focus-ring text-slate-400 underline decoration-slate-700 underline-offset-2 hover:text-white">
+              See plans &amp; credit pricing
+            </a>
+            .
+          </>
+        )}
       </p>
     </div>
   );

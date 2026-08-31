@@ -11,7 +11,12 @@ import { describe, it, expect } from "vitest";
 import { DIMENSIONS, LEVELS } from "@/lib/maturity/model";
 import {
   DIMENSION_COUNT,
+  DOCS_ARE_UPSTREAM,
   FEEDBACK_URL,
+  SELF_HOST_GUIDE_PATH,
+  SOURCE_REPO_URL,
+  docHref,
+  selfHostGuideHref,
   jsonLdScript,
   LEVEL_COUNT,
   SITE_TAGLINE,
@@ -60,6 +65,29 @@ describe("tagline casing is derived, not re-typed", () => {
 describe("FEEDBACK_URL follows the deployment's own repository", () => {
   it("is an absolute https issues URL", () => {
     expect(FEEDBACK_URL).toMatch(/^https:\/\/\S+\/issues$/);
+  });
+});
+
+// MC-B22 (TOMAS-L1-10): with NEXT_PUBLIC_SOURCE_REPO_URL unset — which is every committed env file —
+// all four self-hosting surfaces degraded at once to printing "docs/SELF-HOSTING.md" as text, on pages
+// that make the AGPL/self-host claim three times. A doc link is a reading reference, not a licence
+// claim about this deployment, so it takes FEEDBACK_URL's second-best-address rule rather than
+// sourceRepoHref's no-default one — and says which it is.
+describe("doc links always resolve", () => {
+  it("selfHostGuideHref is an absolute https URL to the guide, set or unset", () => {
+    expect(selfHostGuideHref()).toMatch(/^https:\/\/\S+\/blob\/HEAD\/docs\/SELF-HOSTING\.md$/);
+    expect(selfHostGuideHref()).toBe(docHref(SELF_HOST_GUIDE_PATH));
+  });
+
+  it("strips a leading slash rather than emitting a double one", () => {
+    expect(docHref("/docs/SETUP.md")).toBe(docHref("docs/SETUP.md"));
+  });
+
+  it("says whether the doc it points at is upstream's or this deployment's own", () => {
+    // The flag mirrors the same env read the href does, so a surface can label the fallback honestly.
+    expect(DOCS_ARE_UPSTREAM).toBe(SOURCE_REPO_URL == null);
+    if (DOCS_ARE_UPSTREAM) expect(selfHostGuideHref()).toContain("github.com/xkazm04/ascent");
+    else expect(selfHostGuideHref()).toContain(SOURCE_REPO_URL!);
   });
 });
 

@@ -103,10 +103,20 @@ describe("a real trigger fires exactly once, through the org's own sink", () => 
 
   it("a spend spike (this week vs the prior 3 weeks) fires under its own key", async () => {
     // 21 baseline days at 2/day (= 14 per 7-day period), then 7 days at 8/day (= 56).
-    mockUsage.mockResolvedValue({ daily: [...days(21, 2), ...days(7, 8)], estimatedCostUsd: 9.25 } as never);
+    // MC-B32: the summary carries BOTH figures — the scan lane alone and every lane. The alert must
+    // quote the all-lane one, so a scan-lane value that differs from it proves which was read.
+    mockUsage.mockResolvedValue({
+      daily: [...days(21, 2), ...days(7, 8)],
+      estimatedCostUsd: 9.25,
+      allLanesCostUsd: 41.8,
+      allLanesUnpricedCalls: 12,
+    } as never);
     const res = await dispatchExtraAlerts(ctx);
     expect(res.spendAlerts).toBe(1);
     expect(mockClaim).toHaveBeenCalledWith(SPEND_ANOMALY_ACTION, "acme", ctx.windowStart, expect.objectContaining({ periodScans: 56 }));
+    const [msg] = mockDispatch.mock.calls[0] as [{ text: string }];
+    expect(msg.text).toContain("all lanes: $41.80 (a floor: 12 calls could not be priced).");
+    expect(msg.text).not.toContain("$9.25");
   });
 
   it("losing the window claim (a concurrent/retried run) dispatches nothing", async () => {

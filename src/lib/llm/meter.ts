@@ -88,8 +88,9 @@ export function laneForLegKind(kind: LlmLegKind): UsageLane {
  * `ToolLoopOptions` so a caller declares it once instead of the seam guessing.
  */
 export interface MeterContext {
-  /** The org whose ledger this belongs to. `null` (or "public") writes NOTHING — an unattributable
-   *  event is not worth a row, and inventing an owner for one is worse than losing it. */
+  /** The org whose ledger this belongs to. `null` writes NOTHING — an unattributable event is not
+   *  worth a row, and inventing an owner for one is worse than losing it. A real slug is always
+   *  written: no slug VALUE is treated as a sentinel here (MC-B20). */
   orgSlug: string | null;
   /** Overrides the lane derived from `legKind`. Required for the lanes that are off the seam. */
   lane?: UsageLane;
@@ -209,14 +210,25 @@ export function costMicrosFor(
 
 /**
  * Record one metered call. FIRE AND FORGET: returns `void`, is never awaited, and cannot throw or
- * reject — see property 1 in the header. A `null`/public org writes nothing.
+ * reject — see property 1 in the header. A `null` org writes nothing.
  */
 export function meter(input: MeterInput): void {
   try {
     const orgSlug = (input.orgSlug ?? "").trim().toLowerCase();
-    // An unattributable event has no ledger to land in. "public" is the shared anonymous funnel: it
-    // has no tenant to show a bill back to, and its scans are free by policy.
-    if (!orgSlug || orgSlug === "public") return;
+    // An unattributable event has no ledger to land in. That is the ONLY drop this seam makes.
+    //
+    // UAT MC-B20 (VICTOR-L2-01, found by driving): this line used to read
+    // `if (!orgSlug || orgSlug === "public") return;` — the anonymous funnel's sentinel, applied as a
+    // STRING to every call. Any tenant whose slug is that string burned real inference and showed $0
+    // for it forever, and the drop was silent: a genuine 12.1 s claude-cli turn recorded nothing and
+    // invalidated a live test arm before the cause was found.
+    //
+    // The funnel's own spend does not depend on this check. Public SCANS never reach the meter at all
+    // (the scan pipeline runs on `getProviderForOrg`, and its `Scan` row is its own ledger — see the
+    // module header), and every other lane is a tenant surface. Where a deployment does want an org
+    // excluded from the ledger, that decision is made from the ORG ROW's `kind`, in
+    // `recordUsageEvent` — where the row is actually known — never from the shape of its slug.
+    if (!orgSlug) return;
     const lane = input.lane ?? (input.legKind ? laneForLegKind(input.legKind) : undefined);
     if (!lane) {
       // Neither a lane nor a leg kind: there is no honest bucket for this call. Say so loudly in dev

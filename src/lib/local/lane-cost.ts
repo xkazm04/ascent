@@ -9,6 +9,8 @@ import { isAbsolute, join as pathJoin } from "node:path";
 import { runGit } from "@/lib/local/git";
 import { meter } from "@/lib/llm/meter";
 import { appendLaneLog, updateLane } from "@/lib/db/loop-runs";
+// Deep path, not the `@/lib/db` barrel: this module already imports its siblings that way.
+import { defaultOwnerTeamForRepo } from "@/lib/db/usage-events";
 import { LANE_COST_SOURCE } from "@/lib/db/loop-runs-types";
 import { LANE_REPORT_PATH } from "@/lib/local/lane-report";
 import type { AgentRunResult } from "@/lib/local/agent";
@@ -104,8 +106,12 @@ export async function recordAgentCost(
   // `costMicros` on the lane is MICRO-CENTS; the meter's is USD micros. Divide by 100 rather than
   // handing over a figure a hundred times too large — the two units are deliberately different
   // because a lane needs sub-cent resolution and a usage ledger sums whole calls.
+  // MC-B19: the lane knows its repo, so it can name the TEAM that owns it — the "Spend by team" panel
+  // read 100 % "Org-wide" for every non-scan lane purely because nobody resolved it. Best-effort and
+  // awaited before the meter call rather than inside it: `meter()` is synchronous by contract.
+  const teamKey = await defaultOwnerTeamForRepo(orgSlug, repo).catch(() => null);
   try {
-    meterLane(laneId, orgSlug, repo, model, costMicros, result);
+    meterLane(laneId, orgSlug, repo, model, costMicros, result, teamKey);
   } catch (err) {
     // `meter()` is documented as unable to throw, and this lane does not take that on trust: an
     // observability call must never be the reason a remediation lane failed. The lane log is where it
@@ -122,6 +128,7 @@ function meterLane(
   model: string | null,
   costMicros: number | null,
   result: AgentRunResult,
+  teamKey: string | null,
 ): void {
   meter({
     lane: "local",
@@ -131,14 +138,19 @@ function meterLane(
     provider: "claude-cli",
     model: model ?? "unknown",
     repoFullName: repo,
+    // `null` is the explicit ORG-WIDE bucket, not a missing value — see teamTotals.
+    teamKey,
     status: result.ok ? "success" : "error",
     latencyMs: result.durationMs ?? undefined,
     costMicros: costMicros == null ? null : Math.round(costMicros / 100),
+    // NULL-NEVER-ZERO, including inside this spread (MC-B31 / VICTOR-L1-08). The guard only says that
+    // SOME token count was reported; a field the CLI did not report stays absent, so the meter records
+    // it as `null` ("not reported") rather than as a measured 0 that downstream sums and averages.
     ...(result.inputTokens != null || result.outputTokens != null || result.cacheReadTokens != null
       ? {
           usage: {
-            inputTokens: result.inputTokens ?? 0,
-            outputTokens: result.outputTokens ?? 0,
+            inputTokens: result.inputTokens ?? undefined,
+            outputTokens: result.outputTokens ?? undefined,
             cacheReadTokens: result.cacheReadTokens ?? undefined,
           },
         }

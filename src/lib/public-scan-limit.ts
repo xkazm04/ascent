@@ -27,6 +27,36 @@ export function publicScanMonthlyLimit(): number {
 }
 
 /**
+ * THE allowance as a reader sees it — the number AND the words around it, composed together.
+ *
+ * UAT MC-B38: making the number derived (MC-B5) left the sentences that wrap it written for the old
+ * constant, so `PUBLIC_SCAN_MONTHLY_LIMIT=1` produced "1 free public scans / month", "and 1 free
+ * public scans", and "The 1 free public scans run on their own rolling 30-day window" on one page.
+ * The 429 body had always pluralized (`limit === 1 ? "" : "s"`); the copy that now derives the same
+ * number did not. Fixing it at each call site would only re-create the drift this module exists to
+ * prevent, so the COMPOSER lives here: a call site asks for the phrase, never for the digit plus its
+ * own guess at the plural.
+ *
+ * `plural` is exposed for the surrounding verb ("run" vs "runs"), which is the one part of the
+ * sentence a shared phrase cannot own.
+ */
+export interface PublicScanAllowance {
+  /** The raw limit — for a caller that needs the number alone (a meter, a JSON field). */
+  limit: number;
+  /** "5 free public scans" / "1 free public scan". */
+  label: string;
+  /** Whether the label is plural, so a caller can agree its verb with it. */
+  plural: boolean;
+}
+
+/** The public-scan allowance as a phrase. See {@link PublicScanAllowance}. */
+export function publicScanAllowance(): PublicScanAllowance {
+  const limit = publicScanMonthlyLimit();
+  const plural = limit !== 1;
+  return { limit, label: `${limit} free public scan${plural ? "s" : ""}`, plural };
+}
+
+/**
  * Monthly allowance for a SIGNED-IN viewer, keyed per-user (IP-independent) so a signed-in user gets
  * their OWN bucket (uncoupled from a shared IP). Defaults to the same 5/month Free allowance — under
  * the subscription model the lever for more volume is a paid plan, not merely signing in.

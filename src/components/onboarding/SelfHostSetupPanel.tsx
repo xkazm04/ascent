@@ -13,10 +13,12 @@
 import Link from "next/link";
 import { Kicker, Surface } from "@/components/ui";
 import { ONBOARDING_STEPS } from "@/components/pricing/selfHostPricingData";
-import { sourceRepoHref } from "@/lib/site";
+import { DOCS_ARE_UPSTREAM, selfHostGuideHref } from "@/lib/site";
 
 export function SelfHostSetupPanel() {
-  const guideHref = sourceRepoHref("docs/SELF-HOSTING.md");
+  // MC-B22: always a link — this deployment's own guide when it names a repository, upstream's
+  // otherwise (labelled), rather than a file path printed at an operator who cannot click it.
+  const guideHref = selfHostGuideHref();
   return (
     <Surface radius="2xl" className="tick-corners p-6 sm:p-8">
       <Kicker as="span">Self-hosted · nothing configured yet</Kicker>
@@ -48,20 +50,14 @@ export function SelfHostSetupPanel() {
         <span className="font-mono text-slate-300">github-app</span> and it arrives with the first install.
       </p>
       <div className="mt-6 flex flex-wrap items-center gap-4">
-        {guideHref ? (
-          <a
-            href={guideHref}
-            target="_blank"
-            rel="noreferrer"
-            className="focus-ring rounded-xl border border-accent/50 bg-accent/10 px-5 py-2.5 font-medium text-white transition hover:bg-accent/20"
-          >
-            Self-hosting guide →
-          </a>
-        ) : (
-          <span className="type-body-sm text-slate-400">
-            Guide: <span className="font-mono text-slate-300">docs/SELF-HOSTING.md</span>
-          </span>
-        )}
+        <a
+          href={guideHref}
+          target="_blank"
+          rel="noreferrer"
+          className="focus-ring rounded-xl border border-accent/50 bg-accent/10 px-5 py-2.5 font-medium text-white transition hover:bg-accent/20"
+        >
+          Self-hosting guide{DOCS_ARE_UPSTREAM ? " (upstream)" : ""} →
+        </a>
         <Link href="/onboarding?wizard=1" className="focus-ring type-body-sm text-slate-400 transition hover:text-white">
           Skip setup and scan a public organization →
         </Link>

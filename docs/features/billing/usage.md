@@ -20,12 +20,20 @@ and per code-owning team. Nothing about what an org is *charged* changed (see
 | `athena` | the companion's interactive turns *and* its unattended cycles (both leg kinds fold to one lane) | `runToolLoop`, **one event per loop**, never per leg |
 | `memory` | Shared Org Memory's write-gate + reflection passes | the single-shot seam, via `resolveMemoryRunner(orgSlug)` |
 | `briefing` | the executive briefing's LLM-written paragraph | metered **in place** in `briefing-narrative.ts` (its own Anthropic egress; re-plumbing it is BACKLOG C3) |
-| `local` | the local remediation agent | the agent supplies its own cost envelope and idempotency key |
+| `local` | the local remediation agent | the agent supplies its own cost envelope, idempotency key **and the owning team of the repo it worked** (`defaultOwnerTeamForRepo`) |
+| `unknown` | *read-side only* — rows tagged with a lane string this build does not know (a newer or rolled-back deploy) | folded into one disclosed bucket by `laneTotals`, never dropped |
 
 `meter()` rides beside `trackLlmCall` at the two seams — `withTimeout()` in `text-meter.ts` and
 `runToolLoop()` in `tool-loop.ts` — and nowhere else. It returns `void`, is never awaited, and
 **cannot throw or reject**: a mis-wired meter must not be able to take down the surface it observes.
-An event with no org (or the public funnel) writes nothing.
+An event with **no org** writes nothing — and that is the only drop the seam makes. It does not read
+the org's slug for meaning: until 2026-08-31 it dropped every event whose slug spelled `public`, so a
+real tenant on that slug burned companion/memory/agent inference and showed `$0` for it forever, in
+silence (UAT MC-B20 / VICTOR-L2-01, found when a genuine 12.1 s `claude-cli` turn recorded nothing).
+Whether an org is ledgered is now a property of its **row**: `recordUsageEvent` resolves the org and
+skips it only when `Organization.kind` is `public`, the flavor reserved for the shared anonymous
+funnel. An unstamped deployment simply meters everything it can attribute, which is the honest
+default — the funnel's own scans never reach this ledger anyway (the scan lane keeps its own).
 
 **Honest nulls.** `inputTokens` / `outputTokens` / `costMicros` are `null` — *never* `0` — when the
 provider reported nothing (the `claude-cli` path reports no usage at all and still writes a
@@ -90,7 +98,11 @@ lockstep: `isBillableScan()` (JS; also the daily series' fallback path), `billab
 - `byProvider`: count per `engineProvider`.
 - `byLane`: per-lane calls, tokens, estimated cost and `unpricedCalls`. A **UNION**: the `scan` lane
   is folded from the same `Scan` groupBy the headline figures use (so it cannot double-count or
-  disagree with them), every other lane comes from `UsageEvent` over the same window.
+  disagree with them), every other lane comes from `UsageEvent` over the same window. A row whose
+  lane string this build does not know (a newer or rolled-back deploy) is **not** dropped: it folds
+  into one `unknown` bucket the panel names out loud. Dropping it made `byLane` and `byTeam` — which
+  groups the same rows and never reads `lane` — disagree about the period's call total on one screen,
+  with nothing to explain the gap (UAT MC-B31 / VICTOR-L1-08).
 - `estimatedCostUsd` / `costBasis`: the **scan lane's** cost and the basis that priced it
   (`LLM_*_COST_PER_MTOK` env override > the built-in per-model table > none). Scan-scoped because it
   is folded from the `Scan` token totals; it is *not* the page's headline.
@@ -104,7 +116,10 @@ lockstep: `isBillableScan()` (JS; also the daily series' fallback path), `billab
 - `byTeam`: per-code-owning-team calls and cost. A **LEFT** join (`Scan → Repository →
   RepoTeam(isDefaultOwner)`); a repo with no owning team lands in an explicit `Org-wide (no repo)`
   bucket rather than dropping out — an inner join would silently shrink the org's own total. Empty
-  for the public funnel.
+  for the public funnel. The non-scan lanes join the same way: a lane that knows its repo resolves
+  the repo's default owner at write time (`defaultOwnerTeamForRepo`) and stamps it on the event, so
+  the panel is no longer 100% `Org-wide` for everything but scans (UAT MC-B19 / VICTOR-L1-04). A lane
+  that genuinely has no repo — a briefing, an org-wide memory pass — is org-wide, which is an answer.
 - `daily`: a **zero-filled** per-day series (stable x-axis even with gaps), aggregated per
   UTC day in SQL (`date_trunc`, portable to Aurora DSQL) with a JS row-bucketing fallback.
 - `firstScanAt` / `lastScanAt` (all-time).
@@ -118,10 +133,10 @@ day key isn't on the axis), so the billing page disagreed with itself.
 
 | Surface | Behavior |
 | --- | --- |
-| `src/app/usage/page.tsx` | Auth-gated, org-scoped (`?org=` or active-org cookie). Stat cards (total, period, billable, distinct repos), public-vs-private + provider breakdowns, timeframe picker (`?days=`, default 30, max 365). |
+| `src/app/usage/page.tsx` | Auth-gated, org-scoped (`?org=` or active-org cookie). Stat cards (total, period, billable, distinct repos), public-vs-private + provider breakdowns, timeframe picker (`?days=`, default 30, max 365). The closing note is **conditional**: the shared funnel is told per-org attribution activates with auth / the GitHub App; a private org — which is reading its own per-team, per-repo, per-lane breakdown, i.e. that attribution — is told it is attributed and given the link to plans & credit pricing this billing page otherwise lacked (UAT MC-B31 / VICTOR-L1-06). |
 | `GET /api/usage` | `?org=` (default `public`), `?days=`, `?format=json\|csv`. Returns `UsageSummary` JSON, or a CSV/JSON file download. `503` without DB. **IDOR guard:** when auth is on, a private org requires a session with an installation in it; public is readable by any signed-in user. |
-| `GET /api/usage?view=showback` | The lane × team allocation as CSV (`scope,lane,team,calls,estimatedCostUsd,unpricedCalls`), for finance. Same route, same auth, same window — a projection, not a new surface. A row that could not be priced exports an **empty** cost cell, never `0`. The `team` column is omitted entirely for the public funnel. Kept separate from `?format=csv` on purpose: the per-day export's shape is a reconciliation artifact downstream sheets key on, and a lane is not a property of a day's scan count. |
-| `src/components/usage/UsageTrend.tsx` | Stacked-bar chart (free under billable), dependency-free SVG, auto-scaled label cadence, CSV/JSON export buttons, legend + summary. |
+| `GET /api/usage?view=showback` | The lane × team allocation as CSV (`scope,lane,team,calls,estimatedCostUsd,unpricedCalls`), for finance. Same route, same auth, same window — a projection, not a new surface. A row that could not be priced exports an **empty** cost cell, never `0`. The `team` column is omitted entirely for the public funnel. Kept separate from `?format=csv` on purpose: the per-day export's shape is a reconciliation artifact downstream sheets key on, and a lane is not a property of a day's scan count. **Linked from the page** as the third export button — for its first months it was built, correct, reconciling and reachable only by hand-typing the query string (UAT MC-B19). |
+| `src/components/usage/UsageTrend.tsx` | Stacked-bar chart (free under billable), dependency-free SVG, auto-scaled label cadence, **three** export buttons — per-day CSV, JSON, and the **Showback CSV** (`?view=showback`) — legend + summary. |
 
 ## Rate limits & the spend ceiling (`src/lib/rate-limit.ts`)
 
@@ -204,14 +219,23 @@ derives:
 
 | Surface | Reads |
 | --- | --- |
-| `/pricing` Free card + blurb | `PLAN_SPECS.free` → `publicScanMonthlyLimit()` |
-| `/pricing` metadata + the footnote under the credit matrix | `publicScanMonthlyLimit()`, `PUBLIC_SCAN_WINDOW_DAYS` |
+| `/pricing` Free card + blurb | `PLAN_SPECS.free` → `publicScanAllowance().label` |
+| `/pricing` metadata + the footnote under the credit matrix | `publicScanAllowance()`, `PUBLIC_SCAN_WINDOW_DAYS` |
 | Landing FAQ JSON-LD (`src/app/page.tsx`) | the same two |
 | `QuotaMeter` in the scan dialog | `GET /api/quota` → `peekPublicScanQuota` |
 | The 429 body (`monthlyQuotaExceeded`) | the limit of the scope that actually tripped |
 
-Never write the allowance as a literal, and never call public scans "unlimited" or "unmetered" — a
-meter is rendered on the same screen. `plans.test.ts` fails any plan copy that does.
+**Ask for the phrase, not the digit.** `publicScanAllowance()` returns `{ limit, label, plural }` —
+`"5 free public scans"`, or `"1 free public scan"`. Making the number derived left the sentences
+around it written for a constant, so an operator setting `PUBLIC_SCAN_MONTHLY_LIMIT=1` read
+*"1 free public scans / month"*, *"and 1 free public scans"*, and *"The 1 free public scans run on
+their own rolling 30-day window"* on a single page (UAT MC-B38) — invisible at the default of 5, and
+visible to exactly the self-hosting operator the page was rebuilt for. `plural` is exposed for the
+surrounding verb, which is the one part of a sentence a shared phrase cannot own.
+
+Never write the allowance as a literal, never append your own plural `s` to it, and never call public
+scans "unlimited" or "unmetered" — a meter is rendered on the same screen. `plans.test.ts` fails any
+plan copy that does.
 
 **The 429's upsell names a LABEL, not an id.** `monthlyQuotaExceeded` reads `PLAN_FEATURES.pro.label`
 ("Starter"); it used to say "Upgrade to Pro", naming a tier that appears nowhere a buyer can see.
@@ -277,15 +301,6 @@ Until a route adopts `rateLimitRequestShared()`, its global ceiling remains per-
   legacy `claude` provider id. Routing it through `src/lib/llm/transports.ts` would change which
   credential and which vendor an operator's briefing bills to — an open design question (BACKLOG C3),
   not a wiring task.
-- **An org actually slugged `public` is unmetered outside the scan lane.** `meter()` drops any event
-  whose org slug is `public` (`src/lib/llm/meter.ts`), because that slug is the reserved anonymous
-  funnel — no tenant, no bill — and `getUsageSummary` skips the lane/team folds for it for the same
-  reason. A *real* tenant that happens to own the slug therefore burns companion/memory/agent
-  inference and shows `$0` for it forever, with only its scan lane visible. Live-observed on the
-  seeded demo org (UAT VICTOR-L2-01, 2026-08-30). Closing it means giving the funnel a sentinel that
-  is not a valid slug (or keying off `Organization.kind`) everywhere `"public"` is compared today —
-  auth, gating and aggregation, not just the meter — so it is a seam change, not a one-line guard.
-
 - **No lane but `scan` is billed.** `laneAllowances` is `{}` on every tier, so the other four lanes
   are measured and shown but never charged. That is deliberate, and it is the state until a pricing
   decision is made on this data.

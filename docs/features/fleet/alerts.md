@@ -402,6 +402,14 @@ with no sink gets no extra work and no extra push.
 | **Goal at risk** (`buildGoalAtRiskMessage`) | Any goal `listGoals` already marks `pace: "behind"` and not achieved. | The org's alert sink. | At most once per weekly window (`org.alert.goal-at-risk` claim). |
 | **Spend anomaly** (`buildSpendAnomalyMessage`) | This week's billable scans ≥ `SPEND_ANOMALY_RATIO` × the trailing 3-week per-week average, with a floor of 10 scans so small fleets can't trip it. A spend *drop* never fires. | The org's alert sink. | At most once per weekly window (`org.alert.spend-anomaly` claim). |
 
+**The spend figure is the ALL-LANE total.** Detection is still scan VOLUME (this week's billable
+scans vs the trailing average — that is what `daily` carries), but the dollar line in the message
+quotes `UsageSummary.allLanesCostUsd`, not `estimatedCostUsd`, which prices the scan lane alone. The
+digest was the last reader of the understated figure `/usage`'s headline tile stopped showing in
+MC-B12 — and the reader least able to notice, because nobody cross-checks a push (UAT MC-B32). The
+message says *"all lanes"* out loud and, when calls in the period could not be priced, discloses the
+count so the figure reads as a **floor** — the same disclosure rule the lane rows and the tile carry.
+
 They are dispatched **before** the digest's movement gate on purpose: a goal sliding off pace is
 exactly the news a flat fleet week still needs to carry. Each takes its own at-most-once claim and
 releases it on a failed delivery; the whole call is internally caught, so it can add to `errors`

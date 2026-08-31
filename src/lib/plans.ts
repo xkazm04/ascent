@@ -34,7 +34,7 @@ import { selfHosted } from "@/lib/env";
 // The free PUBLIC-scan allowance the Free card promises. Deliberately the pure limit module, not
 // public-scan-quota.ts (node:crypto + Prisma): plans.ts is imported by client components, and the
 // promise on the card must still be the number the gate enforces. See MC-B5.
-import { publicScanMonthlyLimit } from "@/lib/public-scan-limit";
+import { publicScanAllowance } from "@/lib/public-scan-limit";
 // TYPE-ONLY: the lane vocabulary lives with the meter that produces it, and this import is erased, so
 // no client bundle that reads a plan card pulls the metering module in behind it.
 import type { UsageLane } from "@/lib/llm/meter";
@@ -215,11 +215,12 @@ const PLAN_SPECS: Record<PlanId, PlanSpec> = {
     // MC-B5: this card said "public scans are always free" beside an extras bullet reading "Unlimited
     // free public scans" — while the scan dialog's meter, on the same visit, counted down from 5. The
     // price claim ("free") is true; the VOLUME claim was not. Both now state the allowance the gate
-    // actually charges against, read from the same function the quota reads (publicScanMonthlyLimit,
-    // src/lib/public-scan-limit.ts) so a second number can never drift out of a second file.
-    blurb: `Private scans every month, and ${publicScanMonthlyLimit()} free public scans, with the full report and roadmap.`,
+    // actually charges against, read from the same module the quota reads (publicScanAllowance,
+    // src/lib/public-scan-limit.ts) so a second number can never drift out of a second file. The
+    // PHRASE, not the digit: MC-B38 caught "1 free public scans" once an operator set the limit to 1.
+    blurb: `Private scans every month, and ${publicScanAllowance().label}, with the full report and roadmap.`,
     extras: [
-      `${publicScanMonthlyLimit()} free public scans / month`,
+      `${publicScanAllowance().label} / month`,
       "Maturity report + roadmap",
       "Public report permalink",
       "1 member",

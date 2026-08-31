@@ -15,7 +15,7 @@
 
 import { HairlineGrid, Kicker } from "@/components/ui";
 import { PLAN_FEATURES } from "@/lib/plans";
-import { sourceRepoHref } from "@/lib/site";
+import { DOCS_ARE_UPSTREAM, selfHostGuideHref } from "@/lib/site";
 
 /** What the self-hosted path gives you, phrased against the tier columns it sits above. */
 const POINTS: { title: string; body: string }[] = [
@@ -38,7 +38,7 @@ const POINTS: { title: string; body: string }[] = [
 ];
 
 export function SelfHostBand() {
-  const guideHref = sourceRepoHref("docs/SELF-HOSTING.md");
+  const guideHref = selfHostGuideHref();
   // `id="self-host"` is a public anchor: the landing hero's "run it yourself" CTA deep-links to
   // /pricing#self-host when the deployment names no source repository. Renaming it breaks that
   // fallback silently.
@@ -77,24 +77,20 @@ export function SelfHostBand() {
           </dl>
 
           <div className="mt-7 flex flex-wrap items-center gap-3">
-            {/* The CTA is a real destination or it is nothing. `sourceRepoHref` returns null when the
-                deployment hasn't set NEXT_PUBLIC_SOURCE_REPO_URL, and a dead "view the source" link
-                would damage the open-source claim more than its absence does — so we name the in-repo
-                path as text instead. Plain <a>: it leaves the app. */}
-            {guideHref ? (
-              <a
-                href={guideHref}
-                target="_blank"
-                rel="noreferrer"
-                className="focus-ring rounded-xl border border-accent/50 bg-accent/10 px-5 py-2.5 font-medium text-white transition hover:bg-accent/20"
-              >
-                Self-hosting guide →
-              </a>
-            ) : (
-              <span className="type-body-sm text-slate-400">
-                Self-hosting guide: <span className="font-mono text-slate-300">docs/SELF-HOSTING.md</span>
-              </span>
-            )}
+            {/* The CTA is a real destination, always (MC-B22). It used to degrade to a printed file
+                path whenever the deployment had not set NEXT_PUBLIC_SOURCE_REPO_URL — which is every
+                deployment that has not been told to — leaving a page that claims AGPL and
+                self-hostability three times over with nowhere to go. `selfHostGuideHref` falls back to
+                UPSTREAM's guide and the label says so; only "view the source", which is a licence
+                claim about THIS deployment, keeps the no-default rule. Plain <a>: it leaves the app. */}
+            <a
+              href={guideHref}
+              target="_blank"
+              rel="noreferrer"
+              className="focus-ring rounded-xl border border-accent/50 bg-accent/10 px-5 py-2.5 font-medium text-white transition hover:bg-accent/20"
+            >
+              Self-hosting guide{DOCS_ARE_UPSTREAM ? " (upstream)" : ""} →
+            </a>
             <code className="rounded-lg border border-divider bg-ink px-3 py-2 type-caption text-slate-300">
               docker compose --profile app up -d
             </code>

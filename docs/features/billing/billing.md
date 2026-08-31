@@ -131,6 +131,16 @@ export type ScanCharge = "unlimited" | "allowance" | "credit" | "denied";
    (`Organization.scanCredits`); one credit is debited.
 4. **`denied`**: allowance spent and no credits left → the 402 / upgrade moment.
 
+**Two currencies, and copy must name which one it means.** Step 2 and step 3 are different money:
+the plan **allotment** is a monthly grant compared against `usageThisMonth`, so it restarts on the 1st
+and an unused month is simply gone; **prepaid credits** are a balance on `Organization.scanCredits`
+that nothing resets. `/usage`'s allotment panel used to print *"Unused credits roll over. They never
+expire, so a quiet month is not lost"* directly under a header reading *"Monthly allotment · 150
+credits / mo"* — both clauses true, of different currencies, under a meter of the one that does NOT
+roll over, which made an idle month look free when it burns the whole allotment (UAT MC-B21). The
+sentence now names both, and `ALLOTMENT_CURRENCIES_NOTE` (`src/app/usage/AllotmentPanel.tsx`) is
+exported and asserted so it cannot quietly regress; `/pricing`'s footnote already drew the same line.
+
 `resolveScanCharge` is the single wiring point read by **both** the read gate (`checkScanEntitlement`,
 which reports `allowed`/`withinAllowance`/`allowanceRemaining` for UI and bulk-batch sizing) and the write
 gate (`consumeScanCredit` in `src/lib/db/credits.ts`), so the two paths can't drift. `consumeScanCredit`'s
@@ -184,6 +194,23 @@ The Free CTA is a scan link. The **Custom** tier's CTA is not a link at all; see
 the literal `enterprise` id, and returns `null`; the card then renders `PlanEnquiryCta`. A Polar product
 mapped to the tier does **not** turn it into a checkout link: a negotiated price is an operator's manual
 fulfilment path, not something a visitor may buy from the page.
+
+### Linking the source and the self-hosting guide (`NEXT_PUBLIC_SOURCE_REPO_URL`)
+
+Two links on the pricing/landing surface come from `src/lib/site.ts`, and they follow **deliberately
+different** rules:
+
+| Link | Unset behaviour | Why |
+| --- | --- | --- |
+| "View the source" (`sourceRepoHref`) | renders nothing | It is an AGPL §13 claim about **this** deployment; pointing it at a stranger's repository would be wrong, and a dead link damages the claim more than its absence. |
+| The self-hosting guide (`selfHostGuideHref` / `docHref`) | links **upstream's** copy, labelled *(upstream)* | A doc link is a reading reference, not a licence claim — the same second-best-address rule `FEEDBACK_URL` already takes. |
+
+UAT MC-B22 measured the unset case: `NEXT_PUBLIC_SOURCE_REPO_URL` is set in no committed env file, so
+all four consumers degraded at once and a raw-HTML sweep of `/` and `/pricing` found exactly **one**
+github.com URL on each — the footer's issue tracker — on pages that make the open-source claim three
+times. The guide is now always a link; the source link still needs the variable. It is a
+`NEXT_PUBLIC_*` var, so it is **inlined at build time**: it must be present in the environment that
+runs `next build`, not merely in the running container (see `.env.example`).
 
 ### The self-hosted page shows only "Free forever" (2026-08-29)
 

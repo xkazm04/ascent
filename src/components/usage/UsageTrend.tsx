@@ -89,6 +89,19 @@ export function UsageTrend({ daily, org, days }: { daily: UsageDay[]; org: strin
           >
             Export JSON
           </a>
+          {/* The SHOWBACK export (UAT VICTOR-L1-02): one row per inference lane and one per code-owning
+              team — the allocation artifact a finance reader needs, which the route has served
+              correctly since it shipped and which nothing on the product linked to. "Built, correct and
+              unlinked" was the finding; a third button is the whole fix. It is a different PROJECTION
+              of the same window (not a different window), so it rides the same exportBase. */}
+          <a
+            href={`${exportBase}&view=showback`}
+            className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 type-mono-sm uppercase tracking-widest text-slate-200 transition hover:border-accent hover:text-white"
+            title="Cost allocation by inference lane and code-owning team (CSV)"
+            download
+          >
+            Showback CSV
+          </a>
         </div>
       </div>
 
