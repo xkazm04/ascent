@@ -174,7 +174,10 @@ import type {
 // one concrete first move per row, additive beside the invitational voice. No weight, band, blend
 // or guardband moved; the bump exists because the model is now ASKED a different question, so a
 // cached r13 answer and a fresh r14 answer are not the same reading.
-export const SCORING_RUBRIC_VERSION = "r14";
+// r15 (2026-08-31, RC2-N1): r14 declared the field only as an empty key in the JSON skeleton and
+// the model returned it on 0 of 9 items on the first live scan — the mandate now ASKS for it, in
+// the ROADMAP COVERAGE block, still invitational (stated as what the move IS, never an order).
+export const SCORING_RUBRIC_VERSION = "r15";
 
 /** Blend factor: how much the LLM judgment counts vs. deterministic signals. */
 export const SCORE_BLEND = 0.6;

@@ -294,6 +294,11 @@ worth exploring, and a reader who opens it and finds nothing concludes it is fin
 ${FOLLOW_UP_BELOW} or above may have an entry when there is a real gap. Order the roadmap by
 impact. Keep each entry tight; more entries, not longer ones.
 
+Give every roadmap entry a "firstStep": the single most concrete move a developer could make
+today, one sentence, stated as what the move IS rather than as an order (e.g. "A vitest config
+with one passing test would give CI something to run" — the invitational voice still holds).
+Omit "firstStep" only when no single concrete move exists.
+
 CRAFT ENTRIES. A strong score is not the end of the conversation. For every dimension at or
 above ${FOLLOW_UP_BELOW} that has no gap entry, add ONE roadmap entry with "kind":"craft": what
 would make this dimension EXEMPLARY — the practice the strongest teams of this kind run that
