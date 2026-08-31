@@ -93,7 +93,23 @@ export function ScorecardSummary({ card }: { card: PublicOrgScorecard }) {
             only and excluded from every number above)
           </>
         )}
-        . Private repositories are never included: this page is a lens over the public scan corpus, not
+        .{" "}
+        {/* The average is over one owner's repos but not necessarily one ruler: a rubric bump
+            invalidates the cache without re-scanning, so an un-rescanned repo keeps its old score and
+            still feeds this mean (UAT `TOMAS-L1-11`). Disclosed rather than excluded — dropping those
+            repos would average a smaller, arbitrary slice of the owner. Silent when every counted row
+            is on the current rubric. */}
+        {card.staleRubricCount > 0 && (
+          <>
+            {card.staleRubricCount} of{" "}
+            {card.verifiedCount === 1 ? "that repository" : `those ${card.verifiedCount}`}{" "}
+            {card.staleRubricCount === 1 ? "was" : "were"} scored under an earlier rubric than the
+            current <span className="font-mono text-slate-400">{card.rubricVersion}</span> and{" "}
+            {card.staleRubricCount === 1 ? "carries" : "carry"} a rubric qualifier in the table below,
+            so this average mixes two instruments.{" "}
+          </>
+        )}
+        Private repositories are never included: this page is a lens over the public scan corpus, not
         over any organisation&apos;s Ascent workspace.
       </p>
     </div>

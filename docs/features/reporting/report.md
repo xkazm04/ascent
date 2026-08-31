@@ -24,7 +24,7 @@ Two crawlable, unauthenticated surfaces built on one read module, `src/lib/regis
 
 | Route | What it is |
 | --- | --- |
-| `/leaderboard` | The **AI-native register**: every model-scored public repo, ranked, paginated via `?page=N`, with the full nine-dimension breakdown. Rows carry honesty qualifiers: `conf N` when the scan reported confidence below 0.75, and `no PR signal` when the analysis window held no merged PR (mirrors, push-based workflows) — plus page copy stating every score is computed outside-in from public artifacts. |
+| `/leaderboard` | The **AI-native register**: every model-scored public repo, ranked, paginated via `?page=N`, with the full nine-dimension breakdown. Rows carry honesty qualifiers: `conf N` when the scan reported confidence below 0.75, `no PR signal` when the analysis window held no merged PR (mirrors, push-based workflows), and `rubric rNN` when the score was taken under an earlier rubric than the one in force — plus page copy stating every score is computed outside-in from public artifacts. |
 | `/scorecard/[owner]` | An owner's **public scorecard**: the aggregate score/level over that owner's public repos, with its own OG card. |
 
 **Two invariants, both unit-pinned (`src/lib/register/data.test.ts`):**
@@ -37,6 +37,19 @@ Two crawlable, unauthenticated surfaces built on one read module, `src/lib/regis
    ranked)" section with the same `demo` qualifier every unverified row carries, and excluded from every
    scorecard average. An owner whose public scans are *all* previews gets an explicit "No published
    score yet" state, not an average over previews.
+
+   **The rubric is the second half of that same claim.** `model.ts` states in writing that numbers
+   from two rubric versions are not comparable, a bump invalidates the cache **without re-scanning**,
+   and `rubricVersion` is load-bearing in the corpus filter, the outcome ledger and the digest keys —
+   yet the register carried every other provenance qualifier and not this one (UAT `TOMAS-L1-11`). It
+   now carries `rubricVersion` and a derived `currentRubric` (a **null** version is *unknown*, and
+   unknown is never current — the reading `db/outcomes.ts` gives it). A stale row is **qualified, not
+   de-ranked**: a `rubric rNN` / `rubric unknown` chip on the row, a "Mixed rubrics on this page" note
+   under the board when `staleRubricOnPage > 0`, and a sentence on the scorecard when
+   `staleRubricCount > 0` says the average mixes instruments. The mock case and the stale case are
+   different claims — a mock score is not a rating at all, whereas a stale score is a real rating on
+   an earlier instrument — and de-ranking every pre-bump row would empty the board on the day of each
+   bump (r13→r14→r15 inside 48 hours) and publish a register that is *less* true.
 
 Ranking happens in memory over a bounded candidate window (`REGISTER_CANDIDATE_CAP`, ordered by score
 at the DB), so neither surface needs a new column or index. `windowed` discloses when the corpus has
@@ -762,9 +775,9 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/app/report/compare/ExemplarSection.tsx` | Resolves `?against=` into a panel or a notice. |
 | `src/lib/report/validate.ts` | `parseScanReport()` trust-boundary validation. |
 | `src/lib/ui.ts` | Color/glyph/format helpers shared across the report. |
-| `src/lib/register/data.ts` | The public register read layer: `getPublicRegister` / `getPublicOrgScorecard`. Public-org + `isPrivate:false` on every query; mock-engine scans carried as `verified:false` and never ranked. |
+| `src/lib/register/data.ts` | The public register read layer: `getPublicRegister` / `getPublicOrgScorecard`. Public-org + `isPrivate:false` on every query; mock-engine scans carried as `verified:false` and never ranked; `rubricVersion` + `currentRubric` carried so a stale-rubric row is qualified. |
 | `src/app/leaderboard/page.tsx` | The register page: server-rendered ranking, `?page=` pagination, per-page canonical + OG. |
-| `src/components/leaderboard/LeaderboardTable.tsx` | The ranked table. `ranked={false}` draws the unranked preview section; a `demo` chip marks every unverified row. |
+| `src/components/leaderboard/LeaderboardTable.tsx` | The ranked table. `ranked={false}` draws the unranked preview section; a `demo` chip marks every unverified row, a `rubric rNN` chip every stale-rubric one. |
 | `src/components/leaderboard/RegisterPager.tsx` | Anchor-based pager (`rel=prev/next`) + the shared scan CTA. |
 | `src/app/scorecard/[owner]/page.tsx` | Public org scorecard. |
 | `src/components/leaderboard/ScorecardSummary.tsx` | The scorecard headline; renders the refusal state when `verifiedCount === 0`. |

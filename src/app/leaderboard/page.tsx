@@ -107,6 +107,21 @@ export default async function LeaderboardPage({
         {register && rows.length > 0 ? (
           <>
             <LeaderboardTable rows={rows} startRank={startRank} />
+            {/* A rank is a claim that the rows share a ruler. When they do not, the board says so
+                above the fold instead of leaving it to a per-row chip (UAT `TOMAS-L1-11`). Silent when
+                the page is single-rubric — which is the common case right after a bulk re-scan, and
+                a disclosure with nothing to disclose is noise. */}
+            {register.staleRubricOnPage > 0 && (
+              <p className="mt-4 max-w-3xl type-body-sm leading-relaxed text-slate-500">
+                <span className="text-slate-300">Mixed rubrics on this page.</span>{" "}
+                {register.staleRubricOnPage} of these {rows.length} rows{" "}
+                {register.staleRubricOnPage === 1 ? "was" : "were"} scored under an earlier rubric than
+                the current <span className="font-mono text-slate-400">{register.rubricVersion}</span>,
+                and carry a <span className="text-violet-300/90">rubric</span> qualifier. A rubric
+                change alters what some dimensions measure, so those numbers are not strictly
+                comparable with freshly scored ones; a re-scan puts a repo back on the current ruler.
+              </p>
+            )}
             {register.windowed && (
               <p className="mt-4 font-mono type-micro uppercase tracking-widest text-slate-600">
                 Ranked within the {register.totalVerified} highest-scoring scored repositories.
