@@ -250,6 +250,43 @@ export async function upsertRepoAdmission(
 }
 
 /**
+ * WITHDRAW one repo's admission decision — back to no decision at all.
+ *
+ * THE STATE STORE IS SPARSE; THE LEDGER IS APPEND-ONLY. That is the whole shape of a decision record,
+ * and Ascent had built only half of it: `upsertRepoAdmission` could *move* a decision but never unmake
+ * one, so the nearest thing to a revoke was writing `grantedTier == derivedTier` — which still records
+ * that an owner decided something, with `decidedBy` and `decidedAt` set. A decision made in error was
+ * permanent, and the trail could not tell "decided, then withdrawn" from "decided" (UAT `RC2-N4`; the
+ * recertify pass hit it while cleaning up after its own probe row).
+ *
+ * So the row is DELETED rather than flipped to a `withdrawn` status. An undecided item must have *no
+ * record at all* — a status flip would leave a decision-shaped row that every reader has to learn to
+ * discount, and `getRepoAdmission`'s lazy seed already re-creates the honest "seeded from the
+ * measurement, nobody has decided" state on the next read. The deletion is never silent: the ROUTE
+ * writes the withdrawal act to `OrgAudit`, which is why this returns the row it removed — the act
+ * needs the previous status, and it is unreconstructible once the row is gone.
+ *
+ * Org-scoped by `deleteMany` on the resolved org id, so a repo name belonging to another tenant simply
+ * matches nothing. Returns null when there was no row to withdraw (already undecided — an idempotent
+ * no-op, not an error) and the caller must NOT write an act for it: a withdrawal that withdrew nothing
+ * is not something that happened.
+ */
+export async function deleteRepoAdmission(orgSlug: string, repoFullName: string): Promise<RepoAdmissionRow | null> {
+  if (!isDbConfigured()) return null;
+  const org = await getOrgBySlug(orgSlug);
+  if (!org) return null;
+  const prisma = getPrisma();
+  const existing = await prisma.repoAdmission.findFirst({ where: { orgId: org.id, repoFullName }, select: SELECT });
+  if (!existing) return null;
+  const res = await prisma.repoAdmission.deleteMany({ where: { orgId: org.id, repoFullName } });
+  // Lost a race to a concurrent withdrawal: the other caller owns the act. Same reasoning as the
+  // seed's unique-key race — the outcome is what was asked for, and two acts for one withdrawal
+  // would be a worse record than one.
+  if (res.count === 0) return null;
+  return toRow(existing);
+}
+
+/**
  * Store (or clear) the GitHub ruleset id an apply created. This column is the REVERSAL HANDLE: an
  * applied ruleset that cannot be named cannot be removed from the same surface that created it, and
  * a control a customer cannot undo is one they will disable outside the product instead.

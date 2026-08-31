@@ -18,6 +18,7 @@ vi.mock("@/lib/db/org-stance", () => ({ getActiveOrgStance: vi.fn(async () => ({
 vi.mock("@/lib/db/org-admission", () => ({
   listOrgAdmissions: vi.fn(async () => []),
   upsertRepoAdmission: vi.fn(),
+  deleteRepoAdmission: vi.fn(),
   orgTracksRepo: vi.fn(async () => false),
   MAX_RATIONALE: 500,
 }));
@@ -25,15 +26,16 @@ vi.mock("@/lib/authz", () => ({ requireOrgRead: vi.fn(async () => null) }));
 vi.mock("@/lib/api/orgPost", () => ({ requireOrgOwnerPost: vi.fn() }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: vi.fn(async () => "octocat") }));
 
-import { GET, POST, repoUnderOrg } from "./route";
+import { DELETE, GET, POST, repoUnderOrg } from "./route";
 import { recordOrgAudit } from "@/lib/db";
-import { listOrgAdmissions, upsertRepoAdmission, orgTracksRepo } from "@/lib/db/org-admission";
+import { deleteRepoAdmission, listOrgAdmissions, upsertRepoAdmission, orgTracksRepo } from "@/lib/db/org-admission";
 import { requireOrgRead } from "@/lib/authz";
 import { requireOrgOwnerPost } from "@/lib/api/orgPost";
 import { resolveViewerLogin } from "@/lib/access";
 
 const mockList = vi.mocked(listOrgAdmissions);
 const mockUpsert = vi.mocked(upsertRepoAdmission);
+const mockDelete = vi.mocked(deleteRepoAdmission);
 const mockTracks = vi.mocked(orgTracksRepo);
 const mockRead = vi.mocked(requireOrgRead);
 const mockOwnerPost = vi.mocked(requireOrgOwnerPost);
@@ -60,11 +62,17 @@ const post = (body: Record<string, unknown>) => {
   return POST(new Request("http://localhost/api/org/admission", { method: "POST" }));
 };
 
+const del = (body: Record<string, unknown>) => {
+  mockOwnerPost.mockResolvedValue({ org: "acme", body } as never);
+  return DELETE(new Request("http://localhost/api/org/admission", { method: "DELETE" }));
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockRead.mockResolvedValue(null);
   mockLogin.mockResolvedValue("octocat");
   mockUpsert.mockResolvedValue(ROW);
+  mockDelete.mockResolvedValue(ROW);
   mockAudit.mockResolvedValue(true);
   mockTracks.mockResolvedValue(false);
 });
@@ -167,5 +175,70 @@ describe("POST — owner-gated, validated, audited", () => {
     mockOwnerPost.mockResolvedValue(NextResponse.json({ error: "nope" }, { status: 403 }) as never);
     const res = await POST(new Request("http://localhost/api/org/admission", { method: "POST" }));
     expect(res.status).toBe(403);
+  });
+});
+
+// UAT `RC2-N4`. The route refused to record a decision nobody signed, and yet a decision signed in
+// error was permanent: `upsertRepoAdmission` can only MOVE a decision, so the closest thing to a
+// revoke was granting the derived tier — which still records that an owner decided. The ledger could
+// not tell "decided, then withdrawn" from "decided".
+describe("DELETE — the withdrawal, and the act that records it", () => {
+  it("clears the state row and returns what it removed", async () => {
+    const res = await del({ repo: "acme/billing", rationale: "wrong repo" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, withdrawn: ROW });
+    expect(mockDelete).toHaveBeenCalledWith("acme", "acme/billing");
+  });
+
+  it("appends a WITHDRAWAL act carrying the decision it removed", async () => {
+    await del({ repo: "acme/billing", rationale: "wrong repo" });
+
+    const [action, org, meta, actor] = mockAudit.mock.calls[0]!;
+    // A distinct action, not a second `org.admission`: the log has to distinguish the two on its own
+    // face, which is the entire reason a delete writes an act at all.
+    expect(action).toBe("org.admission_withdrawn");
+    expect(org).toBe("acme");
+    expect(actor).toBe("octocat");
+    expect(meta).toMatchObject({
+      repo: "acme/billing",
+      previousGrantedTier: "T3",
+      previousMode: "agents-allowed",
+      previousDecidedBy: "octocat",
+      derivedTier: "T1",
+    });
+    const status = (meta as { status: string }).status;
+    expect(status).toContain("WITHDRAWN");
+    expect(status).toContain("was agents-allowed, tier T3");
+    expect(status).toContain("wrong repo");
+  });
+
+  it("is idempotent on an already-undecided repo — and writes NO act for a withdrawal that withdrew nothing", async () => {
+    mockDelete.mockResolvedValue(null);
+    const res = await del({ repo: "acme/billing" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, withdrawn: null });
+    // An append-only ledger carries what happened, not what was asked for.
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+
+  it("refuses a withdrawal nobody can be named for — the same rule the grant holds", async () => {
+    mockLogin.mockResolvedValue(null);
+    const res = await del({ repo: "acme/billing" });
+    expect(res.status).toBe(403);
+    expect(mockDelete).not.toHaveBeenCalled();
+  });
+
+  it("refuses another tenant's repository", async () => {
+    const res = await del({ repo: "othertenant/secrets" });
+    expect(res.status).toBe(400);
+    expect(mockDelete).not.toHaveBeenCalled();
+  });
+
+  it("propagates the owner gate's refusal — withdrawing is the same authority as deciding", async () => {
+    const { NextResponse } = await import("next/server");
+    mockOwnerPost.mockResolvedValue(NextResponse.json({ error: "nope" }, { status: 403 }) as never);
+    const res = await DELETE(new Request("http://localhost/api/org/admission", { method: "DELETE" }));
+    expect(res.status).toBe(403);
+    expect(mockDelete).not.toHaveBeenCalled();
   });
 });

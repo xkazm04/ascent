@@ -1,5 +1,6 @@
-// GET  /api/org/admission?org=slug                                  -> { rows, stanceVersion }  (member read)
-// POST /api/org/admission { org, repo, grantedTier, mode, rationale } -> { ok, row }             (owner)
+// GET    /api/org/admission?org=slug                                  -> { rows, stanceVersion }  (member read)
+// POST   /api/org/admission { org, repo, grantedTier, mode, rationale } -> { ok, row }            (owner)
+// DELETE /api/org/admission { org, repo, rationale }                  -> { ok, withdrawn }        (owner)
 //
 // AGENT ADMISSION (moonshot #8) — the recorded, overridable per-repo decision. Auth is a clone of
 // the ai-stance route it sits beside: member read, owner-gated write (a repo's admission is an
@@ -20,7 +21,7 @@
 import { NextResponse } from "next/server";
 import { isDbConfigured, recordOrgAudit } from "@/lib/db";
 import { getActiveOrgStance } from "@/lib/db/org-stance";
-import { listOrgAdmissions, upsertRepoAdmission, orgTracksRepo, MAX_RATIONALE } from "@/lib/db/org-admission";
+import { deleteRepoAdmission, listOrgAdmissions, upsertRepoAdmission, orgTracksRepo, MAX_RATIONALE } from "@/lib/db/org-admission";
 import { isAdmissionMode, isAutonomyTierId } from "@/lib/org/admission";
 import { requireOrgRead } from "@/lib/authz";
 import { requireOrgOwnerPost } from "@/lib/api/orgPost";
@@ -126,4 +127,74 @@ export async function POST(request: Request) {
   ).catch(() => {});
 
   return NextResponse.json({ ok: true, row });
+}
+
+/**
+ * WITHDRAW a decision (UAT `RC2-N4`). Same gate as POST, deliberately: unmaking a governance decision
+ * is the same authority as making one, and it is the half that was missing.
+ *
+ * The asymmetry this closes is the route's own argument turned around. POST refuses to record a
+ * decision nobody signed (`route.ts` above: *"an override with no named author is not a decision — it
+ * is a measurement with a different value"*), and yet a decision signed in error could never be taken
+ * back: `upsertRepoAdmission` can only move a decision, so the closest thing to a revoke was granting
+ * the derived tier, which still says an owner decided. The ledger could not distinguish "decided, then
+ * withdrawn" from "decided".
+ *
+ * TWO STORES, TWO SHAPES. The state row is deleted — an undecided repository has no record at all,
+ * and the next read re-seeds the honest "nobody has decided" state — while the withdrawal is APPENDED
+ * to `OrgAudit` carrying the actor, what the decision WAS, and the reason. A withdrawal that vanished
+ * from both stores would be a worse trail than no revoke door, which is why this is never a silent
+ * row removal.
+ */
+export async function DELETE(request: Request) {
+  if (!isDbConfigured()) return NextResponse.json({ error: "Admission decisions require a database." }, { status: 503 });
+  const gate = await requireOrgOwnerPost<{ repo?: unknown; rationale?: unknown }>(request, {
+    missingOrgError: "Provide { org, repo }.",
+  });
+  if (gate instanceof NextResponse) return gate;
+  const { org, body } = gate;
+
+  const repo = await repoUnderOrg(org, body.repo);
+  if (!repo) {
+    return NextResponse.json({ error: 'Provide repo as "owner/name" under this organization.' }, { status: 400 });
+  }
+  const rationale = typeof body.rationale === "string" ? body.rationale.trim().slice(0, MAX_RATIONALE) : "";
+
+  const actorLogin = await resolveViewerLogin();
+  if (!actorLogin) {
+    // A withdrawal with no named author is the same defect as an override with none — the act would
+    // record that the decision is gone and nothing about who removed it.
+    return NextResponse.json({ error: "Withdrawing an admission decision must be attributable to a signed-in owner." }, { status: 403 });
+  }
+
+  const withdrawn = await deleteRepoAdmission(org, repo);
+  if (!withdrawn) {
+    // Nothing was decided here, so nothing was withdrawn. Idempotent, and NO act is written: an
+    // append-only ledger must carry things that happened, not requests that were made.
+    return NextResponse.json({ ok: true, withdrawn: null });
+  }
+
+  await recordOrgAudit(
+    "org.admission_withdrawn",
+    org,
+    {
+      org,
+      repo,
+      // The act carries the decision it removed. Once the state row is gone this is the only place
+      // the previous grant exists, and "what did she withdraw" is the question an auditor asks first.
+      previousGrantedTier: withdrawn.grantedTier,
+      previousMode: withdrawn.mode,
+      previousDecidedBy: withdrawn.decidedBy,
+      derivedTier: withdrawn.derivedTier,
+      stanceVersion: withdrawn.stanceVersion,
+      status:
+        `${repo}: admission decision WITHDRAWN — was ${withdrawn.mode}, tier ${withdrawn.grantedTier}` +
+        (withdrawn.decidedBy ? ` (decided by @${withdrawn.decidedBy})` : " (never decided — seeded)") +
+        `; back to no decision, tier ${withdrawn.derivedTier ?? "not assessed"} as derived` +
+        (rationale ? ` — ${rationale}` : ""),
+    },
+    actorLogin,
+  ).catch(() => {});
+
+  return NextResponse.json({ ok: true, withdrawn });
 }

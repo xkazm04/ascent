@@ -1547,6 +1547,27 @@ autonomy model's own `DATA_MODEL_GAPS` recorded as a gap. That line is now delet
   proposed read first). The created id is stored on `RepoAdmission.rulesetId` and `DELETE` on the same
   route removes it. Audit rows on every path: `org.admission`, `org.admission_propose` (dry runs
   included), `org.admission_ruleset`, `org.admission_ruleset_revert`.
+- **A decision is withdrawable, and the withdrawal is an act** (since 2026-08-31; UAT `RC2-N4`).
+  `DELETE /api/org/admission { org, repo, rationale }`, same owner + same-origin gate as the POST —
+  unmaking a governance decision is the same authority as making one. The route used to expose GET and
+  POST only, and `upsertRepoAdmission` can only *move* a decision, so the nearest thing to a revoke was
+  granting the derived tier — which still records that an owner decided something. On a surface whose
+  own argument is *"an override with no named author is not a decision"*, the inverse asymmetry was the
+  defect: **a decision made in error was permanent**, and the ledger could not distinguish "decided,
+  then withdrawn" from "decided". The pass that found it hit the wall while cleaning up after its own
+  probe row, which could only be neutralised, not removed.
+
+  **Two stores, two shapes.** The state row is **deleted** — an undecided repository has *no record at
+  all*, and `getRepoAdmission`'s lazy seed re-creates the honest "seeded from the measurement, nobody
+  has decided" state on the next read. A `withdrawn` status flip was rejected deliberately: it would
+  leave a decision-shaped row every reader has to learn to discount. The withdrawal is **appended** to
+  `OrgAudit` as `org.admission_withdrawn` (its own action value, not a second `org.admission` with
+  different fields) carrying the actor, the mode and tier it removed, who had decided it, the derived
+  tier and the reason — once the row is gone, the act is the only place the previous grant exists.
+  Withdrawing an already-undecided repo is an idempotent no-op that writes **no** act: an append-only
+  ledger carries what happened, not what was asked for. The UI affordance is a two-step **Withdraw** →
+  **Confirm** on the perimeter's admission row, rendered only where a person actually decided
+  (`decidedBy !== null`) — offering it on a seed would say the seed was a decision.
 - **Routes are (org, repo), never `[id]`.** Each gates the org and then constrains the caller-supplied
   repo name to it (`repoUnderOrg`), so an authorized owner cannot name another tenant's repository.
   `src/app/api/org/id-routes-gated.test.ts` covers the family structurally.
