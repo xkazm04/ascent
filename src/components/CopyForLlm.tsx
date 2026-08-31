@@ -13,6 +13,7 @@ export function CopyForLlm({
   text,
   label = "Copy for LLM",
   ariaLabel,
+  title = "Copy a markdown briefing to paste into Claude Code or another LLM",
   className = "",
   onCopied,
 }: {
@@ -20,6 +21,9 @@ export function CopyForLlm({
   label?: string;
   /** Distinct accessible name when the visible label is generic (e.g. several "Copy" chips on one page). Defaults to label. */
   ariaLabel?: string;
+  /** Hover tooltip. Defaults to the LLM-briefing wording; override when the payload is something else
+   *  (a permalink, a markdown snippet) so the tooltip doesn't describe the wrong thing. */
+  title?: string;
   className?: string;
   /** Fired once when a copy succeeds — e.g. to count a "use" (Org Skills Library, §8.7). Best-effort. */
   onCopied?: () => void;
@@ -85,7 +89,7 @@ export function CopyForLlm({
       <button
         type="button"
         onClick={copy}
-        title="Copy a markdown briefing to paste into Claude Code or another LLM"
+        title={title}
         aria-label={ariaLabel ?? label}
         className={chipButtonClass(copied ? "success" : failed ? "danger" : "idle", className)}
       >

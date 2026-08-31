@@ -10,7 +10,9 @@ import { SkillDownload } from "@/components/report/SkillDownload";
 import { FoundationPrButton } from "@/components/report/FoundationPrButton";
 import { ScoreIntegrityChip } from "@/components/report/ScoreIntegrityChip";
 import { CopyForLlm } from "@/components/CopyForLlm";
+import { ReportPermalinkShare, levelLine } from "@/components/report/ReportPermalinkShare";
 import { reportLlmMarkdown } from "@/lib/report/llm-markdown";
+import { reportPermalink } from "@/lib/ui";
 
 // Chip hints: `title=` fires only on pointer hover, so every hinted chip ALSO carries the hint as
 // sr-only text — screen-reader users hear the explanation inline, and hover users get the tooltip.
@@ -146,6 +148,16 @@ export function ReportHeader({
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           <FreshnessControl report={report} onRetest={onRetest} rescanning={rescanning} />
+          {/* The durable address of the artifact the reader just waited for — first in the export row
+              because it is the cheapest thing to hand over and the one the pricing page already sells
+              (UAT SAM-L1-04, recurrence 3). Carries the level line, which is what the retired README
+              badge used to state (SAM-L1-12, option b). */}
+          <ReportPermalinkShare
+            fullName={`${repo.owner}/${repo.name}`}
+            path={reportPermalink(`${repo.owner}/${repo.name}`)}
+            pinnedPath={repo.headSha ? reportPermalink(`${repo.owner}/${repo.name}`, repo.headSha) : undefined}
+            level={levelLine(report.level.id, report.level.name, report.overallScore)}
+          />
           {/* Fetch-and-download buttons (not bare anchors): the PDF render can take up to a minute and
               any error branch returns JSON — a plain <a> gave no pending feedback and navigated the
               user onto a raw JSON page on failure (pdf-llm-export #1). */}
