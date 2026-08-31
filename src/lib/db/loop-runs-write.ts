@@ -18,6 +18,7 @@ import {
   type LoopLanePhase,
   type LoopLaneRecord,
   type LoopModelPolicy,
+  type LoopDelivery,
   type LoopRunPhase,
   type LoopRunRecord,
   type LoopTarget,
@@ -49,6 +50,10 @@ export interface CreateLoopRunInput {
   /** The models the run is armed with, IN ORDER — one for `single`, the two arms for `ab`. Recorded
    *  so the price list can attribute a lane to an arm long after the run ended. */
   models?: string[];
+  /** How the run's lane branches are delivered — `branch` (the default and what every run before this
+   *  did), `land` or `pr`. Already validated by the route; `null` is recorded as null, which reads
+   *  back as `branch`. */
+  delivery?: LoopDelivery | null;
   /** Defaults to "running" — `start` arms a run; "curating" is for a run parked for hand-editing. */
   phase?: LoopRunPhase;
 }
@@ -70,6 +75,7 @@ export async function createLoopRun(input: CreateLoopRunInput): Promise<LoopRunR
       effort: input.effort ?? null,
       modelPolicy: input.modelPolicy ?? "single",
       modelsJson: JSON.stringify(input.models ?? (input.model ? [input.model] : [])),
+      delivery: input.delivery ?? null,
     },
   });
   return toRunRecord(row);

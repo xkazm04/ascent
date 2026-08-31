@@ -45,6 +45,8 @@ import {
   type LoopRunRecord,
 } from "@/lib/db/loop-runs";
 import type { LoopModelPolicy, LoopTarget } from "@/lib/db/loop-runs-types";
+import type { LoopDelivery } from "@/lib/local/delivery-options";
+import { deliverLane } from "@/lib/local/loop-delivery";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { recordAudit } from "@/lib/db/scans-audit";
 import { BACKLOG_LANE, type LaneKindProposal } from "@/lib/local/lane-kind";
@@ -93,6 +95,9 @@ export interface StartLoopRunInput {
   modelPolicy?: LoopModelPolicy;
   /** The two arms of an `ab` run, in order. Ignored under `single`. */
   models?: string[];
+  /** WHAT HAPPENS TO EACH LANE'S BRANCH once its cycle succeeds — `branch` (the default, and exactly
+   *  what every run before this did), `land` or `pr`. Already validated by the route. */
+  delivery?: LoopDelivery | null;
   /** Test seam + the autopilot shim's legacy branch naming. */
   deps?: Partial<LaneDeps>;
   branchFor?: (repo: string, stamp: string) => string;
@@ -184,6 +189,7 @@ export async function startLoopRun(input: StartLoopRunInput): Promise<LoopRunRec
     effort: agent.effort,
     modelPolicy: policy,
     models: arms,
+    delivery: input.delivery ?? null,
     phase: "running",
   });
   if (!run) throw new Error("The loop requires a database.");
@@ -332,6 +338,16 @@ export async function retryLane(laneId: string, opts: { deps?: Partial<LaneDeps>
         agent: { model: lane.model ?? run.model, effort: run.effort },
         abPairKey: lane.abPairKey,
       });
+      // A retry is the same lane run again, which includes how its work is delivered — the run's
+      // recorded mode, read off the row rather than re-derived, exactly like its agent configuration.
+      await deliverLane({
+        delivery: run.delivery,
+        orgSlug: org,
+        orgId: run.orgId,
+        laneId,
+        pairedPath: path,
+        actor: run.createdBy,
+      }).catch(() => null);
     } catch (err) {
       await updateLane(laneId, {
         phase: "error",
@@ -425,6 +441,23 @@ async function drive(
           abPairKey: arm ? abPairKeyFor(run.id, t.repo, cycle) : null,
           shouldStop: () => state.stopRequested,
         });
+        // DELIVERY, after the cycle and never instead of it. Under `branch` (the default) this returns
+        // without reading a thing, so the loop behaves exactly as it did before delivery existed.
+        // Under `land`/`pr` a refusal is logged on the lane and the run carries on: the work is
+        // already committed on the branch, and losing a whole cycle because a merge could not happen
+        // would be the more expensive failure by far.
+        // `laneId` is null when the lane never got a row at all (no database), which is also a lane
+        // with no branch to deliver.
+        if (res.laneId) {
+          await deliverLane({
+            delivery: run.delivery,
+            orgSlug: state.orgSlug,
+            orgId: run.orgId,
+            laneId: res.laneId,
+            pairedPath: t.path,
+            actor: run.createdBy,
+          }).catch(() => null);
+        }
         return { repo: t.repo, progressed: res.progressed };
       });
       // A repo survives to the next cycle when ANY of its arms progressed: dropping a repo because

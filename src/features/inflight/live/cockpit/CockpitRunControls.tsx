@@ -9,6 +9,13 @@
 // `Runs` is the drive's rope and is inert for a single run (one run is one run), so it is captioned
 // as the drive's and sits last in its row.
 //
+// THE DELIVERY DIAL IS THE ONE THAT TOUCHES A REAL WORKING COPY, so it is labelled for what it does to
+// the operator's machine ("Land in my current branch") rather than for its internal name, and it
+// carries a standing one-line hint under it rather than a modal — a sentence you can read before you
+// commit to the choice beats a dialog you dismiss after you have made it. `pr` is DISABLED, with the
+// reason in the option itself, on a deployment with no GitHub App; the route refuses it there too, so
+// this is a courtesy rather than the enforcement.
+//
 // MODEL AND EFFORT DEFAULT TO THE DEPLOYMENT, and the empty option says so rather than naming a
 // value: the resolution happens on the server (`resolveAgentConfig`), and what it resolved is
 // recorded on the run and printed on the outcome — so the operator learns the real default from the
@@ -17,6 +24,7 @@
 import { Field, SelectInput } from "@/components/ui";
 import { LOOP_CONCURRENCY_CAP, LOOP_MAX_CYCLES_CAP } from "@/lib/db/loop-runs-types";
 import { AGENT_EFFORTS, AGENT_MODELS } from "@/lib/local/agent-options";
+import { DELIVERY_HINTS, DELIVERY_LABELS, LOOP_DELIVERIES, type LoopDelivery } from "@/lib/local/delivery-options";
 import { DRIVE_MAX_RUNS_CAP } from "./driveTypes";
 import type { RunDials } from "./useRunDials";
 
@@ -24,11 +32,14 @@ export interface CockpitRunControlsProps {
   dims: { id: string; label: string }[];
   dials: RunDials;
   onChange: <K extends keyof RunDials>(key: K, value: RunDials[K]) => void;
+  /** False when this deployment has no GitHub App: "Open a PR" is then DISABLED with the reason
+   *  shown, never offered and then refused on submit. */
+  prAvailable?: boolean;
 }
 
 const upTo = (cap: number) => Array.from({ length: cap }, (_, i) => i + 1);
 
-export function CockpitRunControls({ dims, dials, onChange }: CockpitRunControlsProps) {
+export function CockpitRunControls({ dims, dials, onChange, prAvailable = true }: CockpitRunControlsProps) {
   return (
     <div className="mt-4 space-y-3">
       <Field label="Focus">
@@ -100,6 +111,21 @@ export function CockpitRunControls({ dims, dials, onChange }: CockpitRunControls
           </SelectInput>
         </Field>
       </div>
+      <Field label="When a lane finishes">
+        <SelectInput
+          data-testid="cockpit-delivery"
+          value={dials.delivery}
+          onChange={(e) => onChange("delivery", e.target.value as LoopDelivery)}
+        >
+          {LOOP_DELIVERIES.map((d) => (
+            <option key={d} value={d} disabled={d === "pr" && !prAvailable}>
+              {DELIVERY_LABELS[d]}
+              {d === "pr" && !prAvailable ? " — needs the GitHub App" : ""}
+            </option>
+          ))}
+        </SelectInput>
+      </Field>
+      <p className="type-note leading-relaxed text-slate-500">{DELIVERY_HINTS[dials.delivery]}</p>
     </div>
   );
 }

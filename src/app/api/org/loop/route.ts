@@ -1,7 +1,7 @@
 // LOCAL-MODE IMPROVEMENT LOOP control (self-hosted only, ASCENT_AUTOPILOT=1 only).
 //
 //   GET  ?org=…                                              → { enabled, active, runs }
-//   POST { action:"start",  org, repos[], batches?, concurrency?, maxCycles?, curated?, model?, effort? } → { run }
+//   POST { action:"start",  org, repos[], batches?, concurrency?, maxCycles?, curated?, model?, effort?, delivery? } → { run }
 //   POST { action:"stop",   org, id }                        → { ok, run }
 //   POST { action:"retry",  org, laneId }                    → { ok }
 //   POST { action:"review", org, laneId, cover, verdict }    → { ok, deliverables }
@@ -22,6 +22,8 @@ import { dbGuard } from "@/lib/api/orgPlan";
 import { selfHostGuard } from "@/lib/api/self-host";
 import { autopilotEnabled } from "@/lib/local/agent";
 import { normalizeAgentEffort, normalizeAgentModel } from "@/lib/local/agent-options";
+import { normalizeDelivery } from "@/lib/local/delivery-options";
+import { isAppConfigured } from "@/lib/github/app";
 import {
   LOOP_CONCURRENCY_CAP,
   LOOP_MAX_CYCLES_CAP,
@@ -64,7 +66,11 @@ export async function GET(request: Request) {
     listLoopRuns(org, 20),
     getOrgPriceList(org).catch(() => null),
   ]);
-  return NextResponse.json({ enabled: autopilotEnabled(), active, runs, prices });
+  // `prAvailable` answers ONE question honestly: can this deployment open a PR at all. The cockpit's
+  // delivery dial disables `pr` and says why when it cannot, rather than offering a mode that would be
+  // refused on submit — and the refusal below is what makes the disabled control a courtesy rather
+  // than the enforcement.
+  return NextResponse.json({ enabled: autopilotEnabled(), active, runs, prices, prAvailable: isAppConfigured() });
 }
 
 type Body = {
@@ -83,6 +89,8 @@ type Body = {
   effort?: unknown;
   modelPolicy?: unknown;
   models?: unknown;
+  /** branch | land | pr — what happens to each lane's branch when its cycle succeeds. */
+  delivery?: unknown;
   /** #3 — `local` (the default, and what every caller before it meant) or `remote-agent`. */
   executor?: unknown;
 };
@@ -186,6 +194,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Invalid model policy." }, { status: 400 });
   }
 
+  // DELIVERY. Normalized against the same closed list the picker offers (`normalizeDelivery`), so an
+  // unknown value is `null` — "unchosen", which the run records as `branch`. `pr` is the one mode that
+  // can be genuinely unavailable, and it is REFUSED rather than downgraded: a run armed for PRs that
+  // quietly left branches behind would leave the operator believing their work was in review.
+  const delivery = normalizeDelivery(body.delivery);
+  if (delivery === "pr" && !isAppConfigured()) {
+    return NextResponse.json(
+      { error: "This deployment has no GitHub App configured, so the loop cannot open pull requests. Choose another delivery mode." },
+      { status: 409 },
+    );
+  }
+
   const viewer = await getViewer().catch(() => null);
   try {
     const run = await startLoopRun({
@@ -200,6 +220,7 @@ export async function POST(request: Request) {
       // default rather than 400-ing — a run must not fail because a stale tab sent a retired name.
       model: normalizeAgentModel(body.model),
       effort: normalizeAgentEffort(body.effort),
+      delivery,
       ...(arms ? { modelPolicy: "ab" as const, models: arms } : {}),
       actor: viewer?.login ?? null,
     });

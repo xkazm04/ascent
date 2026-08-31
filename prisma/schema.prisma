@@ -1771,6 +1771,13 @@ model LoopRun {
   // a `single` run, the two arms for an `ab` run. Defaulted to "[]" so a pre-#27 row reads as "not
   // recorded" without a nullable column the readers would each have to interpret.
   modelsJson  String    @default("[]")
+  // HOW THIS RUN'S WORK WAS DELIVERED — branch | land | pr. Nullable, and NULL MEANS `branch`: every
+  // run before this column committed to a throwaway `ascent/loop-…` branch and left it there, which
+  // is exactly what `branch` is. `land` fast-forwards each lane's branch into the paired checkout's
+  // current branch (--ff-only, never a reset/stash/switch); `pr` pushes it and opens a draft PR
+  // through the GitHub App. Persisted because "why did nothing merge?" is a question about a run that
+  // has already ended, and the answer cannot be recovered from anything else on the row.
+  delivery    String?
   startedAt   DateTime  @default(now())
   endedAt     DateTime?
   error       String?
@@ -1884,6 +1891,11 @@ model LoopDrive {
   // experiment rather than several. Same resolved-at-arm-time contract as LoopRun.
   model           String?
   effort          String?
+  // How every run this drive dispatches delivers its lane branches — branch | land | pr. NULL means
+  // `branch`, exactly as on LoopRun. Persisted so a RESUME continues the same experiment: re-arming
+  // the chain on a different delivery mode would change what the drive does to the operator's disk
+  // halfway through.
+  delivery        String?
   startedAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   endedAt         DateTime?

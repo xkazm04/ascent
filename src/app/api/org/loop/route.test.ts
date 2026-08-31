@@ -20,12 +20,15 @@ vi.mock("next/server", () => ({
   },
 }));
 
-const gates = { selfHosted: true, autopilot: true, access: null as unknown, role: null as unknown };
+const gates = { selfHosted: true, autopilot: true, githubApp: true, access: null as unknown, role: null as unknown };
 
 vi.mock("@/lib/api/self-host", () => ({
   selfHostGuard: () => (gates.selfHosted ? null : new Response(JSON.stringify({ error: "Not found." }), { status: 404 })),
 }));
 vi.mock("@/lib/api/orgPlan", () => ({ dbGuard: () => null }));
+// The GitHub App seam, mocked rather than env-driven: `delivery:"pr"` must be refused honestly on a
+// deployment without one, and that refusal is a property of the route, not of this machine's env.
+vi.mock("@/lib/github/app", () => ({ isAppConfigured: () => gates.githubApp }));
 vi.mock("@/lib/local/agent", () => ({ autopilotEnabled: () => gates.autopilot }));
 vi.mock("@/lib/authz", () => ({
   requireOrgAccess: vi.fn(async () => gates.access),
@@ -69,6 +72,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   gates.selfHosted = true;
   gates.autopilot = true;
+  gates.githubApp = true;
   gates.access = null;
   gates.role = null;
 });
@@ -113,15 +117,17 @@ describe("GET /api/org/loop", () => {
     expect((await get("org=acme")).status).toBe(403);
   });
 
-  it("answers { enabled, active, runs, prices }", async () => {
+  it("answers { enabled, active, runs, prices, prAvailable }", async () => {
     const body = (await (await get("org=acme")).json()) as Record<string, unknown>;
     // The price list rides on the STATUS read rather than a route of its own: it is derived at read
-    // time from the org's own lanes and stores nothing, so it has no id to gate.
+    // time from the org's own lanes and stores nothing, so it has no id to gate. `prAvailable` rides
+    // along for the same reason: it is a fact about the deployment, not a resource with an id.
     expect(body).toEqual({
       enabled: true,
       active: null,
       runs: [],
       prices: { rows: [], unproductiveMicros: 0, unpricedLanes: 0, generatedAt: "2026-08-30T00:00:00.000Z" },
+      prAvailable: true,
     });
   });
 
@@ -268,5 +274,63 @@ describe("tenancy — an id from another org is a 404, not an action", () => {
     expect((await detail("run-acme", "org=other")).status).toBe(404);
     expect((await detail("missing", "org=acme")).status).toBe(404);
     expect((await detail("run-acme", "org=acme")).status).toBe(200);
+  });
+});
+
+// ── DELIVERY (how a lane's work reaches the operator) ───────────────────────────────────────────
+//
+// `branch` is the default and is what every run before this column did; `land` and `pr` are opt-ins,
+// and `pr` is the one that can be genuinely unavailable. The rule under test is that an unavailable
+// `pr` is REFUSED — a run armed for pull requests that quietly left branches behind would leave the
+// operator believing their work was in review.
+
+describe("delivery", () => {
+  const started = () => (startLoopRun as unknown as { mock: { calls: [{ delivery?: unknown }][] } }).mock.calls[0]![0];
+
+  it("defaults to null — recorded as `branch`, exactly what a run without the dial always did", async () => {
+    expect((await post({ action: "start", org: "acme", repos: ["acme/web"] })).status).toBe(200);
+    expect(started().delivery).toBeNull();
+  });
+
+  it("passes the two working-copy modes through once they are named", async () => {
+    await post({ action: "start", org: "acme", repos: ["acme/web"], delivery: "land" });
+    expect(started().delivery).toBe("land");
+    vi.clearAllMocks();
+    await post({ action: "start", org: "acme", repos: ["acme/web"], delivery: "pr" });
+    expect(started().delivery).toBe("pr");
+  });
+
+  it("normalizes an unknown value to null — never a guess at a mode that writes to a checkout", async () => {
+    for (const bad of ["merge", "LAND", "", 3, true, null]) {
+      vi.clearAllMocks();
+      expect((await post({ action: "start", org: "acme", repos: ["acme/web"], delivery: bad })).status).toBe(200);
+      expect(started().delivery).toBeNull();
+    }
+  });
+
+  it("REFUSES `pr` when the deployment has no GitHub App, rather than falling back to a branch", async () => {
+    gates.githubApp = false;
+    const res = await post({ action: "start", org: "acme", repos: ["acme/web"], delivery: "pr" });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toContain("no GitHub App");
+    expect(startLoopRun).not.toHaveBeenCalled();
+  });
+
+  it("still allows branch and land without a GitHub App — landing is purely local", async () => {
+    gates.githubApp = false;
+    expect((await post({ action: "start", org: "acme", repos: ["acme/web"], delivery: "land" })).status).toBe(200);
+    expect(started().delivery).toBe("land");
+  });
+
+  it("reports whether a PR is possible at all, so the dial can disable the mode honestly", async () => {
+    expect(((await (await get("org=acme")).json()) as { prAvailable: boolean }).prAvailable).toBe(true);
+    gates.githubApp = false;
+    expect(((await (await get("org=acme")).json()) as { prAvailable: boolean }).prAvailable).toBe(false);
+  });
+
+  it("keeps delivery an OWNER decision, like every other write on this route", async () => {
+    gates.role = new Response(JSON.stringify({ error: "Owner only." }), { status: 403 });
+    expect((await post({ action: "start", org: "acme", repos: ["acme/web"], delivery: "land" })).status).toBe(403);
+    expect(startLoopRun).not.toHaveBeenCalled();
   });
 });

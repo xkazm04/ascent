@@ -101,6 +101,7 @@ export function LiveCockpit(props: LiveCockpitProps) {
             paired={c.paired}
             propose={loop.propose}
             canRun={isOwner && loop.enabled}
+            prAvailable={loop.prAvailable}
             busy={loop.busy || drive.busy}
             loopError={loop.error}
             driveError={drive.error}

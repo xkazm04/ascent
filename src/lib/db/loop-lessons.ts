@@ -170,6 +170,57 @@ export async function recordPracticeSkipLesson(
   }
 }
 
+/**
+ * Why a lane's work could NOT be landed into the operator's checkout.
+ *
+ * The operator asked for `land` and got a branch instead; without this they would have to read a diff
+ * (or the lane log of a run that scrolled away) to find out why. Same table, same `pending` gate as
+ * every other candidate — the loop never writes Org Memory.
+ *
+ * IDEMPOTENT ON THE CAUSE, not on the branch. A refusal is a STANDING FACT about this checkout ("your
+ * branch has moved on", "you are editing files the lane touched"), and it will be true again on the
+ * next run: keying on the branch name would refill the review queue with one row per run — which is
+ * exactly what the 21-run campaign would have produced. The branch and the shas live on the lane log,
+ * where they belong; the candidate carries the cause.
+ */
+export async function recordLandRefusalLesson(
+  orgSlug: string,
+  repoFullName: string,
+  cause: string,
+): Promise<LoopLessonRow | null> {
+  if (!isDbConfigured()) return null;
+  try {
+    const org = await getOrgBySlug(orgSlug);
+    if (!org) return null;
+    const content = (
+      `The loop could not land ${repoFullName}'s lane branch into the branch your paired checkout is on: ${cause}. ` +
+      `Landing is fast-forward only, and it will never reset, stash or switch your branch — the lane's work is safe on its own ` +
+      `ascent/loop-… branch, and merging it is yours to do.`
+    ).slice(0, LESSON_MAX_CHARS);
+    const prisma = getPrisma();
+    const existing = await prisma.orgMemoryCandidate
+      .findFirst({ where: { orgId: org.id, namespace: repoFullName, source: LOOP_LESSON_SOURCE, content } })
+      .catch(() => null);
+    if (existing) return toRow(existing as CandidateRow);
+    const row = await prisma.orgMemoryCandidate
+      .create({
+        data: {
+          orgId: org.id,
+          namespace: repoFullName,
+          content,
+          kind: "procedural",
+          source: LOOP_LESSON_SOURCE,
+          laneId: null,
+          status: "pending",
+        },
+      })
+      .catch(() => null);
+    return row ? toRow(row as CandidateRow) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** An org's lesson candidates, newest first. `status` filters; omit it for every state. */
 export async function listLoopLessons(orgSlug: string, status?: LessonStatus, limit = 50): Promise<LoopLessonRow[]> {
   if (!isDbConfigured()) return [];

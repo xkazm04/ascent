@@ -5,6 +5,7 @@
 // Same shape and same reasons as loopClient.ts: kept apart from the hook so useDrive is a state
 // machine and nothing else.
 
+import type { LoopDelivery } from "@/lib/local/delivery-options";
 import type { DriveStatus, DriveStatusPayload } from "./driveTypes";
 
 const ENDPOINT = "/api/org/local/drive";
@@ -39,6 +40,8 @@ export interface StartDriveInput {
   /** Inherited by EVERY run the drive dispatches, so the whole drive is one experiment. */
   model: string | null;
   effort: string | null;
+  /** Inherited the same way, and it survives a resume — see `resumeParams`. */
+  delivery?: LoopDelivery;
 }
 
 export const startDrive = (slug: string, input: StartDriveInput): Promise<{ drive: DriveStatus }> =>

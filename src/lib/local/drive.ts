@@ -198,6 +198,10 @@ export async function startDrive(input: DriveInput): Promise<DriveStatus> {
     resumedFrom: input.resumedFrom ?? null,
     model: agent.model,
     effort: agent.effort,
+    // One delivery mode for the whole chain, taken verbatim from the (already-validated) input rather
+    // than resolved against anything: there is no environment default for "write into the operator's
+    // checkout", and there must not be one.
+    delivery: input.delivery ?? null,
     startedAt: nowIso(),
     endedAt: null,
     error: null,
@@ -317,6 +321,7 @@ async function drive(st: DriveStatus, actor: string | null): Promise<void> {
       concurrency: st.concurrency,
       model: picked ?? st.model,
       effort: st.effort,
+      delivery: st.delivery ?? null,
       actor,
     });
     const rec: DriveRunRecord = { runId: run.id, repos: step.repos, debtBefore: m.debt, debtAfter: null, startedAt: nowIso(), endedAt: null };

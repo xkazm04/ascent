@@ -36,6 +36,16 @@ import { asCraftAxis } from "@/lib/scoring/craft";
 import { reportPermalink } from "@/lib/ui";
 import { canonicalRepoFullName, DEFAULT_ORG_SLUG, parseStringArray, resolveOrgId, toPersistedRec } from "@/lib/db/scans-shared";
 import { digestToPoint, readDigestTail } from "@/lib/db/scan-digest";
+// The standing-regression rule itself is PURE and lives beside the other detectors in the alert
+// layer; this module only supplies it with persisted readings and, for the concerns it raises, the
+// evidence strings behind the two named scans.
+import {
+  detectStandingRegressions,
+  STANDING_REGRESSION_LOOKBACK,
+  type StandingConcern,
+  type StandingScanPoint,
+} from "@/lib/alerts";
+import { diffStringSets } from "@/lib/report/compare";
 
 // reportPermalink now lives in @/lib/ui (a client-safe module, so the trend charts can build the
 // same link); re-exported here for the existing @/lib/db barrel + server callers.
@@ -950,6 +960,113 @@ export async function getLatestUnmeasurableDims(orgSlug: string, fullName: strin
     return unmeasurablePlatformDims(parsePlatformSignals(row?.platformSignalsJson)) as string[];
   }, [] as string[]);
 }
+
+// ---- Standing regressions (a decline that stopped moving) --------------------
+// The read behind `detectStandingRegressions` (src/lib/alerts.ts). Persisted scans are the ONLY
+// input, deliberately: a dimension that fell because a human pushed two new workflows deserves the
+// same alarm as one that fell inside a loop lane, so nothing here consults a run, a lane or an
+// attribution verdict. See the detector's header for why the attribution guard cannot be the one
+// asked whether a decline is real.
+
+export interface RepoStandingConcern extends StandingConcern {
+  repoFullName: string;
+  repoName: string;
+}
+
+/**
+ * Every repo in the org whose latest scan has a dimension holding materially below an earlier
+ * reading. Two bounded queries, never a fan-out per repo:
+ *
+ *   1. the org's repos with their last `STANDING_REGRESSION_LOOKBACK` scans, carrying only
+ *      `(scannedAt, engineProvider, per-dimension score)` — the detector reads nothing else;
+ *   2. the evidence strings for ONLY the (scan, dimension) pairs a concern actually named, so the
+ *      "what appeared / what disappeared" lines cost one extra query for the whole fleet rather than
+ *      dragging every dimension's evidence blob through step 1.
+ *
+ * The evidence lines are a LIST, never an explanation: they name signals that differ between the two
+ * readings, which is evidence a reader can check, and stop short of asserting that they caused the
+ * drop. Empty when the two ends carry no comparable evidence.
+ */
+export async function getStandingRegressions(
+  orgSlug: string,
+  opts: { drop?: number; scans?: number; lookback?: number; limit?: number } = {},
+): Promise<RepoStandingConcern[]> {
+  if (!isDbConfigured()) return [];
+  return dbReadSafe(async () => {
+    const orgId = await resolveOrgId(orgSlug);
+    if (!orgId) return [];
+    const prisma = getPrisma();
+    const lookback = Math.max(2, Math.min(50, Math.trunc(opts.lookback ?? STANDING_REGRESSION_LOOKBACK) || STANDING_REGRESSION_LOOKBACK));
+    const repos = await prisma.repository.findMany({
+      where: { orgId },
+      select: {
+        fullName: true,
+        name: true,
+        scans: {
+          orderBy: SCAN_ORDER,
+          take: lookback,
+          select: {
+            id: true,
+            scannedAt: true,
+            engineProvider: true,
+            dimensions: { select: { dimId: true, score: true } },
+          },
+        },
+      },
+    });
+
+    const found: RepoStandingConcern[] = [];
+    for (const repo of repos) {
+      const points: StandingScanPoint[] = repo.scans.map((s) => ({
+        id: s.id,
+        scannedAt: s.scannedAt.toISOString(),
+        engineProvider: s.engineProvider,
+        dimensions: s.dimensions.map((d) => ({ dimId: d.dimId, score: d.score })),
+      }));
+      for (const c of detectStandingRegressions(points, { drop: opts.drop, scans: opts.scans })) {
+        found.push({ ...c, repoFullName: repo.fullName, repoName: repo.name });
+      }
+    }
+
+    found.sort((a, b) => b.drop - a.drop || a.repoFullName.localeCompare(b.repoFullName) || a.dimId.localeCompare(b.dimId));
+    const top = typeof opts.limit === "number" ? found.slice(0, Math.max(0, opts.limit)) : found;
+    if (top.length === 0) return top;
+
+    // One evidence query for every named end across the whole fleet.
+    const wanted = new Set<string>();
+    for (const c of top) {
+      if (c.currentScanId) wanted.add(`${c.currentScanId}|${c.dimId}`);
+      if (c.baselineScanId) wanted.add(`${c.baselineScanId}|${c.dimId}`);
+    }
+    const dimRows = await prisma.scanDimension.findMany({
+      where: {
+        scanId: { in: [...new Set(top.flatMap((c) => [c.currentScanId, c.baselineScanId].filter((x): x is string => !!x)))] },
+        dimId: { in: [...new Set(top.map((c) => c.dimId))] },
+      },
+      select: { scanId: true, dimId: true, evidence: true },
+    });
+    const evidenceBy = new Map<string, string[]>();
+    for (const r of dimRows) {
+      const key = `${r.scanId}|${r.dimId}`;
+      if (wanted.has(key)) evidenceBy.set(key, parseStringArray(r.evidence));
+    }
+
+    return top.map((c) => {
+      const before = c.baselineScanId ? evidenceBy.get(`${c.baselineScanId}|${c.dimId}`) : undefined;
+      const after = c.currentScanId ? evidenceBy.get(`${c.currentScanId}|${c.dimId}`) : undefined;
+      if (!before || !after) return c;
+      const { onlyInA: disappeared, onlyInB: appeared } = diffStringSets(before, after);
+      const lines = [
+        ...appeared.slice(0, STANDING_EVIDENCE_CAP).map((e) => `appeared: ${e}`),
+        ...disappeared.slice(0, STANDING_EVIDENCE_CAP).map((e) => `disappeared: ${e}`),
+      ];
+      return lines.length ? { ...c, evidence: lines } : c;
+    });
+  }, [] as RepoStandingConcern[]);
+}
+
+/** At most this many appeared / disappeared evidence lines per concern — a digest line, not a diff. */
+const STANDING_EVIDENCE_CAP = 3;
 
 /** Recommendations from the most recent scan of a repo (with ids + trackable status). */
 export async function getLatestRecommendations(

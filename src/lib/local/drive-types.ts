@@ -11,6 +11,10 @@
 // sessions inside real working copies, so re-arming one is a human decision, never a boot-time one.
 export type DrivePhase = "running" | "green" | "dry" | "ceiling" | "stopped" | "interrupted" | "error";
 
+import type { LoopDelivery } from "@/lib/local/delivery-options";
+
+export type { LoopDelivery };
+
 export interface DriveMeasurement {
   debt: number;
   green: boolean;
@@ -56,6 +60,9 @@ export interface DriveStatus {
    *  drive is ONE experiment. Null = unknown (a row written before the columns existed). */
   model?: string | null;
   effort?: string | null;
+  /** How every run this drive dispatches delivers its lane branches. Null = `branch`, which is what
+   *  every drive before this column did. */
+  delivery?: LoopDelivery | null;
   startedAt: string;
   endedAt: string | null;
   error: string | null;
@@ -76,6 +83,8 @@ export interface DriveInput {
   /** The operator's agent pick, normalized by the route; resolved against the env by `startDrive`. */
   model?: string | null;
   effort?: string | null;
+  /** The operator's delivery pick, normalized by the route. Inherited by every run in the chain. */
+  delivery?: LoopDelivery | null;
 }
 
 /** The rope. A drive is bounded by construction — this is the most it may pull. */
@@ -116,5 +125,9 @@ export function resumeParams(drive: DriveStatus): DriveInput | null {
     // the drive's own before/after ledger a comparison of two setups.
     model: drive.model ?? null,
     effort: drive.effort ?? null,
+    // Delivery travels with a resume for the same reason the model does — and more sharply: a chain
+    // that started landing into the operator's checkout and silently stopped halfway would be a
+    // change to what the loop does to their disk, made by a restart rather than by them.
+    delivery: drive.delivery ?? null,
   };
 }

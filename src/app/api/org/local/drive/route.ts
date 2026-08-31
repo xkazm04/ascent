@@ -1,6 +1,6 @@
 // LOCAL MODE — drive the fleet to green, headlessly (self-hosted + ASCENT_AUTOPILOT=1 only).
 //
-//   POST { org, action:"start", repos?, maxRuns?, maxCycles?, concurrency?, model?, effort? } → { drive }
+//   POST { org, action:"start", repos?, maxRuns?, maxCycles?, concurrency?, model?, effort?, delivery? } → { drive }
 //   POST { org, action:"stop", id }                                          → { ok, drive }
 //   POST { org, action:"resume", id }                                        → { drive }
 //   GET  ?org=<slug>                                                         → { drives }
@@ -27,6 +27,8 @@ import { selfHostGuard } from "@/lib/api/self-host";
 import { resolveViewerLogin } from "@/lib/access";
 import { autopilotEnabled } from "@/lib/local/agent";
 import { normalizeAgentEffort, normalizeAgentModel } from "@/lib/local/agent-options";
+import { normalizeDelivery } from "@/lib/local/delivery-options";
+import { isAppConfigured } from "@/lib/github/app";
 import { DRIVE_MAX_RUNS_CAP, getDrive, listDrives, readDrive, resumeDrive, startDrive, stopDrive } from "@/lib/local/drive";
 import { LOOP_CONCURRENCY_CAP, LOOP_MAX_CYCLES_CAP } from "@/lib/local/loop-engine";
 
@@ -63,6 +65,7 @@ export async function POST(request: Request) {
     concurrency?: unknown;
     model?: unknown;
     effort?: unknown;
+    delivery?: unknown;
   };
   const org = typeof body.org === "string" ? body.org.trim().toLowerCase() : "";
   const denied = await gate(org);
@@ -108,6 +111,16 @@ export async function POST(request: Request) {
   if (maxCycles < 1 || maxCycles > LOOP_MAX_CYCLES_CAP) return NextResponse.json({ error: `maxCycles must be 1–${LOOP_MAX_CYCLES_CAP}.` }, { status: 400 });
   if (concurrency < 1 || concurrency > LOOP_CONCURRENCY_CAP) return NextResponse.json({ error: `concurrency must be 1–${LOOP_CONCURRENCY_CAP}.` }, { status: 400 });
   const repos = Array.isArray(body.repos) ? body.repos.filter((r): r is string => typeof r === "string") : undefined;
+  // Same closed list and the same honest refusal as /api/org/loop: `pr` is not silently downgraded on
+  // a deployment that has no GitHub App, because a drive that ran eight times and quietly opened
+  // nothing is the exact shape of the problem delivery exists to fix.
+  const delivery = normalizeDelivery(body.delivery);
+  if (delivery === "pr" && !isAppConfigured()) {
+    return NextResponse.json(
+      { error: "This deployment has no GitHub App configured, so the loop cannot open pull requests. Choose another delivery mode." },
+      { status: 409 },
+    );
+  }
 
   try {
     const drive = await startDrive({
@@ -119,6 +132,7 @@ export async function POST(request: Request) {
       // Same normalization as /api/org/loop, and for the same reason — one closed list, two doors.
       model: normalizeAgentModel(body.model),
       effort: normalizeAgentEffort(body.effort),
+      delivery,
       actor: await resolveViewerLogin(),
     });
     return NextResponse.json({ drive }, { status: 202 });

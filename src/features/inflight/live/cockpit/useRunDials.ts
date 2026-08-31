@@ -1,6 +1,6 @@
 "use client";
 
-// The six dials the inspector hands the engine, as one piece of state.
+// The dials the inspector hands the engine, as one piece of state.
 //
 // They were six `useState` calls in CockpitInspector, which was fine at four and stopped being fine
 // when the agent's model and effort joined them: the component is an ORCHESTRATOR (selection →
@@ -10,6 +10,7 @@
 
 import { useState } from "react";
 import { LOOP_DEFAULT_CONCURRENCY } from "@/lib/db/loop-runs-types";
+import type { LoopDelivery } from "@/lib/local/delivery-options";
 import { DRIVE_DEFAULT_MAX_RUNS } from "./driveTypes";
 
 export interface RunDials {
@@ -23,6 +24,10 @@ export interface RunDials {
   model: string | null;
   /** null = no `--effort` flag at all, which is not the same as a default level. */
   effort: string | null;
+  /** WHAT HAPPENS TO EACH LANE'S BRANCH — `branch` (leave it), `land` (fast-forward it into the
+   *  branch the paired checkout is on) or `pr`. Remembered exactly like the others: it is a property
+   *  of how the work is DELIVERED, so the run and the drive must arm on the same value. */
+  delivery: LoopDelivery;
 }
 
 const DEFAULT_CYCLES = 3;
@@ -34,6 +39,9 @@ export const INITIAL_DIALS: RunDials = {
   maxRuns: DRIVE_DEFAULT_MAX_RUNS,
   model: null,
   effort: null,
+  // `branch` is the default because it is what every run before delivery existed did, and because it
+  // is the only mode that writes nothing outside the loop's own branches.
+  delivery: "branch",
 };
 
 export function useRunDials(): { dials: RunDials; set: <K extends keyof RunDials>(key: K, value: RunDials[K]) => void } {

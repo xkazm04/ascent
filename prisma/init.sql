@@ -1401,6 +1401,7 @@ CREATE TABLE "LoopRun" (
     "effort" TEXT,
     "modelPolicy" TEXT NOT NULL DEFAULT 'single',
     "modelsJson" TEXT NOT NULL DEFAULT '[]',
+    "delivery" TEXT,
     "startedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "endedAt" TIMESTAMP(3),
     "error" TEXT,
@@ -1417,6 +1418,11 @@ ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "effort" TEXT;
 -- `modelsJson` is TEXT JSON (never jsonb — DSQL/PGlite).
 ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "modelPolicy" TEXT NOT NULL DEFAULT 'single';
 ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "modelsJson" TEXT NOT NULL DEFAULT '[]';
+-- How the run's work is delivered: branch | land | pr. NULLABLE, and NULL means `branch` — which is
+-- what every run written before this column actually did (commit to a throwaway lane branch and leave
+-- it). Nullable so PGlite's boot-time `reconcileColumnDrift` can add it in place on an existing
+-- embedded database without a migration step.
+ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "delivery" TEXT;
 
 -- CreateIndex
 CREATE INDEX "LoopRun_orgId_createdAt_idx" ON "LoopRun"("orgId", "createdAt");
@@ -1512,6 +1518,7 @@ CREATE TABLE "LoopDrive" (
     "stopRequested" BOOLEAN NOT NULL DEFAULT false,
     "model" TEXT,
     "effort" TEXT,
+    "delivery" TEXT,
     "startedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "endedAt" TIMESTAMP(3),
@@ -1522,6 +1529,9 @@ CREATE TABLE "LoopDrive" (
 -- The same pair on the drive, so every run it dispatches inherits ONE configuration.
 ALTER TABLE "LoopDrive" ADD COLUMN IF NOT EXISTS "model" TEXT;
 ALTER TABLE "LoopDrive" ADD COLUMN IF NOT EXISTS "effort" TEXT;
+-- And the delivery mode every run the drive dispatches inherits, so a RESUME continues the same
+-- experiment. NULL means `branch`.
+ALTER TABLE "LoopDrive" ADD COLUMN IF NOT EXISTS "delivery" TEXT;
 
 -- CreateIndex
 CREATE INDEX "LoopDrive_orgId_startedAt_idx" ON "LoopDrive"("orgId", "startedAt");

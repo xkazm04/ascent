@@ -17,6 +17,10 @@ import type { LaneEconomics, PriceRow, RemediationPriceList } from "@/lib/local/
 import type { LaneBriefProvenance } from "@/lib/org/lane-brief";
 import type { LaneOutcomeRow } from "@/lib/db/lane-outcomes";
 import type { LoopLessonRow } from "@/lib/db/loop-lessons";
+// The delivery vocabulary, re-exported for the same reason the records are: ONE declaration, so a
+// mode cannot quietly mean two things on the two sides of the wire.
+export { deliveryTag } from "@/lib/local/delivery-options";
+import type { LoopDelivery } from "@/lib/local/delivery-options";
 import type {
   LoopLaneExecutor,
   LoopLaneKind,
@@ -30,6 +34,7 @@ import type {
 } from "@/lib/db/loop-runs-types";
 
 export type {
+  LoopDelivery,
   FollowUpItem,
   LaneBriefProvenance,
   LaneEconomics,
@@ -103,6 +108,11 @@ export interface LoopStatusPayload {
   /** The org's remediation price list, derived at read time. `null` when there is no database or the
    *  read failed — which is "unknown", not "nothing has been priced". */
   prices?: RemediationPriceList | null;
+  /** Can this deployment open a pull request at all (is a GitHub App configured)? The delivery dial
+   *  disables its `pr` option and says why when this is false — and the route refuses it anyway, so
+   *  the disabled control is a courtesy rather than the enforcement. Absent = assume it can, which is
+   *  what every payload written before this field meant. */
+  prAvailable?: boolean;
 }
 
 /** A run is DRIVING something (the poll runs) versus at rest (no timer at all). */

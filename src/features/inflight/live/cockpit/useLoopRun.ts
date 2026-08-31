@@ -40,6 +40,10 @@ export interface UseLoopRunInput {
 
 export function useLoopRun({ slug, initialActive, initialRuns, initialEnabled, onSettled }: UseLoopRunInput) {
   const [enabled, setEnabled] = useState(initialEnabled);
+  // Whether this deployment can open a PR at all. Defaults to TRUE and is corrected by the first
+  // tick: an absent field on the payload means "not answered", and disabling a mode the deployment
+  // may well support would be the worse guess of the two — the route refuses it either way.
+  const [prAvailable, setPrAvailable] = useState(true);
   const [active, setActive] = useState<LoopRunRecord | null>(initialActive);
   const [runs, setRuns] = useState<LoopRunSummary[]>(initialRuns);
   const [detail, setDetail] = useState<LoopRunDetail | null>(null);
@@ -63,6 +67,7 @@ export function useLoopRun({ slug, initialActive, initialRuns, initialEnabled, o
     try {
       const status = await fetchLoopStatus(slug);
       setEnabled(status.enabled);
+      setPrAvailable(status.prAvailable !== false);
       setActive(status.active);
       setRuns(status.runs);
       const nowId = status.active?.id ?? null;
@@ -146,5 +151,5 @@ export function useLoopRun({ slug, initialActive, initialRuns, initialEnabled, o
     [guard, slug],
   );
 
-  return { enabled, active, activeId, live, runs, detail, error, busy, start, stop, retry, loadDetail, propose, refresh: tick };
+  return { enabled, prAvailable, active, activeId, live, runs, detail, error, busy, start, stop, retry, loadDetail, propose, refresh: tick };
 }

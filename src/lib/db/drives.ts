@@ -16,6 +16,7 @@
 // partial writes can disagree with itself.
 
 import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
+import { normalizeDelivery } from "@/lib/local/delivery-options";
 import { getOrgBySlug } from "@/lib/db/org-shared";
 import type { DriveMeasurement, DriveRunRecord, DriveStatus } from "@/lib/local/drive-types";
 
@@ -39,6 +40,7 @@ type DriveRow = {
   stopRequested: boolean;
   model?: string | null;
   effort?: string | null;
+  delivery?: string | null;
   startedAt: Date;
   endedAt: Date | null;
   error: string | null;
@@ -75,6 +77,9 @@ export function toDriveStatus(row: DriveRow, orgSlug: string): DriveStatus {
     resumedFrom: row.resumedFrom,
     model: row.model ?? null,
     effort: row.effort ?? null,
+    // An unrecognised column value is `null` — "unchosen" — never a guess at a mode that writes into
+    // the operator's working copy.
+    delivery: normalizeDelivery(row.delivery),
     startedAt: row.startedAt.toISOString(),
     endedAt: row.endedAt ? row.endedAt.toISOString() : null,
     error: row.error,
@@ -95,6 +100,7 @@ const rowData = (st: DriveStatus) => ({
   stopRequested: st.stopRequested,
   model: st.model ?? null,
   effort: st.effort ?? null,
+  delivery: st.delivery ?? null,
   endedAt: st.endedAt ? new Date(st.endedAt) : null,
   error: st.error,
 });

@@ -5,6 +5,7 @@
 //
 // Import from the `@/lib/db/loop-runs` barrel; this module is an implementation split.
 
+import { normalizeDelivery, type LoopDelivery } from "@/lib/local/delivery-options";
 import type { ScanDiff } from "@/lib/report/compare";
 import type { ComparableScan } from "@/lib/db/scans";
 import type { DimensionId } from "@/lib/types";
@@ -134,6 +135,11 @@ export type LoopRunPhase = "curating" | "running" | "done" | "stopped" | "error"
  */
 export type LoopModelPolicy = "single" | "ab";
 
+/** HOW A RUN'S WORK IS DELIVERED. Declared in the dependency-free `delivery-options` module (the
+ *  cockpit's picker and the route's validator read the same list) and re-exported here so the record
+ *  below and every reader of it have one import for the run's shape. */
+export type { LoopDelivery };
+
 export const LOOP_MODEL_POLICIES: readonly LoopModelPolicy[] = ["single", "ab"];
 
 /** A policy from an untrusted string (the column is TEXT, the wire is JSON), else `single`. */
@@ -206,6 +212,11 @@ export interface LoopRunRecord {
   /** The models this run is armed with, in order: one for `single`, two for `ab`. Empty on a row
    *  written before the column — "not recorded", which `model` above still answers for. */
   models: string[];
+  /** How this run's lane branches were delivered. `null` on a row written before the column, which
+   *  MEANS `branch` — that is exactly what those runs did — but is kept null rather than defaulted so
+   *  a reader can still tell an old row from one an operator explicitly armed for branches. Use
+   *  `deliveryOf` to collapse the two when what you want is the behaviour. */
+  delivery: LoopDelivery | null;
   startedAt: string;
   endedAt: string | null;
   error: string | null;
@@ -421,6 +432,7 @@ type RunRow = {
   effort?: string | null;
   modelPolicy?: string | null;
   modelsJson?: string | null;
+  delivery?: string | null;
   startedAt: Date;
   endedAt: Date | null;
   error: string | null;
@@ -525,6 +537,9 @@ export function toRunRecord(row: RunRow): LoopRunRecord {
     effort: row.effort ?? null,
     modelPolicy: asModelPolicy(row.modelPolicy),
     models: parseList(row.modelsJson),
+    // An unrecognised string parses as null — "unchosen" — and never as a guess at a mode that would
+    // write into the operator's working copy. Same posture `normalizeAgentModel` takes at the route.
+    delivery: normalizeDelivery(row.delivery),
     startedAt: row.startedAt.toISOString(),
     endedAt: row.endedAt ? row.endedAt.toISOString() : null,
     error: row.error,

@@ -13,6 +13,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Kicker } from "@/components/ui";
 import { BriefStrip, InspectorEmpty } from "./BriefStrip";
 import { ProposalList, SharedDimensionBars } from "./CockpitBatch";
+import { CockpitInspectorCta } from "./CockpitInspectorCta";
 import { CockpitRunControls } from "./CockpitRunControls";
 import { proposalDimensions, sharedDimensions } from "./cockpitDimensions";
 import { useRunDials } from "./useRunDials";
@@ -38,11 +39,15 @@ export interface CockpitInspectorProps {
   error?: string | null;
   /** Why running is unavailable (hosted, not owner, autopilot off) — shown in place of the CTA. */
   blockedReason?: string | null;
+  /** Whether this deployment can open a PR at all (a GitHub App is configured). False DISABLES the
+   *  "Open a PR" delivery choice and says why, rather than offering a mode the route would refuse. */
+  prAvailable?: boolean;
   busy?: boolean;
 }
 
 export function CockpitInspector(props: CockpitInspectorProps) {
   const { selected, paired, propose, onRun, onDrive, canRun, canDrive = true, blockedReason = null, busy = false, error = null } = props;
+  const prAvailable = props.prAvailable !== false;
   // Keyed by the selection they were fetched FOR, so a stale response can never be read against a
   // selection it does not describe (and an emptied selection needs no state write at all).
   const [fetched, setFetched] = useState<{ key: string; proposals: LoopProposal[] }>({ key: "", proposals: [] });
@@ -102,6 +107,7 @@ export function CockpitInspector(props: CockpitInspectorProps) {
       maxCycles: dials.cycles,
       model: dials.model,
       effort: dials.effort,
+      delivery: dials.delivery,
     });
   };
 
@@ -118,6 +124,9 @@ export function CockpitInspector(props: CockpitInspectorProps) {
       // of how the work is done, not of which work was picked, so it survives the re-batching.
       model: dials.model,
       effort: dials.effort,
+      // Delivery travels with a drive too, and it is the dial that most needs to: a drive dispatching
+      // run after run from an unchanged HEAD is exactly the shape the delivery choice exists to fix.
+      delivery: dials.delivery,
     });
 
   if (repos.length === 0) return <InspectorEmpty />;
@@ -147,7 +156,7 @@ export function CockpitInspector(props: CockpitInspectorProps) {
 
       <BriefStrip proposals={proposals} />
 
-      <CockpitRunControls dims={dims} dials={dials} onChange={set} />
+      <CockpitRunControls dims={dims} dials={dials} onChange={set} prAvailable={prAvailable} />
 
       <ProposalList
         proposals={proposals}
@@ -158,37 +167,17 @@ export function CockpitInspector(props: CockpitInspectorProps) {
         loading={loading}
       />
 
-      {blockedReason || !canRun ? (
-        <p className="mt-4 type-caption text-slate-500">{blockedReason ?? "Running the loop needs org-owner access."}</p>
-      ) : (
-        <>
-          <button
-            type="button"
-            onClick={run}
-            disabled={busy || runnable.length === 0}
-            className="focus-ring mt-4 w-full rounded-md bg-accent px-3 py-2 type-label tracking-[0.18em] text-on-accent transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {runnable.length === 0 ? "No paired repos selected" : `Run (${runnable.length} ${runnable.length === 1 ? "repo" : "repos"})`}
-          </button>
-          {canDrive && (
-            <>
-              <button
-                type="button"
-                onClick={drive}
-                disabled={busy || runnable.length === 0}
-                className="focus-ring mt-2 w-full rounded-md border border-accent/60 px-3 py-2 type-label tracking-[0.18em] text-accent transition hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Drive to green
-              </button>
-              <p className="mt-1.5 type-note leading-relaxed text-slate-500">
-                Runs again and again until every selected repo clears the band, a whole run moves nothing, or the{" "}
-                {dials.maxRuns}-run budget is spent.
-              </p>
-            </>
-          )}
-        </>
-      )}
-      {error && <p className="mt-3 type-caption text-danger">{error}</p>}
+      <CockpitInspectorCta
+        runnable={runnable.length}
+        maxRuns={dials.maxRuns}
+        onRun={run}
+        onDrive={drive}
+        canRun={canRun}
+        canDrive={canDrive}
+        blockedReason={blockedReason}
+        busy={busy}
+        error={error}
+      />
     </div>
   );
 }

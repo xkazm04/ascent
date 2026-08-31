@@ -54,6 +54,7 @@ fails if a model is in `schema.prisma` and not in the mirror).
 | `maxCycles` | Clamped 1…`LOOP_MAX_CYCLES_CAP` (5); default 3. |
 | `cycle` | The cycle being worked (`0` = none started). |
 | `curated` | True when the operator approved the batches by hand. |
+| `delivery` | `branch \| land \| pr` — **how this run's work reached the operator** (§[Delivery](#delivery-what-happens-to-a-lanes-branch-2026-08-31)). Nullable, and **NULL means `branch`**: every run written before the column committed to a throwaway lane branch and left it, which is exactly what `branch` is. `normalizeDelivery` parses it; an unknown value is `null`, never a guess. |
 | `startedAt` / `endedAt` / `error` / `createdAt` | `endedAt` set on every terminal transition. |
 
 Index: `@@index([orgId, createdAt])` — the run-history page's only query shape.
@@ -182,10 +183,11 @@ detached and the cockpit polls `GET /api/org/loop`.
   one reviewable deliverable. Branch names are folded to a safe single ref segment:
   `ascent/loop-<stamp>-<repo>`; the [autopilot shim](../local-mode/README.md) overrides `branchFor`
   to keep its historical `ascent/autopilot-<stamp>`. Teardown removes only the temp dir (`--force`);
-  **the branch is left behind on purpose**. Never a push *unless an owner asks* — since 2026-08-30 a
-  finished lane can be published as a reviewed PR by one owner click with a typed confirmation
-  (§*From lane branch to reviewed PR*). Nothing automatic pushes: not the drive, not a schedule, not
-  the lane itself.
+  **the branch is left behind on purpose**. What happens to it next is the run's `delivery` mode
+  (§[Delivery](#delivery-what-happens-to-a-lanes-branch-2026-08-31)): `branch` (the default) leaves
+  it, `land` fast-forwards it into the paired checkout's current branch, `pr` pushes it and opens a
+  draft PR. Outside `pr` — and outside the one owner-click PR action of §*From lane branch to
+  reviewed PR* — **nothing pushes**: not the drive, not a schedule, not the lane itself.
 - **Curated cycle 1, auto afterwards.** Cycle 1 uses `input.batches[repo]` when given; every later
   cycle auto-picks the **top 5 open follow-ups by projected points** (`BATCH_SIZE`). A curated batch
   *names* its rows, so the pick spans the repo's whole open list (`limit: 500`) and then filters —
@@ -1187,6 +1189,82 @@ Two causes, both now fixed:
   API route into its own server chunk, so a module-level `Map` is instantiated once *per chunk*: a
   run started by the drive route was invisible to the loop route. Both registries (`live`, and
   the drive's) now hang off `globalThis`, the same pattern `pglite-boot` uses for its adapter.
+
+## Delivery: what happens to a lane's branch (2026-08-31)
+
+The loop committed each lane to a throwaway `ascent/loop-<stamp>-<slug>` branch and **left it there
+forever** — `removeLoopWorktree` drops the temp worktree and deliberately keeps the branch — and
+nothing merged it. A 21-run campaign measured the consequence: every run's worktree is cut from the
+same unchanged `HEAD`, so the loop rediscovered and rewrote the same fix run after run, and the
+repositories did not improve until the campaign harness started fast-forwarding the branches itself
+(`scripts/loop-campaign.mjs --land`, a harness-only workaround for a product-level gap).
+
+So delivery is now a **dial on the run**, recorded on `LoopRun.delivery` and on `LoopDrive.delivery`
+(a drive inherits one mode for its whole chain, and it survives a resume — see `resumeParams`).
+
+| Mode | What it does |
+| --- | --- |
+| **`branch`** — *"Leave on a branch"* | **The default, and byte-identical to the loop before delivery existed.** Each lane commits to its own branch and stops. `deliverLane` returns on the first line without reading a thing: the guarantee is that the code path is *empty*, not merely harmless (`loop-delivery.test.ts` asserts every injected seam un-called). |
+| **`land`** — *"Land in my current branch"* | After a lane's cycle succeeds, `git merge --ff-only <branch>` in the **paired checkout**, into whatever branch it is standing on. |
+| **`pr`** — *"Open a PR"* | Reuses `openPrForLane` — the *same* path §*From lane branch to reviewed PR* drives — so there is exactly one PR implementation. Everything that path does still happens: the real branch is pushed with git (never `--force`), `/pulls` is POSTed, a 422 reuses the already-open PR, and the `ImprovementPr` ledger row plus the lane's `prNumber`/`prUrl` are written. The only thing it skips is the typed repo-name confirmation, because the operator gave that consent when they armed the run — an unattended loop cannot be asked. |
+
+### Why `--ff-only` is mandatory
+
+The lane's branch was cut from that very `HEAD` moments earlier, so **a clean lane IS a
+fast-forward**. If it is not, landing would mean resolving somebody's tree for them. `land` therefore
+refuses, and the refusal is the honest signal that two runs collided.
+
+A refusal **is not a run failure**: the lane's work is committed and safe on its branch, exactly where
+`branch` mode would have left it, and the run carries on. The four refusal cases
+(`src/lib/local/loop-land.ts`, all pinned against a real git repo in `loop-land.test.ts`):
+
+- **diverged** — the checkout's branch has commits the lane branch does not;
+- **uncommitted** — the merge would overwrite a file the operator has uncommitted changes in. Checked
+  *before* the merge is issued, by intersecting `git status --porcelain` with
+  `git diff --name-only HEAD..<branch>`, so the reason can name the file and git is never asked to
+  touch a tree someone is mid-edit in. **A dirty file the lane does not touch is not a stop sign** —
+  only a collision is;
+- **detached** — the checkout is on a detached `HEAD`, so "my current branch" has no answer;
+- **already** — the branch is already contained. A no-op, which is what a second land looks like; the
+  whole operation is idempotent by construction.
+
+**What landing never does**, in order of how bad it would be: never `checkout`/`switch` (the
+operator's branch is theirs, and a loop that moves it is a loop nobody can leave running), never
+`reset`, never `stash` (a dirty file is a stop sign, not an obstacle to clear), and never a remote —
+no fetch, no push, no upstream. Landing is a purely local merge, and `loop-land.test.ts` asserts the
+absent verbs directly.
+
+### Gates, honesty and the record
+
+- **Owner-gated, exactly like starting a run.** `POST /api/org/loop {action:"start"}` already takes
+  `requireOrgRole(org, "owner")` for every write; `delivery` rides on that same start call, so a
+  non-owner can no more land a branch than they can arm the run that produced it. The drive route's
+  `start` is gated identically.
+- **`pr` is honestly unavailable, never silently downgraded.** Both routes refuse `delivery: "pr"`
+  with a 409 naming the reason when `isAppConfigured()` is false, and the status read answers
+  `prAvailable` so the cockpit dial can **disable** the option with its reason on the option itself.
+  A run armed for pull requests that quietly left branches behind would leave the operator believing
+  their work was in review — the one failure this mode exists to prevent.
+- **Every land attempt is logged on the lane** (`appendLaneLog`) with its outcome, branch and shas.
+- **A refusal also records a lesson** (`recordLandRefusalLesson`), so the operator learns *why*
+  without reading a diff. Keyed on the **cause**, not the branch: a refusal is a standing fact about
+  that checkout and will be true again next run, so keying on the branch name would have refilled the
+  review queue with one row per run — precisely what the 21-run campaign would have produced. Like
+  every loop lesson it lands `pending` and is never written into Org Memory directly.
+- **The ledger says how a run was delivered.** The outcome sheet's run column header prints `landed`
+  or `PR` beside the agent configuration. `branch` prints nothing: it is the default and every
+  historical row is one, so a tag on every column would say nothing (`deliveryTag`, the same rule
+  `laneKindTag` and `laneExecutorTag` follow).
+- **A remote run has no delivery.** `startRemoteRun` records `null`: Ascent opens no worktree and owns
+  no checkout for a lane some other harness works, so there is nothing local to land into.
+
+### Where the dial lives
+
+`CockpitRunControls` / `useRunDials`, beside model and effort, and remembered the same way — the run
+and the drive read the **same** dials, which is the property that matters: they are two ways of arming
+one experiment. Labelled for what each mode does to the operator's machine rather than for its
+internal name, with a standing one-line hint under the picker (not a modal — a sentence you can read
+*before* you commit to the choice beats a dialog you dismiss after).
 
 ## From lane branch to reviewed PR (2026-08-30, moonshot #26)
 

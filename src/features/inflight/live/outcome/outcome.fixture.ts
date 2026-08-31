@@ -43,7 +43,7 @@ export const cell = (o: Partial<OutcomeCell> & { runId: string; repo: string }):
 };
 
 const col = (o: Partial<OutcomeColumn> & { id: string; startedAt: string }): OutcomeColumn => ({
-  endedAt: null, phase: "done", live: false, lift: null, agentConfig: "sonnet · high", cycle: 2, maxCycles: 3, repoCount: 0, gaps: 0, ...o,
+  endedAt: null, phase: "done", live: false, lift: null, agentConfig: "sonnet · high", delivery: null, cycle: 2, maxCycles: 3, repoCount: 0, gaps: 0, ...o,
 });
 
 const payments = (runId: string) => cell({

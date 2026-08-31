@@ -14,7 +14,7 @@ import { closedTitles, groupDeliverables } from "./outcomeDeliverables";
 import { buildGapRows, type GapRow } from "./outcomeGapRows";
 import { dimShort } from "@/lib/ui";
 import { laneAttribution, runAttribution } from "../cockpit/cockpitDrift";
-import { isRunLive, laneKindTag, type LoopLaneKind, type LoopLaneOutcome, type LoopLanePhase, type LoopLaneRecord, type LoopRunDetail, type LoopRunPhase } from "../cockpit/loopTypes";
+import { deliveryTag, isRunLive, laneKindTag, type LoopLaneKind, type LoopLaneOutcome, type LoopLanePhase, type LoopLaneRecord, type LoopRunDetail, type LoopRunPhase } from "../cockpit/loopTypes";
 
 export interface OutcomeDim {
   id: string;
@@ -64,6 +64,9 @@ export interface OutcomeColumn {
   live: boolean;
   lift: number | null;
   agentConfig: string | null;
+  /** `landed` / `PR`, or null for the branch-only default — a reader of a past run has to be able to
+   *  tell whether anything ever merged. */
+  delivery: string | null;
   cycle: number;
   maxCycles: number;
   repoCount: number;
@@ -165,6 +168,7 @@ export function buildOutcomeMatrix(details: readonly LoopRunDetail[]): OutcomeMa
       live: isRunLive(d.run.phase),
       lift: runAttribution(d).lift,
       agentConfig: agentConfigLabel(d.run),
+      delivery: deliveryTag(d.run.delivery),
       cycle: d.run.cycle,
       maxCycles: d.run.maxCycles,
       repoCount: byRepo.size,

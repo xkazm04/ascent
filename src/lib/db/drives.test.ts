@@ -53,6 +53,8 @@ const status = (over: Partial<DriveStatus> = {}): DriveStatus => ({
   resumedFrom: null,
   model: null,
   effort: null,
+  // Null = `branch`, which is what every drive written before the column did.
+  delivery: null,
   startedAt: "2026-08-28T10:00:00.000Z",
   endedAt: null,
   error: null,

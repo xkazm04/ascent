@@ -24,6 +24,7 @@ export {
   getLatestRecommendations,
   getLatestPlatformSignals,
   getLatestUnmeasurableDims,
+  getStandingRegressions,
   PLATFORM_FOLD_LOOKBACK,
   reportPermalink,
   type HistoryPoint,
@@ -34,6 +35,7 @@ export {
   type ScanComparison,
   type PublicRepoCard,
   type PublicScanGallery,
+  type RepoStandingConcern,
 } from "@/lib/db/scans-read";
 
 export {

@@ -64,6 +64,7 @@ export function OutcomeSheetHeader(p: OutcomeSheetHeaderProps) {
                   {col.repoCount} {col.repoCount === 1 ? "repo" : "repos"} · {col.gaps} gaps ·{" "}
                   <span className={`uppercase tracking-[0.14em] ${phaseTone}`}>{col.phase}</span>
                   {col.agentConfig && <span className="ml-1.5 text-slate-600">{col.agentConfig}</span>}
+                  {col.delivery && <span className="ml-1.5 text-slate-600">· {col.delivery}</span>}
                 </span>
               </button>
               <ColumnResizer label={`run ${i + 1}`} width={p.widthOf(col.id)} onResize={(px) => p.setWidth(col.id, px)} />

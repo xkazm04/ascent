@@ -2,6 +2,7 @@
 // server's own message. Kept apart from useLoopRun so the hook is state machine and nothing else,
 // and so a test can drive either half (a fetch stub here, or these functions mocked) on its own.
 
+import type { LoopDelivery } from "@/lib/local/delivery-options";
 import type { LoopLessonRow, LoopProposal, LoopRunDetail, LoopRunRecord, LoopStatusPayload, RemediationPriceList } from "./loopTypes";
 
 async function json<T>(res: Response, fallback: string): Promise<T> {
@@ -98,6 +99,8 @@ export interface StartLoopInput {
   /** Agent configuration for this run; null on either means "use the deployment's default". */
   model: string | null;
   effort: string | null;
+  /** What happens to each lane's branch: `branch` | `land` | `pr`. Omitted means `branch`. */
+  delivery?: LoopDelivery;
 }
 
 export const startLoop = (slug: string, input: StartLoopInput): Promise<{ run: LoopRunRecord }> =>

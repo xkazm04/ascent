@@ -42,6 +42,8 @@ export interface CockpitRailProps {
   paired: ReadonlySet<string>;
   propose: (repos: readonly string[]) => Promise<LoopProposal[] | null>;
   canRun: boolean;
+  /** Whether a PR can be opened on this deployment at all — passed straight to the delivery dial. */
+  prAvailable?: boolean;
   busy: boolean;
   loopError: string | null;
   driveError: string | null;
@@ -99,6 +101,7 @@ export function CockpitRail(props: CockpitRailProps) {
         onRun={props.onRun}
         onDrive={props.onDrive}
         canRun={props.canRun}
+        prAvailable={props.prAvailable}
         busy={props.busy}
         // The interrupted banner already owns the drive error; showing it twice would read as two
         // failures.
