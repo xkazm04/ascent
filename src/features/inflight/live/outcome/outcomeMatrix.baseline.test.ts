@@ -69,3 +69,50 @@ describe("the cell's unavailable baseline", () => {
     expect(cell.redBaseline).toBeNull();
   });
 });
+
+// ── VERIFIED, BUT NOT AGAINST THE TESTS ───────────────────────────────────────────
+//
+// A worktree carries no gitignored credentials, service config or local database, so on a realistic
+// application the declared command cannot establish a baseline there. The guard now degrades to the
+// strongest HERMETIC check that can — a typecheck, then a lint — and the lane IS verified and IS
+// deliverable. Against `npm run typecheck`, not against the suite. The badge is the only thing
+// standing between a reader of this column and a false belief, so it is pinned here.
+describe("the cell's narrowed verification", () => {
+  it("labels a lane verified against a narrowed rung, and carries the guard's note for the hover", () => {
+    const cell = cellOf(
+      lane({
+        verifyVerdict: "verified",
+        verifyCommand: "npm run typecheck",
+        verifyRung: "typecheck",
+        verifyNote: "Verification NARROWED — verified against `npm run typecheck` ONLY …",
+      }),
+    );
+    expect(cell.narrowedVerify).toEqual({
+      label: "typecheck only",
+      command: "npm run typecheck",
+      note: expect.stringContaining("NARROWED"),
+    });
+  });
+
+  it("says nothing for an unqualified verified lane — the normal case is not a badge", () => {
+    expect(cellOf(lane({ verifyVerdict: "verified", verifyCommand: "npm test", verifyRung: "primary" })).narrowedVerify).toBeNull();
+  });
+
+  it("says nothing for a lane written before the ladder — an unknown rung is not `primary` and not a claim", () => {
+    expect(cellOf(lane({ verifyVerdict: "verified", verifyCommand: "npm test", verifyRung: null })).narrowedVerify).toBeNull();
+  });
+
+  it("never badges a verdict that is not `verified` — a no-baseline cell has its own word", () => {
+    const cell = cellOf(lane({ verifyVerdict: "baseline-unavailable", verifyCommand: "npm test", verifyRung: "primary" }));
+    expect(cell.narrowedVerify).toBeNull();
+    expect(cell.redBaseline).not.toBeNull();
+  });
+
+  it("follows the NEWEST lane: a later full verification clears the narrowed label", () => {
+    const cell = cellOf(
+      lane({ id: "c1", cycle: 1, verifyVerdict: "verified", verifyCommand: "npm run lint", verifyRung: "lint" }),
+      lane({ id: "c2", cycle: 2, verifyVerdict: "verified", verifyCommand: "npm test", verifyRung: "primary" }),
+    );
+    expect(cell.narrowedVerify).toBeNull();
+  });
+});

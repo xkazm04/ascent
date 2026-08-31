@@ -18,6 +18,7 @@ import { deliveryTag, isRunLive, type LoopLaneOutcome, type LoopRunDetail } from
 import type { OutcomeCell, OutcomeColumn, OutcomeGroup, OutcomeMatrix } from "./outcomeMatrixTypes";
 
 export type {
+  CellNarrowedVerify,
   CellRedBaseline,
   OutcomeCell,
   OutcomeColumn,

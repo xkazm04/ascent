@@ -92,6 +92,21 @@ export function OutcomeProjectRow({
                 no baseline
               </p>
             )}
+            {/* VERIFIED, BUT NOT AGAINST THE TESTS. When the declared command cannot establish a
+                baseline in the worktree the guard degrades to the strongest hermetic check that can
+                (typecheck, then lint) and verifies against that — a real net, a narrower one, and a
+                deliverable lane. So the word beside the verdict has to name the command, or every
+                reader of this column will take `verified` to mean the suite is green. Coloured like
+                `no baseline` and not like an error: nothing here failed. */}
+            {cell?.narrowedVerify && (
+              <p
+                data-testid="cell-narrowed-verify"
+                className="type-micro mt-1 font-mono text-warn"
+                title={cell.narrowedVerify.note ?? undefined}
+              >
+                {cell.narrowedVerify.label}
+              </p>
+            )}
             {/* WHAT THIS RUN SPENT ON THIS REPO, per verified point (UAT PRIYA-L1-704). The figure
                 has been on the wire since the ledger landed and was rendered nowhere; the only
                 ¢/point on the page was the ORG-WIDE average, which is precisely what hid a lane

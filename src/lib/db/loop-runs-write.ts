@@ -23,6 +23,7 @@ import {
   type LoopRunRecord,
   type LoopTarget,
   type VerifyMode,
+  type VerifyRung,
   type VerifyVerdict,
 } from "@/lib/db/loop-runs-types";
 
@@ -254,6 +255,9 @@ export interface LoopLanePatch {
   verifyVerdict?: VerifyVerdict | null;
   verifyCommand?: string | null;
   verifyNote?: string | null;
+  /** WHICH RUNG the command was — `primary`, or `typecheck` / `lint` when the guard narrowed because
+   *  the declared command could not establish a baseline in the worktree. */
+  verifyRung?: VerifyRung | null;
 }
 
 export async function updateLane(id: string, patch: LoopLanePatch): Promise<LoopLaneRecord | null> {

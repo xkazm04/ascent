@@ -9,7 +9,7 @@ import { normalizeDelivery, type LoopDelivery } from "@/lib/local/delivery-optio
 // Both PURE and dependency-free (no `process`, no `node:*`), so the record's shape and the client that
 // renders it share ONE declaration of the vocabulary — the same rule `delivery-options` follows.
 import { normalizeVerifyMode, type VerifyMode } from "@/lib/local/run-limits";
-import { asVerifyVerdict, type VerifyVerdict } from "@/lib/local/verify-options";
+import { asVerifyRung, asVerifyVerdict, type VerifyRung, type VerifyVerdict } from "@/lib/local/verify-options";
 import type { ScanDiff } from "@/lib/report/compare";
 import type { ComparableScan } from "@/lib/db/scans";
 import type { DimensionId } from "@/lib/types";
@@ -181,7 +181,7 @@ export type { LoopDelivery };
 
 /** THE THROUGHPUT + GUARD VOCABULARY, re-exported for the same reason `LoopDelivery` is: one import
  *  for the run's shape, and one declaration of what the words mean. */
-export type { VerifyMode, VerifyVerdict };
+export type { VerifyMode, VerifyRung, VerifyVerdict };
 
 export const LOOP_MODEL_POLICIES: readonly LoopModelPolicy[] = ["single", "ab"];
 
@@ -331,6 +331,12 @@ export interface LoopLaneRecord {
   verifyVerdict: VerifyVerdict | null;
   /** The command that was run, or null when none was resolved / the guard was off. */
   verifyCommand: string | null;
+  /** WHICH RUNG of the narrowing ladder that command was: `primary` (the repository's own declared
+   *  gate), or `typecheck` / `lint` when the primary could not establish a baseline in the lane's
+   *  worktree and the guard degraded to the strongest HERMETIC check that could. `null` on a lane
+   *  written before the ladder — unknown, and never read as `primary`. A narrowed `verified` is
+   *  deliverable, and every surface that prints the verdict prints this beside it. */
+  verifyRung: VerifyRung | null;
   /** The one line the lane log carries — including the first meaningful failure lines on a rejection,
    *  so "why" survives the throwaway worktree it happened in. */
   verifyNote: string | null;
@@ -552,6 +558,7 @@ type LaneRow = {
   verifyVerdict?: string | null;
   verifyCommand?: string | null;
   verifyNote?: string | null;
+  verifyRung?: string | null;
 };
 
 /** `briefJson` → provenance, or null. A malformed column is `null` (unknown), never a crash three
@@ -675,6 +682,9 @@ export function toLaneRecord(row: LaneRow): LoopLaneRecord {
     verifyVerdict: asVerifyVerdict(row.verifyVerdict),
     verifyCommand: row.verifyCommand ?? null,
     verifyNote: row.verifyNote ?? null,
+    // Same posture: an unreadable rung is `null` ("we do not know which command this verdict is
+    // about"), which is what every lane written before the ladder genuinely carries.
+    verifyRung: asVerifyRung(row.verifyRung),
   };
 }
 

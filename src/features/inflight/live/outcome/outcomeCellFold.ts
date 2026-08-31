@@ -12,8 +12,8 @@ import { attributeDimension, type Attribution } from "@/lib/maturity/attribution
 import { closedTitles, groupDeliverables } from "./outcomeDeliverables";
 import { buildGapRows } from "./outcomeGapRows";
 import { cellEconomics } from "./outcomeEconomics";
-import type { CellRedBaseline, OutcomeCell, OutcomeDim } from "./outcomeMatrixTypes";
-import { asVerifyVerdict } from "@/lib/local/verify-options";
+import type { CellNarrowedVerify, CellRedBaseline, OutcomeCell, OutcomeDim } from "./outcomeMatrixTypes";
+import { asVerifyVerdict, narrowedRungTag } from "@/lib/local/verify-options";
 import { dimShort } from "@/lib/ui";
 import { laneAttribution } from "../cockpit/cockpitDrift";
 import { laneKindTag, type LaneEconomics, type LoopLaneOutcome } from "../cockpit/loopTypes";
@@ -68,6 +68,14 @@ export function foldCell(
   const red = [...lanes].reverse().find((o) => o.lane.verifyVerdict != null)?.lane ?? null;
   const redBaseline: CellRedBaseline | null =
     asVerifyVerdict(red?.verifyVerdict) === "baseline-unavailable" ? { command: red?.verifyCommand ?? null, note: red?.verifyNote ?? null } : null;
+  // A NARROWED `verified` READS AS A FULL ONE UNLESS THE SHEET SAYS OTHERWISE. Same newest-verdict
+  // lane, same reason: a later unqualified `verified` means the declared command DID establish a
+  // baseline, and a stale "typecheck only" would understate the run. `narrowedRungTag` returns null
+  // for `primary` and for a row written before the ladder, so neither ever badges.
+  const narrowedLabel = asVerifyVerdict(red?.verifyVerdict) === "verified" ? narrowedRungTag(red?.verifyRung) : null;
+  const narrowedVerify: CellNarrowedVerify | null = narrowedLabel
+    ? { label: narrowedLabel, command: red?.verifyCommand ?? null, note: red?.verifyNote ?? null }
+    : null;
   return {
     runId,
     repo,
@@ -84,6 +92,7 @@ export function foldCell(
     gaps: lanes.reduce((n, o) => n + (o.diff?.closedGapCount ?? 0), 0),
     dims,
     redBaseline,
+    narrowedVerify,
     economics: cellEconomics(economics.filter((e) => laneIds.has(e.laneId))),
     // A refused verdict has no movement prose: the number was declined, and a line saying what moved
     // is the same claim in words (wave-2 sample: a 0-commit lane printed `D9 -42: …` under "uncommitted").

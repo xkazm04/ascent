@@ -47,7 +47,7 @@ import { batchSizeOf, verifyTimeoutMsOf } from "@/lib/local/run-limits";
 // and — on `rejected` only — discards the edits IN THE THROWAWAY WORKTREE before this module gets as
 // far as committing anything. See lane-guard.ts for why running a repo-authored command is bounded
 // the way it is.
-import { verifyBaseline, verifyResult, verifyRejectionLesson, type VerifyBaseline } from "@/lib/local/lane-guard";
+import { NO_VERIFY_BASELINE, verifyBaseline, verifyResult, verifyRejectionLesson, type VerifyBaseline } from "@/lib/local/lane-guard";
 // A RED BASELINE IS THE LOOP'S OWN TOP-PRIORITY WORK. When the repository's own check was already
 // failing, the guard has nothing green to compare against and everything this lane commits is
 // unverifiable — so the brief LEADS with the repair and the operator gets a lesson saying the loop
@@ -711,18 +711,24 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       // command actually resolved AND actually passed on the pristine tree.
       const guardOn = input.verify?.enabled !== false;
       const verifyMs = verifyTimeoutMsOf(input.verify?.timeoutMs ?? null);
-      let baseline: VerifyBaseline = { resolved: null, passed: null, note: null };
+      let baseline: VerifyBaseline = NO_VERIFY_BASELINE;
       if (guardOn) {
         await updateLane(laneId, { stage: "verifying" });
-        baseline = await verifyBaseline(worktree.dir, verifyMs).catch(() => ({ resolved: null, passed: null, note: null }));
+        baseline = await verifyBaseline(worktree.dir, verifyMs).catch(() => NO_VERIFY_BASELINE);
         await updateLane(laneId, { stage: null });
         await appendLaneLog(
           laneId,
           baseline.resolved == null
             ? "Degradation guard: this repository declares no check the loop could resolve, so this cycle will be UNVERIFIED — not verified."
             : baseline.passed
-              ? `Degradation guard armed: \`${baseline.resolved.command}\` (from ${baseline.resolved.source}) passes on the untouched worktree.`
-              : `Degradation guard: \`${baseline.resolved.command}\` (from ${baseline.resolved.source}) did not pass on this lane's pristine worktree, so no baseline could be established — that is a fact about the worktree, not about the repository's own checks; this cycle proceeds UNVERIFIED.`,
+              ? // THE NARROWED ARMING IS SAID OUT LOUD, in the log a human reads while the lane runs.
+                // A worktree is not a runnable environment for a realistic application, so the guard
+                // walks DOWN to the strongest hermetic check that can establish a baseline here —
+                // and a lane armed on `npm run typecheck` must never read as one armed on the suite.
+                baseline.narrowedFrom
+                ? `Degradation guard NARROWED — \`${baseline.narrowedFrom.command}\` (from ${baseline.narrowedFrom.source}) could not establish a baseline on this lane's pristine worktree, so the guard armed on \`${baseline.resolved.command}\` (${baseline.resolved.rung}, from ${baseline.resolved.source}), which passes there. This cycle will be checked for COMPILE/LINT regressions only — the repository's tests are NOT run.`
+                : `Degradation guard armed: \`${baseline.resolved.command}\` (from ${baseline.resolved.source}) passes on the untouched worktree.`
+              : `Degradation guard: \`${baseline.resolved.command}\` (from ${baseline.resolved.source}) did not pass on this lane's pristine worktree, and no narrower hermetic check could establish one either, so this cycle proceeds UNVERIFIED — that is a fact about the worktree, not about the repository's own checks.`,
         );
       }
       // ── A CYCLE THE GUARD COULD NOT VERIFY — said plainly, and NOT turned into repair work.
@@ -768,6 +774,10 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
           // ONLY when the net is real. A promise of verification on a repo whose baseline is red (or
           // that declares no check) would invite exactly the bold change nothing is going to catch.
           verifyCommand: guardOn && baseline.passed === true ? baseline.resolved?.command ?? null : null,
+          // …and, when that command is a NARROWED rung, the declared command it stands in for. The
+          // brief's safety-net paragraph is what invites the larger swing, so it has to say exactly
+          // what will and will not catch it: a typecheck catches a broken build, not a broken test.
+          verifyNarrowedFrom: guardOn && baseline.passed === true ? baseline.narrowedFrom?.command ?? null : null,
           // The opposite case, and mutually exclusive with the line above by construction: no net to
           // promise, so the brief says so and asks for conservative work — never for a repair.
           unverifiedCycle: unverified,
@@ -832,6 +842,10 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
           verifyVerdict: outcome.verdict,
           verifyCommand: outcome.command,
           verifyNote: outcome.note,
+          // WHICH command the verdict is about, stored beside it rather than inferred from the
+          // string: a narrowed `verified` is still deliverable, so the only thing standing between a
+          // reader and a false belief is this column and the surfaces that print it.
+          verifyRung: outcome.rung,
         });
         await appendLaneLog(laneId, outcome.note);
         if (outcome.reject) {
@@ -863,6 +877,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         await updateLane(laneId, {
           verifyVerdict: "skipped",
           verifyCommand: null,
+          verifyRung: null,
           verifyNote: "Verification SKIPPED: the degradation guard was switched off for this run. This lane's work is UNVERIFIED.",
         });
       }

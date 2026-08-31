@@ -303,16 +303,36 @@ const STRUCTURAL_INVITATION: readonly string[] = [
   "- What does NOT change: do not lower an existing bar, weaken a test, or relax a threshold to make anything pass. A restructure that quietly drops coverage is a regression wearing a refactor's clothes.",
 ];
 
-/** The net, printed ONLY when the lane actually resolved a verification command and it actually
- *  passed on the pristine tree. See `STRUCTURAL_INVITATION` for why the conditional matters. */
-const verificationPromise = (command: string): string[] => [
-  "THE SAFETY NET, SO YOU CAN TAKE THE LARGER SWING:",
-  `- Before your session started, Ascent ran this repository's own check — \`${command}\` — on the untouched worktree, and it PASSED. It will run the exact same command again after you exit and BEFORE anything is committed.`,
-  "- If it passes, your work is committed. If it FAILS, the whole cycle is reversed: the edits are discarded in this throwaway worktree, nothing is committed, nothing is merged and nothing opens a pull request. A regression cannot escape this lane.",
-  "- So attempt the change that actually raises the ceiling. You are not the last line of defence, and a bold change that turns out to be wrong costs a cycle rather than a repository.",
-  "- This is not permission to guess. It is permission to attempt something large enough to be worth verifying — and then to have it verified.",
-  "",
-];
+/**
+ * The net, printed ONLY when the lane actually resolved a verification command and it actually passed
+ * on the pristine tree. See `STRUCTURAL_INVITATION` for why the conditional matters.
+ *
+ * `narrowedFrom` IS THE HONEST HALF. A git worktree is not a runnable environment for a realistic
+ * application — it carries tracked files plus linked dependency caches and none of the gitignored
+ * credentials or service config a suite reaches for — so when the repository's declared command
+ * cannot establish a baseline there the guard degrades to the strongest HERMETIC check that can, a
+ * typecheck or a lint. That net is real and it is narrower, and the brief must say which: an agent
+ * told "your tests will be re-run" when only `tsc --noEmit` will be is being invited to take a swing
+ * at precisely the thing nothing is checking.
+ */
+const verificationPromise = (command: string, narrowedFrom: string | null): string[] =>
+  narrowedFrom
+    ? [
+        "A NARROWER SAFETY NET — READ WHAT IT DOES AND DOES NOT COVER:",
+        `- This repository's declared check — \`${narrowedFrom}\` — could NOT establish a baseline in the isolated worktree your session runs in (a worktree carries no gitignored credentials, \`.env\` files or service configuration, so a suite that needs them cannot run here). Its TESTS ARE NOT BEING RUN this cycle.`,
+        `- What IS running: Ascent ran \`${command}\` on the untouched worktree and it PASSED, and it will run that exact command again after you exit and BEFORE anything is committed. If it FAILS, the whole cycle is reversed — edits discarded in this throwaway worktree, nothing committed, nothing merged, no pull request.`,
+        "- So a change that breaks the build, the types or the lint rules cannot escape this lane; a change that breaks BEHAVIOUR can. Restructuring, de-duplication and mechanical refactors are well covered by that net. A change to logic whose only proof is a test is not — make those smaller, and say in your summary what you could not have checked.",
+        "- Do NOT try to make the declared check pass, and do not weaken it: it may well be green where the repository is actually checked.",
+        "",
+      ]
+    : [
+        "THE SAFETY NET, SO YOU CAN TAKE THE LARGER SWING:",
+        `- Before your session started, Ascent ran this repository's own check — \`${command}\` — on the untouched worktree, and it PASSED. It will run the exact same command again after you exit and BEFORE anything is committed.`,
+        "- If it passes, your work is committed. If it FAILS, the whole cycle is reversed: the edits are discarded in this throwaway worktree, nothing is committed, nothing is merged and nothing opens a pull request. A regression cannot escape this lane.",
+        "- So attempt the change that actually raises the ceiling. You are not the last line of defence, and a bold change that turns out to be wrong costs a cycle rather than a repository.",
+        "- This is not permission to guess. It is permission to attempt something large enough to be worth verifying — and then to have it verified.",
+        "",
+      ];
 
 /**
  * THE GUARD COULD NOT VERIFY THIS CYCLE — the note the brief carries instead of the safety net.
@@ -409,6 +429,13 @@ export function buildFixPrompt(
      */
     verifyCommand?: string | null;
     /**
+     * The command `verifyCommand` STANDS IN FOR, when the guard had to narrow: the repository's own
+     * declared check, which could not establish a baseline in the lane's worktree. Set together with
+     * `verifyCommand` and only ever alongside it — it does not weaken the net, it names its edge, and
+     * the brief prints a different paragraph for the two cases.
+     */
+    verifyNarrowedFrom?: string | null;
+    /**
      * THE GUARD COULD NOT ESTABLISH A BASELINE for this cycle — see `UnverifiedCycleBrief`. Mutually
      * exclusive with `verifyCommand` by construction: a baseline cannot be both unavailable and
      * passing, and the lane derives both from the same measurement. Prints the NEUTRAL note, never a
@@ -494,7 +521,7 @@ export function buildFixPrompt(
   // exclusive with it: when no baseline could be established the brief says so HERE, in the same
   // place and the same register, rather than as a priority above the batch — see
   // `unverifiedCycleNote`.
-  if (laneCommits && ctx.verifyCommand) lines.push(...verificationPromise(ctx.verifyCommand));
+  if (laneCommits && ctx.verifyCommand) lines.push(...verificationPromise(ctx.verifyCommand, ctx.verifyNarrowedFrom ?? null));
   if (ctx.unverifiedCycle) lines.push(...unverifiedCycleNote(ctx.unverifiedCycle));
 
   for (const [repo, list] of repos) {

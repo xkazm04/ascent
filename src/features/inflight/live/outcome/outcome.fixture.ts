@@ -20,7 +20,7 @@ const laneOf = (o: Partial<OutcomeCell> & { runId: string; repo: string }): Loop
   executor: "local", claimedBy: null, leaseUntil: null,
   // The degradation guard's verdict. `null` here is the fixture saying "this lane predates the guard",
   // which is what every historical row genuinely carries — never `skipped`.
-  verifyVerdict: o.lane?.verifyVerdict ?? null, verifyCommand: null, verifyNote: null,
+  verifyVerdict: o.lane?.verifyVerdict ?? null, verifyCommand: null, verifyNote: null, verifyRung: null,
 });
 
 const d = (headline: string, kind: LaneDeliverable["kind"], dimId: LaneDeliverable["dimId"] = null, evidence: string | null = null): LaneDeliverable => ({
@@ -39,7 +39,7 @@ const rowsFor = (cell: OutcomeCell): GapRow[] =>
 export const cell = (o: Partial<OutcomeCell> & { runId: string; repo: string }): OutcomeCell => {
   const base: OutcomeCell = {
     kind: "backlog", installed: null, deliverables: [], rows: [], prNumber: null, prUrl: null, lane: laneOf(o), titles: [],
-    verdict: { kind: "unmeasured" }, commits: 0, gaps: 0, dims: [], redBaseline: null, economics: null, movements: [],
+    verdict: { kind: "unmeasured" }, commits: 0, gaps: 0, dims: [], redBaseline: null, narrowedVerify: null, economics: null, movements: [],
     phase: "done", stage: null, error: null, ...o,
   };
   return o.rows ? base : { ...base, rows: rowsFor(base) };

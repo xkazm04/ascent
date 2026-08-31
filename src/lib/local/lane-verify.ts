@@ -56,13 +56,29 @@ import { parseCommands } from "@/lib/analyze/guidance-graph";
 // THE VERDICT VOCABULARY lives in the dependency-free `verify-options.ts` and is re-exported here, so
 // a server caller has one import while the cockpit's lane rail can take the word alone without
 // dragging this module's readers (and the analyzer graph behind them) into a browser bundle.
-export { VERIFY_VERDICTS, asVerifyVerdict, verifyVerdictTag, type VerifyVerdict } from "@/lib/local/verify-options";
+export {
+  VERIFY_RUNGS,
+  VERIFY_VERDICTS,
+  asVerifyRung,
+  asVerifyVerdict,
+  isNarrowedRung,
+  narrowedRungTag,
+  verifyVerdictTag,
+  type VerifyRung,
+  type VerifyVerdict,
+} from "@/lib/local/verify-options";
+
+import type { VerifyRung } from "@/lib/local/verify-options";
 
 /** A command the guard will run, and where the repository declared it. */
 export interface ResolvedVerify {
   command: string;
   /** Human-readable provenance, printed on the lane: "`.ai/manifest.yaml` (ciHardPass)". */
   source: string;
+  /** WHICH RUNG OF THE NARROWING LADDER this is. `primary` is the repository's own declared gate;
+   *  `typecheck` and `lint` are strictly weaker hermetic fallbacks, and every surface that renders a
+   *  verdict reached on one has to say so. */
+  rung: VerifyRung;
 }
 
 /** The files the resolution reads, as text. All optional — a repository declaring none resolves to
@@ -72,6 +88,10 @@ export interface VerifyInputs {
   /** Guidance documents in PRECEDENCE ORDER (CLAUDE.md, AGENTS.md, CONTRIBUTING.md). */
   guidance?: readonly { path: string; text: string }[];
   packageJson?: string | null;
+  /** Does the worktree carry a `tsconfig.json`? The ONE piece of evidence that licenses the ladder's
+   *  only invented command, `npx tsc --noEmit` — see `TSC_NOEMIT`. Absent/false and the typecheck rung
+   *  needs a declared script, exactly like every other rung. */
+  hasTsconfig?: boolean;
 }
 
 /** A command must not be run when the manifest reader redacted a secret out of it, or when it still
@@ -140,7 +160,12 @@ function ciRank(command: string): number {
  *  test — and anything explaining a resolution to an operator — uses the same rule the resolver does. */
 export const isCiShapedCommand = (command: string): boolean => ciRank(command) >= 0;
 
-function fromManifest(yaml: string | null | undefined): ResolvedVerify | null {
+/** A resolution without its rung — every source produces one of these, and the rung is stamped by
+ *  whichever pass asked for it. Keeps the narrowed passes from having to repeat the literal. */
+type Unranked = Omit<ResolvedVerify, "rung">;
+const at = (rung: VerifyRung, r: Unranked | null): ResolvedVerify | null => (r ? { ...r, rung } : null);
+
+function fromManifest(yaml: string | null | undefined): Unranked | null {
   if (!yaml || !yaml.trim()) return null;
   const readout = readManifestYaml(yaml);
   if (readout.status !== "ok" && readout.capabilities.length === 0) return null;
@@ -153,14 +178,23 @@ function fromManifest(yaml: string | null | undefined): ResolvedVerify | null {
   return null;
 }
 
-function fromGuidance(docs: readonly { path: string; text: string }[] | undefined): ResolvedVerify | null {
+/** The first command in ONE guidance document whose key is in `keys`, in `keys` order. Shared by the
+ *  primary pass (which asks for all four keys, document-major) and the narrowing ladder (which asks
+ *  for exactly one), so both read guidance through the same extraction. */
+function guidanceHit(doc: { path: string; text: string }, keys: readonly string[]): Unranked | null {
+  if (!doc.text || !doc.text.trim()) return null;
+  const found = parseCommands(doc.text);
+  for (const key of keys) {
+    const hit = found.find((c) => c.key === key && RUNNABLE(c.command));
+    if (hit) return { command: hit.command.trim(), source: `${doc.path} (${key})` };
+  }
+  return null;
+}
+
+function fromGuidance(docs: readonly { path: string; text: string }[] | undefined): Unranked | null {
   for (const doc of docs ?? []) {
-    if (!doc.text || !doc.text.trim()) continue;
-    const found = parseCommands(doc.text);
-    for (const key of GUIDANCE_KEY_ORDER) {
-      const hit = found.find((c) => c.key === key && RUNNABLE(c.command));
-      if (hit) return { command: hit.command.trim(), source: `${doc.path} (${key})` };
-    }
+    const hit = guidanceHit(doc, GUIDANCE_KEY_ORDER);
+    if (hit) return hit;
   }
   return null;
 }
@@ -179,10 +213,12 @@ function readScripts(raw: string | null | undefined): Record<string, unknown> | 
   }
 }
 
-function fromPackageJson(raw: string | null | undefined): ResolvedVerify | null {
+/** The first of `names` that `package.json` declares as a non-empty script. Shared by the primary
+ *  pass and the narrowing ladder for the same reason `guidanceHit` is: one scanner, one answer. */
+function scriptsNamed(raw: string | null | undefined, names: readonly string[]): Unranked | null {
   const scripts = readScripts(raw);
   if (!scripts) return null;
-  for (const name of SCRIPT_ORDER) {
+  for (const name of names) {
     const body = scripts[name];
     if (typeof body !== "string" || body.trim() === "") continue;
     // `npm test` is the real invocation for the `test` script; every other name needs `run`.
@@ -191,6 +227,8 @@ function fromPackageJson(raw: string | null | undefined): ResolvedVerify | null 
   }
   return null;
 }
+
+const fromPackageJson = (raw: string | null | undefined): Unranked | null => scriptsNamed(raw, SCRIPT_ORDER);
 
 /**
  * THE CI-SHAPED PASS — the best-named CI command anywhere below the manifest.
@@ -201,8 +239,8 @@ function fromPackageJson(raw: string | null | undefined): ResolvedVerify | null 
  * evidence either file carries about that. Rank decides; declaration order (guidance in precedence
  * order, then `package.json`) only breaks ties, so a document still outranks a script at equal rank.
  */
-function fromCiShaped(inputs: VerifyInputs): ResolvedVerify | null {
-  const candidates: ResolvedVerify[] = [];
+function fromCiShaped(inputs: VerifyInputs): Unranked | null {
+  const candidates: Unranked[] = [];
   for (const doc of inputs.guidance ?? []) {
     if (!doc.text || !doc.text.trim()) continue;
     for (const c of parseCommands(doc.text)) {
@@ -217,7 +255,7 @@ function fromCiShaped(inputs: VerifyInputs): ResolvedVerify | null {
       if (typeof body === "string" && body.trim() !== "") candidates.push({ command: `npm run ${name}`, source: `package.json (scripts.${name})` });
     }
   }
-  let best: ResolvedVerify | null = null;
+  let best: Unranked | null = null;
   let bestRank = Number.MAX_SAFE_INTEGER;
   for (const candidate of candidates) {
     const rank = ciRank(candidate.command);
@@ -237,19 +275,129 @@ function fromCiShaped(inputs: VerifyInputs): ResolvedVerify | null {
  * the guard's job is to find a check, and a broken declaration is not evidence that no check exists.
  */
 export function resolveVerifyCommand(inputs: VerifyInputs): ResolvedVerify | null {
-  return (
+  return at(
+    "primary",
     fromManifest(inputs.manifestYaml) ??
-    fromCiShaped(inputs) ??
-    fromGuidance(inputs.guidance) ??
-    fromPackageJson(inputs.packageJson)
+      fromCiShaped(inputs) ??
+      fromGuidance(inputs.guidance) ??
+      fromPackageJson(inputs.packageJson),
   );
 }
+
+// ── THE NARROWING LADDER — the strongest check that CAN run in a worktree ─────────────────────
+//
+// WHY IT EXISTS. The guard's premise was that the repository's own command can establish a baseline
+// on a pristine lane worktree. Measured on both campaign repositories at the same commit, with
+// `node_modules` linked exactly as the lane links it, that premise does not hold:
+// `xkazm04/systedo-case` passes 3744/3744 in the paired checkout and fails 8 in the worktree, every
+// failure `Could not load the default credentials`; `xkazm04/kp` passes in the checkout and fails 2
+// routes that need local state; systedo's `npm run check` dies in a worktree on a
+// `TurbopackInternalError` in its build step. A worktree carries tracked files plus the dependency
+// caches the loop links and NONE of the gitignored credentials, service config or local databases a
+// realistic suite needs — so the guard protected nothing on exactly the repositories it was built
+// for, and (because unverified work must not be delivered) it also blocked all delivery.
+//
+// A WEAKER GUARD IS STILL A GUARD. Typechecking and linting are HERMETIC: they need no credentials
+// and no services, so they can establish a baseline where the suite cannot. And a structural refactor
+// that breaks the build or the types is the damage most worth catching — which is precisely the
+// change `STRUCTURAL_INVITATION` now asks agents to attempt.
+//
+// NOTHING IS INVENTED HERE EITHER, with ONE documented exception. Each rung is resolved from the same
+// three sources the primary uses — the manifest's own capability names, the guidance files through
+// `parseCommands`' keys, and `package.json` scripts — through the same helpers (`guidanceHit`,
+// `scriptsNamed`). The exception is `npx tsc --noEmit` for a repository that has a `tsconfig.json`
+// and no typecheck script: a TypeScript project's typecheck command is not a vendor guess, it is what
+// the tsconfig means, and refusing to run it would leave the most common case in the fleet unguarded.
+//
+// THE LADDER ONLY EXISTS WHEN A PRIMARY DID. A repository that declares no check at all still gets
+// `skipped`, unchanged: narrowing is a DEGRADATION of a gate the repository asked for, not a gate
+// invented for a repository that asked for none.
+
+/** `package.json` script / manifest capability names for a typecheck, best first. `tsc` is included
+ *  because a repo that names its script after the binary means the binary. */
+const TYPECHECK_NAMES: readonly string[] = ["typecheck", "type-check", "types", "tsc"];
+
+/** …and for a lint. `lint:ci` sits with them for the same reason `check:ci` outranks `check` above:
+ *  a name with `ci` in it is a name the repository chose for a clean checkout. */
+const LINT_NAMES: readonly string[] = ["lint", "lint:check", "lint:ci"];
+
+const NARROWED_NAMES: Readonly<Record<Exclude<VerifyRung, "primary">, readonly string[]>> = {
+  typecheck: TYPECHECK_NAMES,
+  lint: LINT_NAMES,
+};
+
+/** THE ONE COMMAND THE LADDER WILL SYNTHESIZE, and only for a repository that carries a
+ *  `tsconfig.json` and declares no typecheck script of its own. */
+export const TSC_NOEMIT = "npx tsc --noEmit";
+
+/** A manifest capability by NAME — the most authoritative source for a narrowed rung too, and the
+ *  only one that is machine-declared. Placement is not required: a repository that declares a
+ *  `typecheck` capability has told us its typecheck command whether or not it wired it at a gate. */
+function fromManifestNamed(yaml: string | null | undefined, names: readonly string[]): Unranked | null {
+  if (!yaml || !yaml.trim()) return null;
+  const readout = readManifestYaml(yaml);
+  if (readout.status !== "ok" && readout.capabilities.length === 0) return null;
+  for (const name of names) {
+    const hit = readout.capabilities.find((c) => c.name.toLowerCase() === name && !c.placeholder && RUNNABLE(c.command));
+    if (hit) return { command: hit.command.trim(), source: `.ai/manifest.yaml (${hit.name})` };
+  }
+  return null;
+}
+
+/** One narrowed rung, or `null` when this repository declares nothing of that shape. */
+function narrowedRung(inputs: VerifyInputs, rung: Exclude<VerifyRung, "primary">): ResolvedVerify | null {
+  const names = NARROWED_NAMES[rung];
+  const found =
+    fromManifestNamed(inputs.manifestYaml, names) ??
+    (inputs.guidance ?? []).reduce<Unranked | null>((acc, doc) => acc ?? guidanceHit(doc, [rung]), null) ??
+    scriptsNamed(inputs.packageJson, names) ??
+    (rung === "typecheck" && inputs.hasTsconfig ? { command: TSC_NOEMIT, source: "tsconfig.json (no typecheck script)" } : null);
+  return at(rung, found);
+}
+
+/**
+ * THE LADDER, best first: the primary, then a typecheck, then a lint.
+ *
+ * The caller runs them IN ORDER on the pristine worktree and takes the FIRST that passes as the
+ * baseline (`verifyBaseline`). Empty when the repository declares no primary command — narrowing
+ * degrades a declared gate and never substitutes for one.
+ *
+ * Deduplicated by command: when the repository's primary IS its typecheck, the ladder is one rung
+ * long and a failing primary is not re-run under a second name to fail identically.
+ */
+export function resolveVerifyLadder(inputs: VerifyInputs): ResolvedVerify[] {
+  const primary = resolveVerifyCommand(inputs);
+  if (!primary) return [];
+  const out: ResolvedVerify[] = [];
+  const seen = new Set<string>();
+  for (const r of [primary, narrowedRung(inputs, "typecheck"), narrowedRung(inputs, "lint")]) {
+    if (!r || seen.has(r.command)) continue;
+    seen.add(r.command);
+    out.push(r);
+  }
+  return out;
+}
+
+/**
+ * THE SENTENCE EVERY NARROWED SURFACE OWES ITS READER — one clause, shared, so the note, the lane
+ * log, the sheet's hover text and the brief cannot drift into saying different things.
+ *
+ * It names what WAS checked, names what was NOT, and says why. Never "verified" on its own: a lane
+ * verified against `npm run typecheck` has not been verified against the repository's tests, and the
+ * whole cost of getting this wrong is a reader who believes it was.
+ */
+export const narrowedCaveat = (narrowed: ResolvedVerify, primary: ResolvedVerify): string =>
+  `verified against \`${narrowed.command}\` ONLY (${narrowed.rung}, from ${narrowed.source}): the command this repository ` +
+  `declares — \`${primary.command}\` (from ${primary.source}) — could not establish a baseline in this worktree, so the ` +
+  `tests were NOT run and nothing here is verified against them`;
 
 /** The paths the guard reads, in the order `resolveVerifyCommand` consults them. Exported so the
  *  reader in `lane-guard.ts` cannot drift from the resolver that consumes what it read. */
 export const VERIFY_MANIFEST_PATH = ".ai/manifest.yaml";
 export const VERIFY_GUIDANCE_PATHS: readonly string[] = ["CLAUDE.md", "AGENTS.md", "CONTRIBUTING.md"];
 export const VERIFY_PACKAGE_PATH = "package.json";
+/** Not a source of commands — the single piece of evidence that licenses `TSC_NOEMIT`. */
+export const VERIFY_TSCONFIG_PATH = "tsconfig.json";
 
 // THE RUNNER'S OWN FAILURE MARKERS — not "any line that contains the word error".
 //

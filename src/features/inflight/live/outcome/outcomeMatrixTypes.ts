@@ -36,6 +36,25 @@ export interface CellRedBaseline {
   note: string | null;
 }
 
+/**
+ * VERIFIED AGAINST A NARROWED CHECK — the other thing a reader of this cell has to know.
+ *
+ * When the repository's declared command cannot establish a baseline in the lane's worktree (which,
+ * on a realistic application, is the normal case — a worktree carries no credentials, service config
+ * or local database), the guard degrades to the strongest HERMETIC check that can: a typecheck, then
+ * a lint. The lane is then genuinely verified — against `npm run typecheck`, and NOT against the
+ * repository's tests. That distinction is the whole reason this field exists: a narrowed lane is
+ * deliverable, so the badge is the only thing standing between a reader and a false belief.
+ */
+export interface CellNarrowedVerify {
+  /** `typecheck only` / `lint only` — the word the badge prints (`narrowedRungTag`). */
+  label: string;
+  /** The narrowed command that actually ran. */
+  command: string | null;
+  /** The guard's full note, for the cell's `title`. */
+  note: string | null;
+}
+
 export interface OutcomeCell {
   runId: string;
   repo: string;
@@ -67,6 +86,10 @@ export interface OutcomeCell {
    *  `baseline-red`); null otherwise, including for a lane written before the guard existed — unknown
    *  is not a claim. */
   redBaseline: CellRedBaseline | null;
+  /** Set when the newest lane of this (run, repo) that recorded a verdict was `verified` against a
+   *  NARROWED rung; null otherwise, including for an unqualified `verified` — a badge on every
+   *  healthy row would mean "normal", and this one has to mean something. */
+  narrowedVerify: CellNarrowedVerify | null;
   /** Humanised movement lines (`D9 −42 · lost token permissions, SAST…`) — EMPTY unless the cell's
    *  verdict is attributable: the prose answers to the same rule as the number. */
   movements: string[];

@@ -336,3 +336,42 @@ describe("buildFixPrompt — the could-not-verify note", () => {
     expect(unverifiedPrompt).not.toContain("THE SAFETY NET");
   });
 });
+
+// ── THE NARROWED SAFETY NET ───────────────────────────────────────────────────────
+//
+// A git worktree is not a runnable environment for a realistic application, so the guard degrades to
+// the strongest HERMETIC check that CAN establish a baseline there — a typecheck, then a lint. The
+// net is then real and narrower, and the brief has to say which: an agent told "your tests will be
+// re-run" when only `tsc --noEmit` will be is being invited to swing at the one thing nothing checks.
+
+describe("buildFixPrompt — the NARROWED safety net", () => {
+  const lane = { org: "acme", generatedAt: "2026-08-31", commitPolicy: "lane" as const };
+
+  it("never prints the unqualified promise, and names what is NOT being run", () => {
+    const p = buildFixPrompt([item()], { ...lane, verifyCommand: "npm run typecheck", verifyNarrowedFrom: "npm run test:unit" });
+    expect(p).not.toContain("THE SAFETY NET, SO YOU CAN TAKE THE LARGER SWING:");
+    expect(p).toContain("A NARROWER SAFETY NET — READ WHAT IT DOES AND DOES NOT COVER:");
+    expect(p).toContain("npm run test:unit");
+    expect(p).toContain("Its TESTS ARE NOT BEING RUN this cycle");
+    expect(p).toContain("npm run typecheck");
+  });
+
+  it("still promises the reversal — a narrowed net is a real net", () => {
+    const p = buildFixPrompt([item()], { ...lane, verifyCommand: "npm run typecheck", verifyNarrowedFrom: "npm run test:unit" });
+    expect(p).toContain("the whole cycle is reversed");
+    expect(p).toContain("breaks BEHAVIOUR can");
+  });
+
+  it("does not ask for a repair of the declared check, or invite weakening it", () => {
+    const p = buildFixPrompt([item()], { ...lane, verifyCommand: "npm run typecheck", verifyNarrowedFrom: "npm run test:unit" });
+    expect(p).toMatch(/Do NOT try to make the declared check pass/);
+    expect(p).not.toMatch(/attempt/i);
+  });
+
+  it("is byte-identical to the old promise when nothing was narrowed", () => {
+    const wide = buildFixPrompt([item()], { ...lane, verifyCommand: "npm run check:ci" });
+    expect(wide).toBe(buildFixPrompt([item()], { ...lane, verifyCommand: "npm run check:ci", verifyNarrowedFrom: null }));
+    expect(wide).toContain("THE SAFETY NET, SO YOU CAN TAKE THE LARGER SWING:");
+    expect(wide).not.toContain("A NARROWER SAFETY NET");
+  });
+});

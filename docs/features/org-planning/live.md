@@ -79,6 +79,7 @@ The unit of parallelism, of retry, and of the cockpit's row.
 | `log` | Newline-joined, **bounded to `LANE_LOG_LINES` = 200**, newest last, each line stamped `HH:MM:SS`. Appended read-modify-write; safe because a lane is single-writer by construction. |
 | `error` / `startedAt` / `endedAt` | A failed lane is lane data, never a run failure. |
 | `verifyVerdict` | `verified \| rejected \| baseline-unavailable \| skipped` (rows written before 2026-08-31 carry `baseline-red`, which `asVerifyVerdict` still parses into `baseline-unavailable`). **NULL is not `skipped`** — it is a lane written before the guard existed, whose verification state is unknown, and rendering it as "skipped" would be a claim about a run nobody made (`asVerifyVerdict` floors an unreadable value to null). A `rejected` lane is **never landed and never PR'd** — and when the run's `verifyMode` is `on`, **only** a `verified` lane is (§[Only a VERIFIED lane is delivered](#only-a-verified-lane-is-delivered-when-the-guard-is-on-2026-08-31)). |
+| `verifyRung` | `primary \| typecheck \| lint` — which rung of the narrowing ladder `verifyCommand` was. NULL is a lane written before the ladder: unknown, and **never** read as `primary`. §[The narrowing ladder](#the-narrowing-ladder-degrade-to-the-strongest-check-that-can-run-here-2026-08-31). |
 | `verifyCommand` / `verifyNote` | The command that was run and the first meaningful failure lines, so "why was this rejected" survives the throwaway worktree it happened in. These three columns are also the ONLY store behind the standing-concern surface and the brief's note — §[An unestablished baseline is SURFACED](#an-unestablished-baseline-is-surfaced-and-what-it-does-not-claim-2026-08-31) adds no parallel state. |
 
 Index: `@@index([runId])`.
@@ -2101,13 +2102,90 @@ operator with the `controls.ciHardPass` remedy.
 A broken declaration **falls through** to the next source rather than failing the resolution — a
 malformed manifest is not evidence that no check exists.
 
+### The narrowing ladder: degrade to the strongest check that CAN run here (2026-08-31)
+
+**A git worktree is not a runnable environment for a realistic application.** Measured on both
+campaign repos, at the same commit, with `node_modules` linked exactly as the lane links it:
+
+| Repo | Paired checkout | Lane worktree |
+| --- | --- | --- |
+| `xkazm04/systedo-case` | 3744 tests, 0 failing | **8 failures**, every one `Error: Could not load the default credentials` (Google application-default credentials) |
+| `xkazm04/kp` | passes | **2 failures** (operator-password and comms-audit routes), both needing local state |
+| systedo `npm run check` | lint clean | **build dies** with a `TurbopackInternalError`; `check:ci` ends with `test:unit`, so it inherits the credential failures |
+
+A worktree carries tracked files plus the dependency caches we link, and **none** of the gitignored
+credentials, service config or local databases a full suite needs. So the guard's premise — that the
+repository's own command can establish a baseline there — **does not hold for either repo**. The guard
+protected nothing on exactly the repositories it was built for and, because unverified work must not
+be delivered (§[Only a VERIFIED lane is delivered](#only-a-verified-lane-is-delivered-when-the-guard-is-on-2026-08-31)),
+it also blocked **all** delivery.
+
+**A weaker guard is still a guard.** A structural refactor that breaks the build or the types is the
+damage most worth catching — and it is exactly the change §*Permission to make a larger change*
+invites. Typechecking and linting are **hermetic**: no credentials, no services, nothing a worktree
+lacks. So when the resolved primary **fails to establish a baseline on the pristine worktree**, the
+guard no longer stops at `baseline-unavailable`. `resolveVerifyLadder` (`src/lib/local/lane-verify.ts`)
+walks a ladder of progressively more hermetic commands and `verifyBaseline` takes **the first that
+PASSES** on the pristine tree as the baseline:
+
+| Rung | Candidates, from the same three sources the primary uses |
+| --- | --- |
+| 1. `primary` | The resolved primary, exactly as above. Tried first, always. |
+| 2. `typecheck` | A manifest capability, a guidance `typecheck` command (`parseCommands`), or a `package.json` script named `typecheck` / `type-check` / `types` / `tsc` — **or `npx tsc --noEmit`** when the repo has a `tsconfig.json` and no such script. |
+| 3. `lint` | The same three sources, names `lint` / `lint:check` / `lint:ci`. |
+| 4. — | Nothing passes → **`baseline-unavailable`**, exactly as before, with the note naming the narrower checks that were also tried. |
+
+The ladder is deduplicated by command (a primary that *is* the typecheck is never re-run under a
+second name to fail identically), and it **only exists when a primary resolved**: narrowing degrades a
+gate the repository asked for, it never invents one for a repository that declares none — that repo
+still gets `skipped`. `npx tsc --noEmit` is the ladder's one synthesized command and it needs its
+evidence, a `tsconfig.json` on disk; nothing else is hardcoded to a vendor's CLI.
+
+**What the campaign repos verify against now.** `xkazm04/systedo-case` and `xkazm04/kp` both declare a
+`typecheck` script, so both fall to rung 2 and are verified against **`npm run typecheck`** instead of
+returning `baseline-unavailable` on every lane. Their tests are not run, their lanes are checked for
+compile/type regressions, and they are deliverable again.
+
+#### A narrowed verdict is LOUD, everywhere a human reads it
+
+A lane verified against `npm run typecheck` has **not** been verified against the repository's tests,
+and a reader must never believe otherwise. The rung is **persisted**, not inferred:
+`LoopRunLane.verifyRung` holds `primary | typecheck | lint` beside `verifyCommand`. NULL is a lane
+written before the ladder — unknown, and never read as `primary`.
+
+| Surface | What a narrowed verdict says |
+| --- | --- |
+| **The guard's note** (`verifyResult`, persisted as `verifyNote`) | Leads with *"Verification NARROWED — verified against `npm run typecheck` ONLY (typecheck, from …): the command this repository declares — `npm run test:unit` (from …) — could not establish a baseline in this worktree, so the tests were NOT run and nothing here is verified against them."* The unqualified word *"Verified:"* is never printed for a narrowed rung. |
+| **The lane log** (`loop-lane.ts`) | *"Degradation guard NARROWED — `npm run test:unit` … could not establish a baseline on this lane's pristine worktree, so the guard armed on `npm run typecheck` …. This cycle will be checked for COMPILE/LINT regressions only — the repository's tests are NOT run."* |
+| **The outcome sheet** | A `typecheck only` / `lint only` word beside the cell's verdict (`cell.narrowedVerify`, `OutcomeSheetRow`), coloured like `no baseline` and not like an error — nothing failed. The full guard note is the hover title. It follows the **newest** lane that recorded a verdict, so a later full verification clears it. |
+| **The agent's brief** (`buildFixPrompt`) | The `THE SAFETY NET` paragraph is replaced by `A NARROWER SAFETY NET — READ WHAT IT DOES AND DOES NOT COVER:`, which names the declared command that could not run, says its **tests are not being run**, and tells the agent that restructuring is well covered by the net while a change to logic whose only proof is a test is not. It still forbids repairing or weakening the declared check. |
+
+**The rejection path is unchanged in spirit and stays strict.** If the narrowed baseline passed and
+the *same* narrowed command fails after the agent's edits, that is a `rejected` lane: the worktree
+edits are discarded, nothing is committed, delivery is blocked and the lesson is recorded. The `B` run
+always re-runs **the rung that established the baseline**, never the primary — `A` and `B` have to be
+the same question.
+
+**The standing concern keeps the operator remedy it already carries.** Declare a command that runs
+from a clean checkout at `controls.ciHardPass` in `.ai/manifest.yaml`, or turn `verifyMode` off —
+§[An unestablished baseline is SURFACED](#an-unestablished-baseline-is-surfaced-and-what-it-does-not-claim-2026-08-31).
+
+#### The deliberate trade: a narrowed `verified` IS delivered
+
+`unverifiedDeliveryReason` returns `null` for `verified` regardless of rung, so a narrowed lane lands
+or opens a PR exactly like a full one. **This is a trade, stated rather than hidden.** The
+alternative is that no repository keeping credentials in its test suite can ever land — which is
+precisely the situation this fixes, and the situation that held on both campaign repos. On a narrowed
+lane the loop is proving *"this still compiles and lints"*, **not** *"the suite is green"*, and every
+surface in the table above says so.
+
 ### The four verdicts
 
 | Verdict | When | What the lane does |
 | --- | --- | --- |
-| **`verified`** | passed before, passes after | Proceeds: commit, rescan, deliver, as always. |
+| **`verified`** | passed before, passes after | Proceeds: commit, rescan, deliver, as always. **Which command** passed is `verifyRung`: `primary` (the repository's own gate) or a **narrowed** `typecheck` / `lint` when the primary could not establish a baseline in the worktree — §[The narrowing ladder](#the-narrowing-ladder-degrade-to-the-strongest-check-that-can-run-here-2026-08-31). A narrowed `verified` is still delivered, and every surface says it is narrowed. |
 | **`rejected`** | **passed before, failed (or timed out) after** | `git reset --hard HEAD` + `git clean -fd` **in the throwaway worktree only**; **no commit**, **no rescan**, claims released, a lesson candidate and a `noted` deliverable recorded, and the lane ends honestly with **no claim**. |
-| **`baseline-unavailable`** | the command did not pass **on the pristine lane worktree** | **No blame, no rejection.** There is no baseline to compare the session against, so the guard is off for this cycle and the lane proceeds exactly as it would have without one. **Read the name literally:** it says the guard could not establish a baseline *here*, **not** that the repository's checks are failing — see §[What a missing baseline does NOT mean](#what-a-missing-baseline-does-not-mean-2026-08-31). Rows written before 2026-08-31 carry the old word `baseline-red`; the reader was widened, the history was not rewritten. |
+| **`baseline-unavailable`** | **neither the command nor any narrower hermetic rung** passed on the pristine lane worktree | **No blame, no rejection.** There is no baseline to compare the session against, so the guard is off for this cycle and the lane proceeds exactly as it would have without one. **Read the name literally:** it says the guard could not establish a baseline *here*, **not** that the repository's checks are failing — see §[What a missing baseline does NOT mean](#what-a-missing-baseline-does-not-mean-2026-08-31). Rows written before 2026-08-31 carry the old word `baseline-red`; the reader was widened, the history was not rewritten. |
 | **`skipped`** | nothing resolvable, or `verifyMode: "off"` | Proceeds, and the row records `skipped` **with its reason**. Never `null` — null is what a lane written *before* the guard carries, and "we did not check" must not be able to masquerade as "there was nothing to check". |
 
 The baseline is measured **once per worktree** (cycle 1) and cached for that worktree's later cycles:

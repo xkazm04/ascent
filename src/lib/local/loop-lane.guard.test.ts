@@ -62,10 +62,19 @@ vi.mock("@/lib/local/lane-cost", () => ({ recordAgentCost: vi.fn(async () => {})
 // dependency of the lane, it is machinery the lane owns, and the thing under test is what the lane
 // DOES with each verdict.
 const guard = vi.hoisted(() => ({
-  baseline: { resolved: { command: "npm run check:ci", source: "package.json" }, passed: true as boolean | null, note: null as string | null },
+  baseline: {
+    resolved: { command: "npm run check:ci", source: "package.json", rung: "primary" as string },
+    passed: true as boolean | null,
+    note: null as string | null,
+    // THE NARROWING LADDER (lane-verify.ts): set when the declared command could not establish a
+    // baseline in the worktree and the guard armed on a hermetic fallback instead.
+    narrowedFrom: null as { command: string; source: string; rung: string } | null,
+    triedNarrowed: [] as { command: string; source: string; rung: string }[],
+  },
   outcome: {
     verdict: "verified" as string,
     command: "npm run check:ci",
+    rung: "primary" as string | null,
     note: "Verified: it passed.",
     reject: false,
   },
@@ -83,6 +92,7 @@ vi.mock("@/lib/local/lane-guard", () => ({
   }),
   verifyRejectionLesson: (repo: string) => `lesson about ${repo}`,
   forgetVerifyBaseline: vi.fn(),
+  NO_VERIFY_BASELINE: { resolved: null, passed: null, note: null, narrowedFrom: null, triedNarrowed: [] },
 }));
 
 import { runLane, type LaneDeps } from "@/lib/local/loop-lane";
@@ -133,8 +143,14 @@ beforeEach(() => {
   redLessons.length = 0;
   released.length = 0;
   priorLanes.length = 0;
-  guard.baseline = { resolved: { command: "npm run check:ci", source: "package.json" }, passed: true, note: null };
-  guard.outcome = { verdict: "verified", command: "npm run check:ci", note: "Verified: it passed.", reject: false };
+  guard.baseline = {
+    resolved: { command: "npm run check:ci", source: "package.json", rung: "primary" },
+    passed: true,
+    note: null,
+    narrowedFrom: null,
+    triedNarrowed: [],
+  };
+  guard.outcome = { verdict: "verified", command: "npm run check:ci", rung: "primary", note: "Verified: it passed.", reject: false };
   guard.baselineCalls = 0;
   guard.resultCalls = 0;
   commitWork.mockClear();
@@ -354,6 +370,58 @@ describe("a VERIFIED lane", () => {
     expect(prompt).toContain("THE SAFETY NET");
     expect(prompt).toContain("npm run check:ci");
     expect(prompt).toContain("LARGER CHANGE");
+  });
+});
+
+// ── A LANE VERIFIED AGAINST A NARROWED RUNG ───────────────────────────────────────────────────
+//
+// A worktree carries no gitignored credentials, service config or local database, so on a realistic
+// application the declared command cannot establish a baseline there. The guard degrades to the
+// strongest HERMETIC check that can and verifies against that instead — which is worth having, and
+// worth being loud about: the lane log, the brief and the persisted row all have to say the tests
+// were not run, or the operator reads a compile check as a green suite.
+describe("a NARROWED lane", () => {
+  beforeEach(() => {
+    guard.baseline = {
+      resolved: { command: "npm run typecheck", source: "package.json (scripts.typecheck)", rung: "typecheck" },
+      passed: true,
+      note: null,
+      narrowedFrom: { command: "npm run test:unit", source: "package.json (scripts.test:unit)", rung: "primary" },
+      triedNarrowed: [],
+    };
+    guard.outcome = {
+      verdict: "verified",
+      command: "npm run typecheck",
+      rung: "typecheck",
+      note: "Verification NARROWED — verified against `npm run typecheck` ONLY …",
+      reject: false,
+    };
+  });
+
+  it("says NARROWED in the lane log, naming both commands", async () => {
+    await run();
+    const line = logs.find((l) => l.includes("Degradation guard"));
+    expect(line).toContain("NARROWED");
+    expect(line).toContain("npm run test:unit");
+    expect(line).toContain("npm run typecheck");
+    expect(line).toContain("the repository's tests are NOT run");
+  });
+
+  it("gives the agent the NARROWER promise, never the unqualified one", async () => {
+    await run();
+    const prompt = (runAgent.mock.calls[0]![0] as unknown as { prompt: string }).prompt;
+    expect(prompt).toContain("A NARROWER SAFETY NET");
+    expect(prompt).not.toContain("THE SAFETY NET, SO YOU CAN TAKE THE LARGER SWING:");
+    expect(prompt).toContain("npm run test:unit");
+  });
+
+  it("persists the RUNG beside the verdict, so no reader has to infer it from the command string", async () => {
+    const res = await run();
+    expect(res.progressed).toBe(true);
+    const patch = lastVerifyPatch();
+    expect(patch?.verifyVerdict).toBe("verified");
+    expect(patch?.verifyRung).toBe("typecheck");
+    expect(patch?.verifyCommand).toBe("npm run typecheck");
   });
 });
 

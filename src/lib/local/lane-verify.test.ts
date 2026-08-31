@@ -11,7 +11,10 @@ import {
   firstFailureLines,
   isCiShapedCommand,
   looksUnrunnable,
+  narrowedRungTag,
   resolveVerifyCommand,
+  resolveVerifyLadder,
+  TSC_NOEMIT,
   verifyVerdictTag,
 } from "@/lib/local/lane-verify";
 
@@ -266,5 +269,96 @@ describe("looksUnrunnable", () => {
     expect(looksUnrunnable("FAIL src/a.test.ts > adds\nAssertionError: expected 1 to be 2")).toBe(false);
     expect(looksUnrunnable("error TS2345: Argument of type 'string' is not assignable")).toBe(false);
     expect(looksUnrunnable("2 failed | 40 passed")).toBe(false);
+  });
+});
+
+// ── THE NARROWING LADDER ──────────────────────────────────────────────────────────────────────
+//
+// What it resolves, from the SAME three sources the primary uses. The premise it answers: a git
+// worktree carries tracked files plus linked dependency caches and none of the gitignored
+// credentials, service config or local databases a realistic suite needs, so on both campaign
+// repositories the declared command could never establish a baseline there. Typecheck and lint are
+// hermetic and can.
+describe("the narrowing ladder", () => {
+  it("is empty when the repository declares no primary — narrowing degrades a gate, it never invents one", () => {
+    expect(resolveVerifyLadder({})).toEqual([]);
+    // …even with a tsconfig on disk. A repo that asked for no check still gets `skipped`.
+    expect(resolveVerifyLadder({ hasTsconfig: true })).toEqual([]);
+  });
+
+  it("puts the primary first, then a typecheck script, then a lint script", () => {
+    const ladder = resolveVerifyLadder({
+      packageJson: JSON.stringify({ scripts: { "test:ci": "vitest run", typecheck: "tsc -p .", lint: "eslint ." } }),
+    });
+    expect(ladder.map((r) => [r.rung, r.command])).toEqual([
+      ["primary", "npm run test:ci"],
+      ["typecheck", "npm run typecheck"],
+      ["lint", "npm run lint"],
+    ]);
+  });
+
+  it("reads a narrowed rung out of the MANIFEST and the GUIDANCE files, not just package.json", () => {
+    const yaml = manifest(
+      [
+        "capabilities:",
+        '  test: { command: "npm test", verified: true }',
+        '  typecheck: { command: "pnpm exec tsc --noEmit", verified: true }',
+        "controls:",
+        "  ciHardPass: [test]",
+      ].join("\n"),
+    );
+    const ladder = resolveVerifyLadder({
+      manifestYaml: yaml,
+      guidance: [{ path: "AGENTS.md", text: "Lint with `npm run lint:check` before pushing." }],
+    });
+    expect(ladder[0]?.command).toBe("npm test");
+    expect(ladder[1]).toMatchObject({ rung: "typecheck", command: "pnpm exec tsc --noEmit" });
+    expect(ladder[1]?.source).toContain(".ai/manifest.yaml");
+    expect(ladder[2]).toMatchObject({ rung: "lint", command: "npm run lint:check" });
+  });
+
+  it("synthesizes `npx tsc --noEmit` for a repo with a tsconfig and NO typecheck script", () => {
+    const ladder = resolveVerifyLadder({
+      packageJson: JSON.stringify({ scripts: { test: "vitest run" } }),
+      hasTsconfig: true,
+    });
+    expect(ladder.map((r) => r.command)).toEqual(["npm test", TSC_NOEMIT]);
+    expect(ladder[1]?.source).toContain("tsconfig.json");
+  });
+
+  it("does NOT synthesize it without a tsconfig — the ladder's one invented command needs its evidence", () => {
+    const ladder = resolveVerifyLadder({ packageJson: JSON.stringify({ scripts: { test: "vitest run" } }) });
+    expect(ladder.map((r) => r.command)).toEqual(["npm test"]);
+  });
+
+  it("prefers a DECLARED typecheck script over the synthesized command", () => {
+    const ladder = resolveVerifyLadder({
+      packageJson: JSON.stringify({ scripts: { test: "vitest run", typecheck: "tsc -p tsconfig.build.json" } }),
+      hasTsconfig: true,
+    });
+    expect(ladder[1]?.command).toBe("npm run typecheck");
+  });
+
+  it("never repeats the primary under a second name — a failing command is not re-run to fail again", () => {
+    // `typecheck` is the only thing declared, so the primary resolves to it through the guidance key.
+    const ladder = resolveVerifyLadder({
+      guidance: [{ path: "CLAUDE.md", text: "Typecheck with `npm run typecheck`." }],
+      packageJson: JSON.stringify({ scripts: { typecheck: "tsc -p ." } }),
+      hasTsconfig: true,
+    });
+    expect(ladder.map((r) => r.command)).toEqual(["npm run typecheck"]);
+    expect(ladder[0]?.rung).toBe("primary");
+  });
+});
+
+describe("the narrowed tag a sheet prints", () => {
+  it("names the rung, and says nothing at all for the normal case", () => {
+    expect(narrowedRungTag("typecheck")).toBe("typecheck only");
+    expect(narrowedRungTag("lint")).toBe("lint only");
+    // `primary` is normal and an unknown/absent rung is a lane written before the ladder — neither is
+    // a claim, and a badge on either would be one.
+    expect(narrowedRungTag("primary")).toBeNull();
+    expect(narrowedRungTag(null)).toBeNull();
+    expect(narrowedRungTag("nonsense")).toBeNull();
   });
 });

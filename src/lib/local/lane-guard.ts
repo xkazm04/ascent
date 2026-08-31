@@ -32,10 +32,13 @@ import {
   VERIFY_GUIDANCE_PATHS,
   VERIFY_MANIFEST_PATH,
   VERIFY_PACKAGE_PATH,
+  VERIFY_TSCONFIG_PATH,
   firstFailureLines,
   looksUnrunnable,
-  resolveVerifyCommand,
+  narrowedCaveat,
+  resolveVerifyLadder,
   type ResolvedVerify,
+  type VerifyRung,
   type VerifyVerdict,
 } from "@/lib/local/lane-verify";
 
@@ -114,21 +117,27 @@ export async function readVerifyInputs(dir: string): Promise<{
   manifestYaml: string | null;
   guidance: { path: string; text: string }[];
   packageJson: string | null;
+  hasTsconfig: boolean;
 }> {
   const read = async (rel: string): Promise<string | null> =>
     readFile(path.join(dir, rel), "utf8").catch(() => null);
-  const [manifestYaml, packageJson] = await Promise.all([read(VERIFY_MANIFEST_PATH), read(VERIFY_PACKAGE_PATH)]);
+  const [manifestYaml, packageJson, tsconfig] = await Promise.all([
+    read(VERIFY_MANIFEST_PATH),
+    read(VERIFY_PACKAGE_PATH),
+    read(VERIFY_TSCONFIG_PATH),
+  ]);
   const guidance: { path: string; text: string }[] = [];
   for (const rel of VERIFY_GUIDANCE_PATHS) {
     const text = await read(rel);
     if (text) guidance.push({ path: rel, text });
   }
-  return { manifestYaml, guidance, packageJson };
+  return { manifestYaml, guidance, packageJson, hasTsconfig: tsconfig != null };
 }
 
-/** Resolve the command this worktree's repository declares, reading it off disk. */
-export async function resolveVerifyForWorktree(dir: string): Promise<ResolvedVerify | null> {
-  return resolveVerifyCommand(await readVerifyInputs(dir));
+/** Resolve the NARROWING LADDER this worktree's repository supports, reading it off disk: the
+ *  declared primary first, then the hermetic fallbacks. Empty when it declares no primary. */
+export async function resolveVerifyForWorktree(dir: string): Promise<ResolvedVerify[]> {
+  return resolveVerifyLadder(await readVerifyInputs(dir));
 }
 
 /**
@@ -149,12 +158,32 @@ export async function discardWorktreeEdits(dir: string): Promise<boolean> {
 
 /** The baseline measured once per worktree, then reused for that worktree's later cycles. */
 export interface VerifyBaseline {
+  /** THE COMMAND THE BASELINE IS ABOUT: the first rung of the ladder that PASSED on the pristine
+   *  tree, or — when none did — the primary, which is what the no-baseline note is written about. */
   resolved: ResolvedVerify | null;
   /** null when nothing was resolved — the guard is skipped and there is no pass/fail to record. */
   passed: boolean | null;
   /** The failure note when the baseline itself was red, for the lane log. */
   note: string | null;
+  /** THE PRIMARY THE LADDER STARTED FROM, set ONLY when `resolved` is a narrowed rung that passed in
+   *  its place. `null` whenever the baseline is the repository's own declared command — so
+   *  `narrowedFrom != null` is exactly "this cycle's verdict is weaker than it looks", and every
+   *  surface that renders a verdict keys its caveat off it. */
+  narrowedFrom: ResolvedVerify | null;
+  /** The narrowed rungs that were tried and did NOT pass either. Named in the no-baseline note so a
+   *  reader can tell "the ladder was walked and nothing ran here" from "there was no ladder". */
+  triedNarrowed: readonly ResolvedVerify[];
 }
+
+/** The empty baseline — nothing resolved, nothing measured. Written once so the lane's own fallback
+ *  and the guard's cannot drift apart as the shape grows. */
+export const NO_VERIFY_BASELINE: VerifyBaseline = {
+  resolved: null,
+  passed: null,
+  note: null,
+  narrowedFrom: null,
+  triedNarrowed: [],
+};
 
 /**
  * The per-worktree baseline cache.
@@ -173,19 +202,32 @@ export const forgetVerifyBaseline = (dir: string): void => void BASELINES.delete
 export const __clearVerifyBaselines = (): void => BASELINES.clear();
 
 export interface GuardDeps {
-  resolve: (dir: string) => Promise<ResolvedVerify | null>;
+  /** The NARROWING LADDER for this worktree, best rung first (`resolveVerifyLadder`). */
+  resolveLadder: (dir: string) => Promise<ResolvedVerify[]>;
   run: (dir: string, command: string, timeoutMs: number) => Promise<VerifyRun>;
   discard: (dir: string) => Promise<boolean>;
 }
 
 export const defaultGuardDeps: GuardDeps = {
-  resolve: resolveVerifyForWorktree,
+  resolveLadder: resolveVerifyForWorktree,
   run: runVerifyCommand,
   discard: discardWorktreeEdits,
 };
 
 /**
- * A — measure (or recall) the pristine baseline for this worktree.
+ * A — measure (or recall) the pristine baseline for this worktree, WALKING THE NARROWING LADDER.
+ *
+ * The rungs are run in order and the FIRST that passes becomes the baseline. The primary is still
+ * tried first and a repository whose own command passes here is measured exactly as it was before the
+ * ladder existed — one resolution, one run, `narrowedFrom: null`. The ladder only costs a second run
+ * on a repository where the guard previously gave up.
+ *
+ * WHY NARROWING BEATS STOPPING. `baseline-unavailable` disables the guard AND blocks delivery, and on
+ * both campaign repositories it was the verdict on every single cycle — a worktree carries none of the
+ * credentials or service config a realistic suite reaches for. Typecheck and lint are hermetic, so
+ * they can establish a baseline there; and a structural refactor that breaks the build or the types is
+ * the damage most worth catching. A weaker guard is still a guard, PROVIDED it says how weak it is —
+ * which is what `narrowedFrom` carries into every sentence below.
  *
  * Returns the cached entry unchanged on any cycle after the first. Never throws.
  */
@@ -197,22 +239,34 @@ export async function verifyBaseline(
   const cached = BASELINES.get(dir);
   if (cached) return cached;
   const deps = { ...defaultGuardDeps, ...overrides };
-  const resolved = await deps.resolve(dir).catch(() => null);
-  if (!resolved) {
-    const entry: VerifyBaseline = { resolved: null, passed: null, note: null };
+  const remember = (entry: VerifyBaseline): VerifyBaseline => {
     BASELINES.set(dir, entry);
     return entry;
-  }
-  const run = await deps.run(dir, resolved.command, timeoutMs).catch(
-    (err: unknown): VerifyRun => ({ ok: false, output: err instanceof Error ? err.message : String(err), timedOut: false }),
-  );
-  const entry: VerifyBaseline = {
-    resolved,
-    passed: run.ok,
-    note: run.ok ? null : firstFailureLines(run.output),
   };
-  BASELINES.set(dir, entry);
-  return entry;
+  const ladder = await deps.resolveLadder(dir).catch((): ResolvedVerify[] => []);
+  const primary = ladder[0];
+  if (!primary) return remember(NO_VERIFY_BASELINE);
+  let primaryNote: string | null = null;
+  const triedNarrowed: ResolvedVerify[] = [];
+  for (const rung of ladder) {
+    const run = await deps.run(dir, rung.command, timeoutMs).catch(
+      (err: unknown): VerifyRun => ({ ok: false, output: err instanceof Error ? err.message : String(err), timedOut: false }),
+    );
+    if (run.ok) {
+      return remember({
+        resolved: rung,
+        passed: true,
+        note: null,
+        narrowedFrom: rung.rung === "primary" ? null : primary,
+        triedNarrowed: [],
+      });
+    }
+    if (rung.rung === "primary") primaryNote = firstFailureLines(run.output);
+    else triedNarrowed.push(rung);
+  }
+  // Nothing on the ladder passed. The verdict is written about the PRIMARY, unchanged — that is the
+  // command the repository declared and the one the operator can do something about.
+  return remember({ resolved: primary, passed: false, note: primaryNote, narrowedFrom: null, triedNarrowed });
 }
 
 /** What the guard concluded, in the form the lane records and the ledger renders. */
@@ -220,6 +274,11 @@ export interface GuardOutcome {
   verdict: VerifyVerdict;
   /** The command that was run, or null when none was resolved. */
   command: string | null;
+  /** WHICH RUNG that command was — `primary` for the repository's own gate, `typecheck` / `lint` when
+   *  the ladder narrowed, `null` on `skipped` (nothing ran). PERSISTED on the lane, because
+   *  "verified" and "verified against the typechecker only" are different facts and a column that
+   *  renders them alike is the lie this whole module exists to avoid. */
+  rung: VerifyRung | null;
   /** One line for the lane log AND the persisted note — never empty, on every verdict. */
   note: string;
   /** True only for `rejected`: the lane must not commit, must not rescan, must not deliver. */
@@ -230,6 +289,10 @@ export interface GuardOutcome {
  * B — run the command again after the session and decide.
  *
  * The four verdicts, and the ONE that changes the lane's course:
+ * The command being re-run is whichever rung of the ladder ESTABLISHED the baseline — a narrowed
+ * baseline is re-checked with the narrowed command, never the primary, because A and B must be the
+ * same question. Everything a narrowed verdict says carries the caveat naming what was not run.
+ *
  *   • baseline could not be resolved  → `skipped`, and the note says the repository declares no
  *     command. Not a pass.
  *   • baseline did not pass HERE      → `baseline-unavailable`. No baseline exists to compare the
@@ -251,6 +314,7 @@ export async function verifyResult(
     return {
       verdict: "skipped",
       command: null,
+      rung: null,
       note:
         "Verification SKIPPED: this repository declares no check the loop could resolve — no `.ai/manifest.yaml` control, " +
         "no command in its guidance files, and no conventional package.json script. This lane's work is UNVERIFIED, not verified.",
@@ -258,6 +322,11 @@ export async function verifyResult(
     };
   }
   const { command, source } = baseline.resolved;
+  const rung = baseline.resolved.rung;
+  // The one clause a narrowed verdict owes its reader, resolved once and spliced into whichever
+  // sentence below applies. `null` when the baseline is the repository's own command, which is the
+  // case where nothing extra may be said.
+  const caveat = baseline.narrowedFrom ? narrowedCaveat(baseline.resolved, baseline.narrowedFrom) : null;
   if (!baseline.passed) {
     // WHAT THIS NOTE MAY AND MAY NOT SAY. It may say the command did not pass on the pristine lane
     // worktree. It may NOT say the repository's checks are failing — that is a different claim, this
@@ -268,9 +337,19 @@ export async function verifyResult(
     // fails here and passes there. `looksUnrunnable` only sharpens the sentence when the command could
     // not start at all; both readings are the same verdict: no baseline, no blame.
     const unrunnable = looksUnrunnable(baseline.note ?? "");
+    // WHAT ELSE WAS TRIED. Placed BEFORE the `First failure:` marker on purpose: `baselineFailureLines`
+    // quotes everything after that marker back to the operator as the command's verbatim output, and a
+    // sentence of ours smuggled in there would be presented as the repository's.
+    const ladder =
+      baseline.triedNarrowed.length > 0
+        ? `Narrower hermetic checks were tried in its place and did not pass here either: ${baseline.triedNarrowed
+            .map((r) => `\`${r.command}\``)
+            .join(", ")}. `
+        : "";
     return {
       verdict: "baseline-unavailable",
       command,
+      rung,
       note:
         `Verification NO BASELINE: \`${command}\` (from ${source}) ` +
         (unrunnable
@@ -281,6 +360,7 @@ export async function verifyResult(
         "the repository's own checks fail elsewhere. So the guard has no baseline to compare this cycle against, and the " +
         `agent is not blamed for it. To make this cycle verifiable, declare a command that runs from a clean checkout at ` +
         `\`controls.ciHardPass\` in \`.ai/manifest.yaml\`, or set this repository's \`verifyMode\` to off. ` +
+        ladder +
         `First failure: ${baseline.note ?? "(no output)"}`,
       reject: false,
     };
@@ -293,7 +373,13 @@ export async function verifyResult(
     return {
       verdict: "verified",
       command,
-      note: `Verified: \`${command}\` (from ${source}) passed before this session and passes after it.`,
+      rung,
+      // A NARROWED PASS NEVER PRINTS THE UNQUALIFIED WORD. The caveat leads, because the first
+      // sentence is what a skimming reader takes away, and "Verified: `npm run typecheck` passed"
+      // reads as a verified suite to everyone who does not know which command this repo declares.
+      note: caveat
+        ? `Verification NARROWED — ${caveat}. \`${command}\` passed before this session and passes after it, so this lane still COMPILES and LINTS; it is not proof the suite is green.`
+        : `Verified: \`${command}\` (from ${source}) passed before this session and passes after it.`,
       reject: false,
     };
   }
@@ -301,8 +387,12 @@ export async function verifyResult(
   return {
     verdict: "rejected",
     command,
+    rung,
     note:
-      `Verification REJECTED this cycle: \`${command}\` (from ${source}) passed before the session and ${run.timedOut ? "timed out" : "failed"} after it. ` +
+      // THE REJECTION PATH IS UNCHANGED IN SPIRIT AND STAYS STRICT ON A NARROWED RUNG. A pass that
+      // became a failure is a regression whichever command measured it, and a narrowed baseline buys
+      // an agent no leniency — it only changes what the sentence claims was broken.
+      `Verification REJECTED this cycle: \`${command}\` (from ${source}${rung === "primary" ? "" : `, a NARROWED ${rung} check — the declared \`${baseline.narrowedFrom?.command ?? "command"}\` could not establish a baseline here`}) passed before the session and ${run.timedOut ? "timed out" : "failed"} after it. ` +
       `${discarded ? "The edits were discarded in the throwaway worktree" : "The edits could NOT be discarded — check the worktree"}; nothing was committed and nothing will be delivered. ` +
       `First failure:\n${firstFailureLines(run.output)}`,
     reject: true,

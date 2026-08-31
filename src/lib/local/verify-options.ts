@@ -45,6 +45,48 @@
  */
 export type VerifyVerdict = "verified" | "rejected" | "baseline-unavailable" | "skipped";
 
+/**
+ * WHICH COMMAND A VERDICT IS ABOUT — the rung of the narrowing ladder the guard actually ran.
+ *
+ * A git worktree is not a runnable environment for a realistic application. It carries tracked files
+ * plus the dependency caches the loop links and NONE of the gitignored credentials, service config or
+ * local databases a full suite reaches for. Measured 2026-08-31: `xkazm04/systedo-case` passes
+ * 3744/3744 in the paired checkout and fails 8 in a worktree cut from the same commit, every failure
+ * a missing Google application-default credential; `xkazm04/kp` fails 2. So on exactly the two
+ * repositories the guard was built for, the primary command could never establish a baseline — the
+ * guard protected nothing, and (because unverified work must not be delivered) it also blocked every
+ * delivery.
+ *
+ * A WEAKER GUARD IS STILL A GUARD. Typechecking and linting are hermetic: no credentials, no
+ * services, nothing a worktree lacks. A structural refactor that breaks the build or the types is
+ * also the damage most worth catching. So when the primary cannot establish a baseline the guard
+ * NARROWS — `typecheck`, then `lint` — and takes the first rung that passes on the pristine tree.
+ *
+ * THE RUNG IS PERSISTED AND PRINTED EVERYWHERE A HUMAN READS A VERDICT, because a lane verified
+ * against `npm run typecheck` has NOT been verified against the repository's tests and a reader must
+ * never believe otherwise.
+ */
+export type VerifyRung = "primary" | "typecheck" | "lint";
+
+export const VERIFY_RUNGS: readonly VerifyRung[] = ["primary", "typecheck", "lint"];
+
+/** A rung from an untrusted column, else `null` — "we do not know which command this verdict is
+ *  about", which is what every lane written before the ladder carries. Null is NOT `primary`: a
+ *  guess in that direction would silently upgrade an unknown verdict into a full one. */
+export const asVerifyRung = (v: unknown): VerifyRung | null =>
+  typeof v === "string" && (VERIFY_RUNGS as readonly string[]).includes(v) ? (v as VerifyRung) : null;
+
+/** Was this verdict reached against a NARROWED fallback rather than the repository's own gate? */
+export const isNarrowedRung = (v: unknown): boolean => {
+  const r = asVerifyRung(v);
+  return r != null && r !== "primary";
+};
+
+/** The short word a sheet or rail prints beside `verified` when the ladder narrowed — `typecheck
+ *  only`, `lint only` — and `null` when it did not, because "primary" is the normal case and a badge
+ *  meaning "normal" is noise. */
+export const narrowedRungTag = (v: unknown): string | null => (isNarrowedRung(v) ? `${asVerifyRung(v)} only` : null);
+
 export const VERIFY_VERDICTS: readonly VerifyVerdict[] = ["verified", "rejected", "baseline-unavailable", "skipped"];
 
 /**
@@ -91,6 +133,13 @@ export const verifyVerdictTag = (v: string | null | undefined): string | null =>
  * WHY THIS LANE MAY NOT BE DELIVERED WHEN THE OPERATOR ASKED FOR VERIFICATION — one sentence, shared
  * by both delivery doors (the unattended step in `loop-delivery.ts` and the one-click
  * `POST /api/org/loop/[id]/pr`), so they can never give the same lane two different answers.
+ *
+ * A NARROWED `verified` IS DELIVERABLE, deliberately. The verdict does not carry the rung here and is
+ * not meant to: the alternative — refusing every lane whose repository keeps credentials in its test
+ * suite — is the situation the ladder exists to end, and it is the situation that held on both
+ * campaign repositories. The trade is stated rather than hidden: a narrowed lane is delivered on a
+ * proof that it still COMPILES and LINTS, not that the suite is green, and every surface that renders
+ * the verdict says which command it was (`narrowedRungTag`).
  *
  * `null` for `verified` and ONLY for `verified`. That is the whole rule: turning the guard on is a
  * request that changes be CHECKED before they reach a branch, and three of the four verdicts —

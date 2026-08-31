@@ -287,6 +287,23 @@ describe("verification the operator asked for", () => {
     expect((await deliverLane({ ...input, delivery: "pr", verifyMode: "on" }, deps)).delivered).toBe(true);
   });
 
+  // A NARROWED `verified` IS DELIVERABLE — the deliberate trade this ladder makes.
+  //
+  // The alternative is that no repository keeping credentials in its test suite can ever land, which
+  // is precisely the situation that held: on both campaign repos the declared command could not
+  // establish a baseline in a worktree, so every lane returned `baseline-unavailable` and every
+  // delivery was refused. The loop is proving "this still compiles and lints", not "the suite is
+  // green" — and it says so on the lane, in the brief and on the sheet rather than in this gate.
+  it("delivers a lane verified against a NARROWED rung, exactly like a full one", async () => {
+    for (const rung of ["typecheck", "lint"]) {
+      mocks.land.mockClear();
+      mocks.getLane.mockResolvedValue(lane({ verifyVerdict: "verified", verifyRung: rung, commits: 2 }));
+      const res = await deliverLane({ ...input, delivery: "land", verifyMode: "on" }, deps);
+      expect(res.delivered, `${rung} was refused`).toBe(true);
+      expect(mocks.land).toHaveBeenCalledTimes(1);
+    }
+  });
+
   it("says WHICH verdict held the work back, per verdict", async () => {
     const said: Record<string, string> = {};
     for (const verdict of unverifiable) {
