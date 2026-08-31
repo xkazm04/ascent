@@ -16,7 +16,17 @@ export function DeliveryGovernanceSection({ gov }: { gov: OrgGovernance }) {
       <div className={`mt-3 ${TILE_LEDGER} grid-cols-2 sm:grid-cols-4`}>
         <Tile label="Protect main" value={`${gov.protectedRate}%`} color={scoreHex(gov.protectedRate)} />
         <Tile label="Require review" value={`${gov.requireReviewRate}%`} sub="≥1 approving review" color={scoreHex(gov.requireReviewRate)} />
-        <Tile label="Require checks" value={`${gov.requireChecksRate}%`} color={scoreHex(gov.requireChecksRate)} />
+        {/* "Required status checks", not "Require checks" (UAT PRIYA-L1-07): this is the
+            branch-protection rate — the share of repos whose default branch requires status checks
+            to pass. Governance's `GatePolicy.requireChecks` is a different thing two tabs away
+            (doctor control ids that must not be reported failing), and the two must not share a
+            phrase on a dashboard a lead cites to an auditor. */}
+        <Tile
+          label="Required status checks"
+          value={`${gov.requireChecksRate}%`}
+          sub="branch protection"
+          color={scoreHex(gov.requireChecksRate)}
+        />
         <Tile label="Signed commits" value={`${gov.signedRate}%`} color={scoreHex(gov.signedRate)} />
       </div>
       <div className="mt-3">

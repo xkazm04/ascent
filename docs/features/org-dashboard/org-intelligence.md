@@ -517,6 +517,34 @@ That card was also the flagship governance→practice handoff, so the `#practice
 plan initiatives, and the overview's fix-first list + posture dimensions. The receiving contract is
 unchanged.
 
+### "Where the fleet fails": a structural zero is not a measurement (2026-08-31)
+
+The fail-reasons card renders one row per `GateFailure` code. Two of them — `control` (#16, a required
+doctor check reported failing) and `admission` (#8, AI authorship in a blocked repo) — **cannot be
+judged on the fleet path at all**: `evaluateGateLite` scores from the rollup's persisted numbers, and a
+rollup row carries neither a conformance ledger nor PR stats, so both criteria are skipped on every
+repo, every time. `governance.ts` has always said so in a comment — *"these stay 0 honestly, because
+the criteria were never DUE here"* — and the comment never reached the screen.
+
+Live cost (UAT 2026-08-30, `PRIYA-L1-02`): a platform lead who had just declared two required controls
+read **"A required control is failing — 0 repos"** beside five genuinely measured meter rows, while the
+per-repo CI gate was blocking PRs on exactly those controls. Those two rows now render
+**"not judged fleet-wide — the per-repo gate decides it"** with an em-dash in the count column instead
+of a 0-meter, and the card's all-clear empty state carries the same caveat when the org's stored bar
+actually declares one of them (`unjudgedBarsDeclared`). The set lives in
+`governanceReasons.ts` (`FLEET_UNJUDGED_REASONS`); `governance` and `provenance` are deliberately NOT
+in it — the rollup carries the branch-protection fields and `aiGovernedRate` / `aiPrSample`, and
+`evaluateGateLite` evaluates both, so their zeros are earned.
+
+### Delivery's "Required status checks" tile (2026-08-31)
+
+Renamed from **"Require checks"** (UAT `PRIYA-L1-07`). It is `OrgGovernance.requireChecksRate` — the
+share of repos whose default branch requires status checks under branch protection — and it was one
+phrase away from `GatePolicy.requireChecks` on the Governance tab, which is an entirely different
+thing (doctor control ids that must not be reported failing). Two tabs, one word, two meanings, on a
+dashboard a lead cites to an auditor. The tile now reads "Required status checks" with a
+`branch protection` subtitle.
+
 ## Dashboard rollups (`src/lib/db/org.ts`)
 
 `src/lib/db/org.ts` is a ~114-line **barrel**: a thin re-export surface, not where the

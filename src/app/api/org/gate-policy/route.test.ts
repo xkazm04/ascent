@@ -288,6 +288,54 @@ describe("POST /api/org/gate-policy — open-PR re-check sweep", () => {
     );
   });
 
+  // UAT 2026-08-30, NADIA-L1-07 — live. An owner changed Min overall 50 -> 55 and two required
+  // controls vanished; the row the app wrote carried them under `previousPolicy` and said nothing in
+  // `policy` or in the human-readable `status`. "The system knows precisely what it destroyed and the
+  // operator is never told." A control that can disappear without the log saying so is not a control.
+  it("names a DROPPED bar in the human-readable status, not only inside previousPolicy", async () => {
+    vi.mocked(getOrgGatePolicy).mockResolvedValueOnce({
+      minLevel: "L3",
+      minOverall: 50,
+      minDimension: 40,
+      requireChecks: ["control.prepush.lint", "guardrail.never-commit"],
+    });
+
+    await save({ minLevel: "L3", minOverall: 55, minDimension: 40 });
+
+    const meta = vi.mocked(recordOrgAudit).mock.calls[0][2] as { status: string; changes: unknown[] };
+    expect(meta.status).toContain("min overall 55"); // the bar that IS in force…
+    expect(meta.status).toContain("dropped required controls"); // …and the one this save removed
+    expect(meta.status).toContain("control.prepush.lint");
+    expect(meta.changes).toContainEqual(expect.objectContaining({ field: "requireChecks", kind: "removed" }));
+  });
+
+  it("says nothing about drops when a save dropped nothing — the clause must not cry wolf", async () => {
+    vi.mocked(getOrgGatePolicy).mockResolvedValueOnce({ minOverall: 50 });
+
+    await save({ minOverall: 50, requireProtectedBranch: true });
+
+    const meta = vi.mocked(recordOrgAudit).mock.calls[0][2] as { status: string };
+    expect(meta.status).not.toContain("dropped");
+  });
+
+  // The editor's own reconciliation compares its REQUEST against the echo, so it is structurally
+  // blind to a field it never sent. Only the server holds both policies, so only the server can say
+  // "your save removed this" — and it has to hand that back, or the warning cannot be shown.
+  it("returns the dropped bars to the caller so the form can warn about a field it never sent", async () => {
+    vi.mocked(getOrgGatePolicy).mockResolvedValueOnce({
+      minOverall: 50,
+      requireChecks: ["control.prepush.lint"],
+    });
+
+    const body = (await (await save({ minOverall: 55 })).json()) as {
+      dropped: { label: string; was: string }[];
+    };
+
+    expect(body.dropped).toHaveLength(1);
+    expect(body.dropped[0].label).toBe("required controls");
+    expect(body.dropped[0].was).toContain("control.prepush.lint");
+  });
+
   it("an audit-baseline read failure never fails the save (best-effort, unlike the gate's own read)", async () => {
     vi.mocked(getOrgGatePolicy).mockRejectedValueOnce(new Error("db down"));
 

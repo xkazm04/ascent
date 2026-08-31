@@ -2,7 +2,7 @@
 // governance page.tsx unchanged (docs/ORG-TABS-REFACTOR.md: pure fns/data get their own camelCase
 // module before JSX gets split further).
 
-import type { GateFailure } from "@/lib/scoring/gate";
+import type { GateFailure, GatePolicy } from "@/lib/scoring/gate";
 
 /**
  * EVERY code the gate can emit, labelled. Typed as a total `Record` over `GateFailure["code"]` on
@@ -31,6 +31,34 @@ const FAIL_REASON_LABELS: Record<GateFailure["code"], string> = {
   incomplete: "Scored nothing — not judged",
 };
 
+/**
+ * Conditions the FLEET path cannot judge — ever, by construction — and which must therefore never
+ * render as a measured "0 repos".
+ *
+ * `evaluateGateLite` scores from the rollup's persisted numbers. A rollup row carries no conformance
+ * ledger and no PR stats, so `control` (#16) and `admission` (#8) are skipped on every repo, every
+ * time. `governance.ts` says exactly this in a comment — *"these stay 0 honestly, because the
+ * criteria were never DUE here"* — and the comment never reached the screen: a lead who had just
+ * declared two required controls read "A required control is failing — 0 repos" beside five
+ * genuinely measured rows while the per-repo CI gate blocked PRs on precisely those controls
+ * (UAT 2026-08-30, PRIYA-L1-02). A structural zero rendered as a measurement is a lie the dashboard
+ * tells with a straight face; these rows say "not judged fleet-wide" instead.
+ *
+ * NOTE the two that look similar but are NOT here: `provenance` and `governance` are real fleet
+ * measurements — the rollup carries `aiGovernedRate` / `aiPrSample` and the branch-protection fields,
+ * and `evaluateGateLite` evaluates both (honest-null skip per repo when unmeasurable). Their zeros
+ * are earned. Only add a code here when the fleet path can never evaluate it at all.
+ */
+export const FLEET_UNJUDGED_REASONS = new Set<GateFailure["code"]>(["admission", "control"]);
+
+/** Where a condition IS judged, for the row that cannot be judged here. */
+export const FLEET_UNJUDGED_NOTE = "not judged fleet-wide — the per-repo gate decides it";
+
+/** Does the org's stored bar actually carry a criterion the fleet view cannot judge? */
+export function unjudgedBarsDeclared(p: GatePolicy | null): boolean {
+  return Boolean(p?.requireChecks?.length || p?.forbidAiAuthorship);
+}
+
 export const GOVERNANCE_FAIL_REASONS = (Object.keys(FAIL_REASON_LABELS) as GateFailure["code"][]).map(
-  (key) => ({ key, label: FAIL_REASON_LABELS[key] }),
+  (key) => ({ key, label: FAIL_REASON_LABELS[key], fleetJudged: !FLEET_UNJUDGED_REASONS.has(key) }),
 );
