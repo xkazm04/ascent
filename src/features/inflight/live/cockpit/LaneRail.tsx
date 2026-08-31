@@ -50,10 +50,14 @@ export function LaneRail({ lane, lift = null, onRetry, busy = false }: LaneRailP
         </span>
         <span className="shrink-0 type-caption tabular-nums text-slate-500">
           cycle {lane.cycle} · {lane.commits} commits ·{" "}
-          {/* `closedIds` is the RESCAN's adjudicated set (`decideInProgress`), not the commit-trailer
-              set the agent's own session wrote — see lane-outcomes.ts. The title says which. */}
-          <span title="Follow-ups the rescan closed: the gap is no longer raised and its dimension measurably moved. An agent's unconfirmed claim is not counted here.">
-            {lane.closedIds.length} closed by the rescan
+          {/* ONE WORD, ONE FACT (MC-B41). "closed by the rescan" is reserved for a PER-ITEM verdict
+              (`CockpitVerdicts`); this is a lane-level COUNT of the rescan's adjudicated set
+              (`decideInProgress`), so it says "verified closed". A reader who has just been taught
+              that "claimed resolved" is not "closed" must not then meet "closed" meaning a third
+              thing on the same screen. The ceiling is in the title: a lane written before the
+              adjudicated set landed carries the raw trailer count and was never backfilled. */}
+          <span title="Follow-ups this lane's rescan VERIFIED closed: the gap is no longer raised and its dimension measurably moved. An agent's unconfirmed claim is not counted. On a lane run before 2026-08-31 this is the commit-trailer count, which was never backfilled.">
+            {lane.closedIds.length} verified closed
           </span>
           {lift != null && lift !== 0 && <span className="ml-2 text-slate-300">{fmtDelta(lift)}</span>}
         </span>

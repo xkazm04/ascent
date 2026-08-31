@@ -952,7 +952,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     await appendLaneLog(
       laneId,
       (closedIds.length > 0
-        ? `${closedIds.length} follow-up(s) closed by the rescan — the gap is no longer raised and its dimension moved.`
+        ? `${closedIds.length} follow-up(s) VERIFIED closed — the gap is no longer raised and its dimension moved.`
         : "No follow-ups closed this cycle.") + claimNote,
     );
     // WHAT THE LANE DELIVERED, as headlines (lane-deliverables.ts): the agent's claims, the install,

@@ -118,9 +118,10 @@ export function AutopilotLog({ job }: { job: AutopilotJobView }) {
         </span>
         <span className="text-slate-400">
           <span className="tabular-nums text-slate-200">{job.commits}</span> commit{job.commits === 1 ? "" : "s"} ·{" "}
-          {/* The lanes' `closedIds` are the RESCAN's adjudicated closes, never the agent's commit
-              trailers — so the word "closed" here is the verdict and not a claim (lane-outcomes.ts). */}
-          <span className="tabular-nums text-success-soft">{job.closedIds.length}</span> closed by the rescan
+          {/* Same count, same word as `LaneRail` (MC-B41): the RESCAN's adjudicated closes, never the
+              agent's commit trailers. "closed by the rescan" belongs to the per-item verdict alone,
+              so this lane-level counter reads "verified closed". */}
+          <span className="tabular-nums text-success-soft">{job.closedIds.length}</span> verified closed
         </span>
         {job.branch && <span className="text-slate-500">branch {job.branch}</span>}
       </div>

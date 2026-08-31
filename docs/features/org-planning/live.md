@@ -290,10 +290,30 @@ Three rules now hold, and they are the vocabulary the whole loop answers to:
    stamp and now reads *"claimed resolved — awaiting the rescan"*, which is what those rows are:
    nothing adjudicated them, and no migration can invent an adjudication that never happened. The
    next rescan is what earns them a stamp.
-3. **The panel says which one it means.** A verified close reads *"closed by the rescan"* in the
-   accent tone; an unverified one reads *"claimed resolved — awaiting the rescan"* in a muted italic,
-   with a title explaining that the item is still open. The lane counters and the run band say
-   *"closed by the rescan"* because, after rule 1, that is now what they count.
+3. **One word per fact — the panel says which one it means.** Rules 1 and 2 fixed the per-item
+   verdict and the chrome around it kept the old word for two *other* quantities: the lane rails and
+   the autopilot band printed `{closedIds.length} closed by the rescan`, and the outcome sheet header
+   printed *"324 gaps closed"* where `gaps` is `diff.closedGapCount` — a **scan-diff** number. A
+   reader who had just been taught that "claimed resolved" is not "closed" then met "closed" twice
+   more meaning two other things, on the same screen, in the same session (`RC2-N6`). Four facts now
+   have four phrasings, and they do not overlap:
+
+   | The fact | What it says | Where |
+   | --- | --- | --- |
+   | An agent's trailer nothing adjudicated | *claimed resolved — awaiting the rescan* (muted italic) | `CockpitVerdicts` |
+   | ONE item the rescan ruled on (`verifiedAt` set) | *closed by the rescan* (accent) | `CockpitVerdicts` |
+   | A LANE's count of the rescan's adjudicated set | *N verified closed* | `LaneRail`, `AutopilotBandParts`, the lane log |
+   | `diff.closedGapCount`, a scan-diff quantity | *N gaps no longer raised* | `OutcomeSection`, `takeaway()` |
+
+   *"closed by the rescan"* is now **reserved for the per-item verdict** and appears nowhere else.
+   `cockpitVocabulary.test.ts` pins all four, positively and negatively — the scan-diff line is
+   asserted not to contain the word "closed" at all.
+
+   **Ceiling, stated on the surface itself:** a lane written before rule 1 landed stores the raw
+   commit-trailer set in `closedIdsJson` and is **not backfilled**, so its rail count is a claim
+   count wearing the word "verified". The rail's title says exactly that, with the date. The honest
+   fix is the same one rule 2 took — a stamp earned by a rescan, never a migration that invents one —
+   and it needs a per-lane discriminator the lane record does not carry today.
 
 **Silence claims nothing.** The lane used to trail *every armed id* when the session named none, on
 the reading that "the rescan decides anyway" — which rule 1 shows was not true. A live session killed

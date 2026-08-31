@@ -68,7 +68,11 @@ export function OutcomeSection(p: OutcomeSectionProps) {
         </div>
         {matrix.columns.length > 0 && (
           <span className="type-caption tabular-nums text-slate-500">
-            {matrix.totals.repos} {matrix.totals.repos === 1 ? "repo" : "repos"} · {matrix.totals.gaps} gaps closed · drag a column edge to widen it
+            {/* `totals.gaps` is `diff.closedGapCount`, a SCAN-DIFF quantity — not the lanes' adjudicated
+                close count and not a follow-up verdict. Its own words, so "closed" keeps meaning one
+                thing on this page (MC-B41). */}
+            {matrix.totals.repos} {matrix.totals.repos === 1 ? "repo" : "repos"} · {matrix.totals.gaps} gaps no longer
+            raised · drag a column edge to widen it
           </span>
         )}
       </div>

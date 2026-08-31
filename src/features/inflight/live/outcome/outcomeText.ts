@@ -20,7 +20,11 @@ export function takeaway(m: OutcomeMatrix): string {
   const gaps = plural(m.totals.gaps, "gap");
   if (m.totals.lift != null && m.totals.lift > 0) return `Fleet climbed ${fmtDelta(m.totals.lift)} across ${runs}`;
   if (m.totals.lift != null && m.totals.lift < 0) return `Fleet slipped ${fmtDelta(m.totals.lift)} across ${runs}`;
-  return `${gaps} closed across ${runs} · no attributable lift yet`;
+  // `m.totals.gaps` is `diff.closedGapCount` — a SCAN-DIFF quantity, not a follow-up verdict and not
+  // the lanes' adjudicated close count. It gets its own words (MC-B41): three different facts on one
+  // screen wearing the word "closed" is how a reader unlearns the claim/verdict split the item
+  // verdicts have just taught them.
+  return `${gaps} no longer raised across ${runs} · no attributable lift yet`;
 }
 
 /** The refusal word a cell prints INSTEAD of a delta. Empty for an attributable pair. */
