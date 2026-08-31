@@ -1592,10 +1592,30 @@ unless two models are measured at `n >= 3` on **every** dimension the step is ai
 
 **UI** (`?tab=live`): a cost chip on each `LaneRail` (`sonnet · 4 turns · 48.00¢`, or the literal
 `cost unknown`, in the counters' own muted type — a cost is not a verdict, so it gets no colour); a
-`spent · ¢/point` line on each outcome row, reading `cost not measured` or `no measured movement`
-rather than a zero; and `PriceListPanel` under the run-history strip, which prints `n=` beside every
-cell and an explicit "a price needs a lane with both scan ends and a recorded cost" where a zeroed
-table would otherwise be.
+per-cell figure on the **outcome sheet's project-header row**, one per (run × repo); and
+`PriceListPanel` under the run-history strip, which prints `n=` beside every cell and an explicit
+"a price needs a lane with both scan ends and a recorded cost" where a zeroed table would otherwise be.
+
+*This paragraph used to promise a `spent · ¢/point` line on each outcome row and was **wrong for two
+waves** (UAT `PRIYA-L1-704`).* The spec's named home, `CockpitOutcomeLedger.tsx`, was deleted by the
+wave-2 refactor and its replacement rendered attribution, commits, gaps and `agentConfig` — no cost
+figure of any kind. `grep -rn "\.economics" src/features src/app` returned **zero hits** while the
+payload carried `microsPerVerifiedPoint` on every detail read, so the only ¢/point on the page was
+the org-wide average — the figure that *hid* a lane spending **$10.19 for 0 verified points**.
+
+What the cell may say is decided once, in `outcomeEconomics.ts`, and the rules are the fold's own:
+
+| Case | Reads |
+| --- | --- |
+| priced and measured | `1.50¢/pt` |
+| **spent, measured, nothing moved** | `$10.19 · 0 pts`, in the warning tone — spend beside a zero, never "not measured" and never averaged into anyone's rate (**G18**) |
+| spend known, rate not divisible | `3.00¢ · not measured`, with the missing half named in the title |
+| no cost reported | `cost not reported` — a blank cell would read as free |
+| no lane economics on the payload | nothing at all, never a zero |
+
+A cell can hold more than one lane (an A/B run works one repo twice in one cycle), so the rate is
+withheld unless **every** lane in it is both priced and measured: dividing a numerator that omits a
+lane's spend gives a number that is confidently wrong.
 
 **Meter.** Each lane also posts to the unified LLM meter (`meter()`, lane `local`) with the
 caller-owned idempotency key `loop-lane:<laneId>` and the envelope's own cost (converted from

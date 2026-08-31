@@ -17,12 +17,29 @@ import { deltaHex, fmtDelta } from "@/components/ui";
 import { LanePrAction } from "../cockpit/LanePrAction";
 import { CellLive, CellVerdict, cellInFlight } from "./OutcomeCell";
 import { OutcomeSheetCell } from "./OutcomeSheetCell";
+import { economicsLabel } from "./outcomeEconomics";
 import { cellFootnote } from "./outcomeText";
-import type { OutcomeColumn } from "./outcomeMatrix";
+import type { OutcomeCell, OutcomeColumn } from "./outcomeMatrix";
 import { prCell, type CellReviewHandler, type SheetGapRow, type SheetProject } from "./outcomeSheetModel";
 import { LABEL_COLUMN, REVEAL_DIM_PX } from "./useColumnWidths";
 
 const FROZEN = "sticky left-0 z-10 border-b border-r border-divider text-left align-top";
+
+/** The cell's remediation economics, one muted line under the verdict. Renders nothing when the
+ *  payload carried no lane economics — a server older than the ledger says nothing, not "0". */
+function CellEconomics({ cell }: { cell: OutcomeCell }) {
+  const label = economicsLabel(cell.economics);
+  if (!label) return null;
+  return (
+    <p
+      className={`type-micro mt-1 font-mono tabular-nums ${label.warn ? "text-warn" : "text-slate-600"}`}
+      title={label.title}
+      data-testid="cell-economics"
+    >
+      {label.text}
+    </p>
+  );
+}
 
 export function OutcomeProjectRow({
   project,
@@ -59,6 +76,12 @@ export function OutcomeProjectRow({
                 <span className="type-micro shrink-0 font-mono tabular-nums text-slate-600">{cellFootnote(cell.commits, cell.gaps)}</span>
               </span>
             )}
+            {/* WHAT THIS RUN SPENT ON THIS REPO, per verified point (UAT PRIYA-L1-704). The figure
+                has been on the wire since the ledger landed and was rendered nowhere; the only
+                ¢/point on the page was the ORG-WIDE average, which is precisely what hid a lane
+                spending $10.19 for 0 verified points. `economicsLabel` decides what may honestly be
+                said — a rate, spend-with-a-zero, spend-not-yet-divisible, or "cost not reported". */}
+            {cell && <CellEconomics cell={cell} />}
             {cell?.error && <p className="type-micro mt-1 text-danger">{cell.error}</p>}
           </td>
         );
