@@ -666,3 +666,363 @@ Generalize: **to certify a single-source claim, move the source.**
 | 13 | **Not this pass:** loop run `a97baf88` (started 14:10 local by a parallel session sharing this checkout) was in flight throughout and was neither started, read destructively, nor stopped by this pass | — | n/a |
 
 **Nothing was committed.** The working tree carries the `findings.json` edit and this file for review.
+
+---
+
+## Recertify pass 3 (`9fe74071..d6fec3a9`)
+
+**Started** 2026-08-31 16:16 local · **range** `9fe74071..d6fec3a9` (30 commits: four merged lanes A–D
+plus the backlog roll-up) · **23 items under test**, all carrying `built 2026-08-31 — pending recert`.
+
+**Step 0 (environment freshness) — PASSED, and it mattered.** `:3000` was PID 44724, started
+**14:09:58**; the last commit under test landed **16:08:46**. The server predated the entire second
+half of the range. Killed and restarted as **PID 8968 at 16:16:15**, health asserted for *identity*
+not liveness: `{"status":"ok","db":"up","dbMode":"pglite","autoscan":{…}}`. Every reading below is
+from that process.
+
+**⚠ Fidelity caveat, recorded because it is the honest bound on this pass.** At **16:36:17** a
+parallel session sharing this checkout renamed `consecutiveRedBaseline` →
+`consecutiveUnavailableBaseline` in `src/lib/local/lane-baseline.ts` and the whole app stopped
+compiling mid-pass (`/api/health` returned a Turbopack 500 for ~2 minutes; recovered 16:38:19,
+untouched by this pass). `HEAD` is still `d6fec3a9`, but eleven `src/lib/local/**` and
+`src/lib/db/loop-*` files are dirty with that session's uncommitted work. **All cockpit evidence in
+§1 was captured at ~16:19–16:22, before the first of those writes**, and the rendering components
+(`src/features/inflight/live/**`) are clean throughout — so the loop verdicts stand. Nothing after
+16:38 depends on those files.
+
+### Verdicts
+
+| Item | Findings | Verdict |
+|---|---|---|
+| **MC-B41** | ceiling of `PRIYA-L1-702` (drain-born) | ✅ **resolved-verified** — three of the four words rendered live |
+| **MC-B25** | `PRIYA-L2-C6`, `PRIYA-L2-C7` | ✅ **C6 resolved-verified** (horizon live off a real run) · ⚙️ **C7 fixed** |
+| **MC-B40** | `RC2-N4` (drain-born) | ✅ **resolved-verified** — and it deleted pass 2's residue row |
+| **MC-B36** | `RC-N2` (drain-born) | ✅ **resolved-verified** — the count came from the stored policy |
+| **MC-B37** | `RC-N3` (drain-born) | ✅ **resolved-verified** |
+| **MC-B28** | `VICTOR-L1-07` | ✅ **resolved-verified** (empty-but-read branch) |
+| **MC-B18** | `TOMAS-L1-11` | ✅ **resolved-verified** — 25 of 25 rows stale under r15, all chipped |
+| **MC-B35** | `RC-N1` (drain-born) | ✅ **resolved-verified** — chip and track print one unit on one page |
+| **MC-B24** | `SAM-L1-13` | ✅ **resolved-verified** (discovery link) · destination **uncertain — not reproducible** |
+| **MC-B19** | `VICTOR-L1-02` ✅ · `VICTOR-L1-04` ⚙️ · `VICTOR-L1-03` 🅑 | ✅ **(a) resolved-verified** (CSV downloaded, reconciles) · ⚙️ **(b) fixed, symptom unchanged** · 🅑 **(c) by-design / sequenced** |
+| **MC-B20** | `VICTOR-L2-01` | ✅ **resolved-verified** (drop half, one real model call) — **but the fix creates `RC3-N1`** |
+| **MC-B21** | `VICTOR-L1-01` | ✅ **resolved-verified** |
+| **MC-B22** | `TOMAS-L1-10` | ✅ **resolved-verified** with the env genuinely unset |
+| **MC-B38** | `RC2-N2` (drain-born) | ✅ **resolved-verified** on a `PUBLIC_SCAN_MONTHLY_LIMIT=1` arm |
+| **MC-B31** | `VICTOR-L1-06` ✅ · `VICTOR-L1-08` ⚙️ | ✅ **(c) resolved-verified** · ⚙️ **(a)(b) fixed** — **but (c) creates `RC3-N2`** |
+| **MC-B39** | `RC2-N3` (drain-born) | ⚙️ **fixed** — the dead branch is deleted, one behaviour declared |
+| **MC-B32** | (drain-born) | ⚙️ **fixed** — no anomaly fired to observe |
+| **MC-B27** | `DANA-L1-015` | ⚙️ **fixed** — cron not configured on this host (`MC-M3` still owed) |
+| **MC-B23** | `SAM-L1-10` | ⚙️ **fixed** — no reachable live fixture |
+| **MC-B29** | `PRIYA-L1-03/04/05/06`, `NADIA-L1-09/10` | ⚙️ **fixed, 6 of 6 sub-parts** — none rendered live |
+| **MC-B30** | `PRIYA-L1-705/706/707` | ⚙️ **fixed** — (b) took the stronger of the two allowed routes |
+| **MC-B34** | (drain-born) | ⚙️ **fixed** — same gate as every other forecast surface |
+| **MC-B26** | `PRIYA-L1-703` | ⚠️ **OPEN — partial fix.** The server read and the copy landed; `/api/org/loop/[id]` kept its `selfHostGuard` |
+
+**Regressed: none.** Every check passes 1 and 2 recorded as resolved still holds where this pass
+crossed it — the integrity chip, the provenance tracks, the governance card, the register and the
+`/usage` panels all render as recorded.
+
+**Tally: 9 `resolved-verified` · 14 `fixed` · 1 `by-design` · 1 `open`** across the 25 mapped finding
+ids; 23 items.
+
+---
+
+### 1. The headline — the cockpit's four-word vocabulary, measured on a real run
+
+`MC-B41` is the item with the most ways to be quietly wrong: four different words, on four different
+components, all meaning something adjacent. Three of the four rendered live on `/org/kiro?tab=live`
+against the in-flight run `a9cf047e` and the completed `RUN 1`
+(`shots/recert3-B41-cockpit.*`, `shots/recert3-B41-run1.*`):
+
+| Word | Where | Live evidence | Means |
+|---|---|---|---|
+| **verified closed** | lane rail | `recert3-B41-cockpit.text.txt:65,70` — *"cycle 1 · 0 commits · 0 verified closed"* | follow-ups the rescan ADJUDICATED closed |
+| **gaps no longer raised** | outcome sheet header | `:77` — *"2 repos · 359 gaps no longer raised"* | a scan-diff quantity (`diff.closedGapCount`) |
+| **claimed resolved — awaiting the rescan** | per-item verdict | `recert3-B41-run1.text.txt:1855,1862,1876,1883` | an agent's unconfirmed claim |
+| **closed by the rescan** | per-item verdict | *not rendered* | a VERIFIED per-item verdict |
+
+The fourth word could not appear and its absence is itself the confirmation: `CockpitVerdicts.tsx:43`
+reserves *"closed by the rescan"* for `verdict === "resolved" && verifiedAt !== null`, and pass 2
+measured **40 resolved outcomes, 0 with `verifiedAt`** after `MC-B33` stopped the read-time join. So
+every one of those rows now renders in the muted `CLAIMED_LABEL` form instead — which is exactly the
+inversion `PRIYA-L1-702` asked for, seen from the other side. The rail carries the honest history in
+its own title attribute: *"On a lane run before 2026-08-31 this is the commit-trailer count, which was
+never backfilled."*
+
+**Ceiling:** the vocabulary is now four words for four facts, but a reader on this host sees only
+three of them; the fourth is unobservable until a rescan verifies something, and no lane has since
+`MC-B33` landed.
+
+`MC-B25`'s stop half rides the same surface. `GET /api/org/loop?org=kiro` now answers **two new
+fields** — `stopping: false`, `stopHorizonMs: 1500000` — and the horizon is not a constant:
+`route.ts:93` resolves it as `agentTimeoutMs(active.agentTimeoutMs)`, and 1 500 000 ms is that run's
+own `agentTimeoutMs` from the same payload. The comment above it states why (*"a browser guessing
+'20 min' would be wrong on every deployment that raised it"*). **The caption was not rendered**:
+pressing Stop would have killed a parallel session's live run, so `stoppingCaption(1500000)` →
+*"Stopping — in-flight lanes finish their current session first, up to 25 min."* is code- and
+unit-verified only (`CockpitHeader.dom.test.tsx:65,73`). The live header correctly shows the pre-stop
+state (`STOP`, `STOP AFTER IN-FLIGHT` — `recert3-B41-cockpit.text.txt:38,71`).
+
+### 2. The residue cleanup that was also the test — `MC-B40`
+
+Pass 2 left an admission row on org `public` it *could not delete*, and wrote the missing `DELETE` as
+`RC2-N4`. This pass withdrew it through the door that finding opened, so one act serves as both the
+live certification and the cleanup:
+
+1. **Before** — `GET /api/org/admission?org=public` returned the neutralised row
+   (`sindresorhus/slugify`, `grantedTier: T0`, rationale *"UAT recertify pass 2 - NEUTRALISED…"*).
+2. **Act** — `DELETE /api/org/admission` (same-origin headers per `RC2-M3a`) →
+   `{"ok":true,"withdrawn":{…}}`, returning the removed decision rather than a bare success.
+3. **After** — `GET` returns `{"rows":[],"stanceVersion":null}`. **State is sparse again**; the org
+   carries no decision, which is different from carrying a decision that says nothing.
+4. **The act persisted** — `/org/public?tab=audit` (`shots/recert3-B40-audit.text.txt:106,109`) shows
+   `ADMISSION WITHDRAWN` with the previous grant named: *"sindresorhus/slugify: admission decision
+   WITHDRAWN — was blocked, tier T0 (decided by @developer); back to no decision, tier T0 as derived —
+   UAT recertify pass 3 …"*. The ledger now reads decided → withdrawn, which is the whole argument of
+   the row.
+5. **Idempotent, and honest about it** — a second `DELETE` returns `{"ok":true,"withdrawn":null}` and
+   writes **no** audit act (`route.ts:174-177`: *"an append-only ledger must carry things that
+   happened, not requests that were made"*).
+
+**Ceiling:** withdrawal is attributable only because `resolveViewerLogin()` resolves under the bypass;
+on a real deployment the 403 path (`route.ts:166-169`) is untested here. And the withdrawal is not
+undoable — re-deciding writes a fresh decision, so the ledger reads decided → withdrawn → decided
+rather than restored.
+
+### 3. Governance — the escalation counts from the stored policy, and it was restored
+
+`MC-B36`/`MC-B37` needed an org with (a) failing repos and (b) a declared bar. Org `kiro` has neither —
+its card short-circuits to *"No repos fail the gate. 🎉"*. Org `public` has 33 failing repos, so the
+test ran there under **pass-1 restore discipline**: found state `{"policy":null}` recorded first,
+restored last.
+
+**Found state** (`shots/recert3-B36-public-before.text.txt:124-132`) — `MC-B37` already visible: two
+earned zeros carry *"not part of this org's bar"*, and the two structural rows carry *"not judged
+fleet-wide — the per-repo gate decides it"* with an em-dash where a count would go.
+
+**With a bar declared** — `POST /api/org/gate-policy` with
+`requireChecks: ["control.prepush.lint","guardrail.never-commit"]` and `forbidAiAuthorship: true`,
+floors kept (`shots/recert3-B36-declared2.text.txt`):
+
+> A required control is failing — *not judged fleet-wide — the per-repo gate decides it — **you have
+> declared 2 required controls; the per-repo gate enforces them***
+>
+> AI authorship in a blocked repository — *not judged fleet-wide — the per-repo gate decides it — **you
+> have declared this bar; the per-repo gate enforces it***
+
+**The 2 is derived, not typed.** `unjudgedBarDeclaration` (`governanceReasons.ts:113-118`) reads
+`p?.requireChecks?.length` and pluralizes off it; I declared exactly two and the row said two. This is
+the strongest reading of `PRIYA-L1-02` — the lead who has just set two controls — and it is now
+answered per row rather than by one all-clear sentence.
+
+**Restored:** `POST … {"policy":null}` → `GET` returns `{"policy":null}`. The response also listed the
+five bars it dropped, so the clear is itself auditable.
+
+**A first attempt is worth recording as evidence, not embarrassment:** posting
+`requireChecks: ["ci/build","ci/test"]` returned `{"ok":true, "dropped":[]}` with `requireChecks`
+**silently absent** from the echoed policy. Raised as `RC3-N3`.
+
+A note on the intermediate state, because it is a real hazard for the next pass: posting a policy that
+carried *only* `requireChecks` + `forbidAiAuthorship` **replaced** the default floors, and the whole
+card collapsed to *"Every scanned repo clears the gate."* — 33 failing repos vanished from the screen
+because the bar, not the fleet, had changed. The policy POST is a whole-object replace, not a merge.
+
+### 4. What the rest of the pass measured
+
+**`MC-B28` — the queue-depth line** renders one org-wide sentence above the Repositories table:
+*"Scan queue: nothing waiting — every scheduled rescan and probe has been picked up."*
+(`shots/recert3-B28-queue.text.txt:41`). This is the **read-succeeded-and-empty** branch, which the
+component keeps distinct from *"Scan queue depth is unavailable — this deployment's job queue could not
+be read."* — precisely the aggregate-honesty rule the row cited. Victor's own scenario (a 400-deep
+queue) is still unseen.
+
+**`MC-B18` — the register's rubric chips.** `SCORING_RUBRIC_VERSION` is now **r15**
+(`model.ts:180`), so for the first time this host is *not* single-rubric and `TOMAS-L1-11`'s
+`uncertain` could be discharged: every row carries `RUBRIC R8` (or `RUBRIC UNKNOWN`), and the page
+states *"Mixed rubrics on this page. 25 of these 25 rows were scored under an earlier rubric than the
+current r15…"* (`recert3-B18-leaderboard.text.txt:357`). Every row on the register is stale, and the
+register now says so.
+
+**`MC-B35` — one unit for the blend weight**, verified on one page, one scan:
+- chip: *"integrity · widened D2, D6 · **blend weight 57% of 60%**"* (`recert3-B35-blend.text.txt:23`)
+- track, all nine dimensions: *"**Blend weight 57%**: after weighting, the model can move this score at
+  most ±…"* (`recert3-B35-dimloop.json`)
+
+Both absolute, both from `blendWeightPercent`. The `blend 95%` share form — `RC-N1`'s complaint, a
+fix-created defect of `MC-B3` — is gone from `src`, and the chip's tooltip now ends *"Each dimension's
+provenance track prints this same weight."*, which is now true.
+
+**`MC-B19` — showback.** The button exists (*"SHOWBACK CSV"*), and it was **followed**: `200`,
+`content-type: text/csv`, `content-disposition: attachment;
+filename="ascent-showback-kiro-2026-08-31.csv"`, and the body reconciles —
+`lane,scan,…,39.599620` + `lane,local,…,241.384410` = `team,,Org-wide (no repo),166,280.984030`,
+matching the page's own *"$280.98 / 166 · 100%"*. Victor's *"I would have gone to the vendor and been
+told it doesn't exist"* is answered. **(b) is not:** the team panel still reads 100 % Org-wide, because
+`defaultOwnerTeamForRepo` (`usage-events.ts:186-197`) needs a repo carrying a team with
+`isDefaultOwner: true` and org `kiro` has none. Fix landed, symptom unchanged, fixture named.
+
+**`MC-B20` — one real model call, spent deliberately.** Org `kiro` holds zero memories, so a
+memory-check there compares nothing and never reaches the model (`comparedCount: 0`) — no meter, no
+evidence. Org `public` holds memories, so the probe ran there and produced unmistakable model output
+(*"Both record the same L4 to L5 promotion for prisma/prisma in August 2026, and the stored one already
+carries the exact date and score change."*, similarity 0.95). `/api/usage?org=public&days=1` is
+**byte-identical before and after** — the funnel still drops its non-scan inference, now keyed on
+`Organization.kind` rather than the slug string. The mirror half (a tenant on the slug `public` finally
+being metered) is code-verified only, and the fix's own seam became `RC3-N1`.
+
+**`MC-B21` / `MC-B22` / `MC-B38` — the copy batch, all three live.**
+- *"Two different currencies: this monthly allotment resets on the 1st (an unused month is not carried
+  forward), while prepaid credits you buy on top roll over and never expire…"* — under a header reading
+  `Monthly allotment · Free plan · 20 credits / mo`. Exactly the two currencies Victor conflated.
+- With `NEXT_PUBLIC_SOURCE_REPO_URL` genuinely **unset** (`grep -c` on `.env.local` → 0), `/pricing`
+  renders a real anchor — *"Self-hosting guide (upstream) →"* → `…/blob/HEAD/docs/SELF-HOSTING.md` —
+  where pass 1 found a bare text node. The `(upstream)` label is the honest part.
+- On a throwaway arm (`:3100`, `PUBLIC_SCAN_MONTHLY_LIMIT=1`, `.next-empty` deleted first per
+  `RC2-M1`, anonymity asserted by a bare `Sign in`), all three surfaces pass 2 caught now read
+  **singular**: *"1 free public scan / month"*, *"and 1 free public scan"*, *"The 1 free public scan
+  runs on their own rolling 30-day window"*. **`RC2-M3b`'s technique paid twice** — the same pinned
+  limit that proved the derivation in pass 2 proved the pluralization in pass 3.
+
+**`MC-B26` is the one that did not land.** The half that was measured is real — `LiveTab.tsx:136-139`
+loads runs unconditionally (the `selfHosted()` gate is gone), `selfHostGuard` is off `propose`, and
+`CockpitSetup.tsx:53` now says *"Remote-agent runs do work here."* — but
+`GET /api/org/loop/[id]/route.ts:19` **kept** its `selfHostGuard()`, and that is the route
+`fetchLoopDetail` polls (`loopClient.ts:31` ← `useLoopRun.ts:83,88,157`). A cloud owner would get the
+server-rendered run and outcome matrix and then a 404 on every detail poll. The tell is a comment the
+fix did not update: `LiveCockpit.tsx:44` still reads *"Empty on managed cloud."* `PRIYA-L1-703` stays
+**open** — and no cloud arm was needed to establish it, which is why none was built.
+
+### 5. Metric deltas
+
+| Metric | Pass 2 | Pass 3 | Note |
+|---|---|---|---|
+| Items certified | 16 | 23 | the four merged lanes |
+| `resolved-verified` this pass | 11 | 9 | pass 3 is heavier in code-only items by construction |
+| `fixed, not resolved` | 2 | 14 | eleven name a **fixture owed**, not a doubt about the code |
+| `open` / partial | 1 | 1 | `MC-B26` — unlike pass 2's `MC-B8a`, the cause is located exactly |
+| `regressed` | 0 | 0 | — |
+| Fix-created defects found | 3 (`RC2-N2/N5/N6`) | 2 (`RC3-N1`, `RC3-N2`) | still this campaign's signature class |
+| Live model calls spent | 2 scans | 1 memory-check (+1 accidental scan) | see residue #4 |
+| Whole-file resolution mix | — | 43 `resolved-verified` · 21 `fixed` · 11 `open` · 1 `by-design` · 10 `strength` | 86 rows, unchanged count |
+
+**The shape of this pass is worth naming.** Passes 1 and 2 were dominated by *"the mechanism landed,
+the symptom is unchanged"*. Pass 3 is dominated by *"the mechanism landed and the fixture to see it
+does not exist on this host"* — eleven of the fourteen `fixed` rows name a concrete missing fixture (a
+cron secret, a CODEOWNERS default-owner team, an unknown lane string, a multi-model price list, a cloud
+deployment, a GitHub App installation). That is a **different and healthier failure mode**, but it is
+also a standing bill: this host can no longer certify roughly half of what the campaign builds.
+
+### 6. New findings for the next drain
+
+#### RC3-N1 — the funnel org is excluded by a column nothing sets *(major · trust · Victor)*
+
+`MC-B20` correctly stopped reading an org's slug for meaning, and moved the anonymous-funnel exclusion
+to `getUsageLedgerOrg` (`usage-events.ts:165-171`), which drops when `org.kind === "public"`
+(`UNMETERED_ORG_KIND`, `:199-201`). **Nothing in the committed schema or seed ever writes that value:**
+`prisma/schema.prisma:40` declares `kind String @default("org")` and `prisma/init.sql:2454-2456` inserts
+the funnel org with only `(id, slug, name, plan)`. On a stock deployment the shared anonymous funnel org
+is therefore `kind: "org"` and its non-scan inference — athena, memory, briefing — is now **ledgered
+against it**, the exact inverse of the row's intent. This host happens to carry `kind: "public"` (proved
+live: a real claude-cli memory-check on org `public` produced zero ledger rows), which is precisely why
+it would not be caught here. A fix that relocates a sentinel must ship the backfill that populates it.
+**Suggested:** stamp `kind='public'` in `init.sql` **and** backfill existing rows, or key the exclusion
+off the same constant the funnel org is created with. `build`, small. **Fix-created defect of `MC-B20`.**
+
+#### RC3-N2 — two definitions of "the funnel" in one feature *(minor · trust · Victor)*
+
+`MC-B31(c)` made the `/usage` footer conditional, and chose its condition as
+`usage.org.toLowerCase() === PUBLIC_ORG` (`usageDashboard.tsx:34`) — the **slug-string sentinel that
+`MC-B20` removed from the meter one lane over, in the same batch**. So the meter and the page that
+displays it now disagree about what the funnel is: an org kinded `public` on a different slug meters but
+reads the private footer; an org slugged `public` but kinded `org` is metered *and* reads the funnel
+footer telling it attribution has not activated. Both fixes are individually right and were built in the
+same merge. **Suggested:** one predicate, exported once, consumed by both. `build`, trivial.
+
+#### RC3-N3 — a rejected gate-policy field vanishes without a word *(minor · trust · Priya)*
+
+`POST /api/org/gate-policy` with `requireChecks: ["ci/build","ci/test"]` answers
+`{"ok":true, "dropped":[]}` and the echoed policy simply **has no `requireChecks`**.
+`sanitizeGatePolicy` rejects ids that are not dotted slugs, and the route's `dropped` channel is computed
+by `diffGatePolicy(previous, next)` — a diff of *stored* states — so a value the sanitizer threw away was
+never in either state and cannot appear there. The route already believes a silently wiped
+`requireChecks` is unacceptable (its own comment at `route.ts:227`: *"discoverable only by diffing two
+JSON blobs nobody diffs"*); it defends against the wipe and not against the reject. An operator typing a
+plausible check id gets `ok: true` and no bar. **Suggested:** have `sanitizeGatePolicy` return its
+rejections and surface them in a `rejected[]` beside `dropped[]`. `build`, small.
+
+#### RC3-N4 — a public report resolves to an org that does not exist *(major · broken-flow · Tomáš/Sam)*
+
+`readableOrgForOwner(owner)` (`auth.ts:390-395`) returns the **owner login** whenever
+`canReadOrg(owner)` is true, falling back to `public` otherwise. Under `ASCENT_OPEN_ORG_DASHBOARDS=1`,
+`canReadOrg` returns true for *every* slug (`authz.ts:216` — verified live:
+`/api/org/gate-policy?org=notarealorg-xyz` → `200`), so `/report/n8n-io/n8n` resolves org `n8n-io`, finds
+nothing, and renders the **cold-scan gate** ("No report yet for n8n-io/n8n") for a repo the register ranks
+at **#1 with a full score row** — and `/report?repo=…` starts a *fresh live scan* of it. `?org=public`
+fixes the report page; `/report/compare` has no such override (`page.tsx:82`) and dead-ends
+unconditionally. **This is primarily an ARM ARTIFACT** and the honest bound on `SAM-L1-13`'s destination
+check. But it is also a real product question the drain should rule on: the register emits permalinks with
+no `?org=`, and any viewer for whom `canReadOrg(owner)` is legitimately true — a real member of an org
+whose repos were scored under `public` — lands on the same dead end. **Suggested:** `concept-doc` on the
+resolution rule (fall back to `public` when the resolved org has no scan for the repo), plus `build` for
+the `?org=` passthrough on `/report/compare`. Rank by convergence, not severity: it invalidated a check
+in this pass and will invalidate the same check in the next.
+
+#### RC3-N5 — the singular allowance keeps a plural pronoun *(polish · clarity · Tomáš)*
+
+With `PUBLIC_SCAN_MONTHLY_LIMIT=1`, `MC-B38`'s three surfaces now read singular, but the footnote still
+says *"The 1 free public scan runs on **their own** rolling 30-day window"*
+(`shots/recert3-B38-pricing.text.txt:435`). The noun and verb were switched; the possessive was not.
+Residue of a fix that was itself residue of a fix. **Suggested:** `build`, trivial — drive `its own` /
+`their own` off the same plural flag the label already carries.
+
+#### RC3-M1 — methodology: `ASCENT_OPEN_ORG_DASHBOARDS=1` silently breaks every public report URL *(method)*
+
+The shared `:3000` arm cannot drive a public repo's report by its natural URL — see `RC3-N4`. **Standing
+rule for `env.md` §Arm construction:** on the shared server, every `/report/<owner>/<repo>` and
+`/report?repo=` URL for a repo the viewer does not own **must** carry `?org=public`, and
+`/report/compare` for a public repo **cannot be driven there at all** (no override exists) — it resolves
+`uncertain`, never `refuted`. The tell is a cold-scan gate on a repo the register ranks; the fast probe is
+`GET /api/gate/<owner>/<repo>`, which is not org-scoped and answers from the stored scan (used here to
+prove the rows existed while the report denied them).
+
+#### RC3-M2 — methodology: a shared checkout can break the app mid-pass *(method)*
+
+At 16:36:17 a parallel session's half-finished rename left the running dev server serving a Turbopack
+compile error for two minutes. `never-reset-hard-shared-tree` covers the *git* hazards; this is the
+runtime one. **Standing rule:** re-assert `/api/health`'s Ascent shape **immediately before** any capture
+whose verdict you intend to record, not only at Step 0 — and when it fails, poll rather than conclude. A
+capture taken during that window would have read as a total product failure. Record
+`git status --short -- src/` at the end of a pass, so the reader knows which files were dirty under the
+evidence.
+
+#### RC3-M3 — methodology: `SHOT_PREFIX` works, and Git Bash eats leading slashes *(method)*
+
+`RC2-M2`'s fix is real: `drive-armA-dimloop.mjs:8` and the other reusable drivers now take `SHOT_PREFIX`
+(env) or a positional stem, and this pass reused them as `recert3-*` **without destroying a single prior
+shot** — the first pass of the three to leave the run directory intact. Two live traps for the next
+driver: `drive-armA-dimloop.mjs:3` defaults `BASE_URL` to `:3100`, so it must be passed explicitly when
+driving the shared server; and Git Bash rewrites a bare `"/leaderboard"` argument into
+`C:/Program Files/Git/leaderboard`, so prefix every driver invocation with `MSYS_NO_PATHCONV=1` or give
+the path a query string.
+
+### 7. Residue — everything this pass wrote
+
+| # | What | Where | Reverted? |
+|---|---|---|---|
+| 1 | Killed PID 44724 (`:3000`, pre-commit-range) and restarted `npm run dev` as **PID 8968** at 16:16:15 | host | n/a — **`:3000` is left RUNNING and healthy** |
+| 2 | **Withdrew** pass 2's admission row on org `public` (`sindresorhus/slugify`) via the new `DELETE` | `.pglite/ascent` | **Yes — this is a NET CLEANUP.** Pass-2 residue #6 is gone; admission state on org `public` is sparse again |
+| 3 | `OrgAudit` row `org.admission_withdrawn` from #2, plus a second idempotent `DELETE` that wrote **nothing** | `OrgAudit` | **No** — append-only by design, and the act is the point. Dated 2026-08-31, org `public`, actor `developer` |
+| 4 | **Accidental live scan of `n8n-io/n8n`** — `/report?repo=n8n-io%2Fn8n` triggers a fresh scan when the report resolves to a non-existent org (`RC3-N4`); the browser closed but the server-side scan landed a row (visible as `lane scan, calls 1` on org `public`'s 1-day usage) | `.pglite/ascent` | **No.** One extra public-repo scan row on a large repo — the cost of learning `RC3-N4` |
+| 5 | **Three `gate-policy` writes on org `public`** (an invalid-checks probe, a bar-only policy, then floors + 2 required controls) and a **fourth clearing it** | `.pglite/ascent` | **Yes — restored to found state.** `GET /api/org/gate-policy?org=public` returns `{"policy":null}`, identical to the found state recorded before the first write |
+| 6 | `OrgAudit` rows from #5 (four gate-policy writes) | `OrgAudit` | **No** — append-only. Same date/org/actor signature as #3 |
+| 7 | **One real `claude-cli` memory-check on org `public`** (namespace `prisma/prisma`) — the `MC-B20` proof. Returned `duplicate`, wrote **no memory** and **no UsageEvent** | — | n/a — nothing persisted; that absence *is* the evidence |
+| 8 | One `claude-cli` memory-check on org `kiro` that never reached the model (`comparedCount: 0`) | — | n/a |
+| 9 | Anonymous arm on `:3100`: `ASCENT_EMPTY=1`, `PGLITE_DATA_DIR=.pglite/uat-recert3`, `ASCENT_SELF_HOSTED=0`, `ASCENT_AUTH_BYPASS=`/`PUBLIC_SCAN_QUOTA_DISABLED=`/`ASCENT_OPEN_ORG_DASHBOARDS=` empty, `PUBLIC_SCAN_MONTHLY_LIMIT=1`; `.next-empty` deleted first per `RC2-M1` | host | **`:3100` was STOPPED at the end of the pass.** `.pglite/uat-recert3` is left on disk and can be deleted freely; `.pglite/ascent` was never opened by it |
+| 10 | New shots, **all** prefixed `recert3-*` (gitignored). **No prior shot was overwritten** — `SHOT_PREFIX` was passed to every reused driver (`RC2-M2` closed in practice) | run dir | kept as evidence |
+| 11 | `findings.json` — **25 rows** patched in place (`resolution`, `ceiling`, `recertify_evidence`, `recertify_commit_range`); passes 1–2 stamps preserved and appended to, never overwritten. Re-parsed after the write: **86 rows, unchanged count** | run dir | intentional |
+| 12 | This section | run dir | intentional |
+| 13 | **Not this pass:** loop run `a9cf047e` (started 14:16 by a parallel session sharing this checkout) was in flight throughout — read, never started, never stopped. That session also left eleven `src/lib/local/**` and `src/lib/db/loop-*` files dirty and broke compilation for ~2 min at 16:36 (`RC3-M2`) | — | n/a — not this pass's to revert |
+
+**Nothing was committed.** The working tree carries the `findings.json` edit and this file for review —
+alongside a parallel session's unrelated uncommitted work, which must not be swept into any commit
+(`never-reset-hard-shared-tree`: use pathspec commits).

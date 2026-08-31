@@ -196,12 +196,14 @@
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "Verified against the committed env files and a local build; the live Vercel project's real environment was not read. This is a BUILD-TIME inlined NEXT_PUBLIC var, so it must be absent at build, not merely at runtime.",
+    "resolution": "resolved-verified",
+    "ceiling": "Verified against the committed env files and a local build; the live Vercel project's real environment was not read. This is a BUILD-TIME inlined NEXT_PUBLIC var, so it must be absent at build, not merely at runtime.\n\n[recertify pass 3, 9fe74071..d6fec3a9] Only the DEGRADE was fixed. The row's first clause — set the var in the production build env — is not done: it is documented in .env.example:23-38 and still commented out, and it is build-time inlined, so a deployment that does not set it at build keeps pointing at upstream forever. One consumer was also left behind: CockpitSetup.tsx:12,38 still calls sourceRepoHref(\"docs/SETUP.md\") and degrades to the bare text node \"See docs/SETUP.md in the source repository.\" (:61-63) — carried as MC-B43, open.",
     "recurrence": null,
     "suggested_acceptance": "BUILD — one env var, no code. Set NEXT_PUBLIC_SOURCE_REPO_URL in the production environment.",
     "scope_note": null,
-    "l2_priority": "DONE (arm A)."
+    "l2_priority": "DONE (arm A).",
+    "recertify_evidence": "[recertify pass 3, 9fe74071..d6fec3a9, 2026-08-31] MC-B22, with NEXT_PUBLIC_SOURCE_REPO_URL genuinely UNSET (grep -c on .env.local → 0). /pricing on :3000 renders an actual anchor, not the pass-1 text node: \"Self-hosting guide (upstream) →\" (shots/recert3-B22-pricing.text.txt:73) → https://github.com/xkazm04/ascent/blob/HEAD/docs/SELF-HOSTING.md (aria.yaml:111). All four consumers route through site.ts:156-166 docHref()/selfHostGuideHref(), with DOCS_ARE_UPSTREAM = SOURCE_REPO_URL == null (:161) supplying the honest \"(upstream)\" label; docs/SELF-HOSTING.md exists.",
+    "recertify_commit_range": "9fe74071..d6fec3a9"
   },
   {
     "id": "TOMAS-L1-11",
@@ -227,12 +229,14 @@
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "Not driven at L2: on a freshly seeded host every row is r12, so the defect is real-but-invisible. CLOSING FIXTURE: a DB whose public corpus spans ≥2 rubric versions (production almost certainly qualifies — r8→r12 in one month with no bulk re-scan); verify by `select distinct \"rubricVersion\", count(*) from \"Scan\"` over the repos behind page 1 of /leaderboard.",
+    "resolution": "resolved-verified",
+    "ceiling": "Not driven at L2: on a freshly seeded host every row is r12, so the defect is real-but-invisible. CLOSING FIXTURE: a DB whose public corpus spans ≥2 rubric versions (production almost certainly qualifies — r8→r12 in one month with no bulk re-scan); verify by `select distinct \"rubricVersion\", count(*) from \"Scan\"` over the repos behind page 1 of /leaderboard.\n\n[recertify pass 3, 9fe74071..d6fec3a9] The landing register (IndexGallery / PublicRepoCard) is a different type on a cached read and still carries no chip — deliberately left as MC-B42, open. \"RUBRIC UNKNOWN\" is shown for a row with no stored rubricVersion, which is honest but indistinguishable from \"we could not read it\".",
     "recurrence": null,
     "suggested_acceptance": "BUILD — carry rubricVersion onto RegisterEntry and qualify a stale-rubric row the way a mock row is already qualified.",
     "scope_note": null,
-    "l2_priority": "P2 — needs a multi-rubric corpus; not satisfiable on a seeded host."
+    "l2_priority": "P2 — needs a multi-rubric corpus; not satisfiable on a seeded host.",
+    "recertify_evidence": "[recertify pass 3, 9fe74071..d6fec3a9, 2026-08-31] MC-B18. /leaderboard on :3000, live PGlite (shots/recert3-B18-leaderboard.{text.txt,aria.yaml,png}). EVERY row carries a rubric chip — \"N8N-IO · AUTONOMOUS · 8D AGO RUBRIC R8\" (line 33), \"PRISMA · … RUBRIC R8\" (46), \"VERCEL · INTEGRATED · 1MO AGO RUBRIC UNKNOWN\" (202) — and the page-level note reads: \"Mixed rubrics on this page. 25 of these 25 rows were scored under an earlier rubric than the current r15, and carry a rubric qualifier. A rubric change alters what some dimensions measure, so those numbers are not strictly comparable with freshly scored ones; a re-scan puts a repo back on the current ruler.\" (line 357). SCORING_RUBRIC_VERSION = \"r15\" (model.ts:180), so the host is no longer single-rubric and the 25-of-25 stale case — the exact case pass 1/2 could not reach — rendered.",
+    "recertify_commit_range": "9fe74071..d6fec3a9"
   },
   {
     "id": "TOMAS-L1-04",
@@ -454,12 +458,14 @@
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "Not driven at L2 — the page sits behind three walls (SAM-L1-13) and needs two seeded repos in one org with different framework config paths and different test-file counts. The arithmetic is provable statically and was not contested.",
+    "resolution": "fixed",
+    "ceiling": "Not driven at L2 — the page sits behind three walls (SAM-L1-13) and needs two seeded repos in one org with different framework config paths and different test-file counts. The arithmetic is provable statically and was not contested.\n\n[recertify pass 3, 9fe74071..d6fec3a9] No live fixture: the exemplar diff sits behind the same three walls the finding names (reachability low), and on this host /report/compare additionally dead-ends on the bypass's org resolution. Bound on the claim: signalNameKey blanks digits, so \"found 18 test files\" vs \"found 6 test files\" now key alike — but two repos naming DIFFERENT tools (\"Vitest configured\" vs \"Jest configured\") still key differently and are still reported as a gap. The headline holds only where both sides ran the same detector template.",
     "recurrence": null,
     "suggested_acceptance": "BUILD (small, local) — route both sides through `nameKey`/`signalName` before differencing and keep the raw string for display.",
     "scope_note": "Reachability is LOW (three walls), which is why the drain ranks it below reachable minors despite `major` severity and high trust erosion — a wrong transfer recommendation is the one output a staff engineer forwards to his team.",
-    "l2_priority": "P2 — seed two repos with different test frameworks in one org, then read the D2 transfer line."
+    "l2_priority": "P2 — seed two repos with different test frameworks in one org, then read the D2 transfer line.",
+    "recertify_evidence": "[recertify pass 3, 9fe74071..d6fec3a9, 2026-08-31] MC-B23 code-verified at 9fe74071..d6fec3a9 (14191ea1). signalNameKey/diffSignalSets now exist in compare.ts:380,406 and exemplar.ts imports them at :38, using them for evidence/gaps (:271-272), support() (:417) and consensus() (:490); diffScans deliberately stays on diffStringSets (compare.ts:507,511). Real consumers: ExemplarSection.tsx:39 and mcp/exemplar-tool.ts:123. Targeted suite exemplar.test.ts passes.",
+    "recertify_commit_range": "9fe74071..d6fec3a9"
   },
   {
     "id": "SAM-L1-01",
@@ -617,12 +623,14 @@
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "Not driven at L2 — the page 302s to sign-in first, so it is not reproducible anonymously; needs a signed-in viewer with no membership in the owner's org.",
+    "resolution": "resolved-verified",
+    "ceiling": "Not driven at L2 — the page 302s to sign-in first, so it is not reproducible anonymously; needs a signed-in viewer with no membership in the owner's org.\n\n[recertify pass 3, 9fe74071..d6fec3a9] The DESTINATION could not be exercised on this host and resolves uncertain — not reproducible. ASCENT_OPEN_ORG_DASHBOARDS=1 makes canReadOrg() true for EVERY slug (authz.ts:216), so readableOrgForOwner(\"n8n-io\") returns \"n8n-io\" and /report/compare (page.tsx:82) — which, unlike /report, has no ?org= override — finds no scans and renders \"No scans recorded yet\" (shots/recert3-B24-compare.text.txt). Also: the label switch keys on slug identity, not membership, so a genuine member of the public org would still read \"Public corpus\".",
     "recurrence": null,
     "suggested_acceptance": "BUILD (small) — a discovery link carrying ?against= from the report, and a public-org special case on the two labels. The sign-in and DB walls are defensible and are NOT the finding.",
     "scope_note": "This reachability is why SAM-L1-10 scores low on reachability despite being a major quality defect.",
-    "l2_priority": "P3."
+    "l2_priority": "P3.",
+    "recertify_evidence": "[recertify pass 3, 9fe74071..d6fec3a9, 2026-08-31] MC-B24, discovery half. /report/n8n-io/n8n?org=public (shots/recert3-B24-report.*) renders \"COMPARE AGAINST A STRONGER REPO →\" (text.txt:180) whose href is /report/compare?repo=n8n-io%2Fn8n&against=org:best (aria.yaml:103) — ungated at ONE scan, carrying ?against=, which is exactly the affordance the finding said did not exist. Label half code-verified: exemplarGroups() emits \"Public corpus\"/\"Corpus best\" instead of \"Your repos\"/\"Org best\" when orgSlug === DEFAULT_ORG_SLUG (exemplar.ts:153-158, exemplar-load.ts:294-295).",
+    "recertify_commit_range": "9fe74071..d6fec3a9"
   },
   {
     "id": "SAM-L1-12",
@@ -927,12 +935,14 @@
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "NOT REPRODUCIBLE ON THIS HOST — the digest is not a UI surface; it needs CRON_SECRET, a webhook sink and populated ControlObservation rows (which additionally need a watched repo, which needs a GitHub App). Modelled, not driven.",
+    "resolution": "fixed",
+    "ceiling": "NOT REPRODUCIBLE ON THIS HOST — the digest is not a UI surface; it needs CRON_SECRET, a webhook sink and populated ControlObservation rows (which additionally need a watched repo, which needs a GitHub App). Modelled, not driven.\n\n[recertify pass 3, 9fe74071..d6fec3a9] Not sent. GET /api/cron/digest answers {\"error\":\"Cron is not configured (CRON_SECRET unset).\"} and POST 405s (/api/health reports cronSecret: false), so no digest body was produced on this host. FIXTURE OWED (this is MC-M3, still open): a cron-configured deployment with a POPULATED control-observation ledger — the \"we looked and none failed\" branch is only meaningful against a ledger that was actually read. Unit coverage stands in for now: 111 tests pass across alerts.test.ts + the digest route suites.",
     "recurrence": null,
     "suggested_acceptance": "BUILD (small) — pass the empty array through, and carry `controlCoverage` into the block. The digest is the artifact Dana reads INSTEAD of opening the app.",
     "scope_note": null,
-    "l2_priority": "Blocked — cron + ledger fixture."
+    "l2_priority": "Blocked — cron + ledger fixture.",
+    "recertify_evidence": "[recertify pass 3, 9fe74071..d6fec3a9, 2026-08-31] MC-B27 code-verified; the cron is not callable on this host. The three-state contract now survives to the message: controlsFailedRows is null | [] | rows (digest/route.ts:208-217, explicitly commented) and is passed as controlsFailedRows ?? undefined (:274), so [] reaches composeDigest and renders \"Controls: none failed this week.\" (alerts.ts:622-623). The block never travels without its N: coverageSummary (:221-227) folds per-pair coverage into {pairs, observations, maxGapDays (the WORST pair), truncated} and is passed as controlCoverage (:276); alerts.ts:628-634 renders either \"Coverage: no control was observed in this window — the all-clear above is not evidence.\" or \"Coverage: N observations across M repo/control pairs, largest gap Xd.\" The digest also stopped reimplementing the forecast headline: trajectory: trajectoryLine(rollup.forecast) (:283).",
+    "recertify_commit_range": "9fe74071..d6fec3a9"
   },
   {
     "id": "DANA-L1-009",
@@ -1244,12 +1254,14 @@
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "Not driven — needs an owner, a published stance and ≥1 admission row; arm C's attempt to create one was rejected by `repoUnderOrg` (PRIYA-L2-C5) before any write.",
+    "resolution": "fixed",
+    "ceiling": "Not driven — needs an owner, a published stance and ≥1 admission row; arm C's attempt to create one was rejected by `repoUnderOrg` (PRIYA-L2-C5) before any write.\n\n[recertify pass 3, 9fe74071..d6fec3a9] The finding is only half-addressed by design: a reader is told what a decision writes but still cannot preview it. MC-X3 is the other half and is not built.",
     "recurrence": null,
     "suggested_acceptance": "BUILD (small) — one sentence on the column naming which artifacts a decision writes, plus the dry-run modal the routes already support.",
     "scope_note": "Adjacent to PRIYA-L2-C4, which found the harder consequence: the ONE gate that decides whether an agent may claim work never consults the admission table at all.",
-    "l2_priority": "P3."
+    "l2_priority": "P3.",
+    "recertify_evidence": "[recertify pass 3, 9fe74071..d6fec3a9, 2026-08-31] MC-B29(e) code-verified, disclosure half only: AdmissionColumn.tsx:64-69 now states which artifacts a decision writes — \"What a decision writes: the gate-policy overlay only… the other three artifacts… are proposals\". The dry-run modal half remains MC-X3, untouched and out of this batch's scope.",
+    "recertify_commit_range": "9fe74071..d6fec3a9"
   },
   {
     "id": "NADIA-L1-10",
@@ -1272,12 +1284,14 @@
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "—",
+    "resolution": "fixed",
+    "ceiling": "—\n\n[recertify pass 3, 9fe74071..d6fec3a9] The CSVs were not downloaded this pass; org kiro has no conformance ledger to pack.",
     "recurrence": null,
     "suggested_acceptance": "BUILD (trivial) — pass `named` on the two CSV links.",
     "scope_note": null,
-    "l2_priority": "P4 — fold into whichever session is already on the tab."
+    "l2_priority": "P4 — fold into whichever session is already on the tab.",
+    "recertify_evidence": "[recertify pass 3, 9fe74071..d6fec3a9, 2026-08-31] MC-B29(f) code-verified: EvidencePackCard.tsx:78-83 labels the two links \"Named sample (.csv)\" / \"Named findings (.csv)\" and href() (:17-20) appends identities=named, which the route honors for all three files (conformance-pack/route.ts:67,116,152).",
+    "recertify_commit_range": "9fe74071..d6fec3a9"
   },
   {
     "id": "NADIA-L1-11",
@@ -1362,12 +1376,14 @@
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "—",
+    "resolution": "fixed",
+    "ceiling": "—\n\n[recertify pass 3, 9fe74071..d6fec3a9] Not rendered on this pass: the capability-matrix/control-matrix views sit behind the Passports switcher and were not reached from the default Passports view on org kiro (shots/recert3-B29-passports.text.txt). Copy-only change with a traced render parent.",
     "recurrence": null,
     "suggested_acceptance": "BUILD (copy) — three sentences.",
     "scope_note": null,
-    "l2_priority": "LOW — copy verification only."
+    "l2_priority": "LOW — copy verification only.",
+    "recertify_evidence": "[recertify pass 3, 9fe74071..d6fec3a9, 2026-08-31] MC-B29(a) code-verified: wiring.ts:57-58 replaces the hand-wiring instructions with \"# EASIEST: don't set them by hand. Ascent provisions both… Foundation rollout -> \\\"Provision report-back\\\"\", and ControlMatrixPanel.tsx:48-51 links to Repositories › Foundation rollout — an anchor that really exists (FoundationRolloutPanel.tsx:109, <Card id=\"foundation-rollout\">).",
+    "recertify_commit_range": "9fe74071..d6fec3a9"
   },
   {
     "id": "PRIYA-L1-04",
@@ -1391,12 +1407,14 @@
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "L1-provable; L2 adds nothing without a schema-1.x fixture repo.",
+    "resolution": "fixed",
+    "ceiling": "L1-provable; L2 adds nothing without a schema-1.x fixture repo.\n\n[recertify pass 3, 9fe74071..d6fec3a9] Same as PRIYA-L1-03: the matrix view was not reached live on this fixture.",
     "recurrence": null,
     "suggested_acceptance": "BUILD (small) — a chip on the capability matrix when schemaAhead, and a notes disclosure for redactions.",
     "scope_note": "A member of the present-but-unwired family.",
-    "l2_priority": "LOW."
+    "l2_priority": "LOW.",
+    "recertify_evidence": "[recertify pass 3, 9fe74071..d6fec3a9, 2026-08-31] MC-B29(b) code-verified: CapabilityMatrixRowView.tsx:104-111 renders a \"schema {…} ahead\" chip and :117-121 an \"N parse note(s)\" disclosure; both fields are populated by capabilityAgg.ts:123-125 from standard/read.ts:165,208 — the zero-consumer condition the finding named is gone.",
+    "recertify_commit_range": "9fe74071..d6fec3a9"
   },
   {
     "id": "PRIYA-L1-05",
@@ -1420,12 +1438,14 @@
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "Not driven — navigation-path timing is an L2 measurement that was not reached in arm B's budget.",
+    "resolution": "fixed",
+    "ceiling": "Not driven — navigation-path timing is an L2 measurement that was not reached in arm B's budget.\n\n[recertify pass 3, 9fe74071..d6fec3a9] The column's three null-states were not observed against real rollout rows; org kiro has no GitHub App installation (autoscan.githubApp: false), so report-back cannot be provisioned here at all.",
     "recurrence": null,
     "suggested_acceptance": "BUILD (small) — land the promised column; it is the cross-link that collapses three tabs into one read.",
     "scope_note": null,
-    "l2_priority": "MEDIUM."
+    "l2_priority": "MEDIUM.",
+    "recertify_evidence": "[recertify pass 3, 9fe74071..d6fec3a9, 2026-08-31] MC-B29(c) code-verified: the promised report-back column landed — header CapabilityMatrix.tsx:73 <th>Report-back</th>, rows :79-83 keyed through rolloutByRepo (:26), fed by getFoundationRollout(slug) in the PassportsTab parallel batch (PassportsTab.tsx:31-38) and threaded via PassportsSwitcher.tsx:81. getFoundationRollout now has a consumer on the tab the finding said it was missing from.",
+    "recertify_commit_range": "9fe74071..d6fec3a9"
   },
   {
     "id": "PRIYA-L1-06",
@@ -1449,12 +1469,14 @@
     ],
     "code_check": "by-design",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "—",
+    "resolution": "fixed",
+    "ceiling": "—\n\n[recertify pass 3, 9fe74071..d6fec3a9] Copy-only; not rendered this pass.",
     "recurrence": null,
     "suggested_acceptance": "BUILD (copy) — one sentence under the snippet. The rationale is right; the disclosure is missing.",
     "scope_note": "Leans by-design; filed so the disclosure decision is explicit.",
-    "l2_priority": "LOW."
+    "l2_priority": "LOW.",
+    "recertify_evidence": "[recertify pass 3, 9fe74071..d6fec3a9, 2026-08-31] MC-B29(d) code-verified: GovernanceCiCard.tsx:33-38 now says the copied CI snippet is a snapshot — \"These parameters are a snapshot of today's policy… Re-copy the snippet after you relax the bar, or drop the parameters…\" — naming the asymmetry (tightening propagates, loosening does not).",
+    "recertify_commit_range": "9fe74071..d6fec3a9"
   },
   {
     "id": "PRIYA-L1-07",
@@ -1543,12 +1565,14 @@
     ],
     "code_check": "present-but-undiscoverable",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "—",
+    "resolution": "resolved-verified",
+    "ceiling": "—\n\n[recertify pass 3, 9fe74071..d6fec3a9] The artifact is now reachable, but every team cell on this fixture is the org-wide fallback — see VICTOR-L1-04.",
     "recurrence": null,
     "suggested_acceptance": "BUILD (trivial) — a third export button beside CSV/JSON.",
     "scope_note": "A member of the present-but-unwired family, and the cheapest one in it.",
-    "l2_priority": "DONE (arm B)."
+    "l2_priority": "DONE (arm B).",
+    "recertify_evidence": "[recertify pass 3, 9fe74071..d6fec3a9, 2026-08-31] MC-B19(a). /usage?org=kiro renders a third export control \"SHOWBACK CSV\" (shots/recert3-B19-usage.text.txt:21) with href /api/usage?org=kiro&days=30&view=showback (aria.yaml:29). The link was FOLLOWED: HTTP 200, content-type: text/csv; charset=utf-8, content-disposition: attachment; filename=\"ascent-showback-kiro-2026-08-31.csv\". Body header scope,lane,team,calls,estimatedCostUsd,unpricedCalls; rows lane,scan,,65,39.599620,0 and lane,local,,101,241.384410,58 reconcile exactly to team,,Org-wide (no repo),166,280.984030 — and to the page's own \"Spend by team … $280.98 / 166 · 100%\" (text.txt:137-138).",
+    "recertify_commit_range": "9fe74071..d6fec3a9"
   },
   {
     "id": "VICTOR-L1-01",
@@ -1573,12 +1597,14 @@
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "Not driven at L2 — arm B's budget went to the lane panels; needs a Team-plan seeded org with `usageThisMonth > 0` and a prepaid balance > 0, which is cheap to build (`seed` + `setOrgPlan team`).",
+    "resolution": "resolved-verified",
+    "ceiling": "Not driven at L2 — arm B's budget went to the lane panels; needs a Team-plan seeded org with `usageThisMonth > 0` and a prepaid balance > 0, which is cheap to build (`seed` + `setOrgPlan team`).\n\n[recertify pass 3, 9fe74071..d6fec3a9] Victor's arithmetic complaint is now answerable but still not answered ON the meter: nothing shows how much of an idle month's allotment was forfeited. The note tells him the rule; the page does not tell him the number.",
     "recurrence": null,
     "suggested_acceptance": "BUILD (one sentence) — name the two currencies: 'Your monthly allotment resets on the 1st; purchased credits never expire.'",
     "scope_note": "Also a DENOMINATOR NOTE for run maintenance: Victor's character sheet says Team = 500 credits/mo; the code says 150 (plans.ts:234, repriced 2026-08-19). The walk used the code. The character file should be updated.",
-    "l2_priority": "P1 — cheapest fixture in the run."
+    "l2_priority": "P1 — cheapest fixture in the run.",
+    "recertify_evidence": "[recertify pass 3, 9fe74071..d6fec3a9, 2026-08-31] MC-B21. /usage?org=kiro, under the header \"Monthly allotment · Free plan · 20 credits / mo\" (shots/recert3-B19-usage.text.txt:110), now reads (line 116): \"Two different currencies: this monthly allotment resets on the 1st (an unused month is not carried forward), while prepaid credits you buy on top roll over and never expire. The 90% mark is your top-up line, well before the hard 402.\" The old undifferentiated \"Unused credits roll over. They never expire\" is gone; the sentence matches /pricing's footnote wording.",
+    "recertify_commit_range": "9fe74071..d6fec3a9"
   },
   {
     "id": "VICTOR-L1-03",
@@ -1602,12 +1628,14 @@
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "Blocked in practice by VICTOR-L1-04 — with no producer writing `teamKey`, a lane × team matrix would be all-org-wide for every non-scan lane anyway.",
+    "resolution": "by-design",
+    "ceiling": "Blocked in practice by VICTOR-L1-04 — with no producer writing `teamKey`, a lane × team matrix would be all-org-wide for every non-scan lane anyway.\n\n[recertify pass 3, 9fe74071..d6fec3a9] Sequenced, not declined: it cannot be built usefully until VICTOR-L1-04's fixture produces real team cells. Two rows deep in a dependency chain that has not started.",
     "recurrence": null,
     "suggested_acceptance": "BUILD — after VICTOR-L1-04, not before.",
     "scope_note": null,
-    "l2_priority": "DONE (arm B)."
+    "l2_priority": "DONE (arm B).",
+    "recertify_evidence": "[recertify pass 3, 9fe74071..d6fec3a9, 2026-08-31] MC-B19(c), the per-lane × per-team matrix, was deliberately NOT built in this batch and is carried as MC-B45 (\"sequenced after data accrues\"). Confirmed absent from src/app/usage/*.tsx and usage-events.ts.",
+    "recertify_commit_range": "9fe74071..d6fec3a9"
   },
   {
     "id": "VICTOR-L1-04",
@@ -1632,12 +1660,14 @@
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "Preconditioned on repo-scoped non-scan work actually existing — athena/memory/briefing are genuinely org-wide, so only the local lane is mis-bucketed today.",
+    "resolution": "fixed",
+    "ceiling": "Preconditioned on repo-scoped non-scan work actually existing — athena/memory/briefing are genuinely org-wide, so only the local lane is mis-bucketed today.\n\n[recertify pass 3, 9fe74071..d6fec3a9] The symptom persists on this fixture for a reason the fix does not own: defaultOwnerTeamForRepo (usage-events.ts:186-197) requires a Repository row carrying a team with isDefaultOwner: true, and org kiro has none, so teamKey resolves null and every call lands in the org-wide bucket. FIXTURE OWED before this can be resolved-verified: an org with a CODEOWNERS-derived default-owner team on a repo the local lane actually touches. Not certifiable on this host as seeded.",
     "recurrence": null,
     "suggested_acceptance": "BUILD (small) — pass teamKey from the local lane, which already has the repo.",
     "scope_note": null,
-    "l2_priority": "DONE (arm B)."
+    "l2_priority": "DONE (arm B).",
+    "recertify_evidence": "[recertify pass 3, 9fe74071..d6fec3a9, 2026-08-31] MC-B19(b) code-verified: lane-cost.ts:112 resolves teamKey = await defaultOwnerTeamForRepo(orgSlug, repo) and passes it to meterLane (:114) onto the meter payload (:142). LIVE READING UNCHANGED: /usage?org=kiro still reports \"Org-wide (no repo) · $280.98 / 166 · 100%\" (shots/recert3-B19-usage.text.txt:136-138) and the showback CSV's team column is empty on both lane rows.",
+    "recertify_commit_range": "9fe74071..d6fec3a9"
   },
   {
     "id": "VICTOR-L2-01",
@@ -1662,12 +1692,14 @@
     ],
     "code_check": "by-design",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "Reachability is LOW — it bites only an org whose slug is exactly `public`, which on this host is the seeded demo tenant. It is filed because it silently invalidated one L2 arm and would silently invalidate a customer's ledger the same way.",
+    "resolution": "resolved-verified",
+    "ceiling": "Reachability is LOW — it bites only an org whose slug is exactly `public`, which on this host is the seeded demo tenant. It is filed because it silently invalidated one L2 arm and would silently invalidate a customer's ledger the same way.\n\n[recertify pass 3, 9fe74071..d6fec3a9] The mirror half — a real TENANT on the slug \"public\" now being metered — is code-verified only; constructing it needs an org row with slug \"public\" and kind != \"public\", which this pass would not write. And a hazard the fix creates is unresolved: prisma/schema.prisma:40 defaults kind to \"org\" and prisma/init.sql:2454-2456 inserts the funnel org with only (id, slug, name, plan), so a STOCK deployment's funnel org would be kind \"org\" and would now be ledgered. This host's funnel org happens to carry kind \"public\"; a fresh one from init.sql would not. Raised as RC3-N1.",
     "recurrence": null,
     "suggested_acceptance": "BUILD (small) — refuse `public` as a creatable org slug, or gate the drop on the anonymous-funnel org id rather than on the string.",
     "scope_note": "Also the reason Victor's per-lane arm resolves `uncertain — not reproducible on org public` rather than refuted; the fixture is any non-`public` slug.",
-    "l2_priority": "DONE (arm B) — discovered by driving."
+    "l2_priority": "DONE (arm B) — discovered by driving.",
+    "recertify_evidence": "[recertify pass 3, 9fe74071..d6fec3a9, 2026-08-31] MC-B20, drop half, exercised LIVE. A real claude-cli call was spent on org public: POST /api/org/memory/check {org:\"public\", namespace:\"prisma/prisma\"} returned a genuine model judgement — {\"recommendation\":\"duplicate\", similarity 0.95, reason \"Both record the same L4 to L5 promotion for prisma/prisma in August 2026, and the stored one already carries the exact date and score change.\"}. GET /api/usage?org=public&days=1 before and after is byte-identical ([{lane:\"scan\",calls:1,…}]) — NO memory lane row appeared. The funnel org still drops its non-scan inference on this deployment, now via Organization.kind rather than the slug string. Code: the orgSlug === \"public\" clause is gone from meter.ts:230 and text-org.ts:104; the decision moved to getUsageLedgerOrg (usage-events.ts:165-171), which returns null when org.kind === UNMETERED_ORG_KIND (\"public\", :199-201).",
+    "recertify_commit_range": "9fe74071..d6fec3a9"
   },
   {
     "id": "VICTOR-L1-07",
@@ -1691,12 +1723,14 @@
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "Not driven — needs a bulk scan large enough to hit the wall-clock budget (or a lowered budget env) plus a locally runnable cron.",
+    "resolution": "resolved-verified",
+    "ceiling": "Not driven — needs a bulk scan large enough to hit the wall-clock budget (or a lowered budget env) plus a locally runnable cron.\n\n[recertify pass 3, 9fe74071..d6fec3a9] Only the empty branch rendered. Victor's actual scenario — \"I'd see 400 per-row 'queued' tags before I saw the number 400\" — needs a deep queue, which this host has never had; the populated and unreadable sentences are pinned by unit tests over queueDepthSentence but were not seen. The line also sits above the table rather than beside the per-row tags it is meant to pre-empt.",
     "recurrence": null,
     "suggested_acceptance": "BUILD (small) — one aggregate line on the Repositories tab.",
     "scope_note": null,
-    "l2_priority": "P3."
+    "l2_priority": "P3.",
+    "recertify_evidence": "[recertify pass 3, 9fe74071..d6fec3a9, 2026-08-31] MC-B28. /org/kiro?tab=repositories renders one org-wide line above the table: \"Scan queue: nothing waiting — every scheduled rescan and probe has been picked up.\" (shots/recert3-B28-queue.text.txt:41). This is the READ-SUCCEEDED-AND-EMPTY branch, not silence and not a fiction — QueueDepthLine.tsx:37 distinguishes it from the unreadable case (:36, \"Scan queue depth is unavailable — this deployment's job queue could not be read.\") and from a populated one (:41-48, with the oldest job's age). Server component, no affordance, so the queue cannot be mistaken for something to drain by hand. Wired at RepositoriesTab.tsx:22,59.",
+    "recertify_commit_range": "9fe74071..d6fec3a9"
   },
   {
     "id": "VICTOR-L1-06",
@@ -1719,12 +1753,14 @@
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "—",
+    "resolution": "resolved-verified",
+    "ceiling": "—\n\n[recertify pass 3, 9fe74071..d6fec3a9] The branch is chosen by comparing the org SLUG to PUBLIC_ORG (usageDashboard.tsx:34) — the very sentinel MC-B20 just removed from the meter, which now keys on Organization.kind. Two features in one area now disagree about what \"the funnel\" is; the funnel branch of this footer was not exercised live. Raised as RC3-N2.",
     "recurrence": null,
     "suggested_acceptance": "BUILD (trivial) — condition the sentence, add a price link.",
     "scope_note": null,
-    "l2_priority": "P4."
+    "l2_priority": "P4.",
+    "recertify_evidence": "[recertify pass 3, 9fe74071..d6fec3a9, 2026-08-31] MC-B31(c). The /usage footer is now conditional and, on a private attributed org, states the truth: \"…The headline is the sum of every lane and a FLOOR: 58 calls in this period could not be priced and contribute $0 to it. Figures are attributed to this organization. See plans & credit pricing.\" (shots/recert3-B19-usage.text.txt:148) — with \"plans & credit pricing\" a live link to /pricing, which is the route to the price the finding said the billing page lacked. The old unconditional \"per-org attribution activates with auth / the GitHub App\" now renders only on the funnel branch (usageDashboard.tsx:34,237-246).",
+    "recertify_commit_range": "9fe74071..d6fec3a9"
   },
   {
     "id": "VICTOR-L1-08",
@@ -1747,12 +1783,14 @@
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "—",
+    "resolution": "fixed",
+    "ceiling": "—\n\n[recertify pass 3, 9fe74071..d6fec3a9] Neither half could be observed live: this deployment's ledger holds only known lanes (\"scan\", \"local\" — shots/recert3-B19-usage.text.txt), so the Unrecognized-lane bar never rendered, and a null-vs-zero token write is invisible on a page that only shows sums. FIXTURE OWED: a UsageEvent carrying a lane string outside LANES, which needs either a rolled-back build or a direct write this pass would not make.",
     "recurrence": null,
     "suggested_acceptance": "BUILD (trivial) — or accept explicitly.",
     "scope_note": null,
-    "l2_priority": "P4."
+    "l2_priority": "P4.",
+    "recertify_evidence": "[recertify pass 3, 9fe74071..d6fec3a9, 2026-08-31] MC-B31(a)+(b) code-verified. (a) lane-cost.ts:149-157 now writes result.inputTokens ?? undefined inside the any-token-present spread, and meter.ts:256 tokenOrNull() turns undefined into a real null — the module's null-never-zero rule holds end to end. (b) the unknown-lane bucket exists: UNKNOWN_LANE = \"unknown\" (usage-events.ts:79-80), folded by laneTotals (:232-267), rendered as \"Unrecognized lane · no estimate\" with the explanation \"Recorded under a lane name this version does not know (a newer or rolled-back build). Counted here so this panel and the team panel agree on the period's total.\" (usageLanePanels.tsx:31, usagePanels.tsx:35,41,60).",
+    "recertify_commit_range": "9fe74071..d6fec3a9"
   },
   {
     "id": "PRIYA-L1-704",
@@ -1817,7 +1855,9 @@
     "recurrence": null,
     "suggested_acceptance": "BUILD — at minimum stop the copy denying a capability the deployment ships; ideally load runs for cloud owners and drop selfHostGuard from propose.",
     "scope_note": null,
-    "l2_priority": "P3 — needs a cloud-shaped host."
+    "l2_priority": "P3 — needs a cloud-shaped host.",
+    "recertify_evidence": "[recertify pass 3, 9fe74071..d6fec3a9, 2026-08-31] MC-B26 is PARTIAL — the fix landed on the server read and the copy, and left the client's detail poll behind. Landed: LiveTab.tsx:136-139 calls getActiveLoopRun/listLoopRuns unconditionally (the selfHosted() gate is gone), selfHostGuard is gone from GET /api/org/loop/propose (route.ts:54-60), and CockpitSetup.tsx:53 now says \"Remote-agent runs do work here.\" beside the honest local-lane caveat (:47-51), rendered on state === \"hosted\" (cockpitGate.ts:23). NOT landed: GET /api/org/loop/[id]/route.ts:19 still runs selfHostGuard() and 404s on a cloud deployment — and that is precisely the route loopClient.ts:31 fetchLoopDetail polls from useLoopRun.ts:83,88,157. So a cloud owner gets the server-rendered run and outcome matrix and then a 404 on every detail poll. The tell is a stale comment the fix did not update: LiveCockpit.tsx:44 still reads \"…for the outcome matrix. Empty on managed cloud.\"",
+    "recertify_commit_range": "9fe74071..d6fec3a9"
   },
   {
     "id": "PRIYA-L1-705",
@@ -1841,12 +1881,14 @@
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "NOT ATTEMPTED — needs ≥3 lanes × 2 models per dimension before a switch can even occur, and the engine is over its weekly cap. Expensive fixture; deprioritized by the walker herself.",
+    "resolution": "fixed",
+    "ceiling": "NOT ATTEMPTED — needs ≥3 lanes × 2 models per dimension before a switch can even occur, and the engine is over its weekly cap. Expensive fixture; deprioritized by the walker herself.\n\n[recertify pass 3, 9fe74071..d6fec3a9] The sentence's numbers were not seen: it renders only when the drive actually SWITCHES model, and org kiro's price list carries a single model (the live run's payload shows model \"opus\", modelPolicy \"single\", models [\"opus\"]), so the basis is null by construction here. FIXTURE OWED: an org whose price list carries ≥2 models per dimension.",
     "recurrence": null,
     "suggested_acceptance": "BUILD (trivial) — one lane-log line with n and the prices compared.",
     "scope_note": null,
-    "l2_priority": "P5."
+    "l2_priority": "P5.",
+    "recertify_evidence": "[recertify pass 3, 9fe74071..d6fec3a9, 2026-08-31] MC-B30(a) code-verified. driveModelBasis (lane-economics.ts:184-198) shares explainDriveModel with pickDriveModel and emits \"Model switched X → Y on measured cost over <dims>: m ¢/pt (n≥N) vs …. Minimum N lanes per cell.\", returns null when the pick equals the configured model (:191), and uses the SMALLEST n across cells (:231). Wired: drive.ts:275-278 reads it once with the pick, stores it as modelBasis (:340), typed in drive-types.ts:42-52, rendered at CockpitDriveRunRow.tsx:45 inside CockpitDrivePanel.tsx:82. lane-economics.test.ts passes.",
+    "recertify_commit_range": "9fe74071..d6fec3a9"
   },
   {
     "id": "PRIYA-L1-706",
@@ -1870,12 +1912,14 @@
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "NOT ATTEMPTED — needs only the MCP token, but the claim gate refused at T0 before a brief could be fetched (see PRIYA-L1-701's ceiling).",
+    "resolution": "fixed",
+    "ceiling": "NOT ATTEMPTED — needs only the MCP token, but the claim gate refused at T0 before a brief could be fetched (see PRIYA-L1-701's ceiling).\n\n[recertify pass 3, 9fe74071..d6fec3a9] No remote lane was run on this host (githubApp: false in /api/health, prAvailable: false on /api/org/loop), so the brief was never generated over the remote path. The disclosure half is a doc claim, not a measurement.",
     "recurrence": null,
     "suggested_acceptance": "BUILD (small) — a `loadLaneBriefInput` call in `getFixBriefTool`, or one disclosing paragraph in live.md §Remote runs.",
     "scope_note": null,
-    "l2_priority": "P5."
+    "l2_priority": "P5.",
+    "recertify_evidence": "[recertify pass 3, 9fe74071..d6fec3a9, 2026-08-31] MC-B30(b) code-verified, and the route taken was the STRONGER of the two the row allowed — the standard is now carried into the remote brief rather than merely disclosed as absent: work-tools.ts:220-230 loadLaneBriefInput → buildLaneBrief → passed as standard into buildAgentBrief, rendered under \"## Your organization's standard\" (followups.ts:708). The residual (a remote close still stamps no PlaybookApplication adoption evidence) is disclosed as a Known gap at live.md:1971-1979.",
+    "recertify_commit_range": "9fe74071..d6fec3a9"
   },
   {
     "id": "PRIYA-L2-C4",
@@ -1962,12 +2006,14 @@
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "—",
+    "resolution": "resolved-verified",
+    "ceiling": "—\n\n[recertify pass 3, 9fe74071..d6fec3a9] The caption itself was NOT rendered: pressing Stop would have killed a parallel session's live run (a9cf047e, started 14:16 by another session sharing this checkout), so the stopRequested=true branch is code- and unit-verified only (CockpitHeader.dom.test.tsx:65,73). The header on the live capture correctly shows the pre-stop state (\"STOP\", \"STOP AFTER IN-FLIGHT\" — shots/recert3-B41-cockpit.text.txt:38,71). The 19m43s measurement that opened the finding is therefore not re-measured; what is proven is that the horizon is now DISCLOSED and server-resolved.",
     "recurrence": null,
     "suggested_acceptance": "BUILD (small) — persist `stopRequested` on the run row and render a 'stopping…' state with the timeout horizon.",
     "scope_note": null,
-    "l2_priority": "DONE (arm C)."
+    "l2_priority": "DONE (arm C).",
+    "recertify_evidence": "[recertify pass 3, 9fe74071..d6fec3a9, 2026-08-31] MC-B25, stop half. GET /api/org/loop?org=kiro now answers the two new fields against a REAL in-flight run (a9cf047e, phase \"running\"): stopping=false, stopHorizonMs=1500000. The horizon is not a browser guess — route.ts:93 resolves it as agentTimeoutMs(active.agentTimeoutMs), and 1500000 ms is exactly that run's own agentTimeoutMs from the same payload (25 min), so a deployment that raised its timeout reports its own number. stopping is the server's cooperative-stop state, loopRunStopRequested(active.id) (:92). Rendered chain: LiveCockpit.tsx:79-80 → CockpitHeader.tsx:74,87-90, where the button reads \"Stopping…\" and disables, and stoppingCaption(1500000) (loopTypes.ts:140-145) prints \"Stopping — in-flight lanes finish their current session first, up to 25 min.\"",
+    "recertify_commit_range": "9fe74071..d6fec3a9"
   },
   {
     "id": "PRIYA-L2-C7",
@@ -1991,12 +2037,14 @@
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "—",
+    "resolution": "fixed",
+    "ceiling": "—\n\n[recertify pass 3, 9fe74071..d6fec3a9] No failed session occurred during this pass, so no commit subject was generated from the failure path. Not observable without deliberately timing out an agent — which on this host means burning a 25-minute run. Code-verified only.",
     "recurrence": null,
     "suggested_acceptance": "BUILD (small) — fall back to a neutral subject when the session ended in error, and keep the error in the body.",
     "scope_note": "Carries the prior run's L2-B-02 (agent config vs engine unlabelled) forward as still-open.",
-    "l2_priority": "DONE (arm C)."
+    "l2_priority": "DONE (arm C).",
+    "recertify_evidence": "[recertify pass 3, 9fe74071..d6fec3a9, 2026-08-31] MC-B25, commit-subject half. lane-commit.ts:33-35 now documents and implements the rule that a silent/failed session is not titled with its failure mode, and the rescan's own \"no longer raised AND the dimension moved\" rule stands in for a trailer.",
+    "recertify_commit_range": "9fe74071..d6fec3a9"
   },
   {
     "id": "PRIYA-L1-707",
@@ -2019,12 +2067,14 @@
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "—",
+    "resolution": "fixed",
+    "ceiling": "—\n\n[recertify pass 3, 9fe74071..d6fec3a9] A documentation-only fix; nothing user-facing to observe. The class of defect — a doc citing a deleted anchor — is not prevented, only this instance repaired.",
     "recurrence": null,
     "suggested_acceptance": "BUILD (trivial) — one sentence.",
     "scope_note": null,
-    "l2_priority": "NONE."
+    "l2_priority": "NONE.",
+    "recertify_evidence": "[recertify pass 3, 9fe74071..d6fec3a9, 2026-08-31] MC-B30(c) code-verified: the dangling pointer at live.md:871 to a correctly-deleted known gap #3 is gone, replaced by a rewritten paragraph (live.md:1054-1060) plus a comment at :1062-1065 naming the failure mode so the next editor does not recreate it.",
+    "recertify_commit_range": "9fe74071..d6fec3a9"
   },
   {
     "id": "TOMAS-L1-S1",
