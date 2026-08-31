@@ -133,8 +133,40 @@ export function sourceRepoHref(path = ""): string | null {
  * a feedback link to upstream is merely the second-best address — and no feedback channel at all is
  * worse than a slightly wrong one. An operator who cares sets NEXT_PUBLIC_SOURCE_REPO_URL.
  */
-const UPSTREAM_ISSUES_URL = "https://github.com/xkazm04/ascent/issues";
+const UPSTREAM_REPO_URL = "https://github.com/xkazm04/ascent";
+const UPSTREAM_ISSUES_URL = `${UPSTREAM_REPO_URL}/issues`;
 export const FEEDBACK_URL: string = SOURCE_REPO_URL ? `${SOURCE_REPO_URL}/issues` : UPSTREAM_ISSUES_URL;
+
+/**
+ * A link to one of the project's DOCUMENTS — this deployment's own copy when it names a repository,
+ * the upstream project's otherwise. Always a real destination.
+ *
+ * The asymmetry with {@link sourceRepoHref} is the same one {@link FEEDBACK_URL} makes, for the same
+ * reason. "View the source" is a LICENCE claim about THIS deployment: pointing it at a stranger's
+ * repository would be wrong, so it has no default. A doc link is a reading reference — upstream's
+ * self-hosting guide is the second-best address, and a printed file path is no address at all.
+ *
+ * UAT MC-B22 (TOMAS-L1-10): `NEXT_PUBLIC_SOURCE_REPO_URL` is set in no committed env file, so every
+ * consumer degraded at once and a raw-HTML sweep of `/` and `/pricing` found exactly ONE github.com
+ * URL on each — the footer's issue tracker. A visitor told three times on one page that the product is
+ * AGPL and self-hostable could reach the code only by noticing that link had a parent directory. The
+ * variable is inlined at BUILD time (`NEXT_PUBLIC_*`), so an operator must set it in the build
+ * environment, not merely at runtime — see .env.example.
+ */
+export function docHref(path: string): string {
+  const clean = path.replace(/^\/+/, "");
+  return `${SOURCE_REPO_URL ?? UPSTREAM_REPO_URL}/blob/HEAD/${clean}`;
+}
+
+/** Whether {@link docHref} is pointing at the upstream project rather than at this deployment's own
+ *  repository — surfaces say so rather than implying the doc is theirs. */
+export const DOCS_ARE_UPSTREAM: boolean = SOURCE_REPO_URL == null;
+
+/** The self-hosting guide, the one doc the marketing surface sends a reader to. */
+export const SELF_HOST_GUIDE_PATH = "docs/SELF-HOSTING.md";
+export function selfHostGuideHref(): string {
+  return docHref(SELF_HOST_GUIDE_PATH);
+}
 
 /**
  * Serialize a JSON-LD payload for inlining into a `<script type="application/ld+json">`.

@@ -19,7 +19,7 @@
 import Link from "next/link";
 import { DeckSection } from "@/components/deck/DeckSection";
 import { Kicker } from "@/components/ui";
-import { sourceRepoHref } from "@/lib/site";
+import { DOCS_ARE_UPSTREAM, selfHostGuideHref } from "@/lib/site";
 import { LOOP_CONCURRENCY_CAP, LOOP_MAX_CYCLES_CAP } from "@/lib/db/loop-runs-types";
 import { DRIVE_MAX_RUNS_CAP, type DrivePhase } from "@/lib/local/drive-types";
 
@@ -77,9 +77,10 @@ const LOCAL_FEATURES: LocalFeature[] = [
 ];
 
 export function IndexLocal() {
-  // Same degrade rule as the hero and SelfHostBand: a real repository link when the deployment names
-  // one, the in-repo path as plain text otherwise — never a guessed, dead URL.
-  const guideHref = sourceRepoHref("docs/SELF-HOSTING.md");
+  // MC-B22: the guide is a LINK, always. This deployment's own copy when it names a repository
+  // (NEXT_PUBLIC_SOURCE_REPO_URL), upstream's otherwise — labelled as upstream, so the fallback is
+  // honest rather than silent. Only "view the source" keeps the no-default rule; see docHref.
+  const guideHref = selfHostGuideHref();
   return (
     // No inner container: IndexVariant wraps the mid-deck sections in the editorial `deck-container`
     // shell (same as IndexOrg / IndexFleet).
@@ -154,20 +155,14 @@ export function IndexLocal() {
           <Link href="/pricing#self-host" className="type-body-sm font-medium text-slate-300 transition hover:text-white">
             Free forever — what self-hosting includes →
           </Link>
-          {guideHref ? (
-            <a
-              href={guideHref}
-              target="_blank"
-              rel="noreferrer"
-              className="focus-ring rounded-sm type-label tracking-widest text-slate-400 transition hover:text-accent"
-            >
-              <span aria-hidden>▸</span> Self-hosting guide
-            </a>
-          ) : (
-            <span className="type-label tracking-widest text-slate-500">
-              Self-hosting guide: <span className="text-slate-400">docs/SELF-HOSTING.md</span>
-            </span>
-          )}
+          <a
+            href={guideHref}
+            target="_blank"
+            rel="noreferrer"
+            className="focus-ring rounded-sm type-label tracking-widest text-slate-400 transition hover:text-accent"
+          >
+            <span aria-hidden>▸</span> Self-hosting guide{DOCS_ARE_UPSTREAM ? " (upstream)" : ""}
+          </a>
         </div>
       </div>
     </DeckSection>
