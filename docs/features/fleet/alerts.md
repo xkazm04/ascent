@@ -189,7 +189,8 @@ silent rather than training the inbox filter.
   noise-filtered via `isWithinNoise` so within-jitter moves never appear under
   "Regressions:"), the **highest-leverage gap** (`getOrgRecommendations(org, 1)`'s top
   result: title + affected repo count), the corpus percentile (`getOrgBenchmark`), a
-  one-line forecast trajectory (`forecastHeadline`), and, for metered, non-public orgs
+  one-line forecast trajectory (`trajectoryLine` — see "The trajectory line is gated and
+  hedged" below), and, for metered, non-public orgs
   running low, the remaining credit balance. The week is derived from the shared
   `weekRangeParams()`/`resolveWindow()` period helper (a custom range snapped to local
   calendar days) so the digest's window matches the linked executive briefing
@@ -202,6 +203,17 @@ silent rather than training the inbox filter.
   as the low-credit line: the reader needs to know it is *still* true, not only that it once
   happened. Every other condition is a movement, which is precisely why a decline that stopped
   moving could sit unreported for eighteen scans.
+- **The trajectory line is gated and hedged (MC-B1, 2026-08-31).** The digest's one-line trajectory
+  comes from `trajectoryLine(rollup.forecast)` (`src/lib/maturity/forecast.ts`), the same composer the
+  executive briefing, the board PDF, the read-only share page and the "Copy for LLM" markdown read.
+  Three outcomes, and only three: a fit that clears the shared presentability gate
+  (`isProjectable` — ≥ 3 distinct scan days AND ≥ 14 days of calendar span) pushes its headline **with
+  its hedge attached** ("… (trend confidence 34% · noisy · fit over 9 scan days across 84 days)"); a
+  fit below the gate pushes `forecastInsufficiency`'s refusal *verbatim* — the same sentence the
+  Delivery fit readout and `/trends` print; no fit at all pushes **nothing**, because an absent basis
+  degrades to silence, never to a fabricated one. It previously pushed `forecastHeadline` raw, so a
+  two-scan-day fit went out to Slack as a bare "Climbing at +35/wk" — a push channel is the worst
+  place to state a slope nobody can click through to question.
 - **Controls block (moonshot #1):** `FleetDigestInput.controlsFailed` renders a
   "Controls that failed this week" block **above** the movers — a control that came off a repository
   outranks every score delta on the page, and a reader who has to scroll past six gainers to find it

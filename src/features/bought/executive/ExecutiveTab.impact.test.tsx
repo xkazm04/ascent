@@ -34,7 +34,16 @@ vi.mock("@/lib/org/briefing", () => ({
   briefingMarkdown: () => "md",
   engineMixLabel: () => "1 model",
   engineMixCaveat: () => null,
-  forecastConfidenceNote: () => null,
+  // MC-B1 — the Trajectory card reads its line through the ONE briefing composer; stub both
+  // halves so a mocked briefing renders the claim WITH its hedge, never the claim alone.
+  briefingTrajectory: (b: { forecastHeadline: string | null; forecastConfidence: number | null }) => ({
+    headline: b.forecastHeadline,
+    confidence: b.forecastConfidence,
+    basis: null,
+    insufficiency: null,
+  }),
+  briefingTrajectoryNote: (b: { forecastConfidence: number | null }) =>
+    b.forecastConfidence != null ? `trend confidence ${b.forecastConfidence}%` : null,
   valueRealizedLine: () => null,
 }));
 vi.mock("@/lib/org/period", () => ({ resolveOrgWindow: mockResolveOrgWindow }));

@@ -179,6 +179,41 @@ describe("BriefingDocument — carries the value / adoption / movement-scale lin
 });
 
 // ── G5-05: Strengths/Weakest-dimensions column guards ───────────────────────────────────────────────
+// UAT DANA-L1-001 (recurrence 3) / MC-B1 — this document is the artifact with the org's name on it,
+// and it was the one printing "Trajectory: Climbing at +35/wk" off two scan days with its hedge
+// deleted rather than replaced, while Delivery refused the same claim one click away.
+describe("BriefingDocument — a trajectory never prints without its basis", () => {
+  it("prints the basis and the confidence under a headline it is willing to state", () => {
+    const t = text(
+      briefing({
+        forecastHeadline: "On track to reach L4 · Optimizing in ~8 weeks (≈ 2026-09-20).",
+        forecastConfidence: 34,
+        forecastBasis: "fit over 9 scan days across 84 days",
+      }),
+    );
+    expect(t).toContain("On track to reach L4");
+    expect(t).toContain("trend confidence 34% · noisy · fit over 9 scan days across 84 days");
+  });
+
+  it("prints the REFUSAL — in Delivery's words — instead of a slope the fit cannot support", () => {
+    const t = text(
+      briefing({
+        forecastHeadline: null,
+        forecastConfidence: null,
+        forecastInsufficiency: "Not enough history to project: 2 distinct scan days (a line through ≤ 2 points fits perfectly no matter how noisy the data).",
+      }),
+    );
+    expect(t).toContain("Not enough history to project: 2 distinct scan days");
+    expect(t).not.toContain("/wk");
+  });
+
+  it("says nothing about a trajectory when there is no fit at all — absence, not fabrication (G4)", () => {
+    const t = text(briefing({ forecastHeadline: null, forecastConfidence: null, forecastInsufficiency: null }));
+    expect(t).not.toContain("Trajectory");
+    expect(t).not.toContain("trend confidence");
+  });
+});
+
 describe("BriefingDocument — Strengths/Weakest-dimensions column guards (G5-05)", () => {
   it("omits the Strengths heading when strengths is empty (risks present)", () => {
     const t = text(briefing({ strengths: [], risks: [{ dimId: "D9", label: "Security", avg: 41 }] }));

@@ -44,7 +44,7 @@ import { mapPool } from "@/lib/pool";
 import { PUBLIC_ORG } from "@/lib/auth";
 import { isWithinNoise } from "@/lib/maturity/noise";
 import { levelForScore } from "@/lib/maturity/model";
-import { forecastHeadline } from "@/lib/maturity/forecast";
+import { trajectoryLine } from "@/lib/maturity/forecast";
 import { publicBaseUrl } from "@/lib/site";
 import { resolveWindow, weekRangeParams } from "@/lib/window";
 import { orgTabHref } from "@/lib/org/orgTabs";
@@ -227,7 +227,11 @@ export async function GET(request: Request) {
         controlsFailed: controlsFailedRows.length > 0 ? controlsFailedRows : undefined,
         standingConcerns: standingRows.length > 0 ? standingRows : undefined,
         percentile: benchmark?.overallPercentile ?? null,
-        trajectory: rollup.forecast ? forecastHeadline(rollup.forecast) : null,
+        // MC-B1: the digest gets the SAME composed line as the briefing it links to — the headline
+        // with its confidence + basis once the fit is presentable, and the refusal sentence when it
+        // is not. A push channel is the worst place to state a slope nobody can question, and the
+        // digest previously printed `forecastHeadline` raw, hedge and gate alike bypassed.
+        trajectory: trajectoryLine(rollup.forecast),
         // Carry the balance only when the org is metered and running low (the same condition the
         // movement-gate treats as always-worth-sending) — the digest is the one push a leader reliably
         // reads, so a depleting balance gets a standing line there, not just the crossing alert.

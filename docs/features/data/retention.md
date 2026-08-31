@@ -129,7 +129,10 @@ model scored the period. Default is **off**: the compare picker, the skill-outco
 dashed segment with hollow points and one legend line, and names it in the screen-reader table (the
 encoding is visual only). `/api/history?compacted=1` opts in over the API, and the CSV export gains
 `compacted` + `scans` columns so a spreadsheet is honest about which row is a summary.
-`forecastBasis(forecast)` states how many of a fit's days were compacted; `getCompactionCoverage(org)`
+`forecastBasis(forecast)` states how many of a fit's days were compacted — since MC-B1 (2026-08-31)
+it reaches a reader, through `composeTrajectory` on every briefing/digest trajectory line (see
+`docs/features/org-dashboard/org-intelligence.md`); note the ORG rollup's series does not yet carry
+compacted points, so the clause is silent there until it does. `getCompactionCoverage(org)`
 reports how far the tail reaches beyond the retained scans (both degrade to `null`, never zeros).
 `MIN_FORECAST_POINTS` and the `lowData` rule are untouched — a compacted day counts as one day.
 

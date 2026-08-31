@@ -7,7 +7,7 @@
 
 import type { ReactNode } from "react";
 import { Document, Page, Image, StyleSheet, Text, View } from "@react-pdf/renderer";
-import { benchmarkCaption, briefingLoopProofLine, briefingNextMove, briefingProofLine, engineMixCaveat, engineMixLabel, forecastConfidenceNote, movementLine, nextMoveLine, valueRealizedHeading, valueRealizedLine } from "@/lib/org/briefing";
+import { benchmarkCaption, briefingLoopProofLine, briefingNextMove, briefingProofLine, briefingTrajectoryNote, engineMixCaveat, engineMixLabel, movementLine, nextMoveLine, valueRealizedHeading, valueRealizedLine } from "@/lib/org/briefing";
 import type { BriefingDim, BriefingMove, ExecBriefing } from "@/lib/org/briefing";
 import { ACCENT, INK, MUTED, FAINT, baseStyles, scoreColor, Stat, Footer } from "./theme";
 import { latin1Safe } from "./latin1";
@@ -121,11 +121,17 @@ export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefin
         {b.periodDelta != null && (
           <Text style={styles.line}>Change vs {b.periodTitle} start: {b.periodDelta >= 0 ? "+" : ""}{b.periodDelta}</Text>
         )}
+        {/* MC-B1 — this is THE artifact with the org's name on it, and it was the one printing
+            "Trajectory: Climbing at +35/wk" off two scan days with the hedge deleted rather than
+            replaced. It now reads the same composed line as the screen, the share page and the
+            markdown: a headline only once the fit is presentable, always with its basis; otherwise
+            the same refusal sentence Delivery prints. */}
         {b.forecastHeadline ? <Text style={styles.traj}>Trajectory: {latin1Safe(b.forecastHeadline)}</Text> : null}
-        {/* The same trend-confidence hedge the exec page + LLM markdown carry — so the board PDF can't
-            present a noisy, low-R² projection as a firm headline (briefing.ts forecastConfidenceNote). */}
-        {b.forecastHeadline && forecastConfidenceNote(b.forecastConfidence) ? (
-          <Text style={baseStyles.meta}>{forecastConfidenceNote(b.forecastConfidence)}</Text>
+        {b.forecastHeadline && briefingTrajectoryNote(b) ? (
+          <Text style={baseStyles.meta}>{latin1Safe(briefingTrajectoryNote(b)!)}</Text>
+        ) : null}
+        {!b.forecastHeadline && b.forecastInsufficiency ? (
+          <Text style={baseStyles.meta}>Trajectory: {latin1Safe(b.forecastInsufficiency)}</Text>
         ) : null}
         {b.benchmark?.cohort && b.benchmark.cohort.overallPercentile != null ? (
           <Text style={styles.line}>

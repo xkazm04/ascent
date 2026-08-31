@@ -3,20 +3,23 @@
 // component, no state.
 
 import { Card, SectionHeader } from "@/components/org/shared/ui";
-import { forecastConfidenceNote } from "@/lib/org/briefing";
+import { briefingTrajectory, briefingTrajectoryNote } from "@/lib/org/briefing";
 import type { ExecBriefing } from "@/lib/org/briefing";
 
 export function ExecutiveTrajectoryCard({ briefing, periodHasStart }: { briefing: ExecBriefing; periodHasStart: boolean }) {
-  if (!briefing.forecastHeadline && briefing.regressionCount === 0) return null;
+  // MC-B1 — one composed read for every briefing surface. A headline only ever arrives here having
+  // cleared the shared presentability gate, and it arrives WITH its hedge; when the fit was real but
+  // too thin, `insufficiency` carries Delivery's own refusal sentence instead of a bare slope.
+  const traj = briefingTrajectory(briefing);
+  const note = briefingTrajectoryNote(briefing);
+  if (!traj.headline && !traj.insufficiency && briefing.regressionCount === 0) return null;
   return (
     <Card>
       <SectionHeader size="sm" title="Trajectory" />
       <p className="mt-2 type-body text-slate-300">
-        {briefing.forecastHeadline ?? "Not enough history yet to project a trajectory."}
+        {traj.headline ?? traj.insufficiency ?? "Not enough history yet to project a trajectory."}
       </p>
-      {briefing.forecastHeadline && forecastConfidenceNote(briefing.forecastConfidence) && (
-        <p className="mt-1 type-mono-sm text-slate-500">{forecastConfidenceNote(briefing.forecastConfidence)}</p>
-      )}
+      {traj.headline && note && <p className="mt-1 type-mono-sm text-slate-500">{note}</p>}
       {briefing.regressionCount > 0 && (
         <p className="mt-1 type-mono-sm text-orange-300">
           ⚠ {briefing.regressionCount} repo{briefing.regressionCount > 1 ? "s" : ""} regressed{" "}
