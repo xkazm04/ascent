@@ -67,7 +67,7 @@ export function SecurityRiskRegister({
     <>
       <OrgTable
         className="mt-3"
-        caption="Security control matrix: deterministic Scorecard-style checks (branch protection, workflow safety, pinned deps, SAST, SBOM, signing, policy) + current vuln exposure, graded 0–10 per repo"
+        caption="Security D9 check battery: deterministic Scorecard-style checks (branch protection, workflow safety, pinned deps, SAST, SBOM, signing, policy) + current vuln exposure, graded 0–10 per repo"
         minWidth={advByRepo ? 940 : 840}
         head={
           <tr>

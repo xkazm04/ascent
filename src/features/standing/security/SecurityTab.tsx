@@ -120,11 +120,16 @@ export async function SecurityTab({ slug, sp }: { slug: string; sp: SearchParams
             competing max-width would be a cascade coin-flip (two utilities of equal specificity, order
             decided by Tailwind's emission, not by the class list), so the caption owns its own <p>
             below the header row and runs the full width of the card. */}
-        <SectionHeader size="sm" title="Control matrix" right={<CopyForLlm text={gateSnippet} label="Copy CI gate snippet" />} />
+        {/* MC-B10 — "Control matrix" until 2026-08-31. Passports carried a "Controls" tab and
+            Governance a "Control observations" card, so the same word named three unrelated
+            catalogues on one dashboard. This one is the D9 battery; the heading now says so and the
+            caption points at the other two. */}
+        <SectionHeader size="sm" title="D9 check battery" right={<CopyForLlm text={gateSnippet} label="Copy CI gate snippet" />} />
         <p className="mb-3 mt-2 type-body text-slate-400">
           All {sec.scanned} scanned repos against the security gate (D9 ≥ {gate.minSecurity}, not &ldquo;ungoverned&rdquo;), each
           graded 0–10 across the deterministic control battery + current vuln exposure. Failing repos first; ┃ divides
-          posture from exposure.
+          posture from exposure. Not the same catalogue as Passports › Doctor checks (each repo&apos;s own CI) or
+          Governance › Governance control ledger (branch-protection observations over time).
         </p>
         {supplyDegraded && (
           <p role="status" className="mb-3 rounded-lg border border-warn/30 bg-warn/5 px-3 py-2 type-body-sm text-warn">

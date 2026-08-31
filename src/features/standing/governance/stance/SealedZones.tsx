@@ -15,6 +15,10 @@ export function SealedZones({ zones }: { zones: StanceZoneView[] }) {
       <p className="mt-2 max-w-3xl type-body text-slate-300">
         Inside the perimeter these repos and paths are declared closed regardless of tier. The readout below compares
         the declaration with OBSERVED git attribution: it reports contradictions, it does not enforce the seal.
+        {/* MC-B10 — on this tab SEALED means this and only this. The control ledger's tamper-evidence
+            says "chained" precisely so the two are never the same word one scroll apart. */}{" "}
+        &ldquo;Sealed&rdquo; here is a declared no-AI zone; the control ledger&apos;s tamper-evidence above says{" "}
+        <span className="text-slate-400">chained</span>, and the two are unrelated.
       </p>
       <ul className="mt-4 grid gap-px overflow-hidden rounded-xl border border-divider bg-divider sm:grid-cols-2">
         {zones.map((z, i) => (

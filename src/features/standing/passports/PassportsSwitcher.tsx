@@ -24,7 +24,11 @@ const VARIANTS: { id: VariantId; label: string; note: string }[] = [
   // A SIBLING of Capabilities, deliberately not folded into it: Capabilities is what the repo
   // DECLARES (read from its manifest at scan time), Controls is what its own CI JUDGED and reported
   // back. Same subject, two independent sources of evidence — merging them would hide which is which.
-  { id: "controls", label: "Controls", note: "per-check doctor findings, reported by each repo's own CI" },
+  // MC-B10 — "Controls" until 2026-08-31, which collided with the Security tab's D9 check battery
+  // AND with the Governance tab's control-observation ledger. Three different catalogues, one word,
+  // one dashboard: an appsec lead reading "controls" on any tab could not tell which they had.
+  // Each now says what it is made of; this one is the repo's own doctor checks.
+  { id: "controls", label: "Doctor checks", note: "per-check doctor findings, reported by each repo's own CI" },
 ];
 
 export function PassportsSwitcher({
