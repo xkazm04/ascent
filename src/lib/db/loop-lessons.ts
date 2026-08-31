@@ -15,6 +15,7 @@
 
 import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
+import { redBaselineLessonKey } from "@/lib/local/lane-baseline";
 
 /** Where a candidate came from. One value today; the column is `String` so #36's skill-lessons
  *  channel can reuse this table without a migration. */
@@ -216,6 +217,73 @@ export async function recordLandRefusalLesson(
       })
       .catch(() => null);
     return row ? toRow(row as CandidateRow) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * THE REPOSITORY'S OWN CHECKS ARE FAILING, and the loop noticed.
+ *
+ * A red baseline turns the degradation guard off on that repository: there is no green measurement to
+ * compare against, so nothing the loop commits there can be shown not to have regressed. The lane's
+ * brief now leads with the repair (`leadWithRedBaseline`), and this is how the OPERATOR finds out —
+ * in the same review queue every other lesson lands in, so it is not one more log line nobody reads.
+ *
+ * ONE ROW PER REPOSITORY, REFRESHED — the sharpest difference from `recordLoopLessons`. A red
+ * baseline is a standing fact that stays true lane after lane, so an event-shaped write would have
+ * filed twenty-one identical candidates in the campaign that exposed this. But the fact is not
+ * *static* either: "attempt 4, still failing" is a materially different thing to know than "attempt
+ * 1", and it is exactly what an operator needs to see. So the row is keyed on a prefix that carries
+ * NEITHER the command nor the date nor the count (`redBaselineLessonKey`), and its content is rewritten
+ * as the attempt count climbs.
+ *
+ * A DISCARDED OR KEPT ROW IS LEFT ALONE. A human has already ruled on it; rewriting their reviewed
+ * candidate under them — or resurrecting a rejection into the pending queue — is the noise the
+ * idempotence exists to prevent. Only a still-`pending` row is refreshed.
+ */
+export async function recordRedBaselineLesson(
+  orgSlug: string,
+  repoFullName: string,
+  content: string,
+): Promise<LoopLessonRow | null> {
+  if (!isDbConfigured()) return null;
+  try {
+    const org = await getOrgBySlug(orgSlug);
+    if (!org) return null;
+    const body = content.slice(0, LESSON_MAX_CHARS);
+    const prisma = getPrisma();
+    const key = redBaselineLessonKey(repoFullName);
+    const existing = await prisma.orgMemoryCandidate
+      .findFirst({
+        where: { orgId: org.id, namespace: repoFullName, source: LOOP_LESSON_SOURCE, content: { startsWith: key } },
+        orderBy: { createdAt: "desc" },
+      })
+      .catch(() => null);
+    if (existing) {
+      const row = existing as CandidateRow;
+      if (row.status !== "pending" || row.content === body) return toRow(row);
+      const updated = await prisma.orgMemoryCandidate
+        .update({ where: { id: row.id }, data: { content: body } })
+        .catch(() => null);
+      return toRow((updated ?? row) as CandidateRow);
+    }
+    const created = await prisma.orgMemoryCandidate
+      .create({
+        data: {
+          orgId: org.id,
+          namespace: repoFullName,
+          content: body,
+          kind: "procedural",
+          source: LOOP_LESSON_SOURCE,
+          // The lane that is about to run is not what the fact is about — the repository is. Keeping
+          // the row lane-free is what lets it survive as ONE row across every lane that hits it.
+          laneId: null,
+          status: "pending",
+        },
+      })
+      .catch(() => null);
+    return created ? toRow(created as CandidateRow) : null;
   } catch {
     return null;
   }

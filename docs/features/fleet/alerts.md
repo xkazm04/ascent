@@ -127,6 +127,53 @@ whole contract is "a flat week stays silent", and a decline that stopped moving 
 to every movement-based input it has. Per-repo regression alerts were the wrong home: they are
 event-shaped, cooldown-throttled, and would have to invent a "still true" cadence.
 
+### Red baselines (a repository whose OWN checks are failing)
+
+`getRedBaselines(orgSlug, { limit })` (`src/lib/db/loop-baselines.ts`) → `RepoRedBaseline[]`. The
+second inhabitant of the standing-concerns block, and it rides it for **exactly the reasoning above**.
+
+The improvement loop's A/B degradation guard records `baseline-red` on a lane when the repository's own
+check — `npm run test:unit`, whatever the repo declares — was **already failing before the agent
+arrived** ([live.md](../org-planning/live.md#the-ab-degradation-guard-2026-08-31)). The guard then has
+no green measurement to compare against, so it can neither catch a regression nor confirm a fix: it is
+**effectively off on that repository** and everything the loop commits there is unverified. Measured
+on `xkazm04/systedo-case` (2026-08-31): red on every lane, for a test the loop itself had written in
+an earlier campaign, reported nowhere.
+
+That is a **state**, not an event, and it is invisible to every other signal for the same two reasons a
+standing regression is: nothing *moves* while it holds, and the guard that stops the loop making false
+claims is also what stops it raising this one. The digest is the surface whose silence it exploits.
+
+**The rule.** The repository's lane history is walked newest-first; the unbroken run of `baseline-red`
+at the head is the concern (`consecutiveRedBaseline`, `src/lib/local/lane-baseline.ts`). A lane with
+**no** verdict is skipped rather than breaking the run — that is a lane written before the guard
+existed, and reading "unknown" as "green then" would shorten every run spanning the guard's own
+introduction. `verified`, `rejected` and `skipped` all **do** break it. **One lane is enough**: unlike
+a score, a failing check has no noise band to see through, and the three-scan patience a standing
+regression earns would buy three more lanes of unverifiable commits here.
+
+**It is an observation, never an attribution** — the same contract, checked by the same kind of test:
+
+> `npm run test:unit` — this repository's own check — has failed before the session on every loop lane
+> since 2026-08-28 (3 lanes). With no green baseline the degradation guard cannot compare anything, so
+> nothing the loop commits here is verified.
+
+Two facts, a **date** (never a wall-clock time), and the consequence. No cause, no actor. Its
+`evidence` lines are the repository's own captured output — bounded to 4 lines / 400 chars and passed
+through `neutralize` (`src/lib/llm/untrusted.ts`), because that same text is quoted into a model
+prompt on the loop side.
+
+**In the digest** they are folded into `FleetDigestInput.standingConcerns` alongside the dimension
+concerns, **red baselines first**: a guard that cannot run outranks a score that fell. Deliberately
+ONE list and one heading — *"observed, cause not attributed"* is already true of both, each line names
+its own subject, and a second block would be a second thing for a reader to learn for a distinction
+that lives in the sentence. They count toward `digestHasSignal`'s `standingConcerns`, so a fleet whose
+only news is a disabled guard still sends. A fleet with none raises nothing and the block is omitted
+rather than rendered as "0 concerns" — the same three-state contract.
+
+The loop acts on it too — the next lane's brief leads with the repair and the operator gets a lesson.
+That half lives in [live.md](../org-planning/live.md#a-red-baseline-is-surfaced-and-becomes-the-loops-own-top-priority-work-2026-08-31).
+
 ## Integration (`src/lib/scan-alerts.ts`)
 
 `checkAndAlertRegression(prev, fresh, opts)`:
@@ -157,6 +204,8 @@ cooldown claim, so an interactive rescan can't double-alert with the cron.
 | `src/lib/alerts.test.ts` | Threshold + verdict + message tests. |
 | `src/lib/alerts-standing.test.ts` | Standing-regression rule: the kp shape raises, a single-scan dip / a fresh drop / a within-noise drop / no history do not, and it fires on a drop attribution refuses to claim. |
 | `src/lib/db/scans-read.ts` | `getStandingRegressions(orgSlug)` — the persisted-scan read behind the standing detector, plus the appeared/disappeared evidence lines. |
+| `src/lib/local/lane-baseline.test.ts` | Red baselines: the consecutive-red walk (a verdict-less lane is skipped, `skipped` breaks it, one lane is enough), the observation's wording and its refusal to name a cause, and the evidence lines bounded on both axes and neutralized. |
+| `src/app/api/cron/digest/route.test.ts` | A red baseline reaches the movement gate and the rendered block with its evidence; a green fleet raises nothing and the block is omitted; a red baseline is listed above a standing regression. |
 | `src/lib/scan-alerts.ts` | Glue: diff prior vs fresh, audit, dispatch. |
 | `src/app/api/cron/digest/route.ts` | Weekly fleet digest cron handler. |
 | `src/app/api/cron/digest/extra-alerts.ts` | Goal-at-risk + spend-anomaly pushes that ride the weekly run. |
@@ -198,7 +247,7 @@ silent rather than training the inbox filter.
 - **Movement gate:** `digestHasSignal()` (`src/lib/alerts.ts`) decides whether the week is
   worth sending at all: a level change, a beyond-noise regression, a beyond-noise gainer, a
   non-zero overall delta, a low credit balance, a control that failed (`controlsFailed > 0`),
-  **or a standing concern** (`standingConcerns > 0`). An org with none of those is skipped
+  **or a standing concern** (`standingConcerns > 0`, which counts red baselines too). An org with none of those is skipped
   (`skippedFlat`). A standing concern is re-stated every period it persists — on the same reasoning
   as the low-credit line: the reader needs to know it is *still* true, not only that it once
   happened. Every other condition is a movement, which is precisely why a decline that stopped
@@ -227,9 +276,10 @@ silent rather than training the inbox filter.
   disclaimer is in the heading so a line quoted out of the message still cannot read as an
   attribution. Same three-state contract as `controlsFailed`: undefined omits the block (a caller
   that did not compute it says nothing rather than "0 concerns"), an empty array is the positive
-  statement "we looked and nothing is standing down". Fed by
-  `getStandingRegressions(org, { limit: 5 })`, deliberately **not** window-scoped: the whole failure
-  it closes is a shortfall that began before this week.
+  statement "we looked and nothing is standing down". Fed by **two** reads, both deliberately **not**
+  window-scoped for the same reason — the whole failure they close began before this week:
+  `getRedBaselines(org, { limit: 5 })` first (a repository whose own checks are failing, so the loop's
+  guard cannot run at all) then `getStandingRegressions(org, { limit: 5 })`.
 - **Schedule/trigger:** invoked by Vercel Cron (see `vercel.json`) hitting
   `GET /api/cron/digest` (`src/app/api/cron/digest/route.ts`), `runtime: "nodejs"`,
   `maxDuration: 300`. Orgs are processed with bounded concurrency (`mapPool`, concurrency 4)
@@ -423,5 +473,12 @@ titles and outcomes, never the sink URL).
   delivered only through the weekly digest, so an org with no configured sink still learns about it
   only by opening the dashboard, and there is no in-app standing-concern surface on the repository
   or report pages yet.
+- (Closed 2026-08-31.) ~~A repository whose OWN checks are failing is reported nowhere~~: the loop's
+  degradation guard wrote `baseline-red` to a lane log, which meant the guard could be effectively
+  off on a repository indefinitely with nobody told. `getRedBaselines` + the same standing-concerns
+  block now report it (see "Red baselines" above), and the loop's next brief leads with the repair.
+  **The honest remainder:** it shares the previous item's remainder — digest-only delivery — and the
+  in-app half is one word on the Live tab's outcome sheet, which an operator only sees if they open
+  that tab. There is no repository- or report-page surface for it.
 - **No acknowledgement or assignment on a control alert:** the `AlertEvent` row records the decision,
   but there is no "who is fixing this" state — the same gap the history rows have generally.

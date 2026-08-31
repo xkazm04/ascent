@@ -75,3 +75,21 @@ describe("column widths", () => {
     expect(Number(screen.getByLabelText("Resize the run 1 column").getAttribute("aria-valuenow"))).toBe(96);
   });
 });
+
+describe("a red baseline on a run's row", () => {
+  it("is ONE WORD on the project header row, with the guard's note on hover", () => {
+    sheet();
+    const word = screen.getByTestId("cell-baseline-red");
+    expect(word.textContent).toBe("baseline red");
+    expect(word.getAttribute("title")).toContain("BASELINE RED");
+    // It belongs to the repo whose lane measured it, on that repo's own header row.
+    expect(word.closest("tr")!.textContent).toContain("acme/docs-site");
+  });
+
+  it("is a WORD, not a panel — no extra row, no expander, no heading", () => {
+    sheet();
+    // Exactly one repo in the fixture is red; the other three header rows say nothing.
+    expect(screen.getAllByTestId("cell-baseline-red")).toHaveLength(1);
+    expect(screen.queryByText(/degradation guard/i)).toBeNull();
+  });
+});

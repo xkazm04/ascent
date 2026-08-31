@@ -37,6 +37,9 @@ vi.mock("@/lib/db", () => ({
   // Standing concerns (dimensions holding materially below an earlier reading). Default: none, so
   // every pre-existing case keeps its exact movement-gate outcome.
   getStandingRegressions: vi.fn(async () => [] as unknown[]),
+  // A repository whose OWN check was already failing before a loop lane touched it — the same
+  // standing-concerns block, from the degradation guard's column. Default: none.
+  getRedBaselines: vi.fn(async () => [] as unknown[]),
   // Early fast-path (skip rollup for an org already sent this window): getAuditLog reports whether a
   // digest already went out. Default: nothing sent yet.
   getAuditLog: vi.fn(async () => ({ entries: [] as unknown[], nextCursor: null })),
@@ -94,6 +97,7 @@ import {
   getCreditState,
   getAuditLog,
   getStandingRegressions,
+  getRedBaselines,
 } from "@/lib/db";
 import { claimOrgAuditOnce, releaseAuditClaim } from "@/lib/db/scans-audit";
 import { dispatchAlert, buildFleetDigestMessage, digestHasSignal } from "@/lib/alerts";
@@ -163,6 +167,10 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     mockAuditLog.mockResolvedValue({ entries: [], nextCursor: null });
     mockClaim.mockResolvedValue({ claimed: true, id: "clm_1" });
     mockRelease.mockResolvedValue(undefined);
+    // Both standing-concern inputs reset to "nothing standing" so a case that arms one does not leak
+    // its concern into the next case's movement gate.
+    vi.mocked(getStandingRegressions).mockResolvedValue([] as never);
+    vi.mocked(getRedBaselines).mockResolvedValue([] as never);
   });
 
   afterEach(() => {
@@ -466,6 +474,73 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
         ],
       }),
     );
+  });
+
+  it("raises a RED BASELINE in the standing-concerns block — the loop's own guard, switched off", async () => {
+    // `baseline-red` means a repository's OWN check was failing before an agent touched it, so the
+    // degradation guard has nothing green to compare against and everything the loop commits there is
+    // unverified. It is a state, not an event: every windowed, movement-shaped input is silent about
+    // it, which is exactly the silence the standing-concerns block exists to break.
+    mockListOrgs.mockResolvedValue(["orgRed"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/R");
+    mockRollup.mockResolvedValue(rollupWith());
+    vi.mocked(getRedBaselines).mockResolvedValue([
+      {
+        repoFullName: "orgRed/systedo-case",
+        observation:
+          "`npm run test:unit` — this repository's own check — has failed before the session on every loop lane since " +
+          "2026-08-28 (3 lanes). With no green baseline the degradation guard cannot compare anything, so nothing the " +
+          "loop commits here is verified.",
+        evidence: ["FAIL test-unit/fault-injection-llm.test.mjs"],
+        lanes: 3,
+        command: "npm run test:unit",
+        since: "2026-08-28T09:00:00.000Z",
+      },
+    ] as never);
+
+    await GET(req({ auth: `Bearer ${SECRET}` }));
+    // It reaches the movement gate, so a flat week no longer stays silent about it…
+    expect(mockHasSignal).toHaveBeenCalledWith(expect.objectContaining({ standingConcerns: 1 }));
+    // …and the rendered block carries the observation and its evidence, in the same shape a standing
+    // regression uses. No new panel, no second heading.
+    const sent = mockBuild.mock.calls[0]![0] as { standingConcerns?: { repo: string; observation: string; evidence?: string[] }[] };
+    expect(sent.standingConcerns).toEqual([
+      expect.objectContaining({
+        repo: "orgRed/systedo-case",
+        observation: expect.stringContaining("has failed before the session on every loop lane since 2026-08-28"),
+        evidence: ["FAIL test-unit/fault-injection-llm.test.mjs"],
+      }),
+    ]);
+  });
+
+  it("raises NOTHING for a fleet whose baselines are green", async () => {
+    mockListOrgs.mockResolvedValue(["orgGreen"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/G");
+    mockRollup.mockResolvedValue(rollupWith());
+    vi.mocked(getRedBaselines).mockResolvedValue([] as never);
+
+    await GET(req({ auth: `Bearer ${SECRET}` }));
+    expect(mockHasSignal).toHaveBeenCalledWith(expect.objectContaining({ standingConcerns: 0 }));
+    // …and the block is OMITTED rather than rendered as "0 concerns" — the same three-state contract
+    // `controlsFailed` and the standing regressions already keep.
+    const sent = mockBuild.mock.calls[0]![0] as { standingConcerns?: unknown };
+    expect(sent.standingConcerns).toBeUndefined();
+  });
+
+  it("puts a red baseline ABOVE a standing regression — a guard that cannot run outranks a score that fell", async () => {
+    mockListOrgs.mockResolvedValue(["orgBoth"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/B");
+    mockRollup.mockResolvedValue(rollupWith());
+    vi.mocked(getRedBaselines).mockResolvedValue([
+      { repoFullName: "orgBoth/case", observation: "`npm test` — this repository's own check — …", evidence: [], lanes: 1, command: "npm test", since: "2026-08-30T00:00:00.000Z" },
+    ] as never);
+    vi.mocked(getStandingRegressions).mockResolvedValue([
+      { repoFullName: "orgBoth/kp", observation: "D9 has held 21 points below …", evidence: [] },
+    ] as never);
+
+    await GET(req({ auth: `Bearer ${SECRET}` }));
+    const sent = mockBuild.mock.calls[0]![0] as { standingConcerns?: { repo: string }[] };
+    expect(sent.standingConcerns?.map((c) => c.repo)).toEqual(["orgBoth/case", "orgBoth/kp"]);
   });
 
   // ---- (7) ALERTS #1: regressers are noise-filtered symmetrically with gainers ----

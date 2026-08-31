@@ -47,10 +47,16 @@ import { batchSizeOf, verifyTimeoutMsOf } from "@/lib/local/run-limits";
 // far as committing anything. See lane-guard.ts for why running a repo-authored command is bounded
 // the way it is.
 import { verifyBaseline, verifyResult, verifyRejectionLesson, type VerifyBaseline } from "@/lib/local/lane-guard";
+// A RED BASELINE IS THE LOOP'S OWN TOP-PRIORITY WORK. When the repository's own check was already
+// failing, the guard has nothing green to compare against and everything this lane commits is
+// unverifiable — so the brief LEADS with the repair and the operator gets a lesson saying the loop
+// noticed. See lane-baseline.ts for why a repaired repo gets no lead and why the attempt counter
+// matters.
+import { leadWithRedBaseline, redBaselineLesson, type BaselineLaneRow } from "@/lib/local/lane-baseline";
 import { loadLaneBriefInput } from "@/lib/db/lane-brief-read";
 import { getActiveDeferrals, recordLaneOutcomes } from "@/lib/db/lane-outcomes";
 import { stampPlaybookApplications } from "@/lib/db/playbooks";
-import { recordLoopLessons } from "@/lib/db/loop-lessons";
+import { recordLoopLessons, recordRedBaselineLesson } from "@/lib/db/loop-lessons";
 import { buildLaneBrief, briefSummaryLine } from "@/lib/org/lane-brief";
 import { laneReportContract, readLaneReport, type LaneReport } from "@/lib/local/lane-report";
 // The cost write-back and the report exclusion live in a sibling so this module stays the cycle
@@ -107,6 +113,9 @@ export interface LaneDeps {
   loadBrief: typeof loadLaneBriefInput;
   /** The agent's `.ascent/lane-report.json`, parsed. Never throws; a missing file is `parsed:false`. */
   readReport: typeof readLaneReport;
+  /** This repo's PREVIOUS guard verdicts, newest-first — what tells the brief whether a red baseline
+   *  is new or is the fourth lane in a row to meet it (`leadWithRedBaseline`). */
+  priorBaselines: (org: string, repo: string) => Promise<BaselineLaneRow[]>;
 }
 
 export const defaultLaneDeps: LaneDeps = {
@@ -128,6 +137,10 @@ export const defaultLaneDeps: LaneDeps = {
   },
   loadBrief: loadLaneBriefInput,
   readReport: readLaneReport,
+  // Lazy for the same reason as `loadPair`: the read module reaches for the db client and the lane's
+  // unit tests mock the loop-runs barrel without it. An empty history is "no previous lane recorded a
+  // verdict", which is what a first run genuinely has — never a failed lane.
+  priorBaselines: async (org, repo) => (await import("@/lib/db/loop-baselines")).getRepoBaselineLanes(org, repo),
 };
 
 export interface LaneRunInput {
@@ -695,6 +708,34 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
               : `Degradation guard: \`${baseline.resolved.command}\` (from ${baseline.resolved.source}) already FAILS on this repository before the session — the agent is not blamed for that, and this cycle proceeds.`,
         );
       }
+      // ── THE RED BASELINE BECOMES THIS LANE'S LEAD ITEM.
+      //
+      // A red baseline is the one condition under which everything else this lane does is
+      // unverifiable: the guard has nothing green to compare against, so a regression committed here
+      // cannot be caught and a fix cannot be confirmed. The most valuable work available is therefore
+      // making the repository's own check pass again, and the brief says so FIRST — above the armed
+      // batch, which still rides along.
+      //
+      // The measurement above is what decides it, not the history: a repository repaired since the
+      // last lane gets NO lead however red that history is. The history supplies only the ATTEMPT
+      // COUNT, which is what turns a silent retry into "attempt 4, and it is still failing".
+      const priorLanes = await deps.priorBaselines(org, repo).catch((): BaselineLaneRow[] => []);
+      const redLead = leadWithRedBaseline({
+        repo,
+        prior: priorLanes,
+        current: !guardOn || baseline.resolved == null ? "unmeasured" : baseline.passed === false ? "red" : "green",
+        command: baseline.resolved?.command ?? null,
+        note: baseline.note,
+      });
+      if (redLead) {
+        await appendLaneLog(
+          laneId,
+          `Red baseline — this brief LEADS with restoring \`${redLead.command ?? "the repository's own check"}\` (attempt ${redLead.attempt}); the armed batch still rides along, second.`,
+        );
+        // The operator's copy of the same fact, in the review queue they already read. ONE row per
+        // repository, refreshed as the attempt count climbs — see recordRedBaselineLesson.
+        await recordRedBaselineLesson(org, repo, redBaselineLesson(repo, redLead)).catch(() => null);
+      }
       // THE BRIEF NO LONGER ASKS FOR A COMMIT, because the flags make one impossible: `claude -p
       // --permission-mode acceptEdits` grants file edits and not Bash, and headless `-p` has nobody
       // to answer the prompt `git commit` raises instead (L2-A-01). It asks for the one thing only
@@ -708,6 +749,9 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
           // ONLY when the net is real. A promise of verification on a repo whose baseline is red (or
           // that declares no check) would invite exactly the bold change nothing is going to catch.
           verifyCommand: guardOn && baseline.passed === true ? baseline.resolved?.command ?? null : null,
+          // The opposite case, and mutually exclusive with the line above by construction: no net to
+          // promise, and a repair that outranks everything in the batch.
+          redBaseline: redLead,
         }) +
         `\n\nAUTOPILOT CONTEXT:\n- You are in an isolated worktree on branch \`${worktree.branch}\`. DO NOT run git — this session has no shell permission and every git command will be refused. Leave your changes in the working tree; the Ascent lane commits them for you the moment you exit, with the trailers.\n- NEVER push, never switch branches, never touch remotes.\n- If an item cannot be safely resolved, skip it and say why in your summary.\n\nWHAT COUNTS AS RESOLVED:\n- Understand this codebase first, then implement the change that most raises the level of trust the item describes. Do the WORK, never the detector: a config file for a tool this project does not use, an empty or stub file, or a tool's name in a workflow comment is not a fix — the rescan scores practices that operate, and it verifies before it closes anything.\n- The trailer is a claim, not a verdict. A row closes only when the next scan no longer raises the gap AND its dimension measurably moved; a claim the rescan cannot confirm stays open.\n- On each RESOLVED line, state how a reviewer would tell the practice is real: what runs, when it runs, and what happens when it fails. If you cannot write that sentence honestly, the item is SKIPPED, not resolved.\n` +
         // The org's standard, then the report contract. In that order deliberately: the standard is

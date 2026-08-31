@@ -25,6 +25,7 @@ import {
   getOrgMovers,
   getOrgRecommendations,
   getOrgRollup,
+  getRedBaselines,
   getStandingRegressions,
   isDbConfigured,
   listOrgsWithWatchedRepos,
@@ -155,7 +156,7 @@ export async function GET(request: Request) {
         skippedNoData += 1;
         return;
       }
-      const [movers, recs, benchmark, credit, controlTransitions, standing] = await Promise.all([
+      const [movers, recs, benchmark, credit, controlTransitions, standing, redBaselines] = await Promise.all([
         getOrgMovers(org, win).catch(() => null),
         getOrgRecommendations(org, 1).catch(() => null),
         getOrgBenchmark(org).catch(() => null),
@@ -169,12 +170,30 @@ export async function GET(request: Request) {
         // decline that stopped moving, so a shortfall that began before this week is exactly the one
         // every windowed surface has already been silent about. Best-effort.
         getStandingRegressions(org, { limit: 5 }).catch(() => []),
+        // A RED BASELINE IS THE SAME KIND OF FACT, from a different column. The improvement loop's
+        // degradation guard records `baseline-red` when a repository's OWN check was already failing
+        // before an agent touched it — which means the guard cannot compare anything and everything
+        // the loop commits there is unverified. It is a state, not an event, so every windowed and
+        // movement-shaped signal is silent about it, exactly as they are about a decline that stopped
+        // moving. Same block, same voice, not window-scoped for the same reason. Best-effort.
+        getRedBaselines(org, { limit: 5 }).catch(() => []),
       ]);
-      const standingRows = standing.map((c) => ({
-        repo: c.repoFullName,
-        observation: c.observation,
-        ...(c.evidence ? { evidence: c.evidence } : {}),
-      }));
+      // ONE list, deliberately. A red baseline is not a second kind of concern needing a second
+      // heading: the heading already says these are observations with no cause attributed, and each
+      // line names its own subject (a dimension, or the command a repository declares for itself).
+      // Red baselines lead, because a guard that cannot run outranks a score that fell.
+      const standingRows = [
+        ...redBaselines.map((b) => ({
+          repo: b.repoFullName,
+          observation: b.observation,
+          ...(b.evidence.length > 0 ? { evidence: b.evidence } : {}),
+        })),
+        ...standing.map((c) => ({
+          repo: c.repoFullName,
+          observation: c.observation,
+          ...(c.evidence ? { evidence: c.evidence } : {}),
+        })),
+      ];
       const controlsFailedRows = controlTransitions
         .filter((o) => o.state === "fail")
         .slice(0, 10)

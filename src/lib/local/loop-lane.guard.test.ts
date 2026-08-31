@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const logs: string[] = [];
 const patches: Record<string, unknown>[] = [];
 const lessons: string[][] = [];
+const redLessons: string[] = [];
 const released: string[] = [];
 
 vi.mock("@/lib/db/scans-recommendations", () => ({ updateRecommendation: vi.fn(async (id: string) => ({ id })) }));
@@ -37,6 +38,10 @@ vi.mock("@/lib/db/loop-lessons", () => ({
   recordLoopLessons: vi.fn(async (_o: string, _r: string, _l: string, list: string[]) => {
     lessons.push(list);
     return [];
+  }),
+  recordRedBaselineLesson: vi.fn(async (_o: string, _r: string, content: string) => {
+    redLessons.push(content);
+    return null;
   }),
 }));
 vi.mock("@/lib/local/git", () => ({
@@ -81,6 +86,8 @@ vi.mock("@/lib/local/lane-guard", () => ({
 }));
 
 import { runLane, type LaneDeps } from "@/lib/local/loop-lane";
+import { updateRecommendation } from "@/lib/db/scans-recommendations";
+import type { BaselineLaneRow } from "@/lib/local/lane-baseline";
 
 const batchItem = (id: string) => ({
   id, repo: "o/r", title: "t", dimId: "D2", dimLabel: "Tests",
@@ -106,9 +113,16 @@ const run = (over: Parameters<typeof runLane>[0] extends infer T ? Partial<T> : 
       readReport: vi.fn(async () => null) as never,
       loadPair: vi.fn(async () => null),
       summarize: vi.fn(async (l) => l),
+      priorBaselines: vi.fn(async () => priorLanes),
     } as Partial<LaneDeps>,
     ...over,
   });
+
+/** The repo's PREVIOUS guard verdicts, newest-first — what the attempt counter is derived from. */
+const priorLanes: BaselineLaneRow[] = [];
+const priorLane = (verdict: BaselineLaneRow["verifyVerdict"], at: string, note: string | null = null): BaselineLaneRow => ({
+  repoFullName: "o/r", verifyVerdict: verdict, verifyCommand: "npm test", verifyNote: note, at,
+});
 
 const lastVerifyPatch = () => [...patches].reverse().find((p) => "verifyVerdict" in p);
 
@@ -116,7 +130,9 @@ beforeEach(() => {
   logs.length = 0;
   patches.length = 0;
   lessons.length = 0;
+  redLessons.length = 0;
   released.length = 0;
+  priorLanes.length = 0;
   guard.baseline = { resolved: { command: "npm run check:ci", source: "package.json" }, passed: true, note: null };
   guard.outcome = { verdict: "verified", command: "npm run check:ci", note: "Verified: it passed.", reject: false };
   guard.baselineCalls = 0;
@@ -192,6 +208,97 @@ describe("a BASELINE-RED repository", () => {
     await run();
     const prompt = (runAgent.mock.calls[0]![0] as unknown as { prompt: string }).prompt;
     expect(prompt).not.toContain("THE SAFETY NET");
+  });
+});
+
+// ── THE RED BASELINE BECOMES THE LOOP'S OWN TOP-PRIORITY WORK ────────────────────────────────────
+//
+// `baseline-red` used to be a lane-log line and nothing else, which meant the guard could be off on a
+// repository forever with no one told. These pin the two things that changed: the BRIEF leads with
+// the repair, and the operator gets a LESSON in the queue they already read. What deliberately does
+// NOT change: nothing is written to the recommendations table — a failing test is not a scan finding,
+// and manufacturing a row there would corrupt the backlog the scan owns.
+
+describe("a red baseline becomes the lane's LEAD item", () => {
+  const red = { resolved: { command: "npm run test:unit", source: "package.json" }, passed: false as boolean | null };
+  const redNote =
+    "Verification BASELINE RED: `npm run test:unit` (from package.json) already failed on this repository before the " +
+    "session started, so this cycle cannot be judged against it and the agent is not blamed for it. " +
+    "First failure: FAIL test-unit/fault-injection-llm.test.mjs";
+
+  const armRed = () => {
+    guard.baseline = { ...red, note: redNote };
+    guard.outcome = { verdict: "baseline-red", command: "npm run test:unit", note: redNote, reject: false };
+  };
+  const promptOf = () => (runAgent.mock.calls[0]![0] as unknown as { prompt: string }).prompt;
+
+  it("LEADS the brief with the repair, quoting the failure the guard captured", async () => {
+    armRed();
+    await run();
+    const prompt = promptOf();
+    expect(prompt.startsWith("# TOP PRIORITY — o/r's own checks are failing")).toBe(true);
+    expect(prompt).toContain("`npm run test:unit`");
+    expect(prompt).toContain("FAIL test-unit/fault-injection-llm.test.mjs");
+    // The armed batch still rides along — the priority changed, not the scope.
+    expect(prompt).toContain("# Ascent follow-ups");
+    expect(commitWork).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT lead when the baseline is green", async () => {
+    await run(); // the default fixture: baseline resolved and PASSING
+    expect(promptOf()).not.toContain("TOP PRIORITY");
+    expect(redLessons).toEqual([]);
+  });
+
+  it("does NOT lead when the repository declares no check and nothing was ever measured", async () => {
+    guard.baseline = { resolved: null, passed: null, note: null };
+    guard.outcome = { verdict: "skipped", command: null, note: "Verification SKIPPED: …", reject: false };
+    await run();
+    expect(promptOf()).not.toContain("TOP PRIORITY");
+    expect(redLessons).toEqual([]);
+  });
+
+  it("does NOT lead when the previous lane was red but this one measures GREEN — the repo was repaired", async () => {
+    priorLanes.push(priorLane("baseline-red", "2026-08-30T09:00:00.000Z", redNote));
+    await run(); // default fixture: passing baseline
+    expect(promptOf()).not.toContain("TOP PRIORITY");
+  });
+
+  it("COUNTS THE ATTEMPTS across consecutive red lanes and says the repair is not converging", async () => {
+    armRed();
+    priorLanes.push(
+      priorLane("baseline-red", "2026-08-30T09:00:00.000Z", redNote),
+      priorLane("baseline-red", "2026-08-29T09:00:00.000Z", redNote),
+    );
+    await run();
+    const prompt = promptOf();
+    expect(prompt).toContain("THIS IS ATTEMPT 3");
+    expect(prompt).toContain("not converging");
+    expect(prompt).toContain("since 2026-08-29");
+    expect(logs.some((l) => /attempt 3/.test(l))).toBe(true);
+    expect(redLessons[0]).toContain("not converging");
+  });
+
+  it("records the LESSON so the operator can see the loop noticed", async () => {
+    armRed();
+    await run();
+    expect(redLessons).toHaveLength(1);
+    expect(redLessons[0]).toContain("Red baseline on o/r:");
+    expect(redLessons[0]).toContain("nothing the loop commits here is verified");
+  });
+
+  it("writes NO recommendation row — a failing test is not a scan finding", async () => {
+    armRed();
+    await run();
+    // `updateRecommendation` is the only door this module has onto the recommendations table, and
+    // every id it touches must be one the run ARMED (`a`). A synthetic "fix your tests" row would
+    // show up here as an id nobody armed — and would then be scored, prioritised and reported as
+    // though a scan had found it, corrupting the backlog the scan owns.
+    const touched = vi.mocked(updateRecommendation).mock.calls.map((c) => c[0]);
+    expect(touched.every((id) => id === "a")).toBe(true);
+    // Nor is one smuggled in as a deliverable: the lane's only deliverables come from what it moved.
+    const headlines = patches.flatMap((p) => ((p.deliverables as { headline: string }[]) ?? [])).map((d) => d.headline);
+    expect(headlines.some((h) => /baseline|test:unit/i.test(h))).toBe(false);
   });
 });
 

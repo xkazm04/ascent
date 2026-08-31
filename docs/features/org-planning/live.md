@@ -79,7 +79,7 @@ The unit of parallelism, of retry, and of the cockpit's row.
 | `log` | Newline-joined, **bounded to `LANE_LOG_LINES` = 200**, newest last, each line stamped `HH:MM:SS`. Appended read-modify-write; safe because a lane is single-writer by construction. |
 | `error` / `startedAt` / `endedAt` | A failed lane is lane data, never a run failure. |
 | `verifyVerdict` | `verified \| rejected \| baseline-red \| skipped`. **NULL is not `skipped`** — it is a lane written before the guard existed, whose verification state is unknown, and rendering it as "skipped" would be a claim about a run nobody made (`asVerifyVerdict` floors an unreadable value to null). A `rejected` lane is **never landed and never PR'd**. |
-| `verifyCommand` / `verifyNote` | The command that was run and the first meaningful failure lines, so "why was this rejected" survives the throwaway worktree it happened in. |
+| `verifyCommand` / `verifyNote` | The command that was run and the first meaningful failure lines, so "why was this rejected" survives the throwaway worktree it happened in. These three columns are also the ONLY store behind the red-baseline surface and the brief's lead item — §[A red baseline is SURFACED](#a-red-baseline-is-surfaced-and-becomes-the-loops-own-top-priority-work-2026-08-31) adds no parallel state. |
 
 Index: `@@index([runId])`.
 
@@ -1928,6 +1928,88 @@ session started"*. **Same four verdicts**; a fifth would be a new column, a new 
 thing for a reader to learn, for a distinction that belongs in a sentence. Either way: not comparable,
 and the agent is not blamed.
 
+### A red baseline is SURFACED, and becomes the loop's own top-priority work (2026-08-31)
+
+**The failure this closes.** The in-cycle guard reported `baseline-red` for `xkazm04/systedo-case`:
+its own `npm run test:unit` fails before an agent touches anything — measured directly at 294 s,
+exit 1, one failing file, `test-unit/fault-injection-llm.test.mjs`. **That test was written by this
+loop**, in an earlier campaign whose deliverable read *"Added fault-injection suites for LLM and Ads
+seams"*. It had been failing ever since and nothing reported it. And because the guard refuses to
+blame an agent for a repository that arrived broken, the consequence compounds: the guard is
+**effectively disabled on that repository for as long as the condition holds**, so the loop can never
+again prove it did not break something there — and it keeps committing into a repository whose own
+checks fail. `baseline-red` was written to a lane log nobody reads.
+
+Two things changed, and the second is the valuable one.
+
+**1. It is surfaced where an operator already looks.** A red baseline rides the **weekly fleet
+digest's standing-concerns block** — the same channel `detectStandingRegressions` uses, chosen for the
+same reason ([alerts.md](../fleet/alerts.md#standing-regressions-a-decline-that-stopped-moving)): that
+block is the one surface in the product shaped for a **state** rather than an event, and a repository
+red since before the window looks flat to every movement-shaped input the digest has. No new panel and
+no second heading — the heading already says *observed, cause not attributed*, and each line names its
+own subject. Red baselines are listed **first**: a guard that cannot run outranks a score that fell.
+
+`getRedBaselines(org, { limit })` (`src/lib/db/loop-baselines.ts`) folds the `verifyVerdict` column
+into one row per repository — nothing new is stored, and there is no parallel state. The wording is an
+OBSERVATION, produced by `redBaselineObservation` (`src/lib/local/lane-baseline.ts`):
+
+> `npm run test:unit` — this repository's own check — has failed before the session on every loop lane
+> since 2026-08-28 (3 lanes). With no green baseline the degradation guard cannot compare anything, so
+> nothing the loop commits here is verified.
+
+Two facts, a date, and the consequence. No cause, no actor, no blame — a line quoted out of the
+message still cannot read as an attribution. Its `evidence` lines are the repository's own captured
+output, bounded and neutralized. **One red lane is enough**, unlike a standing regression's three-scan
+threshold: a score needs persistence to be told from noise, a failing check has no noise band, and
+waiting three lanes buys three more lanes of unverifiable commits. The **most recent** lane decides in
+both directions — a repository since repaired raises nothing.
+
+On the **outcome sheet** it is one word, `baseline red`, on the repo's project-header row beside that
+run's verdict, the guard's full note on hover (`OutcomeSheetRow.tsx`). It is the only one of the four
+verdicts the sheet shows: `verified` on every healthy row would be a badge meaning "normal", and
+`rejected` cannot reach the sheet at all. Unlike the lane rail's `unverified` it **is** coloured —
+this is not the neutral fact *"we did not check"*, it is *"we could not check, and every number in
+this column was produced with the net off"*.
+
+**2. The next lane's brief LEADS with the repair.** If the loop's own checks cannot run, making them
+run again is the most valuable thing the loop can do there, so `buildFixPrompt` prints a
+`# TOP PRIORITY` block **above the batch's own heading** (`RedBaselineBrief`, `src/lib/org/followups.ts`).
+A priority stated after five follow-ups is not a priority. It names the command, quotes what the guard
+captured — bounded to 4 lines / 400 chars and run through `neutralize`, which is also what makes it
+safe to fence — and states that restoring the check outranks every armed item this cycle. **The armed
+batch still rides along**; what changes is the priority, not the scope. It forbids the cheap pass in as
+many words: no `.skip`, no removed assertion, no relaxed threshold. *A weakened check is worse than a
+red baseline, because a red baseline at least tells the truth about itself.*
+
+`leadWithRedBaseline` decides it from **this cycle's own measurement**, with the history supplying only
+the count: a repository measured green today gets no lead however red its history is; a repository red
+today leads at `attempt = 1 + consecutive red lanes behind it`. With the guard off, the last thing
+actually measured stands in, and the count does not grow.
+
+**The non-convergence guard.** `attempt > 1` means a previous lane already led with this same repair
+and the command is still failing, and both surfaces say so: the brief prints *"THIS IS ATTEMPT 3 …
+the repair is not converging"* and asks the session to name the blocker rather than repeat what the
+last two tried; the lesson records it for the operator. **An operator seeing "attempt 3" learns
+something a silent retry never tells them.**
+
+**The lesson, and the row that is deliberately NOT written.** `recordRedBaselineLesson`
+(`src/lib/db/loop-lessons.ts`) files it through the same pending-candidate queue every agent lesson
+uses — but **one row per repository, refreshed** as the attempt count climbs, keyed on a prefix
+carrying neither the command, the date nor the count. A red baseline is a standing fact that stays
+true lane after lane, so the event-shaped write `recordLoopLessons` does would have filed twenty-one
+identical candidates in the campaign that exposed this. A `kept` or `discarded` row is left alone: a
+human has ruled on it, and resurrecting their rejection is the noise the idempotence exists to prevent.
+
+**No `Recommendation` row is created, and that is a decision rather than an omission.** A failing test
+is not a scan finding. The recommendations table is the SCAN's ledger — every row is scored,
+prioritised, projected in points, claimable over MCP and adjudicated by the next scan against the gap
+it named. A synthetic *"fix your test suite"* row would be none of those things: no dimension owns it,
+no rescan can close it, and its projected gain would be a fabrication. It would also corrupt the one
+artefact the loop must not author, since the loop's whole contract is that a row closes only when the
+scan says it did. The brief and the lesson are the right carriers — one reaches the agent, the other
+reaches the operator, and neither claims to be a measurement.
+
 ### A rejected lane is never delivered
 
 The verdict is persisted on `LoopRunLane.verifyVerdict`, and **both** delivery doors check it
@@ -1971,9 +2053,19 @@ remote.
 
 Tests: `lane-verify.test.ts` (the resolution chain, the redaction/placeholder refusals, "declares
 nothing → null"), `lane-guard.test.ts` (the four verdicts, the baseline cache, both timeout paths, the
-discard's exact two git commands and their cwd), `loop-lane.guard.test.ts` (a rejected lane commits
-nothing, rescans nothing, releases its claims and persists `rejected`; baseline-red is not blamed;
-guard-off still records `skipped`; the batch-size and session-timeout parameters),
+discard's exact two git commands and their cwd), `lane-baseline.test.ts` (the consecutive-red walk —
+a verdict-less lane is skipped rather than breaking it, `skipped` does break it; the observation's
+wording, its date and its absence of any cause; the failure lines bounded on BOTH axes and neutralized
+in both senses; the lead's four cases — red, green, unmeasured-with-history, unmeasured-without — and
+the attempt counter climbing and resetting), `followups.test.ts` (the lead is FIRST, above the batch's
+heading; it quotes the failure inside exactly two fence lines; "attempt N / not converging" appears
+only past 1; a green baseline prints the safety net and no lead, a red one prints the lead and no
+net), `loop-lane.guard.test.ts` (a rejected lane commits nothing, rescans nothing, releases its claims
+and persists `rejected`; baseline-red is not blamed; the brief leads on red and does not on green or
+skipped; the attempt count reaches the prompt, the lane log and the lesson; and **every recommendation
+id the lane touches is one it armed** — no synthetic row); `outcomeMatrix.baseline.test.ts` +
+`OutcomeSheet.dom.test.tsx` (the cell carries the command and note, a later green cycle clears it, and
+the sheet renders exactly one word with the note on hover);
 `loop-delivery.test.ts` and `[id]/pr/route.test.ts` (a rejected lane is not landed and not PR'd, and
 the other three verdicts are not blocked), `run-limits.test.ts` (the normalizers never guess; the
 defaults are today's values), `lane-reservation.test.ts` (the proportion at 1, 2, 5, 10, 12) and

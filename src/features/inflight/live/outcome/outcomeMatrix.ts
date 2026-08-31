@@ -9,83 +9,21 @@
 
 import { attributeDimension, type Attribution } from "@/lib/maturity/attribution";
 import { agentConfigLabel } from "@/lib/local/agent-options";
-import type { LaneDeliverable } from "@/lib/db/loop-runs-types";
 import { closedTitles, groupDeliverables } from "./outcomeDeliverables";
-import { buildGapRows, type GapRow } from "./outcomeGapRows";
+import { buildGapRows } from "./outcomeGapRows";
 import { dimShort } from "@/lib/ui";
 import { laneAttribution, runAttribution } from "../cockpit/cockpitDrift";
-import { deliveryTag, isRunLive, laneKindTag, type LoopLaneKind, type LoopLaneOutcome, type LoopLanePhase, type LoopLaneRecord, type LoopRunDetail, type LoopRunPhase } from "../cockpit/loopTypes";
+import { deliveryTag, isRunLive, laneKindTag, type LoopLaneOutcome, type LoopRunDetail } from "../cockpit/loopTypes";
+import type { CellRedBaseline, OutcomeCell, OutcomeColumn, OutcomeDim, OutcomeGroup, OutcomeMatrix } from "./outcomeMatrixTypes";
 
-export interface OutcomeDim {
-  id: string;
-  short: string;
-  delta: number;
-  /** The pair is attributable AND this dimension's fold is comparable — the only case coloured. */
-  claimable: boolean;
-}
-
-export interface OutcomeCell {
-  runId: string;
-  repo: string;
-  kind: LoopLaneKind;
-  /** "…installed" line for a deterministic lane; null for an agent lane (no tag says more than one). */
-  installed: string | null;
-  /** WHAT THE LANE DID, one headline each — grouped by kind (closed · installed · hardened ·
-   *  regressed) then by dimension. */
-  deliverables: LaneDeliverable[];
-  /** ONE ROW PER GAP, with its state (committed · uncommitted · proposed), its lane and any
-   *  standing review — the sheet's row axis is folded from these (outcomeGapRows.ts). */
-  rows: GapRow[];
-  /** The lane's PR, when an owner opened one — surfaced on the repo's group-header row. */
-  prNumber: number | null;
-  prUrl: string | null;
-  /** The lane the group header offers the PR action against (the one that already has a PR, else the
-   *  last). Carried whole because `LanePrAction` decides eligibility from the record itself. */
-  lane: LoopLaneRecord;
-  /** The full follow-up titles behind the `closed` headlines — evidence for the expanded view only. */
-  titles: string[];
-  verdict: Attribution;
-  commits: number;
-  gaps: number;
-  dims: OutcomeDim[];
-  /** Humanised movement lines (`D9 −42 · lost token permissions, SAST…`) — EMPTY unless the cell's
-   *  verdict is attributable: the prose answers to the same rule as the number. */
-  movements: string[];
-  phase: LoopLanePhase;
-  stage: string | null;
-  error: string | null;
-}
-
-export interface OutcomeColumn {
-  id: string;
-  startedAt: string;
-  endedAt: string | null;
-  phase: LoopRunPhase;
-  live: boolean;
-  lift: number | null;
-  agentConfig: string | null;
-  /** `landed` / `PR`, or null for the branch-only default — a reader of a past run has to be able to
-   *  tell whether anything ever merged. */
-  delivery: string | null;
-  cycle: number;
-  maxCycles: number;
-  repoCount: number;
-  gaps: number;
-}
-
-export interface OutcomeGroup {
-  repo: string;
-  /** Cumulative attributable lift across the visible columns; null when no cell is attributable. */
-  lift: number | null;
-  cells: Record<string, OutcomeCell>;
-}
-
-export interface OutcomeMatrix {
-  columns: OutcomeColumn[];
-  groups: OutcomeGroup[];
-  latestId: string | null;
-  totals: { lift: number | null; runs: number; gaps: number; repos: number };
-}
+export type {
+  CellRedBaseline,
+  OutcomeCell,
+  OutcomeColumn,
+  OutcomeDim,
+  OutcomeGroup,
+  OutcomeMatrix,
+} from "./outcomeMatrixTypes";
 
 /** Later sources replace earlier ones by run id — the settled/live detail outranks the SSR snapshot. */
 export function mergeRunDetails(base: readonly LoopRunDetail[], ...overrides: (LoopRunDetail | null | undefined)[]): LoopRunDetail[] {
@@ -123,6 +61,13 @@ function foldCell(runId: string, repo: string, lanes: readonly LoopLaneOutcome[]
   const titles = lanes.flatMap(closedTitles).filter((t, i, all) => all.findIndex((x) => x.toLowerCase() === t.toLowerCase()) === i);
   const tail = lanes[lanes.length - 1]!.lane;
   const withPr = [...lanes].reverse().find((o) => o.lane.prUrl != null)?.lane;
+  // A RED BASELINE OUTLIVES ITS LANE. The newest lane of this (run, repo) that measured one decides:
+  // a later green lane means the repository was repaired, and a stale badge would say otherwise. Only
+  // `baseline-red` is surfaced — `verified` on every healthy row would be a badge meaning "normal",
+  // and `rejected` cannot reach this sheet at all because a rejected lane commits nothing.
+  const red = [...lanes].reverse().find((o) => o.lane.verifyVerdict != null)?.lane ?? null;
+  const redBaseline: CellRedBaseline | null =
+    red?.verifyVerdict === "baseline-red" ? { command: red.verifyCommand, note: red.verifyNote } : null;
   return {
     runId,
     repo,
@@ -138,6 +83,7 @@ function foldCell(runId: string, repo: string, lanes: readonly LoopLaneOutcome[]
     commits: lanes.reduce((n, o) => n + o.commits, 0),
     gaps: lanes.reduce((n, o) => n + (o.diff?.closedGapCount ?? 0), 0),
     dims,
+    redBaseline,
     // A refused verdict has no movement prose: the number was declined, and a line saying what moved
     // is the same claim in words (wave-2 sample: a 0-commit lane printed `D9 -42: …` under "uncommitted").
     movements: verdict.kind === "attributable" ? (last.diff?.movements ?? []).slice(0, 2) : [],

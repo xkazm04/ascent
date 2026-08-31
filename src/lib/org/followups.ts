@@ -34,6 +34,10 @@ import type { AiStance, AutonomyTierId } from "@/lib/types";
 // module is imported by the ledger's client model. The import is erased at compile time, so the two
 // share a vocabulary without the client sharing a filesystem.
 import type { LaneVerdict } from "@/lib/local/lane-report";
+// The repository's own failing output is REPOSITORY-AUTHORED TEXT going into a model prompt, so it
+// gets the same treatment every foreign fragment gets before it is quoted (`lane-brief.ts`).
+// `untrusted.ts` is dependency-free, so this stays safe for the client model that imports this file.
+import { neutralize } from "@/lib/llm/untrusted";
 
 /** The commit-message trailer a fix commit uses to name the follow-up it resolves. */
 export const FOLLOWUP_TRAILER = "Ascent-Resolves";
@@ -308,6 +312,71 @@ const verificationPromise = (command: string): string[] => [
   "",
 ];
 
+/**
+ * A RED BASELINE THE BRIEF MUST LEAD WITH — the repository's own check was already failing before the
+ * session, so the degradation guard has no green baseline to compare against and is, in effect, OFF
+ * on this repository. Everything the loop commits here until it passes is unverified.
+ *
+ * That makes restoring the command the most valuable thing this lane can do, ahead of every armed
+ * follow-up — so it is printed FIRST, above the batch, rather than as a footnote under it. The batch
+ * still rides along; what changes is the priority, not the scope.
+ *
+ * Derived by `leadWithRedBaseline` (src/lib/local/lane-baseline.ts), which is also what decides that
+ * a repaired repository gets NO lead however red its history is.
+ */
+export interface RedBaselineBrief {
+  repo: string;
+  /** The command the guard resolved and ran. `null` only when the lane row lost it. */
+  command: string | null;
+  /** The repository's own failing output, ALREADY bounded and neutralized. Re-neutralized here
+   *  anyway: the fence below is only safe because backtick runs are collapsed, and a boundary that
+   *  depends on every caller remembering is not a boundary. */
+  failure: readonly string[];
+  /** 1 on the first lane to face it; N when N−1 previous lanes already led with the repair and it is
+   *  still failing. `> 1` is the NON-CONVERGENCE signal, and the brief says so in words. */
+  attempt: number;
+  /** `YYYY-MM-DD` the run of red lanes began — `null` when this is the first lane to record one. */
+  since: string | null;
+}
+
+/**
+ * The lead block. Printed above everything, including the batch's own heading, because "lead with it"
+ * is the whole instruction: a priority stated after five follow-ups is not a priority.
+ *
+ * Three things it must do and one it must not. It must NAME the command, QUOTE what the guard
+ * actually captured (so the session does not start by re-running it blind), and say plainly that the
+ * repair outranks the batch. It must not invite the cheap pass: a `.skip`, a deleted assertion or a
+ * widened threshold would turn the command green while making the guard MORE misleading than a red
+ * baseline, which at least tells the truth about itself.
+ */
+const redBaselineLead = (r: RedBaselineBrief): string[] => {
+  const cmd = r.command ? `\`${r.command}\`` : "the check this repository declares for itself";
+  const out = [
+    `# TOP PRIORITY — ${r.repo}'s own checks are failing`,
+    "",
+    `${cmd} — this repository's own check — FAILED on the pristine tree before your session started` +
+      `${r.since ? `, and has failed on every loop lane since ${r.since}` : ""}. Restoring it is the FIRST work of this cycle, ahead of every item in the batch below.`,
+    "",
+    "WHY IT OUTRANKS THE BATCH: with no green baseline there is nothing to compare against, so the degradation guard cannot run at all. Every change committed to this repository — including everything you do below — ships unverified, and a regression introduced today would be indistinguishable from the failure that is already there.",
+    "",
+    "- Fix the failure itself. Read the output below, reproduce it, find the cause, repair it.",
+    "- Do NOT make it pass by weakening it: no `.skip`, no removed assertion, no relaxed threshold, no widened timeout, no deleted test file. If the check itself is genuinely wrong, correct or remove it and say so EXPLICITLY in your summary with the reason — a silent weakening is worse than a red baseline, because it makes the guard lie.",
+    "- If you cannot restore it in this session, say so plainly in your summary and name what is blocking it.",
+    "- Then work the batch below with whatever session remains. The batch is still armed; it is simply second.",
+    "",
+  ];
+  if (r.attempt > 1) {
+    out.push(
+      `THIS IS ATTEMPT ${r.attempt}. ${r.attempt - 1} previous lane${r.attempt === 2 ? "" : "s"} on this repository already led with this same repair and the command is STILL failing — the repair is not converging. Do not simply repeat what those sessions tried: state in your summary what you now believe the real blocker is, even if you cannot clear it.`,
+      "",
+    );
+  }
+  if (r.failure.length > 0) {
+    out.push("What the guard captured, verbatim from the repository's own output:", "", "```", ...r.failure.map(neutralize), "```", "");
+  }
+  return out;
+};
+
 const IMPACT_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
 /** Effort runs the other way — `low` is the desirable end. Ranking it through IMPACT_ORDER listed the
  *  most expensive item first, which is not the order anyone wants to work a batch in. */
@@ -343,6 +412,12 @@ export function buildFixPrompt(
      * would make this brief actively dangerous.
      */
     verifyCommand?: string | null;
+    /**
+     * THE REPOSITORY'S OWN CHECKS ARE FAILING, and that outranks this batch. Printed FIRST when
+     * present — see `RedBaselineBrief`. Mutually exclusive with `verifyCommand` by construction: a
+     * baseline cannot be both red and passing, and the lane derives both from the same measurement.
+     */
+    redBaseline?: RedBaselineBrief | null;
   },
 ): string {
   const byRepo = new Map<string, FollowUpItem[]>();
@@ -355,6 +430,8 @@ export function buildFixPrompt(
   const craftMode = items.length > 0 && items.every((it) => it.kind === "craft");
 
   const lines: string[] = [];
+  // THE LEAD, above the batch's own heading. See `redBaselineLead`.
+  if (ctx.redBaseline) lines.push(...redBaselineLead(ctx.redBaseline));
   lines.push(
     craftMode
       ? `# Ascent craft ladder — ${ctx.org} — ${items.length} rung${items.length === 1 ? "" : "s"} across ${repos.length} repositor${repos.length === 1 ? "y" : "ies"}`

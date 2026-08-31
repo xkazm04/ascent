@@ -39,7 +39,7 @@ const rowsFor = (cell: OutcomeCell): GapRow[] =>
 export const cell = (o: Partial<OutcomeCell> & { runId: string; repo: string }): OutcomeCell => {
   const base: OutcomeCell = {
     kind: "backlog", installed: null, deliverables: [], rows: [], prNumber: null, prUrl: null, lane: laneOf(o), titles: [],
-    verdict: { kind: "unmeasured" }, commits: 0, gaps: 0, dims: [], movements: [],
+    verdict: { kind: "unmeasured" }, commits: 0, gaps: 0, dims: [], redBaseline: null, movements: [],
     phase: "done", stage: null, error: null, ...o,
   };
   return o.rows ? base : { ...base, rows: rowsFor(base) };
@@ -73,7 +73,13 @@ export const fixture: OutcomeMatrix = {
     {
       repo: "acme/docs-site", lift: -3,
       cells: {
-        "run-3": cell({ runId: "run-3", repo: "acme/docs-site", verdict: { kind: "attributable", delta: -3 }, commits: 1, deliverables: [d("Regressed on documentation", "regressed", "D5", "README lost its setup section")] }),
+        // A repository whose OWN check was already failing when the lane opened: the guard had no
+        // green baseline, so this cell's −3 was measured with the net off. The sheet says so in one word.
+        "run-3": cell({
+          runId: "run-3", repo: "acme/docs-site", verdict: { kind: "attributable", delta: -3 }, commits: 1,
+          redBaseline: { command: "npm run test:unit", note: "Verification BASELINE RED: `npm run test:unit` already failed before the session." },
+          deliverables: [d("Regressed on documentation", "regressed", "D5", "README lost its setup section")],
+        }),
       },
     },
     {
