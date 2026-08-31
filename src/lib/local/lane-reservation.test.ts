@@ -5,7 +5,7 @@
 // craft ladder — the only fallback r12 built — was starved across twelve runs.
 
 import { describe, expect, it } from "vitest";
-import { GAP_SLOTS_AT_GREEN, isMixedBatch, isReservationGreen, reserveCraftSlots } from "@/lib/local/lane-reservation";
+import { gapSlotsAtGreen, GAP_SLOTS_AT_GREEN, isMixedBatch, isReservationGreen, reserveCraftSlots } from "@/lib/local/lane-reservation";
 import { FOLLOW_UP_BELOW } from "@/lib/maturity/model";
 import type { FollowUpItem } from "@/lib/org/followups";
 
@@ -83,5 +83,41 @@ describe("isMixedBatch", () => {
     expect(isMixedBatch(gaps(2))).toBe(false);
     expect(isMixedBatch(rungs(2))).toBe(false);
     expect(isMixedBatch([])).toBe(false);
+  });
+});
+
+describe("the reservation is a PROPORTION of the batch, not a fixed count", () => {
+  it("is unchanged at the batch of five it was tuned on — 2 gaps, 3 rungs", () => {
+    // The byte-identical case. A run that names no batch size gets exactly the split the campaign
+    // evidence in lane-reservation.ts argues for.
+    expect(gapSlotsAtGreen(5)).toBe(GAP_SLOTS_AT_GREEN);
+    expect(reserveCraftSlots(gaps(5), rungs(5), 5).map((i) => i.id)).toEqual(["g1", "g2", "c1", "c2", "c3"]);
+  });
+
+  it("scales with a larger batch instead of handing the ladder everything", () => {
+    // The defect a fixed 2 would have: a batch of ten would spend EIGHT slots on craft on a repo that
+    // still has ten open gaps ranked above them.
+    expect(gapSlotsAtGreen(10)).toBe(4);
+    const out = reserveCraftSlots(gaps(10), rungs(10), 10);
+    expect(out.filter((i) => i.kind !== "craft")).toHaveLength(4);
+    expect(out.filter((i) => i.kind === "craft")).toHaveLength(6);
+    expect(out.slice(0, 4).every((i) => i.kind !== "craft")).toBe(true); // gaps still win the top slots
+  });
+
+  it("keeps at least one of each on a batch of two — the rounding direction is the rule", () => {
+    expect(gapSlotsAtGreen(2)).toBe(1);
+    expect(reserveCraftSlots(gaps(5), rungs(5), 2).map((i) => i.id)).toEqual(["g1", "c1"]);
+  });
+
+  it("gives the single slot of a batch of one to a GAP — gaps outrank craft, always", () => {
+    expect(gapSlotsAtGreen(1)).toBe(1);
+    expect(reserveCraftSlots(gaps(5), rungs(5), 1).map((i) => i.id)).toEqual(["g1"]);
+  });
+
+  it("never degenerates on any size up to the cap", () => {
+    for (let n = 2; n <= 12; n += 1) {
+      expect(gapSlotsAtGreen(n), `batch ${n} left no gap slot`).toBeGreaterThanOrEqual(1);
+      expect(n - gapSlotsAtGreen(n), `batch ${n} left no craft slot`).toBeGreaterThanOrEqual(1);
+    }
   });
 });

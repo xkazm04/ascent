@@ -46,6 +46,10 @@ import {
 } from "@/lib/db/loop-runs";
 import type { LoopModelPolicy, LoopTarget } from "@/lib/db/loop-runs-types";
 import type { LoopDelivery } from "@/lib/local/delivery-options";
+import { batchSizeOf, verifyModeOf, type VerifyMode } from "@/lib/local/run-limits";
+// The guard's baseline cache is keyed by worktree DIRECTORY and lives for the life of the process, so
+// the one place that deletes a worktree is the one place that must forget its entry.
+import { forgetVerifyBaseline } from "@/lib/local/lane-guard";
 import { deliverLane } from "@/lib/local/loop-delivery";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { recordAudit } from "@/lib/db/scans-audit";
@@ -98,6 +102,15 @@ export interface StartLoopRunInput {
   /** WHAT HAPPENS TO EACH LANE'S BRANCH once its cycle succeeds — `branch` (the default, and exactly
    *  what every run before this did), `land` or `pr`. Already validated by the route. */
   delivery?: LoopDelivery | null;
+  /** THE THROUGHPUT + GUARD DIALS, already validated by the route (`run-limits.ts`). Every one is
+   *  optional and `null`/omitted records null, which reads back as the deployment default — so a run
+   *  armed without them behaves byte-identically to every run before they existed. */
+  batchSize?: number | null;
+  agentTimeoutMs?: number | null;
+  /** `off` is the operator's explicit refusal to run repo-authored verification commands. Omitted =
+   *  `on`, which is the guard's default posture. */
+  verifyMode?: VerifyMode | null;
+  verifyTimeoutMs?: number | null;
   /** Test seam + the autopilot shim's legacy branch naming. */
   deps?: Partial<LaneDeps>;
   branchFor?: (repo: string, stamp: string) => string;
@@ -141,7 +154,9 @@ export async function startLoopRun(input: StartLoopRunInput): Promise<LoopRunRec
     // installed the standard by hand between opening the panel and pressing Run.
     const plan = await laneKind(
       path,
-      () => openBatch(org, repo).catch(() => []),
+      // The PROPOSAL reads the same sized batch the dispatch will: a kind decided against five items
+      // and then dispatched with ten would be a proposal about a different lane.
+      () => openBatch(org, repo, batchSizeOf(input.batchSize)).catch(() => []),
       // The ONCE-PER-REPO gate on practice lanes. A failed read degrades to "nothing dispatched",
       // which is the same honest default every other unreadable-evidence path here takes.
       () => dispatchedPractices(org, repo).catch(() => new Set<string>()),
@@ -190,6 +205,10 @@ export async function startLoopRun(input: StartLoopRunInput): Promise<LoopRunRec
     modelPolicy: policy,
     models: arms,
     delivery: input.delivery ?? null,
+    batchSize: input.batchSize ?? null,
+    agentTimeoutMs: input.agentTimeoutMs ?? null,
+    verifyMode: input.verifyMode ?? null,
+    verifyTimeoutMs: input.verifyTimeoutMs ?? null,
     phase: "running",
   });
   if (!run) throw new Error("The loop requires a database.");
@@ -335,7 +354,11 @@ export async function retryLane(laneId: string, opts: { deps?: Partial<LaneDeps>
         // A retry re-runs the SAME experiment: the run's recorded configuration, not today's env —
         // and under `ab` that means the LANE's own arm, not the run's first one. Re-running arm B
         // under arm A's model would silently turn a comparison into two samples of one model.
-        agent: { model: lane.model ?? run.model, effort: run.effort },
+        agent: { model: lane.model ?? run.model, effort: run.effort, timeoutMs: run.agentTimeoutMs },
+        // A retry re-runs the SAME experiment, which includes its throughput and its guard: read off
+        // the ROW, never re-derived from today's env or defaults.
+        batchSize: run.batchSize,
+        verify: { enabled: verifyModeOf(run.verifyMode) === "on", timeoutMs: run.verifyTimeoutMs },
         abPairKey: lane.abPairKey,
       });
       // A retry is the same lane run again, which includes how its work is delivered — the run's
@@ -355,7 +378,10 @@ export async function retryLane(laneId: string, opts: { deps?: Partial<LaneDeps>
         endedAt: new Date(),
       });
     } finally {
-      if (wt) await removeLoopWorktree(wt);
+      if (wt) {
+        forgetVerifyBaseline(wt.dir);
+        await removeLoopWorktree(wt);
+      }
     }
   })();
   return true;
@@ -437,7 +463,12 @@ async function drive(
           // input, so a retry dispatched hours later cannot silently pick up a changed env. Under
           // `ab` the ARM's model overrides it; the effort is shared, because the arms are a model
           // comparison and a second varying factor would make the difference uninterpretable.
-          agent: { model: arm ?? run.model, effort: run.effort },
+          agent: { model: arm ?? run.model, effort: run.effort, timeoutMs: run.agentTimeoutMs },
+          // Read off the ROW for the same reason the agent configuration is: a run's throughput and
+          // its guard are part of what it IS, and a cycle dispatched hours later must not silently
+          // pick up a changed default.
+          batchSize: run.batchSize,
+          verify: { enabled: verifyModeOf(run.verifyMode) === "on", timeoutMs: run.verifyTimeoutMs },
           abPairKey: arm ? abPairKeyFor(run.id, t.repo, cycle) : null,
           shouldStop: () => state.stopRequested,
         });
@@ -467,7 +498,10 @@ async function drive(
     }
     await updateLoopRun(run.id, { phase: state.stopRequested ? "stopped" : "done", endedAt: new Date() });
   } finally {
-    for (const wt of state.worktrees.values()) await removeLoopWorktree(wt);
+    for (const wt of state.worktrees.values()) {
+      forgetVerifyBaseline(wt.dir);
+      await removeLoopWorktree(wt);
+    }
     live.delete(run.id);
   }
 }

@@ -25,6 +25,7 @@ import { Field, SelectInput } from "@/components/ui";
 import { LOOP_CONCURRENCY_CAP, LOOP_MAX_CYCLES_CAP } from "@/lib/db/loop-runs-types";
 import { AGENT_EFFORTS, AGENT_MODELS } from "@/lib/local/agent-options";
 import { DELIVERY_HINTS, DELIVERY_LABELS, LOOP_DELIVERIES, type LoopDelivery } from "@/lib/local/delivery-options";
+import { CockpitThroughputControls } from "./CockpitThroughputControls";
 import { DRIVE_MAX_RUNS_CAP } from "./driveTypes";
 import type { RunDials } from "./useRunDials";
 
@@ -111,6 +112,9 @@ export function CockpitRunControls({ dims, dials, onChange, prAvailable = true }
           </SelectInput>
         </Field>
       </div>
+      {/* HOW BIG A BITE, HOW LONG TO CHEW, AND WHAT CATCHES IT — extracted so this file stays a list
+          of fields; see CockpitThroughputControls for why the three dials exist. */}
+      <CockpitThroughputControls dials={dials} onChange={onChange} />
       <Field label="When a lane finishes">
         <SelectInput
           data-testid="cockpit-delivery"

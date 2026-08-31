@@ -50,6 +50,9 @@ const lane = (over: Partial<LoopLaneRecord> = {}): LoopLaneRecord =>
     executor: "local",
     claimedBy: null,
     leaseUntil: null,
+    verifyVerdict: null,
+    verifyCommand: null,
+    verifyNote: null,
     ...over,
   }) as LoopLaneRecord;
 
@@ -188,5 +191,39 @@ describe("pr", () => {
 
     expect(res.delivered).toBe(false);
     expect(mocks.log).toHaveBeenCalledWith("lane-1", expect.stringContaining("non-fast-forward"));
+  });
+});
+
+describe("a lane the degradation guard REJECTED", () => {
+  it("is never LANDED, whatever mode the run asked for", async () => {
+    // The guard already stops such a lane before it commits, so in practice `commits === 0` would
+    // turn it away — but "in practice" is not the standard for the one path that merges into a
+    // working copy. The verdict is checked explicitly, and it is checked FIRST.
+    mocks.getLane.mockResolvedValue(lane({ verifyVerdict: "rejected", commits: 2 }));
+
+    const res = await deliverLane({ ...input, delivery: "land" }, deps);
+
+    expect(mocks.land).not.toHaveBeenCalled();
+    expect(res.delivered).toBe(false);
+    expect(res.reason).toContain("degradation guard rejected");
+    expect(mocks.log).toHaveBeenCalledWith("lane-1", expect.stringContaining("never landed and never opened as a PR"));
+  });
+
+  it("never opens a PR either", async () => {
+    mocks.getLane.mockResolvedValue(lane({ verifyVerdict: "rejected", commits: 2 }));
+
+    const res = await deliverLane({ ...input, delivery: "pr" }, deps);
+
+    expect(mocks.openPr).not.toHaveBeenCalled();
+    expect(res.delivered).toBe(false);
+  });
+
+  it("does NOT block the other three verdicts", async () => {
+    for (const verdict of ["verified", "baseline-red", "skipped"] as const) {
+      mocks.land.mockClear();
+      mocks.getLane.mockResolvedValue(lane({ verifyVerdict: verdict, commits: 2 }));
+      await deliverLane({ ...input, delivery: "land" }, deps);
+      expect(mocks.land, `${verdict} was refused delivery`).toHaveBeenCalledTimes(1);
+    }
   });
 });

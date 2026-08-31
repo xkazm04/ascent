@@ -19,6 +19,13 @@
 // NOTHING HERE CAN FAIL A RUN. A lane's real work is committed and safe on its branch before delivery
 // is even considered; a delivery that cannot happen is information for the operator, never a reason
 // to throw away a cycle that succeeded.
+//
+// A REJECTED LANE IS NEVER DELIVERED, WHATEVER MODE THE RUN ASKED FOR. The A/B degradation guard
+// (`lane-guard.ts`) already stops such a lane before it commits, so in practice `commits === 0` would
+// turn it away below — but "in practice" is not the standard for the one code path that merges into a
+// working copy or pushes to a remote. The verdict is checked EXPLICITLY and first, so a lane that
+// somehow arrived here with a commit and a `rejected` verdict is still refused, and the refusal is
+// written on the lane rather than being an unexplained silence.
 
 import { deliveryOf, type LoopDelivery } from "@/lib/local/delivery-options";
 import { landLaneBranch, type LandOutcome } from "@/lib/local/loop-land";
@@ -76,6 +83,14 @@ export async function deliverLane(input: DeliverLaneInput, overrides: Partial<De
   const deps: DeliverDeps = { ...defaultDeliverDeps, ...overrides };
   const lane = await deps.getLane(input.laneId).catch(() => null);
   if (!lane || !lane.branch) return { mode, delivered: false, reason: null };
+  // THE GUARD'S VETO, checked before anything else this function can do. See the header.
+  if (lane.verifyVerdict === "rejected") {
+    const reason =
+      `Not delivering ${lane.branch}: the degradation guard rejected this cycle — the repository's own check passed before the ` +
+      `session and failed after it, so the work was discarded rather than committed. A rejected lane is never landed and never opened as a PR.`;
+    await deps.log(input.laneId, reason).catch(() => null);
+    return { mode, delivered: false, reason };
+  }
   // A lane that committed nothing has nothing to deliver, and saying so would just repeat the "0
   // commit(s) landed this cycle" line the lane already carries.
   if (lane.commits === 0) return { mode, delivered: false, reason: null };

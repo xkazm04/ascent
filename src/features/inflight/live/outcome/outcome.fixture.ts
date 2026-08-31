@@ -18,6 +18,9 @@ const laneOf = (o: Partial<OutcomeCell> & { runId: string; repo: string }): Loop
   cacheReadTokens: null, turns: null, agentDurationMs: null, agentSessionId: null, abPairKey: null,
   brief: null, report: null, dimId: null,
   executor: "local", claimedBy: null, leaseUntil: null,
+  // The degradation guard's verdict. `null` here is the fixture saying "this lane predates the guard",
+  // which is what every historical row genuinely carries — never `skipped`.
+  verifyVerdict: o.lane?.verifyVerdict ?? null, verifyCommand: null, verifyNote: null,
 });
 
 const d = (headline: string, kind: LaneDeliverable["kind"], dimId: LaneDeliverable["dimId"] = null, evidence: string | null = null): LaneDeliverable => ({

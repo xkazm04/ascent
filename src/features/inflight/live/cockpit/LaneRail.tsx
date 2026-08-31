@@ -10,7 +10,7 @@
 import { useState } from "react";
 import { fmtDelta } from "@/components/ui";
 import { LANE_STOPS, laneCaption, laneIsLive, laneMarkerPct, laneStopIndex } from "./laneStages";
-import { laneExecutorTag, leaseCountdown, type LoopLaneRecord } from "./loopTypes";
+import { laneExecutorTag, leaseCountdown, verifyVerdictTag, type LoopLaneRecord } from "./loopTypes";
 
 export interface LaneRailProps {
   lane: LoopLaneRecord;
@@ -36,6 +36,11 @@ export function LaneRail({ lane, lift = null, onRetry, busy = false }: LaneRailP
   const tail = lane.log.slice(-6);
   const executor = laneExecutorTag(lane.executor);
   const countdown = leaseCountdown(lane.leaseUntil);
+  // THE DEGRADATION GUARD'S VERDICT — one word beside the counters, never a panel of its own. `null`
+  // for a lane written before the guard existed: unknown is not `skipped`, and a tag on it would be a
+  // claim about a run nobody made. Only `rejected` is coloured, because only `rejected` means the
+  // cycle was reversed; `unverified` is a fact, not a fault, and colouring it would read as one.
+  const verified = verifyVerdictTag(lane.verifyVerdict);
 
   return (
     <li className="bg-ink px-4 py-3">
@@ -61,6 +66,15 @@ export function LaneRail({ lane, lift = null, onRetry, busy = false }: LaneRailP
         {executor && (
           <span data-testid="lane-executor" className="font-mono text-xs tabular-nums text-slate-500">
             {[executor, lane.claimedBy, countdown].filter(Boolean).join(" · ")}
+          </span>
+        )}
+        {verified && (
+          <span
+            data-testid="lane-verify"
+            className={`font-mono text-xs tabular-nums ${lane.verifyVerdict === "rejected" ? "text-danger" : "text-slate-500"}`}
+            title={lane.verifyNote ?? undefined}
+          >
+            {verified}
           </span>
         )}
         {(executor || lane.model || lane.costMicros != null || lane.turns != null) && (

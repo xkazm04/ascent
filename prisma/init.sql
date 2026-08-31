@@ -1402,6 +1402,10 @@ CREATE TABLE "LoopRun" (
     "modelPolicy" TEXT NOT NULL DEFAULT 'single',
     "modelsJson" TEXT NOT NULL DEFAULT '[]',
     "delivery" TEXT,
+    "batchSize" INTEGER,
+    "agentTimeoutMs" INTEGER,
+    "verifyMode" TEXT,
+    "verifyTimeoutMs" INTEGER,
     "startedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "endedAt" TIMESTAMP(3),
     "error" TEXT,
@@ -1423,6 +1427,15 @@ ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "modelsJson" TEXT NOT NULL DEFAUL
 -- it). Nullable so PGlite's boot-time `reconcileColumnDrift` can add it in place on an existing
 -- embedded database without a migration step.
 ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "delivery" TEXT;
+-- THROUGHPUT + THE DEGRADATION GUARD. All four NULLABLE, and null means "the deployment default" —
+-- byte-identical to what every run before these columns did. `batchSize` null = 5 (the value that used
+-- to be hard-coded); `agentTimeoutMs` null = ASCENT_AUTOPILOT_TIMEOUT_MS (20 min); `verifyMode` null =
+-- 'on' (the A/B degradation guard is the default posture, and 'off' is an explicit refusal to run
+-- repo-authored verification commands); `verifyTimeoutMs` null = 10 minutes.
+ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "batchSize" INTEGER;
+ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "agentTimeoutMs" INTEGER;
+ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "verifyMode" TEXT;
+ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "verifyTimeoutMs" INTEGER;
 
 -- CreateIndex
 CREATE INDEX "LoopRun_orgId_createdAt_idx" ON "LoopRun"("orgId", "createdAt");
@@ -1464,6 +1477,9 @@ CREATE TABLE "LoopRunLane" (
     "claimedBy" TEXT,
     "leaseUntil" TIMESTAMP(3),
     "deliverablesJson" TEXT,
+    "verifyVerdict" TEXT,
+    "verifyCommand" TEXT,
+    "verifyNote" TEXT,
 
     CONSTRAINT "LoopRunLane_pkey" PRIMARY KEY ("id")
 );
@@ -1496,6 +1512,13 @@ ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "claimedBy" TEXT;
 ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "leaseUntil" TIMESTAMP(3);
 -- WAVE 2 — the lane's deliverable headlines (JSON LaneDeliverable[]); NULL = derive on read.
 ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "deliverablesJson" TEXT;
+-- THE A/B DEGRADATION GUARD — what the repository's OWN verification command said before and after the
+-- agent's session: verified | rejected | baseline-red | skipped. NULL is NOT 'skipped'; it is a lane
+-- written before the guard existed, whose verification state is unknown. A 'rejected' lane committed
+-- nothing and is never landed or PR'd, whatever delivery mode the run asked for.
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "verifyVerdict" TEXT;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "verifyCommand" TEXT;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "verifyNote" TEXT;
 
 -- CreateIndex
 CREATE INDEX "LoopRunLane_runId_idx" ON "LoopRunLane"("runId");

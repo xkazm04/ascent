@@ -70,6 +70,20 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   if (lane.commits === 0) {
     return NextResponse.json({ error: "This lane committed nothing, so there is nothing to review." }, { status: 409 });
   }
+  // THE DEGRADATION GUARD'S VETO. The unattended delivery step refuses a rejected lane too
+  // (`loop-delivery.ts`); this is the same rule at the one-click door, because a verdict that only
+  // bound the automatic path would be no verdict at all — a human clicking "open a PR" is exactly how
+  // a reversed cycle would otherwise reach a remote everyone can see.
+  if (lane.verifyVerdict === "rejected") {
+    return NextResponse.json(
+      {
+        error:
+          "The degradation guard rejected this lane: the repository's own check passed before the agent's session and failed after it, " +
+          "so the work was discarded rather than committed. A rejected lane cannot be opened as a pull request.",
+      },
+      { status: 409 },
+    );
+  }
   const pairedPath = await getRepoLocalPath(org, lane.repoFullName);
   if (!pairedPath) {
     return NextResponse.json({ error: `${lane.repoFullName} is no longer paired with a local path.` }, { status: 409 });

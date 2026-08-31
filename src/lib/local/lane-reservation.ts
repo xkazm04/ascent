@@ -19,15 +19,41 @@ import { FOLLOW_UP_BELOW } from "@/lib/maturity/model";
 import type { FollowUpItem } from "@/lib/org/followups";
 
 /**
- * How many of a batch's slots gaps may take once the repo is green. The remaining
- * `BATCH_SIZE - GAP_SLOTS_AT_GREEN` go to the ladder.
+ * How many of a batch's slots gaps may take once the repo is green, ON A BATCH OF FIVE. The remaining
+ * three go to the ladder.
  *
  * Two, not one and not four. One would let a single fresh roadmap entry crowd out nothing at all
  * while still reading as a gap lane; four would leave the ladder a token slot and reproduce the
  * starvation more slowly. Two gaps is a whole cycle's honest work on a repo that has no dimension
  * below the band, and three rungs is enough for the axis-coverage ranking to mean something.
+ *
+ * KEPT AS A CONSTANT, USED AS A PROPORTION. The batch is a per-run parameter now (`run-limits.ts`),
+ * and a fixed 2 against a variable limit is two different reservations wearing one number: on a
+ * batch of 10 it would spend 8 slots on craft, and the campaign evidence above is about gaps being
+ * starved, not craft. `gapSlotsAtGreen` is what the code calls; this is the ratio it is derived from
+ * and the answer it still gives at 5.
  */
 export const GAP_SLOTS_AT_GREEN = 2;
+
+/** The share of a green batch reserved for gaps — 2/5, exactly what the fixed pair above encoded. */
+export const GAP_SHARE_AT_GREEN = GAP_SLOTS_AT_GREEN / 5;
+
+/**
+ * How many of `limit` slots gaps take on a green repo, as a PROPORTION of the batch.
+ *
+ * `round(limit × 2/5)`, then bounded so the split is never degenerate on any batch of two or more:
+ * AT LEAST ONE GAP SLOT (gaps outrank craft — a green repo with a fresh roadmap entry must still get
+ * to work it) and AT LEAST ONE CRAFT SLOT (the whole reason the reservation exists is that the ladder
+ * never got a turn). A batch of ONE is the one place the rule cannot hold both, and it resolves for
+ * gaps, which is the standing precedence.
+ *
+ * Worked: 1 → 1/0 · 2 → 1/1 · 5 → 2/3 (unchanged) · 10 → 4/6 · 12 → 5/7.
+ */
+export function gapSlotsAtGreen(limit: number): number {
+  const size = Math.max(1, Math.floor(limit));
+  if (size === 1) return 1;
+  return Math.min(Math.max(1, Math.round(size * GAP_SHARE_AT_GREEN)), size - 1);
+}
 
 /**
  * GREEN, as the reservation means it: every dimension this reading could measure sits at or above
@@ -81,7 +107,7 @@ export function reserveCraftSlots(
 ): FollowUpItem[] {
   const size = Math.max(1, limit);
   if (rungs.length === 0) return gaps.slice(0, size);
-  const head = gaps.slice(0, Math.min(GAP_SLOTS_AT_GREEN, size));
+  const head = gaps.slice(0, Math.min(gapSlotsAtGreen(size), size));
   const out = [...head, ...rungs.slice(0, size - head.length)];
   for (const g of gaps.slice(head.length)) {
     if (out.length >= size) break;

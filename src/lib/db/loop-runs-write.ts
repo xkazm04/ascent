@@ -22,6 +22,8 @@ import {
   type LoopRunPhase,
   type LoopRunRecord,
   type LoopTarget,
+  type VerifyMode,
+  type VerifyVerdict,
 } from "@/lib/db/loop-runs-types";
 
 import type { LaneBriefProvenance } from "@/lib/org/lane-brief";
@@ -54,6 +56,14 @@ export interface CreateLoopRunInput {
    *  did), `land` or `pr`. Already validated by the route; `null` is recorded as null, which reads
    *  back as `branch`. */
   delivery?: LoopDelivery | null;
+  /** THE THROUGHPUT + GUARD DIALS, already validated by the route (`run-limits.ts`). `null`/omitted is
+   *  recorded as null, which reads back as the deployment default — byte-identical to every run armed
+   *  before these columns existed. Nothing here is clamped: a normalizer that refused the value has
+   *  already turned it into a 400, so an out-of-band figure never reaches the store. */
+  batchSize?: number | null;
+  agentTimeoutMs?: number | null;
+  verifyMode?: VerifyMode | null;
+  verifyTimeoutMs?: number | null;
   /** Defaults to "running" — `start` arms a run; "curating" is for a run parked for hand-editing. */
   phase?: LoopRunPhase;
 }
@@ -76,6 +86,10 @@ export async function createLoopRun(input: CreateLoopRunInput): Promise<LoopRunR
       modelPolicy: input.modelPolicy ?? "single",
       modelsJson: JSON.stringify(input.models ?? (input.model ? [input.model] : [])),
       delivery: input.delivery ?? null,
+      batchSize: input.batchSize ?? null,
+      agentTimeoutMs: input.agentTimeoutMs ?? null,
+      verifyMode: input.verifyMode ?? null,
+      verifyTimeoutMs: input.verifyTimeoutMs ?? null,
     },
   });
   return toRunRecord(row);
@@ -233,6 +247,13 @@ export interface LoopLanePatch {
   executor?: string;
   claimedBy?: string | null;
   leaseUntil?: Date | null;
+
+  // ── THE A/B DEGRADATION GUARD. Written in the same patch that ends the lane, so a lane that dies
+  // afterwards still carries its verdict. `null` is a legitimate value and means "no verdict" (the
+  // guard was off, or this lane predates it) — never `skipped`, which is a verdict of its own.
+  verifyVerdict?: VerifyVerdict | null;
+  verifyCommand?: string | null;
+  verifyNote?: string | null;
 }
 
 export async function updateLane(id: string, patch: LoopLanePatch): Promise<LoopLaneRecord | null> {

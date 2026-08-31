@@ -3,6 +3,7 @@
 // and so a test can drive either half (a fetch stub here, or these functions mocked) on its own.
 
 import type { LoopDelivery } from "@/lib/local/delivery-options";
+import type { VerifyMode } from "@/lib/local/run-limits";
 import type { LoopLessonRow, LoopProposal, LoopRunDetail, LoopRunRecord, LoopStatusPayload, RemediationPriceList } from "./loopTypes";
 
 async function json<T>(res: Response, fallback: string): Promise<T> {
@@ -101,6 +102,15 @@ export interface StartLoopInput {
   effort: string | null;
   /** What happens to each lane's branch: `branch` | `land` | `pr`. Omitted means `branch`. */
   delivery?: LoopDelivery;
+  /** Items one lane works per cycle. Omitted = the default 5, byte-identical to a pre-dial run. */
+  batchSize?: number;
+  /** Per-session agent ceiling, MILLISECONDS (the dial is in minutes; the wire is in ms because the
+   *  server's band is). Omitted = the deployment's own `ASCENT_AUTOPILOT_TIMEOUT_MS`. */
+  agentTimeoutMs?: number;
+  /** The A/B degradation guard. Omitted = `on`. */
+  verifyMode?: VerifyMode;
+  /** Budget for ONE run of the repository's own check, MILLISECONDS. Omitted = 10 minutes. */
+  verifyTimeoutMs?: number;
 }
 
 export const startLoop = (slug: string, input: StartLoopInput): Promise<{ run: LoopRunRecord }> =>

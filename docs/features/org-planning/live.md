@@ -54,6 +54,10 @@ fails if a model is in `schema.prisma` and not in the mirror).
 | `maxCycles` | Clamped 1…`LOOP_MAX_CYCLES_CAP` (5); default 3. |
 | `cycle` | The cycle being worked (`0` = none started). |
 | `curated` | True when the operator approved the batches by hand. |
+| `batchSize` | Follow-ups (or craft rungs) one lane dispatches per cycle. Nullable, **NULL = 5** — the value that used to be hard-coded. Capped at `BATCH_SIZE_CAP` (12). §[Throughput](#throughput-batch-session-ceiling-and-the-reservation-2026-08-31). |
+| `agentTimeoutMs` | Per-session agent ceiling. Nullable, **NULL = `ASCENT_AUTOPILOT_TIMEOUT_MS`** (20 min). Bounded 60 s…90 min. |
+| `verifyMode` | `on \| off` — the A/B degradation guard. Nullable, and **NULL means `on`**: the guard is the default posture, and `off` is an operator's explicit refusal to run repo-authored verification commands. §[The A/B degradation guard](#the-ab-degradation-guard-2026-08-31). |
+| `verifyTimeoutMs` | Budget for ONE run of the repository's own check. Nullable, **NULL = 10 min**; bounded 30 s…30 min. |
 | `delivery` | `branch \| land \| pr` — **how this run's work reached the operator** (§[Delivery](#delivery-what-happens-to-a-lanes-branch-2026-08-31)). Nullable, and **NULL means `branch`**: every run written before the column committed to a throwaway lane branch and left it, which is exactly what `branch` is. `normalizeDelivery` parses it; an unknown value is `null`, never a guess. |
 | `startedAt` / `endedAt` / `error` / `createdAt` | `endedAt` set on every terminal transition. |
 
@@ -74,6 +78,8 @@ The unit of parallelism, of retry, and of the cockpit's row.
 | `stage` | Live rescan sub-stage (`fetch \| tree \| files \| analyze \| score \| compose`), `null` between phases. |
 | `log` | Newline-joined, **bounded to `LANE_LOG_LINES` = 200**, newest last, each line stamped `HH:MM:SS`. Appended read-modify-write; safe because a lane is single-writer by construction. |
 | `error` / `startedAt` / `endedAt` | A failed lane is lane data, never a run failure. |
+| `verifyVerdict` | `verified \| rejected \| baseline-red \| skipped`. **NULL is not `skipped`** — it is a lane written before the guard existed, whose verification state is unknown, and rendering it as "skipped" would be a claim about a run nobody made (`asVerifyVerdict` floors an unreadable value to null). A `rejected` lane is **never landed and never PR'd**. |
+| `verifyCommand` / `verifyNote` | The command that was run and the first meaningful failure lines, so "why was this rejected" survives the throwaway worktree it happened in. |
 
 Index: `@@index([runId])`.
 
@@ -121,13 +127,18 @@ editing agents inside paired working copies — the same blast radius as pairing
 
 | Action | Body | Answers |
 | --- | --- | --- |
-| `start` | `{ action, org, repos[], batches?, concurrency?, maxCycles?, curated? }` | `{ run }` |
+| `start` | `{ action, org, repos[], batches?, concurrency?, maxCycles?, curated?, model?, effort?, delivery?, batchSize?, agentTimeoutMs?, verifyMode?, verifyTimeoutMs? }` | `{ run }` |
 | `stop` | `{ action, org, id }` | `{ ok, run }` — `200` when stopped, `409` when not |
 | `retry` | `{ action, org, laneId }` | `{ ok }` — `200`/`409` |
 | `review` | `{ action, org, laneId, cover, verdict }` | `{ ok, deliverables }` — the quick-approval gate; `verdict` is `approved \| dismissed`, `cover` is the row's first `covers` id (else its headline). Sits with `stop`/`retry` **before** the `ASCENT_AUTOPILOT` check: ruling on a past run must work after the loop is switched off. Same owner gate + tenancy re-check as the other writes. |
 
 - `400`: missing `org`/`action`, empty `repos`, `maxCycles` outside 1–5, `concurrency` outside 1–4,
-  missing `id`/`laneId`.
+  missing `id`/`laneId`, or any of `batchSize` / `agentTimeoutMs` / `verifyMode` / `verifyTimeoutMs`
+  **sent** and out of band. Those four are validated by normalizers that **never guess**
+  (`src/lib/local/run-limits.ts`): an unrecognised value is `null` = "unchosen", and a caller who
+  *sent* one gets a 400 naming the band rather than a run quietly configured with a number nobody
+  asked for. **Omitting** a field is the supported way to say "use the deployment default", and that
+  path records `null`.
 - `403`: the `public` org.
 - `409`: `ASCENT_AUTOPILOT` is not set (the message names the fix), or **any** throw out of
   `startLoopRun` — a broken pairing, an already-active run, no database.
@@ -1708,3 +1719,171 @@ to a process this deployment is driving, and there is none.
   It strips `ANTHROPIC_API_KEY`; a self-hosted Ascent started from inside a Claude Code session hands
   the harness's own markers to every agent it spawns, and a nested `claude` that inherits them
   produces nothing, silently.
+
+---
+
+## Throughput: batch, session ceiling and the reservation (2026-08-31)
+
+A 21-run campaign across two real repositories (`kp`, `systedo-case`) produced **34 commits** and
+moved `kp`'s overall **83 → 82** while `systedo-case` went **84 → 88**. The loop was not failing. It
+was being *timid*: every change item-shaped, nothing spanning files, nothing deleted, no
+restructuring, no de-duplication, no performance work. After twenty runs on small and medium
+codebases the expectation was *"well structured, deduplicated, blazingly fast code"*.
+
+Three of the causes were numbers nobody could reach. All three are now **per-run parameters**,
+recorded on `LoopRun`, and every default is the value the loop already used — so a run armed without
+touching them is byte-identical to every run before they existed.
+
+| Dial | Default | Cap | Why it exists |
+| --- | --- | --- | --- |
+| `batchSize` | **5** (unchanged) | **12** | De-duplication is not reachable from a batch that cannot see two duplicates at once. The cap is an argument, not a round number: every item is *claimed* before dispatch, so a batch is a lock held over other workers' queue, the brief grows with it, and past roughly a dozen items a session starts skipping the tail silently. |
+| `agentTimeoutMs` | **20 min** (`ASCENT_AUTOPILOT_TIMEOUT_MS`) | **90 min**, floor 60 s | A campaign lane literally committed `Agent session exceeded 20 min and was stopped` — a structural change killed by the clock and then discarded with the worktree. Capped because the timeout is the **only** thing that ends a wedged headless session, which otherwise holds a lane, a worktree and a batch of claimed rows indefinitely. |
+| `verifyMode` / `verifyTimeoutMs` | **`on`** / **10 min** | 30 min | See §[The A/B degradation guard](#the-ab-degradation-guard-2026-08-31). |
+
+Validation lives in `src/lib/local/run-limits.ts`, which is **dependency-free** for the same reason
+`agent-options.ts` and `delivery-options.ts` are: the cockpit's pickers and the route's validators
+have to agree, and the way that stops being true is two lists. Every normalizer **refuses rather than
+clamps** — see the `400` note under `POST /api/org/loop`.
+
+### The craft reservation is a proportion, not a count
+
+`GAP_SLOTS_AT_GREEN = 2` was tuned against a fixed batch of five. With a variable batch it is two
+different reservations wearing one number: on a batch of ten it would hand **eight** slots to the
+craft ladder on a repo that still has ten open gaps ranked above them.
+
+`gapSlotsAtGreen(limit)` (`src/lib/local/lane-reservation.ts`) is `round(limit × 2/5)`, bounded so any
+batch of two or more keeps **at least one gap slot** (gaps outrank craft — a green repo with a fresh
+roadmap entry must still get to work it) and **at least one craft slot** (the ladder never getting a
+turn is the whole reason the reservation exists). A batch of **one** is the only size that cannot hold
+both, and it resolves for gaps.
+
+| batch | gaps | craft |
+| --- | --- | --- |
+| 1 | 1 | 0 |
+| 2 | 1 | 1 |
+| **5** | **2** | **3** *(unchanged)* |
+| 10 | 4 | 6 |
+| 12 | 5 | 7 |
+
+### Permission to make a larger change
+
+`buildFixPrompt` (`src/lib/org/followups.ts`) read, to an agent, as an instruction to be small: *"the
+smallest change that closes the gap"*, *"small and reversible"*, *"one rung, not a redesign"*. An
+agent told to be small is small. So the brief now carries an explicit **structural invitation**:
+
+- On a **craft lane** (a green repo working the ladder) it is unreserved — restructuring,
+  de-duplication and performance work are in scope; the change **may span many files, may move code,
+  and may delete code, and is expected to when that is what raises the ceiling**; judge by the ceiling
+  raised, not by the diff size.
+- On a **gap lane** the same permission applies where the gap's *real cause* is structural, with the
+  existing precedence intact: `RESOLVED` still means **this** item's gap is closed by **this** change,
+  and a restructure that leaves it open is `SKIPPED` with the reason.
+
+Every honesty rule survives untouched — the capability rule, `RESOLVED` meaning the named gap is
+closed, and no substitution. **A restructure is a bigger change, never a looser claim.** "Small and
+reversible" remains the default *shape*; what is withdrawn is the implication that small is the only
+shape permitted.
+
+And the invitation only makes sense with a net under it, which is the next section.
+
+## The A/B degradation guard (2026-08-31)
+
+**Within a cycle, prove the change did not degrade the repository, and reverse it if it did.**
+
+An agent that knows a regression will be caught and reversed is the one that takes the larger swing;
+an agent that believes a mistake ships is *correct* to make the smallest change it can. The guard is
+what makes §*Permission to make a larger change* honest rather than reckless.
+
+`A` is the pristine worktree before the session; `B` is the same worktree after the agent's edits and
+**before the commit** — before, because the whole point is that a rejected cycle leaves no commit and
+no branch to explain away.
+
+### Resolving the repository's OWN command
+
+Nothing is invented. `resolveVerifyCommand` (`src/lib/local/lane-verify.ts`, pure and table-tested)
+consults, in this fixed order, reusing readers that already exist:
+
+1. **`.ai/manifest.yaml`** via `readManifestYaml` (`src/lib/standard/read.ts`). Capabilities wired at
+   `controls.ciHardPass` (else `prePush`), deduped, in declared order, at most three, joined with
+   `&&`. This is the most authoritative source because it is the only one **machine-declared** rather
+   than inferred from prose. A command the reader **redacted** (a secret-shaped run) or one carrying a
+   `<placeholder>` is refused rather than executed — neither is a command anybody declared.
+2. **The guidance files** — `CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING.md` — via `parseCommands`
+   (`src/lib/analyze/guidance-graph.ts`), the **same extraction the scorer's `commands_agree` facet
+   runs**. Key preference `test → typecheck → build → lint`; `dev` (a server that never exits),
+   `install` (proves nothing about the change) and `format` (rewrites rather than judges) are never
+   used.
+3. **`package.json` scripts**, composite names first: `check:ci`, `verify`, `check`, `ci`, `test`
+   (`test` becomes `npm test`, everything else `npm run <name>`). Last, because a script that exists
+   is weaker evidence than a command the repository asked for in words.
+4. **Nothing** → the guard is `skipped` and says so. Never a silent pass: *"we could not check"* and
+   *"we checked and it was fine"* are different facts.
+
+A broken declaration **falls through** to the next source rather than failing the resolution — a
+malformed manifest is not evidence that no check exists.
+
+### The four verdicts
+
+| Verdict | When | What the lane does |
+| --- | --- | --- |
+| **`verified`** | passed before, passes after | Proceeds: commit, rescan, deliver, as always. |
+| **`rejected`** | **passed before, failed (or timed out) after** | `git reset --hard HEAD` + `git clean -fd` **in the throwaway worktree only**; **no commit**, **no rescan**, claims released, a lesson candidate and a `noted` deliverable recorded, and the lane ends honestly with **no claim**. |
+| **`baseline-red`** | already failing before the session | **No blame, no rejection.** The repository arrived broken; the lane proceeds exactly as it would have without a guard, and the note says so. A guard that punished an agent for arriving at a broken repository would be unusable on precisely the repositories that need it most. |
+| **`skipped`** | nothing resolvable, or `verifyMode: "off"` | Proceeds, and the row records `skipped` **with its reason**. Never `null` — null is what a lane written *before* the guard carries, and "we did not check" must not be able to masquerade as "there was nothing to check". |
+
+The baseline is measured **once per worktree** (cycle 1) and cached for that worktree's later cycles:
+cycle 2's `HEAD` already carries cycle 1's commits, so re-measuring would answer a different question.
+The cache is keyed by worktree directory and forgotten by `loop-engine.ts` when the worktree is
+removed.
+
+**A timeout is a failure on both sides**, deliberately. On the baseline it means the repository's own
+gate does not finish inside the budget → `baseline-red`, honest, and it stops the guard silently
+costing every lane ten minutes for nothing. On the result run it means the session left the repository
+unable to get through its own checks → a degradation.
+
+### A rejected lane is never delivered
+
+The verdict is persisted on `LoopRunLane.verifyVerdict`, and **both** delivery doors check it
+explicitly and first:
+
+- `deliverLane` (`src/lib/local/loop-delivery.ts`) refuses `land` and `pr` on a `rejected` lane
+  whatever mode the run asked for, logging the reason on the lane.
+- `POST /api/org/loop/<id>/pr` — the one-click door a **human** presses — returns `409` for the same
+  reason. A verdict that only bound the automatic path would be no verdict at all: a human clicking
+  "open a PR" is exactly how a reversed cycle would otherwise reach a remote everyone can see.
+
+In practice a rejected lane also has `commits === 0`, which would turn it away anyway — but "in
+practice" is not the standard for the one code path that merges into a working copy or pushes to a
+remote.
+
+### Bounds, consent and the record
+
+- **It runs repo-authored code.** Plainly: `npm test` in a checkout runs whatever that repository's
+  test script says. This loop **already** spawns an editing agent in that checkout, so the guard adds
+  no capability that was not already there — and it is gated identically: self-hosted only,
+  `ASCENT_AUTOPILOT=1`, `requireOrgRole(org, "owner")` to arm, `shell: true` in the **throwaway
+  worktree** with `ANTHROPIC_API_KEY` stripped and `CI=1` set (so a watch-mode runner is one-shot).
+- **The disable is obvious.** `verifyMode: "off"` on the run; in the cockpit it is a labelled picker
+  (*"Do not run this repository's checks"*) whose standing hint says what is lost — lanes recorded
+  UNVERIFIED and a regression free to reach whatever delivery mode was chosen.
+- **The reversal is worktree-only.** `reset --hard` and `clean -fd` are the two most destructive
+  commands in this codebase and they run in exactly one place: a temp checkout `createLoopWorktree`
+  made minutes earlier, which `removeLoopWorktree` deletes anyway. `landLaneBranch` — the module that
+  *does* touch the operator's checkout — still never resets, stashes or switches anything.
+- **The lane row shows it.** One word beside the cost counters (`verified`, `rejected`,
+  `baseline red`, `unverified`), the full note on hover, and only `rejected` is coloured: `unverified`
+  is a fact, not a fault. A lane written before the guard renders **nothing**.
+- **A rejection leaves a lesson**, through the same pending-candidate queue every agent lesson uses,
+  keyed on the standing fact (this repo, this command) rather than the branch.
+- **The brief only promises the net when it is real.** `buildFixPrompt`'s safety-net paragraph is
+  printed **only** when a command resolved *and* passed on the pristine tree. Telling an agent its
+  mistakes will be caught when they will not is the one lie that would make the invitation dangerous.
+
+Tests: `lane-verify.test.ts` (the resolution chain, the redaction/placeholder refusals, "declares
+nothing → null"), `lane-guard.test.ts` (the four verdicts, the baseline cache, both timeout paths, the
+discard's exact two git commands and their cwd), `loop-lane.guard.test.ts` (a rejected lane commits
+nothing, rescans nothing, releases its claims and persists `rejected`; baseline-red is not blamed;
+guard-off still records `skipped`; the batch-size and session-timeout parameters),
+`loop-delivery.test.ts` and `[id]/pr/route.test.ts` (a rejected lane is not landed and not PR'd, and
+the other three verdicts are not blocked), `run-limits.test.ts` (the normalizers never guess; the
+defaults are today's values) and `lane-reservation.test.ts` (the proportion at 1, 2, 5, 10, 12).

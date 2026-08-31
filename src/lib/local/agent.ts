@@ -21,6 +21,12 @@ import { spawn } from "node:child_process";
 import { cliProviderAllowed, envNumber } from "@/lib/llm/config";
 import { envBool } from "@/lib/env";
 import { normalizeAgentEffort, normalizeAgentModel, type AgentConfig } from "@/lib/local/agent-options";
+import {
+  AGENT_TIMEOUT_CAP_MS,
+  AGENT_TIMEOUT_DEFAULT_MS,
+  AGENT_TIMEOUT_MIN_MS,
+  normalizeAgentTimeoutMs,
+} from "@/lib/local/run-limits";
 import { parseAgentEnvelope, type AgentEnvelope } from "@/lib/local/agent-envelope";
 
 /** Operator consent for the autopilot (spawning editing agents). Off by default, everywhere. */
@@ -58,10 +64,29 @@ export function resolveAgentConfig(choice: AgentConfig | null | undefined): { mo
   };
 }
 
-/** Per-session ceiling. A fix batch is a real working session — default 20 min, env-tunable. The
- *  same "0 is a misconfiguration, not 'no timeout'" floor as every other timeout knob. */
-function agentTimeoutMs(): number {
-  return Math.max(60_000, envNumber("ASCENT_AUTOPILOT_TIMEOUT_MS", 1_200_000));
+/**
+ * Per-session ceiling. A fix batch is a real working session — default 20 min, env-tunable, and now
+ * RAISEABLE PER RUN inside a hard ceiling.
+ *
+ * The per-run override exists because 20 minutes is the wrong number for the work the loop is being
+ * asked to do. A campaign lane committed the literal line `Agent session exceeded 20 min and was
+ * stopped`: a structural change in progress, killed by the clock, and discarded with the worktree.
+ * A brief that invites restructuring and de-duplication has to come with the time to do it.
+ *
+ * It is bounded on BOTH sides and the ceiling is not negotiable from the wire: the timeout is the only
+ * thing that ends a wedged headless session, which otherwise holds a lane, a worktree and a batch of
+ * claimed rows indefinitely. The same "0 is a misconfiguration, not 'no timeout'" floor as every other
+ * timeout knob, and an override outside the band is IGNORED rather than clamped — `normalizeAgentTimeoutMs`
+ * has already refused it at the route, so anything arriving here out of band is a stale caller and the
+ * honest answer is the deployment's own value.
+ */
+function agentTimeoutMs(override?: number | null): number {
+  const chosen = normalizeAgentTimeoutMs(override ?? null);
+  if (chosen != null) return chosen;
+  return Math.min(
+    AGENT_TIMEOUT_CAP_MS,
+    Math.max(AGENT_TIMEOUT_MIN_MS, envNumber("ASCENT_AUTOPILOT_TIMEOUT_MS", AGENT_TIMEOUT_DEFAULT_MS)),
+  );
 }
 
 const MAX_STDOUT = 4 * 1024 * 1024; // mirror claude-cli.ts's runaway-subprocess caps
@@ -84,8 +109,17 @@ export interface AgentRunResult extends Partial<Omit<AgentEnvelope, "ok" | "summ
 
 /** Run one editing session in `cwd`. Resolves (never rejects) — the autopilot treats every outcome
  *  as cycle data: a failed session ends the cycle with its reason in the log, not a stack. */
-export function runClaudeAgent(opts: { cwd: string; prompt: string; model?: string; effort?: string | null }): Promise<AgentRunResult> {
+export function runClaudeAgent(opts: {
+  cwd: string;
+  prompt: string;
+  model?: string;
+  effort?: string | null;
+  /** Per-run session ceiling, already normalized by the route. Omitted/null keeps the deployment's
+   *  own `ASCENT_AUTOPILOT_TIMEOUT_MS`, which is what every session before this parameter used. */
+  timeoutMs?: number | null;
+}): Promise<AgentRunResult> {
   return new Promise((resolve) => {
+    const limitMs = agentTimeoutMs(opts.timeoutMs);
     if (!autopilotEnabled()) {
       resolve({ ok: false, summary: "Autopilot is not enabled — set ASCENT_AUTOPILOT=1 on this deployment." });
       return;
@@ -129,8 +163,8 @@ export function runClaudeAgent(opts: { cwd: string; prompt: string; model?: stri
     };
     const timer = setTimeout(() => {
       child.kill();
-      settle({ ok: false, summary: `Agent session exceeded ${Math.round(agentTimeoutMs() / 60_000)} min and was stopped.` });
-    }, agentTimeoutMs());
+      settle({ ok: false, summary: `Agent session exceeded ${Math.round(limitMs / 60_000)} min and was stopped.` });
+    }, limitMs);
 
     child.stdout.on("data", (d: Buffer) => {
       if (out.length < MAX_STDOUT) out += d.toString("utf8").slice(0, MAX_STDOUT - out.length);

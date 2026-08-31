@@ -1778,6 +1778,23 @@ model LoopRun {
   // through the GitHub App. Persisted because "why did nothing merge?" is a question about a run that
   // has already ended, and the answer cannot be recovered from anything else on the row.
   delivery    String?
+  // ── THROUGHPUT + THE DEGRADATION GUARD. All four NULLABLE, and null means "the deployment default",
+  // which is byte-identical to what every run before these columns did. Nullable rather than defaulted
+  // so PGlite's boot-time `reconcileColumnDrift` can add them in place on an existing embedded
+  // database, and so a reader can still tell an operator's explicit pick from an inherited default.
+  //
+  // `batchSize` — follow-ups (or craft rungs) one lane dispatches per cycle. Null = 5, the hard-coded
+  // value the loop used to have. A 21-run campaign showed a fixed 5 is what makes the loop's changes
+  // item-shaped: de-duplication is not reachable from a batch that cannot see two duplicates at once.
+  // `agentTimeoutMs` — the per-session ceiling. Null = ASCENT_AUTOPILOT_TIMEOUT_MS (20 min). A campaign
+  // lane committed "Agent session exceeded 20 min and was stopped" mid-restructure.
+  // `verifyMode` — "on" | "off". NULL MEANS ON: the A/B degradation guard is the default posture, and
+  // `off` is the operator's explicit refusal to run repo-authored verification commands.
+  // `verifyTimeoutMs` — budget for ONE run of that command. Null = 10 minutes.
+  batchSize       Int?
+  agentTimeoutMs  Int?
+  verifyMode      String?
+  verifyTimeoutMs Int?
   startedAt   DateTime  @default(now())
   endedAt     DateTime?
   error       String?
@@ -1854,6 +1871,19 @@ model LoopRunLane {
   // types.ts). Written at lane end from the agent's RESOLVED claims + the attributable diff; NULL on a
   // row written before the column, which the read side backfills deterministically from the diff.
   deliverablesJson String?
+
+  // ── THE A/B DEGRADATION GUARD (src/lib/local/lane-guard.ts). What running the repository's OWN
+  // verification command before and after the agent's session concluded:
+  //   verified | rejected | baseline-red | skipped
+  // NULL is NOT `skipped`: it is a lane written before the guard existed, whose verification state is
+  // unknown, and rendering it as "skipped" would be a claim about a run nobody made. A `rejected` lane
+  // committed nothing and MUST NOT be landed or PR'd, whatever delivery mode the run asked for — the
+  // engine's delivery step and the one-click PR door both refuse on this column.
+  verifyVerdict String?
+  // The command that was run and the first meaningful failure lines, so "why was this rejected" is
+  // answerable long after the throwaway worktree is gone.
+  verifyCommand String?
+  verifyNote    String?
 
   run LoopRun @relation(fields: [runId], references: [id])
 

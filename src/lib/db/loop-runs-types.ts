@@ -6,6 +6,10 @@
 // Import from the `@/lib/db/loop-runs` barrel; this module is an implementation split.
 
 import { normalizeDelivery, type LoopDelivery } from "@/lib/local/delivery-options";
+// Both PURE and dependency-free (no `process`, no `node:*`), so the record's shape and the client that
+// renders it share ONE declaration of the vocabulary — the same rule `delivery-options` follows.
+import { normalizeVerifyMode, type VerifyMode } from "@/lib/local/run-limits";
+import { asVerifyVerdict, type VerifyVerdict } from "@/lib/local/verify-options";
 import type { ScanDiff } from "@/lib/report/compare";
 import type { ComparableScan } from "@/lib/db/scans";
 import type { DimensionId } from "@/lib/types";
@@ -140,6 +144,10 @@ export type LoopModelPolicy = "single" | "ab";
  *  below and every reader of it have one import for the run's shape. */
 export type { LoopDelivery };
 
+/** THE THROUGHPUT + GUARD VOCABULARY, re-exported for the same reason `LoopDelivery` is: one import
+ *  for the run's shape, and one declaration of what the words mean. */
+export type { VerifyMode, VerifyVerdict };
+
 export const LOOP_MODEL_POLICIES: readonly LoopModelPolicy[] = ["single", "ab"];
 
 /** A policy from an untrusted string (the column is TEXT, the wire is JSON), else `single`. */
@@ -217,6 +225,18 @@ export interface LoopRunRecord {
    *  a reader can still tell an old row from one an operator explicitly armed for branches. Use
    *  `deliveryOf` to collapse the two when what you want is the behaviour. */
   delivery: LoopDelivery | null;
+  /** Follow-ups (or craft rungs) one lane dispatched per cycle. `null` = the default (5), which is
+   *  what every run before this parameter existed used — kept null rather than defaulted so an
+   *  operator's explicit 5 is still distinguishable from an inherited one. */
+  batchSize: number | null;
+  /** Per-session agent ceiling in ms. `null` = the deployment's `ASCENT_AUTOPILOT_TIMEOUT_MS`. */
+  agentTimeoutMs: number | null;
+  /** The A/B degradation guard. `null` MEANS `on` — the guard is the default posture — but is kept
+   *  null so a run armed before the guard existed is not misread as one that opted into it. Use
+   *  `verifyModeOf` when what you want is the behaviour. */
+  verifyMode: VerifyMode | null;
+  /** Budget for ONE run of the repository's verification command, ms. `null` = 10 minutes. */
+  verifyTimeoutMs: number | null;
   startedAt: string;
   endedAt: string | null;
   error: string | null;
@@ -266,6 +286,18 @@ export interface LoopLaneRecord {
   agentSessionId: string | null;
   /** Joins the two arms of one `ab` pair; null on a `single` run. */
   abPairKey: string | null;
+
+  // ── THE A/B DEGRADATION GUARD (src/lib/local/lane-guard.ts).
+  /** `verified` | `rejected` | `baseline-red` | `skipped`, or `null` for a lane written before the
+   *  guard existed. NULL IS NOT `skipped`: one is "we do not know", the other is "we looked and there
+   *  was nothing to run", and a ledger that renders them alike is lying about both. A `rejected` lane
+   *  committed nothing and is never landed or PR'd. */
+  verifyVerdict: VerifyVerdict | null;
+  /** The command that was run, or null when none was resolved / the guard was off. */
+  verifyCommand: string | null;
+  /** The one line the lane log carries — including the first meaningful failure lines on a rejection,
+   *  so "why" survives the throwaway worktree it happened in. */
+  verifyNote: string | null;
 
   // ── MOONSHOT #25 — the org's own standard in, the agent's structured result out.
   /** PROVENANCE of the brief this lane was given — which playbook and version, which mined practice,
@@ -433,6 +465,10 @@ type RunRow = {
   modelPolicy?: string | null;
   modelsJson?: string | null;
   delivery?: string | null;
+  batchSize?: number | null;
+  agentTimeoutMs?: number | null;
+  verifyMode?: string | null;
+  verifyTimeoutMs?: number | null;
   startedAt: Date;
   endedAt: Date | null;
   error: string | null;
@@ -477,6 +513,9 @@ type LaneRow = {
   executor?: string | null;
   claimedBy?: string | null;
   leaseUntil?: Date | null;
+  verifyVerdict?: string | null;
+  verifyCommand?: string | null;
+  verifyNote?: string | null;
 };
 
 /** `briefJson` → provenance, or null. A malformed column is `null` (unknown), never a crash three
@@ -540,6 +579,12 @@ export function toRunRecord(row: RunRow): LoopRunRecord {
     // An unrecognised string parses as null — "unchosen" — and never as a guess at a mode that would
     // write into the operator's working copy. Same posture `normalizeAgentModel` takes at the route.
     delivery: normalizeDelivery(row.delivery),
+    // Same posture as `delivery` above: an unrecognised value parses as null — "unchosen" — and never
+    // as a guess. `verifyModeOf` is what collapses null to the `on` default at the point of use.
+    batchSize: row.batchSize ?? null,
+    agentTimeoutMs: row.agentTimeoutMs ?? null,
+    verifyMode: normalizeVerifyMode(row.verifyMode),
+    verifyTimeoutMs: row.verifyTimeoutMs ?? null,
     startedAt: row.startedAt.toISOString(),
     endedAt: row.endedAt ? row.endedAt.toISOString() : null,
     error: row.error,
@@ -589,6 +634,11 @@ export function toLaneRecord(row: LaneRow): LoopLaneRecord {
     executor: asLaneExecutor(row.executor),
     claimedBy: row.claimedBy ?? null,
     leaseUntil: row.leaseUntil ? row.leaseUntil.toISOString() : null,
+    // `asVerifyVerdict` floors an unreadable value to null — "unknown", which is exactly what a lane
+    // written before the guard has, and is NOT the `skipped` verdict.
+    verifyVerdict: asVerifyVerdict(row.verifyVerdict),
+    verifyCommand: row.verifyCommand ?? null,
+    verifyNote: row.verifyNote ?? null,
   };
 }
 

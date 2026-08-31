@@ -261,6 +261,53 @@ const LANE_CAPABILITY_RULE: readonly string[] = [
   "",
 ];
 
+/**
+ * PERMISSION TO MAKE A LARGER CHANGE — the invitation, and the safety net that makes it honest.
+ *
+ * THE EVIDENCE. A 21-run campaign across two real repositories (kp, systedo-case) produced 34 commits
+ * and moved kp's overall 83→82 while systedo-case went 84→88. After twenty runs on small and medium
+ * codebases the owner expected "well structured, deduplicated, blazingly fast code" and instead read
+ * HESITANCE: every change item-shaped, nothing spanning files, nothing deleted, no restructuring, no
+ * de-duplication, no performance work. Nothing in this brief ever said that was allowed. Read as an
+ * agent reads it, the old brief said the opposite — "the smallest change that closes the gap", "small
+ * and reversible", "one rung, not a redesign" — and an agent that is told to be small is small.
+ *
+ * SO THE INVITATION IS EXPLICIT AND IT IS SCOPED. The rungs of a craft ladder are exactly the place a
+ * larger change belongs: the repository is already green, nothing here is owed, and the only thing
+ * left to do is raise the ceiling — which is usually structural. "Small and reversible" stays as the
+ * default shape of a change and is NOT withdrawn; what is withdrawn is the implication that small is
+ * the only shape permitted.
+ *
+ * AND THE NET IS WHY IT IS SAFE TO SAY. `lane-guard.ts` runs the repository's own verification command
+ * before the session and again after it, and a pass that became a failure discards the work in the
+ * throwaway worktree without committing it. An agent that knows a regression will be caught and
+ * reversed is the one that will take the larger swing; an agent that believes a mistake ships is
+ * correct to make the smallest change it can. The sentence is only printed when a command actually
+ * resolved and actually passed — a promise of a net that is not there would be worse than silence.
+ *
+ * EVERY HONESTY RULE ABOVE SURVIVES INTACT. `RESOLVED` still means the named gap is closed by this
+ * change; a substitution is still `SKIPPED`; the capability rule still bounds what the session can do.
+ * A restructure is a bigger change, never a looser claim.
+ */
+const STRUCTURAL_INVITATION: readonly string[] = [
+  "LARGER CHANGES ARE INVITED, NOT MERELY TOLERATED:",
+  "- Restructuring, de-duplication and performance work are IN SCOPE here. If three modules carry the same logic three ways, unify them. If a file has grown into four responsibilities, split it. If a hot path re-reads or re-derives the same thing every call, fix the shape rather than the symptom.",
+  "- Such a change MAY span many files, MAY move code between them, and MAY delete code — and is expected to when that is what raises the ceiling. A deletion that removes a whole class of future bug is one of the most valuable things you can do here; do not leave dead code behind out of caution.",
+  "- Judge by the ceiling, not by the diff size. The smallest change is still the right default for a narrow fix; it is the wrong default when the real defect is the structure, and 'I made the minimal edit' is not a defence for leaving the structure as it was.",
+  "- What does NOT change: do not lower an existing bar, weaken a test, or relax a threshold to make anything pass. A restructure that quietly drops coverage is a regression wearing a refactor's clothes.",
+];
+
+/** The net, printed ONLY when the lane actually resolved a verification command and it actually
+ *  passed on the pristine tree. See `STRUCTURAL_INVITATION` for why the conditional matters. */
+const verificationPromise = (command: string): string[] => [
+  "THE SAFETY NET, SO YOU CAN TAKE THE LARGER SWING:",
+  `- Before your session started, Ascent ran this repository's own check — \`${command}\` — on the untouched worktree, and it PASSED. It will run the exact same command again after you exit and BEFORE anything is committed.`,
+  "- If it passes, your work is committed. If it FAILS, the whole cycle is reversed: the edits are discarded in this throwaway worktree, nothing is committed, nothing is merged and nothing opens a pull request. A regression cannot escape this lane.",
+  "- So attempt the change that actually raises the ceiling. You are not the last line of defence, and a bold change that turns out to be wrong costs a cycle rather than a repository.",
+  "- This is not permission to guess. It is permission to attempt something large enough to be worth verifying — and then to have it verified.",
+  "",
+];
+
 const IMPACT_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
 /** Effort runs the other way — `low` is the desirable end. Ranking it through IMPACT_ORDER listed the
  *  most expensive item first, which is not the order anyone wants to work a batch in. */
@@ -282,7 +329,21 @@ const EFFORT_ORDER: Record<string, number> = { low: 0, medium: 1, high: 2 };
  */
 export function buildFixPrompt(
   items: readonly FollowUpItem[],
-  ctx: { org: string; generatedAt: string; scanNote?: string; commitPolicy?: "agent" | "lane" },
+  ctx: {
+    org: string;
+    generatedAt: string;
+    scanNote?: string;
+    commitPolicy?: "agent" | "lane";
+    /**
+     * The repository's OWN verification command, when the lane resolved one AND it passed on the
+     * pristine worktree — i.e. when the A/B degradation guard is genuinely armed for this cycle
+     * (`src/lib/local/lane-guard.ts`). Omitted/null prints NO promise of a net, because there is
+     * none: the guard may be off, the repository may declare no check, or its check may already be
+     * failing. Telling an agent its mistakes will be caught when they will not is the one lie that
+     * would make this brief actively dangerous.
+     */
+    verifyCommand?: string | null;
+  },
 ): string {
   const byRepo = new Map<string, FollowUpItem[]>();
   for (const it of items) byRepo.set(it.repo, [...(byRepo.get(it.repo) ?? []), it]);
@@ -344,6 +405,21 @@ export function buildFixPrompt(
   // The capability rule, lane only. The human's paste-into-my-own-terminal agent HAS a shell and a
   // network, so telling it otherwise would be a lie that suppresses work it can actually do.
   if (laneCommits) lines.push(...LANE_CAPABILITY_RULE);
+  // THE INVITATION TO MAKE A LARGER CHANGE. A craft lane is where it belongs unreservedly: the repo is
+  // green, nothing is owed, and raising the ceiling is usually structural. A gap lane gets the same
+  // permission with its own precedence intact — the named gap is still what closes it, and a
+  // restructure that leaves the gap open is still SKIPPED, not RESOLVED.
+  if (craftMode) {
+    lines.push(...STRUCTURAL_INVITATION);
+    lines.push("");
+  } else {
+    lines.push(
+      "- A LARGER CHANGE IS ALLOWED WHEN THE GAP'S REAL CAUSE IS STRUCTURAL. If an item is only closable by unifying duplicated logic, splitting an overgrown module or reshaping a hot path, do that — the change may span files, may move code and may delete code. What does not move: `RESOLVED` still means THIS item's gap is closed by THIS change, and a restructure that leaves it open is `SKIPPED` with the reason.",
+    );
+    lines.push("");
+  }
+  // The net, and only when it is real — see `verificationPromise`.
+  if (laneCommits && ctx.verifyCommand) lines.push(...verificationPromise(ctx.verifyCommand));
 
   for (const [repo, list] of repos) {
     const sorted = [...list].sort((a, b) => (IMPACT_ORDER[a.impact] ?? 9) - (IMPACT_ORDER[b.impact] ?? 9) || (EFFORT_ORDER[a.effort] ?? 9) - (EFFORT_ORDER[b.effort] ?? 9));

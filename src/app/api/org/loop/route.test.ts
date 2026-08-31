@@ -179,6 +179,44 @@ describe("POST { action: 'start' }", () => {
     expect((await post({ action: "start", org: "acme", repos: ["a/b"], concurrency: 9 })).status).toBe(400);
   });
 
+  it("REFUSES an out-of-band throughput dial rather than quietly picking a plausible one", async () => {
+    // The normalizers never guess (`run-limits.ts`): a request for a batch of 40 is a request the
+    // caller got wrong, and running 12 instead would be a run nobody asked for.
+    for (const body of [
+      { batchSize: 40 },
+      { batchSize: 0 },
+      { batchSize: 5.5 },
+      { batchSize: "5" },
+      { agentTimeoutMs: 0 },
+      { agentTimeoutMs: 24 * 60 * 60_000 },
+      { verifyMode: "yes" },
+      { verifyTimeoutMs: 1 },
+    ]) {
+      const res = await post({ action: "start", org: "acme", repos: ["a/b"], ...body });
+      expect(res.status, `accepted ${JSON.stringify(body)}`).toBe(400);
+    }
+  });
+
+  it("passes the dials through when they are in band, and NULL when the caller named none", async () => {
+    vi.mocked(startLoopRun).mockClear();
+    await post({ action: "start", org: "acme", repos: ["acme/web"], batchSize: 10, agentTimeoutMs: 2_700_000, verifyMode: "off" });
+    expect(vi.mocked(startLoopRun).mock.calls.at(-1)![0]).toMatchObject({
+      batchSize: 10,
+      agentTimeoutMs: 2_700_000,
+      verifyMode: "off",
+    });
+
+    // Omitting them is how a caller says "use the deployment default", and that path records null —
+    // which is byte-identical to every run armed before these dials existed.
+    await post({ action: "start", org: "acme", repos: ["acme/web"] });
+    expect(vi.mocked(startLoopRun).mock.calls.at(-1)![0]).toMatchObject({
+      batchSize: null,
+      agentTimeoutMs: null,
+      verifyMode: null,
+      verifyTimeoutMs: null,
+    });
+  });
+
   it("passes the curated batches and the actor through, and answers { run }", async () => {
     const res = await post({
       action: "start",

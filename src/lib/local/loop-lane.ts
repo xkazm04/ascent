@@ -39,7 +39,14 @@ import { installInWorktree } from "@/lib/local/lane-install";
 import { commitAgentWork } from "@/lib/local/lane-commit";
 import { deriveLaneDeliverables, parseClaimLines, type AgentClaim } from "@/lib/local/lane-deliverables";
 import { proposeLaneKind } from "@/lib/local/lane-kind";
-import { GAP_SLOTS_AT_GREEN, isReservationGreen, reserveCraftSlots } from "@/lib/local/lane-reservation";
+import { gapSlotsAtGreen, isReservationGreen, reserveCraftSlots } from "@/lib/local/lane-reservation";
+import { batchSizeOf, verifyTimeoutMsOf } from "@/lib/local/run-limits";
+// THE A/B DEGRADATION GUARD. `verifyBaseline` measures the pristine worktree once per worktree and
+// caches it; `verifyResult` re-runs the same command after the session, decides one of four verdicts,
+// and — on `rejected` only — discards the edits IN THE THROWAWAY WORKTREE before this module gets as
+// far as committing anything. See lane-guard.ts for why running a repo-authored command is bounded
+// the way it is.
+import { verifyBaseline, verifyResult, verifyRejectionLesson, type VerifyBaseline } from "@/lib/local/lane-guard";
 import { loadLaneBriefInput } from "@/lib/db/lane-brief-read";
 import { getActiveDeferrals, recordLaneOutcomes } from "@/lib/db/lane-outcomes";
 import { stampPlaybookApplications } from "@/lib/db/playbooks";
@@ -51,6 +58,12 @@ import { laneReportContract, readLaneReport, type LaneReport } from "@/lib/local
 import { excludeLaneReport, recordAgentCost } from "@/lib/local/lane-cost";
 import type { LoopWorktree } from "@/lib/local/loop-worktree";
 
+/**
+ * The DEFAULT batch — how many follow-ups (or craft rungs) one cycle dispatches when a run names no
+ * size of its own. Unchanged at five, so a default run is byte-identical to every run before the
+ * parameter existed; `run-limits.ts` owns the per-run override and its cap, and the reason a fixed
+ * five was holding the loop back.
+ */
 export const BATCH_SIZE = 5;
 
 /** Who the LOCAL engine claims as. Unchanged from the string the inline claim wrote, so the ledger's
@@ -137,7 +150,14 @@ export interface LaneRunInput {
   shouldStop?: () => boolean;
   /** What to arm this lane's agent session with, already resolved by the engine. Omitted keeps the
    *  runner's own env fallback, which is what the single-repo autopilot shim has always relied on. */
-  agent?: { model?: string | null; effort?: string | null };
+  agent?: { model?: string | null; effort?: string | null; timeoutMs?: number | null };
+  /** How many items this cycle dispatches. Omitted = `BATCH_SIZE`, which is what every lane before
+   *  the parameter existed used. Ignored on a CURATED batch, which names its own rows. */
+  batchSize?: number | null;
+  /** The A/B degradation guard for this lane. Omitted = ON with the default budget, which is the
+   *  run's default posture; `{ enabled: false }` is the operator's explicit refusal to run
+   *  repo-authored verification commands and restores the pre-guard behaviour exactly. */
+  verify?: { enabled: boolean; timeoutMs?: number | null };
   /** Joins the two arms of one `ab` pair (MOONSHOT #27); null/absent on a `single` run. Stamped on
    *  the row so the price list can tell two arms of one experiment from two unrelated lanes. */
   abPairKey?: string | null;
@@ -290,7 +310,11 @@ export async function openBatch(
   // the whole open list rather than a lane-sized batch.
   if (opts.reserveCraft === false) return gaps;
   if (!(await latestRepoIsGreen(org, repo, unmeasurable))) return gaps;
-  const reserved = Math.max(0, Math.max(1, limit) - GAP_SLOTS_AT_GREEN);
+  // THE RESERVATION IS A PROPORTION, not a count. A fixed two gap slots against a variable batch is
+  // two different reservations wearing one number — on a batch of ten it would hand eight slots to the
+  // ladder. `gapSlotsAtGreen` keeps the 2/3 split at five and scales it, always leaving at least one
+  // slot on each side of any batch of two or more.
+  const reserved = Math.max(0, Math.max(1, limit) - gapSlotsAtGreen(Math.max(1, limit)));
   const rungs = reserved > 0 ? await craftBatch(org, repo, reserved, deferred) : [];
   return reserveCraftSlots(gaps, rungs, limit);
 }
@@ -507,7 +531,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       const picked = await deps.openBatch(
         org,
         repo,
-        curated ? 500 : BATCH_SIZE,
+        curated ? 500 : batchSizeOf(input.batchSize),
         curated ? { includeDeferred: true, reserveCraft: false } : { includeDeferred: false },
       );
       batch = curated ? picked.filter((it) => curated.includes(it.id)) : picked;
@@ -625,12 +649,41 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
           .map((p) => ({ id: p.id, dimId: p.dimId }));
       }
       await excludeLaneReport(worktree.dir);
+      // ── A: THE BASELINE, measured BEFORE the session touches anything (and recalled from cache on
+      // every cycle after the first — a later cycle's HEAD already carries this loop's own commits, so
+      // re-measuring would ask a different question). This is also what decides whether the brief may
+      // promise a safety net at all: the invitation to make a larger change is only honest when a
+      // command actually resolved AND actually passed on the pristine tree.
+      const guardOn = input.verify?.enabled !== false;
+      const verifyMs = verifyTimeoutMsOf(input.verify?.timeoutMs ?? null);
+      let baseline: VerifyBaseline = { resolved: null, passed: null, note: null };
+      if (guardOn) {
+        await updateLane(laneId, { stage: "verifying" });
+        baseline = await verifyBaseline(worktree.dir, verifyMs).catch(() => ({ resolved: null, passed: null, note: null }));
+        await updateLane(laneId, { stage: null });
+        await appendLaneLog(
+          laneId,
+          baseline.resolved == null
+            ? "Degradation guard: this repository declares no check the loop could resolve, so this cycle will be UNVERIFIED — not verified."
+            : baseline.passed
+              ? `Degradation guard armed: \`${baseline.resolved.command}\` (from ${baseline.resolved.source}) passes on the untouched worktree.`
+              : `Degradation guard: \`${baseline.resolved.command}\` (from ${baseline.resolved.source}) already FAILS on this repository before the session — the agent is not blamed for that, and this cycle proceeds.`,
+        );
+      }
       // THE BRIEF NO LONGER ASKS FOR A COMMIT, because the flags make one impossible: `claude -p
       // --permission-mode acceptEdits` grants file edits and not Bash, and headless `-p` has nobody
       // to answer the prompt `git commit` raises instead (L2-A-01). It asks for the one thing only
       // the session knows — which ids it resolved — and the lane commits below. See lane-commit.ts.
       const prompt =
-        buildFixPrompt(batch, { org, generatedAt: new Date().toISOString().slice(0, 10), scanNote: "autopilot cycle", commitPolicy: "lane" }) +
+        buildFixPrompt(batch, {
+          org,
+          generatedAt: new Date().toISOString().slice(0, 10),
+          scanNote: "autopilot cycle",
+          commitPolicy: "lane",
+          // ONLY when the net is real. A promise of verification on a repo whose baseline is red (or
+          // that declares no check) would invite exactly the bold change nothing is going to catch.
+          verifyCommand: guardOn && baseline.passed === true ? baseline.resolved?.command ?? null : null,
+        }) +
         `\n\nAUTOPILOT CONTEXT:\n- You are in an isolated worktree on branch \`${worktree.branch}\`. DO NOT run git — this session has no shell permission and every git command will be refused. Leave your changes in the working tree; the Ascent lane commits them for you the moment you exit, with the trailers.\n- NEVER push, never switch branches, never touch remotes.\n- If an item cannot be safely resolved, skip it and say why in your summary.\n\nWHAT COUNTS AS RESOLVED:\n- Understand this codebase first, then implement the change that most raises the level of trust the item describes. Do the WORK, never the detector: a config file for a tool this project does not use, an empty or stub file, or a tool's name in a workflow comment is not a fix — the rescan scores practices that operate, and it verifies before it closes anything.\n- The trailer is a claim, not a verdict. A row closes only when the next scan no longer raises the gap AND its dimension measurably moved; a claim the rescan cannot confirm stays open.\n- On each RESOLVED line, state how a reviewer would tell the practice is real: what runs, when it runs, and what happens when it fails. If you cannot write that sentence honestly, the item is SKIPPED, not resolved.\n` +
         // The org's standard, then the report contract. In that order deliberately: the standard is
         // what the work should look like, and the contract is how the session reports on it.
@@ -641,6 +694,11 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         prompt,
         ...(input.agent?.model ? { model: input.agent.model } : {}),
         ...(input.agent?.effort ? { effort: input.agent.effort } : {}),
+        // Conditional for the same reason the two above are: an ABSENT key lets the runner fall back
+        // to the deployment's own `ASCENT_AUTOPILOT_TIMEOUT_MS`, which is what every session before
+        // this parameter used. Passing an explicit null would say the same thing, but a lane that
+        // sends the key on every call is one refactor away from sending a 0.
+        ...(input.agent?.timeoutMs ? { timeoutMs: input.agent.timeoutMs } : {}),
       });
       await appendLaneLog(
         laneId,
@@ -666,6 +724,61 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
             : "No lane report was written — the agent's per-item verdicts are unknown for this cycle.",
         );
       }
+      // ── B: THE RESULT RUN, after the session and BEFORE the commit. Before, because the whole
+      // point of the guard is that a rejected cycle leaves no commit and no branch to explain away.
+      //
+      // Four verdicts, one of which changes the lane's course (see lane-guard.ts):
+      //   verified     → proceed, and the row says so.
+      //   baseline-red → the repository arrived broken. Proceed, and DO NOT blame the agent.
+      //   skipped      → nothing resolvable, or the guard is off. Proceed, and say the lane is
+      //                  UNVERIFIED rather than letting silence read as a pass.
+      //   rejected     → a pass became a failure. `verifyResult` has already discarded the edits in
+      //                  this throwaway worktree; the lane commits nothing, rescans nothing (a rescan
+      //                  of a tree nothing landed in would become this repo's latest reading), claims
+      //                  nothing, and — because the verdict is persisted — is never landed or PR'd.
+      if (guardOn) {
+        await updateLane(laneId, { stage: "verifying" });
+        const outcome = await verifyResult(worktree.dir, baseline, verifyMs);
+        await updateLane(laneId, {
+          stage: null,
+          verifyVerdict: outcome.verdict,
+          verifyCommand: outcome.command,
+          verifyNote: outcome.note,
+        });
+        await appendLaneLog(laneId, outcome.note);
+        if (outcome.reject) {
+          // The lesson is a STANDING FACT about this repository and this command, so it goes through
+          // the same pending-candidate queue every agent lesson does — a human keeps or discards it.
+          await recordLoopLessons(org, repo, laneId, [verifyRejectionLesson(repo, outcome)]).catch(() => []);
+          // A deliverable too, so the outcome sheet shows the reversal rather than an empty lane. It
+          // covers nothing on purpose: no follow-up was closed, and listing the armed ids here would
+          // put them in the ledger under a cycle that delivered none of them.
+          await updateLane(laneId, {
+            deliverables: [
+              {
+                headline: "Discarded — repository checks regressed",
+                dimId: null,
+                kind: "noted",
+                covers: [],
+                evidence: outcome.note,
+              },
+            ],
+          });
+          await releaseClaims(`loop cycle ${cycle} was reversed by the degradation guard, so nothing adjudicated the claim`);
+          await updateLane(laneId, { phase: "done", commits: 0, stage: null, endedAt: new Date() });
+          return { laneId, progressed: false, commits: 0, closed: 0, error: null };
+        }
+      } else {
+        // The operator turned the guard off. Recorded as `skipped` WITH the reason, never left null:
+        // null is what a lane written before the guard existed carries, and "we did not check" must
+        // not be able to masquerade as "there was nothing to check".
+        await updateLane(laneId, {
+          verifyVerdict: "skipped",
+          verifyCommand: null,
+          verifyNote: "Verification SKIPPED: the degradation guard was switched off for this run. This lane's work is UNVERIFIED.",
+        });
+      }
+
       // THE LANE COMMITS. The worktree is an isolated scratch checkout nothing else writes to, so
       // whatever is dirty in it is this session's work. A session that DID manage to commit (a future
       // mode with a wider grant) leaves nothing behind and this is a no-op; anything left over is

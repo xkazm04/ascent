@@ -142,6 +142,24 @@ describe("the 409 matrix", () => {
     expect(openPrForLane).not.toHaveBeenCalled();
   });
 
+  it("refuses a lane the degradation guard REJECTED, and says why", async () => {
+    // The unattended delivery step refuses one too (`loop-delivery.ts`). A verdict that only bound
+    // the automatic path would be no verdict at all: a human clicking this button is exactly how a
+    // reversed cycle would otherwise reach a remote everyone can see.
+    state.lane = { ...lane, verifyVerdict: "rejected" };
+    const res = await post("run-acme", ok);
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toMatch(/degradation guard/i);
+    expect(openPrForLane).not.toHaveBeenCalled();
+  });
+
+  it("does NOT refuse the other three verdicts", async () => {
+    for (const verdict of ["verified", "baseline-red", "skipped"]) {
+      state.lane = { ...lane, verifyVerdict: verdict };
+      expect((await post("run-acme", ok)).status, `${verdict} was refused`).toBe(200);
+    }
+  });
+
   it("refuses when the repo is no longer paired", async () => {
     paired.path = null;
     expect((await post("run-acme", ok)).status).toBe(409);

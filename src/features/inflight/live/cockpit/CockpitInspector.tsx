@@ -108,6 +108,13 @@ export function CockpitInspector(props: CockpitInspectorProps) {
       model: dials.model,
       effort: dials.effort,
       delivery: dials.delivery,
+      // The throughput and guard dials travel with the run for the same reason the agent
+      // configuration does: they are properties of how the work is done, and a run whose row does not
+      // record them cannot be compared with one that does. Minutes here, milliseconds on the wire.
+      batchSize: dials.batchSize,
+      agentTimeoutMs: dials.sessionMinutes * 60_000,
+      verifyMode: dials.verifyMode,
+      verifyTimeoutMs: dials.verifyMinutes * 60_000,
     });
   };
 

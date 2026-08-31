@@ -1,7 +1,8 @@
 // LOCAL-MODE IMPROVEMENT LOOP control (self-hosted only, ASCENT_AUTOPILOT=1 only).
 //
 //   GET  ?org=…                                              → { enabled, active, runs }
-//   POST { action:"start",  org, repos[], batches?, concurrency?, maxCycles?, curated?, model?, effort?, delivery? } → { run }
+//   POST { action:"start",  org, repos[], batches?, concurrency?, maxCycles?, curated?, model?, effort?,
+//          delivery?, batchSize?, agentTimeoutMs?, verifyMode?, verifyTimeoutMs? }  → { run }
 //   POST { action:"stop",   org, id }                        → { ok, run }
 //   POST { action:"retry",  org, laneId }                    → { ok }
 //   POST { action:"review", org, laneId, cover, verdict }    → { ok, deliverables }
@@ -23,6 +24,17 @@ import { selfHostGuard } from "@/lib/api/self-host";
 import { autopilotEnabled } from "@/lib/local/agent";
 import { normalizeAgentEffort, normalizeAgentModel } from "@/lib/local/agent-options";
 import { normalizeDelivery } from "@/lib/local/delivery-options";
+import {
+  BATCH_SIZE_CAP,
+  AGENT_TIMEOUT_CAP_MS,
+  AGENT_TIMEOUT_MIN_MS,
+  VERIFY_TIMEOUT_CAP_MS,
+  VERIFY_TIMEOUT_MIN_MS,
+  normalizeAgentTimeoutMs,
+  normalizeBatchSize,
+  normalizeVerifyMode,
+  normalizeVerifyTimeoutMs,
+} from "@/lib/local/run-limits";
 import { isAppConfigured } from "@/lib/github/app";
 import {
   LOOP_CONCURRENCY_CAP,
@@ -91,6 +103,14 @@ type Body = {
   models?: unknown;
   /** branch | land | pr — what happens to each lane's branch when its cycle succeeds. */
   delivery?: unknown;
+  /** Items per lane per cycle (1–BATCH_SIZE_CAP); omitted = the default 5. */
+  batchSize?: unknown;
+  /** Per-session agent ceiling in ms; omitted = the deployment's ASCENT_AUTOPILOT_TIMEOUT_MS. */
+  agentTimeoutMs?: unknown;
+  /** `on` | `off` — the A/B degradation guard. Omitted = `on`. */
+  verifyMode?: unknown;
+  /** Budget for ONE run of the repository's verification command, ms. Omitted = 10 minutes. */
+  verifyTimeoutMs?: unknown;
   /** #3 — `local` (the default, and what every caller before it meant) or `remote-agent`. */
   executor?: unknown;
 };
@@ -206,6 +226,33 @@ export async function POST(request: Request) {
     );
   }
 
+  // THE THROUGHPUT + GUARD DIALS. Each normalizer NEVER GUESSES (`run-limits.ts`): an unrecognised
+  // value is `null`, and a caller that SENT one gets a 400 naming the band rather than a run quietly
+  // configured with a number nobody asked for. Omitting a field entirely is the supported way to say
+  // "use the deployment default", and that path is byte-identical to every run before these existed.
+  const batchSize = normalizeBatchSize(body.batchSize);
+  if (body.batchSize !== undefined && batchSize === null) {
+    return NextResponse.json({ error: `batchSize must be a whole number 1–${BATCH_SIZE_CAP}.` }, { status: 400 });
+  }
+  const agentTimeoutMs = normalizeAgentTimeoutMs(body.agentTimeoutMs);
+  if (body.agentTimeoutMs !== undefined && agentTimeoutMs === null) {
+    return NextResponse.json(
+      { error: `agentTimeoutMs must be a whole number of milliseconds between ${AGENT_TIMEOUT_MIN_MS} and ${AGENT_TIMEOUT_CAP_MS}.` },
+      { status: 400 },
+    );
+  }
+  const verifyMode = normalizeVerifyMode(body.verifyMode);
+  if (body.verifyMode !== undefined && verifyMode === null) {
+    return NextResponse.json({ error: "verifyMode must be 'on' or 'off'." }, { status: 400 });
+  }
+  const verifyTimeoutMs = normalizeVerifyTimeoutMs(body.verifyTimeoutMs);
+  if (body.verifyTimeoutMs !== undefined && verifyTimeoutMs === null) {
+    return NextResponse.json(
+      { error: `verifyTimeoutMs must be a whole number of milliseconds between ${VERIFY_TIMEOUT_MIN_MS} and ${VERIFY_TIMEOUT_CAP_MS}.` },
+      { status: 400 },
+    );
+  }
+
   const viewer = await getViewer().catch(() => null);
   try {
     const run = await startLoopRun({
@@ -221,6 +268,10 @@ export async function POST(request: Request) {
       model: normalizeAgentModel(body.model),
       effort: normalizeAgentEffort(body.effort),
       delivery,
+      batchSize,
+      agentTimeoutMs,
+      verifyMode,
+      verifyTimeoutMs,
       ...(arms ? { modelPolicy: "ab" as const, models: arms } : {}),
       actor: viewer?.login ?? null,
     });

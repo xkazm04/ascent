@@ -20,6 +20,10 @@ import type { LoopLessonRow } from "@/lib/db/loop-lessons";
 // The delivery vocabulary, re-exported for the same reason the records are: ONE declaration, so a
 // mode cannot quietly mean two things on the two sides of the wire.
 export { deliveryTag } from "@/lib/local/delivery-options";
+// The guard's vocabulary, re-exported for the same reason: ONE declaration of what `rejected` means,
+// so the word on a lane row and the word the engine wrote cannot drift apart.
+export { verifyVerdictTag } from "@/lib/local/verify-options";
+import type { VerifyVerdict } from "@/lib/local/verify-options";
 import type { LoopDelivery } from "@/lib/local/delivery-options";
 import type {
   LoopLaneExecutor,
@@ -34,6 +38,7 @@ import type {
 } from "@/lib/db/loop-runs-types";
 
 export type {
+  VerifyVerdict,
   LoopDelivery,
   FollowUpItem,
   LaneBriefProvenance,
