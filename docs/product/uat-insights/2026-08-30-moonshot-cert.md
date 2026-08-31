@@ -790,3 +790,333 @@ concept docs at `docs/features/<area>/`; the repo's actual concept-doc home has 
   repos' owner namespace).
 - **Sam's scored criterion #6 has a decision now** (§2 A4) and stays scored. It must not read `N/A`
   again without the decision being reversed in writing.
+
+---
+
+## Follow-up drain — 2026-08-31 (post-recertify passes 1+2)
+
+> Second drain of the **same run**, appended rather than filed separately: `recertify` has no run id of
+> its own, so its findings belong to `2026-08-30-moonshot-cert`. Source:
+> [`uat/runs/2026-08-30-moonshot-cert/recertify.md`](../../../uat/runs/2026-08-30-moonshot-cert/recertify.md)
+> — pass 1 (`f7bfa8d2..c56ab666`, 18 commits, 6 drain items built) and pass 2
+> (`b1992360..afc913c0`, 23 commits, 12 drain items built) — plus the run's `findings.json`, now
+> carrying **31 recertify-stamped rows**. The skill's rule is the reason this document exists:
+> *"recertify-born findings have no other door into the backlog."*
+>
+> Recurrence baseline is unchanged ([`2026-08-10-ascent-first.md`](./2026-08-10-ascent-first.md) →
+> this run's §2). **Nothing already routed in §2 above is re-entered here.**
+
+**The verdict of the follow-up: the wiring caught up, and the vocabulary did not.** The first drain's
+panel verdict was *"the wiring is behind the design"* — twenty-two payload halves shipped without a
+consumer. Two passes later that class is largely closed: `forecastBasis` has a caller, `economics`
+renders, the showback fields reach a screen, `verifiedAt` is written where a join used to lie. What
+survives — and what nearly every new finding below is an instance of — is **one fact wearing two
+words, or one word covering two facts**: `blend 95%` beside `Blend weight 57%`, `1 free public scans`,
+`Unlimited` above a card that says 1, and `closed` still meaning three different things on the loop
+cockpit after the fix that was supposed to settle it.
+
+### 1 · The closed loop
+
+Thirty-one of the run's 86 rows were re-certified across the two passes. Twenty-eight reached
+`resolved-verified` with live evidence; three resolve `fixed` (code-verified, live demonstration
+blocked by a named fixture); one — `SAM-L1-05` — stayed **open** and was fixed after the pass (§2 F0).
+**Every closed row carries a `ceiling`**; the ceilings are inputs to §2, not closed topics.
+
+| Backlog item | Findings closed | Resolution | Ceiling that remains |
+|---|---|---|---|
+| `MC-B1` `4aa12080` | `DANA-L1-001` · `-002` · `-013` | resolved-verified (p1) | The `forecastBasis` **compacted** tail has still never rendered (no purged-history org); the low-data window still prints a `Change vs … start: +2` delta beside the refusal, ungated by the same presentability rule; the **digest** path was never exercised (`cronSecret:false`) → `MC-B27` |
+| `MC-B2` `f6cbe4a2` | `TOMAS-L1-01` (blocker) · `TOMAS-L1-08` | resolved-verified (p1) | The three doors agree because the wall is **off**, not because they share a source — door 2's copy is still a literal (`ColdScanGate.tsx:52`). Turn `PUBLIC_SCAN_SIGN_IN_REQUIRED` on and it contradicts the other two again |
+| `MC-B3` `904bcc21` | `SAM-L1-02` · `SAM-L1-11` | resolved-verified (p1) | The claim-scored panel says what it is *not* and renders **no facet table**, so with `claimPoints > 0` a reader still cannot see which citations awarded the points; and the page now prints one fact in **two units** → **§2 F1** |
+| `MC-B4` `9d85f01a` | `SAM-L1-04` (rec 3) · `SAM-L1-12` | resolved-verified (p2) | Answered as option (b): a markdown link, not a badge. A README wanting a rendered shield still has nothing |
+| `MC-B5` `21bef0ed` | `TOMAS-L1-02` (rec 2) | resolved-verified (p2) | **The credit matrix on the same page still says `Unlimited`** → **§2 F5**; and the derived number is not pluralized → **§2 F2** |
+| `MC-B6` `27a722ee` | `TOMAS-L1-04` (rec 2) | resolved-verified (p2) | Labelled, not deleted — the *"a live scan substitutes for proof"* limb is untouched |
+| `MC-B7` `13410fcf` | `SAM-L1-01` (rec 2) | resolved-verified (p2) | Judged on one absence-shaped repo; a repo with several CI workflows would test whether the D3 cluster can name a workflow filename at all |
+| `MC-B8` b–d `0d088f41` · `97d48243` | `SAM-L1-06` · `SAM-L1-08` · `TOMAS-L1-05` | resolved-verified (p2) | Only the `widened` branch of (b) was exercised live; (c)'s `local` arm is compile-verified only |
+| `MC-B9` `a96dd03a` | `NADIA-L1-07` + `PRIYA-L1-01` · `PRIYA-L1-02` · `PRIYA-L1-07` | resolved-verified (p1) | **Only the round-trip half shipped** — an owner still cannot *set or clear* a required control from the product (`MC-X2`); two of Priya's four rows are **earned zeros with the reasoning only in code** → **§2 F3**; `unjudgedBarsDeclared()` exists and is not consulted → **§2 F4** |
+| `MC-B10` `527b5973` | `NADIA-L1-08` | resolved-verified (p2) | The noun "controls" survives in all three headings — they are distinguished, not renamed |
+| `MC-B11` `d165da23` **+ `MC-B33` `9e8906f1`** | `PRIYA-L1-702` | **open (p1) → resolved-verified (p2)** | The POSITIVE half is unit-verified only (no live row has yet earned a stamp); the lane rails and the sheet header still print "closed" for two other quantities → **§2 F6** |
+| `MC-B12` `e2eaf39b` | `VICTOR-L1-05` (voice escalation) | resolved-verified (p1) | 45 of 76 local-lane calls still price at $0 — the headline is a floor by an unknown margin, and it names the *count*, not the exposure; per-org attribution is still one bucket → `MC-B19` |
+| `MC-B13` `9f0f83ce` | `NADIA-L1-02` · `NADIA-L1-03` | **fixed — `uncertain`, not reproducible on this host** | The wiring audit now answers the other way, but **no row on this host is red**: all 16 observations are `unmeasurable` (no GitHub App) and `/api/org/controls` is GET-only, so the fixture cannot be built over HTTP → `MC-M3` |
+| `MC-B14` `30f53490` | `NADIA-L1-04` · `-05` · `-06` | resolved-verified (p2) | The export is the **rows**, not the chain; the retention consequence needs ≥2 closed UTC days of observations, and the seal backlog was measured at zero on a host that has none |
+| `MC-B15` `de0ca559` | `PRIYA-L1-704` | resolved-verified (p2) | — the org-wide aggregate that hid the $-for-0-points lane is now *beside* the per-lane figure, not instead of it |
+| `MC-B16` `d3b026d9` | `PRIYA-L1-701` (blocker) | **resolved-verified on the local control; the remote consequence stays `uncertain — not reproducible`, never passed** | A live local run survived ~35 min and ~30 cockpit reads. The remote half still needs `MC-M5` |
+| `MC-B17` `99b290a5` | `PRIYA-L2-C5` | resolved-verified (p2) | **There is no revoke door** — the route exposes only GET and POST → **§2 F7** |
+| `MC-B17` `99b290a5` | `PRIYA-L2-C4` | **fixed** — code-verified, no live claim exercised | Needs an MCP `claim_followups` call against an admitted repo at a granted tier |
+
+**The `PRIYA-L1-702` inversion is the story of the two passes, and it is worth telling as one.**
+Pass 1 shipped the mechanism and measured **no user-visible change whatsoever**: the payload gained its
+`verified` field and **36 of 36** stored `resolved` rows still answered `true`, because
+`listRunOutcomes` *joined* verification back out of the lane's `closedIdsJson` — the very
+commit-trailer set the finding indicted. The tautology re-entered through the join. Pass 1 refused the
+close (*"the fix landed, it is reachable, and it does not unblock the job"*) and named the exact
+remedy: **stop joining, stamp the row**. `MC-B33` (`9e8906f1`) did that, and pass 2's sweep is an
+exact inversion — **0 true / 40 false**, every false row carrying `verifiedAt: null`, and the cockpit
+reading *"claimed resolved — awaiting the rescan"* on rows where pass 1 counted 8 of 8 reading
+*"closed by the rescan"*. `grep -c "closed by the rescan"` over the ITEM VERDICTS section: **0**. The
+two surfaces stopped contradicting each other in the same move — `backlog {done: 0}` and *"nothing here
+has been adjudicated"* are now the same statement.
+
+Three things in that sequence are worth keeping as practice, because none is automatic: a recertify that
+**declines to close a landed, reachable, tested fix**; a remainder recorded as its parent's *blocker*
+rather than as its ceiling (`RC-N4` — and pass 2 proved the escalation right: 100 % of `MC-B11`'s user
+value was behind that one column); and a second pass that **re-ran the same sweep** rather than
+re-arguing it. `RC-N4` therefore opens no backlog row — it was routed by being **built**.
+
+### 2 · The new findings, routed
+
+Ranking is the skill's contract — recurrence, then convergence, then voice escalation, then impact. No
+item here is recurrence-2 in the strict sense (none was recorded unbuilt by a prior drain); three carry
+a weaker but real relative, the **fix-created defect** — the class the first drain named as this run's
+signature failure (`RV-B6` → `SAM-L1-02`), which has now happened three more times.
+
+#### F0 · `RC2-N1` — the rubric bump that shipped a field the model returns empty · **ALREADY FIXED** → `MC-B8a`
+*(major · quality-gap / trust · Sam)* — recorded as **fixed-pending-next-recert**, not as open.
+
+`firstStep` was threaded end to end — schema, prompt skeleton, DB column, wire types, renderer — and
+`SCORING_RUBRIC_VERSION` was bumped to **r14** on the stated grounds that *"the model is now ASKED a
+different question, so a cached r13 answer and a fresh r14 answer are not the same reading"*, which
+invalidates every cached scan on the estate. The first live r14 reading returned `firstStep` on **0 of
+9** roadmap items (fresh claude-cli/opus scan of `sindresorhus/slugify`, 177 s;
+`shots/recert2-B8-freshreport.text.txt`, zero hits for "First step:"). The pass labelled the *cause* a
+hypothesis and the *measurement* a fact — correctly: `firstStep` appeared only as an empty slot in the
+JSON skeleton (`prompt.ts:354`) and a schema description, while the ROADMAP COVERAGE block that tells
+the model what a row must contain never mentioned it, and the surrounding instruction pressed the other
+way (*"Ascent is a transition COMPANION, not a boss"*).
+
+**`ece52101` (r15) fixed exactly that** — the mandate now asks for the field in the ROADMAP COVERAGE
+block, in the invitational voice (*"stated as what the move IS rather than as an order"*), with
+`Omit "firstStep" only when no single concrete move exists` preserving the absent-is-absent rule the
+finding insisted must survive the fix. **No live r15 scan has been read.** The measurement that produced
+this finding was `0/9`; nothing yet replaces it with a number. `MC-B8a` is re-stamped **fixed
+(`ece52101`, r15) — pending live verification**, and it is the cheapest thing the next recertify can do:
+one fresh scan answers it.
+
+> Note for the next pass: r14 → r15 is the **second** rubric bump in one day, both invalidating the
+> estate's cache. The bump was right both times (the question genuinely changed), but a bump whose only
+> evidence of effect is a 0-of-9 reading bought nothing — which is the case for reading one live scan
+> **before** stamping the version, not after.
+
+#### F1 · `RC-N1` — one page, two units for the blend weight *(minor · clarity · Sam)* → `MC-B35`
+**Fix-created defect, and the second one on this exact surface.** `ScoreIntegrityChip` reads
+*"integrity · widened D2, D6 · **blend 95%**"* while every provenance track on the same page reads
+*"**Blend weight 57%**"* (`shots/recert-B3-dims.text.txt:28`, `shots/armA-dimloop.json`). Both are
+correct — 95 % is the realized fraction of the configured weight (0.57 against a configured 0.6), 57 %
+the absolute weight — and the chip's tooltip reconciles them in one clause. **The reconciliation is
+inside a hover**, on the surface whose prior finding was literally *"the page states three things about
+one number and two are wrong"*. A reader who does not hover sees 95 and 57 for one fact.
+**Build (XS)** — print one unit in the chip, or label its number *"95 % of the configured weight"*; the
+reconciling sentence already exists and only needs to leave the tooltip.
+`standard: status-vocabulary/number-formatting`.
+
+#### F2 · `RC2-N2` — the derived allowance is not pluralized *(polish · clarity · Tomáš)* → `MC-B38`
+With `PUBLIC_SCAN_MONTHLY_LIMIT=1` the Free card reads **"1 free public scans / month"**, the feature
+line *"Private scans every month, and **1 free public scans**"*, and the footnote *"The **1 free public
+scans** run on their own rolling 30-day window"* (`shots/recert2-B5-pricing-l1.text.txt:44,51,435`).
+The 429 pluralizes correctly (`limit === 1 ? "" : "s"`, `public-scan-quota.ts:367`) — **the same care
+was not applied to the copy that now derives the same number**, which is the characteristic cost of
+turning a hard-coded value into a derived one: the sentence around it was written for a constant.
+Invisible at the default of 5; visible the moment an operator sets 1 — and a self-hosting operator
+setting 1 is exactly the reader this page was rebuilt for. **Build (trivial)** — reuse the ternary.
+`standard: status-vocabulary/number-formatting`.
+
+#### F3 · `RC-N3` — two of Priya's four rows are earned zeros whose reasoning lives only in code *(polish · clarity · Priya)* → `MC-B37`
+`MC-B9` fixed two of the four "0 repos" gate-failure rows Priya named, by declaring them *not judged
+fleet-wide*. The other two — `provenance` (*"AI changes merged without human review — 0 repos"*) and
+`governance` (*"Ungoverned posture — 0 repos"*) — were **deliberately excluded** from
+`FLEET_UNJUDGED_REASONS` because the rollup genuinely carries `aiGovernedRate` / `aiPrSample` and the
+branch-protection fields (`governanceReasons.ts:47-51`). That call is right and the reasoning is
+committed. But Priya named all four, and she will now read two rows that changed beside two that did
+not, with the distinction — *these zeros were measured, those were not measurable* — visible only in a
+source comment. **This is G15's own vocabulary one step short**: `unmeasurable` is a first-class arm and
+an **earned zero** has no word of its own. **Build (XS)** — a hover on an earned zero naming what was
+measured to reach it. `standard: metrics-rollups/aggregate-honesty`.
+
+#### F4 · `RC-N2` — `unjudgedBarsDeclared()` computes the escalation and nothing calls it *(minor · clarity · Priya)* → `MC-B36`
+`governanceReasons.ts:52-60` exports a function computing exactly *"this org's stored bar carries a
+criterion the fleet view cannot judge"*, and the rendered row prints the same em-dash sentence whether
+or not the operator has declared one. The strongest version of `PRIYA-L1-02` was a lead who had **just
+set two required controls** — and she now reads a correct sentence that does not acknowledge she has
+skin in it. **This is an `MC-M1` member created by the PR that closed the finding about zero-consumer
+fields**: an exported function, zero non-test callers, shipped in the same change. That, not the
+severity, is the ranking argument — the wiring commitment is one release old and its first violation is
+inside its own fix. **Build (S)** — when `unjudgedBarsDeclared()` is true, append *"— you have declared
+2 of these; the per-repo gate enforces them"*. `standard: quality-gates/unmeasurable-criteria`.
+
+#### F5 · `RC2-N5` — `/pricing` still answers "Unlimited" for the allowance the same page caps *(minor · clarity · Tomáš)* → `MC-C2` *(concept-doc)*
+`MC-B5` fixed the Free card, the metadata and the FAQ; the **credit matrix further down the same page**
+was not in the write set. `creditMatrixData.ts:124` still opens the Scanning section with *"Public scans
+are always free and never metered."* and the "Public repository scan" row renders `Unlimited` in all
+four tier cells (`cells: all("Unlimited")`, line 131). The reconciliation exists — *"Never metered on
+any plan — rate-limited and monthly-capped instead"* — **in the row's detail text, below a cell that
+says Unlimited, on a page whose Free card says 1**. And it is **pinned as intentional** by
+`creditMatrixData.test.ts:58-59`.
+
+**That pin is why this is `concept-doc` and not `build`.** A test asserting the current wording makes
+this a decision to revisit, not a miss, and the question underneath is a product one: can *metered*
+(credit-consuming) and *capped* (allowance) be two words on a page a buyer skims — or should the matrix
+cell simply state the allowance and let "never metered" live in the detail? **Rank by convergence: this
+is the third run in which a Tomáš-class reader meets two numbers for one free tier** (`B8` at
+2026-08-10, `TOMAS-L1-02` in this run, and now its direct residue). **Write
+`docs/resolutions/free-allowance-vocabulary.md`** — do not code it, and do not delete the test without
+answering the question it pins. `standard: plan-entitlements/price-book-authority`.
+
+#### F6 · `RC2-N6` — "closed" still means three things on the cockpit *(minor · clarity · Priya)* → `MC-B41`
+`MC-B33` fixed the per-item verdict; two siblings kept the old word. The lane rails print
+`{closedIds.length} closed by the rescan` (`LaneRail.tsx:56`, `AutopilotBandParts.tsx:123`) — honest for
+post-fix lanes, still the **raw trailer count** for every pre-fix one — and the outcome sheet header
+prints *"324 gaps closed"* where `gaps` is `diff.closedGapCount` (`outcomeCellFold.ts:81`), a
+**scan-diff quantity** wearing the same word.
+
+The voice argument outranks the `minor` label: a reader who has *just* been taught that "claimed
+resolved" is not "closed" then meets "closed" twice more, meaning two other things, on the same screen
+in the same session. The lesson the fix teaches is unlearned by the chrome around it — and the un-backfilled
+rail is the same laundering `PRIYA-L1-702` indicted, one component over. **Build (S)** — the rail says
+*"verified closed"*, the header says *"gaps no longer raised"*. **`MC-M2` binds this change by
+construction** (it touches the loop's verdict vocabulary), so it re-runs Priya × `loop-to-l5` before
+merge. `standard: status-vocabulary/vocabulary-chain-integrity`.
+
+#### F7 · `RC2-N4` — an admission decision cannot be withdrawn *(major · trust · Priya)* → `MC-B40`
+`/api/org/admission` exposes `GET` and `POST` and nothing else. `upsertRepoAdmission` can *change* a
+decision, so the closest thing to a revoke is writing `grantedTier == derivedTier` — which still records
+that an owner decided something. On a surface whose whole argument is *"an override with no named author
+is not a decision — it is a measurement with a different value"* (`route.ts:99-102`), the inverse
+asymmetry is the defect: **a decision made in error is permanent, and the ledger cannot distinguish
+"decided, then withdrawn" from "decided."**
+
+The provenance is the strongest kind — the pass hit it while cleaning up after itself: its own probe row
+on org `public` could only be *neutralised*, not removed (pass 2 residue #6), and the residue table says
+so. **Build (S)** — a `DELETE` that clears the state row and writes a **withdrawal** act to `OrgAudit`,
+never a silent row removal. The governing technique is explicit that a decision is two stores: a sparse
+mutable **state** (an undecided item has *no record at all*) and an append-only ledger of **acts**
+carrying actor, previous and new status, and reason. Ascent built the ledger and made the state one-way,
+so an item can never return to undecided. `standard: audit-logging/decision-records`.
+
+#### F8 · `RC2-N3` — the register's worded empty state is unreachable *(polish · missing · Tomáš)* → `MC-B39`
+`IndexGallery.tsx:88-90` renders *"No public scans yet. Scan a repository below to be the first on the
+register."* when `board.length === 0`. **It cannot fire.** `loadPublicGalleryCards` returns `null` when
+no cards exist (`scans-read.ts:840`) and the landing page then drops the whole gallery block — which is
+what pass 2 observed on a truly empty arm: no heading, no counter, no empty state. Non-null implies
+`cards.length > 0` implies `recent.length > 0` implies `board.length > 0`, so the branch is dead **in
+the exact case it was written for**. Present-and-correct-but-unwired — the class L1's wiring audit owns,
+found here by an arm constructed to be empty. **Build (S)** — decide which behaviour is wanted, an
+absent section or a worded one, and delete the other. `standard: none`.
+
+#### Tally (follow-up)
+
+| Recommendation | Count | Items |
+|---|---|---|
+| **build** | **7** | F1 `MC-B35` · F2 `MC-B38` · F3 `MC-B37` · F4 `MC-B36` · F6 `MC-B41` · F7 `MC-B40` · F8 `MC-B39` |
+| **concept-doc** | **1** | F5 `MC-C2` → `docs/resolutions/free-allowance-vocabulary.md` |
+| **fixed-pending-recert** | **1** | F0 `RC2-N1` → `MC-B8a` re-stamp (`ece52101`, r15) — no new row |
+| **routed by being built** | **1** | `RC-N4` → `MC-B33` (`9e8906f1`) — no new row |
+| **method** | **5** | `RC-M1` · `RC-M2` · `RC2-M1` · `RC2-M2` · `RC2-M3` → §3, all applied to the overlay in this change |
+| **decline** | **0** | — |
+
+### 3 · Methodology
+
+#### The lesson that cost two passes: a driver with a hard-coded shot name destroys the arm it is reused from
+
+`RC-M2` (pass 1) and `RC2-M2` (pass 2) are the same lesson learned twice, and the second time it was
+already written down. `drive-armB-gatepolicy.mjs` wrote `armB-nadia07-{before,after}.*` from **inside
+the driver**, so re-running it for recertification overwrote arm B's originals in place — and shots are
+gitignored, so the baselines are unrecoverable. Pass 1 recorded the fix precisely (*"every reusable
+driver should take its shot stem as an argument the way `drive-armC-openrun.mjs` does"*) and **did not
+apply it**; pass 2 then did the same thing to `drive-armA-dimloop.mjs`'s `armA-dim-D{1..9}.png` and
+`armA-dimloop.json` before noticing.
+
+That is the argument for this drain existing at all: **a recorded method lesson nobody applies is a
+lesson that will be paid for again.** Applied here — both drivers now take `SHOT_PREFIX` (env) or a
+positional stem, with the old names as defaults so no existing invocation changes — and written into
+`uat/env.md` as a rule. `drive-armA-dims.mjs` was checked and already takes a `tag`: the pattern existed
+in the same directory the whole time, which is the more uncomfortable half of the finding.
+
+The general form is worth keeping past this repo: **an evidence artifact whose name is a constant is an
+artifact with a single slot.** A run stores evidence *per pass*; a driver that cannot express which pass
+it is cannot store two, and it destroys the earlier one silently.
+
+#### A shared `distDir` makes an empty-database arm lie — and the false pass was nearly recorded
+
+`RC2-M1` is the sharpest environment finding of either pass. The register read `2 PUBLIC REPOS RATED`,
+then `5`, on **freshly bootstrapped** PGlite directories, because `loadPublicGalleryCards` is wrapped in
+`unstable_cache` (`scans-read.ts:797`, tag `public-scan-gallery`) and every `ASCENT_EMPTY=1` arm shares
+`distDir: .next-empty` (`next.config.ts:47`). A brand-new database was served the **previous arm's**
+cached rows. An empty-state check run that way is a silent false pass, and it nearly produced one for
+`MC-B8d` — the finding whose entire content is *what renders at zero*.
+
+Two things generalize. **(a)** Arm isolation has a level below the database: isolating the data store is
+not isolating the *render*, and any framework cache keyed to the build directory outlives the database it
+describes. **(b)** The tell was a **number that changed between two runs both supposed to be zero** — a
+preflight that asserts "empty" once and proceeds would have sailed past it. Both are now standing rules in
+`uat/env.md` §Arm construction: `rm -rf .next-empty` before an empty-database arm, and only one
+`ASCENT_EMPTY` instance at a time (a second dies with *"Another next dev server is already running"*,
+pointing at the shared `.next-empty` — the collision is visible, which is why the *silent* variant is the
+dangerous one).
+
+#### `RC2-M3`'s two keepers, both now in the overlay
+
+**(a) The zero-residue gate probe.** When a POST route validates tenancy *before* its field validators, a
+deliberately **invalid field** distinguishes "the gate accepted this repo" from "the gate rejected it" by
+*which* error comes back — proving the gate **without writing a row**. It settled `PRIYA-L2-C5` on the
+real working org with zero residue; the write was then exercised on a demo org where the residue is inert.
+This turns the residue rule from a restriction into a technique: **the cheapest proof of a gate is the
+request the gate refuses.** (Driver note recorded with it: ascent's org POST routes enforce same-origin, so
+a probe must send `Origin`/`Referer` or it answers `403 Cross-origin request rejected` before any validator
+runs — a 403 that looks exactly like a gate refusal and is not one.)
+
+**(b) To certify a single-source claim, MOVE the source.** `MC-B5`'s claim was *"one number everywhere"*.
+Reading the default (5) on three surfaces proves nothing — three hard-coded 5s look identical to one
+derived 5. Booting the arm with `PUBLIC_SCAN_MONTHLY_LIMIT=1` made every surface that re-typed the number
+visible **instantly**, and produced `RC2-N2` (the un-pluralized copy) as a free by-product. This is the
+strongest single addition either pass made to the method: it converts "derived" from a code claim into a
+measurement, and it applies to every single-source fix this backlog contains.
+
+#### `RC-M1` — a board deliverable that was being verified by proxy
+
+Pass 1 overturned arm B's *"@react-pdf subsets its fonts so the text is not extractable here"*, which had
+reduced `DANA-L1-013`'s PDF half to comparing **byte sizes**. It is extractable: inflate the FlateDecode
+content streams and decode the `TJ` operands, which are **hex-encoded ASCII**, not glyph indices — ~30
+lines of Node, no dependency (`shots/recert-B1-pdftext.txt`). The PDF is Dana's actual deliverable and
+every run before this one verified it by inference from a shared conditional. Recorded as a standing
+recipe in `uat/env.md`. The general form: **an evidence format once declared unreadable should be
+re-tested each run-generation, because "we could not read it" quietly becomes "we did not check it."**
+
+#### What the two passes prove about `recertify` itself
+
+- **Pass 1's refusal to close `MC-B11` is the single most valuable act in either pass**, and it is what
+  the `resolution` vocabulary exists to permit. The fix had landed, was reachable, was tested, and
+  changed **nothing a user sees**. The three-way distinction *landed ≠ reachable ≠ unblocks the job* is
+  not a formality; here it was 100 % of the value.
+- **A second pass over the same run is cheap and it pays.** Twelve items were built between the two, and
+  pass 2's headline is pass 1's own named remedy, measured. The pattern to keep: a pass that cannot close
+  an item **names the exact remaining condition** in a form the next fixer can execute and the next pass
+  can measure — *"stop joining, stamp the row"* → a sweep that inverts 36/0 to 0/40.
+- **Both passes restarted the server against the diff and said so, and pass 2 caught a 12-minute gap** —
+  PID 35740 started 13:56:54, twelve minutes before `afc913c0` (14:08:28), and was serving pre-fix code.
+  `recertify`'s step 0 earned its place on this run rather than in principle.
+- **An id collision in the backlog reached the recertify report.** `MC-B23` named two different items —
+  the exemplar-diff `nameKey` build from §2 C14, and the `verifiedAt` handoff row a builder appended
+  later — as did `MC-B22` and `MC-B24`. Pass 2's header cites *"MC-B23 = `verifiedAt`"*; pass 1's
+  `RC-N4` cites `MC-B19` for the same item; that is three names for two items. Resolved in this drain by
+  renumbering the three **handoff-born** rows to `MC-B32` / `MC-B33` / `MC-B34` — the §2 ranking is the
+  canonical mapping and keeps its ids — with the alias recorded on each row so both recertify passes stay
+  readable against it. **Rule for the next builder: a handoff row takes the next free number in the
+  section, and a drain's numbering is never reused.** An id naming two items makes a finding's history
+  unreadable, which is precisely what the recurrence check depends on.
+
+#### Overlay changes applied in this change
+
+1. `uat/driver/drive-armB-gatepolicy.mjs` and `uat/driver/drive-armA-dimloop.mjs` — shot stems are now
+   `SHOT_PREFIX` (env) or a positional argument, **defaulting to the old names**, so every existing
+   invocation is byte-identical (`RC-M2`, `RC2-M2`).
+2. `uat/env.md` §Arm construction — five new standing rules: `rm -rf .next-empty` before an
+   empty-database arm plus the one-instance constraint (`RC2-M1`); *move the source to certify a
+   single-source claim* (`RC2-M3b`); the zero-residue gate probe with its same-origin note (`RC2-M3a`);
+   the PDF text-extraction recipe (`RC-M1`); and the reusable-driver stem rule.
+3. `docs/BACKLOG.md` — 18 rows re-stamped from *built — pending recert* to their measured resolutions,
+   three colliding ids renumbered, seven build rows and one concept-doc added, and `MC-M7` records this
+   drain's overlay edits for the next `/uat update`.
+
+Not changed, deliberately: **the grounding denominators.** Neither pass touched an LLM surface's
+grounding sources, `env.md` §Surface A keeps its ⚠ STALE banner, and re-deriving a scored instrument
+outside `/uat update` would invalidate every cross-run trend. `r15` changes what the model is *asked to
+output*, not what reaches the prompt as context.

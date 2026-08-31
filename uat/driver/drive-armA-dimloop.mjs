@@ -2,6 +2,10 @@ import { chromium } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
 const BASE = process.env.BASE_URL ?? "http://localhost:3100";
 const repo = process.argv[2] ?? "sindresorhus/p-limit";
+// RC-M2 / RC2-M2 (2026-08-31): the stems below were hard-coded, so a recertification re-run
+// overwrote arm A's originals in place (gitignored ⇒ unrecoverable). It happened twice. Pass a stem
+// (env or argv) when running outside the originating arm; the old names remain the default.
+const SHOT = process.env.SHOT_PREFIX ?? process.argv[3] ?? "armA";
 const outDir = (process.env.SHOT_DIR ?? "uat/_shots").replace(/\/?$/, "/");
 mkdirSync(outDir, { recursive: true });
 const browser = await chromium.launch();
@@ -30,8 +34,8 @@ for (let n = 1; n <= 9; n++) {
     };
   });
   out.push({ dim: `D${n}`, ...rec });
-  await page.screenshot({ path: `${outDir}armA-dim-D${n}.png`, fullPage: false });
+  await page.screenshot({ path: `${outDir}${SHOT}-dim-D${n}.png`, fullPage: false });
 }
-writeFileSync(`${outDir}armA-dimloop.json`, JSON.stringify(out, null, 2));
+writeFileSync(`${outDir}${SHOT}-dimloop.json`, JSON.stringify(out, null, 2));
 for (const r of out) console.log(`\n### ${r.dim} :: ${r.label}\n  band=${JSON.stringify(r.bandRect)}\n  titles=${JSON.stringify(r.titles)}\n  codeTokens=${JSON.stringify(r.codeTokens)}`);
 await browser.close();

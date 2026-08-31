@@ -99,6 +99,34 @@ PUBLIC_SCAN_QUOTA_DISABLED= ASCENT_SELF_HOSTED=0 npx next dev -p 3100
   avatar and no identity menu. A screenshot of a signed-in header is not an anonymous journey.
 - Anything unreachable under the flags actually set resolves `uncertain — not reproducible on this
   host`, **never `refuted`**.
+- ⚠ **An empty-database arm must delete `.next-empty` first** (`rm -rf .next-empty`). `ASCENT_EMPTY=1`
+  switches every arm onto the *same* `distDir` (`next.config.ts:47`), and
+  `loadPublicGalleryCards` is wrapped in `unstable_cache` (`scans-read.ts:797`, tag
+  `public-scan-gallery`) — so a brand-new PGlite dir served the **previous arm's** cached rows and the
+  register read `2 PUBLIC REPOS RATED`, then `5`, on two freshly bootstrapped databases. An
+  empty-state check run that way is a **silent false pass** and it nearly produced one
+  (`RC2-M1`, 2026-08-31 recertify pass 2). Corollary: only **one** `ASCENT_EMPTY` instance can run at
+  a time — a second dies with *"Another next dev server is already running"*, pointing at the shared
+  `.next-empty`.
+- **To certify a single-source claim, MOVE the source.** Reading a default on three surfaces proves
+  nothing — three hard-coded `5`s look identical to one derived `5`. Boot the arm with the value
+  pinned somewhere unusual (`PUBLIC_SCAN_MONTHLY_LIMIT=1`) and every surface that re-typed the number
+  is visible instantly. This is what turned `MC-B5` from "plausible" into proven (`RC2-M3b`).
+- **The zero-residue gate probe.** When a POST route validates tenancy *before* its field validators, a
+  deliberately invalid field distinguishes "the gate accepted this repo" from "the gate rejected it"
+  by *which* error comes back — proving the gate **without writing a row**. It settled `PRIYA-L2-C5`
+  on the real working org with no residue at all (`RC2-M3a`). Note for the driver: ascent's org POST
+  routes enforce same-origin, so the probe must send `Origin`/`Referer` or it answers
+  `403 Cross-origin request rejected` before any validator runs.
+- **A @react-pdf board deliverable IS text-extractable** — do not fall back to comparing byte sizes.
+  Inflate the PDF's FlateDecode content streams and decode the `TJ` operands: they are **hex-encoded
+  ASCII**, not glyph indices. ~30 lines of Node, no dependency. Dana's actual deliverable is the board
+  PDF and every run before 2026-08-31 verified it by proxy (`RC-M1`); pass 1 read it directly
+  (`shots/recert-B1-pdftext.txt`).
+- **Reusable drivers take their shot stem as an argument.** `drive-armB-gatepolicy.mjs` and
+  `drive-armA-dimloop.mjs` hard-coded theirs and destroyed the arm they were reused from — twice, and
+  the shots are gitignored (`RC-M2`, `RC2-M2`). Both now accept `SHOT_PREFIX` (env) or a positional
+  argument, defaulting to the old names; pass one whenever a driver runs outside its originating arm.
 
 All of the above (plus `LLM_PROVIDER=claude-cli` and `SUPPLY_CHAIN_PROVIDER=mock`) are pinned in **`.env.local`** (git-ignored). Full-coverage recipe:
 ```
