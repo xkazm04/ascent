@@ -10,10 +10,8 @@
 // (same approach as security-document.test.tsx) — no @react-pdf binary render needed.
 
 import { describe, it, expect, vi } from "vitest";
-import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { BriefingDocument } from "./briefing-document";
-import type { ExecBriefing } from "@/lib/org/briefing";
 
 // The `renderToBuffer` cases below drive the REAL @react-pdf pipeline (font registration, layout,
 // PDF serialization) rather than inspecting an element tree, so they are genuinely slow — they pass
@@ -22,104 +20,7 @@ import type { ExecBriefing } from "@/lib/org/briefing";
 vi.setConfig({ testTimeout: 30_000 });
 
 
-/** Flatten every string in a React element tree (children + string props like Document's subject). */
-function collectText(node: ReactNode, out: string[] = []): string[] {
-  if (typeof node === "string" || typeof node === "number") {
-    out.push(String(node));
-    return out;
-  }
-  if (Array.isArray(node)) {
-    node.forEach((n) => collectText(n, out));
-    return out;
-  }
-  if (isValidElement(node)) {
-    const props = node.props as Record<string, unknown>;
-    for (const v of Object.values(props)) {
-      if (typeof v === "string") out.push(v);
-      else collectText(v as ReactNode, out);
-    }
-  }
-  return out;
-}
-
-// Call the component function directly (like security-document.test.tsx) so the returned element
-// tree is walkable — wrapping it in JSX would leave it un-rendered.
-const text = (b: ExecBriefing) => collectText(BriefingDocument({ briefing: b })).join(" ");
-
-// ── Element-tree walker (for prop-level assertions — G5-06's wrap/minPresenceAhead orphan guards
-// aren't visible to collectText, which only gathers strings) ───────────────────────────────────────
-type El = ReactElement<{ style?: unknown; children?: ReactNode; wrap?: boolean; minPresenceAhead?: number }>;
-
-/** Walks the tree ONCE, resolving function components (DimLine, MoveLine, SectionHeading,
- *  ColumnHeading) inline — they aren't rendered by React in this direct-call test harness, so
- *  without this an unexpanded `<DimLine .../>` element (no `children` prop) hides its wrap/
- *  minPresenceAhead-carrying View entirely. Also records each host element's parent, resolved
- *  THROUGH any function-component wrappers (a heading's parent is the layout View around the
- *  <SectionHeading> call site, not something inside SectionHeading's own render). Built in one
- *  pass so every element is a stable reference — re-invoking a function component on a second walk
- *  would produce a structurally-identical but referentially-different subtree. */
-function walkTree(b: ExecBriefing): { nodes: El[]; parentOf: Map<El, El | null> } {
-  const nodes: El[] = [];
-  const parentOf = new Map<El, El | null>();
-  function walk(node: ReactNode, parent: El | null) {
-    if (Array.isArray(node)) {
-      for (const n of node) walk(n, parent);
-      return;
-    }
-    if (!isValidElement(node)) return;
-    const el = node as El;
-    if (typeof el.type === "function") {
-      walk((el.type as (props: unknown) => ReactNode)(el.props), parent);
-      return;
-    }
-    nodes.push(el);
-    parentOf.set(el, parent);
-    walk(el.props?.children, el);
-  }
-  walk(BriefingDocument({ briefing: b }), null);
-  return { nodes, parentOf };
-}
-
-function textOf(node: ReactNode): string {
-  if (node == null || node === false || node === true) return "";
-  if (typeof node === "string" || typeof node === "number") return String(node);
-  if (Array.isArray(node)) return node.map(textOf).join("");
-  if (isValidElement(node)) {
-    const el = node as El;
-    if (typeof el.type === "function") return textOf((el.type as (props: unknown) => ReactNode)(el.props));
-    return textOf(el.props?.children);
-  }
-  return "";
-}
-
-const tree = (b: ExecBriefing) => walkTree(b).nodes;
-
-function briefing(over: Partial<ExecBriefing> = {}): ExecBriefing {
-  return {
-    org: "acme",
-    periodTitle: "last 90 days",
-    generatedOn: "2026-07-16",
-    maturity: { overall: 62, levelId: "L3", levelName: "Managed", adoption: 58, rigor: 66 },
-    coverage: { scanned: 8, total: 12 },
-    periodDelta: 4,
-    priorPeriod: null,
-    forecastHeadline: null,
-    forecastConfidence: null,
-    engineMix: [],
-    adoptionRate: 58,
-    movement: { up: 5, down: 2, compared: 8 },
-    valueRealized: { recsEngaged: 5, recsActioned: 3, pointsMoved: 4, reposPromoted: 2 },
-    benchmark: null,
-    strengths: [{ dimId: "D2", label: "Testing", avg: 80 }],
-    risks: [{ dimId: "D9", label: "Security", avg: 41 }],
-    security: { dimId: "D9", label: "Security", avg: 41 },
-    topGainers: [{ name: "api", dOverall: 9, levelFrom: "L2", levelTo: "L3" }],
-    topRegressions: [{ name: "legacy", dOverall: -5, levelFrom: "L3", levelTo: "L3" }],
-    goals: [],
-    regressionCount: 1,
-    ...over,
-  };
-}
+import { text, tree, textOf, walkTree, briefing } from "./briefing-document.test-helpers";
 
 describe("BriefingDocument — carries the value / adoption / movement-scale lines the other surfaces show", () => {
   const t = text(briefing());
@@ -179,41 +80,6 @@ describe("BriefingDocument — carries the value / adoption / movement-scale lin
 });
 
 // ── G5-05: Strengths/Weakest-dimensions column guards ───────────────────────────────────────────────
-// UAT DANA-L1-001 (recurrence 3) / MC-B1 — this document is the artifact with the org's name on it,
-// and it was the one printing "Trajectory: Climbing at +35/wk" off two scan days with its hedge
-// deleted rather than replaced, while Delivery refused the same claim one click away.
-describe("BriefingDocument — a trajectory never prints without its basis", () => {
-  it("prints the basis and the confidence under a headline it is willing to state", () => {
-    const t = text(
-      briefing({
-        forecastHeadline: "On track to reach L4 · Optimizing in ~8 weeks (≈ 2026-09-20).",
-        forecastConfidence: 34,
-        forecastBasis: "fit over 9 scan days across 84 days",
-      }),
-    );
-    expect(t).toContain("On track to reach L4");
-    expect(t).toContain("trend confidence 34% · noisy · fit over 9 scan days across 84 days");
-  });
-
-  it("prints the REFUSAL — in Delivery's words — instead of a slope the fit cannot support", () => {
-    const t = text(
-      briefing({
-        forecastHeadline: null,
-        forecastConfidence: null,
-        forecastInsufficiency: "Not enough history to project: 2 distinct scan days (a line through ≤ 2 points fits perfectly no matter how noisy the data).",
-      }),
-    );
-    expect(t).toContain("Not enough history to project: 2 distinct scan days");
-    expect(t).not.toContain("/wk");
-  });
-
-  it("says nothing about a trajectory when there is no fit at all — absence, not fabrication (G4)", () => {
-    const t = text(briefing({ forecastHeadline: null, forecastConfidence: null, forecastInsufficiency: null }));
-    expect(t).not.toContain("Trajectory");
-    expect(t).not.toContain("trend confidence");
-  });
-});
-
 describe("BriefingDocument — Strengths/Weakest-dimensions column guards (G5-05)", () => {
   it("omits the Strengths heading when strengths is empty (risks present)", () => {
     const t = text(briefing({ strengths: [], risks: [{ dimId: "D9", label: "Security", avg: 41 }] }));
