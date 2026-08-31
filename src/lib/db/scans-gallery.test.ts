@@ -4,6 +4,7 @@
 // landing page renders its static examples, while a genuine live-DB query error still propagates (a real
 // bug must not be masked as "no data"). These pin both directions through the public seam.
 
+import { readFileSync } from "node:fs";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 const { mockIsDbConfigured, mockResolveOrgId } = vi.hoisted(() => ({
@@ -80,5 +81,22 @@ describe("getPublicScanGallery — DB-down degrades to the static fallback", () 
     mockIsDbConfigured.mockReturnValue(false);
     await expect(getPublicScanGallery()).resolves.toBeNull();
     expect(mockResolveOrgId).not.toHaveBeenCalled();
+  });
+});
+
+// The register has exactly ONE empty-corpus behaviour: this loader returns null and IndexVariant drops
+// the section. IndexGallery therefore carries no worded empty state (UAT `RC2-N3` — it had one, and it
+// was unreachable). Structural pin, because the branch it guards is a deletion: if the zero-card return
+// goes, the component starts rendering a heading and column labels around nothing and needs its empty
+// state back.
+describe("loadPublicGalleryCards — zero cards is null, so the register has no empty state to render", () => {
+  it("returns null the moment it has no cards, rather than an empty board", () => {
+    const src = readFileSync("src/lib/db/scans-read.ts", "utf8");
+    expect(src).toMatch(/if \(cards\.length === 0\) return null;/);
+  });
+
+  it("keeps IndexGallery free of a worded empty state", () => {
+    const gallerySrc = readFileSync("src/components/landing/prototypes/index/IndexGallery.tsx", "utf8");
+    expect(gallerySrc).not.toMatch(/No public scans yet/);
   });
 });

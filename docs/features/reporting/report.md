@@ -24,7 +24,7 @@ Two crawlable, unauthenticated surfaces built on one read module, `src/lib/regis
 
 | Route | What it is |
 | --- | --- |
-| `/leaderboard` | The **AI-native register**: every model-scored public repo, ranked, paginated via `?page=N`, with the full nine-dimension breakdown. Rows carry honesty qualifiers: `conf N` when the scan reported confidence below 0.75, and `no PR signal` when the analysis window held no merged PR (mirrors, push-based workflows) — plus page copy stating every score is computed outside-in from public artifacts. |
+| `/leaderboard` | The **AI-native register**: every model-scored public repo, ranked, paginated via `?page=N`, with the full nine-dimension breakdown. Rows carry honesty qualifiers: `conf N` when the scan reported confidence below 0.75, `no PR signal` when the analysis window held no merged PR (mirrors, push-based workflows), and `rubric rNN` when the score was taken under an earlier rubric than the one in force — plus page copy stating every score is computed outside-in from public artifacts. |
 | `/scorecard/[owner]` | An owner's **public scorecard**: the aggregate score/level over that owner's public repos, with its own OG card. |
 
 **Two invariants, both unit-pinned (`src/lib/register/data.test.ts`):**
@@ -37,6 +37,19 @@ Two crawlable, unauthenticated surfaces built on one read module, `src/lib/regis
    ranked)" section with the same `demo` qualifier every unverified row carries, and excluded from every
    scorecard average. An owner whose public scans are *all* previews gets an explicit "No published
    score yet" state, not an average over previews.
+
+   **The rubric is the second half of that same claim.** `model.ts` states in writing that numbers
+   from two rubric versions are not comparable, a bump invalidates the cache **without re-scanning**,
+   and `rubricVersion` is load-bearing in the corpus filter, the outcome ledger and the digest keys —
+   yet the register carried every other provenance qualifier and not this one (UAT `TOMAS-L1-11`). It
+   now carries `rubricVersion` and a derived `currentRubric` (a **null** version is *unknown*, and
+   unknown is never current — the reading `db/outcomes.ts` gives it). A stale row is **qualified, not
+   de-ranked**: a `rubric rNN` / `rubric unknown` chip on the row, a "Mixed rubrics on this page" note
+   under the board when `staleRubricOnPage > 0`, and a sentence on the scorecard when
+   `staleRubricCount > 0` says the average mixes instruments. The mock case and the stale case are
+   different claims — a mock score is not a rating at all, whereas a stale score is a real rating on
+   an earlier instrument — and de-ranking every pre-bump row would empty the board on the day of each
+   bump (r13→r14→r15 inside 48 hours) and publish a register that is *less* true.
 
 Ranking happens in memory over a bounded candidate window (`REGISTER_CANDIDATE_CAP`, ordered by score
 at the DB), so neither surface needs a new column or index. `windowed` discloses when the corpus has
@@ -104,7 +117,12 @@ fresh scan in place.
    Every `<title>` and the `aria-label` are generated from the same classification as the
    geometry, so the accessible text cannot describe a band the picture does not draw. On a
    legacy row with no `scoreIntegrity` the realized blend weight is reported as *not recorded*
-   rather than assumed. The same track renders in the org heatmap's cell drill-in
+   rather than assumed. **The blend weight has ONE unit on this page**: the absolute weight
+   (`blendWeightPercent` / `blendWeightLabel` in `provenance.ts`), which is the number the engine
+   multiplies the band by. The header's `ScoreIntegrityChip` reads it through the same composer —
+   *"blend weight 57% of 60%"*, the configured weight riding along as context — instead of printing
+   the realized *share* of the configured weight ("blend 95%") beside tracks printing 57 % and
+   reconciling the two only inside a tooltip (UAT `RC-N1`). The same track renders in the org heatmap's cell drill-in
    (`RepoDimensionModal`), which is why `/api/org/repo-dimension` returns `scoreIntegrity`.
 8. **Contributors**: login + AI-commit ratio bars.
 9. **PR signals**: `PrSignalsPanel` (review coverage, merge rate, small-PR rate, time to
@@ -184,6 +202,15 @@ Both selections live entirely in the URL, so any combination is shareable and
 back-button-safe. The exemplar axis is additive: with no `?against=` the page renders
 exactly as it always has.
 
+**Discovery, and the one-scan case.** The report's Scoring tab carries two links into this
+page: "What changed →" (the time axis, gated on two scans) and **"Compare against a stronger
+repo →"**, which appends `?against=org:best` and is deliberately **not** gated — the exemplar
+axis compares this repo against another one and needs no second scan of its own. It used to
+have no inbound link at all (UAT `SAM-L1-13`), and the page itself refused to render below two
+scans, which locked the panel away from exactly the repo with nothing of its own to compare to.
+A single-scan repo now gets the picker's **Against** field and the exemplar diff; only the time
+half is replaced by the "need two scans" notice.
+
 ### Time axis (`src/lib/report/compare.ts` + `WhatChanged`)
 
 `diffScans(before, after)` is a pure diff engine returning a `ScanDiff`: overall/adoption/
@@ -210,7 +237,15 @@ shows an inline warning (no hard block) when the chosen baseline is chronologica
 regression while actually looking backward in time. The **Against** field is rendered only
 when `listExemplarOptions` returns something: an org with no eligible peer and no qualifying
 cohort has nothing to offer, and an empty dropdown would advertise a comparison that cannot
-be made.
+be made. On a repo with a single stored scan the two time dropdowns are hidden and the
+**Against** field stands alone.
+
+**The optgroup names follow the population, not the code path.** `readableOrgForOwner`
+resolves a viewer who is not a member of the repo's org to the shared **public** namespace, so
+the identical query lists up to `ORG_CANDIDATE_CAP` (500) public-corpus repositories. Those are
+grouped "Public corpus" / "Corpus best" (with `org:best` labelled *best in the public corpus*),
+not "Your repos" / "Org best" — `exemplarGroups(publicCorpus)` in `exemplar.ts` decides it
+once, for the picker and for the resolved panel heading (UAT `SAM-L1-13`).
 
 ### Exemplar axis (`src/lib/report/exemplar.ts` + `ExemplarPanel`)
 
@@ -225,6 +260,15 @@ practice transfers them. Three refs, one `ExemplarProfile` shape:
 | `cohort:lang:<language>` / `cohort:archetype:<solo/team/org>` | the **public** corpus's top decile for that slice |
 
 An unparseable ref renders a notice saying so; nothing is ever silently substituted.
+
+**Signals are matched at the SIGNAL level, displayed raw.** Every set comparison on this axis
+runs through `diffSignalSets` (`compare.ts`), which keys on the signal *name* with embedded
+counts blanked and returns the original strings for display. Exact normalized string equality
+is right for the time axis — a moved count *is* the finding there — and wrong across repos,
+where two projects never phrase a detector line identically: it told a repo *with* a test
+framework that the exemplar has one and it does not, landed one count-bearing line in
+`absentSignals` **and** `aheadSignals` at once, and fragmented cohort consensus below
+`COHORT_SUPPORT` so a dimension contributed no evidence at all (UAT `SAM-L1-10`).
 
 **Framing is has / lacks, never better / worse.** `diffAcrossRepos` returns
 `absentSignals` (theirs, not yours — the transfer list) *and* `aheadSignals` (yours, not
@@ -757,9 +801,9 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/app/report/compare/ExemplarSection.tsx` | Resolves `?against=` into a panel or a notice. |
 | `src/lib/report/validate.ts` | `parseScanReport()` trust-boundary validation. |
 | `src/lib/ui.ts` | Color/glyph/format helpers shared across the report. |
-| `src/lib/register/data.ts` | The public register read layer: `getPublicRegister` / `getPublicOrgScorecard`. Public-org + `isPrivate:false` on every query; mock-engine scans carried as `verified:false` and never ranked. |
+| `src/lib/register/data.ts` | The public register read layer: `getPublicRegister` / `getPublicOrgScorecard`. Public-org + `isPrivate:false` on every query; mock-engine scans carried as `verified:false` and never ranked; `rubricVersion` + `currentRubric` carried so a stale-rubric row is qualified. |
 | `src/app/leaderboard/page.tsx` | The register page: server-rendered ranking, `?page=` pagination, per-page canonical + OG. |
-| `src/components/leaderboard/LeaderboardTable.tsx` | The ranked table. `ranked={false}` draws the unranked preview section; a `demo` chip marks every unverified row. |
+| `src/components/leaderboard/LeaderboardTable.tsx` | The ranked table. `ranked={false}` draws the unranked preview section; a `demo` chip marks every unverified row, a `rubric rNN` chip every stale-rubric one. |
 | `src/components/leaderboard/RegisterPager.tsx` | Anchor-based pager (`rel=prev/next`) + the shared scan CTA. |
 | `src/app/scorecard/[owner]/page.tsx` | Public org scorecard. |
 | `src/components/leaderboard/ScorecardSummary.tsx` | The scorecard headline; renders the refusal state when `verifiedCount === 0`. |

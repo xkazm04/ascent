@@ -327,4 +327,33 @@ describe("listExemplarOptions", () => {
     const opts = await listExemplarOptions({ ...ctx, primaryLanguage: null, archetype: "team" });
     expect(opts.filter((o) => o.group === "Cohort").map((o) => o.value)).toEqual(["cohort:archetype:team"]);
   });
+
+  // UAT `SAM-L1-13`. `readableOrgForOwner` resolves a NON-MEMBER to the shared public namespace, so
+  // the exact same query that lists "your other repos" for a member lists up to ORG_CANDIDATE_CAP
+  // (500) public-corpus repositories for a visitor — and both were labelled "Your repos", with an
+  // "Org best" that meant "best in the public corpus". The label follows the population.
+  it("does not call the public corpus 'Your repos' for a viewer resolved to the public org", async () => {
+    corpus = [
+      repo({ orgId: "org_public", fullName: "pub/web" }),
+      repo({ orgId: "org_public", fullName: "pub/other" }),
+    ];
+    const opts = await listExemplarOptions({
+      orgSlug: "public",
+      subjectFullName: "pub/web",
+      primaryLanguage: null,
+      archetype: "team",
+    });
+    expect(opts.some((o) => o.group === "Your repos")).toBe(false);
+    expect(opts.some((o) => o.group === "Org best")).toBe(false);
+    expect(opts.filter((o) => o.group === "Public corpus").length).toBeGreaterThan(0);
+    const best = opts.find((o) => o.value === "org:best");
+    expect(best?.group).toBe("Corpus best");
+    expect(best?.label).toBe("best in the public corpus");
+  });
+
+  it("still says 'Your repos' for a member of the repo's own org", async () => {
+    const opts = await listExemplarOptions({ ...ctx, primaryLanguage: null, archetype: "team" });
+    expect(opts.find((o) => o.value === "repo:acme/api")?.group).toBe("Your repos");
+    expect(opts.find((o) => o.value === "org:best")?.group).toBe("Org best");
+  });
 });

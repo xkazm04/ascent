@@ -22,7 +22,7 @@
 // widening and the realized blend weight are UNKNOWN, and an unknown weight is reported as `null`
 // rather than assumed to be the configured constant.
 
-import { LLM_GUARDBAND } from "@/lib/maturity/model";
+import { LLM_GUARDBAND, SCORE_BLEND } from "@/lib/maturity/model";
 import { CLAIM_SCORED_DIMENSIONS } from "@/lib/scoring/claims";
 import type { DimensionId, ScoreIntegrity } from "@/lib/types";
 
@@ -68,4 +68,27 @@ export function scoreProvenance(
       : null;
   const reach = blend === null ? clampBand : Math.round(blend * clampBand);
   return { kind: "blended", clampBand, widened, blend, reach };
+}
+
+// ── ONE UNIT for the blend weight ───────────────────────────────────────────────────────────────
+//
+// The report page carries the weight twice: the header's integrity chip and every blended dimension's
+// provenance track. They were composed independently and printed the SAME fact in two units — the chip
+// as the realized *share of the configured weight* ("blend 95%", 0.57 against 0.6) and the track as the
+// *absolute weight* ("Blend weight 57%") — reconciled only inside the chip's tooltip, on the exact
+// surface whose prior finding was that it stated one number three ways (UAT `RC-N1`).
+//
+// So the unit is decided here, once, and both surfaces read it. The unit is the ABSOLUTE weight,
+// because that is the number the engine multiplies by: `reach = blend × clampBand` is drawn from it,
+// and a share-of-configured cannot be multiplied by anything on the page. The configured weight rides
+// along in the chip's label so "this was reduced" stays legible without a second unit.
+
+/** The blend weight as a whole percent — the one number both surfaces print. */
+export function blendWeightPercent(blend: number): number {
+  return Math.round(blend * 100);
+}
+
+/** The chip's short form: the same percent the tracks print, with the configured weight as context. */
+export function blendWeightLabel(blend: number): string {
+  return `blend weight ${blendWeightPercent(blend)}% of ${blendWeightPercent(SCORE_BLEND)}%`;
 }

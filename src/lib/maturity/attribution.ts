@@ -25,6 +25,7 @@
 import type { PlatformSignalRecord, ScoreIntegrity } from "@/lib/types";
 import { SCORE_BLEND } from "@/lib/maturity/model";
 import { PLATFORM_FOLD_DIMS, securityObservability } from "@/lib/analyze/platform-carry";
+import { blendWeightLabel, blendWeightPercent } from "@/lib/scoring/provenance";
 
 /** The engine name a degraded or keyless scan carries. Mirrors MockProvider.name. */
 export const MOCK_ENGINE = "mock";
@@ -337,9 +338,13 @@ export function integrityNotes(si: ScoreIntegrity | undefined | null): Integrity
     });
   }
   if (si.effectiveBlend < SCORE_BLEND - 1e-9) {
+    // ONE unit with the per-dimension provenance tracks on the same page: the ABSOLUTE weight, from
+    // the shared composer. This chip used to print the realized SHARE of the configured weight
+    // ("blend 95%") beside tracks printing the absolute one ("Blend weight 57%") — the same fact in
+    // two units, reconciled only inside this tooltip (UAT `RC-N1`).
     out.push({
-      label: `blend ${Math.round((si.effectiveBlend / SCORE_BLEND) * 100)}%`,
-      hint: `Only ${Math.round((si.effectiveBlend / SCORE_BLEND) * 100)}% of the model's usual weight was applied (${si.effectiveBlend.toFixed(2)} against a configured ${SCORE_BLEND}), because the ingest read a fraction of the repository. A thinner read shifts the score toward the deterministic signal with zero repository change.`,
+      label: blendWeightLabel(si.effectiveBlend),
+      hint: `The model's judgment was weighted at ${blendWeightPercent(si.effectiveBlend)}% instead of the configured ${blendWeightPercent(SCORE_BLEND)}%, because the ingest read a fraction of the repository. A thinner read shifts the score toward the deterministic signal with zero repository change. Each dimension's provenance track prints this same weight.`,
     });
   }
   return out;

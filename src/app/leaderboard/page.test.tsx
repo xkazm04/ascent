@@ -27,6 +27,7 @@ vi.mock("@/lib/db/mode", () => ({ getDbMode: () => "static", dbModeLabel: () => 
 
 import LeaderboardPage, { generateMetadata } from "./page";
 import type { RegisterEntry } from "@/lib/register/data";
+import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
 
 function entry(over: Partial<RegisterEntry> = {}): RegisterEntry {
   const fullName = over.fullName ?? "acme/api";
@@ -49,6 +50,8 @@ function entry(over: Partial<RegisterEntry> = {}): RegisterEntry {
     verified: true,
     confidence: 0.85,
     hasProcessSignals: true,
+    rubricVersion: SCORING_RUBRIC_VERSION,
+    currentRubric: true,
     ...over,
   };
 }
@@ -62,6 +65,8 @@ const registry = (over: Record<string, unknown> = {}) => ({
   perPage: 25,
   totalPages: 1,
   windowed: false,
+  rubricVersion: SCORING_RUBRIC_VERSION,
+  staleRubricOnPage: 0,
   ...over,
 });
 
@@ -154,5 +159,63 @@ describe("/leaderboard — nothing private, nothing silently ranked", () => {
     render(await LeaderboardPage({ searchParams: Promise.resolve({}) }));
     expect(screen.getByText("conf 0.62")).toBeTruthy();
     expect(screen.queryByText("conf 0.85")).toBeNull();
+  });
+});
+
+// UAT `TOMAS-L1-11`: the register refuses to rank a mock-engine score for the stated reason that
+// numbers from two instruments must not be ranked against each other — and then ranked across rubric
+// versions, which `model.ts` says in writing are not comparable. A stale row is now qualified.
+describe("/leaderboard — a rank is a claim that the rows share a ruler", () => {
+  it("chips a row scored under an earlier rubric and names both versions", async () => {
+    getPublicRegister.mockResolvedValue(
+      registry({
+        entries: [entry({ fullName: "acme/old", rubricVersion: "r10", currentRubric: false })],
+        staleRubricOnPage: 1,
+      }),
+    );
+    render(await LeaderboardPage({ searchParams: Promise.resolve({}) }));
+    expect(screen.getByText("rubric r10")).toBeInTheDocument();
+    expect(screen.getByTitle(new RegExp(`current rubric is ${SCORING_RUBRIC_VERSION}`))).toBeInTheDocument();
+  });
+
+  it("says a row with NO recorded rubric is unknown, never 'current'", async () => {
+    getPublicRegister.mockResolvedValue(
+      registry({
+        entries: [entry({ fullName: "acme/legacy", rubricVersion: null, currentRubric: false })],
+        staleRubricOnPage: 1,
+      }),
+    );
+    render(await LeaderboardPage({ searchParams: Promise.resolve({}) }));
+    expect(screen.getByText("rubric unknown")).toBeInTheDocument();
+  });
+
+  it("discloses a mixed-rubric page above the fold, not only per row", async () => {
+    getPublicRegister.mockResolvedValue(
+      registry({
+        entries: [entry({ fullName: "acme/old", rubricVersion: "r10", currentRubric: false }), entry()],
+        staleRubricOnPage: 1,
+      }),
+    );
+    render(await LeaderboardPage({ searchParams: Promise.resolve({}) }));
+    expect(screen.getByText(/Mixed rubrics on this page/i)).toBeInTheDocument();
+  });
+
+  it("says nothing at all when every ranked row is on the current rubric", async () => {
+    getPublicRegister.mockResolvedValue(registry());
+    render(await LeaderboardPage({ searchParams: Promise.resolve({}) }));
+    expect(screen.queryByText(/Mixed rubrics/i)).toBeNull();
+    expect(screen.queryByText(/^rubric /)).toBeNull();
+  });
+
+  it("still RANKS a stale row — it is a real rating on an earlier instrument, not a preview", async () => {
+    getPublicRegister.mockResolvedValue(
+      registry({
+        entries: [entry({ fullName: "acme/old", rubricVersion: "r10", currentRubric: false })],
+        staleRubricOnPage: 1,
+      }),
+    );
+    render(await LeaderboardPage({ searchParams: Promise.resolve({}) }));
+    // Rank 01, not the em dash a mock row wears.
+    expect(screen.getByText("01")).toBeInTheDocument();
   });
 });

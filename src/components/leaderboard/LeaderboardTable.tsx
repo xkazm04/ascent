@@ -8,7 +8,7 @@
 import Link from "next/link";
 import type { RegisterEntry } from "@/lib/register/data";
 import type { DimensionId } from "@/lib/types";
-import { DIMENSIONS, DIMENSION_BY_ID } from "@/lib/maturity/model";
+import { DIMENSIONS, DIMENSION_BY_ID, SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
 import { DIMENSION_SHORT, scoreHex, timeAgo } from "@/lib/ui";
 import { GitHubMark } from "@/components/auth/buttonChrome";
 
@@ -122,6 +122,23 @@ export function LeaderboardTable({
                       title="No merged pull request in the analysis window — typical of code mirrors and push-based workflows. PR-shaped process signals (reviews, merge governance) read as absent rather than measured here, so the overall score can understate the project."
                     >
                       no PR signal
+                    </span>
+                  )}
+                  {/* The rubric is a provenance qualifier like the engine is: the codebase states in
+                      writing that numbers from two rubric versions are not comparable, and a bump
+                      invalidates the cache without re-scanning, so an un-rescanned repo keeps its old
+                      row (UAT `TOMAS-L1-11`). It is CHIPPED, not de-ranked — a stale score is a real
+                      rating on an earlier instrument, whereas a mock score is not a rating at all. */}
+                  {c.verified && !c.currentRubric && (
+                    <span
+                      className="ml-2 rounded border border-violet-500/40 px-1.5 py-0.5 type-micro text-violet-300/90"
+                      title={
+                        c.rubricVersion
+                          ? `Scored under rubric ${c.rubricVersion}; the current rubric is ${SCORING_RUBRIC_VERSION}. The rubric changed what some dimensions measure, so this row's number is not strictly comparable with a freshly scored one. Re-scanning the repo puts it on the current ruler.`
+                          : `This scan predates the rubric stamp, so which ruler produced it is unknown — and unknown is not the current one (${SCORING_RUBRIC_VERSION}). Re-scanning the repo puts it on the current ruler.`
+                      }
+                    >
+                      {c.rubricVersion ? `rubric ${c.rubricVersion}` : "rubric unknown"}
                     </span>
                   )}
                   {c.verified && c.confidence > 0 && c.confidence < 0.75 && (

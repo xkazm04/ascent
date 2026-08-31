@@ -26,10 +26,19 @@ roster (also the right-edge `DeckNav`): **hero · org · fleet · local · galle
 
 **The register's counter is suppressed at zero** (`IndexGallery`). A count is a
 claim, and zero is not one worth making: on a configured-but-empty database this
-section headed "The register" used to open with "0 public repos rated" directly
-above its (good) explicit empty state, on a page whose whole proposition is *now it
-has an index* (UAT `TOMAS-L1-05`). The `Served live from …` provenance stamp stays
-in both states — the counter goes, the honesty does not.
+section headed "The register" used to open with "0 public repos rated", on a page
+whose whole proposition is *now it has an index* (UAT `TOMAS-L1-05`). The
+`Served live from …` provenance stamp stays in both states — the counter goes, the
+honesty does not.
+
+**An empty corpus is an ABSENT register, and that is the only behaviour.**
+`loadPublicGalleryCards` returns `null` at zero cards, `IndexVariant` drops the
+whole section, and nothing renders — no heading, no counter, no empty state.
+`IndexGallery` used to *also* carry a worded `board.length === 0` state, which
+could never fire (non-null implies at least one card implies a non-empty board),
+so the register declared two behaviours for one state and shipped the other one
+(UAT `RC2-N3`). The worded state is deleted; `scans-gallery.test.ts` pins the
+zero-card `null` return, because if that goes the register needs it back.
 
 Two self-host surfaces added 2026-08-25, phrased in lockstep with `/pricing`'s
 `SelfHostBand` so the copy can't drift apart in spirit:

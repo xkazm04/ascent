@@ -41,6 +41,7 @@ vi.mock("@/lib/db/scans-shared", () => ({
 }));
 
 import { getPublicOrgScorecard, getPublicRegister, registerEntryFrom } from "./data";
+import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
 
 type Row = Parameters<typeof registerEntryFrom>[0];
 
@@ -57,6 +58,7 @@ function repoRow(
     scannedAt: string;
     confidence: number;
     prStats: string | null;
+    rubricVersion: string | null;
   }> = {},
 ): Row {
   const owner = over.owner ?? "acme";
@@ -79,6 +81,7 @@ function repoRow(
         rigorScore: 80,
         engineProvider: over.engineProvider ?? "anthropic",
         confidence: over.confidence ?? 0.85,
+        rubricVersion: "rubricVersion" in over ? over.rubricVersion : SCORING_RUBRIC_VERSION,
         prStats: "prStats" in over ? over.prStats : JSON.stringify({ merged: 12 }),
         scannedAt: new Date(over.scannedAt ?? "2026-07-20T00:00:00.000Z"),
         dimensions: [
@@ -233,5 +236,33 @@ describe("getPublicOrgScorecard", () => {
   it("rejects a slash-bearing owner segment instead of prefix-matching across owners", async () => {
     await expect(getPublicOrgScorecard("acme/api")).resolves.toBeNull();
     expect(scanFindMany).not.toHaveBeenCalled();
+  });
+});
+
+// UAT `TOMAS-L1-11`. The register's PROVENANCE invariant was written for the engine and not extended
+// to the rubric, while `model.ts` states plainly that two rubric versions' numbers are not comparable
+// and a bump invalidates the cache WITHOUT re-scanning. The qualifier is a chip, not a de-rank.
+describe("registerEntryFrom — the rubric is a provenance qualifier", () => {
+  it("carries the rubric the scan was taken under", () => {
+    expect(registerEntryFrom(repoRow({ rubricVersion: "r10" }))?.rubricVersion).toBe("r10");
+  });
+
+  it("marks a scan taken under the CURRENT rubric as current", () => {
+    const e = registerEntryFrom(repoRow({ rubricVersion: SCORING_RUBRIC_VERSION }));
+    expect(e?.currentRubric).toBe(true);
+  });
+
+  it("marks an earlier rubric as NOT current, while leaving it verified and rankable", () => {
+    const e = registerEntryFrom(repoRow({ rubricVersion: "r10" }));
+    expect(e?.currentRubric).toBe(false);
+    // Deliberately unlike a mock row: a stale score is a real rating on an earlier instrument.
+    expect(e?.verified).toBe(true);
+  });
+
+  it("treats a MISSING rubric as unknown, and unknown is not current", () => {
+    // The same reading db/outcomes.ts gives it when it refuses to pair two scans.
+    const e = registerEntryFrom(repoRow({ rubricVersion: null }));
+    expect(e?.rubricVersion).toBeNull();
+    expect(e?.currentRubric).toBe(false);
   });
 });

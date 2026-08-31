@@ -1,8 +1,14 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { LLM_GUARDBAND } from "@/lib/maturity/model";
+import { LLM_GUARDBAND, SCORE_BLEND } from "@/lib/maturity/model";
 import { CLAIM_SCORED_DIMENSIONS } from "@/lib/scoring/claims";
-import { SIGNAL_ONLY_DIMENSIONS, scoreProvenance } from "@/lib/scoring/provenance";
+import {
+  SIGNAL_ONLY_DIMENSIONS,
+  blendWeightLabel,
+  blendWeightPercent,
+  scoreProvenance,
+} from "@/lib/scoring/provenance";
+import { integrityNotes } from "@/lib/maturity/attribution";
 import type { ScoreIntegrity } from "@/lib/types";
 
 const CLEAN: ScoreIntegrity = { d9Unmeasurable: false, widenedDims: [], effectiveBlend: 0.6 };
@@ -67,5 +73,29 @@ describe("SIGNAL_ONLY_DIMENSIONS", () => {
     for (const id of SIGNAL_ONLY_DIMENSIONS) {
       expect(CLAIM_SCORED_DIMENSIONS as readonly string[]).not.toContain(id);
     }
+  });
+});
+
+// The report page prints the blend weight twice — the header's integrity chip and every blended
+// dimension's provenance track. They printed it in two units (UAT `RC-N1`); this pins that they now
+// read one composer, so a future edit to either surface cannot re-open the gap silently.
+describe("blend weight — one unit for both surfaces", () => {
+  it("is the ABSOLUTE weight, the number `reach` is derived from — not a share of the configured one", () => {
+    expect(blendWeightPercent(0.57)).toBe(57);
+    expect(blendWeightPercent(0.3)).toBe(30);
+    // The share-of-configured reading of 0.57 (95%) is exactly what the chip used to print.
+    expect(blendWeightPercent(0.57)).not.toBe(Math.round((0.57 / SCORE_BLEND) * 100));
+  });
+
+  it("carries the configured weight as context in the chip label, so 'reduced' stays legible", () => {
+    expect(blendWeightLabel(0.3)).toBe(`blend weight 30% of ${blendWeightPercent(SCORE_BLEND)}%`);
+  });
+
+  it("gives the integrity chip and a provenance track the same percent for one scan", () => {
+    const si: ScoreIntegrity = { d9Unmeasurable: false, widenedDims: [], effectiveBlend: 0.3 };
+    const note = integrityNotes(si).find((n) => n.label.startsWith("blend weight"));
+    const p = scoreProvenance({ id: "D2", signalScore: 50, score: 52 }, si);
+    if (p.kind !== "blended" || p.blend === null) throw new Error("unreachable");
+    expect(note?.label).toContain(`${blendWeightPercent(p.blend)}%`);
   });
 });
