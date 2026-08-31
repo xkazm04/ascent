@@ -146,6 +146,31 @@ export interface ConformancePack {
     attempted: number;
     cap: number;
   };
+  /**
+   * MC-B14 — THE LEDGER SEAL ROOT the as-of-merge evidence in this pack rests on.
+   *
+   * Without it the pack asserts "these were the settings in force when this merged" and hands the
+   * reader no way to establish that the underlying observations have not moved since. The root is a
+   * plain sha256 over canonically-ordered fields with no secret in it, and the recomputation recipe
+   * is published by /api/audit/verify — so quoting the root here turns the pack's central claim into
+   * one an examiner can check against an export of the rows rather than one they must take on trust.
+   *
+   * Null when the ledger holds no sealed day covering the period. Null and not a placeholder: an
+   * absent root is a real fact about the evidence and a pack that hid it would be over-claiming.
+   */
+  ledgerSeal: {
+    /** The newest sealed day at or before the period's end (YYYY-MM-DD), or null. */
+    throughDay: string | null;
+    /** That day's root — what an examiner recomputes. */
+    root: string | null;
+    /** How many sealed days the period covers, and how many of them recomputed cleanly. */
+    daysSealed: number;
+    daysVerified: number;
+    /** True only when every sealed day in the period recomputed AND the chain links held. */
+    chainOk: boolean;
+    /** Days holding rows with no seal yet. Rows in these days are NOT covered by any root. */
+    unsealedDays: number;
+  } | null;
   provenance: {
     /** Distinct scan engines that produced the underlying data, with counts. */
     engines: { provider: string; model: string; repos: number }[];
@@ -286,6 +311,10 @@ export interface PackOptions {
   identityMode?: "pseudonymous" | "named";
   /** Injected so the pack is pure and its tests need no clock. */
   generatedAt: string;
+  /** MC-B14 — the ledger seal covering the period, resolved by the caller (this module stays pure).
+   *  Omitted/undefined means the caller could not read the chain; the pack then carries `null` and
+   *  says so, rather than implying an unsealed ledger is a sealed one. */
+  ledgerSeal?: ConformancePack["ledgerSeal"];
 }
 
 /** Assemble the pack. Pure over `pop` + `opts`. */
@@ -356,6 +385,17 @@ export function buildConformancePack(pop: AiChangePopulation, opts: PackOptions)
           "differ from the settings in force when a change merged. The control-observation ledger has " +
           "no coverage for this organization and period.",
   );
+  // MC-B14 — say when the as-of evidence rests on rows NOTHING has sealed. A pack that quotes
+  // ledger-sourced settings without a root is asking the reader to trust that the observations have
+  // not moved; the seal is what replaces that trust with a check, and its absence is a limitation of
+  // this artifact rather than a detail of our storage.
+  if (ledgerRows > 0 && (opts.ledgerSeal?.root ?? null) === null) {
+    limitations.push(
+      "The control-observation rows behind the as-of-merge evidence in this pack are NOT covered by a " +
+        "published integrity seal for this period. The rows are what Ascent observed, but this artifact " +
+        "carries no root an examiner can recompute them against.",
+    );
+  }
   if (summary.merged > AS_OF_CAP) {
     limitations.push(
       `As-of-merge resolution stops after ${AS_OF_CAP} merged rows (${pop.asOfAttempted} attempted of ` +
@@ -408,6 +448,7 @@ export function buildConformancePack(pop: AiChangePopulation, opts: PackOptions)
       attempted: pop.asOfAttempted,
       cap: AS_OF_CAP,
     },
+    ledgerSeal: opts.ledgerSeal ?? null,
     provenance: {
       engines: [...engineMap.values()].sort((a, b) => b.repos - a.repos),
       generatedAt: opts.generatedAt,

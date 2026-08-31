@@ -12,17 +12,19 @@ vi.mock("next/server", () => ({
   },
 }));
 vi.mock("@/lib/db", () => ({ isDbConfigured: vi.fn(), getOrgId: vi.fn(async () => "org_1"), recordAudit: vi.fn() }));
-vi.mock("@/lib/db/control-observations", () => ({ verifySeals: vi.fn(), sealPendingDays: vi.fn() }));
+// MC-B14 — `sealPendingDays` is deliberately NOT in this mock. The route used to seal as a side
+// effect of the read; if it ever imports a sealer again, this factory will not provide it and the
+// suite fails. That is the structural half of "a verifier does not produce its own input".
+vi.mock("@/lib/db/control-observations", () => ({ verifySeals: vi.fn() }));
 vi.mock("@/lib/authz", () => ({ requireOrgRead: vi.fn() }));
 
 import { GET } from "./route";
 import { isDbConfigured, recordAudit } from "@/lib/db";
-import { sealPendingDays, verifySeals } from "@/lib/db/control-observations";
+import { verifySeals } from "@/lib/db/control-observations";
 import { requireOrgRead } from "@/lib/authz";
 
 const mockIsDb = vi.mocked(isDbConfigured);
 const mockVerify = vi.mocked(verifySeals);
-const mockSeal = vi.mocked(sealPendingDays);
 const mockGate = vi.mocked(requireOrgRead);
 const mockAudit = vi.mocked(recordAudit);
 
@@ -44,6 +46,7 @@ const chain = (over: Partial<NonNullable<Awaited<ReturnType<typeof verifySeals>>
   ],
   chainOk: true,
   unsealedDays: ["2026-08-22"],
+  sealBacklogRemaining: 0,
   ...over,
 });
 
@@ -51,7 +54,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockIsDb.mockReturnValue(true);
   mockGate.mockResolvedValue(null);
-  mockSeal.mockResolvedValue([]);
   mockVerify.mockResolvedValue(chain());
 });
 
@@ -66,11 +68,10 @@ describe("gating", () => {
     expect((await get("")).status).toBe(400);
   });
 
-  it("returns the denial verbatim and neither seals nor verifies", async () => {
+  it("returns the denial verbatim and never reads the chain", async () => {
     const denial = new Response(JSON.stringify({ error: "denied" }), { status: 403 });
     mockGate.mockResolvedValue(denial);
     expect(await get("?org=acme")).toBe(denial);
-    expect(mockSeal).not.toHaveBeenCalled();
     expect(mockVerify).not.toHaveBeenCalled();
   });
 });
@@ -113,9 +114,19 @@ describe("reproducibility", () => {
     expect((await (await get("?org=acme")).json()).scope).toContain("no-rows");
   });
 
-  it("names the days it sealed on THIS request, so a fresh seal is not read as a standing one", async () => {
-    mockSeal.mockResolvedValue(["2026-08-20"]);
-    expect((await (await get("?org=acme")).json()).sealedOnThisRequest).toEqual(["2026-08-20"]);
+  // MC-B14 — the route USED to seal lazily and report the days it had just sealed, which made an
+  // org's tamper-evidence a function of who curled this URL. Sealing moved to the daily cron; this
+  // is a pure read.
+  it("is a PURE READ — it never seals, and says how far the scheduled sealer is behind", async () => {
+    const body = await (await get("?org=acme")).json();
+    expect(body.sealedOnThisRequest).toBeUndefined();
+    expect(body.sealBacklogRemaining).toBe(0);
+    expect(body.scope).toContain("only reads");
+  });
+
+  it("reports a non-zero seal backlog rather than leaving it to be inferred from an array", async () => {
+    mockVerify.mockResolvedValue(chain({ sealBacklogRemaining: 7 }));
+    expect((await (await get("?org=acme")).json()).sealBacklogRemaining).toBe(7);
   });
 });
 

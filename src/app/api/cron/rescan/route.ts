@@ -25,6 +25,8 @@
 
 import { NextResponse } from "next/server";
 import { isDbConfigured } from "@/lib/db";
+// MC-B14: the control ledger's daily sealing pass rides this cron. Deep path, not the barrel.
+import { sealAllPendingDays } from "@/lib/db/control-observations";
 // Deep path, not the barrel: `db/index.ts` is Director-owned and its two queue re-export lines land
 // at merge. Nothing else about these imports changes when they do.
 import { enqueueDueRescans, queueDepth, reapExpiredLeases } from "@/lib/db/scan-jobs";
@@ -45,8 +47,31 @@ export async function GET(request: Request) {
   // route that mints every org's token and spends LLM budget can't drift from the other cron handlers.
   const denied = requireCronAuth(request);
   if (denied) return denied;
-  if (!isAppConfigured() || !isDbConfigured()) {
+  if (!isDbConfigured()) {
     return NextResponse.json({ skipped: "GitHub App + database required." });
+  }
+
+  // MOONSHOT #1 / MC-B14 — SEAL THE CONTROL LEDGER FIRST, before anything else this route does.
+  //
+  // It runs here rather than inside `/api/audit/verify` because sealing was a side effect of a READ:
+  // an org nobody verified accumulated unsealed days until retention aged the rows out, and a day
+  // purged before it was ever sealed leaves no seal behind — the deletion becomes undetectable,
+  // which is the one thing the seal exists to prevent. Placed BEFORE the App check on purpose: a
+  // deployment without the GitHub App still holds a ledger written by scans, and its evidence must
+  // not stop being sealed because the App is not installed. Best-effort — a sealing failure can
+  // never fail the rescan pass.
+  //
+  // ORDERING AGAINST THE PURGE, stated because it is load-bearing: `/api/cron/purge` runs at 04:00
+  // and this route at 06:00 (vercel.json), so on any given day the purge runs BEFORE the seal. That
+  // is safe only because the purge deletes on the org's `auditDays` horizon (floored at
+  // RETENTION_MIN_AUDIT_DAYS), which is many days wide, while this pass is at most one day behind —
+  // so a day is sealed long before it becomes purge-eligible. The condition that breaks it is a
+  // sealing BACKLOG deeper than the retention horizon; `sealBacklogRemaining` is reported below and
+  // by /api/audit/verify so it is observable rather than silent. See docs/features/data/retention.md.
+  const ledgerSeal = await sealAllPendingDays().catch(() => null);
+
+  if (!isAppConfigured()) {
+    return NextResponse.json({ skipped: "GitHub App + database required.", ledgerSeal });
   }
 
   // Reap first: a pass killed at the 300s ceiling leaves claimed rows behind, and a worker that never
@@ -71,6 +96,7 @@ export async function GET(request: Request) {
     );
   }
   return NextResponse.json({
+    ledgerSeal,
     reaped,
     seeded,
     claimed: summary.claimed,

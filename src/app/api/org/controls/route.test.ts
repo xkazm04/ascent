@@ -7,7 +7,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("next/server", () => ({
-  NextResponse: class {
+  // `extends Response` because the CSV branch constructs one directly — a JSON-only stub would make
+  // the export path untestable, which is how it shipped ignoring `format` in the first place.
+  NextResponse: class extends Response {
     static json(body: unknown, init?: ResponseInit) {
       return new Response(JSON.stringify(body), init);
     }
@@ -25,6 +27,7 @@ import { GET } from "./route";
 import { isDbConfigured } from "@/lib/db";
 import { controlCoverage, listControlTimeline } from "@/lib/db/control-observations";
 import { requireOrgRead } from "@/lib/authz";
+import { DIGEST_FIELD_ORDER } from "@/lib/controls/seal";
 
 const mockIsDb = vi.mocked(isDbConfigured);
 const mockTimeline = vi.mocked(listControlTimeline);
@@ -98,6 +101,45 @@ describe("the response", () => {
   it("is not truncated when the page came back short", async () => {
     mockTimeline.mockResolvedValue([{} as never]);
     expect((await (await get("?org=acme&limit=5")).json()).truncated).toBe(false);
+  });
+
+  // MC-B14 — `?format=csv` answered `200 application/json` and silently ignored the parameter, so an
+  // examiner held a published recomputation recipe and no rows to run it over.
+  it("emits CSV whose columns are DIGEST_FIELD_ORDER, verbatim and in order", async () => {
+    mockTimeline.mockResolvedValue([
+      {
+        orgId: "org_1",
+        repoFullName: "acme/api",
+        controlId: "branch-protection",
+        state: "pass",
+        value: "true",
+        prevState: null,
+        prevValue: null,
+        source: "probe",
+        actorLogin: null,
+        transition: false,
+        occurredAt: "2026-08-20T00:00:00.000Z",
+        evidenceJson: "{}",
+      } as never,
+    ]);
+    const res = await get("?org=acme&format=csv");
+    expect(res.headers.get("content-type")).toContain("text/csv");
+    const text = await res.text();
+    const [header, row] = text.trim().split("\n");
+    expect(header).toBe(DIGEST_FIELD_ORDER.join(","));
+    expect(row).toContain("branch-protection");
+    // The disclosure rides the FILE too: a spreadsheet has no response body to consult.
+    expect(res.headers.get("x-ascent-truncated")).toBe("false");
+  });
+
+  it("rejects an unknown format rather than quietly answering in another one", async () => {
+    expect((await get("?org=acme&format=xlsx")).status).toBe(400);
+  });
+
+  it("still gates the CSV — the export is org-scoped evidence, not a public file", async () => {
+    const denial = new Response(JSON.stringify({ error: "denied" }), { status: 403 });
+    mockGate.mockResolvedValue(denial);
+    expect(await get("?org=acme&format=csv")).toBe(denial);
   });
 
   it("passes the repo/control/window filters through", async () => {
