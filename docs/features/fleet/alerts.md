@@ -270,6 +270,26 @@ silent rather than training the inbox filter.
   omitting the field entirely omits the block, because a deployment without the ledger should say
   nothing rather than claim "0 controls failed". A failed control is **always** signal: a week whose
   only news is branch protection coming off is precisely the week the digest exists for.
+
+  **All three states are reachable from the cron (fixed 2026-08-31, UAT `DANA-L1-015`).** The route
+  used to send `undefined` whenever the transition list came back empty, so the `[]` branch — tested in
+  `alerts.test.ts` since it shipped — could never fire in production and a clean week was
+  byte-identical to a week nobody had populated the ledger. `listObservationsSince` now fails to
+  **null**, not to `[]`: null (the read failed) omits the block, `[]` (the read succeeded, nothing
+  failed) prints *"Controls: none failed this week."*
+
+  **And the block never travels without its N.** `control-observations.ts` states the coverage law —
+  any surface printing a control's state over a period must print its coverage beside it — and the
+  digest is the surface it was written for, because it is read *instead of* the page that would
+  otherwise correct it. `FleetDigestInput.controlCoverage` carries a fleet roll-up of
+  `controlCoverage(org, { from: windowStart })`: `{ pairs, observations, maxGapDays, truncated }`,
+  where `maxGapDays` is the **worst** pair's gap (a claim is only as strong as its thinnest evidence)
+  and a single-observation pair contributes no gap rather than a 0. It renders as
+  *"Coverage: 42 observations across 6 repo/control pairs, largest gap 3.2d."* under the heading;
+  an empty window reads *"no control was observed in this window — the all-clear above is not
+  evidence."*; a capped read prints `2000+`. Same three-state rule as the block itself — a coverage
+  read that failed omits the line rather than printing zero, and it never appears without the block it
+  qualifies.
 - **Standing-concerns block:** `FleetDigestInput.standingConcerns` renders
   "Standing concerns (N) — observed, cause not attributed:" beside the Controls block and above the
   movers, each line the repo + the observation + up to three appeared/disappeared evidence lines. The

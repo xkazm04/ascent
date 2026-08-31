@@ -39,7 +39,7 @@ import { claimOrgAuditOnce, releaseAuditClaim } from "@/lib/db/scans-audit";
 import { requireCronAuth } from "@/lib/cron-auth";
 import { buildFleetDigestMessage, creditsAlertThreshold, digestHasSignal, dispatchAlert, isAlertConfigured } from "@/lib/alerts";
 import { controlLabel } from "@/lib/controls/catalog";
-import { listObservationsSince } from "@/lib/db/control-observations";
+import { controlCoverage, listObservationsSince } from "@/lib/db/control-observations";
 import { dispatchExtraAlerts } from "./extra-alerts";
 import { mapPool } from "@/lib/pool";
 import { PUBLIC_ORG } from "@/lib/auth";
@@ -156,15 +156,22 @@ export async function GET(request: Request) {
         skippedNoData += 1;
         return;
       }
-      const [movers, recs, benchmark, credit, controlTransitions, standing, redBaselines] = await Promise.all([
+      const [movers, recs, benchmark, credit, controlTransitions, coverage, standing, redBaselines] = await Promise.all([
         getOrgMovers(org, win).catch(() => null),
         getOrgRecommendations(org, 1).catch(() => null),
         getOrgBenchmark(org).catch(() => null),
         // Credit runway for the digest's "top up" line — public org is free/unmetered, skip it.
         org === PUBLIC_ORG ? Promise.resolve(null) : getCreditState(org).catch(() => null),
         // MOONSHOT #1: control transitions in the window feed the digest's Controls block. Failures
-        // only — a restored control is good news the weekly summary need not push. Best-effort.
-        listObservationsSince(org, windowStart.toISOString(), { transitionsOnly: true }).catch(() => []),
+        // only — a restored control is good news the weekly summary need not push.
+        //
+        // NULL ON FAILURE, NOT `[]` (UAT `DANA-L1-015`). The block's three-state contract needs the
+        // difference between "we read the ledger and nothing failed" and "we could not read it": an
+        // error swallowed into an empty array collapses exactly the two states `alerts.ts` documents.
+        listObservationsSince(org, windowStart.toISOString(), { transitionsOnly: true }).catch(() => null),
+        // …and the N the block is stated with, over the same window. Same null-on-failure rule: a
+        // coverage line the digest could not compute is omitted, never printed as zero.
+        controlCoverage(org, { from: windowStart.toISOString() }).catch(() => null),
         // Standing concerns: dimensions holding materially below an earlier reading. Computed from
         // persisted scans only, and DELIBERATELY not window-scoped — the whole failure this closes is a
         // decline that stopped moving, so a shortfall that began before this week is exactly the one
@@ -194,14 +201,31 @@ export async function GET(request: Request) {
           ...(c.evidence ? { evidence: c.evidence } : {}),
         })),
       ];
+      // Null (the ledger could not be read) stays null all the way to the message, where `undefined`
+      // omits the block. An empty ARRAY is the positive statement "we looked and none failed" and is
+      // passed through as one — it used to be turned back into `undefined`, which made a clean week
+      // byte-identical to a week nobody measured.
       const controlsFailedRows = controlTransitions
-        .filter((o) => o.state === "fail")
-        .slice(0, 10)
-        .map((o) => ({
-          repo: o.repoFullName,
-          control: controlLabel(o.controlId),
-          detail: o.prevState && o.prevState !== o.state ? `was ${o.prevState}` : (o.value ?? ""),
-        }));
+        ? controlTransitions
+            .filter((o) => o.state === "fail")
+            .slice(0, 10)
+            .map((o) => ({
+              repo: o.repoFullName,
+              control: controlLabel(o.controlId),
+              detail: o.prevState && o.prevState !== o.state ? `was ${o.prevState}` : (o.value ?? ""),
+            }))
+        : null;
+      // Fleet-level roll-up of the per-pair coverage rows: the digest states one N for one block, and
+      // `maxGapDays` is the WORST pair's gap, because a coverage claim is only as strong as its
+      // thinnest evidence. Null pairs (a single observation) contribute no gap rather than a 0.
+      const coverageSummary = coverage
+        ? {
+            pairs: coverage.length,
+            observations: coverage.reduce((n, c) => n + c.observations, 0),
+            maxGapDays: coverage.reduce<number | null>((m, c) => (c.maxGapDays == null ? m : Math.max(m ?? 0, c.maxGapDays)), null),
+            truncated: coverage.some((c) => c.windowTruncated),
+          }
+        : undefined;
       // Movement-gate: a leader relies on this push instead of opening the app, so a flat week stays
       // silent rather than training the inbox filter. Skip unless something material moved (or credits
       // are running low — always worth the heads-up).
@@ -218,7 +242,7 @@ export async function GET(request: Request) {
         regressions: regressersBeyondNoise.length,
         gainersBeyondNoise: (movers?.gainers ?? []).filter((m) => !isWithinNoise(m.dOverall)).length,
         creditLow,
-        controlsFailed: controlsFailedRows.length,
+        controlsFailed: controlsFailedRows?.length ?? 0,
         standingConcerns: standingRows.length,
       });
       if (!hasSignal) {
@@ -243,7 +267,13 @@ export async function GET(request: Request) {
         // filter the gate exists to avoid).
         regressers: regressersBeyondNoise.slice(0, 3).map((m) => ({ name: m.name, delta: m.dOverall })),
         topRecommendation: top ? { title: top.title, repoCount: top.repoCount } : null,
-        controlsFailed: controlsFailedRows.length > 0 ? controlsFailedRows : undefined,
+        // THE THREE-STATE CONTRACT, KEPT (UAT `DANA-L1-015`). `undefined` (ledger unreadable) omits
+        // the block; `[]` says "we looked and none failed". This used to send `undefined` whenever the
+        // array was empty, so the `[]` branch — unit-tested since it shipped — was unreachable from the
+        // only production caller and a clean week rendered byte-identical to an unpopulated ledger.
+        controlsFailed: controlsFailedRows ?? undefined,
+        // …and the block never travels without its N (control-observations.ts's coverage law).
+        controlCoverage: coverageSummary,
         standingConcerns: standingRows.length > 0 ? standingRows : undefined,
         percentile: benchmark?.overallPercentile ?? null,
         // MC-B1: the digest gets the SAME composed line as the briefing it links to — the headline
