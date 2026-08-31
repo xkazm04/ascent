@@ -1088,8 +1088,8 @@ used to do this was deleted rather than kept beside it.
 ### Setup states (`CockpitSetup`)
 
 `hosted` (the field is still rendered read-only; the copy names the **local lane** as the
-self-hosted-only part and says outright that remote-agent runs work on this deployment, linking to
-self-hosting via `NEXT_PUBLIC_SOURCE_REPO_URL` or `docs/SETUP.md`) · `no-repos` (→ repositories tab)
+self-hosted-only part and says outright that remote-agent runs work on this deployment, and always
+links to [`docs/SELF-HOSTING.md`](../../SELF-HOSTING.md) — see below) · `no-repos` (→ repositories tab)
 · `not-owner` · `autopilot-off` (shows the route's 409 fix) · `unpaired` (three steps: pair a
 checkout via `?tab=pairing` → pick repos → run).
 
@@ -1100,6 +1100,18 @@ loop *"exists only on a self-hosted Ascent"*, contradicted by the very route tha
 run. All three reads are now unconditional; `pairedRepos` stays gated, because a checkout on this
 machine is a filesystem fact. `CockpitRail` already ranks a live run above the setup block, so a
 remote run on cloud renders its lane panel instead of the denial.
+
+**The guide is always a link (`MC-B43`).** `hosted` used to build its href with
+`sourceRepoHref("docs/SETUP.md")`, which returns `null` when `NEXT_PUBLIC_SOURCE_REPO_URL` is unset —
+by design, since "view the source" is an AGPL claim about *this* deployment and must not guess a
+repository. The variable is inlined at BUILD time and set in no committed env file, so the one
+actionable element on a not-ready panel degraded to a printed file path on every unconfigured
+install. It now uses `selfHostGuideHref()` / `DOCS_ARE_UPSTREAM` (`src/lib/site.ts`), the same pair
+the four marketing surfaces converted by `MC-B22` use: always a real destination, labelled
+`Self-hosting guide (upstream)` when it is upstream's copy rather than the operator's own. The target
+document changed with it — the anchor promises a self-hosting guide, and `docs/SETUP.md` is the
+credentials-and-preconditions page, while `docs/SELF-HOSTING.md` is the operator's guide.
+Pinned by `CockpitSetup.dom.test.tsx`.
 
 Tests: `cockpit/laneStages.test.ts`, `cockpitDimensions.test.ts`, `cockpitDrift.test.ts`,
 `cockpitGate.test.ts` (one gate, two callers), `driveModel.test.ts` (the on-screen arithmetic and

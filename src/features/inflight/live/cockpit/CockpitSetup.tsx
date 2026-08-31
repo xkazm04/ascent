@@ -9,7 +9,7 @@
 
 import Link from "next/link";
 import { Kicker } from "@/components/ui";
-import { sourceRepoHref } from "@/lib/site";
+import { DOCS_ARE_UPSTREAM, selfHostGuideHref } from "@/lib/site";
 
 export type CockpitSetupState = "hosted" | "unpaired" | "autopilot-off" | "no-repos" | "not-owner";
 
@@ -35,7 +35,6 @@ function Step({ n, children }: { n: number; children: React.ReactNode }) {
 
 export function CockpitSetup({ state, slug, message = null }: CockpitSetupProps) {
   if (state === "hosted") {
-    const href = sourceRepoHref("docs/SETUP.md");
     return (
       <div>
         <Kicker tone="accent">Local lanes run where your code is</Kicker>
@@ -53,14 +52,20 @@ export function CockpitSetup({ state, slug, message = null }: CockpitSetupProps)
           <span className="text-slate-300">Remote-agent runs do work here.</span> Arm one against this org through the
           API or an MCP work client and its lanes, verdicts and outcome ledger render on this page like any other run.
         </p>
+        {/* MC-B43. This panel's whole point is that the reader must self-host to get a local lane, and
+            it used to hand them `sourceRepoHref("docs/SETUP.md")` — null whenever
+            NEXT_PUBLIC_SOURCE_REPO_URL is unset, which is every deployment that has not set a
+            BUILD-time env var — so the one actionable link on the not-ready state degraded to a
+            printed file path. `docHref` (via `selfHostGuideHref`) is always a real destination and
+            says when it is upstream's copy rather than this deployment's; the four marketing surfaces
+            MC-B22 converted already read exactly this way, so the operator meets one link, one label
+            and one guide wherever they hit the wall. The DOC also changes: the anchor is labelled
+            "Self-hosting guide" and SETUP.md is the credentials-and-preconditions page, while
+            SELF-HOSTING.md is the operator's guide the label promises. */}
         <p className="mt-3 type-body-sm leading-relaxed text-slate-500">
-          {href ? (
-            <a href={href} className="focus-ring rounded text-accent hover:text-accent-soft">
-              Self-hosting guide →
-            </a>
-          ) : (
-            <>See <span className="type-caption">docs/SETUP.md</span> in the source repository.</>
-          )}
+          <a href={selfHostGuideHref()} className="focus-ring rounded text-accent hover:text-accent-soft">
+            Self-hosting guide{DOCS_ARE_UPSTREAM ? " (upstream)" : ""} →
+          </a>
         </p>
       </div>
     );
