@@ -372,3 +372,297 @@ take its shot stem as an argument the way `drive-armC-openrun.mjs` does.
 | 13 | This file | run dir | intentional |
 
 **Nothing was committed.** The working tree carries the `findings.json` edit and this file for review.
+
+---
+
+# Recertify pass 2 (b1992360..afc913c0)
+
+**Mode:** `/uat recertify`, second pass over the same originating run. No new run id — resolutions are
+written back into this run's own `findings.json`; this section is the diff report.
+
+| | |
+|---|---|
+| **Commits under test** | `b1992360..afc913c0` (23 commits, master) |
+| **Drain items built** | MC-B4 `9d85f01a` · MC-B5 `21bef0ed` · MC-B6 `27a722ee` · MC-B7 `13410fcf` · MC-B8 a–d `0d088f41` + `97d48243` + rubric r14 `afc913c0` · MC-B10 `527b5973` · MC-B13 `9f0f83ce` · MC-B14 `30f53490` · MC-B15 `de0ca559` · MC-B16 `d3b026d9` · MC-B17 `99b290a5` · MC-B23 = `verifiedAt` `9e8906f1` (closes MC-B11 / `PRIYA-L1-702`, left open by pass 1) |
+| **App server (:3000)** | **RESTARTED.** Pre-existing PID 35740 started 2026-08-31 13:56:54 — *earlier than the newest commit under test* (`afc913c0`, 14:08:28 +02:00), so it was serving pre-fix code by 12 minutes. Killed; `npm run dev` restarted as PID 44724 at **14:09:58 +02:00**; healthy at 14:10:24 with Ascent's identity, not merely a 200: `{"status":"ok","db":"up","dbMode":"pglite","autoscan":{"ready":false,"cronSecret":false,"githubApp":false,"db":true}}`. |
+| **PGlite self-repair** | Boot log: `[pglite] schema drift repaired — added "Recommendation"."firstStep"`, then `[pglite] schema ensured from prisma/init.sql`, then `embedded local DB ready`. `LaneItemOutcome.verifiedAt` needed no repair (it is in `prisma/init.sql:2126`, applied by the idempotent ensure). **Boot succeeded; no wedge, `.next` untouched.** |
+| **Anonymous arm (:3100)** | Rebuilt from scratch — pass 1's instance was dead. Final recipe: `ASCENT_EMPTY=1 PGLITE_DATA_DIR=.pglite/uat-recert2-empty ASCENT_AUTH_BYPASS= PUBLIC_SCAN_QUOTA_DISABLED= ASCENT_SELF_HOSTED=0 PUBLIC_SCAN_MONTHLY_LIMIT=1 npx next dev -p 3100`. Anonymity asserted from ARIA before any verdict (`shots/recert2-B8d-zero.aria.yaml:17` — a bare `button "Sign in"`, no org, no avatar). The limit was pinned to **1** on purpose so a re-typed "5" anywhere would have been visible; see MC-B5. |
+| **Drivers** | Reused, unmodified: `drive.mjs`, `drive-armA-report.mjs`, `drive-armA-dims.mjs`, `drive-armA-dimloop.mjs`, `drive-armC-openrun.mjs`. No bespoke driver was written. |
+| **Shots** | `SHOT_DIR=uat/runs/2026-08-30-moonshot-cert/shots`, prefix **`recert2-*`** throughout (RC-M2 discipline). Two drivers still hard-code their own stems — see RC2-M2. |
+| **Environment note** | A **parallel session sharing this checkout** started loop run `a97baf88` at 14:10 local, one minute after the restart. It was in flight for this whole pass. This pass started and stopped no loop run; the run's survival is used as evidence for MC-B16 and nothing was done to it. |
+
+---
+
+## Verdicts
+
+| Item | Findings | Verdict |
+|---|---|---|
+| **MC-B23 / MC-B11** | `PRIYA-L1-702` (major) | ✅ **resolved-verified** — the headline |
+| **MC-B4** | `SAM-L1-04` (minor, recurrence 3), `SAM-L1-12` (minor) | ✅ **resolved-verified** |
+| **MC-B5** | `TOMAS-L1-02` (major) | ✅ **resolved-verified** |
+| **MC-B6** | `TOMAS-L1-04` (major) | ✅ **resolved-verified** (label half; the proof half is untouched — ceiling) |
+| **MC-B7** | `SAM-L1-01` (minor, recurrence 2) | ✅ **resolved-verified** |
+| **MC-B8a** | `SAM-L1-05` (minor) | ⚠️ **open** — landed, wired, and **empty on the first live r14 reading** |
+| **MC-B8b** | `SAM-L1-06` (minor) | ✅ **resolved-verified** |
+| **MC-B8c** | `SAM-L1-08` (polish) | ✅ **resolved-verified** (`local` branch compile-verified only) |
+| **MC-B8d** | `TOMAS-L1-05` (polish) | ✅ **resolved-verified** |
+| **MC-B10** | `NADIA-L1-08` (minor) | ✅ **resolved-verified** |
+| **MC-B13** | `NADIA-L1-02` (major), `NADIA-L1-03` (minor) | ⚙️ **fixed, not resolved** — `uncertain — not reproducible on this host` |
+| **MC-B14** | `NADIA-L1-04` (major), `-05` (major), `-06` (minor) | ✅ **resolved-verified** |
+| **MC-B15** | `PRIYA-L1-704` (major) | ✅ **resolved-verified** |
+| **MC-B16** | `PRIYA-L1-701` (blocker) | ✅ **resolved-verified** on the local control; the **remote consequence stays `uncertain — not reproducible`, never passed** |
+| **MC-B17** | `PRIYA-L2-C5` (major) | ✅ **resolved-verified** |
+| **MC-B17** | `PRIYA-L2-C4` (major) | ⚙️ **fixed, not resolved** — code-verified, no live claim exercised |
+
+**Regressed: none.** Every check pass 1 recorded as resolved still holds where this pass crossed it
+(the permalink page, the governance card and the Delivery naming all render as pass 1 recorded them).
+
+---
+
+## 1. The headline — `PRIYA-L1-702` is closed, and it is an exact inversion of pass 1
+
+Pass 1's verdict was "mechanism landed, symptom unchanged": the payload had gained a `verified` field
+and **36 of 36** stored `resolved` rows still answered `true`, because `listRunOutcomes` joined
+verification back out of the lane's `closedIdsJson` — the very trailer set the finding indicted. Pass
+1 named the exact remedy: *stop joining, stamp the row*.
+
+That is what `9e8906f1` did, and the measurement flips completely:
+
+```
+sweep: GET /api/org/loop?org=kiro  +  20 x GET /api/org/loop/<id>?org=kiro
+  resolved itemOutcomes ............ 40
+  verified: true ................... 0        (pass 1: 36)
+  verified: false .................. 40       (pass 1: 0)
+  field absent ..................... 0
+  every false row also carries ..... verifiedAt: null
+```
+
+`lane-outcomes.ts:156-173` now reads `verified: row.verdict === "resolved" && verifiedAt !== null` —
+the row's own stamp, written by the rescan when it rules. A row nothing adjudicated can no longer
+borrow the lane's word for it.
+
+**And Priya can see it.** Fresh cockpit capture, `drive-armC-openrun.mjs "/org/kiro?tab=live" "RUN 1"`:
+
+```
+ITEM VERDICTS
+xkazm04/systedo-case · b87a08e6   skipped
+xkazm04/systedo-case · b8d643fa   claimed resolved — awaiting the rescan
+xkazm04/systedo-case · 7af1b6d2   claimed resolved — awaiting the rescan
+xkazm04/systedo-case · a500af2a   skipped
+xkazm04/kp           · f01a307e   claimed resolved — awaiting the rescan
+...
+```
+
+`shots/recert2-B23-run1.text.txt:1688-1733`. `grep -c "closed by the rescan"` over the ITEM VERDICTS
+section: **0**. Pass 1 measured 8 of 8 rows reading "closed by the rescan" and zero reading "claimed".
+
+**The two surfaces no longer contradict.** `GET /api/org/backlog?org=kiro&includeClosed=1` answers
+`{tracked: 22, open: 3, inProgress: 19, done: 0}`. Nothing on the cockpit now asserts a rescan
+confirmed a close, so `done: 0` and the item verdicts tell the same story — claims in flight, none
+adjudicated. That was the second half of the discriminator and it is settled.
+
+**Ceilings** (all three carried in the row's `ceiling` field): the POSITIVE half is unit-verified only
+— the one live post-fix run has 12 outcomes and 0 `resolved`, so no live row has yet earned a stamp;
+the lane rails (`LaneRail.tsx:56`, `AutopilotBandParts.tsx:123`) still print `closedIds.length`
+"closed by the rescan", un-backfilled for pre-fix lanes; and the sheet header still says "324 gaps
+closed" where `gaps` is `diff.closedGapCount`, a scan-diff quantity wearing the same word.
+
+---
+
+## 2. What the rest of the pass measured
+
+Full evidence for each row is stamped into `findings.json` under `recertify_evidence` (pass-1 stamps
+preserved, pass-2 appended after a `— RECERTIFY PASS 2 —` marker). The short version:
+
+- **MC-B4** — the report header hands over three separately-copyable payloads (permalink,
+  commit-pinned, README markdown) with the level line `L1 · Manual · 23` stated twice; a cookie-less
+  `GET /report/sindresorhus/slugify` returns 200 and 54 KB of report.
+- **MC-B5** — the anonymous arm was pinned to `PUBLIC_SCAN_MONTHLY_LIMIT=1` so derivation could be
+  *proved*: the Free card, the scan dialog's meter and the 429 all moved to **1**
+  ("1 free public scans / month" · "0 of 1 free scans left this month" ·
+  *"You've used your 1 free scan this month. Upgrade to **Starter** for more monthly scans"*).
+  The stored id `Pro` no longer reaches a user.
+- **MC-B6** — `ILLUSTRATIVE · 8 SAMPLE REPOS, DEMO WEIGHTING — NOT CUSTOMER DATA`, rendered directly
+  under the simulator's 8-repo grid and its metric row.
+- **MC-B7** — needed a **fresh live scan** (evidence strings are written at scan time). Before:
+  `CI runs tests`. After: `CI runs tests (.github/workflows/main.yml)`, and D3's CI-presence award and
+  D6's formatter likewise. The detector no longer lags the model's own prose.
+- **MC-B8** — (b) each flagged row now ends in `widened` with its clause; (c) `SCORE_STEP_LABEL` is a
+  total `Record` over `ProviderName` including `local`, and "Asking Claude…" was captured live
+  mid-scan; (d) on a genuinely empty database there is no repos-rated counter at all.
+- **MC-B10** — the three catalogue headings all render and each cross-links the other two; the ledger
+  says "chained"; the perimeter band still says SEALED.
+- **MC-B14** — `?format=csv` returns real CSV with `DIGEST_FIELD_ORDER` as its header line; the
+  integrity strip with **Verify now** + **Download observation rows (CSV)** renders in the non-empty
+  branch (kiro) *and* the empty one (public); `/api/audit/verify` returns `sealBacklogRemaining` and
+  **no longer returns `sealedOnThisRequest`**; the conformance-pack manifest carries a `## Ledger
+  integrity` section that honestly says there is no root yet.
+- **MC-B15** — the $-for-0-points case reads **`$7.60 · 0 pts`**: the spend is stated beside the zero.
+- **MC-B16** — a live local run survived ~35 minutes and ~30 cockpit reads. The remote half is
+  **`uncertain — not reproducible on this host`** and is recorded as such, not passed.
+- **MC-B17** — a three-way zero-residue probe on the real org proved tenancy: `kiro` + `xkazm04/kp`
+  now passes `repoUnderOrg` while `kiro` + `facebook/react` is still refused; the write was then
+  exercised end to end on the demo org (200, `derivedTier: T0` / `grantedTier: T1`).
+- **MC-B13** — the wiring audit that produced the finding now answers the other way (`failMeans` and
+  `descriptor` both have live consumers, and the card's footnote about them renders), but **no row on
+  this host is red and no descriptor control is observed**: all 16 observations are `unmeasurable`
+  because there is no GitHub App, and `/api/org/controls` is GET-only, so the fixture cannot be built
+  over HTTP. Resolved `fixed`, not `resolved-verified`.
+
+---
+
+## 3. Metric deltas
+
+Baselines are this run's `SUMMARY.md` ledger as amended by pass 1, never re-estimated here.
+
+| Journey · Character | Pass 1 | Pass 2 | Δ |
+|---|---|---|---|
+| `loop-to-l5` · **Priya** | ≈8–10×; **MC-B11 open** — "0 of 36 rows render the new label, 100% of the shipped value is behind MC-B19" | The label is on **every** pre-fix row; cockpit and ledger agree | **The pass's largest swing.** The cockpit stops laundering a claim into a verification, which was the trust cost the whole journey turned on |
+| `evaluate-whether-to-adopt` · **Tomáš** | ≈40 min saved through the front door | ≈40 min, unchanged; the funnel now states ONE allowance and names a tier that exists on the price list | **0 min, −1 contradiction.** The remaining one is the credit matrix (RC2-N5) |
+| `scan-my-repo-get-a-roadmap` · **Sam** | ≈5 h 50 net | ≈5 h 50 net | **0 min.** Two trust fixes (evidence filenames, flagged-row outcomes) and one **unrealised** promise: r14's first steps came back empty (RC2-N1) |
+| `supply-chain-and-governance-posture` · **Nadia** | ≈7–10 h/cycle; rework leak unretired | Same; the seal recipe now has rows, a door and a schedule, so "recompute it yourself" is executable for the first time | **0 h measured** — the leak is the `ControlObservation` path, still blocked by the no-GitHub-App ceiling |
+| `set-and-enforce-the-standard` · **Priya** | restored ≈150–200 h/quarter, one out-of-band write remaining | Unchanged (MC-X2 still unbuilt) | **0** |
+| `prove-and-track-fleet-maturity` · **Dana** | +2–4 h per board cycle | Unchanged | **0** |
+| `repeated-org-scans-worth-the-price` · **Victor** | ≈30 min/cycle, −78% error | Unchanged | **0** |
+
+**Grounding scores: unchanged, 0 delta, deliberately.** One item in this round touches a prompt —
+MC-B8a's `firstStep`, which adds an OUTPUT field, not a grounding source. `env.md` §Surface A still
+carries its ⚠ STALE banner and re-deriving a scored instrument outside `/uat update` would invalidate
+the cross-run trend.
+
+---
+
+## 4. New findings for the next drain
+
+### RC2-N1 — rubric r14 shipped a field the model returns empty *(major · quality-gap / trust · Sam)*
+
+`firstStep` is threaded end to end — schema, prompt skeleton, DB column, wire types, renderer — and
+`SCORING_RUBRIC_VERSION` was bumped to **r14** on the stated grounds that "the model is now ASKED a
+different question, so a cached r13 answer and a fresh r14 answer are not the same reading" — which
+invalidates every cached scan on the estate. **The first live r14 reading returned `firstStep` on 0 of
+9 roadmap items** (fresh claude-cli/opus scan of `sindresorhus/slugify`, 177 s), and the rendered
+report contains no "First step:" (`shots/recert2-B8-freshreport.text.txt`, 0 hits).
+
+The likely cause is visible in the prompt: `firstStep` appears **only** as an empty slot in the JSON
+skeleton (`prompt.ts:354`) and as a JSON-schema description (`schema.ts:66`). The ROADMAP COVERAGE
+block (`prompt.ts:291-298`) — where the model is actually told what a roadmap row must contain —
+never mentions it, while the surrounding instruction (`prompt.ts:323`) presses in the opposite
+direction: *"Ascent is a transition COMPANION, not a boss."* A model asked to be non-prescriptive,
+and asked for a concrete first move only by an empty key, omits the key. Label this root cause a
+`hypothesis` for the fixer; the 0-of-9 measurement is not a hypothesis.
+**Suggested:** one sentence in the ROADMAP COVERAGE block naming when a first step is expected and
+when omitting it is right. `build`, small. Do not fabricate a default — the absent-is-absent rule is
+correct and must survive the fix.
+
+### RC2-N2 — the derived allowance is not pluralized in the pricing copy *(polish · clarity · Tomáš)*
+
+With `PUBLIC_SCAN_MONTHLY_LIMIT=1` the Free card reads **"1 free public scans / month"** and
+"Private scans every month, and **1 free public scans**", and the footnote reads "The **1 free public
+scans** run on their own rolling 30-day window" (`shots/recert2-B5-pricing-l1.text.txt:44,51,435`).
+The 429 pluralizes correctly (`limit === 1 ? "" : "s"`, `public-scan-quota.ts:367`) — the same care
+was not applied to the copy that now derives the same number. Invisible at the default of 5; visible
+the moment an operator sets 1. **Suggested:** reuse the same ternary. `build`, trivial.
+
+### RC2-N3 — the register's worded empty state is unreachable *(polish · missing · Tomáš)*
+
+`IndexGallery.tsx:88-90` renders "No public scans yet. Scan a repository below to be the first on the
+register." when `board.length === 0`. It cannot fire: `loadPublicGalleryCards` returns **null** when
+no cards exist (`scans-read.ts:840`), and the landing page then drops the whole gallery block — which
+is what this pass observed on a truly empty arm (no heading, no counter, no empty state). Non-null
+implies `cards.length > 0` implies `recent.length > 0` implies `board.length > 0`, so the branch is
+dead in the exact case it was written for. Present-and-correct-but-unwired, the class L1's wiring
+audit owns. **Suggested:** decide which of the two behaviours is wanted — an absent section or a
+worded one — and delete the other. `build`, small.
+
+### RC2-N4 — an admission decision cannot be withdrawn *(major · trust · Priya)*
+
+`/api/org/admission` exposes `GET` and `POST` and nothing else. `upsertRepoAdmission` can *change* a
+decision, so the closest thing to a revoke is writing `grantedTier == derivedTier`, which still
+records that an owner decided something. On a surface whose whole argument is "an override with no
+named author is not a decision — it is a measurement with a different value" (`route.ts:99-102`), the
+inverse asymmetry is the problem: a decision made in error is permanent, and the audit trail cannot
+distinguish "decided, then withdrawn" from "decided". This pass hit it directly — its own probe row on
+org `public` could only be neutralised, not removed (residue #6). **Suggested:** a DELETE that records
+a withdrawal in `OrgAudit` (never a silent row removal), so the ledger reads decided → withdrawn.
+`build`, small.
+
+### RC2-N5 — /pricing still answers "Unlimited" for the allowance the same page caps *(minor · clarity · Tomáš)*
+
+MC-B5 fixed the Free card, the metadata and the FAQ; the credit matrix further down the **same page**
+was not in the write set. `creditMatrixData.ts:124` still opens the Scanning section with *"Public
+scans are always free and never metered."* and the "Public repository scan" row renders `Unlimited` in
+all four tier cells (`cells: all("Unlimited")`, line 131). The reconciliation exists — "Never metered
+on any plan — rate-limited and monthly-capped instead" — but it lives in the row's detail text, below
+a cell that says Unlimited, on a page whose Free card says 1 (or 5). This is the direct residue of
+`TOMAS-L1-02` and is pinned as intentional by `creditMatrixData.test.ts:58-59`, so it is a **decision
+to revisit**, not a miss. **Suggested:** `concept-doc` — the real question is whether "metered"
+(credit-consuming) and "capped" (allowance) can be two words on a page a buyer skims, or whether the
+matrix cell should simply state the allowance. Rank by convergence: this is the third run in which a
+Tomáš-class reader meets two numbers for one free tier.
+
+### RC2-N6 — "closed" still means two things on the cockpit *(minor · clarity · Priya)*
+
+MC-B23 fixed the per-item verdict. Two siblings kept the old word: the lane rails print
+`{closedIds.length} closed by the rescan` (`LaneRail.tsx:56`, `AutopilotBandParts.tsx:123`) — honest
+for post-fix lanes, still the raw trailer count for every pre-fix one — and the outcome sheet header
+prints "324 gaps closed" where `gaps` is `diff.closedGapCount` (`outcomeCellFold.ts:81`), a scan-diff
+quantity, not a follow-up count. A reader who has just learned that "claimed resolved" is not "closed"
+now meets "closed" twice more, meaning two other things. **Suggested:** `build`, small — the rail says
+"verified closed", the header says "gaps no longer raised".
+
+### RC2-M1 — methodology: a shared `distDir` makes an empty-database arm lie *(method)*
+
+The register read `2 PUBLIC REPOS RATED`, then `5`, on **freshly bootstrapped** PGlite directories.
+Cause: `loadPublicGalleryCards` is wrapped in Next's `unstable_cache` (`scans-read.ts:797`, tag
+`public-scan-gallery`), and every `ASCENT_EMPTY=1` arm shares `distDir: .next-empty`
+(`next.config.ts:47`) — so a new arm with a brand-new database serves the **previous arm's** cached
+rows. An empty-state check run that way is a silent false pass, and it nearly produced one here for
+MC-B8d. **Standing rule for `env.md` §Arm construction:** when the arm's point is an EMPTY database,
+`rm -rf .next-empty` before booting it, and note that only one `ASCENT_EMPTY` instance can run at a
+time (a second dies with "Another next dev server is already running", pointing at the shared
+`.next-empty`).
+
+### RC2-M2 — methodology: RC-M2 is unfixed, and it bit again *(method)*
+
+Pass 1 recorded that `drive-armB-gatepolicy.mjs` hard-codes its shot stems and destroyed arm B's
+originals. The same is true of `drive-armA-dimloop.mjs` (writes `armA-dimloop.json`,
+`armA-dim-D{1..9}.png`) and `drive-armA-dims.mjs`, and **this pass overwrote pass 1's copies of those
+files** before noticing — fresh copies were taken as `recert2-B7-*` afterwards, but the pass-1 bytes
+are gone (gitignored). The lesson has now cost two passes. **Fix, concretely:** give every reusable
+driver a `shot` argument the way `drive-armC-openrun.mjs` does; three drivers need it.
+
+### RC2-M3 — methodology: two techniques worth keeping *(method)*
+
+(a) **The zero-residue gate probe.** When a POST route validates tenancy *before* the field
+validators, sending a deliberately invalid field distinguishes "the gate accepted this repo" from
+"the gate rejected it" by *which error comes back* — proving the gate without writing a row. It
+settled `PRIYA-L2-C5` on the real working org with no residue at all; the write was then exercised on
+a demo org where the residue is inert. (Note for the driver: ascent's org POST routes enforce
+same-origin, so a probe must send `Origin`/`Referer` or it answers 403 "Cross-origin request
+rejected." before any validator runs.)
+(b) **Pin a limit to prove a derivation.** MC-B5's claim was "one number everywhere". Reading the
+default (5) on three surfaces proves nothing — three hardcoded 5s look identical. Booting the arm with
+`PUBLIC_SCAN_MONTHLY_LIMIT=1` made every surface that re-typed the number visible instantly.
+Generalize: **to certify a single-source claim, move the source.**
+
+---
+
+## 5. Residue — everything this pass wrote
+
+| # | What | Where | Reverted? |
+|---|---|---|---|
+| 1 | Killed PID 35740 (`:3000`, pre-commit-range) and restarted `npm run dev` as PID 44724 | host | n/a — **:3000 is left RUNNING and healthy** |
+| 2 | Anonymous arms on `:3100`: three successive instances (`.pglite/uat-armA2`, then `.pglite/uat-recert2-empty`, the last with `PUBLIC_SCAN_MONTHLY_LIMIT=1`). `.next-empty` and `.pglite/uat-recert2-empty` were **deleted and rebuilt** mid-pass (RC2-M1) | host | **:3100 was STOPPED at the end of the pass.** The throwaway PGlite dirs `.pglite/uat-armA2` and `.pglite/uat-recert2-empty` are left on disk for inspection and can be deleted freely; the shared `:3000` and `.pglite/ascent` were never opened by them |
+| 3 | **Live claude-cli scan** of `sindresorhus/slugify` on `:3000` (`fresh: true`, 177 s) — a new Scan row, now that repo's latest reading (rubric r14) | `.pglite/ascent` | **No.** Intentional and necessary: MC-B7's evidence strings and MC-B8a's `firstStep` are written at scan time and cannot be certified off a pre-fix row |
+| 4 | **Live scan of `sindresorhus/pretty-bytes` started and abandoned** on `:3000` — the browser was closed after capturing the provider label; the server-side scan will have completed and landed a row | `.pglite/ascent` | **No.** One extra public-repo scan row |
+| 5 | On the `:3100` throwaway DBs: 5 **mock** scans (`sindresorhus/{slugify,p-limit,ky,got,execa}`), 1 **live** scan of `slugify`, and one 429 probe | `.pglite/uat-armA2`, `.pglite/uat-recert2-empty` | n/a — isolated throwaway databases |
+| 6 | **Admission decision row** on org `public` for `sindresorhus/slugify` (the MC-B17 write proof) | `.pglite/ascent` | **Partially.** Neutralised by a second POST to `grantedTier: T0` (== `derivedTier`, so no override is in force) with `mode: blocked` and a rationale naming this run. **It cannot be deleted — the route has no DELETE (RC2-N4).** Org `public` runs no loop, so the row is inert |
+| 7 | `OrgAudit` rows from #6 (two admission writes) | `OrgAudit` | **No** — append-only by design. Rows dated 2026-08-31, org `public`, actor `developer`, are UAT residue |
+| 8 | 4 zero-residue POST probes to `/api/org/admission` that all returned 400 before any write | — | n/a — nothing was written |
+| 9 | **Overwrote** `shots/armA-dimloop.json` and `shots/armA-dim-D{1..9}.png` — hard-coded stems in `drive-armA-dimloop.mjs` (RC2-M2) | run dir | **No — irrecoverable.** Copies of both the pre-fix and post-fix readings were saved as `recert2-B7-dimloop.json` / `recert2-B7-fresh-dimloop.json` / `recert2-B7-D{1..9}.png` |
+| 10 | New shots, all prefixed `recert2-*` (gitignored) | run dir | kept as evidence |
+| 11 | `findings.json` — **20 rows** patched in place (`resolution`, `ceiling`, `recertify_evidence`, `recertify_commit_range`); pass-1 stamps preserved and appended to, never overwritten. Re-parsed after the write: 86 rows, unchanged count | run dir | intentional |
+| 12 | This section | run dir | intentional |
+| 13 | **Not this pass:** loop run `a97baf88` (started 14:10 local by a parallel session sharing this checkout) was in flight throughout and was neither started, read destructively, nor stopped by this pass | — | n/a |
+
+**Nothing was committed.** The working tree carries the `findings.json` edit and this file for review.

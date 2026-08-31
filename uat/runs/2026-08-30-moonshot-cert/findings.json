@@ -60,14 +60,14 @@
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "No divergent row can be produced on this build to demonstrate the laundering directly — the trailer path makes agent-claimed and rescan-closed identical by construction, so the proof is structural plus the backlog contradiction. A fixture with a lane whose commit trailers are stripped would exhibit the divergence.",
+    "resolution": "resolved-verified",
+    "ceiling": "No divergent row can be produced on this build to demonstrate the laundering directly — the trailer path makes agent-claimed and rescan-closed identical by construction, so the proof is structural plus the backlog contradiction. A fixture with a lane whose commit trailers are stripped would exhibit the divergence.\n\nPASS 2 CEILING: The POSITIVE half is unit-verified only: no post-fix run on this host has yet produced a `verified: true` row, because the one live post-fix run (a97baf88, started 14:10 local by a parallel session) has 12 itemOutcomes and 0 `resolved` so far — so 'the stamp is written when the rescan rules' rests on lane-outcomes.test.ts:320, not on a live row. The AutopilotBandParts.tsx:123 / LaneRail.tsx:56 lane rails still print `{lane.closedIds.length} closed by the rescan`, and for PRE-FIX lanes that count is still the raw trailer set — the rail was not backfilled, only the per-item verdict was. And the sheet header still says '324 gaps closed' where `gaps` is `diff.closedGapCount` (outcomeCellFold.ts:81), a scan-diff quantity wearing the word 'closed'.",
     "recurrence": null,
     "suggested_acceptance": "BUILD — first. Store a `verified` boolean (or a sixth verdict value) on LaneOutcomeRow, route `rescanWorktree` through the same `decideInProgress` movement witness `scans-persist.ts` uses, and render 'claimed resolved — awaiting the rescan' in a distinct tone. Fix the test whose title contradicts its assertion in the same change.",
     "scope_note": "BLOCKER-GRADE ESCALATION CONSIDERED AND DECLINED. Impact is the highest triple in the run (high/high/high) and arm C proved the mechanism is systemic rather than occasional, but the Character completes her job and says so in her own words ('I would still roll this out. I would not show anyone the verdict panel until it says which of those two numbers it means'). Per the rubric that is `major` — serious friction and a verdict she would not defend — not `blocker`. It is ranked #1 in the drain order regardless, above both blockers, because drain order is impact-weighted and both blockers score lower on reachability-today or on frequency.",
     "l2_priority": "DONE (arm C). Precondition satisfied: self-hosted + autopilot + org `kiro` with a 20-run corpus.",
-    "recertify_evidence": "L2 recertify on :3000, org `kiro`, 20-run corpus — MECHANISM LANDED, SYMPTOM UNCHANGED. What is now true: the payload carries the discriminator the finding said it lacked — 36 of 36 stored `resolved` itemOutcomes across all 20 runs come back with a `verified` field (sweep over GET /api/org/loop/<id>?org=kiro), and CockpitVerdicts.tsx:52-60 renders an unverified resolved as 'claimed resolved — awaiting the rescan' in an italic muted tone with its own title. What Priya can actually see: NOTHING CHANGED. All 36 rows read `verified: true`, because `listRunOutcomes` (lane-outcomes.ts:301-321) joins verification from the lane's `closedIdsJson` — and every PRE-FIX lane's closedIds IS the raw commit-trailer set the finding indicted, so the tautology now re-enters through the join. Live capture of run 1 (uat/driver/drive-armC-openrun.mjs '/org/kiro?tab=live' '^Run 1 today'): 8 ITEM VERDICTS rows, all 8 reading 'closed by the rescan' (shots/recert-B11-run1.aria.yaml:2253-2277), ZERO reading 'claimed resolved'. The two surfaces still contradict: cockpit 'Closed 16 follow-ups' and '2 repos · 328 gaps closed' (shots/recert-B11-run1.text.txt:170,277) vs GET /api/org/backlog?org=kiro&includeClosed=1 → {tracked:17, open:3, inProgress:14, done:0}. STILL MISSING: the pre-column backfill — either clear/ignore `closedIdsJson` on lanes written before the split, or store `verified` on the row instead of joining it, so historical rows fall to `verified:false` (the direction the module's own docstring calls 'the safe direction for a trust flag'). That is MC-B19. No new loop run was started (claude-cli weekly cap); the discriminator is read-time, so a new run is not what is missing. Commits under test f7bfa8d2..c56ab666 (MC-B11, d165da23).",
-    "recertify_commit_range": "f7bfa8d2..c56ab666"
+    "recertify_evidence": "L2 recertify on :3000, org `kiro`, 20-run corpus — MECHANISM LANDED, SYMPTOM UNCHANGED. What is now true: the payload carries the discriminator the finding said it lacked — 36 of 36 stored `resolved` itemOutcomes across all 20 runs come back with a `verified` field (sweep over GET /api/org/loop/<id>?org=kiro), and CockpitVerdicts.tsx:52-60 renders an unverified resolved as 'claimed resolved — awaiting the rescan' in an italic muted tone with its own title. What Priya can actually see: NOTHING CHANGED. All 36 rows read `verified: true`, because `listRunOutcomes` (lane-outcomes.ts:301-321) joins verification from the lane's `closedIdsJson` — and every PRE-FIX lane's closedIds IS the raw commit-trailer set the finding indicted, so the tautology now re-enters through the join. Live capture of run 1 (uat/driver/drive-armC-openrun.mjs '/org/kiro?tab=live' '^Run 1 today'): 8 ITEM VERDICTS rows, all 8 reading 'closed by the rescan' (shots/recert-B11-run1.aria.yaml:2253-2277), ZERO reading 'claimed resolved'. The two surfaces still contradict: cockpit 'Closed 16 follow-ups' and '2 repos · 328 gaps closed' (shots/recert-B11-run1.text.txt:170,277) vs GET /api/org/backlog?org=kiro&includeClosed=1 → {tracked:17, open:3, inProgress:14, done:0}. STILL MISSING: the pre-column backfill — either clear/ignore `closedIdsJson` on lanes written before the split, or store `verified` on the row instead of joining it, so historical rows fall to `verified:false` (the direction the module's own docstring calls 'the safe direction for a trust flag'). That is MC-B19. No new loop run was started (claude-cli weekly cap); the discriminator is read-time, so a new run is not what is missing. Commits under test f7bfa8d2..c56ab666 (MC-B11, d165da23).\n\n— RECERTIFY PASS 2 (b1992360..afc913c0, 2026-08-31 ~14:10–15:10 +02:00) —\nMC-B23 / commit 9e8906f1. THE HEADLINE CHECK — PASSES, and it is an exact inversion of pass 1. Sweep over GET /api/org/loop?org=kiro + 20 × GET /api/org/loop/<id>?org=kiro: 40 stored `resolved` itemOutcomes across the corpus, **verifiedTrue = 0, verifiedFalse = 40, noField = 0** (pass 1 measured 36/36 `verified: true`). Every row now carries `verifiedAt: null` alongside `verified: false` — the fact is read from the row's OWN stamp (lane-outcomes.ts:156-173), not joined back from the lane's `closedIdsJson`, so the tautology pass 1 measured is gone. LIVE RENDER, fresh capture (uat/driver/drive-armC-openrun.mjs '/org/kiro?tab=live' 'RUN 1' recert2-B23-run1): every pre-fix resolved row reads **'claimed resolved — awaiting the rescan'** (shots/recert2-B23-run1.text.txt:1697, 1704, 1718) and the string 'closed by the rescan' appears **zero times** in the ITEM VERDICTS section (`grep -c` = 0). The cockpit/ledger contradiction is retired: no row now claims a rescan confirmed it, which is consistent with GET /api/org/backlog?org=kiro&includeClosed=1 → {tracked:22, open:3, inProgress:19, done:0}. Cockpit capture: shots/recert2-B23-cockpit.*, shots/recert2-B23-run1.*.",
+    "recertify_commit_range": "f7bfa8d2..c56ab666; b1992360..afc913c0"
   },
   {
     "id": "PRIYA-L1-701",
@@ -94,12 +94,14 @@
     ],
     "code_check": "present-broken",
     "verdict": "uncertain",
-    "resolution": "open",
-    "ceiling": "The remote half is NOT REPRODUCIBLE ON THIS HOST and resolves `uncertain`, never refuted. Reaching `phase:\"running\"` on a remote run needs `attachRemoteClaim`, whose only caller is the MCP `claim_followups` tool, which refused at the T0 autonomy gate; the override is blocked twice over (PRIYA-L2-C4, PRIYA-L2-C5) and raising the derived tier needs a fresh passport scan while `LLM_PROVIDER=claude-cli` is over its weekly cap until Sep 1 20:00. CLOSING FIXTURE: an org whose slug equals its repos' owner namespace (seed `xkazm04`, not `kiro`), one repo at a derived tier ≥ T1 (or `repoGate` taught to consult `listOrgAdmissions`), and a claude-cli quota window; then arm remote → claim_followups → confirm `running` → GET from a second client → assert the run is not stopped, no 'Interrupted — the server restarted', claims not force-released.",
+    "resolution": "resolved-verified",
+    "ceiling": "The remote half is NOT REPRODUCIBLE ON THIS HOST and resolves `uncertain`, never refuted. Reaching `phase:\"running\"` on a remote run needs `attachRemoteClaim`, whose only caller is the MCP `claim_followups` tool, which refused at the T0 autonomy gate; the override is blocked twice over (PRIYA-L2-C4, PRIYA-L2-C5) and raising the derived tier needs a fresh passport scan while `LLM_PROVIDER=claude-cli` is over its weekly cap until Sep 1 20:00. CLOSING FIXTURE: an org whose slug equals its repos' owner namespace (seed `xkazm04`, not `kiro`), one repo at a derived tier ≥ T1 (or `repoGate` taught to consult `listOrgAdmissions`), and a claude-cli quota window; then arm remote → claim_followups → confirm `running` → GET from a second client → assert the run is not stopped, no 'Interrupted — the server restarted', claims not force-released.\n\nPASS 2 CEILING: THE REMOTE CONSEQUENCE — the one the blocker was actually about — REMAINS `uncertain — not reproducible on this host`, and is deliberately not passed. `startRemoteRun` creates no live-registry entry by construction, and this host has no remote executor configured (`autoscan.githubApp: false`), so no run with `executor: remote-agent` can be created here; every lane in the corpus is `executor: local`. The exclusion is therefore certified by unit tests plus a local control, never by a reproduction. Fixture that would close it: one loop run dispatched to a remote executor (a configured GitHub App + an agent runner), read from the cockpit while `running`.",
     "recurrence": null,
     "suggested_acceptance": "BUILD — one predicate: exclude runs whose lanes are all `executor:\"remote-agent\"` from the stale sweep (or stamp executor on the run row), and clear `claimActor`/`leaseUntil` on release. Cheap, and it is the load-bearing gate on the whole #3 protocol.",
     "scope_note": "Severity stays `blocker` on the job-impact scale — for remote-posture Priya the run is destroyed the moment anyone looks at it, which is total loss of work in flight. impact.reachability is `low` TODAY because remote posture is unreachable on this host (T0 gate + no cloud shape), so the drain order ranks it below reachable majors. Reachability rises to `high` the day either C-4 or C-5 is fixed.",
-    "l2_priority": "PARTIAL (arm C): mechanism confirmed, local control passed, remote half open. Re-run against the closing fixture above."
+    "l2_priority": "PARTIAL (arm C): mechanism confirmed, local control passed, remote half open. Re-run against the closing fixture above.",
+    "recertify_evidence": "— RECERTIFY PASS 2 (b1992360..afc913c0, 2026-08-31 ~14:10–15:10 +02:00) —\nMC-B16 / commit d3b026d9. LOCAL CONTROL, LIVE: run a97baf88-f23e-4c93-b42e-7b5cc2f14504 (started 2026-08-31T12:10:22Z by a parallel session, `delivery: land`, all four lanes `executor: local`) stayed `phase: running` across ~35 minutes and roughly 30 reads of `GET /api/org/loop?org=kiro` plus three full cockpit page loads made by this pass — it was never stopped by a read, and its lanes kept their claims. Code: the sweep now excludes stale runs holding ANY lane with an external executor, and a read failure excludes nothing (the recoverable direction). Second half of the commit — a release clearing `claimActor`/`claimExecutor`/`leaseUntil` — is code+unit only here. NOTE for provenance: this pass started and stopped NO loop run; a97baf88 belongs to another session sharing this checkout.",
+    "recertify_commit_range": "b1992360..afc913c0"
   },
   {
     "id": "TOMAS-L1-08",
@@ -160,12 +162,14 @@
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "The 429 copy itself was not exercised (the arm did not exhaust the allowance), so the 'Pro' vs 'Starter' mismatch remains code-verified only.",
+    "resolution": "resolved-verified",
+    "ceiling": "The 429 copy itself was not exercised (the arm did not exhaust the allowance), so the 'Pro' vs 'Starter' mismatch remains code-verified only.\n\nPASS 2 CEILING: ONE PAGE, TWO ANSWERS REMAIN. The credit matrix further down the SAME /pricing page was not touched: creditMatrixData.ts:124 still reads 'Public scans are always free and never metered.' and the 'Public repository scan' row renders `Unlimited` in all four tier cells (`cells: all(\"Unlimited\")`, creditMatrixData.ts:131) — reconciled only by a clause inside the row's detail text ('Never metered on any plan — rate-limited and monthly-capped instead'). A reader who reads the Free card ('1 free public scans / month') and the matrix ('Unlimited') gets two answers. Pinned as intentional by creditMatrixData.test.ts:58-59, so this is a live design decision, not a miss — but it is the residue of exactly the finding. Second ceiling: the pricing copy does NOT pluralize (see new finding RC2-N2).",
     "recurrence": 2,
     "suggested_acceptance": "BUILD — copy only. State the real allowance on the Free card and in the FAQ, and rename the 429's tier.",
     "scope_note": null,
-    "l2_priority": "DONE (arm A). B8 is NOT closed."
+    "l2_priority": "DONE (arm A). B8 is NOT closed.",
+    "recertify_evidence": "— RECERTIFY PASS 2 (b1992360..afc913c0, 2026-08-31 ~14:10–15:10 +02:00) —\nMC-B5 / commit 21bef0ed. Verified on a PURPOSE-BUILT ANONYMOUS ARM, per env.md §Arm construction: `ASCENT_EMPTY=1 PGLITE_DATA_DIR=.pglite/uat-recert2-empty ASCENT_AUTH_BYPASS= PUBLIC_SCAN_QUOTA_DISABLED= ASCENT_SELF_HOSTED=0 PUBLIC_SCAN_MONTHLY_LIMIT=1 npx next dev -p 3100`. ANONYMITY ASSERTED FIRST: shots/recert2-B8d-zero.aria.yaml:17 carries a bare `button \"Sign in\"` — no org, no avatar, no identity menu. The limit was set to 1 deliberately so DERIVATION could be proven rather than assumed: if any surface re-typed '5' it would now disagree. All three surfaces state the SAME number: (1) /pricing Free card — '1 free public scans / month' and 'Private scans every month, and 1 free public scans' (shots/recert2-B5-pricing-l1.text.txt:44,51); (2) the scan dialog's quota meter — '0 of 1 free scans left this month' (shots/recert2-B5-scandialog.text.txt:47, aria.yaml:61); (3) the 429, after one real public scan consumed the single slot — `{\"error\":\"You've used your 1 free scan this month. Upgrade to Starter for more monthly scans, add scan credits, or try again once the window resets.\",\"code\":\"monthly_quota\",...}` with x-ascent-quota-remaining: 0. The tier label reads **Starter**, not the stored id 'Pro'. /api/quota agreed throughout ({\"enforced\":true,\"limit\":1,\"scope\":\"anon\"}).",
+    "recertify_commit_range": "b1992360..afc913c0"
   },
   {
     "id": "TOMAS-L1-10",
@@ -254,12 +258,14 @@
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "The /about half is static and L1-provable; the 'live scan substitutes for proof' limb was proven reachable only by routing around the front door (TOMAS-L1-08), so the substitute holds today for a visitor who guesses a URL.",
+    "resolution": "resolved-verified",
+    "ceiling": "The /about half is static and L1-provable; the 'live scan substitutes for proof' limb was proven reachable only by routing around the front door (TOMAS-L1-08), so the substitute holds today for a visitor who guesses a URL.\n\nPASS 2 CEILING: Only the LABEL half of this finding was built. The other half — 'no quantified customer proof anywhere in the public funnel' — is untouched: /about still carries no customer number, logo, case study or named reference, and the simulator's new caption makes that MORE visible by admitting the one quantified artifact on the page is invented. Honest, and still the same gap for a buyer.",
     "recurrence": 2,
     "suggested_acceptance": "BUILD (small) — label the simulator illustrative, or delete it and promote the register, which does the same job with real repos.",
     "scope_note": "Unchanged since 2026-08-10; re-verified line by line against current source.",
-    "l2_priority": "P2 — DOM read of /about for any illustrative label."
+    "l2_priority": "P2 — DOM read of /about for any illustrative label.",
+    "recertify_evidence": "— RECERTIFY PASS 2 (b1992360..afc913c0, 2026-08-31 ~14:10–15:10 +02:00) —\nMC-B6 / commit 27a722ee. Live on the anonymous arm (:3100), /about: the ROI simulator's 8-repo grid and its metric row (1 PROMOTED · +3 AVG GAIN · 6 IN SCOPE) are followed immediately by the rendered caption **'ILLUSTRATIVE · 8 SAMPLE REPOS, DEMO WEIGHTING — NOT CUSTOMER DATA'** (shots/recert2-B6-about.text.txt:116, directly under the grid at lines 96-114). The count in the caption matches the eight repos actually drawn (web-app … docs-site).",
+    "recertify_commit_range": "b1992360..afc913c0"
   },
   {
     "id": "TOMAS-L1-09",
@@ -314,12 +320,14 @@
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "Not reproducible at L2 — arm A's DB was virgin at start but the arm's own scans populated it before the landing was re-read. Fresh-deployment / post-purge state only.",
+    "resolution": "resolved-verified",
+    "ceiling": "Not reproducible at L2 — arm A's DB was virgin at start but the arm's own scans populated it before the landing was re-read. Fresh-deployment / post-purge state only.\n\nPASS 2 CEILING: On a genuinely empty database the register section is not rendered AT ALL — `loadPublicGalleryCards` returns null when no cards exist (scans-read.ts:840) and the landing page drops the whole block — so the guard that was actually exercised is the null one, not `totalRepos > 0`. A consequence worth naming: IndexGallery's own worded empty state ('No public scans yet. Scan a repository below to be the first on the register.', IndexGallery.tsx:88-90) is therefore unreachable in the exact case it was written for. Raised as RC2-N3.",
     "recurrence": 2,
     "suggested_acceptance": "BUILD (trivial) — suppress the counter at zero. Downgraded major → polish from 2026-08-10.",
     "scope_note": null,
-    "l2_priority": "P4 — not worth standing up a fixture."
+    "l2_priority": "P4 — not worth standing up a fixture.",
+    "recertify_evidence": "— RECERTIFY PASS 2 (b1992360..afc913c0, 2026-08-31 ~14:10–15:10 +02:00) —\nMC-B8d / commit 0d088f41. Verified on a TRULY empty anonymous arm — `.next-empty` and `.pglite/uat-recert2-empty` were both deleted before the boot, because Next's `unstable_cache` (tag 'public-scan-gallery', scans-read.ts:797) had been serving a previous arm's rows over a fresh database and would have made this read a false pass. On that arm the landing page carries no '0 public repos rated', no repos-rated counter of any kind, and no register heading (grep over shots/recert2-B8d-zero.text.txt: 0 hits for 'repos rated' / 'Served live from' / 'The register' as a heading). The non-zero branch renders correctly with the provenance stamp beside it, captured before the reset: '2 PUBLIC REPOS RATED' / 'SERVED LIVE FROM EMBEDDED PGLITE · AS OF TODAY' (shots/recert2-B5-landing.text.txt:122-123). Code: IndexGallery.tsx:57 `{totalRepos > 0 && …}` with the stamp kept in both states (line 65).",
+    "recertify_commit_range": "b1992360..afc913c0"
   },
   {
     "id": "SAM-L1-02",
@@ -477,12 +485,14 @@
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "Judged on one absence-shaped repo (p-limit). A repo with several CI workflows would test whether the D3 cluster can name a workflow filename at all — the backlog says its concatenated `workflowText` blob is why it cannot.",
+    "resolution": "resolved-verified",
+    "ceiling": "Judged on one absence-shaped repo (p-limit). A repo with several CI workflows would test whether the D3 cluster can name a workflow filename at all — the backlog says its concatenated `workflowText` blob is why it cannot.\n\nPASS 2 CEILING: Two awards still cite nothing, both by design and both visible to Sam: D6's 'Linter configured' stays bare because it is a MANIFEST-text hit (xo in package.json) and the commit deliberately does not cite a dependency as a file; and D8 could not be exercised at all on this fixture — slugify's D8 evidence is a single negative ('No dedicated AI process/harness detected'), so no D8 award fired and the D8 half of the fix is unexercised live. A repo with a populated `.ai/` directory would close that.",
     "recurrence": 2,
     "suggested_acceptance": "BUILD — carry the workflow FILENAME the matching line came from, rather than a path from idx.first(). NARROWED and DOWNGRADED major → minor by L2's discovery that the prose already cites.",
     "scope_note": "The B4 majority is carried forward separately as a fixed prior finding; this row is the residue.",
-    "l2_priority": "DONE (arm A)."
+    "l2_priority": "DONE (arm A).",
+    "recertify_evidence": "— RECERTIFY PASS 2 (b1992360..afc913c0, 2026-08-31 ~14:10–15:10 +02:00) —\nMC-B7 / commit 13410fcf. The evidence strings are written at SCAN time, so a pre-fix report cannot show them — a FRESH live claude-cli scan was run (POST /api/scan {url: .../sindresorhus/slugify, fresh:true} → 200 in 177 s, engine {provider: claude-cli, model: opus}), then the report DOM was read dimension-by-dimension (uat/driver/drive-armA-dimloop.mjs → shots/recert2-B7-fresh-dimloop.json). BEFORE (the same repo's pre-fix scan, shots/recert2-B7-dimloop.json): D3 'GitHub Actions CI present' · 'CI runs tests'; D6 'Formatter configured'. AFTER: **D3 'GitHub Actions CI present (.github/workflows/main.yml)' · 'CI runs tests (.github/workflows/main.yml)'; D6 'Formatter configured (.editorconfig)'.** The detector no longer lags the model: the same scan's D6 discrepancy prose names `.github/workflows/main.yml`, and now so does the EVIDENCE list beside it.",
+    "recertify_commit_range": "b1992360..afc913c0"
   },
   {
     "id": "SAM-L1-04",
@@ -509,12 +519,14 @@
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "Arm (b) of the finding — the DB-OFF path where the permalink would 503/ColdScanGate — was not run: the arm's instance boots PGlite in-process and a restart would have cost the arm. That half stays `uncertain — not reproducible in this arm`.",
+    "resolution": "resolved-verified",
+    "ceiling": "Arm (b) of the finding — the DB-OFF path where the permalink would 503/ColdScanGate — was not run: the arm's instance boots PGlite in-process and a restart would have cost the arm. That half stays `uncertain — not reproducible in this arm`.\n\nPASS 2 CEILING: The permalink origin is read from window.location, so on this dev host it hands over `http://localhost:3000/...` — correct behaviour, but it means the copyable payload is only as portable as the origin the reader is on. And the truly-anonymous arm (:3100) holds no scan of this repo, so 'the permalink serves the REPORT to a signed-out visitor' is proven by (a) a cookie-less 200 with the full report on :3000 and (b) the route's own code (report/[owner]/[repo]/page.tsx:36-39 resolves via readableOrgForOwner; only history/recommendations are viewer-gated) — not by an anonymous fetch of a populated permalink.",
     "recurrence": 3,
     "suggested_acceptance": "BUILD — smallest fix on the page, and it also serves SAM-L1-12's unserved README job (option (b): a permalink + level line). One item, not two.",
     "scope_note": "Independently hit by Tomáš at L2 ('They are billing a feature — at $0, but billing it — that the product never hands you').",
-    "l2_priority": "DONE (arm A), one half."
+    "l2_priority": "DONE (arm A), one half.",
+    "recertify_evidence": "— RECERTIFY PASS 2 (b1992360..afc913c0, 2026-08-31 ~14:10–15:10 +02:00) —\nMC-B4 / commit 9d85f01a. Live on :3000, report for sindresorhus/slugify. The header now carries an '∞ Permalink' control (permalink sweep: shots/recert2-B4-report.permalink.json) and clicking it opens a panel with ALL THREE payloads, each in its own textbox with its own Copy button (shots/recert2-B4-permalink.aria.yaml:31-40): PERMALINK `http://localhost:3000/report/sindresorhus/slugify`; THIS COMMIT `…/slugify@7c318bd1aa4b4affab29761f15a9604323fe2a3b`; README `[Ascent: L1 · Manual · 23](http://localhost:3000/report/sindresorhus/slugify)`. The LEVEL LINE is present twice — in the panel's own sentence 'This report has a permanent address. L1 · Manual · 23 — the level line to put beside it.' (shots/recert2-B4-permalink.text.txt:33) and inside the README markdown. The address SERVES: `curl` with no cookies → GET /report/sindresorhus/slugify = 200, 54,761 B of report HTML; the same route on the anonymous arm (:3100, bypass off, ARIA shows a bare 'Sign in') returns 200 with 'No report yet for sindresorhus/slugify' — a report shell, not an auth wall.",
+    "recertify_commit_range": "b1992360..afc913c0"
   },
   {
     "id": "SAM-L1-05",
@@ -545,7 +557,9 @@
     "recurrence": 2,
     "suggested_acceptance": "BUILD (additive) — a `firstStep` field beside the rationale. Last thing between criterion #4 and a clean pass.",
     "scope_note": null,
-    "l2_priority": "DONE (arm B, incidental to the SAM-L1-09 capture)."
+    "l2_priority": "DONE (arm B, incidental to the SAM-L1-09 capture).",
+    "recertify_evidence": "— RECERTIFY PASS 2 (b1992360..afc913c0, 2026-08-31 ~14:10–15:10 +02:00) —\nMC-B8a / commits 97d48243 + afc913c0 (rubric r14). LANDED AND WIRED, BUT NO LIVE FIRST STEP EXISTS. Code: roadmapPieces.tsx:271-273 renders `item.firstStep && <…>First step: {item.firstStep}` — conditional; scans-read.ts:1274 and scans-shared.ts:243 spread `...(r.firstStep ? { firstStep: r.firstStep } : {})`, so an absent value is absent, never fabricated. The 'old scans render EXACTLY as before' half is CONFIRMED live: the pre-fix slugify report renders no 'First step:' anywhere (grep over shots/recert2-B4-report.text.txt = 0 hits). The other half is NOT confirmed: a FRESH r14 live opus scan of the same repo returned **firstStep on 0 of 9 roadmap items** (POST /api/scan …fresh:true; `roadmap.filter(r => r.firstStep).length === 0`), and the rendered fresh report likewise contains no 'First step:' (shots/recert2-B8-freshreport.text.txt, 0 hits). The field appears in the prompt only as an empty slot in the JSON skeleton (prompt.ts:354) and as a schema description (schema.ts:66) — there is no prose instruction in the roadmap section asking for it. So the rubric was bumped to r14 (invalidating every cached r13 reading) for a field that came back empty on the first live reading. Stays OPEN: what is missing is one live roadmap row carrying a first step. Raised as RC2-N1.",
+    "recertify_commit_range": "b1992360..afc913c0"
   },
   {
     "id": "SAM-L1-06",
@@ -571,12 +585,14 @@
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "—",
+    "resolution": "resolved-verified",
+    "ceiling": "—\n\nPASS 2 CEILING: Only the `widened` branch was exercised live — this fixture produced two flagged claims and both were accepted-and-widened. 'lost to the budget', 'D9 dropped as unmeasurable', 'structurally ineligible' and the 'outcome not recorded' path for pre-field snapshots are covered by discrepancyOutcome.ts + its DOM test, not by a live row.",
     "recurrence": 2,
     "suggested_acceptance": "BUILD (trivial) — one outcome word per flagged row. NARROWED to per-claim attribution; the global half shipped with the chip.",
     "scope_note": "Shares a data source with SAM-L1-02.",
-    "l2_priority": "DONE (arm A)."
+    "l2_priority": "DONE (arm A).",
+    "recertify_evidence": "— RECERTIFY PASS 2 (b1992360..afc913c0, 2026-08-31 ~14:10–15:10 +02:00) —\nMC-B8b / commit 0d088f41. Live on the FRESH post-fix slugify report (shots/recert2-B8-freshreport.text.txt:207-218). The section intro now reads '…Each row says what the claim did to the score.', and each of the two flagged rows ends in an outcome word plus its clause: D2 → **'widened'** · 'The model's objection was accepted: this dimension's guardband was doubled, so its score could move twice as far from the deterministic signal'; D6 → the same. The page no longer disagrees with itself: the header integrity chip's `widenedDims: [D2, D6]` (the scan's own scoreIntegrity record) is the SAME record discrepancyOutcome() derives these words from, so there is no second copy to drift.",
+    "recertify_commit_range": "b1992360..afc913c0"
   },
   {
     "id": "SAM-L1-13",
@@ -631,12 +647,14 @@
     ],
     "code_check": "by-design",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "—",
+    "resolution": "resolved-verified",
+    "ceiling": "—\n\nPASS 2 CEILING: Answered as option (b) — a markdown link, not a badge. There is still no image/SVG endpoint, so a README that wants a rendered shield rather than a text link has no product answer; and the README snippet is deliberately unpinned, so it tracks the latest scan and can silently change what the README asserts.",
     "recurrence": null,
     "suggested_acceptance": "DECIDE EXPLICITLY — either (a) declare the job out of scope and amend the character file + criterion #6 in the same change, or (b) serve it with a permalink + level line, which also closes SAM-L1-04. What must not happen is criterion #6 scoring N/A forever with no decision recorded.",
     "scope_note": "Filed so the drain has to make the call rather than letting a scored criterion quietly evaporate.",
-    "l2_priority": "None — resolvable at L1 from the tree and the retirement commit."
+    "l2_priority": "None — resolvable at L1 from the tree and the retirement commit.",
+    "recertify_evidence": "— RECERTIFY PASS 2 (b1992360..afc913c0, 2026-08-31 ~14:10–15:10 +02:00) —\nMC-B4 / commit 9d85f01a. The README payload in the Permalink panel is exactly the level line Sam asked for, as embeddable markdown: `[Ascent: L1 · Manual · 23](http://localhost:3000/report/sindresorhus/slugify)` with its own Copy button (shots/recert2-B4-permalink.aria.yaml:39-40).",
+    "recertify_commit_range": "b1992360..afc913c0"
   },
   {
     "id": "SAM-L1-08",
@@ -660,12 +678,14 @@
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "Not driven: needs a configured local model endpoint, which this host cannot serve. The code branch is unambiguous either way.",
+    "resolution": "resolved-verified",
+    "ceiling": "Not driven: needs a configured local model endpoint, which this host cannot serve. The code branch is unambiguous either way.\n\nPASS 2 CEILING: The `local` branch itself — the one the finding named, and the slowest wait in the product — is verified by the type system and not by a rendering: this host runs LLM_PROVIDER=claude-cli, so the live capture exercised the 'Asking Claude' branch. Making `local` render would need a second arm with LLM_PROVIDER=local and a model behind it, which this host has not got.",
     "recurrence": 2,
     "suggested_acceptance": "BUILD — cheapest fix in the run. Downgraded to polish for this Character (he runs the hosted funnel) but flagged as widening for self-hosted operators.",
     "scope_note": null,
-    "l2_priority": "P4."
+    "l2_priority": "P4.",
+    "recertify_evidence": "— RECERTIFY PASS 2 (b1992360..afc913c0, 2026-08-31 ~14:10–15:10 +02:00) —\nMC-B8c / commit 0d088f41. The switch+default is gone: ReportClientStatus.tsx:46 is now `const SCORE_STEP_LABEL: Record<Exclude<ProviderName, \"bedrock\">, string>` — a TOTAL record, so adding a provider is a compile error rather than a silent fallthrough. All eight are present including `local: \"Asking your local model — the self-hosted path, usually the slowest step\"` (line 52) and `codex-cli` (line 55). Live wiring confirmed: navigating to /report?repo=sindresorhus%2Fpretty-bytes mid-scan renders the provider-specific label 'Asking Claude…' in the step list, not a generic spinner (shots/recert2-B8c-provider.text.txt:13,23).",
+    "recertify_commit_range": "b1992360..afc913c0"
   },
   {
     "id": "SAM-L1-STR-04",
@@ -1033,12 +1053,14 @@
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
-    "resolution": "open",
+    "resolution": "fixed",
     "ceiling": "`uncertain — not reproducible on this host` for the RENDERED demonstration: org `public` has zero observations and no `fail` on published-advisories can be produced without a watched repo (same GitHub App precondition as NADIA-L1-01). The wiring absence is confirmed statically and is not in dispute.",
     "recurrence": null,
     "suggested_acceptance": "BUILD (small) — print failMeans in the StateCell tooltip and beside every fail row; carry it into the alert body and the pack. This is her 'implying a failure that isn't' trigger.",
     "scope_note": null,
-    "l2_priority": "Blocked on a watched repo."
+    "l2_priority": "Blocked on a watched repo.",
+    "recertify_evidence": "— RECERTIFY PASS 2 (b1992360..afc913c0, 2026-08-31 ~14:10–15:10 +02:00) —\nMC-B13 / commit 9f0f83ce. WIRED, NOT LIVE-RENDERED — code landed and reachable, but the discriminating branch has no fixture on this host. The wiring audit that produced the finding now answers the other way: `failMeans` has real consumers — ControlStateCell.tsx:54 renders `{row.failMeans ? <p …>{row.failMeans}</p> : null}` and controlTimeline.ts:84 populates it from the catalogue only when `r.state === \"fail\"`. The card's own footnote is live: 'A red state carries the catalogue's own sentence for what that control failing does and does not mean.' (shots/recert2-B14-gov.text.txt:210). But NO ROW ON THIS HOST IS RED: all 16 control observations for org `kiro` are `unmeasurable` (GET /api/org/controls?org=kiro&format=csv → 16 of 16 `unmeasurable`), rendered as an em dash, and org `public` has no observations at all — because ControlObservation rows come from the GitHub App / probe path and this host has no App (`autoscan.githubApp: false`). There is no write door for a control observation (the route is GET-only), so the fixture cannot be constructed over HTTP. UNCERTAIN — NOT REPRODUCIBLE ON THIS HOST; never refuted. Fixture that would close it: one repository with a readable branch-protection state that FAILS (an installed GitHub App with `administration: read`, or a seeder for ControlObservation).",
+    "recertify_commit_range": "b1992360..afc913c0"
   },
   {
     "id": "NADIA-L1-04",
@@ -1063,12 +1085,14 @@
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "Confirmed on an empty ledger — the endpoint's behaviour is the finding, so emptiness does not weaken it.",
+    "resolution": "resolved-verified",
+    "ceiling": "Confirmed on an empty ledger — the endpoint's behaviour is the finding, so emptiness does not weaken it.\n\nPASS 2 CEILING: The export is the ROWS, not the chain: an examiner still recomputes day roots by following the published prose recipe by hand — there is no downloadable seal/root list to check the recomputation against, and on this host `seals` is an empty array because nothing has been chained yet, so the CSV has never actually been used to verify a root end to end.",
     "recurrence": null,
     "suggested_acceptance": "BUILD — `?format=csv` on /api/org/controls emitting `DIGEST_FIELD_ORDER` verbatim, plus a download link on the card. A control she cannot execute is a control she cannot take to an examiner.",
     "scope_note": null,
-    "l2_priority": "DONE (arm B)."
+    "l2_priority": "DONE (arm B).",
+    "recertify_evidence": "— RECERTIFY PASS 2 (b1992360..afc913c0, 2026-08-31 ~14:10–15:10 +02:00) —\nMC-B14a / commit 30f53490. `GET /api/org/controls?org=kiro&format=csv` now returns REAL CSV: `content-type: text/csv; charset=utf-8`, `content-disposition: attachment; filename=\"ascent-control-ledger-kiro.csv\"`, `X-Content-Type-Options: nosniff`, and a header line that is `DIGEST_FIELD_ORDER` verbatim and in order — `orgId,repoFullName,controlId,state,value,prevState,prevValue,source,actorLogin,transition,occurredAt,evidenceJson` — followed by 16 data rows. Route: src/app/api/org/controls/route.ts:74-78 maps `DIGEST_FIELD_ORDER` for both the header and every row; the same constant is exported from src/lib/controls/seal.ts:51 and used by the digest itself (seal.ts:69), so the columns cannot drift from the thing they are meant to reproduce.",
+    "recertify_commit_range": "b1992360..afc913c0"
   },
   {
     "id": "NADIA-L1-05",
@@ -1094,12 +1118,14 @@
     ],
     "code_check": "present-but-undiscoverable",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "The consequence (unsealed days lost to retention) was not demonstrated end to end — that needs observations spanning ≥2 closed UTC days plus a retention pass, which needs a watched repo.",
+    "resolution": "resolved-verified",
+    "ceiling": "The consequence (unsealed days lost to retention) was not demonstrated end to end — that needs observations spanning ≥2 closed UTC days plus a retention pass, which needs a watched repo.\n\nPASS 2 CEILING: The door is a Verify BUTTON, not a seal: sealing moved to the daily rescan cron and this host reports `autoscan.cronSecret: false` / `ready: false`, so no scheduled pass has ever run here — `seals: []` and `unsealedDays: [\"2026-08-30\"]`. The consequence the docs name honestly (a day purged before the sealer reaches it leaves no seal and is therefore undetectable as a gap) is therefore live on this host and unexercised: the retention purge still does not consult the seal table.",
     "recurrence": null,
     "suggested_acceptance": "BUILD — render 'Ledger integrity: chain verified through YYYY-MM-DD · N days unsealed' with a Verify action on Governance; seal from the existing rescan/digest cron rather than from a read; state the seal-before-purge condition in `scope`.",
     "scope_note": "NAMING HAZARD FOUND AT L2: the Governance tab already uses the word SEALED for the AI-stance perimeter's 'repos and paths closed to AI authorship'. On the one tab where an appsec lead looks for the tamper-evident seal, SEALED means a posture control and the thing an examiner asks about has no word on screen.",
-    "l2_priority": "DONE (arm B)."
+    "l2_priority": "DONE (arm B).",
+    "recertify_evidence": "— RECERTIFY PASS 2 (b1992360..afc913c0, 2026-08-31 ~14:10–15:10 +02:00) —\nMC-B14b+c+d+e / commit 30f53490. THE DOOR EXISTS AND RENDERS IN BOTH BRANCHES, verified as two separate live captures. NON-EMPTY (org kiro, 16 observations): 'Ledger integrity: no day chained yet · 1 day not yet chained' with a **'Verify now'** button and a **'Download observation rows (CSV)'** link, plus 'The CSV columns are the digest's canonical field order, so the recomputation recipe published at /api/audit/verify?org=kiro can be run against the download without reading any of our code.' (shots/recert2-B14-gov.text.txt:148-155). EMPTY (org public, zero observations): the same strip renders above the empty state — `button \"Verify now\"` + `link \"Download observation rows (CSV)\"` (shots/recert2-B13-public-governance.aria.yaml:247-248, text.txt:342). SEALING IS OFF THE READ: `GET /api/audit/verify?org=kiro` answers `{\"chainOk\":true,\"seals\":[],\"unsealedDays\":[\"2026-08-30\"],\"sealBacklogRemaining\":0,\"recipe\":{…},\"scope\":\"…Sealing runs on the daily schedule, not on this request: this route only reads.…\"}` — **`sealedOnThisRequest` is gone from the payload**, as expected. The conformance pack carries the section too: GET /api/org/conformance-pack?org=kiro&file=manifest → 200, '## Ledger integrity — The control-observation rows behind this pack's as-of-merge evidence carry **no integrity root** for this period. Nothing here is contradicted by that — but nothing here is independently checkable against one either.' (manifest.md:47-49) — the honest branch, not a root quoted off a day that does not recompute.",
+    "recertify_commit_range": "b1992360..afc913c0"
   },
   {
     "id": "NADIA-L1-06",
@@ -1123,12 +1149,14 @@
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "Needs ≥16 closed days of observations to exercise; unreachable here for the same watched-repo reason.",
+    "resolution": "resolved-verified",
+    "ceiling": "Needs ≥16 closed days of observations to exercise; unreachable here for the same watched-repo reason.\n\nPASS 2 CEILING: Measured at zero backlog on a host that has never sealed anything, so the claim being certified is the SHAPE of the number, not its behaviour under load: `sealBacklogRemaining: 0` here sits beside `seals: []`, and no scheduled pass has ever run (autoscan.cronSecret: false). Whether the backlog actually drains at the scheduled rate is untested live.",
     "recurrence": null,
     "suggested_acceptance": "BUILD — return `sealBacklogRemaining` plus a one-line instruction, and derive `unsealedDays` from a DISTINCT-day query rather than a capped row read.",
     "scope_note": null,
-    "l2_priority": "Blocked."
+    "l2_priority": "Blocked.",
+    "recertify_evidence": "— RECERTIFY PASS 2 (b1992360..afc913c0, 2026-08-31 ~14:10–15:10 +02:00) —\nMC-B14d / commit 30f53490. `sealBacklogRemaining` is returned by the route and stated rather than inferred from an array length: `GET /api/audit/verify?org=kiro` → `\"sealBacklogRemaining\": 0` beside `\"unsealedDays\": [\"2026-08-30\"]`, with the response's own `scope` prose explaining the difference ('…`sealBacklogRemaining` is how far the sealer is behind, and a persistently non-zero value on a short retention horizon is the condition under which that can happen.'). `unsealedDays` now comes from a DISTINCT-day aggregate rather than a capped row page (route.ts:56,68-72 reading chain.unsealedDays / chain.sealBacklogRemaining), and sealing runs from the daily cron, so the '14 days per call, only when someone curls the URL' loop is broken at both ends.",
+    "recertify_commit_range": "b1992360..afc913c0"
   },
   {
     "id": "NADIA-L1-03",
@@ -1152,12 +1180,14 @@
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
+    "resolution": "fixed",
     "ceiling": "`uncertain — not reproducible on this host` for the rendered demonstration (empty ledger, no watched repo). The wiring absence is static and confirmed.",
     "recurrence": null,
     "suggested_acceptance": "BUILD (small) — honour `descriptor` (render the value, suppress the state word) and phrase the two negatives positively ('Archived', 'Unreachable'). Travels with NADIA-L1-02.",
     "scope_note": null,
-    "l2_priority": "Blocked on a watched repo."
+    "l2_priority": "Blocked on a watched repo.",
+    "recertify_evidence": "— RECERTIFY PASS 2 (b1992360..afc913c0, 2026-08-31 ~14:10–15:10 +02:00) —\nMC-B13 / commit 9f0f83ce. Same environment ceiling as NADIA-L1-02. The descriptor contract now has a consumer: ControlStateCell.tsx:36-39 short-circuits on `row.descriptor` and renders the VALUE in neutral tone with the title 'A descriptor, not a bar: this control reports a fact and can never fail.' — no verdict word at all; controlTimeline.ts:81 sets it from `def?.descriptor === true`, and catalog.ts:117-118 marks `repo-visibility` the one descriptor. Live, the branch cannot fire: no descriptor control has an observation on this host (the 16 rows are the eight branch-protection bars × 2 repos, all `unmeasurable`), so 'Visibility · operating · public' could not be shown to have become 'public'. UNCERTAIN — NOT REPRODUCIBLE ON THIS HOST. The read-window sentence is in the same position: `controlTimeline.ts:117` appends ' · at least (read window capped)' only when `windowTruncated`, and this org holds 16 rows against a 400-row window, so the capped branch cannot fire either. Fixture: an org with more than TIMELINE_LIMIT (400) control observations.",
+    "recertify_commit_range": "b1992360..afc913c0"
   },
   {
     "id": "NADIA-L1-08",
@@ -1182,12 +1212,14 @@
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "—",
+    "resolution": "resolved-verified",
+    "ceiling": "—\n\nPASS 2 CEILING: The word 'controls' is still the noun in all three headings — they are now DISTINGUISHED ('D9 check battery' / 'Governance control ledger' / 'Doctor checks') rather than renamed apart, so a reader skimming three tabs still meets the same stem three times. And the ledger's user-facing vocabulary is 'chained' while the API it links to answers in `seals` / `unsealedDays` / `sealBacklogRemaining`, so an examiner who follows the published recipe crosses a vocabulary seam.",
     "recurrence": null,
     "suggested_acceptance": "BUILD (copy) — name them distinctly on screen ('D9 check battery' / 'Manifest conformance' / 'Governance control ledger') and cross-link. Rename the Delivery tile to 'Required status checks' before the requireChecks editor lands (PRIYA-L1-07).",
     "scope_note": "Cross-walker: Nadia's NADIA-L1-08 and Priya's PRIYA-L1-07 are the same vocabulary collision seen from two tabs. Priya's row is kept separately because it is scoped to the one rename that must precede her editor.",
-    "l2_priority": "DONE incidentally (arm B)."
+    "l2_priority": "DONE incidentally (arm B).",
+    "recertify_evidence": "— RECERTIFY PASS 2 (b1992360..afc913c0, 2026-08-31 ~14:10–15:10 +02:00) —\nMC-B10 / commit 527b5973. All three catalogue headings read live, each cross-linking the other two. (1) Security tab: **'D9 check battery'** — '…Not the same catalogue as Passports › Doctor checks (each repo's own CI) or Governance › Governance control ledger (branch-protection observations over time).' (shots/recert2-B13-public-security.text.txt:76,80). (2) Governance tab: **'Governance control ledger'** — '…Distinct from the Security tab's D9 check battery and from Passports › Doctor checks.' (shots/recert2-B14-gov.text.txt:144,146). (3) Passports › **'Doctor checks'** — '…Two other control catalogues live elsewhere: Security › D9 check battery (our deterministic security grading) and Governance › Governance control ledger (branch-protection observations over time).' (shots/recert2-B10-doctor.text.txt:44,46). VOCABULARY: the ledger says 'chained' — 'Ledger integrity: no day chained yet · 1 day not yet chained' / 'A day is chained after it closes, on the daily schedule.' (shots/recert2-B14-gov.text.txt:148). PERIMETER keeps SEALED: the AI-stance band is still rendered as 'SEALED' on the same page (shots/recert2-B14-gov.text.txt:229).",
+    "recertify_commit_range": "b1992360..afc913c0"
   },
   {
     "id": "NADIA-L1-09",
@@ -1747,12 +1779,14 @@
     ],
     "code_check": "confirmed-absent",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "The org-wide aggregate renders and is good (`47.18¢/point n=4`, `$1.65/point n=6`, `$47.51 spent without measured movement · 7 lanes unpriced`) — which is precisely the aggregate that averages away the unproductive lane one panel above it.",
+    "resolution": "resolved-verified",
+    "ceiling": "The org-wide aggregate renders and is good (`47.18¢/point n=4`, `$1.65/point n=6`, `$47.51 spent without measured movement · 7 lanes unpriced`) — which is precisely the aggregate that averages away the unproductive lane one panel above it.\n\nPASS 2 CEILING: A lane whose cost was never recorded reads 'cost not reported' — honest, but it is 6 of the 12 columns' cells on this corpus, so the per-cell economics Priya asked for is present on roughly half the sheet. And 'not measured' does double duty: it is the ATTRIBUTION verdict (no before/after pair), printed in the same cell as the spend, so '$1.62 · not measured' and '$7.60 · 0 pts' are two different facts a reader must tell apart by the second token.",
     "recurrence": null,
     "suggested_acceptance": "BUILD (small) — render `economics` on the outcome sheet row. SEVERITY NORMALIZED: filed at L1 as 'medium', which is not a rubric severity; recorded as `major` on impact (high frequency, high reachability on the self-hosted posture, med trust erosion).",
     "scope_note": "The predicted refactor casualty, found by the predicted grep — the sharpest single instance of this run's systemic theme.",
-    "l2_priority": "DONE (arm C)."
+    "l2_priority": "DONE (arm C).",
+    "recertify_evidence": "— RECERTIFY PASS 2 (b1992360..afc913c0, 2026-08-31 ~14:10–15:10 +02:00) —\nMC-B15 / commit de0ca559. Live on the outcome sheet (shots/recert2-B23-run1.text.txt:236-303). Every cell now carries its own economics line beside the verdict, and the $-for-0-points case states BOTH: **'$7.60 · 0 pts'** (line 245) — the spend is shown with the zero, never suppressed and never rendered as 'not measured'. Productive cells read '65.65¢/pt' (line 240) and '$1.57/pt' (line 258); a cell with spend but no attributable pair reads '$16.91 · not measured' / '$15.91 · not measured' (lines 284, 300) — again spend first; a cell with no recorded cost reads 'cost not reported'. The per-lane numbers the API carries (economics[].costMicros / verifiedPoints / microsPerVerifiedPoint, GET /api/org/loop/<id>?org=kiro) now have a consumer: the org-wide average is no longer the only figure on screen, so a $10.19-for-nothing lane can be seen as itself.",
+    "recertify_commit_range": "b1992360..afc913c0"
   },
   {
     "id": "PRIYA-L1-703",
@@ -1866,12 +1900,14 @@
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
+    "resolution": "fixed",
     "ceiling": "Discovered while trying to build PRIYA-L1-701's fixture; it is one of the two gates that made that fixture unbuildable. Its own fix is independently verifiable at L1.",
     "recurrence": null,
     "suggested_acceptance": "BUILD — teach `repoGate` to consult `listOrgAdmissions` and prefer the recorded decision over the derived tier. This is also the cheapest route to closing PRIYA-L1-701.",
     "scope_note": "Nadia independently filed the adjacent, softer version (NADIA-L1-09: three of four admission artifacts are API-only). This is the harder consequence and is kept separate.",
-    "l2_priority": "DONE as discovery (arm C); fix is L1-verifiable."
+    "l2_priority": "DONE as discovery (arm C); fix is L1-verifiable.",
+    "recertify_evidence": "— RECERTIFY PASS 2 (b1992360..afc913c0, 2026-08-31 ~14:10–15:10 +02:00) —\nMC-B17 / commit 99b290a5. CODE-VERIFIED, NOT LIVE. `repoGate` now reads the recorded decision: work-tools.ts:79-92 loads the admission row alongside the facts and computes `const tier = admission && admission.derivedTier !== null ? admission.grantedTier : row.autonomyTier`, returning `mode: admission?.mode ?? null`; line 113 passes that mode into `claimability({ … admissionMode: gate.mode })`, and followups.ts:647 refuses outright on any mode below `agents-allowed` with the dedicated reason `admission-blocked` and its own sentence (followups.ts:656). The recorded-override shape was observed live — the admission row written by this pass came back `\"derivedTier\":\"T0\",\"grantedTier\":\"T1\"`, i.e. exactly the divergence the gate now honours. What is NOT verified live: an actual MCP claim being refused/allowed by that row, which needs an agent claim against a repo carrying an override. UNCERTAIN — not exercised on this host; never refuted.",
+    "recertify_commit_range": "b1992360..afc913c0"
   },
   {
     "id": "PRIYA-L2-C5",
@@ -1895,12 +1931,14 @@
     ],
     "code_check": "present-broken",
     "verdict": "confirmed",
-    "resolution": "open",
-    "ceiling": "—",
+    "resolution": "resolved-verified",
+    "ceiling": "—\n\nPASS 2 CEILING: There is NO REVOKE DOOR. The route exposes only GET and POST (no DELETE, no PATCH); `upsertRepoAdmission` can change a decision but nothing can withdraw one, so an admission written by mistake is permanent and the closest available restoration is `grantedTier == derivedTier` — which still reads as a decision an owner made. This pass could not fully undo its own probe row for that reason (see the residue table). Raised as RC2-N4.",
     "recurrence": null,
     "suggested_acceptance": "BUILD — validate the repo against the org's WATCHED repos rather than against a string prefix.",
     "scope_note": "The second of the two gates that made PRIYA-L1-701's remote fixture unbuildable; either this or C-4 unblocks it.",
-    "l2_priority": "DONE as discovery (arm C)."
+    "l2_priority": "DONE as discovery (arm C).",
+    "recertify_evidence": "— RECERTIFY PASS 2 (b1992360..afc913c0, 2026-08-31 ~14:10–15:10 +02:00) —\nMC-B17 / commit 99b290a5. Tenancy is now the org's repo set, not a string prefix — proven live on the real working org with a THREE-WAY zero-residue probe (POST /api/org/admission with a same-origin Referer, differentiating on which validation fires FIRST, since `repoUnderOrg` is checked before the tier/mode checks): (A) `{org: kiro, repo: xkazm04/kp, grantedTier: BOGUS}` → 400 **'grantedTier must be one of T0, T1, T2, T3.'** — the tenancy check PASSED for a non-owner-namespace repo the org tracks; (C) `{org: kiro, repo: facebook/react, grantedTier: BOGUS}` → 400 **'Provide repo as \"owner/name\" under this organization.'** — an untracked repo is still refused, so the loosening did not open cross-tenant writes; (D) `{org: kiro, repo: xkazm04/kp, grantedTier: T2, mode: BOGUS}` → 400 'mode must be one of agents-allowed, assisted-only, blocked.'. Then the WRITE was exercised end to end on the demo org (deliberately not on `kiro`, whose loop is live): POST {org: public, repo: sindresorhus/slugify, grantedTier: T1, mode: assisted-only} → **200** `{\"ok\":true,\"row\":{\"repoFullName\":\"sindresorhus/slugify\",\"derivedTier\":\"T0\",\"grantedTier\":\"T1\",\"mode\":\"assisted-only\",\"decidedBy\":\"developer\"}}`, confirmed by GET. Before the fix `repoUnderOrg` required `owner === org`, so both of these were unreachable.",
+    "recertify_commit_range": "b1992360..afc913c0"
   },
   {
     "id": "PRIYA-L2-C6",
