@@ -1089,8 +1089,8 @@ used to do this was deleted rather than kept beside it.
 ### Setup states (`CockpitSetup`)
 
 `hosted` (the field is still rendered read-only; the copy names the **local lane** as the
-self-hosted-only part and says outright that remote-agent runs work on this deployment, linking to
-self-hosting via `NEXT_PUBLIC_SOURCE_REPO_URL` or `docs/SETUP.md`) · `no-repos` (→ repositories tab)
+self-hosted-only part and says outright that remote-agent runs work on this deployment, and always
+links to [`docs/SELF-HOSTING.md`](../../SELF-HOSTING.md) — see below) · `no-repos` (→ repositories tab)
 · `not-owner` · `autopilot-off` (shows the route's 409 fix) · `unpaired` (three steps: pair a
 checkout via `?tab=pairing` → pick repos → run).
 
@@ -1101,6 +1101,18 @@ loop *"exists only on a self-hosted Ascent"*, contradicted by the very route tha
 run. All three reads are now unconditional; `pairedRepos` stays gated, because a checkout on this
 machine is a filesystem fact. `CockpitRail` already ranks a live run above the setup block, so a
 remote run on cloud renders its lane panel instead of the denial.
+
+**The guide is always a link (`MC-B43`).** `hosted` used to build its href with
+`sourceRepoHref("docs/SETUP.md")`, which returns `null` when `NEXT_PUBLIC_SOURCE_REPO_URL` is unset —
+by design, since "view the source" is an AGPL claim about *this* deployment and must not guess a
+repository. The variable is inlined at BUILD time and set in no committed env file, so the one
+actionable element on a not-ready panel degraded to a printed file path on every unconfigured
+install. It now uses `selfHostGuideHref()` / `DOCS_ARE_UPSTREAM` (`src/lib/site.ts`), the same pair
+the four marketing surfaces converted by `MC-B22` use: always a real destination, labelled
+`Self-hosting guide (upstream)` when it is upstream's copy rather than the operator's own. The target
+document changed with it — the anchor promises a self-hosting guide, and `docs/SETUP.md` is the
+credentials-and-preconditions page, while `docs/SELF-HOSTING.md` is the operator's guide.
+Pinned by `CockpitSetup.dom.test.tsx`.
 
 Tests: `cockpit/laneStages.test.ts`, `cockpitDimensions.test.ts`, `cockpitDrift.test.ts`,
 `cockpitGate.test.ts` (one gate, two callers), `driveModel.test.ts` (the on-screen arithmetic and
@@ -1466,6 +1478,20 @@ absent verbs directly.
   `laneKindTag` and `laneExecutorTag` follow).
 - **A remote run has no delivery.** `startRemoteRun` records `null`: Ascent opens no worktree and owns
   no checkout for a lane some other harness works, so there is nothing local to land into.
+- **The ledger says what ENGINE produced a run (`MC-B44`).** The column header used to print
+  `agentConfig` ("opus · high effort") and stop — a *model*, never who ran it — so a run Ascent spawned
+  itself and a run some agent elsewhere claimed over MCP read identically, while on the second one the
+  model line is only what Ascent **armed**, not what the claimant used. `runEngineLabel(lanes)`
+  (`cockpit/loopTypes.ts`) now derives it and `OutcomeColumn.engine` carries it: `claude CLI` when every
+  lane is `local` (`src/lib/local/agent.ts` has exactly one way to spawn one — `CLAUDE_CLI_PATH ||
+  "claude"` — and the usage meter stamps that same population `provider: "claude-cli"`), `remote agent`
+  when every lane is `remote-agent` (its engine is not ours to report, so the label names the claimant
+  and stops), `mixed engines` when a run is both. **No new column, no schema change**: `LoopLaneExecutor`
+  already records the fact, and a lane written before it reads `local` by the documented default, which
+  is what it was. A run with **no lanes prints nothing** — an unknown engine must not silently become
+  the common one. Folded over `detail.lanes`, not `detail.outcomes`, so an unclaimed remote lane (no
+  before/after) cannot drop out of the reading. Pinned by `outcomeMatrix.engine.test.ts` +
+  `OutcomeSheet.dom.test.tsx`.
 
 ### Where the dial lives
 

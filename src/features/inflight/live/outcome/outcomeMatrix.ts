@@ -14,7 +14,7 @@ import { agentConfigLabel } from "@/lib/local/agent-options";
 // site had to move.
 import { foldCell } from "./outcomeCellFold";
 import { runAttribution } from "../cockpit/cockpitDrift";
-import { deliveryTag, isRunLive, type LoopLaneOutcome, type LoopRunDetail } from "../cockpit/loopTypes";
+import { deliveryTag, isRunLive, runEngineLabel, type LoopLaneOutcome, type LoopRunDetail } from "../cockpit/loopTypes";
 import type { OutcomeCell, OutcomeColumn, OutcomeGroup, OutcomeMatrix } from "./outcomeMatrixTypes";
 
 export type {
@@ -56,6 +56,11 @@ export function buildOutcomeMatrix(details: readonly LoopRunDetail[]): OutcomeMa
       live: isRunLive(d.run.phase),
       lift: runAttribution(d).lift,
       agentConfig: agentConfigLabel(d.run),
+      // Derived from the lanes' recorded `executor`, not from a run-row column — there is none, and
+      // the fact does not need one (MC-B44). `lanes` is the run's full lane set; `outcomes` is only
+      // the lanes that produced a before/after, so folding over that would let one unfinished remote
+      // lane silently make a run read "claude CLI".
+      engine: runEngineLabel(d.lanes),
       delivery: deliveryTag(d.run.delivery),
       cycle: d.run.cycle,
       maxCycles: d.run.maxCycles,

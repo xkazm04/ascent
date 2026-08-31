@@ -16,9 +16,10 @@
 // register needs the worded state back — `scans-gallery.test.ts` pins that contract.
 
 import Link from "next/link";
-import type { PublicScanGallery } from "@/lib/db";
+import type { PublicRepoCard, PublicScanGallery } from "@/lib/db";
 import { dbModeLabel } from "@/lib/db/mode";
 import type { DimensionId } from "@/lib/types";
+import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
 import { scoreHex, timeAgo, DIMENSION_SHORT } from "@/lib/ui";
 import { DeckSection } from "@/components/deck/DeckSection";
 import { Kicker } from "@/components/ui";
@@ -44,6 +45,26 @@ function ScoreCell({ score, big = false, className = "" }: { score?: number; big
   );
 }
 
+/** The provenance chip for a row scored on an earlier ruler. Same derivation, same vocabulary and same
+ *  tone as the one MC-B18 put on the /leaderboard register (`LeaderboardTable.tsx`) — this is the
+ *  SECOND public ranking over the same corpus, and two surfaces disagreeing about what a stale rubric
+ *  is called would be worse than neither saying it (MC-B42). Qualified, never de-ranked. */
+function RubricChip({ card }: { card: PublicRepoCard }) {
+  if (card.currentRubric) return null;
+  return (
+    <span
+      className="ml-2 rounded border border-violet-500/40 px-1.5 py-0.5 type-micro normal-case tracking-normal text-violet-300/90"
+      title={
+        card.rubricVersion
+          ? `Scored under rubric ${card.rubricVersion}; the current rubric is ${SCORING_RUBRIC_VERSION}. The rubric changed what some dimensions measure, so this row's number is not strictly comparable with a freshly scored one. Re-scanning the repo puts it on the current ruler.`
+          : `This scan predates the rubric stamp, so which ruler produced it is unknown — and unknown is not the current one (${SCORING_RUBRIC_VERSION}). Re-scanning the repo puts it on the current ruler.`
+      }
+    >
+      {card.rubricVersion ? `rubric ${card.rubricVersion}` : "rubric unknown"}
+    </span>
+  );
+}
+
 export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
   const { recent, topAiNative, totalRepos, dbMode } = gallery;
   // The board is RANKED (score order) only when the leaderboard query returned rows; otherwise it
@@ -53,6 +74,9 @@ export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
   const ranked = topAiNative.length > 0;
   const board = ranked ? topAiNative : recent;
   const latestScannedAt = recent[0]?.scannedAt;
+  // Counted over the board ACTUALLY RENDERED (ranked or recency), never over the whole corpus: the note
+  // says "on this page", so it has to be about the rows on this page.
+  const staleRubric = board.filter((c) => !c.currentRubric).length;
   return (
     <DeckSection id="gallery" justify="startLgCenter">
       <div className="flex flex-wrap items-end justify-between gap-3 border-b border-divider pb-4">
@@ -108,6 +132,7 @@ export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
               </span>
               <span className="type-label tracking-widest text-slate-500">
                 {c.levelName} · {timeAgo(c.scannedAt)}
+                <RubricChip card={c} />
               </span>
             </span>
             {FEATURED_DIMS.map((d) => (
@@ -117,6 +142,21 @@ export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
           </Link>
         ))}
       </div>
+
+      {/* A rank is a claim that the rows share a ruler. When they do not, the register says so under the
+          board rather than leaving it to a per-row chip — the same disclosure /leaderboard carries
+          (MC-B18), on the surface a landing visitor actually reaches first (MC-B42). Silent when the
+          board is single-rubric: a disclosure with nothing to disclose is noise. */}
+      {staleRubric > 0 && (
+        <p className="mt-4 max-w-3xl type-body-sm leading-relaxed text-slate-500">
+          <span className="text-slate-300">Mixed rubrics on this page.</span> {staleRubric} of these{" "}
+          {board.length} rows {staleRubric === 1 ? "was" : "were"} scored under an earlier rubric than the
+          current <span className="font-mono text-slate-400">{SCORING_RUBRIC_VERSION}</span>, and carry a{" "}
+          <span className="text-violet-300/90">rubric</span> qualifier. A rubric change alters what some
+          dimensions measure, so those numbers are not strictly comparable with freshly scored ones; a
+          re-scan puts a repo back on the current ruler.
+        </p>
+      )}
 
       {/* Growth loop: convert a register viewer into a scanned repo. */}
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-divider pt-4">

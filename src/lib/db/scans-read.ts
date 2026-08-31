@@ -27,7 +27,13 @@ import { Prisma } from "@prisma/client";
 import { unstable_cache } from "next/cache";
 import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getDbMode, type DbMode } from "@/lib/db/mode";
-import { isDimensionId, LEVEL_BY_ID, levelForScore, postureFor } from "@/lib/maturity/model";
+import {
+  SCORING_RUBRIC_VERSION,
+  isDimensionId,
+  LEVEL_BY_ID,
+  levelForScore,
+  postureFor,
+} from "@/lib/maturity/model";
 import { stackFitFromLanguage } from "@/lib/analyze/stack-fit";
 import { applyPassportOverrides, parsePassportJson, parsePassportOverrides, type AppPassport } from "@/lib/analyze/passport";
 import { parsePlatformSignals, unmeasurablePlatformDims } from "@/lib/analyze/platform-carry";
@@ -710,6 +716,17 @@ export interface PublicRepoCard {
   scannedAt: string; // ISO
   /** Permalink to the pinned report (commit-pinned when the scan recorded a head SHA). */
   href: string;
+  /** The rubric this score was computed under ("r15"), or null on a row scored before the column. */
+  rubricVersion: string | null;
+  /** True only when the score was taken with the rubric in force NOW. A null version is UNKNOWN and
+   *  therefore NOT current — the same reading `db/outcomes.ts` and `register/data.ts` give it.
+   *
+   *  MC-B18 gave `RegisterEntry` (/leaderboard) this pair; the landing register is a SECOND public
+   *  ranking over the same corpus and was left un-qualified (MC-B42). Derived here, at the same point
+   *  the row is projected, so both surfaces say the same thing in the same words. Computed inside the
+   *  60 s cache window, so a rubric bump takes at most one revalidation to show — the bump itself does
+   *  NOT re-scan anything, which is the whole reason the qualifier has to exist. */
+  currentRubric: boolean;
 }
 
 export interface PublicScanGallery {
@@ -753,6 +770,7 @@ const GALLERY_REPO_SELECT = Prisma.validator<Prisma.RepositorySelect>()({
       rigorScore: true,
       posture: true,
       scannedAt: true,
+      rubricVersion: true,
       dimensions: { select: { dimId: true, score: true } },
     },
   },
@@ -760,8 +778,10 @@ const GALLERY_REPO_SELECT = Prisma.validator<Prisma.RepositorySelect>()({
 
 type GalleryRepoRow = Prisma.RepositoryGetPayload<{ select: typeof GALLERY_REPO_SELECT }>;
 
-/** Project a repo + its latest scan into a gallery card; null when the repo has no scan row. */
-function galleryCardFrom(r: GalleryRepoRow): PublicRepoCard | null {
+/** Project a repo + its latest scan into a gallery card; null when the repo has no scan row.
+ *  Exported for the provenance unit tests (`scans-gallery.test.ts`) — the rubric derivation is the
+ *  one thing on this path that must not drift from `register/data.ts`. */
+export function galleryCardFrom(r: GalleryRepoRow): PublicRepoCard | null {
   const s = r.scans[0];
   if (!s) return null;
   const dimensions: Partial<Record<DimensionId, number>> = {};
@@ -783,6 +803,9 @@ function galleryCardFrom(r: GalleryRepoRow): PublicRepoCard | null {
     stars: r.stars,
     scannedAt: s.scannedAt.toISOString(),
     href: reportPermalink(r.fullName, s.headSha),
+    rubricVersion: s.rubricVersion,
+    // Never `!= current`: a null column is unknown, and unknown is not current.
+    currentRubric: s.rubricVersion === SCORING_RUBRIC_VERSION,
   };
 }
 

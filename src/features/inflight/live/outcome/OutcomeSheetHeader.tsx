@@ -63,7 +63,28 @@ export function OutcomeSheetHeader(p: OutcomeSheetHeaderProps) {
                 <span className="type-micro block truncate font-mono tabular-nums text-slate-500">
                   {col.repoCount} {col.repoCount === 1 ? "repo" : "repos"} · {col.gaps} gaps ·{" "}
                   <span className={`uppercase tracking-[0.14em] ${phaseTone}`}>{col.phase}</span>
-                  {col.agentConfig && <span className="ml-1.5 text-slate-600">{col.agentConfig}</span>}
+                  {/* MC-B44: `agentConfig` names a MODEL (`opus · high effort`) and the column used to
+                      stop there — so a run Ascent spawned itself and a run some agent elsewhere pulled
+                      over MCP read identically, while the second one's model line is only what Ascent
+                      ARMED, not what the claimant used. The engine is derived from the lanes' recorded
+                      executor (`runEngineLabel`); a run with no lanes prints nothing rather than a
+                      default. Column order is engine-then-model: who ran it qualifies the model, not
+                      the other way round. */}
+                  {col.engine && (
+                    <span
+                      className="ml-1.5 text-slate-600"
+                      title={
+                        col.engine === "remote agent"
+                          ? "Ascent started no process for this run — an agent elsewhere claimed its lanes over MCP, so the model above is what this run was ARMED with, not necessarily what ran."
+                          : col.engine === "mixed engines"
+                            ? "Some lanes ran in a worktree on this machine and some were claimed by an agent elsewhere. Open the run to see which."
+                            : "Ascent spawned a headless claude CLI session in a working copy on this machine for every lane of this run."
+                      }
+                    >
+                      {col.engine}
+                    </span>
+                  )}
+                  {col.agentConfig && <span className="ml-1.5 text-slate-600">· {col.agentConfig}</span>}
                   {col.delivery && <span className="ml-1.5 text-slate-600">· {col.delivery}</span>}
                 </span>
               </button>
