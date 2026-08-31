@@ -320,6 +320,27 @@ The `isLive(id)` predicate is what separates the three. The two request-path cal
 `isLoopRunLive`, because without it a poll during a run stops the run it is rendering (2026-08-26).
 The boot sweep passes nothing, and that default — "nothing is live" — is true there and only there.
 
+**The predicate only answers for runs this process could be driving** (since 2026-08-31; UAT
+`PRIYA-L1-701`). The whole inference is *no live handle ⇒ the process that owned it is gone*, and
+that holds only while a live handle is something the run would HAVE. A **remote** run never gets one:
+`startRemoteRun` creates no registry entry by design — its work is done by an agent in someone else's
+harness, reached over MCP — so `isLive` is false for it by *construction*, not by death. With `GET
+/api/org/loop` firing the sweep on every read, reading the cockpit would have stopped a healthy
+remote run and taken its lanes' claims down with it. The sweep now excludes any stale run holding a
+lane whose `executor` is not this process's (`remote-agent`, `human`), asked as *any* such lane
+rather than *all* of them, because the sweep's only verb is stopping the whole run. A local run was
+never at risk **because of its registry entry** — a live local run survived six reads over ~24 s in
+the L2 capture — which is the isolation, not the excuse. *The remote consequence stays a
+**hypothesis**: the missing predicate was fact, but the remote path was not reproducible on this
+host, so the exclusion is pinned by unit tests rather than by a reproduction.*
+
+**A release clears the claim, not only the status.** The rows a dead run's lanes marked
+`in_progress` go back to `open` **and** have `claimActor`, `claimExecutor` and `leaseUntil` cleared;
+the lanes it errors out have their `claimedBy`/`leaseUntil` cleared too. Leaving those standing made
+a released row read as open-and-still-held: the worklist rendered a holder nobody could reach, and
+the claim path's compare-and-set over `(status, leaseUntil)` had a lease to reason about for a claim
+that no longer existed.
+
 **The boot sweep also reconciles the filesystem** (L2-C-02). `removeLoopWorktree` runs in the lane's
 `finally`, which a `taskkill /F` never reaches, so every hard kill stranded a ~15 MB temp checkout in
 `%TEMP%` forever — the L2 run left 3, and the operator's machine was already carrying 4 more from
