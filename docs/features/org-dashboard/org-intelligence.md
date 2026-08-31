@@ -360,6 +360,25 @@ Capability commands are repo content, so they are redacted at read time (any tok
 `secret=`-shaped run becomes `«redacted»`), shown only inside the owning org, and never placed on a
 public or cross-tenant surface.
 
+**Three additions, 2026-08-31 (UAT `PRIYA-L1-04` / `PRIYA-L1-05`), all of them wiring something the
+readout already computed:**
+
+- **A `schema <v> ahead` chip.** Spec #13 promised a manifest on an unknown major version would be
+  *"parsed leniently, flagged honestly"*. `read.ts` computed `schemaAhead`, `readout.ts` persisted it,
+  and nothing under `src/features` read it — so a fleet on a newer schema rendered ordinary cells with
+  no hint the reader was behind. The row now carries the flag and its declared version, with the
+  consequence in the hover: anything the newer schema added is not represented in the row.
+- **A parse-note count.** The reader's `notes[]` — including the **redaction** notes — reached no
+  surface, so an operator could not see that a command shown here is not the command the repo wrote.
+  The row prints `N parse notes` with the notes themselves on hover.
+- **A `Report-back` column** — spec #35 handoff 2's promised one. `getFoundationRollout` had exactly
+  one consumer, on the Repositories tab, so "where is the standard in, and where is it proving
+  itself?" was a three-tab join living in the reader's head. `PassportsTab` now reads it in the same
+  parallel batch (no added round-trip depth) and the column restates the Repositories tab's honest
+  nulls rather than re-deriving them: `—` = not in the rollout read, *"not provisioned"* = Ascent
+  wrote no report-back secrets (not "off"), *"provisioned · never reported"* = wired but no run has
+  reported (**not 0%**), otherwise the reported percentage with its date on hover.
+
 ### Passports → Doctor checks: the fleet matrix from the repos' own CI (#16, 2026-08-29; renamed from "Controls" 2026-08-31, MC-B10)
 
 The fourth Passports switcher view, and a deliberate **sibling** of Capabilities rather than a merge
@@ -672,7 +691,11 @@ manifest additionally embeds both CSV hashes, so the three files verify each oth
 - **Identities are pseudonymous by default.** Pseudonyms are stable within a pack and unlinkable
   across packs (the seed is folded into the hash). `identities=named` is **owner-gated** and returns
   403 for anyone else, never a silent downgrade, because an examiner who believes they hold named
-  evidence and does not would draw a conclusion the artifact cannot support.
+  evidence and does not would draw a conclusion the artifact cannot support. **All three artifacts
+  have a named variant on the card** (since 2026-08-31, UAT `NADIA-L1-10`): it used to offer only the
+  named *manifest*, while its own justification — *"export it when an examiner needs to re-verify
+  specific rows against GitHub"* — is about rows, and the rows live in `sample.csv` and `findings.csv`.
+  The route already supported `identities=named` on all three; only the two CSV links passed `false`.
 - **PR titles are omitted from CSV rows.** Free text routinely carries ticket ids and customer
   names; `repository` + `pr_number` is sufficient to re-verify against GitHub. The column is kept and
   named `title_omitted` so the omission is visible rather than looking like a missing field.
@@ -1579,6 +1602,12 @@ autonomy model's own `DATA_MODEL_GAPS` recorded as a gap. That line is now delet
   which reads the `Repository` `(orgId, fullName)` key — the actual tenancy fact, so another tenant's
   repo still matches nothing. Deliberately the **tracked** set, not the `watched` subset: `watched` is
   a rescan-cadence preference, and a governance decision must not depend on whether autoscan is on.
+- **The column says which artifacts a decision writes** (since 2026-08-31; UAT `NADIA-L1-09`). It
+  claimed a decision was *"recorded and enforceable"* and named none of the four, so a reader
+  concluded all four had landed. One sentence under the intro now scopes it honestly: a decision
+  writes the **gate-policy overlay** and only that — applied automatically on every gate call,
+  tighten-only, failing closed if the admission read errors — while the CODEOWNERS block, the
+  `controls.oversight` block and the branch ruleset are proposals a person opens deliberately.
 - **The claim door consults the decision.** The MCP `claim_followups` gate resolves the *effective*
   tier from this row (grant beats derived where a tier was assessed) and refuses outright on a `mode`
   below `agents-allowed`. See [org-followups/README.md](../org-followups/README.md) → *Who may claim*.

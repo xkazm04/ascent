@@ -68,9 +68,20 @@ export function EvidencePackCard({ slug, canExportNamed }: { slug: string; canEx
 
       {canExportNamed && (
         <div className="mt-3">
-          <a href={href(slug, "manifest", true)} className={`${linkClass} border-amber-500/40 text-amber-200`}>
-            <span aria-hidden>↓</span> Named manifest (real logins)
-          </a>
+          {/* UAT `NADIA-L1-10`: the card's own justification is "re-verify specific ROWS against
+              GitHub" — and the rows live in sample.csv and findings.csv, which were offered
+              anonymised only. All three named artifacts, or the reason is only half true. */}
+          <div className="flex flex-wrap gap-2">
+            <a href={href(slug, "manifest", true)} className={`${linkClass} border-amber-500/40 text-amber-200`}>
+              <span aria-hidden>↓</span> Named manifest (real logins)
+            </a>
+            <a href={href(slug, "sample", true)} className={`${linkClass} border-amber-500/40 text-amber-200`}>
+              <span aria-hidden>↓</span> Named sample (.csv)
+            </a>
+            <a href={href(slug, "findings", true)} className={`${linkClass} border-amber-500/40 text-amber-200`}>
+              <span aria-hidden>↓</span> Named findings (.csv)
+            </a>
+          </div>
           <p className="mt-2 type-body-sm text-slate-500">
             Named evidence puts real GitHub logins against changes that merged unreviewed. Export it when an examiner
             needs to re-verify specific rows against GitHub, not as the default artifact you circulate.

@@ -13,6 +13,7 @@ import type { RepoAutonomy } from "./autonomy/autonomyModel";
 import { AutonomyClearance } from "./autonomy/AutonomyClearance";
 import { CapabilityMatrix } from "./CapabilityMatrix";
 import type { CapabilityMatrixInput } from "./capabilityAgg";
+import type { FoundationRolloutRow } from "@/lib/db/org-foundation";
 import { ControlMatrixPanel } from "./controls/ControlMatrixPanel";
 
 type VariantId = "baseline" | "clearance" | "capabilities" | "controls";
@@ -35,6 +36,7 @@ export function PassportsSwitcher({
   rows,
   autonomy,
   capabilities,
+  rollout,
   org,
   decisions,
 }: {
@@ -43,6 +45,9 @@ export function PassportsSwitcher({
   /** Every repo in scope, INCLUDING those with no readout — the matrix lists them as unassessed
    *  rather than dropping them, which is the only way "not looked at" stays visible. */
   capabilities: CapabilityMatrixInput[];
+  /** Spec #35 handoff 2 (UAT `PRIYA-L1-05`): the report-back column’s data, read once on the server
+   *  and passed through rather than fetched here — the matrix is otherwise a pure render. */
+  rollout: FoundationRolloutRow[];
   org: string;
   decisions: DecisionMap;
 }) {
@@ -73,7 +78,7 @@ export function PassportsSwitcher({
 
       {variant === "baseline" && <PassportPortfolio rows={rows} org={org} decisions={decisions} />}
       {variant === "clearance" && <AutonomyClearance repos={autonomy} />}
-      {variant === "capabilities" && <CapabilityMatrix repos={capabilities} />}
+      {variant === "capabilities" && <CapabilityMatrix repos={capabilities} rollout={rollout} />}
       {variant === "controls" && <ControlMatrixPanel org={org} />}
     </div>
   );

@@ -596,6 +596,13 @@ that goes quiet (no PRs) still gets a fresh conformance report instead of the da
 showing a weeks-stale score. The `pull_request` job is unchanged (still the hard-pass merge gate); the
 scheduled job never fails the run.
 
+**Its comment names the one-click route first (2026-08-31, UAT `PRIYA-L1-03`).** Both points of need —
+the generated workflow's own comment and the Doctor-checks empty state on Passports — described
+hand-wiring two secrets that **Repositories › Foundation rollout** provisions per repo in one click,
+and can revoke from the same row. *"Make the right thing the easy thing"* was already true of the
+product and not of the words. The manual instructions stay, second, for a repo installed outside
+Ascent.
+
 ## The scan checklist names its provider
 
 `ReportClientStatus`' score step — the longest wait in the product — names the provider being queried

@@ -52,9 +52,14 @@ jobs:
       - name: .ai conformance gate
         run: node .ai/doctor.mjs
   # Scheduled/manual re-check: never fails the run (report-only), and self-reports to Ascent via
-  # doctor.mjs's own --json path when the two secrets below are set. Set ASCENT_CONFORMANCE_URL to
-  # your Ascent deployment's /api/report/conformance endpoint and ASCENT_CONFORMANCE_TOKEN to an
-  # org-scoped API token with the telemetry:write scope (Org Settings -> API tokens).
+  # doctor.mjs's own --json path when the two secrets below are set.
+  #
+  # EASIEST: don't set them by hand. Ascent provisions both, per repository, from the org dashboard's
+  # Repositories tab -> Foundation rollout -> "Provision report-back". It writes the URL and a
+  # scoped token as repository secrets and can revoke them from the same row.
+  # By hand instead: ASCENT_CONFORMANCE_URL is your Ascent deployment's /api/report/conformance
+  # endpoint, and ASCENT_CONFORMANCE_TOKEN an org-scoped API token with the telemetry:write scope
+  # (Org Settings -> API tokens).
   scheduled-report:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest

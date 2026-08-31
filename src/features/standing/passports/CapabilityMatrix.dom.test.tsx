@@ -64,4 +64,66 @@ describe("CapabilityMatrix", () => {
     expect(screen.getByText(/enforced pre-push/i)).toBeTruthy();
     expect(screen.getAllByText(/CI hard pass/i).length).toBeGreaterThan(0);
   });
+
+  // UAT `PRIYA-L1-04`. Spec #13 promised a manifest on an unknown major would be "parsed leniently,
+  // flagged honestly". It was computed (`read.ts`), persisted (`readout.ts`) and rendered by nothing:
+  // a fleet on a newer schema showed ordinary cells with no hint the reader was behind.
+  it("flags a manifest whose schema major this build does not know", () => {
+    render(<CapabilityMatrix repos={[repo("acme/ahead", readout({ schemaVersion: "1.0.0", schemaAhead: true }))]} />);
+    expect(screen.getByText(/schema 1\.0\.0 ahead/i)).toBeTruthy();
+  });
+
+  it("surfaces the reader's parse notes — the REDACTION half an operator could not otherwise see", () => {
+    render(
+      <CapabilityMatrix
+        repos={[repo("acme/red", readout({ notes: ["1 capability command(s) contained a secret-shaped run and were redacted"] }))]}
+      />,
+    );
+    expect(screen.getByText(/1 parse note/i)).toBeTruthy();
+  });
+
+  it("says nothing about schema or notes for an ordinary manifest", () => {
+    render(<CapabilityMatrix repos={[repo("acme/plain", readout())]} />);
+    expect(screen.queryByText(/ahead/i)).toBeNull();
+    expect(screen.queryByText(/parse note/i)).toBeNull();
+  });
+
+  // UAT `PRIYA-L1-05` — spec #35 handoff 2's promised report-back column. `getFoundationRollout` had
+  // one consumer, on a different tab, so the join lived in the reader's head.
+  describe("the report-back column", () => {
+    const rollout = (over: Partial<{ repo: string; foundationPrAt: string | null; reportBackAt: string | null; conformance: number | null; conformanceAt: string | null }>) => ({
+      repo: "acme/read",
+      foundationPrAt: null,
+      reportBackAt: null,
+      conformance: null,
+      conformanceAt: null,
+      ...over,
+    });
+
+    it("prints the reported percentage where one exists", () => {
+      render(
+        <CapabilityMatrix
+          repos={[repo("acme/read", readout())]}
+          rollout={[rollout({ reportBackAt: "2026-08-01T00:00:00.000Z", conformance: 92, conformanceAt: "2026-08-30T00:00:00.000Z" })]}
+        />,
+      );
+      expect(screen.getByText("92%")).toBeTruthy();
+    });
+
+    it("keeps the two honest nulls apart — never reported is not 0%, not provisioned is not off", () => {
+      render(
+        <CapabilityMatrix
+          repos={[repo("acme/read", readout())]}
+          rollout={[rollout({ reportBackAt: "2026-08-01T00:00:00.000Z" })]}
+        />,
+      );
+      expect(screen.getByText(/never reported/i)).toBeTruthy();
+      expect(screen.queryByText("0%")).toBeNull();
+    });
+
+    it("says 'not provisioned' where Ascent wrote no secrets", () => {
+      render(<CapabilityMatrix repos={[repo("acme/read", readout())]} rollout={[rollout({})]} />);
+      expect(screen.getByText(/not provisioned/i)).toBeTruthy();
+    });
+  });
 });

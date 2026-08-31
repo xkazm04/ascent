@@ -98,6 +98,15 @@ Without this, any single param (`?min_dimension=1`) replaced the whole persisted
 handed an anonymous caller, or a PR author editing the workflow URL, a green verdict the
 org never configured.
 
+**The copied snippet is therefore a SNAPSHOT, and the Governance card now says so** (2026-08-31, UAT
+`PRIYA-L1-06`). `governance.ts` bakes the org's current policy into `gateQuery` / `ciWith`, and
+because the params are tighten-only, the propagation is one-directional: *raising* the org bar reaches
+every already-pasted workflow immediately, while *lowering* it never does — the pasted params keep
+enforcing the stricter number. The security reasoning is right and was never the defect; the missing
+disclosure was. The "Enforce in CI" card carries one sentence under the snippet naming the asymmetry
+and the two ways out: re-copy after relaxing the bar, or drop the parameters and let the workflow
+follow the server policy alone.
+
 A **failed read** is not "no policy configured". `getOrgGatePolicy` returns `null` *without
 throwing* for every legitimate unset case (no DB, unknown org, unset or unparseable column),
 so a rejection means only that the bar is **unknown**, and gating on the archetype default
