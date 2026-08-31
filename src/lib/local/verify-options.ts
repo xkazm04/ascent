@@ -57,3 +57,33 @@ export const verifyVerdictTag = (v: string | null | undefined): string | null =>
       return null;
   }
 };
+
+/**
+ * WHY THIS LANE MAY NOT BE DELIVERED WHEN THE OPERATOR ASKED FOR VERIFICATION — one sentence, shared
+ * by both delivery doors (the unattended step in `loop-delivery.ts` and the one-click
+ * `POST /api/org/loop/[id]/pr`), so they can never give the same lane two different answers.
+ *
+ * `null` for `verified` and ONLY for `verified`. That is the whole rule: turning the guard on is a
+ * request that changes be CHECKED before they reach a branch, and three of the four verdicts —
+ * plus the absent one — mean the check was never made. "We could not check" is not permission to
+ * land, and a run that lands on it inverts the operator's own instruction. (Run a97baf88, 2026-08-30:
+ * every cycle on both repos returned `baseline-red`, so nothing was ever verified, and every lane
+ * landed into the operator's working branch anyway because only `rejected` was refused.)
+ *
+ * The sentences are BRANCH-FREE and RUN-FREE on purpose: they are also the content of the standing
+ * lesson row, which is keyed one-per-cause rather than one-per-run.
+ */
+export function unverifiedDeliveryReason(v: string | null | undefined): string | null {
+  switch (asVerifyVerdict(v)) {
+    case "verified":
+      return null;
+    case "rejected":
+      return "the degradation guard rejected this cycle — the repository's own check passed before the agent's session and failed after it";
+    case "baseline-red":
+      return "the repository's own check was already failing before the agent's session (baseline red), so nothing this cycle produced could be verified";
+    case "skipped":
+      return "verification was skipped — no command could be resolved for this repository, so this cycle was never checked";
+    default:
+      return "this lane recorded no verification verdict at all, so nothing confirms its work was checked";
+  }
+}

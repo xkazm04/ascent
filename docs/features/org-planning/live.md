@@ -78,7 +78,7 @@ The unit of parallelism, of retry, and of the cockpit's row.
 | `stage` | Live rescan sub-stage (`fetch \| tree \| files \| analyze \| score \| compose`), `null` between phases. |
 | `log` | Newline-joined, **bounded to `LANE_LOG_LINES` = 200**, newest last, each line stamped `HH:MM:SS`. Appended read-modify-write; safe because a lane is single-writer by construction. |
 | `error` / `startedAt` / `endedAt` | A failed lane is lane data, never a run failure. |
-| `verifyVerdict` | `verified \| rejected \| baseline-red \| skipped`. **NULL is not `skipped`** — it is a lane written before the guard existed, whose verification state is unknown, and rendering it as "skipped" would be a claim about a run nobody made (`asVerifyVerdict` floors an unreadable value to null). A `rejected` lane is **never landed and never PR'd**. |
+| `verifyVerdict` | `verified \| rejected \| baseline-red \| skipped`. **NULL is not `skipped`** — it is a lane written before the guard existed, whose verification state is unknown, and rendering it as "skipped" would be a claim about a run nobody made (`asVerifyVerdict` floors an unreadable value to null). A `rejected` lane is **never landed and never PR'd** — and when the run's `verifyMode` is `on`, **only** a `verified` lane is (§[Only a VERIFIED lane is delivered](#only-a-verified-lane-is-delivered-when-the-guard-is-on-2026-08-31)). |
 | `verifyCommand` / `verifyNote` | The command that was run and the first meaningful failure lines, so "why was this rejected" survives the throwaway worktree it happened in. These three columns are also the ONLY store behind the red-baseline surface and the brief's lead item — §[A red baseline is SURFACED](#a-red-baseline-is-surfaced-and-becomes-the-loops-own-top-priority-work-2026-08-31) adds no parallel state. |
 
 Index: `@@index([runId])`.
@@ -551,6 +551,7 @@ totals, the history strip's per-run lift (`listLoopRuns`), and the follow-up res
 | `mock-scan` | either end has `engineProvider = "mock"` | *not attributable: mock scan* — or *the model failed and this scan fell to the deterministic floor* when `engineDegraded` |
 | `within-noise` | real pair, movement inside the band (including zero) | *within noise (±2)* |
 | `unmeasured` | one end missing (first-ever scan, lane never rescanned) | *not measured* |
+| `unmeasured` + `reason: "base"` | both ends exist, and git proves they were taken on **divergent commits** | *not comparable: the two scans were taken on different bases* |
 | `undelivered` | a real pair, and the lane that produced it committed **nothing** | *not attributable: nothing was committed, so what this measured no longer exists* |
 
 `undelivered` is the one verdict that is not a fact about the *measurement* — the measurement was
@@ -582,6 +583,58 @@ Two consequences worth stating plainly:
 Callers that genuinely have no provenance (a legacy row, a fixture) may omit the engines and get the
 pre-attribution strict-movement rule. The rule tightens where evidence exists and nowhere else; it
 never invents a verdict from absent data.
+
+#### A pair that crosses a base change is not comparable (2026-08-31)
+
+In run `a97baf88` one repo read **92 -> 84** with two `regressed` deliverables. Nothing the loop did
+caused it: between the two scans a **person** switched the paired checkout from
+`autopilot/session-read-transcript-and-tree` to `main`, and the lane's branch was cut from the second
+tree. The subtraction was arithmetic over two unrelated measurements, published as *"Regressed on
+agentic workflows"*.
+
+**What the loop can honestly know.** A scan records `headSha` (`ComparableScan`) — the commit it
+pinned to — and that is the *only* base evidence either end carries. There is no branch column on a
+`Scan`, and none was invented. So `src/lib/local/lane-base.ts` asks git, in the lane's own worktree
+(which shares the paired repository's object store), the narrowest answerable question: **is the
+BEFORE commit an ancestor of the AFTER commit?**
+
+| `BaseRelation` | When | Effect |
+| --- | --- | --- |
+| `shared` | the same commit, or before is an **ancestor** of after — which is exactly what a lane's own work looks like | nothing changes |
+| `diverged` | **both** commits are present in the repository and neither line contains the other | the pair is `unmeasured`; no delta in either direction, **no `regressed` deliverable**, and a disclosure row |
+| `unknown` | anything else — a missing `headSha`, a commit this checkout does not have, no git at all, a caller with no checkout | **never refuses** |
+
+The presence check is load-bearing: `git merge-base --is-ancestor` reports *"no"* and *"I have never
+heard of that commit"* identically through `runGit`, so without it a garbage-collected or
+never-fetched sha would read as proof of divergence. **An unknown base is not a differing base**, and
+only the latter refuses anything.
+
+Unlike the platform-fold mismatch — which refuses per *dimension*, because the fold moves three named
+dimensions and leaves six honest — a divergent base refuses the **whole pair**: a branch swap changes
+every file the scan read, so there is no dimension left to measure.
+
+**The disclosure.** A refused lane writes one `noted` deliverable —
+*"Bases differed — movement not comparable"* — carrying the sentence that names the cause, plus the
+same line on the lane log. It is deliberately **not** a `regressed` row, and it never suppresses the
+lane's *"Committed N changes"* row: an operator needs both facts, that the lane committed and that the
+number beside it is not comparable.
+
+**Only the lane can ask, so the lane records the answer.** The read side (`laneOutcome`, the cockpit's
+drift, the run's lift) has no checkout, and shelling out per lane on every render is not something a
+list endpoint may do. `baseRelationOf` recovers the finding from the persisted disclosure row — one
+column, no migration — and returns `unknown` for every lane that never made the determination. The
+absence of the row is the absence of a *finding*, never a finding of sameness.
+
+Two things this deliberately does **not** claim: that two ends *without* the evidence share a base
+(they are `unknown`), and that a `shared` pair's movement is therefore the lane's doing — the engine,
+noise and durability rules above still apply, in order.
+
+Tests: `lane-base.test.ts` (same commit answers without asking git; ancestor is shared; divergence
+only with **both** commits present; a missing sha, a missing object and an absent git are all
+`unknown`), `attribution.test.ts` (symmetric refusal, it outranks the band and the mock floor, every
+dimension refuses, a missing end stays plain `unmeasured`) and `lane-deliverables.test.ts` (no
+`regressed` row, the disclosure and its wording, the commit row survives, `shared`/`unknown`/absent
+are unchanged, and the finding round-trips through `baseRelationOf`).
 
 ## Gates
 
@@ -1286,6 +1339,11 @@ So delivery is now a **dial on the run**, recorded on `LoopRun.delivery` and on 
 | **`branch`** — *"Leave on a branch"* | **The default, and byte-identical to the loop before delivery existed.** Each lane commits to its own branch and stops. `deliverLane` returns on the first line without reading a thing: the guarantee is that the code path is *empty*, not merely harmless (`loop-delivery.test.ts` asserts every injected seam un-called). |
 | **`land`** — *"Land in my current branch"* | After a lane's cycle succeeds, `git merge --ff-only <branch>` in the **paired checkout**, into whatever branch it is standing on. |
 | **`pr`** — *"Open a PR"* | Reuses `openPrForLane` — the *same* path §*From lane branch to reviewed PR* drives — so there is exactly one PR implementation. Everything that path does still happens: the real branch is pushed with git (never `--force`), `/pulls` is POSTed, a 422 reuses the already-open PR, and the `ImprovementPr` ledger row plus the lane's `prNumber`/`prUrl` are written. The only thing it skips is the typed repo-name confirmation, because the operator gave that consent when they armed the run — an unattended loop cannot be asked. |
+
+**Neither `land` nor `pr` delivers a lane the run could not verify.** When `verifyMode` is `on` (the
+default posture, including a NULL column) only a `verified` verdict is delivered — see
+§[Only a VERIFIED lane is delivered](#only-a-verified-lane-is-delivered-when-the-guard-is-on-2026-08-31).
+The mode chooses *where the work goes*; the guard decides *whether it goes anywhere at all*.
 
 ### Why `--ff-only` is mandatory
 
@@ -2062,20 +2120,49 @@ artefact the loop must not author, since the loop's whole contract is that a row
 scan says it did. The brief and the lesson are the right carriers — one reaches the agent, the other
 reaches the operator, and neither claims to be a measurement.
 
-### A rejected lane is never delivered
+### Only a VERIFIED lane is delivered when the guard is on (2026-08-31)
 
-The verdict is persisted on `LoopRunLane.verifyVerdict`, and **both** delivery doors check it
-explicitly and first:
+The verdict is persisted on `LoopRunLane.verifyVerdict`, and **both** delivery doors read it.
 
-- `deliverLane` (`src/lib/local/loop-delivery.ts`) refuses `land` and `pr` on a `rejected` lane
-  whatever mode the run asked for, logging the reason on the lane.
-- `POST /api/org/loop/<id>/pr` — the one-click door a **human** presses — returns `409` for the same
-  reason. A verdict that only bound the automatic path would be no verdict at all: a human clicking
-  "open a PR" is exactly how a reversed cycle would otherwise reach a remote everyone can see.
+**The rule.** When the run's `verifyMode` is `on` — including a run whose column is NULL, since NULL
+means `on` (`verifyModeOf`) — a lane is delivered by `land` or `pr` **only** when its verdict is
+`verified`. `baseline-red`, `skipped`, `rejected` and an **absent** verdict all keep the work on its
+branch. When `verifyMode` is `off` the behaviour is exactly what it always was: the operator opted out
+of checking, and only `rejected` blocks — which cannot occur with the guard off.
 
-In practice a rejected lane also has `commits === 0`, which would turn it away anyway — but "in
+**Why, in one sentence:** turning the guard on is a request that changes be *checked* before they
+reach a branch, and three of the four verdicts mean the check could not be **made**, which is not
+permission to land.
+
+**What it cost to learn.** Run `a97baf88` (2026-08-30, `delivery: land`, `verifyMode: on`, 3 cycles):
+every cycle on both repositories returned `baseline-red` — each repo's own test command was already
+failing, so nothing the loop produced was ever verified — and every lane landed into the operator's
+real working branch anyway, because `rejected` was the only blocked verdict. That inverted the
+operator's own instruction.
+
+Both doors say it in one sentence: `unverifiedDeliveryReason`
+(`src/lib/local/verify-options.ts`) returns the refusal wording (`null` for `verified`, and only for
+`verified`), so the two can never give one lane two different answers.
+
+- `deliverLane` (`src/lib/local/loop-delivery.ts`) logs the refusal **on the lane, naming the
+  verdict** — *"it committed but nothing moved"* is otherwise indistinguishable from a bug — and
+  records a standing lesson candidate keyed on the CAUSE (`recordUnverifiedRefusalLesson`), one row
+  per repo per cause rather than one per run. A lane that committed nothing is passed over silently:
+  there is nothing to hold back, and a lesson on every empty lane would be noise about work that does
+  not exist.
+- `POST /api/org/loop/<id>/pr` — the one-click door a **human** presses — returns `409` carrying the
+  same sentence. A rule that only bound the automatic path would be no rule at all: a human clicking
+  "open a PR" is exactly how unverified work would otherwise reach a remote everyone can see.
+
+`rejected` keeps its own explicit veto ahead of this, in **both** modes and whatever the run asked
+for. In practice a rejected lane also has `commits === 0`, which would turn it away anyway — but "in
 practice" is not the standard for the one code path that merges into a working copy or pushes to a
 remote.
+
+**Known consequence, stated rather than hidden:** a lane written *before* the guard existed carries no
+verdict, and its run carries no `verifyMode`, so the one-click PR door now refuses it with *"this lane
+recorded no verification verdict"*. That is the honest reading — nothing confirms the work was
+checked — and the way past it is a fresh run, or a run started with verification off.
 
 ### Bounds, consent and the record
 
@@ -2118,8 +2205,10 @@ skipped; the attempt count reaches the prompt, the lane log and the lesson; and 
 id the lane touches is one it armed** — no synthetic row); `outcomeMatrix.baseline.test.ts` +
 `OutcomeSheet.dom.test.tsx` (the cell carries the command and note, a later green cycle clears it, and
 the sheet renders exactly one word with the note on hover);
-`loop-delivery.test.ts` and `[id]/pr/route.test.ts` (a rejected lane is not landed and not PR'd, and
-the other three verdicts are not blocked), `run-limits.test.ts` (the normalizers never guess; the
+`loop-delivery.test.ts` and `[id]/pr/route.test.ts` (with the guard ON, only `verified` lands and only
+`verified` opens a PR — `baseline-red`, `skipped` and an absent verdict are each refused with their own
+named cause and a standing lesson; with the guard OFF nothing changes and only `rejected` blocks; an
+unrecorded dial reads as ON; a lane with no commits is passed over silently), `run-limits.test.ts` (the normalizers never guess; the
 defaults are today's values), `lane-reservation.test.ts` (the proportion at 1, 2, 5, 10, 12) and
 `worktree-deps.test.ts` — real git, real filesystem — (a worktree next to a checkout with a
 `node_modules` gets a working link and can read through it; a checkout without one is untouched and

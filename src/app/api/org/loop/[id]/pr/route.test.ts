@@ -32,12 +32,21 @@ const lane = {
   branch: "ascent/loop-x",
   commits: 3,
   dimId: "D3",
+  // VERIFIED BY DEFAULT: the run's guard dial defaults to `on` (`verifyModeOf`), and under `on` only a
+  // `verified` lane may be published. Every case below that is about the GATES starts from the one
+  // verdict that lets the door open; the verdict matrix is exercised on its own further down.
+  verifyVerdict: "verified",
 };
 const state = { lane: { ...lane } as Record<string, unknown> };
 
+const run = { verifyMode: null as string | null };
 vi.mock("@/lib/db/loop-runs", () => ({
   getLoopRun: vi.fn(async (id: string) =>
-    id === "run-acme" ? { id, orgId: "org-acme" } : id === "run-other" ? { id, orgId: "org-other" } : null,
+    id === "run-acme"
+      ? { id, orgId: "org-acme", verifyMode: run.verifyMode }
+      : id === "run-other"
+        ? { id, orgId: "org-other", verifyMode: run.verifyMode }
+        : null,
   ),
   getLane: vi.fn(async (id: string) => (id === state.lane.id ? state.lane : null)),
 }));
@@ -81,6 +90,7 @@ beforeEach(() => {
   gates.sameOrigin = true;
   gates.role = null;
   state.lane = { ...lane };
+  run.verifyMode = null;
   paired.path = "C:/paired/web";
   opener.throws = null;
   audits.length = 0;
@@ -153,10 +163,38 @@ describe("the 409 matrix", () => {
     expect(openPrForLane).not.toHaveBeenCalled();
   });
 
-  it("does NOT refuse the other three verdicts", async () => {
-    for (const verdict of ["verified", "baseline-red", "skipped"]) {
+  // THE ONE-CLICK DOOR HOLDS THE SAME RULE AS THE UNATTENDED ONE (`loop-delivery.ts`). Under
+  // `verifyMode: on` — the default posture — only a `verified` lane may be published. Gating on
+  // `rejected` alone is what let `baseline-red` work land in run a97baf88; a human clicking this
+  // button is the other half of the same door.
+  it("refuses every verdict but `verified` when the run asked for verification", async () => {
+    for (const verdict of ["baseline-red", "skipped", null]) {
       state.lane = { ...lane, verifyVerdict: verdict };
-      expect((await post("run-acme", ok)).status, `${verdict} was refused`).toBe(200);
+      const res = await post("run-acme", ok);
+      expect(res.status, `${verdict} was published`).toBe(409);
+      // The refusal is HONEST about which verdict it is, and about where the work still is.
+      expect((await res.json()).error).toContain("ascent/loop-x");
+    }
+    expect(openPrForLane).not.toHaveBeenCalled();
+  });
+
+  it("names the cause per verdict, in the same words the loop's own delivery uses", async () => {
+    const said: Record<string, string> = {};
+    for (const verdict of ["baseline-red", "skipped", null]) {
+      state.lane = { ...lane, verifyVerdict: verdict };
+      said[String(verdict)] = (await (await post("run-acme", ok)).json()).error;
+    }
+    expect(said["baseline-red"]).toContain("already failing");
+    expect(said["skipped"]).toContain("no command could be resolved");
+    expect(said["null"]).toContain("no verification verdict");
+  });
+
+  it("publishes a `verified` lane, and every verdict when the operator turned the guard OFF", async () => {
+    expect((await post("run-acme", ok)).status).toBe(200);
+    run.verifyMode = "off";
+    for (const verdict of ["verified", "baseline-red", "skipped", null]) {
+      state.lane = { ...lane, verifyVerdict: verdict };
+      expect((await post("run-acme", ok)).status, `${verdict} was refused with the guard off`).toBe(200);
     }
   });
 

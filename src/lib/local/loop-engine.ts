@@ -365,6 +365,10 @@ export async function retryLane(laneId: string, opts: { deps?: Partial<LaneDeps>
       // recorded mode, read off the row rather than re-derived, exactly like its agent configuration.
       await deliverLane({
         delivery: run.delivery,
+        // The run's GUARD dial travels with its delivery mode, and for the same reason: a lane is
+        // delivered only when it was VERIFIED, and whether verification was asked for is a property
+        // of the run's row, never of today's env.
+        verifyMode: run.verifyMode,
         orgSlug: org,
         orgId: run.orgId,
         laneId,
@@ -482,6 +486,9 @@ async function drive(
         if (res.laneId) {
           await deliverLane({
             delivery: run.delivery,
+            // Same row, same reason as the retry path above: verified-only delivery is part of the
+            // run's configuration.
+            verifyMode: run.verifyMode,
             orgSlug: state.orgSlug,
             orgId: run.orgId,
             laneId: res.laneId,

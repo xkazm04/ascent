@@ -6,6 +6,7 @@ import { DIMENSIONS } from "@/lib/maturity/model";
 import { diffScans } from "@/lib/report/compare";
 import type { ComparableScan } from "@/lib/db/scans";
 import { deriveLaneDeliverables, movementHeadline, parseClaimLines, RETIRED_NOTE, tidyHeadline } from "@/lib/local/lane-deliverables";
+import { BASE_DIVERGED_HEADLINE, baseRelationOf } from "@/lib/db/loop-runs-types";
 
 const scan = (p: Partial<ComparableScan> & { id: string }): ComparableScan => ({
   scannedAt: "2026-08-22T10:00:00.000Z", overallScore: 50, level: "L3", levelName: "Augmented", archetype: "org",
@@ -248,5 +249,67 @@ describe("deriveLaneDeliverables", () => {
     expect(movementHeadline("D9", true)).toBe("Hardened CI/CD security");
     expect(movementHeadline("D8", true)).toBe("Added agent-readable docs");
     expect(movementHeadline("D5", false)).toBe("Regressed on documentation");
+  });
+});
+
+// ── A PAIR WHOSE TWO ENDS WERE NOT TAKEN ON THE SAME BASE ───────────────────────────────────────
+//
+// Run a97baf88 (2026-08-30): `kp` read 92 → 84 and this derivation printed two `regressed` rows. The
+// cause was a person switching the paired checkout from an autopilot branch to `main` between the two
+// scans — two different trees. The refusal belongs in the same family as the platform-fold mismatch:
+// no delta claimed in either direction, and a DISCLOSURE that names the cause, because a bare drop
+// with no explanation reads as "the repository got worse".
+describe("deriveLaneDeliverables — an incomparable base", () => {
+  // The same pair as above, read backwards: D9 falls 62 → 30, which is an attributable regression
+  // when the two ends are comparable.
+  const regressing = { kind: "attributable" as const, delta: -32 };
+  const derive = (base: "shared" | "diverged" | "unknown") =>
+    deriveLaneDeliverables({
+      kind: "backlog",
+      agentClaims: [],
+      diff: diffScans(after, before),
+      before: after,
+      after: before,
+      verdict: base === "diverged" ? { kind: "unmeasured" as const, reason: "base" as const } : regressing,
+      base,
+      commits: 2,
+    });
+
+  it("emits no `regressed` row, and discloses the reason instead", () => {
+    const rows = derive("diverged");
+    expect(rows.some((d) => d.kind === "regressed")).toBe(false);
+    const disclosure = rows.find((d) => d.headline === BASE_DIVERGED_HEADLINE);
+    expect(disclosure).toBeDefined();
+    expect(disclosure!.kind).toBe("noted");
+    expect(disclosure!.evidence).toContain("not on one line of history");
+    // It is a disclosure, not a review row: it covers no follow-up and claims no dimension.
+    expect(disclosure!.covers).toEqual([]);
+    expect(disclosure!.dimId).toBeNull();
+  });
+
+  it("still reports that the lane COMMITTED — the disclosure never suppresses the work", () => {
+    // TOTALITY runs first on purpose: an operator needs both facts, "it committed" and "the number
+    // beside it is not comparable".
+    const rows = derive("diverged");
+    expect(rows.some((d) => d.kind === "noted" && d.headline.startsWith("Committed 2 change"))).toBe(true);
+  });
+
+  it("leaves a comparable pair exactly as it was — and an UNKNOWN base is comparable", () => {
+    for (const base of ["shared", "unknown"] as const) {
+      const rows = derive(base);
+      expect(rows.some((d) => d.kind === "regressed"), base).toBe(true);
+      expect(rows.some((d) => d.headline === BASE_DIVERGED_HEADLINE), base).toBe(false);
+    }
+    // And the default (no `base` at all) behaves like `unknown`.
+    const legacy = deriveLaneDeliverables({ kind: "backlog", agentClaims: [], diff: diffScans(after, before), before: after, after: before, verdict: regressing, commits: 2 });
+    expect(legacy.some((d) => d.kind === "regressed")).toBe(true);
+  });
+
+  it("is recoverable from the persisted row, which is how the read side inherits the refusal", () => {
+    // The lane has a checkout to ask git; `laneOutcome` and the cockpit's drift do not. The row IS
+    // the record — and its absence stays `unknown`, never `shared`.
+    expect(baseRelationOf(derive("diverged"))).toBe("diverged");
+    expect(baseRelationOf(derive("shared"))).toBe("unknown");
+    expect(baseRelationOf([])).toBe("unknown");
   });
 });

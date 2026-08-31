@@ -77,6 +77,41 @@ const DELIVERABLE_KINDS: readonly LaneDeliverableKind[] = ["closed", "installed"
 export const isReviewMarker = (d: LaneDeliverable): boolean =>
   d.kind === "noted" && d.covers.length === 1 && d.headline === d.covers[0];
 
+/**
+ * THE INCOMPARABLE-BASE DISCLOSURE — the row a lane writes when its two scan ends were taken on
+ * commits that are not on one line of history (`lane-base.ts`, `BaseRelation`).
+ *
+ * It is a `noted` row and never a `regressed` one, which is the whole point: run a97baf88's `kp` lane
+ * read 92 → 84 because a person switched the paired checkout's branch between the two scans, and the
+ * sheet published "Regressed on agentic workflows" for it. A reader seeing a bare drop concludes the
+ * repository got worse; this row is what says otherwise, in the ledger where the drop is shown.
+ *
+ * IT IS ALSO THE PERSISTED FACT. Only the lane itself has a checkout to ask git about the two commits;
+ * the read side (`laneOutcome`, the cockpit's drift) has none, and re-deriving would mean shelling out
+ * per lane on every render. So the write side records the finding as this row, and the read side reads
+ * the verdict back off it — one column, no migration, and a lane that never made the determination
+ * simply carries no row and stays `unknown`, which refuses nothing.
+ */
+export const BASE_DIVERGED_HEADLINE = "Bases differed — movement not comparable";
+
+/** The sentence the disclosure row carries, and the line the lane log gets. Names the CAUSE, because
+ *  the number alone reads as a regression. */
+export const BASE_DIVERGED_NOTE =
+  "The before and after scans of this lane were taken on commits that are not on one line of history — the checkout's base " +
+  "moved between them (a branch switch or a reset, not something this lane did). No score movement is claimed in either " +
+  "direction: the two ends measured two different trees.";
+
+/** Is this the disclosure row? The read side's only evidence that the pair was refused. */
+export const isBaseDisclosure = (d: LaneDeliverable): boolean =>
+  d.kind === "noted" && d.headline === BASE_DIVERGED_HEADLINE;
+
+/** The `BaseRelation` a persisted deliverable list implies — `diverged` when the lane recorded the
+ *  disclosure, else `unknown`. NEVER `shared`: the absence of the row is the absence of a finding, not
+ *  a finding of sameness, and claiming otherwise would let a legacy lane assert a base it never
+ *  checked. */
+export const baseRelationOf = (deliverables: readonly LaneDeliverable[] | null | undefined): "diverged" | "unknown" =>
+  deliverables?.some(isBaseDisclosure) ? "diverged" : "unknown";
+
 /** `deliverablesJson` → the list; anything malformed is an empty list, never a crash in a React tree. */
 export function parseDeliverables(raw: string | null | undefined): LaneDeliverable[] {
   if (!raw) return [];

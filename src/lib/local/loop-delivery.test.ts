@@ -50,7 +50,11 @@ const lane = (over: Partial<LoopLaneRecord> = {}): LoopLaneRecord =>
     executor: "local",
     claimedBy: null,
     leaseUntil: null,
-    verifyVerdict: null,
+    // VERIFIED BY DEFAULT in this fixture. The run-level dial defaults to `on` (`verifyModeOf`), and
+    // under `on` only a `verified` lane is delivered — so every test below that is about the land/PR
+    // MECHANICS starts from the one verdict that lets the mechanics run. The verdict matrix itself is
+    // exercised deliberately in "verification the operator asked for".
+    verifyVerdict: "verified",
     verifyCommand: null,
     verifyNote: null,
     ...over,
@@ -66,6 +70,7 @@ let mocks: {
   getLane: ReturnType<typeof vi.fn>;
   log: ReturnType<typeof vi.fn>;
   noteRefusal: ReturnType<typeof vi.fn>;
+  noteUnverified: ReturnType<typeof vi.fn>;
 };
 
 const input = {
@@ -84,6 +89,7 @@ beforeEach(() => {
     getLane: vi.fn(async () => lane()),
     log: vi.fn(async () => null),
     noteRefusal: vi.fn(async () => null),
+    noteUnverified: vi.fn(async () => null),
   };
   deps = mocks as unknown as DeliverDeps;
 });
@@ -98,6 +104,7 @@ describe("branch (the default)", () => {
     expect(mocks.openPr).not.toHaveBeenCalled();
     expect(mocks.log).not.toHaveBeenCalled();
     expect(mocks.noteRefusal).not.toHaveBeenCalled();
+    expect(mocks.noteUnverified).not.toHaveBeenCalled();
   });
 
   it("treats a null column and an unknown value the same way — as branch", async () => {
@@ -218,12 +225,108 @@ describe("a lane the degradation guard REJECTED", () => {
     expect(res.delivered).toBe(false);
   });
 
-  it("does NOT block the other three verdicts", async () => {
-    for (const verdict of ["verified", "baseline-red", "skipped"] as const) {
+  it("is refused for the SAME reason whether the guard was armed or not", async () => {
+    // `rejected` cannot occur with the guard off, but the veto does not read the dial: a lane
+    // carrying that verdict is refused on the verdict alone.
+    mocks.getLane.mockResolvedValue(lane({ verifyVerdict: "rejected", commits: 2 }));
+
+    const res = await deliverLane({ ...input, delivery: "land", verifyMode: "off" }, deps);
+
+    expect(mocks.land).not.toHaveBeenCalled();
+    expect(res.reason).toContain("degradation guard rejected");
+  });
+});
+
+// ── THE RULE THIS FILE EXISTS FOR SINCE run a97baf88 ────────────────────────────────────────────
+//
+// The operator turned verification ON. That is a request that changes be CHECKED before they reach
+// their branch. Three of the four verdicts — and the absent one — mean the check could not be MADE,
+// which is not permission to land. Gating on `rejected` alone is what let three cycles of
+// `baseline-red` work land into a real working branch on 2026-08-30.
+describe("verification the operator asked for", () => {
+  const unverifiable = ["baseline-red", "skipped", null] as const;
+
+  it("delivers by LAND only on `verified`", async () => {
+    for (const verdict of unverifiable) {
       mocks.land.mockClear();
+      mocks.log.mockClear();
+      mocks.noteUnverified.mockClear();
       mocks.getLane.mockResolvedValue(lane({ verifyVerdict: verdict, commits: 2 }));
-      await deliverLane({ ...input, delivery: "land" }, deps);
-      expect(mocks.land, `${verdict} was refused delivery`).toHaveBeenCalledTimes(1);
+
+      const res = await deliverLane({ ...input, delivery: "land", verifyMode: "on" }, deps);
+
+      expect(mocks.land, `${verdict} was landed`).not.toHaveBeenCalled();
+      expect(res.delivered).toBe(false);
+      // THE LOG NAMES THE VERDICT. "It committed but nothing moved" is otherwise indistinguishable
+      // from a bug, which is exactly how the live run read.
+      expect(res.reason).toContain("verifyMode: on");
+      expect(mocks.log).toHaveBeenCalledWith("lane-1", expect.stringContaining("Not landing"));
+      // One standing lesson per CAUSE — the reason sentence is branch-free and run-free.
+      expect(mocks.noteUnverified).toHaveBeenCalledWith("acme", "acme/web", expect.any(String));
     }
+
+    mocks.getLane.mockResolvedValue(lane({ verifyVerdict: "verified", commits: 2 }));
+    const ok = await deliverLane({ ...input, delivery: "land", verifyMode: "on" }, deps);
+    expect(ok.delivered).toBe(true);
+    expect(mocks.land).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens a PR only on `verified`", async () => {
+    for (const verdict of unverifiable) {
+      mocks.openPr.mockClear();
+      mocks.getLane.mockResolvedValue(lane({ verifyVerdict: verdict, commits: 2 }));
+
+      const res = await deliverLane({ ...input, delivery: "pr", verifyMode: "on" }, deps);
+
+      expect(mocks.openPr, `${verdict} was published`).not.toHaveBeenCalled();
+      expect(res.reason).toContain("Not opening a PR for");
+    }
+
+    mocks.getLane.mockResolvedValue(lane({ verifyVerdict: "verified", commits: 2 }));
+    expect((await deliverLane({ ...input, delivery: "pr", verifyMode: "on" }, deps)).delivered).toBe(true);
+  });
+
+  it("says WHICH verdict held the work back, per verdict", async () => {
+    const said: Record<string, string> = {};
+    for (const verdict of unverifiable) {
+      mocks.getLane.mockResolvedValue(lane({ verifyVerdict: verdict, commits: 2 }));
+      said[String(verdict)] = (await deliverLane({ ...input, delivery: "land", verifyMode: "on" }, deps)).reason ?? "";
+    }
+    expect(said["baseline-red"]).toContain("already failing");
+    expect(said["skipped"]).toContain("no command could be resolved");
+    expect(said["null"]).toContain("no verification verdict");
+  });
+
+  it("changes NOTHING when the operator turned the guard off — only `rejected` blocks", async () => {
+    for (const verdict of [...unverifiable, "verified"] as const) {
+      mocks.land.mockClear();
+      mocks.noteUnverified.mockClear();
+      mocks.getLane.mockResolvedValue(lane({ verifyVerdict: verdict, commits: 2 }));
+
+      await deliverLane({ ...input, delivery: "land", verifyMode: "off" }, deps);
+
+      expect(mocks.land, `${verdict} was refused with the guard off`).toHaveBeenCalledTimes(1);
+      expect(mocks.noteUnverified).not.toHaveBeenCalled();
+    }
+  });
+
+  it("treats an unrecorded dial as ON — the guard is the default posture", async () => {
+    mocks.getLane.mockResolvedValue(lane({ verifyVerdict: "baseline-red", commits: 2 }));
+
+    for (const verifyMode of [null, undefined, "nonsense"]) {
+      mocks.land.mockClear();
+      await deliverLane({ ...input, delivery: "land", verifyMode }, deps);
+      expect(mocks.land).not.toHaveBeenCalled();
+    }
+  });
+
+  it("stays silent about a lane that committed nothing — there is nothing to hold back", async () => {
+    mocks.getLane.mockResolvedValue(lane({ verifyVerdict: "baseline-red", commits: 0 }));
+
+    const res = await deliverLane({ ...input, delivery: "land", verifyMode: "on" }, deps);
+
+    expect(res.reason).toBeNull();
+    expect(mocks.log).not.toHaveBeenCalled();
+    expect(mocks.noteUnverified).not.toHaveBeenCalled();
   });
 });

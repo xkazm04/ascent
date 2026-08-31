@@ -10,12 +10,23 @@
 // The verdict gate is the same one the numbers answer to (maturity/attribution.ts): a lane whose pair
 // is undelivered, mock, within-noise or unmeasured gets NO movement-derived headline, because a
 // headline is a claim and the number behind it was already refused.
+//
+// AND THE PAIR ITSELF HAS TO BE COMPARABLE. A pair whose two ends were taken on divergent commits
+// (`base: "diverged"`, lane-base.ts) measured two different trees: no movement headline in either
+// direction, and a DISCLOSURE row saying so — because a bare 92 → 84 with nothing beside it reads as
+// "the repository got worse", which is what run a97baf88 published for a branch switch a person made.
 
-import type { LaneDeliverable, LaneDeliverableKind, LoopLaneKind } from "@/lib/db/loop-runs-types";
+import {
+  BASE_DIVERGED_HEADLINE,
+  BASE_DIVERGED_NOTE,
+  type LaneDeliverable,
+  type LaneDeliverableKind,
+  type LoopLaneKind,
+} from "@/lib/db/loop-runs-types";
 import type { ComparableScan } from "@/lib/db/scans";
 import type { ScanDiff } from "@/lib/report/compare";
 import { signalName } from "@/lib/report/compare";
-import { attributeDimension, type Attribution } from "@/lib/maturity/attribution";
+import { attributeDimension, type Attribution, type BaseRelation } from "@/lib/maturity/attribution";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import type { DimensionId } from "@/lib/types";
 
@@ -99,6 +110,10 @@ export interface DeriveLaneDeliverablesInput {
   /** The lane's pair verdict (`attributeDelivered`). Movement headlines are emitted ONLY when it is
    *  attributable. */
   verdict: Attribution;
+  /** What git said about the two ends' bases (`lane-base.ts`). `diverged` refuses every per-dimension
+   *  movement and adds the disclosure row below; `unknown` — the default, and what every read-side
+   *  backfill passes, because it has no checkout to ask — changes nothing. */
+  base?: BaseRelation;
   practiceName?: string | null;
   /** Ids the rescan closed by trailer/restatement — `closed` headlines even without a claim line. */
   closedFollowUpIds?: readonly string[];
@@ -246,7 +261,7 @@ export function deriveLaneDeliverables(input: DeriveLaneDeliverablesInput): Lane
       .filter((d) => d.delta != null && d.delta !== 0 && !covered.has(d.id))
       .sort((x, y) => Math.abs(y.delta ?? 0) - Math.abs(x.delta ?? 0));
     for (const d of moved) {
-      if (attributeDimension(d.id, d.delta, before, after).kind !== "attributable") continue;
+      if (attributeDimension(d.id, d.delta, before, after, input.base).kind !== "attributable") continue;
       const up = (d.delta as number) > 0;
       const kind: LaneDeliverableKind = up ? "hardened" : "regressed";
       const names = [...new Set([...d.appearedSignals, ...d.disappearedSignals].map(signalName))].slice(0, 6);
@@ -289,6 +304,19 @@ export function deriveLaneDeliverables(input: DeriveLaneDeliverablesInput): Lane
       covers: [...new Set(confirmed)],
       evidence: movedDim && input.verdict.kind === "attributable" ? movedDim.attribution : null,
     });
+  }
+
+  // 5. THE INCOMPARABLE-BASE DISCLOSURE, last — after TOTALITY, deliberately.
+  //
+  // It is a disclosure, not a deliverable: putting it earlier would satisfy the totality test and
+  // suppress the "Committed N changes" row, so a lane that committed real work would report only that
+  // its measurement was refused. The operator needs both facts — the lane committed, AND the pair its
+  // number came from is not comparable.
+  //
+  // Only when both ends exist: with no pair there is nothing to disclaim, and `unmeasured` already
+  // says everything true about it.
+  if (input.base === "diverged" && before && after) {
+    push({ headline: BASE_DIVERGED_HEADLINE, dimId: null, kind: "noted", covers: [], evidence: BASE_DIVERGED_NOTE });
   }
 
   // NO CAP: every resolved gap keeps its own deliverable. The cell scrolls; it does not condense —

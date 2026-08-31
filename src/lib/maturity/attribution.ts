@@ -60,11 +60,39 @@ export function isRealEngine(end: EngineEnd | null | undefined): boolean {
   return !!end && end.engineProvider !== MOCK_ENGINE;
 }
 
+/**
+ * THE FIFTH WAY A NUMBER MOVES: the two ends were not taken on the same base.
+ *
+ * A scan describes the tree it read. Two scans of the same repository taken from DIFFERENT commits —
+ * not one built on the other, but two trees that diverged — are two measurements of two things, and
+ * subtracting them says nothing about what happened in between. Run a97baf88 (2026-08-30) is the
+ * case: `kp` read 92 → 84 with two `regressed` deliverables, and between the two scans a PERSON
+ * switched the paired checkout from `autopilot/session-read-transcript-and-tree` to `main`. The loop
+ * published "Regressed on agentic workflows" for a branch swap it did not make.
+ *
+ * The three states are deliberately not two. `unknown` is the common case and it must NEVER refuse:
+ * a pair whose ends carry no `headSha`, a sha the checkout no longer has, a read with no checkout to
+ * ask — none of those is evidence that the bases differ, and inventing a refusal out of absent data
+ * is the exact error this module exists to avoid.
+ *
+ *   • `shared`   — the two ends are provably on one line of history: the same commit, or the before
+ *                  commit is an ANCESTOR of the after commit (which is what a lane's own work looks
+ *                  like: a branch cut from the before-scan's commit with new commits on top).
+ *   • `diverged` — both commits are known to the repository and the before is NOT an ancestor of the
+ *                  after. Somebody moved the tree out from under the pair.
+ *   • `unknown`  — anything else. Not a refusal.
+ */
+export type BaseRelation = "shared" | "diverged" | "unknown";
+
+/** Why a pair could not be measured. Absent on the ordinary missing-end case, which needs no word. */
+export type UnmeasuredReason = "base";
+
 export type Attribution =
   /** The pair is real on both ends and the movement clears the band. `delta` is signed. */
   | { kind: "attributable"; delta: number }
-  /** One or both ends is missing — a first-ever scan, or a lane that never rescanned. */
-  | { kind: "unmeasured" }
+  /** One or both ends is missing — a first-ever scan, or a lane that never rescanned. `reason: "base"`
+   *  is the other way a pair is unmeasurable: both ends exist and were taken on divergent bases. */
+  | { kind: "unmeasured"; reason?: UnmeasuredReason }
   /** At least one end came from the mock floor, so the two ends are not on the same ruler. */
   | { kind: "mock-scan"; delta: number; degraded: boolean }
   /** Real on both ends, but the movement is inside the band — including a movement of zero. */
@@ -83,8 +111,12 @@ export type Attribution =
 export function attributeScores(
   before: (EngineEnd & { overallScore: number }) | null | undefined,
   after: (EngineEnd & { overallScore: number }) | null | undefined,
+  base: BaseRelation = "unknown",
 ): Attribution {
   if (!before || !after) return { kind: "unmeasured" };
+  // THE BASE CHECK COMES FIRST, and for the same reason the engine check precedes the band: a delta
+  // between two divergent trees is not a small delta or a mock delta, it is not a delta at all.
+  if (base === "diverged") return { kind: "unmeasured", reason: "base" };
   const delta = after.overallScore - before.overallScore;
   if (!isRealEngine(before) || !isRealEngine(after)) {
     return { kind: "mock-scan", delta, degraded: before.engineDegraded === true || after.engineDegraded === true };
@@ -117,8 +149,9 @@ export function attributeDelivered(
   before: (EngineEnd & { overallScore: number }) | null | undefined,
   after: (EngineEnd & { overallScore: number }) | null | undefined,
   commits: number | null | undefined,
+  base: BaseRelation = "unknown",
 ): Attribution {
-  const verdict = attributeScores(before, after);
+  const verdict = attributeScores(before, after, base);
   if (verdict.kind === "unmeasured" || (commits ?? 0) > 0) return verdict;
   return { kind: "undelivered", delta: verdict.delta };
 }
@@ -133,8 +166,10 @@ export function attributeDelta(
   delta: number | null | undefined,
   before: EngineEnd | null | undefined,
   after: EngineEnd | null | undefined,
+  base: BaseRelation = "unknown",
 ): Attribution {
   if (delta == null || !before || !after) return { kind: "unmeasured" };
+  if (base === "diverged") return { kind: "unmeasured", reason: "base" };
   if (!isRealEngine(before) || !isRealEngine(after)) {
     return { kind: "mock-scan", delta, degraded: before.engineDegraded === true || after.engineDegraded === true };
   }
@@ -219,9 +254,13 @@ export function attributeDimension(
   delta: number | null | undefined,
   before: (EngineEnd & FoldEnd) | null | undefined,
   after: (EngineEnd & FoldEnd) | null | undefined,
+  base: BaseRelation = "unknown",
 ): Attribution {
   if (!foldIsComparable(before, after, dimId)) return { kind: "unmeasured" };
-  return attributeDelta(delta, before, after);
+  // A DIVERGENT BASE REFUSES THE WHOLE PAIR, not one dimension. The fold mismatch is narrow because it
+  // is narrow — it moves three named dimensions and leaves six honest. A branch swap changes every
+  // file the scan read, so there is no dimension left to measure.
+  return attributeDelta(delta, before, after, base);
 }
 
 /** True only for a movement this rule will let a surface print as a green delta. */
@@ -237,7 +276,9 @@ export function attributionLabel(a: Attribution): string {
     case "attributable":
       return "";
     case "unmeasured":
-      return "not measured";
+      return a.reason === "base"
+        ? "not comparable: the two scans were taken on different bases"
+        : "not measured";
     case "mock-scan":
       return a.degraded
         ? "not attributable: the model failed and this scan fell to the deterministic floor"
@@ -310,7 +351,7 @@ export function attributionChip(a: Attribution): string {
     case "attributable":
       return "";
     case "unmeasured":
-      return "not measured";
+      return a.reason === "base" ? "different bases" : "not measured";
     case "mock-scan":
       return a.degraded ? "mock (degraded)" : "mock scan";
     case "within-noise":

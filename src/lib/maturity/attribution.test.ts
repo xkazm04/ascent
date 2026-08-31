@@ -8,6 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  attributeDelivered,
   attributeDelta,
   attributeDimension,
   attributeScores,
@@ -226,5 +227,62 @@ describe("integrityNotes — an unmeasured dimension is disclosed, never silentl
 
   it("says nothing at all on a scan that observed everything", () => {
     expect(integrityNotes({ d9Unmeasurable: false, widenedDims: [], effectiveBlend: SCORE_BLEND })).toEqual([]);
+  });
+});
+
+// ── THE FIFTH WAY A NUMBER MOVES: the two ends were not taken on the same base ───────────────────
+//
+// A pair whose ends sit on divergent commits measured two different trees. Run a97baf88 (2026-08-30):
+// `kp` read 92 → 84 because a person switched the paired checkout's branch between the two scans, and
+// the loop published "Regressed on agentic workflows" for it. The refusal is symmetric — a gain
+// across a branch swap is exactly as unattributable as a loss — and it fires ONLY on proof.
+describe("an incomparable base", () => {
+  it("refuses the pair in both directions, and says why", () => {
+    for (const [b, a] of [
+      [real(92), real(84)],
+      [real(84), real(92)],
+    ] as const) {
+      const v = attributeScores(b, a, "diverged");
+      expect(v).toEqual({ kind: "unmeasured", reason: "base" });
+      expect(attributionLabel(v)).toContain("different bases");
+      expect(attributionChip(v)).toBe("different bases");
+    }
+  });
+
+  it("does not refuse a pair whose ends share a base, or one git could not answer for", () => {
+    // `unknown` is the default and the common case — an unknown base is not a differing base.
+    expect(attributeScores(real(50), real(62), "shared")).toEqual({ kind: "attributable", delta: 12 });
+    expect(attributeScores(real(50), real(62), "unknown")).toEqual({ kind: "attributable", delta: 12 });
+    expect(attributeScores(real(50), real(62))).toEqual({ kind: "attributable", delta: 12 });
+  });
+
+  it("outranks the noise band and the mock floor — there is no delta to judge", () => {
+    // Not "a small movement" and not "two rulers": no comparison happened at all.
+    expect(attributeScores(real(50), real(51), "diverged")).toEqual({ kind: "unmeasured", reason: "base" });
+    expect(attributeScores(mock(50), real(62), "diverged")).toEqual({ kind: "unmeasured", reason: "base" });
+  });
+
+  it("still reports a missing end as plain unmeasured — nothing to compare is not a base finding", () => {
+    expect(attributeScores(null, real(62), "diverged")).toEqual({ kind: "unmeasured" });
+    expect(attributionLabel({ kind: "unmeasured" })).toBe("not measured");
+  });
+
+  it("refuses every DIMENSION of the pair, not just the platform-folded three", () => {
+    // A fold mismatch is narrow because it IS narrow: it moves D2/D3/D4 and leaves six honest. A
+    // branch swap changes every file the scan read.
+    for (const dim of ["D1", "D4", "D7", "D9"]) {
+      expect(attributeDimension(dim, -8, real(92), real(84), "diverged")).toEqual({ kind: "unmeasured", reason: "base" });
+      expect(attributeDimension(dim, -8, real(92), real(84), "shared")).toEqual({ kind: "attributable", delta: -8 });
+    }
+  });
+
+  it("refuses a bare delta too, so the ledger and the resolve rule cannot disagree", () => {
+    expect(attributeDelta(-8, real(92), real(84), "diverged")).toEqual({ kind: "unmeasured", reason: "base" });
+    expect(attributeDelta(-8, real(92), real(84), "unknown")).toEqual({ kind: "attributable", delta: -8 });
+  });
+
+  it("keeps the durability rule underneath it: a refused pair is not upgraded by commits", () => {
+    expect(attributeDelivered(real(92), real(84), 3, "diverged")).toEqual({ kind: "unmeasured", reason: "base" });
+    expect(attributeDelivered(real(92), real(84), 0, "diverged")).toEqual({ kind: "unmeasured", reason: "base" });
   });
 });

@@ -14,6 +14,7 @@ import { listRunOutcomes } from "@/lib/db/lane-outcomes";
 import type { LaneImpactInput } from "@/lib/db/improvement-events";
 import { laneEconomics, priceList, type LaneEconomics, type RemediationPriceList } from "@/lib/local/lane-economics";
 import {
+  baseRelationOf,
   isReviewMarker,
   laneKindOf,
   parseTargets,
@@ -427,7 +428,12 @@ async function laneOutcome(
   const pair = await getLanePair({ orgSlug, repoFullName: lane.repoFullName, beforeScanId: lane.beforeScanId, afterScanId: lane.afterScanId });
   if (!pair) return base;
   const { before, after } = pair;
-  const verdict = attributeDelivered(before, after, lane.commits);
+  // THE BASE FINDING, READ BACK OFF THE ROW. Only the lane had a checkout to ask git whether its two
+  // ends sat on one line of history; this read has none, and shelling out per lane on every render is
+  // not a thing a list endpoint may do. `baseRelationOf` recovers the answer from the disclosure row
+  // the lane persisted — and returns `unknown` for every lane that never made the determination,
+  // which refuses nothing. See loop-runs-types.ts.
+  const verdict = attributeDelivered(before, after, lane.commits, baseRelationOf(lane.deliverables));
   let diff = before && after ? diffScans(before, after) : null;
   // THE PROSE ANSWERS TO THE SAME RULE AS THE NUMBER. A lane whose pair is undelivered, mock, within
   // noise or unmeasured has its delta refused by `attributeDelivered`; its movement lines are the same

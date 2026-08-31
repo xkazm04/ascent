@@ -16,6 +16,9 @@
 //
 // The typed `confirm` (the repo's full name) is deliberate friction. Every other loop control is
 // reversible on the operator's own disk; this one writes to a remote everyone can see.
+//
+// AND THE SAME DELIVERY RULE THE UNATTENDED DOOR HOLDS: under `verifyMode: on`, only a `verified`
+// lane may be published. A rule that bound the automatic path alone would be no rule at all.
 
 import { NextResponse } from "next/server";
 import { PUBLIC_ORG, requireSameOrigin } from "@/lib/auth";
@@ -28,6 +31,8 @@ import { getLane, getLoopRun } from "@/lib/db/loop-runs";
 import { orgIdForSlug } from "@/lib/db/loop-tenancy";
 import { getRepoLocalPath, recordAudit } from "@/lib/db";
 import { openPrForLane } from "@/lib/local/loop-pr";
+import { unverifiedDeliveryReason } from "@/lib/local/verify-options";
+import { verifyModeOf } from "@/lib/local/run-limits";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -80,6 +85,24 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
         error:
           "The degradation guard rejected this lane: the repository's own check passed before the agent's session and failed after it, " +
           "so the work was discarded rather than committed. A rejected lane cannot be opened as a pull request.",
+      },
+      { status: 409 },
+    );
+  }
+  // VERIFIED-ONLY, THE SAME RULE THE UNATTENDED DOOR APPLIES (`loop-delivery.ts`), from the same
+  // sentence (`unverifiedDeliveryReason`). `rejected` is one of four verdicts and gating on it alone
+  // let `baseline-red` work — work the repository's own check never cleared, because it was already
+  // failing — reach a remote everyone can see. A run whose `verifyMode` is on asked for the check;
+  // three of the four verdicts and the absent one all mean the check was never made.
+  const unverified =
+    verifyModeOf(run.verifyMode) === "on" ? unverifiedDeliveryReason(lane.verifyVerdict) : null;
+  if (unverified) {
+    return NextResponse.json(
+      {
+        error:
+          `This run asked for verification (verifyMode: on) and ${unverified}. A verdict other than "verified" means the check ` +
+          `could not be made, which is not permission to publish: the work stays on ${lane.branch}. Re-run this lane with a green ` +
+          `baseline, or start a run with verification off if you mean to publish unchecked work.`,
       },
       { status: 409 },
     );

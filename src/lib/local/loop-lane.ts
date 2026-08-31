@@ -31,9 +31,10 @@ import { claimFollowups, releaseFollowups } from "@/lib/db/followup-claims";
 import { getLatestPlatformSignals, persistScanReport } from "@/lib/db";
 import { scanRepository } from "@/lib/scan";
 import { appendLaneLog, getLatestScanIdForRepo, updateLane, upsertLane } from "@/lib/db/loop-runs";
-import type { LaneDeliverable, LoopLaneKind } from "@/lib/db/loop-runs-types";
+import { BASE_DIVERGED_NOTE, type LaneDeliverable, type LoopLaneKind } from "@/lib/db/loop-runs-types";
 import type { ComparableScan } from "@/lib/db/scans";
-import { attributeDelivered } from "@/lib/maturity/attribution";
+import { attributeDelivered, type BaseRelation } from "@/lib/maturity/attribution";
+import { baseRelationIn, type BaseEnd } from "@/lib/local/lane-base";
 import { diffScans } from "@/lib/report/compare";
 import { installInWorktree } from "@/lib/local/lane-install";
 import { commitAgentWork } from "@/lib/local/lane-commit";
@@ -116,6 +117,10 @@ export interface LaneDeps {
   /** This repo's PREVIOUS guard verdicts, newest-first — what tells the brief whether a red baseline
    *  is new or is the fourth lane in a row to meet it (`leadWithRedBaseline`). */
   priorBaselines: (org: string, repo: string) => Promise<BaselineLaneRow[]>;
+  /** Were the pair's two ends taken on one line of history? Asked of git in the lane's own worktree,
+   *  which shares the paired repository's object store (`lane-base.ts`). Injected so the rule is
+   *  table-testable without a repository. */
+  baseRelation: (cwd: string, before: BaseEnd | null, after: BaseEnd | null) => Promise<BaseRelation>;
 }
 
 export const defaultLaneDeps: LaneDeps = {
@@ -141,6 +146,7 @@ export const defaultLaneDeps: LaneDeps = {
   // unit tests mock the loop-runs barrel without it. An empty history is "no previous lane recorded a
   // verdict", which is what a first run genuinely has — never a failed lane.
   priorBaselines: async (org, repo) => (await import("@/lib/db/loop-baselines")).getRepoBaselineLanes(org, repo),
+  baseRelation: baseRelationIn,
 };
 
 export interface LaneRunInput {
@@ -456,19 +462,30 @@ async function laneDeliverables(
     closedIds: string[];
     agentClaims: readonly AgentClaim[];
     practiceName: string | null;
+    /** The lane's worktree — the one checkout that holds BOTH ends' commits, so the only place the
+     *  base question can be asked. */
+    cwd: string;
+    /** Told what git concluded, so the caller can put the disclosure on the lane log too. */
+    onBase?: (rel: BaseRelation) => void;
   },
 ): Promise<LaneDeliverable[] | null> {
   try {
     const pair = await deps.loadPair({ orgSlug: args.org, repoFullName: args.repo, beforeScanId: args.beforeScanId, afterScanId: args.afterScanId });
     const before = pair?.before ?? null;
     const after = pair?.after ?? null;
+    // ARE THE TWO ENDS EVEN COMPARABLE? A pair whose ends sit on divergent commits measured two
+    // different trees (see lane-base.ts). Anything git cannot answer is `unknown`, which refuses
+    // nothing — this call can only ever take a claim away, never manufacture one.
+    const base = await deps.baseRelation(args.cwd, before, after).catch(() => "unknown" as const);
+    args.onBase?.(base);
     const derived = deriveLaneDeliverables({
       kind: args.kind,
       agentClaims: args.agentClaims,
       diff: before && after ? diffScans(before, after) : null,
       before,
       after,
-      verdict: attributeDelivered(before, after, args.commits),
+      verdict: attributeDelivered(before, after, args.commits, base),
+      base,
       practiceName: args.practiceName,
       closedFollowUpIds: args.closedIds,
       // Half of the TOTALITY test: a lane that committed must produce a headline even when nothing
@@ -965,6 +982,13 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       closedIds,
       agentClaims,
       practiceName: input.practiceId ? input.practiceId.replace(/[-_]+/g, " ") : null,
+      cwd: worktree.dir,
+      // SAY IT IN THE LOG TOO. The disclosure row explains the ledger; this explains the run to
+      // somebody reading the lane while it happens, and it is the only place the fact survives if the
+      // deliverable derivation itself falls over.
+      onBase: (rel) => {
+        if (rel === "diverged") void appendLaneLog(laneId, BASE_DIVERGED_NOTE).catch(() => null);
+      },
     });
     await updateLane(laneId, {
       phase: "done",

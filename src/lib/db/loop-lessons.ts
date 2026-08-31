@@ -189,15 +189,49 @@ export async function recordLandRefusalLesson(
   repoFullName: string,
   cause: string,
 ): Promise<LoopLessonRow | null> {
+  return standingLesson(
+    orgSlug,
+    repoFullName,
+    `The loop could not land ${repoFullName}'s lane branch into the branch your paired checkout is on: ${cause}. ` +
+      `Landing is fast-forward only, and it will never reset, stash or switch your branch — the lane's work is safe on its own ` +
+      `ascent/loop-… branch, and merging it is yours to do.`,
+  );
+}
+
+/**
+ * The lane was NOT delivered because it was never verified, and the operator had asked for it to be.
+ *
+ * Same standing-row discipline as the land refusal above, and for the same reason: a red baseline (or
+ * an unresolvable command) is a fact about the REPOSITORY that stays true cycle after cycle, so the
+ * queue must carry one row per cause, never one per run. `reason` comes from
+ * `unverifiedDeliveryReason`, which is branch-free and run-free precisely so it can be the key.
+ *
+ * The row does not name the delivery mode: `land` and `pr` are refused for the identical reason and
+ * the operator's next move — fix the repository's own check, or turn the guard off deliberately — is
+ * the same one. Two rows saying that twice would be noise.
+ */
+export async function recordUnverifiedRefusalLesson(
+  orgSlug: string,
+  repoFullName: string,
+  reason: string,
+): Promise<LoopLessonRow | null> {
+  return standingLesson(
+    orgSlug,
+    repoFullName,
+    `Ascent did not deliver ${repoFullName}'s lane branch, because this run asked for verification and ${reason}. ` +
+      `A verdict other than "verified" means the check could not be MADE, which is not permission to land. The work is ` +
+      `safe on its own ascent/loop-… branch.`,
+  );
+}
+
+/** The idempotent write both refusals share: one pending candidate per (repo, cause), refreshed by
+ *  nothing and duplicated by nothing. */
+async function standingLesson(orgSlug: string, repoFullName: string, body: string): Promise<LoopLessonRow | null> {
   if (!isDbConfigured()) return null;
   try {
     const org = await getOrgBySlug(orgSlug);
     if (!org) return null;
-    const content = (
-      `The loop could not land ${repoFullName}'s lane branch into the branch your paired checkout is on: ${cause}. ` +
-      `Landing is fast-forward only, and it will never reset, stash or switch your branch — the lane's work is safe on its own ` +
-      `ascent/loop-… branch, and merging it is yours to do.`
-    ).slice(0, LESSON_MAX_CHARS);
+    const content = body.slice(0, LESSON_MAX_CHARS);
     const prisma = getPrisma();
     const existing = await prisma.orgMemoryCandidate
       .findFirst({ where: { orgId: org.id, namespace: repoFullName, source: LOOP_LESSON_SOURCE, content } })

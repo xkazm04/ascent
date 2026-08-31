@@ -481,6 +481,7 @@ assumed (see [the loop's attribution rule](../org-planning/live.md#is-this-lift-
 | `engine.degraded` | `engineDegraded` | an LLM **was requested and never answered**, so the provider above is the deterministic *floor*, not a choice |
 | `report.scoreIntegrity` | `scoreIntegrityJson` | the levers that can move a headline on an **unchanged** commit: `d9Unmeasurable`, `widenedDims`, `widenCapped`, `unmeasuredDims`, `effectiveBlend` |
 | `report.platformSignals` | `platformSignalsJson` | what this scan could see of **GitHub** — `observed`, `carried` (from which scan, how old, `stale`), or `unavailable` |
+| `headSha` | `headSha` | the commit this scan pinned to — the **only** base evidence a scan carries, and what lets the loop refuse a pair whose two ends were taken on divergent trees ([incomparable bases](../org-planning/live.md#a-pair-that-crosses-a-base-change-is-not-comparable-2026-08-31)). Nullable: a sha-less scan makes the base question `unknown`, which refuses nothing. There is **no branch column** on a `Scan`, and the base rule does not invent one. |
 
 The fourth row is the one a *worktree* scan needs. D2/D3/D4 are credited partly for tooling that is
 **installed rather than committed** — review/CI/coverage Apps posting check suites, default-branch
