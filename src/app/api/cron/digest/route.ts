@@ -25,6 +25,7 @@ import {
   getOrgMovers,
   getOrgRecommendations,
   getOrgRollup,
+  getStandingRegressions,
   isDbConfigured,
   listOrgsWithWatchedRepos,
   recordAlertEvent,
@@ -154,7 +155,7 @@ export async function GET(request: Request) {
         skippedNoData += 1;
         return;
       }
-      const [movers, recs, benchmark, credit, controlTransitions] = await Promise.all([
+      const [movers, recs, benchmark, credit, controlTransitions, standing] = await Promise.all([
         getOrgMovers(org, win).catch(() => null),
         getOrgRecommendations(org, 1).catch(() => null),
         getOrgBenchmark(org).catch(() => null),
@@ -163,7 +164,17 @@ export async function GET(request: Request) {
         // MOONSHOT #1: control transitions in the window feed the digest's Controls block. Failures
         // only — a restored control is good news the weekly summary need not push. Best-effort.
         listObservationsSince(org, windowStart.toISOString(), { transitionsOnly: true }).catch(() => []),
+        // Standing concerns: dimensions holding materially below an earlier reading. Computed from
+        // persisted scans only, and DELIBERATELY not window-scoped — the whole failure this closes is a
+        // decline that stopped moving, so a shortfall that began before this week is exactly the one
+        // every windowed surface has already been silent about. Best-effort.
+        getStandingRegressions(org, { limit: 5 }).catch(() => []),
       ]);
+      const standingRows = standing.map((c) => ({
+        repo: c.repoFullName,
+        observation: c.observation,
+        ...(c.evidence ? { evidence: c.evidence } : {}),
+      }));
       const controlsFailedRows = controlTransitions
         .filter((o) => o.state === "fail")
         .slice(0, 10)
@@ -189,6 +200,7 @@ export async function GET(request: Request) {
         gainersBeyondNoise: (movers?.gainers ?? []).filter((m) => !isWithinNoise(m.dOverall)).length,
         creditLow,
         controlsFailed: controlsFailedRows.length,
+        standingConcerns: standingRows.length,
       });
       if (!hasSignal) {
         skippedFlat += 1;
@@ -213,6 +225,7 @@ export async function GET(request: Request) {
         regressers: regressersBeyondNoise.slice(0, 3).map((m) => ({ name: m.name, delta: m.dOverall })),
         topRecommendation: top ? { title: top.title, repoCount: top.repoCount } : null,
         controlsFailed: controlsFailedRows.length > 0 ? controlsFailedRows : undefined,
+        standingConcerns: standingRows.length > 0 ? standingRows : undefined,
         percentile: benchmark?.overallPercentile ?? null,
         trajectory: rollup.forecast ? forecastHeadline(rollup.forecast) : null,
         // Carry the balance only when the org is metered and running low (the same condition the

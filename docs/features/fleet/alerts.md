@@ -81,6 +81,52 @@ scan- and probe-sourced rows carry no actor because nobody performed those in a 
 W1-A's doctor path (`detectControlRegressions`, `src/lib/standard/control-matrix.ts`) dispatches
 through the same builder with `source: "conformance"`.
 
+### Standing regressions (a decline that stopped moving)
+
+`detectStandingRegressions(points, opts?)` → `StandingConcern[]`. Pure, dependency-free, computed
+from **persisted scans alone** — no run, no lane, no attribution verdict — because a dimension
+knocked down by a human commit deserves the same alarm as one knocked down by a loop lane.
+
+**The failure it closes.** In a 21-run campaign, `kp`'s D9 (Supply Chain & Security) went
+93 → 96 → 75 at run 3 and sat at 75 for eighteen further runs. Twenty-one points, permanent, and
+nothing anywhere reported it. Two independent silences produced that:
+
+1. **Every existing signal is an event, not a state.** `detectRegression` compares one adjacent pair
+   and `getOrgMovers` compares a period's ends. Both were *right* to say nothing on runs 4–21 — the
+   adjacent delta was zero every time. But "nothing changed this week" and "this repo has been
+   twenty-one points down for a month" are different facts, and only the first was reachable.
+2. **Attribution refuses what it cannot explain.** `src/lib/maturity/attribution.ts` declines to
+   *claim* a delta across a mock floor, inside the noise band, on an uncommitted lane, or across a
+   platform-fold mismatch. That is correct, and it is the guard that stops the loop inventing lifts —
+   but the same guard silences a true decline. **A guard against false claims must not become a guard
+   against true regressions**, so this detector consults none of it.
+
+**The rule.** For each dimension of the latest scan, walk the repo's readings newest-outward keeping
+a running maximum, until one sits `STANDING_REGRESSION_DROP` (**10**) or more *above* that maximum —
+which means every scan since that reading has held at least 10 points below it. If that reading is at
+least `STANDING_REGRESSION_SCANS` (**3**) scans back, it is a standing concern. Consequences worth
+naming: a plateau eighteen scans long is still measured against the reading *before the fall*, not
+against a three-scan-ago reading that is itself part of the plateau; a one-scan dip that recovers
+never qualifies; a shortfall inside the noise band never qualifies however long it holds
+(10 is several times `SCORE_NOISE_BAND` = 2, and still under the per-scan `dimensionDrop` alarm of
+15 — a standing concern is allowed to be quieter than a page because it is earned by persistence).
+`mock`-engine readings are dropped from the series: a mock floor is a different ruler, and comparing
+across one would manufacture a concern out of an engine swap.
+
+**It is an observation, never an attribution.** A concern renders as
+`D9 has held 21 points below its 2026-08-11 reading (96 → 75) across 19 scans since 2026-08-12` —
+two readings, their dates, and how long it has persisted. `getStandingRegressions(orgSlug)`
+(`src/lib/db/scans-read.ts`) supplies the readings for a whole org in two bounded queries and, for
+the concerns actually raised, attaches the signals that appeared/disappeared between the two named
+scans (via `diffStringSets`, the same set-diff the "what changed" view uses). Those lines are a
+**list a reader can check**, not a stated cause.
+
+**Which channel it reuses, and why the digest.** Nothing new was invented: the concern rides the
+**weekly fleet digest** (below). That is the surface that goes silent in exactly this scenario — its
+whole contract is "a flat week stays silent", and a decline that stopped moving reads as a flat week
+to every movement-based input it has. Per-repo regression alerts were the wrong home: they are
+event-shaped, cooldown-throttled, and would have to invent a "still true" cadence.
+
 ## Integration (`src/lib/scan-alerts.ts`)
 
 `checkAndAlertRegression(prev, fresh, opts)`:
@@ -109,6 +155,8 @@ cooldown claim, so an interactive rescan can't double-alert with the cron.
 | --- | --- |
 | `src/lib/alerts.ts` | Pure detector + Slack message builder (regression, promotion, **fleet digest** `buildFleetDigestMessage`) + webhook dispatch + `digestHasSignal`/`creditsAlertThreshold`. |
 | `src/lib/alerts.test.ts` | Threshold + verdict + message tests. |
+| `src/lib/alerts-standing.test.ts` | Standing-regression rule: the kp shape raises, a single-scan dip / a fresh drop / a within-noise drop / no history do not, and it fires on a drop attribution refuses to claim. |
+| `src/lib/db/scans-read.ts` | `getStandingRegressions(orgSlug)` — the persisted-scan read behind the standing detector, plus the appeared/disappeared evidence lines. |
 | `src/lib/scan-alerts.ts` | Glue: diff prior vs fresh, audit, dispatch. |
 | `src/app/api/cron/digest/route.ts` | Weekly fleet digest cron handler. |
 | `src/app/api/cron/digest/extra-alerts.ts` | Goal-at-risk + spend-anomaly pushes that ride the weekly run. |
@@ -148,8 +196,12 @@ silent rather than training the inbox filter.
   (`?range=custom&from=&to=`) exactly.
 - **Movement gate:** `digestHasSignal()` (`src/lib/alerts.ts`) decides whether the week is
   worth sending at all: a level change, a beyond-noise regression, a beyond-noise gainer, a
-  non-zero overall delta, a low credit balance, **or a control that failed** (`controlsFailed > 0`).
-  An org with none of those is skipped (`skippedFlat`).
+  non-zero overall delta, a low credit balance, a control that failed (`controlsFailed > 0`),
+  **or a standing concern** (`standingConcerns > 0`). An org with none of those is skipped
+  (`skippedFlat`). A standing concern is re-stated every period it persists — on the same reasoning
+  as the low-credit line: the reader needs to know it is *still* true, not only that it once
+  happened. Every other condition is a movement, which is precisely why a decline that stopped
+  moving could sit unreported for eighteen scans.
 - **Controls block (moonshot #1):** `FleetDigestInput.controlsFailed` renders a
   "Controls that failed this week" block **above** the movers — a control that came off a repository
   outranks every score delta on the page, and a reader who has to scroll past six gainers to find it
@@ -157,6 +209,15 @@ silent rather than training the inbox filter.
   omitting the field entirely omits the block, because a deployment without the ledger should say
   nothing rather than claim "0 controls failed". A failed control is **always** signal: a week whose
   only news is branch protection coming off is precisely the week the digest exists for.
+- **Standing-concerns block:** `FleetDigestInput.standingConcerns` renders
+  "Standing concerns (N) — observed, cause not attributed:" beside the Controls block and above the
+  movers, each line the repo + the observation + up to three appeared/disappeared evidence lines. The
+  disclaimer is in the heading so a line quoted out of the message still cannot read as an
+  attribution. Same three-state contract as `controlsFailed`: undefined omits the block (a caller
+  that did not compute it says nothing rather than "0 concerns"), an empty array is the positive
+  statement "we looked and nothing is standing down". Fed by
+  `getStandingRegressions(org, { limit: 5 })`, deliberately **not** window-scoped: the whole failure
+  it closes is a shortfall that began before this week.
 - **Schedule/trigger:** invoked by Vercel Cron (see `vercel.json`) hitting
   `GET /api/cron/digest` (`src/app/api/cron/digest/route.ts`), `runtime: "nodejs"`,
   `maxDuration: 300`. Orgs are processed with bounded concurrency (`mapPool`, concurrency 4)
@@ -343,5 +404,12 @@ titles and outcomes, never the sink URL).
   anyone. That is deliberate — a lost read is missing evidence, not a finding — and it means a
   control that quietly stops being observable will not interrupt a team the way one that flips to
   `fail` does.
+- (Closed 2026-08-31.) ~~A regression that stops moving stops being reported~~: every signal in this
+  layer was an adjacent-pair or period-delta event, so `kp`'s permanent 21-point D9 drop was silent
+  for eighteen scans after the one it happened on. `detectStandingRegressions` + the digest's
+  standing-concerns block report the *state* (see above). **The honest remainder:** the concern is
+  delivered only through the weekly digest, so an org with no configured sink still learns about it
+  only by opening the dashboard, and there is no in-app standing-concern surface on the repository
+  or report pages yet.
 - **No acknowledgement or assignment on a control alert:** the `AlertEvent` row records the decision,
   but there is no "who is fixing this" state — the same gap the history rows have generally.

@@ -34,6 +34,9 @@ vi.mock("@/lib/db", () => ({
   getOrgRecommendations: vi.fn(async () => null),
   getOrgBenchmark: vi.fn(async () => null),
   getCreditState: vi.fn(async () => null),
+  // Standing concerns (dimensions holding materially below an earlier reading). Default: none, so
+  // every pre-existing case keeps its exact movement-gate outcome.
+  getStandingRegressions: vi.fn(async () => [] as unknown[]),
   // Early fast-path (skip rollup for an org already sent this window): getAuditLog reports whether a
   // digest already went out. Default: nothing sent yet.
   getAuditLog: vi.fn(async () => ({ entries: [] as unknown[], nextCursor: null })),
@@ -90,6 +93,7 @@ import {
   getOrgBenchmark,
   getCreditState,
   getAuditLog,
+  getStandingRegressions,
 } from "@/lib/db";
 import { claimOrgAuditOnce, releaseAuditClaim } from "@/lib/db/scans-audit";
 import { dispatchAlert, buildFleetDigestMessage, digestHasSignal } from "@/lib/alerts";
@@ -435,6 +439,32 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     // The flat org must NOT train the inbox filter — no message built, nothing dispatched.
     expect(mockBuild).not.toHaveBeenCalled();
     expect(mockDispatch).not.toHaveBeenCalled();
+  });
+
+  it("passes a standing concern to the gate and the message — the flat week that must NOT stay silent", async () => {
+    // The kp shape: D9 fell 21 points and stopped moving, so every MOVEMENT the digest measures is
+    // zero. The standing read is the one input that is not a movement, and it must reach both the
+    // gate and the rendered message with its observation intact.
+    mockListOrgs.mockResolvedValue(["orgStanding"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/S");
+    mockRollup.mockResolvedValue(rollupWith());
+    vi.mocked(getStandingRegressions).mockResolvedValue([
+      {
+        repoFullName: "orgStanding/kp",
+        observation: "D9 has held 21 points below its 2026-08-11 reading (96 -> 75) across 19 scans since 2026-08-12",
+        evidence: ["disappeared: 3/3 workflows set an explicit permissions: scope"],
+      },
+    ] as never);
+
+    await GET(req({ auth: `Bearer ${SECRET}` }));
+    expect(mockHasSignal).toHaveBeenCalledWith(expect.objectContaining({ standingConcerns: 1 }));
+    expect(mockBuild).toHaveBeenCalledWith(
+      expect.objectContaining({
+        standingConcerns: [
+          expect.objectContaining({ repo: "orgStanding/kp", observation: expect.stringContaining("D9 has held 21 points") }),
+        ],
+      }),
+    );
   });
 
   // ---- (7) ALERTS #1: regressers are noise-filtered symmetrically with gainers ----

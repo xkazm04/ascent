@@ -680,6 +680,45 @@ export function offPlatformReview(commits: { message: string }[]): string | null
   return null;
 }
 
+/**
+ * The `scripts` map from package.json, lowercased, as `{name, body}` pairs.
+ *
+ * PARSED, not regexed out of `idx.manifestText`: that blob is the whole manifest, so a word like
+ * "budget" or "ratchet" appearing in a DEPENDENCY name would read as a gate. A script entry is the
+ * one part of a manifest that is runnable by construction, which is exactly the distinction the
+ * enforcement signals below turn on. Unparseable or absent → no scripts, never a guess.
+ */
+function packageScripts(idx: RepoIndex): { name: string; body: string }[] {
+  const raw = idx.content("package.json");
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as { scripts?: Record<string, string> };
+    if (!parsed || typeof parsed.scripts !== "object" || parsed.scripts === null) return [];
+    return Object.entries(parsed.scripts).map(([name, body]) => ({
+      name: String(name).toLowerCase(),
+      body: String(body ?? "").toLowerCase(),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * A RATCHET: a check that fails when a counted debt GROWS — a suppression ceiling, an ignore budget,
+ * a lint/type baseline, a `no-new-<x>` guard. Named tools (betterer, knip, type-coverage) count
+ * because their whole contract is a monotonic floor.
+ *
+ * Why this is its own signal rather than folded into "Linter configured": a ratchet is the artifact
+ * that makes a linter OPERATE rather than merely exist. A repo can carry an `.eslintrc` for years
+ * while the warning count climbs; a ceiling that fails `check:ci` cannot.
+ */
+const RATCHET_TERMS =
+  /ratchet|ceiling|(^|[^a-z])budget([^a-z]|$)|no-new-|suppressions?|type-coverage|betterer|\bknip\b|(lint|type|eslint|ruff|mypy|tsc|clippy)[-_.]?baseline/;
+
+/** A lint/type gate configured to FAIL rather than warn — the difference between a linter that runs
+ *  and one that stops a merge. Cheap to state and impossible to fake with a config file alone. */
+const ZERO_WARNING_GATE = /--max-warnings[= ]*0|-d[= ]+warnings|--deny[= ]+warnings|-w[ ]+error|--strict-warnings|fail[-_]on[-_]warnings|--exit-non-zero-on-fix|--error-on-warnings/;
+
 const d6: Detector = (idx, snap) => {
   const s = new Scorer();
   const linterConfigured =
@@ -729,6 +768,35 @@ const d6: Detector = (idx, snap) => {
     s.add(10, "Commit linting / conventions");
   if (idx.has(/(^|\/)(pull_request_template|\.github\/pull_request_template)/i))
     s.add(5, "PR template (review process)");
+
+  // ENFORCEMENT vs PRESENCE — the "installed vs operating" distinction the assessment prompt already
+  // insists on for the model, applied to the deterministic layer. Measured gap (21-run campaign,
+  // 2026-08): two repos gained ESLint import-boundary rules, a blocking ruff ignore-ceiling ratchet, a
+  // blocking TypeScript suppression ratchet and several gates wired into `check:ci`, and D6 moved
+  // 66 → 68 and 81 → 81. Every artifact they added mapped onto a presence signal ALREADY awarded (a
+  // linter config the repo already had), and the ratchets — the part that actually blocks a build —
+  // mapped onto no signal at all. Both signals below are ADDITIVE: no existing award moved.
+  const scripts = packageScripts(idx);
+  const ratchetScript = scripts.find((sc) => RATCHET_TERMS.test(sc.name) || RATCHET_TERMS.test(sc.body));
+  const ratchetPath = idx.first(
+    /(^|\/)[^/]*(ratchet|ceiling)[^/]*\.[a-z]+$/,
+    /(^|\/)\.betterer\./,
+    /(^|\/)[^/]*(lint|type|eslint|ruff|mypy|tsc|clippy)[-_.]?baseline\.(json|txt|ya?ml|toml)$/,
+    /(^|\/)knip\.(json|jsonc|ts|js)$/,
+  );
+  const ratchetCi = RATCHET_TERMS.test(idx.workflowText);
+  if (ratchetScript || ratchetPath || ratchetCi)
+    s.add(
+      15,
+      "Quality ratchet / debt ceiling enforced",
+      ratchetScript ? `package.json script "${ratchetScript.name}"` : (ratchetPath ?? "enforced in CI workflow"),
+    );
+
+  // A linter that gates is not a linter that runs. `--max-warnings 0` / `-D warnings` is the cheapest
+  // evidence that a warning fails the build rather than scrolling past in a log.
+  const zeroWarnings =
+    ZERO_WARNING_GATE.test(idx.workflowText) || scripts.some((sc) => ZERO_WARNING_GATE.test(sc.body));
+  if (zeroWarnings) s.add(5, "Lint/type gate fails on warnings (zero-warning policy)");
 
   // (Supply-chain security — SAST/SCA/secret/container scanning, SBOM, signing — is scored
   // under D9, not here, so a security-heavy repo isn't double-counted.)
