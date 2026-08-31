@@ -24,6 +24,13 @@ roster (also the right-edge `DeckNav`): **hero · org · fleet · local · galle
 (when the register has data) · levels · dimensions**, each a `DeckSection` under
 `src/components/landing/prototypes/index/`.
 
+**The register's counter is suppressed at zero** (`IndexGallery`). A count is a
+claim, and zero is not one worth making: on a configured-but-empty database this
+section headed "The register" used to open with "0 public repos rated" directly
+above its (good) explicit empty state, on a page whose whole proposition is *now it
+has an index* (UAT `TOMAS-L1-05`). The `Served live from …` provenance stamp stays
+in both states — the counter goes, the honesty does not.
+
 Two self-host surfaces added 2026-08-25, phrased in lockstep with `/pricing`'s
 `SelfHostBand` so the copy can't drift apart in spirit:
 
