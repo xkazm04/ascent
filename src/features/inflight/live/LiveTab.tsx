@@ -126,17 +126,24 @@ export async function LiveTab({ slug, sp }: { slug: string; sp: SearchParams }) 
   // with when it was last measured, which the SSE-driven wall has no use for.
   const scannedAt = new Map(rollup.repos.map((r) => [r.fullName, r.latest?.scannedAt ?? null]));
   const seeds: ObservatorySeed[] = seed.map((s) => ({ ...s, scannedAt: scannedAt.get(s.fullName) ?? null }));
-  // Loop state, read straight from the store. Both degrade to empty without a DB or on managed cloud.
-  const [activeRun, runs] = local
-    ? await Promise.all([getActiveLoopRun(slug).catch(() => null), listLoopRuns(slug, 20).catch(() => [])])
-    : [null, []];
+  // LOOP STATE, READ STRAIGHT FROM THE STORE — ON EVERY DEPLOYMENT (PRIYA-L1-703). This used to be
+  // gated on `local`, which was true when a loop run could only be a local one. Moonshot #3 shipped
+  // the `remote-agent` executor and `POST /api/org/loop` accepts it on managed cloud, so a cloud
+  // owner could arm a run whose rows this tab then refused to read — and the rail fell through to a
+  // setup panel telling them the loop "exists only on a self-hosted Ascent", contradicted by their
+  // own deployment's route. What is still local-only is DISPATCHING a lane into a checkout on this
+  // machine (`pairedRepos` above), which is a filesystem fact and stays gated.
+  const [activeRun, runs] = await Promise.all([
+    getActiveLoopRun(slug).catch(() => null),
+    listLoopRuns(slug, 20).catch(() => []),
+  ]);
   // The listed runs' DETAILS, bounded, for the outcome matrix — each column is a run, each cell what it
   // delivered to a repo, and only the detail carries the diff that names the deliverables. Read here,
   // in the server component, for the same reason the list is: the browser would otherwise pay twelve
   // round trips on mount to re-do auth this render has already done. A detail that fails to load is
   // dropped rather than failing the tab.
   const runDetails =
-    local && runs.length > 0
+    runs.length > 0
       ? (await Promise.all(runs.slice(0, 12).map((r) => getLoopRunDetail(r.id).catch(() => null)))).filter(
           (d): d is LoopRunDetail => d != null,
         )

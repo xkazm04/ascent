@@ -38,11 +38,20 @@ export function CockpitSetup({ state, slug, message = null }: CockpitSetupProps)
     const href = sourceRepoHref("docs/SETUP.md");
     return (
       <div>
-        <Kicker tone="accent">Loops run where your code is</Kicker>
+        <Kicker tone="accent">Local lanes run where your code is</Kicker>
+        {/* PRIYA-L1-703: this used to say the loop "exists only on a self-hosted Ascent" — a denial
+            this deployment's own POST route contradicts, since it accepts a `remote-agent` run. What
+            is genuinely self-hosted-only is the LOCAL lane, which spawns an agent inside a checkout
+            on the server's disk. A capability the deployment ships is never denied here; the panel
+            names the one that is actually missing. */}
         <p className="mt-2 type-body-sm leading-relaxed text-slate-400">
-          An improvement loop dispatches a coding agent into a real working copy on disk, so it exists only on a
-          self-hosted Ascent. This chart is the read-only half — the fleet&rsquo;s standing in adoption × rigor — and it
-          works here.
+          A <em className="not-italic text-slate-300">local</em> lane dispatches a coding agent into a real working
+          copy on this machine, so starting one from here needs a self-hosted Ascent. This chart — the fleet&rsquo;s
+          standing in adoption × rigor — works everywhere.
+        </p>
+        <p className="mt-2 type-body-sm leading-relaxed text-slate-400">
+          <span className="text-slate-300">Remote-agent runs do work here.</span> Arm one against this org through the
+          API or an MCP work client and its lanes, verdicts and outcome ledger render on this page like any other run.
         </p>
         <p className="mt-3 type-body-sm leading-relaxed text-slate-500">
           {href ? (

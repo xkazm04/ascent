@@ -7,6 +7,7 @@
 // unassessed tier before any row is touched.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { buildLaneBrief } from "@/lib/org/lane-brief";
 
 const claims: Record<string, unknown>[] = [];
 const attempts: Record<string, unknown>[] = [];
@@ -53,6 +54,12 @@ vi.mock("@/lib/db/org-stance", () => ({
   })),
 }));
 vi.mock("@/lib/db/org-admission", () => ({ getRepoAdmission: vi.fn(async () => admission) }));
+// PRIYA-L1-706: the remote brief carries the ORG'S STANDARD, through the very same
+// `loadLaneBriefInput` → `buildLaneBrief` pair the local lane uses. Mocked at the DB read only, so
+// the assembly under test is the real one — a second, "equivalent" assembly is exactly how the local
+// and remote briefs would drift apart again.
+let briefInput: Parameters<typeof buildLaneBrief>[0] | null = null;
+vi.mock("@/lib/db/lane-brief-read", () => ({ loadLaneBriefInput: vi.fn(async () => briefInput) }));
 vi.mock("@/lib/local/loop-lane", () => ({
   openBatch: vi.fn(async () => [
     {
@@ -205,6 +212,45 @@ describe("get_fix_brief — only for rows this caller holds", () => {
     expect(res.text).toContain("Claude Code");
     expect(res.text).toContain("prisma/migrations/**");
     expect(res.text).toContain("Nothing you can call closes a row");
+  });
+
+  it("carries the ORGANIZATION'S STANDARD, the same one a local lane gets", async () => {
+    briefInput = {
+      org: "acme",
+      repo: "acme/api",
+      dimIds: ["D9"],
+      playbooks: [
+        {
+          id: "pb-1",
+          dimId: "D9",
+          title: "Dependency review",
+          version: 2,
+          summary: "Nothing new enters the lockfile unreviewed.",
+          steps: ["Review every new dependency before it merges."],
+        },
+      ],
+      housePattern: [],
+      memories: [],
+      skills: [],
+      evidence: [],
+    };
+    const res = await getFixBriefTool("acme", { ids: ["rec-1"] }, "agent:ci");
+    expect(res.text).toContain("## Your organization's standard");
+    expect(res.text).toContain("Dependency review");
+    // Order matters: the standard is what the work should look like, the perimeter is the fence
+    // around it. Same order the local lane's prompt uses.
+    expect(String(res.text).indexOf("## Your organization's standard")).toBeLessThan(
+      String(res.text).indexOf("## Working perimeter"),
+    );
+  });
+
+  it("omits the standard heading entirely when the org has published nothing for these dimensions", async () => {
+    briefInput = null;
+    const res = await getFixBriefTool("acme", { ids: ["rec-1"] }, "agent:ci");
+    // A heading over an empty section reads to a model as "there are no rules here", which is the
+    // one thing an absent standard must not say.
+    expect(res.text).not.toContain("## Your organization's standard");
+    expect(res.text).toContain("## Working perimeter");
   });
 
   it("refuses outright when the caller holds none of them", async () => {

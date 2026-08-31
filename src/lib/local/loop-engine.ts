@@ -396,6 +396,21 @@ export function isLoopRunLive(id: string): boolean {
   return live.has(id);
 }
 
+/**
+ * Has a stop been REQUESTED on this run and not yet taken effect?
+ *
+ * The flag itself stays in the registry — it is the cooperative signal a running driver reads, and
+ * the module header's rule ("only what cannot be serialized") holds. What was missing is that it was
+ * also unreadable from outside, so the cockpit's Stop button reverted to "Stop" the moment the POST
+ * returned and the run sat on `RUNNING` for the rest of the agent's session (PRIYA-L2-C6: 19m43s).
+ * The registry is process-wide on `globalThis` for exactly this reason, so this read is exact for
+ * every run this deployment is driving — and a run it is NOT driving is a restart casualty that
+ * `markStaleRunsStopped` settles, never one whose stop is pending.
+ */
+export function loopRunStopRequested(id: string): boolean {
+  return live.get(id)?.stopRequested === true;
+}
+
 // ── the driver ───────────────────────────────────────────────────────────────────────────────────
 
 async function drive(

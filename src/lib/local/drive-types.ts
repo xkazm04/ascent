@@ -39,6 +39,18 @@ export interface DriveRunRecord {
   debtAfter: number | null;
   startedAt: string;
   endedAt: string | null;
+  /**
+   * WHY THIS RUN WAS ARMED WITH A MODEL NOBODY PICKED — the evidence-led switch, with the prices it
+   * compared and the `n` behind each (`driveModelBasis`).
+   *
+   * `null`/absent means no switch happened, which is the honest reading of every run before this
+   * field and of every run whose evidence did not carry a decision. It is NOT "we do not know why":
+   * `pickDriveModel` returns null in exactly that case and the run keeps the configured model.
+   *
+   * Carried in `runsJson` (JSON-in-TEXT) rather than a column, the same widening `reposJson` uses —
+   * additive and readable back from every existing row.
+   */
+  modelBasis?: string | null;
 }
 
 export interface DriveStatus {

@@ -18,7 +18,6 @@
 import { NextResponse } from "next/server";
 import { PUBLIC_ORG } from "@/lib/auth";
 import { requireOrgAccess } from "@/lib/authz";
-import { selfHostGuard } from "@/lib/api/self-host";
 import { getRepoLocalPath } from "@/lib/db";
 import { listDispatchedPractices } from "@/lib/db/loop-runs";
 import { openBatch } from "@/lib/local/loop-lane";
@@ -52,9 +51,14 @@ export interface LoopProposal {
   brief: { text: string; provenance: LaneBriefProvenance } | null;
 }
 
+// NO `selfHostGuard` HERE (PRIYA-L1-703). It 404'd because a proposal was once only ever a local
+// lane's proposal. Moonshot #3 shipped the `remote-agent` executor and `POST /api/org/loop` accepts
+// it on managed cloud, so a cloud owner who can ARM a run could not preview what it would work — the
+// curation step 404'd on the very deployment whose start route said yes. The read is pure and
+// degrades honestly without a checkout: `getRepoLocalPath` resolves to null, `proposeLaneKind(null,…)`
+// returns the BACKLOG lane by construction, and the brief preview is built from the database. The
+// write path keeps `selfHostGuard` for exactly the executor that needs it.
 export async function GET(request: Request) {
-  const guard = selfHostGuard();
-  if (guard) return guard;
   const url = new URL(request.url);
   const org = url.searchParams.get("org")?.trim().toLowerCase() ?? "";
   if (!org || org === PUBLIC_ORG) return NextResponse.json({ error: "Missing 'org'." }, { status: 400 });

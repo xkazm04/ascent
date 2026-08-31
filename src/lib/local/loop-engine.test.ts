@@ -137,7 +137,7 @@ vi.mock("@/lib/db/org-insights", () => ({ getOrgBacklog: vi.fn(async () => null)
 vi.mock("@/lib/scan", () => ({ scanRepository: vi.fn() }));
 vi.mock("@/lib/local/source", () => ({ LocalFsSource: class {} }));
 
-import { isLoopRunLive, startLoopRun, startRemoteRun, stopLoopRun } from "@/lib/local/loop-engine";
+import { isLoopRunLive, loopRunStopRequested, startLoopRun, startRemoteRun, stopLoopRun } from "@/lib/local/loop-engine";
 import { BACKLOG_LANE, type LaneKindProposal } from "@/lib/local/lane-kind";
 import type { LaneDeps } from "@/lib/local/loop-lane";
 
@@ -304,8 +304,15 @@ describe("stopLoopRun", () => {
       maxCycles: 5,
       deps: workingDeps({ runAgent: runAgent as unknown as LaneDeps["runAgent"] }),
     });
+    expect(loopRunStopRequested(run.id), "nothing has been asked for yet").toBe(false);
     expect(await stopLoopRun(run.id)).toBe(true);
+    // THE REQUEST IS READABLE WHILE IT IS PENDING (PRIYA-L2-C6). Without this the cockpit had no
+    // fact to render between the POST returning and the run settling — 19m43s of `RUNNING` in the
+    // live capture — so its Stop button sprang back and invited a second press.
+    expect(loopRunStopRequested(run.id)).toBe(true);
     await settle(run.id);
+    // The registry entry goes with the run: a settled run has no pending stop, it has an outcome.
+    expect(loopRunStopRequested(run.id)).toBe(false);
     expect(db.runs[0]!.phase).toBe("stopped");
     expect(db.runs[0]!.endedAt).not.toBeNull();
     // Exactly one cycle was entered; the stop is checked between phases, never mid-session.

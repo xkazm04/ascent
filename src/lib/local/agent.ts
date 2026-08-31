@@ -80,7 +80,7 @@ export function resolveAgentConfig(choice: AgentConfig | null | undefined): { mo
  * has already refused it at the route, so anything arriving here out of band is a stale caller and the
  * honest answer is the deployment's own value.
  */
-function agentTimeoutMs(override?: number | null): number {
+export function agentTimeoutMs(override?: number | null): number {
   const chosen = normalizeAgentTimeoutMs(override ?? null);
   if (chosen != null) return chosen;
   return Math.min(

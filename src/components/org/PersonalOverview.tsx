@@ -7,6 +7,7 @@ import Link from "next/link";
 import { Card, SectionHeader } from "@/components/org/shared/ui";
 import { Sparkline } from "@/features/standing/repositories/Sparkline";
 import { Trajectory } from "@/features/standing/overview/Trajectory";
+import { composeTrajectory } from "@/lib/maturity/forecast";
 import { AddRepoForm, UntrackButton } from "@/components/org/PersonalWatchControls";
 import { PassportCard } from "@/features/standing/passports/PassportCard";
 import { EmptyState } from "@/components/EmptyState";
@@ -112,7 +113,19 @@ export async function PersonalOverview({ slug }: { slug: string }) {
     );
   }
 
-  const withForecast = repos.filter((r) => r.forecast !== null);
+  // THE SHARED PRESENTABILITY GATE, not `forecast !== null` (MC-B34). A fit exists as soon as there
+  // are two readings; whether it may be PROJECTED is a separate question `isProjectable` answers —
+  // at least 3 distinct scan days across at least 14 calendar days, because a line through two points
+  // fits perfectly however noisy the data. This was the last forecast surface deciding that for
+  // itself, and its card carried its own low-data caveat rather than the org's rule.
+  //
+  // A sub-gate fit is NOT dropped in silence: `composeTrajectory` hands back the refusal in the same
+  // words the /trends panel and the Delivery readout print, and it is rendered verbatim. Saying
+  // nothing would leave a tracked repo with no explanation of why the panel its neighbours have is
+  // missing.
+  const trajectories = repos
+    .map((r) => ({ fullName: r.fullName, forecast: r.forecast, read: composeTrajectory(r.forecast) }))
+    .filter((t) => t.read.headline !== null || t.read.insufficiency !== null);
 
   return (
     <div className="space-y-6">
@@ -153,12 +166,23 @@ export async function PersonalOverview({ slug }: { slug: string }) {
         )}
       </Card>
 
-      {withForecast.length > 0 && (
+      {trajectories.length > 0 && (
         <section aria-label="Repository trajectories" className="grid gap-4 lg:grid-cols-2">
-          {withForecast.map((r) => (
-            <div key={r.fullName}>
-              <div className="mb-1.5 type-mono-sm uppercase tracking-widest text-slate-500">{r.fullName}</div>
-              <Trajectory forecast={r.forecast!} />
+          {trajectories.map((t) => (
+            <div key={t.fullName}>
+              <div className="mb-1.5 type-mono-sm uppercase tracking-widest text-slate-500">{t.fullName}</div>
+              {t.read.headline && t.forecast ? (
+                <Trajectory forecast={t.forecast} />
+              ) : (
+                <Card>
+                  <SectionHeader size="sm" title="Trajectory" />
+                  <p className="mt-3 type-body text-slate-300">{t.read.insufficiency}</p>
+                  <p className="mt-2 type-body-sm text-slate-500">
+                    Scan again over the coming weeks. The projection appears once there is enough spread to read a
+                    trend rather than noise.
+                  </p>
+                </Card>
+              )}
             </div>
           ))}
         </section>

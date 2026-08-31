@@ -1042,6 +1042,18 @@ same claim. `forecastBasis` — which composes exactly the missing sentence and 
 ways — had **zero non-test callers** despite a docstring naming one; `composeTrajectory` is that
 caller.
 
+**The personal workspace is behind the same gate** (`MC-B34`, 2026-08-31). `PersonalOverview`
+filtered its per-repo trajectory cards on `r.forecast !== null` — existence, not presentability — so a
+fit resting on two scan days over three calendar days still rendered a projection card, hedged by the
+card's own low-data caveat but not held to the org's rule. It was the last forecast surface deciding
+that for itself. It now maps each tracked repo through `composeTrajectory` and renders the card only
+on a `headline`; a sub-gate fit renders the `insufficiency` sentence **verbatim** — the same words
+`/trends` and the Delivery readout print — rather than disappearing, because a tracked repo whose
+neighbours have a panel and it does not, with no reason given, is the failure this sentence exists to
+prevent. A repo with no fit at all still renders nothing: absence is not a refusal to explain.
+`PersonalOverview.gate.test.ts` pins the predicate at the source, since the component is an async
+server component and what must not regress is what it filters on.
+
 **The compaction clause is wired but presently silent on the org path** (`DANA-L1-014`): `getOrgRollup`
 fits over retained `Scan` rows only and never sets `SeriesPoint.compacted`, so `compactedPoints` is 0
 there by construction and ", N of them compacted" cannot yet appear on a briefing. The clause travels

@@ -99,9 +99,20 @@ routes use for their tenancy re-check, in its own module so the check is visible
 
 ## API
 
-All four are `runtime = "nodejs"`, `dynamic = "force-dynamic"`, and behind `selfHostGuard()` — on
-managed cloud they 404 rather than 403, because a 403 would advertise a surface that does not exist
-there. The `public` funnel org is refused everywhere.
+All four are `runtime = "nodejs"` and `dynamic = "force-dynamic"`, and the `public` funnel org is
+refused everywhere.
+
+**`selfHostGuard()` now sits on the WRITE path only, and only for the executor that needs it.** The
+guard's original argument — 404 rather than 403, because a 403 advertises a surface that does not
+exist — held while every loop run was a local one. Moonshot #3 shipped the `remote-agent` executor
+and `POST /api/org/loop` accepts it on managed cloud, so the surface *does* exist there. A cloud
+owner who could arm a run was still 404'd out of reading it (`GET /api/org/loop`, fixed earlier) and
+out of previewing what it would work (`GET …/propose`) — the cockpit denying a capability the
+deployment ships (`PRIYA-L1-703`, 2026-08-30). Both reads are now ungated beyond `requireOrgAccess`.
+`propose` degrades honestly without a checkout: `getRepoLocalPath` resolves to null and
+`proposeLaneKind(null, …)` returns the **backlog** lane by construction, so a cloud proposal is the
+repo's open follow-ups and never a claim about a directory nobody read. `POST` keeps the guard for
+`executor: "local"`, which spawns an agent inside a real working copy on the server's disk.
 
 ### `GET /api/org/loop?org=<slug>`
 
@@ -235,6 +246,15 @@ wider grant.
   the lane never armed is ignored, and a trailer line inside the agent's own prose is stripped — a
   session cannot enlarge its own batch. The trailer is still a **claim**: a row closes only when the
   next scan says its dimension moved.
+- **A session that ended in ERROR never titles the commit.** `runAgent` returning `ok: false` (a
+  timeout, a crash, a non-zero exit) means `summary` is the runner's failure text, not an account of
+  the work — and `laneCommitSubject` used to read a subject line off it. A campaign branch carried
+  **1605 insertions across 15 files** under `fix: Agent session exceeded 20 min and was stopped`
+  (`PRIYA-L2-C7`, 2026-08-30). The lane now passes `sessionFailed` and the subject falls back to
+  `chore: partial work from an interrupted lane session`, with a paragraph in the body saying the
+  changes are the session's unreviewed residue. **The error is not dropped** — it still rides
+  verbatim in the `Agent summary:` block, where a reader looking for it finds it and `git log
+  --oneline` does not lead with it.
 - If the agent *did* commit (a future mode with a wider grant), the lane commits only the residue.
 - If the lane's own commit fails, the lane names the uncommitted change count and the branch the work
   is **not** on before the worktree is deleted.
@@ -270,10 +290,30 @@ Three rules now hold, and they are the vocabulary the whole loop answers to:
    stamp and now reads *"claimed resolved — awaiting the rescan"*, which is what those rows are:
    nothing adjudicated them, and no migration can invent an adjudication that never happened. The
    next rescan is what earns them a stamp.
-3. **The panel says which one it means.** A verified close reads *"closed by the rescan"* in the
-   accent tone; an unverified one reads *"claimed resolved — awaiting the rescan"* in a muted italic,
-   with a title explaining that the item is still open. The lane counters and the run band say
-   *"closed by the rescan"* because, after rule 1, that is now what they count.
+3. **One word per fact — the panel says which one it means.** Rules 1 and 2 fixed the per-item
+   verdict and the chrome around it kept the old word for two *other* quantities: the lane rails and
+   the autopilot band printed `{closedIds.length} closed by the rescan`, and the outcome sheet header
+   printed *"324 gaps closed"* where `gaps` is `diff.closedGapCount` — a **scan-diff** number. A
+   reader who had just been taught that "claimed resolved" is not "closed" then met "closed" twice
+   more meaning two other things, on the same screen, in the same session (`RC2-N6`). Four facts now
+   have four phrasings, and they do not overlap:
+
+   | The fact | What it says | Where |
+   | --- | --- | --- |
+   | An agent's trailer nothing adjudicated | *claimed resolved — awaiting the rescan* (muted italic) | `CockpitVerdicts` |
+   | ONE item the rescan ruled on (`verifiedAt` set) | *closed by the rescan* (accent) | `CockpitVerdicts` |
+   | A LANE's count of the rescan's adjudicated set | *N verified closed* | `LaneRail`, `AutopilotBandParts`, the lane log |
+   | `diff.closedGapCount`, a scan-diff quantity | *N gaps no longer raised* | `OutcomeSection`, `takeaway()` |
+
+   *"closed by the rescan"* is now **reserved for the per-item verdict** and appears nowhere else.
+   `cockpitVocabulary.test.ts` pins all four, positively and negatively — the scan-diff line is
+   asserted not to contain the word "closed" at all.
+
+   **Ceiling, stated on the surface itself:** a lane written before rule 1 landed stores the raw
+   commit-trailer set in `closedIdsJson` and is **not backfilled**, so its rail count is a claim
+   count wearing the word "verified". The rail's title says exactly that, with the date. The honest
+   fix is the same one rule 2 took — a stamp earned by a rescan, never a migration that invents one —
+   and it needs a per-lane discriminator the lane record does not carry today.
 
 **Silence claims nothing.** The lane used to trail *every armed id* when the session named none, on
 the reading that "the rescan decides anyway" — which rule 1 shows was not true. A live session killed
@@ -296,6 +336,19 @@ removed. The read side refuses the same pair independently; see the `undelivered
   it *between* phases, never mid-agent-session. An in-flight lane finishes its agent session, skips
   its rescan, and the run winds down to `stopped`. Stopping a run this process does not own (already
   finished, or a restart casualty) reconciles the row instead of no-opping.
+- **The wind-down is narrated.** A cooperative stop takes as long as the in-flight session does, and
+  a live capture measured **19 min 43 s** of unchanged `RUNNING` after the operator pressed Stop
+  (`PRIYA-L2-C6`, 2026-08-30) — the button had already sprung back, because it was disabled on the
+  *fetch* rather than on the request. `loopRunStopRequested(id)` now reads the pending flag out of
+  the process-wide registry, and `GET /api/org/loop` carries it as `stopping` beside `stopHorizonMs`
+  (the run's own `agentTimeoutMs`, resolved against `ASCENT_AUTOPILOT_TIMEOUT_MS` **server-side** —
+  a browser cannot know that number). The header then holds *"Stopping…"* and prints
+  *"Stopping — in-flight lanes finish their current session first, up to 20 min."* until the run
+  settles. A `null` horizon prints the sentence **without** a bound rather than inventing one.
+  The flag itself stays in the registry: it is the signal a running driver reads, a run this process
+  is not driving is a restart casualty `markStaleRunsStopped` settles, and a `LoopRun.stopRequested`
+  column would persist a fact that has no meaning across a restart. (`stoppingCaption` is pure and
+  tested; `CockpitHeader.dom.test.tsx` pins the label and the caption.)
 - **Lane error + retry.** A worktree that cannot be created is a lane error, not a run error. `retry`
   re-runs one lane on a **fresh worktree and a fresh branch off HEAD** — by the time anyone retries,
   the run has ended and its worktree is gone, and re-creating a worktree on the old branch would
@@ -998,10 +1051,19 @@ regenerating the Prisma client into a `node_modules` this worktree *shares with 
 checkout*; the widening is durable, reversible, backward-compatible in both directions, and is the
 technique `runsJson` / `measurementJson` already use. `laneKindOf` reads it back for the ledger.
 
-**Cloud parity: unchanged, and local-only for now.** Every branch of the rule reads a filesystem path,
-and the routes are behind `selfHostGuard()`. On the managed cloud path practices and the foundation
-keep going out as GitHub-App draft PRs exactly as before — a hosted equivalent needs the sandboxed
-executor the "no hosted dispatch" gap below already names.
+**Cloud parity: the lane-KIND rule is local-only, and that is now the whole of it.** Every branch of
+the rule reads a filesystem path, so on managed cloud `proposeLaneKind(null, …)` returns the backlog
+lane and practices and the foundation keep going out as GitHub-App draft PRs exactly as before. The
+hosted equivalent is no longer missing: **moonshot #3's `remote-agent` executor** is how work leaves
+this deployment without a checkout on it, and `POST /api/org/loop` accepts it on cloud
+(see [Remote runs](#remote-runs-the-agent-neutral-work-protocol)). What that executor does not yet do
+is *decide a kind* — it has no disk to read — so a remote lane is always a backlog lane.
+
+<!-- This paragraph used to point at a "no hosted dispatch" gap "below". Moonshot #3 shipped the
+     dispatch and correctly DELETED that gap from the Known-gaps list, and the pointer survived it —
+     the exact failure mode this repo's docs constitution names, in miniature (PRIYA-L1-707). If you
+     rewrite a gap, grep for inbound references to it in the same change. -->
+
 
 **UI: one tag per lane, no new panel.** `laneKindTag` renders `.ai/ foundation` / `practice starter`
 beside the repo name in the curation panel (with the reason under it) and on the outcome-ledger row.
@@ -1025,10 +1087,19 @@ used to do this was deleted rather than kept beside it.
 
 ### Setup states (`CockpitSetup`)
 
-`hosted` (field still rendered read-only; explains loops run where the code is, links to self-hosting
-via `NEXT_PUBLIC_SOURCE_REPO_URL` or `docs/SETUP.md`) · `no-repos` (→ repositories tab) · `not-owner`
-· `autopilot-off` (shows the route's 409 fix) · `unpaired` (three steps: pair a checkout via
-`?tab=pairing` → pick repos → run).
+`hosted` (the field is still rendered read-only; the copy names the **local lane** as the
+self-hosted-only part and says outright that remote-agent runs work on this deployment, linking to
+self-hosting via `NEXT_PUBLIC_SOURCE_REPO_URL` or `docs/SETUP.md`) · `no-repos` (→ repositories tab)
+· `not-owner` · `autopilot-off` (shows the route's 409 fix) · `unpaired` (three steps: pair a
+checkout via `?tab=pairing` → pick repos → run).
+
+**`hosted` is a block on DISPATCH, never on reading (`PRIYA-L1-703`).** `LiveTab` used to read the
+active run, the run list and the run details only when `selfHosted()`, so a cloud owner's armed
+remote run rendered nowhere and the rail fell through to `hosted` — whose copy then told them the
+loop *"exists only on a self-hosted Ascent"*, contradicted by the very route that had accepted their
+run. All three reads are now unconditional; `pairedRepos` stays gated, because a checkout on this
+machine is a filesystem fact. `CockpitRail` already ranks a live run above the setup block, so a
+remote run on cloud renders its lane panel instead of the denial.
 
 Tests: `cockpit/laneStages.test.ts`, `cockpitDimensions.test.ts`, `cockpitDrift.test.ts`,
 `cockpitGate.test.ts` (one gate, two callers), `driveModel.test.ts` (the on-screen arithmetic and
@@ -1648,6 +1719,25 @@ with that reason rather than quietly exceeding the budget. A retried lane re-run
 model choice is not a termination reason). It returns `null` — meaning "keep the configured model" —
 unless two models are measured at `n >= 3` on **every** dimension the step is aiming at.
 
+**And it shows its evidence** (`PRIYA-L1-705`). Until 2026-08-31 the switch reached the operator as
+nothing at all: a run armed with a model nobody chose, and no record of what chose it — an
+evidence-led decision that cannot show its evidence is indistinguishable from a guess, which is what
+**G18** exists to forbid. `driveModelBasis(prices, dimIds, configured)` shares `pickDriveModel`'s
+body (one read of one price list, so the line and the choice cannot describe different prices) and
+returns one sentence carrying **every price compared and the `n` behind each**:
+
+```
+Model switched opus → sonnet on measured cost over D3, D5: sonnet 4.23¢/pt (n≥4) vs opus 9.10¢/pt (n≥3). Minimum 3 lanes per cell.
+```
+
+It rides on the run's `DriveRunRecord.modelBasis` (carried in `runsJson`, the same JSON-in-TEXT
+widening `reposJson` uses — no column) and renders under that run's row in the drive panel
+(`CockpitDriveRunRow`). The `n` reported per model is the **smallest** cell it rested on, not the
+largest: a price is only as trustworthy as its thinnest evidence. `null` — and therefore no line at
+all — whenever `pickDriveModel` declines *and* whenever the winner **is** the configured model: the
+evidence agreeing with the operator's pick is not a switch, and logging it would be the reassurance
+G18 names.
+
 **UI** (`?tab=live`): a cost chip on each `LaneRail` (`sonnet · 4 turns · 48.00¢`, or the literal
 `cost unknown`, in the counters' own muted type — a cost is not a verdict, so it gets no colour); a
 per-cell figure on the **outcome sheet's project-header row**, one per (run × repo); and
@@ -1828,6 +1918,24 @@ does. **The rescan is still the only thing that closes a follow-up.**
 | `claimedBy` | The claimant's opaque actor id, `agent:<token name>`. Null = nobody has claimed into this lane yet. |
 | `leaseUntil` | When that claim lapses. Null = no lease held, which is **not** "expired". |
 
+**A remote agent now gets the organization's standard too** (`PRIYA-L1-706`). `buildAgentBrief` was
+`buildFixPrompt` plus the working perimeter and the protocol — the fence and the rules, with nothing
+about *how this organization does the work*. The local lane has assembled that since moonshot #25, so
+one organization briefed a local agent with its playbooks, mined house pattern, memory and skills and
+a remote one with none of them, on the same rows. `get_fix_brief` now calls the very same
+`loadLaneBriefInput` → `buildLaneBrief` pair the engine calls (a second, "equivalent" assembly is
+exactly how the two would drift apart again) and the text lands as `## Your organization's standard`,
+**before** the perimeter — the standard is what the work should look like, the perimeter is the fence
+around it, which is the local prompt's order too. An org that has published nothing for these
+dimensions gets **no heading**: a heading over an empty section reads to a model as "there are no
+rules here". A failed read degrades to no standard rather than failing the brief.
+
+*What this does NOT yet do:* a remote close still cannot stamp `PlaybookApplication` adoption
+evidence. That stamp needs two things a remote lane has neither of — the lane's own recorded brief
+provenance (`briefJson`, written by the engine at dispatch, and nothing writes it for a claim that
+arrives over MCP) and a rescan of a worktree this deployment drove. Carrying the standard is the
+first of the two, not both, and the gap below says so.
+
 **A remote lane carries no cost envelope.** #27's figures are parsed out of a `claude -p` session
 envelope Ascent spawned, and there is no such session here, so `costMicros` stays **null** — unknown,
 never zero. The cockpit renders "cost unknown" beside an `agent` chip, the claimant and a lease
@@ -1861,6 +1969,13 @@ to a process this deployment is driving, and there is none.
 - **The `Resume drive` button is live before hydration** (L2-C-01). It is server-rendered and
   enabled, so a click landing before React attaches its handler is swallowed with no request and no
   error. Generic Next.js behaviour, unusually expensive on this particular control.
+- **A remote close cannot stamp playbook adoption evidence** (`PRIYA-L1-706`, narrowed 2026-08-31).
+  The brief half is fixed — `get_fix_brief` carries the org's standard now — but
+  `stampPlaybookApplications` fires from `runLane`, off the lane's recorded `briefJson` provenance
+  crossed with the rescan's adjudicated closes. A remote lane has neither: nothing writes `briefJson`
+  for a claim that arrives over MCP, and no rescan of a worktree this deployment drove attributes the
+  close. So an organization whose remediation runs remotely accumulates no evidence that its
+  playbooks are applied, however faithfully its agents follow them.
 - **`agent.ts` does not strip `CLAUDECODE` / `CLAUDE_CODE_ENTRYPOINT` from the spawn env** (L2-F-02).
   It strips `ANTHROPIC_API_KEY`; a self-hosted Ascent started from inside a Claude Code session hands
   the harness's own markers to every agent it spawns, and a nested `claude` that inherits them

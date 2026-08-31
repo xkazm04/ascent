@@ -55,6 +55,19 @@ export interface LaneCommitInput {
   batch: readonly { id: string }[];
   /** The agent session's own final text — the subject, the body, and the RESOLVED/SKIPPED claims. */
   summary: string;
+  /**
+   * DID THE SESSION END IN ERROR (timeout, crash, non-zero exit)?
+   *
+   * When it did, `summary` is not a description of the work — it is the runner's failure message,
+   * and reading a subject line off it produces a commit whose title is the session's obituary. A
+   * campaign lane landed 1605 insertions across 15 files under `fix: Agent session exceeded 20 min
+   * and was stopped` (PRIYA-L2-C7): the one line every log, blame view and PR title shows named the
+   * transport's problem instead of the change. The error still rides in the BODY, verbatim — it is
+   * load-bearing evidence — but it never becomes the title.
+   *
+   * Optional, and `false` is what every caller before it meant.
+   */
+  sessionFailed?: boolean;
 }
 
 export interface LaneCommitResult {
@@ -138,8 +151,20 @@ export function trailerIds(armed: readonly string[], claims: AgentClaims): strin
 /** Anything shaped like a conventional-commit subject already. */
 const CONVENTIONAL = /^[a-z]+(\([^)]*\))?!?:\s*\S/;
 
-/** The subject, from the agent's own first line — bounded, de-marked-down, never multi-line. */
-export function laneCommitSubject(summary: string, items: number): string {
+/**
+ * The subject a lane writes when the session that produced the work ENDED IN ERROR.
+ *
+ * Neutral by construction: it describes what the commit IS — residue a lane rescued from a session
+ * that did not finish — and claims nothing about what was fixed. The failure text is not lost; it is
+ * the `Agent summary:` block in the body, where a reader looking for it will find it and a blame view
+ * will not lead with it.
+ */
+export const INTERRUPTED_SUBJECT = "chore: partial work from an interrupted lane session";
+
+/** The subject, from the agent's own first line — bounded, de-marked-down, never multi-line.
+ *  `sessionFailed` short-circuits it: see `LaneCommitInput.sessionFailed`. */
+export function laneCommitSubject(summary: string, items: number, sessionFailed = false): string {
+  if (sessionFailed) return INTERRUPTED_SUBJECT;
   const raw = (summary.split("\n").find((l) => l.trim() && !/^\s*(RESOLVED|SKIPPED)\s*:/i.test(l)) ?? "")
     .replace(/^[#>\-*\s]+/, "")
     .replace(/[`*_]/g, "")
@@ -165,7 +190,7 @@ const WHY_THE_LANE_COMMITTED = [
 
 /** The full message. Split out so a test can pin the trailer format against the real parser. */
 export function buildCommitMessage(input: LaneCommitInput, ids: readonly string[], claims: AgentClaims): { subject: string; body: string } {
-  const subject = laneCommitSubject(input.summary, ids.length);
+  const subject = laneCommitSubject(input.summary, ids.length, input.sessionFailed === true);
   // The agent's own words, minus any trailer line it wrote: this message's trailers are the lane's
   // statement about the ids it armed, and a session must not be able to smuggle another row's id in
   // through prose the lane pastes verbatim.
@@ -176,6 +201,14 @@ export function buildCommitMessage(input: LaneCommitInput, ids: readonly string[
     .trim()
     .slice(0, AGENT_BODY_MAX);
   const lines = [...WHY_THE_LANE_COMMITTED, "", `Lane: cycle ${input.cycle} on ${input.branch}.`];
+  if (input.sessionFailed) {
+    lines.push(
+      "",
+      "THE SESSION ENDED IN ERROR (timeout, crash or a non-zero exit). What follows under 'Agent",
+      "summary' is the runner's failure text, not an account of the work — the changes here are",
+      "whatever the session had written into the worktree when it stopped, and they are unreviewed.",
+    );
+  }
   if (agentText) lines.push("", "Agent summary:", agentText);
   if (claims.skipped.length > 0) lines.push("", `The session reported these as skipped, so they carry no trailer: ${claims.skipped.join(", ")}.`);
   if (ids.length === 0 && input.batch.length > 0) {

@@ -4,7 +4,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { laneEconomics, pickDriveModel, priceList } from "@/lib/local/lane-economics";
+import { driveModelBasis, laneEconomics, pickDriveModel, priceList } from "@/lib/local/lane-economics";
 import type { LoopLaneOutcome, LoopLaneRecord } from "@/lib/db/loop-runs-types";
 
 const lane = (over: Partial<LoopLaneRecord> = {}): LoopLaneRecord => ({
@@ -193,6 +193,46 @@ describe("pickDriveModel — evidence-led, or nothing at all", () => {
 
   it("returns null when there is no price list at all", () => {
     expect(pickDriveModel(null, ["D3"])).toBeNull();
+  });
+
+  // PRIYA-L1-705: the switch itself was silent — a run armed with a model nobody chose and no record
+  // of the evidence that chose it. G18 forbids exactly that: an evidence-led decision that cannot
+  // show its evidence is indistinguishable from a guess.
+  describe("driveModelBasis — the switch shows its prices and its n", () => {
+    it("names the prices compared and the floor they had to clear", () => {
+      const basis = driveModelBasis(list([cell("sonnet", "D3", 4, 200), cell("opus", "D3", 3, 900)]), ["D3"], "opus");
+      expect(basis).toContain("opus → sonnet");
+      expect(basis).toContain("D3");
+      // Both prices, each with the thinnest cell it rested on — never the fattest.
+      expect(basis).toContain("sonnet 0.00¢/pt (n≥4)");
+      expect(basis).toContain("opus 0.00¢/pt (n≥3)");
+      expect(basis).toContain("Minimum 3 lanes per cell");
+    });
+
+    it("says NOTHING when the evidence agrees with the configured model — that is not a switch", () => {
+      expect(driveModelBasis(list([cell("sonnet", "D3", 3, 200), cell("opus", "D3", 3, 900)]), ["D3"], "sonnet")).toBeNull();
+    });
+
+    it("says nothing wherever pickDriveModel refuses to choose", () => {
+      expect(driveModelBasis(list([cell("sonnet", "D3", 9, 200)]), ["D3"], "opus")).toBeNull();
+      expect(driveModelBasis(list([cell("sonnet", "D3", 2, 200), cell("opus", "D3", 2, 900)]), ["D3"], "opus")).toBeNull();
+      expect(driveModelBasis(null, ["D3"], "opus")).toBeNull();
+    });
+
+    it("lists only the models that qualified on every dimension — never a wider claim than the choice", () => {
+      const rows = [
+        cell("sonnet", "D3", 3, 100),
+        cell("opus", "D3", 3, 900),
+        cell("opus", "D5", 3, 100),
+        cell("haiku", "D5", 3, 900),
+      ];
+      const basis = driveModelBasis(list(rows), ["D3", "D5"], "sonnet")!;
+      expect(basis).toContain("opus");
+      // sonnet is unmeasured on D5 and haiku on D3; neither entered the decision, so neither is
+      // reported as having been compared.
+      expect(basis).not.toContain("haiku");
+      expect(basis).not.toContain("sonnet 0");
+    });
   });
 });
 

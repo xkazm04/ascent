@@ -117,7 +117,7 @@ describe("GET /api/org/loop", () => {
     expect((await get("org=acme")).status).toBe(403);
   });
 
-  it("answers { enabled, active, runs, prices, prAvailable }", async () => {
+  it("answers { enabled, active, runs, prices, prAvailable, stopping, stopHorizonMs }", async () => {
     const body = (await (await get("org=acme")).json()) as Record<string, unknown>;
     // The price list rides on the STATUS read rather than a route of its own: it is derived at read
     // time from the org's own lanes and stores nothing, so it has no id to gate. `prAvailable` rides
@@ -128,6 +128,13 @@ describe("GET /api/org/loop", () => {
       runs: [],
       prices: { rows: [], unproductiveMicros: 0, unpricedLanes: 0, generatedAt: "2026-08-30T00:00:00.000Z" },
       prAvailable: true,
+      // THE WIND-DOWN, on the status read (PRIYA-L2-C6). `stopping` is the cooperative stop flag the
+      // engine holds for the run this process is driving; `stopHorizonMs` is the bound on how long
+      // honouring it can take, RESOLVED server-side because the deployment's own
+      // `ASCENT_AUTOPILOT_TIMEOUT_MS` is not a fact a browser can know. Both are null/false with no
+      // active run — there is nothing to wind down.
+      stopping: false,
+      stopHorizonMs: null,
     });
   });
 

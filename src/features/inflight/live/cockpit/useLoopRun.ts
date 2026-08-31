@@ -44,6 +44,12 @@ export function useLoopRun({ slug, initialActive, initialRuns, initialEnabled, o
   // tick: an absent field on the payload means "not answered", and disabling a mode the deployment
   // may well support would be the worse guess of the two — the route refuses it either way.
   const [prAvailable, setPrAvailable] = useState(true);
+  // A STOP THAT HAS BEEN ASKED FOR AND HAS NOT LANDED YET. Server state, not the button's own fetch:
+  // the loop's stop is cooperative, so this stays true for as long as the in-flight session takes
+  // (PRIYA-L2-C6 measured 19m43s). `busy` is the fetch and settles in milliseconds; conflating the two
+  // is what made the button revert to "Stop" while the run was still winding down.
+  const [stopRequested, setStopRequested] = useState(false);
+  const [stopHorizonMs, setStopHorizonMs] = useState<number | null>(null);
   const [active, setActive] = useState<LoopRunRecord | null>(initialActive);
   const [runs, setRuns] = useState<LoopRunSummary[]>(initialRuns);
   const [detail, setDetail] = useState<LoopRunDetail | null>(null);
@@ -68,6 +74,8 @@ export function useLoopRun({ slug, initialActive, initialRuns, initialEnabled, o
       const status = await fetchLoopStatus(slug);
       setEnabled(status.enabled);
       setPrAvailable(status.prAvailable !== false);
+      setStopRequested(status.stopping === true);
+      setStopHorizonMs(status.stopHorizonMs ?? null);
       setActive(status.active);
       setRuns(status.runs);
       const nowId = status.active?.id ?? null;
@@ -128,6 +136,10 @@ export function useLoopRun({ slug, initialActive, initialRuns, initialEnabled, o
   const stop = useCallback(
     async (id: string) => {
       await guard(() => stopLoop(slug, id));
+      // Optimistic, and safe to be: the next tick re-reads the server's own answer, and until it
+      // arrives the operator has already been told the request landed rather than watching the button
+      // spring back.
+      setStopRequested(true);
       void tick();
     },
     [guard, slug, tick],
@@ -151,5 +163,23 @@ export function useLoopRun({ slug, initialActive, initialRuns, initialEnabled, o
     [guard, slug],
   );
 
-  return { enabled, prAvailable, active, activeId, live, runs, detail, error, busy, start, stop, retry, loadDetail, propose, refresh: tick };
+  return {
+    enabled,
+    prAvailable,
+    active,
+    activeId,
+    live,
+    runs,
+    detail,
+    error,
+    busy,
+    stopRequested,
+    stopHorizonMs,
+    start,
+    stop,
+    retry,
+    loadDetail,
+    propose,
+    refresh: tick,
+  };
 }

@@ -24,6 +24,8 @@ import type { AdmissionMode } from "@/lib/org/admission";
 import { attachRemoteClaim } from "@/lib/db/loop-runs-write";
 import { repoGlobMatches } from "@/lib/org/stance";
 import { openBatch } from "@/lib/local/loop-lane";
+import { loadLaneBriefInput } from "@/lib/db/lane-brief-read";
+import { buildLaneBrief } from "@/lib/org/lane-brief";
 import {
   buildAgentBrief,
   claimRefusalText,
@@ -215,6 +217,18 @@ export async function getFixBriefTool(org: string, args: Args, actor: string): P
     const gate = await repoGate(org, repo);
     const picked = rows.map((r) => items.get(r.id)).filter((x): x is FollowUpItem => Boolean(x));
     if (picked.length === 0) continue;
+    // THE ORG'S STANDARD TRAVELS WITH THE REMOTE BRIEF TOO (`PRIYA-L1-706`). The local lane has
+    // assembled it since moonshot #25 and this door did not, so the same organization briefed a
+    // local agent with its playbooks, house pattern, memory and skills and a remote one with none of
+    // them. SAME assembly, deliberately — a second "equivalent" one is how the two drift. A failed
+    // read degrades to no standard rather than failing the brief: an agent holding a lease needs its
+    // rows more than it needs the preamble.
+    const standardInput = await loadLaneBriefInput(
+      org,
+      repo,
+      [...new Set(picked.map((p) => p.dimId).filter(Boolean))],
+    ).catch(() => null);
+    const standard = standardInput ? buildLaneBrief(standardInput).text : null;
     briefs.push({
       repo,
       ids: picked.map((p) => p.id),
@@ -222,7 +236,7 @@ export async function getFixBriefTool(org: string, args: Args, actor: string): P
       // that lapses, not the last. Null when the rows carry no lease (a human hand-off), which this
       // door cannot produce but a mixed read could.
       leaseUntil: rows.map((r) => r.leaseUntil).filter((l): l is string => Boolean(l)).sort()[0] ?? null,
-      brief: buildAgentBrief(picked, { org, generatedAt }, {
+      brief: buildAgentBrief(picked, { org, generatedAt, standard }, {
         repo,
         autonomyTier: gate?.tier ?? null,
         reviewText: gate?.reviewText ?? null,

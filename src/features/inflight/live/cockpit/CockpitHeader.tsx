@@ -6,7 +6,7 @@
 
 import Link from "next/link";
 import { Kicker } from "@/components/ui";
-import type { LoopRunRecord } from "./loopTypes";
+import { stoppingCaption, type LoopRunRecord } from "./loopTypes";
 
 export interface CockpitHeaderProps {
   /** Repos in the current scope — the caption's denominator. */
@@ -20,10 +20,30 @@ export interface CockpitHeaderProps {
   /** `?view=wall` with the tab's other params preserved. */
   wallHref: string;
   onStop?: () => void;
+  /** A request is in flight, or a stop has been asked for and has not landed. Both disable the
+   *  button; only the second one gets a caption, because only the second one lasts. */
   stopping?: boolean;
+  /** A stop has been REQUESTED on the server and the run is winding down — minutes, not milliseconds.
+   *  Distinct from `stopping` (which also covers the button's own fetch) because this is the state
+   *  that has to be narrated: PRIYA-L2-C6 watched a run read `RUNNING` for 19m43s after pressing it. */
+  stopRequested?: boolean;
+  /** The resolved per-session ceiling of the active run, ms — the bound on the wind-down. `null` =
+   *  unknown, and the caption then omits the bound rather than inventing one. */
+  stopHorizonMs?: number | null;
 }
 
-export function CockpitHeader({ fleetCount, active, laneCount, live, driveCaption = null, wallHref, onStop, stopping = false }: CockpitHeaderProps) {
+export function CockpitHeader({
+  fleetCount,
+  active,
+  laneCount,
+  live,
+  driveCaption = null,
+  wallHref,
+  onStop,
+  stopping = false,
+  stopRequested = false,
+  stopHorizonMs = null,
+}: CockpitHeaderProps) {
   return (
     <div className="flex flex-wrap items-end justify-between gap-4 border-b border-divider pb-3">
       <div className="min-w-0">
@@ -48,6 +68,10 @@ export function CockpitHeader({ fleetCount, active, laneCount, live, driveCaptio
             <span>at rest</span>
           )}
         </p>
+        {/* THE WIND-DOWN, NARRATED. A cooperative stop is minutes long, and a run that keeps reading
+            `RUNNING` with no explanation is one an operator presses again or writes off as failed
+            (PRIYA-L2-C6). In `warn`, not `danger`: winding down as designed is not a fault. */}
+        {live && stopRequested && <p className="mt-1 type-caption text-warn">{stoppingCaption(stopHorizonMs)}</p>}
       </div>
       <div className="flex shrink-0 items-center gap-2">
         <Link
@@ -60,10 +84,10 @@ export function CockpitHeader({ fleetCount, active, laneCount, live, driveCaptio
           <button
             type="button"
             onClick={onStop}
-            disabled={stopping}
+            disabled={stopping || stopRequested}
             className="focus-ring rounded-md border border-danger/60 px-3 py-1.5 type-label tracking-[0.18em] text-danger transition hover:bg-danger/10 disabled:opacity-50"
           >
-            {stopping ? "Stopping…" : "Stop"}
+            {stopping || stopRequested ? "Stopping…" : "Stop"}
           </button>
         )}
       </div>

@@ -27,7 +27,7 @@ import { selfHosted } from "@/lib/env";
 import { autopilotEnabled, resolveAgentConfig } from "@/lib/local/agent";
 import { startLoopRun, stopLoopRun } from "@/lib/local/loop-engine";
 import { getLoopRun, getOrgPriceList } from "@/lib/db/loop-runs-read";
-import { pickDriveModel } from "@/lib/local/lane-economics";
+import { driveModelBasis, pickDriveModel } from "@/lib/local/lane-economics";
 import { createDriveRow, getDriveRow, listDriveRows, markStaleDrivesInterrupted, saveDriveRow } from "@/lib/db/drives";
 import { getOrgRollup, listLocalPairings } from "@/lib/db";
 import { fleetGreenness, repoGreenness } from "@/lib/maturity/green";
@@ -266,14 +266,16 @@ async function debtDimensions(orgSlug: string, repos: readonly string[]): Promis
  * Best-effort by construction: a failure to read the price list must never end a drive, so every
  * error degrades to `null` — which is the drive continuing exactly as it did before #27.
  */
-async function chooseDriveModel(st: DriveStatus, m: DriveMeasurement): Promise<string | null> {
+async function chooseDriveModel(st: DriveStatus, m: DriveMeasurement): Promise<{ model: string | null; basis: string | null }> {
   try {
     const dims = await debtDimensions(st.org, m.remaining);
-    if (dims.length === 0) return null;
+    if (dims.length === 0) return { model: null, basis: null };
     const prices = await getOrgPriceList(st.org);
-    return pickDriveModel(prices, dims);
+    // The choice AND its basis come from the same read of the same price list. Two reads could
+    // disagree, and a basis line that describes prices the choice did not use is worse than none.
+    return { model: pickDriveModel(prices, dims), basis: driveModelBasis(prices, dims, st.model ?? null) };
   } catch {
-    return null;
+    return { model: null, basis: null };
   }
 }
 
@@ -319,12 +321,24 @@ async function drive(st: DriveStatus, actor: string | null): Promise<void> {
       repos: step.repos,
       maxCycles: st.maxCycles,
       concurrency: st.concurrency,
-      model: picked ?? st.model,
+      model: picked.model ?? st.model,
       effort: st.effort,
       delivery: st.delivery ?? null,
       actor,
     });
-    const rec: DriveRunRecord = { runId: run.id, repos: step.repos, debtBefore: m.debt, debtAfter: null, startedAt: nowIso(), endedAt: null };
+    // THE SWITCH SHOWS ITS EVIDENCE (`PRIYA-L1-705`). Until this the substitution reached the
+    // operator as nothing at all — a run armed with a model nobody chose. `basis` is null when the
+    // configured model stood, so a run that was not switched carries no line rather than a
+    // reassuring one, which is the G18 posture.
+    const rec: DriveRunRecord = {
+      runId: run.id,
+      repos: step.repos,
+      debtBefore: m.debt,
+      debtAfter: null,
+      startedAt: nowIso(),
+      endedAt: null,
+      modelBasis: picked.basis,
+    };
     st.runs.push(rec);
     await saveDriveRow(st);
     await waitForRun(run.id, () => st.stopRequested);
