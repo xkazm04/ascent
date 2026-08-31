@@ -4,7 +4,8 @@
 //   • only `skipped` / `needs_human` park an item, and the park is bounded;
 //   • the deferral read is org- AND repo-scoped, so one tenant's skip cannot suppress another's item;
 //   • an UNVERIFIED `resolved` whose own reason admits the session could not do the thing is
-//     downgraded to `needs_human` and parked — both directions pinned, on the real sentence.
+//     downgraded to `needs_human` and parked — both directions pinned, on the real sentence;
+//   • `verified` separates the rescan's verdict from the agent's claim, in both directions.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -26,6 +27,9 @@ interface Row {
 const rows: Row[] = [];
 const events: Record<string, unknown>[] = [];
 const deferralQueries: Record<string, unknown>[] = [];
+/** The run's lanes, as `listRunOutcomes` reads them: the lane row is where the RESCAN's adjudicated
+ *  close set lives, and `verified` is joined from it rather than stored a second time. */
+const lanes: { id: string; runId: string; closedIdsJson: string }[] = [];
 
 vi.mock("@/lib/db/org-shared", () => ({ getOrgBySlug: vi.fn(async (slug: string) => (slug === "kiro" ? { id: "org-kiro" } : null)) }));
 vi.mock("@/lib/db/client", () => ({
@@ -55,6 +59,10 @@ vi.mock("@/lib/db/client", () => ({
             (now == null || (r.deferUntil != null && r.deferUntil > now)),
         );
       },
+    },
+    loopRunLane: {
+      findMany: async ({ where }: { where: { runId?: string } }) =>
+        lanes.filter((l) => where.runId == null || l.runId === where.runId).map((l) => ({ id: l.id, closedIdsJson: l.closedIdsJson })),
     },
     recommendationEvent: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
@@ -88,6 +96,7 @@ beforeEach(() => {
   rows.length = 0;
   events.length = 0;
   deferralQueries.length = 0;
+  lanes.length = 0;
 });
 
 describe("recordLaneOutcomes — the rescan outranks the claim", () => {
@@ -96,12 +105,39 @@ describe("recordLaneOutcomes — the rescan outranks the claim", () => {
     expect(rows[0]).toMatchObject({ recommendationId: "r1", verdict: "resolved", deferUntil: null });
   });
 
-  it("does NOT write `resolved` for an id the agent claimed but the rescan did not close", async () => {
-    await recordLaneOutcomes({ ...base, batchIds: ["r1"], closedIds: [], report: report([{ recommendationId: "r1", verdict: "resolved" }]) });
-    // The claim is recorded as the claim it is; only the verifier writes `resolved`.
+  // THE TITLE USED TO SAY "does NOT write `resolved`" over an assertion that it DOES, with a comment
+  // claiming "only the verifier writes `resolved`" (UAT PRIYA-L1-702 cited it verbatim). The verdict
+  // column really does hold `resolved` for both — the agent's account is recorded in its own words —
+  // so the title is fixed to what the code does, and the DISCRIMINATOR is what the test now pins.
+  it("records an agent-claimed `resolved` the rescan did not close as UNVERIFIED", async () => {
+    const written = await recordLaneOutcomes({ ...base, batchIds: ["r1"], closedIds: [], report: report([{ recommendationId: "r1", verdict: "resolved" }]) });
+    // The claim is recorded as the claim it is — and `verified: false` is what stops the cockpit
+    // rendering it as "closed by the rescan".
     expect(rows[0]!.verdict).toBe("resolved");
+    expect(written[0]!.verified).toBe(false);
     // …and it parks nothing, so the next cycle can try again.
     expect(rows[0]!.deferUntil).toBeNull();
+  });
+
+  it("marks a rescan-closed id VERIFIED, and only that one", async () => {
+    const written = await recordLaneOutcomes({
+      ...base,
+      batchIds: ["r1", "r2"],
+      closedIds: ["r1"],
+      report: report([
+        { recommendationId: "r1", verdict: "resolved" },
+        { recommendationId: "r2", verdict: "resolved" },
+      ]),
+    });
+    expect(written.map((w) => [w.recommendationId, w.verdict, w.verified])).toEqual([
+      ["r1", "resolved", true],
+      ["r2", "resolved", false],
+    ]);
+  });
+
+  it("never marks a non-`resolved` verdict verified", async () => {
+    const written = await recordLaneOutcomes({ ...base, batchIds: ["r1"], closedIds: [], report: report([{ recommendationId: "r1", verdict: "skipped" }]) });
+    expect(written[0]!.verified).toBe(false);
   });
 
   it("writes `absent` for a dispatched id nobody accounted for", async () => {
@@ -271,5 +307,42 @@ describe("listRunOutcomes", () => {
     const out = await listRunOutcomes("run-1");
     expect(typeof out[0]!.createdAt).toBe("string");
     expect(typeof out[0]!.deferUntil).toBe("string");
+  });
+
+  it("joins `verified` from the LANE's adjudicated close set, not from the verdict word", async () => {
+    lanes.push({ id: "lane-1", runId: "run-1", closedIdsJson: JSON.stringify(["r1"]) });
+    await recordLaneOutcomes({
+      ...base,
+      batchIds: ["r1", "r2"],
+      closedIds: ["r1"],
+      report: report([
+        { recommendationId: "r1", verdict: "resolved" },
+        { recommendationId: "r2", verdict: "resolved" },
+      ]),
+    });
+    const out = await listRunOutcomes("run-1");
+    expect(out.map((o) => [o.recommendationId, o.verified]).sort()).toEqual([
+      ["r1", true],
+      ["r2", false],
+    ]);
+  });
+
+  // Two arms of one repo in one cycle arm the SAME batch. Arm A's verified close must not launder
+  // arm B's unconfirmed claim.
+  it("scopes `verified` to the lane, so an A/B sibling's close does not verify this lane's claim", async () => {
+    lanes.push({ id: "lane-1", runId: "run-1", closedIdsJson: JSON.stringify(["r1"]) });
+    lanes.push({ id: "lane-2", runId: "run-1", closedIdsJson: "[]" });
+    await recordLaneOutcomes({ ...base, laneId: "lane-1", batchIds: ["r1"], closedIds: ["r1"], report: report([{ recommendationId: "r1", verdict: "resolved" }]) });
+    await recordLaneOutcomes({ ...base, laneId: "lane-2", batchIds: ["r1"], closedIds: [], report: report([{ recommendationId: "r1", verdict: "resolved" }]) });
+    const out = await listRunOutcomes("run-1");
+    expect(out.filter((o) => o.laneId === "lane-1").map((o) => o.verified)).toEqual([true]);
+    expect(out.filter((o) => o.laneId === "lane-2").map((o) => o.verified)).toEqual([false]);
+  });
+
+  it("marks nothing verified when the lane's close set is unreadable — the safe direction", async () => {
+    lanes.push({ id: "lane-1", runId: "run-1", closedIdsJson: "{not json" });
+    await recordLaneOutcomes({ ...base, batchIds: ["r1"], closedIds: ["r1"], report: report([{ recommendationId: "r1", verdict: "resolved" }]) });
+    const out = await listRunOutcomes("run-1");
+    expect(out[0]!.verified).toBe(false);
   });
 });

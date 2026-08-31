@@ -49,7 +49,12 @@ export function LaneRail({ lane, lift = null, onRetry, busy = false }: LaneRailP
           {lane.repoFullName}
         </span>
         <span className="shrink-0 type-caption tabular-nums text-slate-500">
-          cycle {lane.cycle} · {lane.commits} commits · {lane.closedIds.length} closed
+          cycle {lane.cycle} · {lane.commits} commits ·{" "}
+          {/* `closedIds` is the RESCAN's adjudicated set (`decideInProgress`), not the commit-trailer
+              set the agent's own session wrote — see lane-outcomes.ts. The title says which. */}
+          <span title="Follow-ups the rescan closed: the gap is no longer raised and its dimension measurably moved. An agent's unconfirmed claim is not counted here.">
+            {lane.closedIds.length} closed by the rescan
+          </span>
           {lift != null && lift !== 0 && <span className="ml-2 text-slate-300">{fmtDelta(lift)}</span>}
         </span>
       </div>

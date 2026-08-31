@@ -118,7 +118,9 @@ export function AutopilotLog({ job }: { job: AutopilotJobView }) {
         </span>
         <span className="text-slate-400">
           <span className="tabular-nums text-slate-200">{job.commits}</span> commit{job.commits === 1 ? "" : "s"} ·{" "}
-          <span className="tabular-nums text-success-soft">{job.closedIds.length}</span> closed
+          {/* The lanes' `closedIds` are the RESCAN's adjudicated closes, never the agent's commit
+              trailers — so the word "closed" here is the verdict and not a claim (lane-outcomes.ts). */}
+          <span className="tabular-nums text-success-soft">{job.closedIds.length}</span> closed by the rescan
         </span>
         {job.branch && <span className="text-slate-500">branch {job.branch}</span>}
       </div>

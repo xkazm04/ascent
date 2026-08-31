@@ -43,6 +43,17 @@ export interface PersistResult {
   upgraded?: boolean;
   /** The commit SHA the returned scan is pinned to (null when the source had none). */
   headSha: string | null;
+  /** The in-progress rows THIS persist actually CLOSED — the ids `decideInProgress` ruled `done`,
+   *  after the movement witness, the engine-attribution check and the restatement read.
+   *
+   *  NOT the trailer set. `report.resolvedFollowUpIds` is what commit messages CLAIMED; this is what
+   *  the rescan ADJUDICATED, and the two are different sets whenever a claim was refused (still
+   *  restated, dimension flat, one end on the mock floor). The autopilot lane writes its "closed"
+   *  count from this field precisely so the loop cannot certify its own homework — before it existed
+   *  the lane read the claim set and the cockpit printed it as the verdict (UAT `PRIYA-L1-702`).
+   *
+   *  Empty on a dedup: no rows were adjudicated, so nothing was closed. */
+  closedFollowUpIds: string[];
   // NOTE (scan-persistence-history 07-16 #3): the former `failures: { audit, contributors }` field is
   // GONE. Persistence is atomic — the scan graph, contributor upserts, and the audit entry commit in
   // one transaction — so a returned result means everything was written and a partial failure THROWS
@@ -238,7 +249,7 @@ export async function persistScanReport(
           // A real scan for this commit already exists → refresh the head/lastScanAt freshness (safe: no
           // phantom head), but never insert a duplicate metered row.
           await advanceHead();
-          return { scanId: existing.id, deduped: true, headSha };
+          return { scanId: existing.id, deduped: true, headSha, closedFollowUpIds: [] };
         }
       }
     } else {
@@ -278,7 +289,7 @@ export async function persistScanReport(
           upgradeOldScanId = existing.id;
         } else if (existing.contentKey === contentKey) {
           await advanceHead(); // the SAME report is already persisted → freshness refresh, no duplicate
-          return { scanId: existing.id, deduped: true, headSha: null };
+          return { scanId: existing.id, deduped: true, headSha: null, closedFollowUpIds: [] };
         }
         // else: same millisecond, different result — fall through and persist it as its own scan.
       }
@@ -803,7 +814,7 @@ export async function persistScanReport(
       console.warn(`[scans-persist] tech-stack group sync failed for repo ${repo.id} (org ${orgId}):`, err);
     });
 
-    return { scanId, deduped: dedupedByRace, upgraded: Boolean(upgradeOldScanId), headSha };
+    return { scanId, deduped: dedupedByRace, upgraded: Boolean(upgradeOldScanId), headSha, closedFollowUpIds: dedupedByRace ? [] : resolvedRows.map((r) => r.row.id) };
   }, { label: "persistScanReport:scan" }));
   });
 }
