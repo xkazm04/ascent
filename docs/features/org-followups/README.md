@@ -148,11 +148,28 @@ required a scheduler to be correct would be wrong on any deployment whose schedu
 
 ### Who may claim
 
-`claimability()` gates a **remote agent** on the repo's derived autonomy tier (`passport.autonomy.tier`):
+`claimability()` gates a **remote agent** on the repo's **effective** autonomy tier:
 **T0 refused**, **no assessed tier refused** (unknown is not green), **T1/T2 allowed and flagged for
-human review**, **T3 allowed**; a repo inside a declared no-AI zone is refused whatever its tier. It
-is one pure function over one input struct, so the agent-admission compiler can swap its source
-without any caller changing. `local` and `human` executors are unaffected.
+human review**, **T3 allowed**; a repo inside a declared no-AI zone is refused whatever its tier.
+`local` and `human` executors are unaffected.
+
+**The effective tier is the RECORDED decision, not the derived grade** (since 2026-08-31; UAT
+`PRIYA-L2-C4`). `repoGate` in `work-tools.ts` reads `getRepoAdmission(org, repo)` beside the passport
+facts and applies the admission compiler's own precedence: where a tier was *assessed*
+(`derivedTier !== null`) the `grantedTier` wins, so an owner may raise T0 → T2 and the claim door
+honours it; where nothing was assessed, a grant is a seed nobody measured and compiles nothing. Until
+this landed the door read only the derived tier, so moonshot #8's *"recorded, **overridable** per-repo
+decision"* was invisible to the one gate that acts on it — live, a correctly-scoped org token was
+refused *"xkazm04/kp is at autonomy tier T0"* on a repo whose owner could have decided otherwise.
+
+**The `mode` lowers, independently of the tier.** An admission recorded as `assisted-only` or
+`blocked` refuses the claim outright — reason `admission-blocked`, with a sentence saying the tier is
+not the obstacle — because "how much supervision has this repo earned" and "may an agent open work
+here at all" are two questions. An **absent** decision refuses nothing: an org that has recorded
+none is gated exactly as it was.
+
+The gate is still one pure function over one input struct; the admission read is best-effort, so an
+unreadable governance table falls back to the derived tier rather than reporting no queue.
 
 ### Nothing in the protocol closes a row
 

@@ -1449,6 +1449,17 @@ autonomy model's own `DATA_MODEL_GAPS` recorded as a gap. That line is now delet
 - **Routes are (org, repo), never `[id]`.** Each gates the org and then constrains the caller-supplied
   repo name to it (`repoUnderOrg`), so an authorized owner cannot name another tenant's repository.
   `src/app/api/org/id-routes-gated.test.ts` covers the family structurally.
+  **Tenancy is the org's repository set, not a string prefix** (since 2026-08-31; UAT `PRIYA-L2-C5`).
+  `repoUnderOrg` used to require `owner === orgSlug`, which holds only for an organization whose slug
+  equals its GitHub owner namespace — so an org named for its team could never admit its *own* repos,
+  and the remote work protocol was permanently unreachable for it (`kiro` and `xkazm04/*` on the real
+  host). It now accepts the owner-namespace match as a fast path and otherwise asks `orgTracksRepo`,
+  which reads the `Repository` `(orgId, fullName)` key — the actual tenancy fact, so another tenant's
+  repo still matches nothing. Deliberately the **tracked** set, not the `watched` subset: `watched` is
+  a rescan-cadence preference, and a governance decision must not depend on whether autoscan is on.
+- **The claim door consults the decision.** The MCP `claim_followups` gate resolves the *effective*
+  tier from this row (grant beats derived where a tier was assessed) and refuses outright on a `mode`
+  below `agents-allowed`. See [org-followups/README.md](../org-followups/README.md) → *Who may claim*.
 - **UI**: `src/features/standing/governance/stance/admission/` — the admission column sits under the
   tier bands (the measurement it departs from), with an owner-only override that disables the tier
   select for an unassessed repo and shows the derived value beside the grant whenever they differ.

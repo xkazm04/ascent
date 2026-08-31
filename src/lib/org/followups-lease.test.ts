@@ -71,6 +71,36 @@ describe("claimability — the tier × executor table", () => {
     });
   });
 
+  // The MODE is a second decision, not a second name for the tier (UAT PRIYA-L2-C4). A T3 repo an
+  // owner holds `assisted-only` is refused; a repo with no recorded decision is gated as it always was.
+  it("refuses an admission mode below `agents-allowed`, whatever the tier", () => {
+    for (const mode of ["assisted-only", "blocked"] as const) {
+      expect(claimability({ autonomyTier: "T3", executor: "remote-agent", admissionMode: mode })).toEqual({
+        allowed: false,
+        reason: "admission-blocked",
+      });
+    }
+    expect(claimability({ autonomyTier: "T3", executor: "remote-agent", admissionMode: "agents-allowed" })).toEqual({
+      allowed: true,
+      requiresHumanReview: false,
+    });
+  });
+
+  it("treats an ABSENT mode as no decision, never as a refusal", () => {
+    expect(claimability({ autonomyTier: "T2", executor: "remote-agent", admissionMode: null })).toEqual({
+      allowed: true,
+      requiresHumanReview: true,
+    });
+  });
+
+  // Order matters: a sealed repo is refused for the zone that sealed it, not for a mode.
+  it("names the no-AI zone ahead of the mode when both would refuse", () => {
+    expect(claimability({ autonomyTier: "T3", executor: "remote-agent", sealed: true, admissionMode: "blocked" })).toEqual({
+      allowed: false,
+      reason: "no-ai-zone",
+    });
+  });
+
   it("leaves the local engine and a person unaffected by the tier", () => {
     for (const executor of ["local", "human"] as ClaimExecutor[]) {
       for (const tier of tiers) {
@@ -83,7 +113,7 @@ describe("claimability — the tier × executor table", () => {
   });
 
   it("gives a refusal sentence that names the repo and nothing else", () => {
-    for (const reason of ["tier-blocked", "tier-unknown", "no-ai-zone"] as const) {
+    for (const reason of ["tier-blocked", "tier-unknown", "no-ai-zone", "admission-blocked"] as const) {
       const text = claimRefusalText(reason, "acme/api");
       expect(text).toContain("acme/api");
       expect(text.length).toBeGreaterThan(40);

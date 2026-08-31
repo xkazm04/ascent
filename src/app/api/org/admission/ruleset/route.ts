@@ -43,7 +43,7 @@ async function gateRulesetRequest(request: Request) {
   const gate = await requireOrgOwnerPost<Body>(request, { missingOrgError: "Provide { org, repo, confirm }." });
   if (gate instanceof NextResponse) return gate;
   const { org, body } = gate;
-  const repo = repoUnderOrg(org, body.repo);
+  const repo = await repoUnderOrg(org, body.repo);
   if (!repo) return NextResponse.json({ error: 'Provide repo as "owner/name" under this organization.' }, { status: 400 });
   // The typed confirm. Compared to the repository's own full name, so a client cannot satisfy it
   // with a constant — the value is different for every repo the action could touch.
