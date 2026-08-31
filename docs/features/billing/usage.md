@@ -91,6 +91,16 @@ lockstep: `isBillableScan()` (JS; also the daily series' fallback path), `billab
 - `byLane`: per-lane calls, tokens, estimated cost and `unpricedCalls`. A **UNION**: the `scan` lane
   is folded from the same `Scan` groupBy the headline figures use (so it cannot double-count or
   disagree with them), every other lane comes from `UsageEvent` over the same window.
+- `estimatedCostUsd` / `costBasis`: the **scan lane's** cost and the basis that priced it
+  (`LLM_*_COST_PER_MTOK` env override > the built-in per-model table > none). Scan-scoped because it
+  is folded from the `Scan` token totals; it is *not* the page's headline.
+- `allLanesCostUsd` / `allLanesUnpricedCalls`: the sum of **every** lane in `byLane`, and the count
+  of calls no basis could price. This pair is what the "Est. cost" tile shows, so the headline equals
+  the "Spend by lane" table by construction. `allLanesCostUsd` is `null` — never `0` — when nothing
+  in the period could be priced, and an unpriceable lane is never folded in as `$0`: it lands in
+  `allLanesUnpricedCalls`, which makes the headline a **floor**, and the tile says so
+  (`… · floor: +34 calls unpriced`). Before this the tile priced the scan lane alone and understated
+  the page's own itemization by up to 78% on an org with companion/agent spend.
 - `byTeam`: per-code-owning-team calls and cost. A **LEFT** join (`Scan → Repository →
   RepoTeam(isDefaultOwner)`); a repo with no owning team lands in an explicit `Org-wide (no repo)`
   bucket rather than dropping out — an inner join would silently shrink the org's own total. Empty
@@ -211,6 +221,7 @@ Until a route adopts `rateLimitRequestShared()`, its global ceiling remains per-
 | `src/lib/llm/meter.ts` | The meter chokepoint: lane vocabulary, pure cost math (`costMicrosFor`), fire-and-forget `meter()`. |
 | `src/lib/db/usage-events.ts` | `recordUsageEvent()` (best-effort writer) + `laneTotals()` / `teamTotals()` / `listUsageEvents()`. |
 | `src/app/usage/usageLanePanels.tsx` | The "Spend by lane" / "Spend by team" server panels. |
+| `src/app/usage/costHeadline.ts` | The "Est. cost" tile's value + caption: all-lane sum, lane scope, pricing basis, unpriced floor. |
 | `src/lib/db/kpi-metrics.ts` | `avgLlmCostPerActiveOrg()` — per-tenant LLM cost across every lane, beside `avgLlmCostPerScan()`. |
 | `src/lib/rate-limit.ts` | Sliding-window limiter: sync per-IP burst + sync/shared global ceiling. |
 | `src/lib/rate-limit-store.ts` | Shared-store adapter: in-memory default, fetch-based Upstash REST driver. |
@@ -229,6 +240,15 @@ Until a route adopts `rateLimitRequestShared()`, its global ceiling remains per-
   legacy `claude` provider id. Routing it through `src/lib/llm/transports.ts` would change which
   credential and which vendor an operator's briefing bills to — an open design question (BACKLOG C3),
   not a wiring task.
+- **An org actually slugged `public` is unmetered outside the scan lane.** `meter()` drops any event
+  whose org slug is `public` (`src/lib/llm/meter.ts`), because that slug is the reserved anonymous
+  funnel — no tenant, no bill — and `getUsageSummary` skips the lane/team folds for it for the same
+  reason. A *real* tenant that happens to own the slug therefore burns companion/memory/agent
+  inference and shows `$0` for it forever, with only its scan lane visible. Live-observed on the
+  seeded demo org (UAT VICTOR-L2-01, 2026-08-30). Closing it means giving the funnel a sentinel that
+  is not a valid slug (or keying off `Organization.kind`) everywhere `"public"` is compared today —
+  auth, gating and aggregation, not just the meter — so it is a seam change, not a one-line guard.
+
 - **No lane but `scan` is billed.** `laneAllowances` is `{}` on every tier, so the other four lanes
   are measured and shown but never charged. That is deliberate, and it is the state until a pricing
   decision is made on this data.

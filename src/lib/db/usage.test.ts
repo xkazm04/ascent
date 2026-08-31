@@ -19,9 +19,35 @@ import {
   buildDailySeries,
   estimateLlmCostFromTable,
   estimateLlmCostUsd,
+  foldLaneCost,
   getUsageSummary,
   isBillableScan,
 } from "./usage";
+
+describe("foldLaneCost", () => {
+  const lane = (o: Partial<import("./usage-events").LaneUsage>) =>
+    ({ lane: "athena", calls: 1, inputTokens: null, outputTokens: null, estimatedCostUsd: null, unpricedCalls: 0, ...o }) as import("./usage-events").LaneUsage;
+
+  it("adds the priced lanes together — the headline equals the lane table's sum", () => {
+    const f = foldLaneCost([lane({ lane: "scan", calls: 43, estimatedCostUsd: 25.89913 }), lane({ lane: "local", calls: 53, estimatedCostUsd: 89.377523, unpricedCalls: 34 })]);
+    expect(f.allLanesCostUsd).toBeCloseTo(115.276653, 6);
+  });
+
+  it("carries the unpriced count up so the headline reads as a FLOOR, never a total", () => {
+    const f = foldLaneCost([lane({ lane: "scan", calls: 43, estimatedCostUsd: 25.89913 }), lane({ lane: "local", calls: 53, estimatedCostUsd: 89.38, unpricedCalls: 34 })]);
+    expect(f.allLanesUnpricedCalls).toBe(34);
+  });
+
+  it("never folds an unpriceable lane in as $0 — it stays null volume, counted", () => {
+    const f = foldLaneCost([lane({ lane: "memory", calls: 5, estimatedCostUsd: null, unpricedCalls: 5 })]);
+    expect(f.allLanesCostUsd).toBeNull();
+    expect(f.allLanesUnpricedCalls).toBe(5);
+  });
+
+  it("is null (not 0) for an empty period, so the tile shows an em dash rather than a free month", () => {
+    expect(foldLaneCost([])).toEqual({ allLanesCostUsd: null, allLanesUnpricedCalls: 0 });
+  });
+});
 
 describe("estimateLlmCostUsd", () => {
   it("returns null unless BOTH per-MTok rates are set", () => {
@@ -416,6 +442,19 @@ describe("getUsageSummary — byLane and byTeam", () => {
     expect(scan.unpricedCalls).toBe(0);
     // …and the lanes that have no Scan ledger come from UsageEvent, beside it rather than inside it.
     expect(s.byLane.find((l) => l.lane === "athena")).toMatchObject({ calls: 2, estimatedCostUsd: 0.005 });
+  });
+
+  it("sums EVERY lane into the headline cost, not just the scan lane (VICTOR-L1-05)", async () => {
+    stub();
+    const s = (await getUsageSummary("acme", 30))!;
+    // The headline the /usage tile reads must equal what "Spend by lane" sums to, by construction.
+    const laneSum = s.byLane.reduce((a, l) => a + (l.estimatedCostUsd ?? 0), 0);
+    expect(s.allLanesCostUsd).toBeCloseTo(laneSum, 10);
+    // …and it is strictly MORE than the scan-lane figure once another lane spent money.
+    expect(s.allLanesCostUsd!).toBeGreaterThan(s.estimatedCostUsd!);
+    // The floor qualifier is the lane rows' own unpriced counts, summed — the headline can never
+    // disclose less unpriced volume than the itemization under it.
+    expect(s.allLanesUnpricedCalls).toBe(s.byLane.reduce((a, l) => a + l.unpricedCalls, 0));
   });
 
   it("puts a repo with NO codeowning team in the explicit org-wide bucket instead of dropping it", async () => {

@@ -127,8 +127,47 @@ export interface UsageSummary {
    * Empty for the public funnel, which has no teams to attribute to.
    */
   byTeam: TeamUsage[];
+  /**
+   * Estimated cost across EVERY lane in `byLane` — the number the headline tile shows.
+   *
+   * `estimatedCostUsd` above prices the scan lane alone, because that is the billable unit and the
+   * only lane derived from `Scan` rows. Showing it as *the* cost understated the page's own
+   * itemization the moment any other lane spent money (UAT VICTOR-L1-05, live-confirmed in arm B of
+   * the 2026-08-30 moonshot cert on `/usage?org=kiro`: a $25.90 headline over a
+   * $115.28 lane table — a 78% understatement in the first number a FinOps reader sees). This is
+   * the sum the lane table sums to, so headline and itemization agree by construction.
+   *
+   * Null only when NOTHING in the period could be priced (every lane's estimate is null) — a lane
+   * that could not be priced never contributes a silent $0; it contributes to
+   * `allLanesUnpricedCalls` instead, so the headline reads as a floor rather than a total.
+   */
+  allLanesCostUsd: number | null;
+  /** Calls across every lane that could not be priced (unknown model, BYOM, or no tokens reported).
+   *  Non-zero means `allLanesCostUsd` is a FLOOR — the headline must say so. */
+  allLanesUnpricedCalls: number;
   firstScanAt: string | null;
   lastScanAt: string | null;
+}
+
+/**
+ * Fold `byLane` into the headline pair: the summed estimate and the count of calls no basis could
+ * price. Exported for the test, and so the one definition of "the page's total" lives beside the
+ * lane rows it must equal.
+ */
+export function foldLaneCost(byLane: LaneUsage[]): {
+  allLanesCostUsd: number | null;
+  allLanesUnpricedCalls: number;
+} {
+  let priced: number | null = null;
+  let unpriced = 0;
+  for (const l of byLane) {
+    if (l.estimatedCostUsd != null) priced = (priced ?? 0) + l.estimatedCostUsd;
+    unpriced += l.unpricedCalls;
+    // A lane with calls and no estimate at all is itself unpriced volume the row already reports;
+    // count it here too so the headline's floor qualifier can't be smaller than the itemization's.
+    if (l.estimatedCostUsd == null && l.unpricedCalls === 0) unpriced += l.calls;
+  }
+  return { allLanesCostUsd: priced, allLanesUnpricedCalls: unpriced };
 }
 
 /**
@@ -177,6 +216,8 @@ export async function getUsageSummary(
     byRepo: [],
     byLane: [],
     byTeam: [],
+    allLanesCostUsd: null,
+    allLanesUnpricedCalls: 0,
     firstScanAt: null,
     lastScanAt: null,
   };
@@ -340,6 +381,7 @@ export async function getUsageSummary(
     byRepo,
     byLane,
     byTeam,
+    ...foldLaneCost(byLane),
     firstScanAt: agg._min.scannedAt ? agg._min.scannedAt.toISOString() : null,
     lastScanAt: agg._max.scannedAt ? agg._max.scannedAt.toISOString() : null,
   };
