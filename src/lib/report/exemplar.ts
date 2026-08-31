@@ -18,11 +18,24 @@
 // ── HONEST NULLS ─────────────────────────────────────────────────────────────────────────────────
 // A dimension one side did not score is `notComparable`: null gaps, excluded from every count. It is
 // never coerced to 0, which would manufacture a score gap out of an absence of measurement.
+//
+// ── THE MATCH LEVEL IS THE SIGNAL, NOT THE STRING ────────────────────────────────────────────────
+// Every set comparison here runs through `diffSignalSets` (compare.ts), which keys on the signal NAME
+// with embedded counts blanked, and returns the original strings for display. Exact normalized string
+// equality is the right level for one repo against its own earlier scan — a moved count IS the finding
+// there — and the wrong one ACROSS repos, where two projects never phrase a detector line identically:
+// it told a repo with a test framework that the exemplar has one and it does not, landed the same
+// count-bearing line in `absentSignals` AND `aheadSignals`, and fragmented cohort consensus below its
+// support threshold so a dimension contributed no evidence at all (UAT `SAM-L1-10`). The normalizer for
+// exactly this was already written in the neighbouring module and was not imported.
+//
+// Raw strings survive to the reader: `absentSignals` carries what the EXEMPLAR's detector wrote,
+// `aheadSignals` what the SUBJECT's did. The key is used for the lookup only.
 
 import type { ComparableDimension, ComparableScan } from "@/lib/db/scans";
 import type { DimensionId, RepoArchetype } from "@/lib/types";
 import { DIMENSIONS } from "@/lib/maturity/model";
-import { diffStringSets } from "@/lib/report/compare";
+import { diffSignalSets } from "@/lib/report/compare";
 import { PRACTICES } from "@/lib/practices";
 import { minedStarter, type MinedPractice } from "@/lib/org/practice-mining";
 import { COHORT_MIN, CORPUS_BASIS } from "@/lib/corpus/eligibility";
@@ -106,16 +119,40 @@ export function formatExemplarRef(ref: ExemplarRef): string {
   }
 }
 
-/** Human label for a ref, used before any profile has been resolved (picker options, notices). */
-export function exemplarRefLabel(ref: ExemplarRef): string {
+/**
+ * Human label for a ref, used before any profile has been resolved (picker options, notices).
+ *
+ * `publicCorpus` is not cosmetic. A viewer who is not a member of the repo's org is resolved to the
+ * SHARED PUBLIC org, and "best in org" then means "best in the public corpus" — a different claim
+ * about a different population, told to the reader in the first person (UAT `SAM-L1-13`).
+ */
+export function exemplarRefLabel(ref: ExemplarRef, opts: { publicCorpus?: boolean } = {}): string {
   switch (ref.kind) {
     case "repo":
       return `${ref.owner}/${ref.name}`;
     case "org-best":
+      if (opts.publicCorpus) {
+        return ref.dimId ? `best in the public corpus for ${ref.dimId}` : "best in the public corpus";
+      }
       return ref.dimId ? `best in org for ${ref.dimId}` : "best in org overall";
     default:
       return ref.by === "lang" ? `${ref.value} · top decile` : `${ref.value} repos · top decile`;
   }
+}
+
+/**
+ * Picker `<optgroup>` names. Two of the five exist ONLY because the viewer's org may be the shared
+ * public namespace: `readableOrgForOwner` downgrades a non-member to it, and the picker then listed
+ * up to `ORG_CANDIDATE_CAP` public-corpus repos under "Your repos" with an "Org best" that meant
+ * "best in the public corpus" (UAT `SAM-L1-13`). The label follows the population, not the code path.
+ */
+export type ExemplarGroup = "Your repos" | "Public corpus" | "Org best" | "Corpus best" | "Cohort";
+
+/** The group a single-repo / org-best option belongs to, given whose corpus it was drawn from. */
+export function exemplarGroups(publicCorpus: boolean): { repos: ExemplarGroup; best: ExemplarGroup } {
+  return publicCorpus
+    ? { repos: "Public corpus", best: "Corpus best" }
+    : { repos: "Your repos", best: "Org best" };
 }
 
 // ── The exemplar side ────────────────────────────────────────────────────────────────────────────
@@ -151,7 +188,7 @@ export interface ExemplarProfile {
 export interface ExemplarOption {
   value: string;
   label: string;
-  group: "Your repos" | "Org best" | "Cohort";
+  group: ExemplarGroup;
   /** Only ever set for a single-repo option; a cohort option never carries a scan time. */
   scannedAt: string | null;
 }
@@ -231,8 +268,8 @@ export function diffAcrossRepos(
     const comparable = Boolean(mine && theirs);
     if (!comparable) notComparable.push(def.id);
 
-    const evidence = diffStringSets(mine?.evidence ?? [], theirs?.evidence ?? []);
-    const gaps = diffStringSets(mine?.gaps ?? [], theirs?.gaps ?? []);
+    const evidence = diffSignalSets(mine?.evidence ?? [], theirs?.evidence ?? []);
+    const gaps = diffSignalSets(mine?.gaps ?? [], theirs?.gaps ?? []);
     // Only a two-sided dimension contributes signals: a "gap" against a side that was never measured
     // is an artifact of the measurement, not of the repository.
     const absentSignals = comparable ? evidence.onlyInB : [];
@@ -303,7 +340,7 @@ export interface OrgCandidate {
  */
 export function selectOrgBest(
   candidates: readonly OrgCandidate[],
-  opts: { dimId: DimensionId | null; excludeFullName: string },
+  opts: { dimId: DimensionId | null; excludeFullName: string; publicCorpus?: boolean },
 ): ExemplarProfile | null {
   const ref: ExemplarRef = { kind: "org-best", dimId: opts.dimId };
   const pool = candidates.filter((c) => c.repoFullName !== opts.excludeFullName);
@@ -321,7 +358,9 @@ export function selectOrgBest(
   return {
     key: formatExemplarRef(ref),
     kind: "org-best",
-    label: `${exemplarRefLabel(ref)} · ${best.repoFullName}`,
+    // The heading names the POPULATION this was best in, which is not "org" for a viewer resolved to
+    // the shared public namespace (UAT `SAM-L1-13`).
+    label: `${exemplarRefLabel(ref, { publicCorpus: opts.publicCorpus })} · ${best.repoFullName}`,
     repoFullName: best.repoFullName,
     scannedAt: best.scannedAt,
     overallScore: best.overallScore,
@@ -371,9 +410,11 @@ function median(xs: number[]): number {
   return Math.round(s.length % 2 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2);
 }
 
-/** How many of `lists` carry a string equivalent to `s`, under compare.ts's single normalizer. */
+/** How many of `lists` carry the SAME SIGNAL as `s`. Signal-level, not string-level: a decile whose
+ *  members each wrote their own count for one detector would otherwise support each phrasing once and
+ *  clear no threshold, and the dimension would contribute no consensus evidence at all. */
 function support(s: string, lists: readonly string[][]): number {
-  return lists.filter((l) => diffStringSets([s], l).shared.length > 0).length;
+  return lists.filter((l) => diffSignalSets([s], l).shared.length > 0).length;
 }
 
 /**
@@ -446,7 +487,7 @@ function consensus(lists: readonly string[][], min: number): string[] {
   const out: string[] = [];
   for (const list of lists) {
     for (const s of list) {
-      if (out.some((k) => diffStringSets([s], [k]).shared.length > 0)) continue;
+      if (out.some((k) => diffSignalSets([s], [k]).shared.length > 0)) continue;
       if (support(s, lists) >= min) out.push(s);
     }
   }

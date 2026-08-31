@@ -348,3 +348,77 @@ describe("transferJoin", () => {
     expect(rows[0]!.skillsHref).toBeNull();
   });
 });
+
+// ── The match level (UAT `SAM-L1-10`) ───────────────────────────────────────────────────────────
+//
+// Exact normalized string equality is right for one repo against its own earlier scan and wrong
+// ACROSS repos: two projects never write a detector's count the same way. FAIL-BEFORE for all of
+// these — swap `diffSignalSets` back to `diffStringSets` in exemplar.ts and they go red.
+
+describe("diffAcrossRepos — evidence is matched at the SIGNAL level, displayed raw", () => {
+  it("does not call a signal absent when the subject has it with a different count", () => {
+    const d = diffAcrossRepos(
+      scan([dim("D2", { score: 40, evidence: ["Found 6 test files"] })]),
+      profile([dim("D2", { score: 54, evidence: ["Found 214 test files"] })]),
+    );
+    const d2 = d.dimensions.find((x) => x.id === "D2")!;
+    // The wrong transfer recommendation: "they have a test framework, you do not", to a repo with one.
+    expect(d2.absentSignals).toEqual([]);
+    expect(d2.aheadSignals).toEqual([]);
+    expect(d.nothingToTransfer).toBe(true);
+  });
+
+  it("never lands one count-bearing signal in BOTH directions of the diff", () => {
+    const d = diffAcrossRepos(
+      scan([dim("D3", { evidence: ["CI workflows: 3 of 3 pinned"] })]),
+      profile([dim("D3", { evidence: ["CI workflows: 9 of 9 pinned"] })]),
+    );
+    const d3 = d.dimensions.find((x) => x.id === "D3")!;
+    expect(d3.absentSignals.length + d3.aheadSignals.length).toBe(0);
+  });
+
+  it("keeps a genuinely different signal, and displays the EXEMPLAR's own wording for it", () => {
+    const d = diffAcrossRepos(
+      scan([dim("D2", { evidence: ["Found 6 test files"] })]),
+      profile([dim("D2", { evidence: ["Found 214 test files", "Coverage tracking configured (87%)"] })]),
+    );
+    const d2 = d.dimensions.find((x) => x.id === "D2")!;
+    expect(d2.absentSignals).toEqual(["Coverage tracking configured (87%)"]);
+  });
+
+  it("matches GAPS at the same level, so a shared gap is not reported as the subject's alone", () => {
+    const d = diffAcrossRepos(
+      scan([dim("D2", { gaps: ["Only 2 of 9 modules covered"] })]),
+      profile([dim("D2", { gaps: ["Only 41 of 60 modules covered"] })]),
+    );
+    expect(d.dimensions.find((x) => x.id === "D2")!.gapsOnlyInSubject).toEqual([]);
+  });
+});
+
+describe("buildCohortProfile — consensus survives per-repo counts", () => {
+  const member = (orgId: string, repoFullName: string, n: number): CohortMember => ({
+    orgId,
+    repoFullName,
+    overallScore: 80,
+    dimensions: [dim("D2", { score: 80, evidence: [`Found ${n} test files`] })],
+  });
+
+  it("reaches consensus on one signal every member phrases with its own count", () => {
+    // Each member writes a different number. Under string equality every phrasing had support 1,
+    // cleared no threshold, and the dimension contributed NO evidence at all.
+    const members = [
+      member("o1", "one/a", 6),
+      member("o1", "one/b", 12),
+      member("o2", "two/c", 44),
+      member("o3", "three/d", 91),
+      member("o3", "three/e", 3),
+    ];
+    const out = buildCohortProfile(members, { kind: "cohort", by: "lang", value: "TypeScript" });
+    expect(out.kind).toBe("ok");
+    if (out.kind !== "ok") throw new Error("unreachable");
+    const d2 = out.profile.dimensions.find((d) => d.dimId === "D2")!;
+    expect(d2.evidence).toHaveLength(1);
+    // One entry, carrying a real member's wording rather than a synthesised one.
+    expect(d2.evidence[0]).toMatch(/^Found \d+ test files$/);
+  });
+});

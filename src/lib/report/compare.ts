@@ -368,9 +368,50 @@ export function signalName(evidence: string): string {
   return /^[A-Z][a-z]/.test(first) ? name[0]!.toLowerCase() + name.slice(1) : name;
 }
 
-/** Identity for the changed/gained/lost split: the name with its embedded counts blanked, so
- *  "found 18 test files" and "found 6 test files" are one signal whose number moved. */
-const nameKey = (s: string) => signalName(s).toLowerCase().replace(/\d+([./]\d+)?/g, "#");
+/**
+ * Identity for the changed/gained/lost split: the name with its embedded counts blanked, so
+ * "found 18 test files" and "found 6 test files" are one signal whose number moved.
+ *
+ * Exported because it is the SEMANTIC level at which two detector lines are the same signal, and the
+ * exemplar diff needs exactly that (it was written here first and matched on raw normalized strings
+ * instead — UAT `SAM-L1-10`). `norm()` above compares two phrasings of one string; this compares two
+ * readings of one signal. They are different questions and this module owns both answers.
+ */
+export const signalNameKey = (s: string) =>
+  signalName(s)
+    .toLowerCase()
+    .replace(/\d+([./]\d+)?/g, "#")
+    // Collapse whitespace like `norm()` does: this key must be at least as forgiving as the string
+    // one it replaces, or a re-spaced phrasing the old comparison matched would start reporting a
+    // difference that is not one.
+    .replace(/\s+/g, " ")
+    .trim();
+
+const nameKey = signalNameKey;
+
+/**
+ * Set difference at the SIGNAL level, not the string level — same shape and same duplicate semantics
+ * as `diffStringSets`, but two lines are the same entry when they name the same signal with a
+ * different count or a differently-worded detail. Every returned string is the ORIGINAL, so a caller
+ * can key on the signal and still display the evidence the detector actually wrote.
+ *
+ * This is the right level for a CROSS-REPO comparison. Two repos never phrase a detector line
+ * identically — the counts inside them differ by construction — so exact normalized equality reports
+ * "the exemplar has a test framework and you do not" about a repo that has one, and lands the same
+ * count-bearing line in both directions of a two-directional diff at once.
+ *
+ * It is NOT the right level for the time diff of one repo against itself, where a moved count is the
+ * finding: `diffStringSets` stays what `diffScans` uses.
+ */
+export function diffSignalSets(a: readonly string[], b: readonly string[]): StringSetDiff {
+  const aKeys = new Set(a.map(signalNameKey));
+  const bKeys = new Set(b.map(signalNameKey));
+  return {
+    onlyInA: a.filter((s) => !bKeys.has(signalNameKey(s))),
+    onlyInB: b.filter((s) => !aKeys.has(signalNameKey(s))),
+    shared: a.filter((s) => bKeys.has(signalNameKey(s))),
+  };
+}
 
 /**
  * Build the one-line movement attribution for a dimension, citing the NAMES of the signals behind it:

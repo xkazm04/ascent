@@ -202,6 +202,15 @@ Both selections live entirely in the URL, so any combination is shareable and
 back-button-safe. The exemplar axis is additive: with no `?against=` the page renders
 exactly as it always has.
 
+**Discovery, and the one-scan case.** The report's Scoring tab carries two links into this
+page: "What changed →" (the time axis, gated on two scans) and **"Compare against a stronger
+repo →"**, which appends `?against=org:best` and is deliberately **not** gated — the exemplar
+axis compares this repo against another one and needs no second scan of its own. It used to
+have no inbound link at all (UAT `SAM-L1-13`), and the page itself refused to render below two
+scans, which locked the panel away from exactly the repo with nothing of its own to compare to.
+A single-scan repo now gets the picker's **Against** field and the exemplar diff; only the time
+half is replaced by the "need two scans" notice.
+
 ### Time axis (`src/lib/report/compare.ts` + `WhatChanged`)
 
 `diffScans(before, after)` is a pure diff engine returning a `ScanDiff`: overall/adoption/
@@ -228,7 +237,15 @@ shows an inline warning (no hard block) when the chosen baseline is chronologica
 regression while actually looking backward in time. The **Against** field is rendered only
 when `listExemplarOptions` returns something: an org with no eligible peer and no qualifying
 cohort has nothing to offer, and an empty dropdown would advertise a comparison that cannot
-be made.
+be made. On a repo with a single stored scan the two time dropdowns are hidden and the
+**Against** field stands alone.
+
+**The optgroup names follow the population, not the code path.** `readableOrgForOwner`
+resolves a viewer who is not a member of the repo's org to the shared **public** namespace, so
+the identical query lists up to `ORG_CANDIDATE_CAP` (500) public-corpus repositories. Those are
+grouped "Public corpus" / "Corpus best" (with `org:best` labelled *best in the public corpus*),
+not "Your repos" / "Org best" — `exemplarGroups(publicCorpus)` in `exemplar.ts` decides it
+once, for the picker and for the resolved panel heading (UAT `SAM-L1-13`).
 
 ### Exemplar axis (`src/lib/report/exemplar.ts` + `ExemplarPanel`)
 
@@ -243,6 +260,15 @@ practice transfers them. Three refs, one `ExemplarProfile` shape:
 | `cohort:lang:<language>` / `cohort:archetype:<solo/team/org>` | the **public** corpus's top decile for that slice |
 
 An unparseable ref renders a notice saying so; nothing is ever silently substituted.
+
+**Signals are matched at the SIGNAL level, displayed raw.** Every set comparison on this axis
+runs through `diffSignalSets` (`compare.ts`), which keys on the signal *name* with embedded
+counts blanked and returns the original strings for display. Exact normalized string equality
+is right for the time axis — a moved count *is* the finding there — and wrong across repos,
+where two projects never phrase a detector line identically: it told a repo *with* a test
+framework that the exemplar has one and it does not, landed one count-bearing line in
+`absentSignals` **and** `aheadSignals` at once, and fragmented cohort consensus below
+`COHORT_SUPPORT` so a dimension contributed no evidence at all (UAT `SAM-L1-10`).
 
 **Framing is has / lacks, never better / worse.** `diffAcrossRepos` returns
 `absentSignals` (theirs, not yours — the transfer list) *and* `aheadSignals` (yours, not
