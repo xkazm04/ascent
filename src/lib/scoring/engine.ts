@@ -263,7 +263,17 @@ export function assembleReport(
       for (const v of applied.confirmed) claimEvidence.push(`Model confirmed ${v.facet} — ${v.path}: "${v.quote}"`);
       // Every rejection is rendered: a claim that failed verification is the most useful sentence on
       // the card, and the rate of them is the reliability signal SCORING-VALIDITY asks for.
+      //
+      // EXCEPT `not-this-dimension` (r13). Every claim-scored dimension verifies the WHOLE claim list
+      // and rejects the ones addressed elsewhere, so a healthy D1 claim was rendered on D4's card as
+      // "Unverified claim (not-this-dimension) — canonical_declared, AGENTS.md" and vice versa. That
+      // is a routing fact about this loop, not a verification failure of anything, and it was the
+      // most common line on the D4 card in the campaign artifacts (34 of 34 readings, up to three
+      // lines each) — three sentences telling a reader that D4's evidence is unreliable, about claims
+      // that were VERIFIED and SCORED one dimension over. The rejection is still returned by
+      // `verifyClaims`; only the evidence line is suppressed.
       for (const r of [...applied.unsupported, ...claimed.rejected]) {
+        if (r.reason === "not-this-dimension") continue;
         claimEvidence.push(`Unverified claim (${r.reason}) — ${r.facet}, ${r.path}`);
       }
     }

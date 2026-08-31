@@ -189,10 +189,37 @@ zero score plus a warning, never the whole scan.
 | D3 | CI/CD & Delivery | Pipelines + stages, release automation, IaC, policy-as-code, GitOps, progressive delivery, migrations |
 | D4 | Agentic Workflows | AI code-review agents, LLM-in-CI, auto-fix/auto-PR bots, dependency automation |
 | D5 | Documentation & Knowledge | README depth, `/docs`, ADRs, CONTRIBUTING, CHANGELOG, API docs, examples |
-| D6 | Code Quality & Guardrails | Linters, formatters, strict types, pre-commit hooks, CODEOWNERS, commitlint |
+| D6 | Code Quality & Guardrails | Linters, formatters, strict types, pre-commit hooks, CODEOWNERS, commitlint — plus **enforcement**: guardrails run inline in CI, a quality ratchet / debt ceiling, a zero-warning lint gate (see [D6: presence vs enforcement](#d6-presence-vs-enforcement)) |
 | D7 | Commit & Velocity Signals | AI-attributed commits, conventional commits, cadence, recency |
 | D8 | AI Process & Harness | Evals/golden tests, prompt/agent library, runbooks, AI contribution process |
 | D9 | Supply Chain & Security | SAST, SCA, secret/container scanning, SBOM, signing, SECURITY.md, threat models |
+
+#### D6: presence vs enforcement
+
+D6 grades two different things, and the difference is load-bearing. **Presence** signals ask whether a
+tool is installed — `Linter configured` (20), `Formatter configured` (10), `TypeScript strict mode`
+(20) / `TypeScript configured` (10) / `Static type checking (mypy/pyright)` (15), `Pre-commit hooks`
+(15), `CODEOWNERS` (15), `Commit linting / conventions` (10), `PR template` (5). **Enforcement**
+signals ask whether it *operates* — the same "installed vs operating" distinction the assessment
+prompt already insists on for the model:
+
+| Signal | Points | What it reads |
+| --- | --- | --- |
+| `Lint/format/type-check enforced in CI` | 20 (or **+5** when a standalone linter config already scored) | lint/format/type commands in `.github/workflows/**` (`idx.workflowText`) |
+| `Quality ratchet / debt ceiling enforced` | 15 | a ratchet/ceiling/budget/`no-new-*`/suppression/baseline artifact: a **parsed `package.json` script** entry, a checked-in baseline (`.betterer.*`, `eslint-baseline.json`, `*-ceiling.json`, `knip.json`), or the same terms in a CI workflow |
+| `Lint/type gate fails on warnings (zero-warning policy)` | 5 | `--max-warnings 0`, `-D warnings`, `--deny warnings`, `--error-on-warnings`… in a workflow or a parsed script body |
+
+**Why the ratchet signal exists.** Measured over a 21-run campaign (2026-08): two repos gained ESLint
+import-boundary rules, a blocking ruff ignore-ceiling ratchet, a blocking TypeScript suppression
+ratchet, exception lists and several gates wired into `check:ci` — and D6 moved 66 → 68 on one and
+81 → 81 on the other. Every artifact mapped onto a presence signal **already awarded** (the linter
+config the repo already had), and the ratchets — the only artifacts that actually block a build —
+mapped onto no signal at all. A repo can carry an `.eslintrc` for years while its warning count
+climbs; a ceiling that fails `check:ci` cannot.
+
+Scripts are **parsed** out of `package.json` (`packageScripts`), never regexed out of the manifest
+blob: a dependency named `@acme/budget-ratchet-ui` is not a gate, and a script entry is runnable by
+construction. An unparseable manifest yields no scripts rather than a guess.
 
 #### Evidence has to be checkable
 
@@ -639,6 +666,33 @@ a second award; the r7 platform folds in `pulls.ts` and `platform-signals.ts` ta
 same way. Design and the adversarial case: [`docs/SCORING-VALIDITY.md`](../../SCORING-VALIDITY.md);
 the facet table itself: [`maturity-model.md` §D4](maturity-model.md#d4-agentic-workflows-12--scored-from-verified-citations-r9-2026-08-26).
 
+### A claim can only cite what the prompt window showed (r13, 2026-08-31)
+
+The verifier checks a citation against `RepoSnapshot.files` — the whole 50-file-plus-workflows
+sample. The **model** only sees `buildFileExcerptBlock`'s output: per-file excerpts of
+`PROMPT_PER_FILE_CHARS` (2,200) up to `PROMPT_FILE_WINDOW_CHARS` (22,000), i.e. roughly ten files,
+filled in `pickFilesToFetch` order. Those two populations are not the same set, and D4 was the
+dimension that paid for the difference: `pickFilesToFetch` adds CI workflows **last** (a reserved
+*fetch* quota, ranked last for the prompt so README/manifests/source stay front-loaded), so they sat
+past position forty and never entered the window — while four of D4's seven facets have nowhere else
+in a normal repo to be cited from. Across 34 campaign readings the model cited eight distinct paths
+and not one was a workflow; D4 came out bistable (10/20 on a Python repo, 65/85 on a Node one with
+equivalent machinery, the difference being that `package.json` scripts described the automation and
+`pyproject`/`ruff.toml` did not).
+
+`buildFileExcerptBlock` now reserves **three excerpts of the window** for `.github/workflows/*.y(a)ml`
+before filling the rest in fetch-rank order. **Admission is reordered; emission is not**, so a scan
+that was not already dropping files (and any repo with no workflows) produces a byte-identical
+prompt — GitHub and worktree alike, since both sources feed the same builder. Tests:
+`src/lib/scoring/prompt-workflow-reserve.test.ts` (the window rule and the byte-identity oracle) and
+`src/lib/scoring/engine.d4-convergence.test.ts` (the composition, both arms of the old bistability,
+and the absence of a not-applicable hatch for D4).
+
+**The rule for anyone adding a claim-scored facet:** name the file class the facet must be cited
+from, and check it can reach the window. A facet whose only evidence sorts past position ten is not a
+facet the model can claim, however well the verifier would accept it. Residual: a repo with more than
+three workflows shows its first three in pick order.
+
 ## Known gaps
 
 - **Coverage is a heuristic.** `estimateCoverage` caps confidence on truncated/large
@@ -672,6 +726,17 @@ the facet table itself: [`maturity-model.md` §D4](maturity-model.md#d4-agentic-
   the provider that was supposed to answer, and is recorded **per row** as `Scan.engineDegraded` — but
   the tally rate is still all-time, so there is no way to ask "did degradations spike this week"
   without a real event table.
+- **D6 enforcement is read from GitHub Actions only.** The `Lint/format/type-check enforced in CI`
+  signal tests `idx.workflowText` (`.github/workflows/**`); a gate that lives in `.gitlab-ci.yml`, a
+  `Jenkinsfile`, `lefthook.yml` or a `pre-push` hook is invisible to it, even though D3 already
+  credits off-GitHub CI from its own evidence. The ratchet and zero-warning signals partly compensate
+  (both also read parsed `package.json` scripts), but a non-npm, non-Actions repo still reads as
+  "configured, not enforced".
+- **Enforcement is worth +5 on top of presence, not more.** A linter that gates scores 25 where one
+  that merely exists scores 20 — a ratio that says a config file is 80% of the value of a gate. That
+  is a **rubric decision** (it would move weights, not add signals), so it is recorded here rather
+  than changed: raising the enforcement top-up, or splitting `Linter configured` into
+  configured/enforced tiers, needs a `SCORING_RUBRIC_VERSION` bump and a corpus recalibration.
 - **No raw source is persisted** in the MVP; only the derived report (see
   [data-model.md](../data/data-model.md)).
 - **The ingestion budget is not configurable per request, on purpose.** A bigger budget changes

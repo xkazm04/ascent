@@ -133,7 +133,44 @@ import type {
 // completed rung leaves the score untouched. The bump is for the CHANGED MODEL INPUT — the sharpened
 // craft instruction, the axis requirement and the ladder block — which is the r6/r10 precedent: a
 // cached r11 scan's roadmap would not agree with what a fresh one produces.
-export const SCORING_RUBRIC_VERSION = "r12";
+// r13 (2026-08-31): THE WORKFLOW RESERVE — D4's claim-scored half stopped being a lottery. The
+// diagnosis first, because the fix is small and the fix is not the point:
+//   A 21-run campaign on two repos that BOTH have real agentic review (review workflows wired into
+//   `check:ci`, merge-blocking rules, dispatch workflows) never converged. `kp` oscillated 10/20 and
+//   `systedo-case` 50/65/85, with signalScore 10 on all 34 readings. The artifacts
+//   (docs/harness/campaign/run-*.json) name the cause exactly: across every reading the model cited
+//   eight distinct paths — CLAUDE.md, AGENTS.md, .claude/CLAUDE.md, package.json, ruff.toml,
+//   .github/dependabot.yml, .github/CODEOWNERS, commits — and NOT ONE was a workflow file. Four of
+//   D4's seven facets (automated_review, review_teeth, autofix, agent_dispatch) have nowhere else in
+//   a normal repo to be cited from.
+//   The reason was not the facet contract and not the platform fold. `pickFilesToFetch` gives
+//   `.github/workflows/*` a reserved FETCH quota and then ranks them last for the PROMPT; the prompt
+//   window holds ~10 excerpts and workflows sort past position 40, so the model was shown zero
+//   workflow files while being told (by the prompt's own claims example) to cite
+//   `.github/workflows/review.yml`. The Node repo reached 65 by quoting its `package.json` scripts;
+//   the Python repo, same machinery, no package.json to describe it, sat at 10-20 and once evidenced
+//   `autofix` by quoting a COMMENT IN `ruff.toml` that mentions `autofix.yml`. Whether a
+//   front-ranked file happened to describe the automation was the coin flip; `observed`'s
+//   `requiresAny` then doubled each swing by dropping 15 more points whenever the mechanism missed.
+//   • `buildFileExcerptBlock` (scoring/prompt.ts) now holds 3 × PER_FILE of the window for CI
+//     workflows before filling the rest in fetch-rank order. Admission is reordered; EMISSION is not,
+//     so a scan that was not already dropping files produces a byte-identical prompt.
+//   • Cross-dimension claim rejections (`not-this-dimension`) are no longer rendered as evidence:
+//     since D1 joined the claim-scored set in r11, each dimension rejected the other's claims and
+//     printed them on its card as verification failures. Display only; no score moved.
+// WHAT MOVED: D4 on any repo whose automation is evidenced in a workflow file rather than in a
+// front-ranked manifest — upward, and toward the same number on every run. Nothing else: no weight,
+// band, blend, guardband, threshold, facet, point value or detector changed, and the rubric-surface
+// hash is unchanged because the SYSTEM prompt is unchanged (this is the USER prompt's file window,
+// the same class as a detector table — see the note above, which requires a bump for those too).
+// WHAT DELIBERATELY DID NOT HAPPEN: D4 was NOT excluded and renormalised the way the D9 battery
+// excludes a check it cannot refute. That hatch is for a dimension a reading genuinely cannot
+// measure; D4's base is a file scan of `.github/workflows/*`, which a worktree reads as well as
+// GitHub does. Only the ADDITIVE platform fold (installed AI-review Apps, r7) is unobservable
+// locally, and that is a withheld bonus, not a floor presented as a measurement —
+// `scoreIntegrity.unmeasuredDims` already discloses it. Excluding a measurable dimension would
+// inflate every local score, which is the opposite failure.
+export const SCORING_RUBRIC_VERSION = "r13";
 
 /** Blend factor: how much the LLM judgment counts vs. deterministic signals. */
 export const SCORE_BLEND = 0.6;

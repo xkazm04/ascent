@@ -227,6 +227,46 @@ The case is made in [`docs/SCORING-VALIDITY.md`](../../SCORING-VALIDITY.md). The
 folds (r7's installed-App credit and `aiPreReviewedRate`) survive as instances of
 `automated_review` and `observed`.
 
+**The workflow reserve (r13, 2026-08-31) — why D4 used to oscillate.** Four of the seven facets
+(`automated_review`, `review_teeth`, `autofix`, `agent_dispatch`) can only be cited from a CI
+workflow in a normal repository. The ingest reserved a fetch quota for `.github/workflows/*` and then
+ranked those files **last** for the prompt; the prompt's file window holds roughly ten excerpts and
+workflows sorted past position forty, so the model was shown **zero** workflow files on essentially
+every scan — while the prompt's own claims example tells it to cite `.github/workflows/review.yml`.
+
+The measured consequence, from a 21-run campaign on two repositories that both *have* agentic review
+(`docs/harness/campaign/run-*.json`): across 34 readings the model cited exactly eight distinct
+paths — `CLAUDE.md`, `AGENTS.md`, `.claude/CLAUDE.md`, `package.json`, `ruff.toml`,
+`.github/dependabot.yml`, `.github/CODEOWNERS`, `commits` — and **not one was a workflow**. The Node
+repository reached D4 65 by quoting its `package.json` scripts
+(`"review:agent:gate": "node scripts/agent-review.mjs"`); the Python repository, with equivalent
+machinery and no `package.json` to describe it, sat at 10–20 and once evidenced `autofix` by quoting a
+*comment inside `ruff.toml`* that mentions `autofix.yml`. That gap is not a judgment about the two
+repositories — it is whether a front-ranked file happened to describe the automation, and it is where
+the bistable 10/20 and 65/85 patterns came from. `observed`'s `requiresAny` then doubled each swing,
+dropping a further 15 points whenever the mechanism facet missed.
+
+`buildFileExcerptBlock` (`src/lib/scoring/prompt.ts`) now holds **three excerpts of the window for CI
+workflows** before filling the rest in fetch-rank order. Admission is reordered; *emission* is not, so
+a scan that was not already dropping files produces a byte-identical prompt.
+
+- **Known bound:** a repository with more than three workflows shows its **first three in pick order**
+  (tree order). A review workflow that sorts late is still invisible. Widening the reserve costs
+  front-ranked evidence, so this is a stated residual rather than a solved problem.
+- **Not a not-applicable hatch.** D4 is *not* excluded and renormalised out of the overall on a
+  worktree scan the way the D9 battery excludes a check it cannot refute. D4's base is a file scan of
+  `.github/workflows/*`, which a worktree reads as well as GitHub does; only the additive r7 platform
+  fold (installed AI-review Apps) is unobservable locally, and a withheld bonus is not a floor
+  presented as a measurement. It stays disclosed on `scoreIntegrity.unmeasuredDims`. Excluding a
+  measurable dimension would inflate every local score, which is the larger of the two errors.
+
+Cross-dimension claim rejections stopped being rendered in the same revision: since D1 joined the
+claim-scored set in r11, each claim-scored dimension verifies the whole claim list and rejects the
+other's claims, so a healthy, *scored* D1 citation printed on the D4 card as
+`Unverified claim (not-this-dimension) — canonical_declared, AGENTS.md` — on 34 of 34 campaign
+readings. That is a routing fact about the loop, not a verification failure. Display only; no score
+moved, and the rejection is still returned by `verifyClaims`.
+
 *LLM assessment:* judge the **practice**, not the tool: does the automation run, have teeth,
 and demonstrably leave a trail?
 
@@ -427,7 +467,10 @@ owed no entry at all: `buildDimensionFollowUps` takes the unobservable set from
 `dimensionObservability` (`src/lib/analyze/platform-carry.ts`) and synthesises nothing for it. On a
 worktree scan with no GitHub-side fold to carry, D2/D3/D4 read at their file-scan floor whatever the
 repository has, so the guarantee was minting a permanent gap out of a blind spot — four loop campaign
-runs over two repos spent every one of eight lanes on D4 and moved neither overall. A gap the *model*
+runs over two repos spent every one of eight lanes on D4 and moved neither overall. (For D4 the floor
+had a second, larger cause the fold hid: the model could not *see* a workflow file. Fixed in r13 —
+see [§D4, The workflow reserve](#d4-agentic-workflows-12--scored-from-verified-citations-r9-2026-08-26).)
+A gap the *model*
 raised from file evidence it could actually see still passes through, and the suppressed set is
 disclosed on `scoreIntegrity.unmeasuredDims` rather than dropped in silence. No score changes:
 unmeasured is not the same as bad, and only what becomes *work* is affected. See
@@ -557,6 +600,7 @@ genuinely display-only change, but the reasoning belongs in the diff.
 
 | Version | Change |
 | --- | --- |
+| `r13` (2026-08-31) | **The workflow reserve — D4 stopped being a citation lottery.** Four of D4's seven facets can only be cited from a CI workflow, and the prompt's file window was showing the model none: `pickFilesToFetch` reserves a *fetch* quota for `.github/workflows/*` and then ranks them last for the prompt, past the ~10 excerpts the window holds. Across 34 campaign readings the model cited eight distinct paths and not one was a workflow, so D4 turned on whether a front-ranked file happened to describe the automation — a Node repo reached 65 through its `package.json` scripts while a Python repo with equivalent machinery sat at 10-20, and `observed`'s `requiresAny` doubled every swing. `buildFileExcerptBlock` now holds three excerpts of the window for CI workflows; **admission is reordered, emission is not**, so a scan that was not already dropping files produces a byte-identical prompt. Cross-dimension claim rejections (`not-this-dimension`) are also no longer rendered as evidence — display only. **D4 was deliberately NOT excluded and renormalised**: its base is a file scan a worktree reads as well as GitHub does, and only the additive `r7` fold is unobservable locally. **No weight, band, blend, guardband, threshold, lens, facet, point value or detector moved**, and the rubric-surface hash is unchanged because the *system* prompt is unchanged — this is the user prompt's file window, the same class as a detector table, which this table's own rule already requires a bump for. D4 moves **up** on any repo whose automation lives in a workflow rather than in a front-ranked manifest, and toward the same number on every run. |
 | `r12` (2026-08-30) | **The craft ladder.** Craft entries became *dispatchable work* while staying outside every score and debt figure (§4d). `openBatch` falls back to the craft ladder when a repo has no open gap — gaps always outrank craft, so a repo with a single open gap gets a byte-identical batch to `r11`'s. Craft entries carry a `craftAxis` (`architecture`/`performance`/`robustness`/`design`/`security-depth`/`dx`), the loop gains a `craft` lane kind that arms automatically at green, and a per-repo craft **ledger** counts built rungs by axis (monotone, and never an input to any number). The prompt's craft instruction now requires the axis, demands an escalating rung that names its artefact, and renders a per-repo `CRAFT ALREADY BUILT` block into the user message. **No weight, band, blend, guardband, posture threshold, lens or detector moved** — the bump is for the changed model input alone (the `r6`/`r10` precedent). The r10 row's "never a follow-up batch" clause is superseded here; it is left standing as the record of what r10 was. |
 | `r11` (2026-08-30) | **D1 scores coherence, not count.** The five instruction-document formats used to sum on presence alone (CLAUDE.md 22 + AGENTS.md 16 + Cursor 14 + Copilot 14 + Windsurf 10 = 76), so a repo with four *mutually contradicting* copies outscored a repo with one document that is actually true — the rubric rewarded the worse repo. They now collapse into one 22-point award plus `round(18 × coherence/100)`, where coherence is the guidance arbiter's deterministic, itemized read across every format (`src/lib/analyze/guidance-graph.ts`), and content quality is graded on the **canonical** document rather than whichever file matched first. D1 also joined `CLAIM_SCORED_DIMENSIONS`, which removes its guardband blend entirely: the model's D1 number is recorded and ignored, and its judgment reaches the score only through citations verified against guidance files the arbiter found. D1 is now fully reproducible. Scores move on every repo carrying more than one guidance format; a repo with one document is unchanged at the floor. Separately, the `+4` manifest award became **reachable** in wave 1 when the fetch list started requesting `.ai/manifest.yaml` — a second, independent reason `r10` numbers are not comparable with `r11` ones. No weight, band or blend constant moved. |
 | `r2` (2026-07-17) | `classifyArchetype` caps star-driven "org" escalation at "team" for repos with ≤2 active human authors, moving the archetype lens and its weights for viral solo repos. |

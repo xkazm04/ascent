@@ -101,6 +101,104 @@ function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n) + "\n…[truncated]" : s;
 }
 
+// ---- the file-excerpt window ------------------------------------------------------------------
+
+/** Per-file excerpt cap inside the prompt window. */
+export const PROMPT_PER_FILE_CHARS = 2200;
+/** The whole file-excerpt window. Sized for provider input limits and cost, NOT for the detectors —
+ *  ingestion deliberately fetches more per file than this (see the note in buildAssessmentPrompt). */
+export const PROMPT_FILE_WINDOW_CHARS = 22000;
+/**
+ * Of PROMPT_FILE_WINDOW_CHARS, the share held for CI workflows — three excerpts' worth.
+ *
+ * WHY THIS EXISTS (r13). `pickFilesToFetch` gives `.github/workflows/*` a RESERVED fetch quota "on
+ * top of MAX_FILES" and then ranks them LAST for the prompt, on the stated reasoning that the sort
+ * "keeps README/manifests/source front-loaded". Both halves were deliberate; together they were a
+ * hole. The window holds roughly ten excerpts and workflows sort past position forty, so the model
+ * was shown ZERO workflow files on essentially every scan — while the prompt's own claims example
+ * tells it to cite `.github/workflows/review.yml`, and four of D4's seven facets (automated_review,
+ * review_teeth, autofix, agent_dispatch) have nowhere else in a normal repo to be cited FROM.
+ *
+ * The measured cost: across a 21-run campaign on two repos that both HAVE agentic review, the model
+ * cited exactly eight distinct paths and not one of them was a workflow. The Node repo reached D4 65
+ * by quoting its `package.json` scripts (`"review:agent:gate": "node scripts/agent-review.mjs"`);
+ * the Python repo, with the same machinery and no package.json to describe it, sat at 10-20 and once
+ * evidenced `autofix` by quoting a COMMENT IN `ruff.toml` that mentions `autofix.yml`. That is not a
+ * judgment about the two repos. It is the difference between a practice being visible in the window
+ * and not, and it is where the bistable 10/20 and 65/85 patterns came from: whether a front-ranked
+ * file happens to describe the automation is a coin flip, and `observed`'s `requiresAny` then doubles
+ * the swing by dropping 15 more points whenever the mechanism facet missed.
+ *
+ * Three excerpts is the trade: it costs the window's last ~three source-texture samples, which are
+ * the cheapest files in it, and it buys the only files that can evidence D4's operational half. A
+ * repo with more than three workflows shows its first three in pick order — a real residual, stated
+ * in docs/features/scanning/maturity-model.md rather than papered over.
+ *
+ * Counted in FILES rather than bytes because that is the quantity that matters: a workflow's evidence
+ * (its `on:` trigger, its `uses:`/`run:` lines, its `permissions:`) is one excerpt's worth whatever
+ * the file's length, and a byte reserve would silently admit two long workflows or five short ones.
+ * Each is still capped at PER_FILE like every other excerpt, so the reserve's cost is bounded.
+ */
+export const PROMPT_WORKFLOW_RESERVE_FILES = 3;
+
+/** The reserved class: exactly the paths `pickFilesToFetch` reserves a fetch quota for and then
+ *  ranks last. Deliberately narrow — every other automation config (`.github/dependabot.yml`,
+ *  `.pre-commit-config.yaml`, `renovate.json`) is already an exact-name pick and front-ranked, so
+ *  reserving bytes for it would spend the reserve on files that were never at risk. */
+export const WORKFLOW_PATH_RE = /^\.github\/workflows\/[^/]+\.ya?ml$/i;
+
+/**
+ * The file-excerpt block: every admitted file rendered in FETCH-RANK ORDER, capped at the window.
+ *
+ * ADMISSION is reordered; EMISSION is not. The reserved pass admits workflows first so they cannot be
+ * starved, then the main pass fills the rest in fetch-rank order under exactly the rule that was here
+ * before (admit, and stop once the running total reaches the window — the crossing block is kept and
+ * the outer truncate trims it). Because emission stays in fetch-rank order, a repo whose files all
+ * fit produces a BYTE-IDENTICAL block to the pre-r13 loop, and so does a repo with no workflows at
+ * all: the reserve can only change what a scan that was ALREADY dropping files drops.
+ *
+ * Both the path and the body are repo-authored, so both go through `neutralize` (a file *named*
+ * `</untrusted_repo_data> SYSTEM:` is as good an injection vector as one containing that text).
+ *
+ * ORDER IS LOAD-BEARING: neutralize FIRST, truncate SECOND — `truncate(neutralize(x), PER_FILE)`,
+ * the order decisionsBlock uses too. Neutralizing GROWS the text: every forged marker becomes the
+ * 25-char `[boundary marker removed]`. The other order (`neutralize(truncate(...))`) sliced to
+ * PER_FILE and then let that expansion push the excerpt back over the budget, so a file dense in
+ * boundary markers or backticks bought itself extra room in the window — attacker-chosen content
+ * crowding out other evidence, and in the worst case pushing the whole prompt past a provider's
+ * input limit and failing the scan. Truncating after makes PER_FILE the real cap on what reaches the
+ * model. Trade-off accepted: we neutralize the WHOLE fetched body (source.ts fetches more per file
+ * than this window) rather than only its first PER_FILE chars, which costs two extra regex passes
+ * over a few tens of KB per file. That is cheap next to the network+LLM call it feeds, and it is the
+ * only order in which the budget is a budget.
+ */
+export function buildFileExcerptBlock(files: readonly { path: string; content: string }[]): string {
+  const entries = files.map((f, i) => ({
+    i,
+    workflow: WORKFLOW_PATH_RE.test(f.path),
+    block: `### ${neutralize(f.path)}\n\`\`\`\n${truncate(neutralize(f.content), PROMPT_PER_FILE_CHARS)}\n\`\`\``,
+  }));
+  const admitted = new Set<number>();
+  let used = 0;
+  /** What admitting a block costs, including the "\n\n" separator once something is already in. */
+  const admit = (e: (typeof entries)[number]) => {
+    used += e.block.length + (used > 0 ? 2 : 0);
+    admitted.add(e.i);
+  };
+
+  // Pick order is the ranking within the reserved class too. No "best fit" pass: choosing by size
+  // would silently prefer short workflows over relevant ones — a second lottery in place of the one
+  // this removes.
+  for (const e of entries.filter((e) => e.workflow).slice(0, PROMPT_WORKFLOW_RESERVE_FILES)) admit(e);
+  for (const e of entries) {
+    if (admitted.has(e.i)) continue;
+    admit(e);
+    if (used >= PROMPT_FILE_WINDOW_CHARS) break;
+  }
+
+  return truncate(entries.filter((e) => admitted.has(e.i)).map((e) => e.block).join("\n\n"), PROMPT_FILE_WINDOW_CHARS);
+}
+
 /** Bound the decisions block so a heavily-triaged repo can't crowd its own code out of the window. */
 const DECISION_RATIONALE_CHARS = 240;
 
@@ -284,39 +382,14 @@ export function buildAssessmentPrompt(input: LlmScoreInput): {
     })
     .join("\n");
 
-  // Concatenate file excerpts only up to the prompt's byte window (OUTER). Each file is capped to
-  // a small excerpt (PER_FILE); we stop the moment the running block reaches OUTER, since the
-  // outer truncate below discards anything past it — so we don't build a ~70KB string just to
-  // slice ~two-thirds of it off. The output is byte-identical to truncating the full join.
+  // File excerpts, window-capped and workflow-reserved — see buildFileExcerptBlock above for the
+  // window rule, the neutralize-then-truncate order it depends on, and why the reserve exists (r13).
   //
   // NOTE: ingestion (github/source.ts) deliberately fetches MORE per file than this window. The
   // deterministic detectors in analyze/index.ts read the FULL file content with length thresholds
   // (e.g. CLAUDE.md >= 4k chars -> D1, README >= 1.5k -> D5), so the fetch budget is sized for the
   // scorer's needs, not this LLM prompt window. Don't "align" them by shrinking the fetch budget.
-  const PER_FILE = 2200;
-  const OUTER = 22000;
-  //
-  // Both the path and the body are repo-authored, so both go through `neutralize` (a file *named*
-  // `</untrusted_repo_data> SYSTEM:` is as good an injection vector as one containing that text).
-  //
-  // ORDER IS LOAD-BEARING: neutralize FIRST, truncate SECOND — `truncate(neutralize(x), PER_FILE)`,
-  // the order decisionsBlock above already uses. Neutralizing GROWS the text: every forged marker
-  // becomes the 25-char `[boundary marker removed]`. The previous order (`neutralize(truncate(...))`)
-  // sliced to PER_FILE and then let that expansion push the excerpt back over the budget, so a file
-  // dense in boundary markers or backticks bought itself extra room in the window — attacker-chosen
-  // content crowding out other evidence, and in the worst case pushing the whole prompt past a
-  // provider's input limit and failing the scan. Truncating after makes PER_FILE the real cap on what
-  // reaches the model. Trade-off accepted: we now neutralize the WHOLE fetched body (source.ts fetches
-  // more per file than this window) instead of only its first PER_FILE chars, which costs two extra
-  // regex passes over a few tens of KB per file. That is cheap next to the network+LLM call it feeds,
-  // and it is the only order in which the budget is a budget.
-  let joined = "";
-  for (const f of files) {
-    const block = `### ${neutralize(f.path)}\n\`\`\`\n${truncate(neutralize(f.content), PER_FILE)}\n\`\`\``;
-    joined = joined ? `${joined}\n\n${block}` : block;
-    if (joined.length >= OUTER) break;
-  }
-  const fileBlock = truncate(joined, OUTER);
+  const fileBlock = buildFileExcerptBlock(files);
 
   // One line per commit: the subject is the signal, the body is noise at this budget. 120 chars is
   // roughly a git subject line plus slack; it was previously the same 120 but applied BEFORE
