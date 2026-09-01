@@ -43,6 +43,7 @@ const CFG = {
   batchSize: flag("batch-size", null), // items armed per lane (cap 12)
   agentTimeoutMin: flag("agent-timeout-min", null), // per-session ceiling for a larger change
   verifyMode: flag("verify", null), // on | off — the in-cycle degradation guard
+  rescanCadence: flag("rescan", null), // cycle | run — one reading per run instead of per cycle
   concurrency: Number(flag("concurrency", "2")),
   // A run is long: an agent session alone is capped at 20 minutes per lane, and a rescan follows it.
   runTimeoutMs: Number(flag("run-timeout-min", "75")) * 60_000,
@@ -249,6 +250,7 @@ async function main() {
           ...(CFG.batchSize ? { batchSize: Number(CFG.batchSize) } : {}),
           ...(CFG.agentTimeoutMin ? { agentTimeoutMs: Number(CFG.agentTimeoutMin) * 60_000 } : {}),
           ...(CFG.verifyMode ? { verifyMode: CFG.verifyMode } : {}),
+          ...(CFG.rescanCadence ? { rescanCadence: CFG.rescanCadence } : {}),
         }),
       });
       const { timedOut } = await waitForIdle(started + CFG.runTimeoutMs);

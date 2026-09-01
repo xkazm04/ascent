@@ -128,6 +128,9 @@ type Body = {
   verifyMode?: unknown;
   /** Budget for ONE run of the repository's verification command, ms. Omitted = 10 minutes. */
   verifyTimeoutMs?: unknown;
+  /** `cycle` | `run` — rescan after every cycle (default) or once after the last cycle a repo
+   *  progressed in. Opt-in: intermediate cycles then settle at the run's end, not their own. */
+  rescanCadence?: unknown;
   /** #3 — `local` (the default, and what every caller before it meant) or `remote-agent`. */
   executor?: unknown;
 };
@@ -262,6 +265,13 @@ export async function POST(request: Request) {
   if (body.verifyMode !== undefined && verifyMode === null) {
     return NextResponse.json({ error: "verifyMode must be 'on' or 'off'." }, { status: 400 });
   }
+  // Same discipline as the other dials: an unrecognised value that the caller actually SENT is a 400,
+  // an omitted one is the engine's default. Never guessed, never silently coerced.
+  const rescanCadence =
+    body.rescanCadence === "run" || body.rescanCadence === "cycle" ? (body.rescanCadence as "run" | "cycle") : null;
+  if (body.rescanCadence !== undefined && rescanCadence === null) {
+    return NextResponse.json({ error: "rescanCadence must be 'cycle' or 'run'." }, { status: 400 });
+  }
   const verifyTimeoutMs = normalizeVerifyTimeoutMs(body.verifyTimeoutMs);
   if (body.verifyTimeoutMs !== undefined && verifyTimeoutMs === null) {
     return NextResponse.json(
@@ -289,6 +299,7 @@ export async function POST(request: Request) {
       agentTimeoutMs,
       verifyMode,
       verifyTimeoutMs,
+      rescanCadence,
       ...(arms ? { modelPolicy: "ab" as const, models: arms } : {}),
       actor: viewer?.login ?? null,
     });
