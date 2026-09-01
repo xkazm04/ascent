@@ -42,6 +42,18 @@ import { deriveLaneDeliverables, parseClaimLines, type AgentClaim } from "@/lib/
 import { proposeLaneKind } from "@/lib/local/lane-kind";
 import { gapSlotsAtGreen, isReservationGreen, reserveCraftSlots } from "@/lib/local/lane-reservation";
 import { batchSizeOf, verifyTimeoutMsOf } from "@/lib/local/run-limits";
+// THE LIVENESS CEILING. Every awaited stage below runs inside a race against ONE deadline derived
+// from this run's own parameters, so an inner call that never settles orphans itself instead of
+// parking the org's run slot. See lane-watchdog.ts for the derivation and for the two campaigns that
+// died without it.
+import {
+  agentTimeoutMs,
+  createLaneWatchdog,
+  isLaneDeadlineError,
+  laneDeadlineMs,
+  LANE_STAGE_LABEL,
+  type LaneWatchdog,
+} from "@/lib/local/lane-watchdog";
 // THE A/B DEGRADATION GUARD. `verifyBaseline` measures the pristine worktree once per worktree and
 // caches it; `verifyResult` re-runs the same command after the session, decides one of four verdicts,
 // and — on `rejected` only — discards the edits IN THE THROWAWAY WORKTREE before this module gets as
@@ -180,6 +192,14 @@ export interface LaneRunInput {
   /** Joins the two arms of one `ab` pair (MOONSHOT #27); null/absent on a `single` run. Stamped on
    *  the row so the price list can tell two arms of one experiment from two unrelated lanes. */
   abPairKey?: string | null;
+  /** THE WATCHDOG HANDLE, handed back the moment the lane derives its deadline — so the engine can
+   *  force-fail this cycle when the run is stopped and the lane is inside a call that will not
+   *  return. Absent (the autopilot shim, a retry, every test that does not care) simply means nobody
+   *  is watching from outside; the lane's own deadline is unaffected. */
+  onWatchdog?: (watchdog: LaneWatchdog) => void;
+  /** TEST SEAM ONLY. Production never passes one: the lane derives its own ceiling from the run's
+   *  parameters (`laneDeadlineMs`), which is the property the derivation test pins. */
+  watchdog?: LaneWatchdog;
 }
 
 export interface LaneRunResult {
@@ -531,15 +551,36 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     if (claimedIds.length > 0) await releaseFollowups(claimedIds, why, LANE_ACTOR).catch(() => 0);
     claimedIds = [];
   };
-  const fail = async (message: string): Promise<LaneRunResult> => {
+  const fail = async (message: string, stage: string | null = null): Promise<LaneRunResult> => {
     await releaseClaims(`loop cycle ${cycle} failed before its rescan could adjudicate (${firstLine(message)})`);
     if (laneId) {
       await appendLaneLog(laneId, message);
-      await updateLane(laneId, { phase: "error", error: message, stage: null, endedAt: new Date() });
+      // `stage` IS THE FORENSICS. On an ordinary failure it stays null, exactly as it was. On a
+      // force-fail it is the stage that was in flight, so the run detail and the outcome sheet can
+      // say "cycle 3 timed out in verification" instead of leaving the silent gap that made the two
+      // dead campaigns unreadable after the fact.
+      await updateLane(laneId, { phase: "error", error: message, stage, endedAt: new Date() });
     }
     return { laneId, progressed: false, commits: 0, closed: 0, error: message };
   };
   if (!laneId) return { laneId: null, progressed: false, commits: 0, closed: 0, error: "No database — a loop run cannot be recorded." };
+
+  // THE CYCLE'S HARD CEILING, derived from what this run is already armed with — the session cap, the
+  // guard's budget (twice: baseline and result), plus bounded allowances for the rescan and the git
+  // work. Raising `agentTimeoutMs` raises this by the same amount; see lane-watchdog.ts.
+  const watch =
+    input.watchdog ??
+    createLaneWatchdog({
+      deadlineMs: laneDeadlineMs({
+        agentMs: agentTimeoutMs(input.agent?.timeoutMs ?? null),
+        verifyMs: verifyTimeoutMsOf(input.verify?.timeoutMs ?? null),
+        verifyEnabled: input.verify?.enabled !== false,
+      }),
+    });
+  input.onWatchdog?.(watch);
+  /** Every git call this lane makes, raced against the deadline: `execFile`'s own timeout kills the
+   *  child but cannot promise its callback (see git.ts), and this is where that promise is kept. */
+  const git = (args: readonly string[]) => watch.stage("git", () => runGit(worktree.dir, args));
 
   try {
     const beforeScanId = await getLatestScanIdForRepo(org, repo);
@@ -565,7 +606,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     /** The playbooks the brief actually quoted, with the dimension each covers — the only ones a
      *  verified close may stamp as adopted. */
     let briefedPlaybooks: { id: string; dimId: string }[] = [];
-    const before = (await runGit(worktree.dir, ["rev-parse", "HEAD"])).stdout.trim();
+    const before = (await git(["rev-parse", "HEAD"])).stdout.trim();
     // The agent's own `RESOLVED: <id> - <what changed>` lines, kept for the deliverable headlines.
     let agentClaims: AgentClaim[] = [];
 
@@ -664,14 +705,16 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       // generator the cloud draft-PR doors use, and the rescan below adjudicates the result exactly as
       // it does an agent's commits — an install that changes nothing measurable closes nothing.
       await appendLaneLog(laneId, `Cycle ${cycle}: ${kind} lane — ${input.reason ?? "installing generated files."}`);
-      const res = await deps.install({
-        dir: worktree.dir,
-        org,
-        repo,
-        kind,
-        practiceId: input.practiceId ?? null,
-        resolvesId: batch[0]?.id ?? null,
-      });
+      const res = await watch.stage("install", () =>
+        deps.install({
+          dir: worktree.dir,
+          org,
+          repo,
+          kind,
+          practiceId: input.practiceId ?? null,
+          resolvesId: batch[0]?.id ?? null,
+        }),
+      );
       await appendLaneLog(laneId, res.summary);
       if (!res.ok) return fail(res.summary);
       if (!res.committed) {
@@ -714,7 +757,10 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       let baseline: VerifyBaseline = NO_VERIFY_BASELINE;
       if (guardOn) {
         await updateLane(laneId, { stage: "verifying" });
-        baseline = await verifyBaseline(worktree.dir, verifyMs).catch(() => NO_VERIFY_BASELINE);
+        // The `.catch` is INSIDE the raced work on purpose: a guard that fails is baseline data, and
+        // a guard that never returns is a deadline — folding the two would swallow the watchdog's
+        // rejection and let the lane walk on into the session it has no time left for.
+        baseline = await watch.stage("baseline", () => verifyBaseline(worktree.dir, verifyMs).catch(() => NO_VERIFY_BASELINE));
         await updateLane(laneId, { stage: null });
         await appendLaneLog(
           laneId,
@@ -787,17 +833,19 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         // what the work should look like, and the contract is how the session reports on it.
         (brief ? `\n\nYOUR ORGANIZATION'S STANDARD:\n${brief.text}\n` : "") +
         laneReportContract(batch.map((b) => b.id));
-      const result = await deps.runAgent({
-        cwd: worktree.dir,
-        prompt,
-        ...(input.agent?.model ? { model: input.agent.model } : {}),
-        ...(input.agent?.effort ? { effort: input.agent.effort } : {}),
-        // Conditional for the same reason the two above are: an ABSENT key lets the runner fall back
-        // to the deployment's own `ASCENT_AUTOPILOT_TIMEOUT_MS`, which is what every session before
-        // this parameter used. Passing an explicit null would say the same thing, but a lane that
-        // sends the key on every call is one refactor away from sending a 0.
-        ...(input.agent?.timeoutMs ? { timeoutMs: input.agent.timeoutMs } : {}),
-      });
+      const result = await watch.stage("agent", () =>
+        deps.runAgent({
+          cwd: worktree.dir,
+          prompt,
+          ...(input.agent?.model ? { model: input.agent.model } : {}),
+          ...(input.agent?.effort ? { effort: input.agent.effort } : {}),
+          // Conditional for the same reason the two above are: an ABSENT key lets the runner fall back
+          // to the deployment's own `ASCENT_AUTOPILOT_TIMEOUT_MS`, which is what every session before
+          // this parameter used. Passing an explicit null would say the same thing, but a lane that
+          // sends the key on every call is one refactor away from sending a 0.
+          ...(input.agent?.timeoutMs ? { timeoutMs: input.agent.timeoutMs } : {}),
+        }),
+      );
       await appendLaneLog(
         laneId,
         `${result.ok ? "Agent finished" : "Agent failed"}: ${firstLine(result.summary, AGENT_SUMMARY_CHARS)}`,
@@ -836,7 +884,10 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       //                  nothing, and — because the verdict is persisted — is never landed or PR'd.
       if (guardOn) {
         await updateLane(laneId, { stage: "verifying" });
-        const outcome = await verifyResult(worktree.dir, baseline, verifyMs);
+        // THE STAGE THE EVIDENCE CAME FROM. Run cbe04a35's lane hit the verification cap and then
+        // never settled; this race is what makes that a force-failed cycle instead of an eight-hour
+        // silence, and `verify` is what lands in the row's `stage`.
+        const outcome = await watch.stage("verify", () => verifyResult(worktree.dir, baseline, verifyMs));
         await updateLane(laneId, {
           stage: null,
           verifyVerdict: outcome.verdict,
@@ -886,21 +937,23 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       // whatever is dirty in it is this session's work. A session that DID manage to commit (a future
       // mode with a wider grant) leaves nothing behind and this is a no-op; anything left over is
       // residue and lands in one commit carrying the armed batch's `Ascent-Resolves:` trailers.
-      const committed = await deps.commitWork({
-        dir: worktree.dir,
-        branch: worktree.branch,
-        cycle,
-        batch,
-        summary: result.summary,
-        // A FAILED SESSION'S FINAL TEXT IS ITS ERROR, NOT ITS ACCOUNT OF THE WORK (PRIYA-L2-C7). The
-        // lane still commits the residue — that work is real and the worktree is about to be deleted
-        // — but the subject stops being the failure message.
-        sessionFailed: !result.ok,
-      });
+      const committed = await watch.stage("commit", () =>
+        deps.commitWork({
+          dir: worktree.dir,
+          branch: worktree.branch,
+          cycle,
+          batch,
+          summary: result.summary,
+          // A FAILED SESSION'S FINAL TEXT IS ITS ERROR, NOT ITS ACCOUNT OF THE WORK (PRIYA-L2-C7). The
+          // lane still commits the residue — that work is real and the worktree is about to be deleted
+          // — but the subject stops being the failure message.
+          sessionFailed: !result.ok,
+        }),
+      );
       await appendLaneLog(laneId, committed.summary);
     }
 
-    const countRes = await runGit(worktree.dir, ["rev-list", "--count", `${before}..HEAD`]);
+    const countRes = await git(["rev-list", "--count", `${before}..HEAD`]);
     const commits = countRes.ok ? Number(countRes.stdout.trim()) || 0 : 0;
     await appendLaneLog(laneId, `${commits} commit(s) landed this cycle.`);
     // A SESSION THAT WORKED AND DID NOT COMMIT IS NOT A SESSION THAT FOUND NOTHING, and until this
@@ -914,7 +967,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     // commit failed — a hook, a missing git identity, a locked index. This stays as the fallback,
     // and it is now the last thing standing between a failed commit and a silently deleted worktree.
     if (kind === "backlog" && commits === 0) {
-      const dirty = await runGit(worktree.dir, ["status", "--porcelain"]);
+      const dirty = await git(["status", "--porcelain"]);
       const changed = dirty.ok ? dirty.stdout.split("\n").filter((l) => l.trim()).length : 0;
       if (changed > 0) {
         await appendLaneLog(
@@ -959,17 +1012,24 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     let unverifiedClaimIds: string[] = [];
     let afterScanId: string | null = null;
     try {
-      const out = await deps.rescan({
-        org,
-        repo,
-        dir: worktree.dir,
-        branch: worktree.branch,
-        onStage: (stage) => void updateLane(laneId, { stage }),
-      });
+      const out = await watch.stage("rescan", () =>
+        deps.rescan({
+          org,
+          repo,
+          dir: worktree.dir,
+          branch: worktree.branch,
+          onStage: (stage) => void updateLane(laneId, { stage }),
+        }),
+      );
       closedIds = out.closedIds;
       unverifiedClaimIds = (out.claimedIds ?? []).filter((id) => !out.closedIds.includes(id));
       afterScanId = out.scanId;
     } catch (err) {
+      // A DEADLINE IS NOT A FAILED RESCAN. This catch exists so a rescan that THREW leaves the lane
+      // able to wind down; a rescan the watchdog cut is the lane itself being over, and swallowing it
+      // here would walk the cycle on past its own ceiling. (The 75-minute `rescanning/score` wedge is
+      // this exact stage.)
+      if (isLaneDeadlineError(err)) throw err;
       await appendLaneLog(laneId, `Rescan failed: ${err instanceof Error ? err.message : String(err)}`);
     }
     if (afterScanId == null) {
@@ -1065,6 +1125,23 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     }
     return { laneId, progressed: commits > 0 || closedIds.length > 0, commits, closed: closedIds.length, error: null };
   } catch (err) {
+    // THE FORCE-FAIL. A cut lane takes the SAME exit as any other failed lane — the claim is
+    // released, the row reaches a terminal phase with an honest error, and the worktree is removed by
+    // whoever created it (the run's own cleanup, or the retry's `finally`) — so the run proceeds to
+    // the next cycle or the next lane instead of parking on this one. The only thing that differs is
+    // the sentence and the recorded stage.
+    if (isLaneDeadlineError(err)) {
+      const where = err.stage ? `${LANE_STAGE_LABEL[err.stage]} (${err.stage})` : "no stage in particular";
+      return fail(
+        err.reason === "deadline"
+          ? `Cycle ${cycle} was FORCE-FAILED: it exceeded its ${Math.round(watch.deadlineMs / 60_000)} min deadline while ${where} was in flight, so the lane was cut loose rather than left holding the run. Whatever that call was doing is orphaned; nothing it may still produce is committed, rescanned or delivered.`
+          : `Cycle ${cycle} was FORCE-FAILED: the run was stopped while ${where} was in flight and the call did not return, so the lane was cut loose rather than left holding the run.`,
+        err.stage,
+      );
+    }
     return fail(err instanceof Error ? err.message : String(err));
+  } finally {
+    // One timer, armed at the first stage; a finished cycle leaves nothing scheduled behind it.
+    watch.dispose();
   }
 }

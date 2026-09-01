@@ -75,7 +75,7 @@ The unit of parallelism, of retry, and of the cockpit's row.
 | `batchIdsJson` / `closedIdsJson` | JSON `string[]` of `Recommendation` ids dispatched / **closed by the rescan**. `closedIdsJson` is `persistScanReport`'s `closedFollowUpIds` — the ids `decideInProgress` ruled `done` after the movement witness — **not** the commit-trailer set. See *The claim and the verdict* below. |
 | `commits` | `git rev-list --count <before>..HEAD` in the worktree. |
 | `beforeScanId` / `afterScanId` | The two ends of the lane's diff (see [Outcome](#outcome-what-the-lane-moved)). |
-| `stage` | Live rescan sub-stage (`fetch \| tree \| files \| analyze \| score \| compose`), `null` between phases. |
+| `stage` | Live rescan sub-stage (`fetch \| tree \| files \| analyze \| score \| compose`) or `verifying` while the guard runs, `null` between phases. On a **force-failed** lane it holds the watchdog stage that was in flight when the deadline (or a stop) cut it — `baseline \| agent \| install \| verify \| commit \| rescan \| git`. |
 | `log` | Newline-joined, **bounded to `LANE_LOG_LINES` = 200**, newest last, each line stamped `HH:MM:SS`. Appended read-modify-write; safe because a lane is single-writer by construction. |
 | `error` / `startedAt` / `endedAt` | A failed lane is lane data, never a run failure. |
 | `verifyVerdict` | `verified \| rejected \| baseline-unavailable \| skipped` (rows written before 2026-08-31 carry `baseline-red`, which `asVerifyVerdict` still parses into `baseline-unavailable`). **NULL is not `skipped`** — it is a lane written before the guard existed, whose verification state is unknown, and rendering it as "skipped" would be a claim about a run nobody made (`asVerifyVerdict` floors an unreadable value to null). A `rejected` lane is **never landed and never PR'd** — and when the run's `verifyMode` is `on`, **only** a `verified` lane is (§[Only a VERIFIED lane is delivered](#only-a-verified-lane-is-delivered-when-the-guard-is-on-2026-08-31)). |
@@ -336,7 +336,8 @@ removed. The read side refuses the same pair independently; see the `undelivered
 - **Stop semantics.** `stopLoopRun` sets a cooperative flag on the in-memory `LiveRun`; lanes check
   it *between* phases, never mid-agent-session. An in-flight lane finishes its agent session, skips
   its rescan, and the run winds down to `stopped`. Stopping a run this process does not own (already
-  finished, or a restart casualty) reconciles the row instead of no-opping.
+  finished, or a restart casualty) reconciles the row instead of no-opping. **A stop that the run
+  does not take now has teeth** — see *The lane watchdog* below.
 - **The wind-down is narrated.** A cooperative stop takes as long as the in-flight session does, and
   a live capture measured **19 min 43 s** of unchanged `RUNNING` after the operator pressed Stop
   (`PRIYA-L2-C6`, 2026-08-30) — the button had already sprung back, because it was disabled on the
@@ -350,6 +351,56 @@ removed. The read side refuses the same pair independently; see the `undelivered
   is not driving is a restart casualty `markStaleRunsStopped` settles, and a `LoopRun.stopRequested`
   column would persist a fact that has no meaning across a restart. (`stoppingCaption` is pure and
   tested; `CockpitHeader.dom.test.tsx` pins the label and the caption.)
+- **The lane watchdog — a cycle cannot outlive its deadline.**
+  `src/lib/local/lane-watchdog.ts`. Every awaited stage of a lane runs inside a `Promise.race`
+  against **one absolute deadline**, so a lane advances even when the call it is waiting on never
+  settles. Two campaigns died proving that inner waits do exactly that: run `cbe04a35`'s
+  `xkazm04/systedo-case` cycle 3 hit the guard's 10-minute verification cap and then wrote its verdict
+  **eight hours later**, at the minute the campaign driver gave up — nothing after the timeout ever
+  settled on its own; and an earlier lane wedged in `rescanning/score` for 75 minutes, where
+  `stopLoopRun` returned `ok`, the phase stayed `running`, and only a dev-server restart cleared it.
+  The loop had per-*call* timeouts and no ceiling on a cycle or a lane, so one stuck await parked the
+  org's single run slot indefinitely.
+
+  **The deadline is derived from the run's own parameters, never a new dial:**
+
+  ```
+  deadline = agentTimeoutMs (the run's, else ASCENT_AUTOPILOT_TIMEOUT_MS)
+           + 2 × verifyTimeoutMs          (the guard runs the command twice: baseline, then result)
+           + LANE_RESCAN_ALLOWANCE_MS     (20 min — a local claude-cli rescan is ~6 min median, >11 observed)
+           + LANE_GIT_ALLOWANCE_MS        (5 min — every git call of the cycle, together)
+  ```
+
+  A default run is **65 min**. Raise `agentTimeoutMs` from 20 to 60 and the ceiling moves by exactly
+  those 40 minutes; raise `verifyTimeoutMs` by 5 and it moves by 10, because the guard runs twice;
+  set `verifyMode: "off"` and both runs drop out of the sum. Nobody has to find a second knob to keep
+  a legitimately long cycle alive, and no knob can be raised into a lane that outlives its own
+  ceiling. It is a **ceiling, not a target**: a lane that reaches it is stuck, not slow.
+
+  **What a force-failed cycle looks like.** The stage that was in flight is recorded on the lane's
+  `stage` column (`baseline` | `agent` | `install` | `verify` | `commit` | `rescan` | `git`), the
+  phase is `error`, and the error reads *"Cycle 3 was FORCE-FAILED: it exceeded its 65 min deadline
+  while verifying the session's result (verify) was in flight…"*. The claimed batch is **released**
+  and the worktree removed on exactly the same paths an ordinary lane failure uses, and the run
+  **proceeds** to the next lane or cycle rather than parking. The outcome sheet already renders the
+  lane's `error`, and the cockpit rail captions such a lane `error · verify` instead of a bare
+  `error`. The stuck call itself is *orphaned*, not cancelled — nothing can promise cancellation from
+  the outside — and nothing it may still produce is committed, rescanned or delivered.
+
+  **Killing a child is not the mechanism; the wait resolving is.** `runClaudeAgent` and
+  `runVerifyCommand` settle on their own timers whatever the process does afterwards, and `runGit`
+  now does too: `execFile`'s `timeout` kills the child but does not guarantee its callback (Node fires
+  it on `close`, which waits for stdio pipes a surviving grandchild can hold open), so a hard timer
+  resolves the promise 5 s past the git timeout regardless.
+
+  **A stop now terminates.** `stopLoopRun` still sets the cooperative flag first — a lane that reaches
+  a checkpoint winds down cleanly with its commits intact. After `LANE_STOP_GRACE_MS` (2 min) every
+  in-flight lane's watchdog is **aborted**, force-failing it through the same path a deadline uses
+  (`the run was stopped while … was in flight`). If the run is *still* live `LANE_STOP_TERMINAL_MS`
+  (30 s) later, the row is written terminal anyway and names the lanes that refused to die
+  (`Stopped, but 1 lane(s) did not terminate and were abandoned: acme/web#1`), and the registry entry
+  is dropped so the org is not barred from arming another run. A run that cannot be interrupted must
+  still reach a terminal phase; leaving `running` on the row is the one outcome that is a lie.
 - **Lane error + retry.** A worktree that cannot be created is a lane error, not a run error. `retry`
   re-runs one lane on a **fresh worktree and a fresh branch off HEAD** — by the time anyone retries,
   the run has ended and its worktree is gone, and re-creating a worktree on the old branch would

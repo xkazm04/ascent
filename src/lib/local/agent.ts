@@ -18,16 +18,16 @@
 //   is the second belt.
 
 import { spawn } from "node:child_process";
-import { cliProviderAllowed, envNumber } from "@/lib/llm/config";
+import { cliProviderAllowed } from "@/lib/llm/config";
 import { envBool } from "@/lib/env";
 import { normalizeAgentEffort, normalizeAgentModel, type AgentConfig } from "@/lib/local/agent-options";
-import {
-  AGENT_TIMEOUT_CAP_MS,
-  AGENT_TIMEOUT_DEFAULT_MS,
-  AGENT_TIMEOUT_MIN_MS,
-  normalizeAgentTimeoutMs,
-} from "@/lib/local/run-limits";
+// THE SESSION CEILING NOW LIVES BESIDE THE LANE CEILING IT FEEDS (`laneDeadlineMs`). Re-exported
+// unchanged so every existing caller — the route's stop horizon, this module's own spawn — keeps
+// importing it from here, and so the two numbers can never drift apart into two answers.
+import { agentTimeoutMs } from "@/lib/local/lane-watchdog";
 import { parseAgentEnvelope, type AgentEnvelope } from "@/lib/local/agent-envelope";
+
+export { agentTimeoutMs };
 
 /** Operator consent for the autopilot (spawning editing agents). Off by default, everywhere. */
 export function autopilotEnabled(): boolean {
@@ -62,31 +62,6 @@ export function resolveAgentConfig(choice: AgentConfig | null | undefined): { mo
     model: picked ?? (envModel || DEFAULT_AGENT_MODEL),
     effort: normalizeAgentEffort(choice?.effort) ?? normalizeAgentEffort(process.env.ASCENT_AGENT_EFFORT?.trim()),
   };
-}
-
-/**
- * Per-session ceiling. A fix batch is a real working session — default 20 min, env-tunable, and now
- * RAISEABLE PER RUN inside a hard ceiling.
- *
- * The per-run override exists because 20 minutes is the wrong number for the work the loop is being
- * asked to do. A campaign lane committed the literal line `Agent session exceeded 20 min and was
- * stopped`: a structural change in progress, killed by the clock, and discarded with the worktree.
- * A brief that invites restructuring and de-duplication has to come with the time to do it.
- *
- * It is bounded on BOTH sides and the ceiling is not negotiable from the wire: the timeout is the only
- * thing that ends a wedged headless session, which otherwise holds a lane, a worktree and a batch of
- * claimed rows indefinitely. The same "0 is a misconfiguration, not 'no timeout'" floor as every other
- * timeout knob, and an override outside the band is IGNORED rather than clamped — `normalizeAgentTimeoutMs`
- * has already refused it at the route, so anything arriving here out of band is a stale caller and the
- * honest answer is the deployment's own value.
- */
-export function agentTimeoutMs(override?: number | null): number {
-  const chosen = normalizeAgentTimeoutMs(override ?? null);
-  if (chosen != null) return chosen;
-  return Math.min(
-    AGENT_TIMEOUT_CAP_MS,
-    Math.max(AGENT_TIMEOUT_MIN_MS, envNumber("ASCENT_AUTOPILOT_TIMEOUT_MS", AGENT_TIMEOUT_DEFAULT_MS)),
-  );
 }
 
 const MAX_STDOUT = 4 * 1024 * 1024; // mirror claude-cli.ts's runaway-subprocess caps
@@ -161,6 +136,11 @@ export function runClaudeAgent(opts: {
         resolve(r);
       }
     };
+    // KILLING IS NOT THE MECHANISM; SETTLING IS. `child.kill()` is best-effort — with `shell: true`
+    // it signals the shell, and a grandchild that inherited the stdio pipes can keep them open, so
+    // `close` may never arrive. The `settle` call is therefore unconditional and NOT inside a close
+    // handler: the caller's await resolves on the timer whatever the process does afterwards. (The
+    // lane's watchdog races this call as well, so even a broken timer cannot park a lane.)
     const timer = setTimeout(() => {
       child.kill();
       settle({ ok: false, summary: `Agent session exceeded ${Math.round(limitMs / 60_000)} min and was stopped.` });

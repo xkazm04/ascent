@@ -16,7 +16,7 @@ type Target = { repo: string; kind: string; practiceId: string | null };
 type Run = { id: string; orgId: string; phase: string; repos: string[]; targets: Target[]; concurrency: number; maxCycles: number; cycle: number; curated: boolean; model: string | null; effort: string | null; modelPolicy: string; models: string[]; startedAt: string; endedAt: string | null; error: string | null; createdAt: string; createdBy: string | null };
 type Lane = { id: string; runId: string; repoFullName: string; cycle: number; executor?: string; phase: string; branch: string | null; batchIds: string[]; closedIds: string[]; commits: number; beforeScanId: string | null; afterScanId: string | null; stage: string | null; log: string[]; error: string | null; startedAt: string | null; endedAt: string | null; model: string | null; abPairKey: string | null };
 
-const db = { runs: [] as Run[], lanes: [] as Lane[], seq: 0 };
+const db = { runs: [] as Run[], lanes: [] as Lane[], seq: 0, hangWrites: false };
 
 vi.mock("@/lib/db/loop-runs", () => ({
   LOOP_CONCURRENCY_CAP: 4,
@@ -76,6 +76,10 @@ vi.mock("@/lib/db/loop-runs", () => ({
   getLane: vi.fn(async (id: string) => db.lanes.find((l) => l.id === id) ?? null),
   listLanes: vi.fn(async (runId: string) => db.lanes.filter((l) => l.runId === runId)),
   updateLane: vi.fn(async (id: string, patch: Record<string, unknown>) => {
+    // `hangWrites` is the one fixture for "an inner call that genuinely cannot be interrupted": the
+    // lane is cut by the watchdog and then cannot even finish writing its own terminal row. The stop's
+    // backstop is what has to answer for the run in that case.
+    if (db.hangWrites) return new Promise(() => {});
     const lane = db.lanes.find((l) => l.id === id);
     if (!lane) return null;
     Object.assign(lane, patch);
@@ -172,6 +176,7 @@ beforeEach(() => {
   db.runs = [];
   db.lanes = [];
   db.seq = 0;
+  db.hangWrites = false;
   gitCommits.n = 1;
 });
 
@@ -317,6 +322,50 @@ describe("stopLoopRun", () => {
     expect(db.runs[0]!.endedAt).not.toBeNull();
     // Exactly one cycle was entered; the stop is checked between phases, never mid-session.
     expect(db.lanes.filter((l) => l.runId === run.id)).toHaveLength(1);
+  });
+
+  // ── A STOP WITH TEETH. The flag alone is read between a lane's phases; a lane inside a call that
+  // never returns reaches no phase, which is how a run sat on `rescanning/score` for 75 minutes and
+  // needed a dev-server restart. These two pin both halves of the answer.
+  it("force-fails a WEDGED lane and reaches a terminal phase without a restart", async () => {
+    const run = await startLoopRun({
+      org: "acme",
+      repos: ["acme/web"],
+      maxCycles: 3,
+      // A session that never comes back — the fixture the cooperative flag has no answer for.
+      deps: workingDeps({ runAgent: (() => new Promise(() => {})) as unknown as LaneDeps["runAgent"] }),
+    });
+    expect(await stopLoopRun(run.id, { graceMs: 5 })).toBe(true);
+    await settle(run.id);
+
+    expect(db.runs[0]!.phase).toBe("stopped");
+    expect(db.runs[0]!.endedAt).not.toBeNull();
+    const lane = db.lanes.find((l) => l.runId === run.id)!;
+    expect(lane.phase).toBe("error");
+    expect(lane.error).toContain("FORCE-FAILED");
+    // WHICH STAGE refused to come back, on the row — the fact the eight-hour gap destroyed.
+    expect(lane.stage).toBe("agent");
+    expect(isLoopRunLive(run.id)).toBe(false);
+  });
+
+  it("declares the run terminal and NAMES the lane when even the wind-down cannot finish", async () => {
+    const run = await startLoopRun({
+      org: "acme",
+      repos: ["acme/web"],
+      maxCycles: 1,
+      deps: workingDeps({ runAgent: (() => new Promise(() => {})) as unknown as LaneDeps["runAgent"] }),
+    });
+    // The lane is cut by the abort and then cannot even write its own terminal row: nothing about
+    // this lane will ever settle again. The run must still stop, and must say why.
+    db.hangWrites = true;
+    await stopLoopRun(run.id, { graceMs: 5, terminalMs: 10 });
+    for (let i = 0; i < 500 && isLoopRunLive(run.id); i += 1) await new Promise((r) => setTimeout(r, 1));
+
+    expect(isLoopRunLive(run.id)).toBe(false);
+    expect(db.runs[0]!.phase).toBe("stopped");
+    expect(db.runs[0]!.endedAt).not.toBeNull();
+    expect(db.runs[0]!.error).toContain("did not terminate");
+    expect(db.runs[0]!.error).toContain("acme/web#1"); // the lane, by name
   });
 
   it("refuses a second concurrent run for the same org", async () => {
