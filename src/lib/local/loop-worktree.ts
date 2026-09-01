@@ -71,10 +71,10 @@ export async function createLoopWorktree(
   // is retried: every other git failure (a corrupt repo, a missing HEAD, no disk) still throws on the
   // first attempt, because retrying those would just produce the same error N times more slowly.
   let branch = base;
-  let added = await runGit(pairedPath, ["worktree", "add", "-b", branch, dir, "HEAD"]);
+  let added = await runGit(pairedPath, ["worktree", "add", "-b", branch, dir, "HEAD"], { timeoutMs: WORKTREE_GIT_TIMEOUT_MS });
   for (let n = 2; !added.ok && BRANCH_EXISTS.test(added.stderr || added.stdout) && n <= BRANCH_SUFFIX_CAP; n += 1) {
     branch = `${base}-${n}`;
-    added = await runGit(pairedPath, ["worktree", "add", "-b", branch, dir, "HEAD"]);
+    added = await runGit(pairedPath, ["worktree", "add", "-b", branch, dir, "HEAD"], { timeoutMs: WORKTREE_GIT_TIMEOUT_MS });
   }
   if (!added.ok) {
     // No links exist yet on this path — they are made below, only after the add succeeded — so a
@@ -104,6 +104,13 @@ export function takeDepNotes(wt: LoopWorktree): string[] {
   return notes ? notes.splice(0) : [];
 }
 
+// A worktree add is a full checkout (kp: 3,249 files; systedo: 2,701) and a remove walks it back.
+// The default GIT_TIMEOUT_MS (15 s) fits a ref lookup, not a checkout: under disk contention — a
+// full build and test suite running beside the loop — both campaign repos hit the cap at
+// "Updating files: 4%", the hard-resolve abandoned them, and a whole campaign produced nothing.
+// Five minutes is the budget a checkout of this size honestly needs; the watchdog above it still
+// bounds the cycle as a whole.
+const WORKTREE_GIT_TIMEOUT_MS = 5 * 60_000;
 /** git's own refusal when `-b <name>` names an existing branch. */
 const BRANCH_EXISTS = /a branch named .* already exists/i;
 /** How many suffixed names to try. Small on purpose: past a handful, something else is wrong. */
@@ -126,7 +133,7 @@ const BRANCH_SUFFIX_CAP = 20;
  */
 export async function removeLoopWorktree(wt: LoopWorktree): Promise<void> {
   await unlinkDependencyDirs(wt.dir).catch(() => []);
-  await runGit(wt.pairedPath, ["worktree", "remove", "--force", wt.dir]).catch(() => null);
+  await runGit(wt.pairedPath, ["worktree", "remove", "--force", wt.dir], { timeoutMs: WORKTREE_GIT_TIMEOUT_MS }).catch(() => null);
   await rm(wt.dir, { recursive: true, force: true }).catch(() => null);
 }
 
@@ -238,7 +245,7 @@ export async function removeStrandedWorktrees(lanes: readonly StrandedLane[], de
       // dependency links, and `worktree remove --force` follows a junction into the operator's own
       // `node_modules`. The links come out first, by lstat, non-recursively.
       await unlinkDependencyDirs(entry.dir).catch(() => []);
-      await runGit(paired, ["worktree", "remove", "--force", entry.dir]).catch(() => null);
+      await runGit(paired, ["worktree", "remove", "--force", entry.dir], { timeoutMs: WORKTREE_GIT_TIMEOUT_MS }).catch(() => null);
       await rm(entry.dir, { recursive: true, force: true }).catch(() => null);
       removed.push(entry.dir);
     }
