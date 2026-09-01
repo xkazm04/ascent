@@ -3,8 +3,9 @@
 //
 // The campaign script (loop-campaign.mjs) prints one block per run as it goes; this reads the same
 // `run-NN-*.json` files afterwards and answers the questions a per-run block cannot: is the loop
-// still finding work, what KIND of work (gap → practice → foundation → craft), which craft axes have
-// been climbed, and is the score trajectory real or measurement noise.
+// still finding work, what the lane LABELS say (backlog / practice / foundation / craft — a mixed
+// gap+craft batch is `backlog`, so craft itself is not countable offline), how much finished work
+// was thrown away, and is the score trajectory real or measurement noise.
 //
 // Deliberately dependency-free and read-only: it never talks to the server, so it is safe to run
 // against a campaign that is still going.
@@ -36,7 +37,13 @@ const pad = (s, n) => String(s).padEnd(n);
 const repos = new Map();
 const kindTally = {};
 const stateTally = {};
-const axisTally = {};
+// Craft cannot be counted offline: a deliverable carries covered recommendation ids, not their
+// kind, and a mixed batch is deliberately labelled `backlog`. The old CRAFT AXES line read a field
+// deliverables never had and printed "(no craft rungs yet)" for a campaign in which 143 craft
+// items were dispatched and every close was a rung — a lie that misdirected a whole reflection.
+// What IS in the artifacts and was never surfaced: work the lane produced and then threw away.
+let discardedLanes = 0;
+let discardedChanges = 0;
 let commits = 0;
 let closed = 0;
 let deliverables = 0;
@@ -59,7 +66,6 @@ for (const [i, file] of files.entries()) {
       deliverables++;
       stateTally[dv.kind] = (stateTally[dv.kind] ?? 0) + 1;
       // A craft rung names its axis in the covered id when the item came from the craft ladder.
-      if (dv.craftAxis) axisTally[dv.craftAxis] = (axisTally[dv.craftAxis] ?? 0) + 1;
     }
     r.runs.push({
       n: i + 1,
@@ -69,6 +75,12 @@ for (const [i, file] of files.entries()) {
       delta: before != null && after != null ? after - before : null,
       // An empty batch is the loop running out of work — the signal the craft ladder exists to remove.
       dry: (o.deliverables ?? []).length === 0 && (o.commits ?? 0) === 0,
+      // "N change(s) are still uncommitted in the worktree and the lane could not commit them" —
+      // the lane did the work and lost it (a rejected commit hook, most often). Real money, no row.
+      discarded: (() => {
+        const m = (o.lane.log ?? []).map((l) => /(\d+) change\(s\) are still uncommitted/.exec(l)).find(Boolean);
+        return m ? Number(m[1]) : 0;
+      })(),
       headlines: (o.deliverables ?? []).map((x) => `${x.kind}: ${x.headline}`),
       moved: (o.diff?.dimensions ?? []).filter((x) => x.delta),
       // Movements are emitted ONLY for an attributable verdict, so their presence IS the verdict.
@@ -81,16 +93,18 @@ console.log(`# ${files.length} runs · ${commits} commits · ${closed} follow-up
 
 console.log("LANE KINDS   ", Object.entries(kindTally).map(([k, v]) => `${k} ${v}`).join(" · ") || "—");
 console.log("DELIVERABLES ", Object.entries(stateTally).map(([k, v]) => `${k} ${v}`).join(" · ") || "—");
-console.log("CRAFT AXES   ", Object.entries(axisTally).map(([k, v]) => `${k} ${v}`).join(" · ") || "(no craft rungs yet)");
+for (const r of repos.values()) for (const run of r.runs) if (run.discarded > 0) { discardedLanes++; discardedChanges += run.discarded; }
+console.log("LANE KINDS are labels: a mixed gap+craft batch is `backlog` by design — craft is not countable offline.");
+if (discardedLanes > 0) console.log(`DISCARDED    ${discardedLanes} lane(s) did work and could not commit it — ${discardedChanges} change(s) thrown away`);
 
 for (const [repo, r] of repos) {
   const dry = r.runs.filter((x) => x.dry).length;
   console.log(`\n## ${repo}  ${r.trail.join(" → ")}   (${dry} dry of ${r.runs.length})`);
   for (const run of r.runs) {
     const delta = run.delta == null ? "  —" : run.delta > 0 ? `+${run.delta}` : String(run.delta);
-    const verdict = run.claimed ? "claimed" : run.commits > 0 ? "refused" : "no work";
+    const verdict = run.claimed ? "claimed" : run.commits > 0 ? "refused" : run.discarded > 0 ? "DISCARDED" : "no work";
     console.log(
-      `  ${pad(`r${run.n}`, 4)} ${pad(run.kind, 10)} ${pad(`${run.commits}c/${run.closed}x`, 7)} ${pad(delta, 4)} ${pad(verdict, 8)} ${run.headlines[0] ?? (run.dry ? "— nothing to dispatch —" : "")}`,
+      `  ${pad(`r${run.n}`, 4)} ${pad(run.kind, 10)} ${pad(`${run.commits}c/${run.closed}x`, 7)} ${pad(delta, 4)} ${pad(verdict, 8)} ${run.headlines[0] ?? (run.discarded > 0 ? `— ${run.discarded} change(s) discarded, not dry —` : run.dry ? "— nothing to dispatch —" : "")}`,
     );
     if (VERBOSE) for (const h of run.headlines.slice(1)) console.log(`${" ".repeat(38)}${h}`);
   }
