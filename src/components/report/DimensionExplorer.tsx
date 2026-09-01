@@ -14,8 +14,6 @@ import { RadarChart } from "@/components/report/RadarChart";
 import { DimensionDetail } from "@/components/report/DimensionDetail";
 import { Surface } from "@/components/ui";
 import { DimensionExplorerAltimeter } from "@/components/report/DimensionExplorerAltimeter";
-import { DimensionExplorerLedger } from "@/components/report/DimensionExplorerLedger";
-import { DimensionExplorerMirror } from "@/components/report/DimensionExplorerMirror";
 
 interface ExplorerProps {
   report: ScanReport;
@@ -29,8 +27,6 @@ interface ExplorerProps {
 const VARIANTS = [
   { key: "baseline", label: "Baseline" },
   { key: "altimeter", label: "Altimeter" },
-  { key: "ledger", label: "Ledger" },
-  { key: "mirror", label: "Mirror" },
 ] as const;
 type VariantKey = (typeof VARIANTS)[number]["key"];
 
@@ -56,8 +52,6 @@ export function DimensionExplorer(props: ExplorerProps) {
       </div>
       {variant === "baseline" && <DimensionExplorerBaseline {...props} />}
       {variant === "altimeter" && <DimensionExplorerAltimeter {...props} />}
-      {variant === "ledger" && <DimensionExplorerLedger {...props} />}
-      {variant === "mirror" && <DimensionExplorerMirror {...props} />}
     </div>
   );
 }
