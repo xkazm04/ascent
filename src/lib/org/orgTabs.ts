@@ -17,6 +17,8 @@ export const ORG_TAB_IDS = [
   // The follow-ups ledger: every open gap across the fleet, pick a batch, hand it to a local agent.
   "followups",
   "executive",
+  // The weekly digest — trailing 7 days, fixed window, a leadership-update page.
+  "digest",
   // Fleet
   "repositories",
   // Segments is a SUB-VIEW of the Repositories tab (the two Fleet views were merged), reached from
@@ -185,6 +187,9 @@ export const ORG_NAV_GROUPS: readonly OrgNavGroup[] = [
     label: "Bought",
     items: [
       { id: "executive", label: "Briefing" },
+      // Sits right under the Briefing: the same fleet, read over a FIXED trailing week rather than the
+      // selected period — the artifact a lead pastes into a weekly leadership update.
+      { id: "digest", label: "Weekly digest" },
       { id: "delivery", label: "Delivery" },
       { id: "contributors", label: "Contributors", countKey: "contributors" },
       { id: "teams", label: "Teams", countKey: "teams" },
@@ -430,6 +435,10 @@ export const MIGRATED_ORG_TAB_IDS: ReadonlySet<OrgTabId> = new Set<OrgTabId>([
   // Omitting it here sent the rail to /org/<slug>/pairing, a page that has never existed.
   "pairing",
   "knowledge",
+  // Born migrated (2026-09-01): the weekly digest never had a legacy route — it exists ONLY as a
+  // `?tab=` panel, so omitting it here would send the rail to /org/<slug>/digest, a page that has
+  // never existed (the exact bug `pairing` and `knowledge` each shipped once).
+  "digest",
 ]);
 
 export function isMigratedOrgTab(id: OrgTabId): boolean {
