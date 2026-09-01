@@ -13,16 +13,60 @@ import type { TrendPoint } from "@/components/report/TrendChart";
 import { RadarChart } from "@/components/report/RadarChart";
 import { DimensionDetail } from "@/components/report/DimensionDetail";
 import { Surface } from "@/components/ui";
+import { DimensionExplorerAltimeter } from "@/components/report/DimensionExplorerAltimeter";
+import { DimensionExplorerLedger } from "@/components/report/DimensionExplorerLedger";
+import { DimensionExplorerMirror } from "@/components/report/DimensionExplorerMirror";
 
-export function DimensionExplorer({
-  report,
-  prevDimScores,
-  dimSeries,
-}: {
+interface ExplorerProps {
   report: ScanReport;
   prevDimScores: Map<string, number> | null;
   dimSeries: Map<string, TrendPoint[]> | null;
-}) {
+}
+
+// ── PROTOTYPE SWITCHER (throwaway) ─────────────────────────────────────────────────────────────
+// A/B strip over the directional variants. Baseline is the default so nothing changes on load; the
+// strip is removed at consolidation and the winner becomes the plain render.
+const VARIANTS = [
+  { key: "baseline", label: "Baseline" },
+  { key: "altimeter", label: "Altimeter" },
+  { key: "ledger", label: "Ledger" },
+  { key: "mirror", label: "Mirror" },
+] as const;
+type VariantKey = (typeof VARIANTS)[number]["key"];
+
+export function DimensionExplorer(props: ExplorerProps) {
+  const [variant, setVariant] = useState<VariantKey>("baseline");
+  return (
+    <div className="space-y-5">
+      <div role="tablist" aria-label="Prototype variants" className="flex w-fit gap-1 rounded-lg border border-divider bg-surface/40 p-1">
+        {VARIANTS.map((v) => (
+          <button
+            key={v.key}
+            type="button"
+            role="tab"
+            aria-selected={variant === v.key}
+            onClick={() => setVariant(v.key)}
+            className={`focus-ring rounded-md px-3 py-1 type-label tracking-[0.18em] transition ${
+              variant === v.key ? "bg-accent/15 text-accent" : "text-slate-500 hover:text-slate-200"
+            }`}
+          >
+            {v.label}
+          </button>
+        ))}
+      </div>
+      {variant === "baseline" && <DimensionExplorerBaseline {...props} />}
+      {variant === "altimeter" && <DimensionExplorerAltimeter {...props} />}
+      {variant === "ledger" && <DimensionExplorerLedger {...props} />}
+      {variant === "mirror" && <DimensionExplorerMirror {...props} />}
+    </div>
+  );
+}
+
+function DimensionExplorerBaseline({
+  report,
+  prevDimScores,
+  dimSeries,
+}: ExplorerProps) {
   const dims = report.dimensions;
   const [selectedId, setSelectedId] = useState<DimensionId>(dims[0]!.id);
   const selected = dims.find((d) => d.id === selectedId) ?? dims[0]!;
