@@ -51,7 +51,12 @@ describe("LeaderboardHead select-all checkbox", () => {
 // nobody has probed must read "—", never a stand-in age, and the two speeds must stay separable —
 // controls fresh while the score is stale is the NORMAL state of a two-speed fleet, not an anomaly.
 describe("FreshnessCell", () => {
-  const now = Date.parse("2026-08-30T12:00:00.000Z");
+  // Anchored to the REAL clock, not a written date. `FreshnessCell` renders an age against
+  // `Date.now()`, so a pinned `now` makes every fixture drift: this suite was written with
+  // 2026-08-30T12:00Z and its "one hour ago" control had aged into "2d" by the next morning,
+  // failing a `/Controls \d+h/` assertion that had nothing wrong with it. A fixture expressed as a
+  // distance from now is the only kind this component can be asserted against.
+  const now = Date.now();
   const ago = (ms: number) => new Date(now - ms).toISOString();
 
   it("renders an em dash for an absent timestamp rather than inventing an age", () => {
