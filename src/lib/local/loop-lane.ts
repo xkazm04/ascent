@@ -16,7 +16,7 @@
 // row still closes only when the next scan says the dimension moved.
 
 import { runGit } from "@/lib/local/git";
-import { LocalFsSource } from "@/lib/local/source";
+import { LocalFsSource, isWorkingCopyDirty } from "@/lib/local/source";
 import { runClaudeAgent } from "@/lib/local/agent";
 import { buildFixPrompt, type FollowUpItem } from "@/lib/org/followups";
 import { getOrgBacklog } from "@/lib/db/org-insights";
@@ -108,6 +108,19 @@ export interface LaneDeps {
     branch: string;
     onStage: (stage: string) => void;
   }) => Promise<{ scanId: string | null; closedIds: string[]; claimedIds?: string[] }>;
+  /** THE DRY-LANE RECOVERY. Scan the PAIRED CHECKOUT (not the worktree) and persist it, so a repo
+   *  with no recorded work left gets a fresh roadmap. Same pipeline as the manual local rescan route
+   *  — see `refreshPairedCheckout`. A separate seam from `rescan` on purpose: the two answer different
+   *  questions about different trees, and a test must be able to prove the ordinary path never calls
+   *  this one. */
+  refreshCheckout: (args: {
+    org: string;
+    repo: string;
+    dir: string;
+    onStage: (stage: string) => void;
+  }) => Promise<{ scanId: string | null }>;
+  /** When this repo's latest persisted scan was taken — the freshness gate on that refresh. */
+  latestScanAt: (org: string, repo: string) => Promise<Date | null>;
   /** The repo's open follow-ups, biggest projected gain first, capped at `limit`. */
   /** The lane's before/after pair, as the ledger will read it — for the deliverable headlines. */
   loadPair: (args: { orgSlug: string; repoFullName: string; beforeScanId: string | null; afterScanId: string | null }) => Promise<{
@@ -141,6 +154,11 @@ export const defaultLaneDeps: LaneDeps = {
   commitWork: commitAgentWork,
   laneKind: proposeLaneKind,
   rescan: rescanWorktree,
+  refreshCheckout: refreshPairedCheckout,
+  // Lazy for the same reason as `loadPair` below, and for one more: a dry lane is the ONLY caller, so
+  // resolving this at module load would make every lane test that mocks the loop-runs barrel declare
+  // an export it never exercises.
+  latestScanAt: async (org, repo) => (await import("@/lib/db/loop-runs-read")).getLatestScanAtForRepo(org, repo),
   openBatch,
   // Lazy on purpose: the read module reaches for the db client, and the lane's unit tests mock the
   // loop-runs barrel without it. A missing default here is a skipped headline, never a failed lane.
@@ -200,6 +218,10 @@ export interface LaneRunInput {
   /** TEST SEAM ONLY. Production never passes one: the lane derives its own ceiling from the run's
    *  parameters (`laneDeadlineMs`), which is the property the derivation test pins. */
   watchdog?: LaneWatchdog;
+  /** THE DRY-LANE PERMIT. Present only when the engine has a verified pairing for this repo and the
+   *  run has not spent this repo's one refresh yet — see `DryLaneRefresh`. Absent means a lane that
+   *  finds no work behaves exactly as it always did: log and end. */
+  refresh?: DryLaneRefresh | null;
 }
 
 export interface LaneRunResult {
@@ -404,18 +426,29 @@ async function craftBatch(
 }
 
 /**
- * Scan a worktree from disk and persist it under the org.
+ * Scan a tree from disk and persist it under the org — ONE pipeline, two trees.
  *
  * `onStage` forwards the scan's own progress stages (fetch → compose) so a long rescan reads as
  * something happening rather than a stuck "rescanning" pill — the same stage vocabulary the fleet
  * SSE now emits (src/app/api/org/scan/route.ts).
+ *
+ * `origin` says WHICH tree `dir` is, and changes nothing but the caveat the report carries:
+ *
+ *   • `worktree` (the default) — the lane's own throwaway checkout, after its commits landed. This is
+ *     the reading the cycle is adjudicated against.
+ *   • `checkout` — the operator's PAIRED working copy at its current HEAD, for the dry-lane refresh
+ *     below. Identical to what `POST /api/org/local/rescan` does by hand, deliberately routed through
+ *     this same function rather than a second copy of the pipeline: `LocalFsSource` over the folder,
+ *     `scanRepository` with the platform fold carried, `persistScanReport` under the org.
  */
 export async function rescanWorktree(args: {
   org: string;
   repo: string;
   dir: string;
-  branch: string;
+  /** The lane's branch — only ever printed in a `worktree` caveat, so a checkout scan omits it. */
+  branch?: string | null;
   onStage: (stage: string) => void;
+  origin?: "worktree" | "checkout";
 }): Promise<{ scanId: string | null; closedIds: string[]; claimedIds: string[] }> {
   // THE PLATFORM FOLD, CARRIED. D2/D3/D4 are credited partly for tooling that is installed rather
   // than committed (review/CI/coverage Apps posting check suites, default-branch Actions health —
@@ -429,12 +462,23 @@ export async function rescanWorktree(args: {
   // Best-effort: a lookup failure must never fail the rescan. It degrades to `unavailable`, which is
   // the honest reading of "we could not establish what GitHub sees".
   const carried = await getLatestPlatformSignals(args.org, args.repo).catch(() => null);
+  // WHAT THE READER IS TOLD THIS SCAN READ. Same three facts as the manual local rescan route: which
+  // tree, whether it carried uncommitted work, and that the GitHub-side fold was carried rather than
+  // observed. A checkout scan asks git whether the folder is dirty because — unlike the lane's own
+  // worktree, whose state this module just made — the operator's working copy may hold anything.
+  const dirty = args.origin === "checkout" ? await isWorkingCopyDirty(args.dir).catch(() => false) : false;
+  const where =
+    args.origin === "checkout"
+      ? dirty
+        ? "Scanned from the paired local checkout, including uncommitted changes — no commit identity is claimed"
+        : "Scanned from the paired local checkout at its current commit"
+      : `Scanned from the loop worktree (branch ${args.branch ?? "unknown"})`;
   const report = await scanRepository(args.repo, {
     orgSlug: args.org,
     source: new LocalFsSource(args.dir),
     scopeCaveat: carried
-      ? `Scanned from the loop worktree (branch ${args.branch}) — GitHub-side signals are carried from scan ${carried.scanId}, not observed here.`
-      : `Scanned from the loop worktree (branch ${args.branch}) — GitHub-side signals are not included.`,
+      ? `${where} — GitHub-side signals are carried from scan ${carried.scanId}, not observed here.`
+      : `${where} — GitHub-side signals are not included.`,
     noAmbientToken: true,
     platformSignalsUnobservable: true,
     carriedPlatformSignals: carried,
@@ -462,6 +506,112 @@ export async function rescanWorktree(args: {
     closedIds: persisted?.closedFollowUpIds ?? [],
     claimedIds: report.resolvedFollowUpIds ?? [],
   };
+}
+
+/**
+ * THE DRY-LANE REFRESH — re-read the repository from the PAIRED CHECKOUT so a repo that ran out of
+ * recorded work can come back.
+ *
+ * THE DEADLOCK THIS BREAKS (measured, an 8-run campaign on two repos, 2026-08-31). `xkazm04/kp`
+ * reported "No open follow-ups left for this repo — nothing to dispatch" in 6 of 7 runs and produced
+ * nothing at all: its last scan raised no craft entries, its open gaps were closed, and its remaining
+ * dimensions (D9 75, D7 80, D6 82) sit above the follow-up floor, so no new gap is generated either.
+ * `/api/org/loop/propose?repos=xkazm04/kp` returned zero items. That is not a failing repo — it is a
+ * repo whose ROADMAP is stale, and the loop's own (correct) rule that it never rescans without
+ * commits made the state permanent: no work → no commits → no rescan → no fresh roadmap → no work.
+ *
+ * WHY THE CHECKOUT AND NOT THE WORKTREE. The no-commits guard's reasoning is specifically about a
+ * worktree NOTHING LANDED IN: "scanning a worktree that nothing landed in would make it this
+ * repository's latest reading and credit the repo with work that does not exist." That reasoning does
+ * not reach the paired checkout, which IS the repository's actual current state — scanning it credits
+ * the repo with exactly what is on disk, which is what `POST /api/org/local/rescan` does on request.
+ * So the guard is untouched: a worktree with no commits is still never scanned.
+ *
+ * Same pipeline, one function: `rescanWorktree` with `origin: "checkout"`.
+ */
+export async function refreshPairedCheckout(args: {
+  org: string;
+  repo: string;
+  dir: string;
+  onStage: (stage: string) => void;
+}): Promise<{ scanId: string | null }> {
+  const res = await rescanWorktree({ org: args.org, repo: args.repo, dir: args.dir, onStage: args.onStage, origin: "checkout" });
+  return { scanId: res.scanId };
+}
+
+/**
+ * What a lane needs to be ALLOWED to refresh a dry repository, handed down by the engine.
+ *
+ * Absent (a retry, the autopilot shim, a test that does not care) means nobody vouched for a
+ * pairing, and a dry lane then does exactly what it always did: log and end.
+ */
+export interface DryLaneRefresh {
+  /** The operator's real working copy — verified at arm time (`verifyLocalPath`), never the worktree. */
+  pairedPath: string;
+  /** When the run armed. A reading newer than this is already current; nothing to refresh. */
+  runStartedAt: Date;
+  /**
+   * THE ONCE-PER-REPO-PER-RUN BOUND. Returns true exactly once per repo for the life of a run; every
+   * later dry lane gets false. Owned by the engine (it lives in the run's `LiveRun` state, cleaned up
+   * with the run) because this module keeps NO module state by its header's rule — and because it is
+   * the belt to the freshness check's braces: `persistScanReport` can DEDUPE a refresh that produced
+   * an identical report, leaving the latest-scan timestamp unmoved, and without this a dedup would
+   * hand the next dry cycle a green light to scan again.
+   */
+  claim: () => boolean;
+}
+
+/**
+ * Run the dry-lane refresh, or say honestly why it did not. NEVER THROWS and never changes the lane's
+ * verdict: the cycle stays non-progressing either way, so the engine's existing drop-out rule applies
+ * exactly as it did — a refresh buys the NEXT run a roadmap, it does not rescue this one.
+ */
+async function refreshDryLane(args: {
+  deps: LaneDeps;
+  laneId: string;
+  org: string;
+  repo: string;
+  cycle: number;
+  refresh: DryLaneRefresh | null | undefined;
+  watch: LaneWatchdog;
+}): Promise<void> {
+  const { deps, laneId, org, repo, refresh, watch } = args;
+  if (!refresh) return; // no verified pairing was vouched for — there is no tree we may honestly read
+  // FRESHNESS FIRST. A sibling lane of this run (or the operator, or the fleet cron) may already have
+  // taken a reading since the run armed; a refresh is for a stale roadmap, not a scan per cycle.
+  const latest = await deps.latestScanAt(org, repo).catch(() => null);
+  if (latest && latest.getTime() >= refresh.runStartedAt.getTime()) {
+    await appendLaneLog(laneId, "No work left, and the reading is already current — nothing to refresh.");
+    return;
+  }
+  if (!refresh.claim()) {
+    await appendLaneLog(laneId, "No work left, and this run already refreshed this repository's reading — not scanning it again.");
+    return;
+  }
+  try {
+    // UNDER THE WATCHDOG, like every other awaited stage: a scan that never settles must orphan
+    // itself rather than park the org's single run slot (lane-watchdog.ts).
+    await watch.stage("refresh", () =>
+      deps.refreshCheckout({ org, repo, dir: refresh.pairedPath, onStage: (stage) => void updateLane(laneId, { stage }) }),
+    );
+    await appendLaneLog(
+      laneId,
+      "No work left; refreshed this repository's reading from the paired checkout so the next run has something to judge.",
+    );
+    // A LESSON, not an alert: the operator should be able to see that the loop noticed a repo had run
+    // dry and did something about it, without reading a lane log. Best-effort like every other lesson.
+    await recordLoopLessons(org, repo, laneId, [
+      `${repo} had no open follow-ups and no unbuilt craft rungs left, so cycle ${args.cycle} spent no agent session and instead re-read the paired checkout. Its roadmap was stale, not finished — check the next run's proposals before concluding the repo is done.`,
+    ]).catch(() => []);
+  } catch (err) {
+    // NON-FATAL BY CONSTRUCTION. A refresh is opportunistic; a failed one must never turn a lane that
+    // simply had nothing to do into a failed lane. A watchdog cut lands here too, which is correct:
+    // the stage is already recorded on the row and the lane still ends cleanly below.
+    await appendLaneLog(
+      laneId,
+      `No work left, and the refresh of this repository's reading failed — ${firstLine(err instanceof Error ? err.message : String(err))}`,
+    );
+  }
 }
 
 /**
@@ -646,6 +796,13 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         // falls back to the ladder before it returns empty. That is a scan that produced no craft
         // entries at all, not "this repo is finished".
         await appendLaneLog(laneId, "No open follow-ups and no craft rungs left for this repo — nothing to dispatch.");
+        // …and THAT is the state the loop could never escape on its own, because it only rescans
+        // after commits. So a dry lane re-reads the paired checkout instead of no-op'ing. It refuses
+        // itself on a current reading, spends at most one scan per repo per run, and cannot fail this
+        // lane — see `refreshDryLane`. The cycle still ends NON-PROGRESSING, so the engine drops this
+        // repo for the rest of the run exactly as before; what changed is that the next run has a
+        // fresh roadmap to judge.
+        await refreshDryLane({ deps, laneId, org, repo, cycle, refresh: input.refresh, watch });
         await updateLane(laneId, { phase: "done", stage: null, endedAt: new Date() });
         return { laneId, progressed: false, commits: 0, closed: 0, error: null };
       }

@@ -163,6 +163,10 @@ function workingDeps(over: Partial<LaneDeps> = {}): Partial<LaneDeps> {
       onStage("analyze");
       return { scanId: `scan-after-${repo}`, closedIds: [`rec-${repo}`] };
     }),
+    // The DRY-LANE recovery seam. Stubbed here even though a "working" lane never reaches it, so a
+    // test that DOES go dry cannot silently fall through to the real scan pipeline.
+    refreshCheckout: vi.fn(async () => ({ scanId: "scan-refreshed" })) as unknown as LaneDeps["refreshCheckout"],
+    latestScanAt: vi.fn(async () => null) as unknown as LaneDeps["latestScanAt"],
     ...over,
   };
 }
@@ -271,6 +275,49 @@ describe("startLoopRun — failure isolation and the early stop", () => {
     expect(lanes[0]!.phase).toBe("done");
     expect(lanes[0]!.error).toBeNull();
   });
+
+  // ── THE DRY-LANE REFRESH. "Ends cleanly" was the whole problem: a repo whose roadmap ran out could
+  // never come back, because the loop only rescans after commits (measured on `xkazm04/kp`, 6 of 7
+  // runs). The driver is the only place that holds the verified pairing, the run's start and the
+  // per-run memo, so it is the only place that can hand a lane the permit to re-read the checkout.
+  it("hands a DRY lane the PAIRED CHECKOUT so a repo that ran out of work can recover", async () => {
+    const refreshCheckout = vi.fn(async () => ({ scanId: "scan-refreshed" }));
+    const run = await startLoopRun({
+      org: "acme",
+      repos: ["acme/web"],
+      maxCycles: 2,
+      deps: workingDeps({
+        openBatch: (async () => []) as unknown as LaneDeps["openBatch"],
+        refreshCheckout: refreshCheckout as unknown as LaneDeps["refreshCheckout"],
+      }),
+    });
+    await settle(run.id);
+    expect(refreshCheckout).toHaveBeenCalledTimes(1);
+    // `getRepoLocalPath`'s answer — never the lane's throwaway worktree (`/tmp/wt-…`), which is the
+    // tree the no-commits guard exists to refuse.
+    expect(refreshCheckout.mock.calls[0]![0]).toMatchObject({ repo: "acme/web", dir: "/paired/acme/web" });
+    const lanes = db.lanes.filter((l) => l.runId === run.id);
+    expect(lanes).toHaveLength(1); // still non-progressing: the repo drops out for the rest of the run
+    expect(lanes[0]!.phase).toBe("done");
+  });
+
+  it("spends ONE refresh per repo per run even when both A/B arms go dry — they read the same checkout", async () => {
+    const refreshCheckout = vi.fn(async () => ({ scanId: "scan-refreshed" }));
+    const run = await startLoopRun({
+      org: "acme",
+      repos: ["acme/web"],
+      maxCycles: 2,
+      modelPolicy: "ab",
+      models: ["sonnet", "opus"],
+      deps: workingDeps({
+        openBatch: (async () => []) as unknown as LaneDeps["openBatch"],
+        refreshCheckout: refreshCheckout as unknown as LaneDeps["refreshCheckout"],
+      }),
+    });
+    await settle(run.id);
+    expect(db.lanes.filter((l) => l.runId === run.id)).toHaveLength(2);
+    expect(refreshCheckout).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("startLoopRun — bounded parallelism", () => {
@@ -335,7 +382,12 @@ describe("stopLoopRun", () => {
       // A session that never comes back — the fixture the cooperative flag has no answer for.
       deps: workingDeps({ runAgent: (() => new Promise(() => {})) as unknown as LaneDeps["runAgent"] }),
     });
-    expect(await stopLoopRun(run.id, { graceMs: 5 })).toBe(true);
+    // The grace is generous ON PURPOSE. It is not what this pins — the agent session here NEVER
+    // settles, so no amount of grace lets the lane wind down cooperatively, and the force-fail and
+    // the recorded stage below are the same facts either way. A 5ms grace made the assertion a race
+    // against the lane's own startup instead: under a loaded suite the abort could arrive while the
+    // guard's baseline was still probing the worktree, and the row then honestly named `baseline`.
+    expect(await stopLoopRun(run.id, { graceMs: 250 })).toBe(true);
     await settle(run.id);
 
     expect(db.runs[0]!.phase).toBe("stopped");

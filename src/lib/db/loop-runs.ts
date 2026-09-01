@@ -63,6 +63,7 @@ export {
   getActiveLoopRun,
   getLane,
   getLanePair,
+  getLatestScanAtForRepo,
   getLatestScanIdForRepo,
   getLoopRun,
   getLoopRunDetail,

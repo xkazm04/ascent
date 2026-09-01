@@ -117,6 +117,43 @@ export async function getLatestScanIdForRepo(orgSlug: string, fullName: string):
   }, null);
 }
 
+/**
+ * WHEN a repo's latest persisted scan was taken — the freshness half of the dry-lane refresh rule.
+ *
+ * A lane that finds NO work at all (no open gap, no unbuilt craft rung) refreshes the repository's
+ * reading rather than no-op'ing, because the loop only rescans after commits and a dry repo can
+ * otherwise never come back. That refresh is for a STALE roadmap: if this repo already has a reading
+ * newer than the run started, another lane of the same run (or the operator, or the fleet cron)
+ * already took it, and burning a scan per cycle on top would be the opposite of the point.
+ *
+ * Same ordering as `getLatestScanIdForRepo` above, for the same reason, so "the latest scan" means
+ * exactly one row to both. The answer is the LATER of the two timestamps: `scannedAt` is when the
+ * reading was taken and `createdAt` when it was written, and a scan replayed from an older reading
+ * must not read as older than the run that just wrote it.
+ *
+ * Server-only, so it returns a real `Date` — nothing here crosses to a client (wire-safe-dates.test).
+ */
+export async function getLatestScanAtForRepo(orgSlug: string, fullName: string): Promise<Date | null> {
+  if (!isDbConfigured()) return null;
+  return dbReadSafe(async () => {
+    const org = await getOrgBySlug(orgSlug);
+    if (!org) return null;
+    const prisma = getPrisma();
+    const repo = await prisma.repository.findUnique({
+      where: { orgId_fullName: { orgId: org.id, fullName: fullName.toLowerCase() } },
+      select: { id: true },
+    });
+    if (!repo) return null;
+    const scan = await prisma.scan.findFirst({
+      where: { repoId: repo.id },
+      orderBy: [{ scannedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+      select: { scannedAt: true, createdAt: true },
+    });
+    if (!scan) return null;
+    return scan.createdAt > scan.scannedAt ? scan.createdAt : scan.scannedAt;
+  }, null);
+}
+
 /** The org's newest un-ended run, or null. There is at most one by construction (the engine refuses
  *  a second start), so this reads that invariant rather than picking among many. */
 export async function getActiveLoopRun(orgSlug: string): Promise<LoopRunRecord | null> {

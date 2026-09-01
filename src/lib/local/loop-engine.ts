@@ -80,6 +80,13 @@ interface LiveRun {
   /** The stop's two timers (grace, then the terminal backstop), so a run that ends normally clears
    *  them instead of leaving them armed. */
   stopTimers: ReturnType<typeof setTimeout>[];
+  /** THE REPOS THAT HAVE SPENT THIS RUN'S ONE DRY-LANE REFRESH. A lane that finds no work at all
+   *  re-reads the paired checkout so the repo's stale roadmap can recover (`DryLaneRefresh` in
+   *  loop-lane.ts) — once per repo, for the life of the run. The bound lives HERE rather than in the
+   *  lane because the lane keeps no module state by its own header's rule, and because a per-run Set
+   *  is cleaned up with the run instead of accumulating in the process. Not keyed by ARM: two arms of
+   *  one repo read the same checkout, so a second scan of it would be the same reading twice. */
+  refreshed: Set<string>;
   /** True once the stop backstop has written this run terminal — `drive` must not then overwrite the
    *  row that names the lanes which refused to die. */
   terminated: boolean;
@@ -233,6 +240,7 @@ export async function startLoopRun(input: StartLoopRunInput): Promise<LoopRunRec
     worktrees: new Map(),
     lanes: new Map(),
     stopTimers: [],
+    refreshed: new Set<string>(),
     terminated: false,
   };
   live.set(run.id, state);
@@ -575,6 +583,18 @@ async function drive(
           batchSize: run.batchSize,
           verify: { enabled: verifyModeOf(run.verifyMode) === "on", timeoutMs: run.verifyTimeoutMs },
           abPairKey: arm ? abPairKeyFor(run.id, t.repo, cycle) : null,
+          // THE DRY-LANE PERMIT (see `DryLaneRefresh`). Only the driver can hand this over: it is the
+          // only place that holds a pairing verified at arm time, the run's start, and the per-run
+          // memo that keeps the refresh to one scan per repo. A lane WITH work never reads it.
+          refresh: {
+            pairedPath: t.path,
+            runStartedAt: new Date(run.startedAt),
+            claim: () => {
+              if (state.refreshed.has(t.repo)) return false;
+              state.refreshed.add(t.repo);
+              return true;
+            },
+          },
           shouldStop: () => state.stopRequested,
         });
         // The lane is over (`runLane` never throws — every outcome, including a force-fail, comes

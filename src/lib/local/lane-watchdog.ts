@@ -127,7 +127,7 @@ export const LANE_STOP_GRACE_MS = 120_000;
 export const LANE_STOP_TERMINAL_MS = 30_000;
 
 /** The stages of a lane cycle a watchdog can be waiting on. Recorded on the row when one is cut. */
-export const LANE_STAGES = ["baseline", "agent", "install", "verify", "commit", "rescan", "git"] as const;
+export const LANE_STAGES = ["baseline", "agent", "install", "verify", "commit", "rescan", "refresh", "git"] as const;
 export type LaneStage = (typeof LANE_STAGES)[number];
 
 /** What each stage IS, in a sentence a lane log or an outcome sheet can print verbatim. */
@@ -138,6 +138,11 @@ export const LANE_STAGE_LABEL: Record<LaneStage, string> = {
   verify: "verifying the session's result",
   commit: "committing the session's work",
   rescan: "rescanning the worktree",
+  // The DRY-LANE refresh: a lane that found no work at all rescans the PAIRED CHECKOUT instead, so a
+  // repository whose roadmap ran dry gets a fresh reading rather than looping forever on an empty
+  // one. It is a scan like any other, so it is paid for out of the same `LANE_RESCAN_ALLOWANCE_MS`
+  // the cycle ceiling already carries — a dry lane does nothing else, so it cannot exceed it.
+  refresh: "refreshing this repository's reading from the paired checkout",
   git: "a git command in the worktree",
 };
 

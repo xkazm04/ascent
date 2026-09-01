@@ -1974,6 +1974,99 @@ the mixed batch, the non-green repo unchanged, an unreadable read unchanged, the
 unreserved, the all-craft fall-through). `loop-lane.craft.test.ts` is untouched and still passes: every
 case there is a non-green repo.
 
+## The dry lane — a repo that ran out of work refreshes its own reading (2026-09-01)
+
+**The deadlock, measured.** An 8-run campaign on two repositories: `xkazm04/systedo-case` worked in
+nearly every cycle; `xkazm04/kp` reported *"No open follow-ups and no craft rungs left for this repo —
+nothing to dispatch"* in **6 of 7 runs** and produced nothing at all.
+`GET /api/org/loop/propose?org=kiro&repos=xkazm04/kp` returned **zero items** — no gap items and no
+craft rungs. kp was not failing. It had simply run out of *recorded* work: its last scan
+(2026-08-31 12:36) produced no craft entries, its open gaps were closed, and its remaining dimensions
+(D9 75, D7 80, D6 82) sit **above** the follow-up floor, so no new gap entry is generated either.
+
+And it could not recover, because **the loop only rescans after commits**. That guard is correct and
+stays exactly as written — `loop-lane.ts` says why: *"No commits, so no rescan: scanning a worktree
+that nothing landed in would make it this repository's latest reading and credit the repo with work
+that does not exist."* But its consequence was a closed loop: **no work → no commits → no rescan → no
+fresh roadmap → no work**, permanently. A repo that went dry could never come back on its own, which
+defeats the point of a loop meant to keep finding higher work.
+
+**The rule.** When `openBatch` returns nothing at all for a repo — no gaps *and* no craft — the lane
+no longer simply no-ops. It **refreshes that repository's roadmap by scanning the paired checkout**.
+
+**Why the checkout and not the worktree.** The no-commits guard's reasoning is specifically about a
+worktree *nothing landed in*: scanning it would credit the repo with work that does not exist. That
+reasoning does not reach the operator's **paired working copy**, which *is* the repository's actual
+current state at its current HEAD — scanning it credits the repo with exactly what is on disk. That is
+precisely what `POST /api/org/local/rescan` does on request, and the dry lane reuses the same pipeline
+rather than a second copy of it: `rescanWorktree(..., { origin: "checkout" })` →
+`LocalFsSource` over the paired folder → `scanRepository` with the platform fold carried
+(`getLatestPlatformSignals`) → `persistScanReport` under the org. The only thing `origin` changes is
+the report's own scope caveat, which says **paired local checkout** (and says so *including
+uncommitted changes* when `isWorkingCopyDirty`), so a reader is never told a checkout scan was a
+worktree scan. The worktree guard is untouched: a worktree with no commits is still never scanned.
+
+**The seams.** `LaneDeps.refreshCheckout` (default `refreshPairedCheckout`) and
+`LaneDeps.latestScanAt` (default `getLatestScanAtForRepo`, lazily imported). `refreshCheckout` is a
+*separate* seam from `rescan` on purpose: the two answer different questions about different trees,
+and a test must be able to prove the ordinary path never calls it.
+
+**Only on a genuinely empty batch, and only with a verified pairing.** The permit is
+`LaneRunInput.refresh` (`DryLaneRefresh`), handed down by the driver — the only place that holds the
+pairing verified at arm time (`verifyLocalPath`), the run's start, and the per-run memo. Absent (a
+retry, the autopilot shim, a test that does not care) a dry lane behaves exactly as it always did: log
+and end. A lane **with** work never reads the field, so the ordinary path is byte-identical.
+
+**At most once per repo per run — two independent bounds.**
+
+1. **Freshness.** `latestScanAt(org, repo) >= run.startedAt` ⇒ skip. A sibling lane, the operator or
+   the fleet cron may already have taken a reading since the run armed; a refresh is for a *stale*
+   roadmap, not a scan per cycle. This is also what stops the second cycle of a run from re-scanning:
+   the first refresh's own scan is newer than the run start.
+2. **The run's claim.** `DryLaneRefresh.claim()` returns true exactly once per repo for the life of
+   the run, backed by `LiveRun.refreshed` in the engine — a `Set` that is created with the run and
+   discarded with it. It is the belt to freshness' braces: `persistScanReport` can **dedupe** a
+   refresh that produced an identical report, leaving the latest-scan timestamp unmoved, and without
+   the claim that dedup would hand the next dry cycle a green light. It lives in the engine and not in
+   the lane because `loop-lane.ts` keeps **no module state** by its header's own rule. It is **not
+   keyed by arm**: both arms of an A/B run read the same checkout, so a second scan would be the same
+   reading twice.
+
+**Bounded like everything else in the lane.** The refresh runs under the cycle watchdog as
+`watch.stage("refresh", …)` — a new `LaneStage`, paid for out of the `LANE_RESCAN_ALLOWANCE_MS` the
+deadline already carries (a dry lane does nothing else, so it cannot exceed it). A scan that never
+settles orphans itself and the lane still ends, exactly as a wedged rescan does.
+
+**Failures are non-fatal.** A refresh that throws — including a watchdog cut — is caught, logged on the
+lane, and changes nothing else. A lane that simply had nothing to do must never become a *failed*
+lane.
+
+**What the lane logs.** Always the original line first (*"No open follow-ups and no craft rungs left
+for this repo — nothing to dispatch."*), then exactly one of:
+
+| situation | line |
+| --- | --- |
+| refreshed | *"No work left; refreshed this repository's reading from the paired checkout so the next run has something to judge."* |
+| already current (freshness) | *"No work left, and the reading is already current — nothing to refresh."* |
+| this run already spent it | *"No work left, and this run already refreshed this repository's reading — not scanning it again."* |
+| the refresh failed | *"No work left, and the refresh of this repository's reading failed — &lt;reason&gt;"* |
+| no pairing vouched for | (nothing — the pre-existing behaviour, verbatim) |
+
+A successful refresh also records a **lesson** (`recordLoopLessons`, `pending` like every other):
+the repo's roadmap was *stale, not finished* — check the next run's proposals before concluding it is
+done.
+
+**The cycle still ends non-progressing.** `progressed: false`, phase `done`, no commits, no closes —
+so the engine's existing drop-out rule applies untouched and the repo leaves the run after this cycle.
+A refresh buys the **next** run a roadmap; it does not rescue this one.
+
+Tests: `loop-lane.dry.test.ts` (empty batch + pairing refreshes once and ends non-progressing; a lane
+with work never touches the seam; a second dry lane in the same run does not refresh again; a reading
+newer than the run start is skipped while an older one is not; a throwing refresh — and a throwing
+freshness read — are handled; a refresh that never settles is orphaned at the lane's deadline) and
+`loop-engine.test.ts` (the driver hands the **paired** path, not the worktree; both arms of an A/B run
+share the one refresh).
+
 ## Remote runs: the agent-neutral work protocol
 
 `POST /api/org/loop { action: "start", executor: "remote-agent", org, repos[], batches? }` arms a run
@@ -2039,11 +2132,13 @@ to a process this deployment is driving, and there is none.
 - **The lane's commit runs the repo's hooks and needs a git identity.** It is an ordinary
   `git commit` in the worktree, so a `commit-msg`/`pre-commit` hook or a missing `user.email` fails
   it — and that falls back to the lost-work log rather than to a retry.
-- **A `backlog` lane can still be proposed with an empty batch** (L2-E-01) — *narrowed by r12*. A repo
-  that is merely out of *gaps* now proposes a `craft` lane, so the common case is covered; the gap
-  that remains is a repo with neither an open gap nor an unbuilt craft rung (a scan that produced no
-  craft entries at all). The curation panel still offers an agent lane there instead of saying there
-  is nothing left to work, and the run early-stops. The proposal has no guard either way.
+- **A `backlog` lane can still be proposed with an empty batch** (L2-E-01) — *narrowed by r12, and
+  again by [the dry lane](#the-dry-lane--a-repo-that-ran-out-of-work-refreshes-its-own-reading-2026-09-01)*.
+  A repo that is merely out of *gaps* proposes a `craft` lane, and a repo with neither an open gap nor
+  an unbuilt craft rung no longer dead-ends: the lane refreshes that repository's reading from the
+  paired checkout so the next run has a roadmap. What remains is a **proposal-side** gap only — the
+  curation panel still offers an agent lane for an empty batch instead of saying the reading is stale,
+  and `proposeLaneKind` has no guard either way.
 - **The `Resume drive` button is live before hydration** (L2-C-01). It is server-rendered and
   enabled, so a click landing before React attaches its handler is swallowed with no request and no
   error. Generic Next.js behaviour, unusually expensive on this particular control.
