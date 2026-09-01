@@ -74,7 +74,7 @@ export function AltimeterGauge({
           <text x={GUTTER - 10} y={y(l.band[0]) - 5} textAnchor="end" fontSize={11} className="font-mono" fill={LEVEL_HEX[l.id]}>
             {l.id}
           </text>
-          <text x={GUTTER - 10} y={y(l.band[0]) + 8} textAnchor="end" fontSize={10} className="font-mono uppercase" fill="#64748b" letterSpacing="0.12em">
+          <text x={GUTTER - 10} y={y(l.band[0]) + 8} textAnchor="end" fontSize={10} className="fill-slate-500 font-mono uppercase" letterSpacing="0.12em">
             {l.name}
           </text>
         </g>
@@ -116,7 +116,7 @@ export function AltimeterGauge({
             {prev !== null && f.delta !== 0 && (
               <g opacity={drawn ? 1 : 0} style={reduced ? undefined : { transition: `opacity 0.4s ease-out calc(${delay} + 0.5s)` }}>
                 <line x1={x} x2={x} y1={y(prev)} y2={y(f.d.score)} stroke={deltaHex(f.delta!)} strokeWidth={1.5} strokeDasharray="2 3" />
-                <circle cx={x} cy={y(prev)} r={3.5} fill="var(--color-surface-strong)" stroke="#64748b" strokeWidth={1.25} />
+                <circle cx={x} cy={y(prev)} r={3.5} fill="var(--color-surface-strong)" className="stroke-slate-500" strokeWidth={1.25} />
               </g>
             )}
             <circle
@@ -132,10 +132,10 @@ export function AltimeterGauge({
             <text x={x} y={y(f.d.score) - 12} textAnchor="middle" fontSize={12} fontWeight={700} className="font-mono" fill={color} opacity={drawn ? 1 : 0}>
               {f.d.score}
             </text>
-            <text x={x} y={H - 22} textAnchor="middle" fontSize={11} className="font-mono" fill={selected ? "#ffffff" : "#94a3b8"}>
+            <text x={x} y={H - 22} textAnchor="middle" fontSize={11} className={`font-mono ${selected ? "fill-white" : "fill-slate-400"}`}>
               {f.id} <tspan aria-hidden>{scoreGlyph(f.d.score)}</tspan>
             </text>
-            <text x={x} y={H - 8} textAnchor="middle" fontSize={10} className="font-mono uppercase" fill={selected ? "#e2e8f0" : "#64748b"} letterSpacing="0.08em">
+            <text x={x} y={H - 8} textAnchor="middle" fontSize={10} className={`font-mono uppercase ${selected ? "fill-slate-200" : "fill-slate-500"}`} letterSpacing="0.08em">
               {f.short}
             </text>
           </g>
