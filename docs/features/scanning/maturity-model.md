@@ -506,10 +506,46 @@ the rubric asks was handed silence. Improvement has no ceiling; the loop had one
 ### The axis
 
 Every craft entry names a `craftAxis` — one of `architecture`, `performance`, `robustness`, `design`,
-`security-depth`, `dx` ([`src/lib/scoring/craft.ts`](../../../src/lib/scoring/craft.ts)), persisted on
-`Recommendation.craftAxis` (nullable; NULL on every gap and on craft rows written before `r12`). The
-axis is a **coverage key**, never a weight: it prices nothing, unlocks nothing and is never summed.
-It exists so the work spreads across the whole surface of the craft rather than deepening one corner.
+`security-depth`, `dx`, `code-health` ([`src/lib/scoring/craft.ts`](../../../src/lib/scoring/craft.ts)),
+persisted on `Recommendation.craftAxis` (nullable; NULL on every gap and on craft rows written before
+`r12`). The axis is a **coverage key**, never a weight: it prices nothing, unlocks nothing and is
+never summed. It exists so the work spreads across the whole surface of the craft rather than
+deepening one corner.
+
+### `code-health` — the axis that looks at the source (r16, 2026-09-01)
+
+The first six axes are all gates **about** the code: a budget, a drill, a decay check, an ergonomics
+judgment. Craft is proposed **per dimension**, and all nine dimensions are process dimensions — so
+there was nowhere to file *"this module is duplicated three ways"*, *"this hot path allocates on every
+request"*, *"this file has become a dumping ground"*.
+
+The cost was measured, not guessed. Across 33 real loop runs
+([`docs/harness/reflection-2026-09-01.md`](../../harness/reflection-2026-09-01.md)), of **30** closed
+or hardened deliverables in two campaigns: 1 new capability, 21 hardening/gates, 8 config/registry/docs
+— and **0** refactor, de-duplication or performance work, which is the owner's explicit goal for the
+loop. The repositories were accreting a meta-harness rather than better code.
+
+`code-health` is the place those rungs go. Its brief and the prompt rule that goes with it say the
+same thing twice: the artefact a code-health rung leaves behind is **smaller code** — fewer lines,
+fewer files, one path where there were two — and *a rung whose only artefact is another gate, budget,
+drill or document is not a code-health rung*. Whenever a dimension sits at or above the green floor,
+at least one entry in the roadmap must carry it, grounded in the same concrete file evidence every
+other entry carries and phrased as an observation, never an order. The rule ends with a refusal
+clause: if the sampled evidence supports no such observation, the model says nothing — a fabricated
+duplication is worse than a missing rung.
+
+It was appended **last** in `CRAFT_AXES` so the declared order of the original six, which is the
+coverage ranking's deterministic tie-break, is unchanged. Nothing else moved: no weight, band, blend,
+guardband, facet or point value, and craft still enters no score (pinned end-to-end by
+`src/lib/scoring/craft.score.test.ts`). The `r16` bump exists only because the SYSTEM prompt now asks
+the model a different question, so a cached `r15` roadmap and a fresh `r16` one are not the same
+reading.
+
+**Known gap — the agent that builds these rungs still has no shell.** A refactor wants a test loop,
+and the loop's agent session runs under `claude -p --permission-mode acceptEdits`, which grants file
+edits and no Bash. The reflection's 8b proposes a scoped grant (`npm run typecheck|lint|test:fast`);
+that is a blast-radius decision for the repository owner and has not been made, so a code-health rung
+is currently written and verified by the lane's degradation guard alone.
 
 ### The ladder, not a repeated suggestion
 

@@ -222,6 +222,60 @@ export interface LaneRunInput {
    *  run has not spent this repo's one refresh yet — see `DryLaneRefresh`. Absent means a lane that
    *  finds no work behaves exactly as it always did: log and end. */
   refresh?: DryLaneRefresh | null;
+  /** HOW OFTEN THIS RUN RESCANS — see `RescanCadence`. Omitted = `"cycle"`, byte-identical to every
+   *  lane before the parameter existed. */
+  rescanCadence?: RescanCadence | null;
+  /** Under `"run"` cadence only: is this the last cycle this run will give this repo? The lane cannot
+   *  know (drop-out is the ENGINE's decision), so the engine says. `true` — or any `"cycle"` lane —
+   *  rescans here; anything else defers and hands its cycle back for the run to settle. */
+  finalCycle?: boolean;
+}
+
+/**
+ * HOW OFTEN A RUN RESCANS.
+ *
+ * `"cycle"` — the default, and exactly what every run before this parameter existed did: each cycle
+ * that committed something rescans its worktree immediately and adjudicates its own batch.
+ *
+ * `"run"` — a multi-cycle run rescans ONCE, after the last cycle the repo actually progressed in (or
+ * on drop-out). Measured over 19 committed cycles: agent 1203 s, rescan 279 s, verify 53 s, land
+ * 11 s — 17% of every cycle spent on a five-minute full rescan whose only consumers are the NEXT
+ * cycle's batch and the attribution pair. The next cycle's batch does not need it: a claimed row is
+ * `in_progress`, so `openBatch` already excludes what this run took. And the attribution pair is
+ * BETTER for the deferral, not worse — the run's opening `beforeScanId` against the one final after
+ * is a real before/after spanning the whole run, instead of three pairs each straddling one cycle of
+ * scanner noise (the reflection measured adoption swinging ±7–17 on one-commit diffs, which produced
+ * a false `regressed` deliverable).
+ *
+ * WHAT IS UNCHANGED UNDER EITHER VALUE, deliberately: the guard never reads a scan, so verification
+ * is unaffected; `closedIds` and the commit trailers still resolve against a REAL scan of the tree
+ * the work landed in; and a lane that committed nothing still never rescans — the no-commit guard is
+ * upstream of this decision, not replaced by it.
+ */
+export type RescanCadence = "cycle" | "run";
+
+/**
+ * A committed cycle whose rescan was deferred — everything the run's single closing rescan needs to
+ * adjudicate it afterwards.
+ *
+ * It carries the lane's CLAIM (`claimedIds`) because ownership of those rows travels with it: the
+ * deferring lane deliberately does NOT release them (the closing rescan is what will adjudicate
+ * them), so whoever settles this entry is the one obliged to release them if no scan ever happens.
+ * A claim nobody adjudicates and nobody releases is the zombie that cost drive #1 a whole fleet pass.
+ */
+export interface DeferredCycle {
+  laneId: string;
+  cycle: number;
+  kind: LoopLaneKind;
+  /** The run's opening reading for this repo — the `before` end of the attribution pair. */
+  beforeScanId: string | null;
+  commits: number;
+  batch: FollowUpItem[];
+  claimedIds: string[];
+  agentClaims: AgentClaim[];
+  report: LaneReport | null;
+  briefedPlaybooks: { id: string; dimId: string }[];
+  practiceId: string | null;
 }
 
 export interface LaneRunResult {
@@ -231,6 +285,12 @@ export interface LaneRunResult {
   commits: number;
   closed: number;
   error: string | null;
+  /** Present ONLY under `"run"` cadence on a cycle that committed and did not rescan. The engine holds
+   *  it until the repo's last cycle (or its drop-out) and passes it to `settleDeferredCycles`. */
+  deferred?: DeferredCycle;
+  /** THE SCAN THIS LANE ACTUALLY TOOK, when it took one — so the engine can settle earlier deferred
+   *  cycles against it instead of paying for a second reading of the same tree. */
+  scan?: { scanId: string | null; closedIds: string[] };
 }
 
 /**
@@ -676,6 +736,9 @@ async function laneDeliverables(
 export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
   const deps: LaneDeps = { ...defaultLaneDeps, ...input.deps };
   const { runId, org, repo, cycle, worktree } = input;
+  // Normalized once. Anything but the explicit `"run"` is today's behaviour, so a caller that never
+  // heard of the parameter — the autopilot shim, a retry, every existing test — is unaffected.
+  const rescanCadence: RescanCadence = input.rescanCadence === "run" ? "run" : "cycle";
   // Under an `ab` policy the arm's model is part of the lane's IDENTITY: two arms of one repo in one
   // cycle are two rows, and without the discriminator the second would resolve to the first's row and
   // overwrite its branch, its cost and its result. A `single` run passes neither and behaves exactly
@@ -1161,6 +1224,35 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       return { laneId, progressed: false, commits, closed: 0, error: null };
     }
 
+    // ── THE RUN CADENCE. This cycle committed, and under `"run"` it is not the last one the run will
+    // give this repo — so the reading waits. Nothing is released and nothing is adjudicated here: the
+    // claim, the batch and the agent's account ride out on the `DeferredCycle` and the run's closing
+    // rescan settles all of them against ONE scan of the branch every cycle committed to.
+    if (rescanCadence === "run" && input.finalCycle !== true) {
+      const deferred: DeferredCycle = {
+        laneId,
+        cycle,
+        kind,
+        beforeScanId,
+        commits,
+        batch,
+        claimedIds: [...claimedIds],
+        agentClaims,
+        report,
+        briefedPlaybooks,
+        practiceId: input.practiceId ?? null,
+      };
+      // Ownership of the claim transfers with the entry — see `DeferredCycle`. Clearing it here is
+      // what stops this lane's own failure paths from releasing rows the settle step is now holding.
+      claimedIds = [];
+      await appendLaneLog(
+        laneId,
+        `Rescan deferred: this run rescans once, after the last cycle this repository progresses in — the trailers on ${worktree.branch} are adjudicated then, against one reading of everything that landed.`,
+      );
+      await updateLane(laneId, { phase: "done", commits, stage: null, endedAt: new Date() });
+      return { laneId, progressed: true, commits, closed: 0, error: null, deferred };
+    }
+
     await updateLane(laneId, { phase: "rescanning", commits });
     await appendLaneLog(laneId, "Rescanning the worktree from disk…");
     let closedIds: string[] = [];
@@ -1280,7 +1372,16 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         }
       }
     }
-    return { laneId, progressed: commits > 0 || closedIds.length > 0, commits, closed: closedIds.length, error: null };
+    return {
+      laneId,
+      progressed: commits > 0 || closedIds.length > 0,
+      commits,
+      closed: closedIds.length,
+      error: null,
+      // The reading this lane just took, handed up so the run's earlier deferred cycles are settled
+      // against it rather than against a second scan of the same tree.
+      ...(afterScanId ? { scan: { scanId: afterScanId, closedIds } } : {}),
+    };
   } catch (err) {
     // THE FORCE-FAIL. A cut lane takes the SAME exit as any other failed lane — the claim is
     // released, the row reaches a terminal phase with an honest error, and the worktree is removed by
@@ -1300,5 +1401,136 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
   } finally {
     // One timer, armed at the first stage; a finished cycle leaves nothing scheduled behind it.
     watch.dispose();
+  }
+}
+
+/**
+ * SETTLE THE CYCLES THAT DEFERRED THEIR RESCAN — the closing half of `"run"` cadence.
+ *
+ * Called by the engine at exactly one moment per repo: the point at which the run will give that
+ * repo no further cycle — its last cycle finished, or it dropped out. Two shapes, one path:
+ *
+ *   • the last cycle DID rescan (it committed and was told it was final) — its reading is passed in
+ *     as `scan` and no second scan is taken. This is the ordinary 3-cycle run: one rescan, at the end.
+ *   • the last cycle did not (it committed nothing, so the no-commit guard correctly refused) — the
+ *     branch still carries the EARLIER cycles' commits, so this takes the one reading they are owed.
+ *     "Nothing landed in this worktree" is what that guard is about, and it is not true here.
+ *
+ * Each deferred lane is then adjudicated against that one scan: its own batch's closed ids, its
+ * deliverables over the run's opening `beforeScanId` → this after (a real before/after spanning the
+ * whole run), its per-item outcomes, its lessons and its playbook stamps — the same tail a `"cycle"`
+ * lane runs for itself.
+ *
+ * NEVER THROWS. A failed or impossible scan releases every carried claim and says so on the lane,
+ * because the one thing worse than an unadjudicated cycle is an unadjudicated cycle still holding
+ * rows nobody will ever re-dispatch.
+ */
+export async function settleDeferredCycles(args: {
+  runId: string;
+  org: string;
+  repo: string;
+  worktree: LoopWorktree;
+  deferred: readonly DeferredCycle[];
+  deps?: Partial<LaneDeps>;
+  /** The final cycle's own reading, when it took one. Absent means this function takes it. */
+  scan?: { scanId: string | null; closedIds: readonly string[] } | null;
+}): Promise<void> {
+  if (args.deferred.length === 0) return;
+  const deps: LaneDeps = { ...defaultLaneDeps, ...args.deps };
+  const { org, repo, worktree } = args;
+  const last = args.deferred[args.deferred.length - 1]!;
+
+  let scanId = args.scan?.scanId ?? null;
+  let closedIds: string[] = [...(args.scan?.closedIds ?? [])];
+  if (!args.scan) {
+    try {
+      await updateLane(last.laneId, { phase: "rescanning" });
+      await appendLaneLog(last.laneId, `Rescanning ${worktree.branch} once for the whole run — ${args.deferred.length} deferred cycle(s).`);
+      const out = await deps.rescan({
+        org,
+        repo,
+        dir: worktree.dir,
+        branch: worktree.branch,
+        onStage: (stage) => void updateLane(last.laneId, { stage }),
+      });
+      scanId = out.scanId;
+      closedIds = out.closedIds;
+    } catch (err) {
+      await appendLaneLog(last.laneId, `The run's closing rescan failed: ${firstLine(err instanceof Error ? err.message : String(err))}`);
+    }
+  }
+
+  if (scanId == null) {
+    for (const d of args.deferred) {
+      if (d.claimedIds.length > 0) {
+        await releaseFollowups(d.claimedIds, `the run's closing rescan never produced a reading, so nothing adjudicated cycle ${d.cycle}'s claim`, LANE_ACTOR).catch(() => 0);
+      }
+      await updateLane(d.laneId, { phase: "done", stage: null, endedAt: new Date() });
+      await appendLaneLog(d.laneId, "No closing rescan, so this cycle's batch was released rather than left claimed by nobody. Its commits are on the branch and unadjudicated.");
+    }
+    return;
+  }
+
+  for (const d of args.deferred) {
+    const mine = d.batch.map((b) => b.id).filter((id) => closedIds.includes(id));
+    const deliverables = await laneDeliverables(deps, {
+      org,
+      repo,
+      kind: d.kind,
+      beforeScanId: d.beforeScanId,
+      afterScanId: scanId,
+      commits: d.commits,
+      closedIds: mine,
+      agentClaims: d.agentClaims,
+      practiceName: d.practiceId ? d.practiceId.replace(/[-_]+/g, " ") : null,
+      cwd: worktree.dir,
+      onBase: (rel) => {
+        if (rel === "diverged") void appendLaneLog(d.laneId, BASE_DIVERGED_NOTE).catch(() => null);
+      },
+    });
+    await updateLane(d.laneId, {
+      phase: "done",
+      closedIds: mine,
+      afterScanId: scanId,
+      stage: null,
+      endedAt: new Date(),
+      ...(deliverables ? { deliverables } : {}),
+    });
+    await appendLaneLog(
+      d.laneId,
+      mine.length > 0
+        ? `${mine.length} follow-up(s) VERIFIED closed by the run's closing rescan — the gap is no longer raised and its dimension moved.`
+        : "The run's closing rescan confirmed none of this cycle's items.",
+    );
+    if (d.kind === "backlog" && d.batch.length > 0) {
+      await recordLaneOutcomes({
+        orgSlug: org,
+        runId: args.runId,
+        laneId: d.laneId,
+        repoFullName: repo,
+        cycle: d.cycle,
+        batchIds: d.batch.map((b) => b.id),
+        closedIds: mine,
+        report: d.report,
+      }).catch(() => []);
+      if (d.report && d.report.lessons.length > 0) {
+        await recordLoopLessons(org, repo, d.laneId, d.report.lessons).catch(() => []);
+      }
+      const closedDims = new Set(d.batch.filter((b) => mine.includes(b.id)).map((b) => b.dimId));
+      const earned = d.briefedPlaybooks.filter((p) => closedDims.has(p.dimId)).map((p) => p.id);
+      if (earned.length > 0) await stampPlaybookApplications(org, repo, earned).catch(() => 0);
+    }
+  }
+}
+
+/**
+ * The run ended (or was stopped) with cycles still deferred and no reading possible — give the rows
+ * back. Deliberately NOT a rescan: a stop that then spends five minutes scanning is not a stop, and
+ * the commits are safe on the branch either way. What is not safe is a claim nobody will settle.
+ */
+export async function abandonDeferredCycles(deferred: readonly DeferredCycle[], why: string): Promise<void> {
+  for (const d of deferred) {
+    if (d.claimedIds.length > 0) await releaseFollowups(d.claimedIds, why, LANE_ACTOR).catch(() => 0);
+    await appendLaneLog(d.laneId, `This cycle's rescan was deferred and the run ended before it could be taken — ${why}. Its batch is released; its commits are on the branch, unadjudicated.`).catch(() => null);
   }
 }

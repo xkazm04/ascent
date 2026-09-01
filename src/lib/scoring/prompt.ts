@@ -325,6 +325,22 @@ dependency-freshness SLO rather than another audit; design/API ergonomics judged
 the right call is to the next reader. Stay evidence-grounded and invitational — a craft entry at
 ${GREEN_MIN_SCORE}+ is an invitation to go further, never a fault found.
 
+THE CODE ITSELF IS CRAFT (axis "code-health"). Craft is not only gates ABOUT the code. Whenever any
+dimension sits at or above ${GREEN_MIN_SCORE}, AT LEAST ONE craft entry in this roadmap must carry
+"craftAxis":"code-health" and must name something in the SOURCE, not a check around it:
+  - a module duplicated two or three ways, where one of them is the one everything should call;
+  - a hot path that allocates, re-reads or re-parses on every request;
+  - a file that has become a dumping ground — many unrelated responsibilities in one place;
+  - a dependency whose whole use in this repository would fit in a small function;
+  - code no caller reaches any more.
+Ground it in the SAME concrete file evidence every other entry carries: name the paths and say what
+in them you read. State it as an OBSERVATION, never an order — "\`a.ts\` and \`b.ts\` each derive the
+same delta, and callers pick one at random", not "deduplicate the delta helpers". The artefact such a
+rung leaves behind is SMALLER CODE — fewer lines, fewer files, one path where there were two. A rung
+whose only artefact is another gate, budget, drill or document is NOT a code-health rung; file that
+one under the axis it really belongs to. If nothing in the sampled evidence supports such an
+observation, say nothing rather than invent one — a fabricated duplication is worse than a missing rung.
+
 IMPORTANT — Ascent is a transition COMPANION, not a boss. The roadmap surfaces *gaps in the
 level of trust* (how much the team can trust AI in its workflow) as things to EXPLORE, never as
 orders. For each entry: "title" names the gap as an observation (e.g. "Agent guidance is thin —

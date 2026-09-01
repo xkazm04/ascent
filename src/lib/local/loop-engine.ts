@@ -54,7 +54,15 @@ import { deliverLane } from "@/lib/local/loop-delivery";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { recordAudit } from "@/lib/db/scans-audit";
 import { BACKLOG_LANE, type LaneKindProposal } from "@/lib/local/lane-kind";
-import { defaultLaneDeps, runLane, type LaneDeps } from "@/lib/local/loop-lane";
+import {
+  abandonDeferredCycles,
+  defaultLaneDeps,
+  runLane,
+  settleDeferredCycles,
+  type DeferredCycle,
+  type LaneDeps,
+  type RescanCadence,
+} from "@/lib/local/loop-lane";
 // A STOP WITH TEETH. The flag alone is a cooperative signal a wedged lane never reads; these are the
 // grace it is given and the watchdog handle that ends it when it does not take.
 import { LANE_STOP_GRACE_MS, LANE_STOP_TERMINAL_MS, type LaneWatchdog } from "@/lib/local/lane-watchdog";
@@ -131,6 +139,15 @@ export interface StartLoopRunInput {
    *  `on`, which is the guard's default posture. */
   verifyMode?: VerifyMode | null;
   verifyTimeoutMs?: number | null;
+  /** HOW OFTEN THIS RUN RESCANS — `"cycle"` (the default, and byte-identical to every run before the
+   *  parameter existed) or `"run"`, which rescans ONCE after the last cycle a repo progressed in.
+   *  DEFAULTED TO TODAY ON PURPOSE: deferring the reading changes what a lane row carries while the
+   *  run is still in flight (an intermediate cycle's `afterScanId`/`closedIds` arrive at the end
+   *  rather than at its own close), so a default-parameter run would NOT be byte-identical and the
+   *  brief's own rule says the new cadence must be opted into. See `RescanCadence` in loop-lane.ts.
+   *  Held on the run's input rather than persisted on the row: a retry re-runs one lane in isolation,
+   *  where there is no "rest of the run" to defer to, so a retry is always `"cycle"`. */
+  rescanCadence?: RescanCadence | null;
   /** Test seam + the autopilot shim's legacy branch naming. */
   deps?: Partial<LaneDeps>;
   branchFor?: (repo: string, stamp: string) => string;
@@ -512,6 +529,13 @@ async function drive(
   // drops out — the autopilot's early-stop rule, applied per lane instead of per run, so one stalled
   // repo no longer ends the whole fleet's pass.
   let activeTargets = targets;
+  // THE RUN CADENCE (reflection 2026-09-01, item 7). `"cycle"` unless the run asked otherwise, which
+  // is exactly what every run before this parameter did.
+  const cadence: RescanCadence = input.rescanCadence === "run" ? "run" : "cycle";
+  // COMMITTED CYCLES WHOSE READING IS STILL OWED, keyed by the same `<repo>[#arm]` the worktree is —
+  // because the reading is of that worktree's branch. Declared outside the try so the `finally` can
+  // give their claims back if the run ends without ever settling them.
+  const pending = new Map<string, DeferredCycle[]>();
   try {
     for (let cycle = 1; cycle <= run.maxCycles; cycle += 1) {
       if (state.stopRequested || activeTargets.length === 0) break;
@@ -583,6 +607,12 @@ async function drive(
           batchSize: run.batchSize,
           verify: { enabled: verifyModeOf(run.verifyMode) === "on", timeoutMs: run.verifyTimeoutMs },
           abPairKey: arm ? abPairKeyFor(run.id, t.repo, cycle) : null,
+          // WHEN THIS LANE RESCANS. Under `"run"` only the run's LAST cycle takes the reading; the
+          // earlier ones hand their cycle back and the settle below adjudicates all of them against
+          // it. The lane cannot decide this itself — whether a repo gets another cycle is this
+          // loop's judgment (the drop-out rule), not the lane's.
+          rescanCadence: cadence,
+          finalCycle: cycle >= run.maxCycles,
           // THE DRY-LANE PERMIT (see `DryLaneRefresh`). Only the driver can hand this over: it is the
           // only place that holds a pairing verified at arm time, the run's start, and the per-run
           // memo that keeps the refresh to one scan per repo. A lane WITH work never reads it.
@@ -600,6 +630,28 @@ async function drive(
         // The lane is over (`runLane` never throws — every outcome, including a force-fail, comes
         // back as lane data), so its watchdog is no longer something a stop needs to bite.
         state.lanes.delete(laneKey);
+        // ── THE DEFERRED READING, held or settled. A cycle that deferred joins the queue for this
+        // worktree. ANY other outcome — it rescanned, it committed nothing, it failed — is the last
+        // cycle this repo gets or the last one that could have read the tree, so the queue is
+        // settled here: against this lane's own scan when it took one, and otherwise with the single
+        // reading the earlier cycles' commits are owed. Under `"cycle"` neither branch ever runs.
+        if (res.deferred) {
+          pending.set(wtKey, [...(pending.get(wtKey) ?? []), res.deferred]);
+        } else {
+          const owed = pending.get(wtKey) ?? [];
+          if (owed.length > 0) {
+            pending.delete(wtKey);
+            await settleDeferredCycles({
+              runId: run.id,
+              org: state.orgSlug,
+              repo: t.repo,
+              worktree: wt,
+              deferred: owed,
+              deps: input.deps,
+              scan: res.scan ?? null,
+            }).catch(() => undefined);
+          }
+        }
         // DELIVERY, after the cycle and never instead of it. Under `branch` (the default) this returns
         // without reading a thing, so the loop behaves exactly as it did before delivery existed.
         // Under `land`/`pr` a refusal is logged on the lane and the run carries on: the work is
@@ -633,6 +685,12 @@ async function drive(
       await updateLoopRun(run.id, { phase: state.stopRequested ? "stopped" : "done", endedAt: new Date() });
     }
   } finally {
+    // A run that ended — normally, stopped or in error — with cycles still owed a reading gives their
+    // rows back rather than taking a five-minute scan on the way out. See `abandonDeferredCycles`.
+    for (const owed of pending.values()) {
+      await abandonDeferredCycles(owed, "the run ended before its closing rescan").catch(() => undefined);
+    }
+    pending.clear();
     clearStopTeeth(state);
     for (const wt of state.worktrees.values()) {
       forgetVerifyBaseline(wt.dir);
