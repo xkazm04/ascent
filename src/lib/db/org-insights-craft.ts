@@ -28,6 +28,11 @@ import { normalizeRecTitle } from "@/lib/report/compare";
 /** How many craft rungs the prompt's CRAFT ALREADY BUILT block is fed. Newest first. */
 const CRAFT_BUILT_LIMIT = 12;
 
+/** How many recent per-item outcomes the claimed-rung read looks back over. A bound, not a policy: a
+ *  lane writes one row per dispatched item, so this is roughly the last hundred dispatches — far more
+ *  than the twelve titles the block can print, and cheap. */
+const CLAIMED_OUTCOME_SCAN = 500;
+
 /** Statuses that mean a craft rung was BUILT. The same vocabulary gaps use, adjudicated by the same
  *  machinery (the `Ascent-Resolves:` trailer via scans-persist) — a craft row is not a second
  *  lifecycle, only a second KIND. */
@@ -160,9 +165,26 @@ export async function getCraftLedger(orgSlug: string, repoFullName: string): Pro
 /**
  * The rungs already built, newest first — the prompt's CRAFT ALREADY BUILT block.
  *
- * Deliberately the SAME read that `getCraftLedger` counts, so the model is never shown a ladder the
- * odometer disagrees with. Threaded into `LlmScoreInput.craftBuilt` by scan-score-input.ts, exactly
- * beside `orgDecisions`, and rendered into the per-repo USER message (never the cached SYSTEM prefix).
+ * IT IS DELIBERATELY WIDER THAN THE ODOMETER (2026-09-01), and this is the one place the two reads
+ * diverge. `getCraftLedger` counts only `done`, because a number that only ever increases must not
+ * count a rung nothing adjudicated. This read also includes a rung an agent CLAIMED — a craft row
+ * still `in_progress` whose id a lane recorded a `resolved` outcome for — because the two reads answer
+ * different questions and the errors cost different amounts:
+ *
+ *   • the ledger asks "how far has this repository climbed?", where counting an unbuilt rung inflates
+ *     a permanent number;
+ *   • this read asks "what should the model NOT propose again?", where OMITTING a built rung is the
+ *     expensive mistake. It was measured: 2757 `in_progress` craft rows over 186 titles, one title
+ *     re-raised 61 times, and 37 of 136 campaign-5 agent verdicts opening with "Already covered" —
+ *     the loop spending sessions to be told it had already done the work
+ *     (docs/harness/reflection-2026-09-01.md, finding 5).
+ *
+ * A claimed-but-unbuilt rung shown here costs one un-proposed rung out of an unbounded supply; the
+ * next scan simply proposes the rung above it. Deduped, like the ledger, on the recommendation's
+ * stable identity (`dimId` + normalized title), so the 61 copies of one title collapse to one line.
+ *
+ * Threaded into `LlmScoreInput.craftBuilt` by scan-score-input.ts, exactly beside `orgDecisions`, and
+ * rendered into the per-repo USER message (never the cached SYSTEM prefix).
  */
 export async function getCraftBuilt(
   orgSlug: string,
@@ -172,14 +194,16 @@ export async function getCraftBuilt(
   if (!isDbConfigured()) return [];
   const repo = await repoOf(orgSlug, repoFullName);
   if (!repo) return [];
-  const rows = await getPrisma().recommendation.findMany({
+  const prisma = getPrisma();
+  const rows = await prisma.recommendation.findMany({
     where: { scan: { repoId: repo.id }, kind: "craft", status: BUILT },
     orderBy: { createdAt: "desc" },
     select: { dimId: true, title: true, craftAxis: true },
   });
+  const claimed = await claimedCraftRows(prisma, repo.id, repoFullName);
   const seen = new Set<string>();
   const out: CraftBuiltEntry[] = [];
-  for (const r of rows) {
+  for (const r of [...rows, ...claimed]) {
     const key = `${r.dimId}::${normalizeRecTitle(r.title)}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -187,4 +211,36 @@ export async function getCraftBuilt(
     if (out.length >= limit) break;
   }
   return out;
+}
+
+/**
+ * Craft rows a lane recorded a `resolved` outcome for and that never reached `done` — the claimed
+ * pile `getCraftBuilt` reads and `getCraftLedger` does not. Best-effort: this read is an improvement
+ * on the built list, so a failure returns nothing rather than costing the caller the `done` rows.
+ *
+ * Bounded to the outcomes of THIS repository (`LaneItemOutcome.repoFullName`) and then to craft rows
+ * on this repository's own scans, so neither side can reach across a repo or a tenant.
+ */
+async function claimedCraftRows(
+  prisma: ReturnType<typeof getPrisma>,
+  repoId: string,
+  repoFullName: string,
+): Promise<{ dimId: string; title: string; craftAxis: string | null }[]> {
+  try {
+    const outcomes = await prisma.laneItemOutcome.findMany({
+      where: { repoFullName, verdict: "resolved" },
+      orderBy: { createdAt: "desc" },
+      select: { recommendationId: true },
+      take: CLAIMED_OUTCOME_SCAN,
+    });
+    const ids = [...new Set(outcomes.map((o) => o.recommendationId))];
+    if (ids.length === 0) return [];
+    return await prisma.recommendation.findMany({
+      where: { id: { in: ids }, kind: "craft", scan: { repoId } },
+      orderBy: { createdAt: "desc" },
+      select: { dimId: true, title: true, craftAxis: true },
+    });
+  } catch {
+    return [];
+  }
 }
