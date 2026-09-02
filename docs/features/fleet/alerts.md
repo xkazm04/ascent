@@ -261,8 +261,11 @@ silent rather than training the inbox filter.
   hedged" below), and, for metered, non-public orgs
   running low, the remaining credit balance. The week is derived from the shared
   `weekRangeParams()`/`resolveWindow()` period helper (a custom range snapped to local
-  calendar days) so the digest's window matches the linked executive briefing
-  (`?range=custom&from=&to=`) exactly.
+  calendar days). **The message links to the Weekly digest tab** (`?tab=digest`, see
+  [plan.md](../org-planning/plan.md#weekly-digest-tabdigest-bought)), whose window is fixed at
+  that same trailing week, so the push and the page it opens cannot disagree about the period;
+  the goal-at-risk / spend pushes below still deep-link the executive briefing with
+  `?range=custom&from=&to=` because that page's window is selectable.
 - **Movement gate:** `digestHasSignal()` (`src/lib/alerts.ts`) decides whether the week is
   worth sending at all: a level change, a beyond-noise regression, a beyond-noise gainer, a
   non-zero overall delta, a low credit balance, a control that failed (`controlsFailed > 0`),
