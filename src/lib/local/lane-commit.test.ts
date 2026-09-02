@@ -177,10 +177,11 @@ describe("the pure pieces", () => {
 
   it("bounds the subject and never emits a second line", () => {
     const long = `RESOLVED: a - Added ${"x".repeat(200)}`;
-    expect(laneCommitSubject(long, 2).length).toBeLessThanOrEqual(72);
-    expect(laneCommitSubject("# Added a CI workflow", 1)).toBe("fix: Added a CI workflow");
-    expect(laneCommitSubject("ci: add the workflow", 1)).toBe("ci: add the workflow");
-    expect(laneCommitSubject("", 2)).toBe("fix: apply the changes for 2 Ascent follow-ups");
+    expect(laneCommitSubject(long, [{ title: "a" }, { title: "b" }]).length).toBeLessThanOrEqual(72);
+    expect(laneCommitSubject("# Added a CI workflow", [{ title: "Add a CI workflow" }])).toBe("fix: Added a CI workflow");
+    expect(laneCommitSubject("ci: add the workflow", [{ title: "Add a CI workflow" }])).toBe("ci: add the workflow");
+    expect(laneCommitSubject("", [{ title: "Pin actions to a SHA" }, { title: "b" }])).toBe("fix: partial work on pin actions to a SHA");
+    expect(laneCommitSubject("", [])).toBe("fix: apply the session's uncommitted changes");
   });
 
   // THE SUBJECT IS THE RESOLVED HEADLINE. The brief already constrains it (≤ 8 words, verb-first,
@@ -194,16 +195,17 @@ describe("the pure pieces", () => {
       "RESOLVED: rec-42 - Added permissions scope to 3 workflows",
       "SKIPPED: rec-43 - needs network",
     ].join("\n");
-    expect(laneCommitSubject(summary, 2)).toBe("fix: Added permissions scope to 3 workflows");
+    expect(laneCommitSubject(summary, [{ title: "a" }, { title: "b" }])).toBe("fix: Added permissions scope to 3 workflows");
   });
 
   it("skips a RESOLVED headline that is itself prose, and falls back only to a deliverable-shaped line", () => {
     // A headline that is two sentences and first-person is not a subject; the next usable line is.
     const summary = ["RESOLVED: rec-1 - Done. I think this is right", "Removed the duplicated retry helper"].join("\n");
-    expect(laneCommitSubject(summary, 1)).toBe("fix: Removed the duplicated retry helper");
+    expect(laneCommitSubject(summary, [{ title: "a" }])).toBe("fix: Removed the duplicated retry helper");
     // Nothing deliverable-shaped anywhere → a generated subject, never a sentence of the summary.
-    expect(laneCommitSubject("All work is in the tree", 1)).toBe("fix: apply the changes for 1 Ascent follow-up");
-    expect(laneCommitSubject("Here's what I found and did", 4)).toBe("fix: apply the changes for 4 Ascent follow-ups");
+    // Nothing deliverable-shaped anywhere → the armed work names the commit, never a count of claims.
+    expect(laneCommitSubject("All work is in the tree", [{ title: "Add a SECURITY.md" }])).toBe("fix: partial work on add a SECURITY.md");
+    expect(laneCommitSubject("Here's what I found and did", [{ id: "x" }])).toBe("fix: apply the session's uncommitted changes");
   });
 
   // PRIYA-L2-C7: a timed-out session's error text titled a 1605-insertion commit.
@@ -211,8 +213,8 @@ describe("the pure pieces", () => {
     const timedOut = "Agent session exceeded 20 min and was stopped";
     // Not even without the flag: the runner's failure text is prose, and prose is no longer a
     // candidate for a subject at all.
-    expect(laneCommitSubject(timedOut, 3)).toBe("fix: apply the changes for 3 Ascent follow-ups");
-    expect(laneCommitSubject(timedOut, 3, true)).toBe(INTERRUPTED_SUBJECT);
+    expect(laneCommitSubject(timedOut, [{ title: "a" }, { title: "b" }, { title: "c" }])).toBe("fix: partial work on a");
+    expect(laneCommitSubject(timedOut, [{ title: "a" }], true)).toBe(INTERRUPTED_SUBJECT);
     expect(INTERRUPTED_SUBJECT.length).toBeLessThanOrEqual(72);
     // And it names the TREE, not the run: "partial work from an interrupted session" is exactly the
     // shape a "name the change" hook rejects, and it was the subject on the discarded kp lanes.

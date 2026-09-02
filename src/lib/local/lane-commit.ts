@@ -52,7 +52,7 @@ export interface LaneCommitInput {
   cycle: number;
   /** Every item this lane ARMED. `trailerIds` narrows these to the ones the session actually
    *  claimed — an armed id is not itself a claim. */
-  batch: readonly { id: string }[];
+  batch: readonly { id: string; title?: string }[];
   /** The agent session's own final text — the subject, the body, and the RESOLVED/SKIPPED claims. */
   summary: string;
   /**
@@ -227,7 +227,21 @@ export const INTERRUPTED_SUBJECT = "chore: keep the tree a halted lane session l
  * ladder is: the first usable `RESOLVED:` headline → the first deliverable-shaped line → a generated
  * line. Never a sentence of the session's closing prose.
  */
-export function laneCommitSubject(summary: string, items: number, sessionFailed = false): string {
+/**
+ * THE LAST RESORT NAMES THE WORK, NEVER A COUNT. A session that ends in prose with no RESOLVED line
+ * claims nothing, so a subject built from its claims read "apply the changes for 0 Ascent follow-ups"
+ * — and that line reached systedo-case's master (49241ef3). The armed batch is what the session was
+ * asked to do; its first title is the honest name for whatever partial work the tree holds.
+ */
+function lastResortSubject(batch: readonly { title?: string }[]): string {
+  for (const item of batch) {
+    const title = cleanSubjectText(item.title ?? "");
+    if (title) return `fix: partial work on ${title.charAt(0).toLowerCase()}${title.slice(1)}`;
+  }
+  return "fix: apply the session's uncommitted changes";
+}
+
+export function laneCommitSubject(summary: string, batch: readonly { title?: string }[], sessionFailed = false): string {
   if (sessionFailed) return INTERRUPTED_SUBJECT;
   const text = summary ?? "";
   let picked = "";
@@ -256,7 +270,7 @@ export function laneCommitSubject(summary: string, items: number, sessionFailed 
     ? CONVENTIONAL.test(picked)
       ? picked
       : `fix: ${picked}`
-    : `fix: apply the changes for ${items} Ascent follow-up${items === 1 ? "" : "s"}`;
+    : lastResortSubject(batch);
   if (body.length <= SUBJECT_MAX) return body;
   const cut = body.slice(0, SUBJECT_MAX);
   const space = cut.lastIndexOf(" ");
@@ -293,7 +307,7 @@ const WHY_THE_LANE_COMMITTED = [
 
 /** The full message. Split out so a test can pin the trailer format against the real parser. */
 export function buildCommitMessage(input: LaneCommitInput, ids: readonly string[], claims: AgentClaims): { subject: string; body: string } {
-  const subject = laneCommitSubject(input.summary, ids.length, input.sessionFailed === true);
+  const subject = laneCommitSubject(input.summary, input.batch, input.sessionFailed === true);
   // The agent's own words, minus any trailer line it wrote: this message's trailers are the lane's
   // statement about the ids it armed, and a session must not be able to smuggle another row's id in
   // through prose the lane pastes verbatim.
