@@ -33,3 +33,25 @@ skills:
   - spark
   - tiger
   - uat
+
+# Scope - what this project does and deliberately does not do. Read by the registry's
+# scripts/build-fleet-map.mjs to classify subjects this project has NO context for: an
+# absence inside an out-of-scope category or subject is never proposed as a new direction;
+# every other in-domain absence is a `candidate` for the intake direction pass. Keys are
+# `<bundle>/<category>[/<subcategory>]` and `<bundle>/<subject>`. Decisions on proposed
+# directions live in .ai/directions/ledger.jsonl. DRAFT written by the registry on
+# 2026-09-02 from the purpose line and the project note - the owner edits this block, the
+# registry only reads it.
+scope:
+  does:
+    - the maturity index for AI-native engineering: scores repositories and manifests, consumes the registry index
+  does_not:
+    - agent runtime or companions
+    - product UI beyond the index's own surfaces
+    - media, civic, recruiting domains
+  out_of_scope_categories:
+    - software-engineering/llm-agent/companion
+    - software-engineering/llm-agent/runtime-and-io
+    - software-engineering/ui-surfaces/input-and-editing
+  out_of_scope_subjects:
+  directions_ledger: .ai/directions/ledger.jsonl
