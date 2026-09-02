@@ -21,7 +21,7 @@
 import { NextResponse } from "next/server";
 import { Webhooks } from "@polar-sh/nextjs";
 import { clawbackOrderRefund, getCreditState, grantCredits, setOrgPlan } from "@/lib/db";
-import { creditsForProduct, planForProduct } from "@/lib/polar";
+import { creditsForProduct, getPolar, planForProduct } from "@/lib/polar";
 import { PLAN_ORDER, type PlanId } from "@/lib/plans";
 
 export const runtime = "nodejs";
@@ -81,6 +81,32 @@ function subscriptionEntitlesTier(
   if (!sub) return true; // one-time / legacy order with no subscription — can't prove it's lapsed
   if (sub.endedAt) return false; // already ended
   return ENTITLING_SUB_STATUSES.has(String(sub.status ?? ""));
+}
+
+/**
+ * The subscription state the tier is fenced against. The `subscription` embedded in an order payload is
+ * the SNAPSHOT Polar took when it BUILT the event, and a redelivery re-sends that same snapshot — so a
+ * renewal `order.paid` replayed after `subscription.revoked` still says "active", and neither delivery
+ * order nor event timestamps can tell the replay from a fresh renewal (Polar does not guarantee order).
+ * The event is therefore only a TRIGGER: when a Polar client is configured we fetch the subscription's
+ * CURRENT object and fence against that. A fetch failure THROWS so Polar retries — the tier is asserted
+ * only from a state we could read, never from the snapshot as a fallback, because the fallback is exactly
+ * the stale-active case. With no access token (webhook-only deployment) the snapshot is all there is.
+ */
+async function currentSubscription(order: {
+  id: string;
+  subscriptionId?: string | null;
+  subscription?: { status?: string | null; endedAt?: Date | null } | null;
+}): Promise<{ status?: string | null; endedAt?: Date | null } | null> {
+  if (!order.subscriptionId) return order.subscription ?? null;
+  const polar = getPolar();
+  if (!polar) return order.subscription ?? null;
+  try {
+    return await polar.subscriptions.get({ id: order.subscriptionId });
+  } catch (err) {
+    const why = err instanceof Error ? err.message : String(err);
+    throw new Error(`[billing/webhook] order ${order.id}: could not read subscription ${order.subscriptionId} from Polar (${why}) — tier not applied, will retry`);
+  }
 }
 
 /**
@@ -162,17 +188,16 @@ export const POST = secret
           // STALE-PAID FENCE: webhooks retry and can arrive OUT OF ORDER, so an old renewal `order.paid`
           // can be (re)delivered AFTER the subscription was cancelled/revoked. Applying the tier from it
           // would RESURRECT a plan the customer no longer pays for — the mirror of the money leak this
-          // whole file guards. Reconcile against the subscription state carried IN THIS SAME order: only
-          // assert the tier when the order's subscription is still entitling (active / trialing / past_due,
-          // not ended). A one-time order (no subscription) has nothing to reconcile against and applies as
-          // before. LIMITATION: this catches an event whose OWN payload shows the sub already lapsed; a
-          // redelivery carrying a stale *active* snapshot would still pass — a fully durable fence needs a
-          // persisted per-subscription "revoked at" marker (a schema change, out of scope here). The
-          // revoke/refund handlers below are the authoritative downgrade and setOrgPlan(free) is
-          // idempotent, so at worst a late re-grant is re-corrected by the next lifecycle event.
-          if (!subscriptionEntitlesTier(order.subscription)) {
+          // whole file guards. Reconcile against the subscription's CURRENT state (fetched from Polar; the
+          // payload's own snapshot only when no client is configured — see currentSubscription): only assert
+          // the tier when the subscription is still entitling (active / trialing / past_due, not ended). A
+          // one-time order (no subscription) has nothing to reconcile against and applies as before. The
+          // revoke/refund handlers below remain the authoritative downgrade and setOrgPlan(free) is
+          // idempotent, so both paths converge on the provider's state from either direction.
+          const sub = await currentSubscription(order);
+          if (!subscriptionEntitlesTier(sub)) {
             console.warn(
-              `[billing/webhook] order ${order.id}: subscription ${order.subscription?.status ?? "?"} is not entitling — NOT applying tier ${plan} (stale / out-of-order paid)`,
+              `[billing/webhook] order ${order.id}: subscription ${sub?.status ?? "?"} is not entitling — NOT applying tier ${plan} (stale / out-of-order paid)`,
             );
           } else {
             const ok = await setOrgPlan(org, plan);
