@@ -16,7 +16,7 @@
 // row still closes only when the next scan says the dimension moved.
 
 import { runGit } from "@/lib/local/git";
-import { LocalFsSource } from "@/lib/local/source";
+import { LocalFsSource, isWorkingCopyDirty } from "@/lib/local/source";
 import { runClaudeAgent } from "@/lib/local/agent";
 import { buildFixPrompt, type FollowUpItem } from "@/lib/org/followups";
 import { getOrgBacklog } from "@/lib/db/org-insights";
@@ -42,6 +42,18 @@ import { deriveLaneDeliverables, parseClaimLines, type AgentClaim } from "@/lib/
 import { proposeLaneKind } from "@/lib/local/lane-kind";
 import { gapSlotsAtGreen, isReservationGreen, reserveCraftSlots } from "@/lib/local/lane-reservation";
 import { batchSizeOf, verifyTimeoutMsOf } from "@/lib/local/run-limits";
+// THE LIVENESS CEILING. Every awaited stage below runs inside a race against ONE deadline derived
+// from this run's own parameters, so an inner call that never settles orphans itself instead of
+// parking the org's run slot. See lane-watchdog.ts for the derivation and for the two campaigns that
+// died without it.
+import {
+  agentTimeoutMs,
+  createLaneWatchdog,
+  isLaneDeadlineError,
+  laneDeadlineMs,
+  LANE_STAGE_LABEL,
+  type LaneWatchdog,
+} from "@/lib/local/lane-watchdog";
 // THE A/B DEGRADATION GUARD. `verifyBaseline` measures the pristine worktree once per worktree and
 // caches it; `verifyResult` re-runs the same command after the session, decides one of four verdicts,
 // and — on `rejected` only — discards the edits IN THE THROWAWAY WORKTREE before this module gets as
@@ -96,6 +108,19 @@ export interface LaneDeps {
     branch: string;
     onStage: (stage: string) => void;
   }) => Promise<{ scanId: string | null; closedIds: string[]; claimedIds?: string[] }>;
+  /** THE DRY-LANE RECOVERY. Scan the PAIRED CHECKOUT (not the worktree) and persist it, so a repo
+   *  with no recorded work left gets a fresh roadmap. Same pipeline as the manual local rescan route
+   *  — see `refreshPairedCheckout`. A separate seam from `rescan` on purpose: the two answer different
+   *  questions about different trees, and a test must be able to prove the ordinary path never calls
+   *  this one. */
+  refreshCheckout: (args: {
+    org: string;
+    repo: string;
+    dir: string;
+    onStage: (stage: string) => void;
+  }) => Promise<{ scanId: string | null }>;
+  /** When this repo's latest persisted scan was taken — the freshness gate on that refresh. */
+  latestScanAt: (org: string, repo: string) => Promise<Date | null>;
   /** The repo's open follow-ups, biggest projected gain first, capped at `limit`. */
   /** The lane's before/after pair, as the ledger will read it — for the deliverable headlines. */
   loadPair: (args: { orgSlug: string; repoFullName: string; beforeScanId: string | null; afterScanId: string | null }) => Promise<{
@@ -129,6 +154,11 @@ export const defaultLaneDeps: LaneDeps = {
   commitWork: commitAgentWork,
   laneKind: proposeLaneKind,
   rescan: rescanWorktree,
+  refreshCheckout: refreshPairedCheckout,
+  // Lazy for the same reason as `loadPair` below, and for one more: a dry lane is the ONLY caller, so
+  // resolving this at module load would make every lane test that mocks the loop-runs barrel declare
+  // an export it never exercises.
+  latestScanAt: async (org, repo) => (await import("@/lib/db/loop-runs-read")).getLatestScanAtForRepo(org, repo),
   openBatch,
   // Lazy on purpose: the read module reaches for the db client, and the lane's unit tests mock the
   // loop-runs barrel without it. A missing default here is a skipped headline, never a failed lane.
@@ -180,6 +210,18 @@ export interface LaneRunInput {
   /** Joins the two arms of one `ab` pair (MOONSHOT #27); null/absent on a `single` run. Stamped on
    *  the row so the price list can tell two arms of one experiment from two unrelated lanes. */
   abPairKey?: string | null;
+  /** THE WATCHDOG HANDLE, handed back the moment the lane derives its deadline — so the engine can
+   *  force-fail this cycle when the run is stopped and the lane is inside a call that will not
+   *  return. Absent (the autopilot shim, a retry, every test that does not care) simply means nobody
+   *  is watching from outside; the lane's own deadline is unaffected. */
+  onWatchdog?: (watchdog: LaneWatchdog) => void;
+  /** TEST SEAM ONLY. Production never passes one: the lane derives its own ceiling from the run's
+   *  parameters (`laneDeadlineMs`), which is the property the derivation test pins. */
+  watchdog?: LaneWatchdog;
+  /** THE DRY-LANE PERMIT. Present only when the engine has a verified pairing for this repo and the
+   *  run has not spent this repo's one refresh yet — see `DryLaneRefresh`. Absent means a lane that
+   *  finds no work behaves exactly as it always did: log and end. */
+  refresh?: DryLaneRefresh | null;
 }
 
 export interface LaneRunResult {
@@ -384,18 +426,29 @@ async function craftBatch(
 }
 
 /**
- * Scan a worktree from disk and persist it under the org.
+ * Scan a tree from disk and persist it under the org — ONE pipeline, two trees.
  *
  * `onStage` forwards the scan's own progress stages (fetch → compose) so a long rescan reads as
  * something happening rather than a stuck "rescanning" pill — the same stage vocabulary the fleet
  * SSE now emits (src/app/api/org/scan/route.ts).
+ *
+ * `origin` says WHICH tree `dir` is, and changes nothing but the caveat the report carries:
+ *
+ *   • `worktree` (the default) — the lane's own throwaway checkout, after its commits landed. This is
+ *     the reading the cycle is adjudicated against.
+ *   • `checkout` — the operator's PAIRED working copy at its current HEAD, for the dry-lane refresh
+ *     below. Identical to what `POST /api/org/local/rescan` does by hand, deliberately routed through
+ *     this same function rather than a second copy of the pipeline: `LocalFsSource` over the folder,
+ *     `scanRepository` with the platform fold carried, `persistScanReport` under the org.
  */
 export async function rescanWorktree(args: {
   org: string;
   repo: string;
   dir: string;
-  branch: string;
+  /** The lane's branch — only ever printed in a `worktree` caveat, so a checkout scan omits it. */
+  branch?: string | null;
   onStage: (stage: string) => void;
+  origin?: "worktree" | "checkout";
 }): Promise<{ scanId: string | null; closedIds: string[]; claimedIds: string[] }> {
   // THE PLATFORM FOLD, CARRIED. D2/D3/D4 are credited partly for tooling that is installed rather
   // than committed (review/CI/coverage Apps posting check suites, default-branch Actions health —
@@ -409,12 +462,23 @@ export async function rescanWorktree(args: {
   // Best-effort: a lookup failure must never fail the rescan. It degrades to `unavailable`, which is
   // the honest reading of "we could not establish what GitHub sees".
   const carried = await getLatestPlatformSignals(args.org, args.repo).catch(() => null);
+  // WHAT THE READER IS TOLD THIS SCAN READ. Same three facts as the manual local rescan route: which
+  // tree, whether it carried uncommitted work, and that the GitHub-side fold was carried rather than
+  // observed. A checkout scan asks git whether the folder is dirty because — unlike the lane's own
+  // worktree, whose state this module just made — the operator's working copy may hold anything.
+  const dirty = args.origin === "checkout" ? await isWorkingCopyDirty(args.dir).catch(() => false) : false;
+  const where =
+    args.origin === "checkout"
+      ? dirty
+        ? "Scanned from the paired local checkout, including uncommitted changes — no commit identity is claimed"
+        : "Scanned from the paired local checkout at its current commit"
+      : `Scanned from the loop worktree (branch ${args.branch ?? "unknown"})`;
   const report = await scanRepository(args.repo, {
     orgSlug: args.org,
     source: new LocalFsSource(args.dir),
     scopeCaveat: carried
-      ? `Scanned from the loop worktree (branch ${args.branch}) — GitHub-side signals are carried from scan ${carried.scanId}, not observed here.`
-      : `Scanned from the loop worktree (branch ${args.branch}) — GitHub-side signals are not included.`,
+      ? `${where} — GitHub-side signals are carried from scan ${carried.scanId}, not observed here.`
+      : `${where} — GitHub-side signals are not included.`,
     noAmbientToken: true,
     platformSignalsUnobservable: true,
     carriedPlatformSignals: carried,
@@ -442,6 +506,112 @@ export async function rescanWorktree(args: {
     closedIds: persisted?.closedFollowUpIds ?? [],
     claimedIds: report.resolvedFollowUpIds ?? [],
   };
+}
+
+/**
+ * THE DRY-LANE REFRESH — re-read the repository from the PAIRED CHECKOUT so a repo that ran out of
+ * recorded work can come back.
+ *
+ * THE DEADLOCK THIS BREAKS (measured, an 8-run campaign on two repos, 2026-08-31). `xkazm04/kp`
+ * reported "No open follow-ups left for this repo — nothing to dispatch" in 6 of 7 runs and produced
+ * nothing at all: its last scan raised no craft entries, its open gaps were closed, and its remaining
+ * dimensions (D9 75, D7 80, D6 82) sit above the follow-up floor, so no new gap is generated either.
+ * `/api/org/loop/propose?repos=xkazm04/kp` returned zero items. That is not a failing repo — it is a
+ * repo whose ROADMAP is stale, and the loop's own (correct) rule that it never rescans without
+ * commits made the state permanent: no work → no commits → no rescan → no fresh roadmap → no work.
+ *
+ * WHY THE CHECKOUT AND NOT THE WORKTREE. The no-commits guard's reasoning is specifically about a
+ * worktree NOTHING LANDED IN: "scanning a worktree that nothing landed in would make it this
+ * repository's latest reading and credit the repo with work that does not exist." That reasoning does
+ * not reach the paired checkout, which IS the repository's actual current state — scanning it credits
+ * the repo with exactly what is on disk, which is what `POST /api/org/local/rescan` does on request.
+ * So the guard is untouched: a worktree with no commits is still never scanned.
+ *
+ * Same pipeline, one function: `rescanWorktree` with `origin: "checkout"`.
+ */
+export async function refreshPairedCheckout(args: {
+  org: string;
+  repo: string;
+  dir: string;
+  onStage: (stage: string) => void;
+}): Promise<{ scanId: string | null }> {
+  const res = await rescanWorktree({ org: args.org, repo: args.repo, dir: args.dir, onStage: args.onStage, origin: "checkout" });
+  return { scanId: res.scanId };
+}
+
+/**
+ * What a lane needs to be ALLOWED to refresh a dry repository, handed down by the engine.
+ *
+ * Absent (a retry, the autopilot shim, a test that does not care) means nobody vouched for a
+ * pairing, and a dry lane then does exactly what it always did: log and end.
+ */
+export interface DryLaneRefresh {
+  /** The operator's real working copy — verified at arm time (`verifyLocalPath`), never the worktree. */
+  pairedPath: string;
+  /** When the run armed. A reading newer than this is already current; nothing to refresh. */
+  runStartedAt: Date;
+  /**
+   * THE ONCE-PER-REPO-PER-RUN BOUND. Returns true exactly once per repo for the life of a run; every
+   * later dry lane gets false. Owned by the engine (it lives in the run's `LiveRun` state, cleaned up
+   * with the run) because this module keeps NO module state by its header's rule — and because it is
+   * the belt to the freshness check's braces: `persistScanReport` can DEDUPE a refresh that produced
+   * an identical report, leaving the latest-scan timestamp unmoved, and without this a dedup would
+   * hand the next dry cycle a green light to scan again.
+   */
+  claim: () => boolean;
+}
+
+/**
+ * Run the dry-lane refresh, or say honestly why it did not. NEVER THROWS and never changes the lane's
+ * verdict: the cycle stays non-progressing either way, so the engine's existing drop-out rule applies
+ * exactly as it did — a refresh buys the NEXT run a roadmap, it does not rescue this one.
+ */
+async function refreshDryLane(args: {
+  deps: LaneDeps;
+  laneId: string;
+  org: string;
+  repo: string;
+  cycle: number;
+  refresh: DryLaneRefresh | null | undefined;
+  watch: LaneWatchdog;
+}): Promise<void> {
+  const { deps, laneId, org, repo, refresh, watch } = args;
+  if (!refresh) return; // no verified pairing was vouched for — there is no tree we may honestly read
+  // FRESHNESS FIRST. A sibling lane of this run (or the operator, or the fleet cron) may already have
+  // taken a reading since the run armed; a refresh is for a stale roadmap, not a scan per cycle.
+  const latest = await deps.latestScanAt(org, repo).catch(() => null);
+  if (latest && latest.getTime() >= refresh.runStartedAt.getTime()) {
+    await appendLaneLog(laneId, "No work left, and the reading is already current — nothing to refresh.");
+    return;
+  }
+  if (!refresh.claim()) {
+    await appendLaneLog(laneId, "No work left, and this run already refreshed this repository's reading — not scanning it again.");
+    return;
+  }
+  try {
+    // UNDER THE WATCHDOG, like every other awaited stage: a scan that never settles must orphan
+    // itself rather than park the org's single run slot (lane-watchdog.ts).
+    await watch.stage("refresh", () =>
+      deps.refreshCheckout({ org, repo, dir: refresh.pairedPath, onStage: (stage) => void updateLane(laneId, { stage }) }),
+    );
+    await appendLaneLog(
+      laneId,
+      "No work left; refreshed this repository's reading from the paired checkout so the next run has something to judge.",
+    );
+    // A LESSON, not an alert: the operator should be able to see that the loop noticed a repo had run
+    // dry and did something about it, without reading a lane log. Best-effort like every other lesson.
+    await recordLoopLessons(org, repo, laneId, [
+      `${repo} had no open follow-ups and no unbuilt craft rungs left, so cycle ${args.cycle} spent no agent session and instead re-read the paired checkout. Its roadmap was stale, not finished — check the next run's proposals before concluding the repo is done.`,
+    ]).catch(() => []);
+  } catch (err) {
+    // NON-FATAL BY CONSTRUCTION. A refresh is opportunistic; a failed one must never turn a lane that
+    // simply had nothing to do into a failed lane. A watchdog cut lands here too, which is correct:
+    // the stage is already recorded on the row and the lane still ends cleanly below.
+    await appendLaneLog(
+      laneId,
+      `No work left, and the refresh of this repository's reading failed — ${firstLine(err instanceof Error ? err.message : String(err))}`,
+    );
+  }
 }
 
 /**
@@ -531,15 +701,36 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     if (claimedIds.length > 0) await releaseFollowups(claimedIds, why, LANE_ACTOR).catch(() => 0);
     claimedIds = [];
   };
-  const fail = async (message: string): Promise<LaneRunResult> => {
+  const fail = async (message: string, stage: string | null = null): Promise<LaneRunResult> => {
     await releaseClaims(`loop cycle ${cycle} failed before its rescan could adjudicate (${firstLine(message)})`);
     if (laneId) {
       await appendLaneLog(laneId, message);
-      await updateLane(laneId, { phase: "error", error: message, stage: null, endedAt: new Date() });
+      // `stage` IS THE FORENSICS. On an ordinary failure it stays null, exactly as it was. On a
+      // force-fail it is the stage that was in flight, so the run detail and the outcome sheet can
+      // say "cycle 3 timed out in verification" instead of leaving the silent gap that made the two
+      // dead campaigns unreadable after the fact.
+      await updateLane(laneId, { phase: "error", error: message, stage, endedAt: new Date() });
     }
     return { laneId, progressed: false, commits: 0, closed: 0, error: message };
   };
   if (!laneId) return { laneId: null, progressed: false, commits: 0, closed: 0, error: "No database — a loop run cannot be recorded." };
+
+  // THE CYCLE'S HARD CEILING, derived from what this run is already armed with — the session cap, the
+  // guard's budget (twice: baseline and result), plus bounded allowances for the rescan and the git
+  // work. Raising `agentTimeoutMs` raises this by the same amount; see lane-watchdog.ts.
+  const watch =
+    input.watchdog ??
+    createLaneWatchdog({
+      deadlineMs: laneDeadlineMs({
+        agentMs: agentTimeoutMs(input.agent?.timeoutMs ?? null),
+        verifyMs: verifyTimeoutMsOf(input.verify?.timeoutMs ?? null),
+        verifyEnabled: input.verify?.enabled !== false,
+      }),
+    });
+  input.onWatchdog?.(watch);
+  /** Every git call this lane makes, raced against the deadline: `execFile`'s own timeout kills the
+   *  child but cannot promise its callback (see git.ts), and this is where that promise is kept. */
+  const git = (args: readonly string[]) => watch.stage("git", () => runGit(worktree.dir, args));
 
   try {
     const beforeScanId = await getLatestScanIdForRepo(org, repo);
@@ -565,7 +756,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     /** The playbooks the brief actually quoted, with the dimension each covers — the only ones a
      *  verified close may stamp as adopted. */
     let briefedPlaybooks: { id: string; dimId: string }[] = [];
-    const before = (await runGit(worktree.dir, ["rev-parse", "HEAD"])).stdout.trim();
+    const before = (await git(["rev-parse", "HEAD"])).stdout.trim();
     // The agent's own `RESOLVED: <id> - <what changed>` lines, kept for the deliverable headlines.
     let agentClaims: AgentClaim[] = [];
 
@@ -605,6 +796,13 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         // falls back to the ladder before it returns empty. That is a scan that produced no craft
         // entries at all, not "this repo is finished".
         await appendLaneLog(laneId, "No open follow-ups and no craft rungs left for this repo — nothing to dispatch.");
+        // …and THAT is the state the loop could never escape on its own, because it only rescans
+        // after commits. So a dry lane re-reads the paired checkout instead of no-op'ing. It refuses
+        // itself on a current reading, spends at most one scan per repo per run, and cannot fail this
+        // lane — see `refreshDryLane`. The cycle still ends NON-PROGRESSING, so the engine drops this
+        // repo for the rest of the run exactly as before; what changed is that the next run has a
+        // fresh roadmap to judge.
+        await refreshDryLane({ deps, laneId, org, repo, cycle, refresh: input.refresh, watch });
         await updateLane(laneId, { phase: "done", stage: null, endedAt: new Date() });
         return { laneId, progressed: false, commits: 0, closed: 0, error: null };
       }
@@ -664,14 +862,16 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       // generator the cloud draft-PR doors use, and the rescan below adjudicates the result exactly as
       // it does an agent's commits — an install that changes nothing measurable closes nothing.
       await appendLaneLog(laneId, `Cycle ${cycle}: ${kind} lane — ${input.reason ?? "installing generated files."}`);
-      const res = await deps.install({
-        dir: worktree.dir,
-        org,
-        repo,
-        kind,
-        practiceId: input.practiceId ?? null,
-        resolvesId: batch[0]?.id ?? null,
-      });
+      const res = await watch.stage("install", () =>
+        deps.install({
+          dir: worktree.dir,
+          org,
+          repo,
+          kind,
+          practiceId: input.practiceId ?? null,
+          resolvesId: batch[0]?.id ?? null,
+        }),
+      );
       await appendLaneLog(laneId, res.summary);
       if (!res.ok) return fail(res.summary);
       if (!res.committed) {
@@ -714,7 +914,10 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       let baseline: VerifyBaseline = NO_VERIFY_BASELINE;
       if (guardOn) {
         await updateLane(laneId, { stage: "verifying" });
-        baseline = await verifyBaseline(worktree.dir, verifyMs).catch(() => NO_VERIFY_BASELINE);
+        // The `.catch` is INSIDE the raced work on purpose: a guard that fails is baseline data, and
+        // a guard that never returns is a deadline — folding the two would swallow the watchdog's
+        // rejection and let the lane walk on into the session it has no time left for.
+        baseline = await watch.stage("baseline", () => verifyBaseline(worktree.dir, verifyMs).catch(() => NO_VERIFY_BASELINE));
         await updateLane(laneId, { stage: null });
         await appendLaneLog(
           laneId,
@@ -787,17 +990,19 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         // what the work should look like, and the contract is how the session reports on it.
         (brief ? `\n\nYOUR ORGANIZATION'S STANDARD:\n${brief.text}\n` : "") +
         laneReportContract(batch.map((b) => b.id));
-      const result = await deps.runAgent({
-        cwd: worktree.dir,
-        prompt,
-        ...(input.agent?.model ? { model: input.agent.model } : {}),
-        ...(input.agent?.effort ? { effort: input.agent.effort } : {}),
-        // Conditional for the same reason the two above are: an ABSENT key lets the runner fall back
-        // to the deployment's own `ASCENT_AUTOPILOT_TIMEOUT_MS`, which is what every session before
-        // this parameter used. Passing an explicit null would say the same thing, but a lane that
-        // sends the key on every call is one refactor away from sending a 0.
-        ...(input.agent?.timeoutMs ? { timeoutMs: input.agent.timeoutMs } : {}),
-      });
+      const result = await watch.stage("agent", () =>
+        deps.runAgent({
+          cwd: worktree.dir,
+          prompt,
+          ...(input.agent?.model ? { model: input.agent.model } : {}),
+          ...(input.agent?.effort ? { effort: input.agent.effort } : {}),
+          // Conditional for the same reason the two above are: an ABSENT key lets the runner fall back
+          // to the deployment's own `ASCENT_AUTOPILOT_TIMEOUT_MS`, which is what every session before
+          // this parameter used. Passing an explicit null would say the same thing, but a lane that
+          // sends the key on every call is one refactor away from sending a 0.
+          ...(input.agent?.timeoutMs ? { timeoutMs: input.agent.timeoutMs } : {}),
+        }),
+      );
       await appendLaneLog(
         laneId,
         `${result.ok ? "Agent finished" : "Agent failed"}: ${firstLine(result.summary, AGENT_SUMMARY_CHARS)}`,
@@ -836,7 +1041,10 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       //                  nothing, and — because the verdict is persisted — is never landed or PR'd.
       if (guardOn) {
         await updateLane(laneId, { stage: "verifying" });
-        const outcome = await verifyResult(worktree.dir, baseline, verifyMs);
+        // THE STAGE THE EVIDENCE CAME FROM. Run cbe04a35's lane hit the verification cap and then
+        // never settled; this race is what makes that a force-failed cycle instead of an eight-hour
+        // silence, and `verify` is what lands in the row's `stage`.
+        const outcome = await watch.stage("verify", () => verifyResult(worktree.dir, baseline, verifyMs));
         await updateLane(laneId, {
           stage: null,
           verifyVerdict: outcome.verdict,
@@ -886,21 +1094,23 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       // whatever is dirty in it is this session's work. A session that DID manage to commit (a future
       // mode with a wider grant) leaves nothing behind and this is a no-op; anything left over is
       // residue and lands in one commit carrying the armed batch's `Ascent-Resolves:` trailers.
-      const committed = await deps.commitWork({
-        dir: worktree.dir,
-        branch: worktree.branch,
-        cycle,
-        batch,
-        summary: result.summary,
-        // A FAILED SESSION'S FINAL TEXT IS ITS ERROR, NOT ITS ACCOUNT OF THE WORK (PRIYA-L2-C7). The
-        // lane still commits the residue — that work is real and the worktree is about to be deleted
-        // — but the subject stops being the failure message.
-        sessionFailed: !result.ok,
-      });
+      const committed = await watch.stage("commit", () =>
+        deps.commitWork({
+          dir: worktree.dir,
+          branch: worktree.branch,
+          cycle,
+          batch,
+          summary: result.summary,
+          // A FAILED SESSION'S FINAL TEXT IS ITS ERROR, NOT ITS ACCOUNT OF THE WORK (PRIYA-L2-C7). The
+          // lane still commits the residue — that work is real and the worktree is about to be deleted
+          // — but the subject stops being the failure message.
+          sessionFailed: !result.ok,
+        }),
+      );
       await appendLaneLog(laneId, committed.summary);
     }
 
-    const countRes = await runGit(worktree.dir, ["rev-list", "--count", `${before}..HEAD`]);
+    const countRes = await git(["rev-list", "--count", `${before}..HEAD`]);
     const commits = countRes.ok ? Number(countRes.stdout.trim()) || 0 : 0;
     await appendLaneLog(laneId, `${commits} commit(s) landed this cycle.`);
     // A SESSION THAT WORKED AND DID NOT COMMIT IS NOT A SESSION THAT FOUND NOTHING, and until this
@@ -914,7 +1124,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     // commit failed — a hook, a missing git identity, a locked index. This stays as the fallback,
     // and it is now the last thing standing between a failed commit and a silently deleted worktree.
     if (kind === "backlog" && commits === 0) {
-      const dirty = await runGit(worktree.dir, ["status", "--porcelain"]);
+      const dirty = await git(["status", "--porcelain"]);
       const changed = dirty.ok ? dirty.stdout.split("\n").filter((l) => l.trim()).length : 0;
       if (changed > 0) {
         await appendLaneLog(
@@ -959,17 +1169,24 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     let unverifiedClaimIds: string[] = [];
     let afterScanId: string | null = null;
     try {
-      const out = await deps.rescan({
-        org,
-        repo,
-        dir: worktree.dir,
-        branch: worktree.branch,
-        onStage: (stage) => void updateLane(laneId, { stage }),
-      });
+      const out = await watch.stage("rescan", () =>
+        deps.rescan({
+          org,
+          repo,
+          dir: worktree.dir,
+          branch: worktree.branch,
+          onStage: (stage) => void updateLane(laneId, { stage }),
+        }),
+      );
       closedIds = out.closedIds;
       unverifiedClaimIds = (out.claimedIds ?? []).filter((id) => !out.closedIds.includes(id));
       afterScanId = out.scanId;
     } catch (err) {
+      // A DEADLINE IS NOT A FAILED RESCAN. This catch exists so a rescan that THREW leaves the lane
+      // able to wind down; a rescan the watchdog cut is the lane itself being over, and swallowing it
+      // here would walk the cycle on past its own ceiling. (The 75-minute `rescanning/score` wedge is
+      // this exact stage.)
+      if (isLaneDeadlineError(err)) throw err;
       await appendLaneLog(laneId, `Rescan failed: ${err instanceof Error ? err.message : String(err)}`);
     }
     if (afterScanId == null) {
@@ -1065,6 +1282,23 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     }
     return { laneId, progressed: commits > 0 || closedIds.length > 0, commits, closed: closedIds.length, error: null };
   } catch (err) {
+    // THE FORCE-FAIL. A cut lane takes the SAME exit as any other failed lane — the claim is
+    // released, the row reaches a terminal phase with an honest error, and the worktree is removed by
+    // whoever created it (the run's own cleanup, or the retry's `finally`) — so the run proceeds to
+    // the next cycle or the next lane instead of parking on this one. The only thing that differs is
+    // the sentence and the recorded stage.
+    if (isLaneDeadlineError(err)) {
+      const where = err.stage ? `${LANE_STAGE_LABEL[err.stage]} (${err.stage})` : "no stage in particular";
+      return fail(
+        err.reason === "deadline"
+          ? `Cycle ${cycle} was FORCE-FAILED: it exceeded its ${Math.round(watch.deadlineMs / 60_000)} min deadline while ${where} was in flight, so the lane was cut loose rather than left holding the run. Whatever that call was doing is orphaned; nothing it may still produce is committed, rescanned or delivered.`
+          : `Cycle ${cycle} was FORCE-FAILED: the run was stopped while ${where} was in flight and the call did not return, so the lane was cut loose rather than left holding the run.`,
+        err.stage,
+      );
+    }
     return fail(err instanceof Error ? err.message : String(err));
+  } finally {
+    // One timer, armed at the first stage; a finished cycle leaves nothing scheduled behind it.
+    watch.dispose();
   }
 }

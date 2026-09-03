@@ -77,7 +77,11 @@ export const laneIsLive = (phase: LoopLanePhase): boolean => phase === "dispatch
 export function laneCaption(lane: LanePosition): string {
   if (lane.phase === "queued") return "queued";
   if (lane.phase === "done") return "done";
-  if (lane.phase === "error") return "error";
+  // A FORCE-FAILED lane carries the stage that was in flight when its deadline (or a stop) cut it —
+  // `verify`, `agent`, `rescan`… (src/lib/local/lane-watchdog.ts). Printing it turns "error" into
+  // "cycle 3 died in verification" on the rail itself. A rescan sub-stage is already covered by the
+  // rail's own position, and an ordinary failure carries no stage at all, so both read as before.
+  if (lane.phase === "error") return lane.stage && !isSubstageFrame(lane.stage) ? `error · ${lane.stage}` : "error";
   if (lane.phase === "dispatching") return "agent working";
   return isSubstageFrame(lane.stage) ? `rescanning · ${SUBSTAGE_LABEL[lane.stage]}` : "rescanning";
 }

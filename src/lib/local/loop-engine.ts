@@ -55,6 +55,9 @@ import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { recordAudit } from "@/lib/db/scans-audit";
 import { BACKLOG_LANE, type LaneKindProposal } from "@/lib/local/lane-kind";
 import { defaultLaneDeps, runLane, type LaneDeps } from "@/lib/local/loop-lane";
+// A STOP WITH TEETH. The flag alone is a cooperative signal a wedged lane never reads; these are the
+// grace it is given and the watchdog handle that ends it when it does not take.
+import { LANE_STOP_GRACE_MS, LANE_STOP_TERMINAL_MS, type LaneWatchdog } from "@/lib/local/lane-watchdog";
 import { createLoopWorktree, removeLoopWorktree, runStamp, type LoopWorktree } from "@/lib/local/loop-worktree";
 
 /** One repo of a run: where it lives on disk, and what its FIRST cycle was armed to do. */
@@ -70,6 +73,23 @@ interface LiveRun {
   orgSlug: string;
   stopRequested: boolean;
   worktrees: Map<string, LoopWorktree>;
+  /** THE IN-FLIGHT LANES' WATCHDOGS, keyed by `<repo>[#arm]#<cycle>`. This is what makes a stop
+   *  enforceable: a lane inside a call that will not return is force-failed through the same
+   *  watchdog its own deadline uses. Unserializable, so it belongs here by the module header's rule. */
+  lanes: Map<string, LaneWatchdog>;
+  /** The stop's two timers (grace, then the terminal backstop), so a run that ends normally clears
+   *  them instead of leaving them armed. */
+  stopTimers: ReturnType<typeof setTimeout>[];
+  /** THE REPOS THAT HAVE SPENT THIS RUN'S ONE DRY-LANE REFRESH. A lane that finds no work at all
+   *  re-reads the paired checkout so the repo's stale roadmap can recover (`DryLaneRefresh` in
+   *  loop-lane.ts) — once per repo, for the life of the run. The bound lives HERE rather than in the
+   *  lane because the lane keeps no module state by its own header's rule, and because a per-run Set
+   *  is cleaned up with the run instead of accumulating in the process. Not keyed by ARM: two arms of
+   *  one repo read the same checkout, so a second scan of it would be the same reading twice. */
+  refreshed: Set<string>;
+  /** True once the stop backstop has written this run terminal — `drive` must not then overwrite the
+   *  row that names the lanes which refused to die. */
+  terminated: boolean;
 }
 
 // ONE registry per PROCESS, on globalThis — not per module instance. Next bundles each API route
@@ -213,7 +233,16 @@ export async function startLoopRun(input: StartLoopRunInput): Promise<LoopRunRec
   });
   if (!run) throw new Error("The loop requires a database.");
 
-  const state: LiveRun = { runId: run.id, orgSlug: org, stopRequested: false, worktrees: new Map() };
+  const state: LiveRun = {
+    runId: run.id,
+    orgSlug: org,
+    stopRequested: false,
+    worktrees: new Map(),
+    lanes: new Map(),
+    stopTimers: [],
+    refreshed: new Set<string>(),
+    terminated: false,
+  };
   live.set(run.id, state);
   void drive(run, targets, input, state).catch(async (err) => {
     await updateLoopRun(run.id, {
@@ -295,12 +324,31 @@ export async function startRemoteRun(input: StartRemoteRunInput): Promise<LoopRu
   return run;
 }
 
-/** Cooperative stop: in-flight lanes finish their current phase, then the run winds down. */
-export async function stopLoopRun(id: string): Promise<boolean> {
+/**
+ * Stop a run — cooperatively first, then with teeth.
+ *
+ * IT USED TO SET A FLAG AND NOTHING ELSE, and the flag is only read between a lane's phases: a lane
+ * wedged in `rescanning/score` never reached one, so `stopLoopRun` returned ok, the phase stayed
+ * `running` for 75 minutes, and only a dev-server restart cleared it. A stop that a stuck run can
+ * ignore is not a stop.
+ *
+ * Three steps, in this order, because the cheapest one is also the one that preserves the most work:
+ *   1. the FLAG, unchanged — a lane that reaches a checkpoint winds down cleanly, its commits intact;
+ *   2. after `LANE_STOP_GRACE_MS`, every in-flight lane's watchdog is ABORTED, which force-fails it
+ *      through the same path its own deadline uses — a terminal lane row naming the stage in flight;
+ *   3. after `LANE_STOP_TERMINAL_MS` more, if the run is somehow STILL live, the row is written
+ *      terminal anyway and says which lanes refused to die. A run that cannot be interrupted must
+ *      still reach a terminal phase; leaving `running` on the row is the one outcome that is a lie.
+ */
+export async function stopLoopRun(id: string, opts: { graceMs?: number; terminalMs?: number } = {}): Promise<boolean> {
+  // Both windows are overridable FOR TESTS ONLY — the route calls `stopLoopRun(id)` and gets the
+  // constants. A caller that shortened the grace in production would be turning a cooperative stop
+  // into a kill, which is the trade-off this function exists to make in the right order.
   const state = live.get(id);
   if (state) {
     if (state.stopRequested) return true;
     state.stopRequested = true;
+    armStopTeeth(state, opts.graceMs ?? LANE_STOP_GRACE_MS, opts.terminalMs ?? LANE_STOP_TERMINAL_MS);
     return true;
   }
   // Not ours: either already finished, or a restart casualty. Reconcile rather than no-op.
@@ -308,6 +356,45 @@ export async function stopLoopRun(id: string): Promise<boolean> {
   if (!run || run.endedAt) return false;
   await updateLoopRun(id, { phase: "stopped", endedAt: new Date() });
   return true;
+}
+
+/** Step 2 and step 3 of the stop above, on timers that a normally-ending run clears (`clearStopTeeth`). */
+function armStopTeeth(state: LiveRun, graceMs: number, terminalMs: number): void {
+  const bite = setTimeout(() => {
+    // Snapshot the names BEFORE aborting: an abort resolves the lane's race, and by the time the
+    // backstop runs the map is (correctly) empty for every lane that took the hint.
+    const inFlight = [...state.lanes.keys()];
+    for (const watchdog of state.lanes.values()) watchdog.abort();
+    if (inFlight.length === 0) return;
+    const backstop = setTimeout(() => void terminateStuckRun(state, inFlight), terminalMs);
+    (backstop as unknown as { unref?: () => void }).unref?.();
+    state.stopTimers.push(backstop);
+  }, graceMs);
+  (bite as unknown as { unref?: () => void }).unref?.();
+  state.stopTimers.push(bite);
+}
+
+function clearStopTeeth(state: LiveRun): void {
+  for (const timer of state.stopTimers) clearTimeout(timer);
+  state.stopTimers.length = 0;
+}
+
+/**
+ * The backstop: the run was stopped, its lanes were aborted, and it is STILL live. Something below
+ * the watchdog is not returning at all. Write the row terminal and NAME the lanes, then drop the
+ * registry entry so the org is not barred from arming another run by a lane nobody can reach.
+ */
+async function terminateStuckRun(state: LiveRun, inFlight: string[]): Promise<void> {
+  if (!live.has(state.runId) || state.terminated) return;
+  const stuck = inFlight.filter((key) => state.lanes.has(key));
+  if (stuck.length === 0) return; // they all wound down inside the window after all
+  state.terminated = true;
+  await updateLoopRun(state.runId, {
+    phase: "stopped",
+    endedAt: new Date(),
+    error: `Stopped, but ${stuck.length} lane(s) did not terminate and were abandoned: ${stuck.join(", ")}. Their work is not delivered and their worktrees may still exist.`,
+  });
+  live.delete(state.runId);
 }
 
 /**
@@ -465,12 +552,19 @@ async function drive(
           cycle !== 1 || (t.plan.kind === "practice" && curatedIds != null && !curatedIds.includes(t.plan.itemId ?? ""))
             ? BACKLOG_LANE
             : t.plan;
+        // The key the stop path names when a lane refuses to die — the same `<repo>[#arm]` the
+        // worktree is keyed by, plus the cycle, so "which lane" is answerable from the run row alone.
+        const laneKey = `${wtKey}#${cycle}`;
         const res = await runLane({
           runId: run.id,
           org: state.orgSlug,
           repo: t.repo,
           cycle,
           worktree: wt,
+          // THE LANE DERIVES ITS OWN DEADLINE (from this run's parameters, which it already receives)
+          // and hands the handle back here. The engine holds it only so a stop can force-fail a lane
+          // that is inside a call which will not return; it never sets or shortens the deadline.
+          onWatchdog: (watchdog) => state.lanes.set(laneKey, watchdog),
           // A practice lane answers exactly one row — the highest-impact gap its starter is for — so
           // it names that row as its batch and the trailer closes it, or the rescan declines to.
           batch: plan.kind === "practice" && plan.itemId ? [plan.itemId] : (batches[t.repo] ?? null),
@@ -489,8 +583,23 @@ async function drive(
           batchSize: run.batchSize,
           verify: { enabled: verifyModeOf(run.verifyMode) === "on", timeoutMs: run.verifyTimeoutMs },
           abPairKey: arm ? abPairKeyFor(run.id, t.repo, cycle) : null,
+          // THE DRY-LANE PERMIT (see `DryLaneRefresh`). Only the driver can hand this over: it is the
+          // only place that holds a pairing verified at arm time, the run's start, and the per-run
+          // memo that keeps the refresh to one scan per repo. A lane WITH work never reads it.
+          refresh: {
+            pairedPath: t.path,
+            runStartedAt: new Date(run.startedAt),
+            claim: () => {
+              if (state.refreshed.has(t.repo)) return false;
+              state.refreshed.add(t.repo);
+              return true;
+            },
+          },
           shouldStop: () => state.stopRequested,
         });
+        // The lane is over (`runLane` never throws — every outcome, including a force-fail, comes
+        // back as lane data), so its watchdog is no longer something a stop needs to bite.
+        state.lanes.delete(laneKey);
         // DELIVERY, after the cycle and never instead of it. Under `branch` (the default) this returns
         // without reading a thing, so the loop behaves exactly as it did before delivery existed.
         // Under `land`/`pr` a refusal is logged on the lane and the run carries on: the work is
@@ -518,8 +627,13 @@ async function drive(
       const kept = new Set(results.filter((r) => r.progressed).map((r) => r.repo));
       activeTargets = activeTargets.filter((t) => kept.has(t.repo));
     }
-    await updateLoopRun(run.id, { phase: state.stopRequested ? "stopped" : "done", endedAt: new Date() });
+    // A run the stop backstop already wrote terminal keeps THAT row: it names the lanes that refused
+    // to die, and a late-arriving "stopped" from here would erase the only record of them.
+    if (!state.terminated) {
+      await updateLoopRun(run.id, { phase: state.stopRequested ? "stopped" : "done", endedAt: new Date() });
+    }
   } finally {
+    clearStopTeeth(state);
     for (const wt of state.worktrees.values()) {
       forgetVerifyBaseline(wt.dir);
       await removeLoopWorktree(wt);

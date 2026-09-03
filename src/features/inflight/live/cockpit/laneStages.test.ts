@@ -86,4 +86,14 @@ describe("laneActiveStop / laneIsLive / laneCaption", () => {
     expect(laneCaption(lane({ phase: "rescanning", stage: null }))).toBe("rescanning");
     expect(laneCaption(lane({ phase: "dispatching" }))).toBe("agent working");
   });
+
+  it("names the stage a FORCE-FAILED lane was cut in, and stays plain for every other error", () => {
+    // The watchdog's stages (lane-watchdog.ts) are the only non-substage values `stage` can hold on a
+    // terminal lane, and they are exactly the fact a silent gap used to cost.
+    expect(laneCaption(lane({ phase: "error", stage: "verify" }))).toBe("error · verify");
+    expect(laneCaption(lane({ phase: "error", stage: null }))).toBe("error");
+    // A rescan sub-stage is already the marker's position; repeating it in the caption would say the
+    // same thing twice.
+    expect(laneCaption(lane({ phase: "error", stage: "score" }))).toBe("error");
+  });
 });
