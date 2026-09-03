@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "0.1.0",
+  "modules": [
+    {
+      "id": "root",
+      "path": ".",
+      "context": "CONTEXT.md",
+      "owns": "Billing API",
+      "reconciledToSha": "abc1234"
+    }
+  ]
+}
