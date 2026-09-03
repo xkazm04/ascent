@@ -1,1 +1,2 @@
-# nothing ignored here
+node_modules/
+deps/
