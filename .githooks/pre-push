@@ -30,6 +30,12 @@ fi
 
 echo "pre-push: push targets master — running the gate: npm run verify (lint, typecheck, tests+coverage, build)..." >&2
 
+# git exports GIT_DIR / GIT_INDEX_FILE / GIT_WORK_TREE / GIT_PREFIX into hooks. The lane
+# tests (lane-commit, lane-install, loop-land) run `git init` + `git commit` in temp
+# directories, and with those variables inherited every such call lands on THIS repo
+# instead of the temp one: 34 tests failed inside the hook that pass outside it
+# (measured 2026-09-03). Drop the inherited pointers before the gate runs.
+unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_PREFIX GIT_OBJECT_DIRECTORY GIT_COMMON_DIR
 npm run verify || {
   echo "pre-push: verify failed — push to master blocked (Vercel would have shipped it anyway)." >&2
   echo "pre-push: fix the failure, or in a genuine emergency: ASCENT_SKIP_GATE=1 git push (record why)." >&2
