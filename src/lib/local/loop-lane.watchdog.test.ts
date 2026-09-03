@@ -202,7 +202,18 @@ describe("a normal fast cycle", () => {
   it("behaves exactly as it did, and leaves no timer armed", async () => {
     vi.useFakeTimers();
     const res = await run();
-    expect(res).toEqual({ laneId: "lane-1", progressed: true, commits: 1, closed: 1, error: null });
+    // `scan` is the reading this cycle took, handed up so a run under `"run"` cadence can settle its
+    // earlier deferred cycles against it instead of paying for a second scan of the same tree. Under
+    // the default `"cycle"` cadence — which is this fixture — nothing reads it and the verdict fields
+    // below are the ones that matter.
+    expect(res).toEqual({
+      laneId: "lane-1",
+      progressed: true,
+      commits: 1,
+      closed: 1,
+      error: null,
+      scan: { scanId: "scan-after", closedIds: ["a"] },
+    });
     const end = terminal();
     expect(end?.phase).toBe("done");
     expect(end?.stage).toBeNull();

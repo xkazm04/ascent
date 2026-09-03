@@ -280,9 +280,15 @@ const LANE_CAPABILITY_RULE: readonly string[] = [
  *
  * SO THE INVITATION IS EXPLICIT AND IT IS SCOPED. The rungs of a craft ladder are exactly the place a
  * larger change belongs: the repository is already green, nothing here is owed, and the only thing
- * left to do is raise the ceiling — which is usually structural. "Small and reversible" stays as the
- * default shape of a change and is NOT withdrawn; what is withdrawn is the implication that small is
- * the only shape permitted.
+ * left to do is raise the ceiling — which is usually structural.
+ *
+ * AND IT IS DELIVERED (2026-09-01). For its first month this block was printed only when EVERY item
+ * in the batch was craft, which the green reservation had already made a batch shape that barely
+ * occurs — 26 of 29 campaign-5 batches were mixed, so no agent ever read it. It now prints whenever
+ * the batch carries a rung at all. Shipped alongside: "small and reversible — one rung, not a
+ * redesign" and "prefer something that RUNS" are DELETED from the craft rules rather than merely
+ * out-argued here. A brief cannot both invite a restructure and rank a check above it; the two
+ * sentences were the ones the output actually followed (21 gates, 0 refactors).
  *
  * AND THE NET IS WHY IT IS SAFE TO SAY. `lane-guard.ts` runs the repository's own verification command
  * before the session and again after it, and a pass that became a failure discards the work in the
@@ -447,11 +453,30 @@ export function buildFixPrompt(
   const byRepo = new Map<string, FollowUpItem[]>();
   for (const it of items) byRepo.set(it.repo, [...(byRepo.get(it.repo) ?? []), it]);
   const repos = [...byRepo.entries()].sort((a, b) => sumPts(b[1]) - sumPts(a[1]));
-  // THE BRIEF FOLLOWS THE BATCH. `openBatch` never mixes kinds — gaps always outrank craft, so a
-  // batch is all gaps or (only once a repo has none open) all craft. That makes the mode a property
-  // of the batch rather than a caller flag nobody would remember to pass, and it means an existing
-  // caller gets the byte-identical gap prompt it has always got.
-  const craftMode = items.length > 0 && items.every((it) => it.kind === "craft");
+  // THE BRIEF FOLLOWS THE BATCH — AND THE BATCH IS USUALLY MIXED.
+  //
+  // This used to read `items.every(kind === "craft")` under a comment claiming "`openBatch` never
+  // mixes kinds". That was true when it was written and became false the day the GREEN RESERVATION
+  // landed (2026-08-30): a green repo's batch is now a couple of gaps plus several craft rungs, by
+  // design. The 33-run reflection (docs/harness/reflection-2026-09-01.md, finding 1) measured the
+  // cost — 26 of 29 campaign-5 batches were mixed, so every one of them took the ALL-GAP branch and
+  // `STRUCTURAL_INVITATION` was never delivered to a single agent, while 23 of 23 closes were craft
+  // rungs. The permission to raise the ceiling shipped and nobody ever read it.
+  //
+  // So the two questions are now asked separately, because they are different questions:
+  //   • `allCraft` — is there NOTHING owed here? That governs the framing (title, intro, the "already
+  //     green" repo heading): it is a claim about the repository, and it is only true when every item
+  //     is a rung.
+  //   • `hasCraft` — is there a rung in this batch at all? That governs the craft RULES and the
+  //     structural invitation: a mixed batch contains ceiling work, and the agent has to be told so.
+  const allCraft = items.length > 0 && items.every((it) => it.kind === "craft");
+  const hasCraft = items.some((it) => it.kind === "craft");
+  // An EMPTY batch keeps the gap rules it has always had: the prompt is then a shell with no items,
+  // and silently dropping the only "how to work" line from it would be a behaviour change nobody asked
+  // for. (`hasCraft` is false there, so nothing craft-shaped is printed either.)
+  const hasGap = items.length === 0 || items.some((it) => it.kind !== "craft");
+  const mixed = hasCraft && hasGap;
+  const craftMode = allCraft;
 
   const lines: string[] = [];
   lines.push(
@@ -469,21 +494,52 @@ export function buildFixPrompt(
           "building, in small verifiable changes; skip anything that does not apply here and say why."
       : "These are gaps an Ascent maturity scan found in the repositories below. Each item states the gap as the scan " +
           "saw it, why it matters for AI-driven development, and questions worth exploring before changing anything. " +
-          "Resolve what you can, in small verifiable changes; skip anything that does not apply and say why.",
+          "Resolve what you can; skip anything that does not apply and say why.",
   );
   lines.push("");
+  // A MIXED BATCH SAYS SO, IN THE FIRST PARAGRAPH. Two kinds of work with two different bars arrived
+  // together, and an agent that cannot tell them apart applies the narrower bar to both — which is
+  // precisely what the campaign measured.
+  if (mixed) {
+    lines.push(
+      "THIS BATCH HOLDS BOTH KINDS OF WORK, and they are not judged the same way. Items marked **gap** are shortfalls: " +
+        "close them, and `RESOLVED` means the specific thing the item names is done. Items marked **rung** are craft — the " +
+        "dimension is already in the green band, nothing there is owed, and the job is to RAISE THE CEILING rather than to " +
+        "close anything. Every item below carries its kind on its `id:` line. Do not let the gaps set the size of the rungs.",
+    );
+    lines.push("");
+  }
   const laneCommits = ctx.commitPolicy === "lane";
   lines.push("Rules:");
   lines.push("- Work one repository at a time, on a branch. Read the repo's own guidance (CLAUDE.md / AGENTS.md / CONTRIBUTING) first.");
-  if (craftMode) {
-    // The three rules that make a craft rung REVIEWABLE. Without them a "raise the ceiling" brief
-    // invites a sprawling refactor nobody can adjudicate, and the ✓/✕ ledger the Storyboard renders
-    // has nothing to point at.
+  // THE CRAFT RULES FIRE ON `hasCraft`, NOT ON `allCraft` — see the note at `allCraft`/`hasCraft`.
+  // A batch with one rung in it is a batch that needs the rung's rules.
+  //
+  // TWO LINES THAT USED TO LIVE HERE ARE GONE, and their deletion is the point of this block:
+  // "Keep it small and reversible — one rung, not a redesign" and "Prefer something that RUNS (a
+  // check, a budget, a drill) over something that only describes". Together they selected for exactly
+  // one output — a gate ABOUT the code — and the measurement is unambiguous: 30 closed deliverables
+  // across campaigns 4–5 were 21 gates, 8 config/doc registries, 1 capability and ZERO refactor,
+  // de-duplication or performance changes, while the repositories accreted a meta-harness and the
+  // product code went untouched. What replaces them is the owner's actual bar, stated in the brief's
+  // own voice rather than implied.
+  if (hasCraft) {
     lines.push("- Leave an ARTEFACT. Name it in your summary: the file, check, budget, drill or documented decision this rung adds. A rung with nothing to point at cannot be reviewed and does not count.");
-    lines.push("- Keep it small and reversible — one rung, not a redesign. Prefer something that RUNS (a check, a budget, a drill) over something that only describes.");
+    lines.push(
+      "- THE BAR IS THE CODE ITSELF: well-structured, de-duplicated, faster. A rung that makes the code better IS the rung — a check that watches the code is worth less than the change the check would have asked for, and a repository accumulating tooling about itself is not climbing.",
+    );
+    lines.push(
+      "- Such work MAY span many files, MAY move code between them and MAY delete code, and is WELCOME to when that is what raises the ceiling. Deleting a duplicated implementation, collapsing three modules into one, or reshaping a hot path is a first-class rung, not an overreach.",
+    );
+    lines.push(
+      "- You are not the last line of defence: the lane re-runs this repository's own check after you exit and DISCARDS a regression before anything is committed. So the size of a change is not the risk it once was — judge by what it raises, not by how few lines it touches.",
+    );
     lines.push("- Do not lower any existing bar to make a new one pass, and do not change tests, thresholds or configuration to move a score. Nothing here is scored; a rung that games a number is worse than no rung.");
-  } else {
-    lines.push("- Prefer the smallest change that closes the gap for real; add or extend tests where the gap is about verification.");
+  }
+  if (hasGap) {
+    lines.push(
+      `- ${mixed ? "For the GAP items: p" : "P"}refer the smallest change that closes the gap for real; add or extend tests where the gap is about verification.`,
+    );
   }
   lines.push(
     laneCommits
@@ -491,9 +547,11 @@ export function buildFixPrompt(
       : `- In EVERY commit that resolves an item, add a trailer line \`${FOLLOWUP_TRAILER}: <id>\` (several ids: comma-separated). Ascent's next scan of the branch reads it and marks the item resolved.`,
   );
   lines.push(
-    craftMode
-      ? "- Do not edit files only to satisfy a scanner. If a rung is already built another way, leave it and note that in your summary — that is a real answer, and the next scan will propose the rung above it instead."
-      : "- Do not edit files only to satisfy a scanner. If a gap is already covered another way, leave it and note that in your summary.",
+    mixed
+      ? "- Do not edit files only to satisfy a scanner. If a gap is already covered, or a rung already built, another way, leave it and note that in your summary — that is a real answer."
+      : craftMode
+        ? "- Do not edit files only to satisfy a scanner. If a rung is already built another way, leave it and note that in your summary — that is a real answer, and the next scan will propose the rung above it instead."
+        : "- Do not edit files only to satisfy a scanner. If a gap is already covered another way, leave it and note that in your summary.",
   );
   lines.push(
     laneCommits
@@ -504,12 +562,20 @@ export function buildFixPrompt(
   // The capability rule, lane only. The human's paste-into-my-own-terminal agent HAS a shell and a
   // network, so telling it otherwise would be a lie that suppresses work it can actually do.
   if (laneCommits) lines.push(...LANE_CAPABILITY_RULE);
-  // THE INVITATION TO MAKE A LARGER CHANGE. A craft lane is where it belongs unreservedly: the repo is
-  // green, nothing is owed, and raising the ceiling is usually structural. A gap lane gets the same
-  // permission with its own precedence intact — the named gap is still what closes it, and a
-  // restructure that leaves the gap open is still SKIPPED, not RESOLVED.
-  if (craftMode) {
+  // THE INVITATION TO MAKE A LARGER CHANGE, on ANY batch that carries a rung — the fix for the defect
+  // this reflection found: gated on `every`, it had never once reached an agent. A craft rung is where
+  // it belongs unreservedly (the repo is green, nothing is owed, and raising the ceiling is usually
+  // structural), and a MIXED batch carries rungs, so it gets the invitation too. An ALL-GAP batch
+  // keeps the narrower, precedence-preserving sentence below: the named gap is still what closes it,
+  // and a restructure that leaves it open is still SKIPPED, not RESOLVED.
+  if (hasCraft) {
     lines.push(...STRUCTURAL_INVITATION);
+    // The gap items in a mixed batch keep their own precedence, stated once, here.
+    if (mixed) {
+      lines.push(
+        "- On a GAP item this changes nothing about the CLAIM: `RESOLVED` still means THIS item's gap is closed by THIS change, and a restructure that leaves it open is `SKIPPED` with the reason.",
+      );
+    }
     lines.push("");
   } else {
     lines.push(
@@ -535,11 +601,11 @@ export function buildFixPrompt(
     sorted.forEach((it, i) => {
       lines.push(`### ${i + 1}. ${it.title}`);
       lines.push(
-        `- id: \`${it.id}\` · dimension: ${it.dimId} ${it.dimLabel} · impact ${it.impact} · effort ${it.effort}` +
+        `- id: \`${it.id}\`${mixed ? ` · **${it.kind === "craft" ? "rung" : "gap"}**` : ""} · dimension: ${it.dimId} ${it.dimLabel} · impact ${it.impact} · effort ${it.effort}` +
           (it.craftAxis ? ` · axis ${it.craftAxis}` : "") +
           (it.projectedPoints != null ? ` · +${it.projectedPoints} pts` : ""),
       );
-      if (it.rationale) lines.push(`- ${craftMode ? "Why this rung" : "Why it matters"}: ${it.rationale}`);
+      if (it.rationale) lines.push(`- ${it.kind === "craft" ? "Why this rung" : "Why it matters"}: ${it.rationale}`);
       if (it.explore.length) {
         lines.push("- Explore first:");
         for (const q of it.explore) lines.push(`  - ${q}`);

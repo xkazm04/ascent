@@ -35,6 +35,9 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@/lib/polar", () => ({
   creditsForProduct: vi.fn(() => 0),
   planForProduct: vi.fn(() => null),
+  // No Polar client here → the stale-paid fence reads the order's embedded snapshot. The fetched-state
+  // path (the durable fence) is exercised by route.replay.test.ts.
+  getPolar: vi.fn(() => null),
 }));
 
 import { clawbackOrderRefund, getCreditState, grantCredits, setOrgPlan } from "@/lib/db";

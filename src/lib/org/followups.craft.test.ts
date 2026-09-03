@@ -75,11 +75,15 @@ describe("buildFixPrompt — the craft brief", () => {
     expect(p).toContain("none of the items below is a fault");
   });
 
-  it("demands a named artefact and keeps the rung reviewable", async () => {
+  // The artefact rule and the no-gaming rule survive; the two sentences that ranked a CHECK above the
+  // change it would ask for are deleted (reflection 2026-09-01, finding 3).
+  it("demands a named artefact, sets the bar at the code, and no longer asks for one small rung", async () => {
     const p = buildFixPrompt([item()], ctx);
     expect(p).toContain("Leave an ARTEFACT");
-    expect(p).toContain("one rung, not a redesign");
     expect(p).toContain("Do not lower any existing bar");
+    expect(p).toContain("THE BAR IS THE CODE ITSELF");
+    expect(p).not.toContain("one rung, not a redesign");
+    expect(p).not.toContain("Prefer something that RUNS");
   });
 
   it("still ends with the RESOLVED lines the lane parser reads", async () => {

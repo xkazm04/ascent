@@ -10,11 +10,22 @@
 // the fewest built items — so the work spreads across the whole surface of the craft rather than
 // deepening one corner.
 //
-// THE SIX. Chosen to be (a) mutually exclusive enough that a model can pick one without agonising,
+// THE SEVEN. Chosen to be (a) mutually exclusive enough that a model can pick one without agonising,
 // (b) collectively exhaustive over the kinds of "raise the ceiling" work a strong repository has
 // left, and (c) NOT a second rubric: an axis prices nothing, unlocks nothing, and is never summed.
 // `security-depth` is deliberately distinct from the D9 dimension — D9 asks "are the controls
 // present"; the axis asks "how deep does the practice go once they are".
+//
+// `code-health` IS THE ONE THAT LOOKS AT THE SOURCE (2026-09-01, added seventh and last so the
+// declared order of the original six — and therefore every existing tie-break — is unchanged).
+// Measured over 33 real loop runs: of 30 closed or hardened deliverables across two campaigns,
+// **zero** were a refactor, a de-duplication or a performance repair. The reason was structural, not
+// motivational. Craft entries are generated PER DIMENSION and all nine dimensions are process
+// dimensions, and every one of the other six axes is phrased as a gate ABOUT the code — a budget, a
+// drill, a decay check. So "this module is duplicated three ways", "this hot path allocates on every
+// request", "this file has become a dumping ground" had no axis to be filed under and were therefore
+// never proposed, never dispatched and never built. This axis is the place for them. Its artefact is
+// SMALLER CODE, not another check; `prompt.ts` says so to the model in those words.
 //
 // NOTHING HERE FEEDS A SCORE. There is no weight, no band and no ordering value in this file that
 // any scoring path may read. See `src/lib/maturity/model.ts` r12.
@@ -26,7 +37,8 @@ export type CraftAxis =
   | "robustness"
   | "design"
   | "security-depth"
-  | "dx";
+  | "dx"
+  | "code-health";
 
 export const CRAFT_AXES: readonly CraftAxis[] = [
   "architecture",
@@ -35,6 +47,7 @@ export const CRAFT_AXES: readonly CraftAxis[] = [
   "design",
   "security-depth",
   "dx",
+  "code-health",
 ] as const;
 
 /** What each axis means, in the words the prompt hands the model. One line each, on purpose. */
@@ -50,6 +63,8 @@ export const CRAFT_AXIS_BRIEF: Record<CraftAxis, string> = {
   "security-depth":
     "depth beyond the present controls — threat modelling, secret hygiene, supply-chain provenance",
   dx: "the loop a contributor lives in — setup time, feedback latency, how fast a wrong change is caught",
+  "code-health":
+    "the source itself — duplication, dead code, a file that became a dumping ground, a hot path's cost; the rung leaves SMALLER code behind, never another gate about it",
 };
 
 /** Human label for a surface that renders an axis. */
@@ -60,6 +75,7 @@ export const CRAFT_AXIS_LABEL: Record<CraftAxis, string> = {
   design: "Design",
   "security-depth": "Security depth",
   dx: "Developer experience",
+  "code-health": "Code health",
 };
 
 const AXIS_SET: ReadonlySet<string> = new Set<string>(CRAFT_AXES);
@@ -77,7 +93,7 @@ export function asCraftAxis(v: unknown): CraftAxis | null {
 
 /** An empty per-axis tally. Every axis is present at zero, so a caller never has to hole-fill. */
 export function emptyAxisTally(): Record<CraftAxis, number> {
-  return { architecture: 0, performance: 0, robustness: 0, design: 0, "security-depth": 0, dx: 0 };
+  return { architecture: 0, performance: 0, robustness: 0, design: 0, "security-depth": 0, dx: 0, "code-health": 0 };
 }
 
 /**

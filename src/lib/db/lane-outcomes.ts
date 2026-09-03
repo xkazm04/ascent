@@ -36,6 +36,9 @@
 
 import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
+// The SAME identity `decideInProgress` / `isRestated` / the craft ledger carry status across a rescan
+// with. A deferral that keys on anything else is a deferral the next rescan silently drops.
+import { normalizeRecTitle } from "@/lib/report/compare";
 import type { LaneReport, LaneVerdict } from "@/lib/local/lane-report";
 
 /** How many cycles a skip holds before the loop is willing to try again. */
@@ -292,27 +295,167 @@ export async function recordLaneOutcomes(input: RecordOutcomesInput): Promise<La
       })
       .catch(() => null);
   }
+  // THE CRAFT RUNGS THIS LANE ACTUALLY BUILT. Best-effort and last: a failure here must not cost the
+  // outcome ledger the rows it just wrote.
+  await closeBuiltCraftRungs({
+    orgId: org.id,
+    laneId: input.laneId,
+    cycle: input.cycle,
+    ids: claimedTrailerIds(input.batchIds, input.report),
+    now,
+  }).catch(() => []);
   return written;
 }
+
+/**
+ * The ids this lane's commit carried an `Ascent-Resolves:` trailer for — mirroring `trailerIds` in
+ * lane-commit.ts, which is the code that actually wrote them. Named RESOLVED ids win; a session that
+ * named only skips trails the rest ("I did not do these four" accounts for the fifth); a session that
+ * named nothing claims nothing.
+ *
+ * Pure, and deliberately a re-statement rather than an import: lane-commit.ts reaches for `runGit`,
+ * and this module is on the db side of the wall.
+ */
+export function claimedTrailerIds(batchIds: readonly string[], report: LaneReport | null): string[] {
+  const armed = [...new Set(batchIds)];
+  const items = report?.items ?? [];
+  const resolved = armed.filter((id) => items.some((i) => i.recommendationId === id && i.verdict === "resolved"));
+  if (resolved.length > 0) return resolved;
+  const skipped = new Set(items.filter((i) => i.verdict === "skipped").map((i) => i.recommendationId));
+  if (skipped.size > 0) return armed.filter((id) => !skipped.has(id));
+  return [];
+}
+
+/**
+ * A CRAFT RUNG CLOSES ON THE TRAILER OF A VERIFIED LANE — the adjudication craft never had.
+ *
+ * WHY IT WAS MISSING. `decideInProgress` already holds the craft rule: movement cannot witness a
+ * ceiling raise, so a craft row closes on its trailer and on nothing else — but it is only ever ASKED
+ * when the next scan stops restating the row. A craft entry is the model's answer to an unbounded
+ * question, re-derived from scratch every scan, so it IS restated almost every time and the question
+ * is never reached. Measured on 2026-09-01: 2757 `in_progress` craft rows over 186 titles in one
+ * repository, one title re-raised 61 times, and 37 of 136 agent verdicts opening with "Already
+ * covered" because the loop kept handing back rungs it had already built.
+ *
+ * SO THE CLOSE HAPPENS AT LANE END, WHERE THE EVIDENCE IS. Two conditions, both required:
+ *   • the lane's own A/B degradation guard returned `verified` — the repository's check passed before
+ *     the session and passed again after it, so the work is on the branch and is not a regression; and
+ *   • the commit carried this row's `Ascent-Resolves:` trailer — the session's own claim that THIS
+ *     rung is what it built.
+ * A `rejected` lane never reaches this code at all (its edits are discarded and its claims released);
+ * a `skipped`, `baseline-red` or unknown verdict reaches it and closes nothing, because an unverified
+ * lane's claim is exactly the self-certification the trailer rules exist to refuse.
+ *
+ * GAPS ARE UNTOUCHED. A gap still closes only through the rescan's "no longer raised AND the dimension
+ * moved" witness. This is the craft asymmetry `decideInProgress` already documents, applied at the one
+ * moment both facts are in hand.
+ */
+async function closeBuiltCraftRungs(input: { orgId: string; laneId: string; cycle: number; ids: readonly string[]; now: Date }): Promise<string[]> {
+  if (input.ids.length === 0) return [];
+  const prisma = getPrisma();
+  const lane = await prisma.loopRunLane.findUnique({ where: { id: input.laneId }, select: { verifyVerdict: true } }).catch(() => null);
+  if (!lane || lane.verifyVerdict !== "verified") return [];
+  const rows: { id: string }[] = await prisma.recommendation
+    .findMany({ where: { id: { in: [...input.ids] }, kind: "craft", status: { not: "done" } }, select: { id: true } })
+    .catch(() => []);
+  const closed: string[] = [];
+  for (const row of rows) {
+    const done = await prisma.recommendation.update({ where: { id: row.id }, data: { status: "done" } }).catch(() => null);
+    if (!done) continue;
+    closed.push(row.id);
+    await prisma.recommendationEvent
+      .create({
+        data: {
+          recommendationId: row.id,
+          actor: "autopilot",
+          kind: "status",
+          toValue: "done",
+          note: `Craft rung BUILT in loop cycle ${input.cycle}: the lane's commit carried this row's Ascent-Resolves trailer and the degradation guard verified the cycle. A craft rung has no score for a rescan to confirm, so it closes on the trailer of a verified lane — which is also what stops it being proposed again.`.slice(
+            0,
+            500,
+          ),
+        },
+      })
+      .catch(() => null);
+  }
+  return closed;
+}
+
+/** The stable identity of a recommendation — `dimId` + normalized title. The key `matchRecommendations`
+ *  carries status across re-scans with, and now the key a deferral survives a rescan by. */
+export const recIdentity = (r: { dimId: string; title: string }): string => `${r.dimId}::${normalizeRecTitle(r.title)}`;
 
 /**
  * Recommendation ids this repo should NOT be re-offered yet, because a lane parked them.
  *
  * Org- AND repo-scoped: a deferral is a fact about one repository's item, and a cross-tenant read
- * here would let one org's skip suppress another's backlog. One indexed read
- * (`@@index([orgId, recommendationId])`), on the path `openBatch` already awaits.
+ * here would let one org's skip suppress another's backlog.
+ *
+ * A DEFERRAL IS ON THE ITEM, NOT ON THE ROW (2026-09-01). It used to be a set of recommendation IDS,
+ * and every rescan re-derives a repository's recommendations as NEW ROWS WITH NEW IDS — so a deferral
+ * expired the moment the next scan ran, which on this loop is minutes later. The measurement: D9's
+ * "pin actions to a commit SHA" was dispatched and skipped for "no network" in 8 of 8 campaign-5 runs,
+ * burning a batch slot every time, while 529 `in_progress` rows for it piled up
+ * (docs/harness/reflection-2026-09-01.md, finding 5). The park was real and it never applied twice.
+ *
+ * So the parked ids are widened to the parked ITEMS: the deferred rows' `dimId + normalizeRecTitle`
+ * identities, matched against this repository's current rows. A re-derived row carrying the same
+ * identity is still parked; a genuinely new title is not, and neither is anything in another repo or
+ * another org. The expansion is bounded to the repository's LATEST scan — the window `openBatch`
+ * itself reads — so the extra read is one indexed query, not a history sweep.
  */
 export async function getActiveDeferrals(orgSlug: string, repoFullName: string, now: Date = new Date()): Promise<Set<string>> {
   if (!isDbConfigured()) return new Set();
   return dbReadSafe<Set<string>>(async () => {
     const org = await getOrgBySlug(orgSlug);
     if (!org) return new Set();
-    const rows = await getPrisma().laneItemOutcome.findMany({
+    const prisma = getPrisma();
+    const rows = await prisma.laneItemOutcome.findMany({
       where: { orgId: org.id, repoFullName, deferUntil: { gt: now } },
       select: { recommendationId: true },
     });
-    return new Set(rows.map((r) => r.recommendationId));
+    const ids = new Set(rows.map((r) => r.recommendationId));
+    if (ids.size === 0) return ids;
+    try {
+      return await expandToIdentities(prisma, org.id, repoFullName, ids);
+    } catch {
+      // The widening is an IMPROVEMENT on the id set, never a precondition for it. If any of its
+      // reads fails the caller still gets every id a lane actually parked — the old behaviour — rather
+      // than an empty set from `dbReadSafe`'s fallback, which would un-park everything.
+      return ids;
+    }
   }, new Set());
+}
+
+/** The identity expansion behind `getActiveDeferrals`. Split out so its failure cannot cost the
+ *  caller the ids it already has. */
+async function expandToIdentities(
+  prisma: ReturnType<typeof getPrisma>,
+  orgId: string,
+  repoFullName: string,
+  ids: Set<string>,
+): Promise<Set<string>> {
+  // What those parked rows WERE, by identity. A row that has since been purged simply contributes
+  // no identity — the id itself stays parked, which is the pre-2026-09-01 behaviour.
+  const parked = await prisma.recommendation.findMany({
+    where: { id: { in: [...ids] } },
+    select: { dimId: true, title: true },
+  });
+  const keys = new Set(parked.map(recIdentity));
+  if (keys.size === 0) return ids;
+  const repo = await prisma.repository.findUnique({
+    where: { orgId_fullName: { orgId: orgId, fullName: repoFullName } },
+    select: { id: true },
+  });
+  if (!repo) return ids;
+  const scan = await prisma.scan.findFirst({ where: { repoId: repo.id }, orderBy: { scannedAt: "desc" }, select: { id: true } });
+  if (!scan) return ids;
+  const current = await prisma.recommendation.findMany({
+    where: { scanId: scan.id, status: { in: ["open", "in_progress"] } },
+    select: { id: true, dimId: true, title: true },
+  });
+  for (const r of current) if (keys.has(recIdentity(r))) ids.add(r.id);
+  return ids;
 }
 
 /**

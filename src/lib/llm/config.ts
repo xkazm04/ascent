@@ -307,6 +307,12 @@ export const MODEL_PRICES: ModelPrice[] = [
   // introductory rate is correct and the reversion is enforced by a DATED TEST in config.test.ts
   // that starts failing on the reversion date rather than by a comment nobody re-reads.
   { prefix: "gemini-3.7-flash", inPerMTok: 0.75, outPerMTok: 3.75 },
+  // gemini-3.8-flash (default since 2026-09-02) ships at the SAME introductory rate as 3.7 and
+  // reverts on the SAME date, so both rows are covered by the one dated test in config.test.ts.
+  // Same per-token price is NOT the same cost per scan: the vendor states 3.8 "works harder" —
+  // more reasoning steps and iterative tool calls, at thinking_level's default of `high` — so the
+  // output-token count per scan rises even though this row does not. Watch /usage, not this table.
+  { prefix: "gemini-3.8-flash", inPerMTok: 0.75, outPerMTok: 3.75 },
   // Claude via Bedrock (BEDROCK_MODEL_ID), geo prefix stripped. Family prefixes (…-4) cover the
   // 4.x point releases, which share a list price per tier.
   { prefix: "anthropic.claude-sonnet-4", inPerMTok: 3, outPerMTok: 15 },

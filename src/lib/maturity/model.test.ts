@@ -185,7 +185,14 @@ describe("SCORING_RUBRIC_VERSION — mechanical backstop for the bump-on-change 
     // detector moved — the whole point of r12 is that craft became dispatchable work WITHOUT entering
     // any score. (The per-repo CRAFT ALREADY BUILT block is not in this hash by construction: it is
     // rendered into the USER message, never the cacheable SYSTEM prefix this snapshot covers.)
-    const EXPECTED_RUBRIC_HASH = "0feefbebd8775924780b294f065b1c806a8c8f893b6b801662b8001aea7ee2d3";
+    // Re-pinned 2026-09-01 WITH the r16 bump (the `code-health` craft axis): again ONLY the prompt
+    // half moved. The CRAFT ENTRIES section's axis list gained a seventh entry and the craft rules
+    // gained "THE CODE ITSELF IS CRAFT" — at or above the green floor, at least one rung must name
+    // something in the SOURCE (a duplicated module, a hot path, a dumping-ground file) rather than a
+    // gate about it. A changed model INPUT, so the bump is the remedy and this re-pin records it; no
+    // weight, band, blend, guardband, posture threshold, lens or detector moved, and craft still
+    // enters no score (craft.score.test.ts pins that end-to-end).
+    const EXPECTED_RUBRIC_HASH = "7de0db475ec0b89a1fbf03d4de3909438d5c6a6bc2a0b2892c3429c3155ab200";
     expect(
       actual,
       `The scoring rubric changed (weights/bands/blend/guardband/posture threshold/lens/prompt). ` +

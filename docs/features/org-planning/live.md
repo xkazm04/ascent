@@ -252,13 +252,15 @@ wider grant.
   the work — and `laneCommitSubject` used to read a subject line off it. A campaign branch carried
   **1605 insertions across 15 files** under `fix: Agent session exceeded 20 min and was stopped`
   (`PRIYA-L2-C7`, 2026-08-30). The lane now passes `sessionFailed` and the subject falls back to
-  `chore: partial work from an interrupted lane session`, with a paragraph in the body saying the
-  changes are the session's unreviewed residue. **The error is not dropped** — it still rides
+  `INTERRUPTED_SUBJECT` — since 2026-09-01 *`chore: keep the tree a halted lane session left behind`*,
+  which names the tree rather than the run (see [the commit
+  ladder](#the-commit-subject-and-the-hook-ladder)) — with a paragraph in the body saying
+  the changes are the session's unreviewed residue. **The error is not dropped** — it still rides
   verbatim in the `Agent summary:` block, where a reader looking for it finds it and `git log
   --oneline` does not lead with it.
 - If the agent *did* commit (a future mode with a wider grant), the lane commits only the residue.
-- If the lane's own commit fails, the lane names the uncommitted change count and the branch the work
-  is **not** on before the worktree is deleted.
+- If the lane's own commit fails **after all three rungs of the ladder below**, the lane names the
+  uncommitted change count and the branch the work is **not** on before the worktree is deleted.
 
 ### The claim and the verdict are two different numbers
 
@@ -2114,8 +2116,56 @@ countdown; a zero there would be averaged downstream as a free session, which is
 The run panel also hides "Stop after in-flight" for a remote run: that button is a cooperative signal
 to a process this deployment is driving, and there is none.
 
+## Rescan cadence — a multi-cycle run reads the tree once (2026-09-01)
+
+A cycle used to end with a full rescan of its worktree, every time. Measured over 19 committed
+systedo cycles ([`docs/harness/reflection-2026-09-01.md`](../../harness/reflection-2026-09-01.md)):
+agent **1203 s**, rescan **279 s (17%)**, verify 53 s, land 11 s. With `maxCycles: 3` that is roughly
+nine minutes of a ~85-minute run spent re-reading a repository for two consumers — the next cycle's
+batch, and the attribution pair.
+
+`rescanCadence` (`"cycle" | "run"`, on `startLoopRun`'s input) changes when the reading happens:
+
+- **`"cycle"` — the default.** Exactly what every run before the parameter existed did: each cycle
+  that committed rescans immediately and adjudicates its own batch. It is the default deliberately,
+  and the rule is the brief's own: the new cadence is not byte-identical (an intermediate cycle's
+  `afterScanId`/`closedIds` now arrive at the end of the run rather than at its own close), so it has
+  to be opted into rather than inherited by every existing caller.
+- **`"run"`.** Cycles that commit and are not the run's last hand their cycle back as a
+  `DeferredCycle` — the lane row goes `done` with its commits, and its claim, batch, agent claims and
+  report ride out with it. The run's last cycle rescans normally, and `settleDeferredCycles`
+  adjudicates every deferred cycle against **that one scan**.
+
+**What the deferral does not cost, item by item.** The next cycle's batch does not need the scan: a
+claimed row is `in_progress`, so `openBatch` already excludes what this run took, and each cycle
+re-reads the persisted backlog minus the run's own claims. The attribution pair is *better*, not
+worse — every lane of the run spans the run's opening `beforeScanId` → the single final `afterScanId`,
+one real before/after across the whole run instead of three pairs each straddling one cycle of scanner
+noise (the reflection measured adoption swinging ±7–17 on one-commit diffs, which produced a false
+`regressed` deliverable). `closedIds` and the commit trailers still resolve against a real scan of the
+branch every cycle committed to. The degradation guard reads no scan at all, so verification is
+untouched.
+
+**Drop-out is the case that makes this safe.** If cycle 2 commits nothing, the repo drops out and no
+further cycle will ever take the reading cycle 1 is owed — so the engine settles there, and
+`settleDeferredCycles` takes the scan itself. The no-commit guard is *upstream* of the cadence and is
+not weakened: it refuses to scan a worktree **nothing landed in**, which is simply not true of a
+branch carrying cycle 1's commits. A run whose every cycle committed nothing still never rescans.
+
+If a run ends, is stopped or errors with cycles still owed a reading, `abandonDeferredCycles` gives
+their rows back rather than spending five minutes scanning on the way out — the commits are safe on
+the branch either way, and a claim nobody will settle is the zombie that cost drive #1 a fleet pass.
+
+The cadence lives on the run's **input**, not on its row: a retry re-runs one lane in isolation, where
+there is no "rest of the run" to defer to, so a retried lane is always `"cycle"`.
+Pinned by [`src/lib/local/loop-engine.cadence.test.ts`](../../../src/lib/local/loop-engine.cadence.test.ts).
+
 ## Known gaps
 
+- **`rescanCadence` has no UI and is not persisted.** The engine accepts it and the campaign harness
+  can pass it; the cockpit's run dials do not offer it, and nothing on the `LoopRun` row records which
+  cadence a finished run used — so the ledger cannot yet answer "was this run's pair a per-cycle or a
+  per-run reading" except by the lane logs.
 - **The A/B model policy has no picker.** `modelPolicy: "ab"` is accepted, validated and driven end
   to end by `POST /api/org/loop`, but the cockpit's run controls still offer only one model — arming
   an A/B run today means calling the route. The dials live in `CockpitRunControls`/`useRunDials`,
@@ -2668,3 +2718,121 @@ says nothing; a directory the repo does not ignore is refused with a reason; a l
 made is a note, not a throw; **`removeLoopWorktree` and the stranded sweep both leave the target's
 contents intact, asserted by name**; and the census — `git ls-files -c -o --exclude-standard` and a
 real `LocalFsSource` snapshot — never sees the linked tree).
+
+---
+
+## What 33 runs said, and the four mechanisms that answer it (2026-09-01)
+
+Source: `docs/harness/reflection-2026-09-01.md` — 84 lanes across five campaigns, joined to the live
+recommendation rows. Four defects were mechanism, not judgment; all four are fixed here. (Items 3, 6,
+7 and 8 of that plan — run dials, the reflection tool, rescan cadence and a `code-health` axis — are
+not part of this change.)
+
+### The brief follows the batch, and the batch is mixed
+
+`buildFixPrompt` decided its voice with `items.every(kind === "craft")`, under a comment saying
+"`openBatch` never mixes kinds". That was true when written and became false the day the **green
+reservation** landed (2026-08-30): a green repo's batch is now a couple of gaps *plus* several rungs,
+by design. **26 of 29 campaign-5 batches were mixed**, so every one took the all-gap branch — and
+`STRUCTURAL_INVITATION`, the permission to restructure that shipped 2026-08-31, **was never delivered
+to a single agent**, while 23 of 23 closes in those runs were craft rungs.
+
+Two questions are now asked separately, because they are different questions:
+
+- **`allCraft`** — is *nothing owed here*? A claim about the repository, so it still governs the
+  framing only: the `# Ascent craft ladder` title, the "no open gaps left" intro, the "already green"
+  repo heading.
+- **`hasCraft`** — is there a rung in this batch *at all*? That governs the craft **rules** and the
+  structural invitation. A mixed batch contains ceiling work and is now told so.
+
+A mixed batch also gets a lead paragraph naming both bars, and every item's `id:` line carries
+`**gap**` or `**rung**`. A single-kind batch is not annotated (nothing to disambiguate), and an
+all-gap batch keeps its own narrower "a larger change is allowed when the gap's real cause is
+structural" sentence instead of the invitation.
+
+**Two sentences were deleted, and the deletion is the point.** *"Keep it small and reversible — one
+rung, not a redesign"* and *"Prefer something that RUNS (a check, a budget, a drill) over something
+that only describes"* selected for exactly one output. The measurement: 30 closed deliverables across
+campaigns 4–5 were **21 gates, 8 config/doc registries, 1 capability, and 0 refactor/dedup/perf
+changes**, with the product code untouched and the repositories accreting a meta-harness about
+themselves. What replaces them is the owner's bar in the brief's own voice: *the bar is the code
+itself — well-structured, de-duplicated, faster*; such work **may span many files, may move code and
+may delete code**, and is welcome to when that is what raises the ceiling; and the lane re-runs the
+repository's own check afterwards and **discards a regression**, so size is not the risk it was. Every
+honesty rule survives unchanged — the capability rule, `RESOLVED` means *this* gap closed by *this*
+change, no substitution.
+
+### The commit subject and the hook ladder
+
+`laneCommitSubject` took the agent's first non-verdict line — the opening line of a *closing message*,
+which is a report about the session, not a name for a change. It produced subjects like `fix: All work
+is in the tree. Here's what I found and did`. `xkazm04/kp` has its own `commit-msg` hook (built, as it
+happens, by an earlier run of this loop) enforcing *"a subject is one clause about the change"*, so it
+refused, `git commit` exited non-zero, and the lane logged "N changes are still uncommitted" and
+deleted the worktree: **7 of 8 kp lanes, 10–17 changes each, $5–11 of real work per lane, discarded**
+— and kp has not been rescanned since, because no lane of its has committed.
+
+- **The subject is the first `RESOLVED:` headline.** The brief already constrains that clause to *at
+  most 8 words, verb-first, past tense, naming the artefact*, which is a commit subject; it is taken
+  with a conventional type prefix (`fix: Added permissions scope to 3 workflows`).
+- **The fallback is narrower than the old default, not wider**: a line that already reads as a
+  conventional subject, else a *deliverable-shaped* line (verb-first, one clause, no first person, no
+  narrative opener, not two sentences), else a generated `fix: apply the changes for N Ascent
+  follow-ups`. **Session prose is never a candidate**, with or without `sessionFailed`.
+- **Three rungs, and work is never silently discarded again.** (1) Commit normally. (2) On refusal,
+  retry once with a `Commit-convention-exemption:` trailer — the waiver such hooks publish for
+  themselves, on the record in `git log`, appended *into* the trailer block so the `Ascent-Resolves:`
+  lines still parse. (3) On a second refusal, `git commit --no-verify` and say so **loudly**: the lane
+  log carries `THIS REPOSITORY'S COMMIT HOOK WAS BYPASSED`, both refusals in the hook's own words, and
+  the instruction to review the commit before landing it. `LaneCommitResult` gains `exempted` and
+  `hookBypassed` (both optional; every existing caller is unchanged). Only a failure at rung 3 is a
+  lost-work log, and it says the refusal is no longer about the message.
+
+### A built craft rung finally closes
+
+`decideInProgress` already holds the craft rule — a rung closes on its trailer and nothing else,
+because movement cannot witness a ceiling raise — but it is only *asked* once a scan stops restating
+the row, and a craft entry is the model's answer to an unbounded question, re-derived every scan. So
+it is restated nearly every time and the question is never reached: **2757 `in_progress` craft rows
+over 186 titles** in one repository, one title re-raised **61 times**, and **37 of 136** agent verdicts
+opening with *"Already covered"*.
+
+- **The close happens at lane end**, in `recordLaneOutcomes` (`closeBuiltCraftRungs`), where both facts
+  exist at once: the lane's A/B guard returned **`verified`**, and the commit carried **this row's
+  `Ascent-Resolves:` trailer** (`claimedTrailerIds` mirrors the rule `lane-commit.ts` writes trailers
+  by). Both are required. A `rejected` lane never reaches the code at all; a `skipped`, `baseline-red`
+  or unknown verdict reaches it and closes nothing, because an unverified lane's claim is exactly the
+  self-certification the trailer rules refuse. **Gaps are untouched** — a gap still closes only on the
+  rescan's movement witness. The row's timeline says why it closed.
+- **`getCraftBuilt` is now deliberately wider than the odometer.** It also returns craft rows a lane
+  recorded a `resolved` outcome for, deduped with the `done` rows on `dimId + normalizeRecTitle`, so
+  the 61 copies of one title collapse to the one line the model is shown. `getCraftLedger` — a number
+  that only ever rises — still counts `done` alone. The two reads answer different questions and their
+  errors cost different amounts: omitting a built rung burns a whole session, while including an
+  over-claimed one costs one un-proposed rung out of an unbounded supply.
+
+### A deferral is on the item, not on the row
+
+`getActiveDeferrals` returned recommendation **ids**, and every rescan re-derives a repository's
+recommendations as new rows with new ids — so a park expired minutes after it was recorded. D9's *"pin
+actions to a commit SHA"* was dispatched and skipped for "no network" in **8 of 8** campaign-5 runs,
+burning a batch slot each time, behind 529 `in_progress` rows. The parked ids are now widened to the
+parked **items**: the deferred rows' `dimId + normalizeRecTitle` identities — the same key
+`decideInProgress`, `isRestated` and the craft ledger use — matched against the repository's **latest
+scan**, the window `openBatch` itself reads. A re-derived row with the same identity is still parked; a
+genuinely new title is not, and nothing crosses a repo or a tenant. The widening is an improvement on
+the id set and never a precondition for it: if any of its reads fails, the caller still gets every id a
+lane actually parked. A curated pick still outranks a deferral, unchanged.
+
+Tests: `followups.mixed.test.ts` (the invitation reaches a mixed batch and an all-craft one and *not*
+an all-gap one; per-item `gap`/`rung` marks; the two deleted sentences absent in all three shapes; the
+capability rule and every honesty line still rendered), `followups.craft.test.ts` (the artefact rule
+and the no-gaming rule survive), `lane-commit.test.ts` (the subject from the RESOLVED headline, a prose
+headline skipped, the deliverable fallback, the generated fallback, and `INTERRUPTED_SUBJECT` naming
+the tree), `lane-commit.hook.test.ts` — real git, a real `commit-msg` hook — (a hook that accepts; a
+hook that wants the exemption trailer, where the retry lands *and* the `Ascent-Resolves:` trailer still
+parses; a hook that refuses everything, where the bypass is loud and the work is on the branch with a
+clean worktree), `lane-outcomes.identity.test.ts` (a re-derived row still deferred, a new title not;
+`claimedTrailerIds`' three cases; a verified+claimed craft row closing, an unverified or unclaimed one
+not, and a gap row never), and `org-insights-craft.claimed.test.ts` (a claimed rung in the built read,
+the 61-title case collapsing to one, another repo's claim ignored, and the odometer still strict).

@@ -177,7 +177,19 @@ import type {
 // r15 (2026-08-31, RC2-N1): r14 declared the field only as an empty key in the JSON skeleton and
 // the model returned it on 0 of 9 items on the first live scan — the mandate now ASKS for it, in
 // the ROADMAP COVERAGE block, still invitational (stated as what the move IS, never an order).
-export const SCORING_RUBRIC_VERSION = "r15";
+// r16 (2026-09-01): A SEVENTH CRAFT AXIS — `code-health` (src/lib/scoring/craft.ts), and the craft
+// rules now REQUIRE at least one rung filed under it whenever a dimension sits at or above
+// GREEN_MIN_SCORE. The evidence is a 33-run reflection (docs/harness/reflection-2026-09-01.md): of 30
+// closed or hardened deliverables across two campaigns, zero were a refactor, a de-duplication or a
+// performance repair — because craft is proposed per dimension, all nine dimensions are PROCESS
+// dimensions, and each of the other six axes is phrased as a gate ABOUT the code. There was nowhere
+// to file "this module is duplicated three ways", so it was never proposed.
+// NOTHING PRICED. No weight, band, blend, guardband, threshold, facet or point value moved, and an
+// axis is still never summed, never a bonus and never a follow-up the team owes (the r12 invariant,
+// pinned end-to-end by src/lib/scoring/craft.score.test.ts). The bump exists for the r6/r10/r14
+// reason and only that one: the SYSTEM prompt now asks the model a DIFFERENT question, so a cached
+// r15 roadmap and a fresh r16 roadmap are not the same reading.
+export const SCORING_RUBRIC_VERSION = "r16";
 
 /** Blend factor: how much the LLM judgment counts vs. deterministic signals. */
 export const SCORE_BLEND = 0.6;

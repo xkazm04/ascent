@@ -176,20 +176,49 @@ describe("the pure pieces", () => {
   });
 
   it("bounds the subject and never emits a second line", () => {
-    const long = "x".repeat(200);
-    expect(laneCommitSubject(long, 2).length).toBeLessThanOrEqual(72);
-    expect(laneCommitSubject("# Added a CI workflow", 1)).toBe("fix: Added a CI workflow");
-    expect(laneCommitSubject("ci: add the workflow", 1)).toBe("ci: add the workflow");
-    expect(laneCommitSubject("", 2)).toBe("fix: resolve 2 Ascent follow-ups");
-    expect(laneCommitSubject("RESOLVED: a - x", 1)).toBe("fix: resolve 1 Ascent follow-up");
+    const long = `RESOLVED: a - Added ${"x".repeat(200)}`;
+    expect(laneCommitSubject(long, [{ title: "a" }, { title: "b" }]).length).toBeLessThanOrEqual(72);
+    expect(laneCommitSubject("# Added a CI workflow", [{ title: "Add a CI workflow" }])).toBe("fix: Added a CI workflow");
+    expect(laneCommitSubject("ci: add the workflow", [{ title: "Add a CI workflow" }])).toBe("ci: add the workflow");
+    expect(laneCommitSubject("", [{ title: "Pin actions to a SHA" }, { title: "b" }])).toBe("fix: partial work on pin actions to a SHA");
+    expect(laneCommitSubject("", [])).toBe("fix: apply the session's uncommitted changes");
+  });
+
+  // THE SUBJECT IS THE RESOLVED HEADLINE. The brief already constrains it (≤ 8 words, verb-first,
+  // past tense), which is a commit subject; the session's closing prose is a report, which is not —
+  // and a repo whose commit-msg hook enforces "name the change" rejected the prose and made the lane
+  // throw 10–17 real changes away, seven lanes running (reflection 2026-09-01, finding 5).
+  it("takes the subject from the first RESOLVED headline, never from the closing prose", () => {
+    const summary = [
+      "All work is in the tree. Here's what I found and did.",
+      "",
+      "RESOLVED: rec-42 - Added permissions scope to 3 workflows",
+      "SKIPPED: rec-43 - needs network",
+    ].join("\n");
+    expect(laneCommitSubject(summary, [{ title: "a" }, { title: "b" }])).toBe("fix: Added permissions scope to 3 workflows");
+  });
+
+  it("skips a RESOLVED headline that is itself prose, and falls back only to a deliverable-shaped line", () => {
+    // A headline that is two sentences and first-person is not a subject; the next usable line is.
+    const summary = ["RESOLVED: rec-1 - Done. I think this is right", "Removed the duplicated retry helper"].join("\n");
+    expect(laneCommitSubject(summary, [{ title: "a" }])).toBe("fix: Removed the duplicated retry helper");
+    // Nothing deliverable-shaped anywhere → a generated subject, never a sentence of the summary.
+    // Nothing deliverable-shaped anywhere → the armed work names the commit, never a count of claims.
+    expect(laneCommitSubject("All work is in the tree", [{ title: "Add a SECURITY.md" }])).toBe("fix: partial work on add a SECURITY.md");
+    expect(laneCommitSubject("Here's what I found and did", [{ id: "x" }])).toBe("fix: apply the session's uncommitted changes");
   });
 
   // PRIYA-L2-C7: a timed-out session's error text titled a 1605-insertion commit.
   it("never titles a commit with a failed session's error text, and says so in the body", () => {
     const timedOut = "Agent session exceeded 20 min and was stopped";
-    expect(laneCommitSubject(timedOut, 3)).toBe(`fix: ${timedOut}`);
-    expect(laneCommitSubject(timedOut, 3, true)).toBe(INTERRUPTED_SUBJECT);
+    // Not even without the flag: the runner's failure text is prose, and prose is no longer a
+    // candidate for a subject at all.
+    expect(laneCommitSubject(timedOut, [{ title: "a" }, { title: "b" }, { title: "c" }])).toBe("fix: partial work on a");
+    expect(laneCommitSubject(timedOut, [{ title: "a" }], true)).toBe(INTERRUPTED_SUBJECT);
     expect(INTERRUPTED_SUBJECT.length).toBeLessThanOrEqual(72);
+    // And it names the TREE, not the run: "partial work from an interrupted session" is exactly the
+    // shape a "name the change" hook rejects, and it was the subject on the discarded kp lanes.
+    expect(INTERRUPTED_SUBJECT).not.toMatch(/^chore:\s*(partial|interrupted|incomplete|wip)\b/i);
 
     const input = { dir: "/w", branch: "ascent/loop-x", cycle: 1, batch: [{ id: "a" }], summary: timedOut, sessionFailed: true };
     const msg = buildCommitMessage(input, ["a"], { resolved: ["a"], skipped: [] });
