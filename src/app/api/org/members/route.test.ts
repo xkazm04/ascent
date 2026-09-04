@@ -183,6 +183,17 @@ describe("DELETE /api/org/members — owner gate + CSRF block the removal", () =
     expect(res.status).toBe(404);
     expect(mockAudit).not.toHaveBeenCalled();
   });
+
+  it("maps a TRANSIENT write failure to 503 retry, not to 'No such member.'", async () => {
+    // A serialization abort (two concurrent owner removals) used to arrive as `not_found`, so the
+    // admin was told the member was already gone while the row was still there and the optimistic
+    // panel snapped it back. 404 is a claim about the world; this is a fact about the request.
+    mockRemove.mockResolvedValue("db_error");
+    const res = await DELETE(deleteReq("acme", "alice"));
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "Couldn't remove the member, try again." });
+    expect(mockAudit).not.toHaveBeenCalled(); // nothing happened — nothing to audit
+  });
 });
 
 describe("GET /api/org/members — owner gate guards the read", () => {

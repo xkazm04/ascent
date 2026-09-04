@@ -301,6 +301,18 @@ describe("last-owner guard pins SERIALIZABLE isolation", () => {
     await removeMembership("acme", "alice");
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "Serializable" });
   });
+
+  it("removeMembership reports a serialization abort as db_error, NOT as not_found", async () => {
+    // The loser of two concurrent owner removals aborts (40001). That is a fact about THIS REQUEST
+    // ("it did not happen, retry"), not about the world ("no such member") — and the route renders
+    // the difference as 503 vs 404. setMembershipRole has always drawn this distinction; its sibling
+    // collapsed it, so the admin was told the row was already gone while it was still there.
+    const { prisma } = fakePrisma({ existingRole: "owner", ownerCount: 2 });
+    prisma.$transaction.mockRejectedValue(Object.assign(new Error("could not serialize access"), { code: "40001" }));
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await expect(removeMembership("acme", "alice")).resolves.toBe("db_error");
+  });
 });
 
 // --- Canonical-identifier audit invariant (members-access-control.md HIGH #4) -------------------------

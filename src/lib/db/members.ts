@@ -227,9 +227,10 @@ export async function setMembershipRole(orgSlug: string, login: string, role: Or
 
 /**
  * Remove a member entirely (owner-gated). Refuses to remove the LAST owner so an org can't be
- * orphaned with no one able to manage it. Returns a typed outcome the route maps to a status.
+ * orphaned with no one able to manage it. Returns a typed outcome the route maps to a status —
+ * including `db_error`, the same distinction its sibling setMembershipRole draws (see below).
  */
-export async function removeMembership(orgSlug: string, login: string): Promise<"ok" | "not_found" | "last_owner"> {
+export async function removeMembership(orgSlug: string, login: string): Promise<"ok" | "not_found" | "last_owner" | "db_error"> {
   if (!isDbConfigured()) return "not_found";
   const prisma = getPrisma();
   const gh = normalizeLogin(login);
@@ -253,10 +254,16 @@ export async function removeMembership(orgSlug: string, login: string): Promise<
       return "ok" as const;
     }, { isolationLevel: "Serializable" });
   } catch {
-    // A serialization abort (the loser of two concurrent owner removals) lands here too. removeMembership's
-    // outcome type has no db_error variant, so it maps to not_found — safe (the removal simply didn't
-    // happen; the org keeps its owner), just a benign retry for the caller. The invariant is preserved.
-    return "not_found";
+    // A serialization abort (the loser of two concurrent owner removals) or a DB blip. This used to
+    // return "not_found", which the route renders as "No such member." — a statement about the WORLD
+    // ("that member is already gone, nothing to do") for an event that is entirely about THIS REQUEST
+    // ("your removal did not happen; try again"). The member is still there, the optimistic row snaps
+    // back in the panel, and the admin is told the opposite of what to do next.
+    //
+    // Its sibling setMembershipRole already drew exactly this distinction — a transient write failure
+    // is `db_error` → 503, a genuinely unknown target is not — and the two are the same surface. The
+    // invariant was never at risk either way (the removal simply did not happen); the LIE was.
+    return "db_error";
   }
 }
 

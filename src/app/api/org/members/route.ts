@@ -87,6 +87,12 @@ export async function DELETE(request: Request) {
   if (denied) return denied;
   const outcome = await removeMembership(org, login);
   if (outcome === "not_found") return NextResponse.json({ error: "No such member." }, { status: 404 });
+  // Transient write failure (a serialization abort from two concurrent owner removals, a DB blip) —
+  // 503 + retry, never the 404 "No such member." that tells an admin the row is already gone when it
+  // is still there. Mirrors the POST's mapping of setMembershipRole's db_error.
+  if (outcome === "db_error") {
+    return NextResponse.json({ error: "Couldn't remove the member, try again." }, { status: 503 });
+  }
   if (outcome === "last_owner") {
     return NextResponse.json({ error: "Can't remove the last owner. Assign another owner first." }, { status: 409 });
   }
