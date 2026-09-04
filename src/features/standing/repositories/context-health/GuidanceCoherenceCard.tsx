@@ -143,7 +143,10 @@ export function GuidanceCoherenceCard({ rows }: { rows: RepoCoherenceRow[] }) {
           ))}
         </div>
       ) : (
-        <InlineEmpty>No repository has been scanned under rubric r11 yet — re-scan to read the guidance layer.</InlineEmpty>
+        // State-aware, and from the model so it is unit-tested beside the headline it sits under: an
+        // org with NO repositories in scope was previously told to "re-scan", which is not a remedy it
+        // can act on. `emptyMessage` is non-null exactly when this branch renders.
+        <InlineEmpty>{s.emptyMessage}</InlineEmpty>
       )}
     </Surface>
   );
