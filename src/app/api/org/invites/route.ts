@@ -22,6 +22,7 @@ import { requireSameOrigin } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
 import { dispatchInviteEmail } from "@/lib/email/invite";
 import { publicBaseUrl } from "@/lib/site";
+import { normalizeOrgSlug } from "@/lib/db/org-shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,8 +42,14 @@ const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function GET(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Invites require a database." }, { status: 503 });
-  const org = new URL(request.url).searchParams.get("org");
-  if (!org) return NextResponse.json({ error: "Missing ?org." }, { status: 400 });
+  const rawOrg = new URL(request.url).searchParams.get("org");
+  if (!rawOrg) return NextResponse.json({ error: "Missing ?org." }, { status: 400 });
+  // Canonicalize once, exactly as /api/org/members does — the sibling privilege surface, whose own
+  // comment records that case-divergence between the gate, the data read and the audit line was a real
+  // IDOR/audit risk. This route was the half of the pair that never got it: requireOrgRole normalizes
+  // internally, so the GATE was safe, but the raw string went on to the reads, the mutations and — the
+  // part nothing else corrects — the `meta.org` of every invite audit row.
+  const org = normalizeOrgSlug(rawOrg);
   const denied = await requireOrgRole(org, "owner");
   if (denied) return denied;
   return NextResponse.json({ invites: await listPendingInvites(org) });
@@ -85,12 +92,13 @@ export async function POST(request: Request) {
   if (email && !EMAIL_SHAPE.test(email)) {
     return NextResponse.json({ error: "email must be a valid email address." }, { status: 400 });
   }
-  const denied = await requireOrgRole(body.org, "owner");
+  const org = normalizeOrgSlug(body.org);
+  const denied = await requireOrgRole(org, "owner");
   if (denied) return denied;
   // resolveViewerLogin, not getSession: the dormant custom-OAuth session is null under the ACTIVE
   // Supabase wall, so both `invitedBy` and the audit actor were recorded as null in production.
   const actor = await resolveViewerLogin();
-  const invite = await createInvite(body.org, {
+  const invite = await createInvite(org, {
     role: body.role,
     email: body.email,
     githubLogin: body.githubLogin,
@@ -104,7 +112,7 @@ export async function POST(request: Request) {
   if (invite.email && body.notify !== false) {
     const base = publicBaseUrl();
     const res = await dispatchInviteEmail(invite.email, {
-      org: body.org,
+      org,
       role: invite.role,
       url: base ? `${base}/invite/${encodeURIComponent(invite.token)}` : null,
       invitedBy: actor,
@@ -115,8 +123,8 @@ export async function POST(request: Request) {
   }
   await recordOrgAudit(
     "org.member.invited",
-    body.org,
-    { org: body.org, role: body.role, target: body.githubLogin?.toLowerCase() ?? body.email ?? null, emailed },
+    org,
+    { org, role: body.role, target: body.githubLogin?.toLowerCase() ?? body.email ?? null, emailed },
     actor ?? undefined,
   ).catch(() => {});
   return NextResponse.json({ invite, emailed });
@@ -127,7 +135,7 @@ export async function DELETE(request: Request) {
   const crossOriginDelete = requireSameOrigin(request);
   if (crossOriginDelete) return crossOriginDelete;
   const { searchParams } = new URL(request.url);
-  const org = searchParams.get("org");
+  const org = normalizeOrgSlug(searchParams.get("org") ?? "");
   const id = searchParams.get("id");
   if (!org || !id) return NextResponse.json({ error: "Provide ?org=&id=." }, { status: 400 });
   const denied = await requireOrgRole(org, "owner");

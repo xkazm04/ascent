@@ -10,6 +10,7 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
+import { normalizeOrgSlug } from "@/lib/db/org-shared";
 import { PUBLIC_ORG } from "@/lib/org-constants";
 
 export type OrgRole = "owner" | "admin" | "member" | "viewer";
@@ -145,10 +146,20 @@ export async function ensureOwnerMembership(orgSlug: string, login: string, name
   if (!isDbConfigured()) return;
   const prisma = getPrisma();
   const gh = normalizeLogin(login);
-  if (!gh || orgSlug === "public") return;
+  // CANONICALIZE THE SLUG. This is the only org-row WRITER in this module, and it took the caller's
+  // string raw while every reader goes through getOrgId → normalizeOrgSlug (trim + lower-case). The
+  // asymmetry is worse on an upsert than on a find: `PostHog` does not miss the `posthog` row, it
+  // CREATES a second one — a duplicate tenant, owned by this viewer, that no read in the app can
+  // reach. Callers happen to normalize today (authz.viewerOrgRole, /api/me/watch), but OrgShell's
+  // bypass seed passes the raw `[slug]` route param, and "every caller remembers" is not a guarantee.
+  const slug = normalizeOrgSlug(orgSlug);
+  // …and the sentinel comes from the shared constant this file already imports. The literal here was
+  // the last hand-written copy of it, sitting on the guard that stops an owner being seeded on the
+  // shared funnel org — so a rename of PUBLIC_ORG would have silently switched that guard off.
+  if (!gh || !slug || slug === PUBLIC_ORG) return;
   const userId = await ensureUserId(prisma, gh, name);
   const org = await prisma.organization.upsert({
-    where: { slug: orgSlug },
+    where: { slug },
     // `kind: "personal"` is stamped on UPDATE too (not just create): the scan pipeline's ensureOrgId
     // may have materialized this slug earlier as a default "org" row, and only the identity-bound
     // personal-namespace claim (login === slug, verified in authz.viewerOrgRole) passes `opts.kind` —
@@ -160,7 +171,7 @@ export async function ensureOwnerMembership(orgSlug: string, login: string, name
     // pin it here so first-touch is deterministic and a future schema-default change can't silently
     // repoint new orgs. (org-watch's ensureOrg still uses a legacy "private" string, which planFeatures
     // also resolves to the free tier — reconciling that outlier + backfilling old rows is out of scope.)
-    create: { slug: orgSlug, name: orgSlug, plan: "free", ...(opts?.kind ? { kind: opts.kind } : {}) },
+    create: { slug, name: slug, plan: "free", ...(opts?.kind ? { kind: opts.kind } : {}) },
     select: { id: true },
   });
   await prisma.membership.upsert({

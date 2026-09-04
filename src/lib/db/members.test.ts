@@ -24,7 +24,7 @@ vi.mock("@/lib/db/client", () => ({
   dbReadSafe: mockDbReadSafe,
 }));
 
-import { isOrgRole, roleAtLeast, setMembershipRole, removeMembership, getMembershipRole, listOrgsForLogin } from "./members";
+import { isOrgRole, roleAtLeast, setMembershipRole, removeMembership, getMembershipRole, listOrgsForLogin, ensureOwnerMembership } from "./members";
 import { createInvite, listPendingInvites } from "./invites";
 
 describe("roleAtLeast", () => {
@@ -287,6 +287,37 @@ describe("removeMembership last-owner guard", () => {
 // SERIALIZABLE isolation so the count read participates in the serialization graph and one writer aborts.
 // These pin that the isolation option is actually passed (the fake $transaction ignores it, so a
 // regression that drops it would silently reopen the hole).
+describe("ensureOwnerMembership canonicalizes the org it writes", () => {
+  it("upserts the org under the CANONICAL slug, never the caller's casing", async () => {
+    // The only org-row WRITER in this module used to take the slug raw. Every reader normalizes, so a
+    // mixed-case write does not miss the row — it creates a SECOND tenant that nothing can read.
+    const upsert = vi.fn(async () => ({ id: "org_1" }));
+    mockGetPrisma.mockReturnValue({
+      user: { upsert: vi.fn(async () => ({ id: "user_1" })) },
+      organization: { upsert },
+      membership: { upsert: vi.fn(async () => ({})) },
+    } as never);
+
+    await ensureOwnerMembership("  PostHog ", "Alice");
+
+    const args = upsert.mock.calls[0]![0] as { where: { slug: string }; create: { slug: string; name: string } };
+    expect(args.where.slug).toBe("posthog");
+    expect(args.create).toMatchObject({ slug: "posthog", name: "posthog" });
+  });
+
+  it("refuses the shared public org however it is spelled", async () => {
+    const upsert = vi.fn();
+    mockGetPrisma.mockReturnValue({ organization: { upsert } } as never);
+
+    await ensureOwnerMembership("PUBLIC", "alice");
+    await ensureOwnerMembership(" public ", "alice");
+
+    // The guard was a hand-written "public" literal beside an imported PUBLIC_ORG — one rename away
+    // from silently letting a viewer be seeded as owner of the shared funnel org.
+    expect(upsert).not.toHaveBeenCalled();
+  });
+});
+
 describe("last-owner guard pins SERIALIZABLE isolation", () => {
   it("setMembershipRole runs the guard transaction at Serializable", async () => {
     const { prisma } = fakePrisma({ existingRole: "owner", ownerCount: 2 });

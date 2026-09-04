@@ -168,6 +168,24 @@ describe("delivery never costs the owner the invite", () => {
     );
   });
 
+  it("canonicalizes the org before the gate, the mutation AND the audit line", async () => {
+    // The sibling /api/org/members canonicalizes with a comment recording that case-divergence between
+    // these three was a real IDOR/audit risk. This route never did: requireOrgRole normalizes
+    // internally so the GATE was safe, but the raw casing reached createInvite and — the part nothing
+    // downstream corrects — the audit row's own `meta.org`, so one tenant's privilege trail was filed
+    // under two spellings depending on what the caller typed.
+    await POST(post({ org: "  AcMe ", role: "member", email: "invitee@example.test" }));
+
+    expect(mockRole).toHaveBeenCalledWith("acme", "owner");
+    expect(mockCreate.mock.calls[0]![0]).toBe("acme");
+    expect(mockAudit).toHaveBeenCalledWith(
+      "org.member.invited",
+      "acme",
+      expect.objectContaining({ org: "acme" }),
+      "octocat",
+    );
+  });
+
   it("omits the link (rather than emitting a broken one) when no public URL is configured", async () => {
     delete process.env.ASCENT_PUBLIC_URL;
     delete process.env.NEXT_PUBLIC_APP_URL;
