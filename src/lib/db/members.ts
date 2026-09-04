@@ -3,9 +3,11 @@
 // identity). A User row is keyed by `githubLogin` (email is set to the GitHub noreply form to satisfy
 // the required-unique column). Roles: owner > admin > member > viewer.
 //
-// Today the only writer is ensureOwnerMembership (called when an installation-owner accesses their org,
-// seeding them as `owner`) and the owner-gated member admin endpoint. The resolver getMembershipRole is
-// read by src/lib/authz.ts (requireOrgRole). A future invite/SSO flow populates members/viewers.
+// Writers: ensureOwnerMembership (the identity-bound owner seed — the viewer's own personal namespace,
+// or a GitHub-confirmed admin of an org that has no owner yet; see authz.viewerOrgRole), the owner-gated
+// member admin endpoint, and acceptInvite. The resolver getMembershipRole is read by src/lib/authz.ts
+// (requireOrgRole). Merely holding the GitHub App installation has not conferred owner since the custom
+// OAuth stack was retired.
 
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";

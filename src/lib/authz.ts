@@ -279,11 +279,17 @@ export async function hasOrgRole(org: string, min: OrgRole): Promise<boolean> {
 
 /**
  * Role-gated authorization — the RBAC layer over {@link requireOrgAccess}. Returns a NextResponse
- * (401/403) when the caller's role in `org` is below `min`, or null when allowed. Role resolution: an
- * explicit Membership row wins; otherwise an installation-owner (sessionOwnsOrg) is treated as `owner`
- * and seeded as one (so the role persists). Auth-off deployments and PUBLIC_ORG are open, mirroring
+ * (401/403) when the caller's role in `org` is below `min`, or null when allowed. Role resolution is
+ * {@link viewerOrgRole}: an explicit Membership row wins, and an org with NO owner yet may be claimed
+ * only by a viewer who is provably entitled to it (their own personal namespace, or a GitHub-confirmed
+ * admin of the installed org). Auth-off deployments and PUBLIC_ORG are open, mirroring
  * requireOrgAccess. Use for owner/admin-only actions: billing/credit grants, member admin, destructive
  * deletes. For "any member may act" use requireOrgAccess; for reads use requireOrgRead.
+ *
+ * This used to read "an installation-owner (sessionOwnsOrg) is treated as owner and seeded as one".
+ * That path was REMOVED with the retired custom-OAuth stack, and sessionOwnsOrg no longer participates
+ * in any gate in this file — a sentence describing a mechanism that no longer exists, on the function
+ * that decides who may administer an org, is the most expensive kind of stale comment there is.
  */
 export async function requireOrgRole(org: string, min: OrgRole): Promise<NextResponse | null> {
   const gate = await requireViewer();

@@ -6,7 +6,9 @@
 // member | viewer (see src/lib/db/members.ts). This is the management surface that makes RBAC usable —
 // an org owner can grant a teammate `viewer` (read-only) or `admin` (destructive ops) without giving
 // them the GitHub App installation. Every privilege change is audited (the action that most needs a
-// trail). Resolution still treats an installation-owner as owner by default.
+// trail). Role resolution is authz.viewerOrgRole: a Membership row, or — for an org that has no owner
+// yet — an identity-verified claim (the viewer's own personal namespace, or a GitHub-confirmed admin
+// of the installed org). Merely holding the installation no longer confers owner.
 
 import { NextResponse } from "next/server";
 import { getMembershipRole, isDbConfigured, listOrgMembers, recordOrgAudit, removeMembership, setMembershipRole } from "@/lib/db";
