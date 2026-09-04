@@ -37,7 +37,11 @@ It never throws and returns `false` when no sink resolves or the POST fails.
 `isAlertConfigured(orgWebhookUrl?)` checks for the sink. Per-org sinks and per-org
 sensitivity (`alertOverallDrop` / `alertDimensionDrop`) are configured through
 `GET`/`POST /api/org/alerts` (admin-gated) and the dashboard's Alerts popover
-(`src/components/org/shared/AlertsControl.tsx`).
+(`src/components/org/shared/AlertsControl.tsx`). The two sensitivity fields are **independently
+optional** on the POST: a body carrying only one leaves the other exactly as stored. (Until
+2026-09-04 an absent key parsed to the same `null` an explicit clear produces, so a one-sided update
+silently reset the other threshold to its default — invisible from the popover, which always posts
+both.)
 
 ### Control transitions (moonshot #1)
 
@@ -187,7 +191,8 @@ Deliberately ONE list and one heading — *"observed, cause not attributed"* is 
 each line names its own subject, and a second block would be a second thing for a reader to learn for a
 distinction that lives in the sentence. They count toward `digestHasSignal`'s `standingConcerns`, so a
 fleet whose only news is a disabled guard still sends. A fleet with none raises nothing and the block
-is omitted rather than rendered as "0 concerns" — the same three-state contract.
+says so — *"Standing concerns: none open."* — while a run that could not READ either column omits the
+block entirely: the same three-state contract `controlsFailed` keeps (2026-09-04).
 
 The loop tells the **agent** too, but only that the cycle cannot be verified and that it should work
 conservatively — it does **not** ask for a repair, and there is no attempt counter. That half lives in
@@ -242,6 +247,10 @@ new event system:
   when the popover opens.
 - **Count:** `getOrgMovementSince(orgSlug, since)` (`src/lib/db/org-movement.ts`): ONE bounded
   `OrgMemory` query with `take: MOVEMENT_CAP + 1`, so ">9" costs no second query. Hidden at zero.
+- **Rows:** repo + event label + age, and under each, the persisted one-line summary the memory
+  record carries (2026-09-04). Without it every row read "acme/api regressed 1h ago", identical for a
+  3-point wobble and a two-band demotion, while the sentence that separates them was already on the
+  client.
 - **Degrades:** auth-off deployments, the public org, a viewer with no membership, or any read
   failure answer `{ movement: null }` and the chip renders exactly as it did before.
 
@@ -319,6 +328,14 @@ silent rather than training the inbox filter.
   window-scoped for the same reason — the whole failure they close began before this week:
   `getRedBaselines(org, { limit: 5 })` first (a repository the loop's guard could not establish a
   baseline for, so it cannot run at all) then `getStandingRegressions(org, { limit: 5 })`.
+
+  Until 2026-09-04 the cron caller kept none of that: both reads were `.catch(() => [])` and the
+  block was passed only when non-empty, so an unreadable ledger, a clean fleet and a block that was
+  never computed all rendered as the same silence — the `failure-not-empty-success` law the registry's
+  `alerting` subject names in its `periodic-digest` technique, and the exact defect `controlsFailed`
+  had already been fixed for three lines above. Both reads now catch to `null`; `[]` reaches the
+  builder and renders "none open."; `null` from BOTH omits the block; one read failing still prints
+  the other's rows (they are true observations, and the block is a top-5, never an exhaustive total).
 - **Schedule/trigger:** invoked by Vercel Cron (see `vercel.json`) hitting
   `GET /api/cron/digest` (`src/app/api/cron/digest/route.ts`), `runtime: "nodejs"`,
   `maxDuration: 300`. Orgs are processed with bounded concurrency (`mapPool`, concurrency 4)
@@ -412,7 +429,9 @@ spend-anomaly pushes. There is no second transport and no second recipient list.
   deliberate act as pointing the sink at a Slack channel). `validateAlertWebhookUrl` accepts the
   `mailto:` scheme, requires a single well-formed address (no comma-separated fan-out), and
   normalizes the stored value. The global `ALERT_WEBHOOK_URL` may also be a `mailto:` for a
-  single-tenant deployment.
+  single-tenant deployment. The Alerts popover's sink field **names the address form** in its help
+  text and placeholder (2026-09-04); before that it said only "Slack-compatible incoming webhook",
+  so the one surface that configures this channel never mentioned it existed.
 - **Who receives it:** exactly the one configured address. Nothing is ever sent to org members,
   to a scan requester, or to any address the org did not store as its sink.
 - **Off by default, three ways over:** no sink stored, no global `ALERT_WEBHOOK_URL`, and no
