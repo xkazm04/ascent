@@ -7,6 +7,7 @@ import { forecastTrajectory, type Forecast } from "@/lib/maturity/forecast";
 import { levelForScore } from "@/lib/maturity/model";
 import { GroupedMean, dateRange, getOrgBySlug, normalizeOrgSlug, roundedMean, segmentScope, techGroupScope, upperBound } from "@/lib/db/org-shared";
 import { retentionCutoff } from "@/lib/plans";
+import { dayKeyInZone } from "@/lib/org/timezone";
 import { parseTechStackJson } from "@/lib/analyze/tech-extract";
 import { applyPassportOverrides, parsePassportJson, parsePassportOverrides } from "@/lib/analyze/passport";
 import { parseContextHealthJson } from "@/lib/analyze/context-health";
@@ -436,18 +437,32 @@ export function computeDimDeltas(
 }
 
 /**
- * The org maturity TREND buckets scans by LOCAL calendar day — the SAME zone the window boundaries use
- * (window.ts `startOfDay` snaps `start`/`end` to LOCAL midnight). Bucketing by `toISOString().slice(0,10)`
- * (a UTC day) meant a scan was FILTERED by one calendar and LABELLED by another whenever the server runs
- * off UTC: a late-evening local scan (e.g. 2026-05-01 01:00 local = 2026-04-30 23:00Z) landed in the
- * previous UTC day's bucket, splitting one local day across two trend points and skewing the
- * forecastTrajectory ETA. One zone shared with the window. Mirrors window.ts `toDayInput`. (fleet-rollups-insights #2)
+ * The org maturity TREND buckets scans by the CANONICAL ORG ZONE's calendar day — the same zone the
+ * window boundaries are computed in. `dayKeyInZone` is that zone's one day-key derivation; this
+ * function exists only to name the intent at the call site.
+ *
+ * IT USED TO READ THE SERVER'S LOCAL ZONE (`getFullYear`/`getMonth`/`getDate`), with a comment
+ * asserting that was "the SAME zone the window boundaries use (window.ts `startOfDay` snaps to LOCAL
+ * midnight)". That was true when it was written and stopped being true when window.ts migrated to the
+ * canonical zone (`src/lib/org/timezone.ts`, UTC by default, `ASCENT_ORG_TZ`- and per-org-column
+ * overridable) — whose own header now says boundaries are "never in the server's local zone, which was
+ * only ever whatever the host happened to be set to". So the trend was FILTERED by one calendar and
+ * LABELLED by another: precisely the defect the old comment describes itself as having fixed,
+ * reintroduced from the other side, with the comment left behind claiming the two agree.
+ *
+ * Measured 2026-09-04 over three sample scan instants: 2 of 3 mislabelled under `ASCENT_ORG_TZ=
+ * America/New_York` on a UTC host, 1 of 3 under a non-UTC host with the default UTC org zone. Both are
+ * supported configurations; a UTC host with the UTC default was the only one where it agreed, which is
+ * why nothing caught it. The consequences are a day's scans split across two trend points, a
+ * `forecastTrajectory` ETA computed off the split series, and trend keys that no longer join to
+ * `daysBetweenDayKeys` arithmetic done in the canonical zone.
+ *
+ * `org-signals.ts` migrated its own week grid to this zone with an essay about why ("the moment an org
+ * sets a non-UTC zone the trend grid kept UTC weeks while the window moved"); this was its unmigrated
+ * sibling in the same family. (fleet-rollups-insights #2, re-fixed)
  */
-function localDayKey(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+function orgDayKey(d: Date): string {
+  return dayKeyInZone(d);
 }
 
 export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentId?: string | null, techGroupId?: string | null): Promise<OrgRollup | null> {
@@ -596,9 +611,9 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
     orderBy: { scannedAt: "asc" },
   });
   const byDay = new GroupedMean();
-  // LOCAL calendar day (localDayKey) — the same zone the window snaps to — so different-cadence repos
-  // bucket into the SAME day instead of splitting across a UTC midnight (bug+ui scan timezone fix).
-  for (const s of allScans) byDay.add(localDayKey(s.scannedAt), s.overallScore);
+  // CANONICAL-ZONE calendar day (orgDayKey) — the same zone the window snaps to — so different-cadence
+  // repos bucket into the SAME day instead of splitting across a midnight the filter does not share.
+  for (const s of allScans) byDay.add(orgDayKey(s.scannedAt), s.overallScore);
   const trend = byDay
     .keys()
     .sort()
