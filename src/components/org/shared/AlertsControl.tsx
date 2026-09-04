@@ -82,15 +82,25 @@ export function AlertsControl({ org }: { org: string }) {
             <p className="mt-2 type-mono-sm text-slate-500">Loading…</p>
           ) : (
             <>
-              <p className="mt-1 type-body-sm text-slate-400">
-                Slack-compatible incoming webhook for this org&apos;s regression, low-credit, and weekly-digest
-                alerts. Leave blank to use the deployment&apos;s global sink.
+              {/* The sink accepts an EMAIL ADDRESS as well as a webhook (G7-01) — a shipped, documented
+                  channel that this, the only surface that configures it, named nowhere. An org whose
+                  leadership doesn't live in Slack read "Slack-compatible incoming webhook" and
+                  concluded Ascent could not reach them. */}
+              <p id="alert-sink-help" className="mt-1 type-body-sm text-slate-400">
+                Where this org&apos;s regression, low-credit, and weekly-digest alerts are sent: a
+                Slack-compatible incoming webhook, or <code className="text-slate-300">mailto:you@example.com</code>{" "}
+                to receive them as email. Leave blank to use the deployment&apos;s global sink.
               </p>
+              {/* a11y: the two threshold fields below carry <label>s; this one — the primary control of
+                  the dialog — had only a placeholder, so a screen reader announced it as an unnamed
+                  edit box. Named here, and pointed at the copy that explains what it accepts. */}
               <input
                 type="url"
                 value={webhookUrl}
                 onChange={(e) => setWebhookUrl(e.target.value)}
-                placeholder="https://hooks.slack.com/services/…"
+                aria-label="Alert sink: webhook URL or mailto: address"
+                aria-describedby="alert-sink-help"
+                placeholder="https://hooks.slack.com/… or mailto:you@example.com"
                 className="mt-2 w-full rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-mono-sm text-slate-200 outline-none focus:border-accent"
               />
 

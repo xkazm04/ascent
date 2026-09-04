@@ -32,7 +32,9 @@ async function openWithSavedWebhook() {
 
 /** Type a new candidate URL into the webhook field, making the form dirty. */
 function editWebhook(value: string) {
-  fireEvent.change(screen.getByPlaceholderText("https://hooks.slack.com/services/…"), { target: { value } });
+  // By its ACCESSIBLE NAME, not its placeholder: the field is the dialog's primary control and had no
+  // name at all until it got one, which is also why this locator had to be a placeholder string.
+  fireEvent.change(screen.getByLabelText(/Alert sink/i), { target: { value } });
 }
 
 describe("AlertsControl result announcements (fleet-alerts #6)", () => {
