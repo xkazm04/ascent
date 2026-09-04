@@ -63,6 +63,10 @@ export async function PassportsTab({ slug, sp }: { slug: string; sp: SearchParam
       // engine was already threaded into `deriveAutonomy` below — it just never reached the rows.
       // Labelled, never excluded: the row, the point and the docket's predicate all say so.
       placeholder: isPlaceholderEngine(r.latest?.engine),
+      // P4 provenance: WHICH identity fields this repo owner asserted. The rollup used to apply the
+      // overrides and drop the blob, so an asserted "GA, mission-critical" was indistinguishable from
+      // an observed one on every surface below it. Null for a repo with no overrides.
+      ownerSet: r.passportOwnerSet ?? null,
       detail: {
         purpose: pp.identity.purpose,
         autoBlockers: auto.blockers,

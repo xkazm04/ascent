@@ -753,6 +753,93 @@ Passports tab's Clearance prototype (`src/features/standing/passports/autonomy/`
 the real `pp.autonomy` tier and the real `sandbox`/`hooks` gates when the passport carries them,
 falling back to its labeled proxy/mock derivation for pre-0.3.0 data.
 
+## Who issued the claim: placeholder scans and owner-set fields
+
+Two provenance gaps on the passport surfaces, both closed by labelling rather than by filtering or
+hiding.
+
+**A placeholder scan says so, on every passports surface.** A deterministic mock scan emits a score
+FLOOR without ever asking a model. The fleet averages have said so since round 10; the passports
+portfolio did not, so on the default Baseline view a never-graded passport rendered identically to a
+live one and the blocker docket folded its floor-derived blockers into the fleet counts unmarked.
+`src/features/standing/passports/PlaceholderMark.tsx` is now the single author of the vocabulary —
+the wording ("placeholder scan", the same phrase the Clearance card has always used), the predicate
+(`isPlaceholderEngine`) and the mark. `PassportsTab` carries `placeholder` on every row; the table
+row shows the mark beside the repo name, `PassportScatter` draws the point hollow with a dashed ring
+and adds a legend entry only when the plot contains one, and `PassportCard` shows it on its
+provenance line via an optional `engine` prop. `passportBlockerAgg.scopeCounts()` lets the docket
+state its predicate — "N repos · of which M from placeholder scans", suffix omitted at M = 0.
+**Labelled, never excluded:** dropping a placeholder row would shrink a real fleet problem, which is
+the same defect the 0.4.0 decline work fixed once already.
+
+**An owner-asserted identity field says so where the grade shows.** Criticality, lifecycle and
+tested-rollback are the three fields a scan cannot observe: an owner asserts them through the
+overrides blob and `applyPassportOverrides` folds them into the passport at read time.
+`getOrgRollup` used to apply that merge and drop the parsed blob, so an asserted "GA ·
+mission-critical" reached every surface in the same voice as an observed one. The rollup row now
+carries an additive optional `passportOwnerSet` (`PassportOwnerSet` in `src/lib/db/org-rollup.ts`) —
+booleans only, saying WHICH fields the owner set, never repeating their values.
+`src/features/standing/passports/OwnerSetCue.tsx` renders it: an "owner-set" cue beside criticality
+and lifecycle on `PassportCard` and on the delivery rung when the rollback is owner-asserted (the one
+of the three that lifts the production score), and a per-field `owner-set` / `scan-observed` reading
+in `PassportOwnerControls`, which previously echoed a stored value with no way to tell an assertion
+from a blank. A repo with no overrides renders exactly as it did before.
+
+Known gap: the overrides blob keeps **no timestamp** for the identity fields — only a decline records
+an `at` — so the cue says who, not when, and none is invented. Two call sites still pass neither
+prop: `src/app/report/[owner]/[repo]/page.tsx` and `src/components/org/PersonalOverview.tsx` render
+`PassportCard` without `engine` or `ownerSet`, so the per-repo report shows no placeholder mark and
+no owner-set cue yet. Both props are optional and absent means "no claim either way", so those pages
+are unchanged rather than wrong.
+
+## Declining a passport gap by choice, and the one identity a blocker has (0.4.0)
+
+**An owner can now record an accepted trade-off from the fleet Passports drawer.** Everything else
+about "declined by choice" shipped with passport 0.4.0 and was unreachable: the allow-list
+(`DECLINABLE_PATHS` in `src/lib/analyze/passport-overlay.ts`), `PATCH
+/api/report/passport/overrides`, the 365-day re-confirmation window, the severity-drift
+re-surfacing, and three read surfaces rendering declines nothing could create. Only the identity
+fields (criticality / lifecycle / rollback) had a control, so an owner who had decided "no error
+tracking — this is an internal cron worker" had nowhere to say it, and the blocker re-litigated
+itself on every scan, which is exactly what the overlay exists to prevent.
+
+- **Where.** `DeclineControl` (`src/features/standing/passports/DeclineControl.tsx`) sits beside the
+  org-decision buttons on each **allow-listed** blocker row in the expanded passport row, and again
+  on each entry of "Accepted by choice" as **Retract**.
+- **Which blockers.** Only those whose minted finding id appears in `DECLINABLE_PATHS`, resolved
+  through the exported `declinablePathForFinding(id)` — one copy of the allow-list, never a second in
+  the UI. An **evidence limitation** (`prod.enforcement-not-observable`,
+  `prod.observability-unassessable`) and an `unclassified` back-fill id get **no control at all**:
+  declining one would silence a limit of *our* evidence rather than accept a real trade-off.
+- **What it sends.** `PATCH { repo, declined: { "<field.path>": { reason?, at, code, severity } } }`,
+  and `{ "<field.path>": null }` to retract. The reason is optional and capped at
+  `DECLINE_REASON_MAX` (280, the same constant the route parses with). `at`/`code`/`severity` are the
+  **baseline** the overlay compares against later — omit them and a decline can never age out and
+  never re-surface when the gap hardens.
+- **Owner gate.** The route gates (`requireOrgRole(org, "owner")`). The drawer does not know the
+  viewer's role — the Passports tab resolves no membership — so the control renders for everyone and
+  a non-owner sees the route's 403 as the inline error. Hiding it needs a role the server page does
+  not read today.
+- **After the write** `router.refresh()` re-reads the server; the overlay is applied read-time, so
+  the blocker moves under "Accepted by choice" with no reload and no rescan.
+
+**One identity per blocker.** The org-decision system (accept / dismiss / snooze, `/api/org/decision`)
+keyed a passport blocker by `blockerKey(fullName, prose)` — an FNV-1a of the sentence — while the
+decline overlay joined on the minted `findings[].id`. Two subsystems, two names for one finding, so an
+LLM rewording a blocker silently reset an owner's snooze. `passportFindingKey(fullName, finding)` in
+`src/lib/org/findings.ts` is now the single derivation, used by both the nav badge
+(`passportFindings`, fed by `getOrgPassportBlockers`'s new `findings[]`) and the drawer's
+`BlockerList`. It prefers the minted id and falls back to the prose hash when there is none — which
+includes the positional `auto.unclassified.<index>` id `upgradePassport` back-fills for a stored
+blocker it cannot classify, an id `passport-migrate.ts` documents as non-durable and which must never
+carry a decision. The drawer **dual-reads** `[idKey, legacyProseKey]` so a decision recorded before
+this change keeps resolving, and writes the id key, migrating it forward on the next touch.
+
+**Known gap:** the dual-read is in the drawer only. The rail's `passports` badge
+(`src/lib/org/nav-counts.ts` -> `resolvedKeys`) still matches on the single `itemKey`, so a decision
+recorded against the old prose key stops suppressing its badge count until the finding is decided
+once more from the drawer.
+
 ## Customer-repo PR writes require **admin** (`/api/report/{passport,foundation}/pr`)
 
 Both routes open a draft PR into the scanned repository using the **org's GitHub App installation

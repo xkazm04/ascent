@@ -7,6 +7,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { FieldProvenance, type PassportOwnerSet } from "@/features/standing/passports/OwnerSetCue";
 import type { Criticality, Lifecycle } from "@/lib/types";
 
 const CRITICALITY: Criticality[] = ["experimental", "internal", "business", "mission-critical"];
@@ -17,11 +18,16 @@ export function PassportOwnerControls({
   criticality,
   lifecycle,
   rollback,
+  ownerSet,
 }: {
   repo: string;
   criticality?: Criticality;
   lifecycle?: Lifecycle;
   rollback: boolean;
+  /** Which of the three values below are ALREADY the owner assertion. The form echoed the stored
+   *  value with nothing to say where it came from, so "the scan saw nothing" and "someone already
+   *  decided this" arrived in the same control looking identical. */
+  ownerSet?: PassportOwnerSet | null;
 }) {
   const router = useRouter();
   const [crit, setCrit] = useState<string>(criticality ?? "");
@@ -73,7 +79,7 @@ export function PassportOwnerControls({
   return (
     <div className="mt-4 border-t border-slate-800 pt-4">
       <div className="type-mono-sm uppercase tracking-widest text-slate-500">Owner settings</div>
-      <p className="mt-1 type-body-sm text-slate-500">Fields a scan can&apos;t infer: these frame how to read the scores and (rollback) lift the production score.</p>
+      <p className="mt-1 type-body-sm text-slate-500">Fields a scan can&apos;t infer: these frame how to read the scores and (rollback) lift the production score. Each field says whether the value shown is already an owner assertion or just what the scan observed.</p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <label className="flex items-center gap-1.5 type-mono-sm text-slate-500">
           criticality
@@ -81,6 +87,7 @@ export function PassportOwnerControls({
             <option value="">unset</option>
             {CRITICALITY.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
+          <FieldProvenance ownerSet={ownerSet?.criticality} />
         </label>
         <label className="flex items-center gap-1.5 type-mono-sm text-slate-500">
           lifecycle
@@ -88,10 +95,12 @@ export function PassportOwnerControls({
             <option value="">unset</option>
             {LIFECYCLE.map((l) => <option key={l} value={l}>{l}</option>)}
           </select>
+          <FieldProvenance ownerSet={ownerSet?.lifecycle} />
         </label>
         <label className="flex items-center gap-1.5 type-body-sm text-slate-300">
           <input type="checkbox" checked={rb} onChange={(e) => setRb(e.target.checked)} className="accent-accent" />
           tested rollback
+          <FieldProvenance ownerSet={ownerSet?.rollback} />
         </label>
         <button onClick={save} disabled={busy !== null} className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50">
           {busy === "save" ? "Saving…" : "Save"}

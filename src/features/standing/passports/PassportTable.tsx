@@ -14,6 +14,7 @@ import { bandColor, bandLabel } from "@/lib/org/passport-display";
 import { PassportRowDetail, type PassportDetail } from "@/features/standing/passports/PassportRowDetail";
 import { PassportTableHead } from "@/features/standing/passports/PassportTableHead";
 import { PlaceholderMark } from "@/features/standing/passports/PlaceholderMark";
+import type { PassportOwnerSet } from "@/features/standing/passports/OwnerSetCue";
 import { ordinalOf, type SortKey, type ThSort } from "@/features/standing/passports/passportTableSort";
 import type { DecisionMap } from "@/lib/org/decision-map";
 import { scoreHex } from "@/lib/ui";
@@ -33,6 +34,9 @@ export interface PassportRow {
    *  scan. Optional so a caller that has not plumbed the engine through contributes no claim either
    *  way (absent reads as "not a known placeholder", never as "confirmed live"). */
   placeholder?: boolean;
+  /** P4 provenance: which passport identity fields this repo OWNER asserted rather than the scan
+   *  observing them. Null/absent for a repo with no overrides. Optional and additive. */
+  ownerSet?: PassportOwnerSet | null;
   detail: PassportDetail;
 }
 

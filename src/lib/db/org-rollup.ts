@@ -151,6 +151,46 @@ export async function getRepoStates(orgSlug: string): Promise<Record<string, Rep
   return out;
 }
 
+/**
+ * Which passport identity fields this repo's OWNER asserted, rather than the scan observing them.
+ *
+ * Criticality, lifecycle and tested-rollback are things a scan cannot see: an owner states them
+ * through the overrides blob, and `applyPassportOverrides` merges them into the passport at read
+ * time. That merge is lossy on purpose — the passport is then a single coherent artifact — but it
+ * also erased the one thing the readiness-passports standard requires the artifact to say: who
+ * issued each claim. This summary carries only the FLAGS; the values stay on the passport.
+ *
+ * Booleans only, by design — the overrides blob keeps no timestamp for the identity fields (only a
+ * decline records `at`), so there is no date to report and none is invented. No `Date` crosses here.
+ */
+export interface PassportOwnerSet {
+  /** The owner asserted `identity.criticality`. */
+  criticality?: true;
+  /** The owner asserted `identity.lifecycle`. */
+  lifecycle?: true;
+  /** The owner asserted `productionReadiness.delivery.rollback` (which also lifts the prod score). */
+  rollback?: true;
+}
+
+/** Parse the passport and its overrides ONCE, returning the merged passport beside the provenance
+ *  summary — so the row does not parse the same blob twice to answer "who said this?". */
+function passportWithProvenance(
+  passportJson: string | null,
+  overridesJson: string | null,
+): { passport: AppPassport | null; ownerSet: PassportOwnerSet | null } {
+  const pp = parsePassportJson(passportJson);
+  if (!pp) return { passport: null, ownerSet: null };
+  const ov = parsePassportOverrides(overridesJson);
+  const ownerSet: PassportOwnerSet = {};
+  if (ov?.criticality) ownerSet.criticality = true;
+  if (ov?.lifecycle) ownerSet.lifecycle = true;
+  if (typeof ov?.rollback === "boolean") ownerSet.rollback = true;
+  return {
+    passport: applyPassportOverrides(pp, ov),
+    ownerSet: Object.keys(ownerSet).length ? ownerSet : null,
+  };
+}
+
 export interface OrgRepoRow {
   fullName: string;
   owner: string;
@@ -165,6 +205,10 @@ export interface OrgRepoRow {
   /** App Readiness Passport cached from the latest scan — null until first scan / if absent. Drives the
    *  portfolio passports view (the two readiness axes + named stack). */
   passport: AppPassport | null;
+  /** P4 provenance for the passport above: which identity fields the OWNER asserted rather than the
+   *  scan observing them. Null when this repo has no overrides — additive and optional, so every
+   *  existing reader of the row is unaffected. */
+  passportOwnerSet?: PassportOwnerSet | null;
   /** Context Health (W4) cached from the latest scan — guidance-file freshness/quality/drift, the
    *  Half-life panel's per-repo input. Null when the latest scan PREDATES the signal (or on parse
    *  failure), which the UI must render as "not assessed by this scan — re-scan", never as absent. */
@@ -535,6 +579,7 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
     // W2 provenance signal for the fleet gate — parsed from the SAME persisted prStats blob the
     // activity columns read, so it costs no extra query and no extra parse pass of its own.
     const prov = parseProvenanceLite(s?.prStats);
+    const overrides = passportWithProvenance(r.passportJson, r.passportOverridesJson);
     return {
       fullName: r.fullName,
       owner: r.owner,
@@ -543,10 +588,15 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
       watched: r.watched,
       primaryLanguage: r.primaryLanguage ?? null,
       techStack: parseTechStackJson(r.techStackJson),
-      passport: (() => {
-        const pp = parsePassportJson(r.passportJson);
-        return pp ? applyPassportOverrides(pp, parsePassportOverrides(r.passportOverridesJson)) : null;
-      })(),
+      passport: overrides.passport,
+      // P4 PROVENANCE. `applyPassportOverrides` folds the owner's asserted criticality / lifecycle /
+      // rollback INTO the passport and then the parsed blob is gone, so every surface downstream
+      // renders an asserted "GA, mission-critical" exactly like an observed one. Declines already
+      // carry their own provenance (`at`, re-confirmation); the identity overrides carried none
+      // outside the edit form. This is the minimal summary that restores it — WHICH fields the owner
+      // set, nothing about their values, which the passport already holds. Null when the repo has no
+      // overrides at all, so a repo nobody has touched is unchanged.
+      passportOwnerSet: overrides.ownerSet,
       contextHealth: parseContextHealthJson(r.contextHealthJson),
       manifest: parseManifestReadoutJson(r.manifestJson),
       guidanceGraph: parseGuidanceGraphJson(r.guidanceGraphJson),
