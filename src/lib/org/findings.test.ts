@@ -10,6 +10,7 @@ import {
   contributorFindings,
   fnv1a,
   isFindingModule,
+  isFindingResolved,
   practiceFindings,
   passportFindingKey,
   passportFindingKeys,
@@ -151,6 +152,43 @@ describe("passportFindings — id-keyed rows", () => {
   it("still reads `blockers` when the caller has no findings (the pre-0.4.0 path is unchanged)", () => {
     const found = passportFindings([{ fullName: "acme/api", blockers: ["No CI pipeline"] }]);
     expect(found[0]!.itemKey).toBe(blockerKey("acme/api", "No CI pipeline"));
+  });
+
+  it("carries the prose key it used to be decided under, and only when that key differs", () => {
+    const [withId] = passportFindings([{ fullName: "acme/api", blockers: [], findings: [obs] }]);
+    expect(withId!.legacyKeys).toEqual([blockerKey("acme/api", obs.text)]);
+    // Nothing to carry when the finding never had a second identity.
+    const [proseOnly] = passportFindings([{ fullName: "acme/api", blockers: ["No CI pipeline"] }]);
+    expect(proseOnly!.legacyKeys).toBeUndefined();
+  });
+});
+
+// Improving a key derivation must never cost a user a decision they already made. Without this the
+// switch to minted ids was a visible REGRESSION: yesterday's snooze stops suppressing the rail badge,
+// and the only cure is to decide the same finding twice.
+describe("isFindingResolved", () => {
+  const obs = { id: "prod.zero-observability", code: "zero-observability", text: "Zero observability." };
+  const [finding] = passportFindings([{ fullName: "acme/api", blockers: [], findings: [obs] }]);
+
+  it("counts a decision stored under the LEGACY prose key as resolved", () => {
+    const resolved = new Set([blockerKey("acme/api", obs.text)]);
+    expect(isFindingResolved(resolved, finding!)).toBe(true);
+  });
+
+  it("counts a decision stored under the current id key as resolved", () => {
+    expect(isFindingResolved(new Set(["acme/api::prod.zero-observability"]), finding!)).toBe(true);
+  });
+
+  it("stays unresolved for an unrelated key, an empty set, and a module with no decisions at all", () => {
+    expect(isFindingResolved(new Set(["acme/api::something-else"]), finding!)).toBe(false);
+    expect(isFindingResolved(new Set(), finding!)).toBe(false);
+    expect(isFindingResolved(undefined, finding!)).toBe(false);
+  });
+
+  it("does not leak one repo's decision onto another repo's identical blocker", () => {
+    const [other] = passportFindings([{ fullName: "acme/web", blockers: [], findings: [obs] }]);
+    const resolved = new Set([blockerKey("acme/api", obs.text), "acme/api::prod.zero-observability"]);
+    expect(isFindingResolved(resolved, other!)).toBe(false);
   });
 });
 

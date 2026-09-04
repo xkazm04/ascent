@@ -835,10 +835,11 @@ blocker it cannot classify, an id `passport-migrate.ts` documents as non-durable
 carry a decision. The drawer **dual-reads** `[idKey, legacyProseKey]` so a decision recorded before
 this change keeps resolving, and writes the id key, migrating it forward on the next touch.
 
-**Known gap:** the dual-read is in the drawer only. The rail's `passports` badge
-(`src/lib/org/nav-counts.ts` -> `resolvedKeys`) still matches on the single `itemKey`, so a decision
-recorded against the old prose key stops suppressing its badge count until the finding is decided
-once more from the drawer.
+The **rail badge** dual-reads too: a `Finding` carries `legacyKeys[]` (the prose key it used to be
+decided under) and `isFindingResolved` — the one place a decision key is compared — treats a hit on
+the current key OR any legacy key as settled. Without that, improving the key derivation would itself
+have been the regression: an owner's existing snooze would stop suppressing the badge, curable only
+by deciding the same finding twice. `legacyKeys` is read-only; a write always uses the current key.
 
 ## Customer-repo PR writes require **admin** (`/api/report/{passport,foundation}/pr`)
 

@@ -51,6 +51,30 @@ export interface Finding {
    * identity, and `title` is what gets persisted onto the decision.
    */
   subject?: string;
+  /**
+   * Keys this finding may ALREADY be stored under from before its identity improved — read-only, and
+   * never written to. A builder that changes how it keys must list the old key here, or every
+   * decision recorded under the old one silently stops counting and the badge re-raises findings a
+   * human already closed. Consumed by `isFindingResolved`, which is the only place a key comparison
+   * belongs. Absent when the finding has only ever had one identity.
+   */
+  legacyKeys?: string[];
+}
+
+/**
+ * Has a human already settled this finding? True when the module's resolved set holds the finding's
+ * current key OR any key it used to have.
+ *
+ * The alternative — comparing `itemKey` alone — makes any improvement to a key derivation a
+ * user-visible REGRESSION: a snooze recorded yesterday stops suppressing its badge today, and the
+ * only cure is for the user to make the same decision twice. That is the exact failure the whole
+ * module exists to prevent, so the tolerance for an old key lives here, in the one place that asks
+ * the question, rather than being sprinkled through consumers.
+ */
+export function isFindingResolved(resolved: Set<string> | undefined, finding: Finding): boolean {
+  if (!resolved) return false;
+  if (resolved.has(finding.itemKey)) return true;
+  return (finding.legacyKeys ?? []).some((k) => resolved.has(k));
 }
 
 /**
@@ -212,15 +236,18 @@ export function passportFindings(repos: PassportFindingInput[]): Finding[] {
     const seen = new Set<string>();
     for (const f of refs) {
       if (!stableText(f.text)) continue;
-      const itemKey = passportFindingKey(r.fullName, f);
-      if (seen.has(itemKey)) continue;
-      seen.add(itemKey);
+      const [itemKey, ...legacyKeys] = passportFindingKeys(r.fullName, f);
+      if (seen.has(itemKey!)) continue;
+      seen.add(itemKey!);
       out.push({
         module: "passports",
-        itemKey,
+        itemKey: itemKey!,
         repo: r.fullName,
         title: f.text.trim(),
         detail: `Readiness blocker on ${r.fullName}.`,
+        // The prose key this blocker was decided under before 0.4.0's ids. Carried so the badge keeps
+        // subtracting an existing snooze instead of re-raising a finding its owner already closed.
+        ...(legacyKeys.length ? { legacyKeys } : {}),
       });
     }
   }
