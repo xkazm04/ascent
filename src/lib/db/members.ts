@@ -26,6 +26,33 @@ export function isOrgRole(v: string): v is OrgRole {
   return v === "owner" || v === "admin" || v === "member" || v === "viewer";
 }
 
+/** The least privilege this vocabulary can express — where an unreadable role resolves to. */
+export const LEAST_PRIVILEGED_ROLE: OrgRole = "viewer";
+
+/**
+ * Coerce a STORED role string to an OrgRole. A value the vocabulary does not know (DB corruption, a
+ * hand-run migration, a role renamed in a future release and read by an old deploy) resolves to the
+ * MOST RESTRICTIVE reading, loudly — never to a mid-tier default.
+ *
+ * The five sites that needed this each spelled it `isOrgRole(x) ? x : "member"`, and `member` is not a
+ * floor: it clears `requireOrgAccess` (min `member`) and `canReadOrg` (min `viewer`), so an unreadable
+ * role string was granting the right to ACT on the org. Worse, `acceptInvite` fed the same expression
+ * straight into `setMembershipRole`, turning a corrupt stored value into a persisted grant. The
+ * authorization corpus names this exactly: "a parser that maps 'couldn't read the restriction list' to
+ * 'no restrictions' has converted data corruption into privilege escalation", and absent (a legitimate
+ * reviewed state, here `null`) must resolve differently from corrupt (an error).
+ *
+ * `null`/absent is NOT this function's business — every caller already handles a missing row as `null`
+ * and must keep doing so. This is only for "a row exists and its role is unreadable".
+ */
+export function coerceStoredRole(raw: string, where: string): OrgRole {
+  if (isOrgRole(raw)) return raw;
+  // Loudly: corrupt-input restrictiveness is the branch nobody exercises manually, so the one signal
+  // that it fired must not be silent. Not warn-once — each occurrence names a different row.
+  console.error(`[members] unreadable stored role ${JSON.stringify(raw)} at ${where}; resolving to ${LEAST_PRIVILEGED_ROLE}`);
+  return LEAST_PRIVILEGED_ROLE;
+}
+
 export interface OrgMember {
   login: string;
   name: string | null;
@@ -105,7 +132,7 @@ export async function getMembershipRole(orgSlug: string, login: string): Promise
     select: { role: true },
   });
   if (!m) return null;
-  return isOrgRole(m.role) ? m.role : "member";
+  return coerceStoredRole(m.role, "getMembershipRole");
 }
 
 /**
@@ -329,7 +356,7 @@ export async function listOrgsForLogin(login: string): Promise<ViewerOrg[]> {
       .map((r) => ({
         slug: r.org.slug,
         name: r.org.name,
-        role: isOrgRole(r.role) ? r.role : "member",
+        role: coerceStoredRole(r.role, "listOrgsForLogin"),
       }))
       .sort((a, b) => ROLE_RANK[b.role] - ROLE_RANK[a.role]);
   }, [] as ViewerOrg[]);
@@ -349,7 +376,7 @@ export async function listOrgMembers(orgSlug: string): Promise<OrgMember[]> {
   return rows.map((r) => ({
     login: r.user.githubLogin ?? "(unknown)",
     name: r.user.name ?? null,
-    role: isOrgRole(r.role) ? r.role : "member",
+    role: coerceStoredRole(r.role, "listOrgMembers"),
     createdAt: r.createdAt,
   }));
 }
