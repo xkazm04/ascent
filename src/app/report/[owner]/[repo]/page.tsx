@@ -164,7 +164,10 @@ async function ReportPermalinkBody({
       />
       {passport && (
         <div className="mt-8 animate-fade-up" style={{ animationDelay: "120ms" }}>
-          <PassportCard passport={passport} repo={repoRef} canEdit={canEditPassport} />
+          {/* `engine` so a placeholder (mock) passport says so on the repo's own page, not only in the
+              org portfolio; `ownerSet` stays absent here — this page reads no overrides blob, and an
+              absent prop makes no claim either way (see PassportCard). */}
+          <PassportCard passport={passport} repo={repoRef} canEdit={canEditPassport} engine={pinned.engine.provider} />
         </div>
       )}
       {skillHistory.length > 0 && (
