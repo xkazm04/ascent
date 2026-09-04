@@ -640,7 +640,7 @@ The Overview page composes several server queries, all scoped to the org:
 
 | Function | Produces |
 | --- | --- |
-| `getOrgRollup(slug, window?, segmentId?)` | Latest scan per repo → fleet averages, posture distribution, dimension averages, daily trend, and a linear `Forecast`. With a `window` it also returns a `baseline` snapshot (latest scan per repo as of `window.start`) and per-metric `deltas` for period-over-period tile comparisons; the trend is bounded to the window. An optional `segmentId` scopes every figure to a [segment](#segments)'s tagged repos. |
+| `getOrgRollup(slug, window?, segmentId?)` | Latest scan per repo → fleet averages, posture distribution, dimension averages, daily trend, and a linear `Forecast`. **Known gap (2026-09-04): the trend and the badge beside it have different denominators.** `avgOverall` is a mean over REPOS (each repo's latest scan); a trend point is a mean over the SCANS that landed that day. `OverviewLedger` renders them side by side, so on a fleet with mixed cadence the chart's right edge and the number next to it describe different populations — measured at a 23-point gap on a 20-repo fleet where only the 3 daily-autoscanned repos were scanned that day (final point over 3 of 20 repos), and `forecastTrajectory` is fitted to the same series. Both candidate remedies are real product calls (carry each repo's latest score forward per day so the last point equals the badge; or keep the scan-mean and ship each point's `n`, which is the `count-carries-predicate` rule `CohortMovement` in this same file already follows), so it is a deck item, not a sweep fix. With a `window` it also returns a `baseline` snapshot (latest scan per repo as of `window.start`) and per-metric `deltas` for period-over-period tile comparisons; the trend is bounded to the window. An optional `segmentId` scopes every figure to a [segment](#segments)'s tagged repos. |
 | `getOrgMovers(slug, window?, segmentId?)` | Per-repo delta over the window: latest scan vs the baseline scan strictly before `window.start` (gainers / regressions / held / levelChanges). Without a window, falls back to the two most recent scans ("since last scan"). Optional `segmentId` scopes to a segment. A repo with no scan before `window.start` (onboarded mid-period) is a **lifetime** delta, not a period one: it's tagged `baselineKind: "onboarded"` and reported separately in `onboarded`, excluded from `gainers`/`regressers`/`held`/`levelChanges`/`comparedRepos` so a fleet's onboarding wave can't read as that period's improvement. |
 | `getOrgRecommendations(slug, limit, segmentId?)` | Open recs aggregated across latest scans, ranked by leverage `repoCount × impactWeight × (1 + dimWeight)`. Optional `segmentId` scopes to a segment. |
 | `getOrgBacklog(slug, segmentId?, now?, techGroupId?, opts?)` | The recommendation **backlog**: actionable per-repo recs (open + in_progress) from the latest scans (carrying owner + due date), grouped by owner and by due-date bucket (overdue / this week / this month / later / no date), with overdue/due-soon/unassigned counts and the fleet's contributor logins for the assignee picker. Pure `dueBucketFor(date, now)` (unit-tested) does the bucketing. Backs the Follow-ups ledger (the Backlog tab it originally served retired 2026-08-17; owner/due-date fields are carried but no longer surfaced); mutations go through `updateRecommendation` (`src/lib/db/scans.ts`), which records a `RecommendationEvent` per change. **Reversibility (2026-07-28, G6-02):** `opts.includeClosed` groups the done/dismissed rows too (`GET /api/org/backlog?includeClosed=1`, surfaced as the panel's "Show done & dismissed" toggle) so an item closed by a mis-click stays findable and can be set back to Open: the ACTIVE-only default was previously a one-way door. Every headline count still describes the ACTIVE backlog either way, and a closed row never reports `overdue`, so the toggle moves no number. |
@@ -884,6 +884,18 @@ after it has closed.
 
 Both reads are audited (`controls.verify`).
 
+**Known gap (2026-09-04): three files are still off the semantic type scale.**
+`globals.css` says the sweep that introduced `type-*` "replaced every site"; four files in
+`src/features` + `src/components/org` were still on raw `text-sm`/`text-[11px]` utilities.
+`GuidanceCoherenceCard` was fixed in this context; `src/features/inflight/live/cockpit/LaneRail.tsx`,
+`src/features/shared/practices/PracticeDriftStrip.tsx` and
+`src/features/shared/practices/RegistryPracticeApply.tsx` remain. The size tokens are re-based +1px,
+so a raw `text-sm` renders one pixel under every sibling surface on the same page, and `text-[11px]`
+sits below the 12px floor the scale establishes. Converting them is mechanical (the mapping table is
+in `globals.css`) with one trap: `type-micro`/`type-note`/`type-body-sm`/`type-lede`/`type-title`
+declare SIZE ONLY, while `type-label`/`type-caption`/`type-mono-sm`/`type-figure` also set the mono
+family — so a `font-mono` being replaced must stay explicit at the first group.
+
 ## Canonical time-zone policy (`src/lib/org/timezone.ts`)
 
 Every calendar-day decision the org dashboard makes (window preset starts, custom-range
@@ -994,9 +1006,22 @@ default exactly as before. Routed through it today: the backlog's due-date bucke
 trend's day buckets (`getOrgDeliveryTrend` → `buildDeliveryTrend`). Other surfaces still resolve
 via the deployment default until they are threaded the same way.
 
+(Closed 2026-09-04.) ~~`src/lib/db/org-rollup.ts`'s `localDayKey`~~ — the maturity trend's day-key
+axis now resolves through `dayKeyInZone`, so the series is bucketed in the same zone the window that
+selected its rows was computed in. It had been the one entry on this list that a reader of the CODE
+could not discover: the function carried a comment asserting it used "the SAME zone the window
+boundaries use (window.ts `startOfDay` snaps to LOCAL midnight)", true when written and false since
+window.ts migrated — so the site read as already-correct at the exact place someone would go to fix
+it. Measured before the change over three sample instants: 2 of 3 mislabelled under
+`ASCENT_ORG_TZ=America/New_York`, 1 of 3 on a non-UTC host under the UTC default.
+
+Its unit test could not have caught it either: the expected day key was computed with the
+implementation's own formula, so the assertion held whichever zone the code chose. The oracle is now
+derived from the policy (`Intl`, canonical zone) independently of the code under test — worth copying
+wherever a zoned bucket is asserted.
+
 **Not yet routed through the policy** (each still uses its own frame; safe under the UTC
 default, would diverge the moment `ASCENT_ORG_TZ` is set):
-`src/lib/db/org-rollup.ts`'s `localDayKey` (server-local, the trend day-key axis),
 `src/lib/db/usage.ts`'s `dayKey` (UTC), and the client-side `daysUntil` in
 `src/features/inflight/live/LiveWarRoomHeader.tsx` (genuinely viewer-local, and therefore able
 to disagree with the server's bucket by a day).
