@@ -1231,7 +1231,22 @@ Org membership and role enforcement are wired end to end, backed by the `User` /
   "any member" writes and reads respectively. Under the Supabase login wall
   (`authGateEnabled()`), the shared `viewerOrgRole` resolver seeds an owner only for an
   identity-verified viewer: their own personal namespace, or a GitHub-confirmed org admin
-  via the App installation, never for the first stranger to touch an ownerless org.
+  via the App installation, never for the first stranger to touch an ownerless org. **Merely
+  holding the GitHub App installation confers nothing** — that path went with the retired
+  custom-OAuth stack, and `sessionOwnsOrg` no longer participates in any gate. Three docstrings
+  and the Members tab's own footer copy still said otherwise until 2026-09-04.
+- **An unreadable stored role resolves to the FLOOR** (`coerceStoredRole`, 2026-09-04). A role
+  string the vocabulary does not know (DB corruption, a hand-run migration, a role renamed in a
+  future release and read by an old deploy) becomes `viewer` and is logged, at all five sites that
+  read one — including `acceptInvite`, which feeds the value straight into a persisted grant. It
+  used to become `member`, which is not a floor: `member` clears `requireOrgAccess` (min `member`)
+  and `canReadOrg` (min `viewer`), so a role nobody could parse conferred the right to act on the
+  org. Absent (no membership row) is still `null` and is a different fact.
+- **Slug canonicalization is a write-side rule too** (2026-09-04). `ensureOwnerMembership` is the
+  only org-row *writer* in `members.ts` and took the caller's slug raw; on an upsert that does not
+  miss the row, it creates a *second* tenant no read can reach. `/api/org/invites` likewise never
+  canonicalized, so while `requireOrgRole` normalizes internally (the gate was safe), the raw
+  casing reached the reads, the mutations and the `meta.org` of every invite audit row.
 - **Invites**: `GET`/`POST`/`DELETE /api/org/invites` (owner-only, `src/app/api/org/invites/route.ts`)
   list, create, and revoke single-use invite tokens (role capped at `admin`; `owner` can
   only be conferred by promoting an existing member, not minted as a link). Acceptance is a

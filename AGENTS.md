@@ -118,6 +118,15 @@ Enforced by `src/app/api/org/id-routes-gated.test.ts`. Two mechanisms, both corr
 
 The guard checks a gate is present; it cannot check the id is org-constrained. That part is review.
 
+It matches **code**, not the comments that describe it (2026-09-04). Every route here explains which
+gate it calls — house style — and the guard read raw file text, so the words satisfying it were the
+prose, not the call. Deleting the import and both call sites from `goals/[id]/route.ts` while leaving
+the three comment lines that name them kept the suite green. It now strips comments and string
+literals first, and a seeded prose-only violation is pinned so it cannot quietly stop biting. **If you
+write another source-scanning gate in this repo, strip comments before matching and seed a violation
+to prove it still fails** — a matcher that stops matching reports a clean codebase in a voice
+indistinguishable from success.
+
 ## A db type that crosses to a client never declares a `Date`
 
 Enforced by `src/lib/db/wire-safe-dates.test.ts` (a compile-time assertion, so `tsc` catches it).
