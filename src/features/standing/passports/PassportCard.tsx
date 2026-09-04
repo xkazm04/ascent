@@ -4,6 +4,7 @@
 // replacement: the report explains the maturity score; the passport names the stack + the prod posture.
 
 import { Card, Meter, SectionHeader } from "@/components/org/shared/ui";
+import { PlaceholderMark, isPlaceholderEngine } from "@/features/standing/passports/PlaceholderMark";
 import { PassportOwnerControls } from "@/features/standing/passports/PassportOwnerControls";
 import { bandColor, bandLabel, passportStackChips } from "@/lib/org/passport-display";
 import { scoreHex } from "@/lib/ui";
@@ -18,7 +19,21 @@ function Rung({ label, value, tone }: { label: string; value: string; tone?: "wa
   );
 }
 
-export function PassportCard({ passport: pp, repo, canEdit = false }: { passport: AppPassport; repo: string; canEdit?: boolean }) {
+export function PassportCard({
+  passport: pp,
+  repo,
+  canEdit = false,
+  engine,
+}: {
+  passport: AppPassport;
+  repo: string;
+  canEdit?: boolean;
+  /** The engine that produced the scan behind this passport. `"mock"` is the deterministic
+   *  placeholder floor — the card says so rather than presenting a floor as a grade. Optional and
+   *  additive: a caller that does not know the engine makes no claim either way. */
+  engine?: string | null;
+}) {
+  const placeholder = isPlaceholderEngine(engine);
   const auto = pp.automationReadiness;
   const prod = pp.productionReadiness;
   const chips = passportStackChips(pp);
@@ -113,8 +128,13 @@ export function PassportCard({ passport: pp, repo, canEdit = false }: { passport
         </p>
       )}
 
-      <p className="mt-3 type-caption text-slate-600">
-        {pp.evidence.source} · confidence {Math.round(pp.evidence.confidence * 100)}% · as of {pp.generatedAt}
+      <p className="mt-3 flex flex-wrap items-center gap-1.5 type-caption text-slate-600">
+        <span>
+          {pp.evidence.source} · confidence {Math.round(pp.evidence.confidence * 100)}% · as of {pp.generatedAt}
+        </span>
+        {/* Same wording the Clearance card has always used, from the same module — a placeholder scan
+            is a floor emitted without a model, and the provenance line is where the card says so. */}
+        {placeholder && <PlaceholderMark />}
       </p>
 
       {canEdit && (

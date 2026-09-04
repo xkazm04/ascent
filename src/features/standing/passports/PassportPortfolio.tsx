@@ -55,6 +55,7 @@ export function PassportPortfolio({ rows, org, decisions }: { rows: PassportRow[
     y: r.prodScore,
     band: r.band,
     faded: !matches(r),
+    placeholder: r.placeholder,
   }));
 
   // A quadrant click toggles its cohort; re-clicking the active one (or the ✕ chip) clears it.
