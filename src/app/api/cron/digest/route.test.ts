@@ -106,6 +106,7 @@ import {
   getAuditLog,
   getStandingRegressions,
   getRedBaselines,
+  recordAlertEvent,
 } from "@/lib/db";
 import { claimOrgAuditOnce, releaseAuditClaim } from "@/lib/db/scans-audit";
 import { dispatchAlert, buildFleetDigestMessage, digestHasSignal } from "@/lib/alerts";
@@ -129,6 +130,7 @@ const mockAuditLog = vi.mocked(getAuditLog);
 const mockClaim = vi.mocked(claimOrgAuditOnce);
 const mockRelease = vi.mocked(releaseAuditClaim);
 const mockExtra = vi.mocked(dispatchExtraAlerts);
+const mockRecordAlertEvent = vi.mocked(recordAlertEvent);
 
 const SECRET = "digest-secret-xyz";
 
@@ -386,6 +388,24 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     expect(mockClaim).toHaveBeenCalledTimes(1);
     expect(mockRelease).toHaveBeenCalledTimes(1);
     expect(mockRelease.mock.calls[0][0]).toBe("clm_1");
+  });
+
+  it("a FAILING release still counts the failure and still writes the history row", async () => {
+    // The worst outcome this route can reach — delivery failed AND the window is still claimed, so
+    // this org gets no digest at all this week — used to be the one that left no trace: an unhandled
+    // release rejection threw past `failed` and past recordAlertEvent into the per-org catch.
+    mockListOrgs.mockResolvedValue(["orgStuck"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/S");
+    mockRollup.mockResolvedValue(rollupWith());
+    mockDispatch.mockResolvedValue(false);
+    mockRelease.mockRejectedValue(new Error("release blew up"));
+
+    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
+    const body = (await bodyOf(res)) as { failed: number; errors: string[] };
+    expect(body.failed).toBe(1);
+    expect(body.errors.join(" ")).toContain("claim release failed");
+    // …and the attempt is still remembered, with its outcome.
+    expect(mockRecordAlertEvent).toHaveBeenCalledWith("orgStuck", expect.objectContaining({ delivered: false }));
   });
 
   // ---- (6) PARTIAL-FAILURE ISOLATION — one org failing doesn't abort others ----
