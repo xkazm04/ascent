@@ -71,7 +71,7 @@ vi.mock("@/lib/local/lane-guard", () => ({
 }));
 
 import { runLane, type LaneDeps } from "@/lib/local/loop-lane";
-import { laneDeadlineMs } from "@/lib/local/lane-watchdog";
+import { createLaneWatchdog, laneDeadlineMs } from "@/lib/local/lane-watchdog";
 
 /** The fixture the loop had no answer for. */
 const never = <T,>(): Promise<T> => new Promise<T>(() => {});
@@ -137,6 +137,9 @@ describe("a stage whose promise never settles", () => {
     expect(done).toBe(false);
 
     await vi.advanceTimersByTimeAsync(2);
+    // A runner that never answers ALSO never reports what became of its process, so the force-fail
+    // waits out its short note window before writing the honest "unconfirmed" line. See loop-lane.
+    await vi.advanceTimersByTimeAsync(6_000);
     const res = await p;
     // A RESULT, not a throw and not a hang — the engine drops this repo and drives the next lane.
     expect(res.progressed).toBe(false);
@@ -171,6 +174,7 @@ describe("a stage whose promise never settles", () => {
     vi.useFakeTimers();
     const p = run({}, { runAgent: (() => never()) as never });
     await vi.advanceTimersByTimeAsync(derived(SESSION_MS) + 1);
+    await vi.advanceTimersByTimeAsync(6_000); // the kill-note window, as above
     await p;
     // Same release every other failed lane gets — a cut lane must not leave zombie in_progress rows.
     expect(released).toEqual(["a"]);
@@ -220,5 +224,72 @@ describe("a normal fast cycle", () => {
     // The watchdog is one timer, armed lazily and disposed on the way out. A cycle that finishes
     // leaves the timer table exactly as it found it — there is nothing extra to observe.
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("THE STOP REACHES THE PROCESS", () => {
+  // The race settling is what frees the lane, and that is unchanged. What used to be missing is the
+  // other half: nothing reached the `claude -p` child, so a stopped run gave the org's slot back in
+  // ~2.5 min and left an editing session running against a run nobody was watching. The watchdog's
+  // cut is now passed outward as an AbortSignal, and the lane records what the kill confirmed.
+
+  /** An agent dep that hangs until its abort hook fires — i.e. exactly the stage that used to wedge. */
+  const killable = (note: string) => {
+    const seen: { signal: AbortSignal | null } = { signal: null };
+    const runAgent = ((opts: { signal?: AbortSignal }) =>
+      new Promise((resolve) => {
+        seen.signal = opts.signal ?? null;
+        opts.signal?.addEventListener("abort", () => resolve({ ok: false, summary: note }), { once: true });
+      })) as never;
+    return { seen, runAgent };
+  };
+
+  it("hands the agent runner the watchdog's cut, and records what the kill confirmed", async () => {
+    const { seen, runAgent } = killable("Agent session stopped by the operator — agent process terminated (pid 4242).");
+    const watchdog = createLaneWatchdog({ deadlineMs: 3_600_000 });
+    const p = run({ watchdog }, { runAgent });
+
+    // The lane reaches its agent stage on real timers; only then is there a process to stop.
+    await vi.waitFor(() => expect(seen.signal).not.toBeNull());
+    expect(seen.signal?.aborted).toBe(false);
+
+    watchdog.abort();
+    const res = await p;
+
+    expect(seen.signal?.aborted).toBe(true);
+    expect(res.error).toContain("FORCE-FAILED");
+    // HONESTY, in the field the lane already had. No schema change.
+    expect(res.error).toContain("The kill reported: agent process terminated (pid 4242).");
+    expect(terminal()?.stage).toBe("agent");
+  });
+
+  it("says UNCONFIRMED when the runner cannot confirm the process died", async () => {
+    const { runAgent } = killable("Agent session stopped by the operator — agent process termination unconfirmed (pid 4242).");
+    const watchdog = createLaneWatchdog({ deadlineMs: 3_600_000 });
+    const p = run({ watchdog }, { runAgent });
+    await vi.waitFor(() => expect(logs.length).toBeGreaterThan(0));
+    watchdog.abort();
+    const res = await p;
+    expect(res.error).toContain("agent process termination unconfirmed (pid 4242)");
+  });
+
+  it("says so, rather than nothing, when the runner never answers at all", async () => {
+    vi.useFakeTimers();
+    const p = run({}, { runAgent: (() => never()) as never });
+    // The lane's own deadline fires; the runner it aborted stays silent forever.
+    await vi.advanceTimersByTimeAsync(derived(SESSION_MS) + 1);
+    await vi.advanceTimersByTimeAsync(6_000);
+    const res = await p;
+    expect(res.error).toContain("the runner did not answer before the lane ended");
+  });
+
+  it("the DEADLINE cuts the process too — not only an operator's stop", async () => {
+    vi.useFakeTimers();
+    const { seen, runAgent } = killable("Agent session stopped: the cycle exceeded its deadline — agent process terminated (pid 7).");
+    const p = run({ agent: { timeoutMs: SESSION_MS } }, { runAgent });
+    await vi.advanceTimersByTimeAsync(derived(SESSION_MS) + 1);
+    const res = await p;
+    expect(seen.signal?.aborted).toBe(true);
+    expect(res.error).toContain("agent process terminated (pid 7)");
   });
 });

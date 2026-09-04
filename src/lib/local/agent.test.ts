@@ -2,9 +2,45 @@
 // a subprocess wrapper, and mocking spawn would test the mock); what MUST be pinned is that the
 // agent runner refuses without the explicit opt-in — an auto-editing agent must never be a default.
 
+import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_AGENT_MODEL, autopilotEnabled, resolveAgentConfig, runClaudeAgent } from "@/lib/local/agent";
 import { parseAgentEnvelope } from "@/lib/local/agent-envelope";
+import { killProcessTree } from "@/lib/local/kill-tree";
+
+// THE ONE MOCKED SEAM. The spawn path is otherwise exercised by a real run (mocking a subprocess to
+// test a subprocess wrapper tests the mock) — but the STOP path cannot be: it has to be provoked
+// from outside, mid-session, and the thing it must reach is a process tree. So the child is faked
+// and the kill helper is spied; kill-tree.test.ts pins what the helper itself does.
+const spawned = vi.hoisted(() => ({ last: null as FakeChildLike | null }));
+interface FakeChildLike extends EventEmitter {
+  pid: number;
+  stdout: EventEmitter;
+  stderr: EventEmitter;
+  stdin: { write: (s: string) => void; end: () => void };
+  kill: (sig?: string) => void;
+}
+vi.mock("node:child_process", async (orig) => ({
+  ...(await orig<typeof import("node:child_process")>()),
+  spawn: vi.fn(() => {
+    const child = new EventEmitter() as FakeChildLike;
+    child.pid = 4242;
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.stdin = { write: vi.fn(), end: vi.fn() };
+    child.kill = vi.fn();
+    spawned.last = child;
+    return child;
+  }),
+}));
+vi.mock("@/lib/local/kill-tree", async (orig) => ({
+  ...(await orig<typeof import("@/lib/local/kill-tree")>()),
+  killProcessTree: vi.fn(async (pid: number | null | undefined) => ({
+    confirmed: true,
+    note: `agent process terminated (pid ${pid})`,
+    pid: pid ?? null,
+  })),
+}));
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -160,5 +196,91 @@ describe("parseAgentEnvelope — the measurements the process boundary used to d
 
   it("refuses a non-finite cost rather than storing NaN as a number", () => {
     expect(parseAgentEnvelope(JSON.stringify({ result: "ok", total_cost_usd: "not-a-number" }), opts).costMicros).toBeNull();
+  });
+});
+
+describe("THE STOP REACHES THE PROCESS", () => {
+  // Measured on the host that wrote this (win32, 2026-09-04): a real grandchild behind a
+  // `shell: true` parent survives `child.kill()`. A stopped run used to free the org's slot in
+  // ~2.5 min and leave that session running, unmonitored, until its own timer — up to 90 minutes.
+  const armed = () => {
+    vi.stubEnv("ASCENT_AUTOPILOT", "1");
+    spawned.last = null;
+    vi.mocked(killProcessTree).mockClear();
+  };
+
+  it("kills the process TREE on abort and settles with what the kill confirmed", async () => {
+    armed();
+    const cut = new AbortController();
+    const p = runClaudeAgent({ cwd: process.cwd(), prompt: "work", timeoutMs: 60_000, signal: cut.signal });
+    expect(spawned.last).not.toBeNull();
+
+    cut.abort();
+    const r = await p;
+
+    // The helper, with the child's pid — not `child.kill()` alone, which only signals the shell.
+    expect(killProcessTree).toHaveBeenCalledWith(4242);
+    expect(r.ok).toBe(false);
+    expect(r.summary).toContain("Agent session stopped by the operator");
+    // HONESTY: the outcome of the kill rides in the summary the lane logs. No schema change.
+    expect(r.summary).toContain("agent process terminated (pid 4242)");
+  });
+
+  it("quotes the watchdog's own reason when the abort carries one", async () => {
+    armed();
+    const cut = new AbortController();
+    const p = runClaudeAgent({ cwd: process.cwd(), prompt: "work", timeoutMs: 60_000, signal: cut.signal });
+    cut.abort(new Error("the run was stopped while the agent session was in flight"));
+    const r = await p;
+    expect(r.summary).toContain("the run was stopped while the agent session was in flight");
+  });
+
+  it("settles ONCE — a close arriving after the abort cannot rewrite the outcome", async () => {
+    armed();
+    const cut = new AbortController();
+    const p = runClaudeAgent({ cwd: process.cwd(), prompt: "work", timeoutMs: 60_000, signal: cut.signal });
+    cut.abort();
+    const r = await p;
+    spawned.last?.stdout.emit("data", Buffer.from(JSON.stringify({ result: "all done" })));
+    spawned.last?.emit("close", 0);
+    await Promise.resolve();
+    // Same settled value, not the envelope that arrived afterwards.
+    expect(await p).toBe(r);
+    expect(r.summary).not.toContain("all done");
+  });
+
+  it("does not spawn at all when the signal is ALREADY aborted", async () => {
+    armed();
+    const r = await runClaudeAgent({ cwd: process.cwd(), prompt: "work", signal: AbortSignal.abort() });
+    expect(spawned.last).toBeNull();
+    expect(r.ok).toBe(false);
+    expect(r.summary).toContain("no session was started");
+  });
+
+  it("leaves the TIMER path's sentence byte-identical — and now kills the tree there too", async () => {
+    armed();
+    vi.useFakeTimers();
+    try {
+      const p = runClaudeAgent({ cwd: process.cwd(), prompt: "work", timeoutMs: 60_000 });
+      await vi.advanceTimersByTimeAsync(60_001);
+      const r = await p;
+      // The exact sentence every session before this change ended with. Settling frees the lane;
+      // the kill is in addition to it, never instead of it.
+      expect(r).toEqual({ ok: false, summary: "Agent session exceeded 1 min and was stopped." });
+      expect(killProcessTree).toHaveBeenCalledWith(4242);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still settles from the CLI's own envelope when nobody aborts", async () => {
+    armed();
+    const p = runClaudeAgent({ cwd: process.cwd(), prompt: "work", timeoutMs: 60_000 });
+    spawned.last?.stdout.emit("data", Buffer.from(JSON.stringify({ result: "did the thing" })));
+    spawned.last?.emit("close", 0);
+    const r = await p;
+    expect(r.ok).toBe(true);
+    expect(r.summary).toContain("did the thing");
+    expect(killProcessTree).not.toHaveBeenCalled();
   });
 });
