@@ -1707,7 +1707,11 @@
             "src/features/inflight/live/cockpit/CockpitOutcomeTotals.tsx",
             "src/features/inflight/live/cockpit/CockpitVerdicts.tsx",
             "src/features/inflight/live/cockpit/LanePrAction.tsx",
-            "src/features/inflight/live/cockpit/PriceListPanel.tsx"
+            "src/features/inflight/live/cockpit/PriceListPanel.tsx",
+            "src/lib/local/kill-tree.ts",
+            "src/lib/local/kill-tree.test.ts",
+            "src/lib/local/lane-watchdog.ts",
+            "src/lib/local/loop-lane.watchdog.test.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -2385,7 +2389,15 @@
             "src/features/standing/passports/controls/ControlMatrixPanel.tsx",
             "src/features/standing/passports/controls/ControlMatrixPanel.dom.test.tsx",
             "src/features/standing/passports/controls/controlMatrixView.ts",
-            "src/features/standing/passports/controls/useControlMatrix.ts"
+            "src/features/standing/passports/controls/useControlMatrix.ts",
+            "src/features/standing/passports/DeclineControl.tsx",
+            "src/features/standing/passports/DeclineControl.dom.test.tsx",
+            "src/features/standing/passports/PlaceholderMark.tsx",
+            "src/features/standing/passports/OwnerSetCue.tsx",
+            "src/features/standing/passports/PassportTableHead.tsx",
+            "src/features/standing/passports/passportTableSort.ts",
+            "src/features/standing/passports/PassportCard.dom.test.tsx",
+            "src/features/standing/passports/PassportOwnerControls.dom.test.tsx"
           ],
           "target": null,
           "apiRoutes": [
