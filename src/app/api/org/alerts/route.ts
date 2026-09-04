@@ -151,7 +151,10 @@ export async function POST(request: Request) {
     } else {
       testUrl = await getOrgAlertWebhook(body.org);
     }
-    const delivered = await dispatchAlert(buildTestAlertMessage(body.org), { webhookUrl: testUrl });
+    // `org` is not decoration on this call. For a `mailto:` sink it is what mints the unsubscribe
+    // link and names the tenant in the "why am I receiving this" line (see email/alert-sink.ts);
+    // without it the ONE mail an admin sends to verify their email sink is the one mail with neither.
+    const delivered = await dispatchAlert(buildTestAlertMessage(body.org), { webhookUrl: testUrl, org: body.org });
     return NextResponse.json({
       ok: true,
       delivered,
