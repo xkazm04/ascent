@@ -3,7 +3,8 @@
 // `DeclinedList` is the new 0.4.0 half.
 //
 // No "use client" here on purpose: neither component uses a hook or an event handler. The interactive
-// piece is `DecisionControl`, which carries its own directive.
+// pieces are `DecisionControl` (judge the finding) and `DeclineControl` (accept the gap by choice),
+// each of which carries its own directive.
 //
 // WHY TWO LISTS. Passport 0.4.0 made a decline decision memory rather than a deletion: the overlay
 // retires an accepted gap from `blockers` and re-emits it under `passport.declined`. Rendering only
@@ -18,6 +19,11 @@
 // reads as "this is the reasoning you are being asked to reaffirm", not as a double-count.
 
 import { DecisionControl } from "@/components/org/DecisionControl";
+import { DeclineControl } from "./DeclineControl";
+// Imported from the overlay module directly, not through the `@/lib/analyze/passport` barrel: these
+// components render inside a client tree, and the barrel would drag the whole scan analyzer into the
+// bundle. passport-overlay is a pure module (types + one pure score derivation), so it costs nothing.
+import { declinablePathForFinding } from "@/lib/analyze/passport-overlay";
 import { passportFindingKeys } from "@/lib/org/findings";
 import type { DecisionMap } from "@/lib/org/decision-map";
 import type { DeclinedByChoice, PassportFinding } from "@/lib/types";
@@ -67,13 +73,18 @@ export function BlockerList({
           {rows.map((f) => {
             const [key, legacyKey] = passportFindingKeys(fullName, f);
             const decision = decisions[key!] ?? (legacyKey ? decisions[legacyKey] : undefined);
+            // Only an ALLOW-LISTED gap may be declined. An evidence limitation (the tokenless
+            // branch-protection caveat) and an unclassified back-fill both land here as null, and get
+            // no control at all: declining them would silence a limit of the evidence, not accept a
+            // real trade-off.
+            const declinePath = declinablePathForFinding(f.id);
             return (
               <li key={key} className={`type-body-sm text-slate-300 ${decision && decision.status !== "open" ? "opacity-60" : ""}`}>
                 <span className="flex gap-2">
                   <span aria-hidden className="mt-0.5 shrink-0 text-orange-400">▸</span>
                   {f.text}
                 </span>
-                <div className="ml-4 mt-1.5">
+                <div className="ml-4 mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
                   <DecisionControl
                     org={org}
                     module="passports"
@@ -83,6 +94,9 @@ export function BlockerList({
                     rationale={decision?.rationale}
                     decidedBy={decision?.decidedBy}
                   />
+                  {declinePath && (
+                    <DeclineControl mode="decline" repo={fullName} path={declinePath} code={f.code} severity={f.severity} />
+                  )}
                 </div>
               </li>
             );
@@ -96,7 +110,7 @@ export function BlockerList({
 /** The owner's accepted gaps (`passport.declined`, 0.4.0). Muted relative to the open blockers above —
  *  a decision is not a to-do — except when it needs re-confirming, which is the one state that wants
  *  the reader's eye. */
-export function DeclinedList({ items }: { items: DeclinedByChoice[] }) {
+export function DeclinedList({ items, fullName }: { items: DeclinedByChoice[]; fullName: string }) {
   if (items.length === 0) return null;
   const stale = items.filter((d) => d.needsReconfirm).length;
   return (
@@ -115,6 +129,10 @@ export function DeclinedList({ items }: { items: DeclinedByChoice[] }) {
               <span className="min-w-0">
                 <span className="text-slate-400">{d.label}</span>
                 {d.at && <span className="type-caption text-slate-600"> · declined {d.at}</span>}
+                {/* A decision must be revisable by the person who made it, or the first one recorded
+                    by mistake is permanent. Retract sends `{ [path]: null }` — the route's own
+                    retraction — and the gap returns to the open blocker list on refresh. */}
+                <DeclineControl mode="retract" repo={fullName} path={d.path} />
                 {d.needsReconfirm && (
                   <span className="ml-2 rounded border border-amber-500/40 px-1.5 py-0.5 font-mono type-micro uppercase tracking-widest text-amber-400">
                     needs re-confirmation

@@ -114,7 +114,43 @@ export const DECLINABLE_PATHS: Record<string, DeclinableField> = {
 /** True when `path` is one an owner may decline. Exported for route-level validation. */
 export const isDeclinablePath = (path: string): boolean => Object.hasOwn(DECLINABLE_PATHS, path);
 
-const MAX_REASON = 280;
+/**
+ * The declinable field path an owner would write to stand a MINTED finding id down — or null when
+ * nothing on the allow-list stands against it, which is the honest answer for an evidence limitation
+ * (`enforcement-not-observable` and friends), for a positional `unclassified` back-fill id, and for a
+ * finding no owner may legitimately opt out of.
+ *
+ * This exists so a UI can ask "may this blocker be declined, and at which path?" without duplicating
+ * the table. A second copy of the allow-list is the failure that the `finding` join key was introduced
+ * to end: the tables drift, and the UI starts offering a decline the route then 400s.
+ *
+ * Two paths can carry the same finding id (`stack.monitoring.errorTracking` and
+ * `productionReadiness.observability` both retire `prod.zero-observability`). The winner is the path
+ * on the finding's OWN axis — `prod.*` -> `productionReadiness.*`, `auto.*` -> `automationReadiness.*`
+ * — because that is the sub-scale the reader is looking at when the blocker is in front of them. Ties
+ * fall back to allow-list order, so the answer is deterministic either way.
+ */
+export function declinablePathForFinding(findingId: string | null | undefined): string | null {
+  if (!findingId) return null;
+  const axisPrefix = findingId.startsWith("prod.")
+    ? "productionReadiness."
+    : findingId.startsWith("auto.")
+      ? "automationReadiness."
+      : null;
+  let fallback: string | null = null;
+  for (const [path, field] of Object.entries(DECLINABLE_PATHS)) {
+    if (field.finding !== findingId) continue;
+    if (axisPrefix && path.startsWith(axisPrefix)) return path;
+    fallback ??= path;
+  }
+  return fallback;
+}
+
+/** Cap on an owner's decline rationale, enforced on parse. Exported so the control that COLLECTS the
+ *  reason enforces the same number the route does, rather than silently truncating on the server. */
+export const DECLINE_REASON_MAX = 280;
+
+const MAX_REASON = DECLINE_REASON_MAX;
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 // ── the overlay ───────────────────────────────────────────────────────────────────────────────────

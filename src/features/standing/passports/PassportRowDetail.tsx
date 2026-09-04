@@ -93,7 +93,7 @@ export function PassportRowDetail({
           fullName={fullName}
           decisions={decisions}
         />
-        <DeclinedList items={d.declined ?? []} />
+        <DeclinedList items={d.declined ?? []} fullName={fullName} />
       </div>
 
       {/* Right: the observed facts behind the sub-scale enums */}
