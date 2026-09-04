@@ -69,6 +69,24 @@ export interface OrgPassportBlockers {
   fullName: string;
   /** Both readiness axes concatenated; `passportFindings` de-dupes the overlap. */
   blockers: string[];
+  /**
+   * The SAME lines carrying passport 0.4.0's minted ids — both axes concatenated, same order as
+   * `blockers`. This is what `passportFindingKey` joins a decision on, so a reworded blocker no longer
+   * orphans the owner's snooze; `blockers` stays as the rendered prose (and as the identity for a row
+   * with no durable id). `id`/`code` are null for an axis a stored passport carries no `findings` for.
+   *
+   * Wire-safe by construction: strings only, no Date — this type crosses to the client through the
+   * findings derivation (see wire-safe-dates.test.ts for the rule).
+   */
+  findings: { id: string | null; code: string | null; text: string }[];
+}
+
+/** One axis's blockers as id-bearing refs, falling back to prose-only refs for a passport whose axis
+ *  carries no `findings` (a shape `upgradePassport` back-fills, so this is a safety net). */
+function axisFindings(axis: { blockers: string[]; findings?: { id: string; code: string; text: string }[] }) {
+  return axis.findings
+    ? axis.findings.map((f) => ({ id: f.id, code: f.code, text: f.text }))
+    : axis.blockers.map((text) => ({ id: null, code: null, text }));
 }
 
 /**
@@ -111,6 +129,7 @@ export const getOrgPassportBlockers = cache(async (orgSlug: string): Promise<Org
     out.push({
       fullName: r.fullName,
       blockers: [...p.automationReadiness.blockers, ...p.productionReadiness.blockers],
+      findings: [...axisFindings(p.automationReadiness), ...axisFindings(p.productionReadiness)],
     });
   }
   return out;

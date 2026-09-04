@@ -85,7 +85,13 @@ describe("getOrgPassportBlockers", () => {
     ]);
     mockGetPrisma.mockReturnValue(fake.client);
 
-    expect(await getOrgPassportBlockers("acme")).toEqual([{ fullName: "acme/a", blockers: ["no CI", "no runbook"] }]);
+    const out = await getOrgPassportBlockers("acme");
+    expect(out.map((r) => ({ fullName: r.fullName, blockers: r.blockers }))).toEqual([
+      { fullName: "acme/a", blockers: ["no CI", "no runbook"] },
+    ]);
+    // 0.4.0: the same lines carry their minted ids, in the same order — that is what a decision keys
+    // on now (passportFindingKey), so the two lists drifting apart would silently re-key decisions.
+    expect(out[0]!.findings.map((f) => f.text)).toEqual(["no CI", "no runbook"]);
   });
 
   it("drops repos with no passport, and a malformed blob, rather than badging a phantom", async () => {

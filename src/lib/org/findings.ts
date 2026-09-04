@@ -9,9 +9,15 @@
 // The whole design rests on key stability. A key built from wording ("Default branch is unprotected")
 // changes the moment a rubric or an LLM reworded the sentence, silently orphaning the decision and
 // resurrecting a finding the user already dismissed. So keys are built from the most stable identity
-// available — the repo's fullName plus a stable check id — and fall back to hashing free text ONLY for
-// passport blockers, which are LLM-authored prose with no id (see `blockerKey`). Adding a new module
-// means adding a builder here, never inventing keys at the call site.
+// available — the repo's fullName plus a stable check id — and fall back to hashing free text ONLY
+// where no such id exists (see `blockerKey`). Adding a new module means adding a builder here, never
+// inventing keys at the call site.
+//
+// Passport blockers were the one module still keyed by prose. They are not any more: passport 0.4.0
+// mints `findings[].id` per CAUSE, and `passportFindingKey` joins on it, so an LLM rewording a blocker
+// no longer resets the owner's snooze. The prose hash survives as the documented fallback for rows
+// with no durable id — which includes the `unclassified` back-fill `upgradePassport` mints for an
+// unrecognized stored blocker, an id that is positional and must never carry a decision.
 //
 // Framework-free and pure: no Prisma, no React, no db imports. Inputs are narrow structural types so
 // callers can pass the slices of getOrgRollup / getOrgTeamRollup / getContributorInsights /
@@ -119,35 +125,101 @@ export function teamsFindings(unowned: TeamsFindingInput[]): Finding[] {
 
 // ── Passports ─────────────────────────────────────────────────────────────────────────────────────
 
+/** The half of a passport `PassportFinding` an identity is derived from: the minted id (0.4.0) plus
+ *  the rendered sentence that is all a pre-0.4.0 row has. Structural, so a caller can pass a passport
+ *  finding, a nav-count row or a hand-built `{ text }` without importing the passport types. */
+export interface PassportFindingRef {
+  /** Minted, axis-scoped cause id — e.g. `prod.zero-observability`. Null/absent on a row with none. */
+  id?: string | null;
+  /** The cause code without its axis prefix. Only read to spot the non-durable `unclassified` bucket. */
+  code?: string | null;
+  /** The rendered sentence AS OF this generation. The fallback identity, never the preferred one. */
+  text: string;
+}
+
 export interface PassportFindingInput {
   fullName: string;
   /** Automation + production readiness blockers, already merged by the caller. */
   blockers: string[];
+  /** 0.4.0: the same blockers WITH their minted ids, merged across both axes. Preferred over
+   *  `blockers` when present — see `passportFindingKey`. */
+  findings?: PassportFindingRef[];
 }
 
 /**
- * Blockers are LLM-authored prose with no id, so the key hashes the normalized text. A materially
- * reworded blocker is a NEW finding — correct: the decision was made about the old wording, and a
- * changed blocker deserves a fresh look.
+ * Blockers are LLM-authored prose, so the LEGACY key hashes the normalized text. A materially
+ * reworded blocker is a NEW finding under this key — which is exactly the orphaning that passport
+ * 0.4.0's minted ids exist to end. Kept as the fallback identity (and as the key every decision
+ * recorded before 0.4.0 is stored under), never as the first choice.
  */
 export function blockerKey(fullName: string, blocker: string): string {
   return `${fullName}::${fnv1a(stableText(blocker))}`;
 }
 
+/** The back-fill bucket `upgradePassport` mints for a stored blocker it cannot classify. */
+const UNCLASSIFIED = "unclassified";
+
+/**
+ * Is this finding's id safe to persist a judgment against?
+ *
+ * `upgradePassport` back-fills a pre-0.4.0 row's blockers with ids, but an unmatched line gets
+ * `auto.unclassified.<index>` — an id that MOVES when the list changes and which passport-migrate.ts
+ * documents as "INTENTIONALLY not durable, so nothing downstream may persist a judgment against it".
+ * Keying a decision on it would be strictly worse than the prose hash: a reworded blocker at least
+ * rotates the hash honestly, whereas a positional id silently re-points an old decision at a
+ * different finding. So an unclassified id reads here as NO id.
+ */
+function durableId(f: PassportFindingRef): string | null {
+  if (!f.id || f.code === UNCLASSIFIED) return null;
+  return f.id.split(".").includes(UNCLASSIFIED) ? null : f.id;
+}
+
+/**
+ * The ONE identity for a passport blocker — used by the nav badge's derivation and by the drawer's
+ * per-blocker decision control alike. Never derive a second one at a call site: two derivations of a
+ * decision key is the same bug as no key at all, discovered later.
+ *
+ * Prefers the minted finding id, so rewording a blocker no longer orphans the decision recorded
+ * against it (the property `src/lib/analyze/passport-overlay.ts` already relies on for declines).
+ * Falls back to the prose hash when there is no durable id, which keeps pre-0.4.0 rows resolving the
+ * decisions they already have.
+ */
+export function passportFindingKey(fullName: string, finding: PassportFindingRef): string {
+  const id = durableId(finding);
+  return id ? `${fullName}::${id}` : blockerKey(fullName, finding.text);
+}
+
+/**
+ * Every key a decision on this finding may be STORED under, most-preferred first: the id key, then
+ * the legacy prose key it would have been written under before the id existed. A reader dual-reads
+ * this list so an owner's existing snooze/accept survives the switch; a WRITER always uses
+ * `passportFindingKey` (element 0), which migrates the decision forward the next time it is touched.
+ */
+export function passportFindingKeys(fullName: string, finding: PassportFindingRef): string[] {
+  const primary = passportFindingKey(fullName, finding);
+  const legacy = blockerKey(fullName, finding.text);
+  return primary === legacy ? [primary] : [primary, legacy];
+}
+
 export function passportFindings(repos: PassportFindingInput[]): Finding[] {
   const out: Finding[] = [];
   for (const r of repos) {
-    // A repo can list the same blocker on both readiness axes; one finding is enough.
+    // 0.4.0 rows carry ids; a caller that only has prose (or a passport whose axes have no `findings`)
+    // still gets the legacy behaviour, one line at a time.
+    const refs: PassportFindingRef[] = r.findings?.length ? r.findings : r.blockers.map((text) => ({ text }));
+    // A repo can list the same blocker on both readiness axes; one finding is enough. De-duping on the
+    // KEY rather than the text also collapses one cause listed twice under one id.
     const seen = new Set<string>();
-    for (const b of r.blockers) {
-      const text = stableText(b);
-      if (!text || seen.has(text)) continue;
-      seen.add(text);
+    for (const f of refs) {
+      if (!stableText(f.text)) continue;
+      const itemKey = passportFindingKey(r.fullName, f);
+      if (seen.has(itemKey)) continue;
+      seen.add(itemKey);
       out.push({
         module: "passports",
-        itemKey: blockerKey(r.fullName, b),
+        itemKey,
         repo: r.fullName,
-        title: b.trim(),
+        title: f.text.trim(),
         detail: `Readiness blocker on ${r.fullName}.`,
       });
     }

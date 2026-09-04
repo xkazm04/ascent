@@ -73,9 +73,12 @@ export function PassportRowDetail({
     <div className="grid gap-5 border-l-2 border-accent/40 bg-surface/30 px-4 py-4 md:grid-cols-2">
       {/* Left: what to fix, per axis — the passport's own follow-up list, now decidable */}
       <div className="space-y-4">
+        {/* `findings` carries the minted ids, so the decision recorded on a line survives the LLM
+            rewording it (see passportFindingKey). `items` stays as the pre-0.4.0 fallback. */}
         <BlockerList
           title="Automation blockers"
           items={d.autoBlockers}
+          findings={d.autoFindings}
           allClear="No automation blockers. Agents can work here."
           org={org}
           fullName={fullName}
@@ -84,6 +87,7 @@ export function PassportRowDetail({
         <BlockerList
           title="Production blockers"
           items={d.prodBlockers}
+          findings={d.prodFindings}
           allClear="No production blockers on record."
           org={org}
           fullName={fullName}

@@ -18,50 +18,67 @@
 // reads as "this is the reasoning you are being asked to reaffirm", not as a double-count.
 
 import { DecisionControl } from "@/components/org/DecisionControl";
-import { blockerKey } from "@/lib/org/findings";
+import { passportFindingKeys } from "@/lib/org/findings";
 import type { DecisionMap } from "@/lib/org/decision-map";
-import type { DeclinedByChoice } from "@/lib/types";
+import type { DeclinedByChoice, PassportFinding } from "@/lib/types";
 
 // Each blocker is a decidable finding: fix it, or record why it doesn't apply here. Both axes share
-// one key space (blockerKey hashes the repo + the normalized blocker text), so a blocker listed on
-// both automation and production is ONE decision, made once, reflected in both lists.
+// one key space, so a blocker listed on both automation and production is ONE decision, made once,
+// reflected in both lists.
+//
+// THE KEY IS THE MINTED FINDING ID, not the sentence. `passportFindingKeys` is the same derivation the
+// nav badge uses — deliberately imported rather than re-derived, because two derivations of a decision
+// key is the same bug as none, found later. It returns [idKey, legacyProseKey]: the row READS both so
+// a decision recorded before 0.4.0 keeps resolving, and WRITES the id key, which migrates that
+// decision forward the next time anyone touches it.
+
+/** One rendered blocker line: a 0.4.0 finding, or the bare sentence a pre-0.4.0 row has. */
+type BlockerRow = Partial<PassportFinding> & { text: string };
+
 export function BlockerList({
   title,
   items,
+  findings,
   allClear,
   org,
   fullName,
   decisions,
 }: {
   title: string;
+  /** The rendered sentences. Used only when `findings` is absent (a pre-0.4.0 stored passport). */
   items: string[];
+  /** 0.4.0: the same lines WITH minted ids. Preferred when present — the id is both the decision key
+   *  and what says whether the gap may be declined by choice, and it can disagree in length with
+   *  `items` for a blob whose two halves drifted, so the finding wins and its own text is rendered. */
+  findings?: PassportFinding[];
   allClear: string;
   org: string;
   fullName: string;
   decisions: DecisionMap;
 }) {
+  const rows: BlockerRow[] = findings ?? items.map((text) => ({ text }));
   return (
     <div>
       <div className="type-label tracking-widest text-slate-500">{title}</div>
-      {items.length === 0 ? (
+      {rows.length === 0 ? (
         <p className="mt-1.5 type-body-sm text-emerald-400/80">{allClear}</p>
       ) : (
         <ul className="mt-1.5 space-y-2.5">
-          {items.map((b) => {
-            const key = blockerKey(fullName, b);
-            const decision = decisions[key];
+          {rows.map((f) => {
+            const [key, legacyKey] = passportFindingKeys(fullName, f);
+            const decision = decisions[key!] ?? (legacyKey ? decisions[legacyKey] : undefined);
             return (
-              <li key={b} className={`type-body-sm text-slate-300 ${decision && decision.status !== "open" ? "opacity-60" : ""}`}>
+              <li key={key} className={`type-body-sm text-slate-300 ${decision && decision.status !== "open" ? "opacity-60" : ""}`}>
                 <span className="flex gap-2">
                   <span aria-hidden className="mt-0.5 shrink-0 text-orange-400">▸</span>
-                  {b}
+                  {f.text}
                 </span>
                 <div className="ml-4 mt-1.5">
                   <DecisionControl
                     org={org}
                     module="passports"
-                    itemKey={key}
-                    title={b}
+                    itemKey={key!}
+                    title={f.text}
                     status={decision?.status ?? "open"}
                     rationale={decision?.rationale}
                     decidedBy={decision?.decidedBy}
