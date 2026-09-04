@@ -266,3 +266,22 @@ Authority: `AGENTS.md` (300-LOC `.tsx` cap) + `src/components/ui/BRAND.md`.
 - Builder-disclosed doc-sync gaps are cheap Director commits — but **verify the doc against
   the code before committing it**. One claim in the new `llm-providers.md` text was already
   stale (a constant had been renamed during the extraction) and was caught pre-commit.
+
+### Round 11 (2026-09-04, skill v2.5.0) — 5/5 accepted, 5/5 shipped, one branch, zero conflicts
+- **A regenerated context map is a Phase-0 event, not a diff.** The 2026-08-29 map (54 contexts, its own
+  `summary` still saying 49) retired 5 contexts and added 10; 17% of the tree was unowned a week later, with
+  49 unowned files under `src/lib/local` alone. Scouts must be pointed at whole directories when the map
+  lags; the queue is provisional until the map is re-owned.
+- **Campaign-era hypotheses go stale fast in this repo.** All six 2026-08-30 loop defects were already fixed
+  by the 2026-08-31 UAT drain; briefing the scout with them as hypotheses-to-refute is what turned a
+  "six defects" cursor into an honest one-direction slate. Keep stating the Director's hypothesis AND
+  telling the scout to correct it.
+- **A redo sent AFTER the builder's final report still lands** — `SendMessage` resumes the agent from its
+  transcript; lot A closed the badge dual-read gap it had itself documented, with tests. Cheaper than a
+  fresh builder and it keeps file ownership clean.
+- **Do not switch branches when a foreign session is committing into the checkout** — three foreign
+  commits landed mid-wave (registry-map, scan-sweep). Building on the current branch with `--only`
+  commits was the right call; `master` here is polluted by autopilot bench fixtures anyway.
+- **`--only` on a shared doc still sweeps a sibling's dirty lines** (lot B's doc commit carried lot A's
+  section). Both builders diffed before touching and reported it — the protocol text works; keep the
+  "touch shared docs once, in the final commit, after checking `git log -1 -- <doc>`" instruction.
