@@ -535,7 +535,7 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     expect(line).toContain("`controls.ciHardPass`");
   });
 
-  it("raises NOTHING for a fleet whose baselines were established", async () => {
+  it("raises NOTHING for a fleet whose baselines were established — and SAYS SO", async () => {
     mockListOrgs.mockResolvedValue(["orgGreen"]);
     mockOrgWebhook.mockResolvedValue("https://hooks.example.com/G");
     mockRollup.mockResolvedValue(rollupWith());
@@ -543,10 +543,46 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
 
     await GET(req({ auth: `Bearer ${SECRET}` }));
     expect(mockHasSignal).toHaveBeenCalledWith(expect.objectContaining({ standingConcerns: 0 }));
-    // …and the block is OMITTED rather than rendered as "0 concerns" — the same three-state contract
-    // `controlsFailed` and the standing regressions already keep.
+    // …and an EMPTY ARRAY reaches the builder, which renders "Standing concerns: none open."
+    // This assertion used to pin `undefined`, and its comment claimed that WAS the three-state
+    // contract `controlsFailed` keeps — it was the opposite: both reads ran and found nothing, which
+    // is the positive statement, not the silence. `undefined` is now reserved for the case below.
+    const sent = mockBuild.mock.calls[0]![0] as { standingConcerns?: unknown };
+    expect(sent.standingConcerns).toEqual([]);
+  });
+
+  it("OMITS the block when NEITHER standing read succeeded — failure is not empty success", async () => {
+    // The `failure-not-empty-success` law the alerting subject's `periodic-digest` technique names: a
+    // digest that could not read the two standing columns must not print an all-clear it did not
+    // measure. Both reads were `.catch(() => [])`, which spelled a dead DB exactly like a clean fleet.
+    mockListOrgs.mockResolvedValue(["orgBlind"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/B");
+    mockRollup.mockResolvedValue(rollupWith());
+    vi.mocked(getStandingRegressions).mockRejectedValue(new Error("db down"));
+    vi.mocked(getRedBaselines).mockRejectedValue(new Error("db down"));
+
+    await GET(req({ auth: `Bearer ${SECRET}` }));
+    // An unreadable ledger contributes NO signal — it must not manufacture a push out of a flat week.
+    expect(mockHasSignal).toHaveBeenCalledWith(expect.objectContaining({ standingConcerns: 0 }));
     const sent = mockBuild.mock.calls[0]![0] as { standingConcerns?: unknown };
     expect(sent.standingConcerns).toBeUndefined();
+  });
+
+  it("still prints the rows one surviving read returned — a partial failure is not a silence", async () => {
+    // A true observation is not withheld because its sibling column was unreadable: the block is a
+    // top-5, never an exhaustive total, so printing what was actually read overstates nothing.
+    mockListOrgs.mockResolvedValue(["orgHalf"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/H");
+    mockRollup.mockResolvedValue(rollupWith());
+    vi.mocked(getStandingRegressions).mockRejectedValue(new Error("db down"));
+    vi.mocked(getRedBaselines).mockResolvedValue([
+      { repoFullName: "orgHalf/kp", observation: "no baseline for `npm test` since 2026-08-30", evidence: [] },
+    ] as never);
+
+    await GET(req({ auth: `Bearer ${SECRET}` }));
+    expect(mockHasSignal).toHaveBeenCalledWith(expect.objectContaining({ standingConcerns: 1 }));
+    const sent = mockBuild.mock.calls[0]![0] as { standingConcerns?: { repo: string }[] };
+    expect(sent.standingConcerns?.map((c) => c.repo)).toEqual(["orgHalf/kp"]);
   });
 
   // ---- The Controls block's three states, from the ONLY production caller ------------------
