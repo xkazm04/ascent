@@ -46,6 +46,26 @@ a parallel run has already swept an in-flight version bump into its own commit h
 
 ## Skill improvement log
 
+- **2026-09-04 — NEVER `git stash` here; commit instead, even if that means carrying another
+  session's work.** The overlay above already forbade stash and a round used it anyway (path-limited,
+  `--keep-index`), then lost its own edit restoring a backup over the stashed file — recovered only
+  because the stash held exactly one path. The operator's rule, stated after: **prefer committing and
+  combining another session's progress over stashing.** A commit is recoverable by anyone and visible
+  in the log; a stash is invisible to the other sessions sharing this checkout, and `pop` can conflict
+  with work they have since done. If a fix needs a clean tree to prove a fail-before, take a copy of
+  the file with `cp`, edit in place, and restore from the copy — no git state changes at all. That
+  worked five times in the same session; the one stash was the only step that lost work.
+- **2026-09-04 — the eslint gate cannot pass on every file in this repo.** `npx eslint <paths>
+  --max-warnings=0` is the overlay's declared gate, but `src/app/api/cron/digest/route.test.ts` and
+  `src/lib/db/invites.ts` carry pre-existing unused-var warnings. Do not reinterpret the gate silently:
+  assert **0 errors** on the files you touched, confirm a warning is pre-existing with
+  `git show HEAD:<file> | npx eslint --stdin --stdin-filename <file>`, and say so in the report.
+- **2026-09-04 — the generated `.ai/registry-map.json` misses `authorization` for the
+  Members & Access Control context** (it joins `status-vocabulary` + `data-access`). Two of five fixes
+  in that round came from reading `security/identity-and-access/authorization` anyway. When a context
+  is obviously governed by a subject the map does not list, resolve it through
+  `knowledge/<domain>/index.json` and say in the header that you went outside the map.
+
 - **2026-08-29 (moonshot round)** — `--develop --ideas-only` over ALL 54 contexts with `feature-scout` +
   `moonshot-architect` (operator-defined; not in `references/lenses.md`), L/XL only. Method that worked:
   one fresh scout subagent per **context group** (11 in parallel, ~200k tokens each) with a shared brief
