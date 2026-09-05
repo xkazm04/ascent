@@ -1,4 +1,4 @@
-// POST /api/scan/stream  { url, mock?, installationId? }
+// POST /api/scan/stream  { url, mock?, installationId?, fresh?, headSha?, headEtag?, notify?, email?, ref?, subPath? }
 // Server-Sent Events: emits `progress` events through the scan, then a `result` event
 // with the final ScanReport (or an `error` event). Powers the live progress UI.
 

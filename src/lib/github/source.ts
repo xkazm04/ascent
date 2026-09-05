@@ -327,11 +327,18 @@ async function ghJson<T>(url: string, token?: string, signal?: AbortSignal): Pro
   try {
     res = await ghFetch(url, { token, signal, timeoutMs: TIMEOUT_API_MS, cache: "no-store" });
   } catch (e) {
-    const msg =
-      (e as Error)?.name === "AbortError"
-        ? "GitHub request timed out. Try again."
-        : `Network error reaching GitHub: ${String(e)}`;
-    throw new GitHubError("UPSTREAM", msg);
+    if ((e as Error)?.name === "AbortError") {
+      throw new GitHubError("UPSTREAM", "GitHub request timed out. Try again.");
+    }
+    // The thrown value NEVER crosses back to the browser. Both scan routes relay a GitHubError's
+    // message verbatim and the report client renders it as text, so interpolating `e` published
+    // whatever the fetch layer put in it — on a GHES deploy with a malformed GITHUB_API_URL that is
+    // `TypeError: Failed to parse URL from https://<internal-host>/…`, i.e. the internal API host.
+    // Nothing from upstream crosses the boundary except a sentence from our own vocabulary (the
+    // AbortError branch above is the same shape); the raw error goes to the server log, where the
+    // operator who can act on it is.
+    console.warn("[github] network error reaching GitHub", e instanceof Error ? `${e.name}: ${e.message}` : e);
+    throw new GitHubError("UPSTREAM", "Couldn't reach GitHub. Please try again.");
   }
   if (res.status === 404) {
     throw new GitHubError("NOT_FOUND", "Repository not found or is private.", 404);

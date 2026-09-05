@@ -11,6 +11,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import type { RepoFile } from "@/lib/types";
 import {
   parseRepoUrl,
+  fetchRepoContext,
   GitHubPublicSource,
   resolveHead,
   chooseHeadSha,
@@ -1016,5 +1017,54 @@ describe("pickFilesToFetch — workflows get a RESERVED quota on top of MAX_FILE
 
     for (const w of workflows) expect(picked).toContain(w.path); // every workflow present despite the full budget
     expect(picked.length).toBeGreaterThan(50); // added ON TOP of the 50-slot MAX_FILES budget
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// ghJson's network branch — the browser-credential boundary (opaque-upstream-errors)
+// ---------------------------------------------------------------------------------------------------
+// A GitHubError's message is relayed VERBATIM by both scan routes and rendered as text by the report
+// client, so anything interpolated into it is published to the browser. The thrown fetch error is an
+// upstream value we did not author: on a GHES deploy with a malformed GITHUB_API_URL it reads
+// `TypeError: Failed to parse URL from https://<internal-host>/…`, which leaks the internal API host.
+// ghJson is module-private, so pin it through fetchRepoContext — the smallest public surface that is
+// exactly one ghJson call.
+
+describe("ghJson — a thrown network error never crosses back to the client", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("replaces the raw error with a fixed sentence (no host, no URL) and logs it server-side", async () => {
+    const raw = new TypeError("Failed to parse URL from https://ghe.internal/x");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw raw;
+      }),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const err = await fetchRepoContext({ owner: "o", repo: "r" }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    const message = (err as Error).message;
+    expect(message).not.toContain("ghe.internal");
+    expect(message).not.toContain("https://");
+    expect(message).not.toContain("Failed to parse URL");
+    expect(message).toMatch(/couldn't reach github/i);
+    // The operator still gets the real cause — opacity is at the boundary, not in the logs.
+    expect(warn).toHaveBeenCalled();
+    expect(warn.mock.calls.flat().join(" ")).toContain("ghe.internal");
+  });
+
+  it("keeps the timeout branch's own fixed sentence", async () => {
+    const abort = new Error("aborted");
+    abort.name = "AbortError";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw abort;
+      }),
+    );
+    const err = await fetchRepoContext({ owner: "o", repo: "r" }).catch((e: unknown) => e);
+    expect((err as Error).message).toBe("GitHub request timed out. Try again.");
   });
 });
