@@ -102,3 +102,26 @@ Postgres and to DSQL: [`features/data/data-model.md`](./features/data/data-model
 Every URL a GitHub App or Supabase project must point at, and the env var each one yields, is the
 table in [`SETUP.md`](./SETUP.md) §1–2. After the first deploy, re-point the App and Supabase URLs
 from `localhost` to the Vercel `{host}`.
+
+## Gate bypasses, and why
+
+`ASCENT_SKIP_GATE=1 git push` exists for the case where `npm run verify` is red for a reason the
+push does not introduce. It is not a shortcut: every use is recorded here, with the evidence that
+made it honest.
+
+### 2026-09-05 — Knowledge base rebuild
+
+Pushed 12 commits (`80294734..6deba68e`) with the gate skipped. Two test files were failing, both
+**already failing at `origin/master` with this work absent** — verified by checking the remote tip
+out into a scratch worktree and running the two files there, where they fail identically. With those
+two excluded the suite is green: 852 files, 11,411 tests. `tsc --noEmit` clean; doc-sync 357/357.
+
+Both are Windows-only and would look green on a LF checkout or on CI, which is why they landed:
+
+| File | Why it fails here |
+| --- | --- |
+| `src/features/bought/teams/TeamsHonesty.dom.test.tsx` | A source-reading guard matches a regex containing `\n` against `TeamsRollupPanel.tsx` read from disk. With `core.autocrlf=true` the checkout is CRLF, so the pattern cannot match. The fix is to normalize line endings in the READ; the guard's claim is correct and must not be weakened. |
+| `src/lib/scoring/gate-cli.test.ts` | Imports `scripts/maturity-gate.mjs`, whose first line is a shebang. `node --check` and a direct `import()` of that script both succeed, so the fault is in vitest's transform of a shebang module, not the script. Landed by `040f73c6`. |
+
+Neither file belongs to the change that was pushed, and neither was edited to make the gate pass —
+editing a guard to silence it is the one thing this project does not do.
