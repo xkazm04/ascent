@@ -10,11 +10,13 @@
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-const { mockTargets, mockRead, mockIngest, mockClear } = vi.hoisted(() => ({
+const { mockTargets, mockRead, mockIngest, mockClear, mockListDispatches, mockMarkDispatch } = vi.hoisted(() => ({
   mockTargets: vi.fn(),
   mockRead: vi.fn(),
   mockIngest: vi.fn(),
   mockClear: vi.fn(),
+  mockListDispatches: vi.fn(),
+  mockMarkDispatch: vi.fn(),
 }));
 
 vi.mock("./conformance-read", () => ({ readRepoStandardsFiles: mockRead }));
@@ -22,6 +24,11 @@ vi.mock("@/lib/db/org-registry-conformance", () => ({
   ingestRepoConformance: mockIngest,
   clearRepoConformance: mockClear,
   listSweepTargets: mockTargets,
+}));
+vi.mock("@/lib/db/org-registry-dispatch", () => ({
+  OPEN_DISPATCH_STATUSES: ["handed_off", "running", "proposed"],
+  listDispatches: mockListDispatches,
+  markDispatch: mockMarkDispatch,
 }));
 
 import { foundationOf, sweepConformance } from "./conformance-sweep";
@@ -76,6 +83,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockIngest.mockResolvedValue({ pairs: 1, removed: 0 });
   mockTargets.mockResolvedValue({ orgId: "org-1", repos: repos("acme/api") });
+  mockListDispatches.mockResolvedValue([]);
+  mockMarkDispatch.mockResolvedValue(null);
 });
 
 describe("sweepConformance", () => {
@@ -196,6 +205,117 @@ describe("sweepConformance", () => {
   it("returns an empty result for an org with no repositories", async () => {
     mockTargets.mockResolvedValue({ orgId: "org-1", repos: [] });
     expect(await sweepConformance("acme", "tok")).toMatchObject({ scanned: 0 });
+  });
+});
+
+/** A dispatch row as the ledger returns it; tests override what they are about. */
+const dispatch = (over: Record<string, unknown> = {}) => ({
+  id: "d-1",
+  repositoryId: "repo-0",
+  repoFullName: "acme/api",
+  stage: "map",
+  mode: "brief",
+  status: "handed_off",
+  subjects: [],
+  briefDigest: "sha256:x",
+  actor: "octocat",
+  branch: null,
+  prUrl: null,
+  mapShaBefore: "sha-0",
+  mapShaAfter: null,
+  model: null,
+  costMicros: null,
+  turns: null,
+  agentDurationMs: null,
+  summary: null,
+  error: null,
+  createdAt: "2026-09-05T00:00:00.000Z",
+  startedAt: null,
+  endedAt: null,
+  ...over,
+});
+
+describe("sweepConformance closes dispatches (WP2)", () => {
+  const now = new Date("2026-09-06T00:00:00Z");
+
+  it("marks an open dispatch done when the swept mapSha differs from mapShaBefore", async () => {
+    mockRead.mockResolvedValue(files({ mapSha: "sha-1" }));
+    mockListDispatches.mockResolvedValue([dispatch({ mapShaBefore: "sha-0" })]);
+    const r = await sweepConformance("acme", "tok", { now });
+    expect(r.warnings).toEqual([]);
+    expect(mockListDispatches).toHaveBeenCalledWith("org-1", { repositoryId: "repo-0" });
+    expect(mockMarkDispatch).toHaveBeenCalledWith("org-1", "d-1", { status: "done", mapShaAfter: "sha-1", endedAt: now });
+  });
+
+  it("leaves a dispatch open when the map has not moved", async () => {
+    mockRead.mockResolvedValue(files({ mapSha: "sha-0" }));
+    mockListDispatches.mockResolvedValue([dispatch({ mapShaBefore: "sha-0" })]);
+    await sweepConformance("acme", "tok");
+    expect(mockMarkDispatch).not.toHaveBeenCalled();
+  });
+
+  it("treats a null mapShaBefore as 'any map counts' (a populate / map dispatch on a map-less repo)", async () => {
+    mockRead.mockResolvedValue(files({ mapSha: "sha-1" }));
+    mockListDispatches.mockResolvedValue([dispatch({ stage: "populate", mapShaBefore: null })]);
+    await sweepConformance("acme", "tok");
+    expect(mockMarkDispatch).toHaveBeenCalledWith("org-1", "d-1", expect.objectContaining({ status: "done", mapShaAfter: "sha-1" }));
+  });
+
+  it("keeps a conform dispatch open while a named subject still has an unjudged pair", async () => {
+    const map = mapBody({
+      contexts: [
+        {
+          context: "A/B",
+          group: "A",
+          governance: "weak",
+          subjects: [
+            { subject: "quality-gates", bundle: "software-engineering", state: "conformant", score: 700 },
+            { subject: "feature-flags", bundle: "software-engineering", state: "unknown", score: 600 },
+          ],
+        },
+      ],
+    });
+    mockRead.mockResolvedValue(files({ map, mapSha: "sha-1" }));
+    mockListDispatches.mockResolvedValue([dispatch({ stage: "conform", subjects: ["quality-gates", "feature-flags"] })]);
+    await sweepConformance("acme", "tok");
+    expect(mockMarkDispatch).not.toHaveBeenCalled();
+  });
+
+  it("closes a conform dispatch once every named subject is judged (a subject with no pair at all counts as judged)", async () => {
+    mockRead.mockResolvedValue(files({ mapSha: "sha-1" }));
+    mockListDispatches.mockResolvedValue([dispatch({ stage: "conform", subjects: ["quality-gates", "never-matched"] })]);
+    await sweepConformance("acme", "tok");
+    expect(mockMarkDispatch).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores terminal rows — the ledger's history is never rewritten", async () => {
+    mockRead.mockResolvedValue(files({ mapSha: "sha-1" }));
+    mockListDispatches.mockResolvedValue([dispatch({ status: "done" }), dispatch({ id: "d-2", status: "superseded" }), dispatch({ id: "d-3", status: "failed" })]);
+    await sweepConformance("acme", "tok");
+    expect(mockMarkDispatch).not.toHaveBeenCalled();
+  });
+
+  it("consults no dispatch for a repo without a map — nothing can have moved", async () => {
+    mockRead.mockResolvedValue(files({ map: null, mapSha: null, reason: "no .ai/registry-map.json" }));
+    await sweepConformance("acme", "tok");
+    expect(mockListDispatches).not.toHaveBeenCalled();
+  });
+
+  it("degrades a ledger read failure into a warning and keeps the ingest", async () => {
+    mockRead.mockResolvedValue(files({ mapSha: "sha-1" }));
+    mockListDispatches.mockRejectedValue(new Error("ledger down"));
+    const r = await sweepConformance("acme", "tok");
+    expect(r).toMatchObject({ withMap: 1, pairs: 1 });
+    expect(r.warnings[0]).toContain("dispatches not read (ledger down)");
+  });
+
+  it("degrades a ledger write failure into a warning naming the dispatch", async () => {
+    mockRead.mockResolvedValue(files({ mapSha: "sha-1" }));
+    mockListDispatches.mockResolvedValue([dispatch()]);
+    mockMarkDispatch.mockRejectedValue(new Error("write refused"));
+    const r = await sweepConformance("acme", "tok");
+    expect(r.withMap).toBe(1);
+    expect(r.warnings[0]).toContain("dispatch d-1 not closed (write refused)");
   });
 });
 

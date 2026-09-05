@@ -19,7 +19,8 @@ import {
   listSweepTargets,
   type RepoFoundation,
 } from "@/lib/db/org-registry-conformance";
-import { countConsults, parseConformanceMap } from "./conformance-map";
+import { OPEN_DISPATCH_STATUSES, listDispatches, markDispatch } from "@/lib/db/org-registry-dispatch";
+import { countConsults, parseConformanceMap, type ConformancePair } from "./conformance-map";
 import { EMPTY_SCOPE, parseDirectionsLedger, parseManifestFoundation } from "./conformance-foundation";
 import { readRepoStandardsFiles, type RepoStandardsFiles } from "./conformance-read";
 import { parseFullName } from "./layout";
@@ -106,10 +107,11 @@ export async function sweepConformance(
       }
       const consults30d =
         files.consults === null ? null : countConsults(files.consults, CONSULT_WINDOW_DAYS, opts.now).total;
+      const mapSha = files.mapSha ?? parsedMap.header.projectSha ?? "unknown";
       const written = await ingestRepoConformance({
         orgId,
         repositoryId: repo.id,
-        mapSha: files.mapSha ?? parsedMap.header.projectSha ?? "unknown",
+        mapSha,
         header: parsedMap.header,
         pairs: parsedMap.pairs,
         consults30d,
@@ -118,10 +120,49 @@ export async function sweepConformance(
       });
       withMap += 1;
       pairs += written.pairs;
+      await closeDispatches(orgId, repo, mapSha, parsedMap.pairs, opts.now, warnings);
     } catch (err) {
       warnings.push(`${repo.fullName}: ${err instanceof Error ? err.message : String(err)}`);
     }
   });
 
   return { scanned: repos.length, withMap, withoutMap, pairs, warnings: warnings.slice(0, 50) };
+}
+
+/**
+ * THE SWEEP CLOSES DISPATCHES — the return path of the Knowledge base's hand-offs (WP2). A dispatch
+ * row is `done` only when the sweep OBSERVES the map move: `mapSha` differs from the row's
+ * `mapShaBefore` (a null before means any map counts), and — for `conform` — none of the subjects
+ * the brief named still has an `unjudged` pair in the freshly ingested map. Nothing the agent or
+ * the runner said is consulted; the codebase is the only witness.
+ *
+ * Best-effort like everything else here: a ledger read or write that fails is a WARNING on the
+ * sweep, never a failure of the ingest that just succeeded.
+ */
+async function closeDispatches(
+  orgId: string,
+  repo: { id: string; fullName: string },
+  mapSha: string,
+  pairs: ConformancePair[],
+  now: Date | undefined,
+  warnings: string[],
+): Promise<void> {
+  let open;
+  try {
+    open = (await listDispatches(orgId, { repositoryId: repo.id })).filter((d) => OPEN_DISPATCH_STATUSES.includes(d.status));
+  } catch (err) {
+    warnings.push(`${repo.fullName}: dispatches not read (${err instanceof Error ? err.message : String(err)})`);
+    return;
+  }
+  if (!open.length) return;
+  const unjudged = new Set(pairs.filter((p) => p.state === "unjudged").map((p) => p.subjectSlug));
+  for (const d of open) {
+    if (d.mapShaBefore !== null && d.mapShaBefore === mapSha) continue;
+    if (d.stage === "conform" && d.subjects.some((s) => unjudged.has(s))) continue;
+    try {
+      await markDispatch(orgId, d.id, { status: "done", mapShaAfter: mapSha, endedAt: now ?? new Date() });
+    } catch (err) {
+      warnings.push(`${repo.fullName}: dispatch ${d.id} not closed (${err instanceof Error ? err.message : String(err)})`);
+    }
+  }
 }

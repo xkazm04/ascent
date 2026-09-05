@@ -30,6 +30,9 @@ export const DISPATCH_STATUSES: readonly RegistryDispatchStatus[] = ["handed_off
 export const OPEN_DISPATCH_STATUSES: readonly RegistryDispatchStatus[] = ["handed_off", "running", "proposed"];
 
 export interface CreateDispatchInput {
+  /** An id minted by the caller, so the brief can carry it VERBATIM before the row exists (the
+   *  digest is of the final text). Omitted → the database mints one. */
+  id?: string;
   orgId: string;
   repositoryId: string;
   registryId: string;
@@ -118,6 +121,7 @@ export async function createDispatch(input: CreateDispatchInput): Promise<Regist
   if (!isDbConfigured()) return null;
   const row = await getPrisma().registryDispatch.create({
     data: {
+      ...(input.id ? { id: input.id } : {}),
       orgId: input.orgId,
       repositoryId: input.repositoryId,
       registryId: input.registryId,
