@@ -4,8 +4,10 @@
 // one — the PRESENT-vs-ENFORCED honesty cap: a tokenless scan (governance null) must NOT claim a "gated"
 // CI/security rung it couldn't observe, and must say so in evidence/blockers.
 
+import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import {
+  PASSPORT_SCHEMA_URL,
   PASSPORT_VERSION,
   applyPassportOverrides,
   buildPassport,
@@ -262,6 +264,17 @@ const V010: AppPassport = {
   links: {},
   evidence: { confidence: 0.7, source: "static-scan", files: [] },
 };
+
+describe("PASSPORT_SCHEMA_URL — one definition, derived from PASSPORT_VERSION", () => {
+  it("names the major.minor of PASSPORT_VERSION and matches the schema document's $id", () => {
+    const [major, minor] = PASSPORT_VERSION.split(".");
+    expect(PASSPORT_SCHEMA_URL).toBe(`https://ascent.dev/schemas/app-passport-${major}.${minor}.json`);
+    // The committed schema document is the other half of the contract: a bump to PASSPORT_VERSION that
+    // forgets `app-passport.schema.json` would otherwise ship a pointer at a document that isn't there.
+    const schema = JSON.parse(readFileSync(new URL("../../../app-passport.schema.json", import.meta.url), "utf8")) as { $id: string };
+    expect(schema.$id).toBe(PASSPORT_SCHEMA_URL);
+  });
+});
 
 describe("upgradePassport — 0.1.0 → current on read", () => {
   it("lifts boolean memory/skills to the ladder: true→adhoc, false→none", () => {
