@@ -250,11 +250,16 @@ export async function GET(request: Request) {
       // silent rather than training the inbox filter. Skip unless something material moved (or credits
       // are running low — always worth the heads-up).
       const creditLow = !!(credit && !credit.unlimited && credit.balance <= creditsAlertThreshold() * 2);
-      // ALERTS #1: noise-filter regressers SYMMETRICALLY with gainers below. `regressers` partitions
-      // purely on sign, so a pure-jitter week (every repo within ±noise, a couple landing net-negative)
-      // would count as "regressions > 0" and fire a misleading digest — defeating the silence-on-noise
-      // contract. Compute the beyond-noise set ONCE so the signal gate and the rendered list (below)
-      // can't drift out of lockstep.
+      // ALERTS #1: the beyond-noise regresser set, computed ONCE so the signal gate and the rendered
+      // list (below) can't drift out of lockstep.
+      //
+      // The premise this filter was written against is GONE: `getOrgMovers` used to partition purely
+      // on sign, so a pure-jitter week (every repo within ±noise, a couple landing net-negative) read
+      // as "regressions > 0" and fired a misleading digest. `org-insights.ts` now partitions on the
+      // noise band itself (`classifyDelta`, sub-band moves go to `held`), for the same reason and in
+      // both directions — so this is defence in depth over a feed that already filters, NOT the fix
+      // for a live defect. Kept because the digest's silence-on-noise contract is its own to hold,
+      // and a future change to that feed must not be able to break it silently.
       const regressersBeyondNoise = (movers?.regressers ?? []).filter((m) => !isWithinNoise(m.dOverall));
       const hasSignal = digestHasSignal({
         overallDelta: rollup.deltas?.overall ?? null,
@@ -285,9 +290,10 @@ export async function GET(request: Request) {
         level: `${level.id} · ${level.name}`,
         overallDelta: rollup.deltas?.overall ?? null,
         gainers: (movers?.gainers ?? []).slice(0, 3).map((m) => ({ name: m.name, delta: m.dOverall })),
-        // ALERTS #1: render only regressers beyond noise (the same set the signal gate counted above),
-        // so a within-noise −1/−2 repo is never listed under "Regressions:" (which would train the inbox
-        // filter the gate exists to avoid).
+        // ALERTS #1: render the same beyond-noise set the signal gate counted above, so a within-noise
+        // −1/−2 repo is never listed under "Regressions:" (which would train the inbox filter the gate
+        // exists to avoid). `gainers` needs no mirror filter here — `getOrgMovers` already excludes
+        // sub-band moves from BOTH lists (see the note on `regressersBeyondNoise` above).
         regressers: regressersBeyondNoise.slice(0, 3).map((m) => ({ name: m.name, delta: m.dOverall })),
         topRecommendation: top ? { title: top.title, repoCount: top.repoCount } : null,
         // THE THREE-STATE CONTRACT, KEPT (UAT `DANA-L1-015`). `undefined` (ledger unreadable) omits
