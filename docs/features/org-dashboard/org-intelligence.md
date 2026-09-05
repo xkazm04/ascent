@@ -1029,7 +1029,7 @@ to disagree with the server's bucket by a day).
 
 `buildExecBriefing(org, window, periodTitle, segmentId, techGroupId)` is pure assembly over the
 rollups above. **Three surfaces render the same `ExecBriefing`** and must never disagree: the
-Briefing tab (`src/app/org/[slug]/executive/page.tsx`), the board PDF
+Briefing tab (`src/features/bought/executive/ExecutiveTab.tsx`; `src/app/org/[slug]/executive/page.tsx` is a redirect into the tab shell), the board PDF
 (`GET /api/org/briefing/pdf` → `src/lib/pdf/briefing-document.tsx`), and the "Copy for LLM"
 markdown (`briefingMarkdown`). The anonymous share link (`/share/briefing/[token]`) re-runs the
 same builder against the token's window.
@@ -1116,10 +1116,9 @@ namespace prefix, and failing **closed** by construction (an unreachable ledger 
 A second copy of a revocation check is how one surface starts honouring revocations the other
 ignores.
 
-**Known gap:** `src/app/share/briefing/[token]/page.tsx` still performs that lookup inline
-(`getSessionVersion(briefingShareRevocationKey(jti)) > 0`, with its own `.catch(() => true)`)
-instead of calling `isBriefingShareRevoked`. Same result today; it is the copy the consolidation
-exists to remove.
+(Closed; the entry had gone stale, corrected 2026-09-05.) ~~`src/app/share/briefing/[token]/page.tsx`
+still performs that lookup inline~~ — the share page imports and calls `isBriefingShareRevoked` from
+`@/lib/db/org-share`; the consolidation landed and only this note lagged.
 
 The page is a **live re-render of a frozen period, not a stored document**, and now says so. The
 token carries `briefingFigureDigest(b)`, a fingerprint of the figures the sender saw; the page
