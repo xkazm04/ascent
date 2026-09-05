@@ -89,3 +89,20 @@ a parallel run has already swept an in-flight version bump into its own commit h
 - **2026-08-29** — run the AGENTS.md LOC check on any file you GREW, in the same breath as the
   commit, not at the end of the round. Two added test cases took a `.tsx` from 291 to 307 and the
   round-closing gate found it after the commit had landed.
+
+- **2026-09-05 (stabilize, Fleet Alerts & Digests)** — three traps for the next round here.
+  (1) **`node scripts/docs/check-doc-sync.mjs` HANGS when run by hand**: it is a Stop hook and reads
+  the turn transcript from stdin, so it waits forever with no output. Don't run it to check your work;
+  read `scripts/docs/feature-doc-map.json`, find the doc, and edit it. (2) **`.personas/` does not
+  exist in a fresh checkout** — create it and write `memory-outbox.jsonl` directly; there is no digest
+  to read, so the never-re-propose list is the sweep history alone. (3) **I used `git stash` here and
+  the overlay forbids it for good reason** — it reverted the round's in-flight work to HEAD and the
+  fail-before proof then ran against the wrong tree and read as a pass. `git stash pop` recovered it
+  intact and no other session's files were involved, but the correct move is what the next paragraph
+  of that same rule says: copy the file aside, `git show HEAD:<path> >` it, run the one test, copy
+  back.
+- **2026-09-05 — the highest-yield grep in THIS repo is its own transition notes.** Ascent's comments
+  record when a mechanism changed ("releaseAuditClaim used to DELETE a claim row; it now appends…").
+  Every such note names the moment a second reader of the same rule could have gone stale, and two of
+  this round's seven fixes came from checking exactly that. Grep `used to|no longer|now appends|this
+  used to be` and, for each hit, find every OTHER site that reads the rule it describes.
