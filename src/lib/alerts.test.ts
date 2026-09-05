@@ -19,6 +19,7 @@ import {
   ordinal,
   regressionCooldownMs,
   resolveAlertWebhook,
+  sinkKindForOrg,
   validateAlertWebhookUrl,
   __resetRegressionCooldowns,
   DEFAULT_THRESHOLDS,
@@ -367,6 +368,36 @@ describe("resolveAlertWebhook / isAlertConfigured (per-org routing)", () => {
   it("an org sink counts as configured even with no global env", () => {
     vi.stubEnv("ALERT_WEBHOOK_URL", "");
     expect(isAlertConfigured("https://hooks.example/acme")).toBe(true);
+  });
+});
+
+describe("sinkKindForOrg — the history row names the channel the message LEFT BY", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("classifies the org's own sink", () => {
+    vi.stubEnv("ALERT_WEBHOOK_URL", "");
+    expect(sinkKindForOrg("https://hooks.example/acme")).toBe("webhook");
+    expect(sinkKindForOrg("mailto:lead@acme.test")).toBe("email");
+  });
+
+  it("RESOLVES before classifying: a tenant on a global mailto: sink is recorded as email", () => {
+    // The digest classified the org's field, which is null for every tenant riding the fallback — so a
+    // deployment whose global sink is an address recorded `webhook` on a row whose message went out as
+    // mail. The row is the only durable account of where an alert went; it must not name the wrong one.
+    vi.stubEnv("ALERT_WEBHOOK_URL", "mailto:ops@example.test");
+    expect(sinkKindForOrg(null)).toBe("email");
+  });
+
+  it("RESOLVES before classifying: a tenant on a global webhook is recorded as webhook", () => {
+    vi.stubEnv("ALERT_WEBHOOK_URL", "https://hooks.example/global");
+    expect(sinkKindForOrg(null)).toBe("webhook");
+  });
+
+  it("is NULL when nothing resolves — not the default 'webhook'", () => {
+    vi.stubEnv("ALERT_WEBHOOK_URL", "");
+    expect(sinkKindForOrg(null)).toBeNull();
+    expect(sinkKindForOrg(undefined)).toBeNull();
+    expect(sinkKindForOrg("   ")).toBeNull();
   });
 });
 

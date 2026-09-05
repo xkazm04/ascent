@@ -81,6 +81,10 @@ vi.mock("@/lib/alerts", () => ({
   // routing decisions: here, any truthy webhookUrl is a configured sink (env fallback not needed
   // for these tests — every routed org carries its own URL).
   isAlertConfigured: vi.fn((url?: string | null) => Boolean(url)),
+  // The AlertEvent row's channel, RESOLVED (org sink → global env) rather than read off the org's
+  // field — the real helper's whole point. These tests always route a per-org URL, so the mock just
+  // classifies it; the resolution half is pinned in src/lib/alerts.test.ts.
+  sinkKindForOrg: vi.fn((url?: string | null) => (url ? (/^mailto:/i.test(url) ? "email" : "webhook") : null)),
   dispatchAlert: vi.fn(async () => true),
   buildFleetDigestMessage: vi.fn((d: { org: string }) => ({
     // Tag the built message with its org so a cross-tenant build is detectable too.

@@ -37,7 +37,7 @@ import {
 // write (fleet-alerts-digests #3).
 import { claimOrgAuditOnce, releaseAuditClaim } from "@/lib/db/scans-audit";
 import { requireCronAuth } from "@/lib/cron-auth";
-import { buildFleetDigestMessage, creditsAlertThreshold, digestHasSignal, dispatchAlert, isAlertConfigured } from "@/lib/alerts";
+import { buildFleetDigestMessage, creditsAlertThreshold, digestHasSignal, dispatchAlert, isAlertConfigured, sinkKindForOrg } from "@/lib/alerts";
 import { controlLabel } from "@/lib/controls/catalog";
 import { controlCoverage, listObservationsSince } from "@/lib/db/control-observations";
 import { dispatchExtraAlerts } from "./extra-alerts";
@@ -336,7 +336,7 @@ export async function GET(request: Request) {
         title: `Weekly fleet digest (${rollup.scannedCount} repos, avg ${rollup.avgOverall})`,
         body: msg.text,
         delivered,
-        sinkKind: webhookUrl && /^mailto:/i.test(webhookUrl) ? "email" : "webhook",
+        sinkKind: sinkKindForOrg(webhookUrl),
         suppressedReason: delivered ? null : "dispatch-failed",
       });
     } catch (err) {
