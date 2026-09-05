@@ -97,7 +97,10 @@ export function DeclinedList({ items }: { items: DeclinedByChoice[] }) {
               </span>
               <span className="min-w-0">
                 <span className="text-slate-400">{d.label}</span>
-                {d.at && <span className="type-caption text-slate-600"> · declined {d.at}</span>}
+                {/* WHO decided, not just when. A decline is a decision record; one with no author is an
+                    assertion nobody owns, and the actor used to live only in the audit row. An absent
+                    author (a decline recorded before authorship was captured) reads as unknown. */}
+                <span className="type-caption text-slate-600"> · declined by {d.by ?? "unknown"}{d.at ? ` on ${d.at}` : ""}</span>
                 {d.needsReconfirm && (
                   <span className="ml-2 rounded border border-amber-500/40 px-1.5 py-0.5 font-mono type-micro uppercase tracking-widest text-amber-400">
                     needs re-confirmation

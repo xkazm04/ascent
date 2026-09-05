@@ -37,6 +37,17 @@ export interface DeclineEntry {
   /** 0.4.0: the finding's severity as it stood when the owner declined — the baseline for "has this
    *  gap HARDENED since it was accepted?". Absent on pre-0.4.0 declines, same rule as `code`. */
   severity?: FindingSeverity;
+  /** WHO made this decision — the session login, stamped server-side by the overrides route and never
+   *  accepted from the client. A decline is a decision record ("an owner may accept a real gap"), and a
+   *  decision record with no author is an assertion nobody owns: the actor used to exist only in the
+   *  `passport.declines_set` audit row, which no reader of the passport ever sees.
+   *
+   *  NOT A PASSPORT VERSION EVENT. `by` is added on the OVERRIDE side — it lives in
+   *  Repository.passportOverridesJson, which is never versioned by PASSPORT_VERSION and never lifted by
+   *  upgradePassport; the projection it feeds (`DeclinedByChoice`) is rebuilt read-time on every read.
+   *  So there is no stored passport whose shape changed, and nothing to migrate. Absent on declines
+   *  recorded before this field, which renders as UNKNOWN AUTHOR — never a fabricated one. */
+  by?: string;
 }
 
 /** How long an accepted gap stands before the owner is asked to re-confirm it.
@@ -119,6 +130,28 @@ export const DECLINABLE_PATHS: Record<string, DeclinableField> = {
 
 /** True when `path` is one an owner may decline. Exported for route-level validation. */
 export const isDeclinablePath = (path: string): boolean => Object.hasOwn(DECLINABLE_PATHS, path);
+
+/** Reverse index: minted finding id -> the ONE declinable path a UI should offer for it.
+ *
+ *  This is the list a decline control offers, and building it from DECLINABLE_PATHS is the point: a
+ *  finding with no entry here — the tokenless "enforcement (branch protection) not observable" caveat
+ *  above all — is a limitation of the EVIDENCE, not a trade-off an owner may accept, and must never be
+ *  offered. "We could not see this" is not declinable; only "we saw this and I choose to live with it".
+ *
+ *  Two paths can name the same finding (stack.monitoring.errorTracking and
+ *  productionReadiness.observability both stand down prod.zero-observability). The axis-rooted path
+ *  wins, deterministically: it is the one the reader sees the blocker under. */
+export const DECLINABLE_BY_FINDING: Record<string, string> = (() => {
+  const out: Record<string, string> = {};
+  for (const path of Object.keys(DECLINABLE_PATHS).sort()) {
+    const field = DECLINABLE_PATHS[path];
+    if (!field?.finding) continue;
+    const axisRoot = field.axis === "automation" ? "automationReadiness." : "productionReadiness.";
+    const incumbent = out[field.finding];
+    if (!incumbent || (!incumbent.startsWith(axisRoot) && path.startsWith(axisRoot))) out[field.finding] = path;
+  }
+  return out;
+})();
 
 const MAX_REASON = 280;
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -235,6 +268,7 @@ function applyDeclines(next: AppPassport, declined: Record<string, DeclineEntry>
       ...(retired ? { blocker: retired } : {}),
       ...(current ? { findingId: current.id } : {}),
       ...(entry.at ? { at: entry.at } : {}),
+      ...(entry.by ? { by: entry.by } : {}),
       ...(reconfirm ? { needsReconfirm: true, reconfirmReason: reconfirm } : {}),
     });
   }
@@ -286,11 +320,12 @@ export function parseDeclined(raw: unknown): Record<string, DeclineEntry> | null
     if (!isDeclinablePath(path)) continue;
     const entry: DeclineEntry = {};
     if (v && typeof v === "object") {
-      const o = v as { reason?: unknown; at?: unknown; code?: unknown; severity?: unknown };
+      const o = v as { reason?: unknown; at?: unknown; code?: unknown; severity?: unknown; by?: unknown };
       if (typeof o.reason === "string" && o.reason.trim()) entry.reason = o.reason.trim().slice(0, MAX_REASON);
       if (typeof o.at === "string" && ISO_DAY.test(o.at)) entry.at = o.at;
       if (typeof o.code === "string" && /^[a-z0-9-]{1,64}$/.test(o.code)) entry.code = o.code;
       if (typeof o.severity === "string" && Object.hasOwn(SEVERITY_RANK, o.severity)) entry.severity = o.severity as FindingSeverity;
+      if (typeof o.by === "string" && LOGIN.test(o.by)) entry.by = o.by;
     }
     out[path] = entry;
   }

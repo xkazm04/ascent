@@ -111,7 +111,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const body = (await request.json().catch(() => ({}))) as {
     repo?: string;
-    declined?: Record<string, { reason?: string; at?: string } | null>;
+    declined?: Record<string, { reason?: string; at?: string; code?: string; severity?: string; by?: unknown } | null>;
   };
   const ctx = await gate(request, body);
   if (ctx instanceof Response) return ctx;
@@ -125,14 +125,33 @@ export async function PATCH(request: Request) {
 
   // Sanitize the set-values through the shared validator (trims/caps reason, drops bad dates); nulls pass
   // through as explicit retractions.
+  // A decline is a DECISION RECORD: who, what, when, against which version of the finding. `by` and
+  // `at` are therefore written here, from the session and the server clock — a client-supplied author
+  // would let an owner file a decision under someone else's name, so a body carrying one is a 400
+  // rather than a quietly-overwritten field. (The overlay is pure and has no clock; this is the write
+  // path that legitimately knows the day.)
+  if (Object.values(raw).some((v) => v !== null && typeof v === "object" && (v as { by?: unknown }).by !== undefined)) {
+    return NextResponse.json({ error: "`by` is recorded from the session, not the request body." }, { status: 400 });
+  }
+  const actorLogin = await resolveViewerLogin();
   const sanitized = parseDeclined(Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== null))) ?? {};
   const changes: Record<string, DeclineEntry | null> = {};
-  for (const [path, v] of Object.entries(raw)) changes[path] = v === null ? null : (sanitized[path] ?? {});
+  for (const [path, v] of Object.entries(raw)) {
+    if (v === null) {
+      changes[path] = null;
+      continue;
+    }
+    const entry = sanitized[path] ?? {};
+    changes[path] = {
+      ...entry,
+      at: entry.at ?? today(),
+      ...(actorLogin ? { by: actorLogin } : {}),
+    };
+  }
 
   const ok = await mergePassportDeclines(ctx.orgSlug, ctx.fullName, changes);
   if (!ok) return NextResponse.json({ error: "Unknown repository (scan it first)." }, { status: 404 });
 
-  const actorLogin = await resolveViewerLogin();
   await recordOrgAudit(
     "passport.declines_set",
     ctx.orgSlug,

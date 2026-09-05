@@ -5,6 +5,8 @@
 
 import { Card, Meter, SectionHeader } from "@/components/org/shared/ui";
 import { PassportOverridePin } from "@/components/report/PassportOverridePin";
+import { PassportCardDeclined } from "@/features/standing/passports/PassportCardDeclined";
+import { PassportDeclineControl } from "@/features/standing/passports/PassportDeclineControl";
 import { PassportOwnerControls } from "@/features/standing/passports/PassportOwnerControls";
 import { bandColor, bandLabel, passportStackChips } from "@/lib/org/passport-display";
 import { scoreHex } from "@/lib/ui";
@@ -23,7 +25,9 @@ export function PassportCard({ passport: pp, repo, canEdit = false }: { passport
   const auto = pp.automationReadiness;
   const prod = pp.productionReadiness;
   const chips = passportStackChips(pp);
-  const blockers = [...auto.blockers, ...prod.blockers].slice(0, 6);
+  const allBlockers = [...auto.blockers, ...prod.blockers];
+  const blockers = allBlockers.slice(0, 6);
+  const hidden = allBlockers.length - blockers.length;
 
   return (
     <Card>
@@ -104,8 +108,19 @@ export function PassportCard({ passport: pp, repo, canEdit = false }: { passport
               </li>
             ))}
           </ul>
+          {/* Truncation is DISCLOSED. Six of eleven blockers under a heading that says "Blockers" reads
+              as the whole list, which is the one thing an honest scorecard must not do. */}
+          {hidden > 0 && (
+            <p className="mt-1.5 type-caption text-slate-600">
+              +{hidden} more — see the <a href={`/api/report/passport?repo=${encodeURIComponent(repo)}&download`} className="focus-ring text-slate-400 underline decoration-dotted hover:text-white">full passport</a>.
+            </p>
+          )}
         </div>
       )}
+
+      {/* Gaps the owner has ACCEPTED. Retired from `blockers` above by the overlay, so without this
+          list an accepted gap is invisible — indistinguishable from a gap that isn't there. */}
+      <PassportCardDeclined declined={pp.declined} />
 
       {(pp.identity.criticality || pp.identity.lifecycle) && (
         <p className="mt-3 type-mono-sm text-slate-500">
@@ -120,12 +135,15 @@ export function PassportCard({ passport: pp, repo, canEdit = false }: { passport
       </p>
 
       {canEdit && (
-        <PassportOwnerControls
-          repo={repo}
-          criticality={pp.identity.criticality}
-          lifecycle={pp.identity.lifecycle}
-          rollback={pp.productionReadiness.delivery.rollback}
-        />
+        <>
+          <PassportOwnerControls
+            repo={repo}
+            criticality={pp.identity.criticality}
+            lifecycle={pp.identity.lifecycle}
+            rollback={pp.productionReadiness.delivery.rollback}
+          />
+          <PassportDeclineControl repo={repo} passport={pp} />
+        </>
       )}
     </Card>
   );

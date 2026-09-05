@@ -4,6 +4,15 @@
 // has SEEN and deliberately opted out of — they must never read as an unaddressed finding, so they render
 // in their own muted, struck-through row with the owner's reason, separate from the live blockers. The
 // scores are untouched by a decline: choosing to skip a gap is a decision, not a fix.
+//
+// Two things this strip used to get wrong, both of which made it disagree with the fleet DeclinedList
+// about the same repo:
+//   • It ignored `needsReconfirm` / `reconfirmReason`. A decline the overlay had deliberately
+//     RE-SURFACED (its finding changed kind, hardened, or aged past the window) rendered here as
+//     settled and struck through, while the fleet table showed the same decline as open with the
+//     reason it was re-opened. A re-surfaced decline is open: it is not struck through, it is flagged.
+//   • It rendered "declined" with no author. A decision record answers who, what and when; the actor
+//     existed only in the `passport.declines_set` audit row, which no reader of the passport ever sees.
 
 import type { AppPassport, ArtifactGrade } from "@/lib/types";
 import { GRADE_LABEL } from "@/lib/org/passport-display";
@@ -19,12 +28,23 @@ export function PassportDeclined({ declined }: { declined: AppPassport["declined
       <ul className="flex flex-col gap-1">
         {declined.map((d) => (
           <li key={d.path} className="flex flex-wrap items-baseline gap-x-2 type-caption text-slate-500">
-            <span className="rounded border border-divider bg-surface/60 px-1.5 py-0.5 type-micro uppercase tracking-wider text-slate-400">
-              declined
+            <span
+              className={`rounded border px-1.5 py-0.5 type-micro uppercase tracking-wider ${
+                d.needsReconfirm ? "border-amber-500/40 text-amber-400" : "border-divider bg-surface/60 text-slate-400"
+              }`}
+            >
+              {d.needsReconfirm ? "needs re-confirmation" : "declined"}
             </span>
             <span className="text-slate-300">{d.label}</span>
+            {/* Who and when. An absent author reads as unknown — never a fabricated one. */}
+            <span className="text-slate-600">
+              by {d.by ?? "unknown"}
+              {d.at ? ` on ${d.at}` : ""}
+            </span>
             {d.reason ? <span className="text-slate-500">({d.reason})</span> : null}
-            {d.blocker ? <span className="text-slate-600 line-through">{d.blocker}</span> : null}
+            {/* Struck through ONLY while the decision still stands: a re-surfaced blocker is open. */}
+            {d.blocker ? <span className={d.needsReconfirm ? "text-slate-400" : "text-slate-600 line-through"}>{d.blocker}</span> : null}
+            {d.needsReconfirm ? <span className="w-full text-amber-400/90">{d.reconfirmReason} It is still an open blocker until it is re-confirmed.</span> : null}
           </li>
         ))}
       </ul>

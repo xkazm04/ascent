@@ -7,6 +7,7 @@
 import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import {
+  DECLINABLE_BY_FINDING,
   PASSPORT_SCHEMA_URL,
   PASSPORT_VERSION,
   applyPassportOverrides,
@@ -342,6 +343,18 @@ describe("applyPassportOverrides — declined by choice", () => {
     ]);
   });
 
+  it("carries the decision's AUTHOR through to the projection, and reads an absent one as unknown", () => {
+    // The actor used to exist only in the `passport.declines_set` audit row, which no reader of the
+    // passport ever sees. It is now part of the decision record the overlay projects.
+    const withAuthor = applyPassportOverrides(base, {
+      declined: { "productionReadiness.observability": { reason: "internal", by: "alice", at: "2026-02-02" } },
+    });
+    expect(withAuthor.declined?.[0]).toMatchObject({ by: "alice", at: "2026-02-02" });
+    // Pre-authorship declines simply carry no author — the renderers say "unknown", nothing is invented.
+    const without = applyPassportOverrides(base, { declined: { "productionReadiness.observability": { reason: "internal" } } });
+    expect(without.declined?.[0]?.by).toBeUndefined();
+  });
+
   it("NEVER moves a score — a decline is a decision, not a fix", () => {
     const pp = applyPassportOverrides(base, { declined: { "productionReadiness.observability": {}, "productionReadiness.ci": {} } });
     expect(pp.productionReadiness.score).toBe(base.productionReadiness.score);
@@ -379,6 +392,18 @@ describe("applyPassportOverrides — declined by choice", () => {
   });
 });
 
+describe("DECLINABLE_BY_FINDING — what a decline control may offer", () => {
+  it("maps a declinable finding to its axis-rooted path and OMITS the blind-spot caveats", () => {
+    expect(DECLINABLE_BY_FINDING["prod.zero-observability"]).toBe("productionReadiness.observability");
+    expect(DECLINABLE_BY_FINDING["auto.no-manifest"]).toBe("automationReadiness.artifacts.manifest");
+    // "We could not see this" is a limitation of the evidence, never a trade-off an owner may accept.
+    expect(DECLINABLE_BY_FINDING["prod.enforcement-not-observable"]).toBeUndefined();
+    expect(DECLINABLE_BY_FINDING["auto.self-verify-gaps"]).toBeUndefined();
+    // Every path it names is one the route will accept.
+    for (const path of Object.values(DECLINABLE_BY_FINDING)) expect(isDeclinablePath(path)).toBe(true);
+  });
+});
+
 describe("parseDeclined / isDeclinablePath — allow-list validation", () => {
   it("keeps allow-listed paths, drops the rest", () => {
     expect(isDeclinablePath("stack.monitoring.errorTracking")).toBe(true);
@@ -396,6 +421,11 @@ describe("parseDeclined / isDeclinablePath — allow-list validation", () => {
     expect(out?.["stack.monitoring.metrics"]?.reason).toHaveLength(280);
     expect(out?.["stack.monitoring.metrics"]?.at).toBeUndefined();
     expect(parseDeclined({ "stack.monitoring.metrics": { at: "2026-07-27" } })?.["stack.monitoring.metrics"]?.at).toBe("2026-07-27");
+  });
+
+  it("keeps a valid author and drops a malformed one (the author is written server-side)", () => {
+    expect(parseDeclined({ "productionReadiness.ci": { by: "alice" } })).toEqual({ "productionReadiness.ci": { by: "alice" } });
+    expect(parseDeclined({ "productionReadiness.ci": { by: "not a login!" } })).toEqual({ "productionReadiness.ci": {} });
   });
 
   it("round-trips through the stored-overrides parser alongside the P4 fields", () => {
