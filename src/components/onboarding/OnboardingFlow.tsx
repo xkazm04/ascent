@@ -58,7 +58,7 @@ export function OnboardingFlow({
     previewCause,
     upgradePlanned,
     setInvitedCount,
-    creditSkipped,
+    notices,
     listTruncated,
     gate,
     setGate,
@@ -167,7 +167,7 @@ export function OnboardingFlow({
         preview={previewScan}
         previewCause={previewCause}
         upgradePlanned={upgradePlanned}
-        creditSkipped={creditSkipped}
+        notices={notices}
         inviteOrg={sourceInstallId ? sourceLabel : null}
         // Same gate as the invite panel: an installation id means a real org with an installation
         // token behind it, which is exactly what the batch route needs. The scanned repo list is
@@ -180,7 +180,7 @@ export function OnboardingFlow({
         onRetryRepo={retryRepo}
         onViewDashboard={() => router.push(`/org/${encodeURIComponent(sourceLabel)}`)}
         // resetRun clears the FULL per-run state — including the pre-scan credit snapshot, the
-        // creditReady promise, preview flags, invite count, and creditSkipped — so a second run
+        // creditReady promise, preview flags, invite count, and the stream notices — so a second run
         // can't quote stale money numbers or arrive with "Invite your team" pre-ticked.
         onScanAnother={resetRun}
       />

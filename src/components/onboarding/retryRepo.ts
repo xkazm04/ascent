@@ -14,6 +14,7 @@ import { runImportScan } from "@/components/onboarding/importScan";
 import { classifyScanFailure } from "@/components/onboarding/scanGate";
 import { resolveScanMode, type CreditRead } from "@/components/onboarding/scanMode";
 import { resolveImportPlan } from "@/components/onboarding/importPlan";
+import { leftoverSkipReason, type ImportNotice } from "@/components/onboarding/skipReason";
 import type { OrgCredit } from "@/components/onboarding/OnboardingFlow.model";
 import type { ScanRow } from "@/components/onboarding/OnboardingScanRow";
 
@@ -63,6 +64,9 @@ export async function runRepoRetry(deps: RepoRetryDeps): Promise<void> {
   setRows((cur) => (cur[fullName] ? { ...cur, [fullName]: { repo: fullName } } : cur));
   setAnnounce(`Retrying ${fullName}.`);
 
+  // Notices this retry's stream sent, so an unreported row can be resolved with the reason the SERVER
+  // gave rather than an assumed credit shortfall (Direction 7).
+  const notices: ImportNotice[] = [];
   try {
     // Re-check the money gate exactly as the batch did: a retry must not charge an org whose balance
     // drained mid-run, nor downgrade a paying org to a mock.
@@ -100,13 +104,16 @@ export async function runRepoRetry(deps: RepoRetryDeps): Promise<void> {
           setRows((cur) => ({ ...cur, [repo]: { repo, level, overall, error, skipped } }));
           setAnnounce(`${repo} finished.`);
         },
+        onNotice: (notice) => notices.push(notice),
         onResult: () => {
-          // The stream ended with no event for this repo — the server deferred it (credits), the same
-          // resolution the batch applies to its leftovers. Never leave a perpetual "scanning…" row.
+          // The stream ended with no event for this repo — the server deferred it, the same resolution
+          // the batch applies to its leftovers, and with the same honesty: the reason is whichever cap
+          // the server announced, or a neutral "not scanned". Never leave a perpetual "scanning…" row.
+          const reason = leftoverSkipReason(notices);
           setRows((cur) => {
             const row = cur[fullName];
             if (!row || row.level || row.error || row.skipped) return cur;
-            return { ...cur, [fullName]: { ...row, skipped: "insufficient_credits" } };
+            return { ...cur, [fullName]: { ...row, skipped: reason } };
           });
         },
         onError: (message) => setRows((cur) => ({ ...cur, [fullName]: { repo: fullName, error: message } })),

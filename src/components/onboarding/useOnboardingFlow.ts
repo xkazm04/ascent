@@ -13,6 +13,7 @@ import { getPreviewFirst, resetPreviewFirst } from "@/components/onboarding/Onbo
 import { resolveImportPlan } from "@/components/onboarding/importPlan";
 import { setUpgradeScanFlag } from "@/components/onboarding/upgradeScan";
 import { classifyScanFailure, gateAnnouncement, type ScanGate } from "@/components/onboarding/scanGate";
+import { leftoverSkipReason, type ImportNotice } from "@/components/onboarding/skipReason";
 import type { PickErrorSource } from "@/components/onboarding/OnboardingPickStep";
 import {
   MAX_LIST,
@@ -71,9 +72,13 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
   // on the response since the listing was bounded, but nothing ever read it — so a fork-heavy org's
   // partial list was presented as the org's complete reality. The select step discloses it.
   const [listTruncated, setListTruncated] = useState(false);
-  // How many repos the server deferred for insufficient credits this run — surfaced on the done
-  // screen so a credit shortfall is disclosed rather than left as ghost "scanning…" rows.
-  const [creditSkipped, setCreditSkipped] = useState(0);
+  // Every batch-level `notice` the import stream sent this run, verbatim. It used to be a single
+  // number that only ever counted `insufficient_credits`: "monthly_quota" (the FREE public allowance
+  // ran out), "too_many_repos" and "listing_truncated" were read off the wire and dropped on the
+  // floor, and the done screen then told a public-funnel user to top up a prepaid balance the select
+  // step had just promised they would not need. Kept as the raw frames so the disclosure can say what
+  // the server actually said (see skipReason.ts / OnboardingSkipNotices.tsx).
+  const [notices, setNotices] = useState<ImportNotice[]>([]);
   // An ACCESS gate returned by the import kickoff (401/403) — rendered as a human recovery step
   // INSTEAD of the raw server string. Distinct from `error` on purpose: `error` stays the channel for
   // genuine unexpected failures (where losing the server's diagnostic would be worse than a raw
@@ -333,7 +338,7 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
   // "Scan another": reset the FULL per-run state, not just the visible rows/selection. The original
   // inline reset list predated the money/checklist state and left `credit` (a pre-scan snapshot the
   // next run's cost copy + money-gate would trust over a fresh read), `creditReady`, `previewScan`/
-  // `previewCause`, `invitedCount`, and `creditSkipped` to leak into the second run — understating
+  // `previewCause`, `invitedCount`, and the run's stream notices to leak into the second run — understating
   // recurring cost on a just-drained org and pre-ticking "Invite your team". (ambiguity-ui #3)
   function resetRun() {
     setPhase("pick");
@@ -347,7 +352,7 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
     setPreviewScan(true);
     setPreviewCause(null);
     setInvitedCount(0);
-    setCreditSkipped(0);
+    setNotices([]);
     setGate(null);
     setUpgradePlanned(false);
     // The autoscan opt-in is per-run consent, not a sticky preference: a second run must start from
@@ -373,12 +378,15 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
     setRows(Object.fromEntries(picks.map((r) => [r.fullName, { repo: r.fullName }])));
     setError(null);
     setGate(null);
-    setCreditSkipped(0);
+    setNotices([]);
     setAnnounce(`Scanning ${picks.length} ${picks.length === 1 ? "repository" : "repositories"}.`);
 
     const controller = new AbortController();
     abortRef.current = controller;
     const total = picks.length;
+    // Notices as they arrive, for the leftover resolution in onResult (which cannot read the state it
+    // just queued). One array per run, so a previous run's cap can never explain this one.
+    const seen: ImportNotice[] = [];
     // Settle the balance before deciding real-vs-preview. The whole decision (await the in-flight read,
     // retry once on an unknown balance, fail closed) lives in scanMode.ts so the per-repo retry on the
     // done screen re-checks the money gate through the SAME code path. The credit read is its own fetch
@@ -449,27 +457,26 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
               return next;
             });
           },
-          // A credit shortfall caps the batch server-side; forward the count so it's disclosed and
-          // the leftover (never-scanned) rows can be resolved to a skipped state on completion.
-          onNotice: ({ reason, skipped }) => {
-            if (reason === "insufficient_credits" && skipped > 0) setCreditSkipped(skipped);
+          // EVERY notice is kept, not just the credit one: the server caps a batch for four distinct
+          // reasons and each has a different recovery. `seen` is the same list, collected locally so
+          // onResult below can read it synchronously (a state read there would see the pre-run value).
+          onNotice: (notice) => {
+            seen.push(notice);
+            setNotices((cur) => [...cur, notice]);
           },
           onResult: () => {
-            // The stream is done: any row still with no level/error/skipped was deferred for credits
-            // (the route emits no event for the repos it sliced off), so resolve those ghosts to a
-            // skipped state instead of leaving a perpetual "scanning…" row + stuck progress bar.
+            // The stream is done: any row still with no level/error/skipped was never reported (the
+            // route emits no event for the repos it sliced off), so resolve those ghosts to a skipped
+            // state instead of leaving a perpetual "scanning…" row + stuck progress bar. The reason is
+            // the one the SERVER gave for capping this batch — or the neutral "not_scanned" when it
+            // gave none. The old unconditional "insufficient_credits" relabel is exactly how a
+            // monthly-allowance stop became a prepaid-balance lie on the done screen.
+            const leftoverReason = leftoverSkipReason(seen);
             setRows((cur) => {
-              let leftover = 0;
               const next: typeof cur = {};
               for (const [key, r] of Object.entries(cur)) {
-                if (!r.level && !r.error && !r.skipped) {
-                  leftover += 1;
-                  next[key] = { ...r, skipped: "insufficient_credits" };
-                } else {
-                  next[key] = r;
-                }
+                next[key] = !r.level && !r.error && !r.skipped ? { ...r, skipped: leftoverReason } : r;
               }
-              if (leftover > 0) setCreditSkipped((n) => Math.max(n, leftover));
               return next;
             });
             // Preview-then-upgrade handoff: the mock rows are persisted, so record the one-shot flag
@@ -562,7 +569,7 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
     upgradePlanned,
     invitedCount,
     setInvitedCount,
-    creditSkipped,
+    notices,
     listTruncated,
     gate,
     setGate,

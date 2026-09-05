@@ -3,6 +3,8 @@
 import { ScanRowView, type ScanRow } from "@/components/onboarding/OnboardingScanRow";
 import { InvitePanel } from "@/components/onboarding/OnboardingInvitePanel";
 import { FoundationPanel } from "@/components/onboarding/OnboardingFoundationPanel";
+import { SkipNotices } from "@/components/onboarding/OnboardingSkipNotices";
+import type { ImportNotice } from "@/components/onboarding/skipReason";
 import { LEVELS } from "@/lib/maturity/model";
 import { LEVEL_CLASSES, LEVEL_GLYPH } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
@@ -28,7 +30,7 @@ export function ScanStep({
   preview = false,
   previewCause = null,
   upgradePlanned = false,
-  creditSkipped = 0,
+  notices = [],
   onCancel,
   onViewDashboard,
   onScanAnother,
@@ -52,9 +54,10 @@ export function ScanStep({
    *  handoff flag and auto-starts from the dashboard header. Switches the preview banner + done CTA
    *  to the handoff copy (the default "install the App / top up" recovery would misdiagnose). */
   upgradePlanned?: boolean;
-  /** Repos the server deferred for insufficient credits — disclosed on the done screen so the run
-   *  isn't presented as complete coverage when some repos were skipped. */
-  creditSkipped?: number;
+  /** Batch-level `notice` frames from the import stream (too_many_repos / listing_truncated /
+   *  the capping notices). Per-repo skips are read off `rows` — they are the truth, since every
+   *  capped repo lands as a row — so this carries only what no row can express. */
+  notices?: ImportNotice[];
   onCancel: () => void;
   onViewDashboard: () => void;
   onScanAnother: () => void;
@@ -181,12 +184,10 @@ export function ScanStep({
         </p>
       )}
 
-      {phase === "done" && creditSkipped > 0 && (
-        <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 type-body-sm text-amber-300">
-          {creditSkipped} {creditSkipped === 1 ? "repository was" : "repositories were"}{" "}
-          <strong>skipped (out of credits)</strong>. Top up your prepaid balance, then scan the rest from the dashboard.
-        </p>
-      )}
+      {/* Reason-specific disclosure of everything this run did NOT scan. One banner used to claim
+          "out of credits" for all three server reasons, which sent a public-funnel user who had spent
+          their FREE monthly allowance to top up a prepaid balance they were told they didn't need. */}
+      {phase === "done" && <SkipNotices rows={rows} notices={notices} />}
 
       {phase === "done" && (
         <>

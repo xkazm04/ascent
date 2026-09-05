@@ -67,6 +67,6 @@ describe("useOnboardingFlow.resetRun — 'Scan another' clears the FULL per-run 
     expect(result.current.credit).toBeNull();
     expect(result.current.invitedCount).toBe(0);
     expect(result.current.previewCause).toBeNull();
-    expect(result.current.creditSkipped).toBe(0);
+    expect(result.current.notices).toEqual([]);
   });
 });

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ScorePill } from "@/components/LevelBadge";
+import { skipRowLabel } from "@/components/onboarding/skipReason";
 import type { LevelId } from "@/lib/types";
 
 export interface ScanRow {
@@ -7,8 +8,10 @@ export interface ScanRow {
   level?: LevelId;
   overall?: number;
   error?: string;
-  /** Set (e.g. "insufficient_credits") when the server deferred this repo instead of scanning it —
-   *  a terminal state distinct from "scanning…" and from an error. */
+  /** Set when the server deferred this repo instead of scanning it — a terminal state distinct from
+   *  "scanning…" and from an error. The reason is the server's own ("insufficient_credits",
+   *  "monthly_quota", "in_progress") or the neutral "not_scanned"; each renders its OWN copy, because
+   *  each has a different recovery (see skipReason.ts). */
   skipped?: string;
 }
 
@@ -58,7 +61,10 @@ export function ScanRowView({ row, onRetry }: { row: ScanRow; onRetry?: (repo: s
           )}
         </>
       ) : row.skipped ? (
-        <span className="type-body-sm text-amber-300">skipped (out of credits)</span>
+        // Reason-specific: this used to read "skipped (out of credits)" for every skip, so a public
+        // funnel run that exhausted its FREE monthly allowance — and a repo another tab was already
+        // scanning — were both reported as a prepaid-balance problem.
+        <span className="type-body-sm text-amber-300">{skipRowLabel(row.skipped)}</span>
       ) : (
         <span className="type-body-sm text-slate-500">scanning…</span>
       )}
