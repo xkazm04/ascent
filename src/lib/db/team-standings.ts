@@ -8,7 +8,7 @@
 
 import { randomUUID } from "node:crypto";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
-import { normalizeOrgSlug } from "@/lib/db/org-shared";
+import { getOrgBySlug, normalizeOrgSlug } from "@/lib/db/org-shared";
 import { getOrgTeamRollup } from "@/lib/db/org-teams";
 import { explainTeamStandings } from "@/lib/org/teamStandings";
 
@@ -20,6 +20,14 @@ export interface TeamStandingsProvenance {
   spread: number;
   leaderSlug: string;
   laggardSlug: string;
+  /**
+   * What the snapshot COVERS. Always "fleet": persistTeamStandings calls getOrgTeamRollup with no
+   * segment or tech-stack filter, so one whole-org row is written per scan and there is no scoped
+   * variant to read. Stated in the type because the Teams page renders this stamp under standings the
+   * reader may have filtered — a "captured by the org scan 2h ago" line under a segment-filtered
+   * decomposition otherwise claims a provenance the row does not have. The page says so instead.
+   */
+  scope: "fleet";
 }
 
 /**
@@ -59,12 +67,18 @@ export async function persistTeamStandings(orgSlug: string): Promise<boolean> {
  * the table isn't present yet. Reads only the denormalized headline columns (no JSON parse), so a
  * corrupt `standingsJson` can never break the page — the page still renders the live decomposition and
  * only uses this to stamp when it was captured.
+ *
+ * The org row is resolved through the CACHED `getOrgBySlug` (the org-rollup family's one
+ * canonicalization point), so a Teams render that already resolved the org for its rollup does not
+ * pay a second `organization.findUnique` — and a mixed-case slug canonicalizes the same way here as
+ * it does for auth. That also makes this call cheap enough to join the page's Promise.all instead of
+ * being awaited serially after it.
  */
 export async function getTeamStandingsProvenance(orgSlug: string): Promise<TeamStandingsProvenance | null> {
   if (!isDbConfigured()) return null;
   try {
     const prisma = getPrisma();
-    const org = await prisma.organization.findUnique({ where: { slug: normalizeOrgSlug(orgSlug) } });
+    const org = await getOrgBySlug(orgSlug);
     if (!org) return null;
 
     const rows = await prisma.$queryRaw<
@@ -84,6 +98,8 @@ export async function getTeamStandingsProvenance(orgSlug: string): Promise<TeamS
       spread: Number(row.spread),
       leaderSlug: row.leaderSlug,
       laggardSlug: row.laggardSlug,
+      // Whole-org by construction — see the field's doc on TeamStandingsProvenance.
+      scope: "fleet",
     };
   } catch (err) {
     console.error("[team-standings] provenance read failed", err instanceof Error ? err.message : err);

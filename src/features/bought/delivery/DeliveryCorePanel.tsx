@@ -6,6 +6,7 @@
 
 import { Card, ExportCsvLink, SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
 import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
+import { SnapshotScopeNotice } from "@/components/org/shared/SnapshotScopeNotice";
 import { Defer } from "@/components/ui/Defer";
 import { DeliveryPriorities } from "./DeliveryPriorities";
 import { DeliveryPrSection } from "./DeliveryPrSection";
@@ -15,8 +16,23 @@ import { buildAiDeliveryModel } from "./ai/aiDeliveryModel";
 import { getOrgActivity, getOrgGovernance, getOrgPrSignals, getOrgUsageRollup } from "@/lib/db";
 import { deliveryEmptyMessage, settle } from "./deliveryLoad";
 import type { OrgScope } from "@/lib/org/scope";
+import type { ResolvedWindow } from "@/lib/window";
 
-export async function DeliveryCorePanel({ slug, scope }: { slug: string; scope: Promise<OrgScope> }) {
+export async function DeliveryCorePanel({
+  slug,
+  scope,
+  // Passed down from DeliveryTab (which already resolved it for the trend) rather than re-resolved
+  // here: this panel has no `sp`, so a local resolve would silently drop an explicit `?range=` and
+  // name the cookie's period on a shared link. Used ONLY to name the window in the notice below —
+  // DeliveryTab's header has documented since G7-09 that the trend is the tab's one windowed read
+  // while everything in this panel comes off each repo's LATEST scan, and nothing on screen said so,
+  // under a period control sitting right above.
+  period,
+}: {
+  slug: string;
+  scope: Promise<OrgScope>;
+  period: ResolvedWindow;
+}) {
   const { barProps, segmentId, techGroupId, activeStack } = await scope;
 
   // G4-10: Promise.all rejects on the FIRST failing query, which discarded all four panels — a
@@ -87,6 +103,22 @@ export async function DeliveryCorePanel({ slug, scope }: { slug: string; scope: 
   return (
     <div className="space-y-6">
       {segmentBar}
+
+      <SnapshotScopeNotice
+        period={period}
+        subject="delivery"
+        scope="partial"
+        detail={
+          <>
+            The delivery <span className="text-slate-200">trend</span> above, unit economics and outcomes are
+            period-scoped. Everything below this line — pull request signals, branch governance and commit
+            activity — is a <span className="text-slate-200">scan-time snapshot</span> read off each repo&apos;s
+            most recent scan: <span className="font-mono">Scan.prStats</span> is a pre-computed aggregate with no
+            dated PR population to re-cut, so no range can re-scope it. Read these as &ldquo;the fleet as of its
+            most recent scans&rdquo;.
+          </>
+        }
+      />
 
       {/* Fix first — the derived punch list; every priority links to the evidence below. */}
       {(pr || gov) && <DeliveryPriorities pr={pr} gov={gov} />}

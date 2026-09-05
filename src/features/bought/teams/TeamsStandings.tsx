@@ -135,7 +135,19 @@ function StandingColumn({
   );
 }
 
-export function TeamsStandings({ standings, capturedAt }: { standings: TeamStandings; capturedAt?: Date | null }) {
+export function TeamsStandings({
+  standings,
+  capturedAt,
+  // The captured snapshot is whole-org (persistTeamStandings takes no segment/stack filter), while
+  // these standings are computed under whatever filter is active. When the two disagree the page
+  // passes this and the stamp says so, rather than dating a filtered decomposition with a fleet-wide
+  // capture — provenance for something else is worse than no provenance.
+  capturedScopeNote = null,
+}: {
+  standings: TeamStandings;
+  capturedAt?: Date | null;
+  capturedScopeNote?: string | null;
+}) {
   const { leader, laggard, spread, fleetAvgOverall, maxAbsDelta, teamCount } = standings;
   return (
     <div id="standings" className="mt-10 scroll-mt-24">
@@ -152,6 +164,7 @@ export function TeamsStandings({ standings, capturedAt }: { standings: TeamStand
         right={
           <span className="type-caption text-slate-600">
             {capturedAt ? `captured by the org scan ${timeAgo(capturedAt.toISOString())}` : "live preview · captured on your next org scan"}
+            {capturedAt && capturedScopeNote ? ` · ${capturedScopeNote}` : ""}
           </span>
         }
       />
