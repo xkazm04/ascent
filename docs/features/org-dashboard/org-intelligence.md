@@ -1034,6 +1034,23 @@ Briefing tab (`src/features/bought/executive/ExecutiveTab.tsx`; `src/app/org/[sl
 markdown (`briefingMarkdown`). The anonymous share link (`/share/briefing/[token]`) re-runs the
 same builder against the token's window.
 
+**Two denominators, stated on all four surfaces (2026-09-05).** Coverage (`scanned/total`) answers
+"how much was looked at"; the score basis (`realScoredCount`, carried on `ExecBriefing` from the
+rollup) answers "what the averages are averaged over". Every basis clause that stands on an average
+("across N live-scored repos", "(of N live-scored)", the narrative's "averaged over N live-scored
+repositories") uses the live-scored count; the ranked next move keeps the scanned denominator because
+its recommendation count reads mock-floored repos too. A fleet with no live-scored repository has
+**no grade**: the tab tiles, the PDF Stats, the markdown and the share page print "—" plus a sentence
+(never 0/100, never L1), and a prior-period comparison is refused when the prior window scored nothing
+live. A separate disclosure, "N mock placeholders excluded from every average", renders beside the
+engine-mix caveat on every surface, including the PDF body. All of it is composers in `briefing.ts`
+(`briefingHasScore`, `scoreValue`, `briefingLevelCaption`, `noScoreLine`, `scoreBasisLine`,
+`mockDisclosure`, `coverageLine`), and the HTML surfaces now call `benchmarkCaption` and
+`movementLine` like the PDF always did, so a one-repo corpus reads "not enough peers to rank" rather
+than "vs 1 repos", and the coverage line renders on the tab and the share page. Share tokens carry a
+half-open `winEndX` beside the unchanged inclusive `winEnd`, so tokens minted before 2026-09-05 still
+verify and render identically; the impact ledger's rows carry six cells for their six headers.
+
 ### The trajectory clause states its basis, or it refuses to project (MC-B1, 2026-08-31)
 
 The briefing's Trajectory line consults the **same presentability gate** every other forecast surface

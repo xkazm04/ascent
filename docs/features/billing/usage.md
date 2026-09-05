@@ -57,7 +57,9 @@ A retried write collides on P2002 and is swallowed by the best-effort writer: no
 **Privacy.** `teamKey` is a CODEOWNERS *team* slug, never a person — no contributor login, email or
 individual attribution enters `UsageEvent`, and no prompt or response text is stored (token counts,
 model id and status only). The team view is omitted entirely for the public funnel, whose summary is
-anonymously readable.
+anonymously readable. The credit ledger writes an `actor` on every debit and refund for audit and
+reconciliation, but since 2026-09-05 the org-facing read (`getCreditLedger`, served by
+`GET /api/org/credits`) no longer selects it: a repo is not a person, a login is.
 
 **Audit.** Spend-shaped, so `UsageEvent` *is* the audit row; there is no `AuditLog` entry per metered
 call (one row per model call would drown the trail).
@@ -100,6 +102,12 @@ lockstep: `isBillableScan()` (JS; also the daily series' fallback path), `billab
 `usageWindow(days)` and hands the same object to `getCreditReconciliation(org, { since, before })`,
 which no longer takes `days`):
 
+- `byRepo` (2026-09-05): the union of the scan-lane groups and `UsageEvent.repoFullName` totals
+  (`repoTotals`, one `groupBy` on the same window), merged by `mergeRepoUsage` under exactly the
+  `mergeTeamUsage` rule (unknown + known = unknown, never a partial dollar figure; BYOM counted,
+  never priced), with an explicit `Org-wide (no repo)` row appended last. The three period
+  `groupBy` passes collapsed to one folded three ways, and the two `repository.findMany` to one
+  (13 → 10 Scan queries per render, 11 with the event read).
 - `totalScans` (all-time), `periodScans` (last *N* days), `privateScans` / `publicScans`
   (period), `distinctRepos`.
   - `privateScans` is the **billable** count per the predicate above (the name is wire
@@ -326,6 +334,7 @@ Until a route adopts `rateLimitRequestShared()`, its global ceiling remains per-
 | `src/lib/db/usage.ts` | `getUsageSummary()`: totals, provider mix, zero-filled daily series, the lane + team folds. |
 | `src/lib/llm/meter.ts` | The meter chokepoint: lane vocabulary, pure cost math (`costMicrosFor`), fire-and-forget `meter()`. |
 | `src/lib/db/usage-events.ts` | `recordUsageEvent()` (best-effort writer) + `laneTotals()` / `teamTotals()` / `listUsageEvents()`. |
+| `src/app/usage/usageRepoPanel.tsx` | **Top repositories** with a cost column (em dash + "not a measured zero" tooltip for unknown; `· N unpriced` for partials), captioned by metered scans, last N days, UTC. Per-repo cost rides `GET /api/usage` JSON additively; both CSVs keep their shape (G19). |
 | `src/app/usage/usageDashboard.tsx` | The page's panel order: tiles → trend → provider mix → lane/team → the showback matrix. |
 | `src/app/usage/usageLanePanels.tsx` | The "Spend by lane" / "Spend by team" server panels. |
 | `src/lib/db/usage-showback.ts` | `laneTeamTotals()` (the lane × team ledger read) + `buildShowbackMatrix()` (the pure grid fold). |
