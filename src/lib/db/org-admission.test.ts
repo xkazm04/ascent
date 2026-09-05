@@ -21,7 +21,7 @@ const { mockIsDbConfigured, mockGetPrisma } = vi.hoisted(() => ({
 vi.mock("@/lib/db/client", () => ({ isDbConfigured: mockIsDbConfigured, getPrisma: mockGetPrisma }));
 vi.mock("@/lib/db/org-shared", () => ({ getOrgBySlug: vi.fn(async (slug: string) => (slug === "acme" ? { id: "org1" } : null)) }));
 
-import { deriveRepoAdmission, listOrgAdmissions } from "./org-admission";
+import { deriveRepoAdmission, getRepoAdmission, listOrgAdmissions, readRepoAdmission } from "./org-admission";
 import { deriveAutonomyForStored, parsePassportJson } from "@/lib/analyze/passport";
 
 /** A stored passport the parser accepts. Only the fields it demands — the TIER is not asserted from
@@ -166,5 +166,59 @@ describe("deriveRepoAdmission — the row the seed WOULD have written", () => {
     // `derivedTier`, and the gate reads no row at all for such a repo.
     expect(r.derivedTier).toBeNull();
     expect(r.decidedBy).toBeNull();
+  });
+});
+
+// THE GATE'S READ MUST NOT SEED EITHER (Direction 7).
+//
+// `resolveAdmissionLayer` is called from the ANONYMOUS `GET /api/gate`, and it went through the
+// lazy-seeding `getRepoAdmission` — so an unauthenticated CI call INSERTED a row into a governance
+// table. Same argument the fleet list already made, on the other caller that reaches this path
+// without anybody deciding anything. This is the half that would rot silently: a `create` slipped
+// back in would still return the right bar.
+describe("readRepoAdmission — the non-seeding twin the gate reads through", () => {
+  it("returns the row the seed WOULD have written, and WRITES NOTHING", async () => {
+    mockGetPrisma.mockReturnValue(prismaWith([{ fullName: "acme/web", passportJson: passport() }], []));
+
+    const row = await readRepoAdmission("acme", "acme/web");
+
+    expect(row).toMatchObject({ derivedTier: RESOLVED_TIER, grantedTier: RESOLVED_TIER, mode: "assisted-only", decidedBy: null });
+    expect(create).not.toHaveBeenCalled();
+    expect(upsert).not.toHaveBeenCalled();
+    // Nothing was written, so nothing may claim an id or a timestamp.
+    expect(row!.id).toBe("");
+    expect(row!.createdAt).toBe("");
+  });
+
+  it("returns a STORED decision unchanged when one exists", async () => {
+    const prisma = prismaWith([{ fullName: "acme/billing", passportJson: passport() }], []);
+    prisma.repoAdmission.findFirst = vi.fn(async () => admissionRow());
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const row = await readRepoAdmission("acme", "acme/billing");
+
+    expect(row).toMatchObject({ id: "a1", grantedTier: "T3", mode: "agents-allowed", decidedBy: "octocat" });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("is null for an unassessed repo, an unknown org and without a database — exactly like the seeding reader", async () => {
+    mockGetPrisma.mockReturnValue(prismaWith([{ fullName: "acme/api", passportJson: null }], []));
+    expect(await readRepoAdmission("acme", "acme/api")).toBeNull();
+    expect(await readRepoAdmission("nope", "acme/api")).toBeNull();
+    mockIsDbConfigured.mockReturnValue(false);
+    expect(await readRepoAdmission("acme", "acme/web")).toBeNull();
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("the SEEDING reader still seeds — the authenticated admission routes depend on it", async () => {
+    // /admission/propose, /admission/ruleset and the MCP tools create the row when a member acts on
+    // the repo. Only the two GATE surfaces moved off it.
+    const prisma = prismaWith([{ fullName: "acme/web", passportJson: passport() }], []);
+    create.mockResolvedValue(admissionRow({ repoFullName: "acme/web" }));
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await getRepoAdmission("acme", "acme/web");
+
+    expect(create).toHaveBeenCalledTimes(1);
   });
 });

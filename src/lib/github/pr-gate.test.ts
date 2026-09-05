@@ -22,6 +22,9 @@ vi.mock("@/lib/db", () => ({
   reportPermalink: vi.fn(() => "/report/acme/api/sha-head"),
 }));
 vi.mock("@/lib/scan", () => ({ scanRepository: vi.fn() }));
+// TENANCY: which org's state governs this repo. Defaults to the owner login (the resolver's own fast
+// path), so every pre-existing case here is unchanged; the slug≠owner case overrides it.
+vi.mock("@/lib/db/org-tenancy", () => ({ orgSlugForRepo: vi.fn(async (owner: string) => owner) }));
 vi.mock("@/lib/site", () => ({ publicBaseUrl: vi.fn(() => "https://ascent.example.dev") }));
 // `tightenGatePolicy` and `defaultGatePolicy` are the REAL implementations: the assertion this file
 // carries about the admission layer is that the Check Run folds it the same way the public endpoint
@@ -51,6 +54,7 @@ vi.mock("@/lib/scoring/engine", () => ({ diffReports: vi.fn(() => ({ unchanged: 
 import { runPrGate, RERUN_ACTION } from "./pr-gate";
 import { getInstallationToken } from "@/lib/github/app";
 import { getOrgGatePolicy } from "@/lib/db";
+import { orgSlugForRepo } from "@/lib/db/org-tenancy";
 import { scanRepository } from "@/lib/scan";
 import { evaluateGate } from "@/lib/scoring/gate";
 import { buildGateComment } from "@/lib/scoring/gate-comment";
@@ -67,6 +71,7 @@ const mockCheck = vi.mocked(createCheckRun);
 const mockSticky = vi.mocked(upsertStickyComment);
 const mockDiff = vi.mocked(diffReports);
 const mockAdmission = vi.mocked(resolveAdmissionLayer);
+const mockOrgSlug = vi.mocked(orgSlugForRepo);
 const mockChecks = vi.mocked(loadCheckStates);
 
 /** Just enough report for runPrGate itself — it only reads `repo.headSha` (for the permalink). */
@@ -77,6 +82,7 @@ const REF = { installationId: 42, owner: "acme", repo: "api", prNumber: 7, headS
 beforeEach(() => {
   vi.clearAllMocks();
   mockToken.mockResolvedValue("tok");
+  mockOrgSlug.mockImplementation(async (owner: string) => owner);
   mockPolicy.mockResolvedValue(null);
   mockScan.mockResolvedValue(report("sha-head"));
   mockEvaluate.mockReturnValue({ pass: true, policy: {}, failures: [], skipped: [], caveats: [] });
@@ -323,5 +329,34 @@ describe("runPrGate — the scan's honesty flags reach the verdict", () => {
     // must reach the evaluator as an explicit empty list rather than as a hole.
     await runPrGate(REF);
     expect(mockEvaluate).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ sensorFailures: [] }));
+  });
+});
+
+// The merge-blocking surface must resolve org state the same way the public endpoint does, and by the
+// same fact: the org that TRACKS the repository. Keyed on the owner login, an org named for its team
+// found neither its persisted bar nor its admission overlay — and a missing bar reads as "none
+// configured", so the check that blocks merges enforced the archetype default instead.
+describe("runPrGate — org state resolves by tenancy, not by the owner login", () => {
+  it("reads the policy, the admission overlay and the ledger under the TRACKING org's slug", async () => {
+    mockOrgSlug.mockResolvedValue("kiro");
+    mockPolicy.mockResolvedValue({ minLevel: "L4", requireChecks: ["control.prepush.lint"] });
+    mockChecks.mockResolvedValue({ "control.prepush.lint": "pass" });
+
+    await runPrGate({ ...REF, owner: "xkazm04", repo: "kp" });
+
+    expect(mockOrgSlug).toHaveBeenCalledWith("xkazm04", "xkazm04/kp");
+    expect(mockPolicy).toHaveBeenCalledWith("kiro");
+    expect(mockAdmission).toHaveBeenCalledWith("kiro", "xkazm04/kp");
+    expect(mockChecks).toHaveBeenCalledWith("kiro", "xkazm04/kp");
+  });
+
+  it("a failed tenant resolve posts the neutral check and releases the delivery — never a green one", async () => {
+    const onRetryable = vi.fn();
+    mockOrgSlug.mockRejectedValue(new Error("db down"));
+
+    await runPrGate(REF, { onRetryable });
+
+    expect(mockCheck).toHaveBeenCalledWith(expect.objectContaining({ conclusion: "neutral", title: "Maturity gate could not run" }));
+    expect(onRetryable).toHaveBeenCalled();
   });
 });

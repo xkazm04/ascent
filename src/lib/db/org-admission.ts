@@ -111,6 +111,11 @@ export async function derivedTierFor(orgSlug: string, repoFullName: string): Pro
  * product asserting a grade nobody measured.
  *
  * Returns null without a database, for an unknown org, or for a repo with no assessed tier.
+ *
+ * CALLERS THAT STILL SEED, deliberately: `/api/org/admission/propose`, `/api/org/admission/ruleset`
+ * and the MCP admission tools — all authenticated, all acting on an org member's request to work with
+ * this repo's decision, which is the moment a row is legitimately created. The two GATE surfaces read
+ * through {@link readRepoAdmission} instead; see that function for why.
  */
 export async function getRepoAdmission(orgSlug: string, repoFullName: string): Promise<RepoAdmissionRow | null> {
   if (!isDbConfigured()) return null;
@@ -145,6 +150,39 @@ export async function getRepoAdmission(orgSlug: string, repoFullName: string): P
     const raced = await prisma.repoAdmission.findFirst({ where: { orgId: org.id, repoFullName }, select: SELECT });
     return raced ? toRow(raced) : null;
   }
+}
+
+/**
+ * The NON-SEEDING twin of {@link getRepoAdmission}: the same answer, computed in memory, writing
+ * nothing.
+ *
+ * WHY IT HAD TO EXIST. `resolveAdmissionLayer` is called from the ANONYMOUS `GET /api/gate`, and it
+ * went through the seeding reader — so an unauthenticated request performed an INSERT into a
+ * governance table. A row that exists to record a decision was being manufactured as a side effect of
+ * a stranger's CI call, on a surface whose security note promises only reads. That is the same
+ * argument `listOrgAdmissions` already made for the fleet list ("a read must not seed"); the gate is
+ * the other caller that reaches this path without anybody deciding anything.
+ *
+ * The returned row is what the seed WOULD have written (`deriveRepoAdmission` — grant = measurement,
+ * `assisted-only`, `decidedBy` null), so the gate's overlay is identical either way; only the write
+ * is gone. `id` and the timestamps are empty because nothing was written, and no gate caller reads
+ * them.
+ *
+ * Null in exactly the same cases as the seeding reader: no database, unknown org, or a repo with no
+ * assessed tier — for which `getRepoAdmission` also declines to write a row at all.
+ */
+export async function readRepoAdmission(orgSlug: string, repoFullName: string): Promise<RepoAdmissionRow | null> {
+  if (!isDbConfigured()) return null;
+  const org = await getOrgBySlug(orgSlug);
+  if (!org) return null;
+  const existing = await getPrisma().repoAdmission.findFirst({
+    where: { orgId: org.id, repoFullName },
+    select: SELECT,
+  });
+  if (existing) return toRow(existing);
+  const derived = await derivedTierFor(orgSlug, repoFullName);
+  if (!derived) return null;
+  return deriveRepoAdmission(repoFullName, derived, await activeStanceVersion(org.id));
 }
 
 /**
