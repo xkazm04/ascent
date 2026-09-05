@@ -27,6 +27,7 @@ their source of truth from it once it is mapped.
 | `src/features/shared/registry/registryModel.ts` | the shared pure derivations (six steps, repo tree, verdict line) |
 | `src/features/shared/registry/RegistryPreviewShell.tsx` | the fixture-state switcher, gated by `registryPreviewEnabled()` |
 | `src/features/shared/registry/RegistrySetup.tsx` (+ `RegistryMapPanel`, `RegistryRepoPicker`, `useRegistryRepoOptions`) | step 1: create the repo, or pick/type the one to map |
+| `src/features/shared/registry/RegistryKnowledgePointer.tsx` | the one line that points at the Knowledge base tab — the subject-level panels (conformance matrix, weak governance, signals readout) moved there on 2026-09-05 |
 | `src/app/org/[slug]/registry/page.tsx` | permanent redirect stub into `?tab=registry` |
 | `src/lib/registry/layout.ts` | v1 file layout constants + the deterministic `buildScaffoldFiles(org)` |
 | `src/lib/registry/policy.ts` | `.ascent/registry.yaml` parse + serialize (small YAML subset) |
@@ -128,6 +129,8 @@ user account). Every probe fails closed.
 | `POST /api/org/:slug/registry` | admin | map `fullName`, or `create: true` to create `<org>/ai-registry`; then open the scaffold PR |
 | `POST .../registry/index` | member | re-read HEAD and rebuild the mirror rows |
 | `POST .../registry/migrate?type=skills,practices,memory` | admin | export the still-hosted rows of one type as one draft PR; a type with zero rows is a **no-op**, never an empty PR |
+| `POST .../registry/conformance` (`{ repositoryIds?, repositoryId? }`) | admin | sweep the fleet, a list, or one repo — see the conformance ledger |
+| `GET` / `POST .../registry/dispatch` | member / admin (brief) · owner + self-host + autopilot (local) | the hand-off ledger and the two dispatch modes — see below |
 
 Every failure is `{ error, code }` with a real status — `persistence-off` (503), `invalid-input` (400),
 `not-permitted` (403), `not-mapped` (409), `github-error` (502) — never a bare 500.
@@ -203,13 +206,13 @@ prompt slot a source file should have had.
 never fall through to `conformant`, because "nobody looked" and "this follows the standard" are
 opposite facts and only one of them is an achievement.
 
-Three different absences reach the UI and each reads differently:
-
-| Absence | What it means | How it renders |
-| --- | --- | --- |
-| never swept | no sweep has run for this org | *"No sweep has run yet"* — not a clean fleet |
-| no map | the repo was visited and has no `.ai/registry-map.json` | counted beside the mapped repos |
-| unjudged | the pair exists, nobody has judged it | `—` |
+Absence is never zero. Since 2026-09-05 the Knowledge base tab renders every (subject × swept repo)
+as one of **eleven** states — the four verdicts above plus seven classified absences (`candidate`,
+`accepted`, `deferred`, `declined`, `out-of-scope`, `out-of-domain`, `no-map`), classified exactly as
+the registry's own `build-fleet-map.mjs` does; see
+[org-knowledge/knowledge-base.md](../org-knowledge/knowledge-base.md#the-cell-vocabulary). "Never
+swept" stays its own fact: no `RepoConformanceMap` row at all, rendered as *"never run"*, not as a
+clean fleet.
 
 `consults30d` is `null` when `.ai/consults.jsonl` is absent — the lane was never written, which is not
 "nobody consulted". Every `RegistrySignal` count is nullable for the same reason: a contributor may
@@ -234,6 +237,40 @@ The matrix folds a subject's several contexts **worst-wins**: one evidenced devi
 deviation even where four sibling contexts conform. `evidence` (the repo's own `file:line` text) is
 stored for the org's own UI, capped at 2,000 characters, truncated to 400 on the wire — and it **never
 leaves the deployment**.
+
+#### The sweep reads the foundation, not just the map (2026-09-05)
+
+Per fleet repo the sweep (`conformance-sweep.ts`, reader `conformance-read.ts`) also fetches, through
+the App token and under `MAX_STANDARDS_BYTES`: the repo's **root tree listing** (the presence probe for
+`context-map.json` and for an `.ai/` directory at all — when there is none, no further requests are
+spent); `.ai/manifest.yaml` (or `.yml`) for `knowledge.domains` and the `scope:` block
+(`out_of_scope_categories`, `out_of_scope_subjects`), parsed by the same small line reader the
+registry's own scripts use (`conformance-foundation.ts`, no YAML dependency); and
+`.ai/directions/ledger.jsonl`, keeping the **latest decision per (bundle, subject)**. Each optional
+lane degrades on its own (a failed read is a warning on the repo's row); a transport failure on the
+map still keeps the previous conformance.
+
+**One row per swept repo.** `RepoConformanceMap` is written for **every** repo the sweep visits. A
+repo with no map gets a header row with `mapSha: null`, counts 0, `schema: ""`, `generatedAt` = sweep
+time and the foundation facts (`hasContextMap`, `hasManifest`, domains, scope, directions);
+`weaklyGovernedJson` now carries the weakly-governed contexts **by name**. Readers: `hasMap` is
+exactly `mapSha !== null`; `RegistryView.conformance.repos` is filtered to mapped rows and
+`reposWithoutMap` counts the rest; the Knowledge base view lists all swept repos and uses the mapped
+ones as matrix columns. `POST .../registry/conformance` also accepts `{ repositoryId }` for a
+one-repo sweep (gate-then-constrain: the id travels into the org-constrained query).
+
+**Stage detection** (`repoStage`, `src/lib/registry/absence.ts`): `populate` (no `context-map.json`)
+→ `map` (no registry map) → `conform` (any pair unjudged, or judged against a digest that is not the
+subject's current `OrgKnowledgeSubject.digest`) → `current`. **Absence classification**
+(`classifyAbsence`, same module) is a verbatim port of the registry's rule, first match wins:
+`no-map` → `out-of-domain` → `out-of-scope` (keys `<bundle>/<subject>`, `<bundle>/<category>`,
+`<bundle>/<category>/<subcategory>`) → `declined` → `deferred` → `accepted` → `candidate`.
+
+**Index → sweep chaining.** `indexRegistry` chains `sweepConformance` after a successful pass when
+its source carries a token; the sweep's warnings land on the registry row prefixed `sweep:`, and a
+sweep failure is a warning, never an index failure. The indexer also mirrors each bundle's
+`taxonomy.json` (`OrgRegistry.bundlesJson[].taxonomy`, normalized; missing → `[]` + warning) and each
+subject's `digest`.
 
 ### Contributing signals back
 
@@ -264,10 +301,87 @@ file ascent is the sole author of.
 | Model | Purpose |
 | --- | --- |
 | `OrgKnowledgeSubject` | one subject per bundle, from the generated index; soft-archived when it leaves the corpus, because a conformance row may still cite it |
-| `RepoConformanceMap` | one repo's map header — the counts and provenance it asserts about itself |
+| `RepoConformanceMap` | one row per SWEPT repo — the map header when there is one (`mapSha` null otherwise) plus the foundation the sweep probed (`hasContextMap`, `hasManifest`, `scopeJson`, `directionsJson`, `weaklyGovernedJson`) |
 | `RepoConformance` | one judged (context × subject) pair, with its evidence |
 | `RegistrySignal` | the `signals/` lane as one contributor published it; every count nullable |
 | `RegistrySignalContribution` | append-only audit of every contribution ascent attempted |
+| `RegistryDispatch` | one hand-off of registry work for a fleet repo (populate / map / conform; brief or local run); Ascent writes only this ledger and the sweep closes it |
+
+## Dispatching a registry stage to a repo (2026-09-05)
+
+A fleet repo stands at one of four registry stages (`populate` → `map` → `conform` → `current`,
+derived by the sweep — see `repoStage` in `src/lib/registry/absence.ts`). The Knowledge base tab
+can **dispatch** the next stage to a coding agent Ascent does not watch. Ascent writes only its
+own ledger (`RegistryDispatch`); the repo, its `.ai/registry-map.json` and the registry change
+through the branch and PR the dispatch produces.
+
+### Two modes
+
+| Mode | Who runs it | Gate | What Ascent does |
+| --- | --- | --- | --- |
+| `brief` | an operator, in their own Claude session next to the checkout | org **admin** (no GitHub token — nothing reaches GitHub) | composes the brief, records a `handed_off` row, returns the brief text (`201 { dispatch, brief }`) |
+| `local` | the local plane's agent, in an isolated worktree of the **paired** checkout | self-hosted (404 elsewhere) → org **owner** → `ASCENT_AUTOPILOT=1` (409 `autopilot-off`) → paired (409 `not-paired`) → installation token (owner floor) | records a `running` row, answers `202 { dispatch }` at once, runs detached: worktree on `ascent/registry-<stamp>-<repo>` → agent → commit the residue with an `Ascent-Dispatch: <id>` trailer → push → draft PR to the default branch → row `proposed` (branch, PR URL, model, cost, turns, duration, summary). No commits → `failed` ("the agent produced no commits"); any error → `failed` with the message. The worktree is always removed; a one-repo sweep follows. |
+
+### The brief
+
+`buildRegistryBrief` (`src/lib/registry/dispatch-brief.ts`) is pure and deterministic — same
+input, byte-identical text — following the registry's `remediation-handoff` golden path: one
+codebase per artifact, the dispatch id verbatim, a working-rules block, a per-stage "Do this"
+block, and a return contract. Its SHA-256 (first 16 hex, `sha256:…`) is the row's `briefDigest`.
+
+- `populate`: `/project-populate contexts` → `node ../ai-registry/scripts/build-registry-map.mjs --project <name>` → commit both.
+- `map`: ensure `.ai/manifest.yaml` declares `knowledge.domains` → the map builder → commit `.ai/registry-map.json`.
+- `conform`: one `/conform --subject <slug>` per named subject (1–12); verdicts are written in place into the map (`state`, `evidence` with `file:line`, `evaluatedAt`, `evaluatedAgainst`) → commit the map.
+
+Working rules: read the repo's own `AGENTS.md`/`CLAUDE.md` first; branch first, never commit to the
+default branch; smallest real change; the standard does not bend to the code — a deviation is
+recorded, never silent; skip what does not apply and say why; never edit a guard test to pass.
+
+### The return contract — how a dispatch closes
+
+Commit on a branch and open a PR to the default branch. **Ascent detects completion by sweeping
+the committed `.ai/registry-map.json`** (`sweepConformance`); nothing the agent or the runner
+reports is consulted. After ingesting a repo, the sweep loads the repo's OPEN dispatches
+(`handed_off` / `running` / `proposed`) and marks one `done` (with `mapShaAfter`, `endedAt`) when:
+
+- the swept `mapSha` differs from the row's `mapShaBefore` (a null `mapShaBefore` means any map counts), and
+- for `conform`, none of the subjects the brief named still has an `unjudged` pair in the fresh map.
+
+Otherwise the row stays open. Ledger read/write failures are sweep warnings, never sweep failures.
+A new dispatch for the same (repo, stage) marks the older open rows `superseded`.
+
+The `Ascent-Dispatch: <id>` commit trailer makes the PR traceable to its row; the sweep does not
+depend on it.
+
+### Roles, in one line
+
+Member reads the ledger; admin composes a brief; owner on a consenting self-hosted box runs it locally.
+
+**Known gap.** The repo's default branch is not stored (`Repository` has no such column; the sweep
+reads GitHub's implicit default). A brief names the branch the paired checkout's `origin/HEAD`
+reports, else `main`.
+
+### Route contract — `/api/org/:slug/registry/dispatch`
+
+| Verb | Body / query | Gate | Response |
+| --- | --- | --- | --- |
+| `GET` | `?repositoryId=` (optional) | member (`guardRegistryRead`) | `200 { dispatches: RegistryDispatchRow[] }` — newest first, up to 100 |
+| `POST` | `{ repositoryId, stage: "populate"\|"map"\|"conform", subjects?: string[], mode: "brief" }` | admin (`guardRegistryRole(slug, "admin")`, no token) | `201 { dispatch: RegistryDispatchRow, brief: string }` |
+| `POST` | same with `mode: "local"` | `selfHostGuard` → `requireOrgRole(owner)` → `autopilotEnabled()` → paired → `guardRegistryWrite(slug, { minRole: "owner" })` | `202 { dispatch: RegistryDispatchRow }` (status `running`) |
+
+Errors (all `{ error, code }`; local refusals carry the machine token in `error` plus a `message`):
+
+| Status | When |
+| --- | --- |
+| 400 `invalid-input` | bad `stage` / `mode`, missing `repositoryId`, `conform` with 0 or > 12 subjects |
+| 404 | managed cloud for `mode: local` (`selfHostGuard`); `not-found` for an unknown org or a repo outside the org |
+| 409 `not-mapped` | the org has no registry mapped |
+| 409 `invalid-input` | `conform` for a repo with no map ("dispatch the map stage first") |
+| 409 `{ error: "autopilot-off" }` | local mode without `ASCENT_AUTOPILOT=1` |
+| 409 `{ error: "not-paired" }` | local mode for an unpaired repo |
+| 403 `not-permitted` / 503 `persistence-off` | from the shared registry gates |
+
+`subjects` are trimmed, de-duplicated, kept in order, and ignored for `populate` / `map`.
 
 ## The improvement channel (2026-08-30)
 
@@ -348,14 +462,6 @@ requiring admin to *propose* would lock out the people who write the memory.
   `.claude/skills` against the catalog does not exist yet. *(Narrowed 2026-08-30: `telemetry.invokes30d`
   is now real, from the registry's `usage/` lane and this org's own events API, and CONFORMANCE
   adoption is measured — see the conformance ledger above.)*
-- **Which contexts are weakly governed is not stored.** Each repo's map states `governance` per
-  context and the ingest keeps only the COUNT (`RepoConformanceMap.weaklyGoverned`), so the panel
-  ranks repos rather than listing contexts. It is genuinely not derivable: classifying by match
-  confidence would put 18 of this repo's 52 contexts in the wrong bucket, which is why the field is
-  read rather than inferred. Closing it needs one column (`weaklyGovernedJson`).
-- **Nothing consumes `OrgKnowledgeSubject` as a row vocabulary yet.** The subjects are mirrored and
-  readable (`listSubjectsForContext`), but the matrix's rows come from the pairs the maps assert, so a
-  subject no repo matched is invisible there.
 - **Lessons do not reach Memory yet.** The mapping (`lesson-memory.ts`: the skill as namespace,
   `procedural`, confidence 0.6, ten newest per pass) is written and tested, but the insert goes
   through the one ingest door in `src/lib/memory/scan-feed.ts` and that door's generalized form

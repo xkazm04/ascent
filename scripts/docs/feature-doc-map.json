@@ -419,6 +419,21 @@
         "src/features/inflight/live/AutopilotBand.tsx",
         "src/features/inflight/live/AutopilotBandParts.tsx"
       ]
+    },
+    {
+      "area": "org-knowledge",
+      "doc": "docs/features/org-knowledge/knowledge-base.md",
+      "sourceGlobs": [
+        "src/features/shared/knowledge/**",
+        "src/lib/org/knowledge-*.ts",
+        "src/lib/registry/absence.ts",
+        "src/lib/registry/conformance-fold.ts",
+        "src/lib/registry/conformance-foundation.ts",
+        "src/lib/registry/taxonomy.ts",
+        "src/lib/registry/dispatch-*.ts",
+        "src/lib/db/org-registry-dispatch.ts",
+        "src/app/api/org/[slug]/registry/dispatch/**"
+      ]
     }
   ]
 }
