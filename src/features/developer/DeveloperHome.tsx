@@ -17,6 +17,7 @@
 
 import { useState } from "react";
 import { Kicker } from "@/components/ui";
+import { CarePreviewBanner } from "./CarePreviewBanner";
 import { DeveloperCompanion } from "./DeveloperCompanion";
 import { DEVELOPER_PREVIEW_STATES, type DeveloperView } from "@/lib/org/developer-view";
 
@@ -72,6 +73,8 @@ export function DeveloperHome({ view, slug }: { view: DeveloperView; slug: strin
           </p>
         </div>
       )}
+
+      {preview ? <CarePreviewBanner name={preview.name} onExit={() => choose(null)} /> : null}
 
       <DeveloperCompanion view={preview?.view ?? view} slug={slug} />
     </div>

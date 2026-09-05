@@ -29,6 +29,11 @@ export function CareRepoGaps({ repos }: { repos: DeveloperView["myRepos"] }) {
             </a>
             <CareLevelMark level={r.level} score={r.score} />
           </div>
+          {/* A repo with nothing open is a fact worth stating. The rule with an empty list under it
+              read as a section that had failed to load. */}
+          {r.openRecommendations.length === 0 ? (
+            <p className="mt-3 border-t border-divider pt-3 type-body-sm text-slate-500">No open gaps.</p>
+          ) : (
           <ul className="mt-3 space-y-2 border-t border-divider pt-3">
             {r.openRecommendations.map((rec) => (
               <li key={rec.title}>
@@ -40,6 +45,7 @@ export function CareRepoGaps({ repos }: { repos: DeveloperView["myRepos"] }) {
               </li>
             ))}
           </ul>
+          )}
         </div>
       ))}
     </div>
