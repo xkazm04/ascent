@@ -25,8 +25,9 @@ const fail: GateResult = {
     { code: "level", message: "below L3" },
   ],
   skipped: [],
+  caveats: [],
 };
-const pass: GateResult = { pass: true, policy: {}, failures: [], skipped: [] };
+const pass: GateResult = { pass: true, policy: {}, failures: [], skipped: [], caveats: [] };
 
 /** The single emitted line, parsed back out of the `[gate:verdict] {…}` envelope. */
 function emitted(spy: ReturnType<typeof vi.spyOn>) {
@@ -98,6 +99,7 @@ describe("logGateVerdict — the skip channel", () => {
         { code: "control", why: "no ledger (a.b.c)" },
         { code: "control", why: "no ledger (d.e.f)" },
       ],
+      caveats: [],
     };
     logGateVerdict(report(), withSkips, { surface: "api", repo: "acme/api", policySource: "params" });
 

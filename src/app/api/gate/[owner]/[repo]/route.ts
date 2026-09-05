@@ -254,7 +254,16 @@ export async function GET(
     // null (no ledger, no report, a summary-only report) SKIPS every named check rather than failing
     // a repo for a measurement that was never due.
     const checkStates = policy.requireChecks?.length ? await loadCheckStates(ownerN, coordinate) : null;
-    const gate = evaluateGate(report, policy, { checkStates });
+    // THE SCAN'S OWN HONESTY FLAGS, threaded explicitly at the seam rather than left implicit: this
+    // surface reads `sensorFailures` + `confidence` off the report it just produced, so a scan whose
+    // governance or security sensor THREW cannot answer with a full-confidence green verdict. (The
+    // evaluator defaults to exactly these; naming them here is what makes the read visible where the
+    // verdict is produced.)
+    const gate = evaluateGate(report, policy, {
+      checkStates,
+      sensorFailures: report.sensorFailures ?? [],
+      confidence: report.confidence,
+    });
     logGateVerdict(report, gate, {
       surface: "api",
       repo: coordinate,
@@ -311,6 +320,11 @@ export async function GET(
         // `policy.requireProtectedBranch: true` was entitled to believe the branch was checked. This is
         // the correction, and it is machine-readable so a workflow can fail on an empty measurement.
         skipped: gate.skipped,
+        // The gate's own reading of this scan's reliability — a failed sensor, coverage under the
+        // scan's declared floor, a truncated PR page. `warnings` below is the scan's raw prose; this
+        // is the subset that qualifies THIS VERDICT, in the gate's voice, and it is what the check-run
+        // summary and the PR comment render.
+        caveats: gate.caveats,
         // #8 — WHY this repository was held to this bar. A CI log that only carries the effective
         // policy cannot explain why two repos under one org got different verdicts; the triple can.
         // Omitted entirely (not nulled) when no admission row applied, so a repo without one produces

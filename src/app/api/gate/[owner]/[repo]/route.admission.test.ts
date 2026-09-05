@@ -117,7 +117,7 @@ describe("no admission row — the byte-identical no-op", () => {
   it("does not read the conformance ledger when no policy names a check", async () => {
     await get();
     expect(mockCheckStates).not.toHaveBeenCalled();
-    expect(inputsUsed()).toEqual({ checkStates: null });
+    expect(inputsUsed()).toMatchObject({ checkStates: null });
   });
 });
 
@@ -234,7 +234,7 @@ describe("requireChecks reads the ledger only when a check is named", () => {
     await get();
 
     expect(mockCheckStates).toHaveBeenCalledWith("acme", "acme/widget");
-    expect(inputsUsed()).toEqual({ checkStates: { "control.prepush.lint": "fail" } });
+    expect(inputsUsed()).toMatchObject({ checkStates: { "control.prepush.lint": "fail" } });
   });
 
   it("a null ledger reaches the evaluator as null — a skip, never a manufactured failure", async () => {
@@ -243,6 +243,6 @@ describe("requireChecks reads the ledger only when a check is named", () => {
 
     await get();
 
-    expect(inputsUsed()).toEqual({ checkStates: null });
+    expect(inputsUsed()).toMatchObject({ checkStates: null });
   });
 });

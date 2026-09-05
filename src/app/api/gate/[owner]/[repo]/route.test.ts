@@ -817,3 +817,51 @@ describe("GET /api/gate — policySource keys on the PARSED policy, not the quer
     expect(emitted(info).policySource).toBe("org");
   });
 });
+
+// The API is one of the two surfaces that must carry the scan's own honesty flags into the verdict
+// (quality-gates/gate-liveness). It already returned `warnings` / `confidence` as raw report fields;
+// what it could not do was say that a FAILED sensor made a bar unenforceable, or that the coverage
+// behind this verdict is below the floor the scan itself declares.
+describe("GET /api/gate — the scan's honesty flags reach the verdict", () => {
+  const sensorFailedReport = () =>
+    ({
+      ...report(),
+      dimensions: [{ id: "D1", name: "Foundations", score: 70 }],
+      sensorFailures: ["governance"],
+      confidence: 0.3,
+      prPartial: true,
+    }) as unknown as ScanReport;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    mockCacheGet.mockReturnValue(sensorFailedReport());
+    mockRateLimit.mockReturnValue({ ok: true, retryAfterSec: 0 });
+    mockRateLimitShared.mockResolvedValue({ ok: true, retryAfterSec: 0 });
+    mockGetOrgGatePolicy.mockResolvedValue(null);
+    mockPersisted.mockResolvedValue(null);
+    mockPolicyFromParams.mockReturnValue({ requireProtectedBranch: true } as never);
+    mockEvaluateGate.mockImplementation((await vi.importActual<typeof import("@/lib/scoring/gate")>("@/lib/scoring/gate")).evaluateGate);
+  });
+
+  it("threads sensorFailures + confidence into the evaluator at this seam", async () => {
+    await get("?require_protection=1");
+    expect(mockEvaluateGate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ sensorFailures: ["governance"], confidence: 0.3 }),
+    );
+  });
+
+  it("returns caveats[] naming the failed read, the coverage floor and the truncated PR page", async () => {
+    const body = await (await get("?require_protection=1")).json();
+    expect(body.caveats.join(" ")).toContain("branch governance");
+    expect(body.caveats.join(" ")).toContain("30% of the repository");
+    expect(body.caveats.join(" ")).toContain("Review, Velocity");
+  });
+
+  it("reports the skipped protected-branch bar as a READ FAILURE, not as 'no token'", async () => {
+    const body = await (await get("?require_protection=1")).json();
+    expect(body.skipped[0].code).toBe("governance");
+    expect(body.skipped[0].why).toContain("FAILED");
+  });
+});

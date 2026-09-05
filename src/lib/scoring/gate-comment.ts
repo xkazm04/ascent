@@ -22,6 +22,9 @@ export const CHECK_SUMMARY_MAX_BYTES = 65535;
  *  its own skip, so this block is the only one in the builder that can grow with policy size. */
 const MAX_SKIP_LINES = 8;
 
+/** Same bound, same reason, for the scan's self-reported caveats. */
+const MAX_CAVEAT_LINES = 6;
+
 export interface GateComment {
   /** GitHub Check Run conclusion. `neutral` = the verdict is non-authoritative (PR head not scored). */
   conclusion: "success" | "failure" | "neutral";
@@ -141,6 +144,20 @@ export function buildGateComment(
     );
     lines.push("");
     lines.push(`Adoption **${report.adoptionScore}** · Rigor **${report.rigorScore}**${delta ? ` · _${delta} ${baselineSuffix}_` : ""}`);
+  }
+
+  // HOW RELIABLE WAS THE SCAN THAT PRODUCED THIS VERDICT (quality-gates/gate-liveness). Placed
+  // BEFORE the failures and the dimension table, because it qualifies every number under it: a scan
+  // whose governance or security sensor threw produced a verdict against evidence that is missing,
+  // and until now that fact reached the report body and stopped there — the Check Run was rendered
+  // at full confidence either way.
+  if (gate.caveats.length) {
+    lines.push("");
+    lines.push("> **Read this verdict with caveats**");
+    for (const c of gate.caveats.slice(0, MAX_CAVEAT_LINES)) lines.push(`> - ${mdInline(c)}`);
+    if (gate.caveats.length > MAX_CAVEAT_LINES) {
+      lines.push(`> - _…and ${gate.caveats.length - MAX_CAVEAT_LINES} more caveat(s) on this scan's reliability._`);
+    }
   }
 
   if (!pass && gate.failures.length) {

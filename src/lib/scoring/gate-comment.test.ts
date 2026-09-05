@@ -36,12 +36,13 @@ function report(over: Partial<ScanReport> = {}): ScanReport {
   };
 }
 
-const passGate: GateResult = { pass: true, policy: { minLevel: "L3", minDimension: 40 }, failures: [], skipped: [] };
+const passGate: GateResult = { pass: true, policy: { minLevel: "L3", minDimension: 40 }, failures: [], skipped: [], caveats: [] };
 const failGate: GateResult = {
   pass: false,
   policy: { minLevel: "L3", minDimension: 40 },
   failures: [{ code: "level", message: "Overall level L2 is below the required L3." }],
   skipped: [],
+  caveats: [],
 };
 
 describe("buildGateComment", () => {
@@ -117,6 +118,7 @@ describe("buildGateComment", () => {
       policy: { minDimension: 40 },
       failures: [{ code: "dimension", message: "D9 Supply Chain & Security scored 20, below the required 40." }],
       skipped: [],
+  caveats: [],
     };
     const c = buildGateComment(report({ overallScore: 30, dimensions: dims }), fail); // must not throw
     expect(c.conclusion).toBe("failure");
@@ -133,6 +135,7 @@ describe("buildGateComment", () => {
       policy: { minDimension: 40 },
       failures: [{ code: "dimension", message: "D9 scored 10, below the required 40." }],
       skipped: [],
+  caveats: [],
     };
     const c = buildGateComment(report({ overallScore: 20, dimensions: dims }), fail);
     // The real marker appears exactly once (forged copy in the name is defused to &lt;!--).
@@ -176,6 +179,7 @@ describe("buildGateComment", () => {
       // Governance WAS read on this run (the App check run's scan carries a token), so the
       // protected-branch bar is enforced and the footer prints it unqualified.
       skipped: [],
+  caveats: [],
     };
     const c = buildGateComment(report(), gate);
     expect(c.commentBody).toContain("Policy: min L3 · min overall 50 · no dim < 40 · no D9 < 50 · forbid ungoverned · protected branch");
@@ -189,13 +193,13 @@ describe("buildGateComment", () => {
   it("tells the PR why the security floor is trustworthy — but ONLY when a D9 floor is enforced", () => {
     const withFloor = buildGateComment(
       report(),
-      { pass: true, policy: { minLevel: "L3", minDimensionFor: { D9: 50 } }, failures: [], skipped: [] },
+      { pass: true, policy: { minLevel: "L3", minDimensionFor: { D9: 50 } }, failures: [], skipped: [], caveats: [] },
     );
     expect(withFloor.commentBody).toContain("fully deterministic");
     expect(withFloor.commentBody).toContain("never move the number");
     expect(withFloor.commentBody).toContain("Same tree, same verdict.");
 
-    const withoutFloor = buildGateComment(report(), { pass: true, policy: { minLevel: "L3" }, failures: [], skipped: [] });
+    const withoutFloor = buildGateComment(report(), { pass: true, policy: { minLevel: "L3" }, failures: [], skipped: [], caveats: [] });
     expect(withoutFloor.commentBody).not.toContain("fully deterministic");
     // The claim lives in the COMMENT footer only — the check-run summary is the merge-blocking
     // surface and stays a verdict, not an argument.
@@ -277,6 +281,7 @@ describe("buildGateComment — conditions that could not be measured", () => {
     policy: { minLevel: "L3", requireProtectedBranch: true },
     failures: [],
     skipped: [{ code: "governance", why: "Branch protection was NOT READ on this scan, so the rule was not tested." }],
+    caveats: [],
   };
 
   it("renders a 'Not measured on this run' block naming the criterion and why", () => {
@@ -310,6 +315,7 @@ describe("buildGateComment — conditions that could not be measured", () => {
       policy: { requireChecks: Array.from({ length: 100 }, (_, i) => `control.x${i}.check`) },
       failures: [],
       skipped: Array.from({ length: 100 }, (_, i) => ({ code: "control" as const, why: `"control.x${i}.check" was not judged: no conformance report.` })),
+      caveats: [],
     };
     const c = buildGateComment(report(), many);
     expect(c.summary).toContain("more condition(s) this run could not test");
@@ -326,6 +332,7 @@ describe("buildGateComment — an incomplete scan states that nothing was measur
     policy: { minLevel: "L3" },
     failures: [{ code: "incomplete", message: "This scan is INCOMPLETE: no dimension could be scored." }],
     skipped: [],
+  caveats: [],
   };
   const blind = () => report({ overallScore: 0, dimensions: [], incomplete: true });
 
@@ -344,7 +351,40 @@ describe("buildGateComment — an incomplete scan states that nothing was measur
   });
 
   it("is derived from the REPORT as well as the verdict — a legacy zero-dimension report counts", () => {
-    const c = buildGateComment(blind(), { pass: true, policy: {}, failures: [], skipped: [] });
+    const c = buildGateComment(blind(), { pass: true, policy: {}, failures: [], skipped: [], caveats: [] });
     expect(c.title).toBe("Could not be measured: no dimension could be scored");
+  });
+});
+
+// The Check Run is the surface that BLOCKS a merge, and it rendered a scan whose sensors threw at
+// exactly the same confidence as a clean one. The caveat block is where the scan's own honesty flags
+// finally reach a reader (quality-gates/gate-liveness).
+describe("buildGateComment — the scan's reliability caveats", () => {
+  const caveated = (caveats: string[]): GateResult => ({
+    pass: true,
+    policy: { minLevel: "L3" },
+    failures: [],
+    skipped: [],
+    caveats,
+  });
+
+  it("renders a caveat block on BOTH surfaces, above the failures it qualifies", () => {
+    const c = buildGateComment(report(), caveated(["GitHub signal reads FAILED during this scan (branch governance)."]));
+    expect(c.summary).toContain("Read this verdict with caveats");
+    expect(c.summary).toContain("branch governance");
+    expect(c.commentBody).toContain("Read this verdict with caveats");
+    // Before the "Gaps to explore" section, so it frames the numbers rather than trailing them.
+    expect(c.summary.indexOf("Read this verdict with caveats")).toBeLessThan(c.summary.indexOf("Where this repo could grow next"));
+  });
+
+  it("stays silent on a clean scan", () => {
+    expect(buildGateComment(report(), passGate).summary).not.toContain("Read this verdict with caveats");
+  });
+
+  it("bounds the block, and the summary stays under GitHub's limit", () => {
+    const many = caveated(Array.from({ length: 30 }, (_, i) => `caveat number ${i} about this scan's reliability`));
+    const c = buildGateComment(report(), many);
+    expect(c.summary).toContain("more caveat(s)");
+    expect(Buffer.byteLength(c.summary, "utf8")).toBeLessThan(CHECK_SUMMARY_MAX_BYTES);
   });
 });

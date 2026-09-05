@@ -28,7 +28,7 @@ vi.mock("@/lib/site", () => ({ publicBaseUrl: vi.fn(() => "https://ascent.exampl
 // does, and mocking the merge would make that assertion vacuous.
 vi.mock("@/lib/scoring/gate", async (orig) => ({
   ...(await orig<typeof import("@/lib/scoring/gate")>()),
-  evaluateGate: vi.fn(() => ({ pass: true, policy: {}, failures: [] })),
+  evaluateGate: vi.fn(() => ({ pass: true, policy: {}, failures: [], skipped: [], caveats: [] })),
 }));
 // #8/#16 — the org-scoped reads the gate now makes. Mocked at the SEAM both surfaces share, so a
 // test that stubs it here is stubbing the same function the public route calls.
@@ -79,7 +79,7 @@ beforeEach(() => {
   mockToken.mockResolvedValue("tok");
   mockPolicy.mockResolvedValue(null);
   mockScan.mockResolvedValue(report("sha-head"));
-  mockEvaluate.mockReturnValue({ pass: true, policy: {}, failures: [] });
+  mockEvaluate.mockReturnValue({ pass: true, policy: {}, failures: [], skipped: [], caveats: [] });
   mockCheck.mockResolvedValue({ url: "u", id: 1 });
   mockSticky.mockResolvedValue({ url: "c", updated: false });
   mockAdmission.mockResolvedValue({ overlay: {}, admission: null });
@@ -122,7 +122,8 @@ describe("runPrGate — the happy path writes the merge status and the narrative
     expect(mockEvaluate).toHaveBeenCalledWith(
       expect.anything(),
       { minLevel: "L4", minDimensionFor: { D9: 70 } },
-      { checkStates: null },
+      // The honesty flags ride along in the same bag (gate-liveness); the assertion here is about the POLICY.
+      expect.objectContaining({ checkStates: null }),
     );
   });
 });
@@ -144,7 +145,8 @@ describe("runPrGate — the admission layer is folded identically to the public 
     expect(mockEvaluate).toHaveBeenCalledWith(
       expect.anything(),
       { minLevel: "L2", forbidPostures: ["ungoverned"], requireProtectedBranch: true, minAiGovernedRate: 100 },
-      { checkStates: null },
+      // The honesty flags ride along in the same bag (gate-liveness); the assertion here is about the POLICY.
+      expect.objectContaining({ checkStates: null }),
     );
   });
 
@@ -155,7 +157,7 @@ describe("runPrGate — the admission layer is folded identically to the public 
 
     await runPrGate(REF);
 
-    expect(mockEvaluate).toHaveBeenCalledWith(expect.anything(), orgBar, { checkStates: null });
+    expect(mockEvaluate).toHaveBeenCalledWith(expect.anything(), orgBar, expect.objectContaining({ checkStates: null }));
   });
 
   it("reads the conformance ledger ONLY when the effective policy names a required check", async () => {
@@ -167,16 +169,18 @@ describe("runPrGate — the admission layer is folded identically to the public 
     mockScan.mockResolvedValue(report("sha-head"));
     mockCheck.mockResolvedValue({ url: "u", id: 1 });
     mockSticky.mockResolvedValue({ url: "c", updated: false });
-    mockEvaluate.mockReturnValue({ pass: true, policy: {}, failures: [] });
+    mockEvaluate.mockReturnValue({ pass: true, policy: {}, failures: [], skipped: [], caveats: [] });
     mockAdmission.mockResolvedValue({ overlay: {}, admission: null });
     mockChecks.mockResolvedValue({ "control.prepush.lint": "fail" });
     mockPolicy.mockResolvedValue({ requireChecks: ["control.prepush.lint"] });
 
     await runPrGate(REF);
     expect(mockChecks).toHaveBeenCalledWith("acme", "acme/api");
-    expect(mockEvaluate).toHaveBeenCalledWith(expect.anything(), expect.anything(), {
-      checkStates: { "control.prepush.lint": "fail" },
-    });
+    expect(mockEvaluate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ checkStates: { "control.prepush.lint": "fail" } }),
+    );
   });
 });
 
@@ -295,5 +299,29 @@ describe("runPrGate — confirmOwner binds the installation to the owner", () =>
     ).resolves.toBeUndefined();
 
     expect(mockCheck).toHaveBeenCalledWith(expect.objectContaining({ conclusion: "neutral" }));
+  });
+});
+
+// The check-run surface is the one that can actually block a merge, so it is the one where a
+// full-confidence green check over a scan whose sensors threw does the most damage
+// (quality-gates/gate-liveness). Same seam, same threading as the public endpoint.
+describe("runPrGate — the scan's honesty flags reach the verdict", () => {
+  it("threads sensorFailures + confidence from the HEAD report into the evaluator", async () => {
+    mockScan.mockResolvedValue({ repo: { headSha: "sha-head" }, sensorFailures: ["governance"], confidence: 0.35 } as never);
+
+    await runPrGate(REF);
+
+    expect(mockEvaluate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ sensorFailures: ["governance"], confidence: 0.35 }),
+    );
+  });
+
+  it("passes an EMPTY list (never undefined) when the report records no failed sensor", async () => {
+    // Absent is not "nothing failed" on a reconstructed report — but a live scan that recorded none
+    // must reach the evaluator as an explicit empty list rather than as a hole.
+    await runPrGate(REF);
+    expect(mockEvaluate).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ sensorFailures: [] }));
   });
 });

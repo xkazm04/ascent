@@ -18,7 +18,7 @@
 // plus either an absolute input on `NormalizedGate` or an honest-null skip there. `gate.test.ts`
 // holds this as a table-driven structural guard, so a field added without its four places fails.
 
-import type { DimensionId, LevelId, Posture, RepoArchetype, ScanReport } from "@/lib/types";
+import type { DimensionId, LevelId, Posture, RepoArchetype, ScanReport, ScanSensorId } from "@/lib/types";
 import { LEVELS, DIMENSION_BY_ID } from "@/lib/maturity/model";
 import { parseFloor } from "@/lib/scoring/gate-numeric";
 import { isValidCheckId, type CheckLevel } from "@/lib/standard/check-ids";
@@ -167,6 +167,97 @@ export interface GateResult {
    * not "unmeasured", it is not asked for).
    */
   skipped: GateSkip[];
+  /**
+   * What the SCAN ITSELF says about its own reliability, read by the gate rather than left in the
+   * report (quality-gates/gate-liveness — "a gate that cannot prove it ran has not run").
+   *
+   * A scan whose governance or securityPosture sensor THREW was byte-identical, to every line of gate
+   * code, to one where the signal was legitimately absent: both collapse to null, null is scored as
+   * absence, and the verdict came out a full-confidence green Check Run. `isIncompleteReport` caught
+   * only the total wipeout. These are the partial ones, said out loud.
+   *
+   * Never a verdict of its own: a caveat qualifies a pass/fail, it does not become one. Empty on a
+   * scan that reports nothing wrong with itself.
+   */
+  caveats: string[];
+}
+
+/**
+ * The coverage floor below which this gate adds a caveat. It is the SCAN's own number
+ * (`buildScanWarnings` warns under 0.5 coverage), deliberately: two different "low coverage" lines
+ * disagreeing about where low starts would be worse than one.
+ */
+export const GATE_CONFIDENCE_FLOOR = 0.5;
+
+/** Reader-facing name of each sensor — mirrors scan-compose's SENSOR_LABEL so the gate names the READ
+ *  the same way the scan's own warning does. */
+const GATE_SENSOR_LABEL: Record<ScanSensorId, string> = {
+  pullRequests: "pull requests",
+  governance: "branch governance",
+  securityPosture: "security posture",
+  securityExposure: "dependency exposure",
+  appInventory: "installed-App inventory",
+  ciHealth: "CI health",
+  deployments: "deployments",
+};
+
+/**
+ * WHICH FAILED SENSOR TURNS WHICH CRITERION INTO A SKIP.
+ *
+ * Only the two criteria whose ENTIRE input is one sensor are listed, and that is the whole rule: a
+ * criterion that can be skipped is one whose input either exists or does not. The SCORE bars are
+ * deliberately absent — `securityPosture` failing makes D9 understate, but a `min_security` floor on
+ * an understated D9 must stay FAIL-CLOSED (that is the point of a floor), and converting it to a skip
+ * would turn some failing verdicts into passes. Those sensors are reported as a caveat instead, which
+ * is the honest shape: the bar was tested, against a signal that is missing part of its evidence.
+ */
+const SENSOR_SKIPS: Partial<Record<ScanSensorId, GateSkip["code"][]>> = {
+  governance: ["governance"],
+  pullRequests: ["provenance", "admission"],
+};
+
+/** The honesty flags a scan carries about itself, in the shape the gate reads them. */
+interface GateHonesty {
+  sensorFailures: readonly ScanSensorId[];
+  confidence?: number;
+  warnings?: readonly string[];
+  prPartial?: boolean;
+}
+
+/**
+ * The scan's own reliability caveats, as gate-voice sentences. Pure, and exported so every surface
+ * (check run, sticky comment, API body) renders the SAME list rather than each re-reading the report.
+ */
+export function buildGateCaveats(h: GateHonesty): string[] {
+  const out: string[] = [];
+  const failed = [...h.sensorFailures].filter((id) => GATE_SENSOR_LABEL[id]);
+  if (failed.length) {
+    out.push(
+      `GitHub signal reads FAILED during this scan (${failed.map((id) => GATE_SENSOR_LABEL[id]).join(", ")}). ` +
+        "The checks those reads feed are missing, not absent from the repository, so any bar that depends on them " +
+        "was judged against incomplete evidence.",
+    );
+  }
+  if (typeof h.confidence === "number" && Number.isFinite(h.confidence) && h.confidence < GATE_CONFIDENCE_FLOOR) {
+    out.push(
+      `Only ~${Math.round(h.confidence * 100)}% of the repository could be inspected, below the ${Math.round(
+        GATE_CONFIDENCE_FLOOR * 100,
+      )}% coverage floor the scan itself flags. Treat this verdict as indicative rather than authoritative.`,
+    );
+  }
+  // The report's OWN words, quoted rather than paraphrased: if the scan already says its coverage is
+  // low or its tree was truncated, the verdict repeats that sentence instead of inventing a second
+  // wording for the same fact.
+  for (const w of h.warnings ?? []) {
+    if (/coverage|truncated/i.test(w)) out.push(`The scan reports: ${w}`);
+  }
+  if (h.prPartial) {
+    out.push(
+      "Pull-request data was INCOMPLETE on this scan (GitHub returned a truncated page), so the Review, Velocity " +
+        "and Delivery dimensions understate — a score bar on those was judged low by a read that did not finish.",
+    );
+  }
+  return out;
 }
 
 const levelNum = (id: LevelId) => Number(id.slice(1));
@@ -399,6 +490,13 @@ interface NormalizedGate {
   /** Why the two PR-derived criteria could not be tested, when they could not. Same reasoning. */
   prSkipWhy: string;
   /**
+   * The scan's own list of sensors whose read THREW (`ScanReport.sensorFailures`). A criterion whose
+   * input sensor is in here is skipped as "read FAILED", which is a different sentence from "not read"
+   * and a much more important one: it says the signal exists and we could not see it. Empty on a shape
+   * that carries no such record (the fleet rollup), which is UNKNOWN, never "nothing failed".
+   */
+  sensorFailures: readonly ScanSensorId[];
+  /**
    * Share (0..100) of AI-attributed merged PRs that carried an approving human review, or NULL when
    * unmeasurable (no token, or under the ≥5 AI-PR sample floor). Null SKIPS `minAiGovernedRate` —
    * see the policy field's doc for why an unmeasurable repo must not fail this bar.
@@ -441,6 +539,21 @@ interface NormalizedGate {
 function evaluateNormalized(g: NormalizedGate, pol: GatePolicy): { failures: GateFailure[]; skipped: GateSkip[] } {
   const failures: GateFailure[] = [];
   const skipped: GateSkip[] = [];
+  /** The failed sensor a criterion's input came from, when one failed. */
+  const failedSensorFor = (code: GateSkip["code"]): ScanSensorId | null => {
+    for (const [sensor, codes] of Object.entries(SENSOR_SKIPS)) {
+      if (codes.includes(code) && g.sensorFailures.includes(sensor as ScanSensorId)) return sensor as ScanSensorId;
+    }
+    return null;
+  };
+  /** "read failed" beats "not read": a scan that TRIED and threw must not be reported as one that
+   *  never had a token. Falls back to the shape's own not-measured sentence. */
+  const skipWhy = (code: GateSkip["code"], fallback: string): string => {
+    const sensor = failedSensorFor(code);
+    return sensor
+      ? `The ${GATE_SENSOR_LABEL[sensor]} read FAILED during this scan, so this rule was NOT TESTED. A failed read is not a pass — re-run the gate, or check the token's access.`
+      : fallback;
+  };
 
   // Fail-closed applies to EVERY criterion, not only the dimension floors (ambiguity-ui 2026-07-16
   // ci-gate #2). A plain `<` comparison lets malformed input slip the gate: `NaN < 40 === false`, so
@@ -503,8 +616,12 @@ function evaluateNormalized(g: NormalizedGate, pol: GatePolicy): { failures: Gat
   // single call, so `policy.requireProtectedBranch: true` beside a 200 was the most load-bearing
   // untested bar in the product.
   if (pol.requireProtectedBranch) {
+    // Order matters and is fail-closed: an observed unprotected branch is still a FAILURE even if
+    // some other sensor failed. Only the two non-failing outcomes can become a skip, so a failed read
+    // can never turn a red verdict green — it can only stop a green one from being claimed.
     if (g.governanceEnforce) failures.push({ code: "governance", message: g.governanceMessage });
-    else if (!g.governanceReadable) skipped.push({ code: "governance", why: g.governanceSkipWhy });
+    else if (!g.governanceReadable || failedSensorFor("governance"))
+      skipped.push({ code: "governance", why: skipWhy("governance", g.governanceSkipWhy) });
   }
   // PROVENANCE (W2): were AI-attributed changes actually reviewed by a human before merge?
   //
@@ -514,7 +631,7 @@ function evaluateNormalized(g: NormalizedGate, pol: GatePolicy): { failures: Gat
   // AI PRs in the window. Failing those would block every repo with little AI activity from merging,
   // on a policy whose entire purpose is to govern repos that have a lot of it.
   if (typeof pol.minAiGovernedRate === "number" && g.aiGovernedRate == null) {
-    skipped.push({ code: "provenance", why: g.prSkipWhy });
+    skipped.push({ code: "provenance", why: skipWhy("provenance", g.prSkipWhy) });
   } else if (typeof pol.minAiGovernedRate === "number" && g.aiGovernedRate != null) {
     if (g.aiGovernedRate < pol.minAiGovernedRate) {
       const sample = g.aiPrSample != null ? ` (${g.aiPrSample} AI-attributed PRs sampled)` : "";
@@ -533,7 +650,7 @@ function evaluateNormalized(g: NormalizedGate, pol: GatePolicy): { failures: Gat
   // UNAUTHENTICATED endpoint, so a false positive here is the most expensive kind of wrong.
   if (pol.forbidAiAuthorship && g.aiInvolvedRate == null) {
     // Null is unmeasurable; ZERO is measured and clean, so only the first is a skip.
-    skipped.push({ code: "admission", why: g.prSkipWhy });
+    skipped.push({ code: "admission", why: skipWhy("admission", g.prSkipWhy) });
   }
   if (pol.forbidAiAuthorship && g.aiInvolvedRate != null && g.aiInvolvedRate > 0) {
     failures.push({
@@ -586,16 +703,36 @@ export interface GateInputs {
    * has no ledger (no DB, no org, no report), so `requireChecks` is skipped rather than guessed.
    */
   checkStates?: Record<string, CheckLevel> | null;
+  /**
+   * THE SCAN'S OWN HONESTY FLAGS, overridable by the caller. `evaluateGate` defaults every one of
+   * these from the report it was handed — a caller has to do nothing to get the honest reading — and
+   * a caller that holds a better record (a persisted row whose `sensorFailures` survived, a
+   * reconstructed report) can supply it. Undefined means "use the report's own"; an empty array means
+   * "nothing failed", which is a different claim.
+   */
+  sensorFailures?: readonly ScanSensorId[];
+  /** 0..1 repo coverage. Below {@link GATE_CONFIDENCE_FLOOR} the verdict carries a caveat. */
+  confidence?: number;
 }
 
 /** Evaluate a report against a policy (defaults to the archetype policy), listing every failure. */
 export function evaluateGate(report: ScanReport, policy?: GatePolicy, inputs: GateInputs = {}): GateResult {
   const pol = policy ?? defaultGatePolicy(report.archetype);
+  // Read the report's own reliability record FIRST, so it is attached to every verdict this function
+  // can return — including the incomplete short-circuit below, where the caveats are the most useful
+  // thing on the response.
+  const sensorFailures = inputs.sensorFailures ?? report.sensorFailures ?? [];
+  const caveats = buildGateCaveats({
+    sensorFailures,
+    confidence: inputs.confidence ?? report.confidence,
+    warnings: report.warnings,
+    prPartial: report.prPartial,
+  });
   // An unscorable scan short-circuits: running the criteria would emit a wall of "D1 scored 0" style
   // failures that read as findings about the repository, when the only true statement is that nothing
   // was measured. One honest failure instead. (G3-10)
   if (isIncompleteReport(report)) {
-    return { pass: false, policy: pol, failures: [{ code: "incomplete", message: INCOMPLETE_MESSAGE }], skipped: [] };
+    return { pass: false, policy: pol, failures: [{ code: "incomplete", message: INCOMPLETE_MESSAGE }], skipped: [], caveats };
   }
   const { failures, skipped } = evaluateNormalized(
     {
@@ -627,10 +764,11 @@ export function evaluateGate(report: ScanReport, policy?: GatePolicy, inputs: Ga
       // scan artifact), so a caller that has one threads it in through `inputs`. Everything else —
       // the CLI, a test, an anonymous gate on an org with no ledger — honestly skips.
       checkStates: inputs.checkStates ?? null,
+      sensorFailures,
     },
     pol,
   );
-  return { pass: failures.length === 0, policy: pol, failures, skipped };
+  return { pass: failures.length === 0, policy: pol, failures, skipped, caveats };
 }
 
 /**
@@ -686,10 +824,14 @@ export function evaluateGateLite(snap: GateSnapshot, policy: GatePolicy): GateRe
       aiInvolvedRate: null,
       // #16: likewise no ledger in a rollup row. Skipped, never green.
       checkStates: null,
+      // A rollup row carries no record of which sensors failed during the scan it summarizes. EMPTY is
+      // the only honest value here and it means UNKNOWN, not "nothing failed" — which is why the fleet
+      // view must not present its verdicts as more reliable than the CI gate's.
+      sensorFailures: [],
     },
     policy,
   );
-  return { pass: failures.length === 0, policy, failures, skipped };
+  return { pass: failures.length === 0, policy, failures, skipped, caveats: [] };
 }
 
 // A query-param floor must satisfy the SAME numeric contract as sanitizeGatePolicy's floorScore:

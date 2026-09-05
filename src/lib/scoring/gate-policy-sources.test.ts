@@ -15,6 +15,7 @@
 
 import { describe, it, expect } from "vitest";
 import {
+  buildGateCaveats,
   describeGatePolicy,
   evaluateGate,
   evaluateGateLite,
@@ -34,6 +35,10 @@ function report(
     analyzed?: number;
     aiGovernedRate?: number;
     governance?: { readable: boolean; protected: boolean; defaultBranch: string };
+    sensorFailures?: string[];
+    confidence?: number;
+    warnings?: string[];
+    prPartial?: boolean;
   } = {},
 ): ScanReport {
   const dimensions: Pick<DimensionResult, "id" | "name" | "score">[] = [
@@ -44,6 +49,10 @@ function report(
     archetype: "org",
     level: { id: "L4" },
     ...(o.governance ? { governance: o.governance } : {}),
+    ...(o.sensorFailures ? { sensorFailures: o.sensorFailures } : {}),
+    ...(o.confidence === undefined ? {} : { confidence: o.confidence }),
+    ...(o.warnings ? { warnings: o.warnings } : {}),
+    ...(o.prPartial ? { prPartial: true } : {}),
     overallScore: 70,
     dimensions,
     posture: { id: "ai-native", label: "AI-native" },
@@ -300,5 +309,101 @@ describe("every skippable criterion announces its skip", () => {
     const res = evaluateGateLite(snap, { requireProtectedBranch: true, forbidAiAuthorship: true });
     expect(res.pass).toBe(true);
     expect(res.skipped.map((s) => s.code).sort()).toEqual(["admission", "governance"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6. THE SCAN'S OWN HONESTY FLAGS (quality-gates/gate-liveness)
+//
+// `ScanReport.sensorFailures`, `confidence`, `warnings` and `prPartial` reached the API body and were
+// read by NOTHING in gate.ts / gate-comment.ts / pr-gate.ts. A scan whose governance sensor THREW was
+// byte-identical, to every line of gate code, to one where the signal was simply absent — and it
+// produced a full-confidence green Check Run. `isIncompleteReport` caught only the total wipeout.
+// ---------------------------------------------------------------------------
+
+describe("a failed sensor is an announced skip, not a pass", () => {
+  it("says the governance read FAILED, distinctly from 'no token'", () => {
+    // FAIL-BEFORE: identical verdict, identical wording, whether the read threw or never ran.
+    const res = evaluateGate(report({ sensorFailures: ["governance"] }), { requireProtectedBranch: true });
+    expect(res.pass).toBe(true); // still not a failure — we cannot condemn on a read we did not get
+    expect(res.skipped[0]!.code).toBe("governance");
+    expect(res.skipped[0]!.why).toContain("FAILED");
+    expect(res.skipped[0]!.why).toContain("not a pass");
+    // The token-less scan keeps its own, different sentence.
+    expect(evaluateGate(report(), { requireProtectedBranch: true }).skipped[0]!.why).not.toContain("FAILED");
+  });
+
+  it("a failed pullRequests read marks BOTH PR-derived criteria as read-failures", () => {
+    const res = evaluateGate(report({ sensorFailures: ["pullRequests"] }), {
+      minAiGovernedRate: 100,
+      forbidAiAuthorship: true,
+    });
+    expect(res.skipped.map((s) => s.code).sort()).toEqual(["admission", "provenance"]);
+    expect(res.skipped.every((s) => s.why.includes("FAILED"))).toBe(true);
+  });
+
+  it("NEVER converts an observed failure into a skip — fail-closed survives", () => {
+    // An unprotected branch that WAS observed stays a failure even with an unrelated failed sensor.
+    const res = evaluateGate(
+      report({ governance: { readable: true, protected: false, defaultBranch: "main" }, sensorFailures: ["securityPosture"] }),
+      { requireProtectedBranch: true },
+    );
+    expect(res.pass).toBe(false);
+    expect(res.failures[0]!.code).toBe("governance");
+    expect(res.skipped).toEqual([]);
+  });
+
+  it("a score-feeding sensor is a CAVEAT, not a skip — a floor on an understated dimension must still bite", () => {
+    const res = evaluateGate(report({ sensorFailures: ["securityPosture"] }), { minDimensionFor: { D9: 90 } });
+    expect(res.pass).toBe(false); // D9 is 80 in the fixture: the floor still fails it
+    expect(res.skipped).toEqual([]);
+    expect(res.caveats.join(" ")).toContain("security posture");
+  });
+});
+
+describe("buildGateCaveats — what the scan says about itself", () => {
+  it("names the failed reads, and says they are missing signals rather than missing controls", () => {
+    const c = buildGateCaveats({ sensorFailures: ["governance", "securityExposure"] });
+    expect(c[0]).toContain("branch governance");
+    expect(c[0]).toContain("dependency exposure");
+    expect(c[0]).toContain("not absent from the repository");
+  });
+
+  it("caveats a scan under the coverage floor the scan itself declares", () => {
+    expect(buildGateCaveats({ sensorFailures: [], confidence: 0.3 }).join(" ")).toContain("~30% of the repository");
+    expect(buildGateCaveats({ sensorFailures: [], confidence: 0.9 })).toEqual([]);
+  });
+
+  it("repeats the report's OWN low-coverage words rather than inventing a second wording", () => {
+    const c = buildGateCaveats({
+      sensorFailures: [],
+      confidence: 0.9,
+      warnings: ["Only part of the repository could be inspected (~40% coverage); treat scores as indicative.", "unrelated caveat"],
+    });
+    expect(c).toHaveLength(1);
+    expect(c[0]).toContain("The scan reports:");
+    expect(c[0]).toContain("~40% coverage");
+  });
+
+  it("carries the truncated-PR flag, which understates the very dimensions a gate floors", () => {
+    expect(buildGateCaveats({ sensorFailures: [], prPartial: true }).join(" ")).toContain("Review, Velocity");
+  });
+
+  it("says nothing about a clean scan", () => {
+    expect(buildGateCaveats({ sensorFailures: [], confidence: 0.95, warnings: [], prPartial: false })).toEqual([]);
+  });
+
+  it("reaches the verdict from the report with no threading required of the caller", () => {
+    const res = evaluateGate(report({ confidence: 0.2, prPartial: true }), { minLevel: "L2" });
+    expect(res.caveats).toHaveLength(2);
+    // A caveat never becomes a verdict of its own.
+    expect(res.pass).toBe(true);
+  });
+
+  it("attaches to the INCOMPLETE short-circuit too — that verdict needs them most", () => {
+    const blind = { ...report({ sensorFailures: ["governance"] }), dimensions: [] } as unknown as ScanReport;
+    const res = evaluateGate(blind, { minLevel: "L2" });
+    expect(res.failures[0]!.code).toBe("incomplete");
+    expect(res.caveats.join(" ")).toContain("branch governance");
   });
 });

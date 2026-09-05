@@ -128,7 +128,14 @@ export async function runPrGate(ref: PrGateRef, hooks: PrGateHooks = {}): Promis
     const policy = tightenGatePolicy(base, admissionLayer.overlay);
     // #16 — judged against the repo's own latest conformance report; null skips (see loadCheckStates).
     const checkStates = policy.requireChecks?.length ? await loadCheckStates(owner, fullName) : null;
-    const gate = evaluateGate(headReport, policy, { checkStates });
+    // The scan's own honesty flags, threaded at this seam too (gate-liveness): the Check Run is the
+    // status that BLOCKS a merge, so a verdict produced from a scan whose sensors failed must carry
+    // that fact into the summary rather than render as a full-confidence green check.
+    const gate = evaluateGate(headReport, policy, {
+      checkStates,
+      sensorFailures: headReport.sensorFailures ?? [],
+      confidence: headReport.confidence,
+    });
     // The check-run surface is the one that can actually block a merge, so its verdicts are the ones
     // worth counting. `scoredHead: false` marks the fork fallback as non-authoritative so it is never
     // tallied as a repository failing the bar.
