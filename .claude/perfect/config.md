@@ -90,4 +90,7 @@ Authority: `AGENTS.md` (300-LOC `.tsx` cap) + `src/components/ui/BRAND.md`.
 - Bugfixes stand alone (standalone re-presentation of a previously-bundled fix was accepted instantly).
 
 ## Skill improvement log
-- (migrate the existing entries from `$VAULT/Perfect/config.md` on the first 2.3 run, then append here)
+- 2026-09-05 (Fox, round 1): the tsc gate was blind at dispatch - a stale generated Prisma client (572 errors) and two missing packages (`server-only`, `libsodium-wrappers`) made every builder report "errors outside my write set". Run `npx prisma generate` + `npm install` and drop stale `.next/dev/types` BEFORE dispatching builders; a green base gate is a Phase 0 ritual here.
+- 2026-09-05: the registry-map `deviation` pairs were the whole slate (9/9 directions) and 8/9 were accepted - keep mining `.ai/registry-map.json` first; the three remaining deviations (Quotas & Rate Limiting, Repo Report Shell, Onboarding Wizard) are round 2.
+- 2026-09-05: docs made Director-only for the wave worked (two audit lots would have collided on org-intelligence.md); keep that rule while lots share a doc.
+- 2026-09-05: `db/client.test.ts` fails on this device on an AWS-credential message ("Your session has expired") - environmental, ignore in the gate unless client.ts was touched.
