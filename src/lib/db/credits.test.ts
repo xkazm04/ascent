@@ -354,7 +354,7 @@ function fakePrismaForReconciliation(rows: Array<{ delta: number; reason: string
   return { prisma, getArgs: () => lastFindManyArgs };
 }
 
-import { getCreditReconciliation, CREDIT_REASON, isRefundReason } from "./credits";
+import { getCreditLedger, getCreditReconciliation, CREDIT_REASON, isRefundReason } from "./credits";
 import { usageWindow } from "./usage";
 
 /**
@@ -987,5 +987,49 @@ describe("CreditLedger spend attribution (debit ↔ refund join)", () => {
 
     expect(res).toMatchObject({ ok: false, charged: false });
     expect(rows).toHaveLength(0);
+  });
+});
+
+// ── The org-facing ledger read carries no per-person attribution ─────────────────────────────────
+//
+// `GET /api/org/credits` ships `getCreditLedger`'s rows verbatim as `ledger`, to EVERY member who can
+// read the org. `actor` was in that select although the client type omits it and nothing renders it,
+// so a money surface was shipping "who ran this scan" to every reader for no product reason — the
+// same per-person attribution docs/features/billing/usage.md's privacy note rules out for the usage
+// ledger beside it. The column still exists and is still written (see the attribution tests above);
+// it is simply not in the ORG-facing projection.
+describe("getCreditLedger — the org-facing projection", () => {
+  function ledgerPrisma() {
+    let selected: Record<string, unknown> | null = null;
+    const prisma = {
+      organization: { findUnique: vi.fn(async () => ({ id: "org_1", slug: "acme" })) },
+      creditLedger: {
+        findMany: vi.fn(async (args: { select: Record<string, unknown> }) => {
+          selected = args.select;
+          // Model the driver: a column that was not selected is not on the row.
+          return [
+            Object.fromEntries(
+              Object.keys(args.select).map((k) => [k, k === "createdAt" ? new Date(0) : null]),
+            ),
+          ];
+        }),
+      },
+    };
+    return { prisma, select: () => selected };
+  }
+
+  it("does not select `actor`, so the endpoint body cannot carry it", async () => {
+    mockIsDbConfigured.mockReturnValue(true);
+    const { prisma, select } = ledgerPrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const rows = await getCreditLedger("acme", 50);
+
+    expect(select()).toBeTruthy();
+    expect(select()).not.toHaveProperty("actor");
+    // The projection the route serializes: no `actor` key at all, not an `actor: null`.
+    expect(rows[0]).not.toHaveProperty("actor");
+    // …and the fields the chip actually renders are still there.
+    expect(select()).toMatchObject({ delta: true, balanceAfter: true, reason: true, repoFullName: true });
   });
 });

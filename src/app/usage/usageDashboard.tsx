@@ -5,6 +5,7 @@ import { Stat, Bar, providerMeta } from "./usagePanels";
 import { AbuseLimitsPanel } from "./usageAllTimePanels";
 import { LanePanels } from "./usageLanePanels";
 import { ShowbackMatrixPanel } from "./usageShowbackPanel";
+import { TopReposPanel } from "./usageRepoPanel";
 import type { CreditReconciliation, CreditState, QuotaEventTotals, UsageSummary } from "@/lib/db";
 import type { CreditNotice } from "./creditNotice";
 import { timeAgo } from "@/lib/ui";
@@ -224,26 +225,9 @@ export function UsageDashboard({
         periodDays={usage.periodDays}
       />
 
-      {/* Top repos by metered volume — which repos drove the bill / token spend (per-repo attribution). */}
-      {usage.byRepo.length > 0 && (
-        <Surface className="mt-6 p-6">
-          <h2 className="type-body font-semibold text-white">
-            Top repositories{" "}
-            <span className="font-normal text-slate-500">· by metered scans · last {usage.periodDays}d</span>
-          </h2>
-          <div className="mt-3 space-y-2 type-body">
-            {usage.byRepo.map((r) => (
-              <div key={r.fullName} className="flex items-center justify-between gap-3">
-                <span className="min-w-0 truncate type-mono-sm text-slate-300">{r.fullName}</span>
-                <span className="shrink-0 font-mono tabular-nums text-slate-400">
-                  {r.scans.toLocaleString()} scan{r.scans === 1 ? "" : "s"}
-                  {r.tokens > 0 ? ` · ${r.tokens.toLocaleString()} tok` : ""}
-                </span>
-              </div>
-            ))}
-          </div>
-        </Surface>
-      )}
+      {/* Which repositories drove the bill — in dollars since the attribution round, not only in
+          scans and tokens. Extracted to its own file when it grew that column (the 300-LOC rule). */}
+      <TopReposPanel byRepo={usage.byRepo} periodDays={usage.periodDays} />
 
       <AbuseLimitsPanel quotaEvents={quotaEvents} />
 

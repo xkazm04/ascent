@@ -20,6 +20,7 @@ import {
   defaultOwnerTeamForRepo,
   laneTotals,
   recordUsageEvent,
+  repoTotals,
   teamTotals,
 } from "@/lib/db/usage-events";
 import type { UsageEventInput } from "@/lib/llm/meter";
@@ -228,5 +229,57 @@ describe("defaultOwnerTeamForRepo", () => {
     expect(await defaultOwnerTeamForRepo("ghost", "ghost/api")).toBeNull();
     expect(await defaultOwnerTeamForRepo("acme", "")).toBeNull();
     expect(calls.repoFindFirst).toHaveLength(0);
+  });
+});
+
+// ── repoTotals: the per-REPO half of the same ledger ─────────────────────────────────────────────
+//
+// One level finer than `teamKey`, and the finest this ledger will ever carry (per-person attribution
+// is ruled out by docs/features/billing/usage.md's privacy note). Two properties are pinned: it costs
+// ONE query — the unpriced count rides as a per-field `_count`, not as a second groupBy over
+// `costMicros: null` — and a repo-less row keeps its explicit org-wide bucket rather than dropping.
+describe("repoTotals", () => {
+  function repoPrisma(groups: Args[]) {
+    const seen: Args[] = [];
+    mockGetPrisma.mockReturnValue({
+      usageEvent: {
+        groupBy: vi.fn(async (args: Args) => {
+          seen.push(args);
+          return groups;
+        }),
+      },
+    });
+    return seen;
+  }
+
+  it("reports cost + unpriced calls per repo in ONE query, over the half-open window", async () => {
+    const seen = repoPrisma([
+      { repoFullName: "acme/api", _count: { _all: 10, costMicros: 7 }, _sum: { costMicros: 4_250_000 } },
+    ]);
+    const since = new Date("2026-08-01T00:00:00.000Z");
+    const before = new Date("2026-09-01T00:00:00.000Z");
+
+    const rows = await repoTotals("acme", since, before);
+
+    expect(seen).toHaveLength(1); // not two — the unpriced count is a per-field _count
+    expect(seen[0]!.by).toEqual(["repoFullName"]);
+    expect(seen[0]!.where).toEqual({ orgId: "org_acme", createdAt: { gte: since, lt: before } });
+    expect(rows).toEqual([
+      { repoFullName: "acme/api", calls: 10, estimatedCostUsd: 4.25, unpricedCalls: 3 },
+    ]);
+  });
+
+  it("keeps a repo-less row in the explicit org-wide bucket, with a null cost that is not $0", async () => {
+    repoPrisma([{ repoFullName: null, _count: { _all: 4, costMicros: 0 }, _sum: { costMicros: null } }]);
+    const rows = await repoTotals("acme", new Date(0), new Date(1));
+    expect(rows).toEqual([
+      { repoFullName: null, calls: 4, estimatedCostUsd: null, unpricedCalls: 4 },
+    ]);
+  });
+
+  it("returns nothing for an unknown org rather than querying the whole ledger", async () => {
+    const seen = repoPrisma([]);
+    expect(await repoTotals("ghost", new Date(0), new Date(1))).toEqual([]);
+    expect(seen).toHaveLength(0);
   });
 });

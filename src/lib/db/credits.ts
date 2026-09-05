@@ -55,7 +55,6 @@ export interface CreditLedgerEntry {
   reason: string;
   repoFullName: string | null;
   scanId: string | null;
-  actor: string | null;
   createdAt: Date;
 }
 
@@ -443,7 +442,18 @@ export async function setOrgPlan(orgSlug: string, plan: string): Promise<boolean
   return res.count > 0;
 }
 
-/** Recent ledger rows for an org (newest first). */
+/**
+ * Recent ledger rows for an org (newest first) — the ORG-FACING read, behind `GET /api/org/credits`.
+ *
+ * `actor` is deliberately NOT selected. The column is still written on every debit, refund and grant
+ * (`consumeScanCredit`, `grantCredits`) and is still there for the audit / reconciliation paths that
+ * need to answer "who did this" — it is simply not shipped to every reader of an org's credits chip,
+ * which never rendered it (`CreditsControl.sections.tsx`'s own row type omits it) and must not: the
+ * ledger is a money surface, and per-person attribution on a money surface is the thing
+ * docs/features/billing/usage.md's privacy note rules out for the usage ledger beside it. A field
+ * that crosses the wire to everyone who can read an org is shipped, whether or not a component draws
+ * it. This is the only caller of this function.
+ */
 export async function getCreditLedger(orgSlug: string, limit = 50): Promise<CreditLedgerEntry[]> {
   if (!isDbConfigured()) return [];
   const prisma = getPrisma();
@@ -460,7 +470,6 @@ export async function getCreditLedger(orgSlug: string, limit = 50): Promise<Cred
       reason: true,
       repoFullName: true,
       scanId: true,
-      actor: true,
       createdAt: true,
     },
   });

@@ -292,3 +292,52 @@ describe("GET /api/usage?view=showback", () => {
     expect(mockGetUsageSummary).not.toHaveBeenCalled();
   });
 });
+
+// ── The per-repo cost rides the JSON body, and ONLY the JSON body (G19) ─────────────────────────
+//
+// `byRepo` gained a dollar figure per repository. It is additive on the JSON response — a consumer
+// that reads scans and tokens sees exactly what it read before — and it deliberately does NOT enter
+// either CSV: the per-day export's `date,billable,free,total` shape and the showback export's two
+// flat `lane` / `team` sections are reconciliation artifacts downstream sheets key on, and G19 keeps
+// them as they are. A third scope or a sixth column would be a file-shape change, not a side effect.
+describe("GET /api/usage — per-repo spend is additive on the JSON, and the CSVs are untouched", () => {
+  const withRepos = {
+    daily: [{ date: "2026-09-01", billable: 2, free: 1 }],
+    byLane: [{ lane: "scan", calls: 3, inputTokens: 10, outputTokens: 2, estimatedCostUsd: 1.5, unpricedCalls: 0 }],
+    byTeam: [{ teamKey: null, label: "Org-wide (no repo)", calls: 3, estimatedCostUsd: 1.5 }],
+    byRepo: [
+      { fullName: "acme/api", label: "acme/api", scans: 2, tokens: 12, calls: 5, estimatedCostUsd: 1.5, unpricedCalls: 0 },
+      { fullName: null, label: "Org-wide (no repo)", scans: 0, tokens: 0, calls: 2, estimatedCostUsd: null, unpricedCalls: 2 },
+    ],
+  } as unknown as Awaited<ReturnType<typeof getUsageSummary>>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsDbConfigured.mockReturnValue(true);
+    mockRequireOrgRead.mockResolvedValue(null);
+    mockGetUsageSummary.mockResolvedValue(withRepos);
+  });
+
+  it("carries each repo's cost, its unpriced count and the repo-less bucket on the JSON body", async () => {
+    const body = (await (await get("?org=acme")).json()) as {
+      byRepo: { fullName: string | null; estimatedCostUsd: number | null; unpricedCalls: number }[];
+    };
+    expect(body.byRepo[0]).toMatchObject({ fullName: "acme/api", estimatedCostUsd: 1.5, scans: 2 });
+    // A null cost stays null over the wire — a JSON `0` would be a claim about money not spent.
+    expect(body.byRepo[1]).toMatchObject({ fullName: null, estimatedCostUsd: null, unpricedCalls: 2 });
+  });
+
+  it("leaves the per-day CSV at exactly date,billable,free,total", async () => {
+    const csv = await (await get("?org=acme&format=csv")).text();
+    expect(csv.split("\n")[0]!.trim()).toBe("date,billable,free,total");
+    expect(csv).not.toContain("acme/api");
+  });
+
+  it("leaves the showback CSV's two flat sections as they are (G19)", async () => {
+    const csv = await (await get("?org=acme&view=showback")).text();
+    expect(csv.split("\n")[0]!.trim()).toBe("scope,lane,team,calls,estimatedCostUsd,unpricedCalls");
+    // No third `repo` scope block: the file shape downstream sheets key on is unchanged.
+    expect(csv).not.toMatch(/^repo,/m);
+    expect(csv).not.toContain("acme/api");
+  });
+});

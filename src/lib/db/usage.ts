@@ -6,7 +6,15 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { isZeroCostProvider, priceForModel } from "@/lib/llm/config";
-import { ORG_WIDE_TEAM_LABEL, laneTotals, teamTotals, type LaneUsage, type TeamUsage } from "@/lib/db/usage-events";
+import {
+  ORG_WIDE_TEAM_LABEL,
+  laneTotals,
+  repoTotals,
+  teamTotals,
+  type LaneUsage,
+  type RepoEventUsage,
+  type TeamUsage,
+} from "@/lib/db/usage-events";
 
 import { laneTeamTotals, mergeLaneTeamCells, type LaneTeamCell } from "@/lib/db/usage-showback";
 
@@ -22,11 +30,32 @@ export interface ProviderUsage {
   count: number;
 }
 
-/** Per-repo METERED (private/billable) usage within the period — which repos drove the bill. */
+/**
+ * Per-repo METERED usage within the period — which repos drove the bill, in scans AND in dollars.
+ *
+ * A UNION of the same two sources `byLane` and `byTeam` union, one level finer than `teamKey`: the
+ * BILLABLE `Scan` groups (scans, tokens, the scan lane's priced cost) and the `UsageEvent` ledger's
+ * `repoFullName` (every other lane's calls and cost). `scans`/`tokens` therefore describe the scan
+ * lane alone — a repo can carry Athena or local-agent spend with no billable scan behind it — while
+ * `calls` and `estimatedCostUsd` describe every metered call attributed to the repo.
+ */
 export interface RepoUsage {
-  fullName: string;
+  /** `null` is the explicit org-wide bucket (a briefing, an org-wide memory pass): work that has no
+   *  repo is counted, never dropped, exactly as `teamKey === null` is in `TeamUsage`. */
+  fullName: string | null;
+  /** What a panel prints — the repo's full name, or the org-wide bucket's shared label. */
+  label: string;
+  /** BILLABLE computed scans (the `isBillableScan` predicate) — the panel's sort key, as before. */
   scans: number;
-  tokens: number; // input + output
+  tokens: number; // input + output, scan lane
+  /** Metered calls attributed to this repo across EVERY lane: its billable scans plus its ledger rows. */
+  calls: number;
+  /** Estimated cost across those calls. `null` — never `0` — when a side that HAS calls could not be
+   *  priced: unknown + known is still unknown (the `mergeTeamUsage` rule, applied one level finer).
+   *  BYOM is excluded from pricing, so a BYOM-only repo reads "no estimate", not a free month. */
+  estimatedCostUsd: number | null;
+  /** Calls in the row that no basis could price — what makes a null (or a short) figure readable. */
+  unpricedCalls: number;
 }
 
 /** One day's computed-scan counts, split billable (metered) vs free (everything else). */
@@ -113,9 +142,12 @@ export interface UsageSummary {
   /** Which basis produced estimatedCostUsd: operator-configured env rates, the built-in
    *  approximate table, or null when there is no estimate. Drives the UI's labeling. */
   costBasis: "env" | "builtin" | null;
-  /** Top repos by METERED (private) scan volume within the period (with their token spend).
-   *  Scoped private-only to match the "metered/billable" framing — free public scans are
-   *  excluded, so the attribution answers "which repos drove the bill", not raw volume. */
+  /** Top repos by METERED (private) scan volume within the period, with their token spend AND their
+   *  DOLLAR spend across every lane. Scan volume is scoped private-only to match the
+   *  "metered/billable" framing — free public scans are excluded, so the attribution answers "which
+   *  repos drove the bill", not raw volume. The cost merges the scan lane's priced fold with the
+   *  `UsageEvent` ledger's `repoFullName` totals under the `mergeTeamUsage` rule (unknown + known is
+   *  unknown), and work with no repo is the explicit last row rather than a dropped one. */
   byRepo: RepoUsage[];
   /**
    * Spend per INFERENCE LANE within the period — scan, Athena, org memory, briefing, local agent.
@@ -360,7 +392,7 @@ export async function getUsageSummary(
   // for a selected period would actually be the org's all-time private-scan total.
   const periodWhere = { ...where, scannedAt: { gte: since, lt: before } };
 
-  const [total, period, billable, distinctRepos, providerGroups, agg, daily, modelGroups, repoGroups] =
+  const [total, period, billable, distinctRepos, providerGroups, agg, daily, scanGroups] =
     await Promise.all([
       prisma.scan.count({ where }),
       prisma.scan.count({ where: periodWhere }),
@@ -374,35 +406,34 @@ export async function getUsageSummary(
       // Per-day series, aggregated in SQL (one row per UTC-day × billable) instead of streaming
       // every period scan row back to bucket in JS — see fetchDailySeries.
       fetchDailySeries(prisma, orgId, since, before, periodDays, todayUtcMs),
-      // Token totals (cost basis) grouped PER MODEL — one aggregate, no row streaming. The split
-      // matters because failover legitimately mixes models in one window (Gemini Flash cents/MTok
-      // beside Claude Sonnet dollars/MTok); a single global rate can't price that correctly. byRepo
-      // is scoped by billableScanWhere (the same predicate as the headline count above) so the "by
-      // metered scans" attribution can't mix free scans into "which repos drove the bill".
-      // Grouped by (provider, model), not model alone: the price fold needs the PROVIDER to recognize
-      // a $0 engine (a local Ollama/vLLM run), and a model id by itself cannot say who served it.
+      // ONE groupBy, folded THREE ways. This window used to be grouped three times over the same
+      // `periodWhere` — (provider, model, byom) for the cost basis, (repoId) for the top-repos
+      // attribution, and (repoId, provider, model, byom) for the team split — and the third was a
+      // superset of the other two. The finest key is the only one that has to be asked for; the
+      // coarser folds are reductions of it in JS, which is free beside a round trip.
+      //
+      // The split by (provider, model) matters because failover legitimately mixes models in one
+      // window (Gemini Flash cents/MTok beside Claude Sonnet dollars/MTok); a single global rate
+      // can't price that. `engineByom` rides in the key so the BYOM half is split OUT of the priced
+      // fold without another query: the org's own-account tokens stay counted and shown, and are
+      // never invoiced (see estimateLlmCostFromTable). `_count` rides along for `unpricedCalls`: the
+      // cost fold refuses to price an unknown model, and a null cost needs a call count beside it.
+      //
+      // The byRepo fold is scoped by the BILLABLE predicate, as `billableScanWhere` scoped it in SQL
+      // — `isBillableScan` applied to the group key plus the repo's `isPrivate` from the one
+      // Repository read below, so the "by metered scans" attribution still can't mix free scans into
+      // "which repos drove the bill".
       prisma.scan.groupBy({
-        // `engineByom` rides in the grouping key so the BYOM half can be split OUT of the priced
-        // fold without a second query: the org's own-account tokens stay counted and shown, and are
-        // never invoiced (see estimateLlmCostFromTable).
-        by: ["engineProvider", "engineModel", "engineByom"],
+        by: ["repoId", "engineProvider", "engineModel", "engineByom"],
         where: periodWhere,
-        // `_count` rides along for the lane view's `unpricedCalls`: the cost fold refuses to price an
-        // unknown model, and an operator reading a null cost needs to know HOW MANY calls that was.
         _count: true,
         _sum: { inputTokens: true, outputTokens: true },
-      }),
-      prisma.scan.groupBy({
-        by: ["repoId"],
-        where: { ...periodWhere, ...billableScanWhere(orgId) },
-        _count: true,
-        _sum: { inputTokens: true, outputTokens: true },
-        orderBy: { _count: { repoId: "desc" } },
-        take: 10,
       }),
     ]);
 
-  const modelUsage: ModelTokenUsage[] = modelGroups.map((g) => ({
+  // Fold 1 of 3: (provider, model, byom) — the cost basis. Repo-keyed duplicates of the same model
+  // simply sum through every reducer below, so no regrouping is needed to price the period.
+  const modelUsage: ModelTokenUsage[] = scanGroups.map((g) => ({
     model: g.engineModel,
     provider: g.engineProvider,
     byom: g.engineByom ?? null,
@@ -418,7 +449,7 @@ export async function getUsageSummary(
   const pricedInputTokens = priceable.reduce((a, m) => a + m.inputTokens, 0);
   const pricedOutputTokens = priceable.reduce((a, m) => a + m.outputTokens, 0);
   /** Computed scans in the period that ran in the org's OWN provider account — priced by nobody here. */
-  const byomScans = modelGroups.reduce((a, g) => a + (g.engineByom === true ? g._count : 0), 0);
+  const byomScans = scanGroups.reduce((a, g) => a + (g.engineByom === true ? g._count : 0), 0);
   // Cost basis precedence: env rates (operator override, both set) > built-in per-model table > null.
   // The operator's per-MTok rates price ASCENT's account, so they are applied to the PRICED tokens
   // only. When every token in the period is BYOM there is nothing for those rates to price, and the
@@ -436,50 +467,45 @@ export async function getUsageSummary(
   const costBasis: UsageSummary["costBasis"] =
     envEstimate != null ? "env" : estimatedCostUsd != null ? "builtin" : null;
 
-  // Resolve the top repoIds → fullName (a small IN query, capped at the top 10).
-  const repoIds = repoGroups.map((g) => g.repoId);
-  const nameById = new Map(
-    repoIds.length
-      ? (
-          await prisma.repository.findMany({
-            where: { id: { in: repoIds } },
-            select: { id: true, fullName: true },
-          })
-        ).map((r) => [r.id, r.fullName])
-      : [],
-  );
-  const byRepo: RepoUsage[] = repoGroups.map((g) => ({
-    fullName: nameById.get(g.repoId) ?? g.repoId,
-    scans: g._count,
-    tokens: (g._sum.inputTokens ?? 0) + (g._sum.outputTokens ?? 0),
-  }));
-
-  // ── The lane + team views (#11) ───────────────────────────────────────────────────────────────
-  // Both are strictly ADDITIVE reads over the window already computed above. The public funnel is
-  // skipped entirely: it has no tenant to show a bill back to and no teams to attribute it to, and
-  // its summary is anonymously readable, so a team panel there would be an attribution surface with
-  // no membership behind it.
+  // ── The lane + team + repo views (#11) ────────────────────────────────────────────────────────
+  // All strictly ADDITIVE reads over the window already computed above. The public funnel is skipped
+  // entirely: it has no tenant to show a bill back to and no teams to attribute it to, and its
+  // summary is anonymously readable, so an attribution surface there would have no membership
+  // behind it. (Its ledger is empty by construction anyway — `recordUsageEvent` never writes for a
+  // `kind: "public"` org — so this is a saved round trip, not a hidden figure.)
   const isPublic = slug === PUBLIC_ORG_SLUG;
-  const [otherLanes, otherTeams, laneTeamCells, scanTeamGroups] = await Promise.all([
+  // ONE Repository read for the window's repos, where there were two: the top-repos panel resolved
+  // names for its top ten and the team split resolved default owners for the same window's repos,
+  // over overlapping id sets. `fullName`, `isPrivate` and the owning team are three columns of one
+  // row — and `isPrivate` is what lets the billable fold move out of SQL without changing the
+  // predicate (see the groupBy comment above).
+  const repoIds = [...new Set(scanGroups.map((g) => g.repoId))];
+  const [otherLanes, otherTeams, laneTeamCells, eventRepos, repoRows] = await Promise.all([
     isPublic ? Promise.resolve([]) : laneTotals(slug, since, before).catch(() => []),
     isPublic ? Promise.resolve([]) : teamTotals(slug, since, before).catch(() => []),
     // MC-B45: the (lane × team) intersection, over the SAME window and the same ledger the two
     // panels above read. Skipped for the public funnel for the reason the team panel is: an
     // anonymously-readable summary must carry no attribution surface at all.
     isPublic ? Promise.resolve([]) : laneTeamTotals(slug, since, before).catch(() => []),
+    // The per-REPO half of the same ledger — one level finer than `teamKey`, and the only level
+    // finer this ledger will ever carry (per-person attribution is ruled out by the privacy note in
+    // docs/features/billing/usage.md).
     isPublic
-      ? Promise.resolve([])
-      : prisma.scan
-          .groupBy({
-            // Same BYOM split as the model groupBy above: a team's showback cell must not price the
-            // org's own-account tokens either.
-            by: ["repoId", "engineProvider", "engineModel", "engineByom"],
-            where: periodWhere,
-            _count: true,
-            _sum: { inputTokens: true, outputTokens: true },
-          })
-          .catch(() => []),
+      ? Promise.resolve([] as RepoEventUsage[])
+      : repoTotals(slug, since, before).catch(() => [] as RepoEventUsage[]),
+    repoIds.length
+      ? prisma.repository.findMany({
+          where: { id: { in: repoIds } },
+          select: {
+            id: true,
+            fullName: true,
+            isPrivate: true,
+            teams: { where: { isDefaultOwner: true }, select: { slug: true }, take: 1 },
+          },
+        })
+      : Promise.resolve([] as PeriodRepoRow[]),
   ]);
+  const repoById = new Map<string, PeriodRepoRow>(repoRows.map((r) => [r.id, r]));
 
   // The `scan` lane, from the Scan-derived figures already in hand — NOT from a second ledger. Its
   // cost IS the summary's own estimate, so the two can never disagree.
@@ -491,7 +517,7 @@ export async function getUsageSummary(
           inputTokens,
           outputTokens,
           estimatedCostUsd,
-          unpricedCalls: unpricedScanCalls(modelUsageWithCounts(modelGroups)),
+          unpricedCalls: unpricedScanCalls(modelUsageWithCounts(scanGroups)),
         }
       : null;
   const byLane: LaneUsage[] = [...(scanLane ? [scanLane] : []), ...otherLanes];
@@ -503,7 +529,26 @@ export async function getUsageSummary(
   const firstScanAt = agg._min.scannedAt ? agg._min.scannedAt.toISOString() : null;
   const clamped = clampDailySeries(daily, since, firstScanAt);
 
-  const scanCells = isPublic ? [] : await scanTeamUsage(prisma, scanTeamGroups);
+  // Fold 2 of 3: per REPO, over the BILLABLE groups only — the same scope `billableScanWhere` gave
+  // this attribution in SQL, now applied to the group key plus the repo's own `isPrivate`. A repo the
+  // Repository read did not return cannot be private (there is no row saying so), so it is excluded
+  // exactly as the join would have excluded it.
+  const byRepo: RepoUsage[] = mergeRepoUsage(
+    scanRepoUsage(
+      scanGroups.filter((g) =>
+        isBillableScan({
+          isPrivate: repoById.get(g.repoId)?.isPrivate ?? false,
+          engineProvider: g.engineProvider,
+          engineByom: g.engineByom,
+        }),
+      ),
+      repoById,
+    ),
+    eventRepos.map(eventRepoUsage),
+  );
+
+  // Fold 3 of 3: per (repo → owning team), from the same groups and the same Repository read.
+  const scanCells = isPublic ? [] : scanTeamUsage(scanGroups, repoById);
   const byTeam: TeamUsage[] = isPublic ? [] : mergeTeamUsage(scanTeamRows(scanCells), otherTeams);
   const byLaneTeam: LaneTeamCell[] = isPublic ? [] : mergeLaneTeamCells([...scanCells, ...laneTeamCells]);
 
@@ -623,18 +668,130 @@ export function estimateLlmCostFromTable(usage: ModelTokenUsage[]): number | nul
 /** A (provider, model) group with the call count the lane view needs beside its tokens. */
 type ModelCallGroup = ModelTokenUsage & { calls: number };
 
-/** Shape the per-model groupBy into the fold's input, once, so the two consumers agree. */
-function modelUsageWithCounts(
-  groups: { engineProvider: string; engineModel: string | null; engineByom?: boolean | null; _count: number; _sum: { inputTokens: number | null; outputTokens: number | null } }[],
-): ModelCallGroup[] {
-  return groups.map((g) => ({
+/**
+ * One row of THE per-(repo, provider, model, byom) groupBy — the single pass this module makes over
+ * the period, folded three ways (cost basis, per repo, per owning team). It was three passes over
+ * one `where`, the finest of which was a superset of the other two.
+ */
+export interface PeriodScanGroup {
+  repoId: string;
+  engineProvider: string;
+  engineModel: string | null;
+  engineByom?: boolean | null;
+  _count: number;
+  _sum: { inputTokens: number | null; outputTokens: number | null };
+}
+
+/** The Repository columns those folds need, resolved in ONE read for the window's repos: the name
+ *  the repo panel prints, the `isPrivate` the billable filter needs, the CODEOWNERS default owner. */
+export interface PeriodRepoRow {
+  id: string;
+  fullName: string;
+  isPrivate: boolean;
+  teams: { slug: string }[];
+}
+
+/** One group as the cost fold's input — the ONE shaping, so every fold prices identically. */
+function modelCallGroup(g: PeriodScanGroup): ModelCallGroup {
+  return {
     model: g.engineModel,
     provider: g.engineProvider,
     byom: g.engineByom ?? null,
     calls: g._count,
     inputTokens: g._sum.inputTokens ?? 0,
     outputTokens: g._sum.outputTokens ?? 0,
-  }));
+  };
+}
+
+/** Shape the per-model groupBy into the fold's input, once, so the two consumers agree. */
+function modelUsageWithCounts(groups: PeriodScanGroup[]): ModelCallGroup[] {
+  return groups.map(modelCallGroup);
+}
+
+/**
+ * The scan lane's per-REPO split, from the same groups the team split folds — the money half of the
+ * "Top repositories" attribution, which counted scans and tokens and never dollars.
+ *
+ * Priced by the SAME fold as every other figure on the page (`estimateLlmCostFromTable`), so a BYOM
+ * repo prices as null rather than as a $0 that reads like a free month (32015371), and a repo whose
+ * model has no rate reports its unpriced calls instead of a confident short figure.
+ */
+export function scanRepoUsage(
+  groups: PeriodScanGroup[],
+  repoById: ReadonlyMap<string, PeriodRepoRow>,
+): RepoUsage[] {
+  const acc = new Map<string, ModelCallGroup[]>();
+  for (const g of groups) {
+    // The repo's name, or its id when the row is somehow absent — an unnamed repo is still spend.
+    const key = repoById.get(g.repoId)?.fullName ?? g.repoId;
+    acc.set(key, [...(acc.get(key) ?? []), modelCallGroup(g)]);
+  }
+  return [...acc.entries()].map(([fullName, models]) => {
+    const calls = models.reduce((n, m) => n + m.calls, 0);
+    return {
+      fullName,
+      label: fullName,
+      scans: calls,
+      tokens: models.reduce((n, m) => n + m.inputTokens + m.outputTokens, 0),
+      calls,
+      estimatedCostUsd: estimateLlmCostFromTable(models),
+      unpricedCalls: unpricedScanCalls(models),
+    };
+  });
+}
+
+/** A ledger repo row as the merge's second side: calls and cost, no scans — those are the scan
+ *  lane's own unit, and a repo can carry companion/agent spend without a billable scan behind it. */
+export function eventRepoUsage(row: RepoEventUsage): RepoUsage {
+  return {
+    fullName: row.repoFullName,
+    label: row.repoFullName ?? ORG_WIDE_TEAM_LABEL,
+    scans: 0,
+    tokens: 0,
+    calls: row.calls,
+    estimatedCostUsd: row.estimatedCostUsd,
+    unpricedCalls: row.unpricedCalls,
+  };
+}
+
+/**
+ * Union the scan lane's per-repo split with the ledger's, on the repo's full name — the same merge
+ * `mergeTeamUsage` makes one level coarser, under the SAME cost rule: a side that HAS calls and no
+ * cost is unknown, and unknown + known is still unknown. Adding only the priced half would print a
+ * confident figure that omits real spend.
+ *
+ * Ordering: biggest metered-scan volume first (what the panel sorted on before this had costs at
+ * all), then calls, then the name so a tie is stable. The repo-less bucket is not a repo and does not
+ * compete for a place in the top N — it is appended, always last, so work with no repository is
+ * visible without displacing the attribution the panel is for.
+ */
+export function mergeRepoUsage(a: RepoUsage[], b: RepoUsage[], limit = 10): RepoUsage[] {
+  const out = new Map<string | null, RepoUsage>();
+  for (const row of [...a, ...b]) {
+    const prev = out.get(row.fullName);
+    if (!prev) {
+      out.set(row.fullName, { ...row });
+      continue;
+    }
+    const unknown =
+      (prev.estimatedCostUsd == null && prev.calls > 0) || (row.estimatedCostUsd == null && row.calls > 0);
+    out.set(row.fullName, {
+      fullName: row.fullName,
+      label: prev.label,
+      scans: prev.scans + row.scans,
+      tokens: prev.tokens + row.tokens,
+      calls: prev.calls + row.calls,
+      estimatedCostUsd: unknown ? null : (prev.estimatedCostUsd ?? 0) + (row.estimatedCostUsd ?? 0),
+      unpricedCalls: prev.unpricedCalls + row.unpricedCalls,
+    });
+  }
+  const rows = [...out.values()];
+  const named = rows
+    .filter((r) => r.fullName != null)
+    .sort((x, y) => y.scans - x.scans || y.calls - x.calls || x.label.localeCompare(y.label))
+    .slice(0, Math.max(1, limit));
+  const orgWide = rows.find((r) => r.fullName == null);
+  return orgWide ? [...named, orgWide] : named;
 }
 
 /**
@@ -662,7 +819,9 @@ export function unpricedScanCalls(usage: ModelCallGroup[]): number {
 /**
  * The scan lane's per-team split: `Scan → Repository → RepoTeam(isDefaultOwner)`.
  *
- * The join is performed in JS deliberately, and it is a LEFT join: a repo with no CODEOWNERS default
+ * The join is performed in JS, over the ONE Repository read the whole summary shares (this function
+ * used to issue a second `findMany` of its own for the same window's repos), and it is a LEFT join:
+ * a repo with no CODEOWNERS default
  * owner falls into the explicit `null` (org-wide) bucket rather than dropping out of the report. An
  * inner join would silently shrink the org's total spend by however much untagged work it does, which
  * is exactly the number an operator would then reconcile against and fail to explain.
@@ -672,33 +831,13 @@ export function unpricedScanCalls(usage: ModelCallGroup[]): number {
  * and computing them twice — from two queries and two folds — is how they would come to disagree
  * (MC-B45). `scanTeamRows` projects the panel's shape back out of these cells.
  */
-async function scanTeamUsage(
-  prisma: ReturnType<typeof getPrisma>,
-  groups: { repoId: string; engineProvider: string; engineModel: string | null; engineByom?: boolean | null; _count: number; _sum: { inputTokens: number | null; outputTokens: number | null } }[],
-): Promise<LaneTeamCell[]> {
+function scanTeamUsage(groups: PeriodScanGroup[], repoById: ReadonlyMap<string, PeriodRepoRow>): LaneTeamCell[] {
   if (groups.length === 0) return [];
-  const repoIds = [...new Set(groups.map((g) => g.repoId))];
-  const repos = await prisma.repository.findMany({
-    where: { id: { in: repoIds } },
-    select: { id: true, teams: { where: { isDefaultOwner: true }, select: { slug: true }, take: 1 } },
-  });
-  const teamByRepo = new Map(repos.map((r) => [r.id, r.teams[0]?.slug ?? null]));
-
   const acc = new Map<string | null, ModelCallGroup[]>();
   for (const g of groups) {
     // `?? null` and not `undefined`: a repo the lookup did not return is org-wide, not missing.
-    const key = teamByRepo.get(g.repoId) ?? null;
-    acc.set(key, [
-      ...(acc.get(key) ?? []),
-      {
-        model: g.engineModel,
-        provider: g.engineProvider,
-        byom: g.engineByom ?? null,
-        calls: g._count,
-        inputTokens: g._sum.inputTokens ?? 0,
-        outputTokens: g._sum.outputTokens ?? 0,
-      },
-    ]);
+    const key = repoById.get(g.repoId)?.teams[0]?.slug ?? null;
+    acc.set(key, [...(acc.get(key) ?? []), modelCallGroup(g)]);
   }
   return [...acc.entries()].map(([teamKey, models]) => ({
     lane: "scan" as const,

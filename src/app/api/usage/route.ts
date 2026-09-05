@@ -40,7 +40,10 @@ function toCsv(summary: UsageSummary): string {
  *
  * A SEPARATE view rather than columns bolted onto the per-day export, deliberately: the day series is
  * a reconciliation artifact whose shape (`date,billable,free,total`) downstream sheets already key
- * on, and a lane is not a property of a day's scan count. Both go through the shared `csvTable`, so
+ * on, and a lane is not a property of a day's scan count. The same rule holds for the per-REPO spend
+ * the summary now carries (`byRepo[].estimatedCostUsd`): it rides the JSON body ADDITIVELY and enters
+ * neither CSV — a third `repo` scope block here would change a file shape, not add a column (G19).
+ * Both go through the shared `csvTable`, so
  * the formula-injection guard and the quoting rules are the same ones every other export uses.
  *
  * `team` is OMITTED entirely for the public funnel: the shared anonymous org has no teams, and its
