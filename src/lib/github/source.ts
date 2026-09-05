@@ -21,6 +21,7 @@ import {
   githubApiBase,
   githubRawBase,
 } from "@/lib/github/host";
+import { mapPool } from "@/lib/pool";
 
 // FORGE EXTRACTION (moonshot #4). `ProgressFn` / `FetchOptions` / `ParsedRepo` / `GitHubError` /
 // `RepoSource` are DECLARED in `@/lib/forge/types` now — not a character of them changed, only the
@@ -304,24 +305,6 @@ export async function fetchRepoContext(parsed: ParsedRepo, token?: string): Prom
   };
 }
 
-/** Run `worker` over `items` with bounded concurrency. */
-async function pool<T, R>(
-  items: T[],
-  limit: number,
-  worker: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let cursor = 0;
-  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (cursor < items.length) {
-      const i = cursor++;
-      results[i] = await worker(items[i]!, i); // safe: `i < items.length` guards the loop
-    }
-  });
-  await Promise.all(runners);
-  return results;
-}
-
 async function ghJson<T>(url: string, token?: string, signal?: AbortSignal): Promise<T> {
   let res: Response;
   try {
@@ -571,50 +554,36 @@ export class GitHubPublicSource implements RepoSource {
     // per-file budget at one package of a monorepo; unset (the default) leaves the pick byte-for-byte
     // as it was.
     const picks = pickFilesToFetch(blobs, opts.subPath);
-    emit({ stage: "files", message: `Reading ${picks.length} key files…`, pct: 45 });
+    // THE BYTE PLAN IS COMPUTED BEFORE ANY FETCH (see planFetchBudget). The set of files we read is a
+    // pure function of (tree, picks, budget) — never of how many of the 8 lanes happened to have
+    // reconciled their claim when task N ran. A `?fresh=1` re-scan of the same commit therefore reads
+    // the same files and produces the same score.
+    const listedSize = new Map<string, number>();
+    for (const b of blobs) if (typeof b.size === "number") listedSize.set(b.path, b.size);
+    const { admitted, displaced } = planFetchBudget(picks, (p) => listedSize.get(p));
+    emit({ stage: "files", message: `Reading ${admitted.length} key files…`, pct: 45 });
     const files: FetchedFile[] = [];
-    let totalBytes = 0;
-    await pool(picks, FILE_CONCURRENCY, async (path) => {
-      // Client disconnected mid-ingest — stop claiming budget and firing fetches for files
-      // nobody will read (an already-aborted signal also makes each fetch reject immediately).
+    await mapPool(admitted, FILE_CONCURRENCY, async (path) => {
+      // Client disconnected mid-ingest — don't fire fetches for files nobody will read (an
+      // already-aborted signal also makes each fetch reject immediately).
       if (signal?.aborted) return;
-      // RESERVE the worst-case slice synchronously, before any await. The guard + reservation
-      // run in one uninterrupted tick, so concurrent workers can't all pass a stale check and
-      // overshoot the cap by ~FILE_CONCURRENCY × MAX_FILE_BYTES (the check-then-act race the
-      // old code had, where the check straddled the fetch await). Reconcile to the real size
-      // after the fetch resolves.
-      if (totalBytes >= MAX_TOTAL_BYTES) return;
-      totalBytes += MAX_FILE_BYTES; // optimistic claim
-      let claimed = true;
-      const releaseClaim = () => {
-        if (claimed) {
-          totalBytes -= MAX_FILE_BYTES;
-          claimed = false;
-        }
-      };
       try {
         // With a token (e.g. a GitHub App installation), use the authenticated Contents
         // API so private repos work. Without one, the raw host avoids API rate limits.
         const content = token
           ? await fetchContents(owner, repo, ref, path, token, signal)
           : await fetchRaw(owner, repo, ref, path, signal);
-        if (content == null) {
-          releaseClaim(); // release the unused claim
-          return;
-        }
-        // CODEOWNERS is parsed exactly (not just fed to the prompt), so it gets a larger cap than
-        // the flat LLM budget. The optimistic claim was MAX_FILE_BYTES; the reconcile below uses the
-        // ACTUAL kept length, so the total-byte accounting stays correct regardless of the per-file cap.
-        const cap = CODEOWNERS_PATH_RE.test(path) ? MAX_CODEOWNERS_BYTES : MAX_FILE_BYTES;
-        const truncated = content.slice(0, cap);
-        totalBytes += truncated.length - MAX_FILE_BYTES; // reconcile claim → actual
-        claimed = false; // reconciled — no longer holding the flat optimistic claim
+        if (content == null) return;
+        // CODEOWNERS is parsed exactly (not just fed to the prompt), so it gets a larger cap than the
+        // flat LLM budget — the same cap the plan charged this path. A body that turns out LARGER
+        // than the tree listed it still truncates here exactly as before; the plan is the admission
+        // decision, this is the per-file cut.
+        const truncated = content.slice(0, capForPath(path));
         files.push({ path, content: truncated, bytes: content.length });
       } catch {
         // One pathological file (bad encoding, an unexpected Contents-API shape, a non-string
-        // body) must not reject the worker and, via Promise.all, abort the entire scan. Release
-        // the optimistic claim and skip the file — degrade coverage, mirroring the null path.
-        releaseClaim();
+        // body) must not reject the worker and, via Promise.all, abort the entire scan. Skip the
+        // file — degrade coverage, mirroring the null path.
       }
     });
     // Order by FETCH PRIORITY (pickFilesToFetch rank), not alphabetically. The assessment prompt
@@ -633,13 +602,19 @@ export class GitHubPublicSource implements RepoSource {
     // THE QUARANTINE (moonshot #14) — the last thing that happens before the snapshot exists. Memory
     // bodies leave `files` here, so no scorer, prompt builder or analyzer downstream can reach them
     // even by accident: they are only ever addressable as `snapshot.memoryFiles`.
-    const { files: promptFiles, memoryFiles, nonMemoryAttempted } = quarantineMemoryFiles(files, picks);
+    // ATTEMPTED follows the PLAN: the denominator of the fetch-success rate is the set the plan
+    // admitted, so that ratio now measures only what it claims to (raw-host success), not "success
+    // rate × whatever the byte budget happened to leave". The picks the plan DISPLACED are not
+    // silently dropped from the arithmetic — they go in as their own term below.
+    const { files: promptFiles, memoryFiles, nonMemoryAttempted } = quarantineMemoryFiles(files, admitted);
+    const displacedNonMemory = displaced.filter((p) => !MEMORY_ENTRY_RE.test(p)).length;
 
     const coverage = estimateCoverage(
       blobs.length,
       promptFiles.length,
       nonMemoryAttempted,
       treeRes.truncated,
+      displacedNonMemory,
     );
 
     return {
@@ -899,6 +874,59 @@ export function memoryPicks(paths: string[]): string[] {
   return numbered.slice(0, MAX_MEMORY_FILES).map((x) => x.p);
 }
 
+/** The per-file truncation cap this path is charged (and cut to): CODEOWNERS is parsed exactly, not
+ *  fed to a prompt, so it carries the larger cap. One function so the PLAN and the CUT cannot drift. */
+function capForPath(path: string): number {
+  return CODEOWNERS_PATH_RE.test(path) ? MAX_CODEOWNERS_BYTES : MAX_FILE_BYTES;
+}
+
+/** What the byte budget admitted, and what it pushed out. */
+export interface FetchPlan {
+  /** The files that WILL be fetched, in pick (= fetchRank) order. */
+  admitted: string[];
+  /** Picks the budget pushed out, in pick order. Never silent: they are a term in estimateCoverage. */
+  displaced: string[];
+}
+
+/**
+ * Decide WHICH picks the MAX_TOTAL_BYTES budget pays for, BEFORE a single byte is fetched.
+ *
+ * THE EXACT RULE: walk `picks` in pick order (which is `fetchRank` order — the same order the prompt
+ * window reads them in, so the budget spends on the highest-signal files first, and the reserved
+ * workflow / `.ai/memory` tails still sit exactly where step 7/8 of pickFilesToFetch put them). Charge
+ * each path `min(listed size, its per-file cap)` — the most bytes it can possibly contribute after
+ * truncation. Admit it WHILE `planned + cost <= MAX_TOTAL_BYTES`; at the FIRST path that does not fit,
+ * admission closes and every remaining pick is displaced. Closing (rather than skipping ahead to the
+ * next file that happens to fit) is deliberate: it reproduces what the previous sequential-order case
+ * did — the old worker `return`ed once the running total reached the cap, ending its lane — so the
+ * admitted set stays as close as it can to the volume the rubric was calibrated on.
+ *
+ * A pick with NO listed size (the tree omitted it) is charged its full cap: the plan is never allowed
+ * to be optimistic about a file it cannot measure. The listed size is BYTES and the cut is by UTF-16
+ * code units, so on multibyte content the charge is an over-estimate — conservative in the same
+ * direction, and never a reason to re-open a closed plan.
+ *
+ * Pure, exported and total: the set is a function of (tree sizes, picks, budget) alone, which is the
+ * whole point — reproducibility of the scored file set across re-scans of the same commit.
+ */
+export function planFetchBudget(
+  picks: readonly string[],
+  sizeOf: (path: string) => number | undefined,
+): FetchPlan {
+  const admitted: string[] = [];
+  let planned = 0;
+  for (let i = 0; i < picks.length; i++) {
+    const path = picks[i]!;
+    const cap = capForPath(path);
+    const listed = sizeOf(path);
+    const cost = Math.min(typeof listed === "number" && listed >= 0 ? listed : cap, cap);
+    if (planned + cost > MAX_TOTAL_BYTES) return { admitted, displaced: picks.slice(i) };
+    planned += cost;
+    admitted.push(path);
+  }
+  return { admitted, displaced: [] };
+}
+
 /**
  * THE QUARANTINE (moonshot #14). Split fetched contents into the prompt-visible `files` and the
  * mirror-only `memoryFiles`, and report how many of the ATTEMPTED picks were non-memory so
@@ -926,7 +954,13 @@ export function quarantineMemoryFiles(
   };
 }
 
-export function estimateCoverage(totalBlobs: number, fetched: number, attempted: number, truncated: boolean): number {
+export function estimateCoverage(
+  totalBlobs: number,
+  fetched: number,
+  attempted: number,
+  truncated: boolean,
+  displaced = 0,
+): number {
   // Heuristic: how confident are we that we've seen the signal-bearing files?
   // Small repos -> high coverage; truncated giant repos -> lower.
   // Factor in the fetch SUCCESS RATE of the files we actually tried to read: a small repo used to pin
@@ -942,8 +976,17 @@ export function estimateCoverage(totalBlobs: number, fetched: number, attempted:
   // large-repo confidence on the SUCCESS RATE of the signal-bearing picks (fetched/attempted) too, capped
   // a notch below the small-repo ceiling to reflect the larger unseen tail — so a fully-successful ingest
   // of a big repo no longer reads as degraded, while a genuine blip (many picks failing) still does.
+  //
+  // `attempted` is now the set the BYTE PLAN admitted, so `fetched/attempted` measures fetch success
+  // and nothing else. The picks the plan DISPLACED are disclosed as their own multiplicative term
+  // rather than being folded into that ratio or dropped: a displaced file lowers confidence by exactly
+  // the same proportion it did when it sat in the old `attempted` denominator, so a repo whose picks
+  // all fit scores its coverage unchanged — the number just stopped depending on network timing.
+  // `displaced` defaults to 0 for the ingestion paths that cannot displace (a sequential reader).
   const fetchRate = attempted > 0 ? fetched / attempted : 1;
-  let c = totalBlobs <= MAX_FILES ? 0.95 * fetchRate : Math.min(0.9, 0.85 * fetchRate);
+  const admitRate = attempted + displaced > 0 ? attempted / (attempted + displaced) : 1;
+  const rate = fetchRate * admitRate;
+  let c = totalBlobs <= MAX_FILES ? 0.95 * rate : Math.min(0.9, 0.85 * rate);
   if (truncated) c = Math.min(c, 0.6);
   return Math.round(c * 100) / 100;
 }

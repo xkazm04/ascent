@@ -15,6 +15,7 @@
 
 import {
   MAX_FILES,
+  MEMORY_ENTRY_RE,
   estimateCoverage,
   pickFilesToFetch,
   quarantineMemoryFiles,
@@ -205,10 +206,15 @@ export class GitLabSource implements RepoSource {
     const blobs = tree.filter((f) => f.type === "blob");
     const picks = pickFilesToFetch(blobs, opts.subPath);
     emit({ stage: "files", message: `Reading ${picks.length} key files…`, pct: 45 });
-    const fetched = await this.readFiles(ref, branch, picks, net);
+    const { files: fetched, admitted } = await this.readFiles(ref, branch, picks, net);
 
     // THE QUARANTINE — the same partition function the GitHub and local sources use.
-    const { files, memoryFiles, nonMemoryAttempted } = quarantineMemoryFiles(fetched, picks);
+    // ATTEMPTED follows what the budget admitted (the GitHub source's rule); the remainder is passed
+    // to estimateCoverage as its own displacement term.
+    const { files, memoryFiles, nonMemoryAttempted } = quarantineMemoryFiles(fetched, admitted);
+    const displacedNonMemory = picks
+      .slice(admitted.length)
+      .filter((p) => !MEMORY_ENTRY_RE.test(p)).length;
 
     const meta: RepoMeta = {
       owner: parsed.owner,
@@ -239,55 +245,81 @@ export class GitLabSource implements RepoSource {
         files.length,
         Math.min(nonMemoryAttempted, MAX_FILES),
         treeRes.truncated,
+        displacedNonMemory,
       ),
       memoryFiles,
     };
   }
 
-  /** Read the picks under the same byte budget the GitHub source enforces, at the same concurrency. */
+  /**
+   * Read the picks under the same byte budget the GitHub source enforces, at the same concurrency —
+   * and, like it, with an admitted set that does NOT depend on the order the lanes finish in.
+   *
+   * GitHub can plan the whole budget up front because its recursive tree carries `blob.size`.
+   * GitLab's tree does not (`GlTreeEntry` has path/type/name and nothing else), and there is no
+   * second call that would give sizes without one request per file — so the budget here can only be
+   * spent against bodies we have actually read. What IS in our gift is the ORDER the budget is spent
+   * in: fetches still run `FILE_CONCURRENCY`-wide, but ADMISSION is decided in strict pick order by a
+   * single consumer. The admitted set is therefore exactly what a purely sequential reader would have
+   * admitted — a pure function of (picks, contents) with the completion order divided out — while at
+   * most `FILE_CONCURRENCY - 1` already-in-flight reads are paid for beyond it.
+   *
+   * Returns the admitted files (in pick order) plus the picks admission ever REACHED, so the caller's
+   * coverage denominator follows the plan and the displaced remainder is disclosed, never silent.
+   */
   private async readFiles(
     ref: string,
     branch: string,
     picks: string[],
     net: GitlabFetchOpts,
-  ): Promise<FetchedFile[]> {
+  ): Promise<{ files: FetchedFile[]; admitted: string[] }> {
     const base = gitlabApiBase(net.host);
-    let totalBytes = 0;
-    const out: FetchedFile[] = [];
-    const queue = [...picks];
-
-    const worker = async (): Promise<void> => {
-      for (;;) {
-        const path = queue.shift();
-        if (path === undefined) return;
-        if (totalBytes >= MAX_TOTAL_BYTES) return;
-        const cap = CODEOWNERS_RE.test(path) ? MAX_CODEOWNERS_BYTES : MAX_FILE_BYTES;
-        const url =
-          `${base}/projects/${ref}/repository/files/${encodeURIComponent(path)}/raw` +
-          `?ref=${encodeURIComponent(branch)}`;
-        try {
-          const res = await fetchWithTimeout(
-            url,
-            { headers: gitlabHeaders(net.token), cache: "no-store" },
-            GITLAB_TIMEOUT_FILE_MS,
-            net.signal,
-          );
-          if (!res.ok) continue;
-          const content = await res.text();
-          const truncated = content.slice(0, cap);
-          totalBytes += truncated.length;
-          out.push({ path, content: truncated, bytes: content.length });
-        } catch {
-          // Degrade coverage rather than fail the scan — the GitHub source's contract exactly.
-        }
+    const readOne = async (path: string): Promise<string | null> => {
+      const url =
+        `${base}/projects/${ref}/repository/files/${encodeURIComponent(path)}/raw` +
+        `?ref=${encodeURIComponent(branch)}`;
+      try {
+        const res = await fetchWithTimeout(
+          url,
+          { headers: gitlabHeaders(net.token), cache: "no-store" },
+          GITLAB_TIMEOUT_FILE_MS,
+          net.signal,
+        );
+        if (!res.ok) return null;
+        return await res.text();
+      } catch {
+        // Degrade coverage rather than fail the scan — the GitHub source's contract exactly.
+        return null;
       }
     };
-    await Promise.all(Array.from({ length: FILE_CONCURRENCY }, worker));
 
-    // Restore PICK order: the prompt's byte window cuts from the end, so rank decides what the model
-    // actually reads. The concurrent pool completes out of order, so this sort is load-bearing.
-    const rank = new Map(picks.map((p, i) => [p, i]));
-    return out.sort((a, b) => (rank.get(a.path) ?? 0) - (rank.get(b.path) ?? 0));
+    const inflight = new Map<number, Promise<string | null>>();
+    const start = (i: number) => inflight.set(i, readOne(picks[i]!));
+    let next = Math.min(FILE_CONCURRENCY, picks.length);
+    for (let i = 0; i < next; i++) start(i);
+
+    const out: FetchedFile[] = [];
+    let totalBytes = 0;
+    let i = 0;
+    for (; i < picks.length; i++) {
+      // The SEQUENTIAL rule, unchanged: admission closes the moment the running total reaches the cap.
+      if (totalBytes >= MAX_TOTAL_BYTES) break;
+      const pending = inflight.get(i);
+      inflight.delete(i);
+      const content = pending ? await pending : null;
+      if (next < picks.length) start(next++);
+      if (content == null) continue;
+      const path = picks[i]!;
+      const cap = CODEOWNERS_RE.test(path) ? MAX_CODEOWNERS_BYTES : MAX_FILE_BYTES;
+      const truncated = content.slice(0, cap);
+      totalBytes += truncated.length;
+      out.push({ path, content: truncated, bytes: content.length });
+    }
+    // Reads already issued for displaced picks are awaited (never abandoned unhandled) and discarded.
+    await Promise.allSettled([...inflight.values()]);
+    // `out` is built in pick order by construction — the prompt's byte window cuts from the end, so
+    // rank decides what the model actually reads.
+    return { files: out, admitted: picks.slice(0, i) };
   }
 }
 

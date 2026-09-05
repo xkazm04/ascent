@@ -17,6 +17,7 @@ import {
   chooseHeadSha,
   estimateCoverage,
   pickFilesToFetch,
+  planFetchBudget,
 } from "./source";
 import { fetchBranchGovernance } from "./governance";
 import { fetchPullRequests, type PrNode } from "./graphql";
@@ -1066,5 +1067,162 @@ describe("ghJson — a thrown network error never crosses back to the client", (
     );
     const err = await fetchRepoContext({ owner: "o", repo: "r" }).catch((e: unknown) => e);
     expect((err as Error).message).toBe("GitHub request timed out. Try again.");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// The byte plan — the same commit must read the same files (Direction 2)
+// ---------------------------------------------------------------------------------------------------
+// `pickFilesToFetch` was already deterministic, but the MAX_TOTAL_BYTES budget used to be spent INSIDE
+// the concurrent pool with an optimistic claim reconciled after each await. Whether task N saw the
+// budget as spent therefore depended on how many of the 8 lanes had already reconciled — i.e. on
+// network timing — so a `?fresh=1` re-scan of the SAME commit could read a different file set, score
+// differently, and move `estimateCoverage` across the 0.5 cache/persist threshold. The budget is now a
+// PLAN computed from the tree's listed blob sizes before a single byte is fetched.
+//
+// These tests fail on the old code: the two runs below resolve their file fetches in opposite orders.
+
+/** A tree whose every blob declares `size` — the input the plan is a pure function of. */
+function sizedTreeBody(paths: string[], size: number) {
+  return {
+    sha: "a".repeat(40),
+    truncated: false,
+    tree: paths.map((p) => ({ path: p, type: "blob", size, sha: "b".repeat(40) })),
+  };
+}
+
+/**
+ * A fetch mock that resolves each file after `latency(path)` ms and records which paths were actually
+ * requested from the raw host — i.e. the ADMITTED SET, observed rather than asserted about internals.
+ * Bodies are tiny on purpose: if the admitted set tracked the bodies rather than the tree's listed
+ * sizes, nothing would ever be displaced and the test could not tell the two apart.
+ */
+function makeTimedFetch(paths: string[], size: number, latency: (p: string) => number) {
+  const requested: string[] = [];
+  const fn = vi.fn(async (url: string) => {
+    if (url.startsWith(`${API}/repos/o/r/git/trees/`)) return res(sizedTreeBody(paths, size));
+    if (url.startsWith(`${API}/repos/o/r/commits`)) return res([]);
+    if (url === `${API}/repos/o/r`) return res(repoMetaBody);
+    if (url.startsWith(`${RAW}/o/r/`)) {
+      const tail = decodeURIComponent(url.slice(`${RAW}/o/r/main/`.length));
+      requested.push(tail);
+      await new Promise((r) => setTimeout(r, latency(tail)));
+      return res(null, { text: "x" });
+    }
+    throw new Error(`unexpected fetch in test: ${url}`);
+  });
+  return { fn, requested };
+}
+
+/** A large-repo pick list: 36 exact-name high-signal files, samples, 24 workflows, 12 memory entries. */
+const BIG_TREE: string[] = [
+  "readme.md", "readme.rst", "claude.md", "agents.md", "agent.md", ".cursorrules", ".windsurfrules",
+  ".aider.conf.yml", "package.json", "pyproject.toml", "go.mod", "cargo.toml", "pom.xml", "build.gradle",
+  "gemfile", "composer.json", "tsconfig.json", "eslint.config.js", "eslint.config.mjs", ".eslintrc.json",
+  ".eslintrc.js", "biome.json", "ruff.toml", ".pre-commit-config.yaml", "contributing.md", "security.md",
+  "changelog.md", "codeowners", ".github/dependabot.yml", "renovate.json", ".renovaterc.json", "dockerfile",
+  "docker-compose.yml", "openapi.yaml", "openapi.json", "vercel.json",
+  ...Array.from({ length: 6 }, (_, i) => `src/mod${i}.ts`),
+  ...Array.from({ length: 4 }, (_, i) => `tests/case${i}.test.ts`),
+  ...Array.from({ length: 3 }, (_, i) => `docs/guide${i}.md`),
+  ...Array.from({ length: 24 }, (_, i) => `.github/workflows/w${String(i).padStart(2, "0")}.yml`),
+  ...Array.from({ length: 12 }, (_, i) => `.ai/memory/${String(i + 1).padStart(4, "0")}-note.md`),
+];
+
+describe("planFetchBudget — the admitted set is a pure function of (tree sizes, picks, budget)", () => {
+  it("admits files in pick order while planned + min(size, cap) fits, then CLOSES admission", () => {
+    // 14 KB apiece against the 280 KB budget: exactly 20 files fit (20 × 14_000 === 280_000).
+    const picks = pickFilesToFetch(BIG_TREE.map(asBlob));
+    const { admitted, displaced } = planFetchBudget(picks, () => 14_000);
+    expect(admitted).toHaveLength(20);
+    expect(admitted).toEqual(picks.slice(0, 20));
+    expect(displaced).toEqual(picks.slice(20)); // the remainder, in pick order — nothing is skipped over
+  });
+
+  it("charges the LISTED size, so small files let far more of the pick list through", () => {
+    const picks = pickFilesToFetch(BIG_TREE.map(asBlob));
+    expect(planFetchBudget(picks, () => 1_000).admitted).toEqual(picks);
+  });
+
+  it("charges a pick with NO listed size its full cap — the plan is never optimistic about what it can't measure", () => {
+    const picks = ["a.md", "b.md", "c.md"];
+    expect(planFetchBudget(picks, () => undefined).admitted).toEqual(picks); // 3 × 14_000 < 280_000
+    const many = Array.from({ length: 25 }, (_, i) => `f${i}.md`);
+    expect(planFetchBudget(many, () => undefined).admitted).toHaveLength(20);
+  });
+
+  it("charges CODEOWNERS its own larger cap — the cap that will actually be kept", () => {
+    // CODEOWNERS truncates at 60 KB, not 14 KB, so the plan must charge 60 KB or the admitted set's
+    // real content would overrun the budget it was supposed to respect.
+    const plan = planFetchBudget(
+      ["codeowners", ...Array.from({ length: 20 }, (_, i) => `f${i}.md`)],
+      (p) => (p === "codeowners" ? 60_000 : 14_000),
+    );
+    // 60_000 + 15 × 14_000 = 270_000 fits; a 16th 14 KB file would reach 284_000 and closes admission.
+    expect(plan.admitted).toEqual(["codeowners", ...Array.from({ length: 15 }, (_, i) => `f${i}.md`)]);
+  });
+});
+
+describe("fetchSnapshot — a re-scan of the same commit reads the SAME files, whatever the network does", () => {
+  it("two runs with OPPOSITE fetch-completion orders admit the identical set (explainable from sizes alone)", async () => {
+    const picks = pickFilesToFetch(BIG_TREE.map(asBlob));
+    expect(picks.length).toBeGreaterThan(20); // the budget genuinely binds on this fixture
+
+    // Run A: later picks resolve first. Run B: the exact reverse. Under the old optimistic claim the
+    // two runs disagreed about how much budget was spent when each task ran; under the plan they can't.
+    const rank = new Map(picks.map((p, i) => [p, i]));
+    const fast = (p: string) => 1 + ((picks.length - (rank.get(p) ?? 0)) % 5);
+    const slow = (p: string) => 1 + ((rank.get(p) ?? 0) % 5);
+
+    const a = makeTimedFetch(BIG_TREE, 14_000, fast);
+    vi.stubGlobal("fetch", a.fn);
+    const snapA = await new GitHubPublicSource().fetchSnapshot({ owner: "o", repo: "r" });
+    vi.unstubAllGlobals();
+
+    const b = makeTimedFetch(BIG_TREE, 14_000, slow);
+    vi.stubGlobal("fetch", b.fn);
+    const snapB = await new GitHubPublicSource().fetchSnapshot({ owner: "o", repo: "r" });
+
+    const admittedA = [...a.requested].sort();
+    const admittedB = [...b.requested].sort();
+    expect(admittedA).toEqual(admittedB);
+    expect(admittedA).toHaveLength(20);
+    // Explainable from the tree's sizes alone — no fetch involved in deriving this expectation.
+    expect(admittedA).toEqual([...planFetchBudget(picks, () => 14_000).admitted].sort());
+
+    // …and therefore the scored inputs match too: same prompt files, same order, same coverage.
+    expect(snapA.files.map((f) => f.path)).toEqual(snapB.files.map((f) => f.path));
+    expect(snapA.coverage).toBe(snapB.coverage);
+  });
+
+  it("DISPLACED picks are disclosed, not silent: coverage carries them as its own term", async () => {
+    const picks = pickFilesToFetch(BIG_TREE.map(asBlob));
+    const { admitted, displaced } = planFetchBudget(picks, () => 14_000);
+    const nonMemoryAdmitted = admitted.filter((p) => !p.startsWith(".ai/memory/")).length;
+    const nonMemoryDisplaced = displaced.filter((p) => !p.startsWith(".ai/memory/")).length;
+
+    const { fn } = makeTimedFetch(BIG_TREE, 14_000, () => 0);
+    vi.stubGlobal("fetch", fn);
+    const snap = await new GitHubPublicSource().fetchSnapshot({ owner: "o", repo: "r" });
+
+    // Every admitted fetch succeeded, so the fetch-success term is 1 and the whole reduction is the
+    // displacement term — the honest statement "we read 20 of the 73 signal files we wanted".
+    expect(snap.coverage).toBe(
+      estimateCoverage(BIG_TREE.length, nonMemoryAdmitted, nonMemoryAdmitted, false, nonMemoryDisplaced),
+    );
+    expect(snap.coverage).toBeLessThan(0.5); // a budget-bound ingest is NOT reported as fully covered
+  });
+});
+
+describe("estimateCoverage — the displacement term", () => {
+  it("defaults to 0, so a reader that cannot displace scores exactly as before", () => {
+    expect(estimateCoverage(2000, 50, 50, false)).toBe(0.85);
+    expect(estimateCoverage(2000, 50, 50, false, 0)).toBe(0.85);
+  });
+
+  it("reduces confidence by the share of picks the budget pushed out", () => {
+    // 25 read of 50 wanted reads the same as 25 fetched of 50 attempted did before the plan existed —
+    // the number did not move, it merely stopped depending on which lane won a race.
+    expect(estimateCoverage(2000, 25, 25, false, 25)).toBe(estimateCoverage(2000, 25, 50, false));
   });
 });
