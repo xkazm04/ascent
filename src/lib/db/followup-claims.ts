@@ -152,7 +152,9 @@ export async function sweepExpiredLeases(orgSlug: string, now: Date = new Date()
 export interface ClaimFollowupsInput {
   org: string;
   ids: readonly string[];
-  /** Who holds it — `agent:<token name>`, `autopilot`, a login. Stored verbatim in `claimActor`. */
+  /** Who holds it — `agent:<token id>` for a machine claim, `autopilot`, or a login. Stored verbatim
+   *  in `claimActor`. The TOKEN ID, never its name: names are not unique, so a name-keyed holder made
+   *  two tokens called `ci` the same worker. See `holderActors`. */
   actor: string;
   executor: ClaimExecutor;
   /** Lease length. Pass `null` for an UNLEASED claim — the browser hand-off's shape, which the
@@ -297,10 +299,31 @@ export async function releaseFollowups(ids: readonly string[], why: string, acto
   return released;
 }
 
+/**
+ * THE HOLDER CLAUSE — the set of `claimActor` values that count as "this caller".
+ *
+ * Normally one value. It takes a second, TRANSITIONAL one because the MCP door changed the identity
+ * it stores: a holder used to be `agent:<token name>` and is now `agent:<token id>`. Token names are
+ * not unique (`createOrgApiToken` enforces nothing), so the old form made two live tokens named `ci`
+ * one holder — token B could brief and report on rows token A leased. The new form cannot: an id is
+ * unique by construction.
+ *
+ * The legacy arm exists ONLY so rows claimed before that change stay workable by the token that
+ * claimed them, and it carries the old form's flaw for exactly those rows and no new ones. HOW IT
+ * ENDS: leases are hours, not weeks, so every row stored in the old form has lapsed and been swept
+ * back to the queue within a day of the deploy. Once that has passed, drop `legacyActor` from these
+ * two inputs and from `McpPrincipal`, and the dual-match disappears with it.
+ */
+function holderActors(actor: string, legacyActor?: string | null): string[] {
+  return legacyActor && legacyActor !== actor ? [actor, legacyActor] : [actor];
+}
+
 export interface ReportAttemptInput {
   org: string;
   id: string;
   actor: string;
+  /** TRANSITIONAL second holder form accepted alongside `actor` — see `holderActors`. */
+  legacyActor?: string | null;
   verdict: AttemptVerdict;
   reason: string;
   branch?: string | null;
@@ -329,8 +352,9 @@ export async function reportAttempt(input: ReportAttemptInput): Promise<Followup
   if (!org) return null;
   const prisma = getPrisma();
 
+  const actors = holderActors(input.actor, input.legacyActor);
   const held = await prisma.recommendation.findFirst({
-    where: { id: input.id, claimActor: input.actor, status: "in_progress", scan: { repo: { orgId: org.id } } },
+    where: { id: input.id, claimActor: { in: actors }, status: "in_progress", scan: { repo: { orgId: org.id } } },
     select: { id: true },
   });
   if (!held) return null;
@@ -354,7 +378,7 @@ export async function reportAttempt(input: ReportAttemptInput): Promise<Followup
     // Guarded on the holder again inside the transaction: the read above and this write must not
     // straddle a sweep that released the row to somebody else.
     const res = await tx.recommendation.updateMany({
-      where: { id: input.id, status: "in_progress", claimActor: input.actor },
+      where: { id: input.id, status: "in_progress", claimActor: { in: actors } },
       data,
     });
     if (res.count !== 1) return null;
@@ -395,14 +419,19 @@ export async function reportAttempt(input: ReportAttemptInput): Promise<Followup
  * claimed by somebody else is refused BY ID rather than silently dropped, so an agent asking for five
  * briefs and getting three knows which two it lost.
  */
-export async function heldFollowups(orgSlug: string, ids: readonly string[], actor: string): Promise<FollowupClaimRow[]> {
+export async function heldFollowups(
+  orgSlug: string,
+  ids: readonly string[],
+  actor: string,
+  legacyActor?: string | null,
+): Promise<FollowupClaimRow[]> {
   if (!isDbConfigured()) return [];
   const org = await getOrgBySlug(orgSlug);
   if (!org) return [];
   const rows = await getPrisma().recommendation.findMany({
     where: {
       id: { in: [...new Set(ids)] },
-      claimActor: actor,
+      claimActor: { in: holderActors(actor, legacyActor) },
       status: "in_progress",
       scan: { repo: { orgId: org.id } },
     },

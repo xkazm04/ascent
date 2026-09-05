@@ -368,10 +368,27 @@ async function recallMemory(org: string, args: Args): Promise<ToolResult> {
  * in-process without either door having to know how the other authenticated.
  */
 export interface McpPrincipal {
-  /** The value stored in `Recommendation.claimActor` — `agent:<token name>`. */
+  /**
+   * The value stored in `Recommendation.claimActor` — `agent:<token id>`.
+   *
+   * THE ID, NOT THE NAME. `createOrgApiToken` enforces no uniqueness on a token's name, so the old
+   * `agent:<name>` form made two live tokens called `ci` ONE holder: either could brief and report on
+   * rows the other leased. An id is unique by construction, so the ledger's holder comparison is now
+   * a comparison of credentials rather than of labels somebody chose twice.
+   */
   actor: string;
+  /**
+   * TRANSITIONAL — the pre-2026-09-05 holder form `agent:<token name>`, accepted ALONGSIDE `actor`
+   * so rows claimed before the change stay workable by the token that claimed them. It carries the
+   * old form's ambiguity for those rows only. Leases are hours, so every such row lapses back to the
+   * queue within a day; after that this field and the dual-match in `followup-claims.ts` are deleted
+   * together. Absent for a caller that never stored the old form.
+   */
+  legacyActor?: string | null;
   /** The verified token's id, for the audit row. */
   tokenId: string | null;
+  /** The token's human NAME — a display label only. Never an identity: see `actor`. */
+  label?: string | null;
 }
 
 /**
@@ -387,11 +404,11 @@ export interface McpPrincipal {
 export async function runTool(name: string, org: string, args: Args, principal?: McpPrincipal): Promise<ToolResult> {
   switch (name) {
     case "claim_followups":
-      return principal ? claimFollowupsTool(org, args, principal.actor, principal.tokenId) : unattributed(name);
+      return principal ? claimFollowupsTool(org, args, principal) : unattributed(name);
     case "get_fix_brief":
-      return principal ? getFixBriefTool(org, args, principal.actor) : unattributed(name);
+      return principal ? getFixBriefTool(org, args, principal) : unattributed(name);
     case "report_attempt":
-      return principal ? reportAttemptTool(org, args, principal.actor, principal.tokenId) : unattributed(name);
+      return principal ? reportAttemptTool(org, args, principal) : unattributed(name);
     case "report_skill_invoke":
       return reportSkillInvoke(org, args, Date.now());
     case "cite_memory":

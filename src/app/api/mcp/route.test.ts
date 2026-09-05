@@ -216,11 +216,11 @@ describe("POST /api/mcp — plan gates", () => {
     const [action, org, meta, actor] = vi.mocked(recordOrgAudit).mock.calls[0]!;
     expect(action).toBe("mcp.write.report_skill_invoke");
     expect(org).toBe("acme");
-    expect(actor).toBe("token:agent");
+    expect(actor).toBe("token:tok_1");
     // The key SHAPE plus the idempotency key — never the raw argument object. A citation `note` is
     // free text an agent wrote, and the audit trail must not become a second place it is stored and
     // re-read; the idempotency key carries only identifiers, by construction.
-    expect(meta).toMatchObject({ tool: "report_skill_invoke", argKeys: ["session", "skill"] });
+    expect(meta).toMatchObject({ tool: "report_skill_invoke", argKeys: ["session", "skill"], tokenId: "tok_1", tokenName: "agent" });
     expect(meta).not.toHaveProperty("args");
 
     // A write the gate refuses never reaches the handler and never audits: an audit trail of
@@ -240,6 +240,48 @@ describe("POST /api/mcp — plan gates", () => {
     const body = await res.json();
     expect(res.status).toBe(400);
     expect(body.error.message).toBe("Unknown tool: report_skill_invoke");
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────────────────────────
+  // THE TOKEN ID IS THE IDENTITY (Direction 1). A token's NAME is not unique — `createOrgApiToken`
+  // enforces nothing — so keying the audit actor or the work-queue holder on it made two tokens
+  // called `ci` one actor with one shared daily ceiling and one shared claim identity. Both keys are
+  // now the token id, and the name rides along as a label.
+  //
+  // FAIL-BEFORE: restore `token:${token.name}` / `agent:${token.name}` in route.ts and both
+  // assertions below fail.
+  // ───────────────────────────────────────────────────────────────────────────────────────────────
+  it("keys the audit actor and the work-queue holder on the token ID, with the name as a label", async () => {
+    tokenWith(["mcp:read", "followups:write", "telemetry:write"]);
+    await call("tools/call", { name: "report_attempt", arguments: { id: "rec-1", verdict: "skipped", reason: "r" } });
+
+    const principal = vi.mocked(runTool).mock.calls[0]![3]!;
+    expect(principal.actor).toBe("agent:tok_1");
+    // The label, carried but never compared. And the TRANSITIONAL name form, so a row claimed before
+    // this change is still workable by the token that claimed it.
+    expect(principal.label).toBe("agent");
+    expect(principal.legacyActor).toBe("agent:agent");
+    expect(vi.mocked(recordOrgAudit).mock.calls[0]![3]).toBe("token:tok_1");
+  });
+
+  it("gives two tokens with the SAME NAME different actors, so they share no counter and no lease", async () => {
+    tokenWith(["mcp:read", "followups:write", "telemetry:write"]);
+    await call("tools/call", { name: "report_attempt", arguments: { id: "rec-1", verdict: "skipped", reason: "r" } });
+    // Same org, same name `agent`, a different credential.
+    mockVerify.mockResolvedValue({
+      tokenId: "tok_2",
+      orgSlug: "acme",
+      name: "agent",
+      scopes: ["mcp:read", "followups:write", "telemetry:write"],
+    } as never);
+    await call("tools/call", { name: "report_attempt", arguments: { id: "rec-1", verdict: "skipped", reason: "r" } });
+
+    const actors = vi.mocked(runTool).mock.calls.map((c) => c[3]!.actor);
+    expect(actors).toEqual(["agent:tok_1", "agent:tok_2"]);
+    // The daily ceiling counts on this string (`countTokenWritesToday(org, actorId, action)`), so two
+    // distinct audit actors are two distinct budgets.
+    const auditActors = vi.mocked(recordOrgAudit).mock.calls.map((c) => c[3]);
+    expect(auditActors).toEqual(["token:tok_1", "token:tok_2"]);
   });
 
   it("does not resolve the plan gates for a discovery probe", async () => {

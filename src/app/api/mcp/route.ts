@@ -20,6 +20,10 @@
 // the door cannot be used to enumerate an org's surface, a plan refusal is stated in words because
 // the caller already holds this org's own token and is owed a fact it can act on.
 //
+// IDENTITY IS THE TOKEN ID. Both the audit actor (`token:<id>`) and the work-queue holder
+// (`agent:<id>`) key on the token's id, never its name — names are not unique, so a name-keyed
+// identity made two tokens called `ci` one holder and one daily counter. The name travels as a label.
+//
 // HONEST LIMIT: this is bearer-token auth, not the OAuth 2.1 resource-server flow the revision
 // describes. A `WWW-Authenticate` challenge is emitted on 401 so a client is told how to
 // authenticate, but ascent is not yet an OAuth resource server with a paired authorization server.
@@ -194,7 +198,13 @@ export async function POST(req: Request) {
       // THE WRITE DOOR. Only tools the catalog marks `mutates` reach this block, and only after the
       // scope and plan gates above — this is the third gate, not the first. `actorId` is what the
       // org's audit viewer shows and what the daily ceiling is counted against.
-      const actorId = `token:${token.name}`;
+      //
+      // KEYED ON THE TOKEN ID, NOT ITS NAME. `createOrgApiToken` enforces no uniqueness on a name, so
+      // `token:ci` was one bucket for every token an org happened to call `ci` — two agents shared one
+      // `perTokenDailyMax` and one entry in the audit viewer's actor column. The id is unique by
+      // construction; the NAME rides along in the audit meta as a label, which is where a
+      // human-readable string belongs and where an ambiguous one costs nothing.
+      const actorId = `token:${token.tokenId}`;
       const policy = def.mutates ? WRITE_TOOL_POLICY[name] : undefined;
       if (def.mutates) {
         if (!policy) {
@@ -230,8 +240,14 @@ export async function POST(req: Request) {
         // ledger records what held the row, and collapsing the two would make the ledger's holder
         // comparison depend on the credential type it happened to arrive under.
         const result = await runTool(name, token.orgSlug, args, {
-          actor: `agent:${token.name}`,
+          actor: `agent:${token.tokenId}`,
+          // TRANSITIONAL: rows claimed before 2026-09-05 stored `agent:<name>`, and their holder must
+          // still be able to brief and report on them. `followup-claims.ts`'s `holderActors` matches
+          // either form; that arm (and this field) come out once every such lease has lapsed — hours,
+          // not weeks — leaving the id as the only holder identity.
+          legacyActor: `agent:${token.name}`,
           tokenId: token.tokenId,
+          label: token.name,
         });
         // ONE AUDIT ROW PER ACCEPTED WRITE, after the handler and only when it did not report an
         // error — an audit trail of attempts that failed validation would drown the trail of actual
@@ -245,6 +261,9 @@ export async function POST(req: Request) {
             {
               tool: name,
               tokenId: token.tokenId,
+              // The name is a LABEL beside the id, never the key: it is what makes the audit row
+              // readable to the person who minted the token, and it is not unique.
+              tokenName: token.name,
               argKeys: Object.keys(args).sort(),
               idempotencyKey: policy.idempotencyKey(token.orgSlug, args),
             },

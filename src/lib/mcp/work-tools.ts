@@ -35,7 +35,7 @@ import {
   type FollowUpItem,
 } from "@/lib/org/followups";
 import { fail, str, type Args } from "@/lib/mcp/registry-reads";
-import type { ToolResult } from "@/lib/mcp/handlers";
+import type { McpPrincipal, ToolResult } from "@/lib/mcp/handlers";
 import type { AutonomyTierId } from "@/lib/types";
 
 const DEFAULT_CLAIM_COUNT = 3;
@@ -102,7 +102,8 @@ async function repoGate(
  * be the same question asked five times with the same answer, and a partial refusal would read as if
  * some of the repo's rows were more claimable than others.
  */
-export async function claimFollowupsTool(org: string, args: Args, actor: string, tokenId: string | null): Promise<ToolResult> {
+export async function claimFollowupsTool(org: string, args: Args, principal: McpPrincipal): Promise<ToolResult> {
+  const actor = principal.actor;
   const repo = str(args, "repo");
   if (!repo) return fail('Provide `repo` as "owner/name" — a claim is always scoped to one repository.');
 
@@ -140,7 +141,7 @@ export async function claimFollowupsTool(org: string, args: Args, actor: string,
     executor: "remote-agent",
     leaseMs,
     note: "Claimed over the agent door (MCP)",
-    tokenId,
+    tokenId: principal.tokenId,
   });
   if (!res) return fail("This installation has no persistence configured, so there is no queue to claim from.");
 
@@ -151,7 +152,10 @@ export async function claimFollowupsTool(org: string, args: Args, actor: string,
     await attachRemoteClaim({
       orgSlug: org,
       repoFullName: repo,
-      claimedBy: actor,
+      // The LABEL, not the identity: this string is rendered in the cockpit's lane rail, and
+      // `agent:tok_0f3…` names nothing a person recognizes. The identity that arbitrates the claim is
+      // `actor` above, and it is the only one the ledger compares.
+      claimedBy: principal.label ? `agent:${principal.label}` : actor,
       leaseUntil: res.claimed[0]!.leaseUntil ? new Date(res.claimed[0]!.leaseUntil) : null,
     }).catch(() => false);
   }
@@ -192,11 +196,12 @@ async function itemsFor(org: string, held: readonly FollowupClaimRow[]): Promise
  * A row held by somebody else is named in `refused` rather than dropped: an agent that asked for five
  * briefs and got three needs to know which two it lost, because those are the two it must not work.
  */
-export async function getFixBriefTool(org: string, args: Args, actor: string): Promise<ToolResult> {
+export async function getFixBriefTool(org: string, args: Args, principal: McpPrincipal): Promise<ToolResult> {
+  const actor = principal.actor;
   const wanted = ids(args, "ids");
   if (wanted.length === 0) return fail("Provide `ids` — the follow-ups you hold. Claim some first with claim_followups.");
 
-  const held = await heldFollowups(org, wanted, actor);
+  const held = await heldFollowups(org, wanted, actor, principal.legacyActor);
   const heldIds = new Set(held.map((h) => h.id));
   const refused = wanted.filter((id) => !heldIds.has(id));
   if (held.length === 0) {
@@ -269,7 +274,8 @@ export async function getFixBriefTool(org: string, args: Args, actor: string): P
  * visibly open. This is the answer to the catalog's own question — the write path has no verb that
  * closes a recommendation, so an agent cannot certify its own homework.
  */
-export async function reportAttemptTool(org: string, args: Args, actor: string, tokenId: string | null): Promise<ToolResult> {
+export async function reportAttemptTool(org: string, args: Args, principal: McpPrincipal): Promise<ToolResult> {
+  const actor = principal.actor;
   const id = str(args, "id");
   const verdict = str(args, "verdict");
   const reason = str(args, "reason");
@@ -285,11 +291,12 @@ export async function reportAttemptTool(org: string, args: Args, actor: string, 
     org,
     id,
     actor,
+    legacyActor: principal.legacyActor,
     verdict,
     reason,
     branch: str(args, "branch"),
     prUrl: str(args, "prUrl"),
-    tokenId,
+    tokenId: principal.tokenId,
   });
   if (!row) {
     return fail(

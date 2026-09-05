@@ -44,7 +44,15 @@ function matches(r: Row, where: Record<string, unknown>): boolean {
   const idIn = (where.id as { in?: string[] } | undefined)?.in;
   if (Array.isArray(idIn) && !idIn.includes(r.id)) return false;
   if (typeof where.status === "string" && r.status !== where.status) return false;
-  if ("claimActor" in where && r.claimActor !== where.claimActor) return false;
+  if ("claimActor" in where) {
+    const want = where.claimActor as string | null | { in?: string[] };
+    // The HOLDER CLAUSE is `{ in: [...] }` since the identity moved to the token id (a transitional
+    // second form is accepted). Evaluated honestly here, because "who holds this row" is the property
+    // this whole file exists to pin.
+    if (want && typeof want === "object") {
+      if (!Array.isArray(want.in) || r.claimActor === null || !want.in.includes(r.claimActor)) return false;
+    } else if (r.claimActor !== want) return false;
+  }
   if ("leaseUntil" in where) {
     const l = where.leaseUntil as Date | null | { not?: null; lt?: Date };
     if (l === null) {
@@ -303,5 +311,46 @@ describe("releaseFollowups / heldFollowups", () => {
     ];
     const held = await heldFollowups("acme", ["mine", "theirs"], "agent:ci");
     expect(held.map((h) => h.id)).toEqual(["mine"]);
+  });
+});
+
+// TWO TOKENS, ONE NAME — the reason the holder identity is the token ID (Direction 1).
+//
+// `createOrgApiToken` enforces no uniqueness on a token's name, so an org can hold two live tokens
+// both called `ci`. Under the old `agent:<name>` holder they were literally the same worker: token B
+// could read token A's brief and file token A's report, and neither the ledger nor the audit trail
+// could tell them apart. Keyed on the id they cannot, and these are the two calls that would have let
+// it happen.
+describe("holder identity is the token id, not the token name", () => {
+  const A = "agent:tok_a";
+  const B = "agent:tok_b";
+
+  beforeEach(() => {
+    rows = [row({ id: "rec-1", status: "in_progress", claimActor: A, leaseUntil: new Date(Date.now() + 600_000) })];
+  });
+
+  it("token B cannot read a brief for a row token A holds, though both tokens are named `ci`", async () => {
+    // The legacy arm is passed on BOTH calls: it is the transitional form, and it must not become a
+    // back door to another token's rows just because the two share a name.
+    expect((await heldFollowups("acme", ["rec-1"], B, "agent:ci")).map((h) => h.id)).toEqual([]);
+    expect((await heldFollowups("acme", ["rec-1"], A, "agent:ci")).map((h) => h.id)).toEqual(["rec-1"]);
+  });
+
+  it("token B cannot report an attempt on a row token A holds", async () => {
+    expect(
+      await reportAttempt({ org: "acme", id: "rec-1", actor: B, legacyActor: "agent:ci", verdict: "resolved", reason: "not mine" }),
+    ).toBeNull();
+    expect(rows[0]!.claimActor).toBe(A);
+    expect(
+      await reportAttempt({ org: "acme", id: "rec-1", actor: A, legacyActor: "agent:ci", verdict: "skipped", reason: "mine" }),
+    ).not.toBeNull();
+    expect(rows[0]!.status).toBe("open");
+  });
+
+  it("accepts the TRANSITIONAL name form for a row claimed before the change", async () => {
+    rows = [row({ id: "rec-1", status: "in_progress", claimActor: "agent:ci", leaseUntil: new Date(Date.now() + 600_000) })];
+    expect((await heldFollowups("acme", ["rec-1"], A, "agent:ci")).map((h) => h.id)).toEqual(["rec-1"]);
+    // …and only for a caller that actually carries that name: a token named `deploy` sees nothing.
+    expect((await heldFollowups("acme", ["rec-1"], B, "agent:deploy")).map((h) => h.id)).toEqual([]);
   });
 });

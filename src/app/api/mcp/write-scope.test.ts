@@ -95,14 +95,26 @@ describe("a token holding followups:write + telemetry:write", () => {
     for (const t of WORK_TOOLS) expect(names).toContain(t);
   });
 
-  it("reaches the handler with an `agent:<token name>` principal, not the audit label", async () => {
+  it("reaches the handler with an `agent:<token id>` principal, not the audit label", async () => {
     await call("tools/call", { name: "claim_followups", arguments: { repo: "acme/api" } });
-    expect(runTool).toHaveBeenCalledWith("claim_followups", "acme", { repo: "acme/api" }, { actor: "agent:ci", tokenId: "tok_1" });
+    // The ID, because token names are not unique; the name travels as `label` (display) and as
+    // `legacyActor` (the transitional holder form for rows claimed before the change).
+    expect(runTool).toHaveBeenCalledWith(
+      "claim_followups",
+      "acme",
+      { repo: "acme/api" },
+      { actor: "agent:tok_1", legacyActor: "agent:ci", tokenId: "tok_1", label: "ci" },
+    );
   });
 
   it("passes the principal to a READ tool too — the reads simply ignore it", async () => {
     await call("tools/call", { name: "get_repo_standing", arguments: {} });
-    expect(runTool).toHaveBeenCalledWith("get_repo_standing", "acme", {}, { actor: "agent:ci", tokenId: "tok_1" });
+    expect(runTool).toHaveBeenCalledWith(
+      "get_repo_standing",
+      "acme",
+      {},
+      { actor: "agent:tok_1", legacyActor: "agent:ci", tokenId: "tok_1", label: "ci" },
+    );
   });
 });
 
