@@ -10,6 +10,7 @@ import {
   toTracklightProvider,
   tracklightConfig,
   trackLlmCall,
+  useCaseForLegKind,
 } from "./tracklight";
 
 const LT_ENV = ["LIGHTTRACK_URL", "LIGHTTRACK_PROJECT", "LIGHTTRACK_KEY", "LIGHTTRACK_ENABLED"] as const;
@@ -131,6 +132,35 @@ describe("buildEventBody", () => {
   it("records a genuine zero as zero — free is a fact, unknown is not", () => {
     const body = buildEventBody({ provider: "local", model: "qwen", usage: { inputTokens: 0, outputTokens: 0 } });
     expect(body.usage).toEqual({ input: 0, output: 0 });
+  });
+
+  it("carries the use-case name when a caller supplies one", () => {
+    const body = buildEventBody({ provider: "bedrock", model: "us.anthropic.claude-sonnet-4-6", name: "athena.turn" });
+    expect(body.name).toBe("athena.turn");
+  });
+
+  it("omits name rather than sending a placeholder when none is supplied", () => {
+    const body = buildEventBody({ provider: "mock", model: "mock" });
+    expect(body).not.toHaveProperty("name");
+  });
+});
+
+describe("useCaseForLegKind", () => {
+  it("maps each leg kind with a declared use case", () => {
+    expect(useCaseForLegKind("athena_turn")).toBe("athena.turn");
+    expect(useCaseForLegKind("athena_cycle")).toBe("athena.cycle");
+    expect(useCaseForLegKind("briefing")).toBe("org.briefing_narrative");
+    expect(useCaseForLegKind("lane_summary")).toBe("local.lane_summary");
+  });
+
+  // consolidation-engine.ts's resolveMemoryRunner is ONE runner shared by the write-gate judgment and
+  // the reflection rollup — both run under legKind "memory" with no signal to tell them apart here.
+  it("attributes the shared memory legKind to memory.write_gate, not a third invented name", () => {
+    expect(useCaseForLegKind("memory")).toBe("memory.write_gate");
+  });
+
+  it("leaves scan unmapped — scan-assess.ts tracks scan.calibrate directly, not through a legKind", () => {
+    expect(useCaseForLegKind("scan")).toBeUndefined();
   });
 });
 
