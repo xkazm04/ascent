@@ -23,7 +23,8 @@
 // would be exactly the fabricated attribution this ledger exists to avoid. The pair writer then
 // applies the second refusal — the two sides must also agree on the instrument.
 
-import { listDoneRecCandidates, recordOutcomeForScanPair, RECONCILE_MAX } from "@/lib/db/outcomes";
+import { listDoneRecCandidates, recordOutcomesForScanPairs, RECONCILE_MAX } from "@/lib/db/outcomes";
+import type { OutcomePairInput } from "@/lib/db/outcomes";
 import { recommendationMatchKey } from "@/lib/report/rec-identity";
 import { reconcileDoneRec } from "@/lib/report/compare";
 import type { DimensionId } from "@/lib/types";
@@ -35,6 +36,11 @@ export interface ReconcileResult {
   considered: number;
   /** Examined but not yet measurable: no later scan, or the dimension absent on one side. */
   unmeasured: number;
+  /** Unreconciled closes this tick did NOT reach — the coverage the caller (and the docs) can state
+   *  honestly instead of implying the ledger has seen every close. A FLOOR when `truncated`. */
+  remaining: number;
+  /** More closes were waiting than the read counts, so `remaining` is a floor, not a total. */
+  truncated: boolean;
 }
 
 /**
@@ -51,10 +57,19 @@ export async function reconcileRecommendationOutcomes(
   let written = 0;
   let unmeasured = 0;
   let considered = 0;
+  let remaining = 0;
+  let truncated = false;
   try {
-    const candidates = await listDoneRecCandidates(orgId, limit);
-    considered = candidates.length;
-    for (const c of candidates) {
+    const page = await listDoneRecCandidates(orgId, limit);
+    remaining = page.remaining;
+    truncated = page.truncated;
+    considered = page.candidates.length;
+
+    // Classify first, write second. Everything the ledger declines — no rescan yet, or a dimension
+    // absent on one bookend — is counted here and never reaches the writer, so the batched write below
+    // carries only pairs that could legitimately become rows.
+    const pairs: OutcomePairInput[] = [];
+    for (const c of page.candidates) {
       if (!c.afterScanId) {
         unmeasured += 1; // awaiting the rescan that would measure the close
         continue;
@@ -64,7 +79,7 @@ export async function reconcileRecommendationOutcomes(
         unmeasured += 1;
         continue;
       }
-      const ok = await recordOutcomeForScanPair({
+      pairs.push({
         orgId,
         repoFullName: c.repoFullName,
         kind: "recommendation",
@@ -77,11 +92,16 @@ export async function reconcileRecommendationOutcomes(
         interventionAt: c.doneAt,
         sourceRowId: c.recommendationId,
       });
+    }
+    // One bookend read for the whole set. A 50-candidate tick used to issue ~150 sequential queries
+    // (one findFirst per candidate to locate the after-scan, then two findUniques per candidate inside
+    // the per-pair writer); it now issues five reads in total, four of them here and in the listing.
+    for (const ok of await recordOutcomesForScanPairs(pairs)) {
       if (ok) written += 1;
       else unmeasured += 1; // the instrument disagreed — refused by the writer, correctly
     }
   } catch (err) {
     console.warn("[outcomes] recommendation reconcile failed", err instanceof Error ? err.message : err);
   }
-  return { written, considered, unmeasured };
+  return { written, considered, unmeasured, remaining, truncated };
 }

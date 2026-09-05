@@ -21,7 +21,7 @@ vi.mock("@/lib/db/client", () => ({
   getPrisma: mockGetPrisma,
 }));
 
-import { updateRecommendation, getRecommendationEvents, handoffRecommendations } from "./scans-recommendations";
+import { updateRecommendation, getRecommendationEvents, handoffRecommendations, REC_EVENTS_LIMIT } from "./scans-recommendations";
 import { toPersistedRec } from "./scans-shared";
 import { verifyAudit } from "./audit-integrity";
 
@@ -332,6 +332,31 @@ describe("getRecommendationEvents — newest-first timeline order + ISO mapping"
 
     expect(await getRecommendationEvents("rec_1")).toBeNull();
     expect(findMany).not.toHaveBeenCalled();
+  });
+
+  // D11: the read is BOUNDED. RecommendationEvent is append-only and grows with every status flip,
+  // behind a route any org reader can call, so an unbounded findMany let a caller grow the page by
+  // toggling a status. The bound is on the query, and the order stays newest-first so what is dropped
+  // is the oldest history, never the current state.
+  it("bounds the read at REC_EVENTS_LIMIT, newest-first", async () => {
+    const { prisma, findMany } = fakePrismaForEvents([]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await getRecommendationEvents("rec_1");
+
+    const args = findMany.mock.calls[0][0] as { take: number; orderBy: unknown };
+    expect(args.take).toBe(REC_EVENTS_LIMIT);
+    expect(REC_EVENTS_LIMIT).toBe(200);
+    expect(args.orderBy).toEqual([{ createdAt: "desc" }, { id: "desc" }]);
+  });
+
+  it("honours an explicit smaller bound", async () => {
+    const { prisma, findMany } = fakePrismaForEvents([]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await getRecommendationEvents("rec_1", 5);
+
+    expect((findMany.mock.calls[0][0] as { take: number }).take).toBe(5);
   });
 });
 

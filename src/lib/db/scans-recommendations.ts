@@ -398,14 +398,27 @@ export async function getOrphanedTrackedRecommendations(
 }
 
 /**
- * A recommendation's activity timeline — every status / assignee / due-date change, newest first.
- * Returns null when persistence is disabled, or an empty array when the id has no recorded changes.
+ * Upper bound on one timeline read. The table is append-only and unbounded — every status flip,
+ * reassignment, due-date change and dismissal note on one gap — behind a route any org reader can
+ * call, so an unbounded `findMany` was a page-size an actor could grow by simply toggling a status.
+ * 200 is far past a real triage history (a gap changing hands weekly for four years) while keeping
+ * the read a bounded query, and the timeline is newest-first, so the truncated tail is the oldest
+ * history, never the current state. The route reports the truncation rather than implying the list
+ * is the whole record.
  */
-export async function getRecommendationEvents(id: string): Promise<RecEvent[] | null> {
+export const REC_EVENTS_LIMIT = 200;
+
+/**
+ * A recommendation's activity timeline — every status / assignee / due-date change, newest first,
+ * bounded at {@link REC_EVENTS_LIMIT}. Returns null when persistence is disabled, or an empty array
+ * when the id has no recorded changes. A full page means there may be older events not returned.
+ */
+export async function getRecommendationEvents(id: string, limit = REC_EVENTS_LIMIT): Promise<RecEvent[] | null> {
   if (!isDbConfigured()) return null;
   const rows = await getPrisma().recommendationEvent.findMany({
     where: { recommendationId: id },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: limit,
   });
   return rows.map((e) => ({
     id: e.id,
