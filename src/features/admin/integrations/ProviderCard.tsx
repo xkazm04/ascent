@@ -20,7 +20,9 @@ export function ProviderCard({
   const fid = FIDELITY_META[provider.fidelity];
   const available = provider.status === "available";
   return (
-    <Surface className="p-5">
+    // The row id on the card, so a test can assert WHICH card carries a connect surface rather than
+    // that one exists somewhere on the page.
+    <Surface className="p-5" data-provider={provider.id}>
       <div className="flex flex-wrap items-start gap-4">
         <div
           aria-hidden
@@ -51,7 +53,9 @@ export function ProviderCard({
             ))}
           </ul>
           <p className="mt-2 type-note text-slate-500">{provider.perRepo}</p>
-          <ProviderStatus status={status} available={available} />
+          {/* The row itself, not a flag: ProviderStatus dispatches on connectKind + fidelity so its
+              copy names the right next action and never calls a seats-only figure money. */}
+          <ProviderStatus provider={provider} status={status} />
         </div>
       </div>
       {children && <div className="mt-4 border-t border-divider pt-4">{children}</div>}
