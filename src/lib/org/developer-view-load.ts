@@ -8,7 +8,7 @@
 // `next build` would fail even with `tsc` and the unit tests green (the exact failure mode recorded in
 // the "build not in the gate" note).
 
-import { getContributorInsights, getOrgBacklog } from "@/lib/db";
+import { getContributorInsights, getOrgBacklog, getRepoStates } from "@/lib/db";
 import { emptyDeveloperView, emptyOrgView, type CareOrgView, type DeveloperView } from "./developer-view";
 
 /**
@@ -48,10 +48,29 @@ export async function getDeveloperView(viewerLogin: string | null, orgSlug: stri
   // the org backlog (open + in_progress only, by construction) and narrowed to the repos this login
   // actually commits to, so the list is a map of what they could champion, not the fleet's backlog.
   const mine = new Set(me.repoNames);
-  const backlog = await getOrgBacklog(orgSlug).catch(() => null);
+  // Standing beside the gaps. `getRepoStates` is the CHEAPEST existing per-repo read of the two
+  // numbers `CareLevelMark` renders: one `repository.findMany` over the org with each repo's latest
+  // scan (`take: 1` → `level`, `overallScore`) — the same shape the installation listing merges.
+  // Deliberately not `getOrgRollup`, which would buy every dimension row, the governance/passport
+  // blobs and two unbounded scan sweeps to print two scalars, and not `getOrgHeaderSummary`, which
+  // is request-cached but carries fleet COUNTS only — no per-repo row exists in it. Both reads are
+  // issued together so the extra query costs a round-trip, not a serialized wait; both are
+  // best-effort, so a failure leaves the standing null ("—") and the gaps still render.
+  const [backlog, states] = await Promise.all([
+    getOrgBacklog(orgSlug).catch(() => null),
+    getRepoStates(orgSlug).catch(() => null),
+  ]);
   const byRepo = new Map<string, DeveloperView["myRepos"][number]>();
   for (const name of me.repoNames) {
-    byRepo.set(name, { fullName: name, level: null, score: null, openRecommendations: [] });
+    const state = states?.[name];
+    byRepo.set(name, {
+      fullName: name,
+      // A repo with no scan has no state row (or a row whose latest scan is absent) → null, which the
+      // mark renders as "—". Never guessed from the other field.
+      level: state?.level ?? null,
+      score: state?.overall ?? null,
+      openRecommendations: [],
+    });
   }
   for (const group of backlog?.byOwner ?? []) {
     for (const item of group.items) {
