@@ -13,14 +13,18 @@ export interface ScanRow {
    *  "monthly_quota", "in_progress") or the neutral "not_scanned"; each renders its OWN copy, because
    *  each has a different recovery (see skipReason.ts). */
   skipped?: string;
+  /** The repo finished server-side but THIS client never saw its score — the state a re-attached run
+   *  reports (GET /api/org/scan/queue is the scheduler's view: job states, no reports). Terminal, and
+   *  rendered as a link to the report rather than with a fabricated level. */
+  completed?: boolean;
 }
 
 export function ScanRowView({ row, onRetry }: { row: ScanRow; onRetry?: (repo: string) => void }) {
-  const done = row.level && typeof row.overall === "number";
+  const done = (row.level && typeof row.overall === "number") || row.completed;
 
-  // Only rendered below when `done` is true, so row.level/row.overall are always defined here —
-  // matches the original inline badge's guarantee (it was only referenced from the `done` branch too).
-  const badge = done && (
+  // The score pill needs a score. A re-attached row (completed, no level) is `done` without one, so
+  // the badge is gated on the score itself rather than on `done`.
+  const badge = row.level && typeof row.overall === "number" && (
     <ScorePill level={row.level as LevelId} overall={row.overall as number} className="px-1.5 py-0.5 type-mono-sm" />
   );
 
@@ -34,7 +38,15 @@ export function ScanRowView({ row, onRetry }: { row: ScanRow; onRetry?: (repo: s
         title={`Open the maturity report for ${row.repo}`}
       >
         <span className="flex-1 truncate font-mono type-body text-white">{row.repo}</span>
-        <span className="type-mono-sm text-accent opacity-0 transition group-hover:opacity-100">view report →</span>
+        <span
+          className={`type-mono-sm text-accent transition ${
+            // A re-attached row has no score to show, so its only affordance is the link — keep that
+            // visible instead of hover-only, which would read as a dead row.
+            row.completed && !row.level ? "" : "opacity-0 group-hover:opacity-100"
+          }`}
+        >
+          view report →
+        </span>
         {badge}
       </Link>
     );

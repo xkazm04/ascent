@@ -334,7 +334,18 @@ export async function POST(request: Request) {
           });
           return;
         }
+        // One id for this import, used as the queue's idempotency bucket so each import gets its own
+        // claim row per repo — a second import of the same repo is new work, not a collision with the
+        // settled row the first one left behind.
+        const importRunId = randomUUID();
         send("progress", { stage: "found", total: fullNames.length, mock, watch, schedule });
+        // The run's IDENTITY, on the wire, before any work starts. It was minted purely as an internal
+        // claim bucket and never told to the client, so a browser that lost this stream (a refresh, an
+        // auth bounce) had no way to find the run again — while the server kept scanning and spending,
+        // because `mapPool` below is not tied to the request signal. Same frame shape as the sibling
+        // /api/org/scan's `queued`, so one client-side reader handles both: the wizard stores it in its
+        // resume snapshot and re-attaches through GET /api/org/scan/queue instead of re-running.
+        send("queued", { runId: importRunId, queued: fullNames.length, total: fullNames.length });
 
         // 2. Scan + persist each, with bounded concurrency (each lane emits its own per-repo events
         // as it resolves; the SSE consumer keys off each message's repo, not arrival order). A
@@ -349,10 +360,6 @@ export async function POST(request: Request) {
         let processed = 0;
         let scanned = 0;
         let skippedInProgress = 0;
-        // One id for this import, used as the queue's idempotency bucket so each import gets its own
-        // claim row per repo — a second import of the same repo is new work, not a collision with the
-        // settled row the first one left behind.
-        const importRunId = randomUUID();
         await mapPool(fullNames, SCAN_CONCURRENCY, async (r) => {
           // CLAIM this repo BEFORE reserving a credit or scanning — the run-level dedup guard. If
           // another in-flight run (a second import tab, another member, or an overlapping
@@ -486,7 +493,9 @@ export async function POST(request: Request) {
         // (best-effort — every repo is persisted by now, so the rollup is fresh; a failure here must
         // never break the scan or the SSE result).
         await persistTeamStandings(org).catch(() => {});
-        send("result", { org, scanned, total: fullNames.length, skippedForCredits, skippedForQuota, skippedInProgress, dashboard: `/org/${org}` });
+        // `runId` again on the terminal frame (mirroring the sibling route), so a client that joined late
+        // or missed the opening frame still learns the handle it would need to re-attach.
+        send("result", { org, runId: importRunId, scanned, total: fullNames.length, skippedForCredits, skippedForQuota, skippedInProgress, dashboard: `/org/${org}` });
       } catch (err) {
         send("error", { error: err instanceof Error ? err.message : "Org import failed." });
       } finally {

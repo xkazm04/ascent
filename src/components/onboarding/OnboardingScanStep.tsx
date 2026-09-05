@@ -5,6 +5,8 @@ import { InvitePanel } from "@/components/onboarding/OnboardingInvitePanel";
 import { FoundationPanel } from "@/components/onboarding/OnboardingFoundationPanel";
 import { SkipNotices } from "@/components/onboarding/OnboardingSkipNotices";
 import type { ImportNotice } from "@/components/onboarding/skipReason";
+import { ReconnectedNotice } from "@/components/onboarding/OnboardingReconnected";
+import type { ReattachState } from "@/components/onboarding/useImportReattach";
 import { LEVELS } from "@/lib/maturity/model";
 import { LEVEL_CLASSES, LEVEL_GLYPH } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
@@ -31,6 +33,7 @@ export function ScanStep({
   previewCause = null,
   upgradePlanned = false,
   notices = [],
+  reattach,
   onCancel,
   onViewDashboard,
   onScanAnother,
@@ -58,6 +61,9 @@ export function ScanStep({
    *  the capping notices). Per-repo skips are read off `rows` — they are the truth, since every
    *  capped repo lands as a row — so this carries only what no row can express. */
   notices?: ImportNotice[];
+  /** Set when this scanning step was RESTORED from a snapshot rather than started here: the run is
+   *  still going server-side and the wizard is following it (no stream to read, nothing to cancel). */
+  reattach?: ReattachState;
   onCancel: () => void;
   onViewDashboard: () => void;
   onScanAnother: () => void;
@@ -80,6 +86,7 @@ export function ScanStep({
   const errorCount = Object.values(rows).filter((r) => r.error).length;
   const scanTotal = Object.keys(rows).length;
   const pct = scanTotal ? Math.round((completed / scanTotal) * 100) : 0;
+  const reattached = Boolean(reattach && reattach.status !== "off");
 
   return (
     <div key={phase} className="animate-phase-in">
@@ -132,7 +139,9 @@ export function ScanStep({
         <span className="type-mono-sm tabular-nums text-slate-400">
           {pct}% · {completed}/{scanTotal}
         </span>
-        {phase === "scanning" && (
+        {/* Cancel belongs to the stream this tab owns. A re-attached run has none — aborting nothing
+            client-side would stop no work and no spend, so offering it would be a lie. */}
+        {phase === "scanning" && !reattached && (
           <button
             type="button"
             onClick={onCancel}
@@ -142,6 +151,8 @@ export function ScanStep({
           </button>
         )}
       </div>
+
+      {reattach && <ReconnectedNotice state={reattach} />}
 
       {error && (
         <p role="alert" className="mt-3 type-body text-danger-soft">

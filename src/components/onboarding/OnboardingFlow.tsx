@@ -59,6 +59,7 @@ export function OnboardingFlow({
     upgradePlanned,
     setInvitedCount,
     notices,
+    reattach,
     listTruncated,
     gate,
     setGate,
@@ -168,6 +169,9 @@ export function OnboardingFlow({
         previewCause={previewCause}
         upgradePlanned={upgradePlanned}
         notices={notices}
+        // A scanning step restored from a snapshot follows the live server-side run instead of
+        // pretending nothing was happening (or re-running it, which double-scans and double-charges).
+        reattach={reattach}
         inviteOrg={sourceInstallId ? sourceLabel : null}
         // Same gate as the invite panel: an installation id means a real org with an installation
         // token behind it, which is exactly what the batch route needs. The scanned repo list is
