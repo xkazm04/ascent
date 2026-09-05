@@ -1,10 +1,6 @@
 "use client";
 
-// The moves board — the single most-shared Care structure, so it lives here and every variant styles
-// its own frame around it. Two layouts:
-//   `columns` — the four states side by side (Companion's notebook board).
-//   `stack`   — one column of rows, denser, state as a chip (Cockpit's adjustments list, Climb's
-//               handholds), which is also what the columns layout degrades to on a narrow viewport.
+// The moves board: the four states side by side, degrading to one column on a narrow viewport.
 //
 // The two facts a move must always carry: the WHY (evidence from the developer's own journal) and the
 // fleet EVIDENCE ascent can add and the local skill cannot see. A move rendered without both is the
@@ -12,9 +8,9 @@
 
 import { SectionEmpty } from "@/components/org/shared/ui";
 import { CareAction, CareCategoryChip, CareLinkAction, CareSaving, CareStateChip, CARE_STATE_LABEL } from "./CareBits";
-import { careMovesByState, CARE_MOVE_STATES, type CareMove, type CareMoveState } from "@/lib/org/developer-view";
+import { careMovesByState, CARE_MOVE_STATES, type CareMove } from "@/lib/org/developer-view";
 
-function MoveCard({ move, showState }: { move: CareMove; showState: boolean }) {
+function MoveCard({ move }: { move: CareMove }) {
   const closed = move.state === "dropped";
   return (
     <article
@@ -22,7 +18,6 @@ function MoveCard({ move, showState }: { move: CareMove; showState: boolean }) {
       aria-label={`${move.title} — ${CARE_STATE_LABEL[move.state]}`}
     >
       <div className="flex flex-wrap items-center gap-2">
-        {showState ? <CareStateChip state={move.state} /> : null}
         <CareCategoryChip category={move.category} />
         {move.tryFor != null ? (
           <span className="type-label tracking-widest text-slate-500">try for {move.tryFor} sessions</span>
@@ -63,36 +58,15 @@ function MoveCard({ move, showState }: { move: CareMove; showState: boolean }) {
   );
 }
 
-export function CareMovesBoard({
-  moves,
-  layout = "columns",
-  onlyStates,
-}: {
-  moves: CareMove[];
-  layout?: "columns" | "stack";
-  /** Restrict the board to a subset of states (Climb shows only what is still ahead of you). */
-  onlyStates?: readonly CareMoveState[];
-}) {
-  const states = onlyStates ?? CARE_MOVE_STATES;
-  const shown = moves.filter((m) => states.includes(m.state));
-  if (shown.length === 0) {
+export function CareMovesBoard({ moves }: { moves: CareMove[] }) {
+  if (moves.length === 0) {
     return <SectionEmpty>No moves yet. The local mentor proposes them from your own journal — nothing is assigned to you here.</SectionEmpty>;
   }
 
-  if (layout === "stack") {
-    return (
-      <div className="mt-3 space-y-3">
-        {shown.map((m) => (
-          <MoveCard key={m.id} move={m} showState />
-        ))}
-      </div>
-    );
-  }
-
-  const byState = careMovesByState(shown);
+  const byState = careMovesByState(moves);
   return (
     <div className="mt-3 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-      {states.map((state) => (
+      {CARE_MOVE_STATES.map((state) => (
         <section key={state} aria-label={CARE_STATE_LABEL[state]}>
           <div className="flex items-baseline justify-between border-b border-divider pb-2">
             <CareStateChip state={state} />
@@ -102,7 +76,7 @@ export function CareMovesBoard({
             {byState[state].length === 0 ? (
               <p className="type-body-sm text-slate-600">—</p>
             ) : (
-              byState[state].map((m) => <MoveCard key={m.id} move={m} showState={false} />)
+              byState[state].map((m) => <MoveCard key={m.id} move={m} />)
             )}
           </div>
         </section>

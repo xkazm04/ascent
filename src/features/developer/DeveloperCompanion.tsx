@@ -1,7 +1,6 @@
 "use client";
 
-// The Developer route's single render — the COMPANION direction, which won the 2026-08-18 prototype
-// round (docs/REGISTRY-AND-CARE-IMPL.md §5, "Companion won"). Climb and Cockpit are deleted.
+// The Developer route's single render (docs/REGISTRY-AND-CARE-IMPL.md §5).
 //
 // Metaphor: a private notebook a calm colleague keeps for you. Single editorial column, a Dateline
 // masthead in the first person, generous rhythm, no gauges. The moves are a board because a board is
@@ -68,7 +67,7 @@ export function DeveloperCompanion({ view, slug }: { view: DeveloperView; slug: 
           title="Moves"
           description="Proposed by your local mentor from your own journal. You decide what to try, keep or drop — nothing here is assigned to you."
         />
-        <CareMovesBoard moves={view.moves} layout="columns" />
+        <CareMovesBoard moves={view.moves} />
       </section>
 
       <section>
@@ -77,7 +76,7 @@ export function DeveloperCompanion({ view, slug }: { view: DeveloperView; slug: 
           description="Only the counts you chose to share. The org band, when shown, is quartiles across everyone who opted in — never a person."
           right={<CarePrivacyNote>Only what you chose to share is here.</CarePrivacyNote>}
         />
-        <CareSessionShape personal={view} layout="ledger" />
+        <CareSessionShape personal={view} />
       </section>
 
       <section>
@@ -85,12 +84,12 @@ export function DeveloperCompanion({ view, slug }: { view: DeveloperView; slug: 
           title="The repos you commit to"
           description="Their open recommendations, so a move can be grounded in more than the one working copy your mentor can read."
         />
-        <CareRepoGaps repos={view.myRepos} layout="cards" />
+        <CareRepoGaps repos={view.myRepos} />
       </section>
 
       <section>
         <SectionHeader title="Journal" description="Weekly retros and closed moves, kept across machines." />
-        <CareJournal journal={view.journal} layout="entries" />
+        <CareJournal journal={view.journal} />
       </section>
 
       <Card>
@@ -98,7 +97,7 @@ export function DeveloperCompanion({ view, slug }: { view: DeveloperView; slug: 
         <div className="mt-3">
           <CareSetupStrip setup={view.setup} />
         </div>
-        <CarePrivacyLedger setup={view.setup} layout="list" />
+        <CarePrivacyLedger setup={view.setup} />
       </Card>
     </div>
   );

@@ -10,9 +10,8 @@ import { timeAgo } from "@/lib/ui";
 import { CareAction, CareLinkAction } from "./CareBits";
 import type { DeveloperView } from "@/lib/org/developer-view";
 
-export function CareProfileCard({ profile, tone = "calm" }: { profile: DeveloperView["profile"]; tone?: "calm" | "readout" }) {
+export function CareProfileCard({ profile }: { profile: DeveloperView["profile"] }) {
   const shared = Boolean(profile.sharedAt);
-  const mono = tone === "readout";
 
   return (
     <div className="grid gap-6 md:grid-cols-[1fr_auto] md:items-start">
@@ -20,9 +19,7 @@ export function CareProfileCard({ profile, tone = "calm" }: { profile: Developer
         {shared ? (
           <>
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <h3 className={mono ? "type-figure font-bold text-white" : "type-heading font-medium text-white"}>
-                {profile.role ?? "Role not stated"}
-              </h3>
+              <h3 className="type-heading font-medium text-white">{profile.role ?? "Role not stated"}</h3>
               {profile.archetypeHint ? (
                 <span className="rounded-full border border-accent/50 px-2 py-0.5 type-label tracking-widest text-accent">
                   {profile.archetypeHint} (your word, not ours)

@@ -151,6 +151,14 @@ export interface CareOrgView {
 // ── Honest empties ────────────────────────────────────────────────────────────────────────────────
 
 /** The pre-C3 developer state: the mentor has never shared anything. Nothing invented. */
+/**
+ * The preview states the client's "Preview as" control offers. Lives HERE, in the pure module, and
+ * not beside the fixtures it names: `DeveloperHome` needs the list to render the control but must not
+ * pull 224 lines of sample data into the initial client bundle to get it. The fixture module is
+ * imported dynamically, only once a preview is actually chosen.
+ */
+export const DEVELOPER_PREVIEW_STATES = ["personal", "personal-empty"] as const;
+
 export function emptyDeveloperView(login: string | null = null): DeveloperView {
   return {
     login,

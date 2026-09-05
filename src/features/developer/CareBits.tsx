@@ -1,9 +1,9 @@
 "use client";
 
-// Small shared pieces every Care variant needs. Hoisted here the moment the second variant wanted
-// them (prototype rule: shared structure moves out immediately, not at refactor time).
+// The small pieces the Developer page's sections share: the unwired action buttons, the move chips,
+// the saving/level readouts, the privacy note and the preview stamp.
 
-import { chipButtonClass, Kicker } from "@/components/ui";
+import { chipButtonClass } from "@/components/ui";
 import { LEVEL_HEX, scoreHex } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
 import {
@@ -130,15 +130,5 @@ export function CareFixtureChip({ demo }: { demo?: string }) {
     <span className="rounded-full border border-warn/40 px-2 py-0.5 type-label tracking-widest text-warn">
       preview · {demo}
     </span>
-  );
-}
-
-/** A labelled section eyebrow used inside the variants' own chrome. */
-export function CareEyebrow({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
-  return (
-    <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-      <Kicker>{children}</Kicker>
-      {right}
-    </div>
   );
 }
