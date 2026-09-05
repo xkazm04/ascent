@@ -1497,7 +1497,7 @@ lives in metrics; folding log events into usage is a later step.
 | `src/lib/org/briefing-narrative.ts` | Opt-in, number-grounded LLM narrative for the board PDF, with a deterministic template floor. Off unless `BRIEFING_NARRATIVE=1` + `ANTHROPIC_API_KEY`. |
 | `src/components/org/shell/OrgTabNav.tsx` | Persistent nav rail (two-level `SectionRailNav`), grouped by the transition journey. |
 | `src/components/OrgSwitcher.tsx` | Org/installation picker (persists active org). |
-| `src/features/standing/overview/Trajectory.tsx` | Forecast "GPS" card. Mounted by `/trends` (`TrajectoryPanel`) and the personal overview, **not** by the org Overview tab, whose forward-looking read is the standing strip's sparkline. |
+| `src/features/standing/overview/Trajectory.tsx` | Forecast "GPS" card. Mounted by `/trends` (`TrajectoryPanel`), the personal overview and, since 2026-09-05, the org Overview ledger (`OverviewTrajectoryCard`, beside the standing strip, behind the same presentability gate the personal tier uses; renders nothing below it). |
 | `src/components/org/shared/OrgScanButton.tsx` | Scan-all-watched button (SSE progress). |
 | `src/features/admin/audit/AuditLogViewer.tsx` | Audit trail viewer. |
 | `src/components/org/followups/` | The Follow-ups ledger (replaced the Backlog panel 2026-08-17): `FollowupsWorklist` (ranked table, bulk bar), `FollowupsPromptModal` (fix prompt + hand-off), `FollowupHistory` (per-row timeline), `followupsModel.ts` (filters, selection, org-wide spread, `patchStatuses` bulk runner). |
@@ -1515,12 +1515,23 @@ rows are excluded from it:
 
 | Figure | Rule |
 | --- | --- |
+| Headline **Org maturity** badge, adoption and rigor badges (`getOrgRollup.avgOverall/avgAdoption/avgRigor`), and the shell header chip, OG card and page description (`getOrgHeaderSummary`) | Since 2026-09-05 the **producer** excludes mock placeholders (both readers narrow identically, so one page cannot show two fleet averages) and carries `realScoredCount` + `mockCount`; the badge is titled with its denominator and shows an "N mock (excluded from avg)" chip; the cohort-matched period deltas, movement, dimension deltas and baseline exclude a mock endpoint on either side. A fleet with no live-scored repo renders "—" in the badge and the header chip, the fallback OG card and the generic description, never a 0/100. |
 | Fleet masthead `avg`, per-group `avg` (`avgRealScore`) | Averaged over live-scored repos only. **Null, never 0**, when the set has none: the renderers land on the `—` no-score path, because a `0` in `scoreHex(0)` alarm-red reads as a catastrophic grade rather than "not measured". The repo *count* still describes the whole set, and the tooltip names the denominator (`N live-scored · M mock excluded`). |
 | Fleet + per-group `avg move` (`avgRealMove`) | Excludes single-scan repos and **engine-transition** deltas, so a mock→live re-scan cannot fake improvement. Pre-existing; the score average now matches its precedent. |
 | Corpus percentile (`getOrgBenchmark`) | Both sides filtered to non-`mock` engines at the current rubric version (see above). |
 
 Groups with no live-scored repo sort **last**, not as the worst-scoring cohort. Pinned by
 `src/features/standing/overview/fleetAverages.test.ts` (all-mock, mixed, and zero-scored fleets).
+
+**Every period delta states its basis (2026-09-05).** The standing-strip arrows carry the window's
+`comparisonLabel` ("vs 30d ago", "vs quarter start") as visible text plus screen-reader text and a
+tooltip naming the cohort match; the Fix-first regression cell says "vs its last scan before this
+period" and the cohort rows' net move is titled "first to last scan in this period", because the two
+use different endpoints and both used to say only "this period".
+
+**Known residual:** `dimAverages` (the per-dimension fleet averages behind the dimension ledger)
+still folds mock dimension rows in; it is a separate surface with its own disclosures and was left
+for a later direction.
 
 ## AI stance (Governance tab, W3)
 

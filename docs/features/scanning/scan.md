@@ -533,6 +533,35 @@ as missing evidence rather than as a finding. **No score moves** — D4 keeps wh
 changes is what becomes work. See
 [the loop does not arm what it cannot verify](../org-planning/live.md#the-loop-does-not-arm-what-it-cannot-verify-2026-08-30).
 
+### A failed sensor read is unknown, never zero (2026-09-05)
+
+The token-gated enrichments (branch governance, security posture, dependency exposure, the
+installed-App inventory, CI health, deployments) each degrade to the same `null` / `[]` a
+successful-but-empty read produces. Until 2026-09-05 only the PR sensor recorded the difference
+(`prFetchFailed`); a failed posture read on a repo whose org has a `SECURITY.md` persisted score 0,
+"No security policy found" and a remediation for a control the repo has, and a failed governance
+read silently dropped the D3/D6/D8 credit. Now `ingestRepository` records every sensor whose read
+threw on `IngestPhaseResult.sensorFailures` (typed `ScanSensorId[]`, carried on
+`ScanReport.sensorFailures`), and:
+
+- `buildScanWarnings` emits **one** caveat naming the failed reads in reader words ("GitHub signal
+  reads FAILED during this scan (…), so the signals they feed are missing - this reflects failed
+  reads, not controls the repository lacks"). It persists through `warningsJson` like every other
+  caveat; there is no dedicated column for the typed list yet.
+- D9 checks whose only GitHub-side refutation came from a failed sensor (security policy from
+  posture; SAST and dependency updates from the App inventory) return `score: null` with evidence
+  "not observable: <sensor> read failed" and are **excluded** from the blend, through the same
+  `githubCanRefuteZero` path a structurally blind scan already uses. A sensor that ran and found
+  nothing scores exactly as before.
+- Governance and platform folds are not given partial credit; the caveat is the record. An absent
+  `platformSignals` record **plus** `appInventory`/`ciHealth` in `sensorFailures` means
+  *unmeasured*; an absent record with nothing listed means the scan looked and measured nothing.
+- `fetchDeployments` now accepts the scan's abort signal and joins the enrichment `Promise.all`
+  (its loop stays sequential for the secondary rate limit); the two score-input DB reads run in
+  parallel (measured on a modelled fixture: 268 ms → 134 ms); the outcome counters no longer block
+  the hot path. The ingest emits "Reading GitHub signals…" at 52 before the enrichment await and
+  "Analyzing signals…" at 62 after it, so the UI no longer claims to analyze during GitHub I/O.
+
 `engineProvider = "mock"` cannot carry the second on its own: it is also what a keyless deploy and an
 explicit `?mock=1` demo look like, and neither of those is a failure. All three are nullable — a row
 written before the columns is **unknown**, which is deliberately not the same value as "not degraded"
@@ -764,7 +793,9 @@ three workflows shows its first three in pick order.
 - **PR + governance + platform signals require a token.** Anonymous scans skip PR stats,
   governance, security posture/exposure, deployments, the installed-App inventory and CI
   health, and warn. Every token-gated fold is additive, so an anonymous scan is a floor, not a
-  different rubric.
+  different rubric. A *failed* token-gated read is reported separately from an empty one since
+  2026-09-05 (see "A failed sensor read is unknown, never zero"); the typed `sensorFailures` list
+  has no `Scan` column, so only the prose caveat survives persistence.
 - **The App inventory is one page of one commit.** It reads the suites on the *scored* commit
   only (≤100, `truncated` flags a floor). An App that posts suites only on pull-request heads
   and never on the default branch is invisible to it; the observed `aiPreReviewedRate` covers

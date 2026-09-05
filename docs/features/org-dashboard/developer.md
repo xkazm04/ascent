@@ -42,7 +42,11 @@ It still renders the full dashboard chrome:
 Sub-view switching inside the module is **React state, never a search param** (§5.3). The old `?demo=`
 mechanism is gone: a "Preview as" control lives in `useState` inside the client `DeveloperHome`, and it
 appears **only while the real view is blank** — a fixture is a dev/preview affordance, not a shareable
-URL, and it always stamps a visible `preview · <state>` chip.
+URL, and it always stamps a visible `preview · <state>` chip **and**, since 2026-09-05, holds a sticky
+"Sample data - not your activity" banner (`CarePreviewBanner`) for the whole scroll with a way back
+to the empty view, so the fixture cannot be mistaken for the viewer's own activity once the masthead
+is out of view. The fixture module is imported on demand at the moment a preview is chosen; it is not
+in the initial client bundle.
 
 ## What the page shows
 
@@ -87,7 +91,7 @@ The line between them is enforced in two directions:
 | Legacy redirect | `src/app/org/[slug]/developer/page.tsx` |
 | Client root (preview state) | `src/features/developer/DeveloperHome.tsx` |
 | The render | `src/features/developer/DeveloperCompanion.tsx` |
-| Sub-components | `.../DeveloperActivityStrip.tsx`, `CareBits`, `CareProfileCard`, `CareMovesBoard`, `CareSessionShape`, `CareRepoGaps`, `CareJournal`, `CarePrivacyLedger`, `CareWhyStrip` |
+| Sub-components | `.../DeveloperActivityStrip.tsx`, `CareBits`, `CareCopyAction`, `CarePreviewBanner`, `CareProfileCard`, `CareMovesBoard`, `CareSessionShape`, `CareRepoGaps`, `CareJournal`, `CarePrivacyLedger`, `CareWhyStrip`. Each renders exactly one layout since 2026-09-05; the Climb/Cockpit prototype branches are gone. |
 | Shared org shell | `src/components/org/shell/OrgShell.tsx` (+ `src/lib/org/orgShellGate.ts`) |
 | Contributors relation | `src/features/bought/contributors/ContributorsYouPointer.tsx`, `ContributorsCareSection.tsx`, `CareOrgAggregate.tsx` |
 
@@ -101,10 +105,15 @@ the same client/server boundary split as `skill-usage-load.ts`.
   `MentorJournal` tables and no `POST /api/me/mentor/share` yet (C3), and no real floored org aggregate
   (C4 — `getCareOrgAggregate` returns the honest empty aggregate keyed on the real contributor
   population). The git-side half is live; nothing in the care half is fabricated.
-- **Actions are unwired.** Share, Install mentor, Mark kept/dropped, Promote to registry and "author as
-  registry skill" `console.info` their intent; the PR-opening bridge to the registry lands with C4.
+- **Most actions are unwired.** Share, Install mentor, Mark kept/dropped, Promote to registry and
+  "author as registry skill" `console.info` their intent; the PR-opening bridge to the registry lands
+  with C4. The one exception since 2026-09-05: **"Copy `npx ascent mentor init`" really writes the
+  clipboard** (`CareCopyAction`, with a selectable `<code>` fallback where the Clipboard API is
+  absent), because a button labelled Copy is a promise about the clipboard. Both mentor commands
+  render as selectable code.
 - **The `/mentor` skill does not exist yet** (C2) — nothing can share to this page until it ships in the
   `npx ascent` distributable.
-- **`myRepos` levels/scores are not populated.** The loader fills repo names and their open
-  recommendations; per-repo level/score would need a second rollup read and is deliberately left null
-  (rendered as "—") rather than guessed.
+- (Closed 2026-09-05.) ~~`myRepos` levels/scores are not populated.~~ The loader now reads
+  `getRepoStates` (one query, in parallel with the backlog read, best-effort) for each repo's latest
+  level and score; "—" appears only when a repo has no scan. A repo card with no open
+  recommendations says "No open gaps." instead of rendering an empty list.
