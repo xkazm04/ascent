@@ -15,9 +15,13 @@
 // so it reads as reference rather than as fleet posture.
 
 import { Kicker } from "@/components/ui";
+import { registryPreviewEnabled } from "@/lib/env";
 import { getKnowledgeView } from "@/lib/org/knowledge-view";
+import { fixtureKnowledgeView } from "@/lib/org/knowledge-view.fixture";
+import type { KnowledgeView } from "@/lib/org/knowledge-shape";
 
 import { KnowledgeLedger } from "./KnowledgeLedger";
+import { KnowledgeSwitcher } from "./KnowledgeSwitcher";
 
 function Notice({ title, body }: { title: string; body: React.ReactNode }) {
   return (
@@ -31,7 +35,13 @@ function Notice({ title, body }: { title: string; body: React.ReactNode }) {
 
 export async function KnowledgeTab({ slug }: { slug: string }) {
   const view = await getKnowledgeView(slug);
+  const baseline = renderBaseline(view);
+  // PROTOTYPE ROUND (dev only): the three directions render a shaped fleet behind a React-state
+  // switcher; the real tab stays the default so nothing changes on load.
+  return registryPreviewEnabled() ? <KnowledgeSwitcher fixture={fixtureKnowledgeView(slug)}>{baseline}</KnowledgeSwitcher> : baseline;
+}
 
+function renderBaseline(view: KnowledgeView) {
   if (view.status === "unmapped") {
     return (
       <Notice
