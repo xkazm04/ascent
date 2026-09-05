@@ -83,9 +83,11 @@ export async function PassportsTab({ slug, sp }: { slug: string; sp: SearchParam
     };
   });
 
-  // PROTOTYPE (P1 — Autonomy Passport): the tier verdict is derived server-side from the same cached
-  // passports the rows come from, so no extra query. See autonomy/autonomyModel.ts — several gates
-  // are proxies/placeholders until the scan grows the signals listed in DATA_MODEL_GAPS.
+  // Autonomy Passport (P1): the tier verdict is derived server-side from the same cached passports the
+  // rows come from, so no extra query. Direction 8 — the tier, its blocking conditions and the
+  // progress meter all come from `deriveAutonomyForStored`, the shared resolver the admission seed
+  // uses, and `contextHealth` (already on the rollup row, parsed off Repository.contextHealthJson) is
+  // threaded in so the context gate measures staleness instead of hashing the repo's name for it.
   const autonomy: RepoAutonomy[] = withPassport.map((r) =>
     deriveAutonomy({
       fullName: r.fullName,
@@ -96,6 +98,7 @@ export async function PassportsTab({ slug, sp }: { slug: string; sp: SearchParam
       lastScanAt: r.lastScanAt,
       engine: r.latest?.engine ?? null,
       manifest: r.manifest ?? null,
+      contextHealth: r.contextHealth ?? null,
     }),
   );
 

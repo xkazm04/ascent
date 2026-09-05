@@ -95,9 +95,14 @@ export async function derivedTierFor(orgSlug: string, repoFullName: string): Pro
   const passport = parsePassportJson(repo?.passportJson);
   if (!passport) return null;
   // `deriveAutonomyForStored` is the SHARED resolver — the same symbol the passports tab and the
-  // stance readout use. Re-deriving rather than reading `passport.autonomy.tier` matters for a row
-  // written before the autonomy block existed: the migration derives it read-time, and calling the
-  // resolver keeps this seed identical to what every other surface shows for the same repo.
+  // stance readout use. That claim was ASPIRATIONAL until Direction 8: the tab ran its own five-gate
+  // ladder and merely overwrote the tier with the persisted one, so a repo could be seeded here from
+  // conditions the tab never showed. `deriveAutonomy` (src/features/standing/passports/autonomy/
+  // autonomyModel.ts) now calls this same function for its tier, its blocking conditions and its
+  // progress meter, so the sentence is true and the two surfaces cannot drift apart.
+  // Re-deriving rather than reading `passport.autonomy.tier` matters for a row written before the
+  // autonomy block existed: the migration derives it read-time, and calling the resolver keeps this
+  // seed identical to what every other surface shows for the same repo.
   return deriveAutonomyForStored(passport).tier;
 }
 

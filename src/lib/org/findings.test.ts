@@ -7,6 +7,8 @@
 import { describe, expect, it } from "vitest";
 import {
   blockerKey,
+  blockerKeys,
+  findingItemKey,
   contributorFindings,
   fnv1a,
   isFindingModule,
@@ -71,7 +73,7 @@ describe("passportFindings", () => {
     expect(blockerKey("acme/api", "No CI")).not.toBe(blockerKey("acme/web", "No CI"));
   });
 
-  it("rotates the key when the blocker is materially reworded (a new finding deserves a fresh look)", () => {
+  it("rotates the LEGACY key when the blocker is reworded — the defect the id key exists to fix", () => {
     expect(blockerKey("acme/api", "No CI pipeline")).not.toBe(blockerKey("acme/api", "No CD pipeline"));
   });
 
@@ -82,6 +84,80 @@ describe("passportFindings", () => {
 
   it("drops blank blockers", () => {
     expect(passportFindings([{ fullName: "acme/api", blockers: ["", "   "] }])).toEqual([]);
+  });
+
+  // ── Direction 8: the key is the CAUSE, not the sentence ───────────────────────────────────────
+  it("keys on the minted finding id when the caller supplies findings", () => {
+    const found = passportFindings([
+      {
+        fullName: "acme/api",
+        blockers: ["Agent can't self-verify (missing lint, test)."],
+        findings: [{ id: "auto.self-verify-gaps", text: "Agent can't self-verify (missing lint, test)." }],
+      },
+    ]);
+    expect(found[0]!.itemKey).toBe("acme/api::auto.self-verify-gaps");
+    expect(found[0]!.itemKey).toBe(findingItemKey("acme/api", "auto.self-verify-gaps"));
+  });
+
+  it("SURVIVES the blocker text changing — the exact orphaning bug (self-verify lists the scripts)", () => {
+    const before = passportFindings([
+      {
+        fullName: "acme/api",
+        blockers: ["Agent can't self-verify (missing lint, test)."],
+        findings: [{ id: "auto.self-verify-gaps", text: "Agent can't self-verify (missing lint, test)." }],
+      },
+    ]);
+    // The repo adds a `lint` script; the sentence changes, the cause does not.
+    const after = passportFindings([
+      {
+        fullName: "acme/api",
+        blockers: ["Agent can't self-verify (missing test)."],
+        findings: [{ id: "auto.self-verify-gaps", text: "Agent can't self-verify (missing test)." }],
+      },
+    ]);
+    expect(after[0]!.itemKey).toBe(before[0]!.itemKey);
+    // The legacy text key would have rotated — that is what orphaned the decision.
+    expect(blockerKey("acme/api", "Agent can't self-verify (missing test).")).not.toBe(
+      blockerKey("acme/api", "Agent can't self-verify (missing lint, test)."),
+    );
+  });
+
+  it("falls back to the legacy text key for a pre-0.4.0 row that carries no findings", () => {
+    const found = passportFindings([{ fullName: "acme/api", blockers: ["No CI pipeline"] }]);
+    expect(found[0]!.itemKey).toBe(blockerKey("acme/api", "No CI pipeline"));
+  });
+
+  it("collapses two differently-worded sentences minted under ONE cause id into one finding", () => {
+    const found = passportFindings([
+      {
+        fullName: "acme/api",
+        blockers: ["Agent can't self-verify (missing lint).", "Agent can't self-verify (missing test)."],
+        findings: [
+          { id: "auto.self-verify-gaps", text: "Agent can't self-verify (missing lint)." },
+          { id: "auto.self-verify-gaps", text: "Agent can't self-verify (missing test)." },
+        ],
+      },
+    ]);
+    expect(found).toHaveLength(1);
+  });
+});
+
+describe("blockerKeys — the write key plus its read-only legacy alias", () => {
+  it("returns [id key, legacy prose key] when a finding id is known", () => {
+    const keys = blockerKeys("acme/api", "No CI pipeline", "prod.no-ci");
+    expect(keys).toEqual(["acme/api::prod.no-ci", blockerKey("acme/api", "No CI pipeline")]);
+  });
+
+  it("returns ONLY the legacy key with no id — nothing is invented", () => {
+    expect(blockerKeys("acme/api", "No CI pipeline")).toEqual([blockerKey("acme/api", "No CI pipeline")]);
+    expect(blockerKeys("acme/api", "No CI pipeline", null)).toHaveLength(1);
+  });
+
+  it("the write key is stable across a rewording that rotates the legacy alias", () => {
+    const a = blockerKeys("acme/api", "old wording", "auto.x");
+    const b = blockerKeys("acme/api", "NEW wording entirely", "auto.x");
+    expect(b[0]).toBe(a[0]);
+    expect(b[1]).not.toBe(a[1]);
   });
 });
 

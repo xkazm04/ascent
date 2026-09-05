@@ -23,7 +23,7 @@ import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug, normalizeOrgSlug } from "@/lib/db/org-shared";
 import { createOrgMemory } from "@/lib/db/org-memory";
 import { recordAudit } from "@/lib/db/scans-audit";
-import { isFindingModule, type FindingModule } from "@/lib/org/findings";
+import { blockerKey, isFindingModule, type FindingModule } from "@/lib/org/findings";
 import { recommendationDecisionKey } from "@/lib/report/rec-identity";
 
 /**
@@ -134,6 +134,18 @@ export async function listDecisions(orgSlug: string, module?: DecisionModule): P
  *
  * `now` is defaulted INSIDE the memoized function, so the two one-argument call sites share the key
  * `(orgSlug)`; a caller that passes an explicit `now` keys on it and is memoized separately.
+ *
+ * DUAL-MATCH FOR PASSPORT BLOCKERS (Direction 8). The passports UI now records a decision under the
+ * blocker's minted finding id (`acme/api::auto.self-verify-gaps`), while a caller that has not yet
+ * plumbed the findings through — the nav badge's `passportFindings`, fed by `getOrgPassportBlockers`
+ * — still derives the LEGACY text-hashed key. Left alone, a freshly decided blocker would keep
+ * counting in the rail badge: decided in the tab, still red in the nav. The decision row persists the
+ * blocker's `title` at decision time, so the legacy key it WOULD have had is recomputable here, and a
+ * resolved decision registers under both spellings. Adding a key can only ever make the badge stop
+ * counting something a human has already resolved, never hide an undecided finding.
+ *
+ * This is the same two-quarter alias described in `blockerKeys` (src/lib/org/findings.ts) and is
+ * deleted with it, once the badge derivation carries finding ids of its own.
  */
 export const resolvedKeys = cache(async (orgSlug: string, now = new Date()): Promise<Map<string, Set<string>>> => {
   const rows = (await listDecisions(orgSlug)) ?? [];
@@ -143,6 +155,7 @@ export const resolvedKeys = cache(async (orgSlug: string, now = new Date()): Pro
     let set = out.get(r.module);
     if (!set) out.set(r.module, (set = new Set()));
     set.add(r.itemKey);
+    if (r.module === "passports" && r.title.trim()) set.add(blockerKey(r.itemKey.split("::")[0] ?? "", r.title));
   }
   return out;
 });

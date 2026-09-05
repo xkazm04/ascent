@@ -18,13 +18,20 @@
 // reads as "this is the reasoning you are being asked to reaffirm", not as a double-count.
 
 import { DecisionControl } from "@/components/org/DecisionControl";
-import { blockerKey } from "@/lib/org/findings";
+import { blockerKeys } from "@/lib/org/findings";
 import type { DecisionMap } from "@/lib/org/decision-map";
-import type { DeclinedByChoice } from "@/lib/types";
+import type { DeclinedByChoice, PassportFinding } from "@/lib/types";
 
 // Each blocker is a decidable finding: fix it, or record why it doesn't apply here. Both axes share
-// one key space (blockerKey hashes the repo + the normalized blocker text), so a blocker listed on
-// both automation and production is ONE decision, made once, reflected in both lists.
+// one key space, so a blocker listed on both automation and production is ONE decision, made once,
+// reflected in both lists.
+//
+// DIRECTION 8 — THE KEY IS THE CAUSE, NOT THE SENTENCE. The key used to hash the blocker's text, on
+// the premise that a blocker is prose with no id. Passport 0.4.0 mints `findings[].id` per cause, and
+// one blocker's sentence LISTS the repo's missing scripts — so adding a `lint` script reworded it,
+// rotated the key, and orphaned the decision the owner had recorded. `blockerKeys` returns the id key
+// first (what a new decision is written under) and the old prose key second (read-only, so a decision
+// made before this change still suppresses its blocker). See findings.ts for the cleanup window.
 export function BlockerList({
   title,
   items,
@@ -32,6 +39,7 @@ export function BlockerList({
   org,
   fullName,
   decisions,
+  findings,
 }: {
   title: string;
   items: string[];
@@ -39,6 +47,10 @@ export function BlockerList({
   org: string;
   fullName: string;
   decisions: DecisionMap;
+  /** 0.4.0's minted findings for THIS axis, same sentences. Absent on a pre-0.4.0 stored passport,
+   *  which keeps the legacy text key — there is no id to key on, and inventing one would orphan the
+   *  very decisions this change exists to preserve. */
+  findings?: PassportFinding[];
 }) {
   return (
     <div>
@@ -48,8 +60,10 @@ export function BlockerList({
       ) : (
         <ul className="mt-1.5 space-y-2.5">
           {items.map((b) => {
-            const key = blockerKey(fullName, b);
-            const decision = decisions[key];
+            const [key, ...legacy] = blockerKeys(fullName, b, findings?.find((f) => f.text === b)?.id);
+            // Read the id key first, then any legacy alias — a decision recorded before Direction 8
+            // still counts. The WRITE below always uses `key`.
+            const decision = decisions[key!] ?? legacy.map((k) => decisions[k]).find(Boolean);
             return (
               <li key={b} className={`type-body-sm text-slate-300 ${decision && decision.status !== "open" ? "opacity-60" : ""}`}>
                 <span className="flex gap-2">
@@ -60,7 +74,7 @@ export function BlockerList({
                   <DecisionControl
                     org={org}
                     module="passports"
-                    itemKey={key}
+                    itemKey={key!}
                     title={b}
                     status={decision?.status ?? "open"}
                     rationale={decision?.rationale}
