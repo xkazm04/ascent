@@ -108,7 +108,7 @@ export function Spectrum({ counts, className = "w-full" }: { counts: StateCounts
 }
 
 /** Sweep age is the instrument's calibration date — always visible, loud when "never". */
-export function SweepStrip({ view, onSweep }: { view: KnowledgeView; onSweep?: () => void }) {
+export function SweepStrip({ view, onSweep, pending = false }: { view: KnowledgeView; onSweep?: () => void; pending?: boolean }) {
   const never = !view.sweep.lastAt;
   return (
     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-xl border border-divider bg-surface/40 px-4 py-2.5">
@@ -125,8 +125,8 @@ export function SweepStrip({ view, onSweep }: { view: KnowledgeView; onSweep?: (
         {view.sweep.truncated ? <span className="type-caption text-slate-500">pair list truncated</span> : null}
       </div>
       {view.capabilities.canSweep ? (
-        <button type="button" className={chipButtonClass("idle")} onClick={onSweep}>
-          Sweep fleet
+        <button type="button" className={chipButtonClass("idle", "disabled:opacity-50")} onClick={onSweep} disabled={pending}>
+          {pending ? "Sweeping…" : "Sweep fleet"}
         </button>
       ) : null}
     </div>

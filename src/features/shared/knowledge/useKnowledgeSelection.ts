@@ -1,12 +1,19 @@
 "use client";
 
-// The one selection model every variant shares: which bundle is open, which subject is focused,
-// and which (repo, subjects) pair the dispatch composer is holding. ONE repo at a time — a brief is
-// for one codebase (remediation-handoff's one-artifact-per-codebase rule), so picking a cell in a
-// different column starts a new selection rather than a cross-repo batch.
+// The tab's selection model: which bundle is open, which subject is focused, and which (repo,
+// subjects) pair the dispatch composer is holding. ONE repo at a time — a brief is for one codebase
+// (remediation-handoff's one-artifact-per-codebase rule), so picking a cell in a different column
+// starts a new selection rather than a cross-repo batch.
+//
+// Domain and focused subject are DEEP-LINKABLE (`?domain=` / `?subject=`, both in
+// `TAB_SCOPED_PARAM_KEYS` so a tab switch clears them). The URL is patched with `router.replace`
+// off the React-tracked search string, never `window.location`, for the reason `buildUrl` states.
+// The composer's picks are NOT in the URL: a half-composed brief is not a shareable state.
 
 import { useCallback, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { KnowledgeView } from "@/lib/org/knowledge-shape";
+import { buildUrl } from "@/lib/org/orgTabs";
 import { domainOf } from "./knowledgeModel";
 
 export interface KnowledgeSelection {
@@ -16,12 +23,44 @@ export interface KnowledgeSelection {
   picked: string[];
 }
 
-export function useKnowledgeSelection(view: KnowledgeView, initialDomain?: string | null) {
-  const first = domainOf(view, initialDomain ?? null);
-  const [sel, setSel] = useState<KnowledgeSelection>({ domain: first?.name ?? "", subject: null, repo: null, picked: [] });
+export interface SelectionOptions {
+  /** Org slug — required for URL sync. */
+  slug?: string;
+  initialDomain?: string | null;
+  initialSubject?: string | null;
+  /** False in the dev preview: a shaped fleet must not write a shareable URL. */
+  syncUrl?: boolean;
+}
 
-  const setDomain = useCallback((domain: string) => setSel({ domain, subject: null, repo: null, picked: [] }), []);
-  const focusSubject = useCallback((subject: string | null) => setSel((s) => ({ ...s, subject })), []);
+export function useKnowledgeSelection(view: KnowledgeView, opts: SelectionOptions = {}) {
+  const router = useRouter();
+  const search = useSearchParams();
+  const first = domainOf(view, opts.initialDomain ?? null);
+  const initialSubject = opts.initialSubject && view.subjects.some((s) => s.slug === opts.initialSubject) ? opts.initialSubject : null;
+  const [sel, setSel] = useState<KnowledgeSelection>({ domain: first?.name ?? "", subject: initialSubject, repo: null, picked: [] });
+
+  const sync = useCallback(
+    (patch: Record<string, string | null>) => {
+      if (!opts.syncUrl || !opts.slug) return;
+      router.replace(buildUrl(opts.slug, patch, search.toString()), { scroll: false });
+    },
+    [opts.slug, opts.syncUrl, router, search],
+  );
+
+  const setDomain = useCallback(
+    (domain: string) => {
+      setSel({ domain, subject: null, repo: null, picked: [] });
+      sync({ domain, subject: null });
+    },
+    [sync],
+  );
+  const focusSubject = useCallback(
+    (subject: string | null) => {
+      setSel((s) => ({ ...s, subject }));
+      sync({ subject });
+    },
+    [sync],
+  );
   const focusRepo = useCallback((repo: string | null) => setSel((s) => (s.repo === repo ? s : { ...s, repo, picked: [] })), []);
 
   /** Toggle one (repo, subject) cell into the composer. Switching repo resets the picks. */

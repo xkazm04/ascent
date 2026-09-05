@@ -1,28 +1,21 @@
 "use client";
 
 // The dispatch composer — use case 2's hand. One repo, its next act, and (for conform) the subjects
-// the operator picked off the matrix. It COMPOSES; it never judges: the brief tells an agent to run
-// the registry's own skills in the repo and commit the map, and the sweep reads the result back.
+// the operator picked off the matrix. It COMPOSES; it never judges: the server builds one
+// deterministic brief per repo (`src/lib/registry/dispatch-brief.ts`) that tells an agent to run the
+// registry's own skills in the repo and commit the map, and the sweep reads the result back.
 //
-// PROTOTYPE NOTE: the real brief is built server-side (WP2, deterministic, one artifact per repo).
-// This preview mirrors its shape so the operator can judge the flow; "Copy" copies the preview and
-// "Run here" is inert and says so.
+// Two doors, one record. "Compose brief" records a `handed_off` dispatch and hands the text to the
+// operator to paste into any agent session; "Run here" (self-hosted, autopilot on) spawns the local
+// agent on the paired working copy, which proposes a PR. Both close through the sweep, never through
+// a button that says "done".
 
-import { useState } from "react";
 import { Kicker, chipButtonClass } from "@/components/ui";
-import type { KnowledgeRepo, KnowledgeView, RegistryDispatchRow } from "@/lib/org/knowledge-shape";
+import type { KnowledgeView, RegistryDispatchRow, RegistryDispatchStage } from "@/lib/org/knowledge-shape";
 import { StageChip } from "./KnowledgeShared";
 import { STAGE_ACTION, fmtCost, sweepAge } from "./knowledgeModel";
+import type { KnowledgeActionsApi } from "./useKnowledgeActions";
 import type { KnowledgeSelectionApi } from "./useKnowledgeSelection";
-
-export function briefPreview(repo: KnowledgeRepo, subjects: string[], registry: string | null): string {
-  const reg = registry ?? "<registry>";
-  const head = `# Ascent · registry hand-off for ${repo.fullName}\n\nRead AGENTS.md / CLAUDE.md first. Branch first. Smallest real change. The standard does not bend to the code.\n`;
-  if (repo.stage === "populate") return `${head}\n1. /project-populate contexts  → commit context-map.json\n2. node ${reg}/scripts/build-registry-map.mjs --project ${repo.fullName.split("/").pop()}\n3. commit .ai/registry-map.json — Ascent sweeps it.\n`;
-  if (repo.stage === "map") return `${head}\n1. node ${reg}/scripts/build-registry-map.mjs --project ${repo.fullName.split("/").pop()}\n2. commit .ai/registry-map.json — Ascent sweeps it.\n`;
-  const list = subjects.length ? subjects.map((s) => `   - /conform --subject ${s}`).join("\n") : "   (pick subjects on the matrix)";
-  return `${head}\n1. For each subject, budget ${subjects.length || "n"}:\n${list}\n2. Write verdicts into .ai/registry-map.json in place (state, evidence file:line, evaluatedAgainst).\n3. Commit the map — Ascent sweeps it and closes this hand-off.\n`;
-}
 
 const STATUS_TONE: Record<RegistryDispatchRow["status"], string> = {
   handed_off: "text-slate-400",
@@ -49,6 +42,7 @@ export function DispatchLedger({ rows, limit = 6 }: { rows: RegistryDispatchRow[
               PR ↗
             </a>
           ) : null}
+          {d.error ? <span className="text-danger" title={d.error}>failed</span> : null}
           {d.costMicros != null ? <span className="font-mono text-slate-500">{fmtCost(d.costMicros)}</span> : null}
           <span className="ml-auto text-slate-600">{sweepAge(d.createdAt)}</span>
         </li>
@@ -57,22 +51,25 @@ export function DispatchLedger({ rows, limit = 6 }: { rows: RegistryDispatchRow[
   );
 }
 
-export function KnowledgeComposer({ view, api, className = "" }: { view: KnowledgeView; api: KnowledgeSelectionApi; className?: string }) {
+export function KnowledgeComposer({
+  view,
+  api,
+  actions,
+  className = "",
+}: {
+  view: KnowledgeView;
+  api: KnowledgeSelectionApi;
+  actions: KnowledgeActionsApi;
+  className?: string;
+}) {
   const { sel, repoRow } = api;
-  const [note, setNote] = useState<string | null>(null);
-  const registry = view.registry?.fullName ? `../${view.registry.fullName.split("/").pop()}` : null;
+  const { state } = actions;
   const conform = repoRow?.stage === "conform" || repoRow?.stage === "current";
-  const ready = !!repoRow && (conform ? sel.picked.length > 0 : repoRow.stage !== "current");
-  const preview = repoRow ? briefPreview(repoRow, sel.picked, registry) : "";
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(preview);
-      setNote("Brief copied — paste it into a local agent session. Ascent closes the hand-off when the map lands.");
-    } catch {
-      setNote("Clipboard unavailable — select the preview and copy it by hand.");
-    }
-  };
+  // The next ACT for the repo: a current repo can still be asked to conform (a picked cell is the
+  // reason), so `current` folds into `conform`; populate and map are themselves.
+  const stage: RegistryDispatchStage | null = !repoRow ? null : conform ? "conform" : repoRow.stage === "populate" || repoRow.stage === "map" ? repoRow.stage : null;
+  const ready = !!repoRow && stage !== null && (conform ? sel.picked.length > 0 : true) && !state.pending;
+  const busy = (a: string) => state.pending === a;
 
   return (
     <section className={`space-y-3 rounded-2xl border border-divider bg-surface/40 p-4 ${className}`} aria-label="Dispatch composer">
@@ -84,11 +81,11 @@ export function KnowledgeComposer({ view, api, className = "" }: { view: Knowled
             <StageChip stage={repoRow.stage} />
           </span>
         ) : (
-          <span className="type-caption text-slate-500">pick a repo, or cells on the matrix</span>
+          <span className="type-caption text-slate-500">pick a repo column, or cells on the matrix</span>
         )}
       </div>
 
-      {repoRow ? (
+      {repoRow && stage ? (
         <>
           <p className="type-body-sm text-slate-400">
             Next act: <span className="text-slate-200">{STAGE_ACTION[repoRow.stage]}</span>
@@ -111,23 +108,43 @@ export function KnowledgeComposer({ view, api, className = "" }: { view: Knowled
               </button>
             </div>
           ) : null}
-          <pre className="max-h-40 overflow-auto rounded-lg border border-divider bg-ink p-3 type-caption text-slate-400 whitespace-pre-wrap">{preview}</pre>
+          {conform && !sel.picked.length ? (
+            <p className="type-caption text-slate-500">Pick the cells to judge — unjudged, stale, deviation or candidate — in this repo&rsquo;s column.</p>
+          ) : null}
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" className={chipButtonClass("idle")} disabled={!ready || !view.capabilities.canBrief} onClick={copy}>
-              Copy brief
-            </button>
-            {view.capabilities.canRunLocal ? (
-              <button type="button" className={chipButtonClass("success")} disabled={!ready} onClick={() => setNote("Preview: nothing was dispatched. In the real tab this spawns a headless agent in the paired worktree and opens a PR.")}>
-                Run here
+            {view.capabilities.canBrief ? (
+              <button type="button" className={chipButtonClass("idle")} disabled={!ready} onClick={() => actions.composeBrief(repoRow.repositoryId, stage, sel.picked)}>
+                {busy("brief") ? "Composing…" : "Compose brief"}
               </button>
             ) : (
-              <span className="type-caption text-slate-600">Run here needs a self-hosted deployment with ASCENT_AUTOPILOT.</span>
+              <span className="type-caption text-slate-600">Briefs need the admin role.</span>
             )}
-            {!view.capabilities.canBrief ? <span className="type-caption text-slate-600">Briefs need the admin role.</span> : null}
+            {view.capabilities.canRunLocal ? (
+              <button type="button" className={chipButtonClass("success")} disabled={!ready} onClick={() => actions.runLocal(repoRow.repositoryId, stage, sel.picked)}>
+                {busy("local") ? "Dispatching…" : "Run here"}
+              </button>
+            ) : (
+              <span className="type-caption text-slate-600">Run here needs a self-hosted deployment with ASCENT_AUTOPILOT and a paired repo.</span>
+            )}
           </div>
-          {note ? <p className="type-caption text-slate-400">{note}</p> : null}
+          {state.brief ? (
+            <div className="space-y-1.5">
+              <pre className="max-h-48 overflow-auto rounded-lg border border-divider bg-ink p-3 type-caption text-slate-400 whitespace-pre-wrap">{state.brief}</pre>
+              <div className="flex gap-2">
+                <button type="button" className={chipButtonClass("idle", "py-0.5 type-caption")} onClick={actions.copyBrief}>
+                  Copy brief
+                </button>
+                <button type="button" className="focus-ring type-caption text-slate-500 hover:text-slate-300" onClick={actions.clearBrief}>
+                  dismiss
+                </button>
+              </div>
+            </div>
+          ) : null}
         </>
       ) : null}
+
+      {state.error ? <p className="type-caption text-danger">{state.error}</p> : null}
+      {state.notice ? <p className="type-caption text-slate-400">{state.notice}</p> : null}
 
       <div className="space-y-1.5 border-t border-divider pt-3">
         <Kicker tone="muted">Recent hand-offs</Kicker>

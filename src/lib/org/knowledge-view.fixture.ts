@@ -1,9 +1,10 @@
-// Shaped example `KnowledgeView` — the fleet standing a young org cannot produce, so the rebuilt
-// Knowledge base tab can be READ before a sweep has run.
+// Shaped example `KnowledgeView` — the fleet standing a young org cannot produce, so the Knowledge
+// base tab can be READ before a registry is mapped and a sweep has run.
 //
 // SELECTED IN REACT STATE, NOT BY A SEARCH PARAM (same rule as `registry-view.fixture.ts`): a preview
 // must never be a shareable URL that reads as someone's real fleet. Offered ONLY in development
-// (`registryPreviewEnabled()`), and every previewed surface is stamped as a preview.
+// (`registryPreviewEnabled()`) by `KnowledgePreviewShell`, only while the real status is `unmapped`,
+// and stamped as a preview with every action inert.
 //
 // CLIENT-SAFE BY CONSTRUCTION: type imports only, plus `titleOfSlug` from the client-safe shape module.
 // Importing `./knowledge-view` for a VALUE here would drag `@/lib/db` into the browser bundle.

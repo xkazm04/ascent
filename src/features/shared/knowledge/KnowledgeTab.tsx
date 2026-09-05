@@ -1,27 +1,28 @@
-// Org dashboard "Knowledge base" tab — the Reference Knowledge Bundles the mapped registry publishes
-// (`knowledge/<domain>/`), at overview level only.
+// Org dashboard "Knowledge base" tab — the registry's knowledge lane AS THE REGISTRY STRUCTURES IT
+// (bundle → category → subcategory → subject) and how the fleet stands against it: one cell per
+// subject × swept repo, the registry's own six-way absence vocabulary, and the dispatch flow that
+// hands a repo its next act (populate → map → conform). Rebuilt 2026-09-05 (spark
+// knowledge-base-rebuild); the Loom direction won the prototype round.
 //
 // SERVER component, filename PINNED as KnowledgeTab.tsx — same shell contract as RegistryTab /
 // SkillsTab / MemoryTab (docs/ORG-TABS-REFACTOR.md). One data source (`getKnowledgeView`), so the
 // single <Suspense> at the OrgTabChunks call site is enough and no boundary is added here.
 //
-// Takes NO `sp`: the tab reads nothing from the URL. It is deliberately terminal — no drill-down,
-// no per-subject route. A bundle is ~1,000 markdown documents and the thing worth answering here is
-// "what do we publish, and how much of it", not "read me a golden path": that is what a clone and an
-// editor are for, and pretending otherwise would build a second, worse document browser.
+// Reads TWO deep-link params from `sp`: `?domain=` (which bundle) and `?subject=` (the reader to
+// open). Both are in `TAB_SCOPED_PARAM_KEYS`, so a tab switch clears them.
 //
-// Sits LAST in the `Shared` group: the other three tabs are artifacts the registry distributes to
-// every repo, and this one is the fourth — but it is the only one with no per-repo adoption state,
-// so it reads as reference rather than as fleet posture.
+// Ascent never judges conformance: the consumer computes, the repo's own `/conform` writes verdicts
+// into its `.ai/registry-map.json`, and the sweep reads them. This tab is a mirror with a hand.
 
 import { Kicker } from "@/components/ui";
 import { registryPreviewEnabled } from "@/lib/env";
 import { getKnowledgeView } from "@/lib/org/knowledge-view";
 import { fixtureKnowledgeView } from "@/lib/org/knowledge-view.fixture";
-import type { KnowledgeView } from "@/lib/org/knowledge-shape";
 
-import { KnowledgeLedger } from "./KnowledgeLedger";
-import { KnowledgeSwitcher } from "./KnowledgeSwitcher";
+import { KnowledgeLoom } from "./KnowledgeLoom";
+import { KnowledgePreviewShell } from "./KnowledgePreviewShell";
+
+type SearchParams = { [key: string]: string | string[] | undefined };
 
 function Notice({ title, body }: { title: string; body: React.ReactNode }) {
   return (
@@ -33,27 +34,35 @@ function Notice({ title, body }: { title: string; body: React.ReactNode }) {
   );
 }
 
-export async function KnowledgeTab({ slug }: { slug: string }) {
-  const view = await getKnowledgeView(slug);
-  const baseline = renderBaseline(view);
-  // PROTOTYPE ROUND (dev only): the three directions render a shaped fleet behind a React-state
-  // switcher; the real tab stays the default so nothing changes on load.
-  return registryPreviewEnabled() ? <KnowledgeSwitcher fixture={fixtureKnowledgeView(slug)}>{baseline}</KnowledgeSwitcher> : baseline;
-}
+const one = (sp: SearchParams, key: string): string | null => {
+  const v = sp[key];
+  return typeof v === "string" && v ? v : null;
+};
 
-function renderBaseline(view: KnowledgeView) {
+export async function KnowledgeTab({ slug, sp = {} }: { slug: string; sp?: SearchParams }) {
+  const view = await getKnowledgeView(slug);
+
   if (view.status === "unmapped") {
-    return (
+    const notice = (
       <Notice
         title="No registry mapped yet"
         body={
           <>
             Knowledge bundles live in the org&apos;s registry repo under{" "}
-            <span className="type-caption text-slate-300">knowledge/&lt;domain&gt;/</span>. Map the registry
-            first — the Registry tab is the onboarding step this one depends on.
+            <span className="type-caption text-slate-300">knowledge/&lt;domain&gt;/</span>. Map the registry first — the Registry tab is
+            the onboarding step this one depends on.
           </>
         }
       />
+    );
+    // DEVELOPMENT ONLY (`ASCENT_REGISTRY_PREVIEW`, hard-off in production): a shaped fleet a young org
+    // cannot yet produce, offered only while nothing of the org's own could be confused with it.
+    return registryPreviewEnabled() ? (
+      <KnowledgePreviewShell slug={slug} fixture={fixtureKnowledgeView(slug)}>
+        {notice}
+      </KnowledgePreviewShell>
+    ) : (
+      notice
     );
   }
 
@@ -63,8 +72,8 @@ function renderBaseline(view: KnowledgeView) {
         title="The last index attempt failed"
         body={
           <>
-            {view.error?.message ?? "No detail was recorded."} Counts below would be stale, so none are shown —
-            an overview that renders old numbers without saying so is worse than one that renders none.
+            {view.error?.message ?? "No detail was recorded."} Counts below would be stale, so none are shown — an overview that renders old
+            numbers without saying so is worse than one that renders none.
           </>
         }
       />
@@ -77,18 +86,14 @@ function renderBaseline(view: KnowledgeView) {
         title="The registry publishes no bundles"
         body={
           <>
-            <span className="type-caption text-slate-300">{view.registry?.fullName}</span> is mapped and indexed,
-            but carries no <span className="type-caption text-slate-300">knowledge/</span> lane. A bundle is a
-            directory of markdown plus a generated index; adding one is a pull request like any other.
+            <span className="type-caption text-slate-300">{view.registry?.fullName}</span> is mapped and indexed, but carries no{" "}
+            <span className="type-caption text-slate-300">knowledge/</span> lane. A bundle is a directory of markdown plus a generated index;
+            adding one is a pull request like any other.
           </>
         }
       />
     );
   }
 
-  return (
-    <div className="space-y-6">
-      <KnowledgeLedger view={view} />
-    </div>
-  );
+  return <KnowledgeLoom view={view} slug={slug} initialDomain={one(sp, "domain")} initialSubject={one(sp, "subject")} />;
 }

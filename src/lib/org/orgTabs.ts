@@ -289,6 +289,10 @@ export const TAB_SCOPED_PARAM_KEYS = [
   // Comparison pickers (teams / contributors A-vs-B)
   "a",
   "b",
+  // Knowledge base: which bundle is open and which subject's reader — a tab switch must not carry
+  // a subject into Practices.
+  "domain",
+  "subject",
   // Search + list filters
   "q",
   "search",
