@@ -45,7 +45,17 @@ describe("readBundleSubjects", () => {
         "focus lands nowhere after a dialog closes",
       ],
       laws: ["gate-sees-target", "unknown-is-not-a-value"],
+      // This fixture carries no digest: unknown, never "current".
+      digest: null,
     });
+  });
+
+  it("carries the subject's digest verbatim — what a map pair's evaluatedAgainst is compared to", () => {
+    const rows = readBundleSubjects(
+      [file("knowledge/se/index.json", bundle("se", { accessibility: { ...accessibility, digest: "sha256:e7079c6845ba0270" } }))],
+      [],
+    );
+    expect(rows[0]!.digest).toBe("sha256:e7079c6845ba0270");
   });
 
   it("dedupes the law union across techniques rather than counting citations", () => {

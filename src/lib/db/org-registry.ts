@@ -11,6 +11,7 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
+import type { KnowledgeCategory } from "@/lib/org/knowledge-shape";
 
 export type RegistryStatusValue = "unmapped" | "scaffolding" | "scaffold_pr_open" | "indexed" | "error";
 export type RegistryModeValue = "git_native" | "hosted_mirror";
@@ -70,6 +71,12 @@ export interface OrgRegistryRow {
     laws: number;
     categories: string[];
     useWhenCoverage: string | null;
+    /**
+     * The bundle's `taxonomy.json`, mirrored since the knowledge-base rebuild. OPTIONAL on the type
+     * because rows (and fixtures) written before the mirror carry no key; `toRow` normalizes an
+     * absent or malformed value to `[]`, so every reader of a PERSISTED row may treat it as present.
+     */
+    taxonomy?: KnowledgeCategory[];
   }[];
   warnings: string[];
   createdBy: string | null;
@@ -101,6 +108,22 @@ export function parseRegistryJson<T>(raw: string | null, fallback: T): T {
   }
 }
 
+/**
+ * `bundlesJson` → the bundle list, with `taxonomy` normalized to an ARRAY on every entry. A row
+ * indexed before the taxonomy mirror has no key at all; reading that as `[]` is what lets the tab
+ * fall back to id-derived titles instead of crashing on `undefined.map`.
+ */
+export function parseBundles(raw: string | null): OrgRegistryRow["bundles"] {
+  const parsed = parseRegistryJson<unknown>(raw, []);
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .filter((b): b is Record<string, unknown> => Boolean(b) && typeof b === "object")
+    .map((b) => ({
+      ...(b as OrgRegistryRow["bundles"][number]),
+      taxonomy: Array.isArray(b.taxonomy) ? (b.taxonomy as KnowledgeCategory[]) : [],
+    }));
+}
+
 /** Prisma row -> the typed, defensively-parsed shape every caller reads. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function toRow(r: any): OrgRegistryRow {
@@ -129,7 +152,7 @@ function toRow(r: any): OrgRegistryRow {
       lessons: r.lessonCount ?? 0,
     },
     usage: { invokes30d: r.usageInvokes30d ?? 0, contributors: r.usageContributors ?? 0 },
-    bundles: parseRegistryJson<OrgRegistryRow["bundles"]>(r.bundlesJson ?? null, []),
+    bundles: parseBundles(r.bundlesJson ?? null),
     warnings: parseRegistryJson<string[]>(r.warningsJson ?? null, []).filter((w) => typeof w === "string"),
     createdBy: r.createdBy ?? null,
     updatedAt: new Date(r.updatedAt ?? Date.now()).toISOString(),

@@ -2,10 +2,11 @@
 // and the thing that decides whether the instrument is usable at fleet size.
 //
 // Three distinct facts must stay distinct, and each has a test:
-//   no map        → the repo stopped claiming anything; its old rows are cleared.
+//   no map        → the repo stopped claiming anything; its pairs are cleared and a HEADER ROW is
+//                   written with `mapSha: null` carrying the foundation facts (knowledge base rebuild).
 //   unreadable    → a warning; the previous conformance is KEPT (deleting a standing deviation
 //                   backlog because GitHub timed out is the worst outcome available here).
-//   read + parsed → ingested, idempotently.
+//   read + parsed → ingested, idempotently, with the foundation beside the header.
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
@@ -23,7 +24,7 @@ vi.mock("@/lib/db/org-registry-conformance", () => ({
   listSweepTargets: mockTargets,
 }));
 
-import { sweepConformance } from "./conformance-sweep";
+import { foundationOf, sweepConformance } from "./conformance-sweep";
 import { MAP_SCHEMA } from "./conformance-map";
 
 const mapBody = (over: Record<string, unknown> = {}) =>
@@ -36,12 +37,37 @@ const mapBody = (over: Record<string, unknown> = {}) =>
       {
         context: "A/B",
         group: "A",
-        governance: "governed",
+        governance: "weak",
         subjects: [{ subject: "quality-gates", bundle: "software-engineering", state: "deviation", score: 700 }],
       },
     ],
     ...over,
   });
+
+const MANIFEST = `knowledge:
+  domains: [software-engineering]
+scope:
+  out_of_scope_categories:
+    - software-engineering/llm-agent/companion
+  out_of_scope_subjects: [software-engineering/feed]
+`;
+const LEDGER = [
+  JSON.stringify({ date: "2026-09-01", subject: "table", bundle: "software-engineering", decision: "deferred" }),
+  JSON.stringify({ date: "2026-09-03", subject: "table", bundle: "software-engineering", decision: "declined" }),
+].join("\n");
+
+/** The reader's full shape; tests override the parts they are about. */
+const files = (over: Record<string, unknown> = {}) => ({
+  map: mapBody(),
+  consults: null,
+  mapSha: "sha-1",
+  reason: null,
+  manifest: null,
+  ledger: null,
+  hasContextMap: true,
+  warnings: [],
+  ...over,
+});
 
 const repos = (...fullNames: string[]) =>
   fullNames.map((fullName, i) => ({ id: `repo-${i}`, fullName }));
@@ -54,7 +80,7 @@ beforeEach(() => {
 
 describe("sweepConformance", () => {
   it("ingests a repo whose map parses", async () => {
-    mockRead.mockResolvedValue({ map: mapBody(), consults: null, mapSha: "sha-1", reason: null });
+    mockRead.mockResolvedValue(files());
     const r = await sweepConformance("acme", "tok");
     expect(r).toMatchObject({ scanned: 1, withMap: 1, withoutMap: 0, pairs: 1, warnings: [] });
     expect(mockIngest).toHaveBeenCalledWith(
@@ -63,7 +89,7 @@ describe("sweepConformance", () => {
   });
 
   it("leaves consults30d NULL when the consults lane is absent", async () => {
-    mockRead.mockResolvedValue({ map: mapBody(), consults: null, mapSha: "s", reason: null });
+    mockRead.mockResolvedValue(files({ mapSha: "s" }));
     await sweepConformance("acme", "tok");
     // NOT 0. "The lane was never written" and "nobody consulted" are different claims.
     expect(mockIngest.mock.calls[0]![0].consults30d).toBeNull();
@@ -75,21 +101,53 @@ describe("sweepConformance", () => {
       JSON.stringify({ ts: "2026-08-25T00:00:00Z", subjects: ["a"] }),
       JSON.stringify({ ts: "2025-01-01T00:00:00Z", subjects: ["a"] }),
     ].join("\n");
-    mockRead.mockResolvedValue({ map: mapBody(), consults, mapSha: "s", reason: null });
+    mockRead.mockResolvedValue(files({ consults }));
     await sweepConformance("acme", "tok", { now });
     expect(mockIngest.mock.calls[0]![0].consults30d).toBe(1);
   });
 
-  it("clears a repo whose map went away — it no longer claims those verdicts", async () => {
-    mockRead.mockResolvedValue({ map: null, consults: null, mapSha: null, reason: "no .ai/registry-map.json" });
-    const r = await sweepConformance("acme", "tok");
+  it("carries the foundation beside a parsed map: manifest domains + scope, latest ledger decision, weak contexts", async () => {
+    mockRead.mockResolvedValue(files({ manifest: MANIFEST, ledger: LEDGER, hasContextMap: true }));
+    await sweepConformance("acme", "tok");
+    const input = mockIngest.mock.calls[0]![0];
+    expect(input.foundation).toEqual({
+      hasContextMap: true,
+      hasManifest: true,
+      domains: ["software-engineering"],
+      scope: { outOfScopeCategories: ["software-engineering/llm-agent/companion"], outOfScopeSubjects: ["software-engineering/feed"] },
+      directions: [{ subject: "table", bundle: "software-engineering", decision: "declined" }],
+    });
+    expect(input.header.weaklyGovernedContexts).toEqual(["A/B"]);
+  });
+
+  it("writes a HEADER ROW for a repo without a map — mapSha null, honest hasContextMap, manifest facts", async () => {
+    mockRead.mockResolvedValue(files({ map: null, mapSha: null, reason: "no .ai/registry-map.json", manifest: MANIFEST, hasContextMap: false }));
+    const r = await sweepConformance("acme", "tok", { now: new Date("2026-09-05T00:00:00Z") });
     expect(r).toMatchObject({ withMap: 0, withoutMap: 1, pairs: 0 });
-    expect(mockClear).toHaveBeenCalledWith("repo-0");
     expect(mockIngest).not.toHaveBeenCalled();
+    expect(mockClear).toHaveBeenCalledWith({
+      orgId: "org-1",
+      repositoryId: "repo-0",
+      foundation: expect.objectContaining({ hasContextMap: false, hasManifest: true, domains: ["software-engineering"] }),
+      warnings: [],
+      now: new Date("2026-09-05T00:00:00Z"),
+    });
+  });
+
+  it("a repo with neither map nor manifest gets an empty foundation, not a guessed one", async () => {
+    mockRead.mockResolvedValue(files({ map: null, mapSha: null, reason: "no .ai/registry-map.json", hasContextMap: false }));
+    await sweepConformance("acme", "tok");
+    expect(mockClear.mock.calls[0]![0].foundation).toEqual({
+      hasContextMap: false,
+      hasManifest: false,
+      domains: [],
+      scope: { outOfScopeCategories: [], outOfScopeSubjects: [] },
+      directions: [],
+    });
   });
 
   it("KEEPS the previous conformance when a map is unreadable", async () => {
-    mockRead.mockResolvedValue({ map: "{truncated", consults: null, mapSha: "s", reason: null });
+    mockRead.mockResolvedValue(files({ map: "{truncated" }));
     const r = await sweepConformance("acme", "tok");
     expect(mockClear).not.toHaveBeenCalled();
     expect(mockIngest).not.toHaveBeenCalled();
@@ -100,7 +158,7 @@ describe("sweepConformance", () => {
     mockTargets.mockResolvedValue({ orgId: "org-1", repos: repos("acme/api", "acme/web") });
     mockRead.mockImplementation(async (_t: string, _o: string, repo: string) => {
       if (repo === "api") throw new Error("GitHub App API 502");
-      return { map: mapBody(), consults: null, mapSha: "s", reason: null };
+      return files();
     });
     const r = await sweepConformance("acme", "tok");
     expect(r).toMatchObject({ scanned: 2, withMap: 1 });
@@ -117,9 +175,17 @@ describe("sweepConformance", () => {
   it("hands the caller's id list to the org-constrained query, never to GitHub", async () => {
     // The ids are a caller's claim; `listSweepTargets` resolves the org and puts both into ONE
     // query, so a repo belonging to someone else is not found rather than separately refused.
-    mockRead.mockResolvedValue({ map: mapBody(), consults: null, mapSha: "s", reason: null });
+    mockRead.mockResolvedValue(files());
     await sweepConformance("acme", "tok", { repositoryIds: ["repo-0", "someone-elses-repo"] });
     expect(mockTargets).toHaveBeenCalledWith("acme", ["repo-0", "someone-elses-repo"]);
+  });
+
+  it("accepts the one-repo form and the indexer's { orgId } form", async () => {
+    mockRead.mockResolvedValue(files());
+    await sweepConformance("acme", "tok", { repositoryId: "repo-0" });
+    expect(mockTargets).toHaveBeenCalledWith("acme", ["repo-0"]);
+    await sweepConformance({ orgId: "org-1" }, "tok");
+    expect(mockTargets).toHaveBeenCalledWith({ orgId: "org-1" }, undefined);
   });
 
   it("returns an empty result for an unknown org (or persistence off) rather than throwing", async () => {
@@ -130,5 +196,24 @@ describe("sweepConformance", () => {
   it("returns an empty result for an org with no repositories", async () => {
     mockTargets.mockResolvedValue({ orgId: "org-1", repos: [] });
     expect(await sweepConformance("acme", "tok")).toMatchObject({ scanned: 0 });
+  });
+});
+
+describe("foundationOf", () => {
+  it("tolerates a reader that returned the pre-rebuild shape", () => {
+    expect(foundationOf({} as never)).toEqual({
+      hasContextMap: false,
+      hasManifest: false,
+      domains: [],
+      scope: { outOfScopeCategories: [], outOfScopeSubjects: [] },
+      directions: [],
+    });
+  });
+  it("reads a manifest with no scope block as an EMPTY scope, so every in-domain absence is a candidate", () => {
+    expect(foundationOf({ manifest: "knowledge:\n  domains: [a]\n", ledger: null, hasContextMap: true })).toMatchObject({
+      hasManifest: true,
+      domains: ["a"],
+      scope: { outOfScopeCategories: [], outOfScopeSubjects: [] },
+    });
   });
 });

@@ -24,9 +24,12 @@ import { contentDigest, parseRegistryMemory, parseRegistryPractice, parseRegistr
 import { modeToYaml, parseRegistryYaml, type RegistryDeclaration } from "./policy";
 import { aggregateUsage, type RegistryUsage } from "./usage-samples";
 import { readBundleSubjects, type KnowledgeSubject } from "./subjects";
+import { readBundleTaxonomies } from "./taxonomy";
 import { lessonWarning, splitLessonEntries } from "./lessons";
 import { aggregateSignals, type SignalRow } from "./signals";
+import { sweepConformance, type SweepResult } from "./conformance-sweep";
 import type { RegistryTree } from "./read";
+import type { KnowledgeCategory } from "@/lib/org/knowledge-shape";
 
 export type { RegistrySource } from "./index-walk";
 export { githubSource } from "./index-walk";
@@ -74,6 +77,12 @@ export interface IndexRegistryResult {
    * fact from a corpus nobody consults, and every reader of this says so.
    */
   signals?: { rows: SignalRow[]; contributors: number };
+  /**
+   * The fleet conformance sweep chained after a successful pass, when the source carried a token
+   * (`RegistrySource.token`). Absent when it could not run; its failure is a warning, never an
+   * index failure — the mirror rows are already committed by the time it starts.
+   */
+  sweep?: SweepResult;
 }
 
 /** One Reference Knowledge Bundle, as its generated index states it. */
@@ -89,6 +98,8 @@ export interface RegistryBundle {
   categories: string[];
   /** `written/total` — how many techniques carry a consult trigger. */
   useWhenCoverage: string | null;
+  /** The bundle's `taxonomy.json`, normalized (see ./taxonomy). `[]` when it has none or it did not parse. */
+  taxonomy: KnowledgeCategory[];
 }
 
 /**
@@ -99,10 +110,15 @@ export interface RegistryBundle {
  * generator owns them; recomputing here would make ascent a second authority for
  * a number it does not produce, and the two would drift the first time either
  * side changed what it counts.
+ *
+ * `taxonomies` is what `readBundleTaxonomies` produced from the sibling `taxonomy.json` files; a
+ * bundle without one mirrors `[]` (and, when the file existed but did not parse, that reader already
+ * warned about it).
  */
 export function readBundles(
   files: { path: string; text: string | null }[],
   warnings: string[],
+  taxonomies: Map<string, KnowledgeCategory[]> = new Map(),
 ): RegistryBundle[] {
   const out: RegistryBundle[] = [];
   for (const { path, text } of files) {
@@ -129,6 +145,7 @@ export function readBundles(
       laws: num(meta.laws),
       categories: Array.isArray(meta.categories) ? meta.categories.filter((c) => typeof c === "string") : [],
       useWhenCoverage: typeof meta.use_when_coverage === "string" ? meta.use_when_coverage : null,
+      taxonomy: taxonomies.get(name) ?? [],
     });
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
@@ -313,7 +330,15 @@ export async function indexRegistry(registry: OrgRegistryRow, source: RegistrySo
   // the subject map. Fetching the same file twice for two shapes of the same document would be a
   // second request per bundle for no new information.
   const bundleFiles = await Promise.all(picked.bundles.map(async (e) => ({ path: e.path, text: await read(e) })));
-  const bundles = readBundles(bundleFiles, warnings);
+  // ── knowledge/<domain>/taxonomy.json — the category tree WITH titles, mirrored beside the counts.
+  // A bundle that has an index but no taxonomy is reported, not failed: the tab falls back to
+  // id-derived titles, which is the same tree with worse labels.
+  const taxonomyFiles = await Promise.all(picked.taxonomies.map(async (e) => ({ path: e.path, text: await read(e) })));
+  const taxonomies = readBundleTaxonomies(taxonomyFiles, warnings);
+  const bundles = readBundles(bundleFiles, warnings, taxonomies);
+  for (const b of bundles) {
+    if (!taxonomies.has(b.name)) warnings.push(`knowledge/${b.name}/taxonomy.json: missing — categories mirrored without titles`);
+  }
   const subjects = readBundleSubjects(bundleFiles, warnings);
 
   // ── signals/<contributor>.json ──
@@ -390,6 +415,22 @@ export async function indexRegistry(registry: OrgRegistryRow, source: RegistrySo
     }
   }
 
+  // ── Knowledge base: chain the fleet's conformance sweep ──────────────────────────────────────
+  // The mirror rows above are committed; what remains is how the FLEET stands against them, which
+  // the sweep reads from each repo's own `.ai/registry-map.json` and foundation files. Chained here,
+  // not in the index route, so every caller that indexes with a real token (route, webhook, scan)
+  // gets a matrix that is never older than the corpus it is judged against. A sweep failure is a
+  // warning on this pass — the index already succeeded, and saying otherwise would hide it.
+  let sweep: SweepResult | undefined;
+  if (source.token) {
+    try {
+      sweep = await sweepConformance({ orgId: registry.orgId }, source.token);
+      for (const w of sweep.warnings) warnings.push(`sweep: ${w}`);
+    } catch (err) {
+      warnings.push(`sweep: the fleet conformance sweep did not run (${err instanceof Error ? err.message : String(err)})`);
+    }
+  }
+
   await recordIndexResult(registry.id, {
     headSha: tree.headSha,
     counts,
@@ -414,5 +455,6 @@ export async function indexRegistry(registry: OrgRegistryRow, source: RegistrySo
     bundles,
     subjects,
     signals,
+    ...(sweep ? { sweep } : {}),
   };
 }

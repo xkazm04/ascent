@@ -67,6 +67,8 @@ const WAVE1_LEDGERS = [
   "registrySignal",
   "registrySignalContribution",
   "orgSkillUsageSample",
+  // Knowledge base rebuild — the dispatch ledger, erased in the same #18 figure.
+  "registryDispatch",
   // MOONSHOT #32 — a ScanDigest is repo-scoped rather than org-scoped, but it rides in this fixture
   // set for the same reason the others do: `eraseRepo` now drains it, and a fake that omits the
   // delegate makes the sweep THROW rather than silently skip.
@@ -2490,6 +2492,9 @@ function fakeWave1ErasePrisma() {
     registrySignal: ["rs_1"],
     registrySignalContribution: ["rsc_1"],
     orgSkillUsageSample: ["us_1"],
+    // Knowledge base rebuild — seeded for the reason every later wave was: the "nothing survives"
+    // assertion sweeps WAVE1_LEDGERS, so an unseeded table would pass while never being erased.
+    registryDispatch: ["rd_1", "rd_2"],
     // MOONSHOT #32 — the repo's compacted tail. A DSR erase must take it too: a stored monthly
     // summary of the erased scans is still that data's shadow.
     scanDigest: ["dg_1", "dg_2"],
@@ -2582,8 +2587,9 @@ describe("eraseOrgData — moonshot wave-1 ledger cascades", () => {
     expect(outcome.skillLessonsDeleted).toBe(2);
     expect(outcome.skillTracesDeleted).toBe(1);
     expect(outcome.memoryProposalsDeleted).toBe(1);
-    // ks(2) + rc(1) + rcm(1) + rs(1) + rsc(1) + us(1) — one figure for six tables written by one pass.
-    expect(outcome.registryLedgerDeleted).toBe(7);
+    // ks(2) + rc(1) + rcm(1) + rs(1) + rsc(1) + us(1) + rd(2) — one figure for the seven tables
+    // written by one pass (and the dispatches it chains; knowledge base rebuild).
+    expect(outcome.registryLedgerDeleted).toBe(9);
 
     // Nothing survives: an erasure that leaves any of these behind is not an erasure.
     for (const name of WAVE1_LEDGERS) expect(ledgers.rows[name]).toEqual([]);
@@ -2633,7 +2639,7 @@ describe("eraseOrgData — moonshot wave-1 ledger cascades", () => {
     expect(preview.dryRun).toBe(true);
     expect(preview.usageEventsDeleted).toBe(2);
     expect(preview.memoryMirrorsDeleted).toBe(3);
-    expect(preview.registryLedgerDeleted).toBe(7);
+    expect(preview.registryLedgerDeleted).toBe(9);
     // The preview must not double-count the mirror: the org path deliberately leaves the per-repo
     // delete out, because in a REAL run the second sweep finds nothing while a preview would count
     // the same rows twice — a quiet inflation that only ever shows up in the number a human reads.

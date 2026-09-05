@@ -1870,6 +1870,14 @@ async function eraseOrgLedgers(
     async (ids) => (await prisma.orgSkillUsageSample.deleteMany({ where: { id: { in: ids } } })).count,
     "erase.skill-usage-samples",
   );
+  // Knowledge base rebuild — the dispatch ledger rides in the same figure: a RegistryDispatch
+  // names the repo, the branch, the PR and the subjects a brief cited, and a local run's receipt.
+  totals.registryLedger += await drain(
+    (take) => prisma.registryDispatch.findMany(page(take)),
+    () => prisma.registryDispatch.count({ where }),
+    async (ids) => (await prisma.registryDispatch.deleteMany({ where: { id: { in: ids } } })).count,
+    "erase.registry-dispatches",
+  );
 
   // ── MOONSHOT WAVE 2 ───────────────────────────────────────────────────────────────────────────
   // #25 — the lane verdict ledger. Tenant data twice over: a LaneItemOutcome names the repo, the
@@ -2089,8 +2097,9 @@ export interface EraseResult {
   /** OrgMemoryProposal rows removed (moonshot #36), org scope only. */
   memoryProposalsDeleted: number;
   /** The registry ledger as ONE figure (moonshot #18/#19): OrgKnowledgeSubject + RepoConformance +
-   *  RepoConformanceMap + RegistrySignal + RegistrySignalContribution + OrgSkillUsageSample. They are
-   *  written by a single index pass and read as one view, so they are reported as one number. */
+   *  RepoConformanceMap + RegistrySignal + RegistrySignalContribution + OrgSkillUsageSample, plus
+   *  RegistryDispatch (knowledge base rebuild). They are written by a single index pass (and the
+   *  sweep / dispatches it chains) and read as one view, so they are reported as one number. */
   registryLedgerDeleted: number;
   /** LaneItemOutcome rows removed (moonshot #25), org scope only. */
   laneOutcomesDeleted: number;

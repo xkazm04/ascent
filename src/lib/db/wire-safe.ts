@@ -72,6 +72,11 @@ import type { CompactedPoint } from "@/lib/db/scan-digest";
 import type { FoundationRolloutRow } from "@/lib/db/org-foundation";
 import type { ConformanceMapRow, ConformanceRow } from "@/lib/db/org-registry-conformance";
 import type { KnowledgeSubjectRow } from "@/lib/db/org-registry-subjects";
+// Knowledge base rebuild — the tab's view and its three fleet row shapes. `KnowledgeRepo.sweptAt`,
+// `KnowledgeView.sweep.lastAt` and every `RegistryDispatchRow` timestamp come off Prisma `DateTime`
+// columns and are declared `string`; the loader (`knowledge-view.ts`) and `org-registry-dispatch.ts`
+// do the `.toISOString()`. All four reach the tab's client components through `KnowledgeView`.
+import type { KnowledgeCell, KnowledgeRepo, KnowledgeView, RegistryDispatchRow } from "@/lib/org/knowledge-shape";
 import type { MemoryCitationRow } from "@/lib/db/org-memory-citations";
 import type { RegistrySignalRow, SignalContributionRow } from "@/lib/db/org-registry-signals";
 import type { MemoryProposalRow } from "@/lib/db/org-registry-proposals";
@@ -199,6 +204,11 @@ export const WIRE_TYPES = {
   ConformanceMapRow: true satisfies WireSafe<ConformanceMapRow>,
   ConformanceRow: true satisfies WireSafe<ConformanceRow>,
   KnowledgeSubjectRow: true satisfies WireSafe<KnowledgeSubjectRow>,
+  // Knowledge base rebuild — the view and its fleet rows (see the import note above).
+  KnowledgeView: true satisfies WireSafe<KnowledgeView>,
+  KnowledgeRepo: true satisfies WireSafe<KnowledgeRepo>,
+  KnowledgeCell: true satisfies WireSafe<KnowledgeCell>,
+  RegistryDispatchRow: true satisfies WireSafe<RegistryDispatchRow>,
   MemoryProposalRow: true satisfies WireSafe<MemoryProposalRow>,
   InterventionOutcomeRow: true satisfies WireSafe<InterventionOutcomeRow>,
   // MOONSHOT #17: a citation is evidence a memory was used; its `createdAt` comes straight off a

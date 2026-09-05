@@ -50,6 +50,8 @@ describe("readBundles", () => {
       laws: 9,
       categories: ["ui-surfaces", "operations"],
       useWhenCoverage: "0/624",
+      // No taxonomy.json was read: mirrored as [] (the tab derives titles), never as absent.
+      taxonomy: [],
     });
   });
 

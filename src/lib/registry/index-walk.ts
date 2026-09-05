@@ -19,11 +19,18 @@ import {
   type RegistryTree,
   type RegistryTreeEntry,
 } from "./read";
+import { isBundleTaxonomy } from "./taxonomy";
 
 /** The two GitHub reads the indexer needs, injectable so tests never touch the network. */
 export interface RegistrySource {
   readTree(branch: string): Promise<RegistryTree>;
   readBlob(entry: RegistryTreeEntry): Promise<string | null>;
+  /**
+   * The installation token the source reads with, when it has one. A successful index pass chains
+   * the fleet's conformance sweep through it (the fleet repos sit under the same installation as
+   * the registry). A source without one — every test fixture — indexes and does not sweep.
+   */
+  token?: string;
 }
 
 /** The default source: the installation-token GitHub read layer in ./read. */
@@ -33,6 +40,7 @@ export function githubSource(token: string, fullName: string): RegistrySource {
   return {
     readTree: (branch) => readRegistryTree(token, ref.owner, ref.repo, branch),
     readBlob: (entry) => readBlob(token, ref.owner, ref.repo, entry.sha),
+    token,
   };
 }
 
@@ -106,6 +114,8 @@ export interface SelectedArtifacts {
   usage: RegistryTreeEntry[];
   /** One generated index per knowledge bundle — see `isBundleIndex`. */
   bundles: RegistryTreeEntry[];
+  /** One `taxonomy.json` per bundle — the category tree with titles. See `isBundleTaxonomy`. */
+  taxonomies: RegistryTreeEntry[];
   /** Contributed corpus signals — see `isSignalsFile`. Empty until someone contributes. */
   signals: RegistryTreeEntry[];
 }
@@ -134,6 +144,7 @@ export function selectArtifacts(tree: RegistryTree, warnings: string[]): Selecte
     memory: take(isMemoryNote, "memory"),
     usage: take(isUsageFile, "usage"),
     bundles: take(isBundleIndex, REGISTRY_KNOWLEDGE_DIR),
+    taxonomies: take(isBundleTaxonomy, `${REGISTRY_KNOWLEDGE_DIR}/taxonomy`),
     signals: take(isSignalsFile, REGISTRY_DIRS.signals),
   };
 }

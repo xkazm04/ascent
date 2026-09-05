@@ -274,6 +274,10 @@ export async function getRegistryView(slug: string): Promise<RegistryView> {
     : [[], [], [], [], []];
   const totals = { skills: counts.skills.hostedOnly, practices: counts.practices.hostedOnly, memory: counts.memory.hostedOnly };
   const fullName = row?.fullName ?? `${slug}/${DEFAULT_REGISTRY_NAME}`;
+  // The sweep writes ONE header row per swept repo, mapped or not (knowledge base rebuild): having a
+  // row means "swept", and only `mapSha !== null` means "has a map". Conflating the two would count
+  // every visited-but-unmapped repo as a mapped one with zero deviations.
+  const mapped = maps.filter((m) => m.mapSha !== null);
 
   return {
     status: row?.status ?? "unmapped",
@@ -301,10 +305,10 @@ export async function getRegistryView(slug: string): Promise<RegistryView> {
     ...(maps.length
       ? {
           conformance: {
-            repos: maps,
+            repos: mapped,
             pairs: pairs.slice(0, CONFORMANCE_PAIR_CAP),
             truncated: pairs.length > CONFORMANCE_PAIR_CAP,
-            reposWithoutMap: Math.max(0, (rollup?.repos?.length ?? 0) - maps.length),
+            reposWithoutMap: Math.max(0, (rollup?.repos?.length ?? 0) - mapped.length),
             subjects: subjects.length,
           },
         }

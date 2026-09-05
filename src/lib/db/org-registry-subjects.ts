@@ -22,6 +22,8 @@ export interface KnowledgeSubjectRow {
   techniqueCount: number;
   useWhen: string[];
   laws: string[];
+  /** `sha256:…` from the index; null when the index pass predates the digest mirror. */
+  digest: string | null;
   indexedAt: string;
 }
 
@@ -51,6 +53,7 @@ export async function listOrgKnowledgeSubjects(orgId: string, bundle?: string): 
     techniqueCount: r.techniqueCount,
     useWhen: parseList(r.useWhenJson),
     laws: parseList(r.lawsJson),
+    digest: r.digest ?? null,
     indexedAt: r.indexedAt.toISOString(),
   }));
 }
@@ -84,6 +87,7 @@ export async function replaceRegistrySubjects(
       techniqueCount: s.techniqueCount,
       useWhenJson: JSON.stringify(s.useWhen),
       lawsJson: JSON.stringify(s.laws),
+      digest: s.digest ? s.digest.slice(0, 200) : null,
       archived: false,
       indexedAt,
     };

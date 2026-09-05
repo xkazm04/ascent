@@ -2242,6 +2242,10 @@ model OrgKnowledgeSubject {
   techniqueCount Int      @default(0)
   useWhenJson    String   @default("[]") // TEXT JSON string[]
   lawsJson       String   @default("[]") // TEXT JSON string[]
+  // The subject's content digest (`sha256:…`) as its index states it. What a repo's map pair was
+  // `evaluatedAgainst` is compared to THIS to call a verdict stale. NULL = the index pass predates
+  // the mirror, which is "unknown", never "current".
+  digest         String?
   archived       Boolean  @default(false)
   indexedAt      DateTime
 
@@ -2250,13 +2254,21 @@ model OrgKnowledgeSubject {
 }
 
 // #18 — the HEADER of one repo's `.ai/registry-map.json`: the counts and provenance of the map, so a
-// reader can tell "judged 3 of 40 pairs" apart from "conformant". One row per repo.
+// reader can tell "judged 3 of 40 pairs" apart from "conformant". ONE ROW PER SWEPT REPO, mapped or
+// not (spark knowledge-base-rebuild): a repo the sweep visited and found without a map gets a header
+// row with `mapSha` NULL and the counts at zero, so "no map" is a stored fact rather than the absence
+// of a row — which is indistinguishable from "never swept". The foundation columns
+// (`hasContextMap`, `hasManifest`, `scopeJson`, `directionsJson`) are what the absence classifier
+// reads for such a repo; they come from `context-map.json`, `.ai/manifest.yaml` and
+// `.ai/directions/ledger.jsonl`, not from the map.
 model RepoConformanceMap {
   id                 String   @id @default(uuid())
   orgId              String
   repositoryId       String
-  mapSha             String
+  // NULL = the sweep found no `.ai/registry-map.json`. Every count below is then 0 and `schema` "".
+  mapSha             String?
   schema             String
+  // For a map-less repo this is the sweep time (there is no map to carry a generatedAt).
   generatedAt        DateTime
   contexts           Int
   pairs              Int
@@ -2269,9 +2281,20 @@ model RepoConformanceMap {
   // row at all), so without this column "3 weakly governed" names nothing a reader can act on.
   weaklyGovernedJson String   @default("[]")
   unmatched          Int
+  // `knowledge.domains` from the repo's manifest when it has one, else the map's own `domains`.
   domainsJson        String   @default("[]") // TEXT JSON
   bundleDigestsJson  String   @default("{}") // TEXT JSON
   consults30d        Int? // NULL = the map carried no consult lane, which is NOT "zero consults"
+  // Foundation presence, probed by the sweep. `hasContextMap` is `context-map.json` at the repo root
+  // (presence only — the body is never read); `hasManifest` is `.ai/manifest.yaml` (or `.yml`).
+  hasContextMap      Boolean  @default(false)
+  hasManifest        Boolean  @default(false)
+  // The manifest's `scope:` block as the fleet map reads it — TEXT JSON
+  // `{ outOfScopeCategories: string[], outOfScopeSubjects: string[] }`; `{}` when there is none.
+  scopeJson          String   @default("{}")
+  // `.ai/directions/ledger.jsonl`, LATEST decision per subject — TEXT JSON
+  // `{ subject, bundle, decision: "accepted" | "declined" | "deferred" }[]`.
+  directionsJson     String   @default("[]")
   warningsJson       String   @default("[]") // TEXT JSON string[]
   ingestedAt         DateTime
 
@@ -2346,6 +2369,49 @@ model RegistrySignalContribution {
   actor         String
   createdAt     DateTime @default(now())
 
+  @@index([orgId, createdAt])
+}
+
+// Knowledge base (spark knowledge-base-rebuild) — one HAND-OFF of registry work for a fleet repo:
+// a populate (write `context-map.json`), map (build `.ai/registry-map.json`) or conform (judge the
+// named subjects) brief composed by ascent and either handed to an operator (`mode: brief`) or run
+// by the local agent on a self-hosted deployment (`mode: local`). Ascent WRITES this ledger; the
+// registry, the repo and its map are never written by it — a dispatch produces a branch and a PR,
+// and only a later sweep can move it to `done` by observing the map change.
+//
+// `status` is a closed vocabulary (`RegistryDispatchStatus` in src/lib/org/knowledge-shape.ts):
+//   handed_off · running · proposed · done · failed · superseded
+// `stage` is `populate | map | conform`, `mode` is `brief | local`. `subjectsJson` names the
+// subjects a conform brief cites (TEXT JSON string[]; `[]` for populate / map). `mapShaBefore` is
+// the map's blob sha at dispatch time and `mapShaAfter` the sha the closing sweep saw — the pair is
+// the evidence a dispatch actually changed something. The cost columns are the local run's own
+// receipt (`costMicros` in micro-dollars) and stay NULL for a brief nothing ran.
+model RegistryDispatch {
+  id              String    @id @default(uuid())
+  orgId           String
+  repositoryId    String
+  registryId      String
+  stage           String
+  mode            String
+  status          String
+  subjectsJson    String    @default("[]") // TEXT JSON string[]
+  briefDigest     String
+  actor           String
+  branch          String?
+  prUrl           String?
+  mapShaBefore    String?
+  mapShaAfter     String?
+  model           String?
+  costMicros      Int?
+  turns           Int?
+  agentDurationMs Int?
+  summary         String?
+  error           String?
+  createdAt       DateTime  @default(now())
+  startedAt       DateTime?
+  endedAt         DateTime?
+
+  @@index([orgId, repositoryId])
   @@index([orgId, createdAt])
 }
 
