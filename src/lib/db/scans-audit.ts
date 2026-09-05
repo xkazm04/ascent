@@ -65,6 +65,40 @@ export async function recordOrgAudit(
   return recordAudit(action, meta, { orgId, actorId });
 }
 
+/**
+ * The action a RELEASE writes. It is a real audit row, not a tombstone column: the ledger is
+ * append-only, so "this claim was cancelled because the guarded side effect failed" has to be
+ * expressed as its own record pointing back at the claim.
+ */
+export const AUDIT_CLAIM_RELEASED_ACTION = "claim.released";
+
+/** Meta key on a `claim.released` row holding the id of the AuditLog claim it cancels. */
+export const RELEASED_CLAIM_ID_KEY = "releasedClaimId";
+
+/**
+ * The ids of claims cancelled by a `claim.released` row in this org at/after `since`. AuditLog.meta is a
+ * JSON *string* column, so the reference can't be filtered in SQL portably — the release rows for one
+ * org-window are a handful at most (one per failed dispatch), so they're read and parsed here.
+ * `at >= since` is safe: a release is always written after the claim it cancels, and the claim itself
+ * is in-window by construction.
+ */
+async function releasedClaimIds(
+  tx: Prisma.TransactionClient,
+  orgId: string,
+  since: Date,
+): Promise<Set<string>> {
+  const rows = await tx.auditLog.findMany({
+    where: { action: AUDIT_CLAIM_RELEASED_ACTION, orgId, at: { gte: since } },
+    select: { meta: true },
+  });
+  const ids = new Set<string>();
+  for (const r of rows) {
+    const ref = parseMeta(r.meta)[RELEASED_CLAIM_ID_KEY];
+    if (typeof ref === "string") ids.add(ref);
+  }
+  return ids;
+}
+
 /** The outcome of an atomic once-per-window audit claim (see {@link claimOrgAuditOnce}). */
 export interface AuditClaim {
   /** True when THIS caller inserted the marker (won the window). False when one already existed — a
@@ -81,7 +115,8 @@ export interface AuditClaim {
  * overlapping runs (a platform retry, a re-fired schedule) both read "not sent", both dispatched, and an
  * org received the SAME weekly digest twice; a crash between the send and the stamp did the same on the
  * next run. This collapses the read+write into ONE conditional insert whose affected-row count decides
- * the winner: insert the marker only when no entry for (action, orgId) exists at/after `since`. The
+ * the winner: insert the marker only when no LIVE entry for (action, orgId) exists at/after `since` — a
+ * marker cancelled by a `claim.released` row (see {@link releaseAuditClaim}) is not live. The
  * find-then-create runs inside a transaction wrapped in withRetry, so on Aurora DSQL two racing claims
  * conflict on their overlapping read/write sets and the loser re-runs, sees the winner's marker, and
  * returns claimed:false (rather than both inserting). Fails CLOSED (claimed:false) when persistence is
@@ -103,10 +138,24 @@ export async function claimOrgAuditOnce(
     return await withRetry(
       () =>
         prisma.$transaction(async (tx) => {
-          const existing = await tx.auditLog.findFirst({
+          // Read the window's markers and the release rows that CANCEL them, then insert — the same
+          // read-then-conditional-create ordering the delete-based version had, only with a wider read.
+          //
+          // THE RACE WINDOW, honestly: nothing in the schema enforces at-most-once (no unique index on
+          // (action, orgId, window) — that shape isn't expressible against an open-ended `at >= since`).
+          // The guarantee is the ENGINE's: both statements run in ONE transaction, so on an
+          // optimistic-concurrency store (Aurora DSQL) two racing claims have overlapping read/write
+          // sets, one commit is rejected, and withRetry re-runs the loser, which now SEES the winner's
+          // marker and returns claimed:false. Under a snapshot/read-committed engine with no such
+          // conflict detection, two transactions can both read "no live marker" and both insert; that
+          // was equally true before this change. Widening the read (findMany + release rows) can only
+          // make the read set larger, so conflict detection is at least as strong as it was.
+          const markers = await tx.auditLog.findMany({
             where: { action, orgId, at: { gte: since } },
             select: { id: true },
           });
+          const released = markers.length ? await releasedClaimIds(tx, orgId, since) : new Set<string>();
+          const existing = markers.find((m) => !released.has(m.id)) ?? null;
           if (existing) return { claimed: false, id: null };
           const at = new Date();
           const signedMeta = withAuditSignature({ action, orgId, actorId: actorId ?? null, createdAt: at.toISOString(), meta });
@@ -130,13 +179,51 @@ export async function claimOrgAuditOnce(
 
 /**
  * Release a claim from {@link claimOrgAuditOnce} when the guarded side effect FAILED, so the window is
- * not left falsely marked "done" and the next run retries it. Best-effort: a lost release at worst drops
- * one window's side effect (recovered next window), never spams. No-op for a null id / DB-less.
+ * not left falsely marked "done" and the next run retries it.
+ *
+ * This used to `auditLog.delete` the marker — the only delete on AuditLog outside retention purging, and
+ * one that left NO trace: a successful release erased the fact that a dispatch had ever been attempted
+ * and failed. An audit module exposes insert and read only; a correction is a NEW record referencing the
+ * old one. So a release now APPENDS a signed `claim.released` row whose meta names the claim it cancels,
+ * and {@link claimOrgAuditOnce} treats a claim with such a marker as not-live — the next window retries
+ * exactly as it did before, and the trail keeps both halves of the story.
+ *
+ * Best-effort: a lost release at worst drops one window's side effect (recovered next window), never
+ * spams. No-op for a null id / DB-less, and for an id that no longer resolves to a row.
  */
 export async function releaseAuditClaim(id: string | null): Promise<void> {
   if (!id || !isDbConfigured()) return;
   try {
-    await getPrisma().auditLog.delete({ where: { id } });
+    const prisma = getPrisma();
+    // The release row inherits the claim's org and actor so it lands in the SAME tenant trail the claim
+    // did (an examiner filtering one org sees the cancellation next to the claim, not in a void).
+    const claim = await prisma.auditLog.findUnique({
+      where: { id },
+      select: { id: true, action: true, orgId: true, actorId: true, at: true },
+    });
+    if (!claim) return;
+    const at = new Date();
+    const meta: Record<string, unknown> = {
+      [RELEASED_CLAIM_ID_KEY]: claim.id,
+      releasedAction: claim.action,
+      releasedClaimAt: claim.at.toISOString(),
+    };
+    const signedMeta = withAuditSignature({
+      action: AUDIT_CLAIM_RELEASED_ACTION,
+      orgId: claim.orgId,
+      actorId: claim.actorId,
+      createdAt: at.toISOString(),
+      meta,
+    });
+    await prisma.auditLog.create({
+      data: {
+        action: AUDIT_CLAIM_RELEASED_ACTION,
+        meta: JSON.stringify(signedMeta),
+        orgId: claim.orgId,
+        actorId: claim.actorId,
+        at,
+      },
+    });
   } catch (err) {
     console.error("[db] releaseAuditClaim failed", { id, error: err instanceof Error ? err.message : String(err) });
   }

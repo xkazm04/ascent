@@ -126,6 +126,11 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   { value: "controls.verify", label: "Ledger integrity verified", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
   { value: "data.erased", label: "Data erased", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
   { value: "retention.purged", label: "Retention purge", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
+  // The ledger's own correction record: a once-per-window claim (a digest send, an Athena cycle) whose
+  // guarded side effect FAILED is cancelled by appending this row rather than by deleting the claim, so
+  // the trail keeps both the attempt and its withdrawal. Slate: nothing happened to the org — the point
+  // of the row is that the intended act did NOT take effect and the next window will retry it.
+  { value: "claim.released", label: "Claim released", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
 ];
 
 export const ACTION_META: Record<string, { label: string; cls: string }> = Object.fromEntries(
