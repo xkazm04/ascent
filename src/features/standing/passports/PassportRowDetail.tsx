@@ -76,6 +76,7 @@ export function PassportRowDetail({
         <BlockerList
           title="Automation blockers"
           items={d.autoBlockers}
+          findings={d.autoFindings}
           allClear="No automation blockers. Agents can work here."
           org={org}
           fullName={fullName}
@@ -84,6 +85,7 @@ export function PassportRowDetail({
         <BlockerList
           title="Production blockers"
           items={d.prodBlockers}
+          findings={d.prodFindings}
           allClear="No production blockers on record."
           org={org}
           fullName={fullName}

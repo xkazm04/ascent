@@ -21,7 +21,19 @@ function Rung({ label, value, tone }: { label: string; value: string; tone?: "wa
   );
 }
 
-export function PassportCard({ passport: pp, repo, canEdit = false }: { passport: AppPassport; repo: string; canEdit?: boolean }) {
+export function PassportCard({
+  passport: pp,
+  repo,
+  canEdit = false,
+  canFilePr = canEdit,
+}: {
+  passport: AppPassport;
+  repo: string;
+  /** Owner: may set overrides and declines. */
+  canEdit?: boolean;
+  /** Admin or owner: may open the .ai/passport.json PR (the PR route accepts admins). */
+  canFilePr?: boolean;
+}) {
   const auto = pp.automationReadiness;
   const prod = pp.productionReadiness;
   const chips = passportStackChips(pp);
@@ -141,9 +153,22 @@ export function PassportCard({ passport: pp, repo, canEdit = false }: { passport
             criticality={pp.identity.criticality}
             lifecycle={pp.identity.lifecycle}
             rollback={pp.productionReadiness.delivery.rollback}
+            canFilePr={canFilePr}
           />
           <PassportDeclineControl repo={repo} passport={pp} />
         </>
+      )}
+      {!canEdit && canFilePr && (
+        // An admin who is not an owner: the PR route accepts them, the overrides route does not, so
+        // only the PR affordance renders (the form would 403).
+        <PassportOwnerControls
+          repo={repo}
+          criticality={pp.identity.criticality}
+          lifecycle={pp.identity.lifecycle}
+          rollback={pp.productionReadiness.delivery.rollback}
+          canFilePr
+          prOnly
+        />
       )}
     </Card>
   );

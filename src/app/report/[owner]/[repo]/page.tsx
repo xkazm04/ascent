@@ -143,6 +143,10 @@ async function ReportPermalinkBody({
   ]);
   // Owner-only passport controls (P4): editable only for a non-public org-owned repo by an owner.
   const canEditPassport = Boolean(passport) && orgSlug !== PUBLIC_ORG && (await hasOrgRole(orgSlug, "owner").catch(() => false));
+  // The .ai/passport.json PR route accepts ADMINS (unlike the owner-only overrides), so its button is
+  // gated separately: an admin who is not an owner gets the PR affordance and not the override form.
+  const canFilePassportPr =
+    canEditPassport || (Boolean(passport) && orgSlug !== PUBLIC_ORG && (await hasOrgRole(orgSlug, "admin").catch(() => false)));
   // The .ai/ foundation install-PR button: any org MEMBER of a non-public repo (mirrors the route's
   // requireOrgAccess — member-level, unlike the owner-only passport controls). UX courtesy only; the
   // route re-checks access and the App installation before writing anything.
@@ -166,7 +170,7 @@ async function ReportPermalinkBody({
       />
       {passport && (
         <div className="mt-8 animate-fade-up" style={{ animationDelay: "120ms" }}>
-          <PassportCard passport={passport} repo={repoRef} canEdit={canEditPassport} />
+          <PassportCard passport={passport} repo={repoRef} canEdit={canEditPassport} canFilePr={canFilePassportPr} />
         </div>
       )}
       {skillHistory.length > 0 && (
