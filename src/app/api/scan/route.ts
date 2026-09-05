@@ -22,13 +22,12 @@ import {
 } from "@/lib/scan-cache";
 import { isScopedScan, scopeWarning } from "@/lib/scan-scope";
 import { resolveScanScope, UNSCOPED, type ResolvedScanScope } from "@/lib/scan-scope-server";
-import { consumeScanCredit, CREDIT_REASON, getScanReportByCommit, grantCredits, recordQuotaEvent } from "@/lib/db";
+import { getScanReportByCommit, recordQuotaEvent } from "@/lib/db";
 import { rateLimitRequest, tooManyRequests, PEEK_RATE_LIMIT } from "@/lib/rate-limit";
-import { scanAuthGate, scanRateLimitGate } from "@/lib/scan-gates";
+import { scanAuthGate, scanCreditGate, scanRateLimitGate } from "@/lib/scan-gates";
 import type { QuotaScope } from "@/lib/public-scan-quota";
 import { cacheAndPersistScan, classifyScanResult, consumeScanQuota } from "@/lib/scan-finalize";
-import { checkScanEntitlement, isMeteredScan, paymentRequired } from "@/lib/entitlement";
-import { maybeAlertLowCredits } from "@/lib/scan-alerts";
+import { paymentRequired } from "@/lib/entitlement";
 import { authGateEnabled, getViewer } from "@/lib/access";
 
 export const runtime = "nodejs";
@@ -311,42 +310,16 @@ async function runScan(
     refundQuota = quota.refund;
   }
 
-  // Entitlement gate: a private (installation-token) scan draws on the org's prepaid credits. Public
-  // and mock scans are free and skip this.
-  const metered = isMeteredScan(orgSlug, opts.mock);
-  let creditsRemaining: number | null = null;
-  let creditReserved = false;
-  if (metered) {
-    const ent = await checkScanEntitlement(orgSlug);
-    if (!ent.allowed) return paymentRequired(ent.balance);
-    if (!ent.unlimited) {
-      // RESERVE one credit BEFORE running paid inference (mirrors /api/org/scan and /api/cron/rescan).
-      // checkScanEntitlement is a point-in-time read two concurrent scans both pass, so the old
-      // "scan first, debit after" ordering let the loser run real LLM inference and then fail to debit
-      // — a paid scan served free (the `unbilled` branch). consumeScanCredit's atomic conditional
-      // decrement makes the reservation the real gate; refunded below on degrade-to-mock / dedup / throw.
-      const res = await consumeScanCredit(orgSlug, {
-        repoFullName: parsed ? repoIdentity : undefined,
-      }).catch(() => null);
-      if (!res || (!res.unlimited && !res.ok)) return paymentRequired(res?.balance ?? ent.balance);
-      // `charged` is true ONLY on an overflow credit debit — within-allowance scans are free and must
-      // NOT be refunded later (that would mint a credit), so the reservation flag tracks charged, not ok.
-      creditReserved = res.charged;
-      creditsRemaining = res.balance;
-      // The `charged` path debited exactly one credit, so the pre-debit balance is balance + 1 —
-      // the range-based crossing predicate needs both sides of the debit.
-      if (creditReserved) await maybeAlertLowCredits(orgSlug, res.balance + 1, res.balance);
-    }
-  }
-  // Refund the reservation when nothing billable was produced (degrade-to-mock / dedup / throw). Updates
-  // the post-refund balance so the response header stays accurate. Idempotent via the `creditReserved` flag.
-  const refundCredit = async () => {
-    if (creditReserved) {
-      creditReserved = false;
-      const bal = await grantCredits(orgSlug, 1, { reason: CREDIT_REASON.REFUND, actor: "system" }).catch(() => null);
-      if (typeof bal === "number") creditsRemaining = bal;
-    }
-  };
+  // Entitlement gate + credit RESERVATION: a private (installation-token) scan draws on the org's
+  // prepaid credits. Public and mock scans are free and skip it. Shared with /api/scan/stream via
+  // scanCreditGate — this block used to live inline HERE ONLY, which is how the stream route (the one
+  // the report UI actually drives) came to run paid inference with no meter at all. The reserve is
+  // sequenced LAST, after the quota consume above, on both routes; see scan-gates.ts for why.
+  const credit = await scanCreditGate(orgSlug, { mock: opts.mock, repoFullName: repoIdentity });
+  if (!credit.ok) return paymentRequired(credit.balance);
+  // Refund the reservation when nothing billable was produced (degrade-to-mock / dedup / throw). It
+  // updates its own `remaining`, so the response header below stays accurate, and it is idempotent.
+  const hold = credit.hold;
 
   // Individual tier (decision 5): a signed-in viewer's public-funnel scan reads THEIR personal-org
   // standing decisions into the prompt; org/private scans (orgSlug !== "public") keep org scoping.
@@ -392,7 +365,7 @@ async function runScan(
     // abort. Refund both the monthly slot AND any reserved credit before handleError maps the failure:
     // a typo or a mid-scan refresh must not burn a free slot or a prepaid credit.
     await refundQuota();
-    await refundCredit();
+    await hold.refund();
     // Error fallback: when a live scan FAILS (transient upstream/LLM/rate-limit) but we've scored this
     // repo before, serve the most recent persisted report instead of a hard error — the same any-commit
     // salvage the quota wall uses (peek&latest). Anonymous public, parseable repos only (token scans are
@@ -437,7 +410,7 @@ async function runScan(
   // run is free"). The quota headers below may overstate usage by this one refunded slot (soft gate).
   if (degradedToMock) {
     await refundQuota();
-    await refundCredit();
+    await hold.refund();
   }
   // Cache + persist behind the shared guards: skip BOTH the in-memory cache and the durable store on a
   // degraded/low-coverage report (lookupCachedScan's DB tier would otherwise re-serve the floor cross-
@@ -458,7 +431,7 @@ async function runScan(
   // The credit was RESERVED before inference (above). Refund it when this commit was already scored
   // (`deduped` — no new scored row), mirroring /api/org/scan and cron rescan ("a dedup run is free").
   // degrade-to-mock and throw already refunded above. A real, newly-scored metered scan keeps its charge.
-  if (deduped) await refundCredit();
+  if (deduped) await hold.refund();
 
   // x-ascent-dedup: "hit" means this commit was already scored, so no new row was written and the
   // reserved credit was refunded (the report reflects the existing snapshot).
@@ -469,7 +442,7 @@ async function runScan(
     "x-ascent-dedup": deduped ? "hit" : "miss",
   };
   if (!persistedOk) headers["x-ascent-persisted"] = "false";
-  if (creditsRemaining !== null) headers["x-ascent-credits-remaining"] = String(creditsRemaining);
+  if (hold.remaining !== null) headers["x-ascent-credits-remaining"] = String(hold.remaining);
   // Free public scans left in this bucket's rolling 30-day window (after this scan), so the UI can
   // warn before the gate trips. Only present when the monthly gate actually enforced (public funnel).
   if (quotaRemaining !== null) headers["x-ascent-quota-remaining"] = String(quotaRemaining);

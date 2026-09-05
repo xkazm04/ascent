@@ -22,6 +22,14 @@ export interface ScanCreditReservation {
    * Pass this to `refundScanCredit` to decide whether a refund is owed.
    */
   reserved: boolean;
+  /**
+   * The org's prepaid balance as the reservation left it — post-debit on the `reserved` path, the
+   * current balance otherwise; `null` only when the underlying consume threw. Present so a caller that
+   * must REPORT the balance (a route surfacing `x-ascent-credits-remaining`, or a 402 body that has to
+   * name the balance a concurrent scan just moved) does not have to re-read it and get a second,
+   * different answer. Batch callers ignore it, exactly as before.
+   */
+  balance: number | null;
 }
 
 /**
@@ -39,22 +47,27 @@ export async function reserveScanCredit(
 ): Promise<ScanCreditReservation> {
   const res = await consumeScanCredit(orgSlug, { repoFullName }).catch(() => null);
   if (!res || (!res.unlimited && !res.ok)) {
-    return { skip: true, reserved: false };
+    return { skip: true, reserved: false, balance: res?.balance ?? null };
   }
   const reserved = res.charged; // true only on an overflow credit debit (within-allowance is free)
   // Proactive lifecycle push when this debit CROSSED the low-water mark (or depletion). The debit
   // site knows its own size: consumeScanCredit charges exactly one credit on the `charged` path, so
   // the pre-debit balance is balance + 1 — stated here, next to the debit, not assumed downstream.
   if (reserved) await maybeAlertLowCredits(orgSlug, res.balance + 1, res.balance);
-  return { skip: false, reserved };
+  return { skip: false, reserved, balance: res.balance };
 }
 
 /**
  * Refund a reservation when nothing billable was produced (degrade-to-mock / dedup / throw). No-op
  * unless an overflow credit was actually charged (`reserved`). Best-effort: a failed grant is swallowed.
+ *
+ * Returns the POST-refund balance, or `null` when nothing was refunded / the grant failed — so a route
+ * that already reported `x-ascent-credits-remaining` can correct it without a second read. Every
+ * existing caller ignores the value (a widened return is invisible to `await refundScanCredit(...)`).
  */
-export async function refundScanCredit(orgSlug: string, reserved: boolean): Promise<void> {
-  if (reserved) await grantCredits(orgSlug, 1, { reason: CREDIT_REASON.REFUND, actor: "system" }).catch(() => {});
+export async function refundScanCredit(orgSlug: string, reserved: boolean): Promise<number | null> {
+  if (!reserved) return null;
+  return await grantCredits(orgSlug, 1, { reason: CREDIT_REASON.REFUND, actor: "system" }).catch(() => null);
 }
 
 /**
