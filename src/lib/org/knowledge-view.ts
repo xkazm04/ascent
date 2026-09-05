@@ -52,11 +52,24 @@ function parseCoverage(raw: string | null, techniques: number): { written: numbe
 export async function getKnowledgeView(slug: string): Promise<KnowledgeView> {
   const registry = await getRegistryView(slug);
 
+  // STUB (spark knowledge-base-rebuild, WP1 fills these): the fleet half of the view is empty until
+  // the loader reads `OrgKnowledgeSubject`, `RepoConformance*`, `RegistrySignal` and
+  // `RegistryDispatch`. The shape is final; the bodies are not.
+  const fleet: Pick<KnowledgeView, "subjects" | "repos" | "cells" | "signals" | "dispatches" | "sweep" | "capabilities"> = {
+    subjects: [],
+    repos: [],
+    cells: [],
+    signals: [],
+    dispatches: [],
+    sweep: { lastAt: null, warnings: [], truncated: false },
+    capabilities: { canSweep: false, canBrief: false, canRunLocal: false },
+  };
+
   const empty: KnowledgeView = {
     status: "unmapped",
     domains: [],
     totals: { domains: 0, subjects: 0, techniques: 0, applications: 0 },
-    provisional: false,
+    ...fleet,
   };
 
   if (registry.status === "unmapped" || !registry.registry) return empty;
@@ -85,6 +98,7 @@ export async function getKnowledgeView(slug: string): Promise<KnowledgeView> {
       laws: b.laws,
       categories: b.categories,
       useWhenCoverage: parseCoverage(b.useWhenCoverage, b.techniques),
+      taxonomy: [],
     })),
   );
 
@@ -102,7 +116,6 @@ export async function getKnowledgeView(slug: string): Promise<KnowledgeView> {
       techniques: domains.reduce((n, d) => n + d.techniques, 0),
       applications: domains.reduce((n, d) => n + d.applications, 0),
     },
-    // Indexed truth once a pass has read the lane; an empty lane is not a preview.
-    provisional: false,
+    ...fleet,
   };
 }
