@@ -37,6 +37,7 @@ import {
   isRepoWatched,
   listWatchedRepos,
   persistScanReport,
+  recordScanOutcome,
   reconcileWatchedRepos,
   removeInstallation,
   resumeInstallation,
@@ -568,6 +569,14 @@ async function runPushRescan(installationId: number, owner: string, repo: string
           // GitHub redelivery would find it exhausted too (releasing would turn an empty wallet into a
           // retry storm). Same "coalesce, don't queue" reasoning as the throttle — the repo is covered
           // by the next push after a top-up, or by its scheduled autoscan.
+          //
+          // A DURABLE trace, not just a log line. This is the one skip an OWNER has to be able to act
+          // on — nobody is watching the response (it was sent before after() ran) and the fix is to buy
+          // credits — so it writes the same Repository.lastScanStatus/lastScanError the queue worker
+          // writes for its own skips (scan-queue-worker.ts). The Repositories tab already renders that
+          // pair, so a watched repo going stale says WHY on the dashboard instead of only in the logs.
+          // Best-effort, exactly as everywhere else: a bookkeeping write must not decide the skip.
+          await recordScanOutcome(orgSlug, fullName, { ok: false, error: "insufficient credits" }).catch(() => {});
           console.warn(
             `[webhook] push rescan for ${fullName} skipped: insufficient_credits (balance ${reservation.balance ?? "unknown"})`,
           );

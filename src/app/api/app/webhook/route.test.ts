@@ -41,6 +41,7 @@ vi.mock("@/lib/db", () => ({
   isRepoWatched: vi.fn(),
   listWatchedRepos: vi.fn(async () => []),
   persistScanReport: vi.fn(),
+  recordScanOutcome: vi.fn(async () => {}),
   reconcileWatchedRepos: vi.fn(async () => 0),
   removeInstallation: vi.fn(),
   suspendInstallation: vi.fn(),
@@ -98,6 +99,7 @@ import {
   isRepoWatched,
   listWatchedRepos,
   persistScanReport,
+  recordScanOutcome,
   reconcileWatchedRepos,
   releaseWebhookDelivery,
   removeInstallation,
@@ -152,6 +154,7 @@ const mockListWatched = vi.mocked(listWatchedRepos);
 const mockReserve = vi.mocked(reserveScanCredit);
 const mockRefund = vi.mocked(refundScanCredit);
 const mockIsMetered = vi.mocked(isMeteredScan);
+const mockRecordOutcome = vi.mocked(recordScanOutcome);
 
 /** Run the work the route deferred via after() — the test stands in for the post-response phase. */
 async function runDeferred(): Promise<void> {
@@ -1349,6 +1352,12 @@ describe("POST /api/app/webhook — push rescan credit metering", () => {
     const warned = vi.mocked(console.warn).mock.calls.map((c) => String(c[0])).join("\n");
     expect(warned).toContain("insufficient_credits");
     expect(warned).toContain("acme/paid-repo");
+    // DURABLE trace, not just the log line: the owner sees WHY the watched repo went stale on the
+    // Repositories tab (Repository.lastScanStatus/lastScanError), without reading server logs.
+    expect(mockRecordOutcome).toHaveBeenCalledWith("acme", "acme/paid-repo", {
+      ok: false,
+      error: "insufficient credits",
+    });
     // Nothing was reserved, so nothing may be refunded — a refund here would MINT a credit.
     expect(mockRefund).not.toHaveBeenCalled();
     // And the delivery stays claimed: an empty wallet is not a transient failure, and releasing it
@@ -1398,6 +1407,10 @@ describe("POST /api/app/webhook — push rescan credit metering", () => {
 
     expect(mockPersist).toHaveBeenCalledTimes(1);
     expect(mockRefund).not.toHaveBeenCalled();
+    // The outcome row is written ONLY on the credits skip: a normal rescan must not start stamping
+    // scan status on the repo, or the throttle/dedup paths would begin reporting outcomes they never
+    // reported before.
+    expect(mockRecordOutcome).not.toHaveBeenCalled();
   });
 
   it("does NOT reserve on a deployment where the scan is not metered (self-hosted / no DB / public)", async () => {
