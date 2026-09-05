@@ -19,6 +19,10 @@ import { isDeclinablePath, parseDeclined, type DeclineEntry, type PassportOverri
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/** Today as YYYY-MM-DD. The overlay is a PURE module with no clock, so the day a decision was made is
+ *  supplied by this write path — the only place that legitimately knows it. */
+const today = (): string => new Date().toISOString().slice(0, 10);
+
 function parseRepo(q: string): { owner: string; name: string } | null {
   const slash = q.indexOf("/");
   if (slash <= 0 || slash === q.length - 1 || q.indexOf("/", slash + 1) >= 0) return null;
@@ -48,10 +52,18 @@ export async function POST(request: Request) {
     criticality?: PassportOverrides["criticality"];
     lifecycle?: PassportOverrides["lifecycle"];
     rollback?: boolean;
+    by?: unknown;
     declined?: Record<string, { reason?: string; at?: string }>;
   };
   const ctx = await gate(request, body);
   if (ctx instanceof Response) return ctx;
+
+  // AUTHORSHIP IS SERVER-SIDE. `by` is the identity attached to a decision (the score-moving rollback
+  // assertion, and each decline); accepting it from the client would let an owner file a decision under
+  // someone else's name. A body that carries one is a 400, not a silently-ignored field.
+  if (body.by !== undefined) {
+    return NextResponse.json({ error: "`by` is recorded from the session, not the request body." }, { status: 400 });
+  }
 
   // Validate the declined map against the allow-list BEFORE writing: an unknown field path is a client
   // bug, not something to silently drop, so it is a 400 rather than a partial write.
@@ -64,17 +76,22 @@ export async function POST(request: Request) {
   }
 
   const declined = parseDeclined(body.declined);
+  // resolveViewerLogin: the dormant custom-OAuth session is null under the ACTIVE Supabase wall,
+  // so this audit row recorded a null actor in production. Resolved BEFORE the write now: the same
+  // login is stamped onto the overrides blob as its author, not only onto the audit row — an
+  // owner-lifted production score whose author lives solely in the audit log reads, on the passport
+  // itself, exactly like a measured one.
+  const actorLogin = await resolveViewerLogin();
   const ok = await setPassportOverrides(ctx.orgSlug, ctx.fullName, {
     criticality: body.criticality,
     lifecycle: body.lifecycle,
     rollback: body.rollback,
+    ...(actorLogin ? { by: actorLogin } : {}),
+    at: today(),
     ...(declined ? { declined } : {}),
   });
   if (!ok) return NextResponse.json({ error: "Unknown repository (scan it first)." }, { status: 404 });
 
-  // resolveViewerLogin: the dormant custom-OAuth session is null under the ACTIVE Supabase wall,
-  // so this audit row recorded a null actor in production.
-  const actorLogin = await resolveViewerLogin();
   await recordOrgAudit(
     "passport.overrides_set",
     ctx.orgSlug,

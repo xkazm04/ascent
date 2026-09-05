@@ -343,6 +343,27 @@ export interface DeclinedByChoice {
   reconfirmReason?: string;
 }
 
+/** 0.4.0 - PROVENANCE for a score an OWNER moved. `rollback` is an owner-asserted fact a scan cannot
+ *  observe, and asserting it re-derives productionReadiness.score/band - worth up to +15 weighted
+ *  points. Without this block the exported passport, the hero and the CSV showed an owner-lifted score
+ *  in exactly the same form as a measured one, while the decline path in the same overlay is explicit
+ *  that a decline never moves a score. The override's EFFECT stands (the owner knows something the scan
+ *  doesn't); what changes is that it is now visible, with the measured figure readable beside it. */
+export interface ScoreOverride {
+  /** Which owner-asserted field moved the score. Only `rollback` today. */
+  reason: "rollback";
+  /** score - measuredScore. Signed: an owner who corrects a false positive moves it DOWN. */
+  delta: number;
+  /** The scan-derived score/band before the override - the honest measurement, kept readable. */
+  measuredScore: number;
+  measuredBand: ProductionBand;
+  /** The login that set the override, and the day (YYYY-MM-DD) they set it. Both recorded server-side
+   *  from the session; absent on overrides stored before this field existed - which reads as UNKNOWN
+   *  AUTHOR, never a fabricated one. */
+  by?: string;
+  at?: string;
+}
+
 export interface AppPassport {
   passport: "app-passport";
   passportVersion: string;
@@ -425,6 +446,9 @@ export interface AppPassport {
     blockers: string[];
     /** 0.4.0: the same blockers WITH minted ids — see PassportFinding. */
     findings?: PassportFinding[];
+    /** Set by the read-time override overlay when an owner assertion MOVED this score. Absent means
+     *  the score is purely measured. */
+    overridden?: ScoreOverride;
   };
   links: { report?: string; contextMap?: string; manifest?: string };
   /** `confidence` is the WHOLE-ARTIFACT figure (how much of the app could be inspected at all).

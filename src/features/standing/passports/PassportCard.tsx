@@ -4,6 +4,7 @@
 // replacement: the report explains the maturity score; the passport names the stack + the prod posture.
 
 import { Card, Meter, SectionHeader } from "@/components/org/shared/ui";
+import { PassportOverridePin } from "@/components/report/PassportOverridePin";
 import { PassportOwnerControls } from "@/features/standing/passports/PassportOwnerControls";
 import { bandColor, bandLabel, passportStackChips } from "@/lib/org/passport-display";
 import { scoreHex } from "@/lib/ui";
@@ -64,6 +65,7 @@ export function PassportCard({ passport: pp, repo, canEdit = false }: { passport
             <span className="type-mono-sm text-slate-500">/100 · trusted in prod</span>
           </div>
           <Meter className="mt-2" size="sm" value={prod.score} color={bandColor(prod.band)} />
+          {prod.overridden ? <PassportOverridePin overridden={prod.overridden} className="mt-2" /> : null}
           <div className="mt-3 space-y-0">
             <Rung label="CI" value={prod.ci.level} tone={prod.ci.level === "gated" || prod.ci.level === "delivery" || prod.ci.level === "progressive" ? "ok" : "warn"} />
             <Rung label="Tests" value={prod.tests.level} tone={prod.tests.criticalPathCovered ? "ok" : "warn"} />

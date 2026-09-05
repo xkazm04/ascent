@@ -64,6 +64,12 @@ export interface PassportOverrides {
   criticality?: Criticality;
   lifecycle?: Lifecycle;
   rollback?: boolean;
+  /** Who last wrote this blob and on what day (YYYY-MM-DD) — recorded server-side from the session by
+   *  the overrides route, never accepted from the client. They exist so a score an OWNER moved can be
+   *  ATTRIBUTED (see ScoreOverride): an unattributed lift is indistinguishable from a measurement.
+   *  Absent on blobs written before this field, which reads as unknown author, never a fabricated one. */
+  by?: string;
+  at?: string;
   /** Declines keyed by an allowed dotted passport field path (see DECLINABLE_PATHS). */
   declined?: Record<string, DeclineEntry>;
 }
@@ -116,6 +122,9 @@ export const isDeclinablePath = (path: string): boolean => Object.hasOwn(DECLINA
 
 const MAX_REASON = 280;
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+/** A GitHub login, the only author identity this module ever stores. Anything else is dropped rather
+ *  than trusted: the author of a decision is written server-side from the session. */
+const LOGIN = /^[A-Za-z\d](?:[A-Za-z\d]|-(?=[A-Za-z\d])){0,38}$/;
 
 // ── the overlay ───────────────────────────────────────────────────────────────────────────────────
 
@@ -241,10 +250,26 @@ export function applyPassportOverrides(pp: AppPassport, ov: PassportOverrides | 
   if (ov.criticality) next.identity.criticality = ov.criticality;
   if (ov.lifecycle) next.identity.lifecycle = ov.lifecycle;
   if (ov.rollback !== undefined && ov.rollback !== next.productionReadiness.delivery.rollback) {
+    // An override MOVES a measured score, so it must not look measured. The decline path in this same
+    // file never touches a score; this one legitimately does (the owner knows a fact the scan cannot
+    // observe), and the answer is provenance rather than suppression: keep the effect, record who
+    // moved it, by how much, and what the scan actually measured.
+    const measuredScore = next.productionReadiness.score;
+    const measuredBand = next.productionReadiness.band;
     next.productionReadiness.delivery.rollback = ov.rollback;
     const { score, band } = deriveProductionScore(next.productionReadiness);
     next.productionReadiness.score = score;
     next.productionReadiness.band = band;
+    if (score !== measuredScore || band !== measuredBand) {
+      next.productionReadiness.overridden = {
+        reason: "rollback",
+        delta: score - measuredScore,
+        measuredScore,
+        measuredBand,
+        ...(ov.by ? { by: ov.by } : {}),
+        ...(ov.at ? { at: ov.at } : {}),
+      };
+    }
   }
   if (ov.declined && Object.keys(ov.declined).length) applyDeclines(next, ov.declined);
   return next;
@@ -282,6 +307,8 @@ export function parsePassportOverrides(raw: string | null | undefined): Passport
     if (v.criticality && CRITICALITY.has(v.criticality)) out.criticality = v.criticality;
     if (v.lifecycle && LIFECYCLE.has(v.lifecycle)) out.lifecycle = v.lifecycle;
     if (typeof v.rollback === "boolean") out.rollback = v.rollback;
+    if (typeof v.by === "string" && LOGIN.test(v.by)) out.by = v.by;
+    if (typeof v.at === "string" && ISO_DAY.test(v.at)) out.at = v.at;
     const declined = parseDeclined(v.declined);
     if (declined) out.declined = declined;
     return Object.keys(out).length ? out : null;

@@ -425,12 +425,49 @@ describe("applyPassportOverrides — owner overlay (P4)", () => {
     expect(pp.productionReadiness.delivery.rollback).toBe(true);
     expect(pp.productionReadiness.score).toBeGreaterThan(base.productionReadiness.score);
   });
+
+  it("MARKS a score it moved: provenance with the author, the delta and the measured figure", () => {
+    // An override is a decision, not a measurement. The lift stands (the owner knows a fact the scan
+    // cannot observe), but the passport must not present it in the same form as a measured score —
+    // the exported JSON, the hero and the CSV all read this block.
+    const pp = applyPassportOverrides(base, { rollback: true, by: "alice", at: "2026-09-05" });
+    const ovr = pp.productionReadiness.overridden;
+    expect(ovr).toBeDefined();
+    expect(ovr!.reason).toBe("rollback");
+    expect(ovr!.by).toBe("alice");
+    expect(ovr!.at).toBe("2026-09-05");
+    expect(ovr!.measuredScore).toBe(base.productionReadiness.score);
+    expect(ovr!.measuredBand).toBe(base.productionReadiness.band);
+    expect(ovr!.delta).toBe(pp.productionReadiness.score - base.productionReadiness.score);
+    expect(ovr!.delta).toBeGreaterThan(0);
+  });
+
+  it("records the override WITHOUT an author when the blob predates `by` — never a fabricated one", () => {
+    const ovr = applyPassportOverrides(base, { rollback: true }).productionReadiness.overridden;
+    expect(ovr).toBeDefined();
+    expect(ovr!.by).toBeUndefined();
+    expect(ovr!.at).toBeUndefined();
+  });
+
+  it("marks nothing when the override does not move the score (criticality/lifecycle, or a no-op rollback)", () => {
+    expect(applyPassportOverrides(base, { criticality: "business" }).productionReadiness.overridden).toBeUndefined();
+    const same = applyPassportOverrides(base, { rollback: base.productionReadiness.delivery.rollback });
+    expect(same.productionReadiness.overridden).toBeUndefined();
+  });
+
+  it("keeps `by`/`at` out of the score path: they alone are not a decision", () => {
+    // A blob carrying only authorship (no asserted fact) must stay a no-op, not clone the passport.
+    expect(applyPassportOverrides(base, { by: "alice", at: "2026-09-05" })).toBe(base);
+  });
 });
 
 describe("parsePassportOverrides — validation", () => {
   it("keeps valid enum/boolean values, drops unknowns, null when empty", () => {
     expect(parsePassportOverrides(JSON.stringify({ criticality: "business", lifecycle: "beta", rollback: true }))).toEqual({ criticality: "business", lifecycle: "beta", rollback: true });
     expect(parsePassportOverrides(JSON.stringify({ criticality: "bogus", lifecycle: "nope" }))).toBeNull();
+    // Authorship round-trips, but only in the shapes it can legitimately take.
+    expect(parsePassportOverrides(JSON.stringify({ rollback: true, by: "alice", at: "2026-09-05" }))).toEqual({ rollback: true, by: "alice", at: "2026-09-05" });
+    expect(parsePassportOverrides(JSON.stringify({ rollback: true, by: "not a login!", at: "yesterday" }))).toEqual({ rollback: true });
     expect(parsePassportOverrides(null)).toBeNull();
     expect(parsePassportOverrides("{}")).toBeNull();
   });

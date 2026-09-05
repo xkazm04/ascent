@@ -81,22 +81,35 @@ export async function GET(request: Request) {
     if (!rollup) {
       return NextResponse.json({ error: "No analytics for this org yet." }, { status: 404 });
     }
+    // `declined*` and `autonomyTier` are load-bearing, not decoration. The exported blockers are
+    // POST-overlay: an accepted, reasoned gap has already been retired from `blockers`, so without a
+    // declined column a repo whose owner knowingly runs without error tracking exported as CLEAN —
+    // exactly the subtraction passportBlockerAgg refuses to do for the Pareto. And `productionScore`
+    // can carry an OWNER-ASSERTED lift (rollback), so the measured figure and the override's author
+    // ship beside it; an unattributed lift is indistinguishable from a measurement once the CSV
+    // leaves the app.
     header = [
-      "repo", "name", "automationLevel", "automationScore", "productionBand", "productionScore",
+      "repo", "name", "automationLevel", "automationScore", "autonomyTier", "productionBand", "productionScore",
+      "productionScoreMeasured", "productionOverriddenBy", "productionOverrideDelta",
       "ci", "ciProvider", "tests", "coveragePct", "security", "observability",
       "migrations", "iac", "rollback", "automationBlockers", "productionBlockers",
+      "declinedCount", "declinedPaths", "declinedNeedingReconfirm",
     ];
     rows = rollup.repos
       .filter((r) => r.passport)
       .map((r) => {
         const auto = r.passport!.automationReadiness;
         const prod = r.passport!.productionReadiness;
+        const declined = r.passport!.declined ?? [];
+        const ovr = prod.overridden;
         return [
-          r.fullName, r.name, auto.level, auto.score, prod.band, prod.score,
+          r.fullName, r.name, auto.level, auto.score, r.passport!.autonomy?.tier ?? "", prod.band, prod.score,
+          ovr ? ovr.measuredScore : prod.score, ovr?.by ?? "", ovr ? ovr.delta : "",
           prod.ci.level, prod.ci.provider ?? "", prod.tests.level, prod.tests.coveragePct ?? "",
           prod.security.level, prod.observability.level,
           prod.delivery.migrations, prod.delivery.iac, prod.delivery.rollback,
           auto.blockers.join("; "), prod.blockers.join("; "),
+          declined.length, declined.map((d) => d.path).join("; "), declined.filter((d) => d.needsReconfirm).length,
         ];
       });
   } else if (kind === "teams") {
