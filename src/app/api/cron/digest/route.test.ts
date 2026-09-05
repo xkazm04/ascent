@@ -324,24 +324,42 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
 
   // ---- (5b) LAST-SENT GUARD — at-most-once dispatch per window (cron retry/overlap) ----
 
-  it("skips an org already sent a digest within the window — no rollup/build/dispatch (skippedAlreadySent++)", async () => {
+  it("skips an org already sent a digest within the window — no build/dispatch (skippedAlreadySent++)", async () => {
     mockListOrgs.mockResolvedValue(["orgSent", "orgFresh"]);
     mockOrgWebhook.mockResolvedValue("https://hooks.example.com/X");
     mockRollup.mockResolvedValue(rollupWith());
-    // orgSent already has a digest-sent audit entry in this window; orgFresh has none.
-    mockAuditLog.mockImplementation(async (org: string) =>
-      org === "orgSent"
-        ? { entries: [{ id: "a1" }] as unknown as never, nextCursor: null }
-        : { entries: [], nextCursor: null },
+    // The at-most-once decision belongs to the release-aware claim, not to a plain audit read: orgSent
+    // loses the claim (a live marker exists for this window), orgFresh takes it.
+    mockClaim.mockImplementation(async (_action: string, org: string) =>
+      org === "orgSent" ? { claimed: false, id: null } : { claimed: true, id: "clm_1" },
     );
 
     const res = await GET(req({ auth: `Bearer ${SECRET}` }));
     const body = await bodyOf(res);
 
-    // The already-sent org short-circuits BEFORE getOrgRollup; only orgFresh is processed + dispatched.
     expect(body).toMatchObject({ orgs: 2, sent: 1, skippedAlreadySent: 1 });
-    expect(mockRollup).toHaveBeenCalledTimes(1);
-    expect(mockRollup.mock.calls[0][0]).toBe("orgFresh");
+    expect(mockDispatch).toHaveBeenCalledTimes(1);
+    expect((mockDispatch.mock.calls[0][1] as { webhookUrl?: string }).webhookUrl).toBe("https://hooks.example.com/X");
+  });
+
+  it("RETRIES a window whose claim was RELEASED — the surviving audit row must not block it", async () => {
+    // The other half of "so the next run retries this org". A release APPENDS a `claim.released`
+    // record and leaves the `org.digest.sent` row in place, so an audit-log read still sees it; only
+    // `claimOrgAuditOnce` subtracts releases. While the route pre-checked the audit log, the run after
+    // a failed dispatch skipped the org before reaching that gate and the digest was dropped for the
+    // week — the exact outcome the release exists to prevent.
+    mockListOrgs.mockResolvedValue(["orgRetry"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/R");
+    mockRollup.mockResolvedValue(rollupWith());
+    // The previous run's (released) marker is still in the trail…
+    mockAuditLog.mockResolvedValue({ entries: [{ id: "a1" }] as unknown as never, nextCursor: null });
+    // …and the release-aware gate correctly hands the window back.
+    mockClaim.mockResolvedValue({ claimed: true, id: "clm_2" });
+
+    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
+    const body = await bodyOf(res);
+
+    expect(body).toMatchObject({ sent: 1, skippedAlreadySent: 0 });
     expect(mockDispatch).toHaveBeenCalledTimes(1);
   });
 

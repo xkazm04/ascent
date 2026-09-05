@@ -18,7 +18,6 @@
 
 import { NextResponse } from "next/server";
 import {
-  getAuditLog,
   getCreditState,
   getOrgAlertWebhook,
   getOrgBenchmark,
@@ -131,16 +130,22 @@ export async function GET(request: Request) {
         skippedNoSink += 1;
         return;
       }
-      // At-most-once per window: this handler loops every org under maxDuration and can time out
-      // partway, be retried by the platform, or overlap a re-fired schedule. Without a last-sent guard
-      // every already-notified org would receive the weekly digest AGAIN (eroding the exact push channel
-      // the feature makes habit-forming). Skip an org that already got a digest within this window —
-      // recorded as an audit entry after each successful dispatch below.
-      const alreadySent = await getAuditLog(org, { action: DIGEST_SENT_ACTION, since: windowStart, limit: 1 }).catch(() => null);
-      if (alreadySent && alreadySent.entries.length > 0) {
-        skippedAlreadySent += 1;
-        return;
-      }
+      // ONE EVALUATOR FOR THE AT-MOST-ONCE RULE, AND IT IS `claimOrgAuditOnce` (below).
+      //
+      // There used to be a cheap pre-check here — `getAuditLog(DIGEST_SENT_ACTION, since: windowStart)`
+      // — that skipped the rollup work for an org already notified this window. It was correct while a
+      // release DELETED the claim row. It stopped being correct when `releaseAuditClaim` changed to
+      // APPEND a `claim.released` record instead (see the note in src/lib/db/alert-events.ts): the
+      // claim row survives a release, `getAuditLog` is a plain trail read that knows nothing about
+      // releases, and only `claimOrgAuditOnce` subtracts them. So an org whose dispatch failed had its
+      // claim released for exactly the reason the code below states — "so the next run retries this
+      // org" — and then the next run skipped it here, before ever reaching the release-aware gate.
+      // The digest was dropped for the window: the failure the release exists to prevent.
+      //
+      // Deleted rather than taught about releases, because the release bookkeeping is private to
+      // scans-audit.ts and a second reader of the same rule is what produced this defect. The claim
+      // below is the authority; the only cost is that an already-sent org does its rollup reads before
+      // losing the claim, on the re-runs alone.
       // G7-03: the goal-at-risk / spend-anomaly pushes ride this run (see ./extra-alerts). Placed
       // BEFORE the rollup and the movement-gate on purpose — a goal sliding off pace or a spend spike
       // is exactly the kind of news a FLAT fleet week still needs to carry, and the digest's silence-
