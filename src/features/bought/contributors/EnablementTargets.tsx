@@ -40,14 +40,14 @@ export function EnablementTargets({
             head itself with someone who left months ago. Saying the floor out loud is what makes
             "highest-leverage people to offer tooling to" a claim the list actually keeps. */}
         <p className="max-w-2xl type-body-sm text-slate-400">
-          Contributors active in the last {ENABLEMENT_MAX_IDLE_DAYS} days with the most commit volume and{" "}
+          Contributors active within {ENABLEMENT_MAX_IDLE_DAYS} days of the fleet&apos;s latest observed activity, with the most commit volume and{" "}
           <span className="text-slate-300">no AI-attributed commits yet</span>: the highest-leverage people to offer tooling, pairing, or
           agent guidance to. Inputs to explore, <span className="text-slate-300">not a to-do list for anyone</span>.
         </p>
         <OrgTable
           className="mt-3"
           minWidth={520}
-          caption={`Highest-volume contributors without AI-attributed commits, active in the last ${ENABLEMENT_MAX_IDLE_DAYS} days`}
+          caption={`Highest-volume contributors without AI-attributed commits, active within ${ENABLEMENT_MAX_IDLE_DAYS} days of the latest observed activity`}
           head={
             <tr>
               <th className="px-4 py-2 text-left">Contributor</th>
@@ -72,7 +72,7 @@ export function EnablementTargets({
         {nonePool > targets.length && (
           <p className="mt-2 type-mono-sm text-slate-600">
             {nonePool} contributors show no AI-attributed commits in total; these {targets.length} are the highest-volume of those active
-            in the last {ENABLEMENT_MAX_IDLE_DAYS} days.
+            within {ENABLEMENT_MAX_IDLE_DAYS} days of the latest observed activity.
           </p>
         )}
       </div>

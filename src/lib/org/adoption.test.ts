@@ -396,6 +396,21 @@ describe("enablement eligibility floors (volume AND recency)", () => {
     expect(out.map((e) => e.login)).toEqual(["here"]);
   });
 
+  it("anchors the floor on the snapshot's newest activity when no clock is given, so a stale fleet keeps its cohort", () => {
+    // Latest observed activity is 120 days ago; a wall-clock floor would empty the list. Relative to
+    // the snapshot's own present, someone active 100 days ago is inside the horizon and a leaver at
+    // 120 + 91 days is outside it.
+    const out = enablementTargets({
+      namingAllowed: true,
+      contributors: [
+        person("stale-leaver", 500, at(120 + ENABLEMENT_MAX_IDLE_DAYS + 1)),
+        person("still-here", 40, at(100)),
+        person("newest", 30, at(120)),
+      ],
+    });
+    expect(out.map((e) => e.login)).toEqual(["still-here", "newest"]);
+  });
+
   it("treats an unknown last-active date as not recent — an invitation we cannot date is not offered", () => {
     const out = enablementTargets({ namingAllowed: true, contributors: [person("ghost", 90, null)] }, NOW);
     expect(out).toEqual([]);

@@ -18,14 +18,14 @@ const targets = [
 describe("EnablementTargets", () => {
   it("states the recency horizon the cohort was filtered on", () => {
     const { container } = render(<EnablementTargets targets={targets} nonePool={2} />);
-    expect(container.textContent ?? "").toContain(`active in the last ${ENABLEMENT_MAX_IDLE_DAYS} days`);
+    expect(container.textContent ?? "").toContain(`within ${ENABLEMENT_MAX_IDLE_DAYS} days of the);
   });
 
   it("says what it left out in the same terms, when the zero-AI pool is larger than the table", () => {
     const { container } = render(<EnablementTargets targets={targets} nonePool={22} />);
     const text = container.textContent ?? "";
     expect(text).toContain("22 contributors show no AI-attributed commits in total");
-    expect(text).toContain(`active in the last ${ENABLEMENT_MAX_IDLE_DAYS} days`);
+    expect(text).toContain(`within ${ENABLEMENT_MAX_IDLE_DAYS} days of the);
   });
 
   it("keeps the invitation framing, not a shortfall framing", () => {

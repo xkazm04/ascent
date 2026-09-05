@@ -105,6 +105,19 @@ const TOOLS_LIMIT = 10;
  * row would render "last active —" while sitting on a list that claims recent volume, and an
  * invitation we cannot date is exactly the row this floor exists to keep out. Unknown is not recent.
  */
+/** The newest observed activity across the roster, capped at the wall clock; the wall clock when the
+ *  roster carries no dated activity at all. */
+function snapshotPresent(contributors: { lastActiveAt: string | null }[]): number {
+  const wall = Date.now();
+  let newest = Number.NEGATIVE_INFINITY;
+  for (const c of contributors) {
+    if (!c.lastActiveAt) continue;
+    const t = Date.parse(c.lastActiveAt);
+    if (Number.isFinite(t) && t > newest) newest = t;
+  }
+  return Number.isFinite(newest) ? Math.min(newest, wall) : wall;
+}
+
 function recentlyActive(lastActiveAt: string | null, idleFloor: number): boolean {
   if (!lastActiveAt) return false;
   const t = Date.parse(lastActiveAt);
@@ -147,11 +160,17 @@ export function enablementTargets(
     namingAllowed: boolean;
     contributors: { login: string; name: string | null; aiShare: number; commits: number; repos: number; lastActiveAt: string | null }[];
   },
-  /** Injectable clock — the recency floor is time-dependent, and a test must be able to pin "now". */
-  now: number = Date.now(),
+  /** Injectable clock — the recency floor is time-dependent, and a test must be able to pin "now".
+   *  When omitted, "now" is the SNAPSHOT's present: the newest `lastActiveAt` the contributor read
+   *  observed (capped at the wall clock). The insights are a per-scan snapshot, so measuring recency
+   *  from the wall clock would empty the cohort on any fleet whose latest scan is older than the
+   *  horizon — a stale snapshot, not a fleet nobody works on. The stale-repo guard in
+   *  org-contributors.ts anchors the same way. */
+  now?: number,
 ): EnablementTarget[] {
   if (!insights.namingAllowed) return [];
-  const idleFloor = now - ENABLEMENT_MAX_IDLE_DAYS * 24 * 60 * 60 * 1000;
+  const anchor = now ?? snapshotPresent(insights.contributors);
+  const idleFloor = anchor - ENABLEMENT_MAX_IDLE_DAYS * 24 * 60 * 60 * 1000;
   return insights.contributors
     .filter((c) => c.aiShare === 0 && c.commits >= ENABLEMENT_MIN_COMMITS && recentlyActive(c.lastActiveAt, idleFloor))
     .slice(0, ENABLEMENT_LIMIT)
