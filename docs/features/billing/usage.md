@@ -19,7 +19,7 @@ and per code-owning team. Nothing about what an org is *charged* changed (see
 | `scan` | the scoring pipeline | **`Scan` rows** — not mirrored into `UsageEvent`; that lane already has an authoritative ledger and a copy would drift |
 | `athena` | the companion's interactive turns *and* its unattended cycles (both leg kinds fold to one lane) | `runToolLoop`, **one event per loop**, never per leg |
 | `memory` | Shared Org Memory's write-gate + reflection passes | the single-shot seam, via `resolveMemoryRunner(orgSlug)` |
-| `briefing` | the executive briefing's LLM-written paragraph | metered **in place** in `briefing-narrative.ts` (its own Anthropic egress; re-plumbing it is BACKLOG C3) |
+| `briefing` | the executive briefing's LLM-written paragraph | the shared seam (`textRunnerFrom`), like `athena` and `memory` since 2026-09-05: it resolves through `resolveTextRunnerForOrg`, so a BYOM org's briefing is written by its own model and priced `null` |
 | `local` | the local remediation agent | the agent supplies its own cost envelope, idempotency key **and the owning team of the repo it worked** (`defaultOwnerTeamForRepo`) |
 | `unknown` | *read-side only* — rows tagged with a lane string this build does not know (a newer or rolled-back deploy) | folded into one disclosed bucket by `laneTotals`, never dropped |
 
@@ -355,11 +355,12 @@ Until a route adopts `rateLimitRequestShared()`, its global ceiling remains per-
   [billing.md](billing.md)), which is wired end-to-end (plans, checkout, webhook
   fulfilment, refunds); this page only surfaces scan counts/trends and doesn't
   itself drive invoicing.
-- **The briefing narrative is metered where it stands, not on the shared seam.** It calls the
-  Anthropic Messages API directly on its own `ANTHROPIC_API_KEY`, so its lane is recorded under the
-  legacy `claude` provider id. Routing it through `src/lib/llm/transports.ts` would change which
-  credential and which vendor an operator's briefing bills to — an open design question (BACKLOG C3),
-  not a wiring task.
+- **The briefing narrative moved onto the shared seam (2026-09-05, BACKLOG C3).** It used to
+  raw-`fetch` the Anthropic Messages API on a platform key and meter itself in place under the legacy
+  `claude` provider id. It now resolves through `resolveTextRunnerForOrg`, so the provider, model and
+  `byom` flag on a `briefing` row are the org's own, and a BYOM briefing prices at `null` rather than
+  at list rates the org never paid. The only lane still off the seam is `local` (W2-G supplies its own
+  events).
 - **The showback CSV is still two flat sections, not the matrix.** `toShowbackCsv` exports one `lane`
   scope block and one `team` scope block; the on-page panel is the only place the *intersection* is
   read (MC-B45 built the read half). Adding a third `scope=lane×team` block would change a file shape

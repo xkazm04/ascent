@@ -8,9 +8,9 @@
 //
 // WHERE IT RIDES. Beside `trackLlmCall`, at the two metering seams that already exist and NOWHERE
 // else: `withTimeout()` in text-meter.ts (single-shot) and `runToolLoop()` in tool-loop.ts (one event
-// per LOOP, not per leg — the loop sums its own usage and a per-leg event would double count). Two
-// lanes are off the seam by construction and call `meter()` directly: the briefing narrative (its own
-// fetch against the Anthropic Messages API) and the local agent lane (W2-G).
+// per LOOP, not per leg — the loop sums its own usage and a per-leg event would double count). One
+// lane is off the seam by construction and calls `meter()` directly: the local agent lane (W2-G). The
+// briefing narrative moved onto the seam on 2026-09-05 (resolveTextRunnerForOrg, BACKLOG C3).
 //
 // THREE PROPERTIES THIS MODULE GUARANTEES, in the order they matter:
 //

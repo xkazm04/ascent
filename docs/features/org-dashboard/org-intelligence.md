@@ -1226,11 +1226,16 @@ are enforced in code:
    markdown-structured, tag-leaking, or ungrounded ⇒ `deterministicNarrative(b)`, assembled from the
    same figures by template. There is no error state to render.
 
-**Off by default**, requiring both `BRIEFING_NARRATIVE=1` and `ANTHROPIC_API_KEY`; with neither
-(the default, including CI) the module performs no network I/O. `BRIEFING_NARRATIVE_MODEL` and
-`BRIEFING_NARRATIVE_TIMEOUT_MS` (default 20s) tune it. Transport is raw `fetch` against the Anthropic
-Messages API, matching `src/lib/llm/openai.ts`'s "no SDK dependency added" convention and reusing the
-scan providers' `withLlmTimeout`.
+**Off by default**: `BRIEFING_NARRATIVE=1` is the only switch; with it unset (the default,
+including CI) the module performs no network I/O. `BRIEFING_NARRATIVE_TIMEOUT_MS` (default 20s)
+tunes the call. Since 2026-09-05 (BACKLOG C3) the transport is the org-aware seam,
+`resolveTextRunnerForOrg(orgSlug, { legKind: "briefing" })`: an org's connected BYOM model writes its
+own board paragraph, the platform provider is used only when the org has none, and an active but
+unresolvable BYOM falls back to the deterministic template rather than to the platform vendor (the
+same rule the Athena gate applies), so the pricing page's "nothing leaves the machine" holds for this
+path too. The model is whatever the seam resolves; the old `BRIEFING_NARRATIVE_MODEL` /
+`ANTHROPIC_API_KEY` requirements are gone, so an Ollama-only install can use the feature. Metering is
+the seam's (one `briefing`-lane row per call, BYOM priced `null`).
 
 `ExecBriefing.narrative` is **not** populated by `buildExecBriefing`; a deliverable opts in via
 `attachBriefingNarrative(b)`. Only the PDF route does, deliberately: the "Copy for LLM" markdown is
@@ -1534,7 +1539,7 @@ lives in metrics; folding log events into usage is a later step.
 | `src/lib/window.ts` | Resolves `?range=/from=/to=` into a `ResolvedWindow` (`start`, half-open `endExclusive`, the deprecated `end` compat bound produced by the single `inclusiveEnd()` adapter, labels) using the canonical zone. Pure + isomorphic. `src/lib/org/period.ts` adds the `ascent_period` cookie precedence (`?range` > cookie > default). |
 | `src/lib/maturity/forecast.ts` | Linear-fit projection + ETA to next level. |
 | `src/lib/org/briefing.ts` | `buildExecBriefing` (the one assembly behind page/PDF/markdown/share), `briefingMarkdown`, and the single ranked next move (`briefingNextMove` / `nextMoveLine`). |
-| `src/lib/org/briefing-narrative.ts` | Opt-in, number-grounded LLM narrative for the board PDF, with a deterministic template floor. Off unless `BRIEFING_NARRATIVE=1` + `ANTHROPIC_API_KEY`. |
+| `src/lib/org/briefing-narrative.ts` | Opt-in, number-grounded LLM narrative for the board PDF, with a deterministic template floor. Off unless `BRIEFING_NARRATIVE=1`; resolves the org's own model through `resolveTextRunnerForOrg` (2026-09-05). |
 | `src/components/org/shell/OrgTabNav.tsx` | Persistent nav rail (two-level `SectionRailNav`), grouped by the transition journey. |
 | `src/components/OrgSwitcher.tsx` | Org/installation picker (persists active org). |
 | `src/features/standing/overview/Trajectory.tsx` | Forecast "GPS" card. Mounted by `/trends` (`TrajectoryPanel`), the personal overview and, since 2026-09-05, the org Overview ledger (`OverviewTrajectoryCard`, beside the standing strip, behind the same presentability gate the personal tier uses; renders nothing below it). |
