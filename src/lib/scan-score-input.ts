@@ -167,17 +167,21 @@ export async function buildScanScoreInput(input: ScoreInputPhaseInput): Promise<
   // dismissing a finding becomes context the next assessment reads instead of re-raising the gap.
   // decisionSlug (individual tier) points the read at the TRIGGERING viewer's personal org on the
   // public funnel; org scans keep reading their own org via the orgSlug fallback.
-  const orgDecisions = decisionSlug
-    ? await decisionsForRepo(decisionSlug, `${snapshot.meta.owner}/${snapshot.meta.name}`).catch(() => [])
-    : [];
-
+  //
   // CRAFT ALREADY BUILT — the rungs this repository has completed, so the assessment proposes the NEXT
   // one instead of re-proposing what is already there. Same read shape, same slug and the same
-  // best-effort posture as the decisions above: this is the second half of the same loop (what the
-  // org decided; what the repo then built), and an unreachable store must never fail a scan.
-  const craftBuilt = decisionSlug
-    ? await getCraftBuilt(decisionSlug, `${snapshot.meta.owner}/${snapshot.meta.name}`).catch(() => [])
-    : [];
+  // best-effort posture as the decisions: this is the second half of the same loop (what the org
+  // decided; what the repo then built), and an unreachable store must never fail a scan.
+  //
+  // The two are INDEPENDENT reads of the same store for the same repo, and were awaited one after the
+  // other for no reason but the order they were written in. One `Promise.all` costs the slower of the
+  // two instead of their sum; each keeps its OWN `.catch`, so one unreachable read still degrades to
+  // an empty list rather than failing its sibling.
+  const repoFullName = `${snapshot.meta.owner}/${snapshot.meta.name}`;
+  const [orgDecisions, craftBuilt] = await Promise.all([
+    decisionSlug ? decisionsForRepo(decisionSlug, repoFullName).catch(() => []) : Promise.resolve([]),
+    decisionSlug ? getCraftBuilt(decisionSlug, repoFullName).catch(() => []) : Promise.resolve([]),
+  ]);
 
   const scoreInput: LlmScoreInput = {
     repo: snapshot.meta,

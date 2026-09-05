@@ -167,13 +167,20 @@ export async function resolveScanAuth(
 
 /** Public entry point. Wraps the pipeline in outcome tallies (src/lib/scan-outcome.ts): a failed scan
  *  writes no Scan row, so without these counters a pipeline failure is invisible. The counters are
- *  best-effort and the error is always re-thrown unchanged — behavior for every caller is identical. */
+ *  best-effort and the error is always re-thrown unchanged — behavior for every caller is identical.
+ *
+ *  FIRE AND FORGET, both of them. These are counter upserts, documented best-effort at the top of
+ *  scan-outcome.ts and already swallowing their own errors (db/best-effort.ts `bumpCounter`) — so
+ *  awaiting them only ever bought a database round-trip on the scan's critical path: one before any
+ *  work starts, and one before the caller sees an error it is already going to receive. `void` them,
+ *  on exactly the discipline `recordScanDegraded` already uses below. Nothing observes their
+ *  completion, and an unhandled rejection is impossible because neither can reject. */
 export async function scanRepository(input: string, opts: ScanOptions = {}): Promise<ScanReport> {
-  await recordScanStarted();
+  void recordScanStarted();
   try {
     return await runScanRepository(input, opts);
   } catch (err) {
-    await recordScanFailure(err);
+    void recordScanFailure(err);
     throw err;
   }
 }

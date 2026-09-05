@@ -57,7 +57,9 @@ export interface IngestPhaseResult {
   prFetchFailed: boolean;
   governance: Governance | null;
   /** W4 — recent deployments with their latest status. Empty on an anonymous scan, or on a repo that
-   *  doesn't use GitHub Deployments; emptiness means "not observable here", never "never deployed". */
+   *  doesn't use GitHub Deployments; emptiness means "not observable here", never "never deployed".
+   *  When the READ itself failed, the empty list is accompanied by `deployments` in `sensorFailures`,
+   *  which is what tells the two emptinesses apart. */
   deployments: DeploymentRecord[];
   securityPosture: SecurityPosture | null;
   securityExposure: SecurityExposure | null;
@@ -192,8 +194,15 @@ export async function ingestRepository(input: IngestPhaseInput): Promise<IngestP
   // GitHub Deployments returns an empty list, and no read scope returns null → no rows, which the
   // outcome views render as "not measured" rather than as a zero failure rate. It never blocks or
   // fails a scan; deployments are an enrichment, not a score input.
+  //
+  // It is the LONGEST read here — up to 21 strictly-sequential REST calls (sequential on purpose:
+  // a parallel page trips GitHub's secondary rate limit, see DEPLOYMENT_PAGE_SIZE) — and it used to
+  // be started without the abort signal and awaited OUTSIDE the Promise.all below, in the return
+  // object literal. That put its whole sequential tail on the critical path AFTER every other
+  // enrichment had already resolved. It now starts here like its siblings, carries the signal like
+  // its siblings, and is awaited WITH them, so its calls overlap theirs instead of following them.
   const deploymentsPromise: Promise<DeploymentRecord[]> = token && enrich.deployments
-    ? enrich.deployments(parsed.owner, parsed.repo, token).catch(() => [])
+    ? enrich.deployments(parsed.owner, parsed.repo, token, signal).catch(sensorFailed("deployments", []))
     : Promise.resolve([]);
   // Context Health (W4): last-modified per detected guidance file. Deliberately NOT token-gated —
   // the /commits?path= endpoint answers anonymously within rate limits — and pinned to the commit
@@ -209,15 +218,27 @@ export async function ingestRepository(input: IngestPhaseInput): Promise<IngestP
       ).catch(() => guidancePaths.map((path) => ({ path })))
     : Promise.resolve([]);
 
-  emit({ stage: "analyze", message: `Analyzing signals across ${DIMENSIONS.length} dimensions…`, pct: 62 });
-  const [prResult, governance, securityPosture, securityExposure, appInventory, ciHealth] = await Promise.all([
+  // THE FRAME TABLE. `fetch` → `tree` → `files` (45) → *this* → `analyze` (62) → `score` → `compose`
+  // (95) → `done`. Everything between 45 and 62 is GitHub I/O — PR pages, governance, security
+  // posture and exposure, the App inventory, CI health, deployments — and the UI used to read
+  // "Analyzing signals across 9 dimensions…" for the whole of it, because the `analyze` frame was
+  // emitted BEFORE the await below. The copy now describes what is actually happening; `analyze`
+  // moves to where the analysis really starts.
+  //
+  // It reuses the `analyze` STAGE ID rather than introducing an `enrich` one: the stage union is a
+  // closed type read by the fleet stream fold (src/lib/scan-stage.ts), the report status strip and
+  // the cockpit lane, so a new id is a cross-cutting change rather than a progress-copy one.
+  emit({ stage: "analyze", message: "Reading GitHub signals (pull requests, governance, security)…", pct: 52 });
+  const [prResult, governance, securityPosture, securityExposure, appInventory, ciHealth, deployments] = await Promise.all([
     prPromise,
     govPromise,
     secPromise,
     expPromise,
     appInventoryPromise,
     ciHealthPromise,
+    deploymentsPromise,
   ]);
+  emit({ stage: "analyze", message: `Analyzing signals across ${DIMENSIONS.length} dimensions…`, pct: 62 });
 
   return {
     snapshot,
@@ -236,9 +257,9 @@ export async function ingestRepository(input: IngestPhaseInput): Promise<IngestP
     // extracted from the same fetched nodes. Empty on an anonymous scan — GraphQL needs a token — and
     // that emptiness means "not observable here", never "this repo has no AI changes".
     aiChanges: prResult?.aiChanges ?? [],
-    // W4 — awaited alongside the rest rather than deferred: it is bounded (one list page + one
-    // status call each) and the persister needs it in the same transaction as the scan row.
-    deployments: await deploymentsPromise,
+    // W4 — resolved in the Promise.all above alongside every other enrichment (the persister needs it
+    // in the same transaction as the scan row, and it is bounded: one list page + one status call each).
+    deployments,
     governance,
     securityPosture,
     securityExposure,

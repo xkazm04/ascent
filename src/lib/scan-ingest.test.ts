@@ -220,3 +220,93 @@ describe("the PR sensor keeps its own older channel", () => {
     expect(failed.sensorFailures).toEqual([]);
   });
 });
+
+// ── Direction 3: the deployments read joins the pipeline instead of trailing it ──────────────────
+// `deploymentsPromise` was created without the abort signal and awaited OUTSIDE the enrichment
+// Promise.all — in the return object literal — so its up-to-21 strictly-sequential REST calls only
+// STARTED overlapping and then landed, in full, on the critical-path tail after every sibling had
+// already resolved.
+
+describe("ingestRepository — deployments run WITH the other enrichments", () => {
+  it("overlaps the siblings instead of trailing them", async () => {
+    const order: string[] = [];
+    const slow = <T,>(id: string, value: T, ms: number) => async (): Promise<T> => {
+      order.push(`${id}:start`);
+      await new Promise((r) => setTimeout(r, ms));
+      order.push(`${id}:end`);
+      return value;
+    };
+    const t0 = Date.now();
+    await ingest({
+      securityPosture: slow("posture", null, 40),
+      appInventory: slow("apps", null, 40),
+      deployments: slow("deployments", [], 40),
+    });
+    const elapsed = Date.now() - t0;
+    // Every read STARTS before any of them finishes — the definition of overlapping.
+    expect(order.slice(0, 3).every((e) => e.endsWith(":start"))).toBe(true);
+    // …and the whole set costs about ONE read, not three. (Generous bound: this is a scheduling
+    // assertion, not a benchmark; the measured figure lives in the direction's report.)
+    expect(elapsed).toBeLessThan(110);
+  });
+
+  it("carries the scan's abort signal into the deployments read like every sibling", async () => {
+    const ctrl = new AbortController();
+    let seen: AbortSignal | undefined;
+    await ingestRepository({
+      parsed: PARSED,
+      source,
+      forge: forgeWith({
+        deployments: async (_o, _r, _t, signal) => {
+          seen = signal;
+          return [];
+        },
+      }),
+      token: "t",
+      signal: ctrl.signal,
+      emit: () => {},
+    });
+    expect(seen).toBe(ctrl.signal);
+  });
+
+  it("records a FAILED deployments read — [] on failure is not 'this repo never deployed'", async () => {
+    const failed = await ingest({ deployments: () => Promise.reject(new Error("403 no scope")) });
+    expect(failed.deployments).toEqual([]);
+    expect(failed.sensorFailures).toEqual(["deployments"]);
+  });
+
+  it("a repo that simply does not use Deployments is not a failure", async () => {
+    const ok = await ingest({ deployments: () => Promise.resolve([]) });
+    expect(ok.sensorFailures).toEqual([]);
+  });
+});
+
+describe("ingestRepository — the progress frames bracket the GitHub I/O", () => {
+  it("says it is READING GitHub during the enrichment await, and ANALYZING only after it", async () => {
+    const frames: { pct: number; message: string }[] = [];
+    let messageAtRead: string | undefined;
+    await ingestRepository({
+      parsed: PARSED,
+      source,
+      forge: forgeWith({
+        // Resolves on a later tick, so this reads the frame the UI is showing WHILE the ingest is
+        // waiting on GitHub — the enrichment promises themselves are created eagerly, above the frame.
+        securityPosture: () =>
+          new Promise((resolve) =>
+            setTimeout(() => {
+              messageAtRead = frames[frames.length - 1]?.message;
+              resolve(null);
+            }, 5),
+          ),
+      }),
+      token: "t",
+      emit: (p) => frames.push({ pct: p.pct, message: p.message }),
+    });
+    // The frame the UI is showing WHILE GitHub is being read.
+    expect(messageAtRead).toContain("Reading GitHub signals");
+    const pcts = frames.map((f) => f.pct);
+    expect(pcts).toEqual([52, 62]);
+    // 52 sits between the ingest's `files` frame (45) and `analyze` (62).
+    expect(frames[1]!.message).toContain("Analyzing signals");
+  });
+});
