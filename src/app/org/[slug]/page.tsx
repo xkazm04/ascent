@@ -26,7 +26,8 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const summary = (await canReadOrg(slug)) ? await getOrgHeaderSummary(slug).catch(() => null) : null;
   const title = `${slug} · fleet maturity · Ascent`;
   const description =
-    summary && summary.repoCount > 0
+    // realScoredCount: the average excludes mock placeholders; an all-mock fleet has no average to unfurl.
+    summary && summary.repoCount > 0 && summary.realScoredCount > 0
       ? `${slug}'s fleet averages ${summary.avgOverall}/100 (${levelForScore(summary.avgOverall).id} · ${levelForScore(summary.avgOverall).name}) across ${summary.scannedCount}/${summary.repoCount} scanned repos on Ascent.`
       : `AI-native engineering maturity across ${slug}'s fleet on Ascent, a 5-level ladder across 9 dimensions, with evidence.`;
   return {

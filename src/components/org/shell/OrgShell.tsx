@@ -196,6 +196,9 @@ export async function OrgShell({
     await ensureOwnerMembership(slug, bypassViewer.login, bypassViewer.name).catch(() => {});
   }
 
+  // The header chip mirrors the Overview badge: the average excludes mock placeholders, so a fleet
+  // with no live-scored repo shows a dash rather than a 0 that reads as a grade.
+  const headerScore = summary.realScoredCount > 0 ? summary.avgOverall : null;
   const level = levelForScore(summary.avgOverall);
 
   // W1c — the transition programme's one-line strip. Resolved AFTER the empty-state gates so a
@@ -219,7 +222,7 @@ export async function OrgShell({
 
   return (
     <>
-      <OrgHeader slug={slug} levelId={level.id} score={summary.avgOverall} role={myRole} actions={actions} />
+      <OrgHeader slug={slug} levelId={level.id} score={headerScore} role={myRole} actions={actions} />
       <ProgramStrip slug={slug} status={programStatus} />
       {/* tabIndex={-1} makes <main> a programmatic focus target: it is already the skip-link
           destination, and OrgTabNav moves focus here on a real tab switch so an AT user isn't left

@@ -203,7 +203,9 @@ export function OrgHeader({
 }: {
   slug: string;
   levelId: string;
-  score: number;
+  /** The fleet's live-scored average; null when NO repo is live-scored (an all-mock or unscanned
+   *  fleet has no average, and a 0 there would read as a grade). */
+  score: number | null;
   /** The viewer's role in this org (e.g. "owner"); omitted for the public org / non-members. */
   role?: string | null;
   /** Alerts · credits · scan — assembled by the layout, rendered in the right cluster. */
@@ -222,10 +224,10 @@ export function OrgHeader({
           </span>
           <span
             className="shrink-0 rounded-md border border-slate-700 px-2 py-0.5 type-mono-sm tabular-nums"
-            style={{ color: scoreHex(score) }}
-            title="Fleet maturity: level · index score"
+            style={score === null ? undefined : { color: scoreHex(score) }}
+            title={score === null ? "Fleet maturity: no live-scored repository yet" : "Fleet maturity: level · index score"}
           >
-            {levelId} · {score}
+            {score === null ? "—" : `${levelId} · ${score}`}
           </span>
           {role && (
             <span

@@ -894,6 +894,11 @@ export interface OrgHeaderSummary {
   levelCounts: Record<string, number>;
   /** Tenant flavor — "personal" swaps the shell to the individual-workspace nav subset. */
   kind: "org" | "personal";
+  /** Repos whose latest scan was LIVE-scored — the denominator of the three averages above, mirroring
+   *  `getOrgRollup.realScoredCount`. 0 means the averages are undefined and must render as "—". */
+  realScoredCount: number;
+  /** Repos whose latest scan is a mock placeholder, excluded from the averages (mirrors the rollup). */
+  mockCount: number;
 }
 
 // React-`cache()`d (request-scoped memo, the repo's convention for shell+page shared reads — see
@@ -913,7 +918,7 @@ export const getOrgHeaderSummary = cache(async (orgSlug: string): Promise<OrgHea
       scans: {
         orderBy: { scannedAt: "desc" },
         take: 1,
-        select: { overallScore: true, adoptionScore: true, rigorScore: true, posture: true },
+        select: { overallScore: true, adoptionScore: true, rigorScore: true, posture: true, engineProvider: true },
       },
     },
   });
@@ -928,16 +933,23 @@ export const getOrgHeaderSummary = cache(async (orgSlug: string): Promise<OrgHea
     const lvl = levelForScore(s.overallScore).id;
     levelCounts[lvl] = (levelCounts[lvl] ?? 0) + 1;
   }
+  // The averages exclude mock placeholders exactly as getOrgRollup does (its docstring promises the
+  // two "can never disagree"; until 2026-09-05 the rollup narrowed and this one did not, so the shell
+  // chip and the Overview badge on the SAME page could show two different fleet averages). Counts stay
+  // counts over every scanned repo.
+  const realScored = scanned.filter((s) => !isMockScore(s.engineProvider));
   return {
     repoCount: repos.length,
     scannedCount: scanned.length,
     watchedCount: repos.filter((r) => r.watched).length,
-    avgOverall: roundedMean(scanned.map((s) => s.overallScore)),
-    avgAdoption: roundedMean(scanned.map((s) => s.adoptionScore)),
-    avgRigor: roundedMean(scanned.map((s) => s.rigorScore)),
+    avgOverall: roundedMean(realScored.map((s) => s.overallScore)),
+    avgAdoption: roundedMean(realScored.map((s) => s.adoptionScore)),
+    avgRigor: roundedMean(realScored.map((s) => s.rigorScore)),
     postureCounts,
     levelCounts,
     kind: org.kind === "personal" ? "personal" : "org",
+    realScoredCount: realScored.length,
+    mockCount: scanned.length - realScored.length,
   };
 });
 
