@@ -44,7 +44,11 @@ honest default; the funnel's own scans never reach this ledger anyway (the scan 
 provider reported nothing (the `claude-cli` path reports no usage at all and still writes a
 token-less row, so the *call* is visible even when its cost is not), when the org runs BYOM (it paid
 its own vendor; Ascent has no figure), or when the model has no `MODEL_PRICES` rate. `unpricedCalls`
-is reported per lane so a `$0.00` line reads as "nothing to price", not "free".
+is reported per lane so a `$0.00` line reads as "nothing to price", not "free". Since 2026-09-05
+the **scan lane applies the same BYOM rule**: scans with `engineByom: true` are grouped separately,
+never priced (a BYOM-only window prices as `null`, never `$0.00`, and the env-rate override is
+refused when every token is BYOM), and `UsageSummary.byomScans` drives a "N BYOM scans, unpriced"
+note beside the estimate. Their tokens still count in the volume tiles.
 
 **Idempotency.** `idemKey` is `"<lane>:<refId>"` when the caller owns a stable id, else `null`
 (NULLs are distinct under the unique index — the same at-least-once fallback `Scan.dedupKey` uses).
@@ -92,7 +96,9 @@ lockstep: `isBillableScan()` (JS; also the daily series' fallback path), `billab
 
 ## Aggregation (`src/lib/db/usage.ts`)
 
-`getUsageSummary(org, periodDays)` → `UsageSummary`:
+`getUsageSummary(org, periodDays, window?)` → `UsageSummary` (the page resolves the window once with
+`usageWindow(days)` and hands the same object to `getCreditReconciliation(org, { since, before })`,
+which no longer takes `days`):
 
 - `totalScans` (all-time), `periodScans` (last *N* days), `privateScans` / `publicScans`
   (period), `distinctRepos`.
@@ -139,16 +145,27 @@ lockstep: `isBillableScan()` (JS; also the daily series' fallback path), `billab
   UTC day in SQL (`date_trunc`, portable to Aurora DSQL) with a JS row-bucketing fallback.
 - `firstScanAt` / `lastScanAt` (all-time).
 
-**Window:** the period counts and the daily series share one half-open UTC window,
-`[since, tomorrow-UTC)`. The upper bound is load-bearing: without it a future-dated /
-clock-skewed row was counted in the headline tile but silently dropped from the chart (its
-day key isn't on the axis), so the billing page disagreed with itself.
+**Window:** the period counts, the daily series and (since 2026-09-05) the credit reconciliation
+share one half-open UTC window, `[since, tomorrow-UTC)`, built by `usageWindow(days)`. The upper
+bound is load-bearing: without it a future-dated / clock-skewed row was counted in the headline
+tile but silently dropped from the chart (its day key isn't on the axis), so the billing page
+disagreed with itself. The reconciliation used to cut at a rolling wall-clock instant, up to a day
+off the scan window under the same "last Nd" label; that skew is gone and the mismatch note no longer
+offers it as an explanation. The page states **UTC** on the chart and the lane headers, and the API
+echoes `timezone: "UTC"`, `windowSince` / `windowBefore` (requested) and `effectiveSince` /
+`effectiveDays` (the zero-filled series is clamped at the org's first scan, and the chart says
+"window shortened to first scan" when they differ; the CSV follows). The trailing bucket is marked
+partial ("today, partial" / "partial: N of 7 days") in the bar, its title, a footnote and the
+screen-reader table; buckets chunk forward from the window start so their keys stay stable across
+reloads. The footer that used to read "Window: first → last" now says "First scan → last scan (all
+time)", since it never was period-scoped. The scan row is captioned "Computed scans (incl. mock)"
+under a "calls" header rather than "model calls".
 
 ## Page & API
 
 | Surface | Behavior |
 | --- | --- |
-| `src/app/usage/page.tsx` | Auth-gated, org-scoped (`?org=` or active-org cookie). Stat cards (total, period, billable, distinct repos), public-vs-private + provider breakdowns, timeframe picker (`?days=`, default 30, max 365). The closing note is **conditional**: the shared funnel is told per-org attribution activates with auth / the GitHub App; a private org — which is reading its own per-team, per-repo, per-lane breakdown, i.e. that attribution — is told it is attributed and given the link to plans & credit pricing this billing page otherwise lacked (UAT MC-B31 / VICTOR-L1-06). |
+| `src/app/usage/page.tsx` | Auth-gated, org-scoped (`?org=` or active-org cookie). Stat cards (total, period, billable, distinct repos), public-vs-private + provider breakdowns, timeframe picker (`TimeframePicker`, server-rendered links for 7 / 30 / 90 / 1y that preserve `?org=`; 1y is disabled with its reason on the public funnel, whose bound is 90) (`?days=`, default 30, max 365). The closing note is **conditional**: the shared funnel is told per-org attribution activates with auth / the GitHub App; a private org — which is reading its own per-team, per-repo, per-lane breakdown, i.e. that attribution — is told it is attributed and given the link to plans & credit pricing this billing page otherwise lacked (UAT MC-B31 / VICTOR-L1-06). |
 | `GET /api/usage` | `?org=` (default `public`), `?days=`, `?format=json\|csv`. Returns `UsageSummary` JSON, or a CSV/JSON file download. `503` without DB. **IDOR guard:** when auth is on, a private org requires a session with an installation in it; public is readable by any signed-in user. |
 | `GET /api/usage?view=showback` | The lane × team allocation as CSV (`scope,lane,team,calls,estimatedCostUsd,unpricedCalls`), for finance. Same route, same auth, same window — a projection, not a new surface. A row that could not be priced exports an **empty** cost cell, never `0`. The `team` column is omitted entirely for the public funnel. Kept separate from `?format=csv` on purpose: the per-day export's shape is a reconciliation artifact downstream sheets key on, and a lane is not a property of a day's scan count. **Linked from the page** as the third export button — for its first months it was built, correct, reconciling and reachable only by hand-typing the query string (UAT MC-B19). |
 | `src/app/usage/usageShowbackPanel.tsx` | **Showback · lane × team**, on the page, under the two panels it joins (MC-B45). Lanes down, teams across, `Org-wide (no repo)` last; a pair with nothing recorded is an em dash with the reason on hover, a pair that ran unpriced says *no estimate* with its unpriced count. The table scrolls inside its own container so the page body never scrolls sideways. **Before any team is attributed** — no repo in the window has a CODEOWNERS default owner — it renders no grid at all and says attribution is on and accruing, because a one-column table of `Org-wide / $0.00` reads as a finding rather than as a wait. Renders nothing when the ledger is empty; the lane table above has already said so. |
