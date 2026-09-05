@@ -205,8 +205,16 @@ export function __resetRateLimiterState(): void {
   stats.peakKeys = 0;
 }
 
-/** Record a hit for `key` and report whether it is now over `limit` within `windowMs`. */
-function hit(key: string, limit: number, windowMs: number): { ok: boolean; retryAfterSec: number } {
+/**
+ * Would a hit on `key` be admitted within `limit`/`windowMs`? Records NOTHING — it only trims the
+ * aged-out entries it had to compute anyway.
+ *
+ * QUOTA #3: the check and the record are separate steps because a request can still be refused by a
+ * LATER gate (the global ceiling, or the fail-closed "store unreachable" branch). A slot must be
+ * spent only by a request that was actually SERVED, so callers check every gate first and record the
+ * per-IP hit only on the admit path. See `rateLimitRequest`.
+ */
+function checkWindow(key: string, limit: number, windowMs: number): { ok: boolean; retryAfterSec: number } {
   const now = Date.now();
   const cutoff = now - windowMs;
   if (windowMs > maxWindowMs) maxWindowMs = windowMs;
@@ -231,9 +239,30 @@ function hit(key: string, limit: number, windowMs: number): { ok: boolean; retry
     const retryAfterSec = oldest != null ? Math.max(1, Math.ceil((oldest + windowMs - now) / 1000)) : 1;
     return { ok: false, retryAfterSec };
   }
+  // Persist the trimmed window (nothing added). An entry that trimmed to empty is dropped rather than
+  // left as an empty array, so a check that ends in a refusal elsewhere leaves no residue for the
+  // reaper to walk.
+  if (recent.length) windows.set(key, recent);
+  else windows.delete(key);
+  return { ok: true, retryAfterSec: 0 };
+}
+
+/** Record one ADMITTED hit for `key`. Re-reads the window rather than reusing the array a preceding
+ *  `checkWindow` trimmed, because the shared path awaits a network hop in between. */
+function recordHit(key: string, windowMs: number): void {
+  const now = Date.now();
+  const cutoff = now - windowMs;
+  const recent = (windows.get(key) ?? []).filter((t) => t > cutoff);
   recent.push(now);
   windows.set(key, recent);
-  return { ok: true, retryAfterSec: 0 };
+}
+
+/** Check `key` against `limit`/`windowMs` and record the hit iff it is admitted. The one-step form,
+ *  used for the GLOBAL window (nothing can refuse after it). */
+function hit(key: string, limit: number, windowMs: number): { ok: boolean; retryAfterSec: number } {
+  const r = checkWindow(key, limit, windowMs);
+  if (r.ok) recordHit(key, windowMs);
+  return r;
 }
 
 /**
@@ -319,14 +348,22 @@ export interface RateLimitResult {
  * therefore drains on schedule instead of being kept saturated by the very requests it rejects — a
  * 1s overload no longer escalates into a sustained instance-wide 429 lockout under normal follow-on
  * traffic. (A per-IP-rejected request still never reaches the global window, per QUOTA #1.)
+ *
+ * QUOTA #3 (the symmetric complement of #1): a request refused by the GLOBAL ceiling must not spend
+ * the caller's own per-IP slot either. The per-IP window is CHECKED first (so the QUOTA #1 ordering
+ * is unchanged — an over-cap IP still never reaches the global window) but RECORDED only once the
+ * global window has admitted. Otherwise, during global saturation an innocent caller's 20/min budget
+ * drains on requests that were never served, and a later `evaluated: false` refusal claiming "no
+ * budget of yours was exceeded" would be untrue.
  */
 export function rateLimitRequest(req: Request, cfg: RateLimitConfig): RateLimitResult {
-  const ip = clientIp(req);
-  const p = hit(`${cfg.name}:ip:${ip}`, cfg.perIp, cfg.windowMs);
+  const ipKey = `${cfg.name}:ip:${clientIp(req)}`;
+  const p = checkWindow(ipKey, cfg.perIp, cfg.windowMs);
   if (!p.ok) return perIpRefusal(cfg, p.retryAfterSec);
   const g = hit(`${cfg.name}:__global__`, cfg.global, cfg.windowMs);
-  if (g.ok) return { ok: true, retryAfterSec: 0 };
-  return globalRefusal(cfg, g.retryAfterSec);
+  if (!g.ok) return globalRefusal(cfg, g.retryAfterSec); // served nothing → charge nothing per-IP
+  recordHit(ipKey, cfg.windowMs);
+  return { ok: true, retryAfterSec: 0 };
 }
 
 /** A refusal by the caller's OWN budget: fully named, because the caller can act on it. */
@@ -370,22 +407,30 @@ function sharedFailOpen(): boolean {
  * the file header for the reasoning.
  */
 export async function rateLimitRequestShared(req: Request, cfg: RateLimitConfig): Promise<RateLimitResult> {
-  const ip = clientIp(req);
-  const p = hit(`${cfg.name}:ip:${ip}`, cfg.perIp, cfg.windowMs);
+  const ipKey = `${cfg.name}:ip:${clientIp(req)}`;
+  // QUOTA #3: checked now, recorded only on an admit — a global refusal, and the fail-closed
+  // "unavailable" refusal below, must leave the caller's own burst budget untouched.
+  const p = checkWindow(ipKey, cfg.perIp, cfg.windowMs);
   if (!p.ok) return perIpRefusal(cfg, p.retryAfterSec);
+  const admit = (): RateLimitResult => {
+    recordHit(ipKey, cfg.windowMs);
+    return { ok: true, retryAfterSec: 0 };
+  };
 
   const store = sharedWindowStore();
   if (!store) {
     const g = hit(`${cfg.name}:__global__`, cfg.global, cfg.windowMs);
-    return g.ok ? { ok: true, retryAfterSec: 0 } : globalRefusal(cfg, g.retryAfterSec);
+    return g.ok ? admit() : globalRefusal(cfg, g.retryAfterSec);
   }
 
   const g = await store.hit(`ascent:rl:${cfg.name}:__global__`, cfg.global, cfg.windowMs);
-  if (g) return g.ok ? { ok: true, retryAfterSec: 0 } : globalRefusal(cfg, g.retryAfterSec);
+  if (g) return g.ok ? admit() : globalRefusal(cfg, g.retryAfterSec);
 
   if (sharedFailOpen()) {
+    // Degraded but SERVED when the in-memory ceiling admits — so the per-IP slot is spent, exactly
+    // as on the healthy path.
     const local = hit(`${cfg.name}:__global__`, cfg.global, cfg.windowMs);
-    return local.ok ? { ok: true, retryAfterSec: 0 } : globalRefusal(cfg, local.retryAfterSec);
+    return local.ok ? admit() : globalRefusal(cfg, local.retryAfterSec);
   }
   // Fail closed — and say so honestly. NO LIMIT WAS EVALUATED here: the store never answered, so
   // nothing was counted and no window is draining. The old code returned one full window (60s),
@@ -395,7 +440,9 @@ export async function rateLimitRequestShared(req: Request, cfg: RateLimitConfig)
   // SHARED_STORE_BREAKER_MS, so that is what we advertise, with `evaluated: false` and
   // `scope: "unavailable"` so the caller can tell an outage from its own overuse. Trade-off: a
   // shorter Retry-After means clients come back sooner during a store outage; that is bounded by
-  // the per-IP burst cap, which is in-memory and still enforced.
+  // the per-IP burst cap, which is in-memory and still enforced. The caller's per-IP window was
+  // checked but NOT recorded (QUOTA #3), so `evaluated: false` — "no budget of yours was exceeded"
+  // — is now literally true: this refusal costs the caller nothing.
   return {
     ok: false,
     retryAfterSec: Math.max(1, Math.ceil(SHARED_STORE_BREAKER_MS / 1000)),
