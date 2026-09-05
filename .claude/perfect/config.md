@@ -1,7 +1,7 @@
 ---
 product: "ascent"
 stack: "a product that scores how AI-native a repository/org is (Next.js 16.3.0-preview.5 + React 19 + TS + Tailwind 4 + Prisma with embedded PGlite in dev; vitest for unit tests)"
-vault: ["C:/Users/kazda/Documents/Obsidian/ascent"]
+vault: ["C:/Users/mkdol/Documents/Obsidian/ascent", "C:/Users/kazda/Documents/Obsidian/ascent"]  # Fox, Wolf - first existing wins; each device keeps its own vault
 vault_subdir: Perfect
 base_branch: master
 wave_size: 3
@@ -17,7 +17,7 @@ locale_count: 1
 
 # perfect overlay - ascent
 
-First run: create `C:/Users/kazda/Documents/Obsidian/ascent` (the user keeps per-project vaults there).
+First run: create the vault root for THIS device (Fox: `C:/Users/mkdol/Documents/Obsidian/ascent`, Wolf: `C:/Users/kazda/Documents/Obsidian/ascent`) - the user keeps per-project vaults there. The vaults are per-device and not synced; a session on one device does not see the other's loop state.
 Builds fork from and land on `master` - if the session starts on a stray branch, note it and base the
 wave on `master`. `round_shape: round`: propose for 1-3 contexts, gate, build that slate immediately
 (the owner can say "hold" at the wave-plan gate); thin slates of 1-3 keep winning here.
