@@ -41,7 +41,8 @@ export function IntegrationsPanel({
               <Link href={orgTabHref(slug, "delivery")} className="text-accent transition hover:text-white">
                 AI delivery
               </Link>{" "}
-              views at the best fidelity it supports. Until one is connected, those views run on a simulated placeholder.
+              views at the best fidelity it supports. Until one that reports COST is connected, those views have no spend layer at all: the
+              money columns stay empty rather than being filled with an estimate.
             </p>
           </div>
           <ul className="flex flex-col gap-1.5">

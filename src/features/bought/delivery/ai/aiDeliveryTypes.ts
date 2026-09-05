@@ -13,9 +13,11 @@ export type ModelFidelity = "measured" | "allocated" | "none";
 // `Fidelity` (src/lib/integrations/providers.ts) says what a CONNECTOR can do; `ModelFidelity` says what
 // the built model ended up WITH. Two genuinely different statements — a Copilot org is `seats-only`
 // (the vendor never reports spend) while the model is `none` (no cost figure exists to show) — so they
-// stay two types. What changes is that the correspondence is now TYPED in both directions instead of
-// living in a reader's head: each Record is total over its key union, so adding a tier to either
-// vocabulary fails to compile until it has been mapped. The money columns depend on this alignment.
+// stay two types. What changes is that the correspondence is TYPED rather than living in a reader's
+// head: `MODEL_FIDELITY_OF_CONNECTOR` is total over `Fidelity`, so a fourth connector tier fails to
+// compile until it has been mapped. The money columns depend on that alignment. (There used to be a
+// reverse table too, `CONNECTOR_TIERS_BEHIND`; nothing ever read it, and an unread map is a second
+// place for the mapping to be wrong rather than a second guarantee — the forward one is the check.)
 
 /** What a connector at tier `f` can contribute to the model's spend layer, at best. */
 const MODEL_FIDELITY_OF_CONNECTOR: Record<Fidelity, ModelFidelity> = {
@@ -28,14 +30,6 @@ const MODEL_FIDELITY_OF_CONNECTOR: Record<Fidelity, ModelFidelity> = {
 export function modelFidelityOfConnector(f: Fidelity): ModelFidelity {
   return MODEL_FIDELITY_OF_CONNECTOR[f];
 }
-
-/** The reverse totality check: which connector tiers can produce each model state. `none` is reachable
- *  from `seats-only` AND from nothing being connected at all — which is why it is not the same member. */
-export const CONNECTOR_TIERS_BEHIND: Record<ModelFidelity, readonly Fidelity[]> = {
-  measured: ["measured"],
-  allocated: ["allocated"],
-  none: ["seats-only"],
-};
 
 // ── Per-figure provenance (D31) ──────────────────────────────────────────────────────────────────
 // One badge on the whole model covered a surface that mixes a git-MEASURED adoption rate with a
