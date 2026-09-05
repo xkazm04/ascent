@@ -43,6 +43,7 @@ const CFG = {
   batchSize: flag("batch-size", null), // items armed per lane (cap 12)
   agentTimeoutMin: flag("agent-timeout-min", null), // per-session ceiling for a larger change
   verifyMode: flag("verify", null), // on | off — the in-cycle degradation guard
+  verifyTimeoutMin: flag("verify-timeout-min", null), // per-check ceiling for the guard (cap 30 min)
   rescanCadence: flag("rescan", null), // cycle | run — one reading per run instead of per cycle
   concurrency: Number(flag("concurrency", "2")),
   // A run is long: an agent session alone is capped at 20 minutes per lane, and a rescan follows it.
@@ -59,6 +60,11 @@ const CFG = {
   // writes the same file again (observed: three runs, three branches, one identical
   // `.github/workflows/ai-review.yml`). Landing is what makes run N+1 start where run N finished.
   // Campaign-only on purpose — the product's own landing decision belongs to the sheet's review gate.
+  // `<command>` run as `<command> <dir> <branch>` when `--ff-only` refuses (diverged, or a dirty file
+  // in the way). The campaign has no opinion on what it does — cherry-pick onto the moved tip, skip a
+  // file, open a PR — only that a refusal must not silently strand the run's work, because the next
+  // run cuts from HEAD and re-does it (measured 2026-09-05: two of six pumper rounds were duplicates).
+  landFallback: flag("land-fallback", null),
   paths: Object.fromEntries(
     (flag("land", "") || "")
       .split(",")
@@ -129,8 +135,14 @@ function runBlock(index, detail) {
   const commits = outcomes.reduce((n, o) => n + (o.commits ?? 0), 0);
   const closed = outcomes.reduce((n, o) => n + (o.closedFollowUpIds?.length ?? 0), 0);
   const head = `RUN ${index}/${CFG.runs} · ${run.id} · ${run.phase} · ${run.model ?? "?"}${run.effort ? `/${run.effort}` : ""} · ${commits} commits · ${closed} closed`;
-  const econ = economics
-    ? `  cost $${((economics.costMicros ?? 0) / 1e6).toFixed(2)} · verified points ${economics.verifiedPoints ?? "—"}`
+  // `economics` is one row PER LANE (LaneEconomics[]), in micro-cents; sum it. A missing figure
+  // stays "—" rather than reading as a free run.
+  const rows = Array.isArray(economics) ? economics : [];
+  const priced = rows.filter((e) => e.costMicros != null);
+  const points = rows.filter((e) => e.verifiedPoints != null);
+  const econ = rows.length
+    ? `  cost ${priced.length ? `$${(priced.reduce((n, e) => n + e.costMicros, 0) / 1e8).toFixed(2)}` : "unknown"}` +
+      ` · verified points ${points.length ? points.reduce((n, e) => n + e.verifiedPoints, 0) : "—"}`
     : null;
   return [head, ...outcomes.map(laneBlock), econ].filter(Boolean).join("\n");
 }
@@ -159,6 +171,14 @@ function landRun(detail, say) {
     } catch (err) {
       const msg = String(err?.stderr ?? err?.message ?? err).split("\n")[0];
       say(`  LAND FAILED ${shortRepo(repo)} ${branch}: ${msg}`);
+      if (CFG.landFallback) {
+        try {
+          const out = execFileSync(CFG.landFallback, [dir, branch], { encoding: "utf8", shell: true, stdio: ["ignore", "pipe", "pipe"] }).trim();
+          say(`  land-fallback ${shortRepo(repo)}: ${out.split("\n").slice(-1)[0]}`);
+        } catch (e2) {
+          say(`  land-fallback FAILED ${shortRepo(repo)}: ${String(e2?.stdout ?? e2?.message ?? e2).split("\n").slice(-3).join(" | ")}`);
+        }
+      }
     }
   }
 }
@@ -187,6 +207,14 @@ function landPending(say) {
         landed++;
       } catch {
         /* superseded or would touch a modified file — leave it alone and say so in the total */
+        if (!CFG.landFallback) continue;
+        try {
+          const out = execFileSync(CFG.landFallback, [dir, branch], { encoding: "utf8", shell: true, stdio: ["ignore", "pipe", "pipe"] }).trim();
+          say(`  land-fallback ${shortRepo(repo)} ${branch}: ${out.split("\n").slice(-1)[0]}`);
+          landed++;
+        } catch (e2) {
+          say(`  land-fallback FAILED ${shortRepo(repo)} ${branch}: ${String(e2?.stdout ?? e2?.message ?? e2).split("\n").slice(-2).join(" | ")}`);
+        }
       }
     }
     if (landed > 0) say(`  landed ${landed} pending branch(es) into ${shortRepo(repo)} @ ${git(dir, "rev-parse", "--short", "HEAD")}`);
@@ -250,6 +278,7 @@ async function main() {
           ...(CFG.batchSize ? { batchSize: Number(CFG.batchSize) } : {}),
           ...(CFG.agentTimeoutMin ? { agentTimeoutMs: Number(CFG.agentTimeoutMin) * 60_000 } : {}),
           ...(CFG.verifyMode ? { verifyMode: CFG.verifyMode } : {}),
+          ...(CFG.verifyTimeoutMin ? { verifyTimeoutMs: Number(CFG.verifyTimeoutMin) * 60_000 } : {}),
           ...(CFG.rescanCadence ? { rescanCadence: CFG.rescanCadence } : {}),
         }),
       });
