@@ -70,7 +70,8 @@ const handle = (event, data) => {
       );
     }
   } else if (event === "result") {
-    console.log(`\nDone: ${data.scanned}/${data.total} scanned (${ok} ok, ${failed} failed).`);
+    console.log(`\nDone: ${data.scanned}/${data.total} scanned (${ok} ok, ${failed} failed, ${skipped} skipped).`);
+    if (data.skippedInProgress) console.log(`  ${data.skippedInProgress} skipped as in_progress: another run holds a live ScanJob claim (15-minute lease). Retry after it expires.`);
     console.log(`Open: ${base}${data.dashboard}`);
   } else if (event === "error") {
     console.error(`\nERROR: ${data.error}`);
