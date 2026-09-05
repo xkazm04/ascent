@@ -180,18 +180,99 @@ export async function orgTracksRepo(orgSlug: string, repoFullName: string): Prom
   return Boolean(row);
 }
 
-/** Every admission row for an org, by repo name. Empty (not null) without a DB — a caller asking for
- *  a fleet list wants a list; the per-repo read is where "unavailable" is distinguishable. */
+/**
+ * The row a repo WOULD have if someone read it through `getRepoAdmission` — computed, never written.
+ *
+ * A READ MUST NOT SEED. The lazy seed in `getRepoAdmission` exists so the gate and the MCP tools can
+ * ask about one repo and get an answer; making the fleet LIST seed would write a row for every
+ * repository an org tracks the first time anyone opened the Governance tab, which is a decision-shaped
+ * artifact created by a page view. So this derives the identical state in memory instead, and the row
+ * is only ever persisted by the POST an owner actually clicks.
+ *
+ * It is byte-for-byte what the seed would have written: `grantedTier = derivedTier`, the middle rung
+ * (`assisted-only`), `decidedBy` NULL. Every reader that distinguishes a seed from a decision does it
+ * on `decidedBy`, so a derived row and a seeded row are indistinguishable — which is correct, because
+ * they say the same thing.
+ *
+ * `id` and the timestamps are EMPTY rather than invented: nothing was written, and a fabricated
+ * `createdAt` would be a fact this row does not have. No caller reads them (the column keys on
+ * `repoFullName`), and a wire type may not carry a `Date` anyway.
+ *
+ * `derivedTier: null` (no passport) keeps the honest null: `grantedTier` then falls to "T0" purely to
+ * satisfy the non-null column, and never reaches a reader — the view layer renders "tier not
+ * assessed" from `derivedTier === null`, and `getRepoAdmission` returns null for such a repo so the
+ * gate applies no bar to it at all.
+ */
+export function deriveRepoAdmission(
+  repoFullName: string,
+  derivedTier: AutonomyTierId | null,
+  stanceVersion: number,
+): RepoAdmissionRow {
+  return {
+    id: "",
+    repoFullName,
+    stanceVersion,
+    derivedTier,
+    grantedTier: derivedTier ?? "T0",
+    mode: "assisted-only",
+    decidedBy: null,
+    decidedAt: null,
+    rationale: "",
+    rulesetId: null,
+    createdAt: "",
+    updatedAt: "",
+  };
+}
+
+/**
+ * The org's whole admission picture: one row per TRACKED repository, carrying its derived tier and
+ * its decision when one exists — plus any decision whose repository the org has since stopped
+ * tracking.
+ *
+ * WHY THE REPOSITORY SET AND NOT THE `RepoAdmission` TABLE. This read used to be a plain `findMany`
+ * over the decisions, and no surface in the product seeds them: `getRepoAdmission`'s lazy seed is
+ * reached only from the gate, /admission/propose, /admission/ruleset and the MCP tools. So an org
+ * that had never called a gate saw an EMPTY column reading "no repository has an admission decision
+ * yet" — with no repository to click, and therefore no way to make the first one. The decision layer
+ * was reachable only after some other surface incidentally seeded a row.
+ *
+ * Tenancy is the tracked set for the same reason `orgTracksRepo` uses it: the `Repository` row IS the
+ * fact that the org has this repo, and `watched` is a rescan-cadence preference that answers a
+ * different question.
+ *
+ * A decision for a repo no longer in the tracked set is still returned. It is a record an owner made
+ * and can still withdraw, and dropping it from the only surface that can withdraw it would strand it.
+ *
+ * Empty (not null) without a DB — a caller asking for a fleet list wants a list; the per-repo read is
+ * where "unavailable" is distinguishable.
+ */
 export async function listOrgAdmissions(orgSlug: string): Promise<RepoAdmissionRow[]> {
   if (!isDbConfigured()) return [];
   const org = await getOrgBySlug(orgSlug);
   if (!org) return [];
-  const rows = await getPrisma().repoAdmission.findMany({
-    where: { orgId: org.id },
-    orderBy: { repoFullName: "asc" },
-    select: SELECT,
-  });
-  return rows.map(toRow);
+  const prisma = getPrisma();
+  const [repos, stored, stanceVersion] = await Promise.all([
+    prisma.repository.findMany({ where: { orgId: org.id }, select: { fullName: true, passportJson: true } }),
+    prisma.repoAdmission.findMany({ where: { orgId: org.id }, select: SELECT }),
+    activeStanceVersion(org.id),
+  ]);
+
+  const decided = new Map(stored.map((r) => [r.repoFullName, toRow(r)]));
+  const out: RepoAdmissionRow[] = [];
+  for (const repo of repos) {
+    const existing = decided.get(repo.fullName);
+    if (existing) {
+      decided.delete(repo.fullName);
+      out.push(existing);
+      continue;
+    }
+    // Same resolver, same call, as the seed — see `derivedTierFor`. Read from the passport already in
+    // hand rather than re-querying per repo: a fleet list must not be N+1 in the org's repo count.
+    const passport = parsePassportJson(repo.passportJson);
+    out.push(deriveRepoAdmission(repo.fullName, passport ? deriveAutonomyForStored(passport).tier : null, stanceVersion));
+  }
+  out.push(...decided.values());
+  return out.sort((a, b) => a.repoFullName.localeCompare(b.repoFullName));
 }
 
 /** The active published stance version, or 0 when the org has published none. */

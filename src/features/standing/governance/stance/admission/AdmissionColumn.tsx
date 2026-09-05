@@ -73,6 +73,10 @@ export function AdmissionColumn({ org, canEdit }: { org: string; canEdit: boolea
         </p>
       )}
       {!error && views === null && <p className="type-body-sm text-slate-500">Reading admission decisions…</p>}
+      {/* Every TRACKED repository is listed, decided or not, because the first decision has to be
+          makeable from here: this list read the decision table until 2026-09, and nothing in the
+          product seeds it, so an org that had never called a gate saw an empty column and no repo to
+          click. Reading this list writes nothing — the derived state is computed in memory. */}
       {!error && views !== null && (
         <>
           <p className="mb-3 type-body-sm text-slate-400">{admissionSummary(views)}</p>
@@ -87,20 +91,30 @@ export function AdmissionColumn({ org, canEdit }: { org: string; canEdit: boolea
   );
 }
 
+/** The neutral rail for a repo nothing has been recorded or measured for — never a mode colour. */
+const UNASSESSED_HEX = "#475569";
+
 function AdmissionRow({ org, view, canEdit, onSaved }: { org: string; view: AdmissionView; canEdit: boolean; onSaved: () => void }) {
-  const hex = MODE_HEX[view.mode];
+  // A repo with no passport and no decision has NO admission row at all, so the gate applies no bar
+  // to it. Painting it with the middle rung's colour and label would claim an enforcement that does
+  // not exist — the exact confusion between a measurement and a decision this column is here to end.
+  const hex = view.unassessed ? UNASSESSED_HEX : MODE_HEX[view.mode];
   return (
     <div className="relative overflow-hidden rounded-xl border border-divider bg-surface/40 px-4 py-3">
       <div aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ backgroundColor: hex }} />
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 pl-2">
         <span className="type-mono-sm text-slate-100">{view.name}</span>
         <span className="font-mono type-micro uppercase tracking-[0.18em]" style={{ color: hex }}>
-          {MODE_META[view.mode].label}
+          {view.unassessed ? "Not assessed" : MODE_META[view.mode].label}
         </span>
         <span className="font-mono type-micro tabular-nums text-slate-400">{view.tier ?? "tier not assessed"}</span>
         {/* A seed is not a decision, and the surface must never let the two look alike. */}
         <span className="type-body-sm text-slate-500">
-          {view.decided ? `decided by @${view.decidedBy}` : "seeded from the derived tier — nobody has decided"}
+          {view.decided
+            ? `decided by @${view.decidedBy}`
+            : view.unassessed
+              ? "nothing recorded — no admission bar applies here"
+              : "seeded from the derived tier — nobody has decided"}
         </span>
         {view.overridesDerived && (
           <span className="font-mono type-micro text-orange-300">overrides derived {view.overridesDerived}</span>
@@ -111,7 +125,9 @@ function AdmissionRow({ org, view, canEdit, onSaved }: { org: string; view: Admi
           </span>
         )}
         {view.rulesetId && <span className="font-mono type-micro text-emerald-300">ruleset applied</span>}
-        <span className="ml-auto type-body-sm text-slate-500">{MODE_META[view.mode].blurb}</span>
+        <span className="ml-auto type-body-sm text-slate-500">
+          {view.unassessed ? "Scan this repository to derive a tier, or record a decision now." : MODE_META[view.mode].blurb}
+        </span>
       </div>
       {canEdit && <AdmissionOverrideControl org={org} view={view} onSaved={onSaved} />}
     </div>

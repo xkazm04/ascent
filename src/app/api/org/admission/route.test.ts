@@ -115,6 +115,45 @@ describe("GET — member read", () => {
     expect(await res.json()).toEqual({ rows: [ROW], stanceVersion: 4 });
   });
 
+  // The point of the direction: an org with NO decision rows still gets a row per tracked repository,
+  // so the column has something to click and the first decision is makeable. The derivation lives in
+  // `listOrgAdmissions` (asserted against a prisma double in src/lib/db/org-admission.test.ts); what
+  // the route owes is passing every one of them through untouched, including the unassessed ones.
+  it("returns the derived view for a zero-decision org rather than an empty list", async () => {
+    const derived = (repoFullName: string, derivedTier: "T2" | null) => ({
+      ...ROW,
+      id: "",
+      repoFullName,
+      stanceVersion: 4,
+      derivedTier,
+      grantedTier: derivedTier ?? "T0",
+      mode: "assisted-only" as const,
+      decidedBy: null,
+      decidedAt: null,
+      rationale: "",
+      createdAt: "",
+      updatedAt: "",
+    });
+    mockList.mockResolvedValue([derived("acme/api", null), derived("acme/web", "T2")]);
+
+    const body = (await (await GET(new Request("http://localhost/api/org/admission?org=acme"))).json()) as {
+      rows: { repoFullName: string; decidedBy: string | null }[];
+    };
+
+    expect(body.rows).toHaveLength(2);
+    expect(body.rows.map((r) => r.repoFullName)).toEqual(["acme/api", "acme/web"]);
+    // Derived, not decided — the distinction every reader keys on.
+    expect(body.rows.every((r) => r.decidedBy === null)).toBe(true);
+  });
+
+  it("lets a stored decision overlay the derived one in the same list", async () => {
+    mockList.mockResolvedValue([{ ...ROW, repoFullName: "acme/api", id: "", decidedBy: null }, ROW]);
+    const body = (await (await GET(new Request("http://localhost/api/org/admission?org=acme"))).json()) as {
+      rows: { repoFullName: string; decidedBy: string | null; grantedTier: string }[];
+    };
+    expect(body.rows.find((r) => r.repoFullName === "acme/billing")).toMatchObject({ decidedBy: "octocat", grantedTier: "T3" });
+  });
+
   it("400s without ?org and honors the member gate's refusal", async () => {
     expect((await GET(new Request("http://localhost/api/org/admission"))).status).toBe(400);
     const { NextResponse } = await import("next/server");
