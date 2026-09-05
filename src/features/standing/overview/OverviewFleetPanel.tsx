@@ -95,6 +95,7 @@ export async function OverviewFleetPanel({
       sortDim={sortDim}
       badges={buildScoreBadges(rollup, comparisonLabel)}
       trend={{ points: buildTrendPoints(rollup.trend), label: periodTitle }}
+      forecast={rollup.forecast}
       postureCounts={rollup.postureCounts}
       dims={rollup.dimAverages}
       dimDeltas={rollup.dimDeltas ?? null}
