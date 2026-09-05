@@ -33,6 +33,8 @@ import { fail, findSkills, getGoverningSubject, getSkill, getSkillLessons, str, 
 import { citeMemory, reportSkillInvoke } from "@/lib/mcp/registry-writes";
 import { compareAgainstExemplar } from "@/lib/mcp/exemplar-tool";
 import { claimFollowupsTool, getFixBriefTool, reportAttemptTool } from "@/lib/mcp/work-tools";
+import { MCP_TOOLS } from "@/lib/mcp/tools";
+import { validateArgs } from "@/lib/mcp/validate-args";
 
 export interface ToolResult {
   structuredContent: unknown;
@@ -402,6 +404,17 @@ export interface McpPrincipal {
  * the state a fail-closed default should be in.
  */
 export async function runTool(name: string, org: string, args: Args, principal?: McpPrincipal): Promise<ToolResult> {
+  // THE SCHEMA IS ENFORCED HERE, BEFORE THE SWITCH — at the dispatcher rather than at either door, so
+  // the MCP route and Athena's in-process grounding cannot disagree about what a tool accepts, and a
+  // handler added by a future lane is validated without remembering to be. `null` for an unknown
+  // tool: that is the default branch's answer to give, not a schema complaint.
+  const def = MCP_TOOLS.find((t) => t.name === name);
+  const violation = def ? validateArgs(def.inputSchema, args) : null;
+  if (violation) {
+    // In-band, addressed to the model: the request was well-formed and its argument was not, which
+    // is something the caller can fix on its next call. See `validate-args.ts`.
+    return fail(`${violation} Fix the argument and call ${name} again — nothing was done.`);
+  }
   switch (name) {
     case "claim_followups":
       return principal ? claimFollowupsTool(org, args, principal) : unattributed(name);

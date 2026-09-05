@@ -36,10 +36,10 @@ import {
 } from "@/lib/org/followups";
 import { fail, str, type Args } from "@/lib/mcp/registry-reads";
 import type { McpPrincipal, ToolResult } from "@/lib/mcp/handlers";
+import { MAX_CLAIM_COUNT } from "@/lib/mcp/tools";
 import type { AutonomyTierId } from "@/lib/types";
 
 const DEFAULT_CLAIM_COUNT = 3;
-const MAX_CLAIM_COUNT = 10;
 
 const ids = (a: Args, k: string): string[] => {
   const v = a[k];
@@ -133,7 +133,12 @@ export async function claimFollowupsTool(org: string, args: Args, principal: Mcp
     );
   }
 
-  const leaseMs = clampLeaseMs(int(args, "leaseMinutes", 0, 0, 240) * 60_000 || null);
+  // THE LOWER BOUND MATCHES THE SCHEMA. This read used to clamp to `min: 0` while the schema declared
+  // `minimum: 5`, so an explicit `leaseMinutes: 0` became `0 * 60_000 || null` — the DEFAULT lease,
+  // silently, which is the one answer the caller did not ask for. `0` here means only "absent"; a
+  // value that reaches the clamp is already at or above the declared floor (the door validates it).
+  const askedMinutes = int(args, "leaseMinutes", 0, 5, 240);
+  const leaseMs = clampLeaseMs(askedMinutes > 0 ? askedMinutes * 60_000 : null);
   const res = await claimFollowups({
     org,
     ids: wanted.slice(0, MAX_CLAIM_COUNT),

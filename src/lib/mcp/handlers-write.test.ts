@@ -78,6 +78,8 @@ vi.mock("@/lib/local/loop-lane", () => ({
 }));
 
 const { claimFollowupsTool, getFixBriefTool, reportAttemptTool } = await import("@/lib/mcp/work-tools");
+const { runTool } = await import("@/lib/mcp/handlers");
+const { MAX_CLAIM_COUNT } = await import("@/lib/mcp/tools");
 
 /** The verified caller. `actor` is the TOKEN ID form (`agent:<id>`); `label` is the token's name,
  *  which is a display string and never the identity. */
@@ -261,5 +263,38 @@ describe("get_fix_brief — only for rows this caller holds", () => {
     heldRows = [];
     const res = await getFixBriefTool("acme", { ids: ["rec-1"] }, P());
     expect(res.isError).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// THE SCHEMA IS ENFORCED AT DISPATCH (Direction 2). `validate-args.test.ts` proves the rules; this
+// proves the DOOR runs them — on `runTool`, so the MCP route and Athena's in-process grounding get
+// the same enforcement, and a violation is an in-band result the model can fix rather than a throw or
+// a protocol error.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+describe("runTool validates arguments before dispatching", () => {
+  const principal = P();
+
+  it("refuses an over-long `ids` IN BAND and claims nothing", async () => {
+    const ids = Array.from({ length: MAX_CLAIM_COUNT + 1 }, (_, i) => `rec-${i}`);
+    const res = await runTool("claim_followups", "acme", { repo: "acme/api", ids }, principal);
+    expect(res.isError).toBe(true);
+    expect(res.text).toMatch(new RegExp(`\`ids\` takes at most ${MAX_CLAIM_COUNT}`));
+    expect(res.text).toMatch(/claim_followups again/);
+    // The whole point of refusing rather than truncating: nothing was leased under a partial list.
+    expect(claims).toHaveLength(0);
+  });
+
+  it("refuses an undeclared argument rather than reading it", async () => {
+    const res = await runTool("report_attempt", "acme", { id: "rec-1", verdict: "skipped", reason: "r", who: "me" }, principal);
+    expect(res.isError).toBe(true);
+    expect(res.text).toMatch(/`who` is not an argument of this tool/);
+    expect(attempts).toHaveLength(0);
+  });
+
+  it("lets a conforming call through untouched", async () => {
+    const res = await runTool("report_attempt", "acme", { id: "rec-1", verdict: "skipped", reason: "r" }, principal);
+    expect(res.isError).toBeFalsy();
+    expect(attempts).toHaveLength(1);
   });
 });
