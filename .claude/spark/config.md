@@ -110,6 +110,29 @@ Pasted verbatim into every builder brief:
 
 ## Skill improvement log
 
+- 2026-09-05 (knowledge-base-rebuild): **the prototype round blocked on an unonboarded device.** The
+  operator answered the pick gate with "onboard ascent on this device first". Before the go-gate,
+  verify the operator can OBSERVE the surface: a dev server they can reach, an org with data, and the
+  flags the switcher gates on (here `ASCENT_REGISTRY_PREVIEW`, which `next dev` does NOT hot-reload —
+  a restart is required). The registry's `onboarding` skill + `npm run doctor` is the 10-minute path.
+- 2026-09-05 (knowledge-base-rebuild): **curl is the wrong instrument for a client-rendered Suspense
+  boundary** — the strip was in the RSC payload but not in the HTML, and grep said "not rendered".
+  Verify UI in headless Chromium (`playwright` is a dev dep; `npx playwright install chromium`; run the
+  script from the repo root so the package resolves).
+- 2026-09-05 (knowledge-base-rebuild): **`scripts/seed-org.mjs` skips read as successes** until this
+  run fixed it; a repo answers `skipped: in_progress` while another run's ScanJob claim (15-minute
+  lease) is live — including claims a killed dev server left behind. `scripts/seed-fleet.mjs <org>`
+  (synthetic, in-server, no GitHub) is the reliable way to get a populated org for UI work.
+- 2026-09-05 (knowledge-base-rebuild): a **session-limit 429 killed the WP1 builder mid-package**;
+  resuming from its in-place edits was safe precisely because builders never touch the index — keep
+  that law, and re-run the scoped suites before trusting a builder's last message as its final state.
+- 2026-09-05 (knowledge-base-rebuild): the operator's `next dev` (a cmd-launched process) had to be
+  killed to load a new env file; a killed Turbopack server can leave `.next/dev/types/validator.ts`
+  corrupted, which fails `tsc` on a file that is not ours — delete it, it regenerates.
+- 2026-09-05 (knowledge-base-rebuild): worked on a branch in the main checkout instead of a worktree
+  (clean tree, operator's dev server here, junction build lesson). No collision; keep it as the
+  prototype-round default and use a worktree only when the tree is dirty.
+
 - 2026-09-01 (weekly-digest, eval run): **the node_modules junction blocks `npm run build`** (the
   2026-08-22 line below, confirmed again): Turbopack fails with "Symlink [project]/node_modules is
   invalid". In a worktree you may not `npm install` into (a junction into another checkout), the
