@@ -48,6 +48,7 @@ import { levelForScore } from "@/lib/maturity/model";
 import { trajectoryLine } from "@/lib/maturity/forecast";
 import { publicBaseUrl } from "@/lib/site";
 import { resolveWindow, weekRangeParams } from "@/lib/window";
+import { orgWindowBounds } from "@/lib/org/period";
 import { orgTabHref } from "@/lib/org/orgTabs";
 
 export const runtime = "nodejs";
@@ -87,7 +88,9 @@ export async function GET(request: Request) {
   const weekParams = weekRangeParams();
   const period = resolveWindow(weekParams);
   const windowStart = period.start ?? new Date(Date.now() - 7 * 86_400_000);
-  const win: OrgWindow = { start: period.start, end: period.end };
+  // Half-open `{ start, endExclusive }` from the one adapter — the digest and the Briefing page it
+  // links to must not close the same week differently.
+  const win: OrgWindow = orgWindowBounds(period);
   // Query string that makes the linked briefing reproduce the digest's exact window.
   const periodQs = `range=custom&from=${weekParams.from}&to=${weekParams.to}`;
 

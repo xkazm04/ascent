@@ -40,7 +40,7 @@ import { ProgramPanel } from "./ProgramPanel";
 import { resolveStackScope } from "@/lib/org/scope";
 import { planAllowsWhiteLabel } from "@/lib/plans";
 import { hasOrgRole } from "@/lib/authz";
-import { resolveOrgWindow } from "@/lib/org/period";
+import { orgWindowBounds, resolveOrgWindow } from "@/lib/org/period";
 import { chipButtonClass } from "@/components/ui";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
@@ -51,7 +51,7 @@ export async function ExecutiveTab({ slug, sp }: { slug: string; sp: SearchParam
   const segmentId = typeof sp.segment === "string" ? sp.segment : null;
   // ?stack=<key> scopes the whole briefing to one tech-stack group (Feature 3b) — a per-stack briefing.
   const { techGroups, activeStack, techGroupId } = await resolveStackScope(slug, sp);
-  const briefing = await buildExecBriefing(slug, { start: period.start, end: period.end }, period.title, segmentId, techGroupId);
+  const briefing = await buildExecBriefing(slug, orgWindowBounds(period), period.title, segmentId, techGroupId);
 
   if (!briefing) {
     return (
@@ -82,7 +82,7 @@ export async function ExecutiveTab({ slug, sp }: { slug: string; sp: SearchParam
   // buildExecBriefing: the briefing is the narrative artifact that also renders on the public share
   // page and in the board PDF, and this ledger is an authenticated in-app panel. Degrades to null
   // (panel omitted) rather than failing the tab — it is evidence, not chrome the page needs.
-  const impact = await getOrgImpactLedger(slug, { start: period.start, end: period.end }).catch(() => null);
+  const impact = await getOrgImpactLedger(slug, orgWindowBounds(period)).catch(() => null);
   // The transition programme (W1c) — relocated here from the deleted Plan tab: this is the leadership
   // surface, and the programme is the named, dated commitment leadership reads the briefing against.
   const program = await getOrgProgram(slug).catch(() => null);

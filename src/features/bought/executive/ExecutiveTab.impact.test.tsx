@@ -46,7 +46,12 @@ vi.mock("@/lib/org/briefing", () => ({
     b.forecastConfidence != null ? `trend confidence ${b.forecastConfidence}%` : null,
   valueRealizedLine: () => null,
 }));
-vi.mock("@/lib/org/period", () => ({ resolveOrgWindow: mockResolveOrgWindow }));
+// `orgWindowBounds` is the pure half-open adapter the tab now hands the db layer; it is stubbed with
+// its real (one-line) shape so these tests still assert the WINDOW the tab passes, not the adapter.
+vi.mock("@/lib/org/period", () => ({
+  resolveOrgWindow: mockResolveOrgWindow,
+  orgWindowBounds: (w: { start: Date | null; endExclusive: Date | null }) => ({ start: w.start, endExclusive: w.endExclusive }),
+}));
 vi.mock("@/lib/org/scope", () => ({ resolveStackScope: mockResolveStackScope }));
 vi.mock("@/lib/authz", () => ({ hasOrgRole: mockHasOrgRole }));
 vi.mock("@/lib/briefing-share", () => ({ briefingShareEnabled: mockBriefingShareEnabled }));
@@ -108,7 +113,7 @@ async function renderPage(slug = "acme") {
 
 beforeEach(() => {
   mockBuildExecBriefing.mockReset();
-  mockResolveOrgWindow.mockReset().mockResolvedValue({ start: null, end: null, title: "Last 90 days", key: "90d", from: null, to: null, comparisonLabel: "vs last 90 days" });
+  mockResolveOrgWindow.mockReset().mockResolvedValue({ start: null, end: null, endExclusive: null, title: "Last 90 days", key: "90d", from: null, to: null, comparisonLabel: "vs last 90 days" });
   mockResolveStackScope.mockReset().mockResolvedValue({ techGroups: [], activeStack: null, techGroupId: null });
   mockHasOrgRole.mockReset().mockResolvedValue(false);
   mockBriefingShareEnabled.mockReset().mockReturnValue(false);
@@ -119,8 +124,9 @@ describe("OrgExecutive page — the Impact Ledger (W1d)", () => {
   it("scopes the ledger to the SAME period as the rest of the briefing", async () => {
     mockBuildExecBriefing.mockResolvedValue(baseBriefing());
     const start = new Date("2026-05-01T00:00:00Z");
-    const end = new Date("2026-08-01T00:00:00Z");
-    mockResolveOrgWindow.mockResolvedValue({ start, end, title: "Last 90 days", key: "90d", from: null, to: null, comparisonLabel: "vs last 90 days" });
+    const endExclusive = new Date("2026-08-01T00:00:00Z");
+    const end = new Date(endExclusive.getTime() - 1);
+    mockResolveOrgWindow.mockResolvedValue({ start, end, endExclusive, title: "Last 90 days", key: "90d", from: null, to: null, comparisonLabel: "vs last 90 days" });
     mockGetOrgImpactLedger.mockResolvedValue({
       mergedCount: 1, verifiedCount: 1, awaitingRescan: 0, unmeasurable: 0,
       reposMoved: 1, dimPoints: 6, regressions: 0, byDim: [{ dimId: "D1", points: 6, prs: 1 }], rows: [],
@@ -128,7 +134,9 @@ describe("OrgExecutive page — the Impact Ledger (W1d)", () => {
 
     const el = await renderPage();
 
-    expect(mockGetOrgImpactLedger).toHaveBeenCalledWith("acme", { start, end });
+    // The ledger is scoped with the HALF-OPEN bounds — the same shape buildExecBriefing gets, so the
+    // ledger and the briefing beside it cannot disagree about a boundary scan.
+    expect(mockGetOrgImpactLedger).toHaveBeenCalledWith("acme", { start, endExclusive });
     const ledger = findElement(el, ImpactLedger)!;
     expect(ledger).not.toBeNull();
     expect(ledger.props.periodTitle).toBe("Last 90 days");

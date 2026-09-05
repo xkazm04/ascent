@@ -194,9 +194,12 @@ describe("GET /api/org/briefing/pdf", () => {
     const [, window, title] = mockBuild.mock.calls[0]!;
     expect(title).toBe("2026-01-01 → 2026-03-31");
     // Half-open interval semantics from the canonical time-zone policy: the window starts at the
-    // zoned midnight of `from`, and `end` is the last instant of `to`'s calendar day.
+    // zoned midnight of `from` and ends EXCLUSIVELY at the zoned midnight STARTING the day after `to`.
+    // The route hands the db layer `orgWindowBounds(period)`, so the inclusive `end` is not carried at
+    // all — one closure convention crosses the boundary (src/lib/org/period.dialect.test.ts).
     expect((window as { start: Date | null }).start?.toISOString()).toBe("2026-01-01T00:00:00.000Z");
-    expect((window as { end: Date | null }).end?.toISOString()).toBe("2026-03-31T23:59:59.999Z");
+    expect((window as { endExclusive: Date | null }).endExclusive?.toISOString()).toBe("2026-04-01T00:00:00.000Z");
+    expect(Object.keys(window as object).sort()).toEqual(["endExclusive", "start"]);
   });
 
   it("an explicit ?range= still WINS over the cookie (a shared link stays authoritative)", async () => {

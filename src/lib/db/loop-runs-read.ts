@@ -4,7 +4,8 @@
 // Import from the `@/lib/db/loop-runs` barrel; this module is an implementation split.
 
 import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
-import { getOrgBySlug } from "@/lib/db/org-shared";
+import { dateRange, getOrgBySlug } from "@/lib/db/org-shared";
+import type { OrgWindow } from "@/lib/db/org-rollup";
 import { getScanComparison } from "@/lib/db/scans-read";
 import { diffScans } from "@/lib/report/compare";
 import { attributeDelivered } from "@/lib/maturity/attribution";
@@ -325,7 +326,10 @@ export async function getLoopRunDetail(id: string): Promise<LoopRunDetail | null
  */
 export async function listLaneImpactInputs(
   orgSlug: string,
-  window: { start: Date | null; end: Date | null } = { start: null, end: null },
+  // The family's window shape, so the half-open `{ start, endExclusive }` its only caller
+  // (getOrgImpactLedger) now receives is honored through the SHARED `upperBound` helper instead of a
+  // local `lte: end`. Row-identical at millisecond resolution; one closure convention.
+  window: OrgWindow = { start: null, endExclusive: null },
 ): Promise<LaneImpactInput[]> {
   if (!isDbConfigured()) return [];
   return dbReadSafe<LaneImpactInput[]>(async () => {
@@ -336,9 +340,7 @@ export async function listLaneImpactInputs(
       where: {
         run: { is: { orgId: org.id } },
         phase: "done",
-        ...(window.start || window.end
-          ? { endedAt: { ...(window.start ? { gte: window.start } : {}), ...(window.end ? { lte: window.end } : {}) } }
-          : {}),
+        ...dateRange(window.start, window, "endedAt"),
       },
       orderBy: [{ endedAt: "desc" }, { id: "desc" }],
       take: 500,

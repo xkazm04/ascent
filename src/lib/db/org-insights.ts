@@ -1,6 +1,14 @@
 // Org insight aggregates over the fleet's latest scans: movers (F1), org-level recommendations (F2),
 // the assignable backlog, calibration discrepancies, the practice library (P2), cross-repo gap
 // analysis, and the corpus benchmark (F6). All guarded by DATABASE_URL.
+//
+// WHAT THE WINDOW MEANS HERE — getOrgMovers takes the same half-open `[start, endExclusive)` bounds
+// as every other org reader, but its "now" is the latest scan INSIDE the window (compared against the
+// latest scan strictly before `start`). A mover is a before/after MEASUREMENT, so both endpoints must
+// be real scans; a repo with no scan during the period simply has no move to report. This is NOT
+// getOrgRollup's rule, which takes each repo's latest scan at-or-before the upper bound with no lower
+// bound at all — so a repo can be inside the rollup average and absent from movers. By design; see
+// org-rollup.ts' header for the full per-reader table. (Pinned by src/lib/org/period.dialect.test.ts.)
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { DIMENSION_BY_ID, weightsFor } from "@/lib/maturity/model";

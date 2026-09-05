@@ -16,7 +16,7 @@ import { buildScoreBadges, buildTrendPoints } from "./overviewStanding";
 import { buildTrajectories } from "./repoTrajectory";
 import { getOrgRepoHistories, getOrgRollup } from "@/lib/db";
 import type { OrgScope } from "@/lib/org/scope";
-import type { ResolvedWindow } from "@/lib/window";
+import type { OrgWindow } from "@/lib/db/org-rollup";
 import { orgTabHref } from "@/lib/org/orgTabs";
 
 export async function OverviewFleetPanel({
@@ -32,7 +32,10 @@ export async function OverviewFleetPanel({
   /** The SHARED scope promise created once in OverviewTab and awaited in both boundaries — one
    *  query, two independently-streaming regions. Awaiting a promise twice does not re-run it. */
   scope: Promise<OrgScope>;
-  win: Pick<ResolvedWindow, "start" | "end">;
+  /** The window as the db layer takes it — half-open `{ start, endExclusive }` from `orgWindowBounds`
+   *  (see src/lib/org/period.ts). `Pick<ResolvedWindow, "start" | "end">` required the deprecated
+   *  inclusive bound and so kept the tab on the old dialect. */
+  win: OrgWindow;
   periodTitle: string;
   /** The window's canonical delta basis ("vs 30d ago", "vs quarter start"), from `ResolvedWindow`.
    *  Printed beside the standing strip's period arrows so the movement states its endpoints. */

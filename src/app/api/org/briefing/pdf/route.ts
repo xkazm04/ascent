@@ -12,7 +12,7 @@ import { buildExecBriefing } from "@/lib/org/briefing";
 import { getCreditState, getOrgBranding, getTechGroupIdByKey, isDbConfigured } from "@/lib/db";
 import { planAllowsWhiteLabel } from "@/lib/plans";
 import { requireOrgRead } from "@/lib/authz";
-import { resolveOrgWindow } from "@/lib/org/period";
+import { orgWindowBounds, resolveOrgWindow } from "@/lib/org/period";
 import { attachBriefingNarrative } from "@/lib/org/briefing-narrative";
 import { resolveSafeLogoDataUri } from "@/lib/net/logo-fetch";
 import { safeFilenameSegment } from "@/lib/export/filename";
@@ -54,7 +54,7 @@ export async function GET(request: Request) {
   if (stackKey && !techGroupId) {
     return NextResponse.json({ error: "Unknown tech-stack scope for this organization." }, { status: 404 });
   }
-  const built = await buildExecBriefing(org, { start: period.start, end: period.end }, period.title, segmentId, techGroupId).catch(
+  const built = await buildExecBriefing(org, orgWindowBounds(period), period.title, segmentId, techGroupId).catch(
     () => null,
   );
   if (!built) {

@@ -53,7 +53,12 @@ vi.mock("@/lib/org/briefing", () => ({
     b.forecastConfidence != null ? `trend confidence ${b.forecastConfidence}%` : null,
   valueRealizedLine: () => null,
 }));
-vi.mock("@/lib/org/period", () => ({ resolveOrgWindow: mockResolveOrgWindow }));
+// `orgWindowBounds` is the pure half-open adapter the tab now hands the db layer; it is stubbed with
+// its real (one-line) shape so these tests still assert the WINDOW the tab passes, not the adapter.
+vi.mock("@/lib/org/period", () => ({
+  resolveOrgWindow: mockResolveOrgWindow,
+  orgWindowBounds: (w: { start: Date | null; endExclusive: Date | null }) => ({ start: w.start, endExclusive: w.endExclusive }),
+}));
 vi.mock("@/lib/org/scope", () => ({ resolveStackScope: mockResolveStackScope }));
 vi.mock("@/lib/authz", () => ({ hasOrgRole: mockHasOrgRole }));
 vi.mock("@/lib/briefing-share", () => ({ briefingShareEnabled: mockBriefingShareEnabled }));
@@ -119,7 +124,7 @@ async function renderPage(slug = "acme") {
 
 beforeEach(() => {
   mockBuildExecBriefing.mockReset();
-  mockResolveOrgWindow.mockReset().mockResolvedValue({ start: null, end: null, title: "Last 90 days", key: "90d", from: null, to: null, comparisonLabel: "vs last 90 days" });
+  mockResolveOrgWindow.mockReset().mockResolvedValue({ start: null, end: null, endExclusive: null, title: "Last 90 days", key: "90d", from: null, to: null, comparisonLabel: "vs last 90 days" });
   mockResolveStackScope.mockReset().mockResolvedValue({ techGroups: [], activeStack: null, techGroupId: null });
   mockHasOrgRole.mockReset().mockResolvedValue(false);
   mockBriefingShareEnabled.mockReset().mockReturnValue(false);

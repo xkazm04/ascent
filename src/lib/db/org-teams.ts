@@ -5,6 +5,14 @@
 // responsible for — mapping a repo-centric dashboard onto how the org is actually structured. Inputs,
 // not rankings: the headline surfaces which team carries the most institutional AI knowledge and one
 // concrete pairing to spread it, never a leaderboard. All guarded by DATABASE_URL.
+//
+// WHAT THE WINDOW MEANS HERE — getOrgTeamRollup takes the same half-open `[start, endExclusive)`
+// bounds as every other org reader and reads getOrgMovers' endpoint rule: "now" is the latest scan
+// INSIDE the window, against the latest scan strictly before `start`, so a team mover has two real
+// measured ends. Unwindowed, it falls back to each repo's latest scan outright. Neither is
+// getOrgRollup's rule (latest scan at-or-before the upper bound, no lower bound), which is why a
+// team's repo set can contribute to the fleet average while showing no team movement. By design; see
+// org-rollup.ts' header. (Pinned by src/lib/org/period.dialect.test.ts.)
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { segmentScope, techGroupScope } from "@/lib/db/org-shared";

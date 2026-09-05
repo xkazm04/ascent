@@ -1,5 +1,18 @@
 // Org rollup: org-id resolution, per-repo watch/level state, and the org-rollup query that powers
 // the dashboard. All guarded by DATABASE_URL.
+//
+// WHAT THE WINDOW MEANS HERE — every reader in the org-*.ts family takes the same half-open
+// `[start, endExclusive)` bounds (`orgWindowBounds` in src/lib/org/period.ts), but they pick DIFFERENT
+// endpoints out of it, and that difference is deliberate:
+//   - getOrgRollup — "current" is each repo's LATEST SCAN AT-OR-BEFORE the upper bound, with NO lower
+//     bound (see the `scans: { where: upper … }` sub-select below). The rollup answers "where does the
+//     fleet stand as of the end of this period", so a repo last scanned before `start` still carries
+//     its most recent score into the fleet average. `start` bounds only the trend/baseline queries.
+//   - getOrgRepoHistories — EVERY scan inside the window, not an endpoint: it is a series, not a state.
+//   - getOrgMovers (org-insights.ts) / getOrgTeamRollup (org-teams.ts) — "now" is the latest scan
+//     INSIDE the window, because a move is a before/after MEASUREMENT and both ends must be real.
+// The visible consequence: a repo not scanned during the period counts in the rollup average and does
+// not appear in movers. The two are not expected to reconcile. (Pinned by src/lib/org/period.dialect.test.ts.)
 
 import { cache } from "react";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";

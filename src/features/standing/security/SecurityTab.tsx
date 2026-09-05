@@ -24,7 +24,7 @@ import { PersonalSecurity } from "@/components/org/PersonalSecurity";
 import { isPersonalOrg } from "@/lib/db";
 import { decisionMap } from "@/lib/org/decision-map";
 import { resolveStackScope } from "@/lib/org/scope";
-import { resolveOrgWindow } from "@/lib/org/period";
+import { orgWindowBounds, resolveOrgWindow } from "@/lib/org/period";
 import { scoreHex } from "@/lib/ui";
 import { chipButtonClass } from "@/components/ui";
 
@@ -39,7 +39,7 @@ export async function SecurityTab({ slug, sp }: { slug: string; sp: SearchParams
   // Optional tech-stack scope (Feature 3b): "Frontend security vs Backend" — scope the whole overview.
   const { techGroups, activeStack, techGroupId } = await resolveStackScope(slug, sp);
   const [sec, supply, decisions] = await Promise.all([
-    buildSecurityOverview(slug, { start: period.start, end: period.end }, period.title, techGroupId),
+    buildSecurityOverview(slug, orgWindowBounds(period), period.title, techGroupId),
     getOrgSupplyChain(slug, techGroupId),
     decisionMap(slug, "security"),
   ]);
