@@ -13,6 +13,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { runImportScan } from "@/components/onboarding/importScan";
 import { classifyScanFailure } from "@/components/onboarding/scanGate";
 import { resolveScanMode, type CreditRead } from "@/components/onboarding/scanMode";
+import { resolveImportPlan } from "@/components/onboarding/importPlan";
 import type { OrgCredit } from "@/components/onboarding/OnboardingFlow.model";
 import type { ScanRow } from "@/components/onboarding/OnboardingScanRow";
 
@@ -25,13 +26,32 @@ export interface RepoRetryDeps {
   fetchCredit: (org: string) => Promise<CreditRead>;
   /** In-flight retries: the synchronous double-click guard AND the unmount abort registry. */
   retries: { current: Map<string, AbortController> };
+  /** The select step's "fast preview first" choice for THIS run — read at click time from the same
+   *  store the batch read, so the retry reproduces the batch's plan rather than inventing one. */
+  previewFirst: boolean;
+  /** The select step's recurring weekly autoscan opt-in for THIS run. `false` must travel as `false`:
+   *  omitting `watch` lets runImportScan default it to `Boolean(installationId)` (and the server to
+   *  the weekly schedule), so one Retry click would re-subscribe the repo to a billable weekly
+   *  autoscan the user explicitly declined. */
+  watchOptIn: boolean;
   setRows: Dispatch<SetStateAction<Record<string, ScanRow>>>;
   setAnnounce: Dispatch<SetStateAction<string>>;
 }
 
 export async function runRepoRetry(deps: RepoRetryDeps): Promise<void> {
-  const { fullName, sourceLabel, sourceInstallId, credit, creditReady, fetchCredit, retries, setRows, setAnnounce } =
-    deps;
+  const {
+    fullName,
+    sourceLabel,
+    sourceInstallId,
+    credit,
+    creditReady,
+    fetchCredit,
+    retries,
+    previewFirst,
+    watchOptIn,
+    setRows,
+    setAnnounce,
+  } = deps;
 
   // Synchronous guard (the wizard's established pattern, OnboardingFlow.tsx): the second half of a
   // double-click lands before any re-render, so only a ref can stop the duplicate POST.
@@ -46,15 +66,31 @@ export async function runRepoRetry(deps: RepoRetryDeps): Promise<void> {
   try {
     // Re-check the money gate exactly as the batch did: a retry must not charge an org whose balance
     // drained mid-run, nor downgrade a paying org to a mock.
-    const { canRunReal } = await resolveScanMode({
+    const { canRunReal, publicFunnel } = await resolveScanMode({
       sourceInstallId,
       sourceLabel,
       credit,
       creditReady,
       fetchCredit,
     });
+    // Direction 6 — the retry POST must carry the SAME consent the select step obtained. The body used
+    // to send only { org, repos, installationId, mock }: omitting `watch` let runImportScan default it
+    // to `Boolean(installationId)` → true on the App path, with the server falling through to the
+    // weekly schedule, so one Retry click re-subscribed that repo to the recurring billable autoscan
+    // the user declined. Omitting `publicFunnel` made a public-handle retry credit-metered server-side
+    // (401 anonymous / 402 signed-in) right after the select step promised "no prepaid credits are
+    // used". Resolving the plan through the same pure function the batch used keeps the two in step.
+    const plan = resolveImportPlan({ canRunReal, publicFunnel, sourceInstallId, previewFirst, watchOptIn });
     const outcome = await runImportScan(
-      { org: sourceLabel, repos: [fullName], installationId: sourceInstallId ?? undefined, mock: !canRunReal },
+      {
+        org: sourceLabel,
+        repos: [fullName],
+        installationId: sourceInstallId ?? undefined,
+        mock: plan.mock,
+        watch: plan.watch,
+        schedule: plan.schedule,
+        publicFunnel,
+      },
       controller,
       {
         // Only ever write the key being retried: a stray event for another repo must not resurrect or

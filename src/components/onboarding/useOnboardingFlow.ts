@@ -525,6 +525,13 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
       creditReady,
       fetchCredit,
       retries: retriesRef,
+      // Direction 6: the retry resolves its request plan from the SAME two select-step stores the
+      // batch read, so watch/schedule/publicFunnel travel with the retry instead of falling back to
+      // runImportScan's App-path defaults (which re-subscribed a declined repo to the weekly draw).
+      // Read at click time, not at render: both stores are per-run and only reset by resetRun, which
+      // leaves the done screen entirely.
+      previewFirst: getPreviewFirst(),
+      watchOptIn: getAutoWatchOptIn(),
       setRows,
       setAnnounce,
     });
