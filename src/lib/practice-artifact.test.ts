@@ -4,7 +4,8 @@ import { resolve } from "node:path";
 import { describe, it, expect } from "vitest";
 import { buildArtifact, CI_NODE_VERSION, commandsFor, type LangCommands } from "./practice-artifact";
 import { buildConformanceWiring } from "@/lib/standard/wiring";
-import { PRACTICES } from "@/lib/practices";
+import { ALL_PRACTICES, EXTRA_PRACTICES, PRACTICES } from "@/lib/practices";
+import { artifactFingerprint } from "@/lib/practices/fingerprint";
 
 const ctx = { fullName: "acme/api", name: "api", description: "Billing API", primaryLanguage: "TypeScript", defaultBranch: "main" };
 
@@ -281,10 +282,80 @@ describe("buildArtifact", () => {
     expect(buildArtifact("nope", ctx)).toBeNull();
   });
 
+  // #15 — the tenth practice. `buildArtifact` resolved against the SPINE, so every door that offers a
+  // practice (/api/practices/generate, /apply, /apply-batch, /rollout, the local loop's practice lane)
+  // answered `unknown-practice` for a practice the Practice Library was already advertising. This is
+  // the FAIL-BEFORE: revert the `ALL_PRACTICES` lookup and it goes red.
+  it("builds an artifact for every practice in the FULL catalog, not just the spine", () => {
+    for (const p of ALL_PRACTICES) {
+      const a = buildArtifact(p.id, ctx);
+      expect(a, `practice ${p.id} should yield an artifact`).not.toBeNull();
+      expect(a!.body.length).toBeGreaterThan(40);
+    }
+  });
+
   it("degrades to placeholders when repo context is sparse", () => {
     const a = buildArtifact("agent-guidance", { fullName: "x/y", name: "y" })!;
     expect(a.body).toContain("<install deps>");
     expect(a.body).toContain("TODO");
+  });
+
+  it("keeps the nine spine practices byte-identical to their declared paths", () => {
+    expect(PRACTICES.map((p) => buildArtifact(p.id, ctx)!.path)).toEqual([
+      "AGENTS.md",
+      "docs/TESTING.md",
+      ".github/workflows/ci.yml",
+      ".github/workflows/ai-review.yml",
+      "docs/adr/0001-record-architecture-decisions.md",
+      ".github/pull_request_template.md",
+      "docs/COMMIT_CONVENTIONS.md",
+      "docs/AI_HARNESS.md",
+      "SECURITY.md",
+    ]);
+  });
+});
+
+// GENERATE (the preview a maintainer reads) and APPLY (the body the server re-generates and commits)
+// are two independent runs of this builder joined only by the fingerprint, so the tenth practice is
+// only applicable if BOTH produce a real spec and the two agree.
+describe("buildArtifact consolidate-guidance — the tenth practice generates and applies", () => {
+  it("lands at the ONE path the catalog declares, so the adoption ledger keys on it", () => {
+    const declared = EXTRA_PRACTICES.find((p) => p.id === "consolidate-guidance")!.artifactPath;
+    const a = buildArtifact("consolidate-guidance", ctx)!;
+    expect(a.path).toBe(declared);
+    expect(a.path).toBe("docs/AGENT-GUIDANCE.md");
+    expect(a.branch).toBe("ascent/consolidate-guidance");
+    expect(a.prTitle).toContain("One canonical agent guidance source");
+  });
+
+  it("names every guidance format the arbiter reads, so the inventory step is actionable", () => {
+    const body = buildArtifact("consolidate-guidance", ctx)!.body;
+    for (const f of ["CLAUDE.md", "AGENTS.md", ".cursorrules", ".github/copilot-instructions.md", ".windsurfrules"]) {
+      expect(body, `inventory should name ${f}`).toContain(f);
+    }
+    // Reconcile BEFORE generating: a contradiction copied into five files is still a contradiction.
+    expect(body).toContain("guidance:");
+    expect(body).toContain("canonical:");
+    expect(body).toContain("projections:");
+  });
+
+  it("survives the preview→apply fingerprint guard: same ctx, same body", () => {
+    const preview = buildArtifact("consolidate-guidance", ctx)!;
+    const applied = buildArtifact("consolidate-guidance", { ...ctx })!;
+    expect(artifactFingerprint(applied.body)).toBe(artifactFingerprint(preview.body));
+  });
+
+  it("carries the org's mined house pattern through the same section as the spine practices", () => {
+    const house = { lines: ["## Commands"], exemplars: ["acme/api", "acme/web"] };
+    const a = buildArtifact("consolidate-guidance", { ...ctx, house })!;
+    expect(a.body).toContain("Your organization's shared pattern");
+    expect(a.prBody).toContain("your organization's own");
+  });
+
+  it("degrades to placeholders when repo context is sparse", () => {
+    const a = buildArtifact("consolidate-guidance", { fullName: "x/y", name: "y" })!;
+    expect(a.body).toContain("TODO");
+    expect(a.body).toContain("<...>");
   });
 });
 

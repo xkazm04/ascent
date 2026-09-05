@@ -141,6 +141,12 @@ export const PRACTICES: PracticeDef[] = [
  * practices read the full list, while the by-dimension lookups keep reading the spine and keep
  * answering `agent-guidance` for D1.
  *
+ * "Surfaces that OFFER" is now literal, not aspirational. `buildArtifact` (practice-artifact.ts) and
+ * `minePracticeShapes` (org/practice-mining.ts) both resolve against `ALL_PRACTICES`, so
+ * /api/practices/generate, /apply, /apply-batch, /rollout and the local loop's practice lane can all
+ * produce this practice; it read `PRACTICES` until 2026-09 and every one of those doors answered
+ * `unknown-practice` for a practice the catalog was already advertising.
+ *
  * `consolidate-guidance` is the D1 practice for the repo that has the OPPOSITE problem — four vendor
  * formats saying four different things, so the answer an agent gets depends on which file it opened.
  * The guidance arbiter (analyze/guidance-graph.ts) is what detects that; this is what to do about it.
