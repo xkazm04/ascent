@@ -241,6 +241,85 @@ export function renderRulesetProposal(fullName: string, tier: AutonomyTierId | n
 }
 
 /**
+ * THE CLAUSES A STANCE CANNOT COMPILE, and why — the honest half of the policy.
+ *
+ * Extracted from `compileStance` (which now calls it, so there is exactly ONE derivation) because the
+ * list had exactly two readers, both of them MCP tools: the agent was told which clauses only it can
+ * honour, and the owner who publishes the stance was not. The Perimeter reads the same function at
+ * ORG scope, and a clause therefore cannot say one thing to an agent and another to a person.
+ *
+ * TWO SCOPES, ONE FUNCTION. `facts: null` is the org-wide reading — the clauses that are true of the
+ * DECLARATION itself, whichever repository it is applied to. A repo's facts add the two clauses that
+ * are only answerable per repository (unreadable branch governance, unobserved approval counts), and
+ * sharpen the path-zone clause from "advisory until compiled" to the paths actually uncovered.
+ *
+ * The org scope deliberately emits NOTHING it cannot know. It never claims a repo's branch protection
+ * is unreadable — it has read no repo — because a false "we cannot enforce this" is the same kind of
+ * lie as a false "we do".
+ */
+export function unenforceableClauses(
+  stance: AiStance,
+  facts: AdmissionRepoFacts | null,
+  opts: { owners?: string[] } = {},
+): UnenforceableClause[] {
+  const unenforceable: UnenforceableClause[] = [];
+
+  // permittedModels: NOT buildable, and the gap line stays in the docs rather than being deleted.
+  // `AiUsage` keys by (source, scope, scopeKey, day) and retains no model dimension, so nothing in
+  // the product observes which model wrote a change. A compiled control here would be a bar that can
+  // never fire, which reads to an auditor as "no violations".
+  if (stance.permittedModels.length > 0) {
+    unenforceable.push({
+      clause: `permittedModels (${stance.permittedModels.length} declared)`,
+      why: "No ingest retains a model dimension — AiUsage keys by (source, scope, scopeKey, day) — so a model allowlist cannot be observed, only declared. Enforcing it waits for a sensor that sees models.",
+    });
+  }
+  // permittedTools IS checked, but only as observed-vs-declared attribution in the stance evaluator;
+  // no control can stop an undeclared tool from being used, so say which half is which.
+  if (stance.permittedTools.length > 0) {
+    unenforceable.push({
+      clause: `permittedTools (${stance.permittedTools.length} declared)`,
+      why: "Observed after the fact from PR attribution (a stance finding), never prevented at commit time. Nothing in a repository can refuse a tool.",
+    });
+  }
+  const pathZones = stance.noAiZones.filter((z) => z.pathGlobs.length > 0);
+  if (pathZones.length > 0) {
+    if (facts) {
+      const uncovered = pathZones
+        .flatMap((z) => z.pathGlobs)
+        .filter((p) => !facts.codeownersPaths.includes(p));
+      if (uncovered.length > 0 && opts.owners?.length === 0) {
+        unenforceable.push({
+          clause: `no-AI path zones (${uncovered.length} path${uncovered.length === 1 ? "" : "s"} uncovered)`,
+          why: "A CODEOWNERS block needs an owner to name. The stance declares no reviewing team for these paths, so no block can be rendered — the clause stays advisory.",
+        });
+      }
+    } else {
+      const declared = pathZones.flatMap((z) => z.pathGlobs).length;
+      unenforceable.push({
+        clause: `no-AI path zones (${declared} path glob${declared === 1 ? "" : "s"} declared)`,
+        why: "Path scope is advisory until it is compiled per repository: a managed CODEOWNERS block can only be rendered where the stance names a reviewing team for the paths, and coverage is resolved against that repository's own CODEOWNERS.",
+      });
+    }
+  }
+  if (!facts) return unenforceable;
+
+  if (facts.protectedBranch === null) {
+    unenforceable.push({
+      clause: "branch protection",
+      why: "Default-branch governance was unreadable for this repository (no token, or the installation lacks the scope), so protection is unobserved — never reported as absent.",
+    });
+  }
+  if (facts.observedRequiredApprovals === null && stance.reviewTiers.length > 0) {
+    unenforceable.push({
+      clause: "per-tier review requirement",
+      why: "No required-approval count has been observed for this repository, so the declared review tier cannot be compared against reality. The proposal below states the bar; nothing yet confirms it.",
+    });
+  }
+  return unenforceable;
+}
+
+/**
  * Compile one repo's admission decision into its control set.
  *
  * `activeStanceVersion` is passed separately from the row's own `stanceVersion` on purpose: a stance
@@ -266,50 +345,7 @@ export function compileStance(
       ? "granted"
       : "derived";
 
-  const unenforceable: UnenforceableClause[] = [];
-
-  // permittedModels: NOT buildable, and the gap line stays in the docs rather than being deleted.
-  // `AiUsage` keys by (source, scope, scopeKey, day) and retains no model dimension, so nothing in
-  // the product observes which model wrote a change. A compiled control here would be a bar that can
-  // never fire, which reads to an auditor as "no violations".
-  if (stance.permittedModels.length > 0) {
-    unenforceable.push({
-      clause: `permittedModels (${stance.permittedModels.length} declared)`,
-      why: "No ingest retains a model dimension — AiUsage keys by (source, scope, scopeKey, day) — so a model allowlist cannot be observed, only declared. Enforcing it waits for a sensor that sees models.",
-    });
-  }
-  // permittedTools IS checked, but only as observed-vs-declared attribution in the stance evaluator;
-  // no control can stop an undeclared tool from being used, so say which half is which.
-  if (stance.permittedTools.length > 0) {
-    unenforceable.push({
-      clause: `permittedTools (${stance.permittedTools.length} declared)`,
-      why: "Observed after the fact from PR attribution (a stance finding), never prevented at commit time. Nothing in a repository can refuse a tool.",
-    });
-  }
-  const pathZones = stance.noAiZones.filter((z) => z.pathGlobs.length > 0);
-  if (pathZones.length > 0) {
-    const uncovered = pathZones
-      .flatMap((z) => z.pathGlobs)
-      .filter((p) => !facts.codeownersPaths.includes(p));
-    if (uncovered.length > 0 && opts.owners?.length === 0) {
-      unenforceable.push({
-        clause: `no-AI path zones (${uncovered.length} path${uncovered.length === 1 ? "" : "s"} uncovered)`,
-        why: "A CODEOWNERS block needs an owner to name. The stance declares no reviewing team for these paths, so no block can be rendered — the clause stays advisory.",
-      });
-    }
-  }
-  if (facts.protectedBranch === null) {
-    unenforceable.push({
-      clause: "branch protection",
-      why: "Default-branch governance was unreadable for this repository (no token, or the installation lacks the scope), so protection is unobserved — never reported as absent.",
-    });
-  }
-  if (facts.observedRequiredApprovals === null && stance.reviewTiers.length > 0) {
-    unenforceable.push({
-      clause: "per-tier review requirement",
-      why: "No required-approval count has been observed for this repository, so the declared review tier cannot be compared against reality. The proposal below states the bar; nothing yet confirms it.",
-    });
-  }
+  const unenforceable = unenforceableClauses(stance, facts, opts);
 
   const reviewFor = tier ? (stance.reviewTiers.find((t) => t.tier === tier)?.review ?? "") : "";
   const provenance: string[] = [];

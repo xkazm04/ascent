@@ -9,7 +9,9 @@ import { SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
 import { scoreHex } from "@/lib/ui";
 import type { AutonomyTierId } from "@/lib/types";
 import { reposByTier, type StanceOverview } from "@/lib/org/stance-overview";
+import { unenforceableClauses } from "@/lib/org/admission";
 import { CheckpointStrip, PerimeterBand, SealedZones, UnassessedRepos } from "./perimeterParts";
+import { UnenforceableClauses } from "./UnenforceableClauses";
 import { StanceApplyControl } from "./StanceApplyControl";
 import { AdmissionColumn } from "./admission/AdmissionColumn";
 
@@ -85,6 +87,11 @@ export function StancePerimeter({ overview, canEdit }: { overview: StanceOvervie
       <AdmissionColumn org={o.org} canEdit={canEdit} />
 
       <SealedZones zones={o.zones} />
+
+      {/* The honest half, from the SAME builder `compileStance` uses for the MCP tools — the agent
+          was told which clauses only it can honour; the owner publishing them was not. Facts are null
+          because this is the org-wide reading: no repository has been compiled at this altitude. */}
+      <UnenforceableClauses clauses={unenforceableClauses(o.stance, null)} />
     </div>
   );
 }
