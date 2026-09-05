@@ -7,7 +7,9 @@
 
 import { Meter, fmtHours } from "@/components/org/shared/ui";
 import type { OrgPrSignals } from "@/lib/db";
+import type { FleetRateId } from "@/lib/db/org-signals";
 import { scoreHex } from "@/lib/ui";
+import { fleetBasisCopy, medianBasisCopy } from "./prBasis";
 
 export const REVIEW_TARGET = 80;
 
@@ -18,6 +20,7 @@ function Cell({
   color,
   meter,
   threshold,
+  basis,
 }: {
   label: string;
   value: string;
@@ -26,6 +29,9 @@ function Cell({
   /** 0–100 fill for the bottom meter; omit for non-rate readings (renders no bar, keeps the slot). */
   meter?: number;
   threshold?: number;
+  /** The rate's own denominator + contributing repo count (prBasis). Omitted for the two
+   *  non-rate hour readings, which are medians of medians and have no population to state. */
+  basis?: { short: string; full: string } | null;
 }) {
   return (
     <div className="-ml-px -mt-px flex flex-col border-l border-t border-divider px-4 py-3">
@@ -36,6 +42,16 @@ function Cell({
         </span>
         {sub && <span className="type-note text-slate-500">{sub}</span>}
       </div>
+      {/* The basis, stated per cell rather than implied by the section headline: these ten rates do
+          not share a denominator, and several rest on a handful of the fleet's repos. The terse form
+          is visible; the full sentence rides the title and an sr-only span so a screen reader and a
+          hover get the same claim. */}
+      {basis && (
+        <div className="mt-1 font-mono type-micro tabular-nums text-slate-600" title={basis.full}>
+          <span aria-hidden>{basis.short}</span>
+          <span className="sr-only">{basis.full}</span>
+        </div>
+      )}
       <div className="mt-auto pt-2">
         {meter != null && <Meter size="sm" value={meter} color={color} threshold={threshold} />}
       </div>
@@ -49,6 +65,12 @@ function Cell({
 const revertHex = (rate: number) => scoreHex(Math.max(0, 100 - rate * 6));
 
 export function PrSignalsBand({ pr }: { pr: OrgPrSignals }) {
+  // One lookup per cell, from the basis the producer already publishes (getOrgPrSignals.rateBasis).
+  const basis = (id: FleetRateId) => fleetBasisCopy(id, pr.rateBasis?.[id]);
+  // The two hour cells are means of per-repo medians, so their basis is the repo count that actually
+  // recorded one — counted here from the same rows the table below renders.
+  const withFirstReview = pr.perRepo.filter((r) => r.medianHoursToFirstReview != null).length;
+  const withMergeTime = pr.perRepo.filter((r) => r.medianHoursToMerge != null).length;
   return (
     <div className="overflow-hidden rounded-xl border border-divider bg-surface/40">
       {/* 10 cells since W2 — 2×5 keeps the band's rows even. */}
@@ -60,20 +82,34 @@ export function PrSignalsBand({ pr }: { pr: OrgPrSignals }) {
           color={pr.avgReviewedRate == null ? undefined : scoreHex(pr.avgReviewedRate)}
           meter={pr.avgReviewedRate ?? undefined}
           threshold={pr.avgReviewedRate == null ? undefined : REVIEW_TARGET}
+          basis={basis("reviewed")}
         />
         <Cell
           label="First review"
           value={fmtHours(pr.typicalHoursToFirstReview)}
           sub={pr.typicalHoursToFirstReview == null ? "no reviews sampled" : "typical wait, per-repo median"}
+          basis={medianBasisCopy(withFirstReview, "hours to first review")}
         />
-        <Cell label="Merge rate" value={`${pr.avgMergeRate}%`} color={scoreHex(pr.avgMergeRate)} meter={pr.avgMergeRate} />
-        <Cell label="Merge time" value={fmtHours(pr.typicalHoursToMerge)} sub="typical, per-repo median" />
+        <Cell
+          label="Merge rate"
+          value={`${pr.avgMergeRate}%`}
+          color={scoreHex(pr.avgMergeRate)}
+          meter={pr.avgMergeRate}
+          basis={basis("merge")}
+        />
+        <Cell
+          label="Merge time"
+          value={fmtHours(pr.typicalHoursToMerge)}
+          sub="typical, per-repo median"
+          basis={medianBasisCopy(withMergeTime, "hours to merge")}
+        />
         <Cell
           label="Small PRs"
           value={`${pr.avgSmallPrRate}%`}
           sub="≤200 lines"
           color={scoreHex(pr.avgSmallPrRate)}
           meter={pr.avgSmallPrRate}
+          basis={basis("smallPr")}
         />
         <Cell
           label="Reverts"
@@ -81,6 +117,7 @@ export function PrSignalsBand({ pr }: { pr: OrgPrSignals }) {
           sub={pr.avgRevertRate == null ? "not in these scans" : "of PRs (lower is better)"}
           color={pr.avgRevertRate == null ? undefined : revertHex(pr.avgRevertRate)}
           meter={pr.avgRevertRate ?? undefined}
+          basis={basis("revert")}
         />
         <Cell
           label="AI involved"
@@ -88,6 +125,7 @@ export function PrSignalsBand({ pr }: { pr: OrgPrSignals }) {
           sub="of all PRs"
           color={scoreHex(pr.avgAiInvolvedRate)}
           meter={pr.avgAiInvolvedRate}
+          basis={basis("aiInvolved")}
         />
         <Cell
           label="AI reviewed"
@@ -96,6 +134,7 @@ export function PrSignalsBand({ pr }: { pr: OrgPrSignals }) {
           color={pr.avgAiGovernedRate == null ? undefined : scoreHex(pr.avgAiGovernedRate)}
           meter={pr.avgAiGovernedRate ?? undefined}
           threshold={pr.avgAiGovernedRate == null ? undefined : REVIEW_TARGET}
+          basis={basis("aiGoverned")}
         />
         {/* W2 — trailer-grounded attribution (commit trailers, not self-declared markers). Uncolored
             like "AI involved" would mislead: it's context, not a target, so no scoreHex tone. */}
@@ -104,12 +143,14 @@ export function PrSignalsBand({ pr }: { pr: OrgPrSignals }) {
           value={pr.avgAiTrailerRate == null ? "—" : `${pr.avgAiTrailerRate}%`}
           sub={pr.avgAiTrailerRate == null ? "not in these scans" : "of merged PRs, from commit trailers"}
           meter={pr.avgAiTrailerRate ?? undefined}
+          basis={basis("aiTrailer")}
         />
         <Cell
           label="AI pre-review"
           value={pr.avgAiPreReviewedRate == null ? "—" : `${pr.avgAiPreReviewedRate}%`}
           sub={pr.avgAiPreReviewedRate == null ? "not in these scans" : "AI reviewed before a human"}
           meter={pr.avgAiPreReviewedRate ?? undefined}
+          basis={basis("aiPreReviewed")}
         />
       </div>
     </div>
