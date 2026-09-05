@@ -100,9 +100,18 @@ fresh scan in place.
    previous scan).
 5. **Maturity over time**: `TrendChart` (level-banded background) of persisted scans.
 6. **Strengths / Risks**: two `ListCard`s.
-7. **Radar + dimension breakdown**: `DimensionExplorer` — `RadarChart` plus a clickable
-   score-bar list, and one switchable `DimensionDetail` below it: summary, **evidence**,
-   **gaps**, a per-dimension sparkline, and a `ProvenanceTrack`.
+7. **Elevation + dimension breakdown**: `DimensionExplorer` — the nine dimensions on one
+   elevation gauge (`AltimeterGauge`: the five level bands as strata, a rope per dimension up to
+   its score, a hollow marker where the previous scan left it, a takeaway line naming the
+   leader, the trailer and the biggest lever), a synced **climber list** (`DimensionClimberList`:
+   level, weighted headroom "in reach" = `weight × (100 − score)` overall points, since-last
+   delta, score; sortable by rubric order / score / lever, which re-orders the gauge too), and
+   for the selected dimension a four-cell **reading strip** (`DimensionReading`: level + delta,
+   next rung, in reach, model vs detectors — or why the model's number was not used) over the
+   switchable `DimensionDetail`: summary, **evidence**, **gaps**, a per-dimension sparkline, and
+   a `ProvenanceTrack`. The derived facts are pure (`dimensionExplorerDerive.ts`). The radar
+   (`RadarChart`) no longer renders here; it still draws the passport hero and the sandbox.
+   An empty `dimensions` array (nothing could be scored) renders a section empty state.
 
    `ProvenanceTrack` draws **the mechanism that actually produced that dimension's number**,
    and only that mechanism (`src/lib/scoring/provenance.ts` classifies it from the dimension id
@@ -872,6 +881,11 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/components/report/Charts.tsx` | `ScoreRing`, `RadarChart`, `PostureQuadrant`. |
 | `src/components/report/TrendChart.tsx` | Overall trend + `Sparkline`. |
 | `src/components/report/DimensionTrends.tsx` | Per-dimension small multiples + range toggle. |
+| `src/components/report/DimensionExplorer.tsx` | The Dimensions section: elevation gauge + climber list + reading strip + detail. |
+| `src/components/report/AltimeterGauge.tsx` | Dependency-free SVG gauge: level strata, one rope per dimension, previous-scan markers; keyboard-selectable. |
+| `src/components/report/DimensionClimberList.tsx` | Sortable climber rows (level, headroom lever, delta, score) synced with the gauge. |
+| `src/components/report/DimensionReading.tsx` | Four-cell reading strip over the selected dimension's detail. |
+| `src/components/report/dimensionExplorerDerive.ts` | Pure facts per dimension (level, next rung, headroom, divergence, provenance) + the takeaway line. |
 | `src/app/trends/forecast.ts` | The trends forecast fit: full history, no range argument. |
 | `src/app/trends/TrajectoryPanel.tsx` | All-time trajectory panel; refuses to project a thin sample. |
 | `src/app/trends/annotations.ts` | Band-crossing / regression markers for the timeline. |

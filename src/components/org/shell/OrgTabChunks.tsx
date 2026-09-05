@@ -24,6 +24,7 @@ import { SettingsTab } from "@/features/admin/settings/SettingsTab";
 import { PairingTab } from "@/features/admin/pairing/PairingTab";
 import { OverviewTab } from "@/features/standing/overview/OverviewTab";
 import { ExecutiveTab } from "@/features/bought/executive/ExecutiveTab";
+import { DigestTab } from "@/features/bought/digest/DigestTab";
 import { LiveTab } from "@/features/inflight/live/LiveTab";
 import { SecurityTab } from "@/features/standing/security/SecurityTab";
 import { PassportsTab } from "@/features/standing/passports/PassportsTab";
@@ -96,6 +97,14 @@ export function OrgTabChunks({ slug, tab, sp }: { slug: string; tab: OrgTabId; s
         {tab === "executive" ? (
           <Suspense fallback={<OrgTabGap minH="min-h-[40rem]" />}>
             <ExecutiveTab slug={slug} sp={sp} />
+          </Suspense>
+        ) : null}
+
+        {/* The Briefing's fixed-window sibling: the trailing 7 days as a pasteable leadership update.
+            Takes `sp` for shell uniformity only — its window ignores the period selector. */}
+        {tab === "digest" ? (
+          <Suspense fallback={<OrgTabGap minH="min-h-[36rem]" />}>
+            <DigestTab slug={slug} sp={sp} />
           </Suspense>
         ) : null}
 

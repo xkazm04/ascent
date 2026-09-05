@@ -1,6 +1,7 @@
 ---
 name: prototype
 description: Iteratively prototype an ascent UI surface through directional variants behind a tab switcher, then consolidate and refactor the winner into the brand system. Use when the user wants to level up a component they consider a pillar of the app (visual appeal, creativity, UX clarity) — e.g. an org dashboard panel, a report view, the launch star-map, or an onboarding step. Not for fixed-scope tweaks or bug fixes.
+model: fable
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent
 ---
 
@@ -228,3 +229,9 @@ Red flags → reset direction: wholesale rejection round after round; the user r
 - [ ] If refactored: co-located sub-components mirror a sibling folder; `context-map.json` updated if ownership changed.
 
 When every box is checked, summarize the journey in 1-2 sentences (what metaphor won, what the winning variant does differently) — that's what the user quotes in a PR description.
+
+---
+
+## Model choice (bake-off 2026-09-01, DimensionExplorer)
+
+`model: fable`. Run head-to-head with identical inputs, both models produced three directions and pruned to one. Fable's Altimeter (an elevation gauge banded by the maturity levels, with a hollow previous-scan marker and keyboard-selectable columns) won the operator's pick and shipped in half the wall time; Opus's Strata Ledger read the scoring engine and surfaced weighted contribution points, integrity flags and the follow-up floor, and it added a dom test and a full-suite run. Keep Opus's calibration habit as a step: read the derivation in `src/lib/` (contributions, provenance, level bands) before drafting variants, and add a dom test to the consolidated winner.

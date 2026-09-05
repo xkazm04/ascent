@@ -268,9 +268,12 @@ export async function GET(request: Request) {
       const top = recs?.[0];
       const msg = buildFleetDigestMessage({
         org,
-        // Link straight to the exec briefing — the digest is its push-channel summary. Carry the same
-        // ?range=custom&from=&to= so the page reproduces the digest's exact "this week" window.
-        url: base ? `${base}${orgTabHref(org, "executive")}${orgTabHref(org, "executive").includes("?") ? "&" : "?"}${periodQs}` : undefined,
+        // Link to the Weekly digest tab — the in-app page this push summarizes. That page's window is
+        // FIXED at the same `weekRangeParams()` trailing week this route resolves above, so no
+        // ?range=custom&from=&to= needs to travel: the two cannot disagree about the period. (The extra
+        // alerts below still link into the Briefing with `periodQs`, because that page's window is
+        // selectable and must be pinned to the week explicitly.)
+        url: base ? `${base}${orgTabHref(org, "digest")}` : undefined,
         repoCount: rollup.repoCount,
         scannedCount: rollup.scannedCount,
         avgOverall: rollup.avgOverall,

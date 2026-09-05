@@ -82,6 +82,16 @@ describe("org tab catalog", () => {
     expect(Math.min(...sizes)).toBe(inflight?.items.length);
   });
 
+  // The weekly digest is the Briefing's fixed-window sibling: same audience, same group, read over a
+  // trailing week instead of the selected period. Its position is the product claim — a reader who
+  // opens Bought sees the standing briefing first and the week's update immediately under it.
+  it("puts the Weekly digest right after the Briefing in Bought", () => {
+    const bought = ORG_NAV_GROUPS.find((g) => g.key === "bought");
+    const ids = bought?.items.map((i) => i.id) ?? [];
+    expect(ids.indexOf("digest")).toBe(ids.indexOf("executive") + 1);
+    expect(orgTabLabel("digest")).toBe("Weekly digest");
+  });
+
   // A personal workspace filters the SAME catalog (OrgTabNav drops empty groups). Pinned because a
   // regroup that stranded every personal tab in one section would silently flatten that rail.
   it("the personal subset still spans more than one journey section", () => {
@@ -287,6 +297,12 @@ describe("orgTabHref", () => {
   // MIGRATED_ORG_TAB_IDS sent the rail to /org/<slug>/pairing, a page that has never existed.
   it("points pairing at the ?tab= shell (it never had a legacy route)", () => {
     expect(orgTabHref("acme", "pairing")).toBe("/org/acme?tab=pairing");
+  });
+
+  // Same regression pin as `pairing`: the digest was born inside the shell and has NO legacy route,
+  // so leaving it out of MIGRATED_ORG_TAB_IDS would point the rail at /org/<slug>/digest — a 404.
+  it("points the weekly digest at the ?tab= shell (it never had a legacy route)", () => {
+    expect(orgTabHref("acme", "digest")).toBe("/org/acme?tab=digest");
   });
 
   // W1b: Overview is an explicit destination. The bare /org/acme is the LANDING url, and a link

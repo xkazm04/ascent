@@ -110,6 +110,24 @@ Pasted verbatim into every builder brief:
 
 ## Skill improvement log
 
+- 2026-09-01 (weekly-digest, eval run): **the node_modules junction blocks `npm run build`** (the
+  2026-08-22 line below, confirmed again): Turbopack fails with "Symlink [project]/node_modules is
+  invalid". In a worktree you may not `npm install` into (a junction into another checkout), the
+  build gate is blocked by construction — say so, run `next build --webpack` as the fallback, and
+  lean on tsc + a jsdom render of the new server panel for the boundary evidence.
+- 2026-09-01 (weekly-digest): **commit the wire types AND compilable stubs with final signatures
+  before the fan-out.** WP1 (model) and WP2 (panel) then ran fully parallel with zero shared files;
+  the stub bodies (`null` / `""`) let WP2's tsc pass against a module WP1 was still writing.
+- 2026-09-01 (weekly-digest): **`Recommendation.createdAt` is the SCAN's date, not the gap's** —
+  rows are recreated per scan with status carried by `(dimId,title)`. Any "opened since" read must
+  be an identity diff against the last pre-window scan, with "no pre-window scan" reported as
+  unmeasurable, never as 0. A creation event is the follow-up idea `followup-opened-event`.
+- 2026-09-01 (weekly-digest): a Map of per-repo baselines built lazily from rows collapses "baseline
+  empty" into "baseline absent"; seed it per measurable repo first. WP1's own test caught it.
+- 2026-09-01 (weekly-digest): when a WP2-owned doc file needs a WP1 section, have WP2 leave a
+  `<!-- WP1 doc section merges here -->` placeholder and WP1 write to scratch; the Director's merge
+  is then one string replacement.
+
 - 2026-08-25 (operator-companion): **partition DOC surfaces as explicitly as source
   directories.** Six code territories were carved carefully, then two parallel builders were
   handed the same feature doc and the same feature-doc-map. Caught mid-flight; the fix that
