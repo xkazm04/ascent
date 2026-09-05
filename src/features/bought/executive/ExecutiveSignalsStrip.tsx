@@ -2,7 +2,7 @@
 // and engine mix, as ONE wrap-row instead of three stacked <p> lines. Pulled out of ExecutiveTab.tsx
 // to stay under the 200-LOC cap (docs/ORG-TABS-REFACTOR.md). Server component, no state.
 
-import { engineMixCaveat, engineMixLabel, mockDisclosure } from "@/lib/org/briefing";
+import { engineMixCaveat, engineMixLabel, mockDisclosure, movementLine } from "@/lib/org/briefing";
 import type { ExecBriefing } from "@/lib/org/briefing";
 
 export function ExecutiveSignalsStrip({ briefing }: { briefing: ExecBriefing }) {
@@ -23,11 +23,13 @@ export function ExecutiveSignalsStrip({ briefing }: { briefing: ExecBriefing }) 
           Fleet adoption <span className="text-slate-300">{briefing.adoptionRate}%</span> at high-adoption posture
         </span>
       )}
-      {briefing.movement.compared > 0 && (
-        <span>
-          <span className="text-slate-300">{briefing.movement.up + briefing.movement.down}</span> of{" "}
-          {briefing.movement.compared} repos moved ({briefing.movement.up}▲ / {briefing.movement.down}▼)
-        </span>
+      {/* Direction 2 — the composed line (G12), not a hand-rolled "{up+down} of {compared} repos
+          moved". The inlined copy dropped the "(of N live-scored)" subset clause the composer
+          carries, which is the whole point of UAT DANA-L1-012: this denominator is a SUBSET of the
+          one the tiles above are averaged over, and unlabelled it invites the reader to reconcile
+          two counts that were never meant to add up. */}
+      {movementLine(briefing.movement, briefing.realScoredCount) && (
+        <span className="text-slate-400">{movementLine(briefing.movement, briefing.realScoredCount)}</span>
       )}
       {benchmark?.cohort?.overallPercentile != null && (
         <span>

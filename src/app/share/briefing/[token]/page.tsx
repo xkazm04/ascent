@@ -234,6 +234,7 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
           gainers={briefing.topGainers}
           regressions={briefing.topRegressions}
           movement={briefing.movement}
+          liveScoredRepos={briefing.realScoredCount}
           className="mt-6"
         />
 

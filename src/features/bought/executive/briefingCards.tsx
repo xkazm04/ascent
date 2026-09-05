@@ -12,7 +12,7 @@
 import { Card, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
 import { DimRow, practiceHref } from "./briefingShared";
 import { scoreHex } from "@/lib/ui";
-import type { BriefingDim, ExecBriefing } from "@/lib/org/briefing";
+import { benchmarkCaption, type BriefingDim, type ExecBriefing } from "@/lib/org/briefing";
 
 // Split across two files to stay under the 200-LOC cap (docs/ORG-TABS-REFACTOR.md); re-exported here
 // so this stays the ONE pinned import path for both the exec tab and the public
@@ -84,10 +84,15 @@ export function BriefingTiles({
         color={scored ? scoreHex(maturity.rigor) : undefined}
         href={orgSlug ? `/org/${orgSlug}/delivery` : undefined}
       />
+      {/* Direction 2 — the caption comes from the ONE composer (G12). This slot hand-rolled
+          "vs {corpusRepos} repos", so a SUPPRESSED percentile over a 1-repo corpus rendered
+          "— / vs 1 repos" in a headline slot with the org's name above it: the exact copy UAT
+          DANA-L1-011 rejected. That finding was marked resolved after the PDF was fixed and
+          inspected; the HTML tile it also described was never looked at. */}
       <Tile
         label="Corpus percentile"
         value={benchmark?.percentile != null ? `${benchmark.percentile}` : "—"}
-        sub={benchmark && benchmark.corpusRepos > 0 ? `vs ${benchmark.corpusRepos} repos` : "no corpus yet"}
+        sub={benchmarkCaption(benchmark)}
         color={benchmark?.percentile != null ? scoreHex(benchmark.percentile) : undefined}
         href={orgSlug ? "/leaderboard" : undefined}
       />

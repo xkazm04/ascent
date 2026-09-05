@@ -76,6 +76,7 @@ import {
   BriefingMovementCard,
   BriefingTiles,
 } from "./briefingCards";
+import { BriefingBasisNote } from "./BriefingBasisNote";
 
 function baseBriefing(overrides: Partial<ExecBriefing> = {}): ExecBriefing {
   return {
@@ -142,6 +143,11 @@ describe("OrgExecutive page — internal-only affordances turned ON (proves the 
 
     expect(tiles).not.toBeNull();
     expect(tiles.props.orgSlug).toBe("acme"); // deep link switch ON — share page proves it OFF
+    // Direction 2 — the tab printed "Coverage: N/M repositories scanned" NOWHERE, while the PDF and
+    // the "Copy for LLM" markdown both did; the tiles' denominator now travels with them.
+    const note = findElement(el, BriefingBasisNote)!;
+    expect(note).not.toBeNull();
+    expect(note.props.briefing.coverage).toEqual({ scanned: 10, total: 10 });
   });
 
   it("passes practiceOrgSlug and the security dimension into BriefingDimensionCards", async () => {

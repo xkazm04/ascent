@@ -13,7 +13,8 @@
 
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { BriefingTiles } from "./briefingCards";
+import { BriefingMovementCard, BriefingTiles } from "./briefingCards";
+import { ExecutiveSignalsStrip } from "./ExecutiveSignalsStrip";
 import { BriefingBasisNote } from "./BriefingBasisNote";
 import type { ExecBriefing } from "@/lib/org/briefing";
 
@@ -80,5 +81,74 @@ describe("BriefingBasisNote — coverage and score basis are two different denom
     expect(container.textContent).toContain("Coverage: 8/12 repositories scanned");
     expect(container.textContent).not.toContain("averaged over");
     expect(container.textContent).toContain("No live-scored repositories in this period");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Direction 2 — the HTML surfaces read the composers the PDF already reads.
+//
+// `benchmarkCaption` and `movementLine` each had exactly ONE caller (the PDF). The three HTML slots
+// beside them hand-rolled their own copy, and so kept the exact defects those composers exist to
+// prevent: a suppressed percentile captioned with the corpus that was too small to produce it, and
+// a movement count with no statement of what it is a subset of.
+// ---------------------------------------------------------------------------
+describe("BriefingTiles — the percentile caption comes from benchmarkCaption", () => {
+  const bm = (percentile: number | null, corpusRepos: number): ExecBriefing["benchmark"] => ({
+    percentile,
+    corpusRepos,
+    corpusAvgOverall: 50,
+    cohort: null,
+  });
+
+  it("says WHY there is no ranking instead of quoting the corpus that failed to produce one", () => {
+    const { container } = render(<BriefingTiles maturity={MATURITY} benchmark={bm(null, 1)} realScoredCount={8} />);
+    expect(screen.getByText("not enough peers to rank")).toBeTruthy();
+    // UAT DANA-L1-011, in the exact words the finding used: "— / vs 1 repos".
+    expect(container.textContent).not.toContain("vs 1 repos");
+  });
+
+  it("names the corpus when there IS a percentile", () => {
+    render(<BriefingTiles maturity={MATURITY} benchmark={bm(72, 140)} realScoredCount={8} />);
+    expect(screen.getByText("vs 140 repos in the public corpus")).toBeTruthy();
+  });
+
+  it("distinguishes an empty corpus from an unrankable one", () => {
+    render(<BriefingTiles maturity={MATURITY} benchmark={bm(null, 0)} realScoredCount={8} />);
+    expect(screen.getByText("no corpus yet")).toBeTruthy();
+  });
+});
+
+describe("the movement scale carries its subset clause on BOTH HTML surfaces", () => {
+  const movement = { up: 5, down: 2, compared: 8 };
+
+  it("the exec tab's signals strip reads movementLine", () => {
+    const { container } = render(<ExecutiveSignalsStrip briefing={briefing({ movement, realScoredCount: 11 })} />);
+    expect(container.textContent).toContain("7 of 8 repos with a comparable prior scan moved (of 11 live-scored) (5 up / 2 down)");
+  });
+
+  it("the movement card reads movementLine", () => {
+    const { container } = render(
+      <BriefingMovementCard
+        gainers={[{ name: "api", dOverall: 9, levelFrom: "L2", levelTo: "L3" }]}
+        regressions={[]}
+        movement={movement}
+        liveScoredRepos={11}
+      />,
+    );
+    expect(container.textContent).toContain("(of 11 live-scored)");
+    // The hand-rolled copy that had no subset clause at all.
+    expect(container.textContent).not.toContain("compared repos moved");
+  });
+
+  it("omits the scale line entirely when nothing was comparable — never '0 of 0'", () => {
+    const { container } = render(
+      <BriefingMovementCard
+        gainers={[{ name: "api", dOverall: 9, levelFrom: "L2", levelTo: "L3" }]}
+        regressions={[]}
+        movement={{ up: 0, down: 0, compared: 0 }}
+        liveScoredRepos={11}
+      />,
+    );
+    expect(container.textContent).not.toContain("moved");
   });
 });
