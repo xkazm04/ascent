@@ -14,7 +14,7 @@
 // and `status === 422` IFF `gate.pass === false`. If a refactor "simplifies" the response to 200
 // `{ pass: false }`, these tests go red — which is the entire point.
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import type { ScanReport } from "@/lib/types";
 
 vi.mock("next/server", () => ({
@@ -720,5 +720,100 @@ describe("GET /api/gate/[owner]/[repo] — the 429 names the scope that refused"
     expect(res.headers.get("x-ascent-ratelimit-scope")).toBe("ip");
     expect(await res.json()).toMatchObject({ scope: "ip", limiter: "gate", limit: 30, windowSec: 60 });
     expect(mockScan).not.toHaveBeenCalled(); // refused before the GitHub ingest it protects
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AN UNTESTED BAR IS NAMED IN THE BODY (quality-gates/unmeasurable-criteria)
+//
+// This endpoint is the worst case for a silent skip, and not by accident: it scans with
+// `noAmbientToken`, and `scan-ingest` gates branch governance and pull-request statistics behind a
+// token — so `?require_protection=1`, `?min_ai_governed=N` and `?no_ungoverned_ai=1` have NOTHING to
+// evaluate here, on every call, forever. The old body answered `200 pass` with
+// `policy.requireProtectedBranch: true` and no way for a caller to tell that nothing had looked.
+//
+// The REAL evaluator runs in this block (the rest of the file mocks it to drive status codes): the
+// claim under test is what the evaluator does with a token-less report, so stubbing it would assert
+// nothing.
+// ---------------------------------------------------------------------------
+describe("GET /api/gate — conditions the run could not measure", () => {
+  const realGate = async () => (await vi.importActual<typeof import("@/lib/scoring/gate")>("@/lib/scoring/gate")).evaluateGate;
+
+  /** A token-less scan: scored dimensions, but NO governance block and NO prStats — exactly what
+   *  every anonymous gate call produces. */
+  const tokenlessReport = () =>
+    ({
+      ...report(),
+      dimensions: [{ id: "D1", name: "Foundations", score: 70 }],
+    }) as unknown as ScanReport;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    mockCacheGet.mockReturnValue(tokenlessReport());
+    mockRateLimit.mockReturnValue({ ok: true, retryAfterSec: 0 });
+    mockRateLimitShared.mockResolvedValue({ ok: true, retryAfterSec: 0 });
+    mockGetOrgGatePolicy.mockResolvedValue(null);
+    mockPersisted.mockResolvedValue(null);
+    mockPolicyFromParams.mockReturnValue({ requireProtectedBranch: true } as never);
+    mockEvaluateGate.mockImplementation(await realGate());
+  });
+
+  it("PASSES (200) but names requireProtectedBranch in skipped[] — governance was never read", async () => {
+    const res = await get("?require_protection=1");
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.pass).toBe(true);
+    // The bar is still echoed — it IS configured — and the skip is what makes the echo honest.
+    expect(body.policy.requireProtectedBranch).toBe(true);
+    expect(body.skipped).toHaveLength(1);
+    expect(body.skipped[0].code).toBe("governance");
+    expect(body.skipped[0].why).toMatch(/NOT READ|token/);
+  });
+
+  it("carries an EMPTY skipped[] when every configured bar was evaluated", async () => {
+    mockPolicyFromParams.mockReturnValue({ minLevel: "L2" } as never);
+    const body = await (await get("?min_level=L2")).json();
+    expect(body.skipped).toEqual([]);
+  });
+});
+
+// `policySource` exists to tell "nobody is gated" apart from "nobody fails". It counted
+// `searchParams.size`, so `?ref=<sha>` and `?mock=0` — which every real CI call carries — logged as
+// "params" while the bar was the archetype default. The field was wrong for its most common caller.
+describe("GET /api/gate — policySource keys on the PARSED policy, not the query string", () => {
+  const emitted = (spy: ReturnType<typeof vi.spyOn>) => {
+    const line = String(spy.mock.calls.at(-1)?.[0]);
+    return JSON.parse(line.slice(line.indexOf("{")));
+  };
+  let info: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCacheGet.mockReturnValue(report());
+    mockRateLimit.mockReturnValue({ ok: true, retryAfterSec: 0 });
+    mockRateLimitShared.mockResolvedValue({ ok: true, retryAfterSec: 0 });
+    mockGetOrgGatePolicy.mockResolvedValue(null);
+    mockPersisted.mockResolvedValue(null);
+    mockPolicyFromParams.mockReturnValue({ minLevel: "L3" } as never);
+    mockEvaluateGate.mockReturnValue({ pass: true, policy: {}, failures: [], skipped: [] } as never);
+    info = vi.spyOn(console, "info").mockImplementation(() => {});
+  });
+  afterEach(() => info.mockRestore());
+
+  it("says 'archetype' when the only params are non-policy ones (?ref, ?mock)", async () => {
+    await get("?ref=abc123&mock=1");
+    expect(emitted(info).policySource).toBe("archetype");
+  });
+
+  it("says 'params' only when a policy param was actually parsed", async () => {
+    await get("?min_level=L4");
+    expect(emitted(info).policySource).toBe("params");
+  });
+
+  it("still says 'org' whenever a persisted bar exists", async () => {
+    mockGetOrgGatePolicy.mockResolvedValue({ minOverall: 60 });
+    await get("?ref=abc123");
+    expect(emitted(info).policySource).toBe("org");
   });
 });

@@ -24,8 +24,9 @@ const fail: GateResult = {
     { code: "dimension", message: "D9 low" },
     { code: "level", message: "below L3" },
   ],
+  skipped: [],
 };
-const pass: GateResult = { pass: true, policy: {}, failures: [] };
+const pass: GateResult = { pass: true, policy: {}, failures: [], skipped: [] };
 
 /** The single emitted line, parsed back out of the `[gate:verdict] {…}` envelope. */
 function emitted(spy: ReturnType<typeof vi.spyOn>) {
@@ -80,5 +81,35 @@ describe("logGateVerdict", () => {
 
     expect(() => logGateVerdict(poisoned, fail, { surface: "api", repo: "acme/api", policySource: "org" })).not.toThrow();
     expect(info).not.toHaveBeenCalled(); // it failed before emitting, rather than emitting garbage
+  });
+});
+
+// A pass rate cannot show that a bar was never TESTED — an untested condition and a satisfied one are
+// identical in `pass` and in `codes`. Counting skips per criterion is the only way the standing
+// question ("has this condition become advisory by data starvation?") is answerable from the log.
+describe("logGateVerdict — the skip channel", () => {
+  it("counts skipped criteria per code", () => {
+    const withSkips: GateResult = {
+      pass: true,
+      policy: { requireProtectedBranch: true, requireChecks: ["a.b.c", "d.e.f"] },
+      failures: [],
+      skipped: [
+        { code: "governance", why: "not read" },
+        { code: "control", why: "no ledger (a.b.c)" },
+        { code: "control", why: "no ledger (d.e.f)" },
+      ],
+    };
+    logGateVerdict(report(), withSkips, { surface: "api", repo: "acme/api", policySource: "params" });
+
+    const e = emitted(info);
+    expect(e.skipped).toEqual({ governance: 1, control: 2 });
+    // A PASSING verdict is exactly where this matters: nothing else in the line says the protected-branch
+    // bar in `policy` was never tested.
+    expect(e).toMatchObject({ pass: true, blocked: false });
+  });
+
+  it("emits an empty object when every condition was measured", () => {
+    logGateVerdict(report(), pass, { surface: "check-run", repo: "acme/api", policySource: "org" });
+    expect(emitted(info).skipped).toEqual({});
   });
 });

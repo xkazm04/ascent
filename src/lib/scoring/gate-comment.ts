@@ -5,13 +5,22 @@
 
 import type { ScanReport } from "@/lib/types";
 import type { GateResult } from "@/lib/scoring/gate";
-import { describeGatePolicy, effectiveFloor, failsFloor } from "@/lib/scoring/gate";
+import { describeGatePolicy, effectiveFloor, failsFloor, isIncompleteReport, GATE_SKIP_LABEL } from "@/lib/scoring/gate";
 import type { ScanDiff } from "@/lib/report/compare";
 import { ARCHETYPE_LABEL } from "@/lib/maturity/model";
 import { signedDelta } from "@/components/ui/format";
 
 /** Hidden marker so the bot can find + update its own comment instead of stacking new ones. */
 export const GATE_COMMENT_MARKER = "<!-- ascent-maturity-gate -->";
+
+/** GitHub rejects a check-run `output.summary` over 65535 bytes — the whole write fails, so the one
+ *  surface that can block a merge would go missing. Every list this builder renders is bounded. */
+export const CHECK_SUMMARY_MAX_BYTES = 65535;
+
+/** How many "not measured" lines the summary renders before collapsing the rest into a count. A
+ *  `requireChecks` policy may name up to MAX_REQUIRE_CHECKS (100) controls and each unjudged one is
+ *  its own skip, so this block is the only one in the builder that can grow with policy size. */
+const MAX_SKIP_LINES = 8;
 
 export interface GateComment {
   /** GitHub Check Run conclusion. `neutral` = the verdict is non-authoritative (PR head not scored). */
@@ -85,9 +94,17 @@ export function buildGateComment(
   // it is `neutral`, and every headline surface says what it actually scored.
   const conclusion: GateComment["conclusion"] = scoredHead ? (pass ? "success" : "failure") : "neutral";
   const verdict = pass ? "Passed" : "Failed";
-  const title = scoredHead
-    ? `${verdict}: ${level.id} ${level.name} (${overallScore}/100)`
-    : `Default branch ${verdict.toLowerCase()}: PR head not scored (${level.id} ${overallScore}/100)`;
+  // An INCOMPLETE scan scored nothing, so `level`/`overallScore` are the renormalized 0 / L1 floor and
+  // NOT a reading (see isIncompleteReport). Printing "Failed: L1 Emerging (0/100)" states a measurement
+  // the gate itself has just declared does not exist — and it is the number a reader carries away. The
+  // headline says what actually happened; the verdict stays a FAILURE, because the gate fails closed on
+  // a repository it could not read.
+  const unmeasured = isIncompleteReport(report) || gate.failures.some((f) => f.code === "incomplete");
+  const title = unmeasured
+    ? "Could not be measured: no dimension could be scored"
+    : scoredHead
+      ? `${verdict}: ${level.id} ${level.name} (${overallScore}/100)`
+      : `Default branch ${verdict.toLowerCase()}: PR head not scored (${level.id} ${overallScore}/100)`;
 
   const delta = deltaPhrase(baseline);
   const lines: string[] = [];
@@ -96,9 +113,11 @@ export function buildGateComment(
   // the check-run NAME stays "Ascent maturity gate" (github/checks.ts) because branch-protection
   // required-check lists pin it by exact name.
   lines.push(
-    scoredHead
-      ? `### ${pass ? "✅" : "❌"} Ascent AI-native Scorecard: ${verdict}`
-      : `### ⚠️ Ascent AI-native Scorecard: Default-branch verdict (PR head not scored)`,
+    unmeasured
+      ? "### ❌ Ascent AI-native Scorecard: Not measured"
+      : scoredHead
+        ? `### ${pass ? "✅" : "❌"} Ascent AI-native Scorecard: ${verdict}`
+        : `### ⚠️ Ascent AI-native Scorecard: Default-branch verdict (PR head not scored)`,
   );
   if (!scoredHead) {
     lines.push("");
@@ -109,11 +128,20 @@ export function buildGateComment(
     );
   }
   lines.push("");
-  lines.push(
-    `**${level.id} · ${level.name}** · ${overallScore}/100 · posture **${posture.label}** · ${ARCHETYPE_LABEL[archetype]} lens`,
-  );
-  lines.push("");
-  lines.push(`Adoption **${report.adoptionScore}** · Rigor **${report.rigorScore}**${delta ? ` · _${delta} ${baselineSuffix}_` : ""}`);
+  if (unmeasured) {
+    // No score line at all: every number this report carries is the renormalized floor, and a floor
+    // rendered as a grade is the misreading this branch exists to prevent.
+    lines.push(
+      `**The score could not be measured on this run** · ${ARCHETYPE_LABEL[archetype]} lens — no dimension could be scored, ` +
+        "so this is an ingestion failure, not a reading of the repository.",
+    );
+  } else {
+    lines.push(
+      `**${level.id} · ${level.name}** · ${overallScore}/100 · posture **${posture.label}** · ${ARCHETYPE_LABEL[archetype]} lens`,
+    );
+    lines.push("");
+    lines.push(`Adoption **${report.adoptionScore}** · Rigor **${report.rigorScore}**${delta ? ` · _${delta} ${baselineSuffix}_` : ""}`);
+  }
 
   if (!pass && gate.failures.length) {
     lines.push("");
@@ -146,6 +174,23 @@ export function buildGateComment(
     }
   }
 
+  // NOT MEASURED ON THIS RUN (quality-gates/unmeasurable-criteria). A criterion the gate could not test
+  // is rendered on EVERY surface, and this is the one a developer actually reads. Without it a green
+  // check beside `Policy: … · protected branch` asserted a control nobody verified — the strongest form
+  // of the failure, because the bar is displayed and the silence about it is invisible.
+  if (gate.skipped.length) {
+    lines.push("");
+    lines.push("**Not measured on this run**");
+    for (const s of gate.skipped.slice(0, MAX_SKIP_LINES)) {
+      lines.push(`- **${GATE_SKIP_LABEL[s.code]}** — ${mdInline(s.why)}`);
+    }
+    if (gate.skipped.length > MAX_SKIP_LINES) {
+      lines.push(`- _…and ${gate.skipped.length - MAX_SKIP_LINES} more condition(s) this run could not test._`);
+    }
+    lines.push("");
+    lines.push("<sub>These conditions were NOT enforced. They are listed in the policy below, but nothing tested them on this run.</sub>");
+  }
+
   // Top exploration prompts from the roadmap — inputs, never directives (keeps the companion voice).
   const explore = report.roadmap.slice(0, 3);
   if (explore.length) {
@@ -173,7 +218,12 @@ export function buildGateComment(
   // gate URL / CI snippet use (describeGatePolicy), so the footer can't silently advertise a weaker
   // bar than the gate enforces. This now includes the per-dimension Security (D9) floor and the
   // protected-branch requirement, which the old hand-rolled list omitted.
-  const policyBits = describeGatePolicy(gate.policy).map((c) => c.bit);
+  // …and each bar that was NOT TESTED is marked in place. The echo stays complete on purpose — a
+  // configured bar must remain visible — but an untested one may not read like an enforced one.
+  const skippedCodes = new Set(gate.skipped.map((s) => s.code));
+  const policyBits = describeGatePolicy(gate.policy).map((c) =>
+    c.code && skippedCodes.has(c.code) ? `${c.bit} (not measured)` : c.bit,
+  );
 
   // The single strongest reason to leave this gate ON, stated where the argument actually lands — on
   // the PR, next to the bar it enforces. Security (D9) is the ONE fully-deterministic dimension: its

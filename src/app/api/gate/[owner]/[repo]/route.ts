@@ -259,7 +259,12 @@ export async function GET(
       surface: "api",
       repo: coordinate,
       ref,
-      policySource: orgPolicy ? "org" : searchParams.size > 0 ? "params" : "archetype",
+      // "params" must mean A POLICY PARAM WAS SUPPLIED, not "the URL had a query string". `searchParams.size`
+      // counted `?ref=<sha>` and `?mock=0` — which every CI call carries — so almost every archetype-default
+      // verdict logged as "params", and the field's stated purpose (telling "nobody is gated" apart from
+      // "nobody fails") was defeated by its own most common caller. Keyed on the parsed policy instead, which
+      // is the same function the fold uses, so the log cannot disagree with the bar.
+      policySource: orgPolicy ? "org" : Object.keys(explicitPolicyFromParams(searchParams)).length > 0 ? "params" : "archetype",
       degraded: degradedToMock(report),
       admission: admissionLayer.admission,
     });
@@ -298,6 +303,14 @@ export async function GET(
         archetype: report.archetype,
         policy: gate.policy,
         failures: gate.failures,
+        // WHAT THIS RUN COULD NOT TEST. `policy` echoes every configured bar and cannot say which of
+        // them were actually evaluated — and on THIS endpoint that gap is the norm, not the exception:
+        // the scan is token-less by construction (see the security note above), so branch governance and
+        // PR statistics are never read here and `requireProtectedBranch` / `minAiGovernedRate` /
+        // `forbidAiAuthorship` are inert on every call. A CI consumer reading `pass: true` beside
+        // `policy.requireProtectedBranch: true` was entitled to believe the branch was checked. This is
+        // the correction, and it is machine-readable so a workflow can fail on an empty measurement.
+        skipped: gate.skipped,
         // #8 — WHY this repository was held to this bar. A CI log that only carries the effective
         // policy cannot explain why two repos under one org got different verdicts; the triple can.
         // Omitted entirely (not nulled) when no admission row applied, so a repo without one produces

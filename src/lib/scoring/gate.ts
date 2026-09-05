@@ -124,10 +124,49 @@ const INCOMPLETE_MESSAGE =
   "so its 0 / L1 result is not a measurement. The gate fails closed rather than certify or condemn a " +
   "repository on an ingestion failure; re-scan or check repository access.";
 
+/**
+ * A criterion the gate COULD NOT TEST on this run, named on every surface.
+ *
+ * WHY THIS TYPE EXISTS (quality-gates/unmeasurable-criteria). Four criteria skip on an honest null —
+ * `requireProtectedBranch` (governance unreadable), `minAiGovernedRate` / `forbidAiAuthorship` (no PR
+ * stats) and `requireChecks` (no conformance ledger). Skipping is right; skipping SILENTLY is not.
+ * `describeGatePolicy` renders an untested bar into the policy echo, the PR footer and the audit row
+ * identically to an enforced one, so a `200 pass` with `policy.requireProtectedBranch: true` read as
+ * "this repo has a protected default branch" when the truth was "nobody looked".
+ *
+ * That reading is not rare, it is the DEFAULT on the public endpoint: `GET /api/gate` scans with
+ * `noAmbientToken`, `scan-ingest` gates `pullRequests` and `branchGovernance` behind a token, so
+ * `governance` and `prStats` are ALWAYS null there — `?require_protection=1`, `?min_ai_governed=N`
+ * and `?no_ungoverned_ai=1` are unconditionally inert on that surface. A condition skipped for most
+ * of the population has become advisory by data starvation, and the only defence is to COUNT it.
+ *
+ * `code` is the same vocabulary as {@link GateFailure.code}, so one criterion has one name across the
+ * verdict, the skip list and the telemetry.
+ */
+export interface GateSkip {
+  code: "governance" | "provenance" | "admission" | "control";
+  /** Plain sentence naming what could not be read, and why that is a skip rather than a pass. */
+  why: string;
+}
+
+/** Reader-facing name of each skippable criterion — one label, shared by every surface. */
+export const GATE_SKIP_LABEL: Record<GateSkip["code"], string> = {
+  governance: "Protected default branch",
+  provenance: "AI-governed change rate",
+  admission: "AI authorship (admission)",
+  control: "Reported controls",
+};
+
 export interface GateResult {
   pass: boolean;
   policy: GatePolicy;
   failures: GateFailure[];
+  /**
+   * Every configured criterion this run could not evaluate. EMPTY is a claim: it says every bar in
+   * `policy` was actually tested. Never contains a criterion the policy does not set (an unset bar is
+   * not "unmeasured", it is not asked for).
+   */
+  skipped: GateSkip[];
 }
 
 const levelNum = (id: LevelId) => Number(id.slice(1));
@@ -167,6 +206,13 @@ export interface GateConditionView {
   query?: [string, string];
   /** GitHub-Action `with:` line, present only when the action input exposes this condition. */
   ci?: string;
+  /**
+   * The criterion this condition compiles to, when that criterion can be SKIPPED (see {@link GateSkip}).
+   * Present so a renderer can mark an untested bar in the same enumeration it renders it from — the
+   * policy echo stays complete, and the bars that were never tested say so. Absent for the score bars,
+   * which are always evaluated (a non-finite score is a FAIL, never a skip).
+   */
+  code?: GateSkip["code"];
 }
 
 /**
@@ -208,7 +254,7 @@ export function describeGatePolicy(p: GatePolicy): GateConditionView[] {
     });
   }
   if (p.requireProtectedBranch) {
-    out.push({ text: "Default branch must be protected", bit: "protected branch", query: ["require_protection", "1"], ci: `require-protection: 'true'` });
+    out.push({ text: "Default branch must be protected", bit: "protected branch", query: ["require_protection", "1"], ci: `require-protection: 'true'`, code: "governance" });
   }
   if (typeof p.minAiGovernedRate === "number") {
     out.push({
@@ -219,6 +265,7 @@ export function describeGatePolicy(p: GatePolicy): GateConditionView[] {
       bit: `AI review ≥ ${p.minAiGovernedRate}%`,
       query: ["min_ai_governed", String(p.minAiGovernedRate)],
       ci: `min-ai-governed: '${p.minAiGovernedRate}'`,
+      code: "provenance",
     });
   }
   if (p.forbidAiAuthorship) {
@@ -227,6 +274,7 @@ export function describeGatePolicy(p: GatePolicy): GateConditionView[] {
     out.push({
       text: "No AI-attributed change may land in this repository (admission: blocked)",
       bit: "no AI authorship",
+      code: "admission",
     });
   }
   if (p.requireChecks?.length) {
@@ -234,6 +282,7 @@ export function describeGatePolicy(p: GatePolicy): GateConditionView[] {
     out.push({
       text: `Reported controls must not be failing: ${checks.join(", ")}`,
       bit: `controls ${checks.length === 1 ? checks[0] : `(${checks.length})`}`,
+      code: "control",
     });
   }
   return out;
@@ -333,8 +382,22 @@ interface NormalizedGate {
   dims: { id: string; name: string; score: number }[];
   /** Whether the protected-branch rule should be enforced for this shape (readable-gated). */
   governanceEnforce: boolean;
+  /**
+   * Whether branch governance was READ at all on this run. The two falsy states of `governanceEnforce`
+   * are not the same thing and used to be indistinguishable: "readable and protected" is a criterion
+   * that PASSED, "unreadable" is a criterion that was never tested. Only the second is a {@link GateSkip},
+   * and telling them apart is the whole point — the public endpoint scans token-less, so it is ALWAYS
+   * the second one there.
+   */
+  governanceReadable: boolean;
   /** The exact governance-failure message for this shape (report names the branch; lite is generic). */
   governanceMessage: string;
+  /** Why the protected-branch criterion could not be tested, when it could not — the {@link GateSkip}
+   *  sentence. Per-shape because the reasons differ (a token-less public scan vs a rollup row that
+   *  carries no protection column) and a skip that cannot say WHY is barely better than silence. */
+  governanceSkipWhy: string;
+  /** Why the two PR-derived criteria could not be tested, when they could not. Same reasoning. */
+  prSkipWhy: string;
   /**
    * Share (0..100) of AI-attributed merged PRs that carried an approving human review, or NULL when
    * unmeasurable (no token, or under the ≥5 AI-PR sample floor). Null SKIPS `minAiGovernedRate` —
@@ -357,8 +420,27 @@ interface NormalizedGate {
   checkStates: Record<string, CheckLevel> | null;
 }
 
-function evaluateNormalized(g: NormalizedGate, pol: GatePolicy): GateFailure[] {
+/**
+ * Run every criterion, returning what FAILED and what could not be TESTED.
+ *
+ * THE SPLIT, stated once because it is the rule that decides which list an unusable input lands in:
+ *
+ *  - A NON-FINITE SCORE IS A FAILURE, NEVER A SKIP. `minLevel`, `minOverall` and both dimension-floor
+ *    sweeps fail closed on missing/NaN input: an unscored dimension means the measurement BROKE, and
+ *    a gate that skipped it would let the exact Security or Testing bar it exists to enforce be
+ *    bypassed by absence of data.
+ *  - AN HONEST NULL IS A SKIP. `requireProtectedBranch` (governance unreadable), `minAiGovernedRate`
+ *    and `forbidAiAuthorship` (no PR stats) and `requireChecks` (no ledger / an unchecked control)
+ *    are the four criteria whose null means the measurement was never DUE, not that it broke. They
+ *    skip — and every skip is NAMED here, because the alternative (today's silence) publishes an
+ *    untested bar in `policy` as though it had been enforced.
+ *
+ * A skip is only ever recorded for a bar the policy actually SETS: an unset criterion is not
+ * unmeasured, it was not asked for.
+ */
+function evaluateNormalized(g: NormalizedGate, pol: GatePolicy): { failures: GateFailure[]; skipped: GateSkip[] } {
   const failures: GateFailure[] = [];
+  const skipped: GateSkip[] = [];
 
   // Fail-closed applies to EVERY criterion, not only the dimension floors (ambiguity-ui 2026-07-16
   // ci-gate #2). A plain `<` comparison lets malformed input slip the gate: `NaN < 40 === false`, so
@@ -417,8 +499,12 @@ function evaluateNormalized(g: NormalizedGate, pol: GatePolicy): GateFailure[] {
     failures.push({ code: "posture", message: `Posture "${g.posture.label}" is not permitted by the gate.` });
   }
   // Governance: only enforce when readable (a token saw the rules) so a no-token scan never false-fails.
-  if (pol.requireProtectedBranch && g.governanceEnforce) {
-    failures.push({ code: "governance", message: g.governanceMessage });
+  // Unreadable is now SAID rather than silently passed — on the unauthenticated endpoint that is every
+  // single call, so `policy.requireProtectedBranch: true` beside a 200 was the most load-bearing
+  // untested bar in the product.
+  if (pol.requireProtectedBranch) {
+    if (g.governanceEnforce) failures.push({ code: "governance", message: g.governanceMessage });
+    else if (!g.governanceReadable) skipped.push({ code: "governance", why: g.governanceSkipWhy });
   }
   // PROVENANCE (W2): were AI-attributed changes actually reviewed by a human before merge?
   //
@@ -427,7 +513,9 @@ function evaluateNormalized(g: NormalizedGate, pol: GatePolicy): GateFailure[] {
   // BROKE. Here, null means the measurement was never DUE: the repo had no token, or fewer than five
   // AI PRs in the window. Failing those would block every repo with little AI activity from merging,
   // on a policy whose entire purpose is to govern repos that have a lot of it.
-  if (typeof pol.minAiGovernedRate === "number" && g.aiGovernedRate != null) {
+  if (typeof pol.minAiGovernedRate === "number" && g.aiGovernedRate == null) {
+    skipped.push({ code: "provenance", why: g.prSkipWhy });
+  } else if (typeof pol.minAiGovernedRate === "number" && g.aiGovernedRate != null) {
     if (g.aiGovernedRate < pol.minAiGovernedRate) {
       const sample = g.aiPrSample != null ? ` (${g.aiPrSample} AI-attributed PRs sampled)` : "";
       failures.push({
@@ -443,6 +531,10 @@ function evaluateNormalized(g: NormalizedGate, pol: GatePolicy): GateFailure[] {
   // all has not violated an AI-authorship policy. Blocking it would hold every quiet repo to a bar
   // its data cannot even test — and this criterion arrives from an admission row on an
   // UNAUTHENTICATED endpoint, so a false positive here is the most expensive kind of wrong.
+  if (pol.forbidAiAuthorship && g.aiInvolvedRate == null) {
+    // Null is unmeasurable; ZERO is measured and clean, so only the first is a skip.
+    skipped.push({ code: "admission", why: g.prSkipWhy });
+  }
   if (pol.forbidAiAuthorship && g.aiInvolvedRate != null && g.aiInvolvedRate > 0) {
     failures.push({
       code: "admission",
@@ -453,10 +545,25 @@ function evaluateNormalized(g: NormalizedGate, pol: GatePolicy): GateFailure[] {
   }
   // CONTROLS (#16). Three honest-null skips, all of which mean "the measurement was never due":
   // no ledger at all, no report naming this check, or a report that named it `unchecked`.
-  if (pol.requireChecks?.length && g.checkStates) {
+  if (pol.requireChecks?.length) {
     const states = g.checkStates;
     for (const check of pol.requireChecks) {
-      if (states[check] !== "fail") continue;
+      if (!states) {
+        skipped.push({
+          code: "control",
+          why: `"${check}" was not judged: this repository has reported no conformance run to read (\`node .ai/doctor.mjs --json\`), so no control state exists.`,
+        });
+        continue;
+      }
+      const state = states[check];
+      if (state === undefined || state === "unchecked") {
+        skipped.push({
+          code: "control",
+          why: `"${check}" was not judged: the latest conformance report reports it as \`unchecked\` — a result, not a pass.`,
+        });
+        continue;
+      }
+      if (state !== "fail") continue;
       failures.push({
         code: "control",
         message: `The control "${check}" is reported FAILING by this repository's own conformance run; the gate requires it to pass.`,
@@ -464,7 +571,7 @@ function evaluateNormalized(g: NormalizedGate, pol: GatePolicy): GateFailure[] {
     }
   }
 
-  return failures;
+  return { failures, skipped };
 }
 
 /**
@@ -488,9 +595,9 @@ export function evaluateGate(report: ScanReport, policy?: GatePolicy, inputs: Ga
   // failures that read as findings about the repository, when the only true statement is that nothing
   // was measured. One honest failure instead. (G3-10)
   if (isIncompleteReport(report)) {
-    return { pass: false, policy: pol, failures: [{ code: "incomplete", message: INCOMPLETE_MESSAGE }] };
+    return { pass: false, policy: pol, failures: [{ code: "incomplete", message: INCOMPLETE_MESSAGE }], skipped: [] };
   }
-  const failures = evaluateNormalized(
+  const { failures, skipped } = evaluateNormalized(
     {
       // `|| 0` aligns the malformed-level parse with evaluateGateLite's (a bogus level id → NaN → 0
       // → fail-closed under any minLevel), so the two evaluators agree on corrupt input.
@@ -500,7 +607,15 @@ export function evaluateGate(report: ScanReport, policy?: GatePolicy, inputs: Ga
       posture: { id: report.posture.id, label: report.posture.label },
       dims: report.dimensions.map((d) => ({ id: d.id, name: d.name, score: d.score })),
       governanceEnforce: !!(report.governance?.readable && !report.governance.protected),
+      governanceReadable: !!report.governance?.readable,
       governanceMessage: `Default branch "${report.governance?.defaultBranch}" has no branch-protection rules: the gate requires a protected default branch.`,
+      governanceSkipWhy:
+        "Branch protection was NOT READ on this scan, so the rule was not tested. The public gate endpoint " +
+        "scans without a token and branch governance needs one — this bar is only enforceable on the GitHub " +
+        "App check run (or a scan with a token).",
+      prSkipWhy:
+        "Pull-request signals were NOT MEASURED on this scan (no token, or fewer than five AI-attributed PRs " +
+        "in the window), so the rule was not tested rather than passed.",
       // W2: null on a token-less scan (no prStats at all) AND under the engine's own ≥5 AI-PR floor,
       // which is exactly the "not measurable" the provenance rule skips on.
       aiGovernedRate: report.prStats?.aiGovernedRate ?? null,
@@ -515,7 +630,7 @@ export function evaluateGate(report: ScanReport, policy?: GatePolicy, inputs: Ga
     },
     pol,
   );
-  return { pass: failures.length === 0, policy: pol, failures };
+  return { pass: failures.length === 0, policy: pol, failures, skipped };
 }
 
 /**
@@ -544,7 +659,7 @@ export interface GateSnapshot {
  */
 export function evaluateGateLite(snap: GateSnapshot, policy: GatePolicy): GateResult {
   const dimName = (id: string) => DIMENSION_BY_ID[id as DimensionId]?.name ?? id;
-  const failures = evaluateNormalized(
+  const { failures, skipped } = evaluateNormalized(
     {
       level: Number(snap.level.replace(/^L/i, "")) || 0,
       levelLabel: `Level ${snap.level}`,
@@ -556,7 +671,10 @@ export function evaluateGateLite(snap: GateSnapshot, policy: GatePolicy): GateRe
       // Parity with evaluateGate: enforce only when the snapshot carries readable governance. Rollups
       // that don't yet carry per-repo protection leave it unset → skipped (no false-fail on the fleet view).
       governanceEnforce: !!(snap.govReadable && snap.protected === false),
+      governanceReadable: !!snap.govReadable,
       governanceMessage: "Default branch has no branch-protection rules: the gate requires a protected default branch.",
+      governanceSkipWhy: "The fleet rollup carries no branch-protection reading for this repository, so the rule was not tested.",
+      prSkipWhy: "The fleet rollup carries no pull-request statistics for this repository, so the rule was not tested.",
       // Parity with evaluateGate: a rollup that doesn't carry the rate leaves it undefined → skipped,
       // so the fleet view never invents a provenance failure the CI gate wouldn't also raise.
       aiGovernedRate: snap.aiGovernedRate ?? null,
@@ -571,7 +689,7 @@ export function evaluateGateLite(snap: GateSnapshot, policy: GatePolicy): GateRe
     },
     policy,
   );
-  return { pass: failures.length === 0, policy, failures };
+  return { pass: failures.length === 0, policy, failures, skipped };
 }
 
 // A query-param floor must satisfy the SAME numeric contract as sanitizeGatePolicy's floorScore:
