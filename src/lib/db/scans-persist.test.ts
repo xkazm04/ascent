@@ -66,6 +66,7 @@ vi.mock("@/lib/cache", () => ({
 }));
 
 import { persistScanReport } from "./scans-persist";
+import { verifyAudit } from "./audit-integrity";
 
 // ── Fixtures ────────────────────────────────────────────────────────────────────────────────────
 
@@ -1217,5 +1218,80 @@ describe("persistScanReport — engine provenance is written, not dropped", () =
     await persistScanReport(makeReport({ headSha: "sha_noint" }));
 
     expect(createdScans[0]!.scoreIntegrityJson).toBeNull();
+  });
+});
+
+// ── Audit tamper-evidence: the in-transaction scan.created row is SIGNED ─────────────────────────
+//
+// `scan.created` is the highest-volume action in the product, and this in-tx write used to
+// JSON.stringify its meta directly — bypassing withAuditSignature — so every row landed with no
+// `_sig` and the audit viewer's Integrity column read "unsigned" for rows written today. The
+// signature covers `createdAt`, so `at` must be stamped explicitly and match what was signed:
+// letting the DB default the timestamp would sign a different instant than the row stores and
+// verify as `tampered` forever. Exemplar + sibling regression test: recordConformance in
+// src/lib/db/org-watch.ts and its test at src/lib/db/org-watch.test.ts.
+describe("persistScanReport — the in-transaction audit row is signed", () => {
+  /** The stored row, reconstructed exactly as the read path (getAuditLog) rebuilds it. */
+  function writtenAudit(tx: { auditLog: { create: { mock: { calls: unknown[][] } } } }) {
+    const call = tx.auditLog.create.mock.calls[0]![0] as {
+      data: { action: string; at: Date; orgId: string | null; actorId: string | null; meta: string };
+    };
+    return { data: call.data, meta: JSON.parse(call.data.meta) as Record<string, unknown> };
+  }
+
+  it("SIGNS scan.created over the timestamp it actually stores (verifies ok on the read path)", async () => {
+    process.env.AUDIT_SIGNING_SECRET = "test-secret";
+    try {
+      const { prisma, tx } = fakePrisma({ previousRecs: null });
+      mockGetPrisma.mockReturnValue(prisma);
+      mockFindScanByCommit.mockResolvedValue(null);
+
+      await persistScanReport(makeReport({ headSha: "sha_sig" }), { actorId: "user_1" });
+
+      const { data, meta } = writtenAudit(tx);
+      expect(data.action).toBe("scan.created");
+      expect(data.at).toBeInstanceOf(Date); // stamped explicitly — never DB-defaulted
+      expect(typeof meta._sig).toBe("string"); // signed at all — the regression this pins
+      // The meta the Details column reads is untouched by signing.
+      expect(meta).toMatchObject({ repo: "acme/widget", scanId: "scan_new", headSha: "sha_sig", level: "L3", score: 70 });
+
+      expect(
+        verifyAudit({
+          action: data.action,
+          orgId: data.orgId,
+          actorId: data.actorId,
+          createdAt: data.at.toISOString(),
+          meta,
+        }),
+      ).toBe("ok");
+      // The signed identity is the one written to the row.
+      expect(data.actorId).toBe("user_1");
+    } finally {
+      delete process.env.AUDIT_SIGNING_SECRET;
+    }
+  });
+
+  it("an edited meta field no longer verifies (the tamper-evidence is real, not decorative)", async () => {
+    process.env.AUDIT_SIGNING_SECRET = "test-secret";
+    try {
+      const { prisma, tx } = fakePrisma({ previousRecs: null });
+      mockGetPrisma.mockReturnValue(prisma);
+      mockFindScanByCommit.mockResolvedValue(null);
+
+      await persistScanReport(makeReport({ headSha: "sha_tamper" }));
+
+      const { data, meta } = writtenAudit(tx);
+      expect(
+        verifyAudit({
+          action: data.action,
+          orgId: data.orgId,
+          actorId: data.actorId,
+          createdAt: data.at.toISOString(),
+          meta: { ...meta, score: 100 }, // someone edits the score at rest
+        }),
+      ).toBe("tampered");
+    } finally {
+      delete process.env.AUDIT_SIGNING_SECRET;
+    }
   });
 });

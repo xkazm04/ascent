@@ -7,6 +7,7 @@ import { Prisma } from "@prisma/client";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { canonicalRepoFullName, DEFAULT_ORG_SLUG, resolveOrgId, toPersistedRec } from "@/lib/db/scans-shared";
 import { findOrphanedTracked, type TrackedRecIdentity } from "@/lib/report/compare";
+import { withAuditSignature } from "@/lib/db/audit-integrity";
 
 /** Parse a YYYY-MM-DD (or ISO) string to a Date, or null for empty/invalid input. */
 function parseDateInput(v?: string | null): Date | null {
@@ -146,14 +147,30 @@ export async function updateRecommendation(
     // Audit IN the same transaction (was a best-effort post-tx recordAudit that could leave a
     // committed status change with NO audit row — a compliance gap for the audit product). Mirrors
     // recordAudit's shape; now the audit row shares the mutation's atomicity (rolls back together).
+    // SIGNED (exemplar: recordConformance in org-watch.ts): this write used to JSON.stringify its
+    // meta directly, so every backlog mutation — the product's most-edited record — landed unsigned
+    // and read as "unsigned" in the audit viewer's Integrity column. `at` is stamped explicitly
+    // because canonical() signs createdAt; a DB-defaulted timestamp would sign a different instant
+    // than the row stores and verify as `tampered`. actorId stays null (the actor is a login string
+    // in `meta`, not a resolvable User FK) — and null is exactly what is signed.
+    const auditAt = new Date();
     await tx.auditLog.create({
       data: {
         action: "recommendation.updated",
-        meta: JSON.stringify({
-          id,
-          actor,
-          changes: events.map((e) => ({ kind: e.kind, from: e.fromValue, to: e.toValue })),
-        }),
+        at: auditAt,
+        meta: JSON.stringify(
+          withAuditSignature({
+            action: "recommendation.updated",
+            orgId,
+            actorId: null,
+            createdAt: auditAt.toISOString(),
+            meta: {
+              id,
+              actor,
+              changes: events.map((e) => ({ kind: e.kind, from: e.fromValue, to: e.toValue })),
+            },
+          }),
+        ),
         orgId,
         actorId: null,
       },
@@ -268,14 +285,30 @@ export async function handoffRecommendations(
           note,
         })),
       });
+      // SIGNED per row, over ONE shared `at` for the batch: these rows commit in a single
+      // transaction, so one instant is the truthful timestamp for all of them — and it is the
+      // instant each row's signature covers, since canonical() includes createdAt. (A DB-defaulted
+      // timestamp would sign a different instant than the row stores → every row `tampered`.)
+      // Before this, the batch hand-off wrote unsigned rows while the per-item path next to it
+      // wrote signed ones for the SAME action.
+      const auditAt = new Date();
       await tx.auditLog.createMany({
         data: marked.map((id) => ({
           action: "recommendation.updated",
-          meta: JSON.stringify({
-            id,
-            actor,
-            changes: [{ kind: "status", from: "open", to: "in_progress" }],
-          }),
+          at: auditAt,
+          meta: JSON.stringify(
+            withAuditSignature({
+              action: "recommendation.updated",
+              orgId,
+              actorId: null,
+              createdAt: auditAt.toISOString(),
+              meta: {
+                id,
+                actor,
+                changes: [{ kind: "status", from: "open", to: "in_progress" }],
+              },
+            }),
+          ),
           orgId,
           actorId: null,
         })),
