@@ -18,6 +18,7 @@
 // first and the memory is attached afterwards — a missing memoryId is a recoverable gap, a lost
 // decision is not.
 
+import { cache } from "react";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug, normalizeOrgSlug } from "@/lib/db/org-shared";
 import { createOrgMemory } from "@/lib/db/org-memory";
@@ -122,8 +123,19 @@ export async function listDecisions(orgSlug: string, module?: DecisionModule): P
   });
 }
 
-/** The itemKeys currently resolved, per module — what the badge subtracts from the derived findings. */
-export async function resolvedKeys(orgSlug: string, now = new Date()): Promise<Map<string, Set<string>>> {
+/**
+ * The itemKeys currently resolved, per module — what the badge subtracts from the derived findings.
+ *
+ * Memoized per SERVER REQUEST with React `cache()`. One Overview render asks this twice — the shell's
+ * nav-counts (src/lib/org/nav-counts.ts) and the Fix-first panel — and each ask was a full
+ * `orgDecision.findMany`. Per-request memoization preserves the "read fresh every request by design,
+ * so a decision reflects instantly" contract exactly: `cache()` dedupes only WITHIN one request and is
+ * empty again on the next one, so the render after a decide() still sees the new row. It is not a TTL.
+ *
+ * `now` is defaulted INSIDE the memoized function, so the two one-argument call sites share the key
+ * `(orgSlug)`; a caller that passes an explicit `now` keys on it and is memoized separately.
+ */
+export const resolvedKeys = cache(async (orgSlug: string, now = new Date()): Promise<Map<string, Set<string>>> => {
   const rows = (await listDecisions(orgSlug)) ?? [];
   const out = new Map<string, Set<string>>();
   for (const r of rows) {
@@ -133,7 +145,7 @@ export async function resolvedKeys(orgSlug: string, now = new Date()): Promise<M
     set.add(r.itemKey);
   }
   return out;
-}
+});
 
 /** A decision as the scan prompt sees it — the judgment plus the reason it was made. */
 export interface DecisionNote {
