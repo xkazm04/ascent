@@ -10,7 +10,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 const { mockGetPrisma } = vi.hoisted(() => ({ mockGetPrisma: vi.fn() }));
 vi.mock("@/lib/db/client", () => ({ getPrisma: mockGetPrisma, isDbConfigured: () => true }));
 
-import { getOrgNavCounts } from "@/lib/db/org-nav-counts";
+import { getOrgNavCounts, listOrgRepoNames } from "@/lib/db/org-nav-counts";
 
 type Where = Record<string, unknown>;
 
@@ -103,5 +103,65 @@ describe("getOrgNavCounts", () => {
     expect(inviteWhere.orgId).toBe("org_1");
     expect(inviteWhere.status).toBe("pending");
     expect(inviteWhere.expiresAt.gt).toBeInstanceOf(Date);
+  });
+});
+
+// ── listOrgRepoNames — one column, the same repo set, instead of a whole rollup ───────────────────
+// PracticesTab and SkillsTab each ran a full unscoped getOrgRollup and consumed exactly
+// `repos[].fullName`. The replacement has to be a NARROW query over the SAME repo set, or the two
+// pickers quietly start offering a different fleet than the tabs used to.
+describe("listOrgRepoNames", () => {
+  function namesPrisma(rows: { fullName: string }[]) {
+    const calls: { where: Where; select: Record<string, unknown>; orderBy?: unknown }[] = [];
+    return {
+      calls,
+      client: {
+        organization: { findUnique: vi.fn(async () => ({ id: "org_1" })) },
+        repository: {
+          findMany: vi.fn(async (args: { where: Where; select: Record<string, unknown>; orderBy?: unknown }) => {
+            calls.push(args);
+            return rows;
+          }),
+        },
+      },
+    };
+  }
+
+  it("selects ONE column and no scan join", async () => {
+    const fake = namesPrisma([{ fullName: "acme/api" }]);
+    mockGetPrisma.mockReturnValue(fake.client);
+
+    await listOrgRepoNames("acme");
+
+    expect(Object.keys(fake.calls[0]!.select)).toEqual(["fullName"]);
+    // No `scans` sub-select: a name needs no scan, and a nested take: 1 would drag the org's whole
+    // scan history across the wire under this query compiler (see getOrgBacklog's header).
+    expect(fake.calls[0]!.select).not.toHaveProperty("scans");
+  });
+
+  it("mirrors getOrgRollup's repo set — watched OR has-scans, org-scoped", async () => {
+    const fake = namesPrisma([]);
+    mockGetPrisma.mockReturnValue(fake.client);
+
+    await listOrgRepoNames("acme");
+
+    expect(fake.calls[0]!.where).toEqual({ orgId: "org_1", OR: [{ watched: true }, { scans: { some: {} } }] });
+  });
+
+  it("returns the names sorted, as both call sites rendered them", async () => {
+    // The tabs applied `.sort()` after mapping the rollup; the order now comes from the query.
+    const fake = namesPrisma([{ fullName: "acme/api" }, { fullName: "acme/web" }]);
+    mockGetPrisma.mockReturnValue(fake.client);
+
+    expect(await listOrgRepoNames("acme")).toEqual(["acme/api", "acme/web"]);
+    expect(fake.calls[0]!.orderBy).toEqual({ fullName: "asc" });
+  });
+
+  it("returns [] for an unknown org rather than throwing", async () => {
+    mockGetPrisma.mockReturnValue({
+      organization: { findUnique: vi.fn(async () => null) },
+      repository: { findMany: vi.fn(async () => []) },
+    });
+    expect(await listOrgRepoNames("ghost")).toEqual([]);
   });
 });

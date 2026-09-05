@@ -337,6 +337,10 @@ export {
 } from "@/lib/db/improvement";
 
 export { getOrgNavCounts, getOrgPassportBlockers, type OrgNavCounts, type OrgPassportBlockers } from "@/lib/db/org-nav-counts";
+// One column, no scan join — the repo-name option list two tabs used to buy a full getOrgRollup for.
+export { listOrgRepoNames } from "@/lib/db/org-nav-counts";
+// Request-scoped getOrgRollup (React cache(), args normalized) — two panels on one page share one read.
+export { getOrgRollupShared } from "@/lib/db/org-rollup";
 export {
   decide,
   listDecisions,

@@ -67,9 +67,10 @@ export async function RepositoriesTab({
       {/* Foundation rollout (moonshot #35): install `.ai/` across the fleet and provision report-back. */}
       <FoundationRolloutPanel slug={slug} rows={await getFoundationRollout(slug)} />
       {/* Context Health (W4 — real): the quality-over-presence lens on the fleet's agent-context
-          layer. Fed by each scan's persisted contextHealthJson. */}
+          layer. Fed by each scan's persisted contextHealthJson. Takes `sp` so it resolves the SAME
+          ?stack= scope the leaderboard above does — and so both panels share one rollup read. */}
       <Suspense fallback={<OrgTabGap minH="min-h-[28rem]" />}>
-        <ContextHealthPanel slug={slug} />
+        <ContextHealthPanel slug={slug} sp={sp} />
       </Suspense>
     </div>
   );

@@ -13,7 +13,7 @@ import { POSTURE_HEX } from "@/components/org/shared/liveWarRoomShared";
 import { RepoLeaderboard } from "./RepoLeaderboard";
 import { MissingReposPanel } from "./MissingReposPanel";
 import { TechStackSelector } from "@/components/org/shared/TechStackSelector";
-import { getOrgRollup, listMissingRepos, listSegments } from "@/lib/db";
+import { getOrgRollupShared, listMissingRepos, listSegments } from "@/lib/db";
 import { resolveStackScope } from "@/lib/org/scope";
 import { isAppConfigured } from "@/lib/github/app";
 import { orgTabHref } from "@/lib/org/orgTabs";
@@ -23,7 +23,10 @@ type SearchParams = { [key: string]: string | string[] | undefined };
 export async function RepositoriesLeaderboardPanel({ slug, sp }: { slug: string; sp: SearchParams }) {
   // Optional tech-stack scope (Feature 3b): scope the leaderboard to the selected group's repos.
   const { techGroups, activeStack, techGroupId } = await resolveStackScope(slug, sp);
-  const rollup = await getOrgRollup(slug, undefined, null, techGroupId);
+  // Request-scoped: Context Health below this panel asks for the SAME scoped rollup, and the tab used
+  // to run two full ones per render. `getOrgRollupShared` normalizes null/undefined args so the two
+  // calls key identically and collapse into one read.
+  const rollup = await getOrgRollupShared(slug, undefined, null, techGroupId);
   // Same empty-state contract as the overview: don't render a blank panel inside the org shell when
   // there's no fleet data to table — point the user at how to populate it (tabs stay visible).
   if (!rollup) {

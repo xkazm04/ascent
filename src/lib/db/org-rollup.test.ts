@@ -26,6 +26,7 @@ import {
   computeDimDeltas,
   getOrgEngineMix,
   getOrgRollup,
+  getOrgRollupShared,
   isMockScore,
   type RepoScoreSnap,
   type RepoDimSnap,
@@ -632,5 +633,130 @@ describe("isMockScore — the one predicate every reader shares", () => {
     expect(isMockScore("anthropic")).toBe(false);
     expect(isMockScore(null)).toBe(false); // a legacy row with no provenance is not evidence of a mock
     expect(isMockScore(undefined)).toBe(false);
+  });
+});
+
+// ── The rollup names its columns (fleet-rollups-insights: cardinality-and-cost) ───────────────────
+// `include` ships every scalar of every row, and the nested `take: 1` does NOT bound the transfer
+// under this query compiler — it is applied after the fetch, so the org's ENTIRE scan history crosses
+// the wire to keep one row per repo. Every column named here is therefore paid for once per scan ever
+// taken. These tests pin the column list against a lazy `include:` creeping back, and against a
+// column being added to the select without a reader.
+describe("getOrgRollup — the repository query selects only what the mapper reads", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsDbConfigured.mockReturnValue(true);
+  });
+
+  function capture() {
+    const repoFindMany = vi.fn(async () => []);
+    return {
+      repoFindMany,
+      prisma: {
+        organization: { findUnique: vi.fn(async () => ({ id: "org_1", plan: "enterprise", slug: "acme" })) },
+        repository: { findMany: repoFindMany },
+        scan: { findMany: vi.fn(async () => []) },
+        scanDimension: { findMany: vi.fn(async () => []) },
+      },
+    };
+  }
+
+  it("uses select (never include) at BOTH levels", async () => {
+    const { prisma, repoFindMany } = capture();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await getOrgRollup("acme");
+
+    const args = repoFindMany.mock.calls[0]![0] as { include?: unknown; select: Record<string, unknown> };
+    expect(args.include).toBeUndefined();
+    const scans = args.select.scans as { include?: unknown; select: Record<string, unknown> };
+    expect(scans.include).toBeUndefined();
+    expect(scans.select).toBeTruthy();
+  });
+
+  it("names exactly the Repository columns the mapper reads — and none of the ~18 it does not", async () => {
+    const { prisma, repoFindMany } = capture();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await getOrgRollup("acme");
+
+    const select = (repoFindMany.mock.calls[0]![0] as { select: Record<string, unknown> }).select;
+    expect(Object.keys(select).sort()).toEqual(
+      [
+        "aiConformance", "contextHealthJson", "fullName", "guidanceGraphJson", "id", "isPrivate",
+        "lastScanAt", "lastScanError", "lastScanStatus", "manifestJson", "name", "owner",
+        "passportJson", "passportOverridesJson", "primaryLanguage", "scanSchedule", "scans",
+        "techStackJson", "watched",
+      ].sort(),
+    );
+    // A spot-check of the heaviest droppings: none of these is reachable from OrgRepoRow.
+    for (const dropped of ["url", "stars", "headEtag", "localPath", "nextScanAt", "missingSince", "role", "forge", "externalId"])
+      expect(select).not.toHaveProperty(dropped);
+  });
+
+  it("names exactly the Scan columns the mapper and its JSON parsers read", async () => {
+    const { prisma, repoFindMany } = capture();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await getOrgRollup("acme");
+
+    const scans = (repoFindMany.mock.calls[0]![0] as { select: { scans: { select: Record<string, unknown> } } }).select.scans;
+    expect(Object.keys(scans.select).sort()).toEqual(
+      [
+        "adoptionScore", "commitActivity", "dimensions", "engineProvider", "governance", "level",
+        "overallScore", "platformSignalsJson", "posture", "prStats", "rigorScore", "scannedAt",
+      ].sort(),
+    );
+    // The blobs that used to ride along on EVERY scan in history, read by nobody here.
+    for (const dropped of [
+      "strengths", "risks", "discrepancies", "practiceShape", "aiUsageJson", "warningsJson",
+      "scoreIntegrityJson", "headline", "levelName", "confidence", "engineModel", "dedupKey",
+      "rubricVersion", "engineByom", "engineDegraded", "inputTokens", "outputTokens", "llmLatencyMs",
+    ])
+      expect(scans.select).not.toHaveProperty(dropped);
+  });
+});
+
+// ── getOrgRollupShared — two panels, one read ─────────────────────────────────────────────────────
+// The Repositories tab ran TWO full rollups per render (leaderboard + Context Health). The memo keys
+// on primitives precisely so `undefined` and `null` for "no segment" are the SAME question.
+describe("getOrgRollupShared — argument normalization", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsDbConfigured.mockReturnValue(true);
+  });
+
+  function capture() {
+    const repoFindMany = vi.fn(async () => []);
+    return {
+      repoFindMany,
+      prisma: {
+        organization: { findUnique: vi.fn(async () => ({ id: "org_1", plan: "enterprise", slug: "acme" })) },
+        repository: { findMany: repoFindMany },
+        scan: { findMany: vi.fn(async () => []) },
+        scanDimension: { findMany: vi.fn(async () => []) },
+      },
+    };
+  }
+
+  it("issues the SAME query for (slug) and (slug, undefined, null, null) — no scope drift", async () => {
+    const { prisma, repoFindMany } = capture();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await getOrgRollupShared("acme");
+    await getOrgRollupShared("acme", undefined, null, null);
+
+    const [first, second] = repoFindMany.mock.calls.map((c) => c[0]);
+    expect(second).toEqual(first);
+  });
+
+  it("still scopes by techGroupId when one is given", async () => {
+    const { prisma, repoFindMany } = capture();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await getOrgRollupShared("acme", undefined, null, "tg_1");
+
+    const where = (repoFindMany.mock.calls[0]![0] as { where: Record<string, unknown> }).where;
+    expect(JSON.stringify(where)).toContain("tg_1");
   });
 });

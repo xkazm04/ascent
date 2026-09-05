@@ -145,8 +145,11 @@ function fakeOrgPrisma(repos: FakeRepo[], scans: FakeScan[], plan = "enterprise"
     repository: {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- prisma query-arg shape on a test double
       findMany: vi.fn(async (args: any) => {
-        const end = args?.include?.scans?.where?.scannedAt?.lte as Date | undefined;
-        const take = args?.include?.scans?.take ?? undefined;
+        // getOrgRollup names its columns (`select`); getOrgMovers' unwindowed branch uses `select`
+        // too. Read the scans sub-query from either key so this double stays faithful to both.
+        const scansArg = args?.select?.scans ?? args?.include?.scans;
+        const end = scansArg?.where?.scannedAt?.lte as Date | undefined;
+        const take = scansArg?.take ?? undefined;
         const ordered = [...repos].sort((a, b) => a.fullName.localeCompare(b.fullName));
         return ordered.map((r) => {
           let rScans = scans

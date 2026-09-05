@@ -502,16 +502,61 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
   // Segment AND tech-group filters compose — both narrow the same repo set (Feature 3b).
   const seg = { ...segmentScope(segmentId), ...techGroupScope(techGroupId) };
 
+  // EXPLICIT `select`, not `include`, at BOTH levels (fleet-rollups-insights: cardinality-and-cost).
+  //
+  // `include` ships every scalar of every row. That is ~36 Repository columns and ~39 Scan columns
+  // while the mapper below reads 18 and 11 — and the nested `take: 1` does NOT bound the transfer:
+  // the Prisma 6.19 client query compiler applies a nested take AFTER the fetch, so the emitted
+  // `SELECT … FROM "Scan" WHERE "repoId" IN (…)` carries no LIMIT and the org's ENTIRE scan history
+  // crosses the wire so one row per repo can be kept (measured and documented at length in
+  // org-insights.ts' getOrgBacklog header). Every unread column is therefore paid for once per scan
+  // ever taken, not once per repo — including the big JSON blobs (`strengths`, `risks`,
+  // `discrepancies`, `aiUsageJson`, `warningsJson`, `scoreIntegrityJson`, `practiceShape`, and the
+  // Scan-side techStack/passport/contextHealth/manifest/guidanceGraph duplicates the mapper reads off
+  // REPOSITORY instead). Naming the columns is the whole fix; the shape the mapper sees is identical.
+  //
+  // Adding a field to OrgRepoRow means adding it HERE too — that is the intended friction.
   const repos = await prisma.repository.findMany({
     where: { orgId: org.id, ...seg, OR: [{ watched: true }, { scans: { some: {} } }] },
-    include: {
+    select: {
+      id: true,
+      fullName: true,
+      owner: true,
+      name: true,
+      isPrivate: true,
+      watched: true,
+      primaryLanguage: true,
+      // The five cached-from-latest-scan blobs the row parsers read — all off Repository, so no scan
+      // join is involved and the Scan-side copies of the same names are never fetched.
+      techStackJson: true,
+      passportJson: true,
+      passportOverridesJson: true,
+      contextHealthJson: true,
+      manifestJson: true,
+      guidanceGraphJson: true,
+      scanSchedule: true,
+      lastScanAt: true,
+      lastScanStatus: true,
+      lastScanError: true,
+      aiConformance: true,
       scans: {
         // Bound the "current" snapshot to the window end (almost always now) so a custom range
         // that ends in the past reflects the fleet as it stood then.
         where: upper ? { scannedAt: upper } : undefined,
         orderBy: { scannedAt: "desc" },
         take: 1,
-        include: {
+        select: {
+          level: true,
+          overallScore: true,
+          adoptionScore: true,
+          rigorScore: true,
+          posture: true,
+          scannedAt: true,
+          engineProvider: true,
+          governance: true,
+          prStats: true,
+          commitActivity: true,
+          platformSignalsJson: true,
           // signalScore + llmScore ride along so a consumer can tell whether the guardband BOUND on a
           // dimension (|llm - signal| > band) — the one persisted trace of the model having disagreed
           // with a detector more strongly than the engine let it act on. Two ints per dimension row.
@@ -778,6 +823,61 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
     movement,
     dimDeltas,
   };
+}
+
+/**
+ * The rollup keyed on PRIMITIVES, so React's `cache()` can actually memoize it.
+ *
+ * `cache()` compares arguments by identity: two call sites passing `undefined` and `null` for the
+ * same "no segment", or two structurally-equal `OrgWindow` objects, would each miss and run the whole
+ * rollup again. Every optional is normalized to `null` and every Date to epoch-ms here, so any two
+ * callers asking the same question in one request share one read.
+ */
+const getOrgRollupMemo = cache(
+  async (
+    orgSlug: string,
+    startMs: number | null,
+    endMs: number | null,
+    endExclusiveMs: number | null,
+    segmentId: string | null,
+    techGroupId: string | null,
+  ): Promise<OrgRollup | null> =>
+    getOrgRollup(
+      orgSlug,
+      {
+        start: startMs == null ? null : new Date(startMs),
+        end: endMs == null ? null : new Date(endMs),
+        endExclusive: endExclusiveMs == null ? null : new Date(endExclusiveMs),
+      },
+      segmentId,
+      techGroupId,
+    ),
+);
+
+/**
+ * Request-scoped `getOrgRollup` — same signature, same result, but two panels on one page that ask
+ * for the SAME scope pay for one read instead of two.
+ *
+ * The Repositories tab is why this exists: its leaderboard and its Context Health lens each ran their
+ * own full rollup per render (and Context Health's was UNSCOPED, so it silently ignored the `?stack=`
+ * filter its sibling honours — two panels on one screen describing different fleets). Prefer this over
+ * `getOrgRollup` from any server component; the raw function stays exported for the API routes and
+ * cron paths that run outside a React request, where `cache()` is a no-op anyway.
+ */
+export function getOrgRollupShared(
+  orgSlug: string,
+  window?: OrgWindow,
+  segmentId?: string | null,
+  techGroupId?: string | null,
+): Promise<OrgRollup | null> {
+  return getOrgRollupMemo(
+    orgSlug,
+    window?.start?.getTime() ?? null,
+    window?.end?.getTime() ?? null,
+    window?.endExclusive?.getTime() ?? null,
+    segmentId ?? null,
+    techGroupId ?? null,
+  );
 }
 
 /** One repo's overall-score reading at a single historical scan — the atom of the fleet trajectory view. */
