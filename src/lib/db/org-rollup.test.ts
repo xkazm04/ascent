@@ -279,6 +279,65 @@ describe("getOrgRollup — baseline query shape + local-day trend", () => {
     expect(res!.deltas).toEqual({ overall: 20, adoption: 10, rigor: 30 });
   });
 
+  it("excludes the deterministic mock floor from the fleet averages, and carries the count it excluded", async () => {
+    // The SAME fleet fleetAverages.test.ts drives the cohort card with: live 80 + live 60 + a mock
+    // placeholder floored at 20. Averaging all three gives 53; only two of them were ever measured.
+    const { prisma } = fakePrisma([]);
+    const mk = (id: string, overall: number, engine: string) => {
+      const r = repoRow(id, new Date("2026-05-12T12:00:00Z"));
+      r.scans[0]!.overallScore = overall;
+      r.scans[0]!.adoptionScore = overall;
+      r.scans[0]!.rigorScore = overall;
+      r.scans[0]!.engineProvider = engine;
+      return r;
+    };
+    prisma.repository.findMany = vi.fn(async () => [mk("a", 80, "anthropic"), mk("b", 60, "anthropic"), mk("c", 20, "mock")]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getOrgRollup("acme");
+
+    expect(res!.avgOverall).toBe(70); // NOT 53
+    expect(res!.avgAdoption).toBe(70);
+    expect(res!.avgRigor).toBe(70);
+    expect(res!.realScoredCount).toBe(2);
+    expect(res!.mockCount).toBe(1);
+    // The repo COUNT still describes the whole set — a count of scanned repos is a count.
+    expect(res!.scannedCount).toBe(3);
+  });
+
+  it("keeps a mock-scored repo out of the cohort-matched period delta, on either side of the window", async () => {
+    // The badge arrows read `deltas`. A mock endpoint there is the same defect the cohort card's
+    // `deltaCrossesEngine` mute already refuses: an engine transition dressed as fleet movement.
+    const { prisma } = fakePrisma([]);
+    prisma.scan.findMany = vi.fn(async (args: { distinct?: unknown } = {}) =>
+      args.distinct
+        ? [
+            { id: "s_a", repoId: "a", overallScore: 50, adoptionScore: 50, rigorScore: 50, engineProvider: "anthropic" },
+            { id: "s_c", repoId: "c", overallScore: 10, adoptionScore: 10, rigorScore: 10, engineProvider: "mock" },
+          ]
+        : [],
+    );
+    const mk = (id: string, overall: number, engine: string) => {
+      const r = repoRow(id, new Date("2026-05-12T12:00:00Z"));
+      r.scans[0]!.overallScore = overall;
+      r.scans[0]!.adoptionScore = overall;
+      r.scans[0]!.rigorScore = overall;
+      r.scans[0]!.engineProvider = engine;
+      return r;
+    };
+    prisma.repository.findMany = vi.fn(async () => [mk("a", 70, "anthropic"), mk("c", 90, "anthropic")]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getOrgRollup("acme", { start: new Date("2026-05-01T00:00:00Z") });
+
+    // Only `a` is live on BOTH sides: 50 -> 70. `c`'s mock baseline would have contributed +80.
+    expect(res!.movement).toEqual({ overall: 20, adoption: 20, rigor: 20, cohortSize: 1, onboarded: 1, departed: 0 });
+    expect(res!.deltas).toEqual({ overall: 20, adoption: 20, rigor: 20 });
+    // …and the baseline the banner prints is averaged over the same live-scored rows.
+    expect(res!.baseline!.repos).toBe(1);
+    expect(res!.baseline!.avgOverall).toBe(50);
+  });
+
   it("carries contextHealth parsed off Repository.contextHealthJson (W4) — null for pre-W4/malformed rows", async () => {
     const ch = {
       version: "1",

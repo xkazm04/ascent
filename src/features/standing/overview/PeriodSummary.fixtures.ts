@@ -74,6 +74,10 @@ export function rollup(over: {
     avgOverall: over.avgOverall,
     avgAdoption: 0,
     avgRigor: 0,
+    // The banner never reads these; an all-live fleet is the neutral stand-in, so the fixture's
+    // avgOverall is a stated measurement rather than a number with an empty denominator.
+    realScoredCount: over.scannedCount,
+    mockCount: 0,
     postureCounts: {},
     dimAverages: [],
     repos: [],

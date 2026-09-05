@@ -62,6 +62,22 @@ function parseProvenanceLite(raw: string | null | undefined): { aiGovernedRate: 
 const ACTIVITY_WEEKS = 4;
 
 /**
+ * The deterministic mock FLOOR — the placeholder score the scanner emits when it never called a
+ * model. Not a grade: averaging it into a figure presented as a measurement reports a measurement
+ * over a set that was partly never measured.
+ *
+ * The predicate lives HERE, at the producer, because that is where the exclusion has to happen for
+ * every consumer to inherit it. The cohort card's client-side twin (`isMockEngine` in
+ * `src/features/standing/overview/repoTrajectory.ts`) already held this rule for the numbers it
+ * derives itself; `src/lib/**` may not import from `src/features/**`, so the one line is restated
+ * rather than shared. Both read the same persisted `Scan.engineProvider`.
+ */
+const MOCK_ENGINE = "mock";
+function isMockScore(engine: string | null | undefined): boolean {
+  return engine === MOCK_ENGINE;
+}
+
+/**
  * Project the repo-activity signals (weekly commits + PR volume + LoC changed) out of a scan's
  * persisted GitHub blobs, for the Repositories table's activity columns. Both blobs are already
  * ingested at scan time (commitActivity + prStats) — no extra GitHub calls. Returns null when the
@@ -280,9 +296,23 @@ export interface OrgRollup {
   org: string;
   repoCount: number;
   scannedCount: number;
+  /**
+   * Mean of the latest overall score across the LIVE-SCORED repos — mock placeholders excluded (see
+   * {@link isMockScore}). `realScoredCount` is its denominator and must be rendered beside it; when
+   * that denominator is 0 this number is a division guard (0), NOT a grade, and every renderer must
+   * land on its no-score path instead of printing it.
+   */
   avgOverall: number;
+  /** Same exclusion and same denominator as {@link OrgRollup.avgOverall}. */
   avgAdoption: number;
+  /** Same exclusion and same denominator as {@link OrgRollup.avgOverall}. */
   avgRigor: number;
+  /** Scanned repos carrying a real graded score — the denominator behind the three averages above
+   *  and the cohort behind `deltas`/`movement`. A count travels with its predicate. */
+  realScoredCount: number;
+  /** Scanned repos whose latest score is the deterministic mock floor, EXCLUDED from every average
+   *  and delta above. Nonzero obliges the surface to disclose it ("N mock excluded"). */
+  mockCount: number;
   postureCounts: Record<string, number>;
   dimAverages: { dimId: string; avg: number }[];
   repos: OrgRepoRow[];
@@ -570,6 +600,10 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
   });
 
   const scanned = rows.filter((r) => r.latest);
+  // The honest denominator for every AVERAGE below. `scanned` still counts the whole set — a count of
+  // repos with a scan is a count, and stays one; only the figures presented as MEASUREMENTS narrow.
+  const realScored = scanned.filter((r) => !isMockScore(r.latest!.engine));
+  const mockCount = scanned.length - realScored.length;
   const avg = roundedMean;
   const postureCounts: Record<string, number> = {};
   for (const r of scanned) postureCounts[r.latest!.posture] = (postureCounts[r.latest!.posture] ?? 0) + 1;
@@ -607,9 +641,13 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
   // Project where the org maturity trend is heading from its per-day history.
   const forecast = forecastTrajectory(trend.map((t) => ({ date: t.date, value: t.avg })));
 
-  const avgOverall = avg(scanned.map((r) => r.latest!.overall));
-  const avgAdoption = avg(scanned.map((r) => r.latest!.adoption));
-  const avgRigor = avg(scanned.map((r) => r.latest!.rigor));
+  // Averaged over the live-scored repos ONLY, matching the cohort card's `avgRealScore` — the two
+  // headline numbers in the same scroll used to disagree by the whole weight of the mock floor, and
+  // the badge was the one without a stated basis. `realScoredCount`/`mockCount` ride out with them so
+  // the badge can say what it excluded.
+  const avgOverall = avg(realScored.map((r) => r.latest!.overall));
+  const avgAdoption = avg(realScored.map((r) => r.latest!.adoption));
+  const avgRigor = avg(realScored.map((r) => r.latest!.rigor));
 
   // Baseline = the fleet as it stood at the window start: latest scan per repo at-or-before `start`.
   // Powers the per-tile period delta and the period-in-review banner. Deltas are cohort-matched
@@ -637,19 +675,26 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
       // thousands of rows for an org scanned daily for a year+). Mirrors the fix getOrgMovers already
       // applies to its baseline query (org-insights.ts). (fleet-rollups-insights #1)
       where: { repo: { orgId: org.id, ...seg }, scannedAt: { lt: effStart } },
-      select: { id: true, repoId: true, overallScore: true, adoptionScore: true, rigorScore: true },
+      // engineProvider rides along so a mock placeholder on the BASELINE side is excluded from the
+      // period delta the same way it is on the current side — otherwise a mock→live re-scan would
+      // still read as fleet movement on the badge while the cohort card correctly refuses it.
+      select: { id: true, repoId: true, overallScore: true, adoptionScore: true, rigorScore: true, engineProvider: true },
       orderBy: { scannedAt: "desc" },
       distinct: ["repoId"],
     });
     // Defensive first-per-repo pick over the already-deduped rows, mirroring getOrgMovers: keeps the
     // baseline correct as one row per repo even if a driver ever under-honors `distinct`.
     const seen = new Set<string>();
-    const latestPerRepo: typeof priorScans = [];
+    const deduped: typeof priorScans = [];
     for (const s of priorScans) {
       if (seen.has(s.repoId)) continue;
       seen.add(s.repoId);
-      latestPerRepo.push(s);
+      deduped.push(s);
     }
+    // Mock placeholders drop out of the baseline cohort, exactly as they drop out of the current one
+    // below. We do NOT reach further back for an older live scan in their place: that would move the
+    // baseline INSTANT the `asOf` label claims, trading one silent inaccuracy for another.
+    const latestPerRepo = deduped.filter((s) => !isMockScore(s.engineProvider));
     if (latestPerRepo.length) {
       baseline = {
         // asOf reflects the EFFECTIVE (retention-clamped) baseline instant, so a plan-limited
@@ -661,7 +706,7 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
         avgRigor: avg(latestPerRepo.map((s) => s.rigorScore)),
       };
       const currentSnaps: RepoScoreSnap[] = repos
-        .filter((r) => r.scans[0])
+        .filter((r) => r.scans[0] && !isMockScore(r.scans[0]!.engineProvider))
         .map((r) => ({
           repoId: r.id,
           overall: r.scans[0]!.overallScore,
@@ -685,7 +730,9 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
         dimsByScan.set(d.scanId, list);
       }
       dimDeltas = computeDimDeltas(
-        repos.filter((r) => r.scans[0]).map((r) => ({ repoId: r.id, dims: r.scans[0]!.dimensions })),
+        repos
+          .filter((r) => r.scans[0] && !isMockScore(r.scans[0]!.engineProvider))
+          .map((r) => ({ repoId: r.id, dims: r.scans[0]!.dimensions })),
         latestPerRepo.map((s) => ({ repoId: s.repoId, dims: dimsByScan.get(s.id) ?? [] })),
       );
     }
@@ -698,6 +745,8 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
     avgOverall,
     avgAdoption,
     avgRigor,
+    realScoredCount: realScored.length,
+    mockCount,
     postureCounts,
     dimAverages,
     repos: rows,
