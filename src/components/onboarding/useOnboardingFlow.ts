@@ -62,6 +62,11 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
   // Whether the just-run scan was a PREVIEW (mock) — disclosed on the done state so the scores are
   // never mistaken for live numbers. Real only on the App path when the org actually has credits.
   const [previewScan, setPreviewScan] = useState(true);
+  // False from the moment a run starts until resolveScanMode has answered: the phase flips to
+  // "scanning" BEFORE the mode is known, and an expectation rendered off the reset `previewScan`
+  // would print the mock number for one paint and then grow - the opposite of the report's
+  // forward-only rule. Consumers that state a duration wait for this instead.
+  const [modeResolved, setModeResolved] = useState(false);
   // How many teammates were invited from the done state (App path) — marks the checklist step done.
   const [invitedCount, setInvitedCount] = useState(0);
   // W6b: the just-run preview was "fast preview first" on the App path — a LIVE upgrade scan is owed
@@ -389,6 +394,7 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
     setCredit(null);
     creditReady.current = null;
     setPreviewScan(true);
+    setModeResolved(false);
     setPreviewCause(null);
     setInvitedCount(0);
     setNotices([]);
@@ -463,6 +469,7 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
     // An upgrade run IS a preview run — disclosed as such on the done screen, with the handoff copy
     // (upgradePlanned) instead of the "install the App / top up" recovery, which would misdiagnose.
     setPreviewScan(!canRunReal || plan.upgradeAfter);
+    setModeResolved(true);
     setUpgradePlanned(plan.upgradeAfter);
     setPreviewCause(!canRunReal && creditUnknown ? "credit_unknown" : null);
     try {
@@ -661,6 +668,7 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
     announce,
     credit,
     previewScan,
+    modeResolved,
     previewCause,
     upgradePlanned,
     invitedCount,

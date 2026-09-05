@@ -55,6 +55,7 @@ export function OnboardingFlow({
     announce,
     credit,
     previewScan,
+    modeResolved,
     previewCause,
     upgradePlanned,
     setInvitedCount,
@@ -166,6 +167,7 @@ export function OnboardingFlow({
         error={error}
         announce={announce}
         preview={previewScan}
+        modeResolved={modeResolved}
         previewCause={previewCause}
         upgradePlanned={upgradePlanned}
         notices={notices}

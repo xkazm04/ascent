@@ -32,6 +32,7 @@ export function ScanStep({
   error,
   announce,
   preview = false,
+  modeResolved = true,
   previewCause = null,
   upgradePlanned = false,
   notices = [],
@@ -51,6 +52,9 @@ export function ScanStep({
   /** The scan was a deterministic PREVIEW (mock), not a real LLM scan — disclosed so the numbers
    *  aren't mistaken for live scores. */
   preview?: boolean;
+  /** False until the run's mode (preview vs live) is known. The time expectation waits for it so it
+   *  never prints a number that then grows; defaults true for callers that pass a settled mode. */
+  modeResolved?: boolean;
   /** WHY the run was a preview, when the default explanation would misdiagnose: "credit_unknown"
    *  means the credit read failed (balance unknown, fail-closed) — the user may well have the App
    *  installed AND credits, so the banner must not tell them to install/top up. */
@@ -175,7 +179,7 @@ export function ScanStep({
           `preview` is the run's mode: a mock preview is seconds, a live run has no resolved provider
           client-side, so its copy states the slowest-provider ceiling ("Up to …"). */}
       {phase === "scanning" && (
-        <ScanExpectation repoCount={scanTotal} mode={preview ? "mock" : "unknown"} hidden={reattached} />
+        <ScanExpectation repoCount={scanTotal} mode={preview ? "mock" : "unknown"} hidden={reattached || !modeResolved} />
       )}
 
       {reattach && <ReconnectedNotice state={reattach} />}
