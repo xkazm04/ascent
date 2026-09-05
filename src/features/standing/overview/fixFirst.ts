@@ -61,7 +61,11 @@ export function deriveFixFirst(slug: string, inp: FixFirstInputs, scopeQuery?: s
     items.push({
       key: "regression",
       title: `Triage ${worst.name}`,
-      detail: `regressed ${Math.abs(worst.dOverall)} pts this period`,
+      // Name the endpoints. "this period" is used by TWO cells on this page that measure different
+      // things: this one is latest-in-window vs the repo's last scan BEFORE the window (getOrgMovers,
+      // baselineKind "period"), while the cohort card's row delta is first-to-last WITHIN the window.
+      // Two identical labels over two different subtractions is worse than no label at all.
+      detail: `regressed ${Math.abs(worst.dOverall)} pts vs its last scan before this period`,
       href: `/report/${worst.fullName}`,
       cta: "open report →",
     });

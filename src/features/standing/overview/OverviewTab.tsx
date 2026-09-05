@@ -96,7 +96,15 @@ export async function OverviewTab({ slug, sp }: { slug: string; sp: SearchParams
       </Suspense>
 
       <Suspense fallback={<OrgTabGap minH="min-h-[32rem]" />}>
-        <OverviewFleetPanel slug={slug} scope={scope} win={win} periodTitle={period.title} sortDim={dimParam} search={search} />
+        <OverviewFleetPanel
+          slug={slug}
+          scope={scope}
+          win={win}
+          periodTitle={period.title}
+          comparisonLabel={period.comparisonLabel}
+          sortDim={dimParam}
+          search={search}
+        />
       </Suspense>
     </div>
   );

@@ -16,6 +16,9 @@ export interface ScoreBadge {
   sub?: string;
   /** Period-over-period change; null/0/undefined hides the arrow. */
   delta?: number | null;
+  /** What the delta is measured AGAINST, e.g. "vs 30d ago" — rendered beside the arrow and spoken in
+   *  the sr text. An arrow without its basis is a number the reader cannot place. */
+  deltaLabel?: string;
   /** Tooltip on the value — what the number was measured over (its denominator, and what it excluded). */
   title?: string;
   /** Small trailing chip disclosing an exclusion, e.g. "3 mock (excluded from avg)". */
@@ -47,9 +50,20 @@ export function OrgScoreBadges({
             </span>
             {b.sub && <span className="type-body-sm text-slate-400">{b.sub}</span>}
             {b.delta != null && b.delta !== 0 && (
-              <span className={`type-caption ${b.delta > 0 ? "text-emerald-400" : "text-red-400"}`}>
-                {b.delta > 0 ? "▲" : "▼"}
-                {Math.abs(b.delta)}
+              <span className="type-caption">
+                <span
+                  className={b.delta > 0 ? "text-emerald-400" : "text-red-400"}
+                  title="Cohort-matched movement: measured only over repositories scanned on both sides of the period"
+                  aria-hidden
+                >
+                  {b.delta > 0 ? "▲" : "▼"}
+                  {Math.abs(b.delta)}
+                </span>
+                {/* The basis, VISIBLE — not only in a tooltip, which is no disclosure on touch. */}
+                {b.deltaLabel && <span className="ml-1 text-slate-500">{b.deltaLabel}</span>}
+                <span className="sr-only">
+                  {b.delta > 0 ? "up" : "down"} {Math.abs(b.delta)} points {b.deltaLabel ?? "this period"}
+                </span>
               </span>
             )}
             {b.note && (

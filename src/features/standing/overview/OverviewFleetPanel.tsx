@@ -24,6 +24,7 @@ export async function OverviewFleetPanel({
   scope,
   win,
   periodTitle,
+  comparisonLabel,
   sortDim,
   search,
 }: {
@@ -33,6 +34,9 @@ export async function OverviewFleetPanel({
   scope: Promise<OrgScope>;
   win: Pick<ResolvedWindow, "start" | "end">;
   periodTitle: string;
+  /** The window's canonical delta basis ("vs 30d ago", "vs quarter start"), from `ResolvedWindow`.
+   *  Printed beside the standing strip's period arrows so the movement states its endpoints. */
+  comparisonLabel?: string;
   /** `?dim=` deep link from the dimension grid's ▦ affordance — seeds the heatmap's weakest-first
    *  column sort. Ignored by the heatmap when it isn't a real column. */
   sortDim?: string;
@@ -89,7 +93,7 @@ export async function OverviewFleetPanel({
       search={search ?? ""}
       periodTitle={periodTitle}
       sortDim={sortDim}
-      badges={buildScoreBadges(rollup)}
+      badges={buildScoreBadges(rollup, comparisonLabel)}
       trend={{ points: buildTrendPoints(rollup.trend), label: periodTitle }}
       postureCounts={rollup.postureCounts}
       dims={rollup.dimAverages}

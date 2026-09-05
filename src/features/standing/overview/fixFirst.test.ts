@@ -31,6 +31,14 @@ describe("deriveFixFirst — triage order, cap, and link contracts", () => {
     expect(items).toHaveLength(3);
   });
 
+  it("names the regression's endpoints rather than saying a bare 'this period'", () => {
+    // Two cells on the Overview are both about "this period" and measure different subtractions:
+    // this one is latest-in-window vs the last scan BEFORE the window; the cohort card's row delta
+    // is first-to-last WITHIN it. Each has to say which.
+    const items = deriveFixFirst("acme", FULL);
+    expect(items[0]!.detail).toBe("regressed 9 pts vs its last scan before this period");
+  });
+
   it("links each item to its evidence surface", () => {
     const items = deriveFixFirst("acme", FULL);
     expect(items[0]!.href).toBe("/report/acme/api");

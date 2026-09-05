@@ -64,6 +64,30 @@ describe("buildScoreBadges", () => {
   });
 });
 
+describe("buildScoreBadges — every period delta states its basis", () => {
+  const MOVED: StandingSource = { ...BASE, deltas: { overall: 4, adoption: -2, rigor: 0 } };
+
+  it("carries the window's canonical comparison label onto every arrow it renders", () => {
+    const [maturity, adoption, rigor, coverage] = buildScoreBadges(MOVED, "vs 30d ago");
+    expect(maturity!.deltaLabel).toBe("vs 30d ago");
+    expect(adoption!.deltaLabel).toBe("vs 30d ago");
+    expect(rigor!.deltaLabel).toBe("vs 30d ago");
+    // The coverage badge has no delta, so it has no basis to state.
+    expect(coverage!.deltaLabel).toBeUndefined();
+  });
+
+  it("omits the label rather than inventing one when the window has no comparison", () => {
+    // "All time": ResolvedWindow.comparisonLabel is "", and there is no baseline either — so no
+    // arrow renders. A basis must degrade to ABSENCE, never to a fabricated one.
+    expect(buildScoreBadges(MOVED, "")[0]!.deltaLabel).toBeUndefined();
+    expect(buildScoreBadges(MOVED)[0]!.deltaLabel).toBeUndefined();
+  });
+
+  it("still passes the deltas themselves through untouched", () => {
+    expect(buildScoreBadges(MOVED, "vs quarter start").map((b) => b.delta)).toEqual([4, -2, 0, undefined]);
+  });
+});
+
 describe("buildScoreBadges — the average's basis travels with it", () => {
   it("titles every score badge with the denominator it was measured over", () => {
     const [maturity, adoption, rigor, coverage] = buildScoreBadges(BASE);

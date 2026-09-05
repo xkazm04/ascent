@@ -58,8 +58,14 @@ function basisTitle(r: StandingSource): string {
  * `delta` is the rollup's COHORT-MATCHED period movement (repos present on both sides of the
  * window), not current-minus-fleet-average — so a mid-period onboarding wave never reads as
  * improvement. `undefined`/`0` hides the arrow, which is why the coverage badge carries none.
+ *
+ * `comparisonLabel` is the window's canonical delta basis ("vs 30d ago", "vs quarter start" — the
+ * `ResolvedWindow` field that exists for exactly this) and rides out with the arrow. A period delta
+ * with no stated endpoints is unreadable, and this Overview prints two other cells both called "this
+ * period" that measure different things; the badge arrow was the one carrying no label at all.
+ * Empty for "All time", which also has no baseline, so no arrow renders there anyway.
  */
-export function buildScoreBadges(r: StandingSource): ScoreBadge[] {
+export function buildScoreBadges(r: StandingSource, comparisonLabel?: string): ScoreBadge[] {
   const measured = r.realScoredCount > 0;
   const title = basisTitle(r);
   const level = levelForScore(r.avgOverall);
@@ -69,7 +75,7 @@ export function buildScoreBadges(r: StandingSource): ScoreBadge[] {
 
   const score = (label: string, value: number, delta: number | undefined): ScoreBadge =>
     measured
-      ? { label, value, color: scoreHex(value), delta, title }
+      ? { label, value, color: scoreHex(value), delta, deltaLabel: comparisonLabel || undefined, title }
       : // No live-scored repo in this set: there is no average to state, and no movement to state
         // either — a delta over an empty cohort is not a measurement of anything.
         { label, value: NO_SCORE, title };

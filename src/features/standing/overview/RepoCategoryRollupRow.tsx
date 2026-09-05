@@ -41,18 +41,27 @@ export function RepoCategoryRollupRow({ r, orgSlug }: { r: RepoTrajectory; orgSl
           {r.overall}
         </span>
         {r.deltaWindow == null ? (
-          <span className="w-12 text-right type-caption text-slate-600">—</span>
+          <span className="w-12 text-right type-caption text-slate-600" title="Only one scan in this period — no first-to-last move to measure">
+            —
+          </span>
         ) : r.deltaCrossesEngine ? (
           // Muted: this delta spans a mock → live engine change, so it reflects a scoring-engine
           // transition, not a real code-change movement. Don't dress it in the confident up/down tone.
           <span
             className="w-12 text-right type-caption tabular-nums text-slate-500"
-            title="Spans a mock → live engine change: an engine transition, not a real code-change delta"
+            title="First to last scan in this period — but it spans a mock → live engine change, so it reflects an engine transition, not a real code-change delta"
           >
             {fmtDelta(r.deltaWindow)}
           </span>
         ) : (
-          <span className="w-12 text-right type-caption tabular-nums" style={{ color: deltaHex(r.deltaWindow) }}>
+          // Endpoints named: this is the NET move across the window (first in-window scan → last),
+          // NOT latest-vs-before-the-window, which is what the Fix-first punch-list's "this period"
+          // measures. The two sit on the same page and used to share one unlabelled word.
+          <span
+            className="w-12 text-right type-caption tabular-nums"
+            style={{ color: deltaHex(r.deltaWindow) }}
+            title="Net move: first to last scan in this period"
+          >
             {fmtDelta(r.deltaWindow)}
           </span>
         )}
