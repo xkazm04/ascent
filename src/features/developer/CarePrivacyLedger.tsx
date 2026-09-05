@@ -11,7 +11,7 @@
 
 import { SectionEmpty } from "@/components/org/shared/ui";
 import { timeAgo } from "@/lib/ui";
-import { CareAction, CarePrivacyNote } from "./CareBits";
+import { CareAction, CareCopyAction, CarePrivacyNote } from "./CareBits";
 import type { DeveloperView } from "@/lib/org/developer-view";
 
 function StateMark({ shared, locked }: { shared: boolean; locked: boolean }) {
@@ -43,13 +43,15 @@ export function CareSetupStrip({ setup }: { setup: DeveloperView["setup"] }) {
       <span className="type-mono-sm tabular-nums text-slate-400">
         last share <span className="text-slate-300">{setup.lastShareAt ? timeAgo(setup.lastShareAt) : "never"}</span>
       </span>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {setup.mentorInstalled ? (
           <CareAction label="Share again" intent="mentor.share" />
         ) : (
           <CareAction label="Install the mentor" intent="mentor.install" />
         )}
-        <CareAction label="Copy npx ascent mentor init" intent="mentor.copyCommand" payload={{ cmd: "npx ascent mentor init" }} />
+        {/* The install path's one real action: the command is on the page to take, by button or by
+            hand. The other Care buttons log their intent; a label saying "Copy" cannot. */}
+        <CareCopyAction command="npx ascent mentor init" />
       </div>
     </div>
   );

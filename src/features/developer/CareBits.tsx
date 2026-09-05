@@ -12,6 +12,10 @@ import {
   type CareMoveState,
 } from "@/lib/org/developer-view";
 
+// Extracted to keep this file inside the 200-LOC `src/features/**` cap (AGENTS.md); re-exported here
+// so `./CareBits` stays the one import site for the small shared Care pieces.
+export { CareCommand, CareCopyAction } from "./CareCopyAction";
+
 /**
  * The one action button for the prototype. Every Care action (Share, Promote, Mark kept/dropped,
  * Install mentor) is a real affordance with no server behind it yet, so it logs its intent — that is

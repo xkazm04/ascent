@@ -7,6 +7,7 @@
 // dates on a rule (Climb: the record of the climb so far).
 
 import { SectionEmpty } from "@/components/org/shared/ui";
+import { CareCommand } from "./CareBits";
 import { timeAgo } from "@/lib/ui";
 import type { DeveloperView } from "@/lib/org/developer-view";
 
@@ -30,8 +31,8 @@ export function CareJournal({
   if (rows.length === 0) {
     return (
       <SectionEmpty>
-        No journal yet. `npx ascent mentor retro` writes a line per session on your machine; sharing keeps that
-        history here so it survives a new laptop.
+        No journal yet. <CareCommand command="npx ascent mentor retro" /> writes a line per session on your machine;
+        sharing keeps that history here so it survives a new laptop.
       </SectionEmpty>
     );
   }
