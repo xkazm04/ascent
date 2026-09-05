@@ -30,9 +30,13 @@ async function openWithSavedWebhook() {
   return screen.findByRole("button", { name: "Save" });
 }
 
+/** The sink field's placeholder — it names BOTH accepted forms, because `mailto:` is a first-class
+ *  sink value (G7-01) and this field is its only configuration surface. */
+const WEBHOOK_PLACEHOLDER = "https://hooks.slack.com/services/… or mailto:you@example.com";
+
 /** Type a new candidate URL into the webhook field, making the form dirty. */
 function editWebhook(value: string) {
-  fireEvent.change(screen.getByPlaceholderText("https://hooks.slack.com/services/…"), { target: { value } });
+  fireEvent.change(screen.getByPlaceholderText(WEBHOOK_PLACEHOLDER), { target: { value } });
 }
 
 describe("AlertsControl result announcements (fleet-alerts #6)", () => {
@@ -106,7 +110,7 @@ describe("AlertsControl load failure — a blank slate must not overwrite saved 
 
     await waitFor(() => expect(screen.getByText(/Couldn't load this org's alert settings/)).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
-    expect(screen.queryByPlaceholderText("https://hooks.slack.com/services/…")).toBeNull();
+    expect(screen.queryByPlaceholderText(WEBHOOK_PLACEHOLDER)).toBeNull();
   });
 
   it("hides the form when the GET rejects outright", async () => {
@@ -131,5 +135,21 @@ describe("AlertsControl load failure — a blank slate must not overwrite saved 
 
     await waitFor(() => expect(screen.getByText("Only org admins can configure alert routing.")).toBeInTheDocument());
     expect(screen.queryByText(/Couldn't load this org's alert settings/)).toBeNull();
+  });
+});
+
+describe("AlertsControl names the email sink — its only configuration surface", () => {
+  it("offers mailto: in the prose and the placeholder", async () => {
+    // G7-01 shipped an email sink end to end (validation branch, renderer, transport, unsubscribe
+    // route) and this field is the only place an admin can set one. Naming only the Slack form made a
+    // whole delivery channel undiscoverable to the orgs it was built for.
+    mockFetch((u) => (String(u).includes("movement=1") ? okJson({ movement: null }) : okJson({ webhookUrl: null })));
+    render(<AlertsControl org="acme" />);
+    fireEvent.click(screen.getByRole("button", { name: "Alerts" }));
+
+    await screen.findByRole("button", { name: "Save" });
+    expect(screen.getByPlaceholderText(WEBHOOK_PLACEHOLDER)).toBeInTheDocument();
+    expect(WEBHOOK_PLACEHOLDER).toMatch(/mailto:/);
+    expect(screen.getByText("mailto:you@example.com")).toBeInTheDocument();
   });
 });
