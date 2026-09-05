@@ -15,7 +15,7 @@
 // guard; no call site re-checks the population.
 
 import { OrgTable } from "@/components/org/shared/ui";
-import type { AdoptionOverview } from "@/lib/org/adoption";
+import { ENABLEMENT_MAX_IDLE_DAYS, type AdoptionOverview } from "@/lib/org/adoption";
 import { timeAgo } from "@/lib/ui";
 
 export function EnablementTargets({
@@ -35,15 +35,19 @@ export function EnablementTargets({
         <span className="type-mono-sm uppercase tracking-widest text-slate-500">names individuals, expand to see</span>
       </summary>
       <div className="border-t border-slate-800 px-4 py-4">
+        {/* The horizon is stated because the cohort is filtered by it: the contributor window behind
+            these rows runs ~26 weeks, and an invitation list that quietly reached back that far could
+            head itself with someone who left months ago. Saying the floor out loud is what makes
+            "highest-leverage people to offer tooling to" a claim the list actually keeps. */}
         <p className="max-w-2xl type-body-sm text-slate-400">
-          Contributors with the most recent commit volume and <span className="text-slate-300">no AI-attributed commits yet</span>: the
-          highest-leverage people to offer tooling, pairing, or agent guidance to. Inputs to explore,{" "}
-          <span className="text-slate-300">not a to-do list for anyone</span>.
+          Contributors active in the last {ENABLEMENT_MAX_IDLE_DAYS} days with the most commit volume and{" "}
+          <span className="text-slate-300">no AI-attributed commits yet</span>: the highest-leverage people to offer tooling, pairing, or
+          agent guidance to. Inputs to explore, <span className="text-slate-300">not a to-do list for anyone</span>.
         </p>
         <OrgTable
           className="mt-3"
           minWidth={520}
-          caption="Highest-volume contributors without AI-attributed commits"
+          caption={`Highest-volume contributors without AI-attributed commits, active in the last ${ENABLEMENT_MAX_IDLE_DAYS} days`}
           head={
             <tr>
               <th className="px-4 py-2 text-left">Contributor</th>
@@ -67,7 +71,8 @@ export function EnablementTargets({
         </OrgTable>
         {nonePool > targets.length && (
           <p className="mt-2 type-mono-sm text-slate-600">
-            {nonePool} contributors show no AI-attributed commits in total; these {targets.length} carry the most recent volume.
+            {nonePool} contributors show no AI-attributed commits in total; these {targets.length} are the highest-volume of those active
+            in the last {ENABLEMENT_MAX_IDLE_DAYS} days.
           </p>
         )}
       </div>

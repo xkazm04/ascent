@@ -16,7 +16,14 @@ vi.mock("@/lib/db", () => ({
   getOrgTeamRollup: mockGetOrgTeamRollup,
 }));
 
-import { buildAdoptionOverview, adoptionMarkdown, PAIRING_MIN_GAP, type AdoptionOverview } from "./adoption";
+import {
+  buildAdoptionOverview,
+  adoptionMarkdown,
+  enablementTargets,
+  ENABLEMENT_MAX_IDLE_DAYS,
+  PAIRING_MIN_GAP,
+  type AdoptionOverview,
+} from "./adoption";
 import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
 
 const fixture: AdoptionOverview = {
@@ -24,6 +31,7 @@ const fixture: AdoptionOverview = {
   generatedOn: "2026-06-09",
   contributors: { total: 40, aiActive: 18, aiActiveShare: 45 },
   orgAiShare: 32,
+  orgCommits: 4120,
   distribution: { high: 6, some: 12, none: 22 },
   champions: [{ login: "alice", aiShare: 80, commits: 120, aiCommits: 96, repos: 3 }],
   delivery: { typicalHoursToMerge: 18.5, reviewedRate: 72, mergeRate: 88, aiInvolvedRate: 40, aiGovernedRate: 62, prs: 320 },
@@ -48,7 +56,7 @@ describe("adoptionMarkdown", () => {
   const md = adoptionMarkdown(fixture);
 
   it("summarizes adoption, spread and the AI-attributed team leader", () => {
-    expect(md).toContain("Org AI commit share: 32% (commit-weighted across contributors)");
+    expect(md).toContain("Org AI commit share: 32% of 4120 commits (commit-weighted across contributors)");
     expect(md).toContain("AI-active contributors: 18/40 (45%)");
     expect(md).toContain("6 heavy (>=50% AI) · 12 partial · 22 none");
     expect(md).toContain("Most AI-attributed team: platform (61% AI commit share)");
@@ -152,11 +160,16 @@ const insightsOf = (contributors: Contrib[], over: Record<string, unknown> = {})
   } as unknown as Awaited<ReturnType<typeof import("@/lib/db").getContributorInsights>>;
 };
 
+/** An ISO timestamp `n` days before now — the enablement cohort's recency floor is time-relative. */
+const daysAgo = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString();
+
 const c = (login: string, aiShare: number, commits = 10): Contrib => ({
   login,
   aiShare,
   commits,
   aiCommits: Math.round((aiShare / 100) * commits),
+  // Recently active by default, so a fixture that is not ABOUT recency clears the floor.
+  lastActiveAt: daysAgo(7),
 });
 
 const team = (name: string, aiCommitShare: number, contributors = 5) => ({
@@ -274,7 +287,7 @@ describe("buildAdoptionOverview", () => {
   it("derives the enablement cohort: zero-AI only, ≥3 commits, volume order, capped at 8", async () => {
     const contributors = [
       // insights.contributors arrive sorted by commits desc (the real aggregate guarantees it).
-      { ...c("big", 0, 90), name: "Big", repos: 4, lastActiveAt: "2026-06-01T00:00:00.000Z" },
+      { ...c("big", 0, 90), name: "Big", repos: 4, lastActiveAt: daysAgo(2) },
       c("ai-user", 40, 80), // AI-active → excluded even at high volume
       ...Array.from({ length: 9 }, (_, i) => c(`z${i}`, 0, 50 - i)), // 9 more zero-AI → cap bites
       c("driveby", 0, 2), // below the 3-commit floor → excluded
@@ -283,7 +296,7 @@ describe("buildAdoptionOverview", () => {
 
     const o = await buildAdoptionOverview("acme");
     expect(o!.enablement.length).toBe(8); // 10 qualify, capped at 8
-    expect(o!.enablement[0]).toEqual({ login: "big", name: "Big", commits: 90, repos: 4, lastActiveAt: "2026-06-01T00:00:00.000Z" });
+    expect(o!.enablement[0]).toMatchObject({ login: "big", name: "Big", commits: 90, repos: 4 });
     expect(o!.enablement.map((e) => e.login)).not.toContain("ai-user");
     expect(o!.enablement.map((e) => e.login)).not.toContain("driveby");
   });
@@ -351,5 +364,82 @@ describe("buildAdoptionOverview", () => {
     expect(mockGetContributorInsights).toHaveBeenCalledWith("acme", "seg-1", "tg-9");
     expect(mockGetOrgPrSignals).toHaveBeenCalledWith("acme", "seg-1", "tg-9");
     expect(mockGetOrgTeamRollup).toHaveBeenCalledWith("acme", "seg-1", "tg-9");
+  });
+});
+
+describe("enablement eligibility floors (volume AND recency)", () => {
+  // The contributor window behind these rows is ~26 weeks, so a volume floor on its own admits
+  // someone who left months ago — at the TOP of a list headed "who to enable next", because the
+  // ordering is by commits. These pin both halves of the floor, and the unknown case between them.
+  const NOW = Date.parse("2026-09-05T12:00:00.000Z");
+  const at = (days: number) => new Date(NOW - days * 24 * 60 * 60 * 1000).toISOString();
+  const person = (login: string, commits: number, lastActiveAt: string | null) => ({
+    login,
+    name: null,
+    aiShare: 0,
+    commits,
+    repos: 2,
+    lastActiveAt,
+  });
+
+  it("keeps someone inside the horizon and drops an equally-productive leaver just outside it", () => {
+    const out = enablementTargets(
+      {
+        namingAllowed: true,
+        contributors: [
+          person("leaver", 500, at(ENABLEMENT_MAX_IDLE_DAYS + 1)), // highest volume, gone — must not lead the list
+          person("here", 40, at(ENABLEMENT_MAX_IDLE_DAYS - 1)), // just inside the floor
+        ],
+      },
+      NOW,
+    );
+    expect(out.map((e) => e.login)).toEqual(["here"]);
+  });
+
+  it("treats an unknown last-active date as not recent — an invitation we cannot date is not offered", () => {
+    const out = enablementTargets({ namingAllowed: true, contributors: [person("ghost", 90, null)] }, NOW);
+    expect(out).toEqual([]);
+  });
+
+  it("keeps volume order among the people who clear the recency floor", () => {
+    const out = enablementTargets(
+      {
+        namingAllowed: true,
+        contributors: [person("most", 90, at(3)), person("stale", 80, at(200)), person("mid", 20, at(30)), person("thin", 2, at(1))],
+      },
+      NOW,
+    );
+    // Volume order preserved, the leaver gone, and the 2-commit drive-by still below the volume floor.
+    expect(out.map((e) => e.login)).toEqual(["most", "mid"]);
+  });
+});
+
+describe("orgAiShare carries its denominator", () => {
+  beforeEach(() => {
+    mockGetContributorInsights.mockReset();
+    mockGetOrgPrSignals.mockReset();
+    mockGetOrgTeamRollup.mockReset();
+    mockGetOrgPrSignals.mockResolvedValue(null);
+    mockGetOrgTeamRollup.mockResolvedValue(null);
+  });
+
+  it("sums the commit population off the payload already in hand", async () => {
+    mockGetContributorInsights.mockResolvedValue(insightsOf([c("a", 50, 100), c("b", 0, 25), c("d", 10, 7)], { orgAiShare: 40 }));
+
+    const o = await buildAdoptionOverview("acme");
+    expect(o!.orgCommits).toBe(132);
+    expect(adoptionMarkdown(o!)).toContain("40% of 132 commits");
+  });
+
+  it("reports NULL, never 0, when the naming floor withheld the rows the total is summed from", async () => {
+    // Below CHAMPION_MIN_POP the producer emits the aggregate share with no per-person rows: the
+    // denominator is unavailable, and a 0 would assert an org with no commits at all.
+    mockGetContributorInsights.mockResolvedValue(insightsOf([c("solo", 60, 80)], { orgAiShare: 60 }));
+
+    const o = await buildAdoptionOverview("acme");
+    expect(o!.orgCommits).toBeNull();
+    const md = adoptionMarkdown(o!);
+    expect(md).toContain("commit total withheld below the naming floor");
+    expect(md).not.toContain("of 0 commits");
   });
 });

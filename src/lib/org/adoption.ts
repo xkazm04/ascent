@@ -45,6 +45,17 @@ export interface AdoptionOverview {
   contributors: { total: number; aiActive: number; aiActiveShare: number };
   /** Commit-weighted share of all human commits that are AI-attributed (0..100). */
   orgAiShare: number;
+  /**
+   * The population `orgAiShare` is weighted over: human commits in scope. A share with no denominator
+   * is unreadable — 32% of 40 commits and 32% of 40,000 are different facts — and every neighbouring
+   * tile already carries its population.
+   *
+   * NULL, never 0, when the denominator is not derivable: `getContributorInsights` withholds the
+   * per-person rows below the naming floor (CHAMPION_MIN_POP) while still emitting the aggregate
+   * share, and no aggregate commit total is on the payload. A 0 there would read as "no commits",
+   * which is precisely the claim the suppression does not make.
+   */
+  orgCommits: number | null;
   /** Contributors bucketed by personal AI share: heavy (>=50%), partial (1–49%), none (0%). */
   distribution: { high: number; some: number; none: number };
   champions: AdoptionChampion[]; // top culture carriers by championScore
@@ -74,8 +85,31 @@ export const PAIRING_MIN_GAP = 15;
 /** Minimum commit volume before an invitation is meaningful — below it, "no AI commits yet" is more
  *  likely a quiet month than an unmet interest, and an invitation on that basis reads as a summons. */
 const ENABLEMENT_MIN_COMMITS = 3;
+/**
+ * Recency floor. The contributor window behind these rows is ~26 weeks, so "3+ commits and no AI
+ * attribution" alone can name someone who left five months ago and put them at the top of a list
+ * headed "highest-leverage people to offer tooling to" — a list whose whole promise is that reaching
+ * these people changes something. A volume floor answers "did they work here"; only a recency floor
+ * answers "are they here now", and an invitation needs both. 90 days: long enough to keep someone on
+ * parental leave, a rotation, or a quiet quarter on the list; short enough that a leaver drops off it.
+ *
+ * Exported so the surfaces that render the cohort state the horizon in their own copy instead of
+ * implying the list covers everyone.
+ */
+export const ENABLEMENT_MAX_IDLE_DAYS = 90;
 const ENABLEMENT_LIMIT = 8;
 const TOOLS_LIMIT = 10;
+
+/**
+ * The recency half of the eligibility floor. An unparseable or MISSING `lastActiveAt` fails it: the
+ * row would render "last active —" while sitting on a list that claims recent volume, and an
+ * invitation we cannot date is exactly the row this floor exists to keep out. Unknown is not recent.
+ */
+function recentlyActive(lastActiveAt: string | null, idleFloor: number): boolean {
+  if (!lastActiveAt) return false;
+  const t = Date.parse(lastActiveAt);
+  return Number.isFinite(t) && t >= idleFloor;
+}
 
 /**
  * The enablement INVITATION list: contributors carrying real recent volume whose commits show no AI
@@ -104,14 +138,22 @@ const TOOLS_LIMIT = 10;
  *
  * Pure. Takes the narrow slice of ContributorInsights it reads, so a caller can pass either producer's
  * result. `contributors` arrives sorted by commits desc, so filter order = volume order = leverage order.
+ *
+ * TWO floors, both required before anyone enters the cohort: volume (ENABLEMENT_MIN_COMMITS) and
+ * recency (ENABLEMENT_MAX_IDLE_DAYS). See each constant for why one without the other is not enough.
  */
-export function enablementTargets(insights: {
-  namingAllowed: boolean;
-  contributors: { login: string; name: string | null; aiShare: number; commits: number; repos: number; lastActiveAt: string | null }[];
-}): EnablementTarget[] {
+export function enablementTargets(
+  insights: {
+    namingAllowed: boolean;
+    contributors: { login: string; name: string | null; aiShare: number; commits: number; repos: number; lastActiveAt: string | null }[];
+  },
+  /** Injectable clock — the recency floor is time-dependent, and a test must be able to pin "now". */
+  now: number = Date.now(),
+): EnablementTarget[] {
   if (!insights.namingAllowed) return [];
+  const idleFloor = now - ENABLEMENT_MAX_IDLE_DAYS * 24 * 60 * 60 * 1000;
   return insights.contributors
-    .filter((c) => c.aiShare === 0 && c.commits >= ENABLEMENT_MIN_COMMITS)
+    .filter((c) => c.aiShare === 0 && c.commits >= ENABLEMENT_MIN_COMMITS && recentlyActive(c.lastActiveAt, idleFloor))
     .slice(0, ENABLEMENT_LIMIT)
     .map((c) => ({ login: c.login, name: c.name, commits: c.commits, repos: c.repos, lastActiveAt: c.lastActiveAt }));
 }
@@ -146,6 +188,11 @@ export async function buildAdoptionOverview(
   // brief's enablement ASK; the on-screen table now lives on the Contributors tab.
   const enablement = enablementTargets(insights);
 
+  // The denominator behind orgAiShare, derived from the payload already in hand (no second db read).
+  // Below the naming floor the producer emits no per-person rows, so the sum is not available — null,
+  // not 0, so the surfaces can drop the count rather than assert an empty repository.
+  const orgCommits = insights.contributors.length ? insights.contributors.reduce((s, c) => s + c.commits, 0) : null;
+
   const adoptionTeams: AdoptionTeam[] = (teams?.teams ?? [])
     .map((t) => ({
       slug: t.slug,
@@ -173,6 +220,7 @@ export async function buildAdoptionOverview(
     generatedOn: new Date().toISOString().slice(0, 10),
     contributors: { total: insights.totalContributors, aiActive: insights.aiActive, aiActiveShare: insights.aiActiveShare },
     orgAiShare: insights.orgAiShare,
+    orgCommits,
     distribution,
     champions: !namingAllowed
       ? []
@@ -204,7 +252,13 @@ export function adoptionMarkdown(a: AdoptionOverview): string {
   out.push(`Generated ${a.generatedOn}`);
   out.push("");
   out.push("## AI adoption");
-  out.push(`- Org AI commit share: ${a.orgAiShare}% (commit-weighted across contributors)`);
+  out.push(
+    a.orgCommits != null
+      ? `- Org AI commit share: ${a.orgAiShare}% of ${a.orgCommits} commits (commit-weighted across contributors)`
+      : // No denominator below the naming floor — say so, because a share whose population is unstated
+        // is the number a model will happily scale into a fleet-wide claim.
+        `- Org AI commit share: ${a.orgAiShare}% (commit-weighted across contributors; commit total withheld below the naming floor)`,
+  );
   out.push(`- AI-active contributors: ${a.contributors.aiActive}/${a.contributors.total} (${a.contributors.aiActiveShare}%)`);
   out.push(`- Spread: ${a.distribution.high} heavy (>=50% AI) · ${a.distribution.some} partial · ${a.distribution.none} none`);
   if (a.tools.length) out.push(`- AI tooling detected in PRs: ${a.tools.map((t) => `${t.name} ×${t.count}`).join(", ")}`);
