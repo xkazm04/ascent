@@ -24,6 +24,7 @@ import { PUBLIC_ORG, isAuthConfigured, readableOrgForOwner } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { hasOrgRole, canReadOrg } from "@/lib/authz";
 import { PRACTICES } from "@/lib/practices";
+import { EMPTY_LIFTS, getOrgExpectedLifts } from "@/lib/outcomes/expected-lift-load";
 import { parseRepoParam } from "./repoParam";
 
 export const dynamic = "force-dynamic";
@@ -159,7 +160,8 @@ async function ReportPermalinkBody({
         report={pinned}
         serverPassport={passport}
         serverHistory={history}
-        serverRecs={recs}
+        serverRecs={recs.items}
+        serverLifts={recs.lifts}
         installFoundation={canInstallFoundation}
       />
       {passport && (
@@ -196,12 +198,24 @@ async function readReportHistory(owner: string, name: string, orgSlug: string): 
  * when readable, else the public org) rather than reusing the report's `orgSlug`: the report resolves
  * via the dormant-session `readableOrgForOwner`, which under-permissions a private-org member and would
  * hand back an empty list where the client fetch found the real tracker.
+ *
+ * It also reads the org's measured lift map in the same pass. That map is what makes the roadmap's
+ * measured basis reachable in-app at all: `ExpectedLiftBasis` and the measured-sort toggle existed,
+ * were tested and were mounted, but nothing on this page ever read the ledger, so the clause could
+ * only ever be seen through the raw JSON of `GET /api/recommendations`.
  */
 async function readReportRecommendations(owner: string, name: string) {
   const ownerOrg = owner.toLowerCase();
   const orgSlug = (await canReadOrg(ownerOrg).catch(() => false)) ? ownerOrg : PUBLIC_ORG;
-  const result = await getLatestRecommendations(owner, name, { orgSlug }).catch(() => null);
-  return result?.items ?? [];
+  const [result, lifts] = await Promise.all([
+    getLatestRecommendations(owner, name, { orgSlug }).catch(() => null),
+    // The org's measured lift map, read under the SAME org the rows were read under — the ledger is
+    // tenant-local, so resolving it off the report's own (more conservative) orgSlug could pair one
+    // org's rows with another's measurements. A failed read degrades to no map, which is exactly the
+    // pre-existing rendering: no basis clause, no measured-sort toggle, no reordering (G4).
+    getOrgExpectedLifts(orgSlug).catch(() => EMPTY_LIFTS),
+  ]);
+  return { items: result?.items ?? [], lifts };
 }
 
 /** Instant repo masthead — derived purely from the URL, so it paints with zero data dependency. Doubles

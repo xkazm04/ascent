@@ -79,6 +79,14 @@ export interface PersistedRecommendation {
   projectedPoints?: number | null;
   /** The maturity level closing this gap crosses into (e.g. "L3"), or null/absent when in band. */
   unlocks?: string | null;
+  /** The org's measured basis for closing this gap, as ONE ready-to-render clause carrying its own
+   * median, sample count and instrument (`expectedLiftClause`) — or `null` when nothing publishable
+   * has been measured. NEVER a number: a client handed `0` would render "we measured this and it does
+   * nothing", which is the opposite of "nobody has measured this" (G4). Attached by
+   * `GET /api/recommendations` and read by the tracker on the client-fetch (live-scan) path; the
+   * server-rendered permalink threads the distribution MAP down instead, because ordering by measured
+   * evidence needs the numbers a rendered sentence cannot carry. */
+  expectedLift?: string | null;
 }
 
 /** One entry in a recommendation's activity timeline — who changed what, from → to, when. */
@@ -335,6 +343,10 @@ export interface DeclinedByChoice {
   findingId?: string;
   /** 0.4.0: YYYY-MM-DD the choice was made, carried through so the reader can age it. */
   at?: string;
+  /** The login that made the decision, recorded server-side. A decline is a decision record, and one
+   *  with no author is an assertion nobody owns. Absent on declines recorded before this field —
+   *  rendered as "unknown", never a fabricated author. */
+  by?: string;
   /** 0.4.0: set when the accepted gap has CHANGED since it was accepted (the finding hardened, its
    *  kind changed, or the decision aged past the re-confirmation window). The blocker then STAYS in
    *  the blocker list — an accepted risk about a different repo is not an accepted risk. */
