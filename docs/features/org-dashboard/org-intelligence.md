@@ -1217,8 +1217,23 @@ consumed by another model, which gains nothing from prose we generated for it.
 | `/api/audit` | `GET` | `?org=&action=&cursor=&limit=` → `{ entries, nextCursor }`. Keyset pagination, filterable by action, org-scoped. Each entry carries `integrity`, the per-row HMAC verdict (`ok` \| `tampered` \| `unsigned` \| `no-secret`) recomputed on read, so tamper-evidence is actually *checked* rather than only written. `format=csv` carries it as a column. |
 
 Recorded actions include `scan.created`, `recommendation.status_changed`,
-`practice.pr_opened`, `scan.regression`, `retention.purged`.
+`practice.pr_opened`, `scan.regression`, `retention.purged`, and since 2026-09-05 `claim.released`.
 `src/features/admin/audit/AuditLogViewer.tsx` is the searchable, paginated client viewer.
+
+**The ledger has no delete door (2026-09-05).** The once-per-window claim markers the digest and
+Athena crons write through `claimOrgAuditOnce` used to be hard-deleted by `releaseAuditClaim` when
+the guarded dispatch failed: the only delete on `AuditLog` outside retention, and one that erased the
+evidence that a dispatch was attempted. A release now appends a signed **`claim.released`** row
+pointing at the claim it cancels, and a cancelled claim is not "live", so the next window retries
+exactly as before. A failed dispatch therefore leaves two visible rows (the claim and its release)
+where it used to leave none.
+
+**Failed audit writes are counted and surfaced (2026-09-05).** Every audit write is best-effort by
+design (losing a row must never fail the scan or mutation that produced it), but a dropped row used
+to die in a server log. `src/lib/db/audit-health.ts` counts each failed write per process, and the
+Audit tab renders a red **"Audit gap"** notice ("N audit writes have failed on this instance since
+<UTC time>, the trail below has known gaps") above the table and above the empty state. The counter
+is per instance and resets on restart; the notice says so.
 
 ## Membership, roles & invites
 
@@ -1336,9 +1351,17 @@ actionable signal that attribution is missing.
 
 ## Provider integrations (`org/[slug]/integrations`, owner-only)
 
-Connects AI coding providers so the **AI delivery** views run on real usage. One card per
+Connects AI coding providers so the **AI delivery** views have a spend layer at all. One card per
 provider from the registry (`src/lib/integrations/providers.ts`), each declaring the best
-per-repo **fidelity** it can reach:
+per-repo **fidelity** it can reach. **The connect surface is derived from the row, never from an id
+(2026-09-05):** `status: "available"` + `connectKind: "otel-push"` renders the Claude Code OTel setup,
+`"admin-pull"` renders `CopilotSetup` (a one-click owner **Sync now** against `POST
+/api/integrations/copilot/sync`, with the route's denied / not-configured / absent / unreachable
+branches rendered as remedies), and a `planned` row renders no surface. The status line under each
+card is likewise keyed on the row: a seats-only provider reports **seats and peak engaged users**
+and never a dollar figure, so a synced Copilot org can no longer read "$0.00 over the last 35
+days". Before this the panel keyed on the literal `claude-code` id, so Copilot showed a green
+"Available" badge with nothing to click while its finished sync route had no caller.
 
 | Fidelity | Provider | What it means |
 | --- | --- | --- |
@@ -1358,9 +1381,11 @@ success response rather than leaving the operator to wonder why no money appeare
 can do; `ModelFidelity` (`measured | allocated | none`, in `aiDeliveryTypes.ts`) states what the built
 delivery model ended up *with*. They stay separate on purpose — `seats-only` is a capability, `none`
 is an outcome, and `none` is also reachable with nothing connected at all — but the correspondence is
-now a total `Record<Fidelity, ModelFidelity>` (`modelFidelityOfConnector`, with the reverse
-`CONNECTOR_TIERS_BEHIND`), so adding a tier to either vocabulary is a compile error until it is
-mapped. Previously the alignment was maintained by hand, and the money columns depend on it.
+now a total `Record<Fidelity, ModelFidelity>` (`modelFidelityOfConnector`), so adding a connector
+tier is a compile error until it is mapped. (A reverse table, `CONNECTOR_TIERS_BEHIND`, was removed
+2026-09-05: nothing read it.) The delivery fidelity badge is keyed on `ModelFidelity` the same way,
+so the `none` outcome renders as **"No cost source"**; it used to miss its lookup and print the
+literal identifier `noCostSource spend`.
 
 **Provenance travels per figure, not per model (2026-08-20).** The delivery model's `fidelity` scalar
 badges the **spend layer only**; `model.provenance` carries a tier per figure group — `adoption`

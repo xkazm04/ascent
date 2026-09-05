@@ -61,9 +61,20 @@ quota is consumed, so a typo can never burn one of the free tier's monthly scan 
 **Pre-scan gates, the same order on both routes** (`src/lib/scan-gates.ts`):
 
 ```
-rate limit  →  sign-in wall  →  monthly quota
-   429            401              429 { code: "monthly_quota" }
+rate limit  →  sign-in wall  →  monthly quota                   →  credit reserve
+   429            401              429 { code: "monthly_quota" }     402 INSUFFICIENT_CREDITS
 ```
+
+The **credit reserve** (`scanCreditGate`) is the last gate because it is the only one that mutates
+an org's balance: every cheaper refusal is answered before a credit moves. It applies to a
+**metered** scan only (private / installed-org, non-mock; `isMeteredScan`) and reserves one credit
+*before* inference, then hands it back on every path that delivered nothing billable: cached hit,
+coalesce join, degrade-to-mock, dedup, throw/abort. Public scans pay the monthly quota and never
+reach it. Until 2026-09-05 this gate lived inline in `/api/scan` only, so `/api/scan/stream` (the
+route the report UI drives) ran paid inference on private repos with no meter at all; both routes now
+share the one gate. Both also answer `x-ascent-credits-remaining`: on `/api/scan` it is the
+post-refund balance; on the SSE route the headers flush before `start()` can refund, so it is the
+**pre-refund** figure (the same soft-header caveat the `x-ascent-quota-*` fields carry).
 
 ### The anonymous public scan is exempt from the sign-in wall
 

@@ -860,9 +860,10 @@ model AuditLog {
   @@index([orgId, at])
 }
 
-// One row per alert the product DECIDED to raise — deliberately NOT AuditLog: audit claim rows are
-// deleted on dispatch failure (releaseAuditClaim) and the whole trail is purged by
-// retentionAuditDays, so neither "what did we try to send" nor "what failed" survives there. This
+// One row per alert the product DECIDED to raise — deliberately NOT AuditLog: the whole audit trail
+// is purged by retentionAuditDays, so alert history kept there would not outlive it. (Audit claim
+// rows used to be DELETED on dispatch failure as well; since 2026-09-05 releaseAuditClaim appends a
+// signed `claim.released` row instead, so that reason no longer applies.) This
 // table is the in-app alert history: rows are written even when NO sink is configured
 // (delivered=false, suppressedReason="no-sink") — without that, every alert except scan.regression
 // vanished without a trace on webhook-less orgs.
