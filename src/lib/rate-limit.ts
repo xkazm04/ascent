@@ -334,12 +334,38 @@ export interface RateLimitResult {
  * budget of yours was exceeded" would be untrue.
  */
 export function rateLimitRequest(req: Request, cfg: RateLimitConfig): RateLimitResult {
-  const ipKey = `${cfg.name}:ip:${clientIp(req)}`;
-  const p = checkWindow(ipKey, cfg.perIp, cfg.windowMs);
+  return chargeWindows(`${cfg.name}:ip:${clientIp(req)}`, cfg);
+}
+
+/**
+ * The same two windows, charged against a CALLER-SUPPLIED key instead of the client IP.
+ *
+ * WHY A KEY AND NOT AN IP, for the door that needs it: `clientIp` returns the shared `"unknown"`
+ * bucket whenever `trustedProxyHops()` is 0 (the default), so on a self-hosted deployment every
+ * agent in the world shares ONE per-IP budget — the cap becomes a fleet cap by accident. An
+ * AUTHENTICATED door does not have to guess who is calling: it holds a verified token id, which is
+ * both unspoofable and exactly the unit the budget is meant to bound. See MCP_RATE_LIMIT.
+ *
+ * The refusal is reported with `scope: "ip"` unchanged — the scope names WHOSE budget refused (the
+ * caller's own, which it can act on) as opposed to the shared one, and that reading is still true
+ * when the caller is identified by a token rather than an address.
+ *
+ * NOT A SUBSTITUTE FOR THE PRE-AUTH GATE. A keyed limit can only be charged after the credential is
+ * verified, which is after the request has already cost a token hash. A door that uses this keeps its
+ * per-IP check in front of it as the cheap first gate.
+ */
+export function rateLimitKeyed(key: string, cfg: RateLimitConfig): RateLimitResult {
+  return chargeWindows(`${cfg.name}:key:${key}`, cfg);
+}
+
+/** The per-caller + global charge, shared by both entry points so the QUOTA rules above have ONE
+ *  implementation. `callerKey` is already namespaced by the caller. */
+function chargeWindows(callerKey: string, cfg: RateLimitConfig): RateLimitResult {
+  const p = checkWindow(callerKey, cfg.perIp, cfg.windowMs);
   if (!p.ok) return perIpRefusal(cfg, p.retryAfterSec);
   const g = hit(`${cfg.name}:__global__`, cfg.global, cfg.windowMs);
-  if (!g.ok) return globalRefusal(cfg, g.retryAfterSec); // served nothing → charge nothing per-IP
-  recordHit(ipKey, cfg.windowMs);
+  if (!g.ok) return globalRefusal(cfg, g.retryAfterSec); // served nothing → charge nothing per-caller
+  recordHit(callerKey, cfg.windowMs);
   return { ok: true, retryAfterSec: 0 };
 }
 
@@ -626,6 +652,30 @@ export const GATE_RATE_LIMIT: RateLimitConfig = {
   name: "gate",
   perIp: envInt("RATE_LIMIT_GATE_PER_IP", 60),
   global: envInt("RATE_LIMIT_GATE_GLOBAL", 600),
+  windowMs: 60_000,
+  basis: "inherited",
+};
+
+// The MCP agent door (POST /api/mcp) charged GATE_RATE_LIMIT and keyed it per IP. Both halves were
+// wrong for it.
+//   THE KEY: with `trustedProxyHops() === 0` — the default, and the normal self-hosted posture —
+//   `clientIp` returns the single shared "unknown" bucket, so every agent on earth shared ONE 60/min
+//   budget on that deployment. The door holds a VERIFIED token id, so it charges this config with
+//   `rateLimitKeyed(tokenId, …)` and each credential gets its own window. The per-IP GATE check stays
+//   in front as the cheap pre-auth gate.
+//   THE NUMBER: GATE_RATE_LIMIT's sizing comment reasons about ~1 call per PR event. An agent's
+//   cadence is nothing like that — one session claims, briefs, recalls memory, finds skills, compares
+//   an exemplar and reports per row, so a working session is TENS of calls, arriving in bursts while
+//   the agent is thinking and idle while it is editing. 300/min/token clears a burst of ~5 calls a
+//   second for a full minute, which is far above any interactive agent and still bounds a looping one;
+//   the 3,000/min global bounds ten such tokens at once.
+// Both env-overridable. NOT DERIVED: "tens of calls per session, in bursts" is an observed shape, not
+// a measured rate — nobody has counted an agent's calls per minute here, and 300/3,000 is a bound
+// placed above the shape rather than computed from it.
+export const MCP_RATE_LIMIT: RateLimitConfig = {
+  name: "mcp",
+  perIp: envInt("RATE_LIMIT_MCP_PER_TOKEN", 300),
+  global: envInt("RATE_LIMIT_MCP_GLOBAL", 3_000),
   windowMs: 60_000,
   basis: "inherited",
 };

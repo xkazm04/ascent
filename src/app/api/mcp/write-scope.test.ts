@@ -34,8 +34,10 @@ vi.mock("@/lib/mcp/handlers", () => ({
 }));
 vi.mock("@/lib/rate-limit", () => ({
   rateLimitRequest: vi.fn(() => ({ ok: true, retryAfterSec: 0 })),
+  rateLimitKeyed: vi.fn(() => ({ ok: true, retryAfterSec: 0 })),
   tooManyRequests: vi.fn(() => new Response("{}", { status: 429 })),
   GATE_RATE_LIMIT: {},
+  MCP_RATE_LIMIT: {},
 }));
 
 import { POST } from "./route";

@@ -298,3 +298,42 @@ describe("runTool validates arguments before dispatching", () => {
     expect(attempts).toHaveLength(1);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// THE BRIEF RE-CHECKS ADMISSION (Direction 3). A lease runs up to four hours; a governance decision
+// takes effect the moment it is recorded. Before this, `claimability` ran only at the claim, so an
+// agent holding a lease kept receiving working briefs for a repository its owner had just moved to
+// `assisted-only` — the decision applied to the next agent and not to the one already inside.
+//
+// FAIL-BEFORE: delete the `claimability` block in `getFixBriefTool` and both cases below fail.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+describe("get_fix_brief — a repo that no longer admits agents", () => {
+  it("refuses the row BY NAME with the org's own sentence, and briefs nothing", async () => {
+    admission = { derivedTier: "T3", grantedTier: "T3", mode: "assisted-only" };
+    const res = await getFixBriefTool("acme", { ids: ["rec-1"] }, P());
+    const out = res.structuredContent as { briefs: unknown[]; refused: { id: string; reason: string; detail?: string }[] };
+    expect(out.briefs).toHaveLength(0);
+    expect(out.refused).toEqual([
+      { id: "rec-1", reason: "repo-closed", detail: expect.stringContaining("a person driving") },
+    ]);
+  });
+
+  it("refuses a repo sealed into a no-AI zone after the claim", async () => {
+    sealedGlobs = ["acme/*"];
+    const out = (await getFixBriefTool("acme", { ids: ["rec-1"] }, P())).structuredContent as {
+      refused: { reason: string; detail?: string }[];
+    };
+    expect(out.refused[0]!.reason).toBe("repo-closed");
+    expect(out.refused[0]!.detail).toMatch(/no-AI zone/i);
+  });
+
+  it("still briefs a repo that admits them, and takes `requiresHumanReview` from the same verdict", async () => {
+    tier = "T2";
+    const res = await getFixBriefTool("acme", { ids: ["rec-1"] }, P());
+    const out = res.structuredContent as { briefs: { brief: string }[]; refused: unknown[] };
+    expect(out.briefs).toHaveLength(1);
+    expect(out.refused).toEqual([]);
+    // T2 is allowed and flagged — the one derivation, `claimability`'s, reaching the brief text.
+    expect(out.briefs[0]!.brief).toMatch(/human review is required/i);
+  });
+});

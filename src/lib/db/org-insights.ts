@@ -281,8 +281,24 @@ export interface OrgRec {
   liftsRepos: number;
 }
 
-/** Aggregate open recommendations across the fleet's latest scans → highest-leverage moves. */
-export async function getOrgRecommendations(orgSlug: string, limit = 8, segmentId?: string | null, techGroupId?: string | null): Promise<OrgRec[] | null> {
+/**
+ * Aggregate open recommendations across the fleet's latest scans → highest-leverage moves.
+ *
+ * `repoFullName` narrows the result to the moves that affect ONE repository, and it exists because
+ * filtering after the call cannot work: the ranking is fleet-wide and the cap is applied here, so a
+ * caller that sliced to the top 10 and then filtered by repo could get an empty list for a repository
+ * with plenty of open gaps — its own top items simply were not the fleet's. The filter is applied to
+ * the SORTED list before the cap, so the ordering and the leverage arithmetic are untouched (they are
+ * deliberately still fleet-wide: how many repositories share a gap is what makes a move leverage, and
+ * recomputing it over one repo would answer a different question). Absent → behaviour is unchanged.
+ */
+export async function getOrgRecommendations(
+  orgSlug: string,
+  limit = 8,
+  segmentId?: string | null,
+  techGroupId?: string | null,
+  repoFullName?: string | null,
+): Promise<OrgRec[] | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const org = await getOrgBySlug(orgSlug);
@@ -292,6 +308,10 @@ export async function getOrgRecommendations(orgSlug: string, limit = 8, segmentI
     where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
     select: {
       name: true,
+      // Read only so `repoFullName` can be matched precisely. `OrgRec.repos` keeps carrying the BARE
+      // name it always has — every other consumer renders that string, and widening it here would be
+      // a change to the shape rather than to the filter.
+      fullName: true,
       scans: {
         orderBy: { scannedAt: "desc" },
         take: 1,
@@ -319,7 +339,10 @@ export async function getOrgRecommendations(orgSlug: string, limit = 8, segmentI
   // rationale + explore are captured from the FIRST rec seen in a group: dedup keys on `dimId::title`,
   // and identical gaps share the same catalog-derived rationale/questions, so the first is representative.
   const groups = new Map<string, { title: string; dimId: string; impact: string; rationale: string; explore: string[]; repos: Set<string> }>();
+  /** bare name → "owner/name", for the `repoFullName` filter below. */
+  const fullNames = new Map<string, string>();
   for (const r of repos) {
+    if (r.fullName) fullNames.set(r.name, r.fullName);
     const scan = r.scans[0];
     if (scan) repoDims.set(r.name, { archetype: scan.archetype, dims: (scan.dimensions ?? []).map((d) => ({ id: d.dimId, score: d.score })) });
     const recs = scan?.recommendations ?? [];
@@ -363,7 +386,21 @@ export async function getOrgRecommendations(orgSlug: string, limit = 8, segmentI
     };
   });
   recs.sort((a, b) => b.leverage - a.leverage || b.repoCount - a.repoCount);
-  return recs.slice(0, limit);
+  const wanted = repoFullName?.trim().toLowerCase();
+  // Matched on "owner/name", because that is what every caller of this filter holds. THE BARE-NAME
+  // FALLBACK IS NOT A CONVENIENCE: `repos` carries bare names, so the MCP door's own
+  // `r.repos.includes("acme/api")` filter never matched anything and answered `count: 0` for every
+  // repository it was asked about. Falling back keeps a row whose `fullName` was not read matchable.
+  const wantedTail = wanted?.includes("/") ? wanted.slice(wanted.lastIndexOf("/") + 1) : wanted;
+  const scoped = wanted
+    ? recs.filter((r) =>
+        r.repos.some((name) => {
+          const full = fullNames.get(name);
+          return full ? full.toLowerCase() === wanted : name.toLowerCase() === wantedTail;
+        }),
+      )
+    : recs;
+  return scoped.slice(0, limit);
 }
 
 // ── Recommendation backlog — owners, due dates, and a trackable roadmap ─────────

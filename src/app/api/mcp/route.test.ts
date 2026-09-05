@@ -43,17 +43,20 @@ vi.mock("@/lib/rate-limit", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/rate-limit")>();
   return {
     rateLimitRequest: vi.fn(() => ({ ok: true, retryAfterSec: 0 })),
+    rateLimitKeyed: vi.fn(() => ({ ok: true, retryAfterSec: 0 })),
     tooManyRequests: actual.tooManyRequests,
     GATE_RATE_LIMIT: {},
+    MCP_RATE_LIMIT: { name: "mcp", perIp: 300, global: 3_000, windowMs: 60_000, basis: "inherited" },
   };
 });
 
 import { POST } from "./route";
 import { recordOrgAudit, verifyOrgApiToken, workspaceAllowsMemory, workspaceAllowsSkills } from "@/lib/db";
 import { runTool } from "@/lib/mcp/handlers";
-import { rateLimitRequest } from "@/lib/rate-limit";
+import { rateLimitKeyed, rateLimitRequest } from "@/lib/rate-limit";
 
 const mockLimiter = vi.mocked(rateLimitRequest);
+const mockTokenLimiter = vi.mocked(rateLimitKeyed);
 const mockVerify = vi.mocked(verifyOrgApiToken);
 const mockMemoryPlan = vi.mocked(workspaceAllowsMemory);
 const mockSkillsPlan = vi.mocked(workspaceAllowsSkills);
@@ -72,6 +75,7 @@ function post() {
 beforeEach(() => {
   vi.clearAllMocks();
   mockLimiter.mockReturnValue({ ok: true, retryAfterSec: 0 } as never);
+  mockTokenLimiter.mockReturnValue({ ok: true, retryAfterSec: 0 } as never);
   mockMemoryPlan.mockResolvedValue(true);
   mockSkillsPlan.mockResolvedValue(true);
 });
@@ -146,6 +150,54 @@ describe("POST /api/mcp — the 429 names the scope that refused", () => {
   it("does not refuse a request under the budget", async () => {
     const res = await post();
     expect(res.status).not.toBe(429);
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────────────────────────
+  // THE KEY LADDER (Direction 3). The pre-auth per-IP check is the cheap first gate and CANNOT be the
+  // real budget: with `trustedProxyHops() === 0` — the default — `clientIp` is the shared "unknown"
+  // bucket, so every agent on a self-hosted deployment would share one window. The budget that
+  // matters is charged on the VERIFIED token id, after the credential is known.
+  // ───────────────────────────────────────────────────────────────────────────────────────────────
+  it("charges the real budget against the token id, after the IP gate", async () => {
+    tokenWith(["mcp:read"]);
+    await call("tools/list");
+    expect(mockLimiter).toHaveBeenCalledTimes(1); // the cheap pre-auth gate still runs
+    expect(mockTokenLimiter).toHaveBeenCalledWith("tok_1", expect.objectContaining({ name: "mcp" }));
+  });
+
+  it("refuses a token over its own budget with the mcp limiter named", async () => {
+    tokenWith(["mcp:read"]);
+    mockTokenLimiter.mockReturnValue({
+      ok: false,
+      retryAfterSec: 3,
+      scope: "ip",
+      limiter: "mcp",
+      limit: 300,
+      windowSec: 60,
+      evaluated: true,
+    } as never);
+
+    const res = await call("tools/list");
+    expect(res.status).toBe(429);
+    expect(await res.json()).toMatchObject({ limiter: "mcp", limit: 300 });
+  });
+
+  it("refuses an oversize body as a PROTOCOL error, before any parse", async () => {
+    tokenWith(["mcp:read"]);
+    const res = await POST(
+      new Request("http://localhost/api/mcp", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer askl_test",
+          "mcp-protocol-version": "2026-07-28",
+          "mcp-method": "tools/list",
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", pad: "x".repeat(70_000) }),
+      }),
+    );
+    expect(res.status).toBe(413);
+    expect((await res.json()).error.message).toMatch(/exceeds/i);
   });
 });
 

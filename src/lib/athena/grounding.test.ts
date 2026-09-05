@@ -29,13 +29,28 @@ function deps(over: Partial<Parameters<typeof createAthenaGrounding>[1]> = {}) {
 }
 
 describe("the catalog", () => {
-  it("is the MCP catalog's READ half, not a copy of it", () => {
+  it("is the MCP catalog's READ half, minus the tools that need a holder", () => {
     const names = athenaToolCatalog({ memoryAllowed: true, skillsAllowed: true }).map((t) => t.name).sort();
     expect(names).toEqual(
-      MCP_TOOLS.filter((t) => !t.mutates)
+      MCP_TOOLS.filter((t) => !t.mutates && !t.scopes.includes("followups:write"))
         .map((t) => t.name)
         .sort(),
     );
+  });
+
+  // A PRINCIPAL-LESS RUNNER IS OFFERED NO TOOL THAT NEEDS A PRINCIPAL. `get_fix_brief` READS, so the
+  // `mutates` filter above does not catch it — but it reads only rows a named holder holds, and this
+  // runner passes no principal, so `runTool` fails it closed on every call. Offering it spent a model
+  // turn to produce a refusal and taught the model the capability was broken. Derived from the
+  // `followups:write` scope, so a future work tool disappears from here the moment it declares it.
+  it("offers no tool that requires a work-queue principal", () => {
+    const names = athenaToolCatalog({ memoryAllowed: true, skillsAllowed: true }).map((t) => t.name);
+    expect(names).not.toContain("get_fix_brief");
+    for (const t of MCP_TOOLS.filter((t) => t.scopes.includes("followups:write"))) expect(names).not.toContain(t.name);
+    // Not vacuous: the catalog does carry a principal-needing tool that is not a write.
+    expect(MCP_TOOLS.some((t) => !t.mutates && t.scopes.includes("followups:write"))).toBe(true);
+    // …and the ordinary reads are untouched.
+    expect(names).toContain("get_repo_standing");
   });
 
   // Derived from the `mutates` marker, so a write tool a future lane adds is refused here the moment

@@ -200,6 +200,13 @@ async function itemsFor(org: string, held: readonly FollowupClaimRow[]): Promise
  *
  * A row held by somebody else is named in `refused` rather than dropped: an agent that asked for five
  * briefs and got three needs to know which two it lost, because those are the two it must not work.
+ *
+ * ADMISSION IS RE-CHECKED PER REPO, not trusted from the claim. `claimability` used to run only at
+ * `claim_followups`, so a repository moved to `assisted-only` or `blocked` — or sealed into a no-AI
+ * zone — kept handing out working briefs to whoever held a lease taken minutes earlier, for the whole
+ * four hours of it. A governance decision that takes effect only at the next claim is a decision the
+ * agent currently inside the repo does not have to honour, which is exactly backwards. Such a row is
+ * refused BY NAME with the org's own refusal sentence, the same way a lost row is.
  */
 export async function getFixBriefTool(org: string, args: Args, principal: McpPrincipal): Promise<ToolResult> {
   const actor = principal.actor;
@@ -208,7 +215,9 @@ export async function getFixBriefTool(org: string, args: Args, principal: McpPri
 
   const held = await heldFollowups(org, wanted, actor, principal.legacyActor);
   const heldIds = new Set(held.map((h) => h.id));
-  const refused = wanted.filter((id) => !heldIds.has(id));
+  const refused: { id: string; reason: string; detail?: string }[] = wanted
+    .filter((id) => !heldIds.has(id))
+    .map((id) => ({ id, reason: "not-held" }));
   if (held.length === 0) {
     return fail(
       "You hold none of those follow-ups. A lease that expired released its rows back to the queue; claim again with claim_followups.",
@@ -225,6 +234,19 @@ export async function getFixBriefTool(org: string, args: Args, principal: McpPri
 
   for (const [repo, rows] of byRepo) {
     const gate = await repoGate(org, repo);
+    // THE SAME gate the claim ran, re-run against the CURRENT decision — see the doc comment. A repo
+    // whose facts have gone (`gate === null`) reaches `claimability` as an unassessed tier, which it
+    // already refuses: unknown is not green, at the brief exactly as at the claim.
+    const verdict = claimability({
+      autonomyTier: gate?.tier ?? null,
+      executor: "remote-agent",
+      sealed: gate?.sealed ?? false,
+      admissionMode: gate?.mode ?? null,
+    });
+    if (!verdict.allowed) {
+      for (const r of rows) refused.push({ id: r.id, reason: "repo-closed", detail: claimRefusalText(verdict.reason, repo) });
+      continue;
+    }
     const picked = rows.map((r) => items.get(r.id)).filter((x): x is FollowUpItem => Boolean(x));
     if (picked.length === 0) continue;
     // THE ORG'S STANDARD TRAVELS WITH THE REMOTE BRIEF TOO (`PRIYA-L1-706`). The local lane has
@@ -250,7 +272,10 @@ export async function getFixBriefTool(org: string, args: Args, principal: McpPri
         repo,
         autonomyTier: gate?.tier ?? null,
         reviewText: gate?.reviewText ?? null,
-        requiresHumanReview: gate ? gate.tier !== "T3" : true,
+        // ONE SOURCE for this fact: the verdict `claimability` just returned, not a second derivation
+        // of the same rule. The inline `tier !== "T3"` copy that used to sit here would have had to be
+        // found and changed by hand the first time the tier rule moved.
+        requiresHumanReview: verdict.requiresHumanReview,
         leaseUntil: rows.map((r) => r.leaseUntil).filter((l): l is string => Boolean(l)).sort()[0] ?? "no lease",
         stance: published?.stance ?? null,
       }),
@@ -261,8 +286,10 @@ export async function getFixBriefTool(org: string, args: Args, principal: McpPri
     structuredContent: {
       org,
       briefs,
-      // Named, never silently dropped — see the doc comment.
-      refused: refused.map((id) => ({ id, reason: "not-held" })),
+      // Named, never silently dropped — see the doc comment. `not-held` is a lease you lost;
+      // `repo-closed` is a repository that no longer admits agent work, and it carries the org's own
+      // sentence so the agent stops rather than retries.
+      refused,
     },
     // The brief is the payload a model actually reads, so it is the text channel too, joined rather
     // than JSON-quoted: a markdown document rendered as an escaped JSON string is a document the

@@ -20,6 +20,17 @@
 // the door cannot be used to enumerate an org's surface, a plan refusal is stated in words because
 // the caller already holds this org's own token and is owed a fact it can act on.
 //
+// TWO RATE LIMITS, IN LADDER ORDER. The pre-auth one is per IP (`GATE_RATE_LIMIT`) and exists to make
+// an unauthenticated flood cheap — it is charged before any body handling or token crypto. It cannot
+// be the real budget: with `trustedProxyHops() === 0` (the default) `clientIp` is the shared
+// "unknown" bucket, so on a self-hosted deployment every agent on earth would share one window. The
+// budget that matters is charged AFTER the token is verified, keyed on the token id
+// (`MCP_RATE_LIMIT`), because an authenticated door does not have to guess who is calling.
+//
+// AND A BODY CAP, before the parse, using the ingest door's own `readCappedBody` rather than a second
+// implementation of it: this is the other route in the app an arbitrary body arrives at behind a
+// bearer token, and an unbounded `req.json()` lets one request pin an instance's memory.
+//
 // IDENTITY IS THE TOKEN ID. Both the audit actor (`token:<id>`) and the work-queue holder
 // (`agent:<id>`) key on the token's id, never its name — names are not unique, so a name-keyed
 // identity made two tokens called `ci` one holder and one daily counter. The name travels as a label.
@@ -48,7 +59,8 @@ import {
 } from "@/lib/mcp/protocol";
 import { MCP_TOOLS, TOOLS_CACHE_SCOPE, TOOLS_TTL_MS, toolsForScopes, toWireTool } from "@/lib/mcp/tools";
 import { countTokenWritesToday, gateOpen, planRefusal, resolveMcpGates } from "@/app/api/mcp/gates";
-import { rateLimitRequest, tooManyRequests, GATE_RATE_LIMIT } from "@/lib/rate-limit";
+import { rateLimitKeyed, rateLimitRequest, tooManyRequests, GATE_RATE_LIMIT, MCP_RATE_LIMIT } from "@/lib/rate-limit";
+import { readCappedBody } from "@/lib/integrations/ingest-guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -68,6 +80,14 @@ function originAllowed(req: Request): boolean {
 }
 
 const CHALLENGE = 'Bearer realm="ascent", scope="mcp:read"';
+
+/**
+ * Max accepted request body. A JSON-RPC frame here is a method, an id and a tool's arguments — the
+ * largest realistic one is a `report_attempt` whose `reason` is a paragraph, a few KB. 64 KB is an
+ * order of magnitude of headroom over that while bounding a hostile body; the named ceiling is
+ * checked before the value is used, the same convention `/api/org/issue` and the ingest door keep.
+ */
+const MCP_MAX_BODY = 64_000;
 
 function rpc(body: Record<string, unknown>, status: number, extra?: Record<string, string>): NextResponse {
   return NextResponse.json(body, {
@@ -101,6 +121,11 @@ export async function POST(req: Request) {
       "www-authenticate": CHALLENGE,
     });
   }
+  // THE REAL BUDGET, keyed on the verified credential (see the header). Charged before the scope
+  // check so a token looping on tools it cannot reach is throttled like any other caller.
+  const tokenRl = rateLimitKeyed(token.tokenId, MCP_RATE_LIMIT);
+  if (!tokenRl.ok) return tooManyRequests(tokenRl);
+
   const scopes = token.scopes as SkillTokenScope[];
   if (!scopes.includes("mcp:read")) {
     return rpc(
@@ -111,8 +136,20 @@ export async function POST(req: Request) {
   }
 
   let body: JsonRpcRequest;
+  const raw = await readCappedBody(req, MCP_MAX_BODY);
+  if (!raw.ok) {
+    // A PROTOCOL error, not a tool result: nothing was parsed, so there is no request id to answer
+    // and no model-fixable argument to name — the frame itself is inadmissible.
+    return rpc(
+      err(null, {
+        code: RPC.invalidRequest,
+        message: `Request body exceeds ${MCP_MAX_BODY} bytes. A JSON-RPC frame at this door is a tool name and its arguments; send less.`,
+      }),
+      413,
+    );
+  }
   try {
-    body = (await req.json()) as JsonRpcRequest;
+    body = JSON.parse(raw.text) as JsonRpcRequest;
   } catch {
     return rpc(err(null, { code: RPC.parseError, message: "Invalid JSON." }), 400);
   }

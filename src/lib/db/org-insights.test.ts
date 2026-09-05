@@ -627,6 +627,7 @@ function fakeRecPrisma(reposRecs: { name: string; recs: FakeRec[] }[]) {
       findMany: vi.fn(async () =>
         reposRecs.map((r) => ({
           name: r.name,
+          fullName: `acme/${r.name}`,
           scans: [{ recommendations: r.recs.map((rec) => ({ ...rec })) }],
         })),
       ),
@@ -1145,5 +1146,43 @@ describe("getOrgMovers — the mock floor is never an endpoint of a move", () =>
 
     expect(movers.gainers.map((m) => m.fullName)).toEqual(["acme/alpha"]);
     expect(movers.gainers[0]!.dOverall).toBe(20);
+  });
+});
+
+// ── The `repoFullName` filter: applied to the SORTED list, before the cap ──────────────────────
+//
+// The MCP door asked for the fleet's top N and filtered by repo afterwards, so a repository whose
+// gaps were real but not the fleet's highest-leverage answered `count: 0`. (Worse: it filtered
+// `repos`, which carries BARE names, against "owner/name" — so it matched nothing at all.)
+describe("getOrgRecommendations — the repo filter", () => {
+  const fleet = () =>
+    fakeRecPrisma([
+      { name: "alpha", recs: [{ title: "Shared gap", dimId: "D1", impact: "high" }] },
+      { name: "bravo", recs: [{ title: "Shared gap", dimId: "D1", impact: "high" }, { title: "Bravo only", dimId: "D5", impact: "low" }] },
+    ]) as never;
+
+  it("keeps a repo's own move that the fleet-wide cap would have cut", async () => {
+    mockGetPrisma.mockReturnValue(fleet());
+    // limit 1, fleet-wide: only the 2-repo "Shared gap" survives, and "Bravo only" is invisible.
+    expect((await getOrgRecommendations("acme", 1))!.map((r) => r.title)).toEqual(["Shared gap"]);
+    // Scoped to bravo with the same cap of 1… still the top move FOR BRAVO. Raise the cap and the
+    // repo's own item is there, which the old post-filter could never return.
+    expect((await getOrgRecommendations("acme", 5, null, null, "acme/bravo"))!.map((r) => r.title)).toEqual([
+      "Shared gap",
+      "Bravo only",
+    ]);
+  });
+
+  it("matches on \"owner/name\" and excludes a repo the move does not affect", async () => {
+    mockGetPrisma.mockReturnValue(fleet());
+    expect((await getOrgRecommendations("acme", 5, null, null, "acme/alpha"))!.map((r) => r.title)).toEqual(["Shared gap"]);
+    expect(await getOrgRecommendations("acme", 5, null, null, "acme/ghost")).toEqual([]);
+  });
+
+  it("is behaviour-neutral when absent", async () => {
+    mockGetPrisma.mockReturnValue(fleet());
+    const all = await getOrgRecommendations("acme", 5);
+    expect(await getOrgRecommendations("acme", 5, null, null, null)).toEqual(all);
+    expect(all!.map((r) => r.repos)).toEqual([["alpha", "bravo"], ["bravo"]]);
   });
 });

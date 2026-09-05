@@ -147,20 +147,35 @@ async function gateVerdict(org: string, args: Args): Promise<ToolResult> {
 
 async function openRecommendations(org: string, args: Args): Promise<ToolResult> {
   const limit = num(args, "limit", 10, 50);
-  const recs = await getOrgRecommendations(org, limit);
-  if (!recs) return fail(`No data for organization "${org}".`);
   const repo = str(args, "repo");
-  const scoped = repo ? recs.filter((r) => r.repos?.some((x) => x.toLowerCase() === repo.toLowerCase())) : recs;
+  // THE REPO FILTER RUNS BEFORE THE CAP, inside the query. This handler used to ask for the fleet's
+  // top `limit` moves and filter them by repo afterwards — so a repository with plenty of open gaps
+  // answered `count: 0` whenever none of its own gaps were the FLEET's highest-leverage ones, and the
+  // agent read that silence as "nothing to do here". Same ranking, same arithmetic; only the slice
+  // moved (`getOrgRecommendations`'s `repoFullName`).
+  const recs = await getOrgRecommendations(org, limit, null, null, repo);
+  if (!recs) return fail(`No data for organization "${org}".`);
   return {
     structuredContent: {
       org,
-      count: scoped.length,
-      recommendations: scoped.slice(0, limit).map((r) => ({
+      ...(repo ? { repo } : {}),
+      count: recs.length,
+      recommendations: recs.map((r) => ({
         title: r.title,
         dimension: r.dimId,
         impact: r.impact,
         repos: r.repos ?? [],
       })),
+      // ABSENCE IS ANSWERED, NEVER LEFT AS AN EMPTY LIST. `count: 0` with no sentence reads to a model
+      // as "this repository is clean"; for a repo that is simply unscanned, or whose gaps are all
+      // closed, those are different facts and only one of them is good news.
+      ...(recs.length === 0
+        ? {
+            note: repo
+              ? `No open, tracked recommendation names ${repo}. That means this organization has none recorded against it — either it has no scan, or its gaps are closed — not that the repository is known to be in good shape.`
+              : `This organization has no open, tracked recommendations recorded. That is an absence of records, not a clean bill of health.`,
+          }
+        : {}),
     },
   };
 }
