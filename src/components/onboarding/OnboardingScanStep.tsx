@@ -1,12 +1,14 @@
 "use client";
 
-import { ScanRowView, type ScanRow } from "@/components/onboarding/OnboardingScanRow";
+import { ScanRowView, type ScanRow, type ScanRowState } from "@/components/onboarding/OnboardingScanRow";
+import { ScanExpectation } from "@/components/onboarding/OnboardingScanExpectation";
 import { InvitePanel } from "@/components/onboarding/OnboardingInvitePanel";
 import { FoundationPanel } from "@/components/onboarding/OnboardingFoundationPanel";
 import { SkipNotices } from "@/components/onboarding/OnboardingSkipNotices";
 import type { ImportNotice } from "@/components/onboarding/skipReason";
 import { ReconnectedNotice } from "@/components/onboarding/OnboardingReconnected";
 import type { ReattachState } from "@/components/onboarding/useImportReattach";
+import { SCAN_CONCURRENCY } from "@/lib/pool";
 import { LEVELS } from "@/lib/maturity/model";
 import { LEVEL_CLASSES, LEVEL_GLYPH } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
@@ -88,6 +90,22 @@ export function ScanStep({
   const pct = scanTotal ? Math.round((completed / scanTotal) * 100) : 0;
   const reattached = Boolean(reattach && reattach.status !== "off");
 
+  // Direction 9 — which unsettled rows are actually in a scan lane right now. The import route emits
+  // no "started" frame (only terminal `repo` frames), so this is inferred from the route's own pool
+  // discipline: mapPool takes items in index order with SCAN_CONCURRENCY lanes, so the unsettled rows
+  // with the lowest indices are the ones being scanned. Only for a run THIS tab is streaming — a
+  // re-attached run's queue poll gives no ordering to infer from, so its rows keep "scanning…".
+  const streaming = phase === "scanning" && !reattached;
+  const lanes = new Set<string>();
+  if (streaming) {
+    for (const r of Object.values(rows)) {
+      if (lanes.size >= SCAN_CONCURRENCY) break;
+      if (!r.level && !r.error && !r.skipped && !r.completed) lanes.add(r.repo);
+    }
+  }
+  const rowState = (row: ScanRow): ScanRowState | undefined =>
+    streaming ? (lanes.has(row.repo) ? "active" : "queued") : undefined;
+
   return (
     <div key={phase} className="animate-phase-in">
       {/* Polite live region — announces scan progress + completion for screen readers. */}
@@ -152,6 +170,14 @@ export function ScanStep({
         )}
       </div>
 
+      {/* How long this is going to take. Suppressed on the reconnected surface (ReconnectedNotice
+          already owns that state, and this tab doesn't know when that run started) and on done.
+          `preview` is the run's mode: a mock preview is seconds, a live run has no resolved provider
+          client-side, so its copy states the slowest-provider ceiling ("Up to …"). */}
+      {phase === "scanning" && (
+        <ScanExpectation repoCount={scanTotal} mode={preview ? "mock" : "unknown"} hidden={reattached} />
+      )}
+
       {reattach && <ReconnectedNotice state={reattach} />}
 
       {error && (
@@ -162,7 +188,7 @@ export function ScanStep({
 
       <div className="mt-5 space-y-1.5">
         {Object.values(rows).map((row) => (
-          <ScanRowView key={row.repo} row={row} onRetry={onRetryRepo} />
+          <ScanRowView key={row.repo} row={row} onRetry={onRetryRepo} state={rowState(row)} />
         ))}
       </div>
 

@@ -19,7 +19,27 @@ export interface ScanRow {
   completed?: boolean;
 }
 
-export function ScanRowView({ row, onRetry }: { row: ScanRow; onRetry?: (repo: string) => void }) {
+/**
+ * Direction 9 — whether an UNSETTLED row is being scanned right now or is still waiting its turn.
+ *
+ * The import route emits `send("repo", …)` only for a TERMINAL outcome (scored / errored / skipped):
+ * there is no "started" frame, so in-flight is inferred from the route's own pool discipline
+ * (`mapPool(fullNames, SCAN_CONCURRENCY, …)` takes items in index order, so the unsettled rows with
+ * the lowest indices are the ones in the lanes). Omit the prop and the row keeps its old, undivided
+ * "scanning…" label — which is what the re-attached surface passes, since a queue poll gives no
+ * ordering to infer from.
+ */
+export type ScanRowState = "queued" | "active";
+
+export function ScanRowView({
+  row,
+  onRetry,
+  state,
+}: {
+  row: ScanRow;
+  onRetry?: (repo: string) => void;
+  state?: ScanRowState;
+}) {
   const done = (row.level && typeof row.overall === "number") || row.completed;
 
   // The score pill needs a score. A re-attached row (completed, no level) is `done` without one, so
@@ -52,8 +72,22 @@ export function ScanRowView({ row, onRetry }: { row: ScanRow; onRetry?: (repo: s
     );
   }
 
+  // The row currently in a scan lane was indistinguishable from the ones still queued — every
+  // unsettled row said "scanning…", so a ten-repo run looked like ten stalled scans.
+  const pending = !row.error && !row.skipped;
+  const active = pending && state === "active";
+
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-900/40 px-4 py-2.5">
+    <div
+      className={`flex items-center gap-3 rounded-lg border px-4 py-2.5 ${
+        active ? "border-accent/40 bg-accent/5" : "border-slate-800 bg-slate-900/40"
+      }`}
+    >
+      {active && (
+        // Live indicator. `motion-safe:` keeps the pulse out of a reduced-motion session; the dot and
+        // the "scanning now" label carry the state on their own, so nothing is lost without it.
+        <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-accent motion-safe:animate-pulse" />
+      )}
       <span className="flex-1 truncate font-mono type-body text-white">{row.repo}</span>
       {row.error ? (
         <>
@@ -77,6 +111,10 @@ export function ScanRowView({ row, onRetry }: { row: ScanRow; onRetry?: (repo: s
         // funnel run that exhausted its FREE monthly allowance — and a repo another tab was already
         // scanning — were both reported as a prepaid-balance problem.
         <span className="type-body-sm text-amber-300">{skipRowLabel(row.skipped)}</span>
+      ) : active ? (
+        <span className="type-body-sm text-accent">scanning now</span>
+      ) : state === "queued" ? (
+        <span className="type-body-sm text-slate-600">queued</span>
       ) : (
         <span className="type-body-sm text-slate-500">scanning…</span>
       )}
