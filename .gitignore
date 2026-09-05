@@ -100,3 +100,6 @@ docs/harness/
 
 # detached dev-server log (see docs/features/local-mode)
 dev-server.log
+
+# Spark vault (local, never committed; the overlay vault path does not exist on this machine)
+.spark/
