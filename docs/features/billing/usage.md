@@ -172,6 +172,20 @@ Every public, unauthenticated endpoint that can cost money (`/api/scan`, `/api/s
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | — | Required for `upstash`. Spoken over `fetch` against the REST `/pipeline` endpoint: **no npm client dependency**. If either is missing the store falls back to `memory` rather than failing requests. |
 | `ASCENT_RATE_LIMIT_SHARED_FAIL_OPEN` | unset (fail **closed**) | When the shared store is unreachable, `1` degrades to the in-memory ceiling (availability) instead of returning 429 (safety). |
 | `RATE_LIMIT_{SCAN,PEEK,QUOTA_PEEK,ORG_IMPORT,GATE,CONTACT,ORG_REPOS}_{PER_IP,GLOBAL}` | see source | Per-endpoint overrides; window is 60s. |
+| `ASCENT_TRUSTED_PROXY_HOPS` | `1` | How many proxies in front of the app are trusted to set honest forwarding headers, which is the key every per-IP limit *and* the 30-day free-scan quota is bucketed on. `0` trusts nothing (all forwarding headers ignored: anonymous callers share one burst bucket and the monthly quota treats them as unidentifiable); `1` trusts one proxy (`x-real-ip`, else the right-most `X-Forwarded-For` hop); `N` declares an N-hop chain (CDN, LB, app = `2`), taking the Nth-from-the-right XFF entry and ignoring `x-real-ip`. Read by `trustedProxyHops()` in `src/lib/env.ts`. |
+
+**Set `ASCENT_TRUSTED_PROXY_HOPS` on a self-hosted deployment.** At the default of `1`, `x-real-ip`
+is trusted verbatim. If the app is reachable without a trusted proxy (the port is exposed, or the
+proxy forwards client headers unchanged) a caller can mint a fresh burst bucket *and* a fresh
+monthly-quota bucket on every request just by setting that header. Since 2026-09-05 the app logs one
+warning per process at first use when the variable is unset and no platform witness (`VERCEL`) is
+present. On Vercel the default is correct and nothing needs setting.
+
+**A refused request spends nothing (2026-09-05).** The per-IP window is checked first but recorded
+only after the global ceiling admits, so a caller refused by the global ceiling, or by the
+fail-closed "store unreachable" branch, keeps their own per-minute budget intact. Before this the
+per-IP hit was recorded up front, so during global saturation an innocent caller's own allowance
+drained on requests that were never served.
 
 `ORG_REPOS` (`10`/min per IP, `60`/min global) covers `GET /api/org/repos`, the App-free public org
 listing behind the onboarding selector — added 2026-08-28, when it was the last public endpoint with

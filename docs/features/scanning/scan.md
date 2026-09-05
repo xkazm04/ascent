@@ -74,7 +74,10 @@ reach it. Until 2026-09-05 this gate lived inline in `/api/scan` only, so `/api/
 route the report UI drives) ran paid inference on private repos with no meter at all; both routes now
 share the one gate. Both also answer `x-ascent-credits-remaining`: on `/api/scan` it is the
 post-refund balance; on the SSE route the headers flush before `start()` can refund, so it is the
-**pre-refund** figure (the same soft-header caveat the `x-ascent-quota-*` fields carry).
+**pre-refund** figure (the same soft-header caveat the `x-ascent-quota-*` fields carry). The report
+client renders the 402 as its own out-of-credits wall (see
+[report.md](../reporting/report.md#failure-states-on-the-report-page-2026-09-05)). A GitHub network
+failure inside `ghJson` now crosses back as a fixed sentence; the raw error is logged server-side.
 
 ### The anonymous public scan is exempt from the sign-in wall
 

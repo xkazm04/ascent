@@ -830,6 +830,26 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/components/leaderboard/ScorecardSummary.tsx` | The scorecard headline; renders the refusal state when `verifiedCount === 0`. |
 | `src/app/scorecard/[owner]/opengraph-image.tsx` | Scorecard OG card, on the shared `og-brand` shell; falls back to the neutral card rather than drawing an average over previews. |
 
+## Failure states on the report page (2026-09-05)
+
+`useReportScan` classifies every pre-stream refusal and every in-stream error into one
+`ScanErrorClass` (`authRequired` / `blocked` monthly quota / `credits` / `notFound`, or none for a
+transient failure), and both surfaces branch on it:
+
+- **Out of credits.** A metered scan (private / installed-org repo) is refused by the credit gate
+  with a plain JSON `402 { code: "INSUFFICIENT_CREDITS", balance }` *before* the stream opens. The
+  page renders `CreditsBlocked` (`CreditsNotice.tsx`): the refused balance and an "Add credits"
+  link to the owning org's dashboard, where the credits control lives. No "Try again": a retry only
+  re-trips the gate.
+- **"Try again" re-scans.** The transient-failure action now links to `/report?repo=…&fresh=1`, so
+  on the `/report` route it actually forces a fresh run. It used to build the URL the user was
+  already on, which changed nothing and ran nothing.
+- **A failed in-place re-scan keeps its class.** `ReportRescanAlert` shows the sign-in button, the
+  "resets on <date>" quota line with a plans link, the credits link, or the connect-GitHub hint,
+  and offers **Retry only for the transient class**. The report underneath is never unmounted.
+- **Upstream errors are opaque.** A GitHub network failure surfaces as a fixed sentence; the raw
+  fetch error (which on a GHES deploy could name the internal API host) goes to the server log only.
+
 ## Known gaps
 
 - **Textual, not semantic, diffing.** `norm()` collapses whitespace/case but won't equate
