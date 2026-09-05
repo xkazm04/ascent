@@ -14,7 +14,6 @@
 // Clearing the sink is the honest unsubscribe: it stops the mail AND the webhook pushes, because they
 // are one setting. The confirm page says so rather than pretending the two can be separated.
 
-import { NextResponse } from "next/server";
 import { isDbConfigured, setOrgAlertWebhook } from "@/lib/db";
 import { escapeHtml } from "@/lib/email/render";
 import { unsubscribeConfigured, verifyUnsubscribeToken } from "@/lib/email/unsubscribe";
@@ -45,7 +44,11 @@ export async function GET(request: Request) {
   }
   const token = new URL(request.url).searchParams.get("token");
   const org = verifyUnsubscribeToken(token);
-  if (!org) return page("That link isn't valid", p("This unsubscribe link is invalid or has expired. Clear the alert sink in your Ascent organization settings to stop these emails."), 400);
+  // NOT "or has expired": the token carries no timestamp and `verifyUnsubscribeToken` has no maxAge,
+  // so a minted link stays valid until the signing secret is rotated. Telling a recipient their link
+  // expired sends them to look for a newer mail that will not be any different; the truthful causes
+  // are a mangled link or a rotated secret, and both are actionable.
+  if (!org) return page("That link isn't valid", p("This unsubscribe link couldn't be verified — it may have been altered in transit, or this deployment's signing secret has changed since the email was sent. Clear the alert sink in your Ascent organization settings to stop these emails."), 400);
   return page(
     `Stop Ascent alerts for ${org}?`,
     `${p(`This clears the alert sink for the "${org}" organization. Ascent will stop emailing this address. Because the sink is one setting, it also stops any webhook pushes for this organization. An owner can set it again at any time.`)}
@@ -72,7 +75,8 @@ export async function POST(request: Request) {
   }
   token ??= new URL(request.url).searchParams.get("token");
   const org = verifyUnsubscribeToken(token);
-  if (!org) return page("That link isn't valid", p("This unsubscribe link is invalid or has expired."), 400);
+  // Same wording rule as the GET above — nothing here expires.
+  if (!org) return page("That link isn't valid", p("This unsubscribe link couldn't be verified — it may have been altered in transit, or this deployment's signing secret has changed since the email was sent."), 400);
   if (!isDbConfigured()) return page("Nothing to change", p("This deployment has no database, so no alert sink is stored."), 503);
   const cleared = await setOrgAlertWebhook(org, null).catch(() => undefined);
   if (cleared === undefined) return page("Organization not found", p(`No organization named "${org}" exists on this deployment.`), 404);
