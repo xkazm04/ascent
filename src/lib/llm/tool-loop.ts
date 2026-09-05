@@ -27,7 +27,7 @@
 
 import type { ProviderName, TokenUsage } from "@/lib/types";
 import { supportsToolCalling } from "@/lib/llm/config";
-import { trackLlmCall, useCaseForLegKind } from "@/lib/llm/tracklight";
+import { trackLlmCall, legKindUseCase } from "@/lib/llm/tracklight";
 import { meter } from "@/lib/llm/meter";
 import { isToolCallingRejection } from "@/lib/llm/transports";
 import type { ResolvedLegRunner } from "@/lib/llm/text";
@@ -165,7 +165,7 @@ export async function runToolLoop(opts: ToolLoopOptions): Promise<ToolLoopRun | 
       // ONE event for the whole loop, tagged by leg kind — Athena's spend can never be mistaken for
       // scan spend in the cost rollups.
       surface: opts.legKind,
-      name: useCaseForLegKind(opts.legKind),
+      name: legKindUseCase(opts.legKind),
       operation: "tool-loop",
       tags: [`grounding:${grounding}`, ...(truncated ? ["truncated"] : [])],
     });

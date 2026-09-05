@@ -10,7 +10,7 @@ import {
   toTracklightProvider,
   tracklightConfig,
   trackLlmCall,
-  useCaseForLegKind,
+  legKindUseCase,
 } from "./tracklight";
 
 const LT_ENV = ["LIGHTTRACK_URL", "LIGHTTRACK_PROJECT", "LIGHTTRACK_KEY", "LIGHTTRACK_ENABLED"] as const;
@@ -145,22 +145,22 @@ describe("buildEventBody", () => {
   });
 });
 
-describe("useCaseForLegKind", () => {
+describe("legKindUseCase", () => {
   it("maps each leg kind with a declared use case", () => {
-    expect(useCaseForLegKind("athena_turn")).toBe("athena.turn");
-    expect(useCaseForLegKind("athena_cycle")).toBe("athena.cycle");
-    expect(useCaseForLegKind("briefing")).toBe("org.briefing_narrative");
-    expect(useCaseForLegKind("lane_summary")).toBe("local.lane_summary");
+    expect(legKindUseCase("athena_turn")).toBe("athena.turn");
+    expect(legKindUseCase("athena_cycle")).toBe("athena.cycle");
+    expect(legKindUseCase("briefing")).toBe("org.briefing_narrative");
+    expect(legKindUseCase("lane_summary")).toBe("local.lane_summary");
   });
 
   // consolidation-engine.ts's resolveMemoryRunner is ONE runner shared by the write-gate judgment and
   // the reflection rollup — both run under legKind "memory" with no signal to tell them apart here.
   it("attributes the shared memory legKind to memory.write_gate, not a third invented name", () => {
-    expect(useCaseForLegKind("memory")).toBe("memory.write_gate");
+    expect(legKindUseCase("memory")).toBe("memory.write_gate");
   });
 
   it("leaves scan unmapped — scan-assess.ts tracks scan.calibrate directly, not through a legKind", () => {
-    expect(useCaseForLegKind("scan")).toBeUndefined();
+    expect(legKindUseCase("scan")).toBeUndefined();
   });
 });
 

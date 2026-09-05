@@ -66,7 +66,7 @@ export interface LlmCallTrack {
   /**
    * The LightTrack use-case key this call answers to (see .ai/use-cases.json), e.g. `athena.turn`,
    * `scan.calibrate`. Omitted — never a placeholder — when a call genuinely has no declared use case.
-   * Prefer {@link useCaseForLegKind} over inventing a name at a call site that already carries a
+   * Prefer {@link legKindUseCase} over inventing a name at a call site that already carries a
    * `legKind`.
    */
   name?: string;
@@ -194,7 +194,7 @@ export function toTracklightModel(name: ProviderName, model: string): string {
  * runner (out of scope for a telemetry-plumbing change). It attributes to `memory.write_gate` rather
  * than inventing a third, undeclared name.
  */
-export function useCaseForLegKind(kind: LlmLegKind): string | undefined {
+export function legKindUseCase(kind: LlmLegKind): string | undefined {
   switch (kind) {
     case "athena_turn":
       return "athena.turn";
