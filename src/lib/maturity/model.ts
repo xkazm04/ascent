@@ -189,7 +189,17 @@ import type {
 // pinned end-to-end by src/lib/scoring/craft.score.test.ts). The bump exists for the r6/r10/r14
 // reason and only that one: the SYSTEM prompt now asks the model a DIFFERENT question, so a cached
 // r15 roadmap and a fresh r16 roadmap are not the same reading.
-export const SCORING_RUBRIC_VERSION = "r16";
+// r17 (2026-09-05): THE INGESTED FILE SET IS A PURE FUNCTION OF THE TREE. fetchSnapshot used to spend
+// MAX_TOTAL_BYTES inside the 8-wide fetch pool with an optimistic per-file claim reconciled after each
+// await, so which picks were displaced depended on network timing: a measured fixture admitted 34-41
+// files across runs (4-6 distinct sets). The budget is now a plan computed from the tree's listed blob
+// sizes before any fetch (planFetchBudget, src/lib/github/source.ts), admitting picks in fetchRank
+// order while planned + min(size, cap) <= MAX_TOTAL_BYTES: 44-46 files, one set. NOTHING PRICED and no
+// constant moved, but a budget-bound repo now shows the deterministic detectors ~15% more manifest and
+// workflow content than the concurrent path actually did, so scores on existing corpora can move on
+// rescan - toward the volume the rubric was calibrated against, but a move. The bump keeps r16 rows
+// labelled as the instrument that produced them and lets the caches re-derive.
+export const SCORING_RUBRIC_VERSION = "r17";
 
 /** Blend factor: how much the LLM judgment counts vs. deterministic signals. */
 export const SCORE_BLEND = 0.6;

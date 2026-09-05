@@ -168,6 +168,20 @@ of them and D9 fell forty points with no repository change. `readPicksWithReserv
 restored to pick order, so the prompt window is unchanged for the files it was going to read anyway.
 Test: `source.reserve.test.ts`.
 
+**The GitHub byte budget is a plan, not a race (2026-09-05, rubric `r17`).** `fetchSnapshot` used to
+spend `MAX_TOTAL_BYTES` inside the 8-wide fetch pool with an optimistic per-file claim reconciled
+after each await, so which picks were displaced depended on network timing. `planFetchBudget` now
+walks the picks in `fetchRank` order and admits each while `planned + min(listed blob size,
+per-file cap) <= MAX_TOTAL_BYTES`, closing admission at the first pick that does not fit; only the
+admitted set is fetched (through the shared `mapPool`). The set a scan reads is a pure function of
+(tree, picks, budget): re-scanning the same commit reads the same files and produces the same score.
+Displaced picks are disclosed through coverage as their own term (`attempted / (attempted +
+displaced)`), the same depression they always caused, now reproducible. The GitLab source, whose
+tree carries no sizes, reaches the same guarantee by deciding admission in strict pick order from a
+single consumer (at most seven in-flight reads beyond the cut). See the `r17` entry in
+[maturity-model.md](maturity-model.md#6-rubric-versioning-scoring_rubric_version) for why this is a
+rubric bump.
+
 The other half of worktree comparability is D9's GitHub-only inputs (branch protection, installed
 Apps, org policy): an observed scan records them on `platformSignals.securityInputs`, a worktree
 rescan re-runs the battery with them and discloses the carry on each check, and with nothing to
