@@ -95,11 +95,11 @@ export function StageChip({ stage, className = "" }: { stage: KnowledgeRepo["sta
 }
 
 /** A proportional bar of states, worst first — the shape of a repo or a subject in one glance. */
-export function Spectrum({ counts, className = "" }: { counts: StateCounts; className?: string }) {
+export function Spectrum({ counts, className = "w-full" }: { counts: StateCounts; /** Width class — the caller owns it (a `w-14` beside a `w-full` would race in the cascade). */ className?: string }) {
   const order: KnowledgeCellState[] = [...VERDICT_STATES, ...ABSENCE_STATES];
   const total = order.reduce((n, s) => n + counts[s], 0) || 1;
   return (
-    <div className={`flex h-1.5 w-full overflow-hidden rounded-sm bg-divider ${className}`} aria-hidden>
+    <div className={`flex h-1.5 shrink-0 overflow-hidden rounded-sm bg-divider ${className}`} aria-hidden>
       {order.map((s) =>
         counts[s] ? <span key={s} className={STATE_CLASS[s].split(" ")[0]} style={{ width: `${(counts[s] / total) * 100}%` }} /> : null,
       )}
