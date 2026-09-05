@@ -801,7 +801,16 @@ falling back to its labeled proxy/mock derivation for pre-0.3.0 data.
 ## Customer-repo PR writes require **admin** (`/api/report/{passport,foundation}/pr`)
 
 Both routes open a draft PR into the scanned repository using the **org's GitHub App installation
-token**, so both gate on `requireOrgRole(org, "admin")`, not merely `requireOrgAccess` (member),
+token**, so both gate on `requireOrgRole(org, "admin")`, not merely `requireOrgAccess` (member).
+Since 2026-09-05 the same bar applies to **issue writes** (`POST /api/org/issue`, which was
+member-gated while its own comment said owner), and the issue writer is idempotent: the route mints
+an HTML-comment marker from a validated `findingId`, `createRepoIssue` searches the repo's open
+issues for it and returns `{ reused: true, url }` instead of filing again (closed issues do not block
+a re-file), and the blocker docket renders "already filed" beside a reused link. The report page gates
+its two passport affordances separately, because they front two routes with two bars: the override
+form stays owner-only, the ".ai/passport.json" PR button follows the PR route's admin bar, so an admin
+who is not an owner sees the button and not a form that would 403. Both routes gate on
+`requireOrgRole(org, "admin")`, not merely `requireOrgAccess` (member),
 which is what they used until the gate was unified with `/api/practices/apply{,-batch}`. One action
 must not have two gates: a plain member of the org now gets `403 "This action requires the admin role
 in this organization."` and no branch, commit, or PR is created. Draft status is a review convenience,
