@@ -176,7 +176,7 @@ under the Supabase wall `getSession()` is null and this collapses to the viewer,
 | Standing | Tech Stacks | `org/[slug]/tech-stacks` | `src/app/org/[slug]/tech-stacks/` | Tech-stack breakdown across the fleet: per-stack maturity profiles and the **dimension analysis** board (see below). |
 | Standing | Passports | `org/[slug]/passports` | `src/features/standing/passports/` | Repo passports, as three switcher views: **Baseline** (the automation × production portfolio), **Clearance** (the passport as a per-repo security clearance), and **Capabilities** (the declared-vs-proven capability matrix), and **Controls** (the per-check doctor findings each repo's own CI reported back) — both below. |
 | Standing | Security | `org/[slug]/security` | `src/features/standing/security/` | Security posture across the fleet, in three stacked pieces: the summary-tile ledger (avg D9 · branch protection · repos at risk · gate), whose bottom edge **is** the D9 band spectrum (`SecurityBandSpectrum`, a `col-span-full` ledger cell — see below); the **D9 check battery** (`SecurityRiskRegister`; renamed from "Control matrix" 2026-08-31, MC-B10); and **Findings to decide** (`SecurityFindings`, see below). |
-| Standing | Adoption | `org/[slug]/adoption` | `src/features/standing/adoption/` | Adoption signals: AI-share tiles, the contributor spread bar, tool footprint, champions, per-team adoption and the delivery strip. **Rates, bands and teams — no named per-person roster**; the "Who to enable next" table moved to Contributors (2026-08-19) and the spread bar's "none" follow-up deep-links across to it. |
+| Standing | Adoption | `org/[slug]/adoption` | `src/features/standing/adoption/` | Adoption signals: AI-share tiles, the contributor spread bar, tool footprint, champions, per-team adoption and the delivery strip. **Rates, bands and teams — no named per-person roster**; the "Who to enable next" table moved to Contributors (2026-08-19) and the spread bar's "none" follow-up deep-links across to it. **2026-09-05:** the \"Org AI commit share\" tile carries its commit denominator (withheld, not zeroed, below the naming floor); the enablement cohort requires activity within 90 days of the fleet's latest observed activity as well as three commits, and the Contributors tab states that horizon. |
 | Standing | Follow-ups | `org/[slug]?tab=followups` | `src/components/org/followups/` | Every open gap across the fleet in one ledger — tick a batch, one fix prompt for a local agent, hand off, and the next default-branch scan closes what landed. Replaced the **Plan** and **Backlog** tabs (retired 2026-08-17). See [org-followups/README.md](../org-followups/README.md). |
 | Shared | Practices | `org/[slug]/practices` | `src/app/org/[slug]/practices/page.tsx` | The Practice Library (see [../practices.md](./practices.md)). |
 | Shared | Skills | `org/[slug]/skills` | `src/app/org/[slug]/skills/` | Skill drift/dormancy views. |
@@ -888,6 +888,27 @@ after it has closed.
 Both reads are audited (`controls.verify`).
 
 ## Canonical time-zone policy (`src/lib/org/timezone.ts`)
+
+**One closure convention (2026-09-05).** Every org window is half-open, `[start, endExclusive)`. The
+UI no longer hand-writes the inclusive `{ start, end }` pair: `orgWindowBounds(period)`
+(`src/lib/org/period.ts`) is the single adapter between the cookie-resolved `ResolvedWindow` and the
+db layer's `OrgWindow`, and `upperBound()` (`src/lib/db/org-shared.ts`) turns it into
+`lt: endExclusive`. Overview, Security, Executive (both the briefing and the Impact Ledger), the
+Briefing PDF route, the digest cron and the Teams panel all go through it. The deprecated
+`ResolvedWindow.end` is exactly `endExclusive - 1 ms`, so the migration changed no figure on any
+surface at millisecond resolution; `src/lib/org/period.dialect.test.ts` replays both dialects over
+the same fixture for every period shape and three readers and asserts identical rows while the emitted
+SQL changed from `lte` to `lt`. What half-open buys: Postgres keeps microseconds, so a scan landing in
+the final millisecond of a period matched the old `lte: end` and the next window's `gte: start`,
+counting once on each side of two abutting windows; half-open partitions cleanly.
+
+**What "now" means to each reader, by design.** `getOrgRollup`'s "current" is each repo's latest scan
+at-or-before the upper bound with no lower bound (where the fleet stands as of the period's end);
+`getOrgMovers` and `getOrgTeamRollup`'s "now" is the latest scan inside the window, compared with the
+latest scan strictly before `start` (a move is a measurement, so both endpoints must be real scans);
+`getOrgRepoHistories` is every scan in the window. The visible consequence: a repo not scanned during
+the period counts in the rollup average and is absent from movers, and the two counts are not expected
+to reconcile. Each reader's file header states its rule.
 
 Every calendar-day decision the org dashboard makes (window preset starts, custom-range
 parsing, trend day-keys, due-date bucketing) resolves in **one** reference frame. Before
