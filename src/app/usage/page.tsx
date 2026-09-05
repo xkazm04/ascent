@@ -60,6 +60,10 @@ export default async function UsagePage({
   // traffic apart, explained away in the panel's own copy as rows "straddling the window edge".
   // Resolving the window HERE, once, and handing the same object to both makes them comparable.
   const win = usageWindow(days);
+  // The picker's ceiling, asked OF `boundUsageDays` rather than restated beside it: the control and
+  // the bound that would clamp its links cannot drift, and the public funnel's tighter 90-day cap
+  // needs no second expression of itself here.
+  const maxDays = boundUsageDays("365", org.toLowerCase() === PUBLIC_ORG);
 
   // Cross-tenant IDOR guard — the canonical read-side tenant gate (the same canReadOrg the sibling
   // /api/usage route and the other org-scoped pages use). It opens PUBLIC_ORG to everyone, requires
@@ -174,6 +178,7 @@ export default async function UsagePage({
         billable={billable}
         runwayDays={runwayDays}
         notice={notice}
+        maxDays={maxDays}
       />
     </Shell>
   );

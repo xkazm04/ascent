@@ -9,6 +9,7 @@ import type { CreditReconciliation, CreditState, QuotaEventTotals, UsageSummary 
 import type { CreditNotice } from "./creditNotice";
 import { timeAgo } from "@/lib/ui";
 import { costHeadline } from "./costHeadline";
+import { TimeframePicker } from "./TimeframePicker";
 
 export function UsageDashboard({
   org,
@@ -19,6 +20,7 @@ export function UsageDashboard({
   billable,
   runwayDays,
   notice,
+  maxDays,
 }: {
   org: string;
   usage: UsageSummary;
@@ -28,16 +30,25 @@ export function UsageDashboard({
   billable: number;
   runwayDays: number | null;
   notice: CreditNotice | null;
+  /** The largest window this caller may select, straight from `boundUsageDays` — see TimeframePicker. */
+  maxDays: number;
 }) {
   // The shared anonymous funnel has no tenant behind it, so several of this page's claims are true
   // there and false everywhere else. Resolved once, here, rather than asserted in the copy.
   const isPublicFunnel = usage.unmeteredFunnel;
   return (
     <div className="animate-fade-up">
-      <div className="type-mono-sm uppercase tracking-[0.3em] text-accent">Usage &amp; metering</div>
-      <h1 className="mt-1 type-heading font-bold text-white">
-        Organization: <span className="font-mono">{usage.org}</span>
-      </h1>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="type-mono-sm uppercase tracking-[0.3em] text-accent">Usage &amp; metering</div>
+          <h1 className="mt-1 type-heading font-bold text-white">
+            Organization: <span className="font-mono">{usage.org}</span>
+          </h1>
+        </div>
+        {/* `?days=` was honoured everywhere and rendered nowhere, so every reader got 30 days and the
+            chart's weekly-bucket path was unreachable from the product. */}
+        <TimeframePicker org={org} days={usage.periodDays} maxDays={maxDays} />
+      </div>
       <p className="mt-2 max-w-2xl type-body text-slate-400">
         Each computed scan is one metered unit (cached re-scans aren&apos;t recounted). Public
         scans are free; private scans are billable under the usage-based plan.
