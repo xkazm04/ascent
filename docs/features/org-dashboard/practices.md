@@ -9,8 +9,12 @@ and its "apply" buttons.
 
 ## Catalog (`src/lib/practices.ts`)
 
-`PRACTICES: PracticeDef[]` defines nine practices, each with `{ id, label, dimId, what,
-starter[] }`. `dimId` ties the practice to the dimension it strengthens, so the org gap
+`PRACTICES: PracticeDef[]` defines nine spine practices (one per dimension), each with `{ id, label,
+dimId, what, starter[] }`, and `EXTRA_PRACTICES` adds a tenth, `consolidate-guidance`
+(`artifactPath: docs/AGENT-GUIDANCE.md`); `ALL_PRACTICES` is the union. Since 2026-09-05 the artifact
+builder, practice mining, generate/apply/apply-batch/rollout and the #33 census all read the union,
+so the tenth practice is generatable and appliable like the nine (the by-dimension lookups still read
+the spine, so the D1 dimension keeps one answer). `dimId` ties the practice to the dimension it strengthens, so the org gap
 analysis can link a weak dimension to its practice.
 
 | ID | Practice | Dim |
