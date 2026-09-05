@@ -23,6 +23,12 @@ export function useAlertsControl(org: string) {
   const [initialDimensionDrop, setInitialDimensionDrop] = useState("");
   const [configured, setConfigured] = useState(false);
   const [denied, setDenied] = useState(false);
+  // The load FAILED, as distinct from "loaded and everything is unset". Without it a failed GET
+  // rendered a pristine-looking form (blank webhook = "on the global sink", blank thresholds =
+  // "inheriting the defaults"), and Save — which always posts both thresholds — then wrote those
+  // blanks over whatever the org actually had. A non-2xx never even reached the `.catch`, so the
+  // most likely failure showed no error at all.
+  const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState<"save" | "clear" | "test" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -85,6 +91,14 @@ export function useAlertsControl(org: string) {
           setDenied(true);
           return;
         }
+        // A 5xx used to fall through to `r.json().catch(() => ({}))`, which reads as "nothing is
+        // configured" — indistinguishable from the real thing, and silently destructive on Save.
+        // A 5xx used to fall through to `r.json().catch(() => ({}))`, which reads as "nothing is
+        // configured" — indistinguishable from the real thing, and silently destructive on Save.
+        if (!r.ok) {
+          setLoadFailed(true);
+          return;
+        }
         const d = await r.json().catch(() => ({}));
         const url = typeof d.webhookUrl === "string" ? d.webhookUrl : "";
         const od = typeof d.overallDrop === "number" ? String(d.overallDrop) : "";
@@ -97,7 +111,7 @@ export function useAlertsControl(org: string) {
         setDimensionDrop(dd);
         setInitialDimensionDrop(dd);
       })
-      .catch(() => setError("Couldn't load alert settings."))
+      .catch(() => setLoadFailed(true))
       .finally(() => setLoaded(true));
   }, [open, loaded, org]);
 
@@ -190,6 +204,7 @@ export function useAlertsControl(org: string) {
     setDimensionDrop,
     configured,
     denied,
+    loadFailed,
     busy,
     error,
     notice,

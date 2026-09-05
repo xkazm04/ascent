@@ -30,6 +30,7 @@ export function AlertsControl({ org }: { org: string }) {
     setDimensionDrop,
     configured,
     denied,
+    loadFailed,
     busy,
     error,
     notice,
@@ -78,6 +79,14 @@ export function AlertsControl({ org }: { org: string }) {
           <div className="type-mono-sm uppercase tracking-widest text-accent">Alert routing</div>
           {denied ? (
             <p className="mt-2 type-body-sm text-slate-400">Only org admins can configure alert routing.</p>
+          ) : loadFailed ? (
+            /* The form stays HIDDEN on a failed load. Its fields would render blank — which reads as
+               "no webhook, thresholds on the defaults" — and Save posts both thresholds every time,
+               so an admin acting on that blank slate would overwrite the org's real settings with it. */
+            <p className="mt-2 type-body-sm text-danger">
+              Couldn&apos;t load this org&apos;s alert settings. Close and reopen to retry — the form stays hidden so a
+              blank field can&apos;t overwrite the webhook or thresholds already saved.
+            </p>
           ) : !loaded ? (
             <p className="mt-2 type-mono-sm text-slate-500">Loading…</p>
           ) : (

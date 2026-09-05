@@ -90,3 +90,46 @@ describe("AlertsControl dirty-state guard (ambiguity-ui 2026-07-16 #4)", () => {
     expect(screen.getByRole("status")).not.toHaveTextContent("not saved yet");
   });
 });
+
+describe("AlertsControl load failure — a blank slate must not overwrite saved settings", () => {
+  it("hides the form on a 5xx instead of rendering it blank", async () => {
+    // The 5xx never reached the `.catch`, so the old code fell through to `r.json().catch(() => ({}))`
+    // and rendered a form with an empty webhook and empty thresholds — indistinguishable from an org
+    // that genuinely has none, and with no error shown at all.
+    mockFetch((u) =>
+      String(u).includes("movement=1")
+        ? okJson({ movement: null })
+        : Promise.resolve({ ok: false, status: 500, json: async () => ({ error: "boom" }) }),
+    );
+    render(<AlertsControl org="acme" />);
+    fireEvent.click(screen.getByRole("button", { name: "Alerts" }));
+
+    await waitFor(() => expect(screen.getByText(/Couldn't load this org's alert settings/)).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    expect(screen.queryByPlaceholderText("https://hooks.slack.com/services/…")).toBeNull();
+  });
+
+  it("hides the form when the GET rejects outright", async () => {
+    mockFetch((u) =>
+      String(u).includes("movement=1") ? okJson({ movement: null }) : Promise.reject(new Error("offline")),
+    );
+    render(<AlertsControl org="acme" />);
+    fireEvent.click(screen.getByRole("button", { name: "Alerts" }));
+
+    await waitFor(() => expect(screen.getByText(/Couldn't load this org's alert settings/)).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  });
+
+  it("still shows the admins-only note on a 403 — a denial is not a load failure", async () => {
+    mockFetch((u) =>
+      String(u).includes("movement=1")
+        ? okJson({ movement: null })
+        : Promise.resolve({ ok: false, status: 403, json: async () => ({}) }),
+    );
+    render(<AlertsControl org="acme" />);
+    fireEvent.click(screen.getByRole("button", { name: "Alerts" }));
+
+    await waitFor(() => expect(screen.getByText("Only org admins can configure alert routing.")).toBeInTheDocument());
+    expect(screen.queryByText(/Couldn't load this org's alert settings/)).toBeNull();
+  });
+});
