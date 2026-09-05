@@ -191,6 +191,7 @@ export const PROVIDER_LABEL: Record<ProviderName, string> & Record<string, strin
   openai: "OpenAI",
   openrouter: "OpenRouter",
   local: "Local model",
+  nebius: "Nebius",
   mock: "Mock (deterministic)",
 };
 

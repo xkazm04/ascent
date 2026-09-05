@@ -110,6 +110,10 @@ const TRACKLIGHT_PROVIDER: Record<ProviderName, string> = {
   // protocol it borrows) so tracklight's cost book never prices self-hosted GPU tokens at a vendor's
   // API rate — the same reasoning as isZeroCostProvider in config.ts.
   local: "local",
+  // A hosted vendor with its own price list, so it is keyed under its own name rather than
+  // "openai" (whose wire protocol it borrows). tracklight's provider vocabulary is open (M8), so a
+  // new vendor id is a price-book row waiting to be added, not an "unknown".
+  nebius: "nebius",
   mock: "mock",
 };
 

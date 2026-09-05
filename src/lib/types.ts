@@ -15,6 +15,7 @@ export type ProviderName =
   | "openai"
   | "openrouter"
   | "local"
+  | "nebius"
   | "mock"
   | "claude-cli"
   | "codex-cli";

@@ -26,6 +26,7 @@ export const ENGINE_LABEL: Record<ProviderName, string> = {
   bedrock: "Bedrock",
   "claude-cli": "Claude CLI",
   "codex-cli": "Codex CLI",
+  nebius: "Nebius Token Factory",
   mock: "Mock",
 };
 

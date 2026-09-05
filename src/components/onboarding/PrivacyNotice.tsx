@@ -29,6 +29,10 @@ const WHERE: Record<ProviderName, string> = {
   openai: "your configured OpenAI-compatible endpoint to produce the score.",
   openrouter: "the OpenRouter API, which routes the request to your selected model's upstream provider.",
   local: "your own LLM server at LOCAL_LLM_BASE_URL: no code leaves the machines you run.",
+  // Hosted inference on open-weight models. The honest sentence is the opposite of `local`'s, and
+  // saying so is the entire reason nebius is its own provider rather than a local base-URL.
+  nebius:
+    "Nebius Token Factory: the sampled files are sent to Nebius' hosted inference for the model you selected.",
   mock: "nowhere: scoring is fully local and deterministic; no code leaves this deployment.",
 };
 

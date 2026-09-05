@@ -53,6 +53,7 @@ const SCORE_STEP_LABEL: Record<Exclude<ProviderName, "bedrock">, string> = {
   mock: "Running deterministic rubric",
   "claude-cli": "Asking Claude",
   "codex-cli": "Asking Codex",
+  nebius: "Asking the model on Nebius",
 };
 
 /** The generic copy, used only when NO provider has been reported yet (or an unknown one arrives over
