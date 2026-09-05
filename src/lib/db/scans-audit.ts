@@ -6,6 +6,7 @@ import { resolveOrgId } from "@/lib/db/scans-shared";
 import { getOrgId } from "@/lib/db/org-rollup";
 import { normalizeOrgSlug } from "@/lib/db/org-shared";
 import { withAuditSignature, verifyAudit, type AuditVerdict } from "@/lib/db/audit-integrity";
+import { noteAuditWriteFailure } from "@/lib/db/audit-health";
 
 /**
  * Append an entry to the audit trail. Returns `true` when the entry was durably
@@ -38,6 +39,9 @@ export async function recordAudit(
     });
     return true;
   } catch (err) {
+    // Count it before logging: a server log is not a surface anyone watches, and this is the only
+    // record that the trail now has a hole (see audit-health.ts).
+    noteAuditWriteFailure(action, err);
     console.error("[db] recordAudit FAILED — audit trail entry lost", {
       action,
       orgId: opts.orgId ?? null,
@@ -168,6 +172,7 @@ export async function claimOrgAuditOnce(
       { label: "audit.claim-once" },
     );
   } catch (err) {
+    noteAuditWriteFailure(action, err);
     console.error("[db] claimOrgAuditOnce failed — treating as NOT claimed (fail-closed)", {
       action,
       slug,
@@ -225,6 +230,7 @@ export async function releaseAuditClaim(id: string | null): Promise<void> {
       },
     });
   } catch (err) {
+    noteAuditWriteFailure(AUDIT_CLAIM_RELEASED_ACTION, err);
     console.error("[db] releaseAuditClaim failed", { id, error: err instanceof Error ? err.message : String(err) });
   }
 }
