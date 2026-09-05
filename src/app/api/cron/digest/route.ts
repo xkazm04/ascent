@@ -178,32 +178,49 @@ export async function GET(request: Request) {
         // Standing concerns: dimensions holding materially below an earlier reading. Computed from
         // persisted scans only, and DELIBERATELY not window-scoped — the whole failure this closes is a
         // decline that stopped moving, so a shortfall that began before this week is exactly the one
-        // every windowed surface has already been silent about. Best-effort.
-        getStandingRegressions(org, { limit: 5 }).catch(() => []),
+        // every windowed surface has already been silent about.
+        //
+        // NULL ON FAILURE, NOT `[]` — the same rule the Controls block above keeps, for the same
+        // reason: `[]` is the positive statement "we looked and nothing is standing down", and a read
+        // that FAILED must not be able to say it.
+        getStandingRegressions(org, { limit: 5 }).catch(() => null),
         // A RED BASELINE IS THE SAME KIND OF FACT, from a different column. The improvement loop's
         // degradation guard records `baseline-red` when a repository's OWN check was already failing
         // before an agent touched it — which means the guard cannot compare anything and everything
         // the loop commits there is unverified. It is a state, not an event, so every windowed and
         // movement-shaped signal is silent about it, exactly as they are about a decline that stopped
-        // moving. Same block, same voice, not window-scoped for the same reason. Best-effort.
-        getRedBaselines(org, { limit: 5 }).catch(() => []),
+        // moving. Same block, same voice, not window-scoped for the same reason. Null on failure on
+        // the same terms as the standing read above.
+        getRedBaselines(org, { limit: 5 }).catch(() => null),
       ]);
       // ONE list, deliberately. A red baseline is not a second kind of concern needing a second
       // heading: the heading already says these are observations with no cause attributed, and each
       // line names its own subject (a dimension, or the command a repository declares for itself).
       // Red baselines lead, because a guard that cannot run outranks a score that fell.
-      const standingRows = [
-        ...redBaselines.map((b) => ({
-          repo: b.repoFullName,
-          observation: b.observation,
-          ...(b.evidence.length > 0 ? { evidence: b.evidence } : {}),
-        })),
-        ...standing.map((c) => ({
-          repo: c.repoFullName,
-          observation: c.observation,
-          ...(c.evidence ? { evidence: c.evidence } : {}),
-        })),
-      ];
+      //
+      // THE THREE-STATE CONTRACT, ON THIS BLOCK TOO. `alerts.ts` documents `standingConcerns` on the
+      // same terms as `controlsFailed` — undefined omits the block, `[]` is "we looked and nothing is
+      // standing down" — and `buildFleetDigestMessage` renders both. This caller used to collapse the
+      // middle state: an empty array became `undefined`, so the "Standing concerns: none open." branch
+      // was unit-tested and unreachable in production, and a week in which nothing was standing down
+      // rendered byte-identical to a week neither read could be taken. Null from EITHER read poisons
+      // the whole list, because the block states one heading over both sources and a half-read list
+      // cannot honestly say "none open".
+      const standingRows =
+        standing == null || redBaselines == null
+          ? null
+          : [
+              ...redBaselines.map((b) => ({
+                repo: b.repoFullName,
+                observation: b.observation,
+                ...(b.evidence.length > 0 ? { evidence: b.evidence } : {}),
+              })),
+              ...standing.map((c) => ({
+                repo: c.repoFullName,
+                observation: c.observation,
+                ...(c.evidence ? { evidence: c.evidence } : {}),
+              })),
+            ];
       // Null (the ledger could not be read) stays null all the way to the message, where `undefined`
       // omits the block. An empty ARRAY is the positive statement "we looked and none failed" and is
       // passed through as one — it used to be turned back into `undefined`, which made a clean week
@@ -246,7 +263,7 @@ export async function GET(request: Request) {
         gainersBeyondNoise: (movers?.gainers ?? []).filter((m) => !isWithinNoise(m.dOverall)).length,
         creditLow,
         controlsFailed: controlsFailedRows?.length ?? 0,
-        standingConcerns: standingRows.length,
+        standingConcerns: standingRows?.length ?? 0,
       });
       if (!hasSignal) {
         skippedFlat += 1;
@@ -280,7 +297,7 @@ export async function GET(request: Request) {
         controlsFailed: controlsFailedRows ?? undefined,
         // …and the block never travels without its N (control-observations.ts's coverage law).
         controlCoverage: coverageSummary,
-        standingConcerns: standingRows.length > 0 ? standingRows : undefined,
+        standingConcerns: standingRows ?? undefined,
         percentile: benchmark?.overallPercentile ?? null,
         // MC-B1: the digest gets the SAME composed line as the briefing it links to — the headline
         // with its confidence + basis once the fit is presentable, and the refusal sentence when it

@@ -535,16 +535,49 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     expect(line).toContain("`controls.ciHardPass`");
   });
 
-  it("raises NOTHING for a fleet whose baselines were established", async () => {
+  it("passes an EMPTY array through when both reads succeeded and found nothing — a clear fleet SAYS so", async () => {
+    // The three-state contract `controlsFailed` keeps, on this block too. `alerts.ts` documents `[]` as
+    // "we looked and nothing is standing down" and `buildFleetDigestMessage` renders it as "Standing
+    // concerns: none open." — but this caller collapsed `[]` to `undefined`, so that branch was
+    // unit-tested and unreachable in production, and a clean fleet rendered byte-identical to a fleet
+    // neither read could be taken for.
     mockListOrgs.mockResolvedValue(["orgGreen"]);
     mockOrgWebhook.mockResolvedValue("https://hooks.example.com/G");
     mockRollup.mockResolvedValue(rollupWith());
+    vi.mocked(getStandingRegressions).mockResolvedValue([] as never);
     vi.mocked(getRedBaselines).mockResolvedValue([] as never);
 
     await GET(req({ auth: `Bearer ${SECRET}` }));
     expect(mockHasSignal).toHaveBeenCalledWith(expect.objectContaining({ standingConcerns: 0 }));
-    // …and the block is OMITTED rather than rendered as "0 concerns" — the same three-state contract
-    // `controlsFailed` and the standing regressions already keep.
+    const sent = mockBuild.mock.calls[0]![0] as { standingConcerns?: unknown };
+    expect(sent.standingConcerns).toEqual([]);
+    // …and it is NOT the omit-the-block state, which now means only "we could not read".
+    expect(sent.standingConcerns).not.toBeUndefined();
+  });
+
+  it("OMITS the block when a read failed — an unreadable ledger must not be able to say 'none open'", async () => {
+    mockListOrgs.mockResolvedValue(["orgUnread"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/U");
+    mockRollup.mockResolvedValue(rollupWith());
+    vi.mocked(getStandingRegressions).mockRejectedValue(new Error("db down"));
+    vi.mocked(getRedBaselines).mockResolvedValue([] as never);
+
+    await GET(req({ auth: `Bearer ${SECRET}` }));
+    const sent = mockBuild.mock.calls[0]![0] as { standingConcerns?: unknown };
+    expect(sent.standingConcerns).toBeUndefined();
+    // Absent means "not computed", not zero — the gate counts it as no signal either way, but the
+    // MESSAGE must not print an all-clear it cannot support.
+    expect(mockHasSignal).toHaveBeenCalledWith(expect.objectContaining({ standingConcerns: 0 }));
+  });
+
+  it("OMITS the block when the OTHER read failed — one heading over two sources, so either poisons it", async () => {
+    mockListOrgs.mockResolvedValue(["orgUnread2"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/U2");
+    mockRollup.mockResolvedValue(rollupWith());
+    vi.mocked(getStandingRegressions).mockResolvedValue([] as never);
+    vi.mocked(getRedBaselines).mockRejectedValue(new Error("db down"));
+
+    await GET(req({ auth: `Bearer ${SECRET}` }));
     const sent = mockBuild.mock.calls[0]![0] as { standingConcerns?: unknown };
     expect(sent.standingConcerns).toBeUndefined();
   });
