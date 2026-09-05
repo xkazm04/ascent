@@ -402,18 +402,21 @@ async function requestNarrative(facts: string, orgSlug: string | null, signal?: 
  * deterministic template otherwise. Never throws, never returns an empty string.
  */
 export async function writeBriefingNarrative(b: ExecBriefing, opts: { signal?: AbortSignal } = {}): Promise<string> {
-  const fallback = deterministicNarrative(b);
-  if (!briefingNarrativeEnabled()) return fallback;
+  // Direction 3 — built only when it is actually needed. `deterministicNarrative` walks the briefing
+  // and (through `briefingTrajectoryNote`) composes the trajectory read, and it was computed EAGERLY
+  // on every call — including the default path where the model is off and the return is immediate.
+  const fallback = () => deterministicNarrative(b);
+  if (!briefingNarrativeEnabled()) return fallback();
   const facts = narrativeFacts(b);
   // `b.org` is the org SLUG buildExecBriefing stamped on the briefing — the ledger's tenant key.
   const text = await requestNarrative(facts, b.org ?? null, opts.signal);
-  if (!text) return fallback;
-  if (!isWellFormedNarrative(text)) return fallback;
+  if (!text) return fallback();
+  if (!isWellFormedNarrative(text)) return fallback();
   // The load-bearing gate: no figure the briefing itself doesn't already contain...
-  if (!isGrounded(text, allowedNumbers(b))) return fallback;
+  if (!isGrounded(text, allowedNumbers(b))) return fallback();
   // ...and no figure of ANOTHER subject's presented as this one's. Membership is not referential
   // integrity (see guarantee 2 in the header): both gates have to hold for the prose to be true.
-  if (!referentGrounded(text, b)) return fallback;
+  if (!referentGrounded(text, b)) return fallback();
   return text.trim();
 }
 

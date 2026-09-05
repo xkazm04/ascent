@@ -99,3 +99,29 @@ describe("ImpactLedger", () => {
     expect(screen.getByRole("link", { name: "web" }).getAttribute("href")).toBe("https://github.com/acme/web");
   });
 });
+
+// Direction 3 — the table declared SIX headers (Repository | Bought | Dim delta | Repo overall |
+// Source | Status) and each row emitted FIVE cells, so every verified/awaiting badge rendered under
+// "Source" and the "Status" column stood empty for every row. On a receipt, a value sitting under
+// the wrong heading is worse than no value at all.
+describe("ImpactLedger — every row fills every column it declares", () => {
+  it("emits one cell per header, with the badge under Status and the surface under Source", () => {
+    draw([pr({ source: "practice-pr" })]);
+    const headers = screen.getAllByRole("columnheader").map((h) => h.textContent?.trim());
+    expect(headers).toEqual(["Repository", "Bought", "Dim delta", "Repo overall", "Source", "Status"]);
+
+    const row = screen.getAllByRole("row")[1]!;
+    const cells = within(row).getAllByRole("cell");
+    expect(cells.length).toBe(headers.length);
+    expect(cells[4]!.textContent).toContain("practice");
+    expect(cells[5]!.textContent).toContain("verified");
+  });
+
+  it("names a loop lane's row as a loop lane, and an unverified row as awaiting rescan", () => {
+    draw([pr({ source: "loop", loopLaneId: "lane_1", verifiedScanId: null })]);
+    const row = screen.getAllByRole("row")[1]!;
+    const cells = within(row).getAllByRole("cell");
+    expect(cells[4]!.textContent).toContain("loop lane");
+    expect(cells[5]!.textContent).toContain("awaiting rescan");
+  });
+});

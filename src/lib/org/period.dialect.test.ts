@@ -32,8 +32,9 @@ import { dateRange, upperBound } from "@/lib/db/org-shared";
 import { getOrgRollup, type OrgWindow } from "@/lib/db/org-rollup";
 import { getOrgMovers } from "@/lib/db/org-insights";
 import { getOrgTeamRollup } from "@/lib/db/org-teams";
-import { resolveWindow } from "@/lib/window";
+import { inclusiveEnd, resolveWindow } from "@/lib/window";
 import { orgWindowBounds } from "@/lib/org/period";
+import { freezeShareWindow } from "@/lib/briefing-share";
 
 /** Frozen "now" so the presets resolve to fixed instants. */
 const NOW = new Date("2026-06-15T12:34:56.000Z");
@@ -234,5 +235,87 @@ describe("what 'now' means differs BY READER — the same bounds, different endp
 
     const inWindow = scanWheres.find((w) => (w.scannedAt as { gte?: Date })?.gte)!;
     expect(inWindow.scannedAt).toEqual({ gte: PERIOD.start, lt: PERIOD.endExclusive });
+  });
+});
+
+
+// ── The SHARE path: the one window that leaves the process and comes back ─────────────────────────
+
+/**
+ * `/api/org/briefing/share` freezes the resolved window into the signed token, and
+ * `/share/briefing/[token]` re-runs `buildExecBriefing` over what comes back. It was the last org
+ * call site still speaking the inclusive dialect on BOTH ends — the route passed `{ start, end }`
+ * to fingerprint the briefing, and the page passed `{ start, end }` to render it.
+ *
+ * The conversion carries an obligation the in-process call sites did not, because a token is
+ * DURABLE: links minted before it are in inboxes right now, and they must keep both VERIFYING and
+ * RENDERING what they always did. So the payload GAINS `winEndX` (the half-open bound) rather than
+ * re-meaning `winEnd`:
+ *
+ *   • VERIFYING — the payload gained a field, it did not lose or rename one, so the HMAC covers
+ *     exactly what it covered at mint time and `verifyBriefingShareToken` reads `winEnd` unchanged.
+ *   • RENDERING — a token with no `winEndX` keeps the inclusive `end`, i.e. the literal `lte` it was
+ *     minted for. That is the one case where the two dialects are NOT interchangeable at millisecond
+ *     resolution: `lt: winEnd` would drop a scan landing exactly on `endExclusive − 1ms`. Vanishing
+ *     in practice, and still a changed number on a link someone is holding.
+ */
+describe("the share path freezes the half-open bound, and legacy tokens keep the one they were minted with", () => {
+  const MINTED_AT = new Date("2026-06-15T12:34:56.000Z");
+
+  for (const { name, w } of PERIODS) {
+    it(`freezes BOTH bounds for a ${name}, and the new one selects the rows the old inclusive read did`, () => {
+      // NOTE: `freezeShareWindow` resolves the period against the REAL clock (a mint happens now, by
+      // definition), so the frozen instants are asserted against each other rather than against this
+      // file's frozen NOW — except for the custom ranges, whose bounds are absolute either way.
+      const frozen = freezeShareWindow({ range: w.key, from: w.from, to: w.to }, MINTED_AT);
+
+      // One closed interval, two spellings: `winEndX` is `winEnd + 1ms`, always. On a bounded custom
+      // range that lands exactly on the period's own `endExclusive`; on an open-ended preset it is
+      // one millisecond past the mint instant, which is what keeps a scan AT the mint inside the
+      // window the owner was looking at (the old reader's `lte: now` included it).
+      expect(new Date(frozen.winEndX).getTime()).toBe(new Date(frozen.winEnd).getTime() + 1);
+      if (w.key === "custom") {
+        expect(frozen.winEndX).toBe(w.endExclusive!.toISOString());
+        expect(frozen.winEnd).toBe(w.end!.toISOString());
+        expect(frozen.winStart).toBe(w.start!.toISOString());
+      }
+      if (w.key === "all") expect(frozen.winStart).toBeNull();
+
+      // The migration's criterion: the page's new read selects exactly the rows its old one did.
+      const start = frozen.winStart ? new Date(frozen.winStart) : null;
+      const after: OrgWindow = { start, endExclusive: new Date(frozen.winEndX) };
+      const before: OrgWindow = { start, end: new Date(frozen.winEnd) };
+      const rows = fixtureTimestamps({ start, endExclusive: new Date(frozen.winEndX) });
+      const selAfter = rows.filter((t) => matches(dateRange(start, after).scannedAt, t)).map((d) => d.toISOString());
+      const selBefore = rows.filter((t) => matches(dateRange(start, before).scannedAt, t)).map((d) => d.toISOString());
+      expect(selAfter).toEqual(selBefore);
+      // The fixture is not vacuous: it deliberately straddles both bounds.
+      expect(rows.length).toBeGreaterThan(selAfter.length);
+
+      // …and the emitted filter is `lt`, never `lte` — the dialect the conversion is about.
+      expect(upperBound(after)).toEqual({ lt: new Date(frozen.winEndX) });
+      expect(upperBound(before)).toEqual({ lte: new Date(frozen.winEnd) });
+    });
+  }
+
+  it("a LEGACY token (no winEndX) is still queried with the inclusive bound it was minted for", () => {
+    // The reader's fallback, reproduced: `{ start, end: winEnd }`. Reading that same instant as an
+    // EXCLUSIVE bound would drop a scan at `endExclusive − 1ms` — the one millisecond where the two
+    // dialects genuinely disagree, and the reason the field was added rather than re-meant.
+    const w = resolveWindow({ range: "custom", from: "2026-01-01", to: "2026-03-31" }, NOW);
+    const legacyWinEnd = inclusiveEnd(w.endExclusive)!;
+    const kept: OrgWindow = { start: w.start, end: legacyWinEnd };
+    const converted: OrgWindow = { start: w.start, endExclusive: legacyWinEnd };
+    expect(matches(upperBound(kept)!, legacyWinEnd)).toBe(true);
+    expect(matches(upperBound(converted)!, legacyWinEnd)).toBe(false);
+  });
+
+  it("the shared page's 'data as of' label still names the window's LAST INCLUDED day", () => {
+    const w = resolveWindow({ range: "custom", from: "2026-01-01", to: "2026-03-31" }, NOW);
+    const frozen = freezeShareWindow({ range: "custom", from: "2026-01-01", to: "2026-03-31" }, MINTED_AT);
+    // New token: read off the inclusive edge of winEndX. Legacy token: winEnd, as before. Same day.
+    expect(inclusiveEnd(new Date(frozen.winEndX))!.toISOString().slice(0, 10)).toBe("2026-03-31");
+    expect(new Date(frozen.winEnd).toISOString().slice(0, 10)).toBe("2026-03-31");
+    expect(frozen.winEndX).toBe(w.endExclusive!.toISOString());
   });
 });

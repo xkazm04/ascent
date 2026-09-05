@@ -64,7 +64,20 @@ export interface BriefingShareParams {
   // change carries neither → the reader falls back to recomputing (the prior drifting behavior, kept so
   // already-minted live links don't break).
   winStart?: string;
+  /** LEGACY: the INCLUSIVE last instant (`endExclusive − 1ms`). Still written on every mint, and the
+   *  only upper bound a token minted before Direction 3 carries — which is why the reader keeps a
+   *  path for it. Prefer {@link BriefingShareParams.winEndX}. */
   winEnd?: string;
+  /** Direction 3: the canonical HALF-OPEN upper bound — the window is `[winStart, winEndX)`, the one
+   *  closure convention `orgWindowBounds` (src/lib/org/period.ts) speaks.
+   *
+   *  ABSENT on a token minted before this change. Those tokens still VERIFY unchanged: the payload
+   *  GAINED a field, it did not lose or rename one, so the HMAC still covers exactly what it covered
+   *  when the link was signed and `verifyBriefingShareToken` reads `winEnd` as it always did. And
+   *  they still RENDER unchanged, because the reader falls back to passing their `winEnd` as the
+   *  inclusive `end` it has always been. Converting them in place would shift their window by a
+   *  millisecond — invisible in practice, and still a changed number on a link already in an inbox. */
+  winEndX?: string;
   // #13: this grant's own identity — a random UUID stamped at mint. Never supplied by a caller on
   // sign (one is generated); echoed back on verify so the reader can check it against the revocation
   // ledger and log the open. Absent on a legacy token.
@@ -79,7 +92,10 @@ export interface BriefingShareParams {
 /** The frozen absolute window carried by a token: `winStart: null` means all-time (no lower bound). */
 export interface FrozenShareWindow {
   winStart: string | null;
+  /** Legacy inclusive last instant — see {@link BriefingShareParams.winEnd}. */
   winEnd: string;
+  /** The half-open upper bound the reader actually queries with. */
+  winEndX: string;
 }
 
 /**
@@ -91,7 +107,27 @@ export interface FrozenShareWindow {
  */
 export function freezeShareWindow(p: { range?: string; from?: string; to?: string }, now: Date = new Date()): FrozenShareWindow {
   const w = resolveWindow({ range: p.range, from: p.from, to: p.to });
-  return { winStart: w.start ? w.start.toISOString() : null, winEnd: (w.end ?? now).toISOString() };
+  // Direction 3 — BOTH bounds travel. `winEndX` is the HALF-OPEN upper bound the reader queries
+  // with, the one closure convention `orgWindowBounds` (src/lib/org/period.ts) speaks and the
+  // dialect Round 4 converted every other org call site to; this module froze only `w.end` (the
+  // `endExclusive − 1ms` alias) and both the mint route and the shared page then passed it as an
+  // inclusive `end`, which is exactly the dialect that conversion removed.
+  //
+  // `winEnd` is kept, unchanged, so a minted token's shape is a SUPERSET of the shape already in
+  // circulation rather than a replacement — see BriefingShareParams.winEndX for why the reader must
+  // still honour it on the links that predate this.
+  //
+  // The two are derived from ONE instant so they cannot drift: `winEndX` is `winEnd + 1ms`, i.e.
+  // exactly the half-open expression of the same closed interval. That matters most on an
+  // open-ended window (every relative preset, and all-time), whose end is pinned to the mint
+  // instant: `lte: now` includes a scan landing exactly at the mint, and `lt: now` would silently
+  // drop it. `lt: now + 1ms` keeps it, which is what "the window the owner was looking at" means.
+  const lastInstant = w.end ?? now;
+  return {
+    winStart: w.start ? w.start.toISOString() : null,
+    winEnd: lastInstant.toISOString(),
+    winEndX: new Date(lastInstant.getTime() + 1).toISOString(),
+  };
 }
 
 /**
@@ -215,10 +251,12 @@ export function signBriefingShareToken(p: BriefingShareParams, ttlMs: number = D
   // window to fingerprint it — recomputing here would move `winEnd` by the milliseconds between the two
   // calls and could fingerprint a window the token doesn't carry. `winEnd` present is the signal; a
   // caller that supplies nothing gets the computed freeze, unchanged.
-  const frozen: FrozenShareWindow = p.winEnd ? { winStart: p.winStart ?? null, winEnd: p.winEnd } : freezeShareWindow(p);
-  const { winStart, winEnd } = frozen;
+  const frozen: FrozenShareWindow = p.winEnd
+    ? { winStart: p.winStart ?? null, winEnd: p.winEnd, winEndX: p.winEndX ?? p.winEnd }
+    : freezeShareWindow(p);
+  const { winStart, winEnd, winEndX } = frozen;
   const token = signShareToken(
-    { org: p.org.toLowerCase(), range: p.range, from: p.from, to: p.to, winStart, winEnd, segment: p.segment, stack: p.stack, mintedBy: p.mintedBy, jti, fig: p.fig, exp: expiresAt },
+    { org: p.org.toLowerCase(), range: p.range, from: p.from, to: p.to, winStart, winEnd, winEndX, segment: p.segment, stack: p.stack, mintedBy: p.mintedBy, jti, fig: p.fig, exp: expiresAt },
     secret,
   );
   return { token, expiresAt, jti };
@@ -239,6 +277,7 @@ export function verifyBriefingShareToken(token: string, opts: { revoked?: (jti: 
     to?: unknown;
     winStart?: unknown;
     winEnd?: unknown;
+    winEndX?: unknown;
     segment?: unknown;
     stack?: unknown;
     mintedBy?: unknown;
@@ -262,6 +301,9 @@ export function verifyBriefingShareToken(token: string, opts: { revoked?: (jti: 
     // the reader falls back to recomputing. `winStart` is absent/non-string for an all-time (null) start.
     winStart: typeof p.winStart === "string" ? p.winStart : undefined,
     winEnd: typeof p.winEnd === "string" ? p.winEnd : undefined,
+    // Absent on a token minted before Direction 3 — the reader's signal to keep the inclusive
+    // dialect for that link rather than converting a window someone is already holding.
+    winEndX: typeof p.winEndX === "string" ? p.winEndX : undefined,
     segment: typeof p.segment === "string" ? p.segment : undefined,
     stack: typeof p.stack === "string" ? p.stack : undefined,
     mintedBy: typeof p.mintedBy === "string" ? p.mintedBy : undefined,

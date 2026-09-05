@@ -23,15 +23,12 @@ import {
   BriefingTiles,
 } from "./briefingCards";
 import { BriefingProofBanner } from "./BriefingProofBanner";
+import { ExecutiveTabActions } from "./ExecutiveTabActions";
 import { BriefingBasisNote } from "./BriefingBasisNote";
 import { ImpactLedger } from "./ImpactLedger";
 import { ExecutiveSignalsStrip } from "./ExecutiveSignalsStrip";
 import { ExecutiveTrajectoryCard } from "./ExecutiveTrajectoryCard";
-import { CopyForLlm } from "@/components/CopyForLlm";
-import { DownloadButton } from "@/components/report/DownloadButton";
-import { BriefingShareButton } from "./BriefingShareButton";
 import { BrandingSettings } from "./BrandingSettings";
-import { TechStackSelector } from "@/components/org/shared/TechStackSelector";
 import { OrgLeverageMoves } from "./OrgLeverageMoves";
 import { briefingShareEnabled } from "@/lib/briefing-share";
 import { getCreditState, getOrgBranding } from "@/lib/db";
@@ -42,7 +39,6 @@ import { resolveStackScope } from "@/lib/org/scope";
 import { planAllowsWhiteLabel } from "@/lib/plans";
 import { hasOrgRole } from "@/lib/authz";
 import { orgWindowBounds, resolveOrgWindow } from "@/lib/org/period";
-import { chipButtonClass } from "@/components/ui";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
@@ -83,12 +79,18 @@ export async function ExecutiveTab({ slug, sp }: { slug: string; sp: SearchParam
   // buildExecBriefing: the briefing is the narrative artifact that also renders on the public share
   // page and in the board PDF, and this ledger is an authenticated in-app panel. Degrades to null
   // (panel omitted) rather than failing the tab — it is evidence, not chrome the page needs.
-  const impact = await getOrgImpactLedger(slug, orgWindowBounds(period)).catch(() => null);
   // The transition programme (W1c) — relocated here from the deleted Plan tab: this is the leadership
   // surface, and the programme is the named, dated commitment leadership reads the briefing against.
-  const program = await getOrgProgram(slug).catch(() => null);
-
-  const isOwner = await hasOrgRole(slug, "owner");
+  //
+  // Direction 3 — these three were awaited one after another, each blocking the next although none
+  // reads the others' result: three independent round trips serialized into the tab's critical path
+  // for no reason but statement order. They join one `Promise.all`; the ownership answer still gates
+  // the branding/credit pair below, which genuinely depends on it.
+  const [impact, program, isOwner] = await Promise.all([
+    getOrgImpactLedger(slug, orgWindowBounds(period)).catch(() => null),
+    getOrgProgram(slug).catch(() => null),
+    hasOrgRole(slug, "owner"),
+  ]);
   const canShare = briefingShareEnabled() && isOwner;
   const [branding, credit] = isOwner
     ? await Promise.all([getOrgBranding(slug).catch(() => null), getCreditState(slug).catch(() => null)])
@@ -103,25 +105,15 @@ export async function ExecutiveTab({ slug, sp }: { slug: string; sp: SearchParam
           title="Executive briefing"
           description={`Board-ready standing for ${slug}: maturity, benchmark, trajectory, movement and goals over ${period.title.toLowerCase()}. Copy it as a markdown brief to drop into Claude Code for next actions.`}
         />
-        <div className="flex flex-wrap items-center gap-2">
-          {techGroups.length > 0 && <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} />}
-          {/* G5-23: DownloadButton, not a bare anchor — the render is CPU-bound (and may run the
-              narrative pass), so a click needs a busy state and an inline error instead of navigating
-              the board reader onto a raw JSON error page. Matches the sibling security tab. */}
-          <DownloadButton
-            // EXEC #1: carry the active ?segment= (and the ?stack= tech scope, 3b) into the export so a
-            // per-client / per-stack briefing downloads the SAME scope being viewed, not the whole org.
-            href={`/api/org/briefing/pdf?org=${encodeURIComponent(slug)}&range=${period.key}${period.from ? `&from=${encodeURIComponent(period.from)}` : ""}${period.to ? `&to=${encodeURIComponent(period.to)}` : ""}${segmentId ? `&segment=${encodeURIComponent(segmentId)}` : ""}${activeStack ? `&stack=${encodeURIComponent(activeStack.key)}` : ""}`}
-            className={chipButtonClass()}
-            title="Download the briefing as a board-ready PDF"
-          >
-            <span aria-hidden>↓</span> Download PDF
-          </DownloadButton>
-          {/* EXEC #1: carry the active segment + tech-stack scope into the share link too, so the
-              read-only board link re-runs scoped to the same view the owner is sharing. */}
-          {canShare && <BriefingShareButton org={slug} range={period.key} from={period.from} to={period.to} segment={segmentId} stack={activeStack?.key ?? null} />}
-          <CopyForLlm text={md} label="Copy briefing for LLM" />
-        </div>
+        <ExecutiveTabActions
+          slug={slug}
+          period={period}
+          segmentId={segmentId}
+          techGroups={techGroups}
+          activeStack={activeStack}
+          canShare={canShare}
+          md={md}
+        />
       </div>
 
       {/* GA: each headline tile deep-links to the tab that explains it (Tile.href — whole cell), which

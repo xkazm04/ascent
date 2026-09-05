@@ -16,8 +16,10 @@ import {
 import { buildExecBriefing, briefingTrajectoryNote, engineMixCaveat, engineMixLabel, mockDisclosure, valueRealizedHeading, valueRealizedLine } from "@/lib/org/briefing";
 import { briefingFigureDigest, shareIntegrity, verifyBriefingShareToken } from "@/lib/briefing-share";
 import { Notice, ShareFooter, ShareHeader } from "./shareChrome";
-import { resolveWindow } from "@/lib/window";
+import { inclusiveEnd, resolveWindow } from "@/lib/window";
+import { orgWindowBounds } from "@/lib/org/period";
 import { getCreditState, getOrgBranding, getOrgId, getTechGroupIdByKey, isDbConfigured, recordAudit } from "@/lib/db";
+import type { OrgWindow } from "@/lib/db";
 import { isBriefingShareRevoked } from "@/lib/db/org-share";
 import { getMembershipRole, roleAtLeast } from "@/lib/db/members";
 import { planAllowsWhiteLabel } from "@/lib/plans";
@@ -64,14 +66,31 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
   // to the mint instant), so its presence is the "frozen" signal; `winStart` absent = an all-time (null)
   // start. A legacy link carries neither → fall back to `period` (the pre-fix behavior that re-floats to
   // the viewer's clock — kept so already-minted live links keep working). `period.title` stays the label.
+  //
+  // Direction 3 — the bounds are resolved through `orgWindowBounds`, the half-open dialect every
+  // other org call site speaks. A token minted since then carries `winEndX`, the exclusive bound.
+  // A token minted BEFORE it carries only the inclusive `winEnd`, and keeps it: such a link still
+  // verifies (the payload gained a field, it never lost one, so the HMAC covers what it always did)
+  // and still renders the same numbers, because it is still queried with the `lte` it was minted
+  // for. Converting it here would move its window by a millisecond on a link already in an inbox.
   const frozen = verified.winEnd != null;
-  const start = frozen ? (verified.winStart ? new Date(verified.winStart) : null) : period.start;
-  const end = frozen ? new Date(verified.winEnd!) : period.end;
+  const bounds = orgWindowBounds(period);
+  const start = frozen ? (verified.winStart ? new Date(verified.winStart) : null) : bounds.start;
+  /** The window this page re-runs the briefing over — half-open wherever the token can say so. */
+  const shareWindow: OrgWindow = !frozen
+    ? bounds
+    : verified.winEndX
+      ? { start, endExclusive: new Date(verified.winEndX) }
+      : { start, end: new Date(verified.winEnd!) };
+  /** The window's LAST INCLUDED instant, for the "data as of" label. */
+  const lastInstant = frozen ? (verified.winEndX ? inclusiveEnd(new Date(verified.winEndX))! : new Date(verified.winEnd!)) : null;
   // executive-briefing 07-16 #5: Finding B froze the DATA at mint time but kept the floating
   // "last 90 days" label — so a viewer on day 6 of the TTL reads "last 90 days" over numbers that
   // provably aren't. Anchor the presentation with the absolute end of the frozen window; legacy
   // (unfrozen) tokens keep the plain title, which for them stays accurate.
-  const asOf = frozen ? new Date(verified.winEnd!).toISOString().slice(0, 10) : null;
+  // The label names the window's LAST INCLUDED day: an exclusive bound is the next day's midnight
+  // and would date a quarter's briefing one day into the following quarter.
+  const asOf = lastInstant ? lastInstant.toISOString().slice(0, 10) : null;
   // EXEC #1: re-run scoped to the segment the owner shared (carried in the signed token), so a reseller's
   // per-client read-only link shows that client's data — not the whole org. Feature 3b: the same for the
   // tech-stack scope (resolve the carried KEY → group id within the org).
@@ -94,7 +113,7 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
   // columns survive a plan downgrade, so applying them unconditionally would keep delivering a paid
   // feature after the org stopped paying for it.
   const [briefing, rawBranding, credit] = await Promise.all([
-    buildExecBriefing(verified.org, { start, end }, period.title, verified.segment ?? null, techGroupId).catch(() => null),
+    buildExecBriefing(verified.org, shareWindow, period.title, verified.segment ?? null, techGroupId).catch(() => null),
     getOrgBranding(verified.org).catch(() => null),
     getCreditState(verified.org).catch(() => null),
   ]);
