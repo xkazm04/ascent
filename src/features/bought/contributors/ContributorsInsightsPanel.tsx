@@ -112,8 +112,12 @@ export async function ContributorsInsightsPanel({
       )}
 
       {/* §5.2 — the pointer across to the developer's own view. When the viewer IS in the roster their
-          row and champion card carry the mark instead, so the strip would only repeat it. */}
-      {meInRoster ? null : <ContributorsYouStrip slug={slug} viewerLogin={viewerLogin} />}
+          row and champion card carry the mark instead, so the strip would only repeat it. Below the
+          naming floor NOBODY is in the roster (the producer empties it), so the strip must say the
+          attribution was withheld rather than assert the viewer has no commits — hence namingAllowed. */}
+      {meInRoster ? null : (
+        <ContributorsYouStrip slug={slug} viewerLogin={viewerLogin} namingAllowed={insights.namingAllowed} />
+      )}
 
       <IndividualInvolvement
         insights={insights}
