@@ -20,8 +20,8 @@ type Stale = { resetAt: number | null; scope: QuotaScope };
  * the only class a plain retry can clear.
  */
 export type ScanErrorClass = {
-  /** Monthly public-scan quota exhausted (429 `monthly_quota`) — carries the attribution scope. */
-  blocked?: { scope: QuotaScope };
+  /** Monthly public-scan quota exhausted (429 `monthly_quota`) — attribution scope + reset time. */
+  blocked?: { scope: QuotaScope; resetAt: number | null };
   /** Production sign-in wall (401 `auth_required`). */
   authRequired?: boolean;
   /** The repo couldn't be read (SSE `error` with code NOT_FOUND) — typo, or private + not connected. */
@@ -44,8 +44,10 @@ export interface ReportScan {
   progress: Progress;
   quota: Quota | null;
   /** In-place re-scan status: `active` while a re-test runs with the report still mounted; `error`
-   *  once it fails (the prior report stays — the banner offers retry/dismiss). */
-  rescan: { active: boolean; error: string | null };
+   *  once it fails (the prior report stays — the banner offers retry/dismiss). `errorClass` is the
+   *  SAME classification the page-level error state carries, so a re-test that hits the sign-in wall,
+   *  the monthly quota or the credit gate offers the CTA that can clear it instead of a dead Retry. */
+  rescan: { active: boolean; error: string | null; errorClass: ScanErrorClass };
   /** Bumps once per re-test — used as the re-scan banner's `key` so its elapsed clock resets. */
   attempt: number;
   retest: () => void;
@@ -85,7 +87,7 @@ export function useReportScan(
   const [quota, setQuota] = useState<Quota | null>(null);
   // Bumped by "Re-test" to re-run the scan in place; > 0 also implies fresh.
   const [retestNonce, setRetestNonce] = useState(0);
-  const [rescan, setRescan] = useState<{ active: boolean; error: string | null }>({ active: false, error: null });
+  const [rescan, setRescan] = useState<ReportScan["rescan"]>({ active: false, error: null, errorClass: {} });
   // The report currently on screen, read at scan-start to decide whether a re-test can keep it mounted.
   const reportRef = useRef<ScanReport | null>(null);
   // `fresh` (a "Re-test" link, or a re-test below) forces a re-score that bypasses the report cache.
@@ -138,18 +140,20 @@ export function useReportScan(
     const settleDone = (report: ScanReport, stale?: Stale) => {
       if (cancelled) return;
       setState({ status: "done", report, stale });
-      setRescan({ active: false, error: null });
+      setRescan({ active: false, error: null, errorClass: {} });
     };
     // The class travels as ONE bag rather than a growing positional tail: every caller below names
     // the branch it is in, and adding a class (credits) can't silently shift another's argument.
     const settleError = (message: string, cls: ScanErrorClass = {}) => {
       if (cancelled) return;
-      if (rescanMode) setRescan({ active: false, error: message });
+      // The class rides along: the banner picks the CTA off it (sign in / credits / quota reset),
+      // and only an unclassified failure keeps Retry — which is the only class Retry can clear.
+      if (rescanMode) setRescan({ active: false, error: message, errorClass: cls });
       else setState({ status: "error", message, ...cls });
     };
 
     (async () => {
-      if (rescanMode) setRescan({ active: true, error: null });
+      if (rescanMode) setRescan({ active: true, error: null, errorClass: {} });
       else setState({ status: "loading" });
       setProgress({ message: "Starting…", pct: 0 });
       setQuota(null);
@@ -258,7 +262,7 @@ export function useReportScan(
             settleError(
               data.error ??
                 `You've used all your free public scans for this month. The limit resets ${formatResetAt(resetAt)}.`,
-              { blocked: { scope } },
+              { blocked: { scope, resetAt } },
             );
           } else {
             settleError(data?.error ?? `Scan failed (${res.status}).`);
@@ -379,6 +383,6 @@ export function useReportScan(
     rescan,
     attempt: retestNonce,
     retest: () => setRetestNonce((n) => n + 1),
-    dismissRescan: () => setRescan({ active: false, error: null }),
+    dismissRescan: () => setRescan({ active: false, error: null, errorClass: {} }),
   };
 }

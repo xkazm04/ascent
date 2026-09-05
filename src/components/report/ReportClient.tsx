@@ -72,6 +72,8 @@ export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
           repo={repo}
           progress={progress}
           error={rescan.error}
+          errorClass={rescan.errorClass}
+          signInNext={signInNext}
           onRetry={retest}
           onDismiss={dismissRescan}
         />

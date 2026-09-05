@@ -97,7 +97,8 @@ describe("useReportScan — pre-stream refusals", () => {
     await waitFor(() => expect(result.current.state.status).toBe("error"));
     const state = result.current.state;
     if (state.status !== "error") throw new Error("expected an error state");
-    expect(state.blocked).toEqual({ scope: "user" });
+    // The reset horizon rides along so the re-scan banner can say when the window reopens.
+    expect(state.blocked).toEqual({ scope: "user", resetAt: 1 });
     expect(state.credits).toBeUndefined();
     // The quota branch — unlike the 401/402 ones — tries the salvage peek before walling.
     expect(calls.some((u) => u.includes("peek=1&latest=1"))).toBe(true);
