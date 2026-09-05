@@ -1071,6 +1071,26 @@ export interface GuidanceGraph {
   penalties: { reason: string; points: number; paths: string[] }[];
 }
 
+/**
+ * One token-gated enrichment read the ingest phase performs — a SENSOR.
+ *
+ * Named so a read that FAILED can be reported as such. Every one of these enrichments degrades to
+ * `null` / `[]` on error, which is byte-identical to the value a scan that legitimately found nothing
+ * produces — and downstream, that value is scored as absence (a missing SECURITY.md, no SAST, no
+ * governance). The sensor id is the thing that makes "did not run" sayable.
+ *
+ * `pullRequests` is listed for completeness but is carried by its own older flag (`prFetchFailed`),
+ * not by `ScanReport.sensorFailures`; see that field.
+ */
+export type ScanSensorId =
+  | "pullRequests"
+  | "governance"
+  | "securityPosture"
+  | "securityExposure"
+  | "appInventory"
+  | "ciHealth"
+  | "deployments";
+
 export interface ScanReport {
   repo: RepoMeta;
   overallScore: number;
@@ -1164,6 +1184,22 @@ export interface ScanReport {
    *  report must not be cached or persisted as authoritative. `graphql.ts` computes this and `pulls.ts`
    *  propagates it; before this existed the flag was computed, documented, and read by nobody. */
   prPartial?: boolean;
+  /**
+   * The GitHub-side sensors whose read THREW during this scan (never "returned nothing").
+   *
+   * A failed sensor and an absent finding are indistinguishable once both have collapsed to `null`,
+   * and null is scored as ABSENCE almost everywhere downstream. This is the typed half of the honesty
+   * channel — the prose half is the matching `buildScanWarnings` caveat in `warnings`, which is what
+   * actually persists (`warningsJson`). Empty/absent = no sensor is KNOWN to have failed; on a report
+   * reconstructed from the DB it is simply unknown, which is why it is optional rather than defaulted.
+   *
+   * It is what makes `platformSignals` readable: an absent record plus `appInventory`/`ciHealth` here
+   * means UNMEASURED (the read failed), while an absent record with no entry here means the scan
+   * looked and measured nothing (an anonymous scan, or a repo with no platform signals at all).
+   * `pullRequests` is deliberately NOT listed — it has its own typed flag and its own dedicated
+   * caveat (`prFetchFailed`), which pre-date this field.
+   */
+  sensorFailures?: ScanSensorId[];
   scannedAt: string;
   /** The scoring identity that produced this report. `rubricVersion` (SCORING_RUBRIC_VERSION) is
    *  populated on a DB-reconstructed report so the cross-instance cache tier can detect a rubric bump

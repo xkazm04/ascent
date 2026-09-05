@@ -27,6 +27,7 @@ import type {
   PrStats,
   RepoArchetype,
   RepoSnapshot,
+  ScanSensorId,
   SecurityExposure,
   SecurityPosture,
   TechStack,
@@ -42,6 +43,10 @@ export interface ScoreInputPhaseInput {
   appInventory?: AppInventory | null;
   /** Deepening pass: default-branch Actions run health; null = not observable. */
   ciHealth?: CiHealth | null;
+  /** The ingest sensors whose read THREW (src/lib/scan-ingest.ts). Threaded into the D9 battery so a
+   *  check whose 0 only a failed sensor could have refuted is EXCLUDED rather than scored as absence.
+   *  Empty/omitted ⇒ nothing is known to have failed and every check scores exactly as before. */
+  sensorFailures?: readonly ScanSensorId[];
   /** The scan timestamp, resolved once by the caller so D7's recency bonus is deterministic. */
   now: string;
   /**
@@ -131,6 +136,13 @@ export async function buildScanScoreInput(input: ScoreInputPhaseInput): Promise<
     {
       platformUnobservable: input.platformSignalsUnobservable === true && observed.record == null,
       provenance: carriedSecurity && carry ? `GitHub-side reading carried from scan ${carry.scanId}` : null,
+      // A sensor that CARRIED a reading is not unread — drop it, so a carried posture/App inventory
+      // still scores its check instead of being excluded for a failure the carry already repaired.
+      failedSensors: (input.sensorFailures ?? []).filter(
+        (id) =>
+          !(id === "securityPosture" && (securityPosture ?? carriedSecurity?.posture) != null) &&
+          !(id === "appInventory" && (appInventory ?? carriedSecurity?.apps) != null),
+      ),
     },
   );
   const signals = baseSignals.map((s) =>

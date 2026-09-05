@@ -393,3 +393,66 @@ describe("computeSecurityChecks — worktree mode (the loop's rescan)", () => {
     expect(get(blind, "security-policy").score).toBe(10);
   });
 });
+
+describe("computeSecurityChecks — a FAILED sensor read is unknown, never zero", () => {
+  const wf = [{ path: ".github/workflows/ci.yml", content: "on: [push]\npermissions:\n  contents: read\n" }];
+
+  it("a failed securityPosture read EXCLUDES the security-policy check instead of publishing 'no SECURITY.md'", () => {
+    // The bug: the posture read throws, ingest degrades it to null, and securityPolicy() reports
+    // `score: 0 — No security policy (SECURITY.md) found` with a remediation, for an org whose
+    // .github/SECURITY.md the read would have found (the score-8 branch).
+    const failed = computeSecurityChecks(snap(wf), gov(), null, null, null, { failedSensors: ["securityPosture"] });
+    const check = get(failed, "security-policy");
+    expect(check.score).toBeNull();
+    expect(check.evidence).toContain("not observable: securityPosture read failed");
+    expect(check.remediation).toBeUndefined();
+    // Excluded from the blend, not folded in as a zero.
+    expect(failed.checks.filter((c) => c.group === "posture" && c.score !== null)).not.toContainEqual(
+      expect.objectContaining({ id: "security-policy" }),
+    );
+  });
+
+  it("a failed appInventory read EXCLUDES sast + dependency-updates (the inventory's own null contract)", () => {
+    const failed = computeSecurityChecks(snap(wf), gov(), null, null, null, { failedSensors: ["appInventory"] });
+    expect(get(failed, "sast").score).toBeNull();
+    expect(get(failed, "dependency-updates").score).toBeNull();
+    expect(get(failed, "sast").evidence).toContain("not observable: appInventory read failed");
+    // Not a blanket blind-out: the file-scored checks are untouched.
+    expect(get(failed, "token-permissions").score).toBe(10);
+    expect(get(failed, "security-policy").score).toBe(0);
+  });
+
+  it("a sensor that RAN and found nothing scores exactly as today", () => {
+    const ran = computeSecurityChecks(snap(wf), gov(), null, null, null);
+    const alsoRan = computeSecurityChecks(snap(wf), gov(), null, null, null, { failedSensors: [] });
+    expect(alsoRan.d9).toBe(ran.d9);
+    for (const c of ran.checks) expect(get(alsoRan, c.id).score).toBe(c.score);
+    expect(get(ran, "sast").score).toBe(0);
+  });
+
+  it("real file evidence survives a failed sensor — only an unrefuted 0 is excluded", () => {
+    const files = [...wf, { path: ".github/dependabot.yml", content: "version: 2" }, { path: "SECURITY.md", content: "report" }];
+    const failed = computeSecurityChecks(snap(files), gov(), null, null, null, {
+      failedSensors: ["appInventory", "securityPosture"],
+    });
+    expect(get(failed, "dependency-updates").score).toBe(10);
+    expect(get(failed, "security-policy").score).toBe(10);
+  });
+
+  it("excluding a check RAISES the posture mean rather than dragging it — the whole point", () => {
+    const asAbsence = computeSecurityChecks(snap(wf), gov(), null, null, null);
+    const asUnknown = computeSecurityChecks(snap(wf), gov(), null, null, null, {
+      failedSensors: ["appInventory", "securityPosture"],
+    });
+    expect(asUnknown.posture).toBeGreaterThan(asAbsence.posture);
+  });
+
+  it("worktree mode still wins its own wording when both claims apply", () => {
+    const blind = computeSecurityChecks(snap(wf), null, null, null, null, {
+      platformUnobservable: true,
+      failedSensors: ["appInventory"],
+    });
+    expect(get(blind, "sast").score).toBeNull();
+    expect(get(blind, "sast").evidence).toContain("not measurable from a worktree");
+  });
+});
