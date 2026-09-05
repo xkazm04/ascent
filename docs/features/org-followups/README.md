@@ -151,7 +151,10 @@ required a scheduler to be correct would be wrong on any deployment whose schedu
 `claimability()` gates a **remote agent** on the repo's **effective** autonomy tier:
 **T0 refused**, **no assessed tier refused** (unknown is not green), **T1/T2 allowed and flagged for
 human review**, **T3 allowed**; a repo inside a declared no-AI zone is refused whatever its tier.
-`local` and `human` executors are unaffected.
+`local` and `human` executors are unaffected. Since 2026-09-05 the gate also binds an agent that
+**already holds** a lease: `get_fix_brief` re-runs `claimability` per repo, so a repository moved to
+`assisted-only`, `blocked`, or inside a newly declared no-AI zone after the claim is refused by id
+(`repo-closed`) for the rest of the lease rather than briefed.
 
 **The effective tier is the RECORDED decision, not the derived grade** (since 2026-08-31; UAT
 `PRIYA-L2-C4`). `repoGate` in `work-tools.ts` reads `getRepoAdmission(org, repo)` beside the passport
