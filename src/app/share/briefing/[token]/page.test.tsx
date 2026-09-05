@@ -39,6 +39,17 @@ vi.mock("@/lib/org/briefing", () => ({
       .filter(Boolean)
       .join(" · ") || null,
   valueRealizedLine: () => null,
+  // Direction 1 — the two denominators. Stubbed to the REAL wording (not to null) so these cases
+  // prove the public artifact carries the exclusion notice a board reader is owed, rather than
+  // proving only that the page compiles.
+  mockDisclosure: (b: { mockCount: number }) =>
+    b.mockCount > 0 ? `${b.mockCount} mock placeholder${b.mockCount === 1 ? "" : "s"} excluded from every average` : null,
+  coverageLine: (b: { coverage: { scanned: number; total: number } }) =>
+    `Coverage: ${b.coverage.scanned}/${b.coverage.total} repositories scanned`,
+  scoreBasisLine: (b: { realScoredCount: number }) =>
+    b.realScoredCount > 0 ? `averaged over ${b.realScoredCount} live-scored repositories` : null,
+  noScoreLine: (b: { realScoredCount: number }) =>
+    b.realScoredCount > 0 ? null : "No live-scored repositories in this period — every scanned repository's latest score is a mock placeholder, so no fleet average can be stated.",
 }));
 vi.mock("@/lib/db", () => ({
   isDbConfigured: () => true,
@@ -59,6 +70,7 @@ import {
   BriefingMovementCard,
   BriefingTiles,
 } from "@/features/bought/executive/briefingCards";
+import { BriefingBasisNote } from "@/features/bought/executive/BriefingBasisNote";
 
 function baseBriefing(overrides: Partial<ExecBriefing> = {}): ExecBriefing {
   return {
@@ -67,6 +79,8 @@ function baseBriefing(overrides: Partial<ExecBriefing> = {}): ExecBriefing {
     generatedOn: "2026-07-28",
     maturity: { overall: 62, levelId: "L3", levelName: "Established", adoption: 50, rigor: 55 },
     coverage: { scanned: 10, total: 10 },
+    realScoredCount: 10,
+    mockCount: 0,
     periodDelta: 4,
     priorPeriod: null,
     forecastHeadline: "On track to reach L4 in ~6 weeks",
@@ -194,5 +208,62 @@ describe("SharedBriefingPage — public-safe boundary (no internal-only affordan
 
     const goals = findElement(el, BriefingGoalsCard);
     expect(goals?.props.right ?? null).toBeFalsy(); // no "Manage goals" action for an anonymous viewer
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Direction 1 + 2 — the shared link's denominators.
+//
+// The board member holding this URL is the reader LEAST able to notice that "62/100" was averaged
+// over four of eleven repositories, and the one most likely to quote it. The page previously
+// printed neither the coverage line (which the PDF and the markdown both carry) nor any disclosure
+// of the repos excluded from the averages.
+// ---------------------------------------------------------------------------
+describe("SharedBriefingPage — the score's denominator travels with the figures", () => {
+  it("renders the coverage + score-basis note, with the briefing it describes", async () => {
+    mockBuildExecBriefing.mockResolvedValue(baseBriefing({ realScoredCount: 6, mockCount: 4 }));
+
+    const el = await renderPage();
+    const note = findElement(el, BriefingBasisNote);
+
+    expect(note).not.toBeNull();
+    expect(note!.props.briefing.realScoredCount).toBe(6);
+  });
+
+  it("discloses the mock placeholders excluded from every average", async () => {
+    mockBuildExecBriefing.mockResolvedValue(baseBriefing({ realScoredCount: 6, mockCount: 4 }));
+
+    const el = await renderPage();
+    const text = collectText(el).join("").replace(/\s+/g, " ").trim();
+
+    expect(text).toContain("4 mock placeholders excluded from every average");
+  });
+
+  it("makes NO exclusion claim on a fully live-scored fleet — never '0 excluded'", async () => {
+    mockBuildExecBriefing.mockResolvedValue(baseBriefing({ realScoredCount: 10, mockCount: 0 }));
+
+    const el = await renderPage();
+    const text = collectText(el).join("").replace(/\s+/g, " ").trim();
+
+    expect(text).not.toContain("excluded from every average");
+  });
+
+  it("lands the tiles on their no-score path when nothing was live-scored", async () => {
+    mockBuildExecBriefing.mockResolvedValue(
+      baseBriefing({
+        maturity: { overall: 0, levelId: "L1", levelName: "Ad hoc", adoption: 0, rigor: 0 },
+        realScoredCount: 0,
+        mockCount: 10,
+      }),
+    );
+
+    const el = await renderPage();
+    const tiles = findElement(el, BriefingTiles)!;
+
+    // The tile component decides the em dash from this one prop (see BriefingTiles) — asserting the
+    // prop is what pins the CONTRACT; the rendering of "—" is pinned in briefingCards' own DOM test.
+    expect(tiles.props.realScoredCount).toBe(0);
+    const text = collectText(el).join("").replace(/\s+/g, " ").trim();
+    expect(text).toContain("10 mock placeholders excluded from every average");
   });
 });

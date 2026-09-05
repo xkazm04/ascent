@@ -152,12 +152,17 @@ export function briefingFigureDigest(b: ExecBriefing): string {
   const projection = [
     m.overall, m.adoption, m.rigor, m.levelId,
     b.coverage.scanned, b.coverage.total,
+    // Direction 1: the DENOMINATOR is a figure. A fleet that gains a live score where it had only a
+    // mock placeholder reports the same coverage and a different average basis — a recipient reading
+    // "figures unchanged since this link was created" over a re-based average would be told a
+    // falsehood by the one mechanism that exists to prevent exactly that.
+    b.realScoredCount, b.mockCount,
     b.periodDelta, b.adoptionRate, b.regressionCount,
     b.movement.up, b.movement.down, b.movement.compared,
     b.valueRealized.recsEngaged, b.valueRealized.recsActioned, b.valueRealized.pointsMoved, b.valueRealized.reposPromoted,
     b.benchmark ? [b.benchmark.percentile, b.benchmark.corpusRepos, b.benchmark.corpusAvgOverall,
       b.benchmark.cohort ? [b.benchmark.cohort.repos, b.benchmark.cohort.overallPercentile, b.benchmark.cohort.adoptionPercentile] : null] : null,
-    b.priorPeriod ? [b.priorPeriod.overall, b.priorPeriod.adoption, b.priorPeriod.rigor,
+    b.priorPeriod ? [b.priorPeriod.overall, b.priorPeriod.adoption, b.priorPeriod.rigor, b.priorPeriod.realScoredCount,
       b.priorPeriod.dims.map((d) => [d.dimId, d.now, d.prior])] : null,
     b.strengths.map((d) => [d.dimId, d.avg]),
     b.risks.map((d) => [d.dimId, d.avg]),

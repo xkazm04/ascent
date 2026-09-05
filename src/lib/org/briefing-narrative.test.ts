@@ -45,6 +45,8 @@ const briefing: ExecBriefing = {
   generatedOn: "2026-07-28",
   maturity: { overall: 62, levelId: "L3", levelName: "Managed", adoption: 58, rigor: 66 },
   coverage: { scanned: 8, total: 12 },
+  realScoredCount: 8,
+  mockCount: 0,
   periodDelta: 4,
   priorPeriod: null,
   forecastHeadline: "On track to reach L4 in 6 weeks.",
@@ -163,6 +165,45 @@ describe("deterministicNarrative — a usable paragraph with no model involved",
     expect(text).not.toContain("NaN");
     expect(text).not.toContain("null");
     expect(isGrounded(text, allowedNumbers(sparse))).toBe(true);
+  });
+
+  // Direction 1 — the deterministic template is the paragraph that OPENS a board document, and it
+  // read "stands at 0/100 overall (L1 Ad hoc)" whenever the fleet had no live-scored repository:
+  // `maturity.overall` is a division guard at that denominator, not a grade.
+  it("names the LIVE-SCORED basis of the averages it quotes", () => {
+    const text = deterministicNarrative({ ...briefing, realScoredCount: 6, mockCount: 2 });
+    expect(text).toContain("8 of 12 repositories scanned");
+    expect(text).toContain("averaged over 6 live-scored repositories");
+    // The movement sentence's superset is the live-scored set too — a mock-floored repo can never be
+    // one of the `compared` pairs (getOrgMovers' isRealPair guard).
+    expect(text).toContain("Of the 6 live-scored repositories, 8 had a comparable prior scan");
+  });
+
+  it("refuses a grade on an all-mock fleet and says why", () => {
+    const unscored: ExecBriefing = {
+      ...briefing,
+      maturity: { overall: 0, levelId: "L1", levelName: "Ad hoc", adoption: 0, rigor: 0 },
+      realScoredCount: 0,
+      mockCount: 8,
+      periodDelta: null,
+      benchmark: null,
+      movement: { up: 0, down: 0, compared: 0 },
+      strengths: [],
+      risks: [],
+    };
+    const text = deterministicNarrative(unscored);
+    expect(text).toContain("has no fleet maturity score for this period");
+    expect(text).toContain("No live-scored repositories in this period");
+    expect(text).not.toContain("0/100");
+    expect(text).not.toContain("L1 Ad hoc");
+    // Coverage is still stated in full — the fleet WAS looked at (G1: never quieter, only correct).
+    expect(text).toContain("8 of 12 repositories scanned");
+    expect(isGrounded(text, allowedNumbers(unscored))).toBe(true);
+  });
+
+  it("suppresses the strongest/weakest sentence at a zero denominator (its dims are guards too)", () => {
+    const unscored: ExecBriefing = { ...briefing, realScoredCount: 0, mockCount: 8 };
+    expect(deterministicNarrative(unscored)).not.toContain("strongest on");
   });
 });
 

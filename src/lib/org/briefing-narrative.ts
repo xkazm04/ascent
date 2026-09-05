@@ -33,7 +33,15 @@
 // params (`temperature`/`top_p`) are deliberately absent — they are rejected with a 400 on this model
 // family — and adaptive thinking is left at its default with a low effort hint.
 
-import { briefingMarkdown, briefingNextMove, briefingTrajectoryNote, type ExecBriefing } from "@/lib/org/briefing";
+import {
+  briefingHasScore,
+  briefingMarkdown,
+  briefingNextMove,
+  briefingTrajectoryNote,
+  noScoreLine,
+  scoreBasisLine,
+  type ExecBriefing,
+} from "@/lib/org/briefing";
 import { withLlmTimeout } from "@/lib/llm/config";
 import { meter } from "@/lib/llm/meter";
 import { PROSE_STYLE_RULE, deEmDash } from "@/lib/llm/prose";
@@ -219,9 +227,20 @@ export function deterministicNarrative(b: ExecBriefing): string {
       : b.periodDelta === 0
         ? ", unchanged over the period"
         : `, ${b.periodDelta > 0 ? "up" : "down"} ${Math.abs(b.periodDelta)} points over the period`;
-  s.push(
-    `Across ${b.coverage.scanned} of ${b.coverage.total} repositories scanned, ${b.org} stands at ${b.maturity.overall}/100 overall (${b.maturity.levelId} ${b.maturity.levelName})${delta}, with AI Adoption at ${b.maturity.adoption} and Engineering Rigor at ${b.maturity.rigor}.`,
-  );
+  // Direction 1 — the no-score path. `maturity.overall` is a division guard (0) whenever
+  // `realScoredCount` is 0, and this template is the paragraph that OPENS a board document: it read
+  // "stands at 0/100 overall (L1 Ad hoc)" for a fleet whose every score was a mock placeholder. The
+  // opening sentence now states the absence, and the scored branch names what the average is
+  // averaged over (`scoreBasisLine`) instead of leaving `coverage.scanned` to be read as its basis.
+  if (!briefingHasScore(b)) {
+    s.push(
+      `Across ${b.coverage.scanned} of ${b.coverage.total} repositories scanned, ${b.org} has no fleet maturity score for this period. ${noScoreLine(b)}`,
+    );
+  } else {
+    s.push(
+      `Across ${b.coverage.scanned} of ${b.coverage.total} repositories scanned, ${b.org} stands at ${b.maturity.overall}/100 overall (${b.maturity.levelId} ${b.maturity.levelName})${delta}, with AI Adoption at ${b.maturity.adoption} and Engineering Rigor at ${b.maturity.rigor} — ${scoreBasisLine(b)}.`,
+    );
+  }
   if (b.benchmark?.percentile != null) {
     s.push(
       `That places the fleet in the ${b.benchmark.percentile}th percentile against ${b.benchmark.corpusRepos} benchmarked repositories, whose average overall score is ${b.benchmark.corpusAvgOverall}.`,
@@ -232,7 +251,10 @@ export function deterministicNarrative(b: ExecBriefing): string {
       // UAT DANA-L1-012 — this sentence and the "N of M repositories scanned" sentence above it were
       // two unlabelled repository denominators in the same paragraph. Name the subset relationship so a
       // fleet-wide delta and a comparable-only movement count can be reconciled by the reader.
-      `Of the ${b.coverage.scanned} scanned repositories, ${b.movement.compared} had a comparable prior scan in the period; of those, ${b.movement.up} improved and ${b.movement.down} regressed.`,
+      // Direction 1 — the superset is the LIVE-SCORED set: a mock-floored repo can never be one of
+      // the `compared` pairs (getOrgMovers' isRealPair guard), so quoting the scanned count invited
+      // the reader to subtract repos that were never in the running.
+      `Of the ${b.realScoredCount} live-scored repositories, ${b.movement.compared} had a comparable prior scan in the period; of those, ${b.movement.up} improved and ${b.movement.down} regressed.`,
     );
   }
   // MC-B1 — the deterministic narrative is a briefing surface too, and an LLM handed a bare slope
@@ -243,7 +265,9 @@ export function deterministicNarrative(b: ExecBriefing): string {
   else if (b.forecastInsufficiency) s.push(b.forecastInsufficiency);
   const strongest = b.strengths[0];
   const weakest = b.risks[0];
-  if (strongest && weakest) {
+  // Dimension averages share the maturity averages' denominator, so they are a division guard too
+  // when nothing is live-scored — the strongest/weakest sentence would read "strongest on D2 (0/100)".
+  if (strongest && weakest && briefingHasScore(b)) {
     s.push(
       `The fleet is strongest on ${strongest.dimId} ${strongest.label} (${strongest.avg}/100) and weakest on ${weakest.dimId} ${weakest.label} (${weakest.avg}/100).`,
     );

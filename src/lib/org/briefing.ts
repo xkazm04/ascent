@@ -77,18 +77,25 @@ export function briefingTrajectoryNote(b: ExecBriefing): string | null {
  *  up"), or null when nothing measurable happened this period — so the renewal line only appears when
  *  there's value to show, never as an empty "0 · 0 · 0". Shared by the exec page and the markdown.
  *
- *  UAT DANA-L1-012 — `scannedRepos` names the basis of the points figure. `pointsMoved` is the
- *  fleet-wide average delta over every SCANNED repo, while the movement line beside it counts only
+ *  UAT DANA-L1-012 — `liveScoredRepos` names the basis of the points figure. `pointsMoved` is the
+ *  fleet-wide average delta over every LIVE-SCORED repo, while the movement line beside it counts only
  *  repos with a COMPARABLE prior scan. A live board PDF put "fleet -6 pts" next to "Of 2 repositories
  *  comparable across the period, 0 improved and 0 regressed", and the reader could not reconcile them:
  *  "A board member does not need to know the word 'cohort-matched'; they need the page not to
  *  contradict itself." The two numbers were never in conflict — only one of them stated its scope. */
-export function valueRealizedLine(vr: ExecBriefing["valueRealized"], scannedRepos?: number): string | null {
+export function valueRealizedLine(vr: ExecBriefing["valueRealized"], liveScoredRepos?: number): string | null {
   const parts: string[] = [];
   if (vr.recsActioned > 0) parts.push(`${vr.recsActioned} recommendation${vr.recsActioned === 1 ? "" : "s"} completed`);
   else if (vr.recsEngaged > 0) parts.push(`${vr.recsEngaged} recommendation${vr.recsEngaged === 1 ? "" : "s"} actioned`);
   if (vr.pointsMoved != null && vr.pointsMoved !== 0) {
-    const basis = scannedRepos && scannedRepos > 0 ? ` across ${scannedRepos} scanned repo${scannedRepos === 1 ? "" : "s"}` : "";
+    // Direction 1 — the basis is the LIVE-SCORED set, not the scanned set. `pointsMoved` is
+    // `avgOverall − baseline.avgOverall`, and both of those are means over `realScoredCount`
+    // (org-rollup.ts:320-326). Naming the scanned count here overstated the denominator by exactly
+    // `mockCount`, on the one line a renewal conversation quotes.
+    const basis =
+      liveScoredRepos && liveScoredRepos > 0
+        ? ` across ${liveScoredRepos} live-scored repo${liveScoredRepos === 1 ? "" : "s"}`
+        : "";
     parts.push(`fleet ${vr.pointsMoved > 0 ? "+" : ""}${vr.pointsMoved} pts${basis}`);
   }
   if (vr.reposPromoted > 0) parts.push(`${vr.reposPromoted} repo${vr.reposPromoted === 1 ? "" : "s"} leveled up`);
@@ -133,10 +140,75 @@ export function benchmarkCaption(benchmark: ExecBriefing["benchmark"]): string {
  * period" sat on the same page as "6 of 6 repositories scanned" with nothing saying the 2 was a subset
  * of the 6. Returns null when nothing is comparable (the callers already skip the line then).
  */
-export function movementLine(movement: ExecBriefing["movement"], scannedRepos: number): string | null {
+export function movementLine(movement: ExecBriefing["movement"], liveScoredRepos: number): string | null {
   if (movement.compared <= 0) return null;
-  const of = scannedRepos > 0 ? ` (of ${scannedRepos} scanned)` : "";
+  // Direction 1 — the superset is the LIVE-SCORED set. `getOrgMovers` refuses any pair with a mock
+  // endpoint (`isRealPair`, org-insights.ts), so a mock placeholder can never be one of the
+  // `compared` repos; quoting the scanned count as the superset invited the reader to subtract
+  // repos that were never in the running.
+  const of = liveScoredRepos > 0 ? ` (of ${liveScoredRepos} live-scored)` : "";
   return `${movement.up + movement.down} of ${movement.compared} repos with a comparable prior scan moved${of} (${movement.up} up / ${movement.down} down)`;
+}
+
+/**
+ * Does this briefing have a fleet score AT ALL?
+ *
+ * Direction 1. `getOrgRollup` computes `avgOverall/avgAdoption/avgRigor` over the LIVE-SCORED repos
+ * and states the contract in its own doc comment: "when that denominator is 0 this number is a
+ * division guard (0), NOT a grade, and every renderer must land on its no-score path". Before this,
+ * `buildExecBriefing` guarded only on `scannedCount === 0`, so an all-mock fleet produced
+ * `maturity.overall = 0` → `levelForScore(0)` → L1, and four surfaces printed a grade of "0/100
+ * (L1 Ad hoc)" for a fleet that had never been measured. This is the predicate every renderer gates
+ * on instead.
+ */
+export function briefingHasScore(b: Pick<ExecBriefing, "realScoredCount">): boolean {
+  return b.realScoredCount > 0;
+}
+
+/** A fleet average as a renderer must print it: the figure, or an em dash when there is no score. */
+export function scoreValue(b: Pick<ExecBriefing, "realScoredCount">, value: number): string {
+  return briefingHasScore(b) ? String(value) : "—";
+}
+
+/** "L3 Managed" — the level caption under the headline score. Null when there is no score: a level
+ *  derived from a division guard is L1, the most damaging possible misreading of an unmeasured fleet. */
+export function briefingLevelCaption(b: ExecBriefing): string | null {
+  return briefingHasScore(b) ? `${b.maturity.levelId} ${b.maturity.levelName}` : null;
+}
+
+/** THE sentence a no-score fleet gets in place of a grade, on every surface. Null when there is a
+ *  score. Never a number: the point is that there is nothing to state. */
+export function noScoreLine(b: ExecBriefing): string | null {
+  if (briefingHasScore(b)) return null;
+  return "No live-scored repositories in this period — every scanned repository's latest score is a mock placeholder, so no fleet average can be stated.";
+}
+
+/** The score's BASIS, stated separately from the coverage line: `coverage` answers "how much of the
+ *  fleet did we look at", this answers "what is the average actually averaged over". Null when there
+ *  is no score (the surface prints {@link noScoreLine} instead). */
+export function scoreBasisLine(b: ExecBriefing): string | null {
+  if (!briefingHasScore(b)) return null;
+  const n = b.realScoredCount;
+  return `averaged over ${n} live-scored repositor${n === 1 ? "y" : "ies"}`;
+}
+
+/** "2 mock placeholders excluded from every average" — the disclosure a nonzero `mockCount` obliges.
+ *  Null when every scanned repo carries a real graded score.
+ *
+ *  This is the gap `engineMixCaveat` cannot cover, and the two are NOT redundant (G9): the engine mix
+ *  counts scans that ran INSIDE the window, while the averages read each repo's latest scan
+ *  at-or-before the upper bound. A fleet whose mock scans predate the window gets no engine-mix
+ *  caveat at all and still has its averages computed over a shrunken denominator. */
+export function mockDisclosure(b: Pick<ExecBriefing, "mockCount">): string | null {
+  if (b.mockCount <= 0) return null;
+  return `${b.mockCount} mock placeholder${b.mockCount === 1 ? "" : "s"} excluded from every average`;
+}
+
+/** "Coverage: 8/12 repositories scanned" — one definition for the PDF, the markdown, the tab and the
+ *  share page (G12). This denominator is deliberately the SCANNED set: it answers how much of the
+ *  fleet was looked at, which is a different question from what the averages stand on. */
+export function coverageLine(b: ExecBriefing): string {
+  return `Coverage: ${b.coverage.scanned}/${b.coverage.total} repositories scanned`;
 }
 
 export interface BriefingDim {
@@ -173,7 +245,23 @@ export interface ExecBriefing {
   periodTitle: string;
   generatedOn: string; // YYYY-MM-DD
   maturity: { overall: number; levelId: string; levelName: string; adoption: number; rigor: number };
+  /** How much of the fleet was LOOKED AT — `scanned` of `total` repositories. Deliberately NOT the
+   *  basis of `maturity`: see {@link ExecBriefing.realScoredCount}. Read it through
+   *  {@link coverageLine}. */
   coverage: { scanned: number; total: number };
+  /** The DENOMINATOR of every figure in `maturity` (and of `periodDelta` / `valueRealized.pointsMoved`,
+   *  which are differences of those means): scanned repos carrying a real graded score, mock
+   *  placeholders excluded, straight off `getOrgRollup.realScoredCount`.
+   *
+   *  0 means the three averages are a division guard and NOT a grade — every renderer must land on
+   *  its no-score path ({@link briefingHasScore} / {@link noScoreLine}). Required, not optional: a
+   *  briefing that cannot say what its average is averaged over is the defect this field exists to
+   *  remove, so it may not be silently absent. */
+  realScoredCount: number;
+  /** Scanned repos whose latest score is the deterministic mock floor — excluded from every average
+   *  above, and therefore owed a disclosure wherever those averages are printed ({@link mockDisclosure}).
+   *  `realScoredCount + mockCount === coverage.scanned`. */
+  mockCount: number;
   /** Overall-score delta vs the window's start, or null for all-time / no baseline. */
   periodDelta: number | null;
   /** End-state comparison against the immediately-preceding equal-length window (EXEC-4); null for
@@ -186,6 +274,11 @@ export interface ExecBriefing {
     dOverall: number;
     dAdoption: number;
     dRigor: number;
+    /** The prior window's own live-scored denominator — the basis of `overall`/`adoption`/`rigor`
+     *  above and therefore of every delta beside them. Non-zero by construction: the block is null
+     *  when the prior window scored nothing live, because a delta against a division guard is a
+     *  fabricated movement, not a comparison. */
+    realScoredCount: number;
     /** Per-dimension now/prior/delta, biggest movers first (capped). */
     dims: { dimId: string; label: string; now: number; prior: number; delta: number }[];
   } | null;
@@ -373,7 +466,10 @@ export async function buildExecBriefing(
     .reverse();
 
   const priorPeriod =
-    priorRollup && priorRollup.scannedCount > 0
+    // Direction 1 — `realScoredCount > 0`, not just `scannedCount > 0`. An all-mock prior window has
+    // `avgOverall === 0` by division guard, and subtracting that from a real current average
+    // manufactures a "+62 this period" the fleet never moved.
+    priorRollup && priorRollup.scannedCount > 0 && priorRollup.realScoredCount > 0
       ? (() => {
           const priorBy = new Map(priorRollup.dimAverages.map((d) => [d.dimId, d.avg]));
           return {
@@ -383,6 +479,7 @@ export async function buildExecBriefing(
             dOverall: rollup.avgOverall - priorRollup.avgOverall,
             dAdoption: rollup.avgAdoption - priorRollup.avgAdoption,
             dRigor: rollup.avgRigor - priorRollup.avgRigor,
+            realScoredCount: priorRollup.realScoredCount,
             dims: rollup.dimAverages
               .map((d) => ({
                 dimId: d.dimId,
@@ -409,6 +506,11 @@ export async function buildExecBriefing(
       rigor: rollup.avgRigor,
     },
     coverage: { scanned: rollup.scannedCount, total: rollup.repoCount },
+    // Direction 1 — the rollup's own denominator travels ONTO the briefing, so every renderer can
+    // answer "over what?" without reaching back to the db layer, and so a 0 denominator is visible
+    // rather than inferred from a suspiciously round 0/100.
+    realScoredCount: rollup.realScoredCount,
+    mockCount: rollup.mockCount,
     periodDelta: rollup.baseline ? rollup.avgOverall - rollup.baseline.avgOverall : null,
     priorPeriod,
     // ONE composition, shared with /trends and Delivery: the presentability gate decides whether this
@@ -552,6 +654,12 @@ export function nextMoveLine(rec: OrgRec, scannedRepos?: number): string {
   const dimLabel = DIMENSION_BY_ID[rec.dimId as DimensionId]?.name ?? rec.dimId;
   // UAT DANA-L1-012 — "shared by 3 repositories" was the fourth unlabelled repository denominator on
   // one board page. It is a subset of the scanned set; say so.
+  //
+  // Direction 1 deliberately does NOT move this one onto the live-scored denominator, unlike the
+  // value and movement lines. `rec.repoCount` counts repos whose LATEST scan carries this open
+  // recommendation, and `getOrgRecommendations` reads every scanned repo including the mock-floored
+  // ones (org-insights.ts) — so "6 of the 4 live-scored repositories" would be arithmetically
+  // impossible copy. G4: the clause names the denominator the figure is actually drawn from.
   const repos =
     scannedRepos && scannedRepos > 0
       ? `${rec.repoCount} of the ${scannedRepos} scanned repositor${scannedRepos === 1 ? "y" : "ies"}`
@@ -578,10 +686,20 @@ export function briefingMarkdown(b: ExecBriefing): string {
   out.push(`Generated ${b.generatedOn} · period: ${b.periodTitle}`);
   out.push("");
   out.push("## Standing");
-  out.push(`- Overall maturity: **${b.maturity.overall}/100** (${b.maturity.levelId} ${b.maturity.levelName})${delta}`);
-  out.push(`- AI Adoption: ${b.maturity.adoption}/100 · Engineering Rigor: ${b.maturity.rigor}/100`);
-  out.push(`- Coverage: ${b.coverage.scanned}/${b.coverage.total} repositories scanned`);
-  const vline = valueRealizedLine(b.valueRealized, b.coverage.scanned);
+  // Direction 1 — the no-score path. An all-mock fleet has `maturity.overall === 0` by division
+  // guard, and this markdown is what a leader pastes into an LLM: "stands at 0/100 overall (L1)"
+  // would be laundered into confident prose downstream. State the absence instead.
+  if (briefingHasScore(b)) {
+    out.push(`- Overall maturity: **${b.maturity.overall}/100** (${b.maturity.levelId} ${b.maturity.levelName})${delta}`);
+    out.push(`- AI Adoption: ${b.maturity.adoption}/100 · Engineering Rigor: ${b.maturity.rigor}/100`);
+    out.push(`- Score basis: ${scoreBasisLine(b)}`);
+  } else {
+    out.push(`- Overall maturity: — · ${noScoreLine(b)}`);
+  }
+  out.push(`- ${coverageLine(b)}`);
+  const mockLine = mockDisclosure(b);
+  if (mockLine) out.push(`- Provenance: ${mockLine}`);
+  const vline = valueRealizedLine(b.valueRealized, b.realScoredCount);
   if (vline) out.push(`- ${valueRealizedHeading(b.valueRealized)}: ${vline}`);
   if (b.adoptionRate != null) out.push(`- Fleet adoption: ${b.adoptionRate}% of scanned repos at a high AI-adoption posture`);
   if (b.benchmark?.percentile != null) {
@@ -627,7 +745,7 @@ export function briefingMarkdown(b: ExecBriefing): string {
   if (b.topGainers.length || b.topRegressions.length) {
     out.push("");
     out.push("## Movement this period");
-    const mline = movementLine(b.movement, b.coverage.scanned);
+    const mline = movementLine(b.movement, b.realScoredCount);
     if (mline) out.push(`- ${mline}`);
     for (const m of b.topGainers) out.push(moveLine("▲", m));
     for (const m of b.topRegressions) out.push(moveLine("▼", m));

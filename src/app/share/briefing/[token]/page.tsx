@@ -3,91 +3,27 @@
 // Outside the /org layout (no session gate); the token is the capability and carries the window.
 // Exposes only what the Briefing tab shows. noindex so a leaked link isn't crawled.
 
-import { Logo } from "@/components/Brand";
 import { Card, SectionHeader } from "@/components/org/shared/ui";
 import { PriorPeriodGrid } from "@/features/bought/executive/briefingShared";
 import { BriefingProofBanner } from "@/features/bought/executive/BriefingProofBanner";
+import { BriefingBasisNote } from "@/features/bought/executive/BriefingBasisNote";
 import {
   BriefingDimensionCards,
   BriefingGoalsCard,
   BriefingMovementCard,
   BriefingTiles,
 } from "@/features/bought/executive/briefingCards";
-import { TokenNotice } from "@/components/TokenNotice";
-import { buildExecBriefing, briefingTrajectoryNote, engineMixCaveat, engineMixLabel, valueRealizedHeading, valueRealizedLine } from "@/lib/org/briefing";
+import { buildExecBriefing, briefingTrajectoryNote, engineMixCaveat, engineMixLabel, mockDisclosure, valueRealizedHeading, valueRealizedLine } from "@/lib/org/briefing";
 import { briefingFigureDigest, shareIntegrity, verifyBriefingShareToken } from "@/lib/briefing-share";
+import { Notice, ShareFooter, ShareHeader } from "./shareChrome";
 import { resolveWindow } from "@/lib/window";
 import { getCreditState, getOrgBranding, getOrgId, getTechGroupIdByKey, isDbConfigured, recordAudit } from "@/lib/db";
 import { isBriefingShareRevoked } from "@/lib/db/org-share";
-import type { OrgBranding } from "@/lib/db/branding";
 import { getMembershipRole, roleAtLeast } from "@/lib/db/members";
 import { planAllowsWhiteLabel } from "@/lib/plans";
 
 export const dynamic = "force-dynamic";
 export const metadata = { robots: { index: false, follow: false } };
-
-// EXEC-5 white-label boundary: this anonymous share page is a CLIENT-FACING deliverable (the link a
-// reseller hands a board member), so a Team+ org's brand name + logo replace the Ascent mark here,
-// exactly like the briefing PDF. The brand ACCENT is deliberately not applied on this dark surface —
-// it is validated for readability against the white PDF only, so an arbitrary accent could be
-// unreadable here. Falls back to the Ascent mark when the org has no branding / no entitled plan
-// (and on the token-invalid notices, where the org isn't trusted yet).
-function BrandMark({ branding, className = "" }: { branding?: OrgBranding | null; className?: string }) {
-  if (!branding?.brandName && !branding?.logoUrl) return <Logo className={className} />;
-  return (
-    <span className={`inline-flex items-center gap-2 ${className}`}>
-      {branding.logoUrl && (
-        // eslint-disable-next-line @next/next/no-img-element -- owner-supplied remote logo; next/image needs domain allowlisting
-        <img src={branding.logoUrl} alt="" className="h-6 w-6 object-contain" />
-      )}
-      {branding.brandName && (
-        <span className="font-mono type-body font-semibold uppercase tracking-[0.22em] text-white">{branding.brandName}</span>
-      )}
-    </span>
-  );
-}
-
-// A minimal branded frame for the anonymous share view. The full marketing SiteHeader/SiteFooter
-// (Pricing / About / Sign-in, the org switcher, footer funnel links) is wrong here: the viewer is a
-// board member holding a capability token, with no account and nowhere to sign in — so we show only
-// the brand mark and a "shared briefing" label, no navigation into the funnel.
-function ShareHeader({ branding }: { branding?: OrgBranding | null }) {
-  return (
-    <header className="border-b border-divider/70 bg-ink/80 backdrop-blur">
-      <div className="mx-auto flex max-w-5xl items-center justify-between px-5 py-3.5">
-        <BrandMark branding={branding} />
-        <span className="type-label tracking-widest text-slate-500">Shared briefing</span>
-      </div>
-    </header>
-  );
-}
-
-function ShareFooter({ branding }: { branding?: OrgBranding | null }) {
-  const branded = Boolean(branding?.brandName || branding?.logoUrl);
-  return (
-    <footer className="mt-auto border-t border-divider/70 py-6 text-center">
-      <BrandMark branding={branding} className="justify-center opacity-70" />
-      {/* The Ascent tagline is part of the identity being white-labelled — drop it when branded. */}
-      {!branded && (
-        <p className="mt-2 type-label tracking-widest text-slate-500">
-          The maturity index for AI-native engineering
-        </p>
-      )}
-    </footer>
-  );
-}
-
-// The shared TokenNotice panel between this page's own branded frame. Unbranded on purpose: these
-// notices fire before the org is trusted (bad/revoked token), so they must never carry its mark.
-function Notice({ title, body }: { title: string; body: string }) {
-  return (
-    <>
-      <ShareHeader />
-      <TokenNotice title={title} body={body} minHeightClass="min-h-[60vh]" />
-      <ShareFooter />
-    </>
-  );
-}
 
 export default async function SharedBriefingPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
@@ -213,17 +149,24 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
           benchmark={benchmark}
           delta={briefing.periodDelta}
           deltaLabel={`vs ${briefing.periodTitle.toLowerCase()}`}
+          realScoredCount={briefing.realScoredCount}
           className="mt-6"
         />
+
+        {/* Coverage + score basis (Direction 1 + 2). The board member holding this link is the reader
+            LEAST able to notice that "62/100" was averaged over four of eleven repositories — and the
+            one most likely to quote it — so the two denominators travel with the figures here exactly
+            as they do in the PDF. */}
+        <BriefingBasisNote briefing={briefing} className="mt-3" />
 
         {/* executive-briefing 07-16 #4: the audience the "value this period" line was built for
             (leadership/renewal) is exactly the audience holding this link — carry it here like the
             exec page, the LLM markdown and the PDF do, so the three surfaces tell one story. */}
         {/* UAT DANA-L1-010 — heading follows the sign; the number is never hidden (G1). */}
-      {valueRealizedLine(briefing.valueRealized, briefing.coverage.scanned) && (
+      {valueRealizedLine(briefing.valueRealized, briefing.realScoredCount) && (
           <div className="mt-4 rounded-xl border border-accent/30 bg-accent/[0.06] px-4 py-3">
             <span className="type-mono-sm uppercase tracking-widest text-accent">{valueRealizedHeading(briefing.valueRealized)}</span>{" "}
-            <span className="type-body text-slate-200">{valueRealizedLine(briefing.valueRealized, briefing.coverage.scanned)}</span>
+            <span className="type-body text-slate-200">{valueRealizedLine(briefing.valueRealized, briefing.realScoredCount)}</span>
           </div>
         )}
 
@@ -242,6 +185,11 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
             )}
           </p>
         )}
+
+        {/* Direction 1 — the mock disclosure sits beside the engine-mix provenance, from the one
+            composer, for the same reason the PDF carries both: they are different claims about
+            different sets of scans (see mockDisclosure). */}
+        {mockDisclosure(briefing) && <p className="mt-2 type-mono-sm text-warn">⚠ {mockDisclosure(briefing)}</p>}
 
         {/* G5-11: mirror the internal page's regression caveat here too. `regressionCount` is a plain
             number already returned on this page's own `briefing` object (no internal-only field, no

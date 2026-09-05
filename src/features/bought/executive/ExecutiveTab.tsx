@@ -23,6 +23,7 @@ import {
   BriefingTiles,
 } from "./briefingCards";
 import { BriefingProofBanner } from "./BriefingProofBanner";
+import { BriefingBasisNote } from "./BriefingBasisNote";
 import { ImpactLedger } from "./ImpactLedger";
 import { ExecutiveSignalsStrip } from "./ExecutiveSignalsStrip";
 import { ExecutiveTrajectoryCard } from "./ExecutiveTrajectoryCard";
@@ -130,14 +131,19 @@ export async function ExecutiveTab({ slug, sp }: { slug: string; sp: SearchParam
         benchmark={benchmark}
         delta={briefing.periodDelta}
         deltaLabel={period.comparisonLabel}
+        realScoredCount={briefing.realScoredCount}
         orgSlug={slug}
       />
 
+      {/* The two denominators, right under the tiles they explain: how much of the fleet was looked
+          at, and what the averages above are actually averaged over (Direction 1 + 2). */}
+      <BriefingBasisNote briefing={briefing} />
+
       {/* UAT DANA-L1-010 — heading follows the sign; the number is never hidden (G1). */}
-      {valueRealizedLine(briefing.valueRealized, briefing.coverage.scanned) && (
+      {valueRealizedLine(briefing.valueRealized, briefing.realScoredCount) && (
         <div className="rounded-xl border border-accent/30 bg-accent/[0.06] px-4 py-3">
           <span className="type-mono-sm uppercase tracking-widest text-accent">{valueRealizedHeading(briefing.valueRealized)}</span>{" "}
-          <span className="type-body text-slate-200">{valueRealizedLine(briefing.valueRealized, briefing.coverage.scanned)}</span>
+          <span className="type-body text-slate-200">{valueRealizedLine(briefing.valueRealized, briefing.realScoredCount)}</span>
         </div>
       )}
 

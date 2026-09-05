@@ -84,6 +84,8 @@ function baseBriefing(overrides: Partial<ExecBriefing> = {}): ExecBriefing {
     generatedOn: "2026-07-28",
     maturity: { overall: 62, levelId: "L3", levelName: "Established", adoption: 50, rigor: 55 },
     coverage: { scanned: 10, total: 10 },
+    realScoredCount: 10,
+    mockCount: 0,
     periodDelta: 4,
     priorPeriod: null,
     forecastHeadline: "On track to reach L4 in ~6 weeks",

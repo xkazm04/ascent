@@ -35,6 +35,7 @@ export function BriefingTiles({
   benchmark,
   delta,
   deltaLabel,
+  realScoredCount,
   orgSlug = null,
   className = "",
 }: {
@@ -43,31 +44,44 @@ export function BriefingTiles({
   delta?: number | null;
   /** Exec-only suffix next to the delta badge, e.g. "vs 90d ago". */
   deltaLabel?: string;
+  /**
+   * The LIVE-SCORED denominator behind the three maturity averages (`ExecBriefing.realScoredCount`).
+   *
+   * 0 ⇒ those averages are a division guard, not a grade (`getOrgRollup` states the contract on
+   * `avgOverall`), so the three tiles render "—" and the level caption is suppressed rather than
+   * printing "0 · L1 Ad hoc" for a fleet that has never been measured. Optional for
+   * fixture-compatibility (the `BriefingMove.fullName` precedent); both real call sites pass it, and
+   * absent is read as "scored", which is what every briefing did before the field existed.
+   */
+  realScoredCount?: number;
   /** Non-null ⇒ tiles deep-link into the org dashboard. Null (the default) ⇒ static, public-safe. */
   orgSlug?: string | null;
   className?: string;
 }) {
+  const scored = realScoredCount == null || realScoredCount > 0;
+  /** The figure, or an em dash when there is no denominator to have averaged it over. */
+  const score = (n: number) => (scored ? n : "—");
   return (
     <div className={cx(className, TILE_GRID)}>
       <Tile
         label="Org maturity"
-        value={maturity.overall}
-        sub={`${maturity.levelId} · ${maturity.levelName}`}
-        color={scoreHex(maturity.overall)}
-        delta={delta ?? undefined}
-        deltaLabel={deltaLabel}
+        value={score(maturity.overall)}
+        sub={scored ? `${maturity.levelId} · ${maturity.levelName}` : "no live-scored repositories"}
+        color={scored ? scoreHex(maturity.overall) : undefined}
+        delta={scored ? (delta ?? undefined) : undefined}
+        deltaLabel={scored ? deltaLabel : undefined}
         href={orgSlug ? `/org/${orgSlug}` : undefined}
       />
       <Tile
         label="AI Adoption"
-        value={maturity.adoption}
-        color={scoreHex(maturity.adoption)}
+        value={score(maturity.adoption)}
+        color={scored ? scoreHex(maturity.adoption) : undefined}
         href={orgSlug ? `/org/${orgSlug}/adoption` : undefined}
       />
       <Tile
         label="Engineering Rigor"
-        value={maturity.rigor}
-        color={scoreHex(maturity.rigor)}
+        value={score(maturity.rigor)}
+        color={scored ? scoreHex(maturity.rigor) : undefined}
         href={orgSlug ? `/org/${orgSlug}/delivery` : undefined}
       />
       <Tile

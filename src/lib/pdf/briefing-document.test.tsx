@@ -29,7 +29,7 @@ describe("BriefingDocument — carries the value / adoption / movement-scale lin
     expect(t).toMatch(/Value this period\s*:/);
     // UAT DANA-L1-012 — the fleet delta names the set it is averaged over, so it can be reconciled
     // with the comparable-only movement line on the same page.
-    expect(t).toContain("3 recommendations completed · fleet +4 pts across 8 scanned repos · 2 repos leveled up");
+    expect(t).toContain("3 recommendations completed · fleet +4 pts across 8 live-scored repos · 2 repos leveled up");
   });
 
   // UAT DANA-L1-010 — the live board PDF printed "Value this period: … fleet -6 pts". The heading
@@ -38,7 +38,7 @@ describe("BriefingDocument — carries the value / adoption / movement-scale lin
     const down = text(briefing({ valueRealized: { recsEngaged: 0, recsActioned: 1, pointsMoved: -6, reposPromoted: 0 } }));
     expect(down).toMatch(/Activity this period\s*:/);
     expect(down).not.toContain("Value this period");
-    expect(down).toContain("-6 pts across 8 scanned repos");
+    expect(down).toContain("-6 pts across 8 live-scored repos");
   });
 
   // UAT DANA-L1-011 — "PERCENTILE — vs 1 repos" in a headline tile.
@@ -58,7 +58,7 @@ describe("BriefingDocument — carries the value / adoption / movement-scale lin
     // built-in Helvetica has no ▲/▼ glyphs).
     // UAT DANA-L1-012 — the comparable set is named as a subset of the scanned set.
     expect(t).toMatch(/7\s+of\s+8\s+repos with a comparable prior scan moved/);
-    expect(t).toMatch(/of\s+8\s+scanned/);
+    expect(t).toMatch(/of\s+8\s+live-scored/);
     expect(t).toMatch(/5\s+up \/\s+2\s+down/);
   });
 
@@ -159,6 +159,7 @@ describe("BriefingDocument — page-break orphan protection (G5-06)", () => {
           dOverall: 4,
           dAdoption: 2,
           dRigor: 1,
+          realScoredCount: 8,
           dims: [],
         },
         goals: [{ label: "Reach L4", current: 60, target: 80, pct: 75, pace: "on track", etaDays: 30 }],
@@ -187,6 +188,7 @@ describe("BriefingDocument — page-break orphan protection (G5-06)", () => {
             dOverall: 4,
             dAdoption: 2,
             dRigor: 1,
+            realScoredCount: 8,
             dims: [{ dimId: "D2", label: "Testing", prior: 70, now: 80, delta: 10 }],
           },
           goals: [{ label: "Reach L4", current: 60, target: 80, pct: 75, pace: "on track", etaDays: 30 }],
@@ -194,5 +196,62 @@ describe("BriefingDocument — page-break orphan protection (G5-06)", () => {
       }) as unknown as ReactElement,
     );
     expect(buf.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Direction 1 (M1 — Dana's journey re-run for every figure this changed). The PDF is the artifact
+// most likely to leave the building unedited, and it was the one printing `Stat label="Overall"
+// value="0"` with `sub="L1 Ad hoc"` for a fleet whose every score was a mock placeholder.
+// ---------------------------------------------------------------------------
+describe("BriefingDocument — the score's denominator", () => {
+  const mixed = briefing({ realScoredCount: 6, mockCount: 2 });
+  const unscored = briefing({
+    maturity: { overall: 0, levelId: "L1", levelName: "Ad hoc", adoption: 0, rigor: 0 },
+    realScoredCount: 0,
+    mockCount: 8,
+    periodDelta: null,
+    adoptionRate: null,
+    movement: { up: 0, down: 0, compared: 0 },
+    valueRealized: { recsEngaged: 0, recsActioned: 0, pointsMoved: null, reposPromoted: 0 },
+    strengths: [],
+    risks: [],
+    security: null,
+    topGainers: [],
+    topRegressions: [],
+  });
+
+  it("states COVERAGE and the SCORE BASIS as two separate denominators", () => {
+    const t = text(mixed);
+    expect(t).toContain("Coverage: 8/12 repositories scanned");
+    expect(t).toContain("averaged over 6 live-scored repositories");
+  });
+
+  it("carries the mock disclosure in the BODY, beside the engine-mix provenance (G9)", () => {
+    expect(text(mixed)).toContain("2 mock placeholders excluded from every average");
+    // A clean fleet gets no line at all — never "0 excluded".
+    expect(text(briefing({ realScoredCount: 8, mockCount: 0 }))).not.toContain("excluded from every average");
+  });
+
+  it("prints an em dash and a REASON for a fleet with no live-scored repository — never 0, never L1", () => {
+    const stats = tree(unscored).filter((e) => textOf(e).includes("Overall"));
+    expect(stats.length).toBeGreaterThan(0);
+    const t = text(unscored);
+    // The three headline Stats carry "—", and the level caption is gone.
+    expect(t).not.toContain("L1 Ad hoc");
+    expect(t).toContain("No live-scored repositories in this period");
+    expect(t).toContain("8 mock placeholders excluded from every average");
+    // No basis line either: there is nothing to have averaged.
+    expect(t).not.toContain("averaged over");
+    // …and coverage is still stated in full: the fleet WAS looked at (G1 — never quieter).
+    expect(t).toContain("Coverage: 8/12 repositories scanned");
+  });
+
+  it("the Overall Stat's value is the em dash, not the string '0'", () => {
+    const overallStat = tree(unscored).find((e) => textOf(e) === "OVERALL" || textOf(e) === "Overall");
+    expect(overallStat).toBeDefined();
+    // Structural: the rendered document contains no bare "0" headline value where a grade would be.
+    const t = text(unscored);
+    expect(t).toMatch(/Overall\s+—/);
   });
 });

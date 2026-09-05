@@ -2,7 +2,7 @@
 // and engine mix, as ONE wrap-row instead of three stacked <p> lines. Pulled out of ExecutiveTab.tsx
 // to stay under the 200-LOC cap (docs/ORG-TABS-REFACTOR.md). Server component, no state.
 
-import { engineMixCaveat, engineMixLabel } from "@/lib/org/briefing";
+import { engineMixCaveat, engineMixLabel, mockDisclosure } from "@/lib/org/briefing";
 import type { ExecBriefing } from "@/lib/org/briefing";
 
 export function ExecutiveSignalsStrip({ briefing }: { briefing: ExecBriefing }) {
@@ -10,7 +10,8 @@ export function ExecutiveSignalsStrip({ briefing }: { briefing: ExecBriefing }) 
     briefing.adoptionRate == null &&
     briefing.movement.compared === 0 &&
     briefing.benchmark?.cohort?.overallPercentile == null &&
-    briefing.engineMix.length === 0
+    briefing.engineMix.length === 0 &&
+    briefing.mockCount === 0
   ) {
     return null;
   }
@@ -35,6 +36,11 @@ export function ExecutiveSignalsStrip({ briefing }: { briefing: ExecBriefing }) 
           {benchmark.cohort.adoptionPercentile != null ? ` · ${benchmark.cohort.adoptionPercentile}th on AI adoption` : ""}
         </span>
       )}
+      {/* Direction 1 — the mock disclosure, from the ONE composer (G12). Deliberately NOT folded into
+          the engine-mix caveat beside it: that caveat counts scans that RAN in the window, while the
+          averages read each repo's latest scan at-or-before the upper bound, so a fleet whose mock
+          scans predate the window gets no caveat and still has a shrunken denominator. */}
+      {mockDisclosure(briefing) && <span className="text-warn">⚠ {mockDisclosure(briefing)}</span>}
       {briefing.engineMix.length > 0 && (
         <span>
           Scored by {engineMixLabel(briefing.engineMix)}
