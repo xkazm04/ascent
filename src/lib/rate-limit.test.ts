@@ -21,6 +21,7 @@ import {
   SHARED_STORE_BREAKER_MS,
   type SharedWindowStore,
 } from "./rate-limit-store";
+import { trustedProxyHops, __resetTrustedProxyWarning } from "./env";
 
 // IMPORTANT: `rate-limit.ts` keeps its sliding-window state in a MODULE-GLOBAL `Map` that is not
 // exported and cannot be reset between tests. To keep tests isolated and deterministic we give
@@ -130,6 +131,46 @@ describe("clientIp — IP trust boundary (critical #2)", () => {
         headers: { "x-forwarded-for": "1.1.1.1, 2.2.2.2" },
       });
       expect(clientIp(req)).toBe("unknown");
+    });
+
+    // The default (1) trusts `x-real-ip` verbatim. That is a fail-open, so — like selfHosted()'s
+    // production inference — it is not forbidden, it is made LOUD exactly once per process.
+    describe("the unwitnessed default warns once (the fail-open is loud, not silent)", () => {
+      let warn: ReturnType<typeof vi.spyOn>;
+      beforeEach(() => {
+        __resetTrustedProxyWarning();
+        warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      });
+      afterEach(() => {
+        warn.mockRestore();
+        __resetTrustedProxyWarning();
+        vi.unstubAllEnvs();
+      });
+
+      it("explicitly set → no warning (the operator has declared the deploy shape)", () => {
+        vi.stubEnv("ASCENT_TRUSTED_PROXY_HOPS", "0");
+        expect(trustedProxyHops()).toBe(0);
+        vi.stubEnv("ASCENT_TRUSTED_PROXY_HOPS", "2");
+        expect(trustedProxyHops()).toBe(2);
+        expect(warn).not.toHaveBeenCalled();
+      });
+
+      it("VERCEL present → no warning (the platform edge witnesses the one trusted hop)", () => {
+        vi.stubEnv("ASCENT_TRUSTED_PROXY_HOPS", "");
+        vi.stubEnv("VERCEL", "1");
+        expect(trustedProxyHops()).toBe(1);
+        expect(warn).not.toHaveBeenCalled();
+      });
+
+      it("neither declared nor witnessed → EXACTLY one warning across many calls, naming the var", () => {
+        vi.stubEnv("ASCENT_TRUSTED_PROXY_HOPS", "");
+        vi.stubEnv("VERCEL", "");
+        for (let i = 0; i < 25; i += 1) expect(trustedProxyHops()).toBe(1); // value unchanged: still 1
+        expect(warn).toHaveBeenCalledTimes(1); // once per process, not once per request
+        const msg = String(warn.mock.calls[0]?.[0]);
+        expect(msg).toContain("ASCENT_TRUSTED_PROXY_HOPS");
+        expect(msg).toContain("x-real-ip");
+      });
     });
 
     it("unset / invalid values keep the default single-proxy platform behavior", () => {
