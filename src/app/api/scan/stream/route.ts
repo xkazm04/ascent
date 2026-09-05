@@ -148,7 +148,13 @@ export async function POST(request: Request) {
   // cannot both pass a point-in-time balance read and both run paid inference. Public (token-less)
   // and mock scans are never charged — `isMeteredScan` inside the gate short-circuits them, so the
   // public funnel still pays only the monthly quota consumed above.
-  const credit = await scanCreditGate(orgSlug, { mock, repoFullName: `${parsed.owner}/${parsed.repo}` });
+  const credit = await scanCreditGate(orgSlug, {
+    mock,
+    repoFullName: `${parsed.owner}/${parsed.repo}`,
+    // The viewer was already resolved in request scope above (cookies aren't readable inside start()),
+    // so the thunk just hands it back — the ledger row names the person whose scan spent the credit.
+    resolveActor: () => viewer?.login ?? null,
+  });
   if (!credit.ok) return paymentRequired(credit.balance);
   // Refund the reservation from the same in-stream no-delivery paths `refundQuota` fires on (cached
   // hit, coalesce join, degrade-to-mock, dedup, throw/abort): the credit meter, like the free tier,

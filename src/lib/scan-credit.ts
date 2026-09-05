@@ -9,6 +9,30 @@
 import { consumeScanCredit, CREDIT_REASON, grantCredits } from "@/lib/db";
 import { maybeAlertLowCredits } from "@/lib/scan-alerts";
 
+/**
+ * WHO and WHAT a credit movement is for — stamped onto the CreditLedger row so spend is joinable.
+ *
+ * WHICH ROWS CAN CARRY WHICH, and why it is not uniform. `repoFullName` is always available at the
+ * debit (the reserve happens per-repo, by name) and is threaded to the matching refund, so a debit and
+ * its reversal can always be netted per repo. `actor` is whatever the call site honestly knows: the
+ * viewer login on an interactive scan, the queue `reason` on a drained job, "webhook" / "system" where
+ * no human is behind it — never a guess.
+ *
+ * `scanId` is the one that is usually ABSENT, and deliberately so. Every scan path here reserves
+ * BEFORE inference runs, so at debit time no Scan row exists to point at; and `persistScanReport` does
+ * not return the row's id, so it is unknown at refund time too. The ledger is append-only — a row is
+ * written once — so back-filling the id onto the debit afterwards is not an option we take. It stays
+ * optional for the callers that genuinely know it up front (a re-scan of a known row), where it also
+ * upgrades `consumeScanCredit`'s idempotency key from a per-invocation `auto:<uuid>` to the natural
+ * key `scan:<scanId>`, which is what makes a redelivered debit collapse instead of double-charging.
+ */
+export interface ScanSpendAttribution {
+  /** GitHub login of the viewer who caused the spend, or the honest non-human word for the path. */
+  actor?: string;
+  /** The Scan row this movement pays for, when it is known BEFORE the debit. Usually undefined. */
+  scanId?: string;
+}
+
 /** Outcome of a per-repo credit reservation. */
 export interface ScanCreditReservation {
   /**
@@ -44,8 +68,11 @@ export interface ScanCreditReservation {
 export async function reserveScanCredit(
   orgSlug: string,
   repoFullName: string,
+  opts: ScanSpendAttribution = {},
 ): Promise<ScanCreditReservation> {
-  const res = await consumeScanCredit(orgSlug, { repoFullName }).catch(() => null);
+  const res = await consumeScanCredit(orgSlug, { repoFullName, actor: opts.actor, scanId: opts.scanId }).catch(
+    () => null,
+  );
   if (!res || (!res.unlimited && !res.ok)) {
     return { skip: true, reserved: false, balance: res?.balance ?? null };
   }
@@ -65,9 +92,21 @@ export async function reserveScanCredit(
  * that already reported `x-ascent-credits-remaining` can correct it without a second read. Every
  * existing caller ignores the value (a widened return is invisible to `await refundScanCredit(...)`).
  */
-export async function refundScanCredit(orgSlug: string, reserved: boolean): Promise<number | null> {
+export async function refundScanCredit(
+  orgSlug: string,
+  reserved: boolean,
+  opts: ScanSpendAttribution & { repoFullName?: string } = {},
+): Promise<number | null> {
   if (!reserved) return null;
-  return await grantCredits(orgSlug, 1, { reason: CREDIT_REASON.REFUND, actor: "system" }).catch(() => null);
+  return await grantCredits(orgSlug, 1, {
+    reason: CREDIT_REASON.REFUND,
+    // "system" stays the floor, not the answer: it is what a refund fired by a path with no human or
+    // job behind it honestly is. A caller that knows better (the viewer who ran the scan, the queue
+    // reason that scheduled it) passes its own word and the reversal names the same actor as the debit.
+    actor: opts.actor ?? "system",
+    repoFullName: opts.repoFullName,
+    scanId: opts.scanId,
+  }).catch(() => null);
 }
 
 /**

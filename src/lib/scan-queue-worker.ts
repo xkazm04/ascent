@@ -229,7 +229,12 @@ async function runRescoreJob(job: ScanJobRow, slug: string, ctx: OrgContext, sum
   const metered = slug.toLowerCase() !== "public" && !(await ctx.isByom(slug));
   let charged = false;
   if (metered) {
-    const reservation = await reserveScanCredit(slug, repo);
+    // Ledger attribution: no human is in the loop when a job drains, so the honest actor is the queue
+    // and the reason the job was enqueued for ("manual" from the dashboard, "cadence" from the cron,
+    // "webhook" from a push) — the nearest true answer to "what spent this credit", and enough to tell
+    // a scheduled rescan's spend apart from a user-triggered one on the same repo.
+    const actor = `queue:${job.reason}`;
+    const reservation = await reserveScanCredit(slug, repo, { actor });
     if (reservation.skip) {
       summary.skippedForCredits += 1;
       // The repo waits its full cadence rather than re-qualifying every pass and jamming the queue.
@@ -242,7 +247,8 @@ async function runRescoreJob(job: ScanJobRow, slug: string, ctx: OrgContext, sum
     if (charged) await markJobCredit(job.id, true);
   }
   const refundCredit = async () => {
-    await refundScanCredit(slug, charged);
+    // Same repo, same actor as the debit — a `refund` row that names what it reverses.
+    await refundScanCredit(slug, charged, { actor: `queue:${job.reason}`, repoFullName: repo });
     return charged;
   };
 

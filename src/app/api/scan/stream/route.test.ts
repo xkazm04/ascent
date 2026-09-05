@@ -184,7 +184,7 @@ describe("POST /api/scan/stream — credit metering", () => {
 
     // The header is set when the stream opens — i.e. after the reservation, before any refund.
     expect(res.headers.get("x-ascent-credits-remaining")).toBe("4");
-    expect(mockReserve).toHaveBeenCalledWith("acme", "o/r");
+    expect(mockReserve).toHaveBeenCalledWith("acme", "o/r", { actor: "system" });
     await res.text();
     // A real, newly-scored metered scan KEEPS its charge.
     expect(mockRefund).not.toHaveBeenCalled();
@@ -195,7 +195,9 @@ describe("POST /api/scan/stream — credit metering", () => {
 
     await postAndDrain({ url: "o/r", mock: false });
 
-    expect(mockRefund).toHaveBeenCalledWith("acme", true);
+    // The refund carries the debit's own repo and actor (no viewer here, so "system"), which is what
+    // makes a `refund` ledger row joinable to the `scan` row it reverses.
+    expect(mockRefund).toHaveBeenCalledWith("acme", true, { actor: "system", repoFullName: "o/r" });
   });
 
   it("refunds the reservation when the commit was already scored (dedup)", async () => {
@@ -204,7 +206,9 @@ describe("POST /api/scan/stream — credit metering", () => {
 
     await postAndDrain({ url: "o/r", mock: false });
 
-    expect(mockRefund).toHaveBeenCalledWith("acme", true);
+    // The refund carries the debit's own repo and actor (no viewer here, so "system"), which is what
+    // makes a `refund` ledger row joinable to the `scan` row it reverses.
+    expect(mockRefund).toHaveBeenCalledWith("acme", true, { actor: "system", repoFullName: "o/r" });
   });
 
   it("refunds the reservation when the scan throws (upstream failure / client abort)", async () => {
@@ -212,7 +216,9 @@ describe("POST /api/scan/stream — credit metering", () => {
 
     await postAndDrain({ url: "o/r", mock: false });
 
-    expect(mockRefund).toHaveBeenCalledWith("acme", true);
+    // The refund carries the debit's own repo and actor (no viewer here, so "system"), which is what
+    // makes a `refund` ledger row joinable to the `scan` row it reverses.
+    expect(mockRefund).toHaveBeenCalledWith("acme", true, { actor: "system", repoFullName: "o/r" });
   });
 
   it("never charges a PUBLIC (token-less) scan", async () => {

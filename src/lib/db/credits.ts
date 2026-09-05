@@ -106,6 +106,10 @@ function isDuplicateExternalId(err: unknown): boolean {
  * owner-gated grant endpoint and the Polar top-up webhook (src/app/api/billing/webhook). The stored
  * balance is clamped at zero so an over-large negative adjustment can't drive it negative.
  *
+ * `opts.repoFullName` / `opts.scanId` stamp the row for SPEND ATTRIBUTION. They are what makes a
+ * per-scan refund joinable to the debit it reverses (the refund writers pass the debit's own repo);
+ * a true grant leaves them null, because a top-up pays for no particular repo.
+ *
  * `opts.externalId` makes the grant IDEMPOTENT: pass a stable id (a Polar order id) and a redelivery
  * is a no-op — a ledger row already carrying it short-circuits, and a concurrent duplicate that slips
  * past that check is caught by the unique constraint (the whole grant rolls back) and reported as the
@@ -114,7 +118,7 @@ function isDuplicateExternalId(err: unknown): boolean {
 export async function grantCredits(
   orgSlug: string,
   amount: number,
-  opts: { reason?: string; actor?: string; externalId?: string } = {},
+  opts: { reason?: string; actor?: string; externalId?: string; repoFullName?: string; scanId?: string } = {},
 ): Promise<number | null> {
   if (!isDbConfigured()) return null;
   const slug = orgSlug.toLowerCase(); // canonical-casing contract (see getCreditState)
@@ -167,6 +171,13 @@ export async function grantCredits(
             balanceAfter,
             reason: opts.reason ?? (delta > 0 ? CREDIT_REASON.GRANT : CREDIT_REASON.ADJUSTMENT),
             actor: opts.actor ?? null,
+            // SPEND ATTRIBUTION. A per-scan REFUND is a grant, so it used to be written with no repo
+            // and no scan on it at all — leaving every `reason:"refund"` row unjoinable to the
+            // `reason:"scan"` debit it reverses, and per-repo spend impossible to net out. Both are
+            // optional and null for a genuine grant (a Polar top-up or an owner adjustment pays for no
+            // single repo), so nothing about the grant path changes.
+            repoFullName: opts.repoFullName ?? null,
+            scanId: opts.scanId ?? null,
             externalId,
           },
         });

@@ -183,7 +183,19 @@ export type ScanCreditRejection = { ok: false; reason: "payment_required"; balan
  */
 export async function scanCreditGate(
   orgSlug: string,
-  opts: { mock: boolean; repoFullName: string },
+  opts: {
+    mock: boolean;
+    repoFullName: string;
+    /**
+     * WHO the spend is attributed to on the CreditLedger row — the signed-in viewer's login, or null
+     * when there is none (the gate falls back to "system" rather than inventing an owner).
+     *
+     * A THUNK, for the same reason `scanAuthGate` takes one: /api/scan deliberately does not resolve a
+     * viewer unless a gate needs it, and a non-metered scan needs no actor at all. It is invoked only
+     * on the metered branch, after the entitlement check, so the public funnel resolves nothing.
+     */
+    resolveActor?: () => Promise<string | null> | string | null;
+  },
 ): Promise<ScanCreditPass | ScanCreditRejection> {
   if (!isMeteredScan(orgSlug, opts.mock)) return { ok: true, hold: FREE_HOLD };
 
@@ -194,7 +206,12 @@ export async function scanCreditGate(
 
   // reserveScanCredit also fires maybeAlertLowCredits on a debit that crossed the low-water mark —
   // the proactive lifecycle push, which the inline /api/scan copy did and the stream route did not.
-  const res = await reserveScanCredit(orgSlug, opts.repoFullName);
+  // Attribution for BOTH sides of this movement: the debit below and the refund inside the hold carry
+  // the same repo and the same actor, which is what makes a `refund` row joinable to the `scan` row it
+  // reverses. `scanId` is deliberately absent — see ScanSpendAttribution in scan-credit.ts: the reserve
+  // happens before inference, so no Scan row exists to name yet, and a ledger row is written once.
+  const actor = (await opts.resolveActor?.()) ?? "system";
+  const res = await reserveScanCredit(orgSlug, opts.repoFullName, { actor });
   // The balance moved between the read above and this atomic decrement (another in-flight scan spent
   // the last credit). Report the reservation's own balance where it has one; fall back to the read.
   if (res.skip) return { ok: false, reason: "payment_required", balance: res.balance ?? ent.balance };
@@ -205,7 +222,7 @@ export async function scanCreditGate(
     refund: async () => {
       if (!reserved) return;
       reserved = false; // at most one refund per reservation — a second call must not mint a credit
-      const bal = await refundScanCredit(orgSlug, true);
+      const bal = await refundScanCredit(orgSlug, true, { actor, repoFullName: opts.repoFullName });
       if (typeof bal === "number") hold.remaining = bal;
     },
   };

@@ -315,7 +315,14 @@ async function runScan(
   // scanCreditGate — this block used to live inline HERE ONLY, which is how the stream route (the one
   // the report UI actually drives) came to run paid inference with no meter at all. The reserve is
   // sequenced LAST, after the quota consume above, on both routes; see scan-gates.ts for why.
-  const credit = await scanCreditGate(orgSlug, { mock: opts.mock, repoFullName: repoIdentity });
+  const credit = await scanCreditGate(orgSlug, {
+    mock: opts.mock,
+    repoFullName: repoIdentity,
+    // Attribution for the ledger row. A metered scan is a PRIVATE/org scan, which the sign-in wall
+    // above already required a viewer for, so this is a real login in practice; the thunk keeps the
+    // resolve off the public funnel, and getViewer is request-cached so it costs nothing here.
+    resolveActor: async () => (await getViewer())?.login ?? null,
+  });
   if (!credit.ok) return paymentRequired(credit.balance);
   // Refund the reservation when nothing billable was produced (degrade-to-mock / dedup / throw). It
   // updates its own `remaining`, so the response header below stays accurate, and it is idempotent.

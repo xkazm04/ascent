@@ -330,7 +330,14 @@ describe("POST /api/org/import — credit-cap slice + per-repo refund (metered)"
     // The reservation was made (consumeScanCredit) and then refunded exactly once on the throw.
     expect(mockConsume).toHaveBeenCalledTimes(1);
     expect(mockGrant).toHaveBeenCalledTimes(1);
-    expect(mockGrant).toHaveBeenCalledWith("acme", 1, { reason: "refund", actor: "system" });
+    // The refund row carries the SAME repo (and actor) as the debit it reverses, so per-repo spend
+    // nets out on the ledger instead of leaving an unattributable +1. No viewer is signed in in this
+    // suite, so the honest actor is "system".
+    expect(mockGrant).toHaveBeenCalledWith("acme", 1, {
+      reason: "refund",
+      actor: "system",
+      repoFullName: "acme/boom",
+    });
     // The failure is surfaced honestly on the repo event, not swallowed.
     expect(events.find((e) => e.event === "repo")?.data).toMatchObject({ repo: "acme/boom", error: "github 500" });
   });
@@ -389,7 +396,11 @@ describe("POST /api/org/import — credit-cap slice + per-repo refund (metered)"
     mockScan.mockResolvedValue(report); // `report` is provider:"mock"
     mockPersist.mockRejectedValueOnce(new Error("write failed"));
     const events = await collectImport({ org: "acme", repos: ["acme/deg"], mock: false, watch: false });
-    expect(mockGrant).toHaveBeenCalledWith("acme", 1, { reason: "refund", actor: "system" });
+    expect(mockGrant).toHaveBeenCalledWith("acme", 1, {
+      reason: "refund",
+      actor: "system",
+      repoFullName: "acme/deg",
+    });
     expect(events.find((e) => e.event === "repo")?.data).toMatchObject({ charged: false });
   });
 

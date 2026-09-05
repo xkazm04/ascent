@@ -204,6 +204,11 @@ export async function POST(request: Request) {
   if (metered && authGateEnabled() && !(await getViewer())) {
     return NextResponse.json({ error: "Sign in to import a private organization." }, { status: 401 });
   }
+  // Ledger attribution for every credit this import moves. Resolved HERE, in the route body, for the
+  // same reason `publicQuotaIdentity` below is: a cookie-scoped read inside the SSE `start()` returns
+  // null, which would stamp every debit "system" and lose the person who actually ran the import. The
+  // metered path already required a viewer at the wall above, so this is a real login in practice.
+  const importActor = metered ? ((await getViewer().catch(() => null))?.login ?? "system") : undefined;
   let unlimited = true;
   // Scan capacity for a non-unlimited org = monthly FREE allowance left + prepaid credits. Capping on
   // credits alone wrongly skipped an org's INCLUDED free scans (a Free org with its 10 monthly scans
@@ -375,7 +380,7 @@ export async function POST(request: Request) {
             // mock or throws.
             let reserved = false;
             if (metered && !unlimited) {
-              const reservation = await reserveScanCredit(org, r.fullName);
+              const reservation = await reserveScanCredit(org, r.fullName, { actor: importActor });
               if (reservation.skip) {
                 skippedForCredits += 1;
                 processed += 1;
@@ -410,7 +415,9 @@ export async function POST(request: Request) {
             // produced" must give it back. A caller that remembered only credits would silently burn a
             // free public slot on a deduped or degraded scan.
             const refundCredit = async () => {
-              await refundScanCredit(org, reserved);
+              // Stamped with the SAME repo and actor as the debit above, so the reversal is joinable to
+              // the row it reverses instead of landing as an anonymous +1.
+              await refundScanCredit(org, reserved, { actor: importActor, repoFullName: r.fullName });
               await refundQuota();
             };
             send("progress", { stage: "scan", repo: r.fullName, index: processed, total: fullNames.length });
