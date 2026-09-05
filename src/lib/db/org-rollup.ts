@@ -71,9 +71,17 @@ const ACTIVITY_WEEKS = 4;
  * `src/features/standing/overview/repoTrajectory.ts`) already held this rule for the numbers it
  * derives itself; `src/lib/**` may not import from `src/features/**`, so the one line is restated
  * rather than shared. Both read the same persisted `Scan.engineProvider`.
+ *
+ * EXPORTED (fleet-rollups-insights: aggregate honesty) so every sibling READER inherits the one
+ * predicate instead of restating it: `getOrgMovers` (org-insights.ts) and `getOrgTeamRollup`
+ * (org-teams.ts) both fold scores, and both used to fold the mock floor while this file refused it —
+ * so the same fleet reported a mock→live re-scan as a top gainer in Fix-first/the digest/the Exec
+ * Briefing while the badge above it excluded exactly that pair. One predicate, one meaning of "was
+ * this ever measured". It lives here rather than in org-shared.ts because this is the producer that
+ * defines the exclusion, and org-shared.ts carries no scoring semantics at all.
  */
 const MOCK_ENGINE = "mock";
-function isMockScore(engine: string | null | undefined): boolean {
+export function isMockScore(engine: string | null | undefined): boolean {
   return engine === MOCK_ENGINE;
 }
 
@@ -608,8 +616,13 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
   const postureCounts: Record<string, number> = {};
   for (const r of scanned) postureCounts[r.latest!.posture] = (postureCounts[r.latest!.posture] ?? 0) + 1;
 
+  // Per-dimension fleet averages narrow to `realScored` for the SAME reason the three headline
+  // averages do: a dimension average is presented as a measurement, and the mock floor was never
+  // measured. Iterating `scanned` here meant the badge's overall excluded the placeholder while the
+  // dimension bars drawn under it folded it in — two numbers on one card, disagreeing by the weight
+  // of the floor. `realScoredCount` is the stated denominator for these too.
   const dimSum = new GroupedMean();
-  for (const r of scanned) for (const d of r.latest!.dims) dimSum.add(d.dimId, d.score);
+  for (const r of realScored) for (const d of r.latest!.dims) dimSum.add(d.dimId, d.score);
   const dimAverages = dimSum
     .keys()
     .sort()
@@ -625,6 +638,12 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
     where: {
       repo: { orgId: org.id, ...seg },
       ...dateRange(trendStart, window),
+      // Mock placeholders are excluded from the LINE for the same reason they are excluded from the
+      // badge drawn above it (see isMockScore). Without this the two disagreed structurally: the
+      // headline average refused the deterministic floor while the trend it sits on folded it in, and
+      // `forecastTrajectory` below then fit the promotion ETA over that mixed series — an ETA partly
+      // extrapolated from scans that were never scored.
+      engineProvider: { not: MOCK_ENGINE },
     },
     select: { scannedAt: true, overallScore: true },
     orderBy: { scannedAt: "asc" },
@@ -968,13 +987,21 @@ export interface EngineMixEntry {
 export async function getOrgEngineMix(orgSlug: string, window?: OrgWindow, segmentId?: string | null, techGroupId?: string | null): Promise<EngineMixEntry[]> {
   if (!isDbConfigured()) return [];
   const prisma = getPrisma();
-  const orgId = await getOrgId(orgSlug);
-  if (!orgId) return [];
-  const start = window?.start ?? null;
+  // The full org row, not just the id: `org.plan` feeds the retention floor below.
+  const org = await getOrgBySlug(orgSlug);
+  if (!org) return [];
+  // Retention clamp — the SAME non-destructive read floor every other windowed reader applies (the
+  // rollup's trend, its baseline, getOrgMovers, getOrgTeamRollup). This was the one windowed reader
+  // without it, so an "engine mix for the quarter" on a Free org (30d retention) counted scans from
+  // history the same page's trend refuses to draw: the provenance panel and the trend it explains
+  // were reading different amounts of the past.
+  const retentionStart = retentionCutoff(org.plan, Date.now());
+  const rawStart = window?.start ?? null;
+  const start = retentionStart && (!rawStart || retentionStart > rawStart) ? retentionStart : rawStart;
   const groups = await prisma.scan.groupBy({
     by: ["engineProvider"],
     where: {
-      repo: { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
+      repo: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
       ...dateRange(start, window),
     },
     _count: true,

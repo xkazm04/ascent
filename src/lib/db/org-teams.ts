@@ -13,7 +13,10 @@ import { teamDisplayName } from "@/lib/github/codeowners";
 import type { DimensionId } from "@/lib/types";
 import { GroupedMean, aiShareOf, getOrgBySlug, isBot, pickChampions, roundedMean, upperBound } from "@/lib/db/org-shared";
 import { MIN_CHAMPION_COMMITS, canNameIndividuals } from "@/components/org/shared/champions";
-import type { OrgWindow } from "@/lib/db/org-rollup";
+// The ONE mock-floor predicate, from the producer that defines it (org-rollup.ts): a deterministic
+// placeholder score is not a measurement, so it cannot average into a team maturity figure and
+// cannot be an endpoint of a team mover.
+import { isMockScore, type OrgWindow } from "@/lib/db/org-rollup";
 import { retentionCutoff } from "@/lib/plans";
 
 const TEAM_STRONG = 65; // a team "exemplifies" a dimension at/above this (a mentor candidate)
@@ -34,6 +37,11 @@ export interface TeamRepoScore {
   level: string;
   posture: string;
   isDefaultOwner: boolean; // this team owns the repo's "*" catch-all (its primary owner)
+  /** This row's latest scan is the deterministic mock FLOOR, not a graded measurement (isMockScore).
+   *  It is listed (a scanned repo is a scanned repo) but excluded from every average this rollup
+   *  publishes — and it travels on the ROW so a downstream aggregate over these repos
+   *  (`explainTeamStandings`) can apply the same exclusion instead of re-deriving it. */
+  mock: boolean;
 }
 
 export interface TeamChampion {
@@ -46,7 +54,14 @@ export interface TeamChampion {
 export interface TeamRollup {
   slug: string; // "@org/team"
   name: string; // display: the segment after the last "/"
-  repoCount: number; // owned repos that have a scan (drive the averages)
+  repoCount: number; // owned repos that have a scan
+  /** Owned+scanned repos whose latest scan was LIVE-scored — the denominator behind every average
+   *  below (avgOverall/avgAdoption/avgRigor/dimAverages/posture), mirroring `OrgRollup.realScoredCount`.
+   *  A team with none is not emitted at all: there is no honest grade to print for it. */
+  realScoredCount: number;
+  /** Owned+scanned repos sitting on the deterministic mock floor, EXCLUDED from those averages
+   *  (mirrors `OrgRollup.mockCount`). Nonzero obliges a surface to disclose it. */
+  mockCount: number;
   totalOwned: number; // owned repos total, incl. not-yet-scanned
   defaultOwnerCount: number; // owned repos where this team is the primary ("*") owner
   repos: TeamRepoScore[]; // owned + scanned repos, strongest overall first
@@ -70,10 +85,19 @@ export interface TeamRollup {
   // half-open semantics as getOrgMovers, so the Teams tab agrees with every sibling tab on the
   // selected period); "since last scan" (latest vs previous, cadence-dependent) when no window is
   // given (fleet-rollups-insights 07-16 #2).
+  /** Repos with a REAL period baseline (a live-scored scan strictly before the window start) — the
+   *  denominator of improving/declining/avgDelta. Repos ONBOARDED inside the window are counted in
+   *  `onboardedRepos` instead: their move is a LIFETIME delta since first scan, and folding it in
+   *  overstated team momentum for exactly the periods an org is growing (G4-06 — the segregation
+   *  getOrgMovers has always applied and this rollup did not). */
   comparedRepos: number;
   improving: number;
   declining: number;
   avgDelta: number; // mean overall delta across comparedRepos
+  /** Repos whose first scan landed inside the window, so they have no period baseline — reported
+   *  separately and kept OUT of improving/declining/avgDelta/comparedRepos. 0 in the unwindowed
+   *  ("since last scan") mode, where the concept does not apply. */
+  onboardedRepos: number;
 }
 
 /** A suggested cross-team pairing: a team strong on a dimension next to one weak on the same one. */
@@ -127,6 +151,8 @@ export interface TeamRollupRepoInput {
     rigorScore: number;
     level: string;
     posture: string;
+    /** "mock" = the deterministic floor (isMockScore) — excluded from averages and from movers. */
+    engineProvider: string;
     dimensions: { dimId: string; score: number }[];
   }[];
   contributors: { login: string; name: string | null; commits: number; aiCommits: number }[];
@@ -137,11 +163,20 @@ export interface TeamRollupRepoInput {
    *  - `null`: a window was requested but this repo has no comparable pair inside it — the repo is
    *    excluded from movers (never silently downgraded to since-last-scan, which would mix scopes). */
   windowDelta?: number | null;
+  /** How `windowDelta` was baselined, when one is present. "period" = a real live-scored scan strictly
+   *  before the window start. "onboarded" = the repo's first comparable scan landed inside the window,
+   *  so the delta is a LIFETIME move — segregated into `TeamRollup.onboardedRepos`, never folded into
+   *  improving/declining/avgDelta/comparedRepos (the same rule getOrgMovers applies). */
+  windowBaselineKind?: "period" | "onboarded";
 }
 
 interface TeamAcc {
   slug: string;
   repos: TeamRepoScore[];
+  /** The subset of `repos` whose latest scan was live-scored — what the averages are measured over. */
+  realRepos: TeamRepoScore[];
+  mockCount: number;
+  onboarded: number;
   totalOwned: number;
   defaultOwnerCount: number;
   dim: GroupedMean;
@@ -176,12 +211,23 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
     for (const t of r.teams) {
       const a: TeamAcc =
         acc.get(t.slug) ??
-        { slug: t.slug, repos: [], totalOwned: 0, defaultOwnerCount: 0, dim: new GroupedMean(), deltas: [], people: new Map() };
+        {
+          slug: t.slug,
+          repos: [],
+          realRepos: [],
+          mockCount: 0,
+          onboarded: 0,
+          totalOwned: 0,
+          defaultOwnerCount: 0,
+          dim: new GroupedMean(),
+          deltas: [],
+          people: new Map(),
+        };
       a.totalOwned += 1;
       if (t.isDefaultOwner) a.defaultOwnerCount += 1;
 
       if (latest) {
-        a.repos.push({
+        const score: TeamRepoScore = {
           fullName: r.fullName,
           name: r.name,
           overall: latest.overallScore,
@@ -190,13 +236,28 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
           level: latest.level,
           posture: latest.posture,
           isDefaultOwner: t.isDefaultOwner,
-        });
-        for (const d of latest.dimensions) a.dim.add(d.dimId, d.score);
+          mock: isMockScore(latest.engineProvider),
+        };
+        a.repos.push(score);
+        // The mock floor is a placeholder, not a grade: it stays out of the team's averages and its
+        // dimension bars exactly as it stays out of getOrgRollup's (isMockScore). `mockCount` carries
+        // the exclusion so a surface can disclose it rather than quietly reporting a narrower fleet.
+        if (score.mock) {
+          a.mockCount += 1;
+        } else {
+          a.realRepos.push(score);
+          for (const d of latest.dimensions) a.dim.add(d.dimId, d.score);
+        }
         // Movers: a windowed caller precomputed `windowDelta` (period-scoped; null = no comparable
         // pair in the window → excluded); otherwise fall back to the legacy since-last-scan delta.
+        // An "onboarded" baseline is SEGREGATED (G4-06) — a lifetime delta is not a period delta.
         if (r.windowDelta !== undefined) {
-          if (r.windowDelta !== null) a.deltas.push(r.windowDelta);
-        } else if (prev) {
+          if (r.windowDelta !== null) {
+            if (r.windowBaselineKind === "onboarded") a.onboarded += 1;
+            else a.deltas.push(r.windowDelta);
+          }
+        } else if (prev && !isMockScore(latest.engineProvider) && !isMockScore(prev.engineProvider)) {
+          // Both ends must be real measurements, or the "delta" is an engine transition, not movement.
           a.deltas.push(latest.overallScore - prev.overallScore);
         }
         // Merge the repo's contributors into the team (humans only; a person across N of the team's
@@ -223,9 +284,12 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
   const teams: TeamRollup[] = [...acc.values()]
     .map((a) => {
       const teamRepos = [...a.repos].sort((x, y) => y.overall - x.overall);
-      const avgOverall = avg(teamRepos.map((r) => r.overall));
-      const avgAdoption = avg(teamRepos.map((r) => r.adoption));
-      const avgRigor = avg(teamRepos.map((r) => r.rigor));
+      // Averages measured over the LIVE-SCORED subset only (see `realScoredCount`); the repo LIST
+      // stays whole, because a count of the team's scanned repos is a count.
+      const realRepos = [...a.realRepos].sort((x, y) => y.overall - x.overall);
+      const avgOverall = avg(realRepos.map((r) => r.overall));
+      const avgAdoption = avg(realRepos.map((r) => r.adoption));
+      const avgRigor = avg(realRepos.map((r) => r.rigor));
       const dimAverages: TeamDimAvg[] = a.dim
         .entries()
         .map(([dimId, avg]) => ({
@@ -269,6 +333,8 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
         slug: a.slug,
         name: teamDisplayName(a.slug),
         repoCount: teamRepos.length,
+        realScoredCount: realRepos.length,
+        mockCount: a.mockCount,
         totalOwned: a.totalOwned,
         defaultOwnerCount: a.defaultOwnerCount,
         repos: teamRepos,
@@ -288,9 +354,13 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
         improving: a.deltas.filter((d) => d > 0).length,
         declining: a.deltas.filter((d) => d < 0).length,
         avgDelta: a.deltas.length ? Math.round(a.deltas.reduce((s, d) => s + d, 0) / a.deltas.length) : 0,
+        onboardedRepos: a.onboarded,
       };
     })
-    .filter((t) => t.repoCount > 0) // only teams with a scored repo carry meaningful metrics
+    // Only teams with a LIVE-SCORED repo carry meaningful metrics. A team whose every scanned repo
+    // sits on the mock floor is omitted rather than emitted with a 0 avgOverall — that 0 would render
+    // as a grade on the standings table, which is exactly what the exclusion exists to prevent.
+    .filter((t) => t.realScoredCount > 0)
     .sort((a, b) => b.repoCount - a.repoCount || b.avgOverall - a.avgOverall || a.slug.localeCompare(b.slug));
 
   // Knowledge leader: the team carrying the most institutional AI knowledge. Requires real AI
@@ -399,6 +469,8 @@ export async function getOrgTeamRollup(
           rigorScore: true,
           level: true,
           posture: true,
+          // Provenance for the mock exclusion (isMockScore) — one column on a select already run.
+          engineProvider: true,
           dimensions: { select: { dimId: true, score: true } },
         },
       },
@@ -424,38 +496,49 @@ export async function getOrgTeamRollup(
   const [inWindow, preStart] = await Promise.all([
     prisma.scan.findMany({
       where: { repo: repoScope, scannedAt: { gte: start, ...(upper ?? {}) } },
-      select: { repoId: true, overallScore: true, scannedAt: true },
+      select: { repoId: true, overallScore: true, scannedAt: true, engineProvider: true },
       orderBy: { scannedAt: "desc" },
     }),
     prisma.scan.findMany({
       where: { repo: repoScope, scannedAt: { lt: start } },
-      select: { repoId: true, overallScore: true, scannedAt: true },
+      select: { repoId: true, overallScore: true, scannedAt: true, engineProvider: true },
       orderBy: { scannedAt: "desc" },
       distinct: ["repoId"],
     }),
   ]);
+  // BOTH ends of every team mover must be a real measurement (isMockScore), exactly as getOrgMovers
+  // now requires: a mock→live re-scan is an engine transition, not repo movement, and folding it in
+  // reported a placeholder floor climbing to a real score as this team's improvement.
   const latestIn = new Map<string, number>(); // repoId → latest in-window overall (rows are desc)
   const earliestIn = new Map<string, number>(); // repoId → earliest in-window overall
   const countIn = new Map<string, number>(); // repoId → in-window scan count
   for (const s of inWindow) {
+    if (isMockScore(s.engineProvider)) continue;
     if (!latestIn.has(s.repoId)) latestIn.set(s.repoId, s.overallScore);
     earliestIn.set(s.repoId, s.overallScore); // last write per repo = oldest (desc order)
     countIn.set(s.repoId, (countIn.get(s.repoId) ?? 0) + 1);
   }
   const baseline = new Map<string, number>();
-  for (const s of preStart) if (!baseline.has(s.repoId)) baseline.set(s.repoId, s.overallScore);
+  // A repo whose latest pre-window scan is a mock placeholder gets NO baseline (we do not reach
+  // further back for an older live scan — that would move the baseline instant while still calling it
+  // the window start, which is what getOrgRollup's baseline refuses for the same reason). Such a repo
+  // therefore lands in the segregated `onboarded` bucket rather than in the period comparison.
+  for (const s of preStart) if (!isMockScore(s.engineProvider) && !baseline.has(s.repoId)) baseline.set(s.repoId, s.overallScore);
 
   const withDeltas: TeamRollupRepoInput[] = repos.map((r) => {
     // Mirror getOrgMovers: a repo onboarded mid-period (no pre-start scan) falls back to its earliest
-    // in-window scan — it genuinely moved within the window. A repo with no in-window scan, or a
-    // single in-window scan and no baseline (nothing to compare), has no pair → null (excluded).
+    // in-window scan — it genuinely moved within the window, but that is a LIFETIME delta, so it is
+    // TAGGED "onboarded" and rollupTeams keeps it out of improving/declining/avgDelta/comparedRepos
+    // (G4-06). A repo with no in-window scan, or a single in-window scan and no baseline (nothing to
+    // compare), has no pair → null (excluded entirely).
     const now = latestIn.get(r.id);
+    const hasBaseline = baseline.has(r.id);
     const prev = baseline.get(r.id) ?? earliestIn.get(r.id);
     const windowDelta =
-      now == null || prev == null || (!baseline.has(r.id) && (countIn.get(r.id) ?? 0) <= 1)
+      now == null || prev == null || (!hasBaseline && (countIn.get(r.id) ?? 0) <= 1)
         ? null
         : now - prev;
-    return { ...r, windowDelta };
+    return { ...r, windowDelta, windowBaselineKind: hasBaseline ? ("period" as const) : ("onboarded" as const) };
   });
   return rollupTeams(orgSlug, withDeltas);
 }

@@ -20,7 +20,17 @@ const { mockGetPrisma, mockIsDbConfigured } = vi.hoisted(() => ({
 
 vi.mock("@/lib/db/client", () => ({ getPrisma: mockGetPrisma, isDbConfigured: mockIsDbConfigured }));
 
-import { computeCohortMovement, computeWindowDeltas, computeDimDeltas, getOrgRollup, type RepoScoreSnap, type RepoDimSnap } from "@/lib/db/org-rollup";
+import {
+  computeCohortMovement,
+  computeWindowDeltas,
+  computeDimDeltas,
+  getOrgEngineMix,
+  getOrgRollup,
+  isMockScore,
+  type RepoScoreSnap,
+  type RepoDimSnap,
+} from "@/lib/db/org-rollup";
+import { retentionCutoff } from "@/lib/plans";
 
 /** Terse snapshot builder: same overall/adoption/rigor unless overridden. */
 function snap(repoId: string, overall: number, adoption = overall, rigor = overall): RepoScoreSnap {
@@ -471,5 +481,156 @@ describe("computeCohortMovement — cohort size and excluded composition travel 
     const m = computeCohortMovement(current, baseline)!;
     expect(computeWindowDeltas(current, baseline)).toEqual({ overall: m.overall, adoption: m.adoption, rigor: m.rigor });
     expect(computeWindowDeltas([snap("A", 80)], [snap("B", 70)])).toBeNull();
+  });
+});
+
+// ── The mock FLOOR leaves every reader, not just the badge (fleet-rollups-insights) ───────────────
+// `getOrgRollup` has excluded `engineProvider: "mock"` from avgOverall/avgAdoption/avgRigor and from
+// the cohort deltas since 2026-09-05. Three siblings in this same file still folded it: the
+// per-dimension averages iterated `scanned`, and the trend series (with the promotion ETA fitted over
+// it) carried no engine predicate at all — so the badge and the line drawn beneath it disagreed by
+// the whole weight of the placeholder.
+describe("getOrgRollup — the mock floor leaves dimAverages and the trend", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsDbConfigured.mockReturnValue(true);
+  });
+
+  function row(id: string, overall: number, engine: string, dims: { dimId: string; score: number }[]) {
+    return {
+      id, fullName: `acme/${id}`, owner: "acme", name: id, isPrivate: false, watched: true,
+      primaryLanguage: "TypeScript", techStackJson: null, passportJson: null, passportOverridesJson: null,
+      scanSchedule: "manual", lastScanAt: null, lastScanStatus: "ok", lastScanError: null, aiConformance: null,
+      scans: [{
+        level: "L3", overallScore: overall, adoptionScore: overall, rigorScore: overall, posture: "ai-native",
+        scannedAt: new Date("2026-05-12T12:00:00Z"), engineProvider: engine, governance: null,
+        commitActivity: null, prStats: null, dimensions: dims,
+      }],
+    };
+  }
+
+  function prismaWith(repoRows: unknown[]) {
+    const scanFindMany = vi.fn(async () => []);
+    return {
+      scanFindMany,
+      prisma: {
+        organization: { findUnique: vi.fn(async () => ({ id: "org_1", plan: "enterprise", slug: "acme" })) },
+        repository: { findMany: vi.fn(async () => repoRows) },
+        scan: { findMany: scanFindMany },
+        scanDimension: { findMany: vi.fn(async () => []) },
+      },
+    };
+  }
+
+  it("averages each DIMENSION over the live-scored repos only — the same cohort as the headline", async () => {
+    // D1: live 80 + live 60 + a mock placeholder at 0. Folding the floor in reports D1 = 47 under a
+    // badge that says 70 — one card, two populations.
+    const { prisma } = prismaWith([
+      row("a", 80, "anthropic", [{ dimId: "D1", score: 80 }]),
+      row("b", 60, "anthropic", [{ dimId: "D1", score: 60 }]),
+      row("c", 0, "mock", [{ dimId: "D1", score: 0 }]),
+    ]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getOrgRollup("acme");
+
+    expect(res!.dimAverages).toEqual([{ dimId: "D1", avg: 70 }]); // NOT 47
+    expect(res!.avgOverall).toBe(70); // the two agree, which is the point
+    expect(res!.realScoredCount).toBe(2);
+  });
+
+  it("drops a dimension only the mock repo carries (an unmeasured dim is not a 0-scored one)", async () => {
+    const { prisma } = prismaWith([
+      row("a", 80, "anthropic", [{ dimId: "D1", score: 80 }]),
+      row("c", 0, "mock", [{ dimId: "D1", score: 0 }, { dimId: "D9", score: 0 }]),
+    ]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getOrgRollup("acme");
+
+    expect(res!.dimAverages.map((d) => d.dimId)).toEqual(["D1"]);
+    expect(res!.dimAverages[0]!.avg).toBe(80);
+  });
+
+  it("excludes mock scans from the trend series the forecast ETA is fitted over", async () => {
+    const { prisma, scanFindMany } = prismaWith([row("a", 80, "anthropic", [{ dimId: "D1", score: 80 }])]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await getOrgRollup("acme");
+
+    // The trend is the non-distinct scan.findMany (the baseline query carries `distinct`).
+    const trendCall = scanFindMany.mock.calls.map((c) => c[0]).find((a: { distinct?: unknown }) => !a?.distinct) as
+      | { where: { engineProvider?: unknown } }
+      | undefined;
+    expect(trendCall, "the trend scan.findMany should have run").toBeDefined();
+    expect(trendCall!.where.engineProvider).toEqual({ not: "mock" });
+  });
+});
+
+// ── getOrgEngineMix clamps to the plan's retention floor, like every sibling windowed reader ──────
+// It was the one windowed reader with no clamp, so a Free org's "engine mix for the quarter" counted
+// scans from history the trend on the same page refuses to draw.
+describe("getOrgEngineMix — retention clamp", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsDbConfigured.mockReturnValue(true);
+  });
+
+  function prismaForPlan(plan: string) {
+    const groupBy = vi.fn(async () => [{ engineProvider: "anthropic", _count: 3 }]);
+    return {
+      groupBy,
+      prisma: {
+        organization: { findUnique: vi.fn(async () => ({ id: "org_1", plan, slug: "freeco" })) },
+        scan: { groupBy },
+      },
+    };
+  }
+
+  it("raises a window start that reaches past the plan's retention floor", async () => {
+    const { prisma, groupBy } = prismaForPlan("free");
+    mockGetPrisma.mockReturnValue(prisma);
+    const before = Date.now();
+
+    // A 1-year window on a 30-day-retention plan.
+    const start = new Date(Date.now() - 365 * 86_400_000);
+    await getOrgEngineMix("freeco", { start });
+
+    const where = groupBy.mock.calls[0]![0].where as { scannedAt: { gte: Date } };
+    const floor = retentionCutoff("free", before)!;
+    expect(floor, "the free plan must have a retention floor under this suite's ASCENT_SELF_HOSTED=0").toBeTruthy();
+    expect(where.scannedAt.gte.getTime()).toBeGreaterThan(start.getTime());
+    // Within a second of the floor computed here — the two Date.now() reads differ by the test's own runtime.
+    expect(Math.abs(where.scannedAt.gte.getTime() - floor.getTime())).toBeLessThan(1000);
+  });
+
+  it("applies the floor even with NO window at all (all-time is still entitlement-bounded)", async () => {
+    const { prisma, groupBy } = prismaForPlan("free");
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await getOrgEngineMix("freeco");
+
+    const where = groupBy.mock.calls[0]![0].where as { scannedAt?: { gte?: Date } };
+    expect(where.scannedAt?.gte).toBeInstanceOf(Date);
+  });
+
+  it("leaves an unlimited-retention plan's window untouched", async () => {
+    const { prisma, groupBy } = prismaForPlan("enterprise");
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const start = new Date("2020-01-01T00:00:00Z");
+    await getOrgEngineMix("freeco", { start });
+
+    const where = groupBy.mock.calls[0]![0].where as { scannedAt: { gte: Date } };
+    expect(where.scannedAt.gte).toEqual(start);
+  });
+});
+
+describe("isMockScore — the one predicate every reader shares", () => {
+  it("matches the deterministic floor and nothing else", () => {
+    expect(isMockScore("mock")).toBe(true);
+    expect(isMockScore("anthropic")).toBe(false);
+    expect(isMockScore(null)).toBe(false); // a legacy row with no provenance is not evidence of a mock
+    expect(isMockScore(undefined)).toBe(false);
   });
 });

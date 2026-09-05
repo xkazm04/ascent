@@ -13,7 +13,9 @@ import { retentionCutoff } from "@/lib/plans";
 // The canonical noise band — the same primitive alerts/digest/format already share, so a movers tile
 // and a digest line can never disagree about whether a delta was real.
 import { classifyDelta } from "@/lib/maturity/noise";
-import type { OrgWindow } from "@/lib/db/org-rollup";
+// The ONE mock-floor predicate, from the producer that defines it (org-rollup.ts). A movers pair is a
+// before/after MEASUREMENT, so an endpoint the scanner never scored cannot be one of its ends.
+import { isMockScore, type OrgWindow } from "@/lib/db/org-rollup";
 // The single canonical parser for stored `string[]` columns (the explore questions live in one) — reuse
 // it here rather than forking a second parser, exactly as scans-read/scans-recommendations do.
 import { parseStringArray } from "@/lib/db/scans-shared";
@@ -73,6 +75,19 @@ interface ScanLite {
   level: string;
   posture: string;
   scannedAt: Date;
+  /** The engine that produced this scan — "mock" is the deterministic floor, never a measurement. */
+  engineProvider: string;
+}
+
+/**
+ * Is this before/after pair a comparison of two real MEASUREMENTS? A mock endpoint on either side
+ * makes the difference an engine transition, not repo movement — a mock→live re-scan otherwise
+ * reports as the fleet's top gainer in Fix-first, the weekly digest and the Executive Briefing, while
+ * `getOrgRollup`'s cohort delta and the cohort card's `avgRealMove` both refuse exactly that pair.
+ * Applied at the MOVE BUILDER so every branch (windowed and since-last-scan) inherits it.
+ */
+function isRealPair(now: ScanLite, prev: ScanLite): boolean {
+  return !isMockScore(now.engineProvider) && !isMockScore(prev.engineProvider);
 }
 
 /** Construct a RepoMove from a baseline (`prev`) and current (`now`) scan of one repo. `baselineKind`
@@ -137,6 +152,8 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
         level: true,
         posture: true,
         scannedAt: true,
+        // The provenance the mock guard reads (isRealPair) — one column, no extra round trip.
+        engineProvider: true,
         repo: { select: { fullName: true, name: true } },
       },
       orderBy: { scannedAt: "desc" },
@@ -154,6 +171,8 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
         level: true,
         posture: true,
         scannedAt: true,
+        // The provenance the mock guard reads (isRealPair) — one column, no extra round trip.
+        engineProvider: true,
         repo: { select: { fullName: true, name: true } },
       },
       orderBy: { scannedAt: "desc" },
@@ -183,6 +202,7 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
       const realBaseline = baselineByRepo.get(repoId);
       const prev = realBaseline ?? arr[arr.length - 1];
       if (!now || !prev || prev === now) continue; // no baseline, or nothing moved within the window
+      if (!isRealPair(now, prev)) continue; // an engine transition is not repo movement
       moves.push(buildMove(now.repo.fullName, now.repo.name, now, prev, realBaseline ? "period" : "onboarded"));
     }
   } else {
@@ -194,13 +214,14 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
         scans: {
           orderBy: { scannedAt: "desc" },
           take: 2,
-          select: { overallScore: true, adoptionScore: true, rigorScore: true, level: true, posture: true, scannedAt: true },
+          select: { overallScore: true, adoptionScore: true, rigorScore: true, level: true, posture: true, scannedAt: true, engineProvider: true },
         },
       },
     });
     for (const r of repos) {
       if (r.scans.length < 2) continue;
       const [now, prev] = r.scans as [ScanLite, ScanLite]; // safe: length >= 2 checked above
+      if (!isRealPair(now, prev)) continue; // an engine transition is not repo movement
       moves.push(buildMove(r.fullName, r.name, now, prev));
     }
   }
