@@ -1,0 +1,288 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useEffect, useId, useRef, useState } from "react";
+import { NotifyToggle } from "@/components/scan/NotifyToggle";
+import {
+  EMPTY_SCOPE,
+  ScanScopeFields,
+  scopeQuery,
+  validateScope,
+  type ScanScopeValue,
+} from "@/components/scan/ScanScopeFields";
+import type { AuthMode } from "@/components/auth/SignInButtonFor";
+import { normalizeRepo, REPO_URL_LIKE, stripRepoRef } from "@/lib/repo-ref";
+import { isValidGitRef } from "@/lib/scan-scope";
+
+// Fallback chips when the live index is empty (DB-less MVP, or no scans yet).
+const FALLBACK_EXAMPLES = ["facebook/react", "vercel/next.js", "anthropics/claude-code"];
+
+// Repo-reference parsing now lives in @/lib/repo-ref — the shared module every repo input surface
+// already used. ScanForm carried a byte-identical private copy (minus the `@owner/repo` handle-strip,
+// the one place the two had drifted); re-exported here so the historic `normalizeRepo` import path
+// keeps working.
+export { normalizeRepo };
+
+/**
+ * A pasted `github.com/owner/repo/tree/<branch>` link carries the branch the user is actually looking
+ * at. parseRepoUrl (server-side) already surfaces that intent but the form discarded it, so the scan
+ * silently fell back to the default branch. Now that a branch is scannable, prefill the field with it.
+ * Only the UNAMBIGUOUS single-segment form — `/tree/a/b` can't be split into branch-vs-subdirectory
+ * without the repo's ref list, exactly as parseRepoUrl documents.
+ */
+function treeRefFromPaste(raw: string): string | null {
+  const m = /\/tree\/([^/?#]+)\/?(?:[?#]|$)/.exec(raw.trim());
+  const ref = m?.[1];
+  return ref && isValidGitRef(ref) ? ref : null;
+}
+
+export function ScanForm({
+  autoFocus = false,
+  examples,
+  showExamples = true,
+  auth = null,
+}: {
+  autoFocus?: boolean;
+  /** Live "Try:" chips (e.g. top-scoring repos from the index); falls back to a static set. */
+  examples?: string[];
+  /** Render the "Top scored / Try:" chip rail. Off in the hero scan dialog, which keeps the panel
+   *  focused on the input alone. */
+  showExamples?: boolean;
+  /** The deployment's sign-in backend — forwarded to the notify slot so a signed-out visitor gets a
+   *  "sign in to get emailed" nudge instead of an empty slot (null = no backend, nudge hidden). */
+  auth?: AuthMode;
+}) {
+  const router = useRouter();
+  // Distinguish live top-scored repos (from the persisted gallery) from the static fallback, so the
+  // chips never imply "currently trending" when they're hardcoded defaults.
+  const liveExamples = examples != null && examples.length > 0;
+  const chips = examples && examples.length > 0 ? examples : FALLBACK_EXAMPLES;
+  const [value, setValue] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [shake, setShake] = useState(false);
+  const errorId = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [pendingChip, setPendingChip] = useState<string | null>(null);
+  // Effective viewer (honors the dev auth-bypass, unlike a raw client Supabase call) — drives the
+  // "email me when it's done" opt-in. Null until resolved; the toggle stays hidden for signed-out users.
+  const [viewer, setViewer] = useState<{ signedIn: boolean; email: string | null } | null>(null);
+  const [notifyOn, setNotifyOn] = useState(false);
+  // Optional scan scope (G7-07 / G7-08): a branch/tag/commit and/or a monorepo sub-path. Empty by
+  // default, so the ordinary one-field flow is untouched.
+  const [scope, setScope] = useState<ScanScopeValue>(EMPTY_SCOPE);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/auth/viewer")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (active && d) setViewer({ signedIn: Boolean(d.signedIn), email: d.email ?? null });
+      })
+      .catch(() => {
+        /* no viewer info — the notify toggle simply stays hidden */
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Autofocus only on a pointer-precise, wide viewport — on phones a bare autoFocus yanks the
+  // keyboard open and scrolls the page past the hero (SP#6).
+  useEffect(() => {
+    if (!autoFocus || typeof window === "undefined") return;
+    if (window.matchMedia("(min-width: 640px)").matches && window.matchMedia("(pointer: fine)").matches) {
+      inputRef.current?.focus();
+    }
+  }, [autoFocus]);
+
+  // submit() sets `submitting` and navigates to /report; when the user hits BACK, the browser restores
+  // this page from the bfcache with `submitting` still true — leaving the form permanently disabled with
+  // no way to scan again. Reset it on a bfcache restore (pageshow.persisted) so the form is usable again.
+  useEffect(() => {
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) {
+        setSubmitting(false);
+        setPendingChip(null);
+      }
+    };
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
+
+  function submit() {
+    const normalized = normalizeRepo(value);
+    if (!normalized) {
+      setError("Enter a GitHub repo as owner/repo (or paste its URL).");
+      // Retrigger the shake even on repeated invalid submits.
+      setShake(false);
+      requestAnimationFrame(() => setShake(true));
+      return;
+    }
+    // Catch an obviously-invalid branch/sub-path here, using the same pure predicates the scan routes
+    // enforce — a typo'd ref would otherwise cost a navigation and a round-trip to be told the same
+    // thing on the report page.
+    const scopeError = validateScope(scope);
+    if (scopeError) {
+      setError(scopeError);
+      setShake(false);
+      requestAnimationFrame(() => setShake(true));
+      return;
+    }
+    // "Email me when it's done" opt-in (signed-in only; the flag rides the URL). The recipient is
+    // ALWAYS the viewer's own verified account email — the stream route's open-relay hardening drops a
+    // client-supplied address for authenticated viewers, so the old custom-address path (collected +
+    // validated here, stashed in sessionStorage, then silently discarded server-side) promised an email
+    // that never sent. Accounts with no email now see an honest explanation in NotifyToggle instead of
+    // the field, and notifyOn can only be true when an account email exists.
+    // (ambiguity-ui-scan-2026-07-16 scan-pipeline-ingestion #1)
+    const notifyQs = viewer?.signedIn && notifyOn && viewer.email ? "&notify=1" : "";
+    setError(null);
+    setSubmitting(true);
+    router.push(`/report?repo=${encodeURIComponent(normalized)}${notifyQs}${scopeQuery(scope)}`);
+  }
+
+  return (
+    <div className="w-full max-w-2xl">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+        aria-busy={submitting}
+        className={`flex overflow-hidden rounded-lg border bg-slate-950/70 shadow-2xl shadow-black/40 backdrop-blur focus-within:border-accent ${
+          error ? "border-danger/70" : "border-slate-700"
+        } ${shake ? "animate-shake" : ""}`}
+        onAnimationEnd={() => setShake(false)}
+      >
+        <span className="hidden items-center pl-4 font-mono type-body text-slate-400 sm:flex">
+          github.com/
+        </span>
+        <input
+          ref={inputRef}
+          value={value}
+          onPaste={(e) => {
+            // Pasting a full GitHub link (URL or SSH) collapses to `owner/repo` in place, so the
+            // visible value matches the `github.com/` prefix the field shows — e.g.
+            // "https://github.com/xkazm04/ascent" becomes "xkazm04/ascent". A bare owner/repo (no
+            // URL chrome) pastes normally. Prefer the validated owner/repo; fall back to the peeled
+            // string when the link is only a partial reference (owner with no repo yet).
+            const text = e.clipboardData.getData("text");
+            if (!REPO_URL_LIKE.test(text)) return;
+            e.preventDefault();
+            setValue(normalizeRepo(text) ?? stripRepoRef(text));
+            // A `/tree/<branch>` deep link says which branch the user was looking at — carry that
+            // into the branch field instead of silently scanning the default branch. The field is
+            // visible (ScanScopeFields opens itself when a value is present), so it stays correctable.
+            const pastedRef = treeRefFromPaste(text);
+            if (pastedRef) setScope((s) => ({ ...s, ref: pastedRef }));
+            if (error) setError(null);
+          }}
+          onChange={(e) => {
+            setValue(e.target.value);
+            if (error) setError(null);
+          }}
+          placeholder="owner/repo"
+          aria-label="GitHub repository"
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? errorId : undefined}
+          className="flex-1 bg-transparent px-4 py-3.5 font-mono type-body text-slate-100 placeholder-slate-500 outline-none sm:px-2"
+        />
+        <button
+          type="submit"
+          disabled={submitting || !value.trim()}
+          className="focus-ring inline-flex items-center gap-2 bg-accent px-6 type-mono-sm font-semibold uppercase tracking-widest text-on-accent transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-400"
+        >
+          {submitting ? (
+            <>
+              {/* Spinning indicator when motion is allowed… */}
+              <svg
+                aria-hidden
+                viewBox="0 0 24 24"
+                className="h-3.5 w-3.5 animate-spin motion-reduce:hidden"
+                fill="none"
+              >
+                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeOpacity="0.3" strokeWidth="4" />
+                <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+              </svg>
+              {/* …and a static three-dot fallback under prefers-reduced-motion. */}
+              <span aria-hidden className="hidden leading-none motion-reduce:inline">
+                •••
+              </span>
+              Scanning
+            </>
+          ) : (
+            "Scan"
+          )}
+        </button>
+      </form>
+
+      {/* On phones the github.com/ prefix is hidden for width; surface it as a persistent hint
+          (the placeholder disappears the moment the user types). */}
+      <p className="mt-1.5 type-mono-sm text-slate-500 sm:hidden">github.com/owner/repo</p>
+
+      {/* Inline validation message, wired to the input via aria-describedby AND exposed as a live
+          alert. Without role="alert" the message was silent to screen readers: it appears only after a
+          submit, focus stays on the input/button, and a bare <p> in the a11y tree is never announced on
+          insertion — so a non-sighted user got the shake with no idea WHY the scan didn't start.
+          role="alert" (assertive live region) announces it the moment it renders. */}
+      {error && (
+        <p id={errorId} role="alert" className="mt-2 animate-fade-up type-body text-danger">
+          {error}
+        </p>
+      )}
+
+      {/* Polite status for screen readers while the scan kicks off. */}
+      <span role="status" aria-live="polite" className="sr-only">
+        {submitting ? `Scanning ${normalizeRepo(value) ?? value}…` : ""}
+      </span>
+
+      {/* Optional scope: a branch/tag/commit and/or a monorepo sub-path. Collapsed by default. */}
+      <ScanScopeFields value={scope} onChange={setScope} disabled={submitting} />
+
+      {/* "Email me when it's done" — signed-in only; a live scan runs for minutes. */}
+      <NotifyToggle
+        signedIn={Boolean(viewer?.signedIn)}
+        viewerEmail={viewer?.email}
+        notifyOn={notifyOn}
+        onNotifyChange={setNotifyOn}
+        auth={auth}
+      />
+
+      {showExamples && (
+      <div className="mt-3 flex flex-wrap items-center justify-center gap-2 type-mono-sm text-slate-400">
+        <span className="uppercase tracking-widest">{liveExamples ? "Top scored:" : "Try:"}</span>
+        {chips.map((ex) => {
+          const chipPending = pendingChip === ex;
+          return (
+            <button
+              key={ex}
+              type="button"
+              disabled={submitting}
+              onClick={() => {
+                setValue(ex);
+                setError(null);
+                setSubmitting(true);
+                setPendingChip(ex);
+                router.push(`/report?repo=${encodeURIComponent(ex)}`);
+              }}
+              className={`focus-ring rounded-md border px-3 py-1 transition disabled:cursor-not-allowed ${
+                chipPending
+                  ? "border-accent bg-accent/10 text-accent"
+                  : "border-slate-700 bg-slate-900/60 text-slate-300 hover:border-accent hover:text-accent"
+              } ${submitting && !chipPending ? "opacity-50" : ""}`}
+            >
+              {ex}
+              {chipPending && (
+                <span aria-hidden className="ml-1.5 motion-safe:animate-pulse">
+                  …
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+      )}
+    </div>
+  );
+}

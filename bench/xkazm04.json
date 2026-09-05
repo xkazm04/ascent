@@ -1,0 +1,25 @@
+{
+  "_comment": "xkazm04's last 20 owned repos (by push date) for live eval + criteria brainstorming. Not a labeled benchmark — used to study score distribution and detector behavior on a real, single-author portfolio.",
+  "repos": [
+    { "repo": "xkazm04/personas" },
+    { "repo": "xkazm04/xprize-grant-writing-nonprofits" },
+    { "repo": "xkazm04/xprize-medical-bill-negotiator" },
+    { "repo": "xkazm04/xprize-immigration-paperwork" },
+    { "repo": "xkazm04/xprize-apprenticeship-placement" },
+    { "repo": "xkazm04/xprize-ai-paralegal" },
+    { "repo": "xkazm04/xprize-local-seo-agency" },
+    { "repo": "xkazm04/xprize-ai-bookkeeper" },
+    { "repo": "xkazm04/pof" },
+    { "repo": "xkazm04/personas-web" },
+    { "repo": "xkazm04/medcat" },
+    { "repo": "xkazm04/pof-exp" },
+    { "repo": "xkazm04/studio-story" },
+    { "repo": "xkazm04/creator" },
+    { "repo": "xkazm04/auto-invoicer" },
+    { "repo": "xkazm04/vibeman" },
+    { "repo": "xkazm04/kp" },
+    { "repo": "xkazm04/care" },
+    { "repo": "xkazm04/personas-cloud" },
+    { "repo": "xkazm04/goat" }
+  ]
+}

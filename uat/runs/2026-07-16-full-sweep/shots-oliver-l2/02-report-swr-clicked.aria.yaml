@@ -1,0 +1,44 @@
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Ascent":
+    - /url: /
+  - navigation:
+    - link "Leaderboard":
+      - /url: /leaderboard
+    - link "Pricing":
+      - /url: /pricing
+    - link "About":
+      - /url: /about
+    - link "vercel":
+      - /url: /org/vercel
+    - text: developer
+    - button "Sign out":
+      - text: Sign out
+      - status
+- main:
+  - paragraph: vercel/swr
+  - status: Reading repository metadata…
+  - progressbar "Scan progress"
+  - paragraph: 0:01 1%
+  - list:
+    - listitem: Reading repository metadata…
+    - listitem: Reading file tree & history
+    - listitem: Reading key files
+    - listitem: Analyzing 9 dimensions
+    - listitem: Scoring against the rubric
+    - listitem: Composing your report
+  - status: A live AI scan reads the repo and scores 9 dimensions — this usually takes a few minutes. You can leave this tab open.
+- contentinfo:
+  - text: Ascent
+  - paragraph: The maturity index for AI-native engineering
+  - link "Leaderboard":
+    - /url: /leaderboard
+  - link "Badge":
+    - /url: /badge
+  - link "Connect":
+    - /url: /connect
+  - link "Usage":
+    - /url: /usage
+  - paragraph: "Built on Vercel + Aurora DSQL · #H0Hackathon"
+- alert

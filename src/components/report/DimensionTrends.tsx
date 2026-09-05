@@ -1,0 +1,281 @@
+"use client";
+
+// Dimension-level trends — small-multiples line charts, one per dimension, over the
+// repo's scan history. A 'Last 5 / 30 / 90 days / All' range toggle slices the scan list
+// before any points are mapped; the charts add a hover crosshair + tooltip (chartHover).
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { DIMENSIONS, DIMENSION_BY_ID } from "@/lib/maturity/model";
+import { githubCommitUrl, reportPermalink, scoreGlyph, scoreHex } from "@/lib/ui";
+import type { RepositoryHistory } from "@/lib/db/scans";
+import { parseRepositoryHistory } from "@/lib/report/validate";
+import { EmptyState } from "@/components/EmptyState";
+import { Kicker, Surface } from "@/components/ui";
+import { TrendChart, type TrendPoint } from "@/components/report/TrendChart";
+import type { TrendAnnotation } from "@/app/trends/annotations";
+import { DeltaTag } from "@/components/report/deltas";
+import { DimLine, type ScanMeta } from "@/components/report/DimLine";
+import { MOCK_POINT_NOTE, hasMockPoint } from "@/components/report/chartEngine";
+import { RANGES, RangeToggle, withinRange, type RangeKey } from "@/components/report/DimensionTrendsRange";
+
+export function DimensionTrends({
+  history,
+  annotations = [],
+}: {
+  history: RepositoryHistory;
+  /** G5-18 event markers, derived from the FULL history by the page. Forwarded to the overall chart,
+   *  which resolves each one to a visible point by timestamp and drops those outside the range. */
+  annotations?: TrendAnnotation[];
+}) {
+  const [range, setRange] = useState<RangeKey>("all");
+  const days = RANGES.find((r) => r.key === range)?.days ?? null;
+
+  // The OVERALL series is available immediately from the (lightweight, overall-only) history the
+  // server passes, so the first paint stays light. The per-dimension small-multiples need the
+  // heavier per-dimension rows, so they're lazy-loaded client-side only when the "By dimension"
+  // section approaches the viewport. If the caller already passed a full history (dimensions
+  // present), skip the fetch and render immediately — back-compatible with full-history callers.
+  const serverHasDims = history.scans.some((s) => s.dimensions.length > 0);
+  const [full, setFull] = useState<RepositoryHistory | null>(serverHasDims ? history : null);
+  const [dimState, setDimState] = useState<"idle" | "loading" | "error" | "done">(
+    serverHasDims ? "done" : "idle",
+  );
+  const dimRef = useRef<HTMLDivElement | null>(null);
+  // Tracks the in-flight dimension fetch so a repo change / unmount (or a rapid retry) can abort it —
+  // otherwise a slow response for the previous repo can resolve after a new one mounts and paint A's
+  // series under B's header (plus a set-state-on-unmounted warning).
+  const abortRef = useRef<AbortController | null>(null);
+
+  const loadDimensions = useCallback(async () => {
+    abortRef.current?.abort(); // supersede any earlier in-flight load
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setDimState("loading");
+    try {
+      // Match the overall series' length (history.scans) so the per-dimension sections plot the SAME
+      // range. The overall series comes from a limit-60 server payload; the dim fetch defaulted to
+      // limit 30, so a repo with >30 scans showed 30 dim points beside up to 60 overall points while
+      // the header's "N scans" label (derived from the overall series) overstated what was drawn.
+      const limit = Math.max(1, history.scans.length);
+      const res = await fetch(
+        `/api/history?repo=${encodeURIComponent(history.repo.fullName)}&limit=${limit}`,
+        { signal: controller.signal },
+      );
+      if (!res.ok) throw new Error(`history ${res.status}`);
+      const parsed = parseRepositoryHistory(await res.json());
+      if (controller.signal.aborted) return; // superseded during parse — don't paint stale data
+      // A successful fetch+parse is NOT the same as having per-dimension data. A degraded or
+      // partially-validated payload (scans present, every `dimensions` array empty) used to flip
+      // straight to "done", rendering all 8 dimension cards as "—" as though the load had
+      // succeeded — real data loss presented as a finished, empty result, right beside an overall
+      // chart that plainly has data. Treat that as a load failure and offer the existing retry.
+      const hasDims = parsed.scans.some((s) => s.dimensions.length > 0);
+      if (parsed.scans.length > 0 && !hasDims) {
+        setDimState("error");
+        return;
+      }
+      setFull(parsed);
+      setDimState("done");
+    } catch (err) {
+      // An abort (repo change / unmount / newer load) isn't a real failure — leave the state alone.
+      if (controller.signal.aborted || (err instanceof DOMException && err.name === "AbortError")) return;
+      setDimState("error");
+    }
+  }, [history.repo.fullName, history.scans.length]);
+
+  // Abort any in-flight dimension fetch on unmount so its response can't land on a gone component.
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  // Fetch the per-dimension data once its section nears the viewport (or immediately where there's
+  // no IntersectionObserver, e.g. a test/SSR-less env).
+  useEffect(() => {
+    if (dimState !== "idle") return;
+    const el = dimRef.current;
+    if (!el) return;
+    if (typeof IntersectionObserver === "undefined") {
+      // No IntersectionObserver (e.g. JSDOM / older env): load on the next tick rather than calling
+      // setState synchronously inside the effect body.
+      const t = setTimeout(() => void loadDimensions(), 0);
+      return () => clearTimeout(t);
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          io.disconnect();
+          void loadDimensions();
+        }
+      },
+      { rootMargin: "200px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [dimState, loadDimensions]);
+
+  // Overall series — always available from the lightweight payload, sliced by the active range.
+  const overallScans = withinRange(history.scans, days); // newest-first
+  const overallChrono = [...overallScans].reverse();
+  const overall: TrendPoint[] = overallChrono.map((s) => ({
+    score: s.overallScore,
+    at: s.scannedAt,
+    engine: s.engineProvider,
+    // Deep-link each point to that scan's pinned report (and show the short sha) when we recorded
+    // the commit — so a trend dot opens the exact report instead of being a dead end. Shift-click
+    // jumps to the GitHub commit itself (the external half of the investigation loop).
+    href: s.headSha ? reportPermalink(history.repo.fullName, s.headSha) : undefined,
+    sha: s.headSha ? s.headSha.slice(0, 7) : undefined,
+    commitUrl: githubCommitUrl(history.repo.fullName, s.headSha) ?? undefined,
+    // MOONSHOT #32 — a compacted point is a period average of scans retention deleted. It carries no
+    // headSha, so the two link fields above resolve to `undefined` on their own: the chart draws it
+    // dashed + hollow and non-navigable with NO change to the link logic. That is exactly why the
+    // reader withholds the sha rather than passing the digest's stored one through.
+    compacted: s.compacted,
+    scans: s.scanCount,
+    rubric: s.rubricVersion,
+  }));
+
+  // Per-dimension rows — from the full payload once loaded, sliced by the SAME range. The meta
+  // carries the same per-scan deep links as the overall chart, so the small-multiples — where
+  // movements are actually localized — open the pinned report / GitHub commit too.
+  const dimScans = full ? withinRange(full.scans, days) : [];
+  const dimChrono = [...dimScans].reverse();
+  const meta: ScanMeta[] = dimChrono.map((s) => ({
+    at: s.scannedAt,
+    engine: s.engineProvider,
+    sha: s.headSha ? s.headSha.slice(0, 7) : undefined,
+    href: s.headSha ? reportPermalink(history.repo.fullName, s.headSha) : undefined,
+    commitUrl: githubCommitUrl(history.repo.fullName, s.headSha) ?? undefined,
+  }));
+  const latest = dimScans[0];
+  const prev = dimScans[1];
+  const rows = DIMENSIONS.map((def) => {
+    // null (not 0) for scans where this dimension is absent — see DimLine.
+    const series = dimChrono.map((s) => s.dimensions.find((d) => d.dimId === def.id)?.score ?? null);
+    const current = latest?.dimensions.find((d) => d.dimId === def.id)?.score;
+    const prevScore = prev?.dimensions.find((d) => d.dimId === def.id)?.score;
+    // Delta only when BOTH scans actually contain the dimension — otherwise it's not a
+    // real change (current-minus-0 would invent a huge false drop/gain).
+    const delta = current !== undefined && prevScore !== undefined ? current - prevScore : null;
+    return { id: def.id, name: DIMENSION_BY_ID[def.id].name, weight: def.weight, current, series, delta };
+  });
+
+  return (
+    <div className="space-y-8">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Kicker tone="muted">
+          {overallScans.length} {overallScans.length === 1 ? "scan" : "scans"} shown
+        </Kicker>
+        <RangeToggle value={range} onChange={setRange} />
+      </div>
+
+      {overallScans.length === 0 ? (
+        <EmptyState icon="📈" title="No scans in the selected range" body="Try a wider window.">
+          <button
+            type="button"
+            onClick={() => setRange("all")}
+            className="rounded-xl border border-slate-700 px-5 py-2.5 type-body text-slate-300 transition hover:border-accent hover:text-white"
+          >
+            Show all
+          </button>
+        </EmptyState>
+      ) : (
+        <>
+          <Surface radius="2xl" className="p-6">
+            <h2 className="type-lede font-semibold text-white">Overall maturity</h2>
+            <div className="mt-3">
+              <TrendChart points={overall} annotations={annotations} />
+            </div>
+          </Surface>
+
+          <div ref={dimRef}>
+            <div className="flex items-center justify-between">
+              <h2 className="type-lede font-semibold text-white">By dimension</h2>
+              {/* Count the series ACTUALLY plotted here (dimChrono, from the lazy /api/history `full`
+                  payload), not the overall series — they can differ in length if a scan lands
+                  between SSR and the dim-fetch or the DB clamps the limit differently. Fall back to
+                  the overall count only while the dimension data is still loading. */}
+              <Kicker tone="muted">
+                {(dimState === "done" ? dimChrono.length : overallChrono.length)} scans
+              </Kicker>
+            </div>
+
+            {/* One legend for the whole small-multiples grid — every card shares the same scan meta,
+                so repeating the hollow-point key on nine cards would be noise. */}
+            {/* The per-dimension fetch deliberately does NOT ask for the compacted tail: these cards
+                plot retained scans only, so when the overall chart above is showing a compacted head
+                the two cover different spans and the reader has to be told which. */}
+            {dimState === "done" && overall.some((p) => p.compacted) && (
+              <p className="mt-2 type-body-sm text-slate-500">
+                The cards below cover the retained scans only — the compacted periods on the overall
+                chart keep no per-dimension detail at this depth.
+              </p>
+            )}
+            {dimState === "done" && hasMockPoint(meta.map((m) => m.engine)) && (
+              <p className="mt-2 flex items-start gap-2 type-body-sm text-slate-500">
+                <svg aria-hidden viewBox="0 0 12 12" className="mt-1 h-3 w-3 shrink-0">
+                  <circle cx={6} cy={6} r={4} fill="var(--color-surface-strong)" stroke="currentColor" strokeWidth={2} />
+                </svg>
+                <span>{MOCK_POINT_NOTE}</span>
+              </p>
+            )}
+
+            {dimState === "done" ? (
+              <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {rows.map((r) => (
+                  <Surface key={r.id} radius="xl" className="p-4">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <span className="type-mono-sm text-slate-500">{r.id}</span>
+                        <h3 className="type-body font-semibold text-white">{r.name}</h3>
+                      </div>
+                      <div className="text-right">
+                        <div
+                          className="font-mono type-title font-bold tabular-nums"
+                          style={{ color: r.current !== undefined ? scoreHex(r.current) : "#475569" }}
+                        >
+                          {/* Redundant (non-color) cue so the score's level reads without relying on
+                              hue alone (CVD) — mirrors the report's treatment. */}
+                          {r.current !== undefined && (
+                            <span aria-hidden className="mr-1 align-middle type-body-sm">
+                              {scoreGlyph(r.current)}
+                            </span>
+                          )}
+                          {r.current ?? "—"}
+                        </div>
+                        {r.delta !== null && <DeltaTag delta={r.delta} hideZero />}
+                      </div>
+                    </div>
+                    <DimLine values={r.series} meta={meta} name={r.name} current={r.current} />
+                  </Surface>
+                ))}
+              </div>
+            ) : dimState === "error" ? (
+              <div className="mt-4">
+                <EmptyState variant="section" title="Couldn't load the per-dimension breakdown">
+                  <button
+                    type="button"
+                    onClick={() => void loadDimensions()}
+                    className="rounded-lg border border-slate-700 px-3 py-1.5 type-body-sm text-slate-300 transition hover:border-accent hover:text-white"
+                  >
+                    Retry
+                  </button>
+                </EmptyState>
+              </div>
+            ) : (
+              // idle / loading — shimmer placeholder cards while the dimension rows load. One card per
+              // DIMENSION (not a hardcoded 6) so the placeholder grid is exactly the height the loaded
+              // grid resolves to — no extra row popping in after load (CLS).
+              <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-hidden>
+                {Array.from({ length: DIMENSIONS.length }).map((_, i) => (
+                  <Surface key={i} radius="xl" className="p-4">
+                    <div className="h-4 w-24 animate-pulse rounded bg-slate-800" />
+                    <div className="mt-3 h-[90px] w-full animate-pulse rounded bg-slate-800/60" />
+                  </Surface>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}

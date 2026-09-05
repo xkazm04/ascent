@@ -1,0 +1,290 @@
+# Marketing Site & Design System
+
+UI primitives, the component deck, landing-page prototypes, and the two marketing
+decks (`/about`, `/about-org`).
+
+Context-map group: **Marketing Site & Design System** (`feature`).
+
+> **Status: partially documented.** The deck reading scale and the `/about-org`
+> deck are documented below; the primitive inventory is still only a pointer map.
+
+## Implementation roots
+
+| Surface | Route(s) | Source |
+| --- | --- | --- |
+| Design System: UI Primitives & Deck | — | `src/components/ui/**`, `src/components/deck/**`, `src/components/ConfirmAction.tsx` |
+| Landing Page Prototypes | `/` | `src/components/landing/**` |
+| Marketing About Page | `/about` | `src/app/about`, `src/components/about/**` |
+| Marketing Org Page | `/about-org` | `src/app/about-org`, `src/components/about-org/**` |
+
+## The `/` landing deck ("The Index")
+
+`IndexLanding` renders the production landing as a scroll-snap deck. Section
+roster (also the right-edge `DeckNav`): **hero · org · fleet · local · gallery
+(when the register has data) · levels · dimensions**, each a `DeckSection` under
+`src/components/landing/prototypes/index/`.
+
+**The register's counter is suppressed at zero** (`IndexGallery`). A count is a
+claim, and zero is not one worth making: on a configured-but-empty database this
+section headed "The register" used to open with "0 public repos rated", on a page
+whose whole proposition is *now it has an index* (UAT `TOMAS-L1-05`). The
+`Served live from …` provenance stamp stays in both states — the counter goes, the
+honesty does not.
+
+**An empty corpus is an ABSENT register, and that is the only behaviour.**
+`loadPublicGalleryCards` returns `null` at zero cards, `IndexVariant` drops the
+whole section, and nothing renders — no heading, no counter, no empty state.
+`IndexGallery` used to *also* carry a worded `board.length === 0` state, which
+could never fire (non-null implies at least one card implies a non-empty board),
+so the register declared two behaviours for one state and shipped the other one
+(UAT `RC2-N3`). The worded state is deleted; `scans-gallery.test.ts` pins the
+zero-card `null` return, because if that goes the register needs it back.
+
+**A row scored on an earlier ruler carries a `rubric rNN` chip, and the board says
+so under itself.** `model.ts` states in writing that numbers from two rubric
+versions are not comparable, and a rubric bump invalidates the gallery cache
+*without* re-scanning anything — so an un-rescanned repo keeps its old score and is
+ranked here against fresh ones (UAT `TOMAS-L1-11`). `PublicRepoCard` therefore
+carries `rubricVersion` plus a derived `currentRubric` (`galleryCardFrom` in
+`scans-read.ts`); a non-current row gets a violet `rubric r10` chip — or `rubric
+unknown` when the scan predates the stamp, because unknown is never "the same
+ruler" — and a mixed board prints *"Mixed rubrics on this page"* above the
+growth-loop footer, counted over the rows actually rendered. This is the same
+derivation, chip and wording MC-B18 gave `RegisterEntry` on `/leaderboard`
+(`LeaderboardTable`): two public rankings over one corpus must not invent two
+vocabularies for one fact. **Qualified, never de-ranked** — a stale score is a real
+rating taken on an earlier instrument, unlike a mock score, which is not a rating
+at all; dropping every pre-bump row would empty the register on the day of each
+bump and publish something less true.
+
+Two self-host surfaces added 2026-08-25, phrased in lockstep with `/pricing`'s
+`SelfHostBand` so the copy can't drift apart in spirit:
+
+- **Hero (`IndexHero`)**: an identity line under the lede ("Open source under
+  AGPL-3.0 … The cloud plans buy operation, not capability") plus a co-primary
+  "Open source · run it yourself" CTA beside the ScanModal button. It links to the
+  deployment's repository (`NEXT_PUBLIC_SOURCE_REPO_URL`) when named, and falls
+  back to `/pricing#self-host` — an anchor `SelfHostBand` now carries — instead of
+  shipping a dead external link.
+- **Local-loop section (`IndexLocal`, deck id `local`, after the fleet)**: three
+  cards for the self-hosted-only capabilities — repo↔folder pairing with
+  scan-from-disk (unpushed commits included), the autopilot loop (Claude CLI in an
+  isolated worktree, branch as the deliverable, never pushes), and the read-only
+  token-scoped MCP door. Card copy is verified against
+  [`local-mode/README.md`](../local-mode/README.md) and `src/lib/mcp/tools.ts`;
+  keep it exactly true when either changes.
+
+- **Loop band (inside `IndexLocal`, added 2026-08-28)**: "Drive it to green" — the
+  loop the product exists for (scan → propose → agent/foundation lane → rescan →
+  drive to green), the one surface no marketing page named at all until now. Its
+  rope is imported, not written: `LOOP_CONCURRENCY_CAP` and `LOOP_MAX_CYCLES_CAP`
+  (`src/lib/db/loop-runs-types.ts`), `DRIVE_MAX_RUNS_CAP` (`src/lib/local/drive-types.ts`),
+  and the three stop reasons typed against `DrivePhase` so a renamed phase fails the
+  build here. The caps ARE the copy on purpose: the honest claim about this loop is
+  that it is bounded and that a rescan, not the agent, decides whether anything
+  landed — printing the numbers is what makes that checkable.
+
+**Numbers in landing copy are imported, never typed.** The hero and
+`DimensionMatrix` already read `LEVELS` / `DIMENSIONS`; the scan dialog's duration
+now reads `scanDurationClaim()` (`src/components/report/scanEstimate.ts`), the same
+constants the live-scan progress bar and its abort backstop run on. The dialog
+promised "in about a minute" for a year — true of no provider the scanner has ever
+run on (~100 s hosted, a measured ~6 min median on a local CLI), and already
+retired in `ColdScanGate`'s copy while the hero went on printing it.
+
+**The levels chart's dashed line marks a boundary that exists on its own axis.**
+`TrajectoryChart` drew it at `POSTURE_THRESHOLD` (50) labelled "AI-NATIVE" and
+`IndexLevels` invited the reader to "cross the dashed line and the org reads
+AI-Native". Wrong twice: POSTURE_THRESHOLD is the cut on the **adoption** and
+**rigor** axes (AI-Native means both clear 50, `model.ts:504-512`) while the chart's
+Y axis is the weighted 0–100 index, and 50 on the index sits **inside L3** — so
+crossing it changed neither level nor tagline. It now draws `AGENT_BAND`
+(`prototypes/shared/levelRamp.ts`): the L4 floor, labelled with the level it is the
+floor of, both read from `LEVELS`. `levelRamp.test.ts` pins that it stays a real band
+floor and is not the posture threshold.
+
+## The app type scale (`type-*`)
+
+Since 2026-08-30 every font size in the app comes from one scale in `src/app/globals.css`: the
+Tailwind size tokens are re-based **+1px** over the framework defaults (xs 13px, sm 15px, base 17px,
+lg 19px, xl 21px, 2xl 25px, …) and fourteen semantic `@utility type-*` classes name the voice —
+`type-label` (mono uppercase eyebrow), `type-caption` / `type-note` (13px metadata),
+`type-body-sm` / `type-mono-sm` (15px), `type-body` (17px), `type-lede`, `type-title`,
+`type-heading`, `type-figure` / `type-figure-lg` (mono tabular stats), `type-display` /
+`type-display-lg`, and `type-micro` (12px, the floor). A repo-wide sweep replaced ~470 files of
+raw `text-xs…text-4xl` and `text-[10px]`-style sizes; `text-5xl`/`text-6xl` remain raw on the
+hero/kiosk surfaces. The table in `src/components/ui/BRAND.md` is the reference; `type-label`
+deliberately sets no letter-spacing (Tailwind v4 emits `tracking-*` before multi-declaration
+custom utilities, so a fixed tracking would beat the explicit one on the element).
+
+## The deck reading scale (large-screen typography & measure)
+
+Marketing decks used to stop growing at `lg`: the container was pinned at
+`max-w-6xl` (72rem) and every type size sat at its `sm:` step, so a 2560px display
+rendered the same 1152px column of 16px body copy as a 1280px laptop: the reading
+distance grew, the page did not.
+
+`globals.css` now defines a fluid ramp that components opt into by class:
+
+| Class | Floor (at `lg`) | Ceiling | Used by |
+| --- | --- | --- | --- |
+| `.deck-h1` | `--h1-floor`, default 3.75rem (`text-6xl`) | `--h1-ceil`, default 5.25rem | masthead headlines |
+| `.deck-h2` | 1.875rem (`sm:text-3xl`) | 2.75rem | section titles (`SectionHeading size="page"`) |
+| `.deck-lede` | 1.125rem (`text-lg`) | 1.375rem | intro paragraphs |
+| `.deck-body` | 1rem (`text-base`) | 1.1875rem | body copy, card blurbs |
+| `.deck-figure` | 1.5rem (`text-2xl`) | 2.125rem | mono stat-ledger figures |
+| `.deck-container` | 72rem / `px-5` | 92rem / 2.75rem padding | replaces `mx-auto w-full max-w-6xl px-5` |
+
+Rules that make this safe to extend:
+
+- **Everything is inside `@media (min-width: 64rem)`.** Below `lg` nothing changes;
+  each floor equals exactly what the element rendered at 1024px before.
+- **Ramps are written as `clamp(FLOOR, FLOOR + (100vw - 64rem) * rate, CEILING)`.**
+  Writing the growth as a delta from the floor makes the breakpoint continuous for
+  *any* floor, which is what lets one `.deck-h1` rule serve both mastheads via the
+  `--h1-floor` / `--h1-ceil` custom properties (`[--h1-floor:3rem]` etc.).
+- **Unlayered rules beat Tailwind utilities.** Tailwind v4 emits utilities into the
+  `utilities` cascade layer, so `class="text-4xl sm:text-6xl deck-h1"` keeps the
+  small-screen steps and takes the ramp from `globals.css`. Restate `line-height`
+  in any new ramp; the utility's own line-height survives otherwise.
+- **No root `font-size` trick.** It was tried; `html.snap-deck` is added in an
+  effect *after* mount, so every large screen visibly re-typeset itself once
+  hydration landed.
+- **Vertical rhythm in a `min-h-screen` hero keys off viewport HEIGHT, not width**
+  (`[@media(min-height:60rem)]:mt-16`). A hero fills a 1080p viewport almost
+  exactly, so adding air at a `2xl` *width* breakpoint pushes the stat ledger under
+  the fold, where `overflow-hidden` silently clips it.
+
+## Scroll & canvas
+
+- **`DeckProgress`** (`src/components/deck/DeckProgress.tsx`): a 2px accent rule at
+  the top of the viewport that fills as the deck is descended. Pure CSS via
+  `animation-timeline: scroll(root block)` behind an `@supports` guard: no scroll
+  listener, no rAF, no per-frame React work. Rendered by all three deck
+  orchestrators.
+- **The canvas wash moved off `body`'s own background** into a fixed `body::before`.
+  `background-attachment: fixed` forced a main-thread repaint of a 70rem radial
+  gradient on every scroll frame and blocked compositor promotion.
+- **`html.snap-deck body::after`** paints a ~3% fractal-noise paper grain (fixed,
+  180px tile). Scoped to the marketing decks: the org dashboard is a dense data
+  surface where even 3% noise is texture the reader has to look past.
+- **`html { scrollbar-gutter: stable }`** stops the sideways reflow when a modal
+  locks scroll; **`html.snap-deck { overscroll-behavior-y: none }`** stops the
+  rubber-band at both ends of a deck fighting the snap.
+- **`.tick-corners`**: four hairline registration marks drawn as eight 1px
+  background slivers, so it can sit on any panel without an extra element. Claims
+  only `background-image`, so a panel's `bg-surface/40` is untouched.
+
+## `/about`: invented data is labelled where it renders
+
+The marketing deck's four diagrams (`FleetGrid`, `RoiSimulator`, `ChampionNetwork`,
+`RiskRadar`) are demonstrations, not customer results. The **ROI simulator** is the
+one a prospective buyer reads as proof — it computes over eight invented repos at a
+`W = 0.16` weighting its own source calls "deliberately NOT the production
+weighting" — and until 2026-08-31 both facts lived only in comments, i.e. only for
+people reading the repository (UAT `MC-B6` / `TOMAS-L1-04`, recurrence 2).
+
+**The rule: a provenance caveat renders, or it does not exist.** `RoiSimulator` now
+closes with `Illustrative · N sample repos, demo weighting — not customer data`, in
+the same `type-label tracking-[0.22em] text-slate-600` chrome `AboutOrgHero`
+("Illustrative fleet · 48 repos") and `AboutOrgLoop` ("Illustrative cycle") already
+use — so the disclosure is one recognizable house form across both decks rather than
+three phrasings. The count comes from `REPOS.length`, so editing the fleet cannot
+leave the caption lying; `RoiSimulator.dom.test.tsx` pins both halves.
+
+The simulator was kept rather than deleted in favour of the landing register of real
+scanned repos: the register is server-fetched on `/` (and absent entirely when no DB
+is configured), while this deck is a client orchestrator whose `roi` section copy in
+`features.ts` describes the what-if simulator specifically. Promoting the register
+here is a structural move, not a caption fix — and a labelled demo beside a real
+register elsewhere is honest, whereas an unlabelled one is not.
+
+## `/about-org`: the organization edition deck
+
+Seven snap sections: masthead · the five questions · three feature deep-dives
+(practices, memory & skills, governance) · the operating loop · CTA. It shares
+`DeckSection` / `DeckNav` / `Reveal` / `AboutFeature` / `AboutCtaButtons` /
+`GlowBackdrop` with `/about` rather than forking them.
+
+**The module map section was removed (2026-08-29).** It rendered the org rail's six
+groups as a tablist of 21 view cards. The headline figures it fed survive —
+`src/components/about-org/orgModules.ts` is now just `MODULE_COUNT` / `VIEW_COUNT`
+derived from `ORG_NAV_GROUPS` (`src/lib/org/orgTabs.ts`), the same constant the
+shipping rail renders, so the masthead ledger and the page's `<title>` /
+description / FAQ payload still cannot contradict the product; `orgModules.test.ts`
+pins that derivation. The per-view blurb table went with the section rather than
+lingering as prose nothing renders.
+
+**And so is every module NAME the deck prints.** `AboutOrgQuestions` (the "you are
+here" trail beside each question), `AboutOrgLoop` (the module under each step) and
+`orgFeatures.ts` (each feature pane's kicker) all resolve their module label
+through `orgGroupLabelFor(tab)` rather than typing one. Hand-typed, they named
+**Fleet, Intelligence, Govern, Plan and Library** — an information architecture the
+regroup retired — on the very page whose module map promises "same modules, same
+order, same names". `orgModules.test.ts` pins that every printed module name is one
+the rail has, and that a non-rail tab yields `null` rather than a wrong trail.
+
+**Every diagram states a real constraint.** `PracticeCascade` caps its run at the
+same 25 repos/call `POST /api/practices/apply-batch` enforces; `KnowledgeLedger`
+renders `MEMORY_KIND_LABEL` and `usageVerdictLabel` / `DORMANCY_WINDOW_DAYS` from
+the product's own modules rather than invented vocabulary.
+
+**The loop section borrows the live theater's vocabulary, not a metaphor for it.**
+It is the cockpit's `LaneRail` shape (`src/features/inflight/live/cockpit/`): one
+rail with a stop per loop verb and repositories distributed around it, each
+mid-glide, with live occupancy per stop and the cycle's net lift in `fmtDelta`. The
+five steps live in one shared catalog (`loopSteps.ts`) with the return edge as a
+named index, so nothing can point the arrow at a different stop. The stop head, the
+lane rails and the drawn return arc all read positions from one `stopPct` over a
+fixed five-column grid, and the head shares the lanes' horizontal padding — which is
+what lets the arc be *drawn* at every breakpoint instead of stated in words, the
+objection the earlier card-row version raised against drawing it.
+
+The section runs on `aboutOrgLoopMotion.ts`: one shot, armed in view, replayable,
+with prefers-reduced-motion short-circuited to the END state rather than to a
+skipped animation — the same contract as the observatory's `useDriftProgress`.
+Nothing on the deck animates on a timer.
+
+## Form controls (`src/components/ui/Field.tsx`)
+
+**This standard did not exist before 2026-08-14.** A survey found ~50 hand-rolled
+inputs on `border-slate-700 bg-slate-900 …`, the exact literal
+[BRAND.md](../../../src/components/ui/BRAND.md) tells you not to write, in four
+padding variants, plus a `FIELD_LABEL` mono-label constant copy-pasted per modal.
+Every dialog therefore looked slightly different from every other one, and none of
+them looked like `/` or `/about`, which do use the brand tokens.
+
+| Export | What it is |
+| --- | --- |
+| `Field` | A labelled row: `Kicker tone="muted"` eyebrow, an optional hint, the control, then an error when there is one. The hint sits **above** the control and the error **below** it, because they are read at different moments: a hint is an instruction you want before you start typing (under a group of checkboxes it arrives after you have already answered), an error is feedback you look for where you just acted. `as="fieldset"` renders a real `<fieldset>`/`<legend>` for a control group. |
+| `TextInput` / `TextArea` / `SelectInput` | Thin wrappers over the shared skin. |
+| `CheckCard` | A checkbox drawn as a **selectable bordered tile** with a title + supporting line, tinting to the accent when picked. The native input stays in the DOM (`sr-only`) and drives the visual box through `peer`, so keyboard operation, form semantics and AT announcement are unchanged and the focus ring lands on the drawn box. |
+| `CONTROL_CLASS` | The skin itself, for a one-off control the wrappers don't fit, so it lands on the same tokens instead of inventing a fifth variant. |
+
+The field error is deliberately **not** a live region. A form that marks the offending field and
+also announces the same failure from its footer fires two announcements for one error, so the
+caller's summary is the announcement and the per-field marker is the visual "which control".
+
+Labels associate **implicitly** (the control is wrapped by its `<label>`), matching
+what the existing modals already did: no id plumbing at the call site and no chance
+of a mismatched `htmlFor`.
+
+`Kicker` gained an `as` prop (`div` | `span` | `legend`) for this: a Kicker used as
+a form label sits inside a `<label>` (phrasing content only, so a `div` there is
+invalid HTML) or as a fieldset's `<legend>`. Purely structural; the type treatment
+is identical.
+
+Adopted by `PlanEnquiryFields` (the `/pricing` Custom-plan dialog) and
+`CreateIssueModal`, the file the kit was extracted from, migrated in the same
+change so the standard didn't ship with exactly one user. The remaining hand-rolled
+inputs are unmigrated; move them as you touch them.
+
+## What a doc here should still cover
+
+- The primitive inventory in `src/components/ui/` and when to reach for each.
+- The `Tile` → `TILE_LEDGER` hairline-chrome convention (`Tile` does not
+  self-border) used across org pages.
+- How landing prototypes are staged behind a tab switcher and what promotes one
+  into the brand system; see the `/prototype` skill.
+- The 300-LOC-per-`.tsx` ceiling from [`AGENTS.md`](../../../AGENTS.md) and the
+  co-located-extraction pattern it prescribes.

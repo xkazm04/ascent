@@ -1,0 +1,37 @@
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Ascent":
+    - /url: /
+  - navigation:
+    - link "Leaderboard":
+      - /url: /leaderboard
+    - link "Pricing":
+      - /url: /pricing
+    - link "About":
+      - /url: /about
+    - link "vercel":
+      - /url: /org/vercel
+    - text: developer
+    - button "Sign out":
+      - text: Sign out
+      - status
+- main:
+  - heading "No report yet for vercel/swr" [level=1]
+  - paragraph: This repository hasn't been scanned on Ascent. A fresh scan reads it through the GitHub API (no clone, nothing stored) and takes about a minute.
+  - button "Scan vercel/swr now"
+  - link "← Back home":
+    - /url: /
+- contentinfo:
+  - text: Ascent
+  - paragraph: The maturity index for AI-native engineering
+  - link "Leaderboard":
+    - /url: /leaderboard
+  - link "Badge":
+    - /url: /badge
+  - link "Connect":
+    - /url: /connect
+  - link "Usage":
+    - /url: /usage
+  - paragraph: "Built on Vercel + Aurora DSQL · #H0Hackathon"
+- alert

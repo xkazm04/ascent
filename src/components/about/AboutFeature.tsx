@@ -1,0 +1,64 @@
+import type { ReactNode } from "react";
+import { Kicker } from "@/components/ui";
+import { Reveal } from "@/components/deck/Reveal";
+import { DeckSection } from "@/components/deck/DeckSection";
+import { GlowBackdrop } from "./GlowBackdrop";
+
+/** One heavy-hitter capability as a full-viewport deck section: editorial copy on one side, a live
+ *  animated diagram on the other, sides alternating down the deck (`reverse`). */
+export function AboutFeature({
+  id,
+  kicker,
+  title,
+  body,
+  points,
+  value,
+  reverse,
+  children,
+}: {
+  id: string;
+  kicker: string;
+  title: string;
+  body: string;
+  points: string[];
+  value: string;
+  reverse?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <DeckSection id={id}>
+      <div className="deck-container grid items-center gap-10 lg:grid-cols-2 xl:gap-14 2xl:gap-20">
+        <Reveal className={reverse ? "lg:order-last" : ""}>
+          <Kicker>{kicker}</Kicker>
+          <h2 className="deck-h2 mt-3 type-heading font-bold text-white sm:type-display">{title}</h2>
+          <p className="deck-body mt-4 type-body leading-relaxed text-slate-300">{body}</p>
+          <ul className="mt-5 space-y-2.5 2xl:mt-7 2xl:space-y-3.5">
+            {points.map((p, i) => (
+              <li key={i} className="deck-body flex gap-3 type-body text-slate-400">
+                <span aria-hidden className="mt-0.5 text-accent">
+                  ▸
+                </span>
+                <span>{p}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="deck-body mt-6 border-l-2 border-accent/50 pl-4 type-body font-medium text-white 2xl:mt-8">
+            {value}
+          </p>
+        </Reveal>
+
+        <Reveal delay={0.1}>
+          <div className="tick-corners relative overflow-hidden rounded-2xl border border-divider bg-surface-strong/40 p-5 sm:p-6 2xl:p-8">
+            <GlowBackdrop
+              strataOpacity="opacity-40"
+              pointerEventsNone
+              glow="radial-gradient(70% 60% at 50% 0%, rgba(59,158,255,0.10), transparent 70%)"
+            >
+              {children}
+            </GlowBackdrop>
+          </div>
+        </Reveal>
+      </div>
+    </DeckSection>
+  );
+}

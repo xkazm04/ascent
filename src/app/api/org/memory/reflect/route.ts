@@ -1,0 +1,211 @@
+// POST /api/org/memory/reflect { org, namespace?, decay?: true, dryRun?: true }
+//   -> { proposals, clusterCount, llmUnavailable, engine, decay? }
+// POST /api/org/memory/reflect { org, apply: { summaryContent, memberIds, confidence, namespace? } }
+//   -> { id, superseded }   — refused 409 `registry-origin` when any member is a registry mirror
+// POST /api/org/memory/reflect { org, proposePr: { summaryContent, memberIds, namespace?, kind? } }
+//   -> { proposalId, url, number, path }
+//
+// The `reflect` (and, optionally, `forget`) verbs for Shared Org Memory. Reflection is what finally
+// PRODUCES the `summary` kind: it clusters the org's active memories, asks the model for one rollup per
+// family, and hands the proposals back.
+//
+// The model is whatever LLM_PROVIDER selects (src/lib/llm/text.ts) — hosted providers included, so this
+// works in production. When none is reachable the response carries `llmUnavailable: true` and the UI
+// must say "no engine available", which is a different sentence from "nothing to consolidate"
+// (`clusterCount: 0`). Collapsing those two into one empty state is the failure mode to avoid here.
+//
+// THE SAFETY PROPERTY THIS ROUTE EXISTS TO PRESERVE: proposals are never silently applied. A reflection
+// pass supersedes real memories that real people wrote; a model that misreads a cluster would retire
+// them with nobody in the loop. So the default call PROPOSES (a pure read + one LLM pass, zero writes)
+// and a SECOND, explicit call with `apply` performs the write. Even then nothing is deleted — members
+// are stamped `supersededBy` and stay in the table, linked to the rollup that replaced them.
+//
+// REGISTRY-ORIGIN MEMORY CANNOT BE APPLIED (#36). A registry-origin row is a mirror of a file in a
+// repo the customer owns; writing `supersededBy` on it here would be reverted by the next index
+// pass, so performing the write would be a lie told with a spinner. The apply branch refuses those
+// with `409 registry-origin`, and the `proposePr` branch is the honest path: the rollup becomes a
+// pull request whose frontmatter cites the notes it replaces BY PATH, and a CODEOWNER merging it is
+// what makes the supersession real — read back on the next index pass.
+//
+// `decay: true` runs the forget pass in the same call (they are the same janitorial moment), and
+// `dryRun: true` makes that pass report what it WOULD archive without touching a row.
+//
+// Gated as a WRITE (member + Team+/personal workspace): it spends the LLM and, on apply, mutates the
+// store. A THIN ADAPTER — every judgment lives in src/lib/memory/{reflection,decay}.ts.
+
+import { NextResponse } from "next/server";
+import {
+  applyReflection,
+  archiveOrgMemories,
+  getCreditState,
+  getOrgId,
+  isDbConfigured,
+  lifecycleWorkingSet,
+  recordAudit,
+  ReflectionMembersNotFoundError,
+  workspaceAllowsMemory,
+} from "@/lib/db";
+import { requireOrgAccess } from "@/lib/authz";
+import { resolveViewerLogin } from "@/lib/access";
+import { resolveProposalMembers } from "@/lib/db/org-registry-proposals";
+import { proposePrBranch, type ProposePrInput } from "./proposePr";
+import { resolveMemoryRunner } from "@/lib/memory/consolidation-engine";
+import { proposeReflections } from "@/lib/memory/reflection";
+import { archiveDecayed } from "@/lib/memory/decay";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+// ONE model pass over at most MAX_CLUSTERS (4) clusters, capped at MEMORY_CHECK_TIMEOUT_MS (90s) —
+// that single explicit call is the whole cost of a propose. Nothing here runs implicitly on write.
+export const maxDuration = 120;
+
+interface ApplyBody {
+  summaryContent?: string;
+  memberIds?: string[];
+  confidence?: number;
+  namespace?: string;
+}
+
+/** Both write branches share one shape check, so they cannot drift apart on what a valid body is. */
+function invalidMembers(b: ApplyBody | undefined): string | null {
+  if (!b?.summaryContent?.trim() || !Array.isArray(b.memberIds) || b.memberIds.length < 2) {
+    return "Provide { summaryContent, memberIds: [>=2 ids] }.";
+  }
+  if (!b.memberIds.every((id) => typeof id === "string" && id)) return "memberIds must be strings.";
+  return null;
+}
+
+export async function POST(request: Request) {
+  if (!isDbConfigured()) return NextResponse.json({ error: "Memory requires a database." }, { status: 503 });
+  const body = (await request.json().catch(() => ({}))) as {
+    org?: string;
+    namespace?: string;
+    decay?: boolean;
+    dryRun?: boolean;
+    apply?: ApplyBody;
+    proposePr?: ProposePrInput;
+  };
+  if (!body.org) return NextResponse.json({ error: "Provide { org }." }, { status: 400 });
+  const denied = await requireOrgAccess(body.org);
+  if (denied) return denied;
+  // Same entitlement as the write it produces: Team+ orgs, or a personal workspace (free-with-limits).
+  const credit = await getCreditState(body.org).catch(() => null);
+  if (!(await workspaceAllowsMemory(body.org, credit?.plan))) {
+    return NextResponse.json({ error: "Shared Org Memory is a Team-plan feature." }, { status: 403 });
+  }
+
+  const viewer = await resolveViewerLogin();
+  const orgId = (await getOrgId(body.org.toLowerCase()).catch(() => null)) ?? undefined;
+
+  // ── Propose a PR: the ONLY honest path for registry-origin memory ──────────────────────────
+  if (body.proposePr) {
+    return proposePrBranch(body.org, body.proposePr, { orgId, viewer });
+  }
+
+  // ── Apply: the explicit, second call that actually writes ──────────────────────────────────
+  if (body.apply) {
+    const { summaryContent, memberIds, confidence, namespace } = body.apply;
+    const invalid = invalidMembers(body.apply);
+    if (invalid) return NextResponse.json({ error: `Provide { apply: … } — ${invalid}` }, { status: 400 });
+    // `invalidMembers` has already proved both are present; TypeScript cannot narrow through a
+    // helper, so the fact is restated once here rather than by duplicating the checks inline.
+    const content = summaryContent!;
+    const ids = memberIds!;
+
+    // The origin check comes BEFORE the write. A registry-origin member's supersession lives in the
+    // customer's repo; stamping it here would be undone by the next index pass, so the refusal names
+    // the path that does work rather than succeeding and quietly reverting.
+    if (orgId) {
+      const members = await resolveProposalMembers(orgId, ids).catch(() => []);
+      const mirrored = members.filter((m) => m.origin === "registry");
+      if (mirrored.length) {
+        return NextResponse.json(
+          {
+            error:
+              `${mirrored.length} of these notes are mirrors of files in your registry. ` +
+              "Applying here would be reverted by the next index pass — propose a pull request instead.",
+            code: "registry-origin",
+            memberIds: mirrored.map((m) => m.id),
+          },
+          { status: 409 },
+        );
+      }
+    }
+    try {
+      const applied = await applyReflection(
+        body.org,
+        {
+          summaryContent: content,
+          memberIds: ids,
+          confidence: typeof confidence === "number" ? confidence : 0.6,
+          namespace,
+        },
+        viewer,
+      );
+      if (!applied) return NextResponse.json({ error: "Failed to write the summary." }, { status: 500 });
+      await recordAudit(
+        "org_memory.reflected",
+        { memoryId: applied.id, superseded: applied.superseded, memberIds: ids },
+        { orgId, actorId: viewer ?? undefined },
+      );
+      return NextResponse.json(applied);
+    } catch (err) {
+      // A member that isn't live in this org (wrong tenant, already superseded by a racing pass): the
+      // whole transaction rolled back, so a 400 is honest — nothing was written.
+      if (err instanceof ReflectionMembersNotFoundError) {
+        return NextResponse.json({ error: err.message }, { status: 400 });
+      }
+      return NextResponse.json({ error: "Failed to write the summary." }, { status: 500 });
+    }
+  }
+
+  // ── Propose (+ optional forget pass): zero writes to memory content ────────────────────────
+  const working = await lifecycleWorkingSet(body.org, { namespace: body.namespace }, viewer);
+
+  // #11 (W1-C handoff): the org slug routes this pass's spend to the org's own meter lane.
+  const runner = await resolveMemoryRunner(body.org);
+  const result = await proposeReflections(
+    working.map((m) => ({
+      id: m.id,
+      content: m.content,
+      kind: m.kind,
+      confidence: m.confidence,
+      namespace: m.namespace,
+    })),
+    runner?.run ?? null,
+    // Navigating away aborts the in-flight call (or kills the spawned CLI) rather than leaving it running.
+    request.signal,
+    runner?.engine,
+  );
+
+  // Join each proposal's members back to their rows so the UI can show WHAT would be superseded.
+  const byId = new Map(working.map((m) => [m.id, m]));
+  const proposals = result.proposals.map((p) => ({
+    ...p,
+    members: p.memberIds.map((id) => byId.get(id)).filter((m) => m !== undefined),
+  }));
+
+  let decay: Awaited<ReturnType<typeof archiveDecayed>> | undefined;
+  if (body.decay) {
+    decay = await archiveDecayed(working, Date.now(), (ids) => archiveOrgMemories(body.org!, ids), {
+      dryRun: Boolean(body.dryRun),
+    });
+    if (decay.archivedCount > 0) {
+      await recordAudit(
+        "org_memory.decayed",
+        { archivedIds: decay.archivedIds, count: decay.archivedCount },
+        { orgId, actorId: viewer ?? undefined },
+      );
+    }
+  }
+
+  return NextResponse.json({
+    proposals,
+    clusterCount: result.clusterCount,
+    llmUnavailable: result.llmUnavailable,
+    engine: result.engine,
+    /** How many active memories the pass considered — so the UI never implies a full-store scan. */
+    consideredCount: working.length,
+    decay,
+  });
+}

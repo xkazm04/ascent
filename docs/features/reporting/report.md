@@ -1,0 +1,855 @@
+# Report & visualization
+
+The report surface turns a `ScanReport` into an interactive, auditable narrative: an
+overall score ring, the level ladder, the adoption × rigor posture quadrant, a radar +
+per-dimension breakdown with inline evidence and **provenance** (signal score → LLM
+judgment → blended result), contributor AI attribution, PR signals, and a prioritized
+roadmap. With a database, it also shows score history over time, a "what changed" diff
+between any two scans, and per-dimension trends.
+
+All charts are **dependency-free inline SVG** (no D3/recharts) to keep the bundle small.
+
+## Pages
+
+| Route | Component | Type | Data source |
+| --- | --- | --- | --- |
+| `/report` | `src/app/report/page.tsx` | Client-driven | Live scan over `/api/scan/stream`; reads `?repo=` / `?fresh=1`, plus the optional scan scope `?ref=<branch\|tag\|sha>` / `?path=<sub-dir>` (see [scan.md](../scanning/scan.md#scan-scope-branch--sub-path)). A scoped scan skips the cache peek, always re-scans, is never persisted, and carries a warning that its score isn't comparable with default-branch scans. `Re-test` and the sign-in round-trip both preserve the scope. |
+| `/report/[owner]/[repo]` | `src/app/report/[owner]/[repo]/page.tsx` | Hybrid | Server-renders a persisted scan (`getScanReportByCommit`, optional `@sha`); else falls back to a live stream. Shareable permalink. |
+| `/report/compare` | `src/app/report/compare/page.tsx` | Server | `getScanComparison()` (needs DB). **Two axes:** time (`?a=`/`?b=` — two scans of this repo) and exemplar (`?against=` — this repo vs a peer repo, the org's best, or the public cohort). |
+| `/trends` | `src/app/trends/page.tsx` | Server | `getRepositoryHistory()` (needs DB), to `HISTORY_SCAN_CAP`, the same depth the CSV export uses. Range-filtered chart, plus an all-time trajectory panel and timeline annotations. |
+
+## The public register + org scorecards (G7-05 / G7-06)
+
+Two crawlable, unauthenticated surfaces built on one read module, `src/lib/register/data.ts`.
+
+| Route | What it is |
+| --- | --- |
+| `/leaderboard` | The **AI-native register**: every model-scored public repo, ranked, paginated via `?page=N`, with the full nine-dimension breakdown. Rows carry honesty qualifiers: `conf N` when the scan reported confidence below 0.75, `no PR signal` when the analysis window held no merged PR (mirrors, push-based workflows), and `rubric rNN` when the score was taken under an earlier rubric than the one in force — plus page copy stating every score is computed outside-in from public artifacts. |
+| `/scorecard/[owner]` | An owner's **public scorecard**: the aggregate score/level over that owner's public repos, with its own OG card. |
+
+**Two invariants, both unit-pinned (`src/lib/register/data.test.ts`):**
+
+1. **Tenancy.** Every query is pinned to the shared public org *and* `isPrivate: false`, both
+   predicates are re-asserted on the id-keyed second fetch, and `registerEntryFrom` refuses a private
+   row per-row on top of that. "The query returned it" is never treated as proof it may be published.
+2. **Provenance.** A `engineProvider === "mock"` scan had no model contribution, so it is **never
+   ranked**. It is carried out as `verified: false`, rendered in a separate "Preview scans (not
+   ranked)" section with the same `demo` qualifier every unverified row carries, and excluded from every
+   scorecard average. An owner whose public scans are *all* previews gets an explicit "No published
+   score yet" state, not an average over previews.
+
+   **The rubric is the second half of that same claim.** `model.ts` states in writing that numbers
+   from two rubric versions are not comparable, a bump invalidates the cache **without re-scanning**,
+   and `rubricVersion` is load-bearing in the corpus filter, the outcome ledger and the digest keys —
+   yet the register carried every other provenance qualifier and not this one (UAT `TOMAS-L1-11`). It
+   now carries `rubricVersion` and a derived `currentRubric` (a **null** version is *unknown*, and
+   unknown is never current — the reading `db/outcomes.ts` gives it). A stale row is **qualified, not
+   de-ranked**: a `rubric rNN` / `rubric unknown` chip on the row, a "Mixed rubrics on this page" note
+   under the board when `staleRubricOnPage > 0`, and a sentence on the scorecard when
+   `staleRubricCount > 0` says the average mixes instruments. The mock case and the stale case are
+   different claims — a mock score is not a rating at all, whereas a stale score is a real rating on
+   an earlier instrument — and de-ranking every pre-bump row would empty the board on the day of each
+   bump (r13→r14→r15 inside 48 hours) and publish a register that is *less* true.
+
+Ranking happens in memory over a bounded candidate window (`REGISTER_CANDIDATE_CAP`, ordered by score
+at the DB), so neither surface needs a new column or index. `windowed` discloses when the corpus has
+outgrown the window, so "top N" is never quietly presented as "all".
+
+**Crawlability** is a requirement, not a nicety: the ranking is server-rendered (no `"use client"`
+anywhere in the path), pagination is plain anchors with `rel=prev/next`, each page carries a
+self-referencing canonical plus OpenGraph/Twitter metadata, and `/leaderboard` is listed in
+`sitemap.ts`. Per-owner scorecard routes are dynamic and therefore *not* enumerable in the sitemap:
+they are discovered through the owner link on every register row, which is why that link exists.
+
+**Opt-in vs opt-out.** These pages republish nothing that isn't already public: the same reports are
+already readable one at a time at `/report/{owner}/{repo}` and already listed on the register, so the
+aggregate is opt-**out** by default. A *tenant* fleet scorecard (an org's own dashboard aggregates)
+would be a genuinely new disclosure and is deliberately **not** built: it needs a persisted per-org
+opt-in flag, i.e. a schema change.
+
+### Cold permalink (`ColdScanGate` + `ColdScanTeaser`)
+
+A `/report/{owner}/{repo}` hit with **no persisted snapshot** never auto-starts a scan. It renders
+`ColdScanGate`, which asks first (a shared link shouldn't spend minutes of model time uninvited) and
+keeps any pinned `@sha` on the ref handed to `ReportClient`.
+
+Under the CTA, `ColdScanTeaser` shows **what a scan produces**, derived from the maturity model: the
+`DIMENSIONS` chips, the `LEVELS` ladder (all five, none marked), and the terms: free for public
+repos, no account, minutes not seconds, a capped free monthly allowance that ends in a sign-in prompt,
+nothing cloned, and a public report saved at the URL. It deliberately shows **no sample score, blurred
+ring, or "typical result"**: the same honesty rule the charts follow (below) applies before a scan
+exists. The no-wait alternative is a link to the real demo org, not a mock-up.
+
+## Rendering (`ReportClient` → `ReportView`)
+
+`ReportClient` (`src/components/report/ReportClient.tsx`) drives a **live** scan: it POSTs
+`{ url, fresh }` to `/api/scan/stream`, renders a determinate progress UI (provider-aware
+headline, stage checklist), then validates the `result` payload with `parseScanReport()`
+before handing it to `ReportView`. A malformed scan becomes a clean error, not a render
+crash. `ReportErrorBoundary` wraps both for render-time safety, and `onRetest()` re-runs a
+fresh scan in place.
+
+`ReportView` (`src/components/report/ReportView.tsx`) renders, in order:
+
+1. **Header**: repo link, language, stars, last push, archetype + AI-usage badges,
+   engine (`provider/model` or "Demo · deterministic rubric"), confidence %.
+2. **Warnings**: `report.warnings[]` (low coverage, LLM fallback, …).
+3. **Score + level**: `ScoreRing`, optional `DeltaPill` ("since last scan"), level badge,
+   headline, and the visual `LevelLadder`.
+4. **Posture**: two `AxisBar`s (adoption, rigor) + `PostureQuadrant` (with a trail to the
+   previous scan).
+5. **Maturity over time**: `TrendChart` (level-banded background) of persisted scans.
+6. **Strengths / Risks**: two `ListCard`s.
+7. **Elevation + dimension breakdown**: `DimensionExplorer` — the nine dimensions on one
+   elevation gauge (`AltimeterGauge`: the five level bands as strata, a rope per dimension up to
+   its score, a hollow marker where the previous scan left it, a takeaway line naming the
+   leader, the trailer and the biggest lever), a synced **climber list** (`DimensionClimberList`:
+   level, weighted headroom "in reach" = `weight × (100 − score)` overall points, since-last
+   delta, score; sortable by rubric order / score / lever, which re-orders the gauge too), and
+   for the selected dimension a four-cell **reading strip** (`DimensionReading`: level + delta,
+   next rung, in reach, model vs detectors — or why the model's number was not used) over the
+   switchable `DimensionDetail`: summary, **evidence**, **gaps**, a per-dimension sparkline, and
+   a `ProvenanceTrack`. The derived facts are pure (`dimensionExplorerDerive.ts`). The radar
+   (`RadarChart`) no longer renders here; it still draws the passport hero and the sandbox.
+   An empty `dimensions` array (nothing could be scored) renders a section empty state.
+
+   `ProvenanceTrack` draws **the mechanism that actually produced that dimension's number**,
+   and only that mechanism (`src/lib/scoring/provenance.ts` classifies it from the dimension id
+   plus the scan's `scoreIntegrity`):
+
+   | Mechanism | Dimensions | What is drawn |
+   | --- | --- | --- |
+   | Blended | everything below | the clamp zone (±`LLM_GUARDBAND`, **doubled** on a dimension in `scoreIntegrity.widenedDims`), the narrower **reach** zone inside it (`round(effectiveBlend × band)` — how far the model can move the *rendered* number once the blend weight applies), plus signal / model-judgment / result ticks |
+   | Cited-claim | D1, D4 | **no band and no model tick** — the model's score field is recorded and ignored; the bar runs signal → score and the caption names the points verified citations awarded |
+   | Signal-only | D9 | **no band and no model tick** — the score *is* the deterministic check battery's, which the model only narrates |
+
+   Every `<title>` and the `aria-label` are generated from the same classification as the
+   geometry, so the accessible text cannot describe a band the picture does not draw. On a
+   legacy row with no `scoreIntegrity` the realized blend weight is reported as *not recorded*
+   rather than assumed. **The blend weight has ONE unit on this page**: the absolute weight
+   (`blendWeightPercent` / `blendWeightLabel` in `provenance.ts`), which is the number the engine
+   multiplies the band by. The header's `ScoreIntegrityChip` reads it through the same composer —
+   *"blend weight 57% of 60%"*, the configured weight riding along as context — instead of printing
+   the realized *share* of the configured weight ("blend 95%") beside tracks printing 57 % and
+   reconciling the two only inside a tooltip (UAT `RC-N1`). The same track renders in the org heatmap's cell drill-in
+   (`RepoDimensionModal`), which is why `/api/org/repo-dimension` returns `scoreIntegrity`.
+8. **Contributors**: login + AI-commit ratio bars.
+9. **PR signals**: `PrSignalsPanel` (review coverage, merge rate, small-PR rate, time to
+   merge / first review, revert rate, tools detected) when `report.prStats.analyzed > 0`.
+   Every percentage it shows is read through the **qualified-rate contract**
+   (`prStats.rates` → `rateReading`, `src/lib/analyze/pr-thresholds.ts`), so the tile carries
+   its counts (`18 of 22 · human PRs reviewed`) and the full basis — denominator, exclusions,
+   sample floor, caveat — as a tooltip and to screen readers. Under a rate's sample floor the
+   tile reads `n/a`, never 0. A scan written before the contract has no rate book and falls
+   back to the bare scalar with no basis, which is the honest reading of an unrecorded one.
+   A **Review integrity** block appears only for scans carrying the book: self-approvals as a
+   COUNT (a percentage off a handful of PRs reads as an accusation) and the fast-approval
+   share, each with its caveat rendered as visible text — both are signals to ask about, not
+   verdicts (self-approval is normal in a single-maintainer repo).
+10. **Next-level path**: fastest dimensions to close, then either `RoadmapSteps` (no DB)
+    or the interactive `RecommendationTracker` (DB-backed, see below).
+11. **Discrepancies**: claims where the LLM questioned a deterministic signal.
+
+`ReportView` also reconciles the live report against persisted history on mount: it fetches
+`/api/history` + `/api/recommendations`, builds the chronological trend points (appending
+the current scan if not yet stored), and picks the correct baseline for deltas.
+
+## Charts (`src/components/report/Charts.tsx`, `TrendChart.tsx`, `DimensionTrends.tsx`)
+
+| Component | Renders | Interaction |
+| --- | --- | --- |
+| `ScoreRing` | Overall score as an SVG progress ring; arc length **and** color encode the score (color-blind-safe). | static |
+| `RadarChart` | The dimensions as a radar polygon with 25/50/75/100 rings. | hover snaps to nearest vertex; SR-table fallback |
+| `RadarFallback` | The under-3-dimension form: labeled bars. | per-row picker buttons |
+| `TrendChart` | Overall-score history; background bands shade the 5 levels. | hover crosshair + `PointTooltip` (score, date, engine, delta) |
+| `Sparkline` | One dimension's score history inline (132×34). | hover crosshair |
+| `PostureQuadrant` | Adoption (x) × rigor (y) plot with a glowing dot + trail to prior scan. | mount animation (respects reduced-motion) |
+| `DimLine` | A dimension's trend line; null points render as breaks, never 0-crossings. | hover tooltip |
+
+The hover layer is shared (`src/components/report/chartHover.tsx`: `useChartHover`,
+`ChartTooltip`, `PointTooltip`). Color/glyph mapping lives in `src/lib/ui.ts`
+(`scoreHex`, `scoreGlyph`: L1 red → L5 green, ○ → ●).
+
+### The honesty rules every chart follows
+
+A chart that renders confidently on nothing, too little, or untrustworthy data is worse
+than no chart. Each of these is a load-bearing behavior, not a style choice:
+
+- **Nothing to draw → say so.** `RadarChart` renders "No dimension data" for an empty set;
+  `DimLine` renders a "No trend data" placeholder (not the bare band/gridline frame) when
+  every value in the series is null. An all-*zero* series is not empty: it plots.
+- **Too few axes → change the form.** Under 3 dimensions a radar's polygon is a point or a
+  zero-area line, so `RadarChart` hands off to `RadarFallback` (labeled bars) rather than
+  drawing an invisible shape over data that exists.
+- **A zero is a zero, never a small score.** Radar vertices plot at their true fraction;
+  there is no minimum-radius floor. A 0 sits at the centre and is marked with a hollow
+  dashed ring (plus a legend); a filled dot at any radius would assert a magnitude.
+  `ScoreWaterfall` segments carry no pixel floor either: their widths *are* their point
+  contributions, sub-1.5pt contributions aggregate into one labeled neutral sliver
+  (`scoreWaterfallSegments.ts`), and the headroom-to-100 tail is the honest remainder.
+- **Mock-scored points are marked.** `engine.provider === "mock"` means the deterministic
+  rubric scored the scan and no model contributed, so those points are not comparable to
+  model-scored ones. `TrendChart` and `DimLine` draw them **hollow** (score-coloured stroke,
+  surface fill; the mark changes, the value ramp does not), any series containing one shows
+  the legend footnote, and the caveat is repeated in the SR table / point list rather than
+  living only in the hover tooltip. Predicates: `src/components/report/chartEngine.ts`.
+- **A degraded load is not a finished one.** `DimensionTrends` treats a parsed history whose
+  scans all carry empty `dimensions` arrays as a load *failure* (retry UI), not as nine
+  successfully-loaded "—" cards.
+
+## Comparison — two axes
+
+The compare page answers two different questions, and they are deliberately separate
+controls on one page:
+
+| Axis | URL | Question |
+| --- | --- | --- |
+| **Time** | `?a=<after>&b=<before>` | What changed in *this* repo between two scans? |
+| **Exemplar** | `?against=<ref>` | What does a *stronger repo* have that this one lacks? |
+
+Both selections live entirely in the URL, so any combination is shareable and
+back-button-safe. The exemplar axis is additive: with no `?against=` the page renders
+exactly as it always has.
+
+**Discovery, and the one-scan case.** The report's Scoring tab carries two links into this
+page: "What changed →" (the time axis, gated on two scans) and **"Compare against a stronger
+repo →"**, which appends `?against=org:best` and is deliberately **not** gated — the exemplar
+axis compares this repo against another one and needs no second scan of its own. It used to
+have no inbound link at all (UAT `SAM-L1-13`), and the page itself refused to render below two
+scans, which locked the panel away from exactly the repo with nothing of its own to compare to.
+A single-scan repo now gets the picker's **Against** field and the exemplar diff; only the time
+half is replaced by the "need two scans" notice.
+
+### Time axis (`src/lib/report/compare.ts` + `WhatChanged`)
+
+`diffScans(before, after)` is a pure diff engine returning a `ScanDiff`: overall/adoption/
+rigor `AxisDelta`s, a `LevelTransition`, posture change, per-dimension `DimensionDiff[]`,
+closed/opened gap counts, appeared/disappeared signal counts, recommendations moved to
+done, and human-readable `movements[]` attribution lines sorted by magnitude. Gaps and
+evidence are normalized (`norm()`: trim/lowercase/collapse-whitespace) for set comparison;
+deltas are `null` unless **both** scans scored the dimension (no invented movement).
+
+When exactly one side scored a dimension (a rubric/model change added or dropped it),
+`DiffBar` renders no delta at all. It shows an explicit badge ("New in this scan, no
+baseline to compare" / "No longer scored, nothing to compare" / "Not scored in either
+scan") over a hatched neutral fill, deliberately *not* the emerald/red gain-loss hues: a
+change in what was measured is not an improvement or a regression, and the old plain
+score-coloured bar was indistinguishable from a dimension that held steady.
+
+`WhatChanged` (`src/components/report/WhatChanged.tsx`, server) renders the diff as a
+story: signal-count badges, "why it moved" attribution, level/posture transitions, axis
+diff bars, per-dimension `DimensionDiffCard`s, and completed recommendations.
+`ScanComparePicker` (client) holds the scan pair **and** the exemplar selection entirely
+in the URL (`?a=&b=&against=`) so the comparison is shareable and back-button-safe. It
+shows an inline warning (no hard block) when the chosen baseline is chronologically
+*newer* than the compared scan. An inverted pair renders an all-red diff that reads as a
+regression while actually looking backward in time. The **Against** field is rendered only
+when `listExemplarOptions` returns something: an org with no eligible peer and no qualifying
+cohort has nothing to offer, and an empty dropdown would advertise a comparison that cannot
+be made. On a repo with a single stored scan the two time dropdowns are hidden and the
+**Against** field stands alone.
+
+**The optgroup names follow the population, not the code path.** `readableOrgForOwner`
+resolves a viewer who is not a member of the repo's org to the shared **public** namespace, so
+the identical query lists up to `ORG_CANDIDATE_CAP` (500) public-corpus repositories. Those are
+grouped "Public corpus" / "Corpus best" (with `org:best` labelled *best in the public corpus*),
+not "Your repos" / "Org best" — `exemplarGroups(publicCorpus)` in `exemplar.ts` decides it
+once, for the picker and for the resolved panel heading (UAT `SAM-L1-13`).
+
+### Exemplar axis (`src/lib/report/exemplar.ts` + `ExemplarPanel`)
+
+`?against=<ref>` compares the *compared* scan against another repo at the **evidence**
+level — which detector signals the exemplar carries that this repo does not, and which
+practice transfers them. Three refs, one `ExemplarProfile` shape:
+
+| Ref | Meaning |
+| --- | --- |
+| `repo:<owner>/<name>` (bare `owner/name` accepted) | a named peer, resolved **inside the viewer's org only** |
+| `org:best` / `org:best:<D1..D9>` | the org's highest `signalScore` on that dimension (overall for the bare form), subject repo excluded |
+| `cohort:lang:<language>` / `cohort:archetype:<solo/team/org>` | the **public** corpus's top decile for that slice |
+
+An unparseable ref renders a notice saying so; nothing is ever silently substituted.
+
+**Signals are matched at the SIGNAL level, displayed raw.** Every set comparison on this axis
+runs through `diffSignalSets` (`compare.ts`), which keys on the signal *name* with embedded
+counts blanked and returns the original strings for display. Exact normalized string equality
+is right for the time axis — a moved count *is* the finding there — and wrong across repos,
+where two projects never phrase a detector line identically: it told a repo *with* a test
+framework that the exemplar has one and it does not, landed one count-bearing line in
+`absentSignals` **and** `aheadSignals` at once, and fragmented cohort consensus below
+`COHORT_SUPPORT` so a dimension contributed no evidence at all (UAT `SAM-L1-10`).
+
+**Framing is has / lacks, never better / worse.** `diffAcrossRepos` returns
+`absentSignals` (theirs, not yours — the transfer list) *and* `aheadSignals` (yours, not
+theirs), and the panel renders both. A signal a library does not need and a service does is
+a difference, not a defect, and the panel says so once at the top.
+
+**Eligibility and honest nulls.** Both sides are filtered by `BENCHMARK_ELIGIBLE`
+(`src/lib/corpus/eligibility.ts` — the same filter the org benchmark uses, extracted so the
+two cannot drift): no mock-engine scans, current rubric only. A dimension only one side
+scored is `notComparable` — null gaps, excluded from every count, never coerced to 0. An
+*ineligible subject* still renders, with the basis line saying the two sides were measured
+with different instruments.
+
+**Cohort floors and tenancy.** `cohort:` reads only `isPrivate: false` repos and returns
+aggregate-only output: no member repo is named, listed, linked or counted per-repo. It needs
+**5 repos AND 3 distinct owning orgs** (`COHORT_EXEMPLAR_MIN` / `COHORT_MIN_ORGS`) — the org
+floor is what stops five public repos from one tenant becoming a de-facto view of that
+tenant. Top decile is `max(3, ceil(n × 0.1))`; a signal enters the profile only at
+`COHORT_SUPPORT` (2/3) of the decile, and that threshold travels in `basis.minSupport`.
+Below either floor the page states the population and the floor; it never falls back to a
+broader slice. On a self-hosted install the "public corpus" is that install's own repos, so
+the cohort never clears `COHORT_MIN_ORGS` and the option is not offered — the floor, not a
+flag, is the mechanism, and no new env flag is introduced.
+
+`repo:` and `org:best` carry `orgId` beside the caller-supplied name (gate-then-constrain),
+so a crafted ref naming another tenant's repo resolves `not-found` — never `forbidden`,
+which would confirm the repo exists. Nothing here writes, so there is no audit row: the same
+choice `getOrgBenchmark` makes over the same corpus.
+
+**Transfer to practice.** `transferJoin` joins each transferable dimension to `PRACTICES`
+by dimension — the *same* map the report card's `ExemplarPointer` uses, not a second join
+that could disagree with it — plus the org's own mined house pattern (`minePracticeShapes`)
+when the miner judged it offerable, and links into the Practices and Skills tabs (null for a
+public-org viewer, so nothing dangles).
+
+**LLM briefing.** `exemplarMarkdownSection()` renders the comparison as a `## Against
+exemplar` section carrying the basis, the signal-level caveat and the per-dimension absent
+signals; it never names a repo for a cohort. `reportLlmMarkdown(report, { exemplarSection })`
+appends it immediately before `## Ask` and is **byte-identical** to today when the option is
+omitted. The compare page renders the section and hands the string to the copy chip.
+
+`?against=` is **not** wired into `GET /api/report/llm` yet — the seam exists
+(`ReportMarkdownOptions.exemplarSection`), the endpoint does not read it. The section is
+reachable today from the compare page's copy button.
+
+`CohortSource` (`exemplar-load.ts`) is the seam the open benchmark corpus will swap into:
+same signature, a rubric-versioned snapshot instead of the live corpus, no caller changes.
+
+## Trends / history
+
+- `GET /api/history?repo=owner/repo` → `RepositoryHistory` (repo + `HistoryPoint[]`).
+  Requires `DATABASE_URL` (503 otherwise); org-scoped and session-gated when auth is on.
+- `DimensionTrends` (`src/components/report/DimensionTrends.tsx`) fetches history and
+  renders an overall `TrendChart` plus a small-multiple `DimLine` per dimension, with a
+  range toggle (5d / 30d / 90d / all). Ranges are **calendar** windows in the canonical org
+  time zone (`rangeCutoff` → `addDaysInZone`), half-open at the bottom and unbounded at the
+  top: "5d" is today plus the four calendar days before it, and a clock-skewed future scan
+  stays visible.
+
+### Depth: one cap for the chart and the CSV
+
+`HISTORY_SCAN_CAP` (`src/lib/history/limits.ts`; 200 is the DB reader's hard clamp) is the depth
+both the `/trends` page and `?format=csv` read. The page used to fetch 60 while the export pulled
+200, so "All" was a silent truncation. When the cap is actually binding the page says so
+(`historyCapNote`): *"Showing the newest 200 scans: 'All' is capped at this depth, and the CSV
+export covers exactly the same 200."*
+
+### Trajectory forecast: fit over full history, never the displayed range
+
+`fitTrendForecast` (`src/app/trends/forecast.ts`) takes **no range argument by construction**. The
+forecast is fit over the repository's full recorded history, so flipping 5d/30d/90d/All cannot change
+the ETA: a projection that moves when the viewer changes a zoom control is not a projection, and a
+5-day re-fit produces a confident-looking ETA from noise. `TrajectoryPanel` states the basis on
+screen ("All-time trajectory · fit over all N scans … does not follow the range toggle below").
+
+Below a shared sample floor the forecast is **suppressed, not annotated**:
+`forecastInsufficiency` (`src/lib/maturity/forecast.ts`) requires `MIN_FORECAST_POINTS` (3 distinct
+scan days) *and* `MIN_FORECAST_SPAN_DAYS` (14 days of calendar span). Many scans inside one week is
+still one week. Below either, the panel renders the reason instead of an ETA + confidence figure.
+
+### Timeline annotations
+
+`deriveTrendAnnotations` (`src/app/trends/annotations.ts`) derives markers from the scan series
+already on hand: maturity-band crossings (promotion / demotion) and regressions at the same
+`DEFAULT_THRESHOLDS.overallDrop` the alerting path uses, expressed as `TrendAnnotation { at, kind, label,
+detail, delta, sha, commitSha }`, rendered as a dated "Events on this timeline" strip. Deploy/release
+markers are deliberately not invented (no deploy feed is ingested yet); such a feed maps onto the
+same shape. In-chart vertical rules are the pending step, positioned by matching `at` against a
+point's timestamp, never by array index, since the chart slices by range and the annotation list
+does not.
+
+### Export CSV
+
+The trends "Export CSV" control is a client fetch (`src/app/trends/ExportCsvButton.tsx`), not an
+anchor to the API route: a 401/403 from an expired session renders an in-page re-auth prompt instead
+of replacing the page with a raw JSON error body, and a success streams to a Blob download that keeps
+the page and its range state intact.
+
+## Recommendations UI
+
+Recommendations are persisted per repo (latest scan), each a `PersistedRecommendation`
+with a `status` ∈ `open | in_progress | done | dismissed`.
+
+| Route | Method | Behavior |
+| --- | --- | --- |
+| `/api/recommendations?repo=[&sort=measured]` | `GET` | `{ scanId, items[], sort }` for the repo's latest scan (503 without DB). Each item carries `expectedLift: string \| null` — see [Measured outcomes](#measured-outcomes-the-intervention-ledger). |
+| `/api/recommendations/orphans?repo=` | `GET` | `{ items[] }`: tracking the last re-scan couldn't carry forward. See below. |
+| `/api/recommendations/[id]` | `PATCH` | `{ status?, assigneeLogin?, targetDate?, note? }` → updated item. Validates against `REC_STATUSES`; 404 if not found, 503 without DB. |
+
+`RecommendationTracker` (inside `ReportView`) shows a progress bar + per-item status
+dropdowns with **optimistic updates**, a per-row `savingIds` set (overlapping saves each
+disable only their own row), rollback on failure, and an `aria-live` region announcing
+each save. When the DB isn't configured it degrades to the read-only `RoadmapSteps`.
+
+Both renderings order through one contract, `sortRoadmap` (`roadmapPriority.tsx`). Its default
+`"priority"` mode is the long-standing label sort — impact↑/effort↓, quick wins first — derived from
+the model's own `impact`/`effort` labels. Its `"measured"` mode adjusts that order by what the org has
+actually **measured** about each gap; see below. The default has not changed, and with an empty ledger
+the two modes return the same order by construction.
+
+### Measured outcomes: the intervention ledger
+
+Four loops in Ascent already compute an honest before/after delta — a merged practice PR verified
+against its post-merge rescan, a skill adoption paired across the same instrument, a recommendation
+moved to `done`, and a sandbox scenario reconciled against a later scan. `InterventionOutcome`
+(`src/lib/db/outcomes.ts`) is where all four land in one shape, so "this practice moves D2" can be
+**cited** instead of asserted.
+
+**The table holds measured facts only.** A row is written only when both scan bookends exist *and*
+both agree on `rubricVersion` **and** `engineProvider`. Every unmeasured case keeps the named status
+its existing reader already computes (`no-before-scan`, `no-after-scan`, `instrument-mismatch`,
+`instrument-unknown`) and produces **no row**. A stored `0` therefore means "measured, and it moved
+nothing" — a finding. An absent row means "not measured" — not a finding. The simulated-merge branch
+of `mockPrsEnabled()` is excluded: it compares a scan against itself. `dimDelta` is `null` when the
+dimension was absent on either bookend, and `dimId` is `null` for a whole-scan (scenario) outcome —
+never `0` in either case. Writes are upserts on
+`(orgId, kind, identityKey, beforeScanId, afterScanId)`, because three of the four hooks sit on read
+paths that re-run on every render.
+
+**Aggregation is floored, and a floored partition is absent — not nulled.** `aggregateLift`
+(`src/lib/outcomes/aggregate.ts`, pure) partitions by `rubricVersion` + `engineProvider` **first**, so
+a median is never taken across a rubric bump, then drops any partition below its floor:
+`OUTCOME_MIN_SAMPLES = 3` at org scope, `OUTCOME_MIN_ORGS = 5` distinct orgs at corpus scope with
+every private-repo sample excluded. Below the floor the key is simply **not in the map**, so a caller
+cannot render a distribution it isn't allowed to see.
+
+**The clause carries its own basis, or there is no clause.** `expectedLiftClause` renders
+`D2 +11 median (IQR +6…+15) across 37 measured closes · r10 · claude` — the median, the sample count
+and the instrument in **one string**, because there is deliberately no exported formatter that yields
+the number alone. With no measured peers it returns `null`: no number, never `+0`. `ExpectedLiftBasis`
+renders it under a roadmap row and renders **nothing** when it is null; `/api/recommendations` sends
+it as `expectedLift`; `reportLlmMarkdown` appends `- _measured:_ …` to the roadmap line only when
+non-null, so a model reading the briefing is never handed a zero where the answer is "nobody has
+measured this".
+
+**Measured ordering re-ranks inside the impact band, never across it.** `measuredPriorityScore` adds a
+capped adjustment (`MEASURED_BOOST_CAP = 8`, below one `IMPACT_RANK` step of 10) to `priorityScore`,
+and adds exactly nothing for an item with no distribution. So an unmeasured high-impact gap can never
+be buried beneath a measured low-impact one — the failure a naive "sort by median lift, unmeasured
+last" produces the moment a ledger holds three rows about one trivial gap. The tracker's sort toggle
+appears only when at least one row has a clause, and `?sort=measured` over an empty ledger returns the
+read layer's order and reports `sort: "priority"` rather than re-ranking on evidence that doesn't
+exist.
+
+**Scope.** Org-local only. `aggregateLift({ scope: "corpus" })` exists and is tested but has **no
+caller**: cross-tenant aggregation needs the consent model, rubric-versioned snapshots and publication
+contract of the open-benchmark-corpus work, and until that lands no code path reads
+`InterventionOutcome` across `orgId`. `backfillOutcomes(orgSlug)` replays verified `ImprovementPr` rows
+and resolvable `SandboxScenario`s, is idempotent on the unique key, and writes one
+`outcomes.backfill` audit row — it is an operator action over historical data, unlike the hook writes,
+which are derived measurement with no security, spend or publication effect.
+
+### Tracking that couldn't be carried across a re-scan
+
+`matchRecommendations` (`src/lib/report/compare.ts`) pairs a new scan's roadmap with the previous
+one's rows in three tiers: exact `dim::title`, then `dim` + normalized title, then an *unambiguous*
+dimension (exactly one unmatched row on each side). When two gaps in one dimension are both reworded
+by the live LLM it **refuses to guess**, which is right: attaching a user's plan to the wrong gap is
+worse than not attaching it.
+
+What was wrong is that `scans-persist.ts` then wrote those rows at `status: "open"`, unassigned, no
+target date, so the user's own tracking vanished with **no error**, and the engine's honest refusal
+was indistinguishable from data loss.
+
+The refusal is unchanged. The loss is now named and recoverable:
+
+- **`findOrphanedTracked(prev, next)`** (pure, `compare.ts`) returns the previous scan's rows that
+  the matcher couldn't carry **and** that actually carried tracking (`isTrackedRec`: any status past
+  `open`, or an assignee, or a target date). An untouched roadmap item that simply disappeared is not
+  a loss and is not reported.
+- **`getOrphanedTrackedRecommendations`** (`scans-recommendations.ts`) applies it to the repo's two
+  most recent scans, behind `GET /api/recommendations/orphans`. **Derived, never stored**: nothing to
+  migrate or backfill, and a stored list could never disagree with the scans it describes. One scan
+  only ⇒ empty (nothing was ever carried).
+- **`OrphanedTracking`** renders inside `RecommendationTracker`: "*N tracked items couldn't be
+  carried into this scan*", each with the status/assignee/due-date it held, plus a same-dimension
+  picker that **re-links** it: one ordinary PATCH applying the old planning state to the row the
+  user says is the same gap, with a note on the target's timeline so the state doesn't appear from
+  nowhere. The human resolves precisely the ambiguity the matcher declined to guess at.
+
+Re-linking self-heals the derivation: an orphan is dropped once an *unmatched* row in the latest scan
+carries its exact `(status, assignee, targetDate)` triple. A brand-new row defaults to
+open/unassigned/no-date, which `isTrackedRec` excludes, so an untouched item can never silently
+absorb an orphan, and two identical orphans need two re-links.
+
+### "You marked it done. Did the score move?"
+
+A backlog closed for appearances used to be invisible to the platform that recommended it:
+`diffScans` computed `recsMovedToDone` and nothing ever asked whether the dimension that
+recommendation targeted actually improved.
+
+`reconcileDoneRec(dimId, before, after)` (`src/lib/report/compare.ts`) is the pure verdict, in four
+states:
+
+| State | Meaning |
+| --- | --- |
+| `not-measured` | The dimension wasn't scored in **both** scans. There is nothing to compare: this is **not** a failure to improve and is never rendered as one. `delta` stays `null`. |
+| `flat` | Both scans measured it; the number is the same. "D3 held at 62 since the previous scan." |
+| `improved` / `declined` | Both scans measured it and it moved; the line quotes the actual before → after. |
+
+It is applied in two places from one implementation:
+
+- **`diffScans`** attaches a `reconciliation` to every `RecMovedToDone`, computed off the
+  dimension diff it already built, so the compare view's data carries it.
+- **`RecommendationTracker`** renders `DoneReconciliation` directly on each `done` row, which is
+  **where the user made the call**. Its `after` is the loaded report's own dimension scores; its
+  `before` is `prevDimScores`, threaded down from `ReportView` through `ReportPanels`. A `null`
+  `prevDimScores` (no prior scan, or history failed to load) correctly reads as *not re-measured*.
+
+The mechanism is **derived at read time from two scans**, not persisted at scan-persist time: the
+verdict is a pure function of two numbers the platform already stores, so persisting it would add a
+column that can only ever go stale against the scans it summarizes, and would need a backfill to say
+anything about history. Read-time derivation also means a later re-scan simply re-answers the
+question, which is the honest behavior.
+
+Voice matters here as much as correctness. Ascent is a transition companion, not a grader: the note
+is an observation the team is free to disagree with, colours stay muted for `flat` and
+`not-measured`, and nothing blocks, reverts, or re-opens a user's `done`.
+
+### Dismissing a gap teaches the next scan
+
+Picking **Dismissed** does not fire the PATCH immediately. The row opens an inline prompt
+(`recommendationRowUi.tsx` → `DismissReasonPrompt`) asking *why*, because that reason is the one
+piece of context the assessment has no way to derive: "we build with Bazel, so this gap doesn't
+apply here."
+
+The reason travels as the PATCH's existing `note`. `/api/recommendations/[id]` then calls
+`recordRecommendationDismissal`, which writes an **`OrgDecision`** (the same store the org's
+security/teams/passport/contributor decisions live in) under the module `roadmap` and an itemKey of
+`${repoFullName}::rec:${dim}:${fnv1a(normalizeRecTitle(title))}`. The hash runs over
+`normalizeRecTitle`, the *same* normalizer scan-persist carry-forward uses, so a live-LLM rephrasing
+keeps the dismissal attached to its gap.
+
+From there the reason rides the path that already existed: `decisionsForRepo` picks it up by repo
+prefix and `prompt.ts`'s `decisionsBlock` renders it into the next scan's **STANDING DECISIONS**
+block (per-repo user message, never the cacheable SYSTEM prefix), which instructs the model not to
+re-raise a dismissed finding *"unless new evidence contradicts its stated reason"*: the escape
+hatch is deliberate, and the block is framed as calibration ("context you were missing, not a reason
+to raise the score") so a dismissal can't inflate a score.
+
+Two rules keep this from becoming a silent memory hole:
+
+- **A dismissal with no reason records nothing.** "Dismiss without a reason" is offered as an equal
+  button and still dismisses the item. It just writes no decision, so the gap is free to come back.
+  Silence must never become permanent suppression.
+- **Un-dismissing un-suppresses.** Moving the row to any other status calls
+  `clearRecommendationDismissal`, which flips the standing decision to `open` (so `isResolved`
+  excludes it and the prompt stops carrying it) without deleting the reason from the record.
+
+`roadmap` is *not* a `FindingModule`: `/api/org/decision` still refuses it and the org nav badges
+never look its keys up. It is an `OrgDecision` row purely so it flows through the one
+standing-decision path, rather than forking a second suppression list.
+
+### The Roadmap Sandbox remembers the plan
+
+The sandbox (`RoadmapSandbox.tsx`) recomputes a repo's projected score live in the browser from
+per-dimension slider overrides. Phase 1 (`sandbox-to-tracker-bridge`) let "Try it" **commit statuses**
+to the tracker. It did not save the *model*: the overrides were React state, so a reload erased the
+plan a team had just built, and the projected delta survived only as a rounded number inside an
+English event-trail note: a number nothing could ever read back or reconcile.
+
+A **`SandboxScenario`** row now holds the model whole: the per-dimension overrides, the roadmap items
+the scenario selected, the baseline it was modeled against (score, level, `scannedAt`), and
+`projectedScore` / `projectedLevel` / `projectedDelta` as **numbers**. One row per
+`(org, repo, author)`: saving replaces, so "Save this plan" always means *my current plan for this
+repo*, never an accumulating pile of unnamed snapshots.
+
+| Route | Method | Behavior |
+| --- | --- | --- |
+| `/api/report/sandbox-scenario?repo=` | `GET` | `{ scenario }`: the viewer's saved model, or `null`. |
+| `/api/report/sandbox-scenario?repo=` | `PUT` | Save/replace. Validates scores `0..100`, level ids, ISO baseline; unknown dimension ids are dropped. |
+| `/api/report/sandbox-scenario?repo=` | `DELETE` | Discard. |
+
+Gating mirrors `PATCH /api/recommendations/[id]`: org **access** (not merely read), and the shared
+`public` org (the anonymous scan funnel) is refused outright, so a visitor can't write planning
+state onto every public report. A `403`/`503` is terminal in the client, not an error to retry: the
+sandbox silently returns to the pure-modelling behavior it had before this existed.
+
+Three deliberate choices:
+
+- **Selections are `recommendationDecisionKey` identities**, the same cross-scan key the dismissal
+  decisions use (moved to the pure `src/lib/report/rec-identity.ts` so the browser can mint it without
+  importing the DB layer; `org-decisions.ts` re-exports it: one implementation, new home). Not
+  `dimension + title`, which a live-LLM rewording breaks; not scan-bound `Recommendation.id`s, which
+  die on the next scan.
+- **The projection is a column, not prose.** `projectedDelta` is derived server-side from the two
+  stored scores, never taken from the request, so it always agrees with its neighbours.
+- **The baseline is stored.** That is what makes projected-vs-actual answerable: once a scan *newer*
+  than the modeled one lands, the bar reads "projected +12 · actual +7", both measured over the same
+  baseline. Before that scan exists there is no `actual` at all: reporting "+0" against the very scan
+  you modeled would be a lie dressed as a measurement.
+
+The `GET` fires when the sandbox panel is **opened**, not on every report render: the report is the
+app's most-viewed surface and most views never open the sandbox. Restore is then one-shot *and*
+conditional on an untouched sandbox (`shouldRestore`): a user who drags a slider while the fetch is
+still in flight keeps their own model rather than having it overwritten by the late arrival. The "your
+saved plan is loaded" notice is *derived* (the live sliders still equal the saved ones), so it retires
+by itself the moment the user drags away.
+
+Non-goals, deliberately: multi-user shared scenarios, scenario naming/renaming, scenario comparison.
+
+## Validation (`src/lib/report/validate.ts`)
+
+`parseScanReport()` is a hand-rolled guard (no runtime deps) over exactly the fields
+`ReportView` dereferences: repo, level, posture, engine, scores, dimensions
+(id/name/score/signalScore/llmScore/weight/evidence/gaps), contributors, roadmap. It
+returns `{ ok: true, report }` or `{ ok: false, error }`, catching truncated or
+schema-drifted payloads before they can crash a render.
+
+## Conformance ingest (`POST /api/report/conformance`)
+
+A repo's own `.ai/doctor.mjs` posts `{ repo, headSha?, score, fails, warns }` here; the route bounds
+the self-attested numbers (score 0-100, fails/warns 0-100 000, truncated to integers) and writes them
+onto the Repository row via `recordConformance`, which uses `headSha` to reject a stale re-run of a
+superseded commit (`{ stale: true }`).
+
+This is a **cross-tenant write**, so the credential must name the org it may write. Accepted, in order:
+
+| Credential | Binding |
+| --- | --- |
+| `Authorization: Bearer askl_…` (org API token, `telemetry:write` scope) | `authorizeOrgApi` refuses unless the token's org equals the owner of `repo`: a token for org A cannot post org B's score. **Preferred for CI.** |
+| Session cookie | `requireOrgAccess(owner)` (the interactive maintainer path). |
+| `Authorization: Bearer $CONFORMANCE_INGEST_TOKEN` | **Legacy, deprecated.** One deployment-wide value bound to no org, so any holder could overwrite any repo's score. Still accepted (live runners depend on it) but logs a warning on every use. |
+
+Set `CONFORMANCE_INGEST_STRICT=1` once every runner has moved to a per-org token: the legacy shared
+token is then refused with a 403 and only the two bound credentials work. Clamping applies on every
+path: the unattended reporter is not more trusted than a browser.
+
+### Continuous Conformance: trend + scheduled ingestion (G7-23)
+
+`GET /api/report/conformance?repo=owner/name[&limit=50]` returns `{ repo, points, regressed }`, a
+history of past reports for that repo, newest-first (`points[i] = { at, score, fails, warns, sha }`).
+No new storage was added for this: every accepted POST above already appends a `conformance.reported`
+row to the org's tamper-evident audit ledger (`recordConformance`, `src/lib/db/org-watch.ts`); the
+Repository row only ever holds the *latest* score, but the ledger is real per-report history. The GET
+handler walks that ledger back via the existing `getAuditLog` reader (the same one `/api/audit` uses),
+action-filtered and then repo-filtered in `src/app/api/report/conformance/route.ts` (`getAuditLog` has
+no per-repo filter of its own), capped at 10 pages of 100 rows. Gated read-side by
+`readableOrgForOwner` → `requireOrgRead`, same as the other report exports; `PUBLIC_ORG` repos are
+refused (conformance history is an org-only surface). `regressed` is a computed boolean (newest score
+lower than the prior one) returned in the payload only: it is **not** dispatched anywhere; wiring a
+regression to a push notification is a job for the alerts system, not this route.
+
+The generated CI workflow (`buildConformanceWiring`, `src/lib/standard/wiring.ts`,
+`.github/workflows/ai-conformance.yml`) now also runs on a weekly `schedule` (plus
+`workflow_dispatch`), not just `pull_request`: a `scheduled-report` job re-runs the doctor with
+`--json` and self-reports via `ASCENT_CONFORMANCE_URL`/`ASCENT_CONFORMANCE_TOKEN` secrets, so a repo
+that goes quiet (no PRs) still gets a fresh conformance report instead of the dashboard silently
+showing a weeks-stale score. The `pull_request` job is unchanged (still the hard-pass merge gate); the
+scheduled job never fails the run.
+
+**Its comment names the one-click route first (2026-08-31, UAT `PRIYA-L1-03`).** Both points of need —
+the generated workflow's own comment and the Doctor-checks empty state on Passports — described
+hand-wiring two secrets that **Repositories › Foundation rollout** provisions per repo in one click,
+and can revoke from the same row. *"Make the right thing the easy thing"* was already true of the
+product and not of the words. The manual instructions stay, second, for a repo installed outside
+Ascent.
+
+## The scan checklist names its provider
+
+`ReportClientStatus`' score step — the longest wait in the product — names the provider being queried
+("Asking Claude", "Querying Bedrock in eu-west-1") so a multi-minute step reads as work rather than a
+hung spinner. The mapping is a **total `Record` over `ProviderName`**, not a `switch` with a `default`:
+UAT `SAM-L1-08` recurred and *widened* (4-of-8 covered → 5-of-8) precisely because two providers were
+added to the union and only one got a branch, silently. As a Record, adding a member to `ProviderName`
+is a compile error here. `local` — the self-hosted path, and typically the slowest — says so in its
+copy. The generic "Scoring against the rubric" is reached only before any provider is reported (or if
+an unknown one arrives over the SSE boundary, which is not type-safe at runtime).
+
+## Handing over the permalink (`ReportPermalinkShare`)
+
+The report header's export row opens with a **Permalink** control
+(`src/components/report/ReportPermalinkShare.tsx`). It exists because for three UAT runs
+(`SAM-L1-04`, recurrence 3) the scan flow ended on `/report?repo=…` and never named the durable address
+of the artifact the visitor had waited minutes for, while `/pricing` sold *"Public report permalink"*
+as a Free-tier bullet (`src/lib/plans.ts`) — a feature the product billed at $0 and never handed you.
+That bullet is now true.
+
+**No new route was built.** `/report/{owner}/{repo}` (and `…@{sha}`) already existed and is already
+public: it resolves through `readableOrgForOwner`, which falls back to the public org, so a private
+repo's report stays gated exactly as before. The control names an address a reader could already have
+typed; it widens nothing.
+
+The panel hands over three payloads, each in a selectable readonly field with its own copy control:
+
+| Row | Payload | Why it is separate |
+| --- | --- | --- |
+| **Permalink** | `{origin}/report/{owner}/{repo}` | Tracks the latest scan — the one for a README or a docs page. |
+| **This commit** | `{origin}/report/{owner}/{repo}@{headSha}` | Pinned to the commit this scan read — for a PR or a Slack thread. Omitted when the scan has no head SHA. |
+| **README** | `[Ascent: L3 · Managed · 62]({permalink})` | Markdown, deliberately **unpinned**: a README link pinned to one commit goes stale on the next push. |
+
+The **level line** (`L3 · Managed · 62`) is rendered on screen and carried in the markdown. It is the
+product's answer to the job the retired README badge used to serve — `SAM-L1-12`, resolved as option
+(b) *serve the job*, in the 2026-08-30 drain. **The badge is not coming back** (`/badge` and both SVG
+endpoints were removed on 2026-08-29): a markdown link is embeddable by URL, is a link rather than an
+image, and states the same claim without an SVG endpoint to run.
+
+The origin is read from `window.location` after mount, never from an env var — the correct host is
+whichever one the reader is on, which is also the only answer that is right on a self-hosted
+deployment. SSR renders the relative path (a valid link) and hydration upgrades it to absolute.
+
+## Flagged for review: what each claim DID
+
+`ReportDiscrepancies` (`ReportNotices.tsx`) lists the deterministic signals the LLM auditor believes are
+wrong. Each row now ends in an outcome badge, because listing an objection without its consequence let
+the header integrity chip say a dimension was *widened* while the row three inches below said nothing
+(`SAM-L1-06`).
+
+The outcome is **derived**, never stored — `discrepancyOutcome()` reads the same
+`report.scoreIntegrity` record the chip reads, so the two surfaces cannot disagree about one run. The
+order mirrors the engine's own order of operations:
+
+| Badge | When | Moved the score? |
+| --- | --- | --- |
+| `lost to the budget` | `widenCapped` — the model flagged more dimensions than one scan's discrepancy budget allows, so nothing was widened and the D9 hatch was suppressed too. Outranks everything. | No |
+| `widened` | the dimension is in `widenedDims`: its guardband was doubled. | Yes |
+| `D9 dropped as unmeasurable` | `d9Unmeasurable` on a D9 claim — the visibility escape hatch fired. | Yes |
+| `structurally ineligible` | recorded, but it could not move this score (deterministic dimension, unmeasured, or never reached the blend). | No |
+| `outcome not recorded` | a snapshot written before `scoreIntegrity` existed. An absent record is not evidence the claim was ignored. | Unknown |
+
+## Share exports (`GET /api/report/llm`, `GET /api/report/share-card`)
+
+Two export routes sit beside the PDF, both keyed the same way (`?repo=owner/name[@sha]`), both
+read-gated by the owning org (`readableOrgForOwner` → `requireOrgRead`, gate before read), and both
+404 rather than trigger a scan when the repo has no persisted report.
+
+| Route | Output | Plan-gated? |
+| --- | --- | --- |
+| `/api/report/llm` | `text/markdown`, the LLM briefing (headline, dimension table, gaps, roadmap, "Ask"). | **No.** |
+| `/api/report/share-card` | `image/png` (attachment), the 1200×630 score card. | **No.** |
+| `/api/report/pdf` | `application/pdf` (attachment). | **Yes**, the lowest paid tier (`pro`, shown as Starter) and up. |
+
+Neither new route is plan-gated, and the asymmetry with the PDF is deliberate:
+
+- **`/llm` is the transport for something already free.** Its body is byte-for-byte what the report
+  header's "Copy for LLM" chip puts on any viewer's clipboard: one generator,
+  `reportLlmMarkdown()` in `src/lib/report/llm-markdown.ts`, imported by both. Gating the fetch
+  would tax automation while a human with identical access clicks a button. If the copy chip ever
+  becomes a paid surface, the route moves with it: the entitlement belongs to the payload.
+- **`/share-card` re-serves the public unfurl.** It renders `ReportShareCard`
+  (`src/lib/og/report-card.tsx`), the same artwork the report permalink already publishes as its
+  OpenGraph image, so gating it would protect nothing.
+
+The PDF, by contrast, is a distinct rendered deliverable sold as an entitlement.
+
+Both carry the report's caveats, because both travel detached from the page that would otherwise
+explain them: the markdown leads with an `incomplete` warning, a mock-provenance block ("no language
+model contributed"), and the scan's `warnings`; the card **refuses to draw a number at all** for an
+`incomplete` scan (a renormalized 0/100 is not a measurement) and shows a DEMO badge for a
+mock-engine report.
+
+## Passport autonomy tier (0.3.0)
+
+The App Readiness Passport (`src/lib/analyze/passport.ts`, exported at `/api/report/passport`)
+carries a derived `autonomy` block since passport **0.3.0**: a per-repo T0–T3 tier ("what can you
+safely hand an agent in this repo") with per-tier `unlocks[].missing` checklists and auditable
+`inputs`, derived by `src/lib/analyze/passport-autonomy.ts`. Tokenless scans cap at T1; stored
+pre-0.3.0 rows are lifted read-time by `upgradePassport` (tiers without a rescan, sandbox/hooks left
+unknown, never fabricated). Detection rules and the exact ladder live in
+[scan.md](../scanning/scan.md#app-readiness-passport--autonomy-tier-srclibanalyzepassportts). The
+Passports tab's Clearance prototype (`src/features/standing/passports/autonomy/`) prefers
+the real `pp.autonomy` tier and the real `sandbox`/`hooks` gates when the passport carries them,
+falling back to its labeled proxy/mock derivation for pre-0.3.0 data.
+
+## Customer-repo PR writes require **admin** (`/api/report/{passport,foundation}/pr`)
+
+Both routes open a draft PR into the scanned repository using the **org's GitHub App installation
+token**, so both gate on `requireOrgRole(org, "admin")`, not merely `requireOrgAccess` (member),
+which is what they used until the gate was unified with `/api/practices/apply{,-batch}`. One action
+must not have two gates: a plain member of the org now gets `403 "This action requires the admin role
+in this organization."` and no branch, commit, or PR is created. Draft status is a review convenience,
+not an authorization boundary, and "the caller can already read this repo" is not the question the
+gate answers. The write is. The rest of the chain is unchanged and identical between the two: DB +
+App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installation present.
+
+## Key files
+
+| File | Role |
+| --- | --- |
+| `src/app/api/report/passport/pr/route.ts` | Draft PR seeding `.ai/passport.json`. Admin-gated (see above). |
+| `src/app/api/report/foundation/pr/route.ts` | Draft PR seeding the generated `.ai/` foundation. Admin-gated (see above). |
+| `src/app/api/report/conformance/route.ts` | `.ai/` conformance ingest: org-bound auth, clamping, ledger write. The legacy shared `CONFORMANCE_INGEST_TOKEN` is compared with `crypto.timingSafeEqual`, matching the per-org token path. |
+| `src/app/api/report/llm/route.ts` | Machine-readable markdown export: the "Copy for LLM" payload as a fetchable endpoint. |
+| `src/lib/report/llm-markdown.ts` | `reportLlmMarkdown()`: the single briefing generator behind both the copy chip and the endpoint. Pure/client-safe and deterministic. |
+| `src/app/api/report/share-card/route.ts` | Downloadable PNG share card (attachment), rendered from the shared OG card. |
+| `src/lib/og/report-card.tsx` | `ReportShareCard`: the 1200×630 artwork shared by the permalink's `opengraph-image` and the share-card download. |
+| `src/app/api/report/pdf/route.ts` | Single-report PDF export. Read-gated by the owning org, then plan-gated (`planAllowsPdfExport`, the lowest paid tier `pro` and up); `PUBLIC_ORG` reports are exempt from the plan check, matching the unmetered public-scan model. |
+| `src/lib/pdf/report-document.tsx` | The exported PDF's layout (`@react-pdf/renderer`). Includes a "Roadmap & recommendations" section (title, impact/effort, rationale, sorted quick-wins-first, same ordering as the in-app roadmap), a caveat box surfacing `report.warnings` near the top, and a fallback "Incomplete scan" banner for a sparse/zero-dimension report so a degraded scan's PDF reads as caveated rather than a confident empty document. |
+| `src/components/report/ReportClient.tsx` | Live-scan orchestration: SSE stream, progress UI, validation. |
+| `src/components/report/ReportPermalinkShare.tsx` | The header's Permalink control: the canonical URL, the commit-pinned URL, and the README markdown carrying the level line. |
+| `src/components/report/discrepancyOutcome.ts` | Derives one outcome word per "Flagged for review" row from `report.scoreIntegrity` (pure; no stored second copy to drift). |
+| `src/components/report/ReportView.tsx` | The full report render (all sections + trackers/panels). |
+| `src/components/report/Charts.tsx` | `ScoreRing`, `RadarChart`, `PostureQuadrant`. |
+| `src/components/report/TrendChart.tsx` | Overall trend + `Sparkline`. |
+| `src/components/report/DimensionTrends.tsx` | Per-dimension small multiples + range toggle. |
+| `src/components/report/DimensionExplorer.tsx` | The Dimensions section: elevation gauge + climber list + reading strip + detail. |
+| `src/components/report/AltimeterGauge.tsx` | Dependency-free SVG gauge: level strata, one rope per dimension, previous-scan markers; keyboard-selectable. |
+| `src/components/report/DimensionClimberList.tsx` | Sortable climber rows (level, headroom lever, delta, score) synced with the gauge. |
+| `src/components/report/DimensionReading.tsx` | Four-cell reading strip over the selected dimension's detail. |
+| `src/components/report/dimensionExplorerDerive.ts` | Pure facts per dimension (level, next rung, headroom, divergence, provenance) + the takeaway line. |
+| `src/app/trends/forecast.ts` | The trends forecast fit: full history, no range argument. |
+| `src/app/trends/TrajectoryPanel.tsx` | All-time trajectory panel; refuses to project a thin sample. |
+| `src/app/trends/annotations.ts` | Band-crossing / regression markers for the timeline. |
+| `src/app/trends/ExportCsvButton.tsx` | CSV download as UI (401 → re-auth prompt, not raw JSON). |
+| `src/lib/history/limits.ts` | `HISTORY_SCAN_CAP` + the "newest N" cap note. |
+| `src/components/report/WhatChanged.tsx` | Diff story renderer. |
+| `src/components/report/ScanComparePicker.tsx` | URL-driven two-scan picker. |
+| `src/components/report/RadarFallback.tsx` | Labeled-bar form for 1-2 dimensions. |
+| `src/components/report/scoreWaterfallSegments.ts` | Floor-free waterfall segment layout + headroom. |
+| `src/components/report/chartEngine.ts` | Mock-vs-model point provenance predicates + caveat copy. |
+| `src/components/report/deltas.tsx` | `DeltaPill` / `DeltaTag` chips. |
+| `src/components/report/RoadmapSandbox.tsx` | The what-if orchestrator: sliders → live hero recompute. |
+| `src/components/report/RoadmapSandboxScenario.tsx` | The sandbox's durable half: scenario load/save/discard IO, the item identity key, and the guarded one-shot restore. |
+| `src/components/report/RoadmapSandboxScenarioBar.tsx` | The saved-plan bar: save/update/discard controls plus projected-vs-actual once a newer scan lands. |
+| `src/lib/db/sandbox-scenario.ts` | `SandboxScenario` read/write + the reconciliation against the next scan. |
+| `src/lib/report/rec-identity.ts` | `recommendationDecisionKey`: the one cross-scan recommendation identity, pure so both the browser and the decision store use it. |
+| `src/lib/report/compare.ts` | `diffScans()` pure diff engine + `diffStringSets()`, the one evidence set-difference both axes use. |
+| `src/lib/report/exemplar.ts` | Pure exemplar diff: ref grammar, `ExemplarProfile`, `diffAcrossRepos`, `selectOrgBest`, `buildCohortProfile`, `transferJoin`, the cohort floors. |
+| `src/lib/report/exemplar-load.ts` | The server-only sibling: `resolveExemplar` / `listExemplarOptions` / `livePublicCorpus` behind `CohortSource`, with the tenancy and public-only guards. |
+| `src/lib/corpus/eligibility.ts` | `BENCHMARK_ELIGIBLE` / `CORPUS_BASIS` / `COHORT_MIN` / `CORPUS_MIN` — one comparability filter, shared with `db/org-insights.ts` (which re-exports it). |
+| `src/app/report/compare/ExemplarPanel.tsx` | The exemplar panel plus every failure notice. |
+| `src/app/report/compare/ExemplarSection.tsx` | Resolves `?against=` into a panel or a notice. |
+| `src/lib/report/validate.ts` | `parseScanReport()` trust-boundary validation. |
+| `src/lib/ui.ts` | Color/glyph/format helpers shared across the report. |
+| `src/lib/register/data.ts` | The public register read layer: `getPublicRegister` / `getPublicOrgScorecard`. Public-org + `isPrivate:false` on every query; mock-engine scans carried as `verified:false` and never ranked; `rubricVersion` + `currentRubric` carried so a stale-rubric row is qualified. |
+| `src/app/leaderboard/page.tsx` | The register page: server-rendered ranking, `?page=` pagination, per-page canonical + OG. |
+| `src/components/leaderboard/LeaderboardTable.tsx` | The ranked table. `ranked={false}` draws the unranked preview section; a `demo` chip marks every unverified row, a `rubric rNN` chip every stale-rubric one. |
+| `src/components/leaderboard/RegisterPager.tsx` | Anchor-based pager (`rel=prev/next`) + the shared scan CTA. |
+| `src/app/scorecard/[owner]/page.tsx` | Public org scorecard. |
+| `src/components/leaderboard/ScorecardSummary.tsx` | The scorecard headline; renders the refusal state when `verifiedCount === 0`. |
+| `src/app/scorecard/[owner]/opengraph-image.tsx` | Scorecard OG card, on the shared `og-brand` shell; falls back to the neutral card rather than drawing an average over previews. |
+
+## Known gaps
+
+- **Textual, not semantic, diffing.** `norm()` collapses whitespace/case but won't equate
+  reworded evidence ("uses GitHub Actions" vs "GitHub Actions detected"). This is more
+  load-bearing on the **exemplar** axis than on the time axis: two repos are scanned in
+  separate model runs, so an equivalent capability phrased differently reads as *absent* on
+  one side and *ahead* on the other. Both the panel and the LLM section state it on screen
+  ("Signal-level, not semantic…") — the under-match is labelled, not engineered away.
+  Embedding-based matching stays out of scope; it would change the guardband (G5).
+- **No LLM-reasoning drill-down.** `ProvenanceTrack` shows *that* the LLM adjusted a
+  score, not the full rationale beyond the dimension summary.
+- **A roadmap row's concrete move is the additive `firstStep` field** (UAT `SAM-L1-05`, `MC-B8a`,
+  closed 2026-08-31): `LlmRoadmapItem.firstStep` / `Recommendation.firstStep`, requested by the
+  model schema as one optional sentence and rendered as a "First step:" line above the rationale.
+  The invitational voice is untouched (guardrail **G2**) — titles stay observations, `explore`
+  stays questions; the field is additive and never fabricated: absent on pre-field scans and on
+  rows where the model omitted it, so old reports render exactly as before.
+- **The lift map is not yet mounted on the report page.** `RoadmapSteps`, `RecommendationTracker` and
+  `reportLlmMarkdown` all accept the measured `lifts` map and render the basis clause when given one;
+  `/api/recommendations` supplies it today. The report page (`ReportPanels`) does not yet call
+  `getOrgExpectedLifts` and pass it down, so the clause is reachable through the API before it is
+  reachable in the page. One prop, one server read — deliberately left as a seam rather than widened
+  into another lane's file.

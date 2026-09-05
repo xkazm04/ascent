@@ -1,0 +1,65 @@
+// The presentational core of the site footer — brand slot, tagline, nav links, attribution — shared
+// by the server SiteFooter (Brand.tsx) and the /about deck's inline client footer (AboutCTA). The two
+// footers previously hand-kept mirrored JSX with no shared source for the tagline, link set, or
+// attribution, and had already drifted (the /about copy re-typed the tagline and dropped the
+// attribution line on exactly the public-facing page).
+//
+// Like StaticNav, this must stay a pure presentational LEAF: AboutCTA is a client component, and
+// Brand.tsx's module-scope @/lib/auth + @/lib/db imports can't cross that boundary. next/link and
+// lib/site constants only.
+
+import Link from "next/link";
+import { FEEDBACK_URL, SITE_TAGLINE_TITLE } from "@/lib/site";
+
+/** The canonical footer nav, in render order — the default link set (SiteFooter renders it as-is).
+ *  Feedback is the deployment's own issue tracker (FEEDBACK_URL, derived from SOURCE_REPO_URL in
+ *  lib/site so a fork points at ITS repository rather than upstream's) — the one always-available
+ *  feedback channel; Privacy/Terms are the legal pages every public surface must link. */
+export const FOOTER_LINKS: ReadonlyArray<{ href: string; label: string }> = [
+  // The four MARKETING_NAV destinations lead, because below `sm` the header nav hides ALL of them
+  // (`hidden ... sm:inline` in StaticNav) with no menu behind it — so on a phone the footer is the
+  // only global chrome that can reach them. Leaderboard was already here; Pricing, For orgs and
+  // About were not, which left three of the four marketing pages unreachable from any persistent
+  // chrome on a phone. SiteFooterCore.test.ts pins the coupling to MARKETING_NAV.
+  { href: "/leaderboard", label: "Leaderboard" },
+  { href: "/pricing", label: "Pricing" },
+  { href: "/about-org", label: "For orgs" },
+  { href: "/about", label: "About" },
+  { href: "/onboarding", label: "Get started" },
+  { href: "/usage", label: "Usage" },
+  { href: FEEDBACK_URL, label: "Feedback" },
+  { href: "/privacy", label: "Privacy" },
+  { href: "/terms", label: "Terms" },
+];
+
+/** The hosting/hackathon attribution line — rendered by EVERY footer (it must not drop off public pages). */
+export const FOOTER_ATTRIBUTION = "Built on Vercel + Aurora DSQL · #H0Hackathon";
+
+/**
+ * Footer content block: `brand` is the caller's mark (the server Logo, or /about's text wordmark),
+ * `links` defaults to the canonical set — pass a curated subset ONLY as a deliberate, commented
+ * decision at the call site. The wrapping <footer> shell (borders, padding, deck-bar clearance)
+ * stays with each caller; the content contract lives here.
+ */
+export function SiteFooterCore({
+  brand,
+  links = FOOTER_LINKS,
+}: {
+  brand: React.ReactNode;
+  links?: ReadonlyArray<{ href: string; label: string }>;
+}) {
+  return (
+    <>
+      {brand}
+      <p className="mt-3 type-mono-sm uppercase tracking-widest text-slate-400">{SITE_TAGLINE_TITLE}</p>
+      <div className="mt-3 flex flex-wrap justify-center gap-x-5 gap-y-2 type-mono-sm uppercase tracking-widest text-slate-400">
+        {links.map((l) => (
+          <Link key={l.href} href={l.href} className="focus-ring rounded-sm hover:text-accent">
+            {l.label}
+          </Link>
+        ))}
+      </div>
+      <p className="mt-3 type-body-sm text-slate-500">{FOOTER_ATTRIBUTION}</p>
+    </>
+  );
+}

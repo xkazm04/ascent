@@ -1,0 +1,153 @@
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Ascent":
+    - /url: /
+  - text: vercel L4 · 72 owner
+  - button "Alerts"
+  - button "0 credits"
+  - button "Scan all watched (6)"
+  - status
+  - text: developer
+  - button "Sign out":
+    - text: Sign out
+    - status
+- main:
+  - complementary:
+    - navigation "Organization sections":
+      - button "Overview"
+      - button "Fleet , 23 awaiting a decision"
+      - button "Intel , 33 awaiting a decision"
+      - button "Plan (contains the current page) , 17 awaiting a decision" [pressed]
+      - button "Library"
+      - button "Govern"
+      - text: Plan
+      - link "Practices":
+        - /url: /org/vercel/practices
+      - link "Plan":
+        - /url: /org/vercel/plan
+      - link "Backlog , 17 awaiting a decision":
+        - /url: /org/vercel/backlog
+  - heading "Practice Library" [level=2]
+  - paragraph: Your org's standards in one place — playbooks you author and practices mined from your strongest repos. Open a row for the exemplar, gaps, and apply actions; add your own with “+ New practice”.
+  - button "+ New practice"
+  - table "Practice library":
+    - caption: Practice library
+    - rowgroup:
+      - row "Practice Category Source Adoption Actions":
+        - columnheader "Practice"
+        - columnheader "Category"
+        - columnheader "Source"
+        - columnheader "Adoption"
+        - columnheader "Actions"
+    - rowgroup:
+      - row "Agent guidance (CLAUDE.md / AGENTS.md) Machine-readable project context so any AI contribution lands consistent and on-spec. D1 · AI Tooling Mined 2/6 1 could adopt View →":
+        - cell "Agent guidance (CLAUDE.md / AGENTS.md) Machine-readable project context so any AI contribution lands consistent and on-spec."
+        - cell "D1 · AI Tooling"
+        - cell "Mined"
+        - cell "2/6 1 could adopt"
+        - cell "View →":
+          - button "View →"
+      - row "AI process & harness Ad-hoc prompting becomes a repeatable, trustworthy part of how the team ships. D8 · AI Process Mined 4/6 1 could adopt View →":
+        - cell "AI process & harness Ad-hoc prompting becomes a repeatable, trustworthy part of how the team ships."
+        - cell "D8 · AI Process"
+        - cell "Mined"
+        - cell "4/6 1 could adopt"
+        - cell "View →":
+          - button "View →"
+      - row "Agent in the loop AI takes a first pass (review, triage, codegen) with a human confirming. D4 · Agentic Mined 0/6 3 could adopt View →":
+        - cell "Agent in the loop AI takes a first pass (review, triage, codegen) with a human confirming."
+        - cell "D4 · Agentic"
+        - cell "Mined"
+        - cell "0/6 3 could adopt"
+        - cell "View →":
+          - button "View →"
+      - row "Test discipline The guardrail that makes AI-generated changes safe to merge. D2 · Testing Mined 5/6 well adopted View →":
+        - cell "Test discipline The guardrail that makes AI-generated changes safe to merge."
+        - cell "D2 · Testing"
+        - cell "Mined"
+        - cell "5/6 well adopted"
+        - cell "View →":
+          - button "View →"
+      - row "CI gates on merge Trust that doesn't depend on which human reviewed — checks enforce it. D3 · CI/CD Mined 6/6 well adopted View →":
+        - cell "CI gates on merge Trust that doesn't depend on which human reviewed — checks enforce it."
+        - cell "D3 · CI/CD"
+        - cell "Mined"
+        - cell "6/6 well adopted"
+        - cell "View →":
+          - button "View →"
+      - row "Architecture docs & ADRs Context both humans and agents can read — less re-explaining, better changes. D5 · Docs Mined 2/6 well adopted View →":
+        - cell "Architecture docs & ADRs Context both humans and agents can read — less re-explaining, better changes."
+        - cell "D5 · Docs"
+        - cell "Mined"
+        - cell "2/6 well adopted"
+        - cell "View →":
+          - button "View →"
+      - row "Enforced quality Conventions held by tooling, not habit — slips caught at the earliest point. D6 · Quality Mined 5/6 well adopted View →":
+        - cell "Enforced quality Conventions held by tooling, not habit — slips caught at the earliest point."
+        - cell "D6 · Quality"
+        - cell "Mined"
+        - cell "5/6 well adopted"
+        - cell "View →":
+          - button "View →"
+      - row "Legible, attributable history You can see where AI helped and how it fared; automation gets reliable signals. D7 · Commits Mined 5/6 well adopted View →":
+        - cell "Legible, attributable history You can see where AI helped and how it fared; automation gets reliable signals."
+        - cell "D7 · Commits"
+        - cell "Mined"
+        - cell "5/6 well adopted"
+        - cell "View →":
+          - button "View →"
+      - row "Supply-chain security The shift-left guardrail against the vulnerable or secret-leaking code AI can confidently produce. D9 · Security Mined 0/6 View →":
+        - cell "Supply-chain security The shift-left guardrail against the vulnerable or secret-leaking code AI can confidently produce."
+        - cell "D9 · Security"
+        - cell "Mined"
+        - cell "0/6"
+        - cell "View →":
+          - button "View →"
+- button "Open guided tour": Guided setup
+- text: Guided setup
+- heading "Learn this dashboard" [level=2]
+- text: 1/6
+- button "Hide guided tour": ▸
+- text: Set the scope
+- list:
+  - listitem:
+    - button "Set your scan scope"
+  - listitem:
+    - button "Choose what’s in scope"
+- text: Read the results
+- list:
+  - listitem:
+    - button "Read the fleet"
+  - listitem:
+    - button "Scope what you read"
+- text: Explore modules
+- list:
+  - listitem:
+    - button "Each module is a lens"
+  - listitem:
+    - button "Open a module"
+- paragraph: Every dashboard starts with a scan. “Scan all watched” runs the whole fleet; the scope controls that decide what gets scored live sit right here.
+- button "Back" [disabled]
+- button "Next step"
+- dialog "Agent guidance (CLAUDE.md / AGENTS.md)":
+  - text: Mined practice · D1 · AI Tooling
+  - heading "Agent guidance (CLAUDE.md / AGENTS.md)" [level=2]
+  - paragraph: Machine-readable project context so any AI contribution lands consistent and on-spec.
+  - button "Close": ✕
+  - text: Repos strong 2/6 Learn from
+  - link "workflow":
+    - /url: /report?repo=vercel%2Fworkflow
+  - text: 100/100 Could adopt next (1) v0-sdk Reusable shape
+  - list:
+    - listitem: · Build & test commands (how to run, lint, and verify)
+    - listitem: · Architecture map — entry points, key modules, data flow
+    - listitem: · “Verify after every change” rules (run tests, typecheck)
+    - listitem: · Constraints the agent must never break (security, public API, conventions)
+    - listitem: · MCP servers / hooks / subagents in use, if any
+    - listitem: · One or two examples of a good change
+  - text: Apply to a repo
+  - combobox "Repository to apply this practice to":
+    - option "v0-sdk" [selected]
+  - button "Preview starter"
+- alert

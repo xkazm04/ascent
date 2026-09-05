@@ -1,0 +1,235 @@
+Skip to content
+ASCENT
+LEADERBOARD
+PRICING
+ABOUT
+vercel
+→
+developer
+Sign out
+REPOSITORY REPORT
+vercel/next.js
+JavaScript
+★ 141,111
+updated unknown
+HOW SCORING WORKS
+→
+Org / platform
+AI usage detected · 13% commits
+Demo · deterministic rubric
+confidence 59%
+Scanned
+41m ago
+Re-test
+↓
+Export PDF
+✦
+Onboarding skill
+APP READINESS PASSPORT
+vercel/next.js
+
+INSTRUMENT READOUT · 2026-07-16
+
+AUTOMATION
+L4
+68/100
+READY FOR AGENTS
+PRODUCTION
+PROTOTYPE
+21/100
+TRUSTED IN PROD
+PRODUCTION RUNGS
+CI
+delivery
+TESTS
+none
+SECURITY
+none
+OBSERV.
+none
+DELIVERY
+migrations none
+STACK
+JavaScript
+Rust
+TypeScript
+host: vercel
+
+static-scan · confidence 59% · as of 2026-07-16 · MIT
+
+↓ passport.json
+SECTIONS
+Scoring
+Dimensions
+Roadmap
+Sandbox
+Contributors
+Dimension breakdown
+
+Nine weighted dimensions on a 0–100 scale. Pick one — on the radar or in the list — to read its evidence, gaps, and how the deterministic signal and the AI judgment blended into the score.
+
+AI Tooling65
+Testing100
+CI/CD83
+Agentic15
+Docs65
+Quality94
+Commits45
+AI Process91
+Security40
+Maturity score by dimension
+Dimension	Score out of 100	Level
+AI Tooling & Conventions	65	L4 Integrated
+Automated Testing	100	L5 Autonomous
+CI/CD & Delivery	83	L4 Integrated
+Agentic Workflows	15	L1 Manual
+Documentation & Knowledge	65	L4 Integrated
+Code Quality & Guardrails	94	L5 Autonomous
+Commit & Velocity Signals	45	L3 Augmented
+AI Process & Harness	91	L5 Autonomous
+Supply Chain & Security	40	L2 Assisted
+D1
+AI Tooling & Conventions
+15%
+◕
+65
+D2
+Automated Testing
+15%
+●
+100
+D3
+CI/CD & Delivery
+14%
+◕
+83
+D4
+Agentic Workflows
+12%
+○
+15
+D5
+Documentation & Knowledge
+9%
+◕
+65
+D6
+Code Quality & Guardrails
+7%
+●
+94
+D7
+Commit & Velocity Signals
+7%
+◑
+45
+D8
+AI Process & Harness
+12%
+●
+91
+D9
+Supply Chain & Security
+9%
+◔
+40
+D1
+AI Tooling & Conventions
+weight 15%
+65
+
+AI Tooling & Conventions: found claude.md (claude code guidance); found agents.md (agent guidance); found .claude/ directory.
+
+EVIDENCE
+·
+Found CLAUDE.md (Claude Code guidance)
+·
+Found AGENTS.md (agent guidance)
+·
+Found .claude/ directory
+·
+Found devcontainer
+·
+Substantial agent guidance
+·
+Defines explicit constraints / rules
+·
+Includes concrete examples
+GAPS: Below target for an AI-native workflow. Is AI development operationalized with shared, machine-readable guidance?
+GO FLEET-WIDE
+
+Scan your whole org in one shot to see this repo ranked against the rest — common gaps to fix once, and the repo-specific ones.
+
+Scan your org
+→
+Track this repo
+← Scan another repo
+App Readiness Passport
+
+The portfolio scorecard — how ready this app is for full LLM-automated development, and for production. Names the stack on purpose.
+
+↓ passport.json
+AUTOMATION READINESS
+L4
+68
+/100 · ready for agents
+self-verify: none · AI in workflow
+PRODUCTION READINESS
+Prototype
+21
+/100 · trusted in prod
+CI
+delivery
+TESTS
+none
+SECURITY
+none
+OBSERVABILITY
+none
+DELIVERY
+migrations: none
+BLOCKERS
+▸
+No in-repo .ai/manifest.yaml (agent-facing capability contract).
+▸
+No machine-readable context graph (context-map.json / CONTEXT.md).
+▸
+Agent can't self-verify: missing build, test, lint, typecheck script(s).
+▸
+Zero observability: no error tracking, structured logs, metrics, or tracing.
+▸
+No dependency/secret/SAST scanning wired in.
+
+static-scan · confidence 59% · as of 2026-07-16
+
+OWNER SETTINGS
+
+Fields a scan can't infer — these frame how to read the scores and (rollback) lift the production score.
+
+criticality
+unset
+experimental
+internal
+business
+mission-critical
+lifecycle
+unset
+prototype
+alpha
+beta
+ga
+maintenance
+deprecated
+tested rollback
+Save
+Commit .ai/passport.json →
+ASCENT
+
+THE MATURITY INDEX FOR AI-NATIVE ENGINEERING
+
+LEADERBOARD
+BADGE
+CONNECT
+USAGE
+
+Built on Vercel + Aurora DSQL · #H0Hackathon

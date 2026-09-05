@@ -1,0 +1,179 @@
+// The REAL HMAC verification path for the per-org ingest token — nothing mocked. This is the entire
+// auth story for the internet-facing /api/integrations/ingest surface, and until this file existed it
+// had zero direct coverage: both ingest route test files mock `parseIngestToken` out, so a regression
+// in the mac derivation, the constant-time compare, or the length guard would have gone unnoticed.
+//
+// The secret is captured at module load, so the module is imported dynamically AFTER the env is
+// stubbed (a static import would hoist above the assignment and pick up the ambient ENCRYPTION_KEY).
+
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
+import { createHmac } from "node:crypto";
+
+const SECRET = "test-ingest-secret-do-not-use";
+
+type TokenModule = typeof import("./ingest-token");
+let mod: TokenModule;
+
+beforeAll(async () => {
+  process.env.INTEGRATIONS_INGEST_SECRET = SECRET;
+  mod = await import("./ingest-token");
+});
+
+/** Independently derived expected mac — deliberately NOT calling the module's own helper, so the test
+ *  pins the wire format rather than agreeing with whatever the implementation happens to do. */
+function expectedMac(slug: string): string {
+  return createHmac("sha256", SECRET).update(`otel:${slug}`).digest("hex").slice(0, 32);
+}
+
+describe("ingestToken / parseIngestToken — real HMAC round-trip", () => {
+  it("mints asc_otel.<slug>.<mac> with the independently derived mac", () => {
+    const token = mod.ingestToken("acme");
+    expect(token).toBe(`asc_otel.acme.${expectedMac("acme")}`);
+  });
+
+  it("verifies a valid token and recovers the org slug", () => {
+    expect(mod.parseIngestToken(mod.ingestToken("acme"))).toEqual({ slug: "acme", epoch: 0 });
+  });
+
+  it("tolerates surrounding whitespace (headers get trimmed in transit)", () => {
+    expect(mod.parseIngestToken(`  ${mod.ingestToken("acme")}\n`)).toEqual({ slug: "acme", epoch: 0 });
+  });
+});
+
+describe("forged tokens are rejected", () => {
+  it("rejects a tampered mac of the correct length", () => {
+    const token = mod.ingestToken("acme");
+    const mac = token.split(".")[2]!;
+    // Flip the last hex digit — same length, so this exercises timingSafeEqual, not the length guard.
+    const flipped = mac.slice(0, -1) + (mac.endsWith("a") ? "b" : "a");
+    expect(flipped).toHaveLength(mac.length);
+    expect(mod.parseIngestToken(`asc_otel.acme.${flipped}`)).toBeNull();
+  });
+
+  it("rejects a mac of the wrong length before timingSafeEqual can throw", () => {
+    const mac = mod.ingestToken("acme").split(".")[2]!;
+    expect(mod.parseIngestToken(`asc_otel.acme.${mac.slice(0, 16)}`)).toBeNull();
+    expect(mod.parseIngestToken(`asc_otel.acme.${mac}00`)).toBeNull();
+    expect(mod.parseIngestToken("asc_otel.acme.")).toBeNull();
+  });
+
+  it("rejects another org's mac (cross-tenant: the mac is bound to the slug)", () => {
+    const other = mod.ingestToken("globex").split(".")[2]!;
+    expect(mod.parseIngestToken(`asc_otel.acme.${other}`)).toBeNull();
+    // …and the same mac still verifies under its OWN slug, proving the rejection is the binding.
+    expect(mod.parseIngestToken(`asc_otel.globex.${other}`)).toEqual({ slug: "globex", epoch: 0 });
+  });
+
+  it("rejects a malformed prefix or the wrong number of segments", () => {
+    const mac = expectedMac("acme");
+    expect(mod.parseIngestToken(`asc_oteL2.acme.${mac}`)).toBeNull();
+    expect(mod.parseIngestToken(`ghp_token.acme.${mac}`)).toBeNull();
+    expect(mod.parseIngestToken(`acme.${mac}`)).toBeNull();
+    expect(mod.parseIngestToken(`asc_otel.acme.${mac}.extra`)).toBeNull();
+    expect(mod.parseIngestToken("")).toBeNull();
+    expect(mod.parseIngestToken("asc_otel..")).toBeNull();
+  });
+
+  it("rejects a non-hex mac of the right length (no crash on odd bytes)", () => {
+    expect(mod.parseIngestToken(`asc_otel.acme.${"z".repeat(32)}`)).toBeNull();
+    expect(mod.parseIngestToken(`asc_otel.acme.${"é".repeat(32)}`)).toBeNull();
+  });
+});
+
+describe("revocation epoch", () => {
+  it("mints the 3-segment (pre-epoch) form at epoch 0, so already-issued tokens keep verifying", () => {
+    expect(mod.ingestToken("acme", 0)).toBe(`asc_otel.acme.${expectedMac("acme")}`);
+    expect(mod.ingestToken("acme")).toBe(mod.ingestToken("acme", 0));
+    expect(mod.parseIngestToken(`asc_otel.acme.${expectedMac("acme")}`)).toEqual({ slug: "acme", epoch: 0 });
+  });
+
+  it("mints asc_otel.<slug>.e<N>.<mac> at a bumped epoch, signed over material that includes the epoch", () => {
+    const token = mod.ingestToken("acme", 3);
+    expect(token).toBe(`asc_otel.acme.e3.${createHmac("sha256", SECRET).update("otel:acme:e3").digest("hex").slice(0, 32)}`);
+    expect(mod.parseIngestToken(token)).toEqual({ slug: "acme", epoch: 3 });
+  });
+
+  it("gives a DIFFERENT mac at every epoch (the bump actually changes the credential)", () => {
+    const macs = [0, 1, 2, 3].map((e) => mod.ingestToken("acme", e).split(".").pop());
+    expect(new Set(macs).size).toBe(4);
+  });
+
+  it("refuses a relabelled epoch — the epoch is inside the signed material, not just a label", () => {
+    const e1 = mod.ingestToken("acme", 1).split(".").pop()!;
+    expect(mod.parseIngestToken(`asc_otel.acme.e2.${e1}`)).toBeNull(); // e1's mac claimed as e2
+    expect(mod.parseIngestToken(`asc_otel.acme.${e1}`)).toBeNull(); // e1's mac claimed as epoch 0
+  });
+
+  it("rejects a malformed epoch segment", () => {
+    const m = mod.ingestToken("acme", 1).split(".").pop()!;
+    for (const seg of ["e0", "e01", "x1", "e", "e-1", "e1x"]) {
+      expect(mod.parseIngestToken(`asc_otel.acme.${seg}.${m}`)).toBeNull();
+    }
+  });
+});
+
+describe("bearerToken", () => {
+  it("extracts the token from an Authorization header, case-insensitively", () => {
+    expect(mod.bearerToken("Bearer abc123")).toBe("abc123");
+    expect(mod.bearerToken("bearer abc123")).toBe("abc123");
+    expect(mod.bearerToken("Bearer   abc123  ")).toBe("abc123");
+  });
+
+  it("falls back to the custom header when Authorization is absent or not a bearer", () => {
+    expect(mod.bearerToken(null, "abc123")).toBe("abc123");
+    expect(mod.bearerToken("Basic zzz", "abc123")).toBe("abc123");
+    expect(mod.bearerToken(null)).toBeNull();
+    expect(mod.bearerToken(null, null)).toBeNull();
+  });
+});
+
+/**
+ * THE FAIL-CLOSED HALF. There used to be a hardcoded fallback secret, so an unconfigured deployment
+ * still verified tokens — under a constant that ships in this repository. These cases pin the
+ * property that replaced it: with no secret, nothing verifies and nothing is minted.
+ *
+ * The secret is read at CALL time, so a fresh import is not required; the env is simply cleared
+ * around each case.
+ */
+describe("with no ingest secret configured", () => {
+  const saved = { dedicated: process.env.INTEGRATIONS_INGEST_SECRET, encryption: process.env.ENCRYPTION_KEY };
+
+  beforeEach(() => {
+    delete process.env.INTEGRATIONS_INGEST_SECRET;
+    delete process.env.ENCRYPTION_KEY;
+  });
+  afterEach(() => {
+    if (saved.dedicated === undefined) delete process.env.INTEGRATIONS_INGEST_SECRET;
+    else process.env.INTEGRATIONS_INGEST_SECRET = saved.dedicated;
+    if (saved.encryption === undefined) delete process.env.ENCRYPTION_KEY;
+    else process.env.ENCRYPTION_KEY = saved.encryption;
+  });
+
+  it("reports itself unconfigured", () => {
+    expect(mod.isIngestConfigured()).toBe(false);
+  });
+
+  it("refuses to mint a token rather than signing one nothing can verify", () => {
+    expect(() => mod.ingestToken("acme")).toThrow(/INTEGRATIONS_INGEST_SECRET/);
+  });
+
+  it("verifies nothing — including a token that was valid while a secret was set", () => {
+    process.env.INTEGRATIONS_INGEST_SECRET = SECRET;
+    const good = mod.ingestToken("acme");
+    expect(mod.parseIngestToken(good)).not.toBeNull();
+
+    delete process.env.INTEGRATIONS_INGEST_SECRET;
+    expect(mod.parseIngestToken(good)).toBeNull();
+  });
+
+  it("does not accept a token forged under the old hardcoded default", () => {
+    const forged = `asc_otel.acme.${createHmac("sha256", "ascent-dev-integrations-secret").update("otel:acme").digest("hex").slice(0, 32)}`;
+    expect(mod.parseIngestToken(forged)).toBeNull();
+  });
+
+  it("becomes configured again from ENCRYPTION_KEY alone", () => {
+    process.env.ENCRYPTION_KEY = "fallback-key-for-this-case";
+    expect(mod.isIngestConfigured()).toBe(true);
+    expect(mod.parseIngestToken(mod.ingestToken("acme"))).toEqual({ slug: "acme", epoch: 0 });
+  });
+});

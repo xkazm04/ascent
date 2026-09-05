@@ -1,0 +1,416 @@
+// Critical coverage gap (test-mastery-2026-06-18, org-overview-standing #1): computeWindowDeltas is
+// the cohort-matched period delta behind the dashboard's headline "net maturity ▲" tile, the
+// per-tile period deltas, the "Quarter in review" banner, and the weekly digest number — and it had
+// ZERO tests despite a code comment documenting the exact past bug it exists to prevent: onboarding
+// low-scoring repos mid-quarter used to read as the whole fleet "slipping" ~25 points that no
+// individual repo experienced (and onboarding strong repos manufactured a fake climb). The entire
+// reason the function exists is the cohort-intersection invariant — movement is measured ONLY over
+// repos present on BOTH sides of the window — so that is what these tests lock in.
+//
+// The function is pure; it takes plain RepoScoreSnap arrays and needs no DB. The mock below keeps the
+// module import side-effect-free (defensive — the client is only touched inside the async query
+// functions, not at module load) so this suite never reaches for a database.
+
+import { describe, expect, it, vi, beforeEach } from "vitest";
+
+const { mockGetPrisma, mockIsDbConfigured } = vi.hoisted(() => ({
+  mockGetPrisma: vi.fn(),
+  mockIsDbConfigured: vi.fn(() => false),
+}));
+
+vi.mock("@/lib/db/client", () => ({ getPrisma: mockGetPrisma, isDbConfigured: mockIsDbConfigured }));
+
+import { computeCohortMovement, computeWindowDeltas, computeDimDeltas, getOrgRollup, type RepoScoreSnap, type RepoDimSnap } from "@/lib/db/org-rollup";
+
+/** Terse snapshot builder: same overall/adoption/rigor unless overridden. */
+function snap(repoId: string, overall: number, adoption = overall, rigor = overall): RepoScoreSnap {
+  return { repoId, overall, adoption, rigor };
+}
+
+describe("computeWindowDeltas — cohort matching", () => {
+  it("measures only repos present in BOTH windows (real before->after delta)", () => {
+    // A and B exist on both sides; their real movement is A 70->80 (+10), B 80->90 (+10).
+    const current = [snap("A", 80), snap("B", 90)];
+    const baseline = [snap("A", 70), snap("B", 80)];
+    expect(computeWindowDeltas(current, baseline)).toEqual({
+      overall: 10,
+      adoption: 10,
+      rigor: 10,
+    });
+  });
+
+  it("EXCLUDES a newly-onboarded repo (after-only) — no fabricated fleet slip", () => {
+    // THE DOCUMENTED BUG. A=70->80 and B=80->90 (both +10); C is brand new this window at 10.
+    // Averaging the whole current fleet [80,90,10]=60 against the baseline cohort [70,80]=75 would
+    // report a phantom -15 "slip" that no repo experienced. The cohort intersection must drop C and
+    // report the true +10 the matched repos actually moved.
+    const current = [snap("A", 80), snap("B", 90), snap("C", 10)];
+    const baseline = [snap("A", 70), snap("B", 80)];
+    const result = computeWindowDeltas(current, baseline);
+    expect(result).toEqual({ overall: 10, adoption: 10, rigor: 10 });
+    // Explicitly: the onboarded low-scorer did NOT drag the headline negative.
+    expect(result!.overall).toBeGreaterThan(0);
+  });
+
+  it("EXCLUDES a strong newly-onboarded repo too — no fabricated fleet climb", () => {
+    // Symmetric guard: a high-scoring new repo must not manufacture a fake climb either.
+    // Matched cohort A,B is flat (70->70, 80->80) => +0; the new C=100 must not inflate it.
+    const current = [snap("A", 70), snap("B", 80), snap("C", 100)];
+    const baseline = [snap("A", 70), snap("B", 80)];
+    expect(computeWindowDeltas(current, baseline)).toEqual({ overall: 0, adoption: 0, rigor: 0 });
+  });
+
+  it("EXCLUDES a dropped repo (before-only) — it leaves the cohort, not the math", () => {
+    // D was scored in the baseline but is gone from the current window. The cohort is just A,B,
+    // moving 70->80 and 80->90 (+10). D's baseline 0 must not be averaged into the "before" side.
+    const current = [snap("A", 80), snap("B", 90)];
+    const baseline = [snap("A", 70), snap("B", 80), snap("D", 0)];
+    expect(computeWindowDeltas(current, baseline)).toEqual({
+      overall: 10,
+      adoption: 10,
+      rigor: 10,
+    });
+  });
+
+  it("tracks each dimension's cohort delta independently", () => {
+    // overall/adoption/rigor are averaged and differenced per-dimension, not collapsed.
+    const current = [snap("A", 80, 60, 40), snap("B", 90, 50, 30)];
+    const baseline = [snap("A", 70, 50, 50), snap("B", 80, 40, 30)];
+    expect(computeWindowDeltas(current, baseline)).toEqual({
+      overall: 10, // avg(80,90)=85 - avg(70,80)=75
+      adoption: 10, // avg(60,50)=55 - avg(50,40)=45
+      rigor: -5, // avg(40,30)=35 - avg(50,30)=40
+    });
+  });
+});
+
+describe("computeWindowDeltas — no-overlap / empty windows", () => {
+  it("returns null when the cohorts don't overlap at all", () => {
+    // current C,D vs baseline A,B — no shared repoId, so there is no movement to report.
+    const current = [snap("C", 50), snap("D", 60)];
+    const baseline = [snap("A", 70), snap("B", 80)];
+    expect(computeWindowDeltas(current, baseline)).toBeNull();
+  });
+
+  it("returns null when the current window is empty", () => {
+    expect(computeWindowDeltas([], [snap("A", 70)])).toBeNull();
+  });
+
+  it("returns null when the baseline window is empty", () => {
+    expect(computeWindowDeltas([snap("A", 70)], [])).toBeNull();
+  });
+
+  it("returns null when both windows are empty (no NaN, no throw)", () => {
+    expect(computeWindowDeltas([], [])).toBeNull();
+  });
+
+  it("returns a zero delta (never NaN) for an unchanged overlapping cohort", () => {
+    const same = [snap("A", 70), snap("B", 80)];
+    const result = computeWindowDeltas(same, same.map((s) => ({ ...s })));
+    expect(result).toEqual({ overall: 0, adoption: 0, rigor: 0 });
+    expect(Number.isNaN(result!.overall)).toBe(false);
+  });
+});
+
+describe("computeWindowDeltas — rounding", () => {
+  it("rounds each cohort AVERAGE before differencing (Math.round, not the raw mean)", () => {
+    // avg(70,71)=70.5 -> Math.round -> 71; baseline avg(70,70)=70. Delta is +1, not +0.5.
+    const current = [snap("A", 70), snap("B", 71)];
+    const baseline = [snap("A", 70), snap("B", 70)];
+    expect(computeWindowDeltas(current, baseline)!.overall).toBe(1);
+  });
+
+  it("differences the two rounded averages (each side rounded independently)", () => {
+    // now avg(70,71)=70.5->71 ; before avg(60,61)=60.5->61 ; delta 71-61 = 10.
+    const current = [snap("A", 70), snap("B", 71)];
+    const baseline = [snap("A", 60), snap("B", 61)];
+    expect(computeWindowDeltas(current, baseline)!.overall).toBe(10);
+  });
+});
+
+// ── computeDimDeltas — the per-dimension sibling (Security tab's "D9 vs 90d ago") ──────────────
+// Same cohort-intersection invariant as computeWindowDeltas, plus two dim-specific rules:
+// a dimension present on only ONE side is omitted (no fake movement when D9 is introduced
+// mid-window), and within the cohort a repo missing a dim simply doesn't vote on it.
+
+/** Terse dim-snapshot builder: dims as [dimId, score] pairs. */
+function dsnap(repoId: string, ...dims: [string, number][]): RepoDimSnap {
+  return { repoId, dims: dims.map(([dimId, score]) => ({ dimId, score })) };
+}
+
+describe("computeDimDeltas — cohort matching per dimension", () => {
+  it("measures only repos present in BOTH windows, per dimId", () => {
+    // Cohort A,B: D1 moves avg(80,90)=85 - avg(70,80)=75 = +10; D9 moves avg(40,60)=50 - avg(20,40)=30 = +20.
+    // C is after-only and must not vote.
+    const current = [dsnap("A", ["D1", 80], ["D9", 40]), dsnap("B", ["D1", 90], ["D9", 60]), dsnap("C", ["D1", 10], ["D9", 5])];
+    const baseline = [dsnap("A", ["D1", 70], ["D9", 20]), dsnap("B", ["D1", 80], ["D9", 40])];
+    expect(computeDimDeltas(current, baseline)).toEqual([
+      { dimId: "D1", delta: 10 },
+      { dimId: "D9", delta: 20 },
+    ]);
+  });
+
+  it("omits a dimension that exists on only one side (introduced mid-window)", () => {
+    // D9 was added to the rubric after the baseline scans — no before-side, so no movement claim.
+    const current = [dsnap("A", ["D1", 80], ["D9", 50])];
+    const baseline = [dsnap("A", ["D1", 70])];
+    expect(computeDimDeltas(current, baseline)).toEqual([{ dimId: "D1", delta: 10 }]);
+  });
+
+  it("a cohort repo missing a dim doesn't vote on it (no zero-fill drag)", () => {
+    // B has no D9 on either side; D9's delta is A's alone: 60-20 = +40 (not averaged against a fake 0).
+    const current = [dsnap("A", ["D9", 60]), dsnap("B", ["D1", 80])];
+    const baseline = [dsnap("A", ["D9", 20]), dsnap("B", ["D1", 80])];
+    expect(computeDimDeltas(current, baseline)).toEqual([
+      { dimId: "D1", delta: 0 },
+      { dimId: "D9", delta: 40 },
+    ]);
+  });
+
+  it("returns null when the cohorts don't overlap (and on empty sides)", () => {
+    expect(computeDimDeltas([dsnap("C", ["D1", 50])], [dsnap("A", ["D1", 70])])).toBeNull();
+    expect(computeDimDeltas([], [dsnap("A", ["D1", 70])])).toBeNull();
+    expect(computeDimDeltas([dsnap("A", ["D1", 70])], [])).toBeNull();
+  });
+
+  it("rounds each side's average independently before differencing (mirrors computeWindowDeltas)", () => {
+    // now avg(70,71)=70.5->71 ; before avg(70,70)=70 ; delta +1.
+    const current = [dsnap("A", ["D9", 70]), dsnap("B", ["D9", 71])];
+    const baseline = [dsnap("A", ["D9", 70]), dsnap("B", ["D9", 70])];
+    expect(computeDimDeltas(current, baseline)).toEqual([{ dimId: "D9", delta: 1 }]);
+  });
+});
+
+// ── getOrgRollup — baseline query shape + local-day trend (fleet-rollups-insights #1, #2) ──────────
+// Integration-ish coverage over the real query pipeline (real org-shared / forecast / parsers, a faked
+// prisma, mirroring org-signals.test.ts): the pre-window baseline query must fetch ONE row per repo at
+// the DB (distinct), not the org's whole pre-window history; and the maturity trend must bucket by LOCAL
+// calendar day (the same zone the window snaps to), collapsing multiple same-day scans to one point.
+
+describe("getOrgRollup — baseline query shape + local-day trend", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsDbConfigured.mockReturnValue(true);
+  });
+
+  const localDayKey = (d: Date): string =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+  /** One repo row with a single latest scan, shaped as getOrgRollup's include reads it. */
+  function repoRow(id: string, scannedAt: Date) {
+    return {
+      id, fullName: `acme/${id}`, owner: "acme", name: id, isPrivate: false, watched: true,
+      primaryLanguage: "TypeScript", techStackJson: null, passportJson: null, passportOverridesJson: null,
+      scanSchedule: "manual", lastScanAt: null, lastScanStatus: "ok", lastScanError: null, aiConformance: null,
+      scans: [{
+        level: "L3", overallScore: 70, adoptionScore: 60, rigorScore: 80, posture: "ai-native",
+        scannedAt, engineProvider: "anthropic", governance: null, commitActivity: null, prStats: null,
+        dimensions: [{ dimId: "D1", score: 70 }],
+      }],
+    };
+  }
+
+  /** scan.findMany is called twice (trend, then the distinct baseline); branch on the `distinct` arg. */
+  function fakePrisma(trendScans: { scannedAt: Date; overallScore: number }[]) {
+    const scanFindMany = vi.fn(async (args: { distinct?: unknown } = {}) =>
+      args.distinct
+        ? [{ id: "s_base", repoId: "r1", overallScore: 50, adoptionScore: 50, rigorScore: 50 }]
+        : trendScans,
+    );
+    const prisma = {
+      organization: { findUnique: vi.fn(async () => ({ id: "org_1", plan: "enterprise", slug: "acme" })) },
+      repository: { findMany: vi.fn(async () => [repoRow("r1", new Date("2026-05-12T12:00:00Z"))]) },
+      scan: { findMany: scanFindMany },
+      scanDimension: { findMany: vi.fn(async () => []) },
+    };
+    return { prisma, scanFindMany };
+  }
+
+  it("issues the pre-window baseline query with distinct:['repoId'] — one row per repo at the DB (fleet-rollups-insights #1)", async () => {
+    const { prisma, scanFindMany } = fakePrisma([{ scannedAt: new Date("2026-05-12T12:00:00Z"), overallScore: 70 }]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    // A window `start` triggers the baseline branch.
+    const start = new Date("2026-05-01T00:00:00Z");
+    await getOrgRollup("acme", { start });
+
+    const baselineCall = scanFindMany.mock.calls.map((c) => c[0]).find((a) => a?.distinct) as
+      | { distinct: unknown; where: { scannedAt: unknown } }
+      | undefined;
+    expect(baselineCall, "the baseline scan.findMany should carry distinct").toBeDefined();
+    expect(baselineCall!.distinct).toEqual(["repoId"]);
+    // Half-open baseline: strictly before `start`.
+    expect(baselineCall!.where.scannedAt).toEqual({ lt: start });
+  });
+
+  it("buckets the maturity trend by LOCAL calendar day, collapsing same-day scans to one averaged point (fleet-rollups-insights #2)", async () => {
+    // Two scans on one local day + one on a later day. Expected buckets are computed with the SAME local-day
+    // grouping the code uses, so this holds in any timezone AND catches a regression to UTC-day bucketing
+    // wherever the run zone isn't UTC.
+    const rows = [
+      { scannedAt: new Date("2026-05-10T11:00:00Z"), overallScore: 60 },
+      { scannedAt: new Date("2026-05-10T13:00:00Z"), overallScore: 80 },
+      { scannedAt: new Date("2026-05-12T12:00:00Z"), overallScore: 90 },
+    ];
+    const { prisma } = fakePrisma(rows);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getOrgRollup("acme");
+
+    const byDay: Record<string, number[]> = {};
+    for (const r of rows) (byDay[localDayKey(r.scannedAt)] ??= []).push(r.overallScore);
+    const expected = Object.keys(byDay)
+      .sort()
+      .map((date) => ({ date, avg: Math.round(byDay[date]!.reduce((a, b) => a + b, 0) / byDay[date]!.length) }));
+
+    expect(res!.trend).toEqual(expected); // same-day pair collapses to one point (avg 70)
+  });
+
+  it("surfaces `movement` with the cohort size beside the deltas (deltas stays its narrow projection)", async () => {
+    // The rollup is what every dashboard tile actually holds, so the qualifier has to survive the trip
+    // out of the aggregate — not just out of the pure function.
+    const { prisma } = fakePrisma([{ scannedAt: new Date("2026-05-12T12:00:00Z"), overallScore: 70 }]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getOrgRollup("acme", { start: new Date("2026-05-01T00:00:00Z") });
+
+    // One repo (r1) on both sides: baseline 50 -> current 70.
+    expect(res!.movement).toEqual({ overall: 20, adoption: 10, rigor: 30, cohortSize: 1, onboarded: 0, departed: 0 });
+    expect(res!.deltas).toEqual({ overall: 20, adoption: 10, rigor: 30 });
+  });
+
+  it("carries contextHealth parsed off Repository.contextHealthJson (W4) — null for pre-W4/malformed rows", async () => {
+    const ch = {
+      version: "1",
+      present: true,
+      files: [{ path: "CLAUDE.md", sectionsScore: 40 }],
+      freshness: { score: 55, ageDays: 10, commitsSinceEdit: 12, approximate: true },
+      quality: { score: 40, signals: [] },
+      drift: { score: 100, refsTotal: 0, deadRefs: [] },
+      score: 48,
+    };
+    const { prisma } = fakePrisma([]);
+    prisma.repository.findMany = vi.fn(async () => [
+      { ...repoRow("r1", new Date("2026-05-12T12:00:00Z")), contextHealthJson: JSON.stringify(ch) },
+      { ...repoRow("r2", new Date("2026-05-12T12:00:00Z")), contextHealthJson: "not json" },
+      { ...repoRow("r3", new Date("2026-05-12T12:00:00Z")) }, // pre-W4 row: no column value at all
+    ]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getOrgRollup("acme");
+
+    expect(res!.repos.find((r) => r.fullName === "acme/r1")!.contextHealth).toEqual(ch);
+    // Malformed and absent blobs both degrade to null — the UI's "not assessed" path, never a crash.
+    expect(res!.repos.find((r) => r.fullName === "acme/r2")!.contextHealth).toBeNull();
+    expect(res!.repos.find((r) => r.fullName === "acme/r3")!.contextHealth).toBeNull();
+  });
+
+  it("carries the manifest readout off Repository.manifestJson (#13) — null for pre-#13/malformed rows", async () => {
+    const mf = {
+      status: "ok",
+      readAt: "2026-05-12T12:00:00.000Z",
+      generatedAt: "2026-05-01",
+      schemaVersion: "0.3.0",
+      schemaAhead: false,
+      capabilities: [{ name: "test", command: "npm test", verified: true, placeholder: false, wiredAt: ["ciHardPass"] }],
+      controls: { prePush: [], ciHardPass: ["test"] },
+      paths: {},
+      agents: [],
+      purpose: null,
+      boundaries: { neverTouch: [], secretsFrom: null },
+      placeholders: [],
+      unbacked: [],
+      notes: [],
+    };
+    const { prisma } = fakePrisma([]);
+    prisma.repository.findMany = vi.fn(async () => [
+      { ...repoRow("r1", new Date("2026-05-12T12:00:00Z")), manifestJson: JSON.stringify(mf) },
+      { ...repoRow("r2", new Date("2026-05-12T12:00:00Z")), manifestJson: "{ truncated" },
+      { ...repoRow("r3", new Date("2026-05-12T12:00:00Z")) }, // pre-#13 row: no column value at all
+    ]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getOrgRollup("acme");
+
+    expect(res!.repos.find((r) => r.fullName === "acme/r1")!.manifest).toEqual(mf);
+    // Both degrade to null, which the capability matrix lists as "not assessed — re-scan" and keeps
+    // out of every denominator. A parse failure must never surface as a repo declaring nothing.
+    expect(res!.repos.find((r) => r.fullName === "acme/r2")!.manifest).toBeNull();
+    expect(res!.repos.find((r) => r.fullName === "acme/r3")!.manifest).toBeNull();
+  });
+
+  it("flags a scan that scored NOTHING as latest.incomplete (incomplete-invisible-in-rollup)", async () => {
+    // The fleet gate scores from these persisted numbers alone, so an ingestion failure (0 / L1 with
+    // no dimension rows) is indistinguishable from a genuinely bad repo unless the shape travels with
+    // the score. `dimensions.length === 0` is the same predicate the engine stamps ScanReport.
+    // incomplete from, so the fleet reading and the per-repo gate agree.
+    const { prisma } = fakePrisma([]);
+    const broken = repoRow("broken", new Date("2026-05-12T12:00:00Z"));
+    broken.scans[0]!.dimensions = [];
+    broken.scans[0]!.level = "L1";
+    broken.scans[0]!.overallScore = 0;
+    prisma.repository.findMany = vi.fn(async () => [repoRow("ok", new Date("2026-05-12T12:00:00Z")), broken]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getOrgRollup("acme");
+
+    expect(res!.repos.find((r) => r.fullName === "acme/broken")!.latest!.incomplete).toBe(true);
+    // A repo with real dimension rows is never flagged — the bucket must not swallow measured repos.
+    expect(res!.repos.find((r) => r.fullName === "acme/ok")!.latest!.incomplete).toBe(false);
+  });
+});
+
+// ── computeCohortMovement — the delta travels WITH its denominator (cohort-size-not-returned) ─────
+//
+// A count travels with its predicate. "−4 points" measured over 4 matched repos out of 60 renders
+// identically to one measured over 58 unless the cohort size ships with the number, so a reader cannot
+// separate a fleet trend from a rounding artifact on a tiny cohort. And the composition change the
+// matching correctly EXCLUDES (repos onboarded or gone dark inside the window) is itself information —
+// it was previously computed inside the function and thrown away.
+describe("computeCohortMovement — cohort size and excluded composition travel with the deltas", () => {
+  it("reports the matched cohort size — the denominator every delta was measured over", () => {
+    // 2 of the 3 current repos have a baseline; the deltas are that pair's movement, over 2 repos.
+    const current = [snap("A", 80), snap("B", 90), snap("C", 40)];
+    const baseline = [snap("A", 70), snap("B", 80)];
+    const m = computeCohortMovement(current, baseline)!;
+    expect(m.overall).toBe(10);
+    expect(m.cohortSize).toBe(2);
+  });
+
+  it("a tiny cohort is DISTINGUISHABLE from a fleet-wide one at the same delta (the whole point)", () => {
+    // Both movements are −10. Before the cohort size travelled with them they were indistinguishable
+    // to every consumer, so a 1-repo artifact rendered exactly like a 20-repo fleet regression.
+    const tiny = computeCohortMovement([snap("A", 60)], [snap("A", 70), ...Array.from({ length: 19 }, (_, i) => snap(`x${i}`, 70))])!;
+    const fleet = computeCohortMovement(
+      Array.from({ length: 20 }, (_, i) => snap(`x${i}`, 60)),
+      Array.from({ length: 20 }, (_, i) => snap(`x${i}`, 70)),
+    )!;
+    expect(tiny.overall).toBe(fleet.overall); // -10 either way…
+    expect(tiny.cohortSize).toBe(1); // …and only the qualifier tells them apart
+    expect(fleet.cohortSize).toBe(20);
+  });
+
+  it("reports the EXCLUDED composition change: onboarded (no baseline) and departed (no current scan)", () => {
+    // C and D onboarded inside the window; E was in the baseline and has no current scan. None of the
+    // four move the deltas — that exclusion is correct, and reporting it is what makes it legible.
+    const current = [snap("A", 80), snap("C", 20), snap("D", 20)];
+    const baseline = [snap("A", 70), snap("E", 99)];
+    const m = computeCohortMovement(current, baseline)!;
+    expect(m).toEqual({ overall: 10, adoption: 10, rigor: 10, cohortSize: 1, onboarded: 2, departed: 1 });
+  });
+
+  it("no overlap ⇒ null, NOT a zero delta over a zero cohort", () => {
+    // "0 over 0 repos" would render as "no change"; null is "nothing measurable", which is the truth.
+    expect(computeCohortMovement([snap("A", 80)], [snap("B", 70)])).toBeNull();
+    expect(computeCohortMovement([], [snap("B", 70)])).toBeNull();
+    expect(computeCohortMovement([snap("A", 80)], [])).toBeNull();
+  });
+
+  it("the deprecated computeWindowDeltas is exactly the narrow projection — the two can never disagree", () => {
+    const current = [snap("A", 80), snap("B", 90), snap("C", 40)];
+    const baseline = [snap("A", 70), snap("B", 80)];
+    const m = computeCohortMovement(current, baseline)!;
+    expect(computeWindowDeltas(current, baseline)).toEqual({ overall: m.overall, adoption: m.adoption, rigor: m.rigor });
+    expect(computeWindowDeltas([snap("A", 80)], [snap("B", 70)])).toBeNull();
+  });
+});

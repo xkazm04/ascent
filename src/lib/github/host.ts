@@ -1,0 +1,198 @@
+// GitHub host resolution — one place to point the scanner at GitHub.com (default) or a self-hosted
+// GitHub Enterprise Server (GHES) behind a firewall. The bounded slice of the air-gap need (DIANE):
+// a GHES deployment can already reach its own GitHub, it just needs Ascent to call that host instead
+// of the hardcoded api.github.com. Uses the SAME env var names GitHub's own Actions runners set, so an
+// admin reuses values they already have.
+//
+// GHES examples:
+//   GITHUB_API_URL=https://ghe.acme.com/api/v3
+//   GITHUB_GRAPHQL_URL=https://ghe.acme.com/api/graphql
+//   GITHUB_RAW_URL=https://ghe.acme.com/raw        (include the /raw segment; omit on GitHub.com)
+//
+// Defaults are the GitHub.com hosts, so an unconfigured deployment behaves EXACTLY as before.
+
+/** Trim + drop a trailing slash; null for blank/unset so callers fall back to the GitHub.com default. */
+function envHost(v: string | undefined): string | null {
+  const t = v?.trim();
+  return t ? t.replace(/\/+$/, "") : null;
+}
+
+// FORGE-NEUTRAL INGESTION (moonshot #4). The base-URL resolvers take an OPTIONAL `{ host?: ForgeHost }`
+// so a caller that already holds a resolved host record (a self-hosted `Installation` row) can pass it
+// instead of reaching for the env. Unset — which is every call site in the tree today — is
+// byte-identical to the env resolution these functions have always done, and the GitHub adapter
+// deliberately passes nothing: GHES is configured by these env vars and that stays the single source
+// for GitHub. The parameter exists so the SIGNATURE is forge-shaped, not so GitHub's behaviour
+// changes. `ForgeHost` is imported type-only, so this module gains no runtime dependency.
+import type { ForgeHost } from "@/lib/forge/types";
+
+/** REST API base. GitHub.com default; `GITHUB_API_URL` for GHES (e.g. https://ghe.acme.com/api/v3). */
+export function githubApiBase(opts: { host?: ForgeHost } = {}): string {
+  return opts.host?.apiBase ?? envHost(process.env.GITHUB_API_URL) ?? "https://api.github.com";
+}
+
+/** GraphQL endpoint. GitHub.com default; `GITHUB_GRAPHQL_URL` for GHES (e.g. https://ghe.acme.com/api/graphql). */
+export function githubGraphqlUrl(opts: { host?: ForgeHost } = {}): string {
+  return opts.host?.graphqlUrl ?? envHost(process.env.GITHUB_GRAPHQL_URL) ?? "https://api.github.com/graphql";
+}
+
+/** Raw file-content host. GitHub.com default; `GITHUB_RAW_URL` for GHES (include the /raw path segment). */
+export function githubRawBase(opts: { host?: ForgeHost } = {}): string {
+  return opts.host?.rawBase ?? envHost(process.env.GITHUB_RAW_URL) ?? "https://raw.githubusercontent.com";
+}
+
+/** The WEB host (permalinks, not API calls). `GITHUB_SERVER_URL` is the name GitHub's own Actions
+ *  runners set, so a GHES admin reuses a value they already have; GitHub.com is the default. */
+export function githubWebBase(opts: { host?: ForgeHost } = {}): string {
+  return opts.host?.webBase ?? envHost(process.env.GITHUB_SERVER_URL) ?? "https://github.com";
+}
+
+/** The default User-Agent the REST scanner sends (most callers). */
+const DEFAULT_USER_AGENT = "ascent-maturity-scanner";
+
+/**
+ * Canonical GitHub REST request headers — the other half of "consistent auth" `host.ts` centralizes
+ * (the base URL is the first half). Returns `Accept`, `User-Agent`, and the pinned `X-GitHub-Api-Version`,
+ * adding `Authorization: Bearer <token>` only when a token is present (keyless public scans omit it).
+ * HTTP header names are case-insensitive on the wire, so the canonical TitleCase here is equivalent to
+ * the lowercase variant `list.ts` previously sent.
+ *
+ *  - `accept`    — override the media type (e.g. `application/vnd.github.sha` for the cheap head lookup).
+ *  - `userAgent` — override the UA convention per caller (org discovery / public listing set their own).
+ *  - `extra`     — merge additional headers (e.g. a conditional `If-None-Match`).
+ */
+export function ghHeaders(
+  token?: string,
+  opts: { accept?: string; userAgent?: string; extra?: Record<string, string> } = {},
+): Record<string, string> {
+  const h: Record<string, string> = {
+    Accept: opts.accept ?? "application/vnd.github+json",
+    "User-Agent": opts.userAgent ?? DEFAULT_USER_AGENT,
+    "X-GitHub-Api-Version": "2022-11-28",
+    ...opts.extra,
+  };
+  if (token) h.Authorization = `Bearer ${token}`;
+  return h;
+}
+
+/**
+ * `fetch()` with a per-call timeout so no upstream GitHub call can hang the function, merged with an
+ * optional caller `signal` (the request's signal) — the fetch aborts on whichever fires first, the
+ * timeout OR a client disconnect. The single source for this timeout/merge plumbing (REST
+ * source/governance + GraphQL each previously hand-rolled an identical copy); callers keep their own
+ * per-module timeout value and layer their own response-shaping on top of the `Response`.
+ *
+ * THE TIMEOUT COVERS THE BODY, not just the headers. This used to be a hand-rolled
+ * `AbortController` + `setTimeout` cleared in a `finally` — which fires the moment `fetch` resolves,
+ * i.e. as soon as the response HEADERS arrive. Every caller in this layer then read the body
+ * (`res.json()` / `res.text()`) outside any timeout at all, so a connection that stalled mid-body hung
+ * until the route's maxDuration or a client disconnect — precisely the failure the per-call timeout
+ * exists to prevent. `AbortSignal.timeout` stays associated with the response body stream, so the
+ * budget now bounds the WHOLE exchange (and there is no timer left to leak or clear).
+ *
+ * Budgets were raised alongside this change: a timeout that covers a multi-megabyte tree response
+ * needs more room than one that only had to reach the first byte.
+ */
+export function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  ms: number,
+  signal?: AbortSignal,
+): Promise<Response> {
+  const timeout = AbortSignal.timeout(ms);
+  return fetch(url, { ...init, signal: signal ? AbortSignal.any([timeout, signal]) : timeout });
+}
+
+/**
+ * Default timeout for a shared GitHub REST GET, covering headers AND body (see fetchWithTimeout).
+ * Raised from 12s when the budget stopped meaning "time to first byte": a big monorepo's recursive
+ * tree response is multi-megabyte, and the old figure — chosen for a headers-only window — would have
+ * newly aborted exactly the largest repos.
+ */
+export const DEFAULT_GET_TIMEOUT_MS = 30_000;
+
+/**
+ * Knobs for the shared GitHub REST GET helpers ({@link ghFetch} / {@link ghGetJson}). Each maps to a
+ * per-module value the four call sites previously hand-rolled, so routing through the helpers is
+ * behavior-preserving:
+ *  - `token`     — bearer auth (omitted for keyless public reads).
+ *  - `signal`    — caller abort signal, merged with the timeout inside {@link fetchWithTimeout}.
+ *  - `timeoutMs` — per-call timeout (defaults to {@link DEFAULT_GET_TIMEOUT_MS}).
+ *  - `userAgent` / `accept` / `extra` — forwarded to {@link ghHeaders}.
+ *  - `cache`     — applied ONLY when set, so a caller that previously omitted `cache` keeps the
+ *                  framework default (governance / the org listing) while no-store callers pass it.
+ */
+export interface GhFetchOpts {
+  token?: string;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  userAgent?: string;
+  accept?: string;
+  extra?: Record<string, string>;
+  cache?: RequestCache;
+}
+
+/**
+ * The single GitHub REST GET path: canonical {@link ghHeaders} + {@link fetchWithTimeout}, returning
+ * the raw `Response` so each caller layers its own status→error mapping / body parsing on top. The
+ * shared core the four per-module helpers (source `ghJson`, governance `getJson`, discover `ghUser`,
+ * the list pagination loop) route through — header/timeout policy lives in ONE place, and the two
+ * callers that previously used a bare `fetch()` gain the abort/timeout protection for free.
+ */
+export function ghFetch(url: string, opts: GhFetchOpts = {}): Promise<Response> {
+  const { token, signal, timeoutMs = DEFAULT_GET_TIMEOUT_MS, userAgent, accept, extra, cache } = opts;
+  const init: RequestInit = { headers: ghHeaders(token, { userAgent, accept, extra }) };
+  if (cache) init.cache = cache;
+  return fetchWithTimeout(url, init, timeoutMs, signal);
+}
+
+/**
+ * Shared GitHub REST GET that returns parsed JSON, throwing a generic `Error` carrying the status on a
+ * non-2xx. The common case for callers with no per-status taxonomy (org discovery); callers that map
+ * specific statuses to typed errors (source / list) or need the raw status/headers (governance / list)
+ * call {@link ghFetch} and shape the `Response` themselves.
+ */
+export async function ghGetJson<T>(url: string, opts: GhFetchOpts = {}): Promise<T> {
+  const res = await ghFetch(url, opts);
+  if (!res.ok) throw new Error(`GitHub ${res.status} on ${url}`);
+  return (await res.json()) as T;
+}
+
+/**
+ * Percent-encode a slash-delimited GitHub path or git ref while PRESERVING the slashes between its
+ * segments (names like `release/1.2`, `feature/x`, or a nested file path `src/a b/c.ts`). A whole-string
+ * `encodeURIComponent(ref)` would turn `release/1.2` into the single literal token `release%2F1.2`, which
+ * the trees/contents APIs and the raw host treat as a branch/path that doesn't exist — every read 404s
+ * and a scan silently degrades to a content-less report. Encoding each segment but joining on a raw `/`
+ * keeps the value valid both as a URL path and as a query value (a literal `/` is allowed in the query
+ * component). The single source for this encoding — used for refs (trees/commits) AND file paths
+ * (contents/raw/write) so the rationale can't be silently re-implemented and drift across call sites.
+ */
+export function encodePathSegments(s: string): string {
+  return s.split("/").map(encodeURIComponent).join("/");
+}
+
+/**
+ * The common fields of a GitHub `/…/repos` response row that BOTH repo-listing surfaces read (the
+ * public org/user listing in list.ts and the post-OAuth user-repo discovery in discover.ts). Each
+ * module extends this with the extra fields it happens to need (stars/description vs owner.type), but
+ * the listing identity + the "is this a scannable repo" rule live here so they can't drift.
+ */
+export interface GhRepoRow {
+  name: string;
+  full_name: string;
+  owner: { login: string };
+  html_url: string;
+  fork: boolean;
+  archived: boolean;
+  private: boolean;
+}
+
+/**
+ * The product-level definition of a "listable"/scannable repo: not a fork and not archived (forks
+ * aren't where active work happens; archived repos are frozen). The single source for this filter —
+ * both repo-listing surfaces gate on it so they can't silently diverge on what counts as listable.
+ */
+export function isListableRepo(r: { fork: boolean; archived: boolean }): boolean {
+  return !r.fork && !r.archived;
+}

@@ -1,0 +1,94 @@
+# Ascent CI — Ascent dogfooding its own rigor (D2/D3): lint, typecheck, unit tests, and build on
+# every PR and on pushes to the default branch.
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [master, main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      # `npm run verify` (lint → typecheck → test:coverage → build) mirrors this blocking set — the
+      # pre-push gate (.githooks/pre-push) and this job must change together. Coverage runs the same
+      # vitest suite as "Unit tests" below, so verify covers both steps without running it twice.
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Unit tests
+        run: npx vitest run
+      - name: Coverage gate (calibrated floors on src/lib/db, src/components/launch, src/components/onboarding)
+        run: npm run test:coverage
+      - name: Build
+        run: npm run build
+
+  e2e:
+    # Browser proof on every PR — backlog item 11. Kept as its OWN job, in parallel with `verify`,
+    # because it is the slow one (it boots a Next dev server twice) and a lint failure should not
+    # have to wait behind it.
+    #
+    # WHAT RUNS HERE, AND WHY ONLY THIS. Both suites below are self-contained on a fresh runner: no
+    # repository secret, no live model (LLM_PROVIDER=mock in both webServer envs), no database to
+    # provision. `playwright.config.ts` boots its dev server against a deliberately UNREACHABLE
+    # DATABASE_URL — a closed localhost port, which is exactly the degrade-gracefully state its specs
+    # assert — and `playwright.loop.config.ts` boots its own server on its own port against a
+    # throwaway PGlite dir it wipes at config load.
+    #
+    # DELIBERATELY EXCLUDED, with the reason each one cannot pass here:
+    #   • e2e/org-suite/**  — asserts business value over a SEEDED `vercel` org in a live Postgres,
+    #     against a LIVE model (playwright.org.config.ts pins claude-cli + claude-opus-5). Its
+    #     global-setup fails fast when the org has no data, so on a fresh runner it cannot even
+    #     start. Seeding it would need a database service, a GitHub token and paid model spend.
+    #   • the two live-scan specs in e2e/scan.spec.ts (`@livescan`) — they run a real GitHub ingest
+    #     of `sindresorhus/slugify`. Keyless in the sense that the runner's automatic token would
+    #     serve, but they put api.github.com's availability and rate limit on the critical path of
+    #     every PR, which is the one dependency a blocking gate should not carry. Run them locally
+    #     (`npx playwright test e2e/scan.spec.ts`) — nothing about them changed.
+    #   • e2e/connect/** IS included and currently SELF-SKIPS with a printed reason: the panel needs
+    #     GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY in the webServer env. It is here so that the day
+    #     those are provided the coverage arrives with them, and so the skip stays visible.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      # Cache the browser binaries (~150 MB) on the resolved @playwright/test version, so a version
+      # bump busts the cache and nothing else does.
+      - name: Resolve Playwright version
+        id: playwright
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      # Runs on a cache hit too: --with-deps installs apt libraries that live outside the cached
+      # path, and the browser download itself is skipped when it is already there.
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Public funnel e2e (mock LLM, unreachable DB)
+        run: npx playwright test --config playwright.config.ts --grep-invert @livescan e2e/scan.spec.ts e2e/connect
+      - name: Local-mode loop e2e (own server, throwaway PGlite, no network)
+        run: npm run test:e2e:loop
+      - name: Upload Playwright traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore

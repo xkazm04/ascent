@@ -1,0 +1,113 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# eval harness run artifacts (bench/repos.json IS committed)
+/bench/results
+
+# playwright
+/test-results
+/playwright-report
+/playwright/.cache
+
+# next.js
+/.next/
+/.next-empty/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (real secrets stay local; .env.example is committed as a template)
+.env*
+!.env.example
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# local Claude Code state (project agents/commands/skills ARE committed)
+.claude/settings.local.json
+.claude/logs/
+# git worktrees live here (linked checkouts) — local state, never commit the checkout
+.claude/worktrees/
+
+# stray local artifacts (accidental path-mangled dumps, IDE specs)
+/Userskazdakiroverify_ideas.json
+.kiro/
+
+# embedded local-dev PGlite database (scripts/pglite-server.mjs) — local data, never commit
+.pglite/
+
+# dev-only prototype/QA screenshots (scripts/proto-shot.mjs, shot-landing.mjs) + dev inspector log
+.proto-shots/
+.inspect-dev.log
+
+# LLM model-matrix bench artifacts (raw fixtures carry repo contents)
+bench/matrix-inputs/
+bench/matrix/
+
+# scan/audit harness output — internal working notes, never committed
+docs/harness/
+
+# Personas app local state (memory outbox, registered-context list)
+.personas/
+
+# /consult skill log (counts reach the ai-registry signals lane; the log itself stays local)
+.ai/consults.jsonl
+
+# BEGIN ai-registry linked skills (managed by ai-registry/scripts/link-skills.mjs)
+# The links are machine state; the declaration lives in .ai/manifest.yaml `skills:`.
+/.claude/skills/consult
+/.claude/skills/perfect
+/.claude/skills/project-populate
+/.claude/skills/scan-sweep
+/.claude/skills/ship-loop
+/.claude/skills/tiger
+/.claude/skills/uat
+# END ai-registry linked skills
+
+# BEGIN ai-registry linked skills (managed by ai-registry/scripts/link-registry.mjs)
+# Links are machine state; the declarations live in .ai/manifest.yaml (`skills:` and `knowledge.domains`).
+/.claude/skills/architect
+/.claude/skills/conform
+/.claude/skills/consult
+/.claude/skills/explorer
+/.claude/skills/onboarding
+/.claude/skills/perfect
+/.claude/skills/project-populate
+/.claude/skills/scan-sweep
+/.claude/skills/ship-loop
+/.claude/skills/spark
+/.claude/skills/tiger
+/.claude/skills/uat
+/.claude/rules/ai-registry-access.md
+/.claude/rules/ai-registry-software-engineering.md
+# END ai-registry linked skills
+
+# detached dev-server log (see docs/features/local-mode)
+dev-server.log

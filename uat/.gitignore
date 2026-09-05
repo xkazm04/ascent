@@ -1,0 +1,6 @@
+# Per-run capture evidence: full-page screenshots + DOM/text dumps. Large and
+# reproducible by re-running the driver, so kept out of git history. The textual
+# findings, reports and journals next to them ARE committed.
+runs/*/shots/
+_shots/
+driver/shots/

@@ -1,0 +1,268 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ascent.dev/schemas/app-passport-0.4.json",
+  "title": "App Readiness Passport",
+  "description": "A small, descriptive, tool-naming fingerprint for cross-comparing many apps at a glance: what an app is, what it is built on, how ready it is for LLM-automated development, and how ready it is for production. Sibling to the vendor-neutral .ai/manifest.yaml (which is the agent-facing CONTRACT); the passport is the human/portfolio-facing SCORECARD. Readers MUST ignore fields they do not recognize.",
+  "type": "object",
+  "required": ["passport", "passportVersion", "identity", "stack", "automationReadiness", "productionReadiness"],
+  "additionalProperties": true,
+  "properties": {
+    "passport": { "const": "app-passport", "description": "Stable schema id (not a URL, so it can't rot)." },
+    "passportVersion": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$", "description": "Semver of THIS schema. Additive within a major; readers ignore unknown fields." },
+    "generatedAt": { "type": "string", "format": "date", "description": "YYYY-MM-DD this passport was produced." },
+    "generatedBy": { "type": "string", "description": "Who/what produced it: 'manual', a scanner name, a CI job, etc." },
+    "migratedFrom": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$", "description": "Present when this object was LIFTED from an older stored passportVersion rather than freshly assessed. Migrated ordinal values are floors implied by the old shape, not measurements — re-generate to assess them." },
+    "declined": {
+      "type": "array",
+      "description": "Gaps the owner has SEEN and deliberately opted out of ('no error tracking by choice'). Owner intent, applied as a read-time overlay — never a scan output, and never a score change: a decline retires the matching blocker line and re-renders it here as a decision. Keyed by field path so it survives every re-scan.",
+      "items": {
+        "type": "object",
+        "required": ["path", "label"],
+        "additionalProperties": true,
+        "properties": {
+          "path": { "type": "string", "description": "Dotted passport field path, e.g. 'stack.monitoring.errorTracking'." },
+          "label": { "type": "string", "description": "Human label for the declined field." },
+          "reason": { "type": "string", "description": "Owner rationale for the choice." },
+          "blocker": { "type": "string", "description": "The blocker line this decline retired, kept so the choice stays auditable. PAYLOAD ONLY — never a join key; rewording it must not orphan the decline." },
+          "findingId": { "type": "string", "description": "0.4.0: minted id of the finding this decline stands against (e.g. 'prod.zero-observability'). THE join key, because it survives a rewording. Absent on declines recorded before 0.4.0." },
+          "at": { "type": "string", "format": "date", "description": "0.4.0: YYYY-MM-DD the choice was made, so a reader can age it." },
+          "needsReconfirm": { "type": "boolean", "description": "0.4.0: the accepted gap has CHANGED since it was accepted (severity rose, the finding's kind changed, or the decision aged out). The blocker then STAYS in blockers[] — an accepted risk about a different repo is not an accepted risk." },
+          "reconfirmReason": { "type": "string", "description": "What changed, in the sentence the owner is asked to re-decide on." }
+        }
+      }
+    },
+
+    "identity": {
+      "type": "object",
+      "required": ["name", "purpose"],
+      "additionalProperties": true,
+      "properties": {
+        "name": { "type": "string" },
+        "slug": { "type": "string", "description": "Stable, sortable key for portfolio tables." },
+        "purpose": { "type": "string", "description": "One line on what this app is for." },
+        "repo": { "type": "string", "description": "Canonical repo URL." },
+        "owner": { "type": "string", "description": "Org/user that owns it." },
+        "version": { "type": "string" },
+        "archetype": { "enum": ["solo", "team", "org"], "description": "How the repo is run — selects the readiness lens." },
+        "lifecycle": { "enum": ["prototype", "alpha", "beta", "ga", "maintenance", "deprecated"] },
+        "visibility": { "enum": ["public", "private", "internal"] },
+        "license": { "type": ["string", "null"], "description": "SPDX id or 'none' (legal blocker) or null if unknown." },
+        "criticality": { "enum": ["experimental", "internal", "business", "mission-critical"], "description": "How much a failure costs — frames how to read the readiness scores." }
+      }
+    },
+
+    "stack": {
+      "type": "object",
+      "description": "The tool-NAMING block. Unlike .ai/manifest.yaml this DELIBERATELY names concrete tools — that is the whole point of a first-sight comparison.",
+      "additionalProperties": true,
+      "properties": {
+        "languages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string" },
+              "primary": { "type": "boolean" },
+              "share": { "type": "number", "minimum": 0, "maximum": 1, "description": "Optional 0..1 share of the codebase." }
+            }
+          }
+        },
+        "runtime": { "type": "string", "description": "e.g. 'node>=20', 'python3.12', 'go1.22'." },
+        "frameworks": { "type": "array", "items": { "type": "string" }, "description": "Named, with version: e.g. ['next@16', 'react@19', 'tailwind@4']." },
+        "packageManager": { "type": "string" },
+        "persistence": {
+          "type": "array",
+          "description": "Each datastore the app relies on. Empty array = stateless.",
+          "items": {
+            "type": "object",
+            "required": ["kind"],
+            "properties": {
+              "kind": { "enum": ["relational", "document", "key-value", "graph", "blob", "search", "vector", "queue", "cache", "none"] },
+              "engine": { "type": "string", "description": "Named: 'postgres', 'aurora-dsql', 'redis', 'dynamodb', 's3', ..." },
+              "orm": { "type": ["string", "null"], "description": "Named: 'prisma', 'drizzle', 'sqlalchemy', or null." },
+              "migrations": { "enum": ["none", "scripted", "versioned"], "description": "Versioned + committed = safe deploys." },
+              "required": { "type": "boolean", "description": "false if the app degrades gracefully without it." }
+            }
+          }
+        },
+        "monitoring": {
+          "type": "object",
+          "description": "Named observability vendors/tools. THREE-VALUED since 0.4.0: a vendor name = observed; null = the scan looked and found none; the string 'unknown' = the scan could not look at all (the evidence, e.g. package.json, was outside the snapshot). 'unknown' is a scan-coverage fact and MUST NOT be reported as a real gap in the app's stack. evidence.fields[<path>] carries the rung behind each value.",
+          "additionalProperties": true,
+          "properties": {
+            "errorTracking": { "type": ["string", "null"], "description": "e.g. 'sentry', 'rollbar', or null." },
+            "logs": { "type": ["string", "null"], "description": "e.g. 'structured/pino', 'console', 'logtail', or null." },
+            "metrics": { "type": ["string", "null"], "description": "e.g. 'prometheus', 'datadog', or null." },
+            "tracing": { "type": ["string", "null"], "description": "e.g. 'otel', 'datadog-apm', or null." },
+            "uptime": { "type": ["string", "null"], "description": "Health/liveness endpoint or external monitor." }
+          }
+        },
+        "hosting": { "type": ["string", "null"], "description": "Named: 'vercel', 'aws-ecs', 'fly', 'self-hosted'; null when none was found; 'unknown' when the scan could not look (three-valued, see monitoring)." },
+        "integrations": {
+          "type": "array",
+          "description": "Every external service the app talks to. The 'kind' is the comparable axis; 'name' is the vendor.",
+          "items": {
+            "type": "object",
+            "required": ["name", "kind"],
+            "properties": {
+              "name": { "type": "string" },
+              "kind": { "enum": ["llm", "vcs", "auth", "payments", "email", "storage", "queue", "analytics", "search", "comms", "ci-cd", "infra", "other"] },
+              "direction": { "enum": ["inbound", "outbound", "bidirectional"] },
+              "auth": { "type": "string", "description": "How the app authenticates to it: 'oauth', 'api-key', 'iam', 'webhook-secret', ..." }
+            }
+          }
+        },
+        "secretsFrom": { "type": "string", "description": "Where secrets legitimately come from (vault/keyring/env), never the secrets themselves." }
+      }
+    },
+
+    "automationReadiness": {
+      "type": "object",
+      "description": "Readiness for FULL LLM-automated development: can an agent understand the repo, act in it, and verify its own change before a human looks? Reuses Ascent's L1..L5 ladder.",
+      "required": ["level", "score"],
+      "additionalProperties": true,
+      "properties": {
+        "level": { "enum": ["L1", "L2", "L3", "L4", "L5"], "description": "L1 Manual, L2 Assisted, L3 Augmented, L4 Integrated, L5 Autonomous." },
+        "score": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "artifacts": {
+          "type": "object",
+          "description": "The agent-facing inputs an autonomous agent needs to be effective.",
+          "additionalProperties": true,
+          "properties": {
+            "agentInstructions": { "type": "array", "items": { "type": "string" }, "description": "Files present: CLAUDE.md, AGENTS.md, .cursorrules, copilot-instructions.md, ..." },
+            "contextGraph": { "enum": ["none", "partial", "full"], "description": "Machine-readable map of modules->features (context-map.json, CONTEXT.md coverage)." },
+            "memory": { "enum": ["none", "adhoc", "curated", "governed"], "description": "Agent-written memory (decisions, gotchas), GRADED (0.2.0; was boolean in 0.1.0). none = absent · adhoc = present but unstructured (a single flat file / one lone entry) · curated = >=2 structured per-fact entries under .ai|.claude/memory, or an index plus entries · governed = curated PLUS observable process (supersede/replaces links between entries, a schema/policy file, or a CI job that checks the memory tree)." },
+            "manifest": { "type": "boolean", "description": "Carries an agent-facing capability manifest (.ai/manifest.yaml or equivalent)." },
+            "evals": { "enum": ["none", "partial", "full"], "description": "Golden/eval tests for any LLM-produced output." },
+            "skills": { "enum": ["none", "adhoc", "curated", "governed"], "description": "Reusable agent skills / subagents, GRADED (0.2.0; was boolean in 0.1.0). none = absent · adhoc = present but not a library (loose files, or a single skill) · curated = >=2 distinct skills that each carry their own definition file · governed = curated PLUS observable process (a registry/index at the skills root, a CI job referencing the skills tree, or a package script that lints/validates them)." }
+          }
+        },
+        "selfVerify": {
+          "type": "object",
+          "description": "Which capabilities an agent can run LOCALLY to prove a change before push. The more true, the safer autonomy.",
+          "additionalProperties": { "type": "boolean" },
+          "properties": {
+            "build": { "type": "boolean" },
+            "test": { "type": "boolean" },
+            "lint": { "type": "boolean" },
+            "typecheck": { "type": "boolean" }
+          }
+        },
+        "aiInWorkflow": { "type": "boolean", "description": "Evidence AI is actually used (AI co-author trailers, agent-authored PRs), not just configured." },
+        "blockers": { "type": "array", "items": { "type": "string" }, "description": "What caps the level — the highest-leverage things to fix next. RENDERED TEXT: a projection of findings[].text, kept for pre-0.4.0 readers." },
+        "findings": { "$ref": "#/$defs/findings" }
+      }
+    },
+
+    "productionReadiness": {
+      "type": "object",
+      "description": "Readiness to be TRUSTED in production. Each component is an ordinal enum so a portfolio sorts trivially; 'score' and 'band' are the headline.",
+      "required": ["band", "score"],
+      "additionalProperties": true,
+      "properties": {
+        "band": { "enum": ["prototype", "internal", "beta", "production", "hardened"], "description": "prototype 0-24, internal 25-44, beta 45-64, production 65-84, hardened 85-100." },
+        "score": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "ci": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "level": { "enum": ["none", "build", "checks", "gated", "delivery", "progressive"], "description": "none -> build-only -> runs checks (non-blocking) -> checks GATE merge -> automated deploy -> progressive/canary+reversible." },
+            "provider": { "type": ["string", "null"], "description": "Named: 'github-actions', 'gitlab-ci', 'circleci'." },
+            "gates": { "type": "array", "items": { "type": "string" }, "description": "What blocks merge: ['lint','typecheck','test','build']." }
+          }
+        },
+        "tests": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "level": { "enum": ["none", "smoke", "partial", "substantial", "comprehensive"], "description": "none -> a few -> meaningful but gaps -> critical paths covered -> broad unit+integration+e2e with coverage tracked." },
+            "coveragePct": { "type": ["number", "null"], "minimum": 0, "maximum": 100, "description": "Measured line/branch coverage, or null if not tracked." },
+            "frameworks": { "type": "array", "items": { "type": "string" }, "description": "Named: 'vitest', 'playwright', 'pytest'." },
+            "criticalPathCovered": { "type": "boolean" }
+          }
+        },
+        "security": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "level": { "enum": ["none", "policy", "scanning", "gated", "supply-chain"], "description": "none -> SECURITY.md only -> secret/dep scanning present -> SAST/SCA GATES merges -> + SBOM/signing/provenance." },
+            "tools": { "type": "array", "items": { "type": "string" }, "description": "Named: 'codeql', 'dependabot', 'gitleaks', 'trivy', 'cosign'." }
+          }
+        },
+        "observability": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "level": { "enum": ["none", "logs", "errors", "metrics", "tracing"], "description": "none -> structured logs -> error tracking -> + metrics/dashboards -> + distributed tracing/alerting." }
+          }
+        },
+        "delivery": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "migrations": { "enum": ["none", "scripted", "versioned"] },
+            "iac": { "type": "boolean", "description": "Infrastructure declared as code (Terraform/CDK/Pulumi)." },
+            "rollback": { "type": "boolean", "description": "A defined, tested way back (versioned deploys, feature flags)." }
+          }
+        },
+        "blockers": { "type": "array", "items": { "type": "string" }, "description": "Release-gating issues, highest severity first. RENDERED TEXT: a projection of findings[].text, kept for pre-0.4.0 readers." },
+        "findings": { "$ref": "#/$defs/findings" }
+      }
+    },
+
+    "links": {
+      "type": "object",
+      "description": "Pointers to richer artifacts so the passport stays thin.",
+      "additionalProperties": true,
+      "properties": {
+        "manifest": { "type": "string", "description": "Path to the agent-facing contract (.ai/manifest.yaml)." },
+        "contextMap": { "type": "string" },
+        "docs": { "type": "string" },
+        "report": { "type": "string", "description": "Latest full maturity/readiness report this was summarized from." }
+      }
+    },
+
+    "evidence": {
+      "type": "object",
+      "description": "Provenance, so a reader knows how much to trust the scores.",
+      "additionalProperties": true,
+      "properties": {
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1, "description": "0..1 — how much of the app could be inspected." },
+        "source": { "type": "string", "description": "How it was produced: 'static-scan', 'manual-audit', 'ci-export'." },
+        "files": { "type": "array", "items": { "type": "string" }, "description": "Files the assessment was synthesized from — drift-check these." },
+        "notes": { "type": "array", "items": { "type": "string" }, "description": "Caveats a reader must carry, e.g. the note a version migration leaves when an ordinal was lifted from an older shape instead of assessed." },
+        "fields": {
+          "type": "object",
+          "description": "0.4.0: PER-FIELD detection strength, keyed by dotted passport path (the same vocabulary the declined[] paths use). Without it a vendor guessed from a dependency list and one read off a fetched command carry identical apparent authority. Deliberately NOT exhaustive — only the named/heuristic fields are rated, so the passport stays one screen long. A reader filtering on strength MUST prefer fields[path] and fall back to evidence.confidence only when the path is absent.",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["confidence", "basis"],
+            "additionalProperties": true,
+            "properties": {
+              "confidence": { "type": "number", "minimum": 0, "maximum": 1, "description": "The rung's FIXED value — not a judgement call, so two passports are comparable." },
+              "basis": { "enum": ["observed", "declared", "inferred", "unobserved"], "description": "observed (1.0) the artifact itself was read; declared (0.8) a dependency/config declaration names it but nothing shows it running; inferred (0.5) a path/name heuristic over the tree index; unobserved (0) the evidence was not in the snapshot and the field reads 'unknown'." }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "findings": {
+      "type": "array",
+      "description": "0.4.0: the blockers WITH MINTED IDENTITY. A persisted judgment (an owner decline, a fleet rollup bucket) must attach to a stable id with the rendered string as payload — joining on the prose orphans every decline the moment the wording is regenerated, and splits one rollup bucket into two.",
+      "items": {
+        "type": "object",
+        "required": ["id", "code", "text", "severity"],
+        "additionalProperties": true,
+        "properties": {
+          "id": { "type": "string", "description": "Axis-scoped CAUSE code, e.g. 'prod.zero-observability'. Stable across rewordings; never derived from the text." },
+          "code": { "type": "string", "description": "The cause code without its axis prefix — the fleet rollup bucket key." },
+          "text": { "type": "string", "description": "The rendered sentence as of this generation. Payload, never a join key." },
+          "severity": { "enum": ["info", "warn", "block", "critical"], "description": "Ordinal. 'critical' is never emitted by a scan: it is the escalated reading of a 'block' once an owner marks the repo business/mission-critical or GA — the change of circumstance that re-opens an old decline." }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,411 @@
+// POST /api/scan/stream  { url, mock?, installationId? }
+// Server-Sent Events: emits `progress` events through the scan, then a `result` event
+// with the final ScanReport (or an `error` event). Powers the live progress UI.
+
+import { NextResponse } from "next/server";
+import { GitHubError, parseRepoUrl } from "@/lib/github/source";
+import { reportHandledError } from "@/lib/api/respond";
+import { resolveScanAuth, scanRepository } from "@/lib/scan";
+import { coalesceScan } from "@/lib/cache";
+import { lookupCachedScan, lookupScopedScan, resolveHeadWithHint, type ScanCacheLookup } from "@/lib/scan-cache";
+import { isScopedScan, scopeWarning } from "@/lib/scan-scope";
+import { resolveScanScope } from "@/lib/scan-scope-server";
+import { tooManyRequests } from "@/lib/rate-limit";
+import { cacheAndPersistScan, classifyScanResult, consumeScanQuota } from "@/lib/scan-finalize";
+import { scanAuthGate, scanRateLimitGate } from "@/lib/scan-gates";
+import { getViewer } from "@/lib/access";
+import { publicBaseUrl } from "@/lib/site";
+import { reportPermalink } from "@/lib/ui";
+import { dispatchScanCompletionEmail, emailSendingEnabled, isValidEmail } from "@/lib/email";
+import { SSE_HEADERS, makeSseSend } from "@/lib/sse-server";
+import type { ScanProgress } from "@/lib/types";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+// 300s (Vercel's max on Pro): a live Gemini-Flash scan plus the in-request completion email must fit
+// inside one function invocation. The client backstop (SCAN_CLIENT_TIMEOUT_MS) sits above this.
+export const maxDuration = 300;
+
+export async function POST(request: Request) {
+  const body = (await request.json().catch(() => ({}))) as {
+    url?: string;
+    mock?: boolean;
+    installationId?: string;
+    fresh?: boolean;
+    // Head sha/etag the /report peek resolved. Accepted for backward-compat with older clients but NO
+    // LONGER USED for ingestion: the head is re-resolved server-side (see below) so a client-supplied
+    // sha can't pin/stamp/persist the scored commit. Kept in the type so clients still sending them
+    // don't fail validation.
+    headSha?: string;
+    headEtag?: string | null;
+    // "Email me when it's done" opt-in. `email` is a custom recipient used ONLY when the signed-in
+    // account has no email; otherwise the trusted viewer email is used (see the send below).
+    notify?: boolean;
+    email?: string;
+    // Optional SCOPE (G7-07 / G7-08): a git ref to score instead of the default branch, and/or a
+    // monorepo sub-path to aim the ingestion budget at. Both are validated + resolved server-side
+    // (resolveScanScope); a scoped result is never persisted to the shared corpus.
+    ref?: string;
+    subPath?: string;
+  };
+  if (!body.url || typeof body.url !== "string") {
+    return NextResponse.json({ error: "Missing 'url' in request body." }, { status: 400 });
+  }
+
+  // Rate-limit the live scan funnel (shares the per-IP/global budget with /api/scan). The /report
+  // flow peeks the cache first (cheap, unthrottled); reaching the stream means a real scan.
+  // Shared with /api/scan via scanRateLimitGate (cross-instance ceiling + the rate_limit quota event);
+  // rejected here, before the SSE stream opens, so it renders as a plain JSON 429. Stays BEFORE the
+  // quota consume below.
+  const rl = await scanRateLimitGate(request);
+  if (!rl.ok) return tooManyRequests(rl.rl); // the whole result: these two are the only routes on the shared scan budget, so a global refusal must say so
+
+  const url = body.url;
+  const mock = Boolean(body.mock);
+  const fresh = Boolean(body.fresh);
+  const parsed = parseRepoUrl(url);
+  // Reject a provably-invalid URL BEFORE the quota block below: scanRepository would throw
+  // INVALID_URL anyway, but only after the monthly slot was consumed — a typo must not burn one of
+  // the anonymous tier's free slots. Mirrors the JSON route's INVALID_URL → 400 mapping.
+  if (!parsed) {
+    return NextResponse.json(
+      { error: "Enter a valid GitHub repository URL, e.g. https://github.com/owner/repo.", code: "INVALID_URL" },
+      { status: 400 },
+    );
+  }
+  // noAmbientToken: the owner is an installed org this caller may not mint for — never downgrade to
+  // the operator PAT, which would leak the private repo the mint gate just denied.
+  const { token, orgSlug, noAmbientToken } = await resolveScanAuth(parsed, body.installationId);
+
+  // Supabase login wall. In production (Supabase configured + bypass hard-off, via authGateEnabled) a
+  // PRIVATE / installed-org scan requires a signed-in viewer. The anonymous PUBLIC funnel is exempt by
+  // default (UAT TOMAS-L1-01 — the advertised free no-signup scan was answering 401; rationale and the
+  // ASCENT_REQUIRE_SIGNIN_FOR_PUBLIC_SCAN opt-in live in scan-gates.ts). LLM cost on that funnel is
+  // ceilinged by the burst limiter above and the monthly free-scan quota below, not by this wall.
+  // Viewing a SAVED report stays free: the client peeks the cache
+  // (GET /api/scan?peek=1, ungated) first and only reaches this stream for a real new scan. No-op in
+  // dev / when auth is bypassed. Fail fast before the quota + stream.
+  // Resolve the viewer ONCE here, in request scope — next/headers cookies are NOT readable inside the
+  // stream's start() callback below, so getViewer() there would return null. Used for the gate AND the
+  // completion-email recipient.
+  const viewer = await getViewer();
+  // Shared with /api/scan via scanAuthGate; the viewer is handed to it already resolved (it takes a
+  // thunk so the JSON route can keep its lazy resolve). Rejected before the stream opens → JSON 401.
+  const authGate = await scanAuthGate(() => viewer, { publicScan: orgSlug === "public" && !token });
+  if (!authGate.ok) {
+    return NextResponse.json({ error: "Sign in to run a scan.", code: "auth_required" }, { status: 401 });
+  }
+
+  // SCOPE (G7-07 / G7-08). Placed AFTER the sign-in wall (so an anonymous caller can't drive the
+  // GitHub ref-resolve behind a PRIVATE/org scan's installation token — the funnel exemption above is
+  // token-less by construction, and `noAmbientToken` below is what keeps a non-installed owner's
+  // private repo from being probed through the operator PAT) and BEFORE the quota consume below (so a typo'd branch name 400/404s
+  // without burning one of the free tier's monthly slots — the same reason an unparseable URL is
+  // rejected up front). The ref is resolved to its own commit sha server-side; see scan-scope-server.ts
+  // for why that, and not the client's word for it, is what keeps the cache collision-free.
+  // `noAmbientToken` is honored so a ref resolve can never confirm a private repo's branches through
+  // the operator PAT.
+  const scopeToken = token ?? (noAmbientToken ? undefined : process.env.GITHUB_TOKEN);
+  const scoping = await resolveScanScope(parsed, { ref: body.ref, subPath: body.subPath }, { token: scopeToken });
+  if (scoping.error) {
+    return NextResponse.json({ error: scoping.error.message, code: scoping.error.code }, { status: scoping.error.status });
+  }
+  // Completion-email recipient (when opted in). For a SIGNED-IN viewer we ONLY ever send to their own
+  // verified account address — never a client-supplied `email`. The old `viewer?.email ?? body.email`
+  // fallback let an authenticated viewer with no account email have Ascent's verified SES domain mail an
+  // ARBITRARY recipient (an open-relay / branded-spam vector). The custom `email` opt-in is honored ONLY
+  // on the anonymous public funnel (no viewer, where there's no account address), and that funnel is
+  // already rate-limited per-IP/global; a fuller anti-abuse step (double opt-in confirmation for an
+  // anonymous recipient) is tracked as a follow-up. Resolved here so the stream closure can use it.
+  const notifyTo = !body.notify
+    ? undefined
+    : viewer
+      ? (isValidEmail(viewer.email) ? viewer.email : undefined)
+      : (isValidEmail(body.email) ? body.email.trim() : undefined);
+
+  // Monthly SOFT gate (rolling 30-day window, default 5 — src/lib/public-scan-quota.ts is the single
+  // source of truth for the window and allowance): public scans get a free per-window allowance
+  // (shared with /api/scan via
+  // consumeScanQuota). The /report flow peeks the cache first (cheap, unconsumed); reaching the stream
+  // means a real scan, so consume one slot here. Private (token) scans are credit-metered and skip this.
+  const quota = await consumeScanQuota(request, { orgSlug, token, mock });
+  if (quota.blocked) return quota.blocked;
+  const quotaRemaining = quota.quotaRemaining;
+  const quotaResetAt = quota.quotaResetAt;
+  const quotaScope = quota.quotaScope;
+  // Refund the consumed slot from the in-stream no-delivery paths below (cached hit, degrade-to-mock,
+  // failure) — the free tier meters on commit, not attempt (same policy as credit metering).
+  const refundQuota = quota.refund;
+
+  // Hoisted so the stream's cancel() (fired when the client disconnects and tears the stream down
+  // mid-scan) can stop the heartbeat immediately, rather than letting it fire on a dead controller
+  // until start() unwinds. The scan itself already aborts via request.signal on the same disconnect.
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const enc = new TextEncoder();
+      const send = makeSseSend(controller);
+
+      // Keepalive: the longest silent window is provider.assess() (between the score and
+      // compose stages), which can run many seconds. Proxies/load balancers (and Vercel
+      // buffering) drop idle SSE connections after ~30–60s, leaving the browser stuck mid-scan.
+      // A periodic SSE comment line keeps the connection warm; it's ignored by EventSource.
+      heartbeat = setInterval(() => {
+        try {
+          controller.enqueue(enc.encode(`: ping\n\n`));
+        } catch {
+          /* controller closed */
+        }
+      }, 15_000);
+
+      try {
+        // Conditional head lookup (free 304 when unchanged) pins the cache key to the current
+        // commit, then probes the in-memory + persistent (cross-instance) caches — so an
+        // unchanged repo streams instantly even on a cold instance. Only anonymous scans share
+        // this public cache. A `fresh` re-test bypasses the cached report but still caches its
+        // result. A failed head lookup degrades to a SHA-less best-effort key inside the helper.
+        let lookup: ScanCacheLookup | null = null;
+        // The repo's REAL default-branch head. Needed twice: it keys an ordinary scan, and it is the
+        // yardstick isScopedScan measures the requested ref against — so `?ref=main` (or a sha that
+        // happens to be the head) is recognised as an ordinary scan and keeps full cache reuse instead
+        // of being needlessly demoted to a non-persisted scoped run.
+        let defaultHeadSha: string | null = null;
+        // A sub-path scan is scoped no matter what the head is, so skip the full cached lookup (whose
+        // report is for the WHOLE repo and must never be served here) and resolve the head with the
+        // cheap conditional hint instead — purely to pin the scoped key to a commit.
+        const hasSubPathScope = Boolean(scoping.scope.subPath);
+        if (parsed && !token && hasSubPathScope) {
+          defaultHeadSha = await resolveHeadWithHint(parsed, scopeToken);
+        } else if (parsed && !token) {
+          // Resolve the head SERVER-SIDE (a conditional head request — a free 304 when unchanged),
+          // never from the client-supplied body.headSha. The peek→stream handoff previously fed that
+          // sha in as `preResolved` to skip this request, but lookupCachedScan returns it as
+          // lookup.headSha, which then PINS ingestion (scan.ts: pinnedRef = ref ?? headSha) and is
+          // STAMPED + PERSISTED as the report's commit identity — so a caller could pass any historical
+          // / cherry-picked SHA and have a flattering commit scored, saved, and later served as the
+          // repo's "most recent" public report. The client sha must never drive the scored ref; the
+          // (cheap, mostly-304) re-resolve here keys, scores, and persists the true head. [security]
+          lookup = await lookupCachedScan({ parsed, useLLM: !mock, orgSlug: "public", fresh });
+          defaultHeadSha = lookup.headSha;
+        }
+
+        // Is this scan about something OTHER than "the whole repo at its default-branch head"? A ref
+        // that resolves to the default head is NOT scoped — same commit, same tree, same score — so it
+        // keeps the ordinary cache entry and ordinary persistence. A private (token) scan has no
+        // resolved default head here, so any requested scope counts as scoped: the safe side.
+        const scoped = scoping.requested && isScopedScan(scoping.scope, token ? null : defaultHeadSha);
+        if (scoped) {
+          // Swap in a SCOPED lookup: keyed on the ref's OWN commit sha plus an explicit sub-path
+          // segment, memory-tier only, DB tier skipped. This also discards any whole-repo `cached`
+          // report the default lookup found — serving that for a ref/sub-path request would answer a
+          // different question than the one asked. Only the cacheable anonymous path gets an entry at
+          // all (the token path stays uncoalesced/uncached, exactly as before).
+          lookup =
+            parsed && !token
+              ? lookupScopedScan({
+                  parsed,
+                  useLLM: !mock,
+                  refSha: scoping.pinSha ?? defaultHeadSha,
+                  subPath: scoping.scope.subPath,
+                  fresh,
+                })
+              : null;
+        }
+        if (lookup?.cached) {
+          // The JSON route serves cache hits BEFORE its quota block; the stream consumes first
+          // (the cache probe lives inside start()), so refund the slot — a cached report is
+          // free everywhere. The quota headers already sent overstate usage by this one slot.
+          await refundQuota();
+          send("progress", {
+            stage: "done",
+            message: lookup.source === "db" ? "Loaded from a saved scan" : "Loaded from cache",
+            pct: 100,
+          });
+          send("result", lookup.cached);
+          return;
+        }
+
+        // Progress sink for THIS connection. When the scan is coalesced, coalesceScan fans the owner's
+        // frames out to every joined caller through this (and replays the latest frame on join), so a
+        // second viewer of the same uncached commit sees live progress instead of a stalled-looking bar.
+        // The non-coalesced (token/private) path calls it directly.
+        const sendProgress = (p: ScanProgress) => send("progress", p);
+        const runScan = (signal: AbortSignal, emit: (p: ScanProgress) => void = sendProgress) =>
+          scanRepository(url, {
+            token,
+            noAmbientToken,
+            mock,
+            // Individual tier (decision 5): a signed-in viewer's public-funnel scan reads THEIR
+            // personal-org standing decisions into the prompt (viewer was resolved in request scope
+            // above — cookies aren't readable in start()). Org-persisted scans keep org scoping.
+            decisionOrgSlug: orgSlug === "public" && viewer ? viewer.login.trim().toLowerCase() : undefined,
+            onProgress: emit,
+            // Pin the scored commit to the sha resolved for the cache key, so a push landing mid-scan
+            // can't key the report under a different commit than it actually scored. On a scoped scan
+            // that sha IS the requested ref's own commit (resolved server-side), which is precisely
+            // what stops a ref scan from being keyed by — and colliding with — the default branch.
+            headSha: (scoped ? (scoping.pinSha ?? defaultHeadSha) : lookup?.headSha) ?? undefined,
+            // The resolved ref sha (never the client's ref string) and the normalized sub-path. Only
+            // set on a genuinely scoped scan, so a `?ref=main` request ingests byte-for-byte what a
+            // plain default-branch scan does.
+            ...(scoped
+              ? {
+                  ref: scoping.pinSha ?? undefined,
+                  subPath: scoping.scope.subPath,
+                  scopeCaveat: scopeWarning(scoping.scope),
+                }
+              : {}),
+            // Abort the scan (GitHub ingest + LLM) when the browser navigates away or aborts the SSE
+            // stream, instead of running it to completion for a closed connection.
+            signal,
+          });
+        // Coalesce concurrent scans of the same uncached commit (anonymous cacheable path only) onto a
+        // single run, so a double-mount / peek-then-stream / two tabs don't each pay a full ingest+LLM.
+        // The token path is per-tenant — never shared — so it scans directly.
+        // A JOINER shares the owner's computation, so the slot it consumed above buys nothing — refund
+        // it ("meter on commit, not attempt", the rule the credit side honors via `deduped`). Without
+        // this, two tabs racing the same commit paid 2 of the 5 monthly slots for one shared report,
+        // while landing 1s after completion (a cache hit) paid 1. (scan-pipeline-ingestion #4)
+        let joinedInflight = false;
+        const report = lookup
+          ? await coalesceScan(
+              lookup.cacheKey,
+              runScan,
+              request.signal,
+              () => {
+                joinedInflight = true;
+                // Tell the joiner immediately that it attached to a run already under way — the replayed
+                // last frame (below, inside coalesceScan) may still be a stage or two behind, and an
+                // unexplained pause at 0% reads as a broken scan.
+                send("progress", { stage: "fetch", message: "Joining a scan already in progress…", pct: 5 });
+              },
+              sendProgress,
+            )
+          : await runScan(request.signal);
+        if (joinedInflight) await refundQuota();
+
+        // Derive the cache-poisoning guards — shared with /api/scan via classifyScanResult.
+        // degradedToMock: a transient LLM failure fell back to MockProvider but the lookup key is still
+        // ::llm. lowCoverage: silent per-file fetch failures degraded coverage without failing the LLM.
+        const resultClass = classifyScanResult(report, mock);
+        const { degradedToMock, lowCoverage, partialPrSlice } = resultClass;
+        // Whether cacheAndPersistScan will actually store this report. Keep this in step with its
+        // `authoritative` guard: the completion email links a permalink that only resolves once the
+        // report is persisted, so every poisoning vector must suppress the mail too.
+        // `!scoped` is part of this: a ref/sub-path report is never persisted, so its permalink would
+        // not resolve — the completion email must be suppressed for the same reason a degraded scan
+        // suppresses it.
+        const willPersist = !scoped && !degradedToMock && !lowCoverage && !partialPrSlice;
+        // A degrade-to-mock run cost no LLM inference and delivered the deterministic floor, not
+        // the product the slot pays for — refund it, mirroring the credit rule ("a degrade-to-mock
+        // run is free").
+        if (degradedToMock) await refundQuota();
+        // Cache + persist behind the shared guards: skip BOTH caches on a degraded/low-coverage report
+        // (getScanReportByCommit's DB tier would otherwise re-serve the floor cross-instance under ::llm).
+        // The stream surfaces nothing from the result, so the deduped/persistedOk return is ignored here.
+        // Pass the whole guard object so a new poisoning vector (e.g. partialPrSlice) can't be dropped.
+        await cacheAndPersistScan(report, resultClass, {
+          tag: "scan/stream",
+          repo: parsed ? `${parsed.owner}/${parsed.repo}` : url,
+          orgSlug,
+          lookup,
+          // A scoped (ref / sub-path) report describes a different subject than "this repository" —
+          // keep it out of the durable corpus and out of the regression-alert baseline. The in-memory
+          // entry is still written under the scoped key, which cannot collide with the whole-repo one.
+          persist: !scoped,
+        });
+        // Stop the keepalive at the terminal frame (co-located), not only in finally, so a 15s ping
+        // can't interleave after the result on a slow close.
+        if (heartbeat) clearInterval(heartbeat);
+        heartbeat = undefined;
+        // Notify PRE-FLIGHT frame, emitted BEFORE `result` on purpose: the client settles on the
+        // `result` frame and stops reading, so anything sent after it never reaches the user. The
+        // status is derived from the SAME sender selection the dispatch below uses
+        // (emailSendingEnabled), so "unconfigured" is authoritative — on a deploy with no provider the
+        // user is told nothing will be emailed instead of being left to wait for mail that the no-op
+        // sender silently swallowed while reporting success.
+        if (notifyTo && willPersist) {
+          send("notify", {
+            to: notifyTo,
+            status: emailSendingEnabled() ? "sending" : "unconfigured",
+            ...(emailSendingEnabled()
+              ? {}
+              : { message: "Email isn't configured on this deployment, so we can't send the report link." }),
+          });
+        }
+        send("result", report);
+
+        // "Email me when it's done" (opt-in). Sent AFTER the result frame so the report appears
+        // immediately; it still runs inside this (Vercel) invocation before the stream closes. Only
+        // when the report was actually PERSISTED — a degraded/low-coverage scan isn't saved, so its
+        // permalink wouldn't resolve. Recipient is the trusted account email, or the user-supplied
+        // custom address ONLY when the account has none. Best-effort: dispatchScanCompletionEmail
+        // never throws and is time-bounded, so a flaky SES call can't fail or delay-close the scan.
+        // The outcome is CONSUMED (not discarded): `skipped` means no provider is wired and nothing was
+        // sent — an operator-visible log line, matching the "unconfigured" frame the user just got.
+        if (notifyTo && willPersist) {
+          const full = `${report.repo.owner}/${report.repo.name}`;
+          const url = `${publicBaseUrl()}${reportPermalink(full, report.repo.headSha)}`;
+          const mail = await dispatchScanCompletionEmail({ to: notifyTo, repoFullName: full, url, report });
+          if (mail.skipped) {
+            console.warn("[scan/stream] notify opted in but no email provider is configured — nothing sent", { repo: full });
+          } else if (!mail.ok) {
+            console.error("[scan/stream] completion email failed to send", { repo: full });
+          }
+        }
+      } catch (err) {
+        if (heartbeat) clearInterval(heartbeat);
+        heartbeat = undefined;
+        // No report was delivered — 404/typo, upstream failure, or a client abort mid-scan. Refund
+        // the monthly slot in every case: the user received nothing, and a mid-scan refresh or a
+        // GitHub blip must not burn one of the free tier's monthly slots.
+        await refundQuota();
+        // A deliberate abort (client disconnect / scan timeout) is not a scan error to report — the
+        // consumer is already gone and the scan stopped as intended. Don't emit a misleading
+        // "Unexpected error" frame (the JSON route maps the same AbortError to a 499); just unwind.
+        if (!(err instanceof Error && err.name === "AbortError") && !request.signal.aborted) {
+          const payload =
+            err instanceof GitHubError
+              ? { error: err.message, code: err.code }
+              : { error: "Unexpected error while scanning the repository." };
+          // A GitHubError is a known upstream outcome; anything else is a defect. Report the latter:
+          // the 200 and headers went out long ago, so this failure can never reach onRequestError, and
+          // the app's most expensive path was failing invisibly in production. No status — an SSE
+          // failure has no status left to carry.
+          if (!(err instanceof GitHubError)) {
+            reportHandledError(err, { message: "scan/stream failed after the stream opened" });
+          }
+          send("error", payload);
+        }
+      } finally {
+        if (heartbeat) clearInterval(heartbeat);
+        heartbeat = undefined;
+        try {
+          controller.close();
+        } catch {
+          /* already closed — e.g. the client disconnected and the stream was torn down */
+        }
+      }
+    },
+    // Client disconnected and tore the stream down while start() is still mid-scan. Stop the
+    // heartbeat now so it can't keep firing on a dead controller; the in-flight scan is already
+    // wired to request.signal (aborts on the same disconnect) and unwinds via start()'s finally.
+    cancel() {
+      if (heartbeat) clearInterval(heartbeat);
+      heartbeat = undefined;
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      ...SSE_HEADERS,
+      connection: "keep-alive",
+      // Free public scans left in this bucket's rolling 30-day window (after this scan), plus when the
+      // window resets; only set when the monthly gate enforced (public funnel). Lets the client
+      // warn before the gate trips.
+      ...(quotaRemaining !== null ? { "x-ascent-quota-remaining": String(quotaRemaining) } : {}),
+      ...(quotaResetAt !== null ? { "x-ascent-quota-reset": String(quotaResetAt) } : {}),
+      ...(quotaScope !== null ? { "x-ascent-quota-scope": quotaScope } : {}),
+    },
+  });
+}

@@ -1,0 +1,52 @@
+// POST /api/org/plan { org, plan: "free"|"pro"|"team"|"enterprise" } -> { ok, plan }
+//
+// Owner-gated tier change. A downgrade to "free" is always allowed; switching TO a paid/unlimited
+// tier is the manual-override path (ASCENT_ALLOW_PLAN_CHANGES), because the real paid upgrade flows
+// through billing checkout (CRED-1) — without this guard an owner could self-assign `enterprise` and
+// mint unlimited free scans (the same hazard the credit-grant endpoint gates).
+
+import { NextResponse } from "next/server";
+import { isDbConfigured, recordOrgAudit, setOrgPlan } from "@/lib/db";
+import { requireOrgRole } from "@/lib/authz";
+import { requireSameOrigin } from "@/lib/auth";
+import { resolveViewerLogin } from "@/lib/access";
+import { isPlanId } from "@/lib/plans";
+import { envBool } from "@/lib/env";
+import { normalizeOrgSlug } from "@/lib/db/org-shared";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+function planChangesAllowed(): boolean {
+  return envBool("ASCENT_ALLOW_PLAN_CHANGES");
+}
+
+export async function POST(request: Request) {
+  if (!isDbConfigured()) return NextResponse.json({ error: "Plans require a database." }, { status: 503 });
+  const crossOrigin = requireSameOrigin(request);
+  if (crossOrigin) return crossOrigin;
+  const body = (await request.json().catch(() => ({}))) as { org?: string; plan?: string };
+  if (!body.org || !body.plan || !isPlanId(body.plan)) {
+    return NextResponse.json({ error: "Provide { org, plan: free|pro|team|enterprise }." }, { status: 400 });
+  }
+  // Normalize the slug once up front (mirrors the checkout route) so the auth gate, the write, and the
+  // audit lookup all resolve the same canonical org rather than mixing raw and lower-cased forms.
+  const org = normalizeOrgSlug(body.org);
+  const denied = await requireOrgRole(org, "owner");
+  if (denied) return denied;
+  if (body.plan !== "free" && !planChangesAllowed()) {
+    return NextResponse.json(
+      { error: "Paid plan changes go through billing checkout.", code: "USE_CHECKOUT" },
+      { status: 403 },
+    );
+  }
+  const ok = await setOrgPlan(org, body.plan);
+  if (!ok) return NextResponse.json({ error: "Unknown organization." }, { status: 404 });
+  // resolveViewerLogin, not getSession: the dormant custom-OAuth session is null under the ACTIVE
+  // Supabase wall, so this audit row recorded a null actor in production.
+  const actorLogin = await resolveViewerLogin();
+  // SEC #1: record the actor in the dedicated `actorId` column (not just `meta.actor`) so the audit
+  // viewer's Actor column shows it and the actor filter can match — matching member/playbook writes.
+  await recordOrgAudit("org.plan", org, { org, plan: body.plan }, actorLogin ?? undefined).catch(() => {});
+  return NextResponse.json({ ok: true, plan: body.plan });
+}

@@ -1,0 +1,261 @@
+Skip to content
+ASCENT
+LEADERBOARD
+PRICING
+ABOUT
+vercel
+→
+developer
+Sign out
+REPOSITORY REPORT
+vercel/ai
+TypeScript
+★ 25,586
+updated unknown
+HOW SCORING WORKS
+→
+Org / platform
+AI usage detected · 37% commits
+Demo · deterministic rubric
+confidence 82%
+Scanned
+1h ago
+Re-test
+↓
+Export PDF
+✦
+Onboarding skill
+APP READINESS PASSPORT
+vercel/ai
+
+INSTRUMENT READOUT · 2026-07-16
+
+AUTOMATION
+L4
+80/100
+READY FOR AGENTS
+PRODUCTION
+BETA
+46/100
+TRUSTED IN PROD
+PRODUCTION RUNGS
+CI
+checks
+TESTS
+comprehensive
+SECURITY
+scanning
+OBSERV.
+none
+DELIVERY
+migrations none
+STACK
+TypeScript
+Next.js
+React
+
+static-scan · confidence 82% · as of 2026-07-16 · Other
+
+↓ passport.json
+SECTIONS
+Scoring
+Dimensions
+Roadmap
+Sandbox
+Contributors
+80
+◕ L4 · Integrated
+◕
+L4 — Integrated
+
+vercel/ai sits at L4 — Integrated: Agents in the loop, not just at the keyboard.
+
+Scores are computed from deterministic signals, not LLM-written analysis.
+
+Agents are embedded in the process: AI code review, AI steps in CI, auto-fix/auto-PR, and dependency automation. Strong docs (including docs for agents), observability, and reliable CI/CD let autonomy compound.
+
+○
+L1
+◔
+L2
+◑
+L3
+◕
+L4
+●
+L5
+WHY THIS SCORE
+Score waterfall
+
+Every point attributed — each dimension contributes its weight × score, and the parts sum to your headline.
+
+= 80/100
+Testing
+100 × 15%
++15
+▲+3
+AI Tooling
+98 × 15%
++14.7
+▲+2.7
+CI/CD
+100 × 14%
++14
+▲+2.8
+AI Process
+86 × 12%
++10.3
+▲+0.7
+Commits
+100 × 7%
++7
+▲+1.4
+Docs
+60 × 9%
++5.4
+▼1.8
+Security
+54 × 9%
++4.9
+▼2.3
+Quality
+68 × 7%
++4.8
+▼0.8
+Agentic
+35 × 12%
++4.2
+▼5.4
+POSTURE
+AI-Native
+
+Adopting AI with the engineering rigor to ship it safely.
+
+AI Adoption
+◕
+76
+TOOLING · AGENTIC · COMMIT SIGNALS
+Engineering Rigor
+◕
+82
+TESTS · CI/CD · DOCS · QUALITY
+MANUAL
+AI-NATIVE
+GETTING STARTED
+UNGOVERNED
+AI ADOPTION →
+RIGOR →
+Maturity over time
+
+Baseline established — re-scan later to track progress.
+
+L5
+L4
+L3
+L2
+L1
+0
+25
+45
+65
+85
+100
+Jul 16
+80
+Overall maturity score over time
+Scan date	Score	Level	Report
+Jul 16	80	L4 Integrated	—
+DIMENSION-LEVEL TRENDS →
+Strengths
+▲
+Automated Testing is a relative strength (100/100).
+▲
+CI/CD & Delivery is a relative strength (100/100).
+▲
+Commit & Velocity Signals is a relative strength (100/100).
+▲
+AI Tooling & Conventions is a relative strength (98/100).
+Risks & gaps
+▼
+Agentic Workflows is underdeveloped (35/100).
+GO FLEET-WIDE
+
+Scan your whole org in one shot to see this repo ranked against the rest — common gaps to fix once, and the repo-specific ones.
+
+Scan your org
+→
+Track this repo
+← Scan another repo
+App Readiness Passport
+
+The portfolio scorecard — how ready this app is for full LLM-automated development, and for production. Names the stack on purpose.
+
+↓ passport.json
+AUTOMATION READINESS
+L4
+80
+/100 · ready for agents
+self-verify: build · test · typecheck · AI in workflow
+PRODUCTION READINESS
+Beta
+46
+/100 · trusted in prod
+CI
+checks
+TESTS
+comprehensive
+SECURITY
+scanning
+OBSERVABILITY
+none
+DELIVERY
+migrations: none
+STACK
+TypeScript
+Next.js
+React
+BLOCKERS
+▸
+No in-repo .ai/manifest.yaml (agent-facing capability contract).
+▸
+No machine-readable context graph (context-map.json / CONTEXT.md).
+▸
+Agent can't self-verify: missing lint script(s).
+▸
+Zero observability: no error tracking, structured logs, metrics, or tracing.
+▸
+CI does not gate merges (no enforced required checks).
+
+static-scan · confidence 82% · as of 2026-07-16
+
+OWNER SETTINGS
+
+Fields a scan can't infer — these frame how to read the scores and (rollback) lift the production score.
+
+criticality
+unset
+experimental
+internal
+business
+mission-critical
+lifecycle
+unset
+prototype
+alpha
+beta
+ga
+maintenance
+deprecated
+tested rollback
+Save
+Commit .ai/passport.json →
+ASCENT
+
+THE MATURITY INDEX FOR AI-NATIVE ENGINEERING
+
+LEADERBOARD
+BADGE
+CONNECT
+USAGE
+
+Built on Vercel + Aurora DSQL · #H0Hackathon

@@ -1,0 +1,102 @@
+// GET /api/org/briefing/pdf?org=slug[&range=90d&from=&to=]  -> application/pdf
+//
+// Server-renders the executive briefing as a board-ready PDF (Direction #5 phase 2). Read-gated by the
+// org (same as the Briefing page). 404 when the org has no scanned repos. Same ExecBriefing source as
+// the page + the "Copy for LLM" brief, so all three stay in lockstep.
+
+import { createElement, type ReactElement } from "react";
+import { NextResponse } from "next/server";
+import { renderToBuffer, type DocumentProps } from "@react-pdf/renderer";
+import { BriefingDocument } from "@/lib/pdf/briefing-document";
+import { buildExecBriefing } from "@/lib/org/briefing";
+import { getCreditState, getOrgBranding, getTechGroupIdByKey, isDbConfigured } from "@/lib/db";
+import { planAllowsWhiteLabel } from "@/lib/plans";
+import { requireOrgRead } from "@/lib/authz";
+import { resolveOrgWindow } from "@/lib/org/period";
+import { attachBriefingNarrative } from "@/lib/org/briefing-narrative";
+import { resolveSafeLogoDataUri } from "@/lib/net/logo-fetch";
+import { safeFilenameSegment } from "@/lib/export/filename";
+import { pdfAttachmentResponse } from "@/lib/pdf/export-response";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+// The document render is CPU-bound and may additionally wait on the (opt-in, bounded) narrative pass;
+// give it the same headroom the sibling security export takes.
+export const maxDuration = 60;
+
+export async function GET(request: Request) {
+  if (!isDbConfigured()) return NextResponse.json({ error: "Briefing export requires a database." }, { status: 503 });
+  const sp = new URL(request.url).searchParams;
+  const org = sp.get("org");
+  if (!org) return NextResponse.json({ error: "Missing ?org." }, { status: 400 });
+  const denied = await requireOrgRead(org);
+  if (denied) return denied;
+
+  // G5-10: resolve the window the SAME way the Executive page does — `resolveOrgWindow`, which layers
+  // the remembered-period cookie UNDER an explicit ?range= (so the page's own download link, which
+  // always carries ?range=, is authoritative and unaffected). The cookie-blind `resolveWindow` used
+  // here before meant a bookmarked or shared PDF URL with no ?range= silently exported the 90d default
+  // while the page beside it showed the org's remembered period. Window arithmetic (canonical zone,
+  // calendar days, half-open bounds) is inherited unchanged from `@/lib/org/timezone` via resolveWindow.
+  const period = await resolveOrgWindow({
+    range: sp.get("range") ?? undefined,
+    from: sp.get("from") ?? undefined,
+    to: sp.get("to") ?? undefined,
+  });
+  // A reseller can scope the briefing to one client via ?segment=<id> — a per-client deliverable.
+  const segmentId = sp.get("segment");
+  // ?stack=<key> scopes the deliverable to one tech-stack group (Feature 3b) — carried from the page.
+  // FAIL CLOSED on an unresolvable scope: `null` from the resolver is overloaded ("no scope requested"
+  // vs "requested but renamed/deleted/DB hiccup"), and passing it through would silently render the
+  // WHOLE-org briefing under a URL the owner scoped down. Only `null-because-absent` stays unscoped.
+  const stackKey = sp.get("stack");
+  const techGroupId = await getTechGroupIdByKey(org, stackKey).catch(() => null);
+  if (stackKey && !techGroupId) {
+    return NextResponse.json({ error: "Unknown tech-stack scope for this organization." }, { status: 404 });
+  }
+  const built = await buildExecBriefing(org, { start: period.start, end: period.end }, period.title, segmentId, techGroupId).catch(
+    () => null,
+  );
+  if (!built) {
+    return NextResponse.json({ error: "No scanned repositories yet for this organization." }, { status: 404 });
+  }
+  // G5-03: the board PDF is the one deliverable that opts into the narrative pass. It is grounded
+  // strictly in the figures already assembled above, and `attachBriefingNarrative` never throws —
+  // an unconfigured/failed/ungrounded model call yields the deterministic paragraph instead, so this
+  // can neither fail the download nor introduce a figure that isn't in the briefing.
+  const briefing = await attachBriefingNarrative(built);
+
+  // EXEC-5: white-label branding for the PDF. A bad/unreachable logo could fail rendering, so fall
+  // back to an unbranded render rather than 500 the download.
+  // Entitlement is RE-CHECKED here, not just on write: the brand columns are never cleared on a plan
+  // downgrade, so applying them unconditionally would keep delivering a paid feature (branded title,
+  // logo, footer, filename) indefinitely after the org stopped paying for it. Mirror executive/page.tsx
+  // — only apply branding when the CURRENT plan still allows white-label.
+  const [rawBranding, credit] = await Promise.all([
+    getOrgBranding(org).catch(() => null),
+    getCreditState(org).catch(() => null),
+  ]);
+  const branding = planAllowsWhiteLabel(credit?.plan) ? (rawBranding ?? undefined) : undefined;
+  // SSRF: resolve the owner-supplied logo to image bytes OURSELVES under a strict guard and hand
+  // @react-pdf a data: URI, so it never fetches a remote (potentially DNS-rebound) host server-side at
+  // render time. On any failure keep the brand name/colour but drop the logo.
+  const brandingForRender: typeof branding = branding?.logoUrl
+    ? { ...branding, logoUrl: await resolveSafeLogoDataUri(branding.logoUrl) }
+    : branding;
+  const render = (b: typeof branding) =>
+    renderToBuffer(createElement(BriefingDocument, { briefing, branding: b }) as unknown as ReactElement<DocumentProps>);
+  let buffer: Buffer;
+  try {
+    // Try branded; on a bad logo fall back to an unbranded render. If THAT also fails (or there was no
+    // branding), the rejection used to escape as an unhandled 500 with a raw stack — wrap the whole
+    // thing so a render failure degrades to a clean error instead.
+    buffer = await render(brandingForRender).catch(() => (brandingForRender ? render(undefined) : Promise.reject(new Error("render failed"))));
+  } catch (err) {
+    console.error("[briefing/pdf] render failed", err);
+    return NextResponse.json({ error: "Failed to render the briefing PDF." }, { status: 500 });
+  }
+  // White-label the download name too: a branded org's export shouldn't reveal "ascent" in the filename.
+  const brandSlug = branding?.brandName ? safeFilenameSegment(branding.brandName).toLowerCase().slice(0, 40) : "ascent";
+  const filename = `${brandSlug}-briefing-${safeFilenameSegment(org)}-${safeFilenameSegment(briefing.generatedOn)}.pdf`;
+  return pdfAttachmentResponse(buffer, filename, "private, max-age=300");
+}

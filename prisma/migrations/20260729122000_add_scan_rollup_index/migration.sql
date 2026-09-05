@@ -1,0 +1,27 @@
+-- G4-17 — supporting index for the org-wide rollup's multi-repo scan-history range scan.
+--
+-- WHY: `getOrgRollup` and the trend/baseline queries filter `Scan` by the org's ENTIRE repo set over a
+-- `scannedAt` window (`repoId IN (…) AND scannedAt BETWEEN …`). Every index on Scan today leads on a
+-- single `repoId` (`Scan_repoId_headSha_key`, `Scan_repoId_idx`, `Scan_repoId_scannedAt_idx`), so none
+-- gives the planner the window as a driving access path — cost scaled with the fleet's TOTAL scan-row
+-- count rather than the selected window. A `scannedAt`-leading index does.
+--
+-- NOT the alternative: the finding also proposes denormalizing `orgId` onto Scan with
+-- `@@index([orgId, scannedAt])`. That is a better index, but it requires a full backfill UPDATE over
+-- every existing Scan row (plus a dual-write) — the opposite of additive, and a long write-heavy
+-- statement against a populated production table. Rejected for this batch, deliberately.
+--
+-- EXISTING ROWS: this is a pure index creation. No column, no default, no data change; every existing
+-- row is indexed as-is and reads/writes keep working throughout (only the write path pays a small
+-- maintenance cost afterwards). Applying it to a populated database is safe.
+--
+-- ON AURORA DSQL — THE ONE REAL WRINKLE IN THIS BATCH. DSQL builds secondary indexes ASYNCHRONOUSLY and
+-- does not accept the plain synchronous form on a table that already has rows. Do NOT run this file's
+-- statement there. Instead:
+--   1) CREATE INDEX ASYNC "Scan_scannedAt_idx" ON "Scan"("scannedAt");
+--   2) poll `SELECT * FROM sys.jobs;` until the index build reports COMPLETED / the index is ACTIVE
+--      (an ASYNC index exists but is NOT usable by the planner until then);
+--   3) prisma migrate resolve --applied 20260729122000_add_scan_rollup_index
+-- The statement below is the local-Postgres / non-DSQL path and is what `prisma migrate deploy` will
+-- run. See docs/ARCHITECTURE.md §3 ("Asynchronous secondary indexes").
+CREATE INDEX "Scan_scannedAt_idx" ON "Scan"("scannedAt");

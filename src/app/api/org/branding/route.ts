@@ -1,0 +1,55 @@
+// POST /api/org/branding { org, brandName?, brandColor?, logoUrl? } -> { ok }   (owner · Team+)
+// Set white-label branding for the executive-briefing PDF (EXEC-5). Owner-gated + same-origin, and
+// gated to the Team-and-up entitlement tier. Values are validated/normalized in setOrgBranding
+// (hex colour + https logo, else stored null) so a bad input can't break PDF rendering.
+
+import { NextResponse } from "next/server";
+import { getCreditState, isDbConfigured, setOrgBranding } from "@/lib/db";
+import { resolveSafeLogoDataUri } from "@/lib/net/logo-fetch";
+import { planAllowsWhiteLabel } from "@/lib/plans";
+import { requireOrgOwnerPost } from "@/lib/api/orgPost";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function POST(request: Request) {
+  if (!isDbConfigured()) return NextResponse.json({ error: "Branding requires a database." }, { status: 503 });
+  const gate = await requireOrgOwnerPost<{ brandName?: string; brandColor?: string; logoUrl?: string }>(request);
+  if (gate instanceof NextResponse) return gate;
+  const { org, body } = gate;
+
+  // Entitlement: briefing white-label is a Team-and-up feature (so a reseller on Team can brand the
+  // reports they hand to clients), not Enterprise-only. Distinguish "couldn't determine the plan"
+  // (a transient DB hiccup) from "genuinely not entitled": folding a read error into `null` mapped a
+  // legitimate Team/Enterprise owner to a misleading 403 "you don't have this plan" during an outage,
+  // so a read failure returns a retryable 503 instead.
+  let credit;
+  try {
+    credit = await getCreditState(org);
+  } catch {
+    return NextResponse.json({ error: "Couldn’t verify your plan right now. Please try again." }, { status: 503 });
+  }
+  if (!planAllowsWhiteLabel(credit?.plan)) {
+    return NextResponse.json({ error: "Briefing branding is a Team-plan feature." }, { status: 403 });
+  }
+
+  // Echo the NORMALIZED values actually stored so the client can warn about anything the validator
+  // discarded (a non-https/private logo → null) or truncated (an >80-char name) instead of showing
+  // unconditional success while the value was silently dropped.
+  const stored = await setOrgBranding(org, {
+    brandName: body.brandName ?? null,
+    brandColor: body.brandColor ?? null,
+    logoUrl: body.logoUrl ?? null,
+  });
+  if (!stored) return NextResponse.json({ error: "Unknown organization." }, { status: 404 });
+  // org-branding #4: probe the stored logo ONCE at save time with the exact fetch the PDF render uses
+  // (resolveSafeLogoDataUri: DNS-pinned, image-only, size-capped). Validation only proved the URL is
+  // SAFE, not that it serves an image — a typo'd path / HTML page / hotlink-protected asset previously
+  // produced a green "Saved" and then silently logo-less client PDFs. Advisory only: the value stays
+  // saved; the client warns. resolveSafeLogoDataUri never throws (null on any failure).
+  const logoUnreachable = stored.branding.logoUrl ? (await resolveSafeLogoDataUri(stored.branding.logoUrl)) === null : false;
+  // setOrgBranding returns { branding, rejected }; unwrap so the client gets the FLAT normalized
+  // OrgBranding it reads (d.branding.brandName/…) plus the list of dropped fields to warn about —
+  // passing `stored` whole would nest it under branding and blank every field client-side.
+  return NextResponse.json({ ok: true, branding: stored.branding, rejected: stored.rejected, logoUnreachable });
+}

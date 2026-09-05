@@ -1,0 +1,97 @@
+# A REFERENCE GitHub Action for Ascent's agent-neutral work protocol (moonshot #3).
+#
+# ─────────────────────────────────────────────────────────────────────────────────────────────────
+# THIS FILE IS DELIBERATELY NOT UNDER `.github/workflows/`. It is an example to copy into YOUR
+# repository, not a workflow that runs in Ascent's own — a reference that silently ran on every push
+# here would be a scheduled agent nobody asked for, spending somebody's tokens on this repo.
+#
+# WHAT IT DOES. Claims a few open follow-ups from Ascent's ledger under a lease, hands the brief to
+# whatever coding agent you already use, and reports back what happened. Ascent runs none of this: it
+# adjudicates the result when it next scans your default branch. That is why the protocol is
+# vendor-neutral — swap the "run your agent" step for Copilot, Codex, Cursor, an internal harness, or
+# a person, and nothing else changes.
+#
+# WHAT IT NEVER DOES. It does not close a follow-up. Nothing in the protocol can: `status: "done"` is
+# reachable only from a scan of the default branch that stops raising the gap AND measures its
+# dimension moving. Your verdict is your account of what you did, exactly like the commit trailer.
+#
+# SETUP
+#   1. In Ascent → Admin → Skills → API tokens, mint a token with `mcp:read`, `followups:write` and
+#      `telemetry:write`. Nothing else: this token can claim and report, and no scope it can hold
+#      lets it close a row or read your organization's memory.
+#   2. Add it as the `ASCENT_TOKEN` repository secret. Set `ASCENT_URL` as a variable if you are
+#      self-hosting.
+#   3. Copy this file to `.github/workflows/ascent-work.yml` and edit the agent step.
+# ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+name: Ascent — work the follow-up queue
+
+on:
+  # MANUAL BY DEFAULT, and the commented schedule below is left commented on purpose. An unattended
+  # agent that opens branches on a cron is a decision for your team to take deliberately, on a
+  # repository you have decided is ready for it — Ascent's own claim gate agrees, and refuses any
+  # repository at autonomy tier T0 or with no assessed tier at all.
+  workflow_dispatch:
+    inputs:
+      count:
+        description: How many follow-ups to claim
+        default: "3"
+  # schedule:
+  #   - cron: "0 6 * * 1"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  work:
+    runs-on: ubuntu-latest
+    env:
+      ASCENT_TOKEN: ${{ secrets.ASCENT_TOKEN }}
+      ASCENT_URL: ${{ vars.ASCENT_URL || 'https://ascent.dev' }}
+      REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # 1 — CLAIM. The lease is what stops two agents (and your own local loop) working the same gap.
+      #     Ask for roughly as long as your job actually takes: a lease you let expire releases the
+      #     rows back to the queue, which is the recovery path for a crashed run and not a penalty.
+      - name: Claim follow-ups
+        id: claim
+        run: |
+          ids=$(node scripts/ascent-work.mjs claim --repo "$REPO" --count "${{ inputs.count || 3 }}" --lease 60)
+          echo "ids=$(echo "$ids" | paste -sd, -)" >> "$GITHUB_OUTPUT"
+          echo "$ids"
+
+      # 2 — BRIEF. Each gap as Ascent's scan stated it, plus your organization's own perimeter: its
+      #     permitted tools and models, its no-AI path zones, this repository's autonomy tier and its
+      #     review requirement. Every line is a value your organization stored, not generated advice.
+      - name: Fetch the brief
+        if: steps.claim.outputs.ids != ''
+        run: node scripts/ascent-work.mjs brief --ids "${{ steps.claim.outputs.ids }}" > /tmp/ascent-brief.md
+
+      # 3 — YOUR AGENT. Replace this step. It is the only vendor-specific line in the file, and the
+      #     brief on stdin is the entire contract.
+      - name: Run your agent
+        if: steps.claim.outputs.ids != ''
+        run: |
+          echo "Replace this step with your own agent, e.g.:"
+          echo "  claude -p \"\$(cat /tmp/ascent-brief.md)\" --permission-mode acceptEdits"
+          cat /tmp/ascent-brief.md
+
+      # 4 — REPORT, per id. Report honestly: a `skipped` with a real reason is worth more to your
+      #     organization than a `resolved` the next scan then contradicts, and neither one closes the
+      #     row. Reporting is also how you hand the lease back before it lapses.
+      - name: Report each attempt
+        if: always() && steps.claim.outputs.ids != ''
+        run: |
+          for id in $(echo "${{ steps.claim.outputs.ids }}" | tr ',' ' '); do
+            node scripts/ascent-work.mjs report \
+              --id "$id" \
+              --verdict needs_human \
+              --reason "Unattended CI session ran; no per-item verdict was reported." \
+              --branch "${GITHUB_REF_NAME}"
+          done

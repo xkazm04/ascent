@@ -1,0 +1,97 @@
+Skip to content
+ASCENT
+LEADERBOARD
+PRICING
+ABOUT
+vercel
+→
+developer
+Sign out
+MATURITY TRENDS
+vercel/next.js
+◕
+L4 — Integrated
+Full report →
+Export CSV ↓
+
+Only a baseline scan so far — the trend lines fill in after the next scan.
+
+1 SCAN SHOWN
+5D
+30D
+90D
+ALL
+Overall maturity
+L5
+L4
+L3
+L2
+L1
+0
+25
+45
+65
+85
+100
+Jul 16
+68
+Overall maturity score over time
+Scan date	Score	Level	Report
+Jul 16	68	L4 Integrated	Open this scan's report · GitHub commit
+By dimension
+1 SCANS
+D1
+AI Tooling & Conventions
+◕65
+65
+AI Tooling & Conventions 65 of 100 on Jul 16 — open this scan's report
+D2
+Automated Testing
+●100
+65
+Automated Testing 100 of 100 on Jul 16 — open this scan's report
+D3
+CI/CD & Delivery
+◕83
+65
+CI/CD & Delivery 83 of 100 on Jul 16 — open this scan's report
+D4
+Agentic Workflows
+○15
+65
+Agentic Workflows 15 of 100 on Jul 16 — open this scan's report
+D5
+Documentation & Knowledge
+◕65
+65
+Documentation & Knowledge 65 of 100 on Jul 16 — open this scan's report
+D6
+Code Quality & Guardrails
+●94
+65
+Code Quality & Guardrails 94 of 100 on Jul 16 — open this scan's report
+D7
+Commit & Velocity Signals
+◑45
+65
+Commit & Velocity Signals 45 of 100 on Jul 16 — open this scan's report
+D8
+AI Process & Harness
+●91
+65
+AI Process & Harness 91 of 100 on Jul 16 — open this scan's report
+D9
+Supply Chain & Security
+◔40
+65
+Supply Chain & Security 40 of 100 on Jul 16 — open this scan's report
+ASCENT
+
+THE MATURITY INDEX FOR AI-NATIVE ENGINEERING
+
+LEADERBOARD
+BADGE
+CONNECT
+USAGE
+
+Built on Vercel + Aurora DSQL · #H0Hackathon

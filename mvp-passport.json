@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-04",
+  "generatedBy": "personas mvp",
+  "verdict": "go-with-risks",
+  "phases": {
+    "P0": "green",
+    "P1": "partial",
+    "P2": "partial",
+    "P3": "green",
+    "P4": "green",
+    "P5": "partial",
+    "P6": "green"
+  },
+  "items": {
+    "value-case": { "level": "met", "tool": null, "skippedByChoice": false, "note": "Launch on shipped trio (guardbanded briefing, deterministic CI gate, org fleet intelligence); GOLDEN-TRIO T1/T2 recorded as roadmap" },
+    "monetization": { "level": "met", "tool": "Polar", "skippedByChoice": false, "note": "Self-serve tiers kept; price-drift guard surfaces in /api/kpi" },
+    "artifacts": { "level": "partial", "tool": "personas", "skippedByChoice": false, "note": "Map verified 1455/1455, projectId reconciled; scan lanes need the Personas app bridge (was down)" },
+    "milestone": { "level": "partial", "tool": null, "skippedByChoice": false, "note": "PROD_CHECKLIST.md groomed into milestone of record (8 open); target date + Ship-tab mirror pending" },
+    "notes": { "level": "met", "tool": null, "skippedByChoice": false, "note": "ship-loop journal Launch section live; CHANGELOG caught up" },
+    "fleet": { "level": "met", "tool": "personas", "skippedByChoice": false, "note": ".claude/CLAUDE.md scaffold replaced with AGENTS.md pointer" },
+    "cicd": { "level": "met", "tool": "github-actions", "skippedByChoice": false, "ci": { "checks": true, "gating": true, "preview": true, "testDeploy": true, "prodPromotion": "merge-to-master", "mergeQueue": false }, "note": "Branch protection requires the verify check + PRs; Vercel previews serve as test deploys" },
+    "deploy": { "level": "met", "tool": "vercel", "skippedByChoice": false, "note": "Live prod; rollback runbook; prisma migrate deploy in buildCommand; public URL reconciled" },
+    "observability": { "level": "partial", "tool": "sentry", "skippedByChoice": false, "note": "Sentry + LightTrack wired and no-op safe; DSN and LIGHTTRACK_* values must be set in Vercel, then verify a thrown prod error arrives" },
+    "code-quality": { "level": "met", "tool": null, "skippedByChoice": false, "note": "tsc 0, 5831/5831 tests; 28 src lint warnings remain, --max-warnings 0 ratchet deferred" },
+    "auth": { "level": "met", "tool": "supabase", "skippedByChoice": false, "note": "GitHub OAuth only, no passwords - deliberate; reset/verification N/A" },
+    "security": { "level": "met", "tool": null, "skippedByChoice": false, "note": "Headers live (CSP report-only starter); next 16.3.0 stable; npm audit 0" },
+    "design-system": { "level": "met", "tool": "tailwind", "skippedByChoice": false, "note": "Token layer + 14 primitives; dark-only by design" },
+    "i18n": { "level": "met", "tool": null, "skippedByChoice": false, "note": "English-only v1 recorded as a decision" },
+    "onboarding": { "level": "met", "tool": null, "skippedByChoice": false, "acceptedPartial": true, "note": "Sign-in-gated funnel kept intentionally (B2B); /onboarding discoverable again" },
+    "feedback": { "level": "met", "tool": "github-issues", "skippedByChoice": false, "note": "Footer feedback + issues link; ASCENT_CONTACT_EMAIL value pending for mailto" },
+    "landing": { "level": "met", "tool": null, "skippedByChoice": false, "note": "Deck live; copy derives from the rubric" },
+    "seo": { "level": "met", "tool": null, "skippedByChoice": false, "note": "Metadata/OG/sitemap/robots tested; needs ASCENT_PUBLIC_URL in prod env + Search Console submit" },
+    "legal": { "level": "met", "tool": null, "skippedByChoice": false, "note": "/privacy + /terms document shipped behavior; no tracking cookies so no consent banner" },
+    "analytics": { "level": "partial", "tool": null, "skippedByChoice": false, "note": "First-party: landing_view counter + /api/kpi (8 KPIs + priceDrift); needs ASCENT_OPS_SECRET set to be readable" },
+    "launch-gate": { "level": "met", "tool": "playwright", "skippedByChoice": false, "note": "@smoke 3/3 green against prod; post-deploy smoke workflow wired via deployment_status" }
+  }
+}

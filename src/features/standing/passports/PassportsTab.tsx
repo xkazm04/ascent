@@ -1,0 +1,126 @@
+// Org dashboard "Passports" tab — the fleet App Readiness Passport portfolio (P3). The view neither
+// the agent manifest nor a CI badge can give: every scanned repo's two readiness axes side by side, so
+// the "automatable but not production-ready" gap (and its opposite) is visible at a glance. One
+// compact header row (title · segment scope · CSV export), then straight into the content: the
+// automation×production scatter whose quadrants are the one and only filter (click to isolate a
+// cohort, ✕ to reset to all), a top-blockers docket that files GitHub issues, and a full-width table
+// whose rows expand into each passport's blockers + observed facts. A ?stack= URL scope is still
+// honored for data consistency with the other tabs, but this tab renders no stack UI. Passports come
+// from scans (P1), so a never-scanned / pre-passport repo simply isn't listed.
+//
+// Migrated onto the org tab shell (docs/ORG-TABS-REFACTOR.md):
+//   - SERVER component, filename PINNED as `PassportsTab.tsx`; takes `slug` + the resolved `sp` as
+//     props since it is no longer a route.
+//   - Its old route (src/app/org/[slug]/passports/page.tsx) is now a redirect().
+
+import { ExportCsvLink, SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
+import { SegmentSelector } from "@/components/org/shared/SegmentSelector";
+import { PassportsSwitcher } from "./PassportsSwitcher";
+import { deriveAutonomy, type RepoAutonomy } from "./autonomy/autonomyModel";
+import type { PassportRow } from "./PassportTable";
+import { getOrgRollup } from "@/lib/db";
+import { getFoundationRollout } from "@/lib/db/org-foundation";
+import { decisionMap } from "@/lib/org/decision-map";
+import { passportStackChips } from "@/lib/org/passport-display";
+import { resolveOrgScope } from "@/lib/org/scope";
+
+type SearchParams = { [key: string]: string | string[] | undefined };
+
+export async function PassportsTab({ slug, sp }: { slug: string; sp: SearchParams }) {
+  const { segments, segmentId, techGroupId } = await resolveOrgScope(slug, sp);
+  const [rollup, decisions, rollout] = await Promise.all([
+    getOrgRollup(slug, undefined, segmentId, techGroupId),
+    decisionMap(slug, "passports"),
+    // Spec #35 handoff 2's promised report-back column (UAT `PRIYA-L1-05`). `getFoundationRollout`
+    // had exactly one consumer, on the Repositories tab, so a lead's one fleet-adoption question —
+    // "where is the standard in and not in?" — was answered across three tabs with no cross-link and
+    // the join living in her head. Read in the same parallel batch; it adds no round-trip depth.
+    getFoundationRollout(slug),
+  ]);
+
+  const withPassport = (rollup?.repos ?? []).filter((r) => r.passport);
+  // The table row carries the passport's full actionable depth (blockers, self-verify, CI/tests/
+  // security/delivery facts, stack) so a row expands with zero fetches — it's all cached rollup data.
+  const rows: PassportRow[] = withPassport.map((r) => {
+    const pp = r.passport!;
+    const auto = pp.automationReadiness;
+    const prod = pp.productionReadiness;
+    return {
+      fullName: r.fullName,
+      name: r.name,
+      autoLevel: auto.level,
+      autoScore: auto.score,
+      band: prod.band,
+      prodScore: prod.score,
+      ci: prod.ci.level,
+      tests: prod.tests.level,
+      security: prod.security.level,
+      observability: prod.observability.level,
+      detail: {
+        purpose: pp.identity.purpose,
+        autoBlockers: auto.blockers,
+        prodBlockers: prod.blockers,
+        // Passport 0.4.0. `findings` gives every consumer downstream a stable per-cause id to key on
+        // instead of the rendered sentence, and `declined` carries the owner's accepted gaps — which
+        // the read-time overlay has already REMOVED from the two blocker lists above. Without these
+        // two lines an accepted gap is simply invisible in the product: the detail row shows nothing
+        // where the gap was, and the fleet Pareto counts the repo as unaffected. Both are optional on
+        // the row types, so this is purely additive for any other reader of PassportRow.
+        autoFindings: auto.findings,
+        prodFindings: prod.findings,
+        declined: pp.declined,
+        selfVerify: auto.selfVerify,
+        aiInWorkflow: auto.aiInWorkflow,
+        ciProvider: prod.ci.provider,
+        ciGates: prod.ci.gates,
+        coveragePct: prod.tests.coveragePct,
+        criticalPathCovered: prod.tests.criticalPathCovered,
+        securityTools: prod.security.tools,
+        delivery: prod.delivery,
+        stack: passportStackChips(pp),
+        confidence: pp.evidence.confidence,
+      },
+    };
+  });
+
+  // PROTOTYPE (P1 — Autonomy Passport): the tier verdict is derived server-side from the same cached
+  // passports the rows come from, so no extra query. See autonomy/autonomyModel.ts — several gates
+  // are proxies/placeholders until the scan grows the signals listed in DATA_MODEL_GAPS.
+  const autonomy: RepoAutonomy[] = withPassport.map((r) =>
+    deriveAutonomy({
+      fullName: r.fullName,
+      name: r.name,
+      passport: r.passport!,
+      protectedBranch: r.latest?.protected,
+      aiConformance: r.aiConformance,
+      lastScanAt: r.lastScanAt,
+      engine: r.latest?.engine ?? null,
+      manifest: r.manifest ?? null,
+    }),
+  );
+
+  // #13 — the capability matrix is built over EVERY repo in scope, not just the ones with a passport:
+  // a repo whose scan read no manifest has to appear in the "not assessed" band, and filtering it out
+  // here would silently shrink the fleet to the subset that happens to look good.
+  const capabilities = (rollup?.repos ?? []).map((r) => ({ fullName: r.fullName, name: r.name, manifest: r.manifest }));
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <SectionHeader title="Readiness passports" />
+        <div className="flex flex-wrap items-center gap-2">
+          {segments.length > 0 && <SegmentSelector segments={segments} active={segmentId} />}
+          {rows.length > 0 && <ExportCsvLink org={slug} kind="passports" segmentId={segmentId} className="shrink-0" />}
+        </div>
+      </div>
+
+      {rows.length === 0 ? (
+        <SectionEmpty>
+          No passports yet for this view. Passports are produced by scans, so scan some of this org&apos;s repositories (or widen the segment filter), and each scan adds its repo here.
+        </SectionEmpty>
+      ) : (
+        <PassportsSwitcher rows={rows} autonomy={autonomy} capabilities={capabilities} rollout={rollout} org={slug} decisions={decisions} />
+      )}
+    </div>
+  );
+}

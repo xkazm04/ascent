@@ -1,0 +1,1221 @@
+// persistScanReport — the two CRITICAL business invariants that gate billing and tracking state:
+//
+//  1. COMMIT-SHA DEDUP (billing): re-persisting the SAME head commit must REUSE the existing Scan
+//     row and create NO second (metered) row — `deduped:true`, `scan.create` never called. A genuinely
+//     new sha persists exactly one new row (`deduped:false`). The cross-instance P2002 backstop reuses
+//     the winner; with no winner it re-throws.
+//  2. CARRY-FORWARD (tracking state): a re-scan must PRESERVE a prior recommendation's
+//     status / assigneeLogin / targetDate (matched through the tiered `matchRecommendations`, which is
+//     kept REAL here), and must default a brand-new (unmatched) roadmap item to open / null / null.
+//
+// All DB seams are faked: client (withDb/withRetry/getPrisma/isDbConfigured), scans-read (the two
+// dedup lookups), scans-shared (org-id, repo-lock, upsert-race, P2002 classifier), and cache. The real
+// matcher + real Prisma error class stay in to assert BEHAVIOR, not implementation coupling.
+
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { Prisma } from "@prisma/client";
+import type { ScanReport } from "@/lib/types";
+
+const { mockIsDbConfigured, mockGetPrisma } = vi.hoisted(() => ({
+  mockIsDbConfigured: vi.fn(() => true),
+  mockGetPrisma: vi.fn(),
+}));
+
+const { mockFindScanByCommit, mockFindScanByScannedAt, mockFindScanByDedupKey } = vi.hoisted(() => ({
+  mockFindScanByCommit: vi.fn(),
+  mockFindScanByScannedAt: vi.fn(),
+  mockFindScanByDedupKey: vi.fn(),
+}));
+
+vi.mock("@/lib/db/client", () => ({
+  isDbConfigured: mockIsDbConfigured,
+  getPrisma: mockGetPrisma,
+  // Pass-throughs: the persist body's correctness, not the retry/token-refresh wrappers, is under test.
+  withDb: (op: (c: unknown) => unknown) => op(undefined),
+  withRetry: (fn: () => unknown) => fn(),
+}));
+
+// The two dedup LOOKUPS are faked (they're DB reads); `scanContentKey` stays REAL — it is the pure
+// content-identity builder both sides of the sha-less dedup must agree on, so a copy here could drift.
+vi.mock("@/lib/db/scans-read", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./scans-read")>()),
+  findScanByCommit: mockFindScanByCommit,
+  findScanByScannedAt: mockFindScanByScannedAt,
+  // The sha-less P2002 RECOVERY read. `scanDedupKey` itself stays REAL (like scanContentKey): it is the
+  // pure identity builder the persist path and the constraint must agree on, so a copy could drift.
+  findScanByDedupKey: mockFindScanByDedupKey,
+}));
+
+// Keep the concurrency primitives inert + transparent so the dedup/carry-forward decision is exercised
+// directly. `withRepoLock` just runs the fn; `upsertRacing` runs the upsert; `isUniqueConstraintError`
+// uses the real P2002 classification (the persist path's cross-instance backstop depends on it).
+vi.mock("@/lib/db/scans-shared", () => ({
+  DEFAULT_ORG_SLUG: "public",
+  canonicalRepoFullName: (owner: string, name: string) => `${owner.trim().toLowerCase()}/${name.trim().toLowerCase()}`,
+  ensureOrgId: vi.fn(async () => "org_1"),
+  withRepoLock: <T,>(_key: string, fn: () => Promise<T>) => fn(),
+  upsertRacing: async <T,>(upsert: () => Promise<T>) => upsert(),
+  isUniqueConstraintError: (err: unknown) =>
+    err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002",
+}));
+
+// Cache eviction is a best-effort side effect; make it a no-op so it never touches the assertions.
+vi.mock("@/lib/cache", () => ({
+  cacheDelete: vi.fn(),
+  makeCacheKey: vi.fn(() => "k"),
+}));
+
+import { persistScanReport } from "./scans-persist";
+
+// ── Fixtures ────────────────────────────────────────────────────────────────────────────────────
+
+type PrevRec = {
+  /** Persisted id — the follow-up feedback path keys trailer resolution on it. Optional in older fixtures. */
+  id?: string;
+  dimId: string;
+  title: string;
+  status: string;
+  assigneeLogin: string | null;
+  targetDate: Date | null;
+};
+
+/**
+ * A fake prisma covering exactly the calls persistScanReport makes after dedup:
+ *  - repository.upsert (seed/refresh repo) → returns { id }
+ *  - repository.updateMany (head-pointer advance) → no-op
+ *  - scan.findFirst (carry-forward "previous" read) → returns prior recommendations (or null)
+ *  - $transaction(fn) → runs fn against a tx that records the scan.create payload
+ * `createdScans` captures every scan.create `data` so tests can assert the carried rec fields, and
+ * `scanCreateCalls` counts them so the dedup tests can assert ZERO new metered rows.
+ */
+function fakePrisma(opts: {
+  previousRecs?: PrevRec[] | null;
+  /** The previous scan's dimension scores — the movement witness for an in-progress row (2026-08-26). */
+  previousDims?: { dimId: string; score: number }[];
+  /** Make the in-tx scan.create throw this on its first call (cross-instance P2002 race). */
+  scanCreateThrows?: unknown;
+} = {}) {
+  const createdScans: Array<Record<string, unknown>> = [];
+  /** Rows written by the follow-up feedback path (resolved in-progress rows copied forward as done). */
+  const createdResolved: Array<Record<string, unknown>> = [];
+  const createdEvents: Array<Record<string, unknown>> = [];
+  const scanCreate = vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+    if (opts.scanCreateThrows !== undefined && scanCreate.mock.calls.length === 1) {
+      throw opts.scanCreateThrows;
+    }
+    createdScans.push(data);
+    return { id: "scan_new" };
+  });
+
+  const tx = {
+    scan: { create: scanCreate, delete: vi.fn(async () => ({})) },
+    // Engine-upgrade path: the mock scan's graph is torn down (children first, no cascades) before the
+    // live row is written. Faked so the upgrade tests can assert the delete order + that it ran at all.
+    recommendationEvent: {
+      deleteMany: vi.fn(async () => ({})),
+      create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        createdEvents.push(data);
+        return { id: "evt_new" };
+      }),
+    },
+    recommendation: {
+      deleteMany: vi.fn(async () => ({})),
+      // The follow-up feedback path writes resolved in-progress rows one by one onto the new scan.
+      create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        createdResolved.push(data);
+        return { id: `rec_done_${createdResolved.length}` };
+      }),
+      // A paired keep (claimed by trailer, still restated) attaches its note to the row carry-forward
+      // produced inside the nested scan.create; the path looks that row up by (scanId, dimId, title).
+      findFirst: vi.fn(async () => ({ id: "rec_carried" })),
+    },
+    scanDimension: { deleteMany: vi.fn(async () => ({})) },
+    repoContributor: { deleteMany: vi.fn(async () => ({})), createMany: vi.fn(async () => ({})) },
+    repoTeam: { deleteMany: vi.fn(async () => ({})), createMany: vi.fn(async () => ({})) },
+    aiChange: { upsert: vi.fn(async () => ({})) },
+    auditLog: { create: vi.fn(async () => ({})) },
+  };
+
+  const prisma = {
+    repository: {
+      upsert: vi.fn(async () => ({ id: "repo_1" })),
+      update: vi.fn(async () => ({ id: "repo_1" })),
+      updateMany: vi.fn(async () => ({ count: 1 })),
+    },
+    scan: {
+      findFirst: vi.fn(async () => {
+        const recs = opts.previousRecs;
+        return recs ? { recommendations: recs, dimensions: opts.previousDims ?? [] } : null;
+      }),
+    },
+    $transaction: async (fn: (t: typeof tx) => unknown) => fn(tx),
+  };
+
+  return { prisma, scanCreate, createdScans, createdResolved, createdEvents, tx };
+}
+
+/** A minimal-but-real-shaped ScanReport; `roadmap` carries the rec identities matchRecommendations sees. */
+function makeReport(over: {
+  headSha?: string | null;
+  scannedAt?: string;
+  roadmap?: Array<{ dimension: string; title: string }>;
+  engineProvider?: string;
+  /** The mock floor FIRED (a model was requested and never answered) — the provenance flag. */
+  engineDegraded?: boolean;
+  /** The ScoreIntegrity record the engine computed for this scan. */
+  scoreIntegrity?: ScanReport["scoreIntegrity"];
+  /** Follow-up ids the commit sample declared resolved (Ascent-Resolves trailers). */
+  resolvedFollowUpIds?: string[];
+  /** Dimension scores on THIS scan — the after-side of the movement witness (2026-08-26). */
+  dimensions?: ScanReport["dimensions"];
+} = {}): ScanReport {
+  const roadmap = (over.roadmap ?? [{ dimension: "D1", title: "Add CI smoke tests" }]).map((r) => ({
+    dimension: r.dimension,
+    title: r.title,
+    impact: "high",
+    effort: "medium",
+    rationale: "because",
+    explore: [],
+    levelUnlock: null,
+  }));
+  return {
+    repo: {
+      owner: "acme",
+      name: "widget",
+      url: "https://github.com/acme/widget",
+      primaryLanguage: "TypeScript",
+      stars: 5,
+      isPrivate: false,
+      headSha: over.headSha === undefined ? "sha_abc" : over.headSha,
+    },
+    overallScore: 70,
+    level: { id: "L3", name: "Practicing" },
+    archetype: "app",
+    adoptionScore: 60,
+    rigorScore: 80,
+    posture: { id: "balanced" },
+    confidence: 0.9,
+    engine: {
+      provider: over.engineProvider ?? "anthropic",
+      model: "claude",
+      ...(over.engineDegraded === undefined ? {} : { degraded: over.engineDegraded }),
+    },
+    ...(over.scoreIntegrity ? { scoreIntegrity: over.scoreIntegrity } : {}),
+    headline: "ok",
+    strengths: [],
+    risks: [],
+    discrepancies: [],
+    dimensions: over.dimensions ?? [],
+    contributors: [],
+    roadmap,
+    ...(over.resolvedFollowUpIds ? { resolvedFollowUpIds: over.resolvedFollowUpIds } : {}),
+    scannedAt: over.scannedAt ?? "2026-06-18T00:00:00.000Z",
+  } as unknown as ScanReport;
+}
+
+/**
+ * The CONTENT identity `makeReport()` produces — the sha-less dedup path now compares this (not the
+ * bare timestamp) before reusing a row, so a fake "existing row" must carry the matching key to model
+ * "the same report was already persisted". Kept in sync with the fixture's scores/engine by hand
+ * (the real key builder is exercised directly in scans-read.test.ts).
+ */
+function fixtureContentKey(engineProvider = "anthropic"): string {
+  return `70|L3|60|80|${engineProvider}|claude|`;
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockIsDbConfigured.mockReturnValue(true);
+  mockFindScanByCommit.mockReset();
+  mockFindScanByScannedAt.mockReset();
+  mockFindScanByDedupKey.mockReset();
+});
+
+// ── CRITICAL #1: commit-SHA dedup gates billing ──────────────────────────────────────────────────
+
+describe("persistScanReport — commit-SHA dedup (no second metered Scan row)", () => {
+  it("re-persisting the SAME sha returns deduped:true and never calls scan.create", async () => {
+    const { prisma, scanCreate } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    // A scan for this exact commit already exists → the dedup branch must short-circuit.
+    mockFindScanByCommit.mockResolvedValue({ id: "scan_existing" });
+
+    const res = await persistScanReport(makeReport({ headSha: "sha_abc" }));
+
+    expect(res).toMatchObject({ scanId: "scan_existing", deduped: true, headSha: "sha_abc" });
+    expect(scanCreate).not.toHaveBeenCalled(); // load-bearing: zero new metered rows
+    expect(prisma.scan.findFirst).not.toHaveBeenCalled(); // didn't even reach carry-forward
+  });
+
+  it("a genuinely NEW sha persists exactly one Scan row and returns deduped:false", async () => {
+    const { prisma, scanCreate } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null); // never scored before
+
+    const res = await persistScanReport(makeReport({ headSha: "sha_new" }));
+
+    expect(scanCreate).toHaveBeenCalledTimes(1);
+    expect(res).toMatchObject({ scanId: "scan_new", deduped: false, headSha: "sha_new" });
+  });
+
+  it("sha-less report dedups on scannedAt: an existing same-time row reuses it, no scan.create", async () => {
+    const { prisma, scanCreate } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByScannedAt.mockResolvedValue({
+      id: "scan_sameTime",
+      engineProvider: "anthropic",
+      contentKey: fixtureContentKey(),
+    });
+
+    const res = await persistScanReport(makeReport({ headSha: null }));
+
+    expect(res).toMatchObject({ scanId: "scan_sameTime", deduped: true, headSha: null });
+    expect(scanCreate).not.toHaveBeenCalled();
+    expect(mockFindScanByScannedAt).toHaveBeenCalledTimes(1);
+  });
+
+  it("sha-less LIVE re-persist over a MOCK row at the same scannedAt UPGRADES it (no dedup to the placeholder)", async () => {
+    // scan-persistence-history 07-16 #2: the sha-less branch used to have no equivalent of the sha
+    // branch's mock→live upgrade — a live sha-less re-persist sharing scannedAt with a mock row deduped
+    // to the mock row and returned its id as if it were the live scan, with no `upgraded` signal.
+    const { prisma, scanCreate, tx } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByScannedAt.mockResolvedValue({
+      id: "scan_mock",
+      engineProvider: "mock",
+      contentKey: fixtureContentKey("mock"),
+    });
+
+    const res = await persistScanReport(makeReport({ headSha: null, engineProvider: "anthropic" }));
+
+    // The mock graph is torn down (children first — no cascades) and a live row replaces it.
+    expect(tx.recommendationEvent.deleteMany).toHaveBeenCalledWith({ where: { recommendation: { scanId: "scan_mock" } } });
+    expect(tx.recommendation.deleteMany).toHaveBeenCalledWith({ where: { scanId: "scan_mock" } });
+    expect(tx.scanDimension.deleteMany).toHaveBeenCalledWith({ where: { scanId: "scan_mock" } });
+    expect(tx.scan.delete).toHaveBeenCalledWith({ where: { id: "scan_mock" } });
+    expect(scanCreate).toHaveBeenCalledTimes(1);
+    expect(res).toMatchObject({ scanId: "scan_new", deduped: false, upgraded: true, headSha: null });
+  });
+
+  it("a sha-less MOCK re-persist over a mock row still dedups (mock never replaces mock)", async () => {
+    const { prisma, scanCreate } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByScannedAt.mockResolvedValue({
+      id: "scan_mock",
+      engineProvider: "mock",
+      contentKey: fixtureContentKey("mock"),
+    });
+
+    const res = await persistScanReport(makeReport({ headSha: null, engineProvider: "mock" }));
+
+    expect(res).toMatchObject({ scanId: "scan_mock", deduped: true, headSha: null });
+    expect(scanCreate).not.toHaveBeenCalled();
+  });
+
+  it("cross-instance P2002 race: re-reads the winner and dedups (no duplicate row, error swallowed)", async () => {
+    const p2002 = new Prisma.PrismaClientKnownRequestError("unique", {
+      code: "P2002",
+      clientVersion: "x",
+    });
+    const { prisma, scanCreate } = fakePrisma({ previousRecs: null, scanCreateThrows: p2002 });
+    mockGetPrisma.mockReturnValue(prisma);
+    // First dedup read misses (our read-then-insert path), then after the P2002 the winner is found.
+    mockFindScanByCommit.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: "scan_winner" });
+
+    const res = await persistScanReport(makeReport({ headSha: "sha_race" }));
+
+    expect(scanCreate).toHaveBeenCalledTimes(1); // attempted once, rejected by the unique constraint
+    expect(res).toMatchObject({ scanId: "scan_winner", deduped: true, headSha: "sha_race" });
+  });
+
+  it("P2002 with no recoverable winner re-throws (does not silently swallow data loss)", async () => {
+    const p2002 = new Prisma.PrismaClientKnownRequestError("unique", {
+      code: "P2002",
+      clientVersion: "x",
+    });
+    const { prisma } = fakePrisma({ previousRecs: null, scanCreateThrows: p2002 });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValueOnce(null).mockResolvedValueOnce(null); // no winner ever appears
+
+    await expect(persistScanReport(makeReport({ headSha: "sha_race" }))).rejects.toBe(p2002);
+  });
+
+  it("returns null and writes nothing when persistence is disabled", async () => {
+    mockIsDbConfigured.mockReturnValue(false);
+    const res = await persistScanReport(makeReport());
+    expect(res).toBeNull();
+    expect(mockGetPrisma).not.toHaveBeenCalled();
+  });
+});
+
+// ── CRITICAL #1b: engine upgrade — a LIVE scan replaces the MOCK floor at the same commit ─────────
+//
+// Dedup is engine-blind on its own: a commit first scored by the deterministic `mock` fallback (or a
+// seeded demo) would keep that placeholder FOREVER, discarding any later real graded scan of the same
+// commit. persistScanReport upgrades in place — when the only scan of this SHA is `mock` and the
+// incoming report is live, it tears down the mock graph (children first — no cascades) and writes the
+// live row into the same (repoId, headSha) slot: deduped:false (billable), upgraded:true. Every OTHER
+// case still dedups (no free duplicate): live→live, or a mock re-scan (mock never replaces mock).
+describe("persistScanReport — mock → live engine upgrade", () => {
+  it("a LIVE re-scan of a MOCK-only commit REPLACES it (deletes the mock graph, writes a live row, deduped:false/upgraded:true)", async () => {
+    const { prisma, scanCreate, tx } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue({ id: "scan_mock", engineProvider: "mock" });
+
+    const res = await persistScanReport(makeReport({ headSha: "sha_x", engineProvider: "claude-cli" }));
+
+    // The mock scan's graph is torn down (children before the scan, since they don't cascade)…
+    expect(tx.recommendationEvent.deleteMany).toHaveBeenCalledWith({ where: { recommendation: { scanId: "scan_mock" } } });
+    expect(tx.recommendation.deleteMany).toHaveBeenCalledWith({ where: { scanId: "scan_mock" } });
+    expect(tx.scanDimension.deleteMany).toHaveBeenCalledWith({ where: { scanId: "scan_mock" } });
+    expect(tx.scan.delete).toHaveBeenCalledWith({ where: { id: "scan_mock" } });
+    // …and the live scan is written into the freed slot (a real, billable row — not deduped).
+    expect(scanCreate).toHaveBeenCalledTimes(1);
+    expect(res).toMatchObject({ scanId: "scan_new", deduped: false, upgraded: true, headSha: "sha_x" });
+  });
+
+  it("a live re-scan of a commit ALREADY scored live still dedups (no upgrade, no delete)", async () => {
+    const { prisma, scanCreate, tx } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue({ id: "scan_live", engineProvider: "anthropic" });
+
+    const res = await persistScanReport(makeReport({ headSha: "sha_x", engineProvider: "anthropic" }));
+
+    expect(res).toMatchObject({ scanId: "scan_live", deduped: true, headSha: "sha_x" });
+    expect(scanCreate).not.toHaveBeenCalled();
+    expect(tx.scan.delete).not.toHaveBeenCalled();
+  });
+
+  it("a MOCK re-scan never replaces an existing mock (mock does not upgrade mock)", async () => {
+    const { prisma, scanCreate, tx } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue({ id: "scan_mock", engineProvider: "mock" });
+
+    const res = await persistScanReport(makeReport({ headSha: "sha_x", engineProvider: "mock" }));
+
+    expect(res).toMatchObject({ scanId: "scan_mock", deduped: true, headSha: "sha_x" });
+    expect(scanCreate).not.toHaveBeenCalled();
+    expect(tx.scan.delete).not.toHaveBeenCalled();
+  });
+});
+
+// ── Context Health persistence (W4) — the scan row + the Repository cache column ──────────────────
+//
+// Same contract as techStackJson/passportJson: the per-scan blob is stamped when the report carries
+// one (null when it doesn't — a reconstructed snapshot), and the Repository CACHE column is only
+// written when present, so a reconstructed persist can't wipe the stored latest.
+describe("persistScanReport — contextHealthJson (W4)", () => {
+  const contextHealth = {
+    version: "1",
+    present: true,
+    files: [{ path: "CLAUDE.md", sectionsScore: 50 }],
+    freshness: { score: 70, ageDays: 5, commitsSinceEdit: 4, approximate: true },
+    quality: { score: 50, signals: [] },
+    drift: { score: 100, refsTotal: 0, deadRefs: [] },
+    score: 62,
+  };
+
+  it("stamps the per-scan blob AND caches the latest on the Repository when the report carries one", async () => {
+    const { prisma, createdScans } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    const report = makeReport({ headSha: "sha_ch" });
+    (report as { contextHealth?: unknown }).contextHealth = contextHealth;
+    await persistScanReport(report);
+
+    expect(createdScans[0]!.contextHealthJson).toBe(JSON.stringify(contextHealth));
+    const upsertArgs = prisma.repository.upsert.mock.calls[0]![0] as {
+      update: Record<string, unknown>;
+      create: Record<string, unknown>;
+    };
+    expect(upsertArgs.update.contextHealthJson).toBe(JSON.stringify(contextHealth));
+    expect(upsertArgs.create.contextHealthJson).toBe(JSON.stringify(contextHealth));
+  });
+
+  it("a report WITHOUT contextHealth writes null on the scan and leaves the Repository cache untouched", async () => {
+    const { prisma, createdScans } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(makeReport({ headSha: "sha_noch" }));
+
+    expect(createdScans[0]!.contextHealthJson).toBeNull();
+    const upsertArgs = prisma.repository.upsert.mock.calls[0]![0] as { update: Record<string, unknown> };
+    expect(upsertArgs.update).not.toHaveProperty("contextHealthJson"); // never wipes the cached latest
+  });
+});
+
+// #13 — the manifest readout follows the exact same sidecar contract. The second case is the one
+// that matters for honesty: a report with NO readout must leave the cached latest alone, so a
+// reconstructed persist cannot turn "we read this repo's contract last week" into silence.
+describe("persistScanReport — manifestJson (#13)", () => {
+  const manifest = {
+    status: "ok" as const,
+    readAt: "2026-06-10T00:00:00.000Z",
+    generatedAt: "2026-06-01",
+    schemaVersion: "0.3.0",
+    schemaAhead: false,
+    capabilities: [{ name: "test", command: "npm test", verified: true, placeholder: false, wiredAt: [] }],
+    controls: { prePush: ["lint"], ciHardPass: ["test"] },
+    paths: { memory: ".ai/memory/" },
+    agents: [],
+    placeholders: [],
+    unbacked: ["lint"],
+    notes: [],
+  };
+
+  it("stamps the per-scan blob AND caches the latest on the Repository when the report carries one", async () => {
+    const { prisma, createdScans } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    const report = makeReport({ headSha: "sha_mf" });
+    (report as { manifest?: unknown }).manifest = manifest;
+    await persistScanReport(report);
+
+    expect(createdScans[0]!.manifestJson).toBe(JSON.stringify(manifest));
+    const upsertArgs = prisma.repository.upsert.mock.calls[0]![0] as {
+      update: Record<string, unknown>;
+      create: Record<string, unknown>;
+    };
+    expect(upsertArgs.update.manifestJson).toBe(JSON.stringify(manifest));
+    expect(upsertArgs.create.manifestJson).toBe(JSON.stringify(manifest));
+  });
+
+  it("a report WITHOUT a readout writes null on the scan and leaves the Repository cache untouched", async () => {
+    const { prisma, createdScans } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(makeReport({ headSha: "sha_nomf" }));
+
+    expect(createdScans[0]!.manifestJson).toBeNull();
+    const upsertArgs = prisma.repository.upsert.mock.calls[0]![0] as { update: Record<string, unknown> };
+    expect(upsertArgs.update).not.toHaveProperty("manifestJson"); // never wipes the cached latest
+  });
+});
+
+// ── CRITICAL #2: carry-forward preserves tracked recommendation state ─────────────────────────────
+
+describe("persistScanReport — carry-forward of recommendation tracking state", () => {
+  /** Pull the recommendations.create rows out of the captured scan.create payload. */
+  function createdRecs(createdScans: Array<Record<string, unknown>>) {
+    const data = createdScans[0] as {
+      recommendations: { create: Array<Record<string, unknown>> };
+    };
+    return data.recommendations.create;
+  }
+
+  it("PRESERVES status/assigneeLogin/targetDate from the matched prior rec (exact-title match)", async () => {
+    const due = new Date("2026-09-01T00:00:00.000Z");
+    const { prisma, createdScans } = fakePrisma({
+      previousRecs: [
+        {
+          dimId: "D1",
+          title: "Add CI smoke tests",
+          status: "in_progress",
+          assigneeLogin: "octocat",
+          targetDate: due,
+        },
+      ],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null); // new sha → goes through carry-forward
+
+    await persistScanReport(
+      makeReport({ headSha: "sha_v2", roadmap: [{ dimension: "D1", title: "Add CI smoke tests" }] }),
+    );
+
+    const recs = createdRecs(createdScans);
+    expect(recs).toHaveLength(1);
+    // The exact carried-field copy — the invariant the re-scan must never reset to defaults.
+    expect(recs[0]).toMatchObject({
+      title: "Add CI smoke tests",
+      dimId: "D1",
+      status: "in_progress",
+      assigneeLogin: "octocat",
+      targetDate: due,
+    });
+  });
+
+  it("carries state even when the LLM REPHRASED the title (tier-2 normalized match)", async () => {
+    const due = new Date("2026-10-15T00:00:00.000Z");
+    const { prisma, createdScans } = fakePrisma({
+      previousRecs: [
+        {
+          dimId: "D2",
+          title: "Add CI smoke tests.",
+          status: "done",
+          assigneeLogin: "maintainer",
+          targetDate: due,
+        },
+      ],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    // Rephrased: trailing punctuation / casing differs — only the tiered matcher pairs these.
+    await persistScanReport(
+      makeReport({ headSha: "sha_v2", roadmap: [{ dimension: "D2", title: "add CI smoke tests" }] }),
+    );
+
+    const recs = createdRecs(createdScans);
+    expect(recs[0]).toMatchObject({
+      status: "done",
+      assigneeLogin: "maintainer",
+      targetDate: due,
+    });
+  });
+
+  it("defaults a brand-new (unmatched) roadmap item to open / null / null", async () => {
+    const { prisma, createdScans } = fakePrisma({
+      previousRecs: [
+        {
+          dimId: "D1",
+          title: "Add CI smoke tests",
+          status: "in_progress",
+          assigneeLogin: "octocat",
+          targetDate: new Date("2026-09-01T00:00:00.000Z"),
+        },
+      ],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    // A roadmap item on a DIFFERENT dimension/title with no prior counterpart.
+    await persistScanReport(
+      makeReport({
+        headSha: "sha_v2",
+        roadmap: [
+          { dimension: "D1", title: "Add CI smoke tests" }, // matches prior → carries
+          { dimension: "D7", title: "Adopt trunk-based development" }, // new → defaults
+        ],
+      }),
+    );
+
+    const recs = createdRecs(createdScans);
+    expect(recs).toHaveLength(2);
+    expect(recs[0]).toMatchObject({ status: "in_progress", assigneeLogin: "octocat" });
+    expect(recs[1]).toMatchObject({
+      title: "Adopt trunk-based development",
+      status: "open",
+      assigneeLogin: null,
+      targetDate: null,
+    });
+  });
+
+  it("carried state lands on the recommendation at the SAME roadmap index (no desync)", async () => {
+    const { prisma, createdScans } = fakePrisma({
+      previousRecs: [
+        { dimId: "D1", title: "First", status: "open", assigneeLogin: null, targetDate: null },
+        { dimId: "D2", title: "Second", status: "done", assigneeLogin: "bob", targetDate: null },
+      ],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    // Reverse the order in the new roadmap; carried state must still follow identity, not position.
+    await persistScanReport(
+      makeReport({
+        headSha: "sha_v2",
+        roadmap: [
+          { dimension: "D2", title: "Second" },
+          { dimension: "D1", title: "First" },
+        ],
+      }),
+    );
+
+    const recs = createdRecs(createdScans);
+    expect(recs[0]).toMatchObject({ title: "Second", status: "done", assigneeLogin: "bob" });
+    expect(recs[1]).toMatchObject({ title: "First", status: "open", assigneeLogin: null });
+  });
+});
+
+// ── HIGH: head-pointer recency guard (replaces the hollow "exercised by e2e" claim) ───────────────
+//
+// The repo's head pointer (headSha / headEtag / lastScanAt) is the conditional-re-scan freshness
+// reference: the next re-scan sends `If-None-Match` from headEtag and shows "up to date" from
+// lastScanAt. The persist layer advances it through a SINGLE `repository.updateMany` carrying a
+// recency-guarded `where` — `OR:[{lastScanAt:null},{lastScanAt:{lt:scannedAtDate}}]` — so the row
+// only ever moves FORWARD. The source comment (scans-persist.ts:81-84) documents a previously-shipped
+// data-corruption bug where the head was written unconditionally, letting a delayed/replayed scan of
+// an OLDER commit roll headSha back and tear it apart from headEtag. These tests PIN that fix: the
+// guard predicate is always present (so an older scan is a structural no-op), headSha+headEtag move
+// TOGETHER on a newer scan, and the report read returns the head — the latest — not an older row.
+describe("persistScanReport — head-pointer recency guard (advance-on-newer, hold-on-older)", () => {
+  /** Grab the single head-advance updateMany call args (the one carrying the lastScanAt recency OR). */
+  function headAdvanceCall(prisma: ReturnType<typeof fakePrisma>["prisma"]) {
+    const calls = prisma.repository.updateMany.mock.calls as Array<
+      [{ where: { id: string; OR: Array<Record<string, unknown>> }; data: Record<string, unknown> }]
+    >;
+    const headCall = calls.find((c) => Array.isArray(c[0]?.where?.OR));
+    expect(headCall, "expected a recency-guarded head-advance updateMany").toBeDefined();
+    return headCall![0];
+  }
+
+  it("HEAD ADVANCES ON NEWER: the update is gated on lastScanAt < scannedAt and moves headSha+headEtag together", async () => {
+    const { prisma } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null); // new sha → full persist runs
+
+    const scannedAt = "2026-06-19T00:00:00.000Z";
+    await persistScanReport(
+      makeReport({ headSha: "sha_newer", scannedAt }),
+      { headEtag: 'W/"etag-newer"' },
+    );
+
+    const { where, data } = headAdvanceCall(prisma);
+    // The guard predicate must be present so a newer scan advances but an older one can't — the exact
+    // clause whose loss (regressing to an unconditional update) re-opens the head-rollback bug.
+    expect(where.id).toBe("repo_1");
+    expect(where.OR).toEqual([
+      { lastScanAt: null },
+      { lastScanAt: { lt: new Date(scannedAt) } },
+      // Exact-timestamp tiebreak (scan-persistence-history #4): a newer commit sharing lastScanAt to the
+      // ms still advances the head, but only onto a DIFFERENT sha (an idempotent replay stays a no-op).
+      { lastScanAt: new Date(scannedAt), headSha: { not: "sha_newer" } },
+    ]);
+    // headSha + headEtag advance TOGETHER in the same write (so they can't tear apart), with the new
+    // lastScanAt — the head pointer now references the just-persisted newer scan.
+    expect(data).toMatchObject({
+      lastScanAt: new Date(scannedAt),
+      headSha: "sha_newer",
+      headEtag: 'W/"etag-newer"',
+    });
+  });
+
+  it("HEAD HOLDS ON OLDER: an out-of-order older scan's head-advance is a DB no-op (the latest stays latest)", async () => {
+    // The DB enforces the recency guard: for an OLDER scan the OR predicate matches no row, so
+    // updateMany affects 0 rows and the stored head (a newer commit) is NOT moved backward. Model that
+    // by having updateMany report count:0 for this older replay.
+    const { prisma } = fakePrisma({ previousRecs: null });
+    prisma.repository.updateMany.mockResolvedValue({ count: 0 }); // older scan → guard matches nothing
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    const olderScannedAt = "2026-01-01T00:00:00.000Z"; // earlier than an already-stored newer head
+    const res = await persistScanReport(
+      makeReport({ headSha: "sha_older", scannedAt: olderScannedAt }),
+      { headEtag: 'W/"etag-older"' },
+    );
+
+    // The head-advance still carries the recency guard, and because it matched 0 rows the stored head
+    // pointer is untouched — no rollback of headSha/headEtag/lastScanAt to the older commit.
+    const { where } = headAdvanceCall(prisma);
+    expect(where.OR).toEqual([
+      { lastScanAt: null },
+      { lastScanAt: { lt: new Date(olderScannedAt) } },
+      { lastScanAt: new Date(olderScannedAt), headSha: { not: "sha_older" } },
+    ]);
+    expect(prisma.repository.updateMany).toHaveResolvedWith({ count: 0 });
+    expect(res?.headSha).toBe("sha_older"); // the scan still records its own sha; the repo head did not roll back
+  });
+
+  it("REPORT READ RETURNS THE HEAD (latest), not an older row: dedup reuses the head scan for the head commit", async () => {
+    // The dedup read keys on the repo's head commit — re-persisting the head sha resolves to the
+    // existing HEAD scan, never an older one. This is the read-side of the recency invariant: the
+    // returned scan is the latest pinned to the head commit.
+    const { prisma, scanCreate } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue({ id: "scan_head" }); // findScanByCommit returns the head row
+
+    const res = await persistScanReport(makeReport({ headSha: "sha_head" }));
+
+    expect(mockFindScanByCommit).toHaveBeenCalledWith("repo_1", "sha_head");
+    expect(res).toMatchObject({ scanId: "scan_head", deduped: true, headSha: "sha_head" });
+    expect(scanCreate).not.toHaveBeenCalled(); // no new row — the head scan is the report read result
+  });
+
+  it("a null/absent headEtag leaves the stored etag alone (advances lastScanAt only)", async () => {
+    // A private /token scan carries no public ETag; the head-advance must not null out the stored one.
+    const { prisma } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    const scannedAt = "2026-06-19T12:00:00.000Z";
+    await persistScanReport(makeReport({ headSha: "sha_noetag", scannedAt })); // no headEtag opt
+
+    const { data } = headAdvanceCall(prisma);
+    expect(data).toMatchObject({ lastScanAt: new Date(scannedAt), headSha: "sha_noetag" });
+    expect(data).not.toHaveProperty("headEtag"); // untouched, not reset to null
+  });
+
+  // ── ATOMICITY: the head pointer advances only once a scan is durably persisted (scan-persistence-history #1)
+  it("a FAILED scan-graph transaction does NOT advance the head pointer (no phantom head)", async () => {
+    // The scan.create throws a non-retryable error mid-transaction → the whole scan rolls back. Because the
+    // head-advance now runs only AFTER a successful commit, the repo is NOT left advertising a headSha with
+    // no Scan row — the exact strand that made getHeadHint 304 every conditional re-scan forever.
+    const boom = new Error("scan graph write failed mid-transaction");
+    const { prisma } = fakePrisma({ previousRecs: null, scanCreateThrows: boom });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null); // new sha → full persist runs, then the tx throws
+
+    await expect(persistScanReport(makeReport({ headSha: "sha_rollback" }))).rejects.toBe(boom);
+    // No head-advance updateMany ran at all — the pointer is untouched by the rolled-back scan.
+    expect(prisma.repository.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("a DEDUP hit still advances the head (freshness) — a real scan for the commit already exists", async () => {
+    // On dedup the commit genuinely has a persisted scan, so refreshing headSha/headEtag/lastScanAt is
+    // safe (no phantom) and keeps the UI's "up to date" honest — but no duplicate metered row is written.
+    const { prisma, scanCreate } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue({ id: "scan_existing" }); // exact commit already scored
+
+    const scannedAt = "2026-06-20T00:00:00.000Z";
+    await persistScanReport(makeReport({ headSha: "sha_abc", scannedAt }), { headEtag: 'W/"e"' });
+
+    const { where, data } = headAdvanceCall(prisma);
+    expect(where.OR).toEqual([
+      { lastScanAt: null },
+      { lastScanAt: { lt: new Date(scannedAt) } },
+      { lastScanAt: new Date(scannedAt), headSha: { not: "sha_abc" } },
+    ]);
+    expect(data).toMatchObject({ lastScanAt: new Date(scannedAt), headSha: "sha_abc", headEtag: 'W/"e"' });
+    expect(scanCreate).not.toHaveBeenCalled(); // dedup: no new metered row
+  });
+});
+
+// ── MEDIUM: sha-less findScanByScannedAt dedup fallback (edge-case hardening) ──────────────────────
+//
+// A report with NO resolvable commit SHA can't dedup by commit, so persist falls back to matching the
+// existing scan by the report's own `scannedAt` (scans-persist.ts:149-159). This is the ONLY guard
+// stopping a sha-less re-persist — a coalesced follower, a double-submit, a retried lane — from
+// inserting a SECOND metered Scan row. The source itself flags equality-on-timestamp as "inherently
+// fragile", which is exactly why the branch needs pinning: that findScanByScannedAt is the lookup the
+// fallback keys on (not findScanByCommit), that a hit reuses the existing id with deduped:true +
+// headSha:null and writes NO new row, that a miss persists exactly one new sha-less row (deduped:false),
+// and that a non-finite/invalid scannedAt flows through as an Invalid Date without crashing the persist.
+describe("persistScanReport — sha-less findScanByScannedAt dedup fallback", () => {
+  it("keys the fallback on findScanByScannedAt (NOT findScanByCommit) for a sha-less report", async () => {
+    // The branch selector: with no headSha the commit-dedup lookup must be skipped entirely and the
+    // scannedAt fallback consulted instead — inverting this guard re-enables duplicate sha-less rows.
+    const { prisma } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByScannedAt.mockResolvedValue({
+      id: "scan_sameTime",
+      engineProvider: "anthropic",
+      contentKey: fixtureContentKey(),
+    });
+
+    const scannedAt = "2026-06-18T08:30:00.000Z";
+    await persistScanReport(makeReport({ headSha: null, scannedAt }));
+
+    // The fallback is consulted with the repo id and the report's own scannedAt (as a Date), and the
+    // commit-dedup path is never touched for a sha-less report.
+    expect(mockFindScanByScannedAt).toHaveBeenCalledTimes(1);
+    expect(mockFindScanByScannedAt).toHaveBeenCalledWith("repo_1", new Date(scannedAt));
+    expect(mockFindScanByCommit).not.toHaveBeenCalled();
+  });
+
+  it("HIT: a same-scannedAt row is reused (deduped:true, headSha:null) and NO new Scan row is created", async () => {
+    // The load-bearing dedup invariant: a re-persist of the SAME sha-less report must reuse the first
+    // row — zero new metered rows, no carry-forward read reached.
+    const { prisma, scanCreate } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByScannedAt.mockResolvedValue({
+      id: "scan_first",
+      engineProvider: "anthropic",
+      contentKey: fixtureContentKey(),
+    });
+
+    const res = await persistScanReport(makeReport({ headSha: null }));
+
+    expect(res).toMatchObject({ scanId: "scan_first", deduped: true, headSha: null });
+    expect(scanCreate).not.toHaveBeenCalled(); // no duplicate sha-less metered row
+    expect(prisma.scan.findFirst).not.toHaveBeenCalled(); // short-circuited before carry-forward
+  });
+
+  it("SAME timestamp, DIFFERENT content: both scans persist (a same-ms distinct score is no longer dropped)", async () => {
+    // G3-01: the old fallback deduped on exact `scannedAt` equality ALONE, so two genuinely different
+    // sha-less results computed in the same millisecond collided and the second was silently discarded
+    // (and a reused/replayed clock value could suppress a legitimate re-score). The timestamp is now
+    // only the narrowing step — the decision is the CONTENT key — so a different result at the same
+    // instant is persisted as the distinct scan it is.
+    const { prisma, scanCreate } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByScannedAt.mockResolvedValue({
+      id: "scan_other",
+      engineProvider: "anthropic",
+      contentKey: "41|L2|30|50|anthropic|claude|", // a DIFFERENT score at the same timestamp
+    });
+
+    const res = await persistScanReport(makeReport({ headSha: null }));
+
+    expect(scanCreate).toHaveBeenCalledTimes(1); // not suppressed by the timestamp collision
+    expect(res).toMatchObject({ scanId: "scan_new", deduped: false, headSha: null });
+  });
+
+  it("DIFFERENT per-dimension scores at the same timestamp still count as different content", async () => {
+    // The content key folds in per-dimension scores, so two reports that agree on the headline number
+    // but disagree per dimension are still distinct results — not one duplicate persist.
+    const { prisma, scanCreate } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByScannedAt.mockResolvedValue({
+      id: "scan_other",
+      engineProvider: "anthropic",
+      contentKey: `${fixtureContentKey()}D1:40`, // same headline identity, different dimension detail
+    });
+
+    const res = await persistScanReport(makeReport({ headSha: null }));
+
+    expect(scanCreate).toHaveBeenCalledTimes(1);
+    expect(res).toMatchObject({ deduped: false });
+  });
+
+  it("MISS: a genuinely new sha-less report persists EXACTLY ONE row (deduped:false, headSha:null)", async () => {
+    // No prior row at this scannedAt → the fallback must NOT suppress a genuinely-new sha-less scan;
+    // it persists once and the stored scan's headSha stays null.
+    const { prisma, scanCreate, createdScans } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByScannedAt.mockResolvedValue(null); // never persisted before
+
+    const res = await persistScanReport(makeReport({ headSha: null }));
+
+    expect(scanCreate).toHaveBeenCalledTimes(1); // exactly one new row, not zero and not two
+    expect(res).toMatchObject({ scanId: "scan_new", deduped: false, headSha: null });
+    expect(createdScans[0]).toMatchObject({ headSha: null }); // the persisted row carries no sha
+  });
+
+  it("INVALID scannedAt: a non-date timestamp flows through as an Invalid Date without crashing", async () => {
+    // A reconstructed/legacy sha-less report can carry a garbage scannedAt. `new Date(report.scannedAt)`
+    // yields an Invalid Date (getTime()===NaN) rather than throwing, so the fallback is still consulted
+    // — the persist must not blow up, and on a miss it still writes exactly one row.
+    const { prisma, scanCreate } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByScannedAt.mockResolvedValue(null);
+
+    const res = await persistScanReport(makeReport({ headSha: null, scannedAt: "not-a-date" }));
+
+    // The fallback received an Invalid Date (NaN time) and no crash propagated.
+    expect(mockFindScanByScannedAt).toHaveBeenCalledTimes(1);
+    const [, passedDate] = mockFindScanByScannedAt.mock.calls[0] as [string, Date];
+    expect(passedDate).toBeInstanceOf(Date);
+    expect(Number.isNaN(passedDate.getTime())).toBe(true);
+    expect(scanCreate).toHaveBeenCalledTimes(1);
+    expect(res).toMatchObject({ deduped: false, headSha: null });
+  });
+});
+
+// ── CROSS-INSTANCE SHA-LESS DEDUP — the persisted idempotency key (G3-01) ─────────────────────────
+//
+// findScanByScannedAt closes the WITHIN-process half of sha-less dedup: read, compare content, decide.
+// It cannot close the cross-instance half, because two serverless instances both read "nothing there
+// yet" before either commits, and @@unique([repoId, headSha]) never fires for them (NULLs are distinct
+// in Postgres). The row now carries `dedupKey` under @@unique([repoId, dedupKey]), so the DATABASE
+// rejects the second insert and the loser recovers the winner — the identical mechanism the sha path
+// already had, and the branch the old `headSha &&` guard made unreachable (a duplicate sha-less race
+// surfaced as an unhandled 500 with the scan unsaved).
+
+describe("persistScanReport — sha-less cross-instance dedup key", () => {
+  it("STAMPS dedupKey on a sha-less row (the value a concurrent instance collides with at the DB)", async () => {
+    const { prisma, createdScans } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByScannedAt.mockResolvedValue(null);
+
+    await persistScanReport(makeReport({ headSha: null }));
+
+    expect(createdScans).toHaveLength(1);
+    expect(createdScans[0]!.headSha).toBeNull();
+    // The exact value is scanDedupKey's contract (pinned in scans-read.test.ts); here it must simply be
+    // PRESENT and well-formed — a null would leave the row unconstrained, which is the whole defect.
+    expect(createdScans[0]!.dedupKey).toMatch(/^v1:[0-9a-f]{64}$/);
+  });
+
+  it("leaves dedupKey NULL on a sha-BEARING row (one dedup identity per row, never two)", async () => {
+    // A row governed by BOTH constraints could reject a legitimate insert on the wrong identity, and
+    // makes "which constraint fired?" unanswerable in the P2002 recovery below.
+    const { prisma, createdScans } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(makeReport({ headSha: "sha_abc" }));
+
+    expect(createdScans[0]!.headSha).toBe("sha_abc");
+    expect(createdScans[0]!.dedupKey).toBeNull();
+  });
+
+  it("cross-instance sha-less race: P2002 re-reads the winner by dedupKey and dedups (no duplicate metered row)", async () => {
+    const p2002 = new Prisma.PrismaClientKnownRequestError("unique", { code: "P2002", clientVersion: "x" });
+    const { prisma, scanCreate } = fakePrisma({ previousRecs: null, scanCreateThrows: p2002 });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByScannedAt.mockResolvedValue(null); // our read-then-insert path saw nothing
+    mockFindScanByDedupKey.mockResolvedValue({ id: "scan_winner" });
+
+    const res = await persistScanReport(makeReport({ headSha: null }));
+
+    expect(scanCreate).toHaveBeenCalledTimes(1); // attempted once, rejected by the unique constraint
+    expect(res).toMatchObject({ scanId: "scan_winner", deduped: true, headSha: null });
+    // Recovered by IDENTITY, not by commit — findScanByCommit has nothing to look up for a sha-less row.
+    expect(mockFindScanByCommit).not.toHaveBeenCalled();
+    const [repoId, key] = mockFindScanByDedupKey.mock.calls[0] as [string, string];
+    expect(repoId).toBe("repo_1");
+    expect(key).toMatch(/^v1:[0-9a-f]{64}$/);
+  });
+
+  it("sha-less P2002 with no recoverable winner re-throws (never silently swallows a lost scan)", async () => {
+    const p2002 = new Prisma.PrismaClientKnownRequestError("unique", { code: "P2002", clientVersion: "x" });
+    const { prisma } = fakePrisma({ previousRecs: null, scanCreateThrows: p2002 });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByScannedAt.mockResolvedValue(null);
+    mockFindScanByDedupKey.mockResolvedValue(null);
+
+    await expect(persistScanReport(makeReport({ headSha: null }))).rejects.toBe(p2002);
+  });
+
+  it("a NON-unique error on a sha-less insert still propagates (only P2002 is a race, not every failure)", async () => {
+    const boom = new Error("connection reset");
+    const { prisma } = fakePrisma({ previousRecs: null, scanCreateThrows: boom });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByScannedAt.mockResolvedValue(null);
+
+    await expect(persistScanReport(makeReport({ headSha: null }))).rejects.toBe(boom);
+    expect(mockFindScanByDedupKey).not.toHaveBeenCalled();
+  });
+});
+
+// ── W5: AiChange revert stamping is EVIDENCE-PRESERVING on re-scan ───────────────────────────────
+// The PR window slides, so a later scan can see a PR whose revert has aged out of the window. A null
+// stamp on the UPDATE path means "no revert matched THIS window", not "the old stamp was wrong" —
+// the update must omit the pair entirely, while create records the honest null.
+
+describe("persistScanReport — AiChange revert stamp (W5)", () => {
+  const aiChange = (over: Record<string, unknown> = {}) => ({
+    prNumber: 7,
+    title: "feat: ai thing",
+    authorLogin: "alice",
+    authorIsBot: false,
+    aiSignal: "trailer",
+    aiTools: ["Claude"],
+    state: "MERGED",
+    mergedAt: "2026-06-01T00:00:00.000Z",
+    approved: true,
+    approverLogin: "bob",
+    approvedAt: "2026-05-31T00:00:00.000Z",
+    reviewCount: 1,
+    createdAt: "2026-05-30T00:00:00.000Z",
+    revertedByPr: null,
+    revertedAt: null,
+    ...over,
+  });
+
+  async function persistWith(changes: Array<Record<string, unknown>>) {
+    const fixture = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(fixture.prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+    const report = Object.assign(makeReport({ headSha: "sha_w5" }), { aiChanges: changes });
+    await persistScanReport(report);
+    return fixture.tx.aiChange.upsert.mock.calls.map((c) => c[0] as { create: Record<string, unknown>; update: Record<string, unknown> });
+  }
+
+  it("writes a matched revert's number + merge time into both create and update", async () => {
+    const [call] = await persistWith([aiChange({ revertedByPr: 42, revertedAt: "2026-06-03T00:00:00.000Z" })]);
+    expect(call!.create.revertedByPr).toBe(42);
+    expect(call!.create.revertedAt).toEqual(new Date("2026-06-03T00:00:00.000Z"));
+    expect(call!.update.revertedByPr).toBe(42);
+    expect(call!.update.revertedAt).toEqual(new Date("2026-06-03T00:00:00.000Z"));
+  });
+
+  it("an unmatched record creates with honest nulls but OMITS the pair from update (never erases an old stamp)", async () => {
+    const [call] = await persistWith([aiChange()]);
+    expect(call!.create.revertedByPr).toBeNull();
+    expect(call!.create.revertedAt).toBeNull();
+    expect("revertedByPr" in call!.update).toBe(false);
+    expect("revertedAt" in call!.update).toBe(false);
+  });
+});
+
+// ── Follow-up feedback: in-progress rows resolve on rescan (src/lib/org/followups.ts) ────────────
+// An in-progress row is a claim ("we took this on"); the next scan is the feedback. It is DONE when
+// a commit trailer names it or when the scan no longer restates it (title tiers only), and stays in
+// progress when restated. Resolved rows are copied onto the NEW scan as `done` with a system event.
+describe("persistScanReport — follow-up feedback on in-progress rows", () => {
+  const prevInProgress = (over: Partial<PrevRec> = {}): PrevRec => ({
+    id: "rec_ip",
+    dimId: "D2",
+    title: "No coverage threshold fails a run",
+    status: "in_progress",
+    assigneeLogin: "octocat",
+    targetDate: null,
+    ...over,
+  });
+
+  it("NOT RESTATED → copied onto the new scan as done, with a 'no longer raised' event; the new item stays open", async () => {
+    const { prisma, createdScans, createdResolved, createdEvents } = fakePrisma({ previousRecs: [prevInProgress()] });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    // The dimension still has an item (r6 guarantees one) — but a DIFFERENT gap.
+    await persistScanReport(makeReport({ headSha: "sha_v2", roadmap: [{ dimension: "D2", title: "Snapshot tests can bless a regression wholesale" }] }));
+
+    // The new gap is NOT paired with the claimed row (no tier-3 carry onto work nobody took on).
+    const recs = (createdScans[0] as { recommendations: { create: Array<Record<string, unknown>> } }).recommendations.create;
+    expect(recs).toHaveLength(1);
+    expect(recs[0]).toMatchObject({ title: "Snapshot tests can bless a regression wholesale", status: "open", assigneeLogin: null });
+    // The claimed row rides forward as done, keeping its owner, on the new scan.
+    expect(createdResolved).toHaveLength(1);
+    expect(createdResolved[0]).toMatchObject({ scanId: "scan_new", title: "No coverage threshold fails a run", status: "done", assigneeLogin: "octocat" });
+    expect(createdEvents).toHaveLength(1);
+    expect(createdEvents[0]).toMatchObject({ fromValue: "in_progress", toValue: "done", actor: null });
+    expect(String(createdEvents[0]!.note)).toContain("no longer raised");
+  });
+
+  // 2026-08-26: the trailer is a HINT, not a verdict (followups.ts decideInProgress). In the loop the
+  // AGENT writes it, so "trailer wins over the rescan" was the loop grading its own homework.
+  it("TRAILER while the scan still restates the gap → KEPT in progress, with a claimed-but-restated event", async () => {
+    const { prisma, createdScans, createdResolved, createdEvents, tx } = fakePrisma({ previousRecs: [prevInProgress()] });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(
+      makeReport({ headSha: "sha_v3", roadmap: [{ dimension: "D2", title: "No coverage threshold fails a run" }], resolvedFollowUpIds: ["rec_ip"] }),
+    );
+
+    const recs = (createdScans[0] as { recommendations: { create: Array<Record<string, unknown>> } }).recommendations.create;
+    // The restated item rides carry-forward as the SAME claim, still in progress — nothing resolved.
+    expect(recs[0]).toMatchObject({ status: "in_progress", assigneeLogin: "octocat" });
+    expect(createdResolved).toHaveLength(0);
+    // …and the ledger says why the claim did not close it, on the carried row.
+    expect(tx.recommendation.findFirst).toHaveBeenCalledTimes(1);
+    expect(createdEvents[0]).toMatchObject({ recommendationId: "rec_carried", fromValue: "in_progress", toValue: "in_progress" });
+    expect(String(createdEvents[0]!.note)).toMatch(/Claimed resolved by commit trailer.*still raises it/);
+  });
+
+  it("TRAILER and NOT restated, but the dimension did not move → KEPT and copied forward with the reason", async () => {
+    // A gap that vanished from the roadmap while its number stood still is rephrasing, not repair.
+    const { prisma, createdResolved, createdEvents } = fakePrisma({
+      previousRecs: [prevInProgress()],
+      previousDims: [{ dimId: "D2", score: 61 }],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(
+      makeReport({
+        headSha: "sha_v3b",
+        roadmap: [{ dimension: "D2", title: "Tests exist but nothing gates a merge on them" }],
+        resolvedFollowUpIds: ["rec_ip"],
+        dimensions: [{ id: "D2", name: "Automated Testing", weight: 0.15, score: 61, signalScore: 61, llmScore: 61, summary: "", evidence: [], strengths: [], gaps: [] }],
+      }),
+    );
+
+    expect(createdResolved).toHaveLength(1);
+    expect(createdResolved[0]).toMatchObject({ status: "in_progress", title: "No coverage threshold fails a run", assigneeLogin: "octocat" });
+    expect(String(createdEvents[0]!.note)).toMatch(/did not move \(61 → 61\)/);
+  });
+
+  it("TRAILER and NOT restated, and the dimension ROSE → done with a trailer event", async () => {
+    const { prisma, createdResolved, createdEvents } = fakePrisma({
+      previousRecs: [prevInProgress()],
+      previousDims: [{ dimId: "D2", score: 61 }],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(
+      makeReport({
+        headSha: "sha_v3c",
+        roadmap: [],
+        resolvedFollowUpIds: ["rec_ip"],
+        dimensions: [{ id: "D2", name: "Automated Testing", weight: 0.15, score: 70, signalScore: 70, llmScore: 70, summary: "", evidence: [], strengths: [], gaps: [] }],
+      }),
+    );
+
+    expect(createdResolved[0]).toMatchObject({ status: "done" });
+    expect(String(createdEvents[0]!.note)).toContain("Ascent-Resolves");
+  });
+
+  it("RESTATED without a trailer → stays in progress on the new scan (carry-forward as before), nothing resolved", async () => {
+    const { prisma, createdScans, createdResolved } = fakePrisma({ previousRecs: [prevInProgress()] });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(makeReport({ headSha: "sha_v4", roadmap: [{ dimension: "D2", title: "no coverage threshold fails a run." }] }));
+
+    const recs = (createdScans[0] as { recommendations: { create: Array<Record<string, unknown>> } }).recommendations.create;
+    expect(recs[0]).toMatchObject({ status: "in_progress", assigneeLogin: "octocat" });
+    expect(createdResolved).toHaveLength(0);
+  });
+
+  it("an OPEN (unclaimed) row is untouched by the rule: tier-3 still carries it as before", async () => {
+    const { prisma, createdScans, createdResolved } = fakePrisma({ previousRecs: [prevInProgress({ status: "open", assigneeLogin: "hubot" })] });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(makeReport({ headSha: "sha_v5", roadmap: [{ dimension: "D2", title: "A reworded D2 gap" }] }));
+
+    const recs = (createdScans[0] as { recommendations: { create: Array<Record<string, unknown>> } }).recommendations.create;
+    expect(recs[0]).toMatchObject({ status: "open", assigneeLogin: "hubot" }); // lone-in-dimension pairing kept
+    expect(createdResolved).toHaveLength(0);
+  });
+});
+
+// ── PROVENANCE: which engine produced the score, and what moved it ───────────────────────────────
+//
+// Both columns exist for ONE consumer — the loop's attribution rule, which refuses to call a delta a
+// lift when it cannot prove both ends came from a real engine. A flag that is computed and then
+// dropped at the persist boundary is exactly the failure `scoreIntegrity` already had (UAT SAM-L1-02:
+// "computed, typed, persisted and rendered by nothing" — it was not even persisted), so the round
+// trip is asserted here rather than assumed.
+
+describe("persistScanReport — engine provenance is written, not dropped", () => {
+  it("a DEGRADED scan (mock floor fired) persists engineDegraded:true alongside the mock provider", async () => {
+    const { prisma, createdScans } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(makeReport({ headSha: "sha_deg", engineProvider: "mock", engineDegraded: true }));
+
+    expect(createdScans[0]).toMatchObject({ engineProvider: "mock", engineDegraded: true });
+  });
+
+  it("a KEYLESS mock scan is mock but NOT degraded — the two are different facts", async () => {
+    const { prisma, createdScans } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(makeReport({ headSha: "sha_keyless", engineProvider: "mock", engineDegraded: false }));
+
+    expect(createdScans[0]).toMatchObject({ engineProvider: "mock", engineDegraded: false });
+  });
+
+  it("a report that never set the flag persists NULL — unknown, which is not 'not degraded'", async () => {
+    const { prisma, createdScans } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(makeReport({ headSha: "sha_legacy" }));
+
+    expect(createdScans[0]!.engineDegraded).toBeNull();
+  });
+
+  it("scoreIntegrity round-trips as JSON on the row (it reached no column at all before)", async () => {
+    const { prisma, createdScans } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(
+      makeReport({
+        headSha: "sha_int",
+        scoreIntegrity: { d9Unmeasurable: true, widenedDims: ["D1", "D2"], effectiveBlend: 0.54 },
+      }),
+    );
+
+    expect(JSON.parse(String(createdScans[0]!.scoreIntegrityJson))).toEqual({
+      d9Unmeasurable: true,
+      widenedDims: ["D1", "D2"],
+      effectiveBlend: 0.54,
+    });
+  });
+
+  it("a report with no scoreIntegrity persists NULL rather than an invented empty record", async () => {
+    const { prisma, createdScans } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(makeReport({ headSha: "sha_noint" }));
+
+    expect(createdScans[0]!.scoreIntegrityJson).toBeNull();
+  });
+});

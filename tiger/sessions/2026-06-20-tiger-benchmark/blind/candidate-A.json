@@ -1,0 +1,243 @@
+{
+  "dimensions": [
+    {
+      "id": "D1",
+      "score": 32,
+      "summary": "An AGENTS.md file is present but at only 820 characters it is thin. The content does include a domain-critical constraint ('always integer cents'), a run instruction ('pnpm test before pushing'), and a security rule ('verify Stripe signatures'), so it is not a complete stub — but it lacks architecture context, explicit never/always constraints beyond those two, subagent/MCP/hook guidance, slash-command or tool-permission policy, and @-file references. No .cursor/rules, copilot-instructions, or MCP config exists. The guidance is enough to avoid the worst mistakes but not enough to let an agent navigate the service confidently.",
+      "strengths": [
+        "AGENTS.md is committed and discoverable in the repo root",
+        "Money-math domain constraint ('always integer cents') is explicit and actionable",
+        "Security constraint ('verify Stripe signatures') gives AI direct risk awareness",
+        "Build/test command ('pnpm test') is documented for agents"
+      ],
+      "gaps": [
+        "No architecture map or service topology — an agent cannot infer module boundaries",
+        "No advanced technique coverage: subagents, MCP servers, hooks, slash commands, tool-permission policy absent",
+        "No explicit 'never do X' constraints beyond the two examples; payment services warrant more",
+        "No .cursor/rules or copilot-instructions to cover IDE-based AI usage"
+      ]
+    },
+    {
+      "id": "D2",
+      "score": 38,
+      "summary": "The deterministic signal reported no test files, but the sampled evidence directly contradicts this: tests/checkout.test.ts exists, exercises three behavioral paths of the money-math module including an edge-case (refund larger than capture), and a recent commit message 'test(checkout): cover partial-refund path' confirms active test development. Vitest 2.1.0 is in devDependencies and the test script is wired in package.json. That said, coverage is narrow — only cents.ts is tested in the sample. The ci.yml pipeline does not invoke 'pnpm test', so tests are not CI-gated today. No coverage thresholds, mutation testing, contract tests, or e2e tests are in evidence.",
+      "strengths": [
+        "Vitest is installed and a test script is configured in package.json",
+        "tests/checkout.test.ts covers integer arithmetic correctness and a refund-overflow guard — both business-critical",
+        "Conventional-commit prefix 'test(checkout)' shows the team treats test work as a first-class commit type",
+        "Tests are co-located in a dedicated tests/ directory with clear naming conventions"
+      ],
+      "gaps": [
+        "CI pipeline (ci.yml) runs build and lint but not the test suite — tests do not gate merges",
+        "No coverage config, thresholds, or codecov integration; actual coverage is unknown",
+        "Only one module (cents.ts) visible in tests; checkout flow, webhook handler, and Stripe integration appear untested",
+        "No e2e, contract, or schema-validation tests for the Stripe-backed payment path"
+      ]
+    },
+    {
+      "id": "D3",
+      "score": 50,
+      "summary": "A GitHub Actions ci.yml runs on every push and pull request, covering install, build, and lint — a solid baseline for a team-scale service. However, the test step is absent from the pipeline, meaning green CI does not imply passing tests. There is no deploy or release workflow; README confirms manual ECR/ECS deployment. No semantic-release, changesets, or release-please automation. No IaC, GitOps manifests, DB migration tooling, or preview deploys are in evidence. The pipeline catches type and lint errors but not behavioral regressions, making it insufficient to gate AI-generated changes safely.",
+      "strengths": [
+        "ci.yml triggers on both push and pull_request, ensuring every proposed change is checked",
+        "pnpm install --frozen-lockfile enforces deterministic dependency resolution",
+        "pnpm store cache step ('ci: cache pnpm store' commit) shows deliberate pipeline optimization",
+        "Branch protection on main requires a PR and status-check passage"
+      ],
+      "gaps": [
+        "Test step missing from ci.yml — behavioral regressions are not caught by CI",
+        "No deploy or release automation; README explicitly notes 'No release automation yet'",
+        "No IaC, versioned DB migrations, or rollback strategy visible",
+        "Actions pinned only to tag (@v4), not to commit SHA — supply-chain risk and not fully auditable"
+      ]
+    },
+    {
+      "id": "D4",
+      "score": 18,
+      "summary": "No AI code-review bots, claude-code-action, CodeRabbit, Copilot review, auto-fix workflows, or auto-PR tooling are present. Process signals show 30% of PRs are AI-involved but only 50% of those are reviewed — half of AI-generated changes merge without a human approval review. There is no Renovate or Dependabot auto-merge config, no LLM invocation inside CI, and no issue-to-PR automation. AI use appears purely keyboard-assist level with ad-hoc governance, matching the signal score.",
+      "strengths": [
+        "AI involvement in 30% of PRs indicates developer adoption of AI assistance",
+        "Branch protection requiring at least 1 approval provides a minimal human gate"
+      ],
+      "gaps": [
+        "No AI code-review bot or automated review step to catch issues in AI-generated PRs",
+        "50% of AI-involved PRs merge without a human review — governance gap for a payment service",
+        "No auto-fix, auto-format, or auto-PR workflows; all automation is manual",
+        "No Renovate or Dependabot auto-merge policy; dependency bumps require manual intervention"
+      ]
+    },
+    {
+      "id": "D5",
+      "score": 58,
+      "summary": "The README at 4.2k characters is substantive, covering setup, testing, and deployment. A docs/ directory with 3 markdown files indicates structured documentation effort beyond a single README. The README's deployment note ('No release automation yet') is honest and useful to both humans and agents. However, no ADRs, CONTRIBUTING.md, CHANGELOG, or OpenAPI/Swagger spec is visible. Given this is a payment service with a Stripe integration, an API schema or contract document would be high value. Documentation depth is adequate for orientation but insufficient for an agent to make confident autonomous changes.",
+      "strengths": [
+        "README covers setup, test, and deploy commands — all three key operational flows",
+        "docs/ directory with 3 files shows a habit of structured documentation",
+        "Honest deployment caveat ('No release automation yet') keeps docs accurate",
+        "Service description and tech stack (Stripe, Express, Zod) are clearly stated"
+      ],
+      "gaps": [
+        "No ADRs — decisions about money-math approach, idempotency strategy, or Stripe integration rationale are undocumented",
+        "No CONTRIBUTING.md or Definition-of-Done for contributors or agents",
+        "No OpenAPI/Swagger spec for the checkout endpoints; external callers and agents lack a contract",
+        "No CHANGELOG; release history is only recoverable through commit log"
+      ]
+    },
+    {
+      "id": "D6",
+      "score": 46,
+      "summary": "ESLint 9 and TypeScript with strict:true are both present, providing meaningful static guardrails. The CI pipeline enforces lint on every PR. However, no pre-commit hooks (Husky/lint-staged) exist, meaning developers can commit without running lint locally. No CODEOWNERS file, no commitlint or conventional-commit enforcement config, and no PR template are in evidence. Conventional-commit usage is ~70% by practice but not enforced mechanically. For a payment service handling money and Stripe webhooks, the absence of a pre-commit gate means lint/type errors can reach PRs unnecessarily.",
+      "strengths": [
+        "tsconfig strict:true enabled — catches a broad class of type errors at compile time",
+        "ESLint 9 present and enforced in CI pipeline",
+        "TypeScript 5.6 provides up-to-date language guardrails",
+        "~70% conventional-commit rate demonstrates team discipline even without enforcement"
+      ],
+      "gaps": [
+        "No pre-commit hooks (Husky/lint-staged) — lint and type errors are only caught after push",
+        "No CODEOWNERS — no automatic review assignment for sensitive modules (e.g., cents.ts, webhook handler)",
+        "No commitlint config — conventional-commit adherence relies on habit, not enforcement",
+        "No PR template to guide contributors on test coverage, security review, or money-math checks"
+      ]
+    },
+    {
+      "id": "D7",
+      "score": 50,
+      "summary": "42 commits in 30 days signals active development. Conventional-commit prefixes appear across the sampled messages (feat, fix, chore, test, refactor, ci) with ~70% compliance. One commit message ('test(checkout): cover partial-refund path') explicitly records test work. However, no AI co-author trailers (Co-Authored-By: Claude/Copilot) appear in the sampled commits despite 30% AI-involved PRs — AI contribution is happening but not formally attributed in commit history. Small-PR rate of 52% is modest; roughly half of PRs are larger batches.",
+      "strengths": [
+        "42 commits in 30 days demonstrates consistent recent activity",
+        "Conventional-commit prefixes span feat/fix/chore/test/refactor/ci — full vocabulary in use",
+        "Small, focused refactor visible: 'extract money math into cents.ts' shows deliberate code hygiene",
+        "test(checkout) prefix treats test additions as first-class changes"
+      ],
+      "gaps": [
+        "No AI co-author trailers in sampled commits despite meaningful AI PR involvement",
+        "Small-PR rate 52% — batch PRs are common, making review and bisect harder",
+        "Conventional-commit rate ~70%, not ~100%; ~30% of commits lack structured prefixes",
+        "No bot-authored commits or automated chore/dependency commits visible beyond manual bumps"
+      ]
+    },
+    {
+      "id": "D8",
+      "score": 38,
+      "summary": "Main is protected with required PRs and 1 approval, and status checks are required — this is a meaningful process gate. However, no code-owner review is configured, so the sensitive payment modules have no automatic expert routing. There are no evals or golden tests for AI output, no structured prompt/agent library, no agent-readable runbooks or ADRs, and no CONTRIBUTING guidance for agents. The AGENTS.md provides minimal harness context. With 50% of AI-involved PRs unreviewed, the process harness is thin for a payment-critical service. The gap between what exists (basic PR gates) and what is needed (repeatable AI harness) is significant.",
+      "strengths": [
+        "Branch protection on main requires PR + 1 approval + status checks — baseline governance exists",
+        "AGENTS.md documents the most critical domain constraint (integer cents) for AI agents",
+        "PR review rate of 65% and median 5h time-to-first-review indicate an engaged review culture",
+        "2 ruleset rules on the main branch suggest deliberate protection configuration"
+      ],
+      "gaps": [
+        "No code-owner review — payments and webhook modules have no automatic expert routing",
+        "No evals, golden tests, or promptfoo config for validating AI-generated changes",
+        "No structured agent prompt library or agents/ specs beyond thin AGENTS.md",
+        "No CONTRIBUTING.md or Definition-of-Done that agents or new contributors can follow"
+      ]
+    },
+    {
+      "id": "D9",
+      "score": 42,
+      "summary": "Dependabot.yml is present, providing automated dependency update PRs — a meaningful supply-chain baseline. However, 3 of 5 GitHub Actions are pinned to tags (@v4) rather than commit SHAs, creating a supply-chain risk where a tag could be silently updated to malicious code. No SAST (CodeQL, Semgrep), secret scanning, container scanning, SBOM generation, or artifact signing is in evidence. No SECURITY.md policy exists. For a payment service handling Stripe keys and webhook secrets, the absence of secret scanning is a meaningful gap. The signal score of 45 slightly overstates the posture given the missing SAST and secret-scanning controls.",
+      "strengths": [
+        "dependabot.yml present — automated dependency vulnerability updates are configured",
+        "Stripe signature verification commit ('fix(webhook): verify Stripe signature before parsing body') shows security awareness in code",
+        "Zod validation in the stack provides input-schema guardrails at the application layer",
+        "Active dependency management visible (chore(deps): bump stripe to 14.2.0)"
+      ],
+      "gaps": [
+        "3 of 5 Actions use tag pins (@v4) not SHA pins — supply-chain attack surface for a payment service",
+        "No secret scanning (gitleaks, trufflehog) — Stripe API keys and webhook secrets are high-value targets",
+        "No SAST (CodeQL, Semgrep) in CI — injection and logic vulnerabilities in payment flows go unscanned",
+        "No SECURITY.md policy and no SBOM generation or artifact signing"
+      ]
+    }
+  ],
+  "headline": "checkout-svc has a credible L2 foundation — active CI, TypeScript strict mode, and a live test suite — but tests are not CI-gated, AI governance is inconsistent, and the AGENTS.md is too thin for a payment service to safely delegate meaningful work to an agent.",
+  "strengths": [
+    "A real Vitest test suite exists and covers business-critical money-math edge cases, contradicting the detector's 'no tests' signal",
+    "CI runs on every PR with lint and build enforcement, and branch protection requires a review before merging to main",
+    "TypeScript strict mode and ESLint 9 provide strong static guardrails that catch a broad class of errors before review",
+    "Active 42-commit/30-day cadence with ~70% conventional-commit adoption signals a disciplined, engaged team",
+    "Dependabot dependency automation and Stripe signature verification demonstrate baseline security awareness"
+  ],
+  "risks": [
+    "Tests exist but are not run in CI — a regression in the payment path can pass a green pipeline and merge undetected",
+    "50% of AI-involved PRs merge without a human review on a payment service, creating a governance gap where AI-generated money-math errors could ship",
+    "No secret scanning in a repo that handles Stripe API keys and webhook secrets — a high-value leakage target",
+    "AGENTS.md is too thin to guide an agent safely through the checkout flow; an agent acting on incomplete guidance could violate the integer-cents invariant in untested paths",
+    "Actions pinned to tags not SHAs on a payment service CI pipeline exposes the supply chain to silent tag-mutation attacks"
+  ],
+  "roadmap": [
+    {
+      "title": "Tests run in CI but don't gate the pipeline — regressions in payment logic can ship undetected",
+      "dimension": "D2",
+      "impact": "high",
+      "effort": "low",
+      "rationale": "The test suite exists and covers critical money-math logic, but ci.yml does not invoke pnpm test. This means a broken refund calculation or overcharge bug could pass CI and merge. For a payment service, behavioral correctness in CI is the most direct lever for trusting AI-generated changes.",
+      "explore": [
+        "What would it take to add pnpm test to ci.yml — are there any tests today that are slow or flaky enough to give the team pause?",
+        "If tests gated every PR merge, which areas of the codebase would feel most exposed by the current lack of coverage?",
+        "How does the team currently catch regressions in the checkout flow — is there a manual testing step before deploy that CI could eventually replace?"
+      ],
+      "levelUnlock": "L2->L3"
+    },
+    {
+      "title": "AI-generated changes have inconsistent review coverage — half of AI PRs merge without a human check",
+      "dimension": "D8",
+      "impact": "high",
+      "effort": "medium",
+      "rationale": "Process signals show 50% of AI-involved PRs are unreviewed before merge. On a service that handles real money, an AI-introduced logic error in refund calculation or webhook handling could have direct financial impact. Consistent review of AI-generated changes is the governance gate that makes increasing AI autonomy safe.",
+      "explore": [
+        "What distinguishes the AI PRs that get reviewed from those that don't — is it PR size, author, or time of day?",
+        "Would a CODEOWNERS rule on src/cents.ts and the webhook handler give the team confidence to let AI propose more changes in those areas?",
+        "What would a 'Definition of Done' for AI-generated PRs look like on this service — what checks would give the team enough trust to merge?"
+      ],
+      "levelUnlock": "L2->L3"
+    },
+    {
+      "title": "AGENTS.md gives agents just enough to avoid the worst mistakes but not enough to navigate the service",
+      "dimension": "D1",
+      "impact": "high",
+      "effort": "medium",
+      "rationale": "The current AGENTS.md documents two critical constraints but omits module topology, API surface, explicit forbidden patterns, and advanced harness techniques. An agent working on the checkout flow has to infer context from code alone, increasing the chance of changes that are syntactically valid but architecturally wrong or financially risky.",
+      "explore": [
+        "If an agent were to propose a change to the Stripe webhook handler today, what context would it need that it currently cannot find in AGENTS.md?",
+        "What are the top three 'traps' a developer new to this codebase might fall into — and are any of them documented anywhere an agent can read?",
+        "How much of the team's oral knowledge about this service (e.g., why integer cents, why Zod at the boundary) is currently captured in a machine-readable form?"
+      ],
+      "levelUnlock": "L2->L3"
+    },
+    {
+      "title": "Secret scanning is absent on a repo that manages Stripe keys and webhook secrets",
+      "dimension": "D9",
+      "impact": "high",
+      "effort": "low",
+      "rationale": "Stripe API keys and webhook signing secrets are high-value credentials. Without gitleaks or GitHub's secret-scanning push protection, an accidentally committed secret could be exposed publicly before anyone notices. This is a low-effort control (GitHub secret scanning can be enabled in repository settings) with high consequence if absent.",
+      "explore": [
+        "Has the team ever audited the commit history for accidentally committed secrets — and if so, how was that done?",
+        "GitHub offers free secret scanning push protection for public repos and as a setting for private ones — what would it take to enable it this week?",
+        "Are Stripe keys and webhook secrets currently managed via environment variables in all environments, or are there any config files that could accidentally capture them?"
+      ],
+      "levelUnlock": "L2->L3"
+    },
+    {
+      "title": "No deploy automation — every release is a manual, undocumented ECR/ECS procedure",
+      "dimension": "D3",
+      "impact": "medium",
+      "effort": "high",
+      "rationale": "The README explicitly notes manual deployment. Manual release procedures are a bottleneck for AI-driven development: an agent can propose and test a change but cannot ship it. Automated, auditable delivery is what allows the team to increase AI autonomy beyond code review into actual delivery.",
+      "explore": [
+        "What is the biggest source of friction or risk in the current manual ECR/ECS deploy — and is that friction a reason to automate or a reason to keep a human in the loop?",
+        "If the team could automate one part of the deploy process (e.g., building and pushing the container image), which would give the most confidence without requiring full automation?",
+        "What would a rollback look like today if a bad deploy reached production — and how would automation change that answer?"
+      ],
+      "levelUnlock": "L3->L4"
+    }
+  ],
+  "discrepancies": [
+    {
+      "dimension": "D2",
+      "claim": "The signal reports 'no test files detected by pattern' and assigns signalScore=22, but tests/checkout.test.ts is present in the sampled files with three Vitest test cases covering computeTotalCents and applyRefund, vitest 2.1.0 is listed in devDependencies, a 'test' script ('vitest run') is configured in package.json, and a recent commit message 'test(checkout): cover partial-refund path' confirms active test development — the detector missed the tests/ directory entirely."
+    }
+  ]
+}

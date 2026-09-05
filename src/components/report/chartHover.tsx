@@ -1,0 +1,194 @@
+"use client";
+
+// Thin, dependency-free hover layer shared by the SVG charts. The charts stay pure SVG;
+// this adds a pointer→nearest-point mapping (using the chart's own viewBox X coordinates)
+// plus a floating HTML tooltip and a crosshair, without pulling in a charting library.
+
+import { useRef, useState, type PointerEvent, type ReactNode } from "react";
+import { scoreHex } from "@/lib/ui";
+
+/**
+ * Touch-safe activation for the charts' "tap a point → open its report" deep link. On a fine
+ * pointer (mouse/pen) a click opens immediately, preserving the desktop hover→click model. On a
+ * COARSE pointer (touch) there is no hover phase, so the first tap on a point only REVEALS it
+ * (arms it, returning false) and a second tap on the SAME point opens it — otherwise every tap to
+ * inspect a point's tooltip would also navigate away. Spread `notePointer` onto the svg's
+ * onPointerDown/onPointerMove so the pointer kind is known by click time.
+ */
+export function useCoarseTapToOpen() {
+  const coarse = useRef(false);
+  const armed = useRef<number | null>(null);
+
+  const notePointer = (e: { pointerType: string }) => {
+    coarse.current = e.pointerType === "touch";
+  };
+
+  /** True when this click on `active` should open the link (and clears the armed point). */
+  const shouldOpen = (active: number | null): boolean => {
+    if (active == null) return false;
+    if (!coarse.current) return true; // fine pointer → open on first click
+    if (armed.current === active) {
+      armed.current = null;
+      return true; // second tap on the same point → open
+    }
+    armed.current = active; // first tap → reveal only
+    return false;
+  };
+
+  return { notePointer, shouldOpen };
+}
+
+/**
+ * Reset rule for a retained hover index when the series length changes. `active` is captured
+ * against ONE series; the moment a parent swaps `xs` for a shorter one (e.g. the DimensionTrends
+ * range toggle shrinks 40 points to 3 while a point is still hovered), the old index can point
+ * past the new end. A consumer that then indexes its data array with it (DimLine's actDelta,
+ * TrendChart's `points[a]!`) reads `undefined` and a non-null assertion throws mid-render,
+ * white-screening the whole section. Same length → keep the index; any length change → drop it
+ * (a defensive read alone would leave a STALE highlight sitting on the wrong point). Exported
+ * pure so the contract is unit-testable without a DOM renderer.
+ */
+export function nextHoverOnResize(active: number | null, prevLen: number, nextLen: number): number | null {
+  return prevLen === nextLen ? active : null;
+}
+
+/**
+ * Map a pointer's X to the nearest data index using the chart's own viewBox X positions —
+ * the very same xFor() coordinates the chart already computes for its dots. Returns the
+ * active index (or null when the pointer has left) and the handlers to spread onto the
+ * chart's <svg>. We scale by the rendered width so it works regardless of how the
+ * responsive (viewBox) SVG is sized on screen.
+ */
+export function useChartHover(xs: number[], viewBoxWidth: number) {
+  const [active, setActive] = useState<number | null>(null);
+  // Track the last series length across renders. When it changes we reset `active` DURING render
+  // (the idiomatic React "adjust state when a prop changes" pattern — no effect, no extra paint),
+  // so a stale, now-out-of-bounds index can never reach the consumer's read site. This is the
+  // root-cause fix for the range-toggle white-screen; see nextHoverOnResize above.
+  const [prevLen, setPrevLen] = useState(xs.length);
+  const reconciled = nextHoverOnResize(active, prevLen, xs.length);
+  if (reconciled !== active) setActive(reconciled);
+  if (prevLen !== xs.length) setPrevLen(xs.length);
+
+  function onPointerMove(e: PointerEvent<SVGSVGElement>) {
+    if (xs.length === 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (rect.width === 0) return;
+    const vbX = ((e.clientX - rect.left) / rect.width) * viewBoxWidth;
+    let best = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < xs.length; i++) {
+      const dist = Math.abs(xs[i]! - vbX); // safe: i bounded by xs.length
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = i;
+      }
+    }
+    setActive(best);
+  }
+
+  function onPointerLeave() {
+    setActive(null);
+  }
+
+  // Return the reconciled index (never the raw, possibly-stale state) so even the render that
+  // triggers the reset hands the consumer an in-bounds value.
+  return { active: reconciled, onPointerMove, onPointerLeave };
+}
+
+/**
+ * Floating tooltip anchored to a point given as fractions (0..1) of the chart container.
+ * Flips horizontally near the edges and drops below the point when it's near the top, so
+ * it stays within the chart. Marked aria-hidden: it's a mouse affordance, and every chart
+ * already exposes its values to assistive tech via labels / the radar's data table.
+ */
+export function ChartTooltip({
+  xFrac,
+  yFrac,
+  children,
+}: {
+  xFrac: number;
+  yFrac: number;
+  children: ReactNode;
+}) {
+  const tx = xFrac < 0.15 ? "0%" : xFrac > 0.85 ? "-100%" : "-50%";
+  const below = yFrac < 0.35;
+  const ty = below ? "12px" : "calc(-100% - 12px)";
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none absolute z-20 whitespace-nowrap rounded-lg border border-divider bg-surface-strong/95 px-2.5 py-1.5 shadow-lg shadow-black/40"
+      style={{ left: `${xFrac * 100}%`, top: `${yFrac * 100}%`, transform: `translate(${tx}, ${ty})` }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function shortDateTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+/**
+ * Standard tooltip body for a time-series point: the exact score (color-coded), the
+ * scan date/time, the engine that produced it, and the delta from the prior point.
+ * `delta === null` marks the first point (no prior to compare against).
+ */
+export function PointTooltip({
+  score,
+  at,
+  engine,
+  delta,
+  label,
+  sha,
+  linked,
+  commitLinked,
+}: {
+  score: number;
+  at?: string;
+  engine?: string;
+  delta?: number | null;
+  label?: string;
+  /** Short commit sha this scan pinned to, shown as context. */
+  sha?: string;
+  /** Whether the point links somewhere (the chart opens it on click) — adds an affordance hint. */
+  linked?: boolean;
+  /** Whether shift-click jumps to the GitHub commit — adds the external-jump hint. */
+  commitLinked?: boolean;
+}) {
+  return (
+    <div className="type-body-sm">
+      <div className="flex items-baseline gap-1.5">
+        {label && <span className="text-slate-400">{label}</span>}
+        <span className="font-mono type-body font-bold tabular-nums" style={{ color: scoreHex(score) }}>
+          {score}
+        </span>
+      </div>
+      {at && <div className="mt-0.5 type-body-sm text-slate-300">{shortDateTime(at)}</div>}
+      {engine && <div className="type-body-sm text-slate-500">engine: {engine}</div>}
+      {sha && <div className="type-mono-sm text-slate-500">commit {sha}</div>}
+      <div className="mt-0.5 type-body-sm">
+        {delta == null ? (
+          <span className="text-slate-500">first scan</span>
+        ) : delta === 0 ? (
+          <span className="text-slate-500">no change since prior</span>
+        ) : (
+          <span className={delta > 0 ? "font-semibold text-emerald-400" : "font-semibold text-red-400"}>
+            {delta > 0 ? "▲ +" : "▼ "}
+            {Math.abs(delta)} since prior
+          </span>
+        )}
+      </div>
+      {linked && <div className="mt-0.5 type-body-sm text-accent">click to open this scan&apos;s report →</div>}
+      {commitLinked && <div className="type-body-sm text-slate-500">shift-click for the GitHub commit ↗</div>}
+    </div>
+  );
+}

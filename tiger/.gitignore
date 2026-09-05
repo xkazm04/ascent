@@ -1,0 +1,5 @@
+# Raw benchmark transcripts can be large + contain full prompts/outputs — keep the scored
+# summaries (committed in the session notes), drop the raw dumps.
+sessions/*/raw/
+sessions/**/raw/
+*.raw.jsonl

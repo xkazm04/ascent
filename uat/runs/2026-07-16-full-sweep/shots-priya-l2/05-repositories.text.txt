@@ -1,0 +1,147 @@
+Skip to content
+ASCENT
+vercel
+L4 · 72
+OWNER
+🔔
+Alerts
+0
+credits
+Scan all watched (6)
+developer
+Sign out
+OVERVIEW
+23
+FLEET
+(contains the current page)
+, 23 awaiting a decision
+33
+INTEL
+, 33 awaiting a decision
+17
+PLAN
+, 17 awaiting a decision
+LIBRARY
+GOVERN
+FLEET
+Repositories
+Tech Stacks
+Passports
+23
+, 23 awaiting a decision
+Live
+Repositories
+Segments
+Segments
+
+Group repos into named slices (platform, mobile, legacy…). Tags scope the Overview filter and power segment-vs-segment comparison.
+
+No segments yet — create one to start tagging.
+Add segment
+Repositories
+
+6/6 scanned — recent commits, PRs & lines changed.
+
+All stacks
+Frontend
+1
+Backend · Rust
+3
+Export CSV
+All 6
+AI-Native
+4
+Solid but Manual
+2
+	REPO	LEVEL	Commits	PR	LoC Δ	LAST SCAN	AUTOSCAN	
+RESCAN
+
+	vercel/workflow
+Backend·Rust
+	L4	
+173
+	19	6.6k	2026-07-16	
+off
+daily
+weekly
+monthly
+	
+↻ Rescan
+
+	vercel/ai
+Frontend
+Next.js
+React
+	L4	
+280
+	17	16.4k	2026-07-16	
+off
+daily
+weekly
+monthly
+	
+↻ Rescan
+
+	vercel/vercel
+Backend·Rust
+	L4	
+281
+	12	12k	2026-07-16	
+off
+daily
+weekly
+monthly
+	
+↻ Rescan
+
+	vercel/eve	L4	
+306
+	20	17.3k	2026-07-16	
+off
+daily
+weekly
+monthly
+	
+↻ Rescan
+
+	vercel/next.js
+Backend·Rust
+	L4	
+375
+	10	27.4k	2026-07-16	
+off
+daily
+weekly
+monthly
+	
+↻ Rescan
+
+	vercel/v0-sdk	L3	
+1
+	31	135.4k	2026-07-16	
+off
+daily
+weekly
+monthly
+	
+↻ Rescan
+◂
+GUIDED SETUP
+GUIDED SETUP
+Learn this dashboard
+1/6
+▸
+SET THE SCOPE
+Set your scan scope
+Choose what’s in scope
+READ THE RESULTS
+Read the fleet
+Scope what you read
+EXPLORE MODULES
+Each module is a lens
+Open a module
+
+Every dashboard starts with a scan. “Scan all watched” runs the whole fleet; the scope controls that decide what gets scored live sit right here.
+
+Back
+Next step

@@ -1,0 +1,12 @@
+-- Retire the `invoke` OrgSkillEvent type.
+--
+-- `invoke` ranked highest in the skill dormancy verdict (src/lib/org/skill-usage.ts) but had NO producer
+-- anywhere — not the app, not the distributed CLI (scripts/ascent-skills.mjs, which emits `sync` only),
+-- not the hooks. The only signal that could mark a skill `active` was therefore unemittable. It is gone
+-- from the type union, its validator, the telemetry route and the readers; any row that a hand-rolled API
+-- client managed to write is folded into `download` — the type that now carries "a real, human use" —
+-- so historical activity keeps counting instead of silently disappearing from the verdict.
+--
+-- Data-only: `OrgSkillEvent.type` is a plain TEXT column (no enum, no constraint), so there is no DDL
+-- change and prisma/init.sql needs no mirrored edit.
+UPDATE "OrgSkillEvent" SET "type" = 'download' WHERE "type" = 'invoke';

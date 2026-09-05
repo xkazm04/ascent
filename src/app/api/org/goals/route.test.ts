@@ -1,0 +1,211 @@
+// Pins the planning-data tenant boundary (goals-initiatives 06-18 #3): the goals mutating routes are
+// the cross-tenant write gate. The per-row [id] gate must key authz on the goal's TRUE org
+// (getGoalOrgSlug) — never a body-supplied value — so a non-member cannot create/update/delete
+// planning rows in another org (IDOR). Past the gate, body validation must reject a bad metric /
+// target / date with a 400 and NO DB write, and a Prisma P2025 must surface as 404 (not 500). The
+// authz + plan DB boundaries are mocked; handlers are imported from the production ./route and
+// ./[id]/route modules. (The initiatives routes this file also pinned retired with the Plan tab,
+// 2026-08-17.)
+
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+vi.mock("next/server", () => ({
+  NextResponse: class {
+    static json(body: unknown, init?: ResponseInit) {
+      return Response.json(body, init);
+    }
+  },
+}));
+vi.mock("@/lib/db", () => ({
+  isDbConfigured: () => true,
+  // Real validator parity: overall | adoption | rigor | D1..D9 (the route trusts this).
+  isGoalMetric: (m: string) => m === "overall" || m === "adoption" || m === "rigor" || /^D[1-9]$/.test(m),
+  listGoals: vi.fn(async () => []),
+  createGoal: vi.fn(async () => ({ id: "goal-new" })),
+  getGoalOrgSlug: vi.fn(async () => "acme"),
+  updateGoal: vi.fn(async () => {}),
+  deleteGoal: vi.fn(async () => {}),
+}));
+vi.mock("@/lib/authz", () => ({
+  requireOrgAccess: vi.fn(async () => null),
+  requireOrgRead: vi.fn(async () => null),
+  requireOrgRole: vi.fn(async () => null),
+}));
+
+import { POST } from "./route";
+import { PATCH as GOAL_PATCH, DELETE as GOAL_DELETE } from "./[id]/route";
+import { requireOrgAccess, requireOrgRole } from "@/lib/authz";
+import {
+  createGoal,
+  getGoalOrgSlug,
+  updateGoal,
+  deleteGoal,
+} from "@/lib/db";
+
+const mockAccess = vi.mocked(requireOrgAccess);
+const mockRole = vi.mocked(requireOrgRole);
+const mockCreate = vi.mocked(createGoal);
+const mockGoalOrg = vi.mocked(getGoalOrgSlug);
+const mockUpdate = vi.mocked(updateGoal);
+const mockDelete = vi.mocked(deleteGoal);
+
+const FORBIDDEN = () => Response.json({ error: "You don't have access to this organization." }, { status: 403 });
+
+function postGoals(body: Record<string, unknown>) {
+  return POST(
+    new Request("http://localhost/api/org/goals", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+function patchGoal(id: string, body: Record<string, unknown>) {
+  return GOAL_PATCH(
+    new Request(`http://localhost/api/org/goals/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+    { params: Promise.resolve({ id }) },
+  );
+}
+function deleteGoalReq(id: string) {
+  return GOAL_DELETE(new Request(`http://localhost/api/org/goals/${id}`, { method: "DELETE" }), {
+    params: Promise.resolve({ id }),
+  });
+}
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockAccess.mockResolvedValue(null);
+  mockRole.mockResolvedValue(null); // admin gate passes by default (DELETE)
+  mockCreate.mockResolvedValue({ id: "goal-new" } as Awaited<ReturnType<typeof createGoal>>);
+  mockGoalOrg.mockResolvedValue("acme");
+  mockUpdate.mockResolvedValue(undefined as Awaited<ReturnType<typeof updateGoal>>);
+  mockDelete.mockResolvedValue(undefined as Awaited<ReturnType<typeof deleteGoal>>);
+});
+
+describe("POST /api/org/goals — authz gate then validation", () => {
+  it("denies a non-member create with no write (gate keys on body.org, returns its 403)", async () => {
+    mockAccess.mockResolvedValue(FORBIDDEN());
+    const res = await postGoals({ org: "victim", label: "x", metric: "overall", target: 80 });
+    expect(res.status).toBe(403);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("rejects a missing required field with 400 before touching authz/db", async () => {
+    const res = await postGoals({ org: "acme", label: "x", metric: "overall" }); // no target
+    expect(res.status).toBe(400);
+    expect(mockAccess).not.toHaveBeenCalled();
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("rejects a bad metric with 400 AFTER the gate passes, DB untouched", async () => {
+    const res = await postGoals({ org: "acme", label: "x", metric: "D10", target: 80 });
+    expect(res.status).toBe(400);
+    expect(mockAccess).toHaveBeenCalledWith("acme"); // gate ran first
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-ISO targetDate with 400, DB untouched", async () => {
+    const res = await postGoals({ org: "acme", label: "x", metric: "overall", target: 80, targetDate: "nonsense" });
+    expect(res.status).toBe(400);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("creates an in-org goal when authorized and valid", async () => {
+    const res = await postGoals({ org: "acme", label: "reach L3", metric: "D2", target: 80, targetDate: "2026-12-01" });
+    expect(res.status).toBe(200);
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    expect(mockCreate.mock.calls[0][0]).toBe("acme");
+  });
+});
+
+describe("PATCH/DELETE /api/org/goals/:id — per-row tenant gate keys on the goal's true org", () => {
+  it("DENIES a cross-tenant update with NO write: gate uses getGoalOrgSlug(id), not a body org", async () => {
+    // The goal truly belongs to 'victim'; the attacker is not a member there.
+    mockGoalOrg.mockResolvedValue("victim");
+    mockAccess.mockImplementation(async (org) => (org === "victim" ? FORBIDDEN() : null));
+    const res = await patchGoal("goal-1", { org: "acme", label: "pwned", target: 1 });
+    expect(res.status).toBe(403);
+    expect(mockGoalOrg).toHaveBeenCalledWith("goal-1");
+    expect(mockAccess).toHaveBeenCalledWith("victim"); // authz keyed on TRUE org, ignored body.org
+    expect(mockAccess).not.toHaveBeenCalledWith("acme");
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("DENIES a cross-tenant delete with NO write (DELETE gates via requireOrgRole on the true org)", async () => {
+    mockGoalOrg.mockResolvedValue("victim");
+    mockRole.mockImplementation(async (org) => (org === "victim" ? FORBIDDEN() : null));
+    const res = await deleteGoalReq("goal-1");
+    expect(res.status).toBe(403);
+    expect(mockRole).toHaveBeenCalledWith("victim", "admin");
+    expect(mockDelete).not.toHaveBeenCalled();
+  });
+
+  it("DELETE requires the admin role — a member-level caller is refused, goal NOT deleted (goals #2)", async () => {
+    // requireOrgRole(org, "admin") denies a member/viewer; the destructive delete must never run.
+    mockRole.mockResolvedValue(
+      Response.json({ error: "This action requires the admin role in this organization." }, { status: 403 }) as never,
+    );
+    const res = await deleteGoalReq("goal-1");
+    expect(res.status).toBe(403);
+    expect(mockRole).toHaveBeenCalledWith("acme", "admin");
+    expect(mockDelete).not.toHaveBeenCalled();
+  });
+
+  it("allows an authorized admin delete", async () => {
+    const res = await deleteGoalReq("goal-1");
+    expect(res.status).toBe(200);
+    expect(mockRole).toHaveBeenCalledWith("acme", "admin");
+    expect(mockDelete).toHaveBeenCalledTimes(1);
+  });
+
+  it("404s when the goal does not exist, before any authz side effect", async () => {
+    mockGoalOrg.mockResolvedValue(null);
+    const res = await patchGoal("ghost", { label: "x" });
+    expect(res.status).toBe(404);
+    expect(mockAccess).not.toHaveBeenCalled();
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-ISO targetDate with 400 after the gate, DB untouched", async () => {
+    const res = await patchGoal("goal-1", { targetDate: "nonsense" });
+    expect(res.status).toBe(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  // Whitelist parity with the initiatives PATCH (goals-initiatives 07-16 #1): updateGoal writes
+  // status verbatim, so the route must reject anything outside GOAL_STATUSES before the DB.
+  it("rejects a bogus status with 400 after the gate, DB untouched (status whitelist)", async () => {
+    const res = await patchGoal("goal-1", { status: "banana" });
+    expect(res.status).toBe(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("accepts a whitelisted status ('achieved')", async () => {
+    const res = await patchGoal("goal-1", { status: "achieved" });
+    expect(res.status).toBe(200);
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("maps a Prisma P2025 to 404 (not 500) on update", async () => {
+    mockUpdate.mockRejectedValue(Object.assign(new Error("not found"), { code: "P2025" }));
+    const res = await patchGoal("goal-1", { label: "x" });
+    expect(res.status).toBe(404);
+  });
+
+  it("maps a Prisma P2025 to 404 (not 500) on delete", async () => {
+    mockDelete.mockRejectedValue(Object.assign(new Error("not found"), { code: "P2025" }));
+    const res = await deleteGoalReq("goal-1");
+    expect(res.status).toBe(404);
+  });
+
+  it("allows an authorized in-org update", async () => {
+    const res = await patchGoal("goal-1", { label: "renamed", target: 90 });
+    expect(res.status).toBe(200);
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    expect(mockUpdate.mock.calls[0][0]).toBe("goal-1");
+  });
+});
+

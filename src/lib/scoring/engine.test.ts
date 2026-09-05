@@ -1,0 +1,1363 @@
+import { describe, it, expect } from "vitest";
+import { assembleReport, cheapestPathToNextLevel, contributions, diffReports, projectDimensionClose, projectScore, projectSandbox, projectedGain } from "./engine";
+import { ARCHETYPE_WEIGHTS, DIMENSIONS, LEVEL_BY_ID, LLM_GUARDBAND, SCORE_BLEND, axisScore, levelForScore, overallScoreFor, postureFor } from "@/lib/maturity/model";
+import { MAX_FLAGGED_DIMENSIONS } from "./discrepancy-policy";
+import { MockProvider } from "@/lib/llm/mock";
+import { classifyArchetype } from "@/lib/analyze";
+import { applyGovernanceSignals, applyPrSignals } from "@/lib/analyze/pulls";
+import { platformSignalsUnavailable } from "@/lib/analyze/platform-carry";
+import type { DimensionSignals, Governance, PrStats, RepoFile, RepoSnapshot, ScanReport } from "@/lib/types";
+import type { DimensionResult, LlmAssessment } from "@/lib/types";
+
+/** All 8 dimensions at a baseline, with per-dimension score/signal/evidence/gap overrides. */
+function dims(
+  overrides: Record<
+    string,
+    { score?: number; signalScore?: number; evidence?: string[]; gaps?: string[] }
+  > = {},
+): DimensionResult[] {
+  return DIMENSIONS.map((d) => {
+    const o = overrides[d.id];
+    const score = o?.score ?? 50;
+    return {
+      id: d.id,
+      name: d.name,
+      weight: d.weight,
+      score,
+      signalScore: o?.signalScore ?? score,
+      llmScore: score,
+      summary: "",
+      evidence: o?.evidence ?? [],
+      strengths: [],
+      gaps: o?.gaps ?? [],
+    };
+  });
+}
+
+function mkReport(p: Partial<ScanReport> & { overallScore: number; level: keyof typeof LEVEL_BY_ID }): ScanReport {
+  const adoption = p.adoptionScore ?? 50;
+  const rigor = p.rigorScore ?? 50;
+  return {
+    repo: { owner: "acme", name: "widget", url: "", stars: 0, forks: 0, defaultBranch: "main", headSha: p.repo?.headSha },
+    overallScore: p.overallScore,
+    level: LEVEL_BY_ID[p.level],
+    archetype: p.archetype ?? "org",
+    adoptionScore: adoption,
+    rigorScore: rigor,
+    posture: postureFor(adoption, rigor),
+    aiUsage: { detected: false, commitFraction: 0, signals: [] },
+    contributors: [],
+    dimensions: p.dimensions ?? dims(),
+    headline: "",
+    strengths: [],
+    risks: [],
+    roadmap: [],
+    discrepancies: [],
+    confidence: 0.8,
+    scannedAt: p.scannedAt ?? "2026-01-01T00:00:00.000Z",
+    engine: { provider: "mock", model: "mock" },
+  };
+}
+
+describe("diffReports", () => {
+  it("explains movement between two full reports via concrete signals", () => {
+    const prev = mkReport({
+      overallScore: 40,
+      level: "L2",
+      dimensions: dims({ D2: { score: 40, evidence: ["Found 6 test files"] } }),
+    });
+    const curr = mkReport({
+      overallScore: 52,
+      level: "L3",
+      dimensions: dims({
+        D2: { score: 52, evidence: ["Found 18 test files", "Coverage tracking configured"] },
+      }),
+    });
+
+    const diff = diffReports(prev, curr);
+
+    expect(diff.overall.delta).toBe(12);
+    expect(diff.level.changed).toBe(true);
+    expect(diff.level.up).toBe(true);
+
+    const d2 = diff.dimensions.find((d) => d.id === "D2")!;
+    expect(d2.delta).toBe(12);
+    expect(d2.appearedSignals).toEqual(["Found 18 test files", "Coverage tracking configured"]);
+    expect(d2.disappearedSignals).toEqual(["Found 6 test files"]);
+    expect(diff.movements.some((m) => m.startsWith("D2 +12"))).toBe(true);
+
+    // A live report carries no recommendation statuses, so nothing can move to done.
+    expect(diff.recsMovedToDone).toEqual([]);
+  });
+
+  it("flags two identical reports as unchanged", () => {
+    const r = mkReport({ overallScore: 50, level: "L3", dimensions: dims({ D1: { evidence: ["Found CLAUDE.md"] } }) });
+    const diff = diffReports(r, mkReport({ overallScore: 50, level: "L3", dimensions: dims({ D1: { evidence: ["Found CLAUDE.md"] } }) }));
+    expect(diff.unchanged).toBe(true);
+    expect(diff.appearedSignalCount).toBe(0);
+    expect(diff.movements).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// assembleReport — dimension reconciliation (#8) + overall roll-up parity (#4)
+// ---------------------------------------------------------------------------
+
+function blankSnap(): RepoSnapshot {
+  return {
+    meta: { owner: "acme", name: "widget", url: "", stars: 0, forks: 0, defaultBranch: "main" },
+    tree: [],
+    files: [],
+    commits: [],
+    truncated: false,
+    coverage: 1,
+  };
+}
+function signalsFor(scores: Partial<Record<string, number>>): DimensionSignals[] {
+  return Object.entries(scores).map(([id, signalScore]) => ({
+    id: id as DimensionSignals["id"],
+    signalScore: signalScore as number,
+    signals: [{ label: `${id} signal` }],
+  }));
+}
+const emptyAssessment: LlmAssessment = {
+  dimensions: [],
+  headline: "",
+  strengths: [],
+  risks: [],
+  roadmap: [],
+  discrepancies: [],
+};
+
+describe("assembleReport — LLM/signal dimension reconciliation (#8)", () => {
+  it("warns when the LLM scores a dimension absent from the signal set", () => {
+    const assessment: LlmAssessment = {
+      ...emptyAssessment,
+      dimensions: [{ id: "D9", score: 80, summary: "", strengths: [], gaps: [] }],
+    };
+    const report = assembleReport(
+      blankSnap(),
+      signalsFor({ D1: 50, D2: 50 }),
+      assessment,
+      { name: "gemini", model: "x" },
+      "2026-01-01T00:00:00Z",
+      "org",
+    );
+    expect((report.warnings ?? []).some((w) => /D9/.test(w) && /signal set/i.test(w))).toBe(true);
+  });
+
+  it("does not warn when every LLM dimension is in the signal set", () => {
+    const assessment: LlmAssessment = {
+      ...emptyAssessment,
+      dimensions: [{ id: "D1", score: 60, summary: "", strengths: [], gaps: [] }],
+    };
+    const report = assembleReport(
+      blankSnap(),
+      signalsFor({ D1: 50, D2: 50 }),
+      assessment,
+      { name: "gemini", model: "x" },
+      "2026-01-01T00:00:00Z",
+      "org",
+    );
+    expect((report.warnings ?? []).some((w) => /signal set/i.test(w))).toBe(false);
+  });
+});
+
+describe("overall roll-up parity — mock matches engine (#4)", () => {
+  it("overallScoreFor renormalizes over present weights (a partial set doesn't deflate)", () => {
+    // 4 of 9 dimensions, all at 90 → renormalized mean is 90, not the raw weighted sum (~50).
+    const partial = [
+      { id: "D1" as const, score: 90 },
+      { id: "D2" as const, score: 90 },
+      { id: "D3" as const, score: 90 },
+      { id: "D4" as const, score: 90 },
+    ];
+    expect(overallScoreFor(partial, "org")).toBe(90);
+  });
+
+  it("MockProvider's headline level agrees with the engine's renormalized overall", async () => {
+    // A partial signal set is exactly where the old raw-weighted-sum mock diverged from the engine.
+    const signals = signalsFor({ D1: 90, D2: 90, D3: 90, D4: 90 });
+    const mock = new MockProvider();
+    const assessment = await mock.assess({
+      repo: blankSnap().meta,
+      signals,
+      files: [],
+      commitSample: [],
+      archetype: "org",
+    });
+    const report = assembleReport(blankSnap(), signals, assessment, mock, "2026-01-01T00:00:00Z", "org");
+
+    const expectedOverall = overallScoreFor(
+      signals.map((s) => ({ id: s.id, score: s.signalScore })),
+      "org",
+    );
+    expect(report.overallScore).toBe(expectedOverall);
+    expect(report.level.id).toBe(levelForScore(expectedOverall).id);
+    // The mock's headline announces the SAME level as the engine's badge (the divergence the fix removed).
+    expect(report.headline).toContain(report.level.id);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// contributions — glass-box per-dimension attribution of the headline
+// ---------------------------------------------------------------------------
+
+describe("contributions — glass-box score attribution", () => {
+  it("decomposes the headline into per-dimension points that sum back to the overall", () => {
+    const dimensions = dims({
+      D1: { score: 90 },
+      D2: { score: 30 },
+      D5: { score: 70 },
+      D9: { score: 10 },
+    });
+    const overall = overallScoreFor(
+      dimensions.map((d) => ({ id: d.id, score: d.score })),
+      "org",
+    );
+    const report = mkReport({ overallScore: overall, level: levelForScore(overall).id, dimensions });
+
+    const { dimensions: parts, total } = contributions(report);
+
+    // One contribution per dimension, in report order.
+    expect(parts.map((p) => p.dimension)).toEqual(dimensions.map((d) => d.id));
+    // The parts reconstruct the headline — the auditability guarantee the waterfall relies on.
+    const sumPoints = parts.reduce((a, p) => a + p.points, 0);
+    expect(sumPoints).toBeCloseTo(total, 9);
+    expect(Math.round(total)).toBe(report.overallScore);
+    // Renormalized weights are a true distribution.
+    expect(parts.reduce((a, p) => a + p.normalizedWeight, 0)).toBeCloseTo(1, 9);
+  });
+
+  it("signs each contribution by whether the dimension beats the weighted mean (residual = rounding only)", () => {
+    const dimensions = dims({ D1: { score: 90 }, D2: { score: 20 } });
+    const overall = overallScoreFor(dimensions.map((d) => ({ id: d.id, score: d.score })), "org");
+    const report = mkReport({ overallScore: overall, level: levelForScore(overall).id, dimensions });
+
+    const { dimensions: parts, total } = contributions(report);
+
+    // Deviations from the headline sum to exactly (total − rounded overall) — i.e. only the
+    // sub-point rounding residual, never a structural imbalance.
+    const sumSigned = parts.reduce((a, p) => a + p.signed, 0);
+    expect(sumSigned).toBeCloseTo(total - report.overallScore, 9);
+    expect(Math.abs(sumSigned)).toBeLessThan(0.5);
+    // A dimension above the overall lifts it (positive); one below drags it (negative).
+    expect(parts.find((p) => p.dimension === "D1")!.signed).toBeGreaterThan(0);
+    expect(parts.find((p) => p.dimension === "D2")!.signed).toBeLessThan(0);
+  });
+
+  it("a dimension's points equal its renormalized weight times its score", () => {
+    const dimensions = dims({ D1: { score: 80 } });
+    const report = mkReport({ overallScore: 50, level: "L3", dimensions });
+    const { dimensions: parts } = contributions(report);
+    const d1 = parts.find((p) => p.dimension === "D1")!;
+    expect(d1.points).toBeCloseTo(d1.normalizedWeight * 80, 9);
+    expect(d1.weight).toBe(DIMENSIONS.find((d) => d.id === "D1")!.weight);
+  });
+
+  it("never divides by zero when no dimension carries weight", () => {
+    // Degenerate guard: a report whose dimensions all have zero weight yields zeroed parts, not NaN.
+    const zeroWeighted = dims().map((d) => ({ ...d, weight: 0 }));
+    const report = mkReport({ overallScore: 0, level: "L1", dimensions: zeroWeighted });
+    const { dimensions: parts, total } = contributions(report);
+    expect(total).toBe(0);
+    expect(parts.every((p) => p.normalizedWeight === 0 && p.points === 0 && p.signed === 0)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// projectSandbox — the interactive Roadmap Sandbox's live what-if recompute
+// ---------------------------------------------------------------------------
+
+describe("projectSandbox — live what-if recompute", () => {
+  /** A self-consistent report: its stored overall/adoption/rigor/posture are derived from its
+   *  own dimensions via the same engine functions, so the no-override invariant is a real test. */
+  function consistent(scores: Record<string, number> = {}): ScanReport {
+    const dimList = dims(Object.fromEntries(Object.entries(scores).map(([id, score]) => [id, { score }])));
+    const scoreFor = (id: string) => dimList.find((d) => d.id === id)?.score ?? 0;
+    const overall = overallScoreFor(dimList.map((d) => ({ id: d.id, score: d.score })), "org");
+    const adoption = axisScore("adoption", scoreFor, "org");
+    const rigor = axisScore("rigor", scoreFor, "org");
+    return mkReport({
+      overallScore: overall,
+      level: levelForScore(overall).id,
+      adoptionScore: adoption,
+      rigorScore: rigor,
+      dimensions: dimList,
+    });
+  }
+
+  it("with no overrides reproduces the report's own numbers exactly", () => {
+    const report = consistent({ D2: 30, D4: 70, D8: 55 });
+    const p = projectSandbox(report, {});
+    expect(p.overall.overallScore).toBe(report.overallScore);
+    expect(p.overall.deltaScore).toBe(0);
+    expect(p.overall.levelUp).toBe(false);
+    expect(p.adoptionScore).toBe(report.adoptionScore);
+    expect(p.rigorScore).toBe(report.rigorScore);
+    expect(p.posture.id).toBe(report.posture.id);
+    expect(p.dimensions).toEqual(report.dimensions);
+  });
+
+  it("raising the rigor axis to 100 lifts overall, flips posture, and levels up", () => {
+    // Everything at 40 → overall 40 (L2), both axes 40 → "early" posture.
+    const all40 = Object.fromEntries(DIMENSIONS.map((d) => [d.id, 40]));
+    const report = consistent(all40);
+    expect(report.overallScore).toBe(40);
+    expect(report.posture.id).toBe("early");
+    // Max out every rigor dimension; adoption (D1/D4/D7) stays at 40.
+    const rigorMax = { D2: 100, D3: 100, D5: 100, D6: 100, D8: 100, D9: 100 };
+    const p = projectSandbox(report, rigorMax);
+    expect(p.rigorScore).toBe(100);
+    expect(p.adoptionScore).toBe(40);
+    expect(p.posture.id).toBe("manual"); // rigor high, adoption low
+    expect(p.overall.overallScore).toBe(80); // 100*0.66 + 40*0.34, rounded
+    expect(p.overall.level).toBe("L4");
+    expect(p.overall.levelUp).toBe(true);
+    expect(p.overall.deltaScore).toBe(40);
+  });
+
+  it("clamps and rounds override values into the stored dimension scores", () => {
+    const report = consistent({});
+    const p = projectSandbox(report, { D2: 150, D3: -20, D5: 33.4 });
+    const byId = new Map(p.dimensions.map((d) => [d.id, d.score]));
+    expect(byId.get("D2")).toBe(100);
+    expect(byId.get("D3")).toBe(0);
+    expect(byId.get("D5")).toBe(33);
+  });
+
+  describe("projectedGain — persisted-scan ROI for the backlog", () => {
+    /** Persisted-row shape: just {id, score} pairs, the way getOrgBacklog reads them. */
+    const rows = (report: ScanReport) => report.dimensions.map((d) => ({ id: d.id, score: d.score }));
+
+    it("matches projectDimensionClose on a self-consistent assembled report", () => {
+      const report = consistent({ D2: 20, D5: 35 });
+      for (const d of DIMENSIONS) {
+        const viaReport = projectDimensionClose(report, d.id);
+        const viaRows = projectedGain(rows(report), report.archetype, d.id);
+        expect(viaRows.points).toBe(Math.max(0, viaReport.deltaScore));
+        expect(viaRows.unlocks).toBe(viaReport.levelUp ? viaReport.level : null);
+      }
+    });
+
+    it("an already-100 dimension projects a 0-point gain and no unlock", () => {
+      const report = consistent({ D2: 100 });
+      expect(projectedGain(rows(report), "org", "D2")).toEqual({ points: 0, unlocks: null });
+    });
+
+    it("an unknown / absent dimension id projects 0, never a fake gain", () => {
+      const report = consistent({});
+      expect(projectedGain(rows(report), "org", "D99")).toEqual({ points: 0, unlocks: null });
+    });
+
+    it("reports the level the projection crosses into", () => {
+      // Everything at 40 (overall 40, L2); fully closing a heavyweight dim should cross 45 (L3).
+      const all40 = Object.fromEntries(DIMENSIONS.map((d) => [d.id, 40]));
+      const report = consistent(all40);
+      const gain = projectedGain(rows(report), "org", "D1");
+      expect(gain.points).toBeGreaterThan(0);
+      expect(gain.unlocks).toBe("L3");
+    });
+
+    it("an unknown archetype falls back to the org lens instead of throwing", () => {
+      const report = consistent({ D2: 10 });
+      const viaOrg = projectedGain(rows(report), "org", "D2");
+      expect(projectedGain(rows(report), "not-a-lens", "D2")).toEqual(viaOrg);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// assembleReport — coverage-weighted blend + LLM guardband (critical #1)
+//
+// blankSnap() (above) hardcodes coverage:1 and uses no diverging LLM scores, so the
+// blend arithmetic, the non-finite-coverage guard, and the ±LLM_GUARDBAND clamp never
+// actually execute. These tests drive assembleReport with coverage ≠ 1 and an out-of-band
+// LLM score so a refactor of the load-bearing blend math can't pass silently.
+// ---------------------------------------------------------------------------
+
+/** A snapshot with an explicit coverage value (number, NaN, or Infinity are all valid here). */
+function snapWithCoverage(coverage: number): RepoSnapshot {
+  return {
+    meta: { owner: "acme", name: "widget", url: "", stars: 0, forks: 0, defaultBranch: "main" },
+    tree: [],
+    files: [],
+    commits: [],
+    truncated: false,
+    coverage,
+  };
+}
+
+/** Deterministic signals with explicit per-dimension signalScore (+ optional failed flag). */
+function signalsWith(
+  spec: Record<string, { signalScore: number; failed?: boolean }>,
+): DimensionSignals[] {
+  return Object.entries(spec).map(([id, s]) => ({
+    id: id as DimensionSignals["id"],
+    signalScore: s.signalScore,
+    signals: [{ label: `${id} signal` }],
+    ...(s.failed ? { failed: true } : {}),
+  }));
+}
+
+/** An LlmAssessment carrying explicit per-dimension scores (the divergence the guardband governs). */
+function assessmentWith(scores: Record<string, number>): LlmAssessment {
+  return {
+    dimensions: Object.entries(scores).map(([id, score]) => ({
+      id: id as DimensionSignals["id"],
+      score,
+      summary: "",
+      strengths: [],
+      gaps: [],
+    })),
+    headline: "",
+    strengths: [],
+    risks: [],
+    roadmap: [],
+    discrepancies: [],
+  };
+}
+
+const eng = { name: "gemini", model: "x" };
+const AT = "2026-01-01T00:00:00Z";
+const scoreOf = (r: ScanReport, id: string) => r.dimensions.find((d) => d.id === id)!.score;
+
+// The exemplar dimension in this block (and in the two discrepancy blocks below) is D5/D6/D7, not
+// D1/D2/D3. It moved with rubric r11, which put D1 into CLAIM_SCORED_DIMENSIONS: a claim-scored
+// dimension has NO guardband blend at all (score = signal + verified claim points), so it can no
+// longer stand in for "an ordinary blended dimension". The behaviour under test is unchanged — the
+// arithmetic below is the same — only the dimension it is demonstrated on. See moonshot #15.
+describe("assembleReport — coverage-weighted blend + LLM guardband (#1)", () => {
+  it("pins SCORE_BLEND and LLM_GUARDBAND so the arithmetic below is self-documenting", () => {
+    // These tests hard-code the rounded results derived from these two constants. If the rubric
+    // changes them, this assertion fails first and explains why the numeric expectations moved.
+    expect(SCORE_BLEND).toBe(0.6);
+    // Narrowed 25 -> 6 with the r8 rubric bump (the band was as wide as a maturity level, so the
+    // model could move a repo's published level unaided). Every hard-coded expectation in this
+    // describe moved with it; model.test.ts pins the sizing rule against LEVELS.
+    expect(LLM_GUARDBAND).toBe(6);
+  });
+
+  it("at coverage:1 blends exactly round(0.6·llm + 0.4·signal) for an in-band LLM score", () => {
+    // signal 40, llm 45 (within ±6) → guarded 45 → round(0.6·45 + 0.4·40) = round(43) = 43.
+    const report = assembleReport(
+      snapWithCoverage(1),
+      signalsWith({ D5: { signalScore: 40 } }),
+      assessmentWith({ D5: 45 }),
+      eng,
+      AT,
+      "org",
+    );
+    expect(scoreOf(report, "D5")).toBe(43);
+    expect(report.dimensions[0]!.llmScore).toBe(45);
+    expect(report.dimensions[0]!.signalScore).toBe(40);
+  });
+
+  it("at coverage:0.5 halves the blend so the score leans harder on the signal (strictly between)", () => {
+    // effectiveBlend = 0.6·0.5 = 0.3 → round(0.3·45 + 0.7·40) = round(41.5) = 42.
+    // 42 sits strictly between the full-blend result (43) and the pure signal floor (40).
+    const half = assembleReport(
+      snapWithCoverage(0.5),
+      signalsWith({ D5: { signalScore: 40 } }),
+      assessmentWith({ D5: 45 }),
+      eng,
+      AT,
+      "org",
+    );
+    expect(scoreOf(half, "D5")).toBe(42);
+    expect(scoreOf(half, "D5")).toBeGreaterThan(40); // > pure signal floor
+    expect(scoreOf(half, "D5")).toBeLessThan(43); // < full-coverage blend
+  });
+
+  it("at coverage:0 the blend vanishes and the score is the pure deterministic signal", () => {
+    // effectiveBlend = 0 → round(0·llm + 1·signal) = signal, regardless of the LLM score.
+    const report = assembleReport(
+      snapWithCoverage(0),
+      signalsWith({ D5: { signalScore: 40 } }),
+      assessmentWith({ D5: 100 }),
+      eng,
+      AT,
+      "org",
+    );
+    expect(scoreOf(report, "D5")).toBe(40);
+  });
+
+  it("clamps coverage above 1 down to the full-blend path (never over-weights the LLM)", () => {
+    // clamp(coverage,0,1) caps effectiveBlend at SCORE_BLEND, so coverage:2 == coverage:1.
+    const over = assembleReport(snapWithCoverage(2), signalsWith({ D5: { signalScore: 40 } }), assessmentWith({ D5: 45 }), eng, AT, "org");
+    const full = assembleReport(snapWithCoverage(1), signalsWith({ D5: { signalScore: 40 } }), assessmentWith({ D5: 45 }), eng, AT, "org");
+    expect(scoreOf(over, "D5")).toBe(scoreOf(full, "D5"));
+    expect(scoreOf(over, "D5")).toBe(43);
+  });
+
+  for (const bad of [NaN, Infinity, -Infinity] as const) {
+    it(`treats non-finite coverage (${bad}) as full coverage — identical report, never NaN`, () => {
+      // The finite-guard invariant: a broken estimate must default to 1 (the calibrated SCORE_BLEND
+      // path), not propagate through clamp's Math.max/min and poison every blended score → NaN.
+      const guarded = assembleReport(snapWithCoverage(bad), signalsWith({ D5: { signalScore: 40 }, D6: { signalScore: 70 } }), assessmentWith({ D5: 55, D6: 70 }), eng, AT, "org");
+      const full = assembleReport(snapWithCoverage(1), signalsWith({ D5: { signalScore: 40 }, D6: { signalScore: 70 } }), assessmentWith({ D5: 55, D6: 70 }), eng, AT, "org");
+      expect(scoreOf(guarded, "D5")).toBe(scoreOf(full, "D5"));
+      expect(scoreOf(guarded, "D6")).toBe(scoreOf(full, "D6"));
+      expect(Number.isFinite(guarded.overallScore)).toBe(true);
+      expect(Number.isNaN(guarded.overallScore)).toBe(false);
+      // G3-07: `confidence` is written from the SAME sanitized coverage as the blend, so a broken
+      // estimate can no longer produce a correct score next to `confidence: NaN` (which JSON-
+      // serializes to null and breaks every percentage render / threshold check downstream).
+      expect(guarded.confidence).toBe(1);
+      expect(JSON.parse(JSON.stringify(guarded)).confidence).toBe(1);
+    });
+  }
+
+  it("clamps an out-of-range coverage on the persisted confidence too (never '200% inspected')", () => {
+    const over = assembleReport(snapWithCoverage(2), signalsWith({ D5: { signalScore: 40 } }), assessmentWith({ D5: 55 }), eng, AT, "org");
+    expect(over.confidence).toBe(1);
+    // Same value the blend used — the two bindings cannot drift again.
+    expect(over.scoreIntegrity!.effectiveBlend).toBe(SCORE_BLEND * over.confidence);
+  });
+
+  it("clamps an LLM score beyond +LLM_GUARDBAND to signalScore+6 before blending", () => {
+    // signal 40, llm 100 → guarded = min(40+6, 100) = 46 → round(0.6·46 + 0.4·40) = round(43.6) = 44.
+    // Without the guardband it would be round(0.6·100 + 0.4·40) = 76 — a 32-pt hallucinated inflation
+    // that would carry this dimension out of L2 and across L3 into L4 on the model's word alone.
+    const report = assembleReport(snapWithCoverage(1), signalsWith({ D5: { signalScore: 40 } }), assessmentWith({ D5: 100 }), eng, AT, "org");
+    expect(scoreOf(report, "D5")).toBe(44);
+    // The stored llmScore is the raw (clamped-to-0..100) LLM value, NOT the guardbanded one.
+    expect(report.dimensions[0]!.llmScore).toBe(100);
+  });
+
+  it("clamps an LLM score below -LLM_GUARDBAND up to signalScore-6 before blending", () => {
+    // signal 80, llm 0 → guarded = max(80-6, 0) = 74 → round(0.6·74 + 0.4·80) = round(76.4) = 76.
+    const report = assembleReport(snapWithCoverage(1), signalsWith({ D5: { signalScore: 80 } }), assessmentWith({ D5: 0 }), eng, AT, "org");
+    expect(scoreOf(report, "D5")).toBe(76);
+  });
+
+  it("leaves an in-band LLM score untouched by the guardband (exactly ±6 is the boundary)", () => {
+    // signal 50, llm 56 is exactly at the +6 boundary → guarded = 56 → round(0.6·56 + 0.4·50) = round(53.6) = 54.
+    const report = assembleReport(snapWithCoverage(1), signalsWith({ D5: { signalScore: 50 } }), assessmentWith({ D5: 56 }), eng, AT, "org");
+    expect(scoreOf(report, "D5")).toBe(54);
+  });
+
+  it("falls back to the signal score (no blend) for a dimension the LLM never scored", () => {
+    // No LLM dim for D6 → llmScore defaults to the signal, guarded == signal, so the blend is a no-op.
+    const report = assembleReport(snapWithCoverage(1), signalsWith({ D5: { signalScore: 60 }, D6: { signalScore: 30 } }), assessmentWith({ D5: 60 }), eng, AT, "org");
+    expect(scoreOf(report, "D6")).toBe(30);
+    // And the partial-AI-coverage honesty warning names the un-assessed dimension.
+    expect((report.warnings ?? []).some((w) => /D6/.test(w) && /not fully AI-validated/i.test(w))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// assembleReport — failed-detector exclusion + all-failed INCOMPLETE honesty (critical #2)
+//
+// A detector that THREW emits a placeholder signalScore:0. It must be DROPPED (so
+// overallScoreFor renormalizes over the present dims), never folded as a genuine 0 that
+// deflates the repo for our own extraction failure. When EVERY detector fails the report
+// must read as INCOMPLETE, not as a confident L1 (Manual) verdict.
+// ---------------------------------------------------------------------------
+
+describe("assembleReport — failed detector excluded from the overall (#2)", () => {
+  it("excludes a failed dimension from blend + roll-up, renormalizing over the present dims", () => {
+    // D2 threw (failed, placeholder signalScore:0); the other 8 dims score 90 (LLM matches → guarded 90).
+    const spec: Record<string, { signalScore: number; failed?: boolean }> = {};
+    const llm: Record<string, number> = {};
+    for (const d of DIMENSIONS) {
+      if (d.id === "D2") {
+        spec[d.id] = { signalScore: 0, failed: true };
+      } else {
+        spec[d.id] = { signalScore: 90 };
+        llm[d.id] = 90;
+      }
+    }
+    const report = assembleReport(snapWithCoverage(1), signalsWith(spec), assessmentWith(llm), eng, AT, "org");
+
+    // The failed dim is not present in the report's dimension list at all.
+    expect(report.dimensions.some((d) => d.id === "D2")).toBe(false);
+    expect(report.dimensions).toHaveLength(8);
+
+    // Overall is the renormalized mean over the 8 PRESENT dims (all 90), NOT the 9-way mean that
+    // would fold the fake 0 (which would deflate it to ~77 and could drop a whole level).
+    const present = report.dimensions.map((d) => ({ id: d.id, score: d.score }));
+    expect(report.overallScore).toBe(overallScoreFor(present, "org"));
+    expect(report.overallScore).toBe(90); // all present dims are 90 → renormalized mean 90
+    expect(report.level.id).toBe("L5");
+
+    // Proof the fake-0 fold would have been materially worse (different level).
+    const naiveWithZero = overallScoreFor(
+      [...present, { id: "D2" as const, score: 0 }],
+      "org",
+    );
+    expect(naiveWithZero).toBeLessThan(report.overallScore);
+    expect(levelForScore(naiveWithZero).id).not.toBe(report.level.id);
+
+    // And a warning names the un-measured dimension as excluded (the honesty signal the UI shows).
+    expect(
+      (report.warnings ?? []).some((w) => /D2/.test(w) && /(not measured|excluded)/i.test(w)),
+    ).toBe(true);
+  });
+
+  it("all detectors failed → empty dimensions, INCOMPLETE warning, not a genuine L1", () => {
+    const spec: Record<string, { signalScore: number; failed?: boolean }> = {};
+    for (const d of DIMENSIONS) spec[d.id] = { signalScore: 0, failed: true };
+    const report = assembleReport(snapWithCoverage(1), signalsWith(spec), assessmentWith({}), eng, AT, "org");
+
+    expect(report.dimensions).toHaveLength(0);
+    // overallScoreFor over no dims is 0 → the renormalized floor levels at L1...
+    expect(report.overallScore).toBe(0);
+    expect(report.level.id).toBe("L1");
+    // ...but the honesty invariant the UI depends on is the loud INCOMPLETE warning that says this
+    // is NOT a genuine L1 result — assert that distinguishing text, not just the (misleading) level.
+    const warnings = report.warnings ?? [];
+    expect(warnings.some((w) => /INCOMPLETE scan/i.test(w))).toBe(true);
+    expect(warnings.some((w) => /not a genuine L1/i.test(w))).toBe(true);
+  });
+
+  it("the failed-exclusion warning does not fire on a fully healthy scan", () => {
+    const spec: Record<string, { signalScore: number; failed?: boolean }> = {};
+    const llm: Record<string, number> = {};
+    for (const d of DIMENSIONS) {
+      spec[d.id] = { signalScore: 50 };
+      llm[d.id] = 50;
+    }
+    const report = assembleReport(snapWithCoverage(1), signalsWith(spec), assessmentWith(llm), eng, AT, "org");
+    expect(report.dimensions).toHaveLength(9);
+    expect((report.warnings ?? []).some((w) => /(not measured|INCOMPLETE)/i.test(w))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// assembleReport — a FULLY-UNMEASURED axis is flagged, not silently posture-labeled (#7)
+//
+// When every detector on ONE axis fails, axisScore returns a placeholder 0 (it must return a number),
+// which postureFor would read as a genuine "low on this axis" and silently mis-place the quadrant. The
+// engine now detects the unmeasured axis (axisMeasured) and surfaces a warning so the posture isn't
+// trusted on that axis — without changing axisScore's numeric contract its other callers depend on.
+// ---------------------------------------------------------------------------
+
+describe("assembleReport — fully-unmeasured axis flagged (#7)", () => {
+  it("every ADOPTION-axis detector failing → adoption score is a placeholder 0 and a warning marks it unmeasured", () => {
+    const spec: Record<string, { signalScore: number; failed?: boolean }> = {};
+    const llm: Record<string, number> = {};
+    for (const d of DIMENSIONS) {
+      if (d.axis === "adoption") {
+        spec[d.id] = { signalScore: 0, failed: true }; // D1/D4/D7 all threw → adoption axis fully dropped
+      } else {
+        spec[d.id] = { signalScore: 80 };
+        llm[d.id] = 80;
+      }
+    }
+    const report = assembleReport(snapWithCoverage(1), signalsWith(spec), assessmentWith(llm), eng, AT, "org");
+
+    // The adoption axis has NO measured dimension → its stored score is the placeholder 0 (not a reading),
+    // while rigor is genuinely measured. Without the guard the posture reads a confident "Solid but Manual".
+    expect(report.adoptionScore).toBe(0);
+    expect(report.rigorScore).toBeGreaterThan(0);
+    // The unmeasured-axis warning fires, so the posture is not SILENTLY trusted on the dropped axis.
+    expect((report.warnings ?? []).some((w) => /Adoption axis could not be measured/i.test(w))).toBe(true);
+  });
+
+  it("does NOT fire when both axes retain at least one measured dimension", () => {
+    const spec: Record<string, { signalScore: number; failed?: boolean }> = {};
+    const llm: Record<string, number> = {};
+    for (const d of DIMENSIONS) {
+      if (d.id === "D1" || d.id === "D2") {
+        spec[d.id] = { signalScore: 60 }; // D1 (adoption) + D2 (rigor) survive → both axes measured
+        llm[d.id] = 60;
+      } else {
+        spec[d.id] = { signalScore: 0, failed: true };
+      }
+    }
+    const report = assembleReport(snapWithCoverage(1), signalsWith(spec), assessmentWith(llm), eng, AT, "org");
+    expect((report.warnings ?? []).some((w) => /axis could not be measured/i.test(w))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyGovernanceSignals — default-branch governance fold into D6/D3/D8 (#3)
+//
+// ZERO prior tests. The governance fold feeds the rigor axis the CI gate blocks on, so a
+// drift in the boost amounts, the !gov.readable early return, or the additive-only contract
+// (absence must NEVER penalize) silently re-postures a repo. These pin each nudge.
+// ---------------------------------------------------------------------------
+
+/** A governance object with everything off; flip only the fields a test cares about. */
+function gov(over: Partial<Governance> = {}): Governance {
+  return {
+    defaultBranch: "main",
+    protected: false,
+    requiresPullRequest: false,
+    requiredApprovals: 0,
+    requiresCodeOwnerReview: false,
+    requiresStatusChecks: false,
+    requiresSignatures: false,
+    linearHistory: false,
+    ruleCount: 0,
+    readable: false,
+    ...over,
+  };
+}
+/** Per-dimension signal-only fixtures keyed by id, all starting at signalScore 50. */
+function govSignals(ids: string[]): DimensionSignals[] {
+  return ids.map((id) => ({ id: id as DimensionSignals["id"], signalScore: 50, signals: [] }));
+}
+const scoreById = (out: DimensionSignals[]) => new Map(out.map((s) => [s.id, s.signalScore]));
+
+describe("applyGovernanceSignals — branch-protection fold (#3)", () => {
+  it("an unreadable governance object returns the signals untouched (referential equality)", () => {
+    // !gov.readable early return: classic-protection repos may not expose rules to a read token,
+    // so an unreadable result must be a pure no-op — same array, no spurious nudge.
+    const input = govSignals(["D3", "D6", "D8"]);
+    expect(applyGovernanceSignals(input, gov({ readable: false, protected: true, requiresPullRequest: true }))).toBe(input);
+    // A null/undefined governance is likewise a no-op.
+    expect(applyGovernanceSignals(input, null)).toBe(input);
+    expect(applyGovernanceSignals(input, undefined)).toBe(input);
+  });
+
+  it("required PR review + code owners adds exactly 8+4 to D6 and protection adds 6 to D8", () => {
+    // D6 boost = (requiredApprovals>0 ? 8 : 4) + (requiresCodeOwnerReview ? 4 : 0) = 8 + 4 = 12.
+    // D8 boost = 6 + (requiresSignatures?3:0) + (linearHistory?2:0) = 6 (protected only).
+    const out = applyGovernanceSignals(
+      govSignals(["D3", "D6", "D8"]),
+      gov({ readable: true, protected: true, requiresPullRequest: true, requiredApprovals: 1, requiresCodeOwnerReview: true, ruleCount: 3 }),
+    );
+    const m = scoreById(out);
+    expect(m.get("D6")).toBe(62); // 50 + 12
+    expect(m.get("D8")).toBe(56); // 50 + 6 (protected, no signatures/linear)
+    expect(m.get("D3")).toBe(50); // no requiresStatusChecks → untouched
+  });
+
+  it("required status checks add exactly 8 to D3; signatures + linear history stack onto D8", () => {
+    const out = applyGovernanceSignals(
+      govSignals(["D3", "D8"]),
+      gov({ readable: true, protected: true, requiresStatusChecks: true, requiresSignatures: true, linearHistory: true, ruleCount: 4 }),
+    );
+    const m = scoreById(out);
+    expect(m.get("D3")).toBe(58); // 50 + 8
+    expect(m.get("D8")).toBe(61); // 50 + 6 + 3 (signatures) + 2 (linear)
+  });
+
+  it("PR required WITHOUT approvals/code-owners boosts D6 by only the base 4", () => {
+    const out = applyGovernanceSignals(govSignals(["D6"]), gov({ readable: true, requiresPullRequest: true, requiredApprovals: 0, requiresCodeOwnerReview: false }));
+    expect(scoreById(out).get("D6")).toBe(54); // 50 + (4 base, no approval/code-owner add)
+  });
+
+  it("additive-only: a readable-but-ungoverned repo is never penalized below its base signalScore", () => {
+    // The honesty invariant — absence of guardrails must be NEUTRAL, never a drag. Every dim
+    // keeps its base 50; partial governance leaves the un-boosted dims exactly as they were.
+    const flat = applyGovernanceSignals(govSignals(["D3", "D6", "D8"]), gov({ readable: true }));
+    expect([...scoreById(flat).values()].every((v) => v === 50)).toBe(true);
+    // Only-status-checks: D3 lifts, D6 + D8 are untouched (no spurious change).
+    const partial = applyGovernanceSignals(govSignals(["D3", "D6", "D8"]), gov({ readable: true, requiresStatusChecks: true }));
+    const m = scoreById(partial);
+    expect(m.get("D3")).toBe(58);
+    expect(m.get("D6")).toBe(50);
+    expect(m.get("D8")).toBe(50);
+  });
+
+  it("clamps the boost at the 100 ceiling instead of overshooting", () => {
+    const out = applyGovernanceSignals(
+      [{ id: "D8", signalScore: 98, signals: [] }],
+      gov({ readable: true, protected: true, requiresSignatures: true, linearHistory: true, ruleCount: 5 }),
+    );
+    // 98 + 6 + 3 + 2 = 109 → clamped to 100, never above the bound.
+    expect(out[0]!.signalScore).toBe(100);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyPrSignals — the D7 + D8 folds the report flags as untested (#3)
+//
+// pulls.test.ts covers only the D6 null-reviewedRate path. The D7 adoption boost (capped 18)
+// and the D8 governed-rate fold decide adoption×rigor + posture; these pin their arithmetic,
+// their guards (never fire on absent AI / null governed-rate), and clamp-at-bounds + no NaN.
+// ---------------------------------------------------------------------------
+
+/** A PrStats with neutral defaults; override only the fields a fold reads. */
+function prStats(over: Partial<PrStats> = {}): PrStats {
+  return {
+    analyzed: 10,
+    totalCount: 10,
+    open: 0,
+    merged: 10,
+    closedUnmerged: 0,
+    mergeRate: 100,
+    reviewedRate: 80,
+    avgReviews: 1,
+    avgComments: 1,
+    medianHoursToMerge: 4,
+    medianHoursToFirstReview: 2,
+    avgLineChanges: 60,
+    avgChangedFiles: 3,
+    smallPrRate: 70,
+    botAuthoredRate: 0,
+    aiInvolvedRate: 0,
+    aiGovernedRate: null,
+    revertRate: 0,
+    draftRate: 0,
+    tools: [],
+    ...over,
+  };
+}
+const d7 = (signalScore = 50): DimensionSignals[] => [{ id: "D7", signalScore, signals: [] }];
+const d8 = (signalScore = 50): DimensionSignals[] => [{ id: "D8", signalScore, signals: [] }];
+
+describe("applyPrSignals — D7 adoption boost (#3)", () => {
+  it("adds round(aiInvolvedRate·0.5 + tools.length·3) when AI is involved (under the cap)", () => {
+    // aiInvolvedRate 20, 1 tool → boost = round(20*0.5 + 1*3) = round(13) = 13 → 50 + 13 = 63.
+    // (13 < 18 so the min-cap doesn't bind here — this exercises the raw formula.)
+    const [out] = applyPrSignals(d7(), prStats({ aiInvolvedRate: 20, tools: [{ name: "Claude", count: 5 }] }));
+    expect(out!.signalScore).toBe(63);
+  });
+
+  it("caps the D7 boost at 18 no matter how high the AI involvement", () => {
+    // round(100*0.5 + 3*3) = 59, but min(18, …) = 18 → 50 + 18 = 68 (never the un-capped 109).
+    const [out] = applyPrSignals(d7(), prStats({ aiInvolvedRate: 100, tools: [{ name: "Claude", count: 9 }, { name: "Cursor", count: 4 }, { name: "Codex", count: 1 }] }));
+    expect(out!.signalScore).toBe(68);
+  });
+
+  it("never fires when aiInvolvedRate is 0 (additive-only: AI absence is not a penalty)", () => {
+    const [out] = applyPrSignals(d7(77), prStats({ aiInvolvedRate: 0, tools: [{ name: "Claude", count: 3 }] }));
+    expect(out!.signalScore).toBe(77); // untouched — no boost AND no penalty
+  });
+
+  it("clamps the boosted D7 at the 100 ceiling", () => {
+    const [out] = applyPrSignals(d7(95), prStats({ aiInvolvedRate: 100, tools: [{ name: "Claude", count: 1 }] }));
+    expect(out!.signalScore).toBe(100); // 95 + 18 = 113 → clamped
+  });
+});
+
+describe("applyPrSignals — D8 governed-rate fold (#3)", () => {
+  it("folds round(0.7·signal + 0.3·aiGovernedRate) when the governed-rate has a sample", () => {
+    // signal 50, governed 90 → round(0.7*50 + 0.3*90) = round(62) = 62. Governed AI lifts D8.
+    const [lifted] = applyPrSignals(d8(50), prStats({ aiInvolvedRate: 60, aiGovernedRate: 90 }));
+    expect(lifted!.signalScore).toBe(62);
+    // signal 80, governed 0 → round(0.7*80 + 0.3*0) = 56. Ungoverned AI drags D8 down.
+    const [dragged] = applyPrSignals(d8(80), prStats({ aiInvolvedRate: 60, aiGovernedRate: 0 }));
+    expect(dragged!.signalScore).toBe(56);
+  });
+
+  it("leaves D8 untouched when aiGovernedRate is null (too few AI PRs to be meaningful)", () => {
+    // The null branch must be a no-op, not a fold of a fabricated 0 that would drag the rigor axis.
+    const [out] = applyPrSignals(d8(73), prStats({ aiInvolvedRate: 20, aiGovernedRate: null }));
+    expect(out!.signalScore).toBe(73);
+  });
+
+  it("never yields NaN on absent/empty PR data — the whole fold no-ops", () => {
+    const input = d8(64);
+    expect(applyPrSignals(input, null)).toBe(input); // null pr → untouched array
+    expect(applyPrSignals(input, undefined)).toBe(input);
+    expect(applyPrSignals(input, prStats({ analyzed: 0 }))).toBe(input); // empty window → no-op
+    const [out] = applyPrSignals(d8(50), prStats({ aiInvolvedRate: 60, aiGovernedRate: 50 }));
+    expect(Number.isNaN(out!.signalScore)).toBe(false);
+    expect(Number.isFinite(out!.signalScore)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// classifyArchetype — the weighting-lens selector (#3)
+//
+// ZERO prior tests, yet it silently picks the entire ARCHETYPE_WEIGHTS lens that re-weights
+// every dimension. These pin each documented boundary so an off-by-one can't reclassify a repo
+// (and thus mis-score it), and confirm the fallback lands on a real lens, never a mis-weight.
+// ---------------------------------------------------------------------------
+
+/** Build a RepoSnapshot from a star count + a tree path list (everything else is inert here). */
+function snapForArchetype(stars: number, paths: string[]): RepoSnapshot {
+  const tree: RepoFile[] = paths.map((p) => ({ path: p, type: "blob" }));
+  return {
+    meta: { owner: "acme", name: "widget", url: "", stars, forks: 0, defaultBranch: "main" },
+    tree,
+    files: [],
+    commits: [],
+    truncated: false,
+    coverage: 1,
+  };
+}
+const CODEOWNERS = ".github/CODEOWNERS";
+const WF = (n: number) => Array.from({ length: n }, (_, i) => `.github/workflows/ci${i}.yml`);
+
+describe("classifyArchetype — weighting-lens boundary selection (#3)", () => {
+  it("the org lens needs 1000 stars OR (codeowners AND ≥2 workflows)", () => {
+    // 1000 stars → org; one below → not yet org (falls to team via the ≥50 star rule).
+    expect(classifyArchetype(snapForArchetype(1000, []))).toBe("org");
+    expect(classifyArchetype(snapForArchetype(999, []))).toBe("team");
+    // codeowners + 2 workflows → org; codeowners + only 1 workflow → team (the ≥2 cut bites).
+    expect(classifyArchetype(snapForArchetype(0, [CODEOWNERS, ...WF(2)]))).toBe("org");
+    expect(classifyArchetype(snapForArchetype(0, [CODEOWNERS, ...WF(1)]))).toBe("team");
+  });
+
+  it("the team lens needs ≥50 stars OR codeowners OR ≥1 workflow", () => {
+    expect(classifyArchetype(snapForArchetype(50, []))).toBe("team"); // 50 → team
+    expect(classifyArchetype(snapForArchetype(49, []))).toBe("solo"); // one below → solo
+    expect(classifyArchetype(snapForArchetype(0, [CODEOWNERS]))).toBe("team"); // codeowners alone
+    expect(classifyArchetype(snapForArchetype(0, WF(1)))).toBe("team"); // one workflow alone
+  });
+
+  it("a bare repo (no stars, no codeowners, no workflows) falls back to the solo lens", () => {
+    expect(classifyArchetype(snapForArchetype(0, ["README.md", "src/index.ts"]))).toBe("solo");
+    // An empty tree (unknown/empty profile) must still land on a REAL lens, not a mis-weight.
+    const solo = classifyArchetype(snapForArchetype(0, []));
+    expect(solo).toBe("solo");
+    expect(ARCHETYPE_WEIGHTS[solo]).toBeDefined(); // the returned archetype is a valid lens key
+  });
+
+  it("every classification is a valid ARCHETYPE_WEIGHTS key, and each threshold flips it exactly once", () => {
+    // Walk the star axis across both documented cuts; the lens changes at 50 and at 1000, nowhere else.
+    expect(classifyArchetype(snapForArchetype(0, []))).toBe("solo");
+    expect(classifyArchetype(snapForArchetype(49, []))).toBe("solo");
+    expect(classifyArchetype(snapForArchetype(50, []))).toBe("team");
+    expect(classifyArchetype(snapForArchetype(999, []))).toBe("team");
+    expect(classifyArchetype(snapForArchetype(1000, []))).toBe("org");
+    for (const stars of [0, 49, 50, 999, 1000, 5000]) {
+      const a = classifyArchetype(snapForArchetype(stars, []));
+      expect(ARCHETYPE_WEIGHTS[a]).toBeDefined();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// cheapestPathToNextLevel — the motivating "how do I level up" roadmap (#5)
+//
+// ZERO prior tests, yet it's the one projection with non-trivial control flow: a true-
+// reachability pre-check (project EVERY dim to 100 — if even THAT can't clear the next band
+// floor, the climb is genuinely unreachable), a greedy selection by descending weighted upside,
+// and a band-floor STOP (`if (after >= targetScore) break`) so it never over-shoots the path.
+// These pin GREEDY-STOP (stops the instant the floor is crossed, no extra steps) and the two
+// terminal branches: UNREACHABLE (target present, reachable:false, no misleading steps) and the
+// top-band L5 case (target:null, reachable:true — already maxed, nothing to climb).
+// ---------------------------------------------------------------------------
+
+describe("cheapestPathToNextLevel — level-up roadmap branches (#5)", () => {
+  /** A self-consistent org report: overall/level derived from its own dims via the engine. */
+  function consistentReport(scores: Record<string, number>): ScanReport {
+    const dimList = dims(Object.fromEntries(Object.entries(scores).map(([id, score]) => [id, { score }])));
+    const overall = overallScoreFor(dimList.map((d) => ({ id: d.id, score: d.score })), "org");
+    return mkReport({ overallScore: overall, level: levelForScore(overall).id, dimensions: dimList });
+  }
+
+  it("GREEDY-STOP: closes the single highest-upside dim, crosses the floor, and stops there", () => {
+    // Every dim at 42 → overall 42 (L2). The next band is L3 (floor 45). Greedy upside is
+    // weight·(100−score); with equal scores the highest-weight dim (D1, w=0.15) wins, and closing
+    // it alone lifts overall to 51 — already past 45 — so the loop breaks after ONE step.
+    const report = consistentReport(Object.fromEntries(DIMENSIONS.map((d) => [d.id, 42])));
+    expect(report.overallScore).toBe(42);
+    expect(report.level.id).toBe("L2");
+
+    const path = cheapestPathToNextLevel(report);
+
+    expect(path.reachable).toBe(true);
+    expect(path.target).toEqual({ level: "L3", name: LEVEL_BY_ID.L3.name, score: 45 });
+    // GREEDY-STOP: exactly one step (no over-shoot), and it's the heaviest-upside dimension.
+    expect(path.steps).toHaveLength(1);
+    expect(path.steps[0]!.dimension).toBe("D1");
+    expect(path.steps[0]!.targetScore).toBe(100);
+    // The projection it stopped at clears the floor — and the step's gain is real (> 0).
+    expect(path.projected.overallScore).toBeGreaterThanOrEqual(45);
+    expect(path.steps[0]!.gain).toBeGreaterThan(0);
+    // Steps are ordered by descending weighted upside — the first (only) step is the max.
+    const upsideD1 = DIMENSIONS.find((d) => d.id === "D1")!.weight * (100 - 42);
+    const maxUpside = Math.max(...DIMENSIONS.map((d) => d.weight * (100 - 42)));
+    expect(upsideD1).toBeCloseTo(maxUpside, 9);
+  });
+
+  it("GREEDY-STOP: never adds a step once the floor is already crossed", () => {
+    // Same setup; assert the loop didn't keep folding dims after the break. The projected overall
+    // reflects ONLY the steps taken, and the remaining (un-stepped) dims are still at their floor.
+    const report = consistentReport(Object.fromEntries(DIMENSIONS.map((d) => [d.id, 42])));
+    const path = cheapestPathToNextLevel(report);
+
+    // Only the stepped dimensions were overridden to 100; everything else stays at 42.
+    const steppedIds = new Set(path.steps.map((s) => s.dimension));
+    const overrides = Object.fromEntries(path.steps.map((s) => [s.dimension, 100]));
+    // Re-deriving the projection from JUST the steps reproduces path.projected exactly — proof no
+    // hidden extra override leaked in past the break.
+    expect(projectScore(report, overrides).overallScore).toBe(path.projected.overallScore);
+    expect(steppedIds.size).toBe(path.steps.length); // no duplicate steps
+    // It stopped at the FIRST crossing: dropping the last step would fall back below the floor.
+    expect(path.projected.overallScore).toBeGreaterThanOrEqual(path.target!.score);
+  });
+
+  it("UNREACHABLE: a repo whose only headroom is in a zero-lens-weight dimension can't climb", () => {
+    // The report's single dimension carries an id absent from the archetype lens, so it has ZERO
+    // weight in overallScoreFor — projecting it to 100 still scores 0. The next level (L2, floor 25)
+    // is genuinely unreachable: the pre-check returns reachable:false with NO misleading steps, but
+    // KEEPS a non-null target (the "don't imply a climb that never crosses" honesty invariant).
+    const zeroWeightDim: DimensionResult = {
+      id: "DX" as DimensionResult["id"], // unknown id → 0 lens weight under every archetype
+      name: "Phantom",
+      weight: 0.5,
+      score: 0,
+      signalScore: 0,
+      llmScore: 0,
+      summary: "",
+      evidence: [],
+      strengths: [],
+      gaps: [],
+    };
+    const report = mkReport({ overallScore: 0, level: "L1", dimensions: [zeroWeightDim] });
+    // Sanity: even at the ceiling this report can't move off 0 (the precondition for unreachable).
+    expect(projectScore(report, { ["DX" as DimensionResult["id"]]: 100 }).overallScore).toBe(0);
+
+    const path = cheapestPathToNextLevel(report);
+
+    expect(path.reachable).toBe(false);
+    expect(path.steps).toEqual([]); // no misleading "path" the climb never actually crosses
+    expect(path.target).not.toBeNull();
+    expect(path.target).toEqual({ level: "L2", name: LEVEL_BY_ID.L2.name, score: 25 });
+    expect(path.projected.overallScore).toBe(0); // the as-is (no-override) projection
+  });
+
+  it("top band L5: already maxed → target:null, reachable:true, no steps", () => {
+    // At L5 there is no next level. The !nextLevel branch returns reachable:true / target:null —
+    // it must NOT read as "unreachable" (a false discouragement) nor invent a climb.
+    const report = consistentReport(Object.fromEntries(DIMENSIONS.map((d) => [d.id, 90])));
+    expect(report.level.id).toBe("L5");
+
+    const path = cheapestPathToNextLevel(report);
+
+    expect(path.target).toBeNull();
+    expect(path.reachable).toBe(true);
+    expect(path.steps).toEqual([]);
+    expect(path.projected.overallScore).toBe(report.overallScore); // unchanged as-is projection
+  });
+});
+
+describe("assembleReport — discrepancy widens the guardband (P1-1)", () => {
+  it("a dimension the LLM flagged as a detector discrepancy trusts the model further (wider band, UP)", () => {
+    const base = signalsWith({ D5: { signalScore: 20 } });
+    const unflagged = assembleReport(snapWithCoverage(1), base, assessmentWith({ D5: 90 }), eng, AT, "org");
+    const flagged = assembleReport(
+      snapWithCoverage(1),
+      base,
+      { ...assessmentWith({ D5: 90 }), discrepancies: [{ dimension: "D5", claim: "Detector missed CI-inline lint enforced off-GitHub." }] },
+      eng, AT, "org",
+    );
+    // Unflagged: llm clamped to signal+6=26 → round(0.6·26+0.4·20)=24. Flagged: signal+12=32 → round(0.6·32+0.4·20)=27.
+    expect(scoreOf(unflagged, "D5")).toBe(24);
+    expect(scoreOf(flagged, "D5")).toBe(27);
+  });
+
+  it("also lets the model correct a FALSE POSITIVE downward when flagged", () => {
+    const base = signalsWith({ D5: { signalScore: 80 } });
+    const unflagged = assembleReport(snapWithCoverage(1), base, assessmentWith({ D5: 10 }), eng, AT, "org");
+    const flagged = assembleReport(
+      snapWithCoverage(1),
+      base,
+      { ...assessmentWith({ D5: 10 }), discrepancies: [{ dimension: "D5", claim: "Signal credited mypy on a Rust repo — false positive." }] },
+      eng, AT, "org",
+    );
+    expect(scoreOf(flagged, "D5")).toBeLessThan(scoreOf(unflagged, "D5")); // 73 < 76
+  });
+
+  it("does not move a dimension the model did NOT flag (calibrated ±LLM_GUARDBAND preserved)", () => {
+    const base = signalsWith({ D5: { signalScore: 40 }, D6: { signalScore: 40 } });
+    const noDisc = assembleReport(snapWithCoverage(1), base, assessmentWith({ D5: 90, D6: 90 }), eng, AT, "org");
+    const d2Flagged = assembleReport(
+      snapWithCoverage(1), base,
+      { ...assessmentWith({ D5: 90, D6: 90 }), discrepancies: [{ dimension: "D6", claim: "missed evidence" }] },
+      eng, AT, "org",
+    );
+    // D5 (unflagged) is identical with or without the D6 discrepancy; only the flagged D6 rises above it.
+    expect(scoreOf(d2Flagged, "D5")).toBe(scoreOf(noDisc, "D5"));
+    expect(scoreOf(d2Flagged, "D6")).toBeGreaterThan(scoreOf(d2Flagged, "D5"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// assembleReport — the discrepancy BUDGET (G3-06, coupled to the G3-02 prompt boundary)
+//
+// The widening is self-declared and uncorroborated, and the claim travels through a prompt that
+// quotes repo-authored file content — so without a budget a repository could author text that buys
+// the model double latitude over that repository's own score. The budget caps how many dimensions
+// may be widened per scan and blows to ZERO (not "the first N") beyond it.
+// ---------------------------------------------------------------------------
+
+describe("assembleReport — discrepancy budget caps self-declared widening (G3-06)", () => {
+  const base = () => signalsWith({ D5: { signalScore: 20 }, D6: { signalScore: 20 }, D7: { signalScore: 20 }, D4: { signalScore: 20 } });
+  const llm = () => assessmentWith({ D5: 90, D6: 90, D7: 90, D4: 90 });
+  const disc = (ids: string[]) =>
+    ids.map((id) => ({ dimension: id as "D5", claim: `${id} detector missed evidence that is plainly present in the tree.` }));
+
+  it("pins the budget so the expectations below are self-documenting", () => {
+    expect(MAX_FLAGGED_DIMENSIONS).toBe(2);
+  });
+
+  it("widens up to the budget exactly as before (no regression for an honest audit)", () => {
+    const report = assembleReport(snapWithCoverage(1), base(), { ...llm(), discrepancies: disc(["D5", "D6"]) }, eng, AT, "org");
+    // signal 20 + doubled band 12 → guarded 32 → round(0.6·32 + 0.4·20) = 27; unflagged dims stay 24.
+    expect(scoreOf(report, "D5")).toBe(27);
+    expect(scoreOf(report, "D6")).toBe(27);
+    expect(scoreOf(report, "D7")).toBe(24);
+    expect(report.scoreIntegrity!.widenedDims).toEqual(["D5", "D6"]);
+    expect(report.scoreIntegrity!.widenCapped).toBeUndefined();
+  });
+
+  it("flagging MORE than the budget widens NOTHING — every dim scores as if unflagged", () => {
+    const overBudget = assembleReport(snapWithCoverage(1), base(), { ...llm(), discrepancies: disc(["D5", "D6", "D7"]) }, eng, AT, "org");
+    const noDisc = assembleReport(snapWithCoverage(1), base(), llm(), eng, AT, "org");
+    for (const id of ["D5", "D6", "D7", "D4"]) {
+      expect(scoreOf(overBudget, id)).toBe(scoreOf(noDisc, id));
+    }
+    expect(overBudget.overallScore).toBe(noDisc.overallScore);
+    // Recorded as data (a consumer anchoring a number must be able to attribute "the audit was distrusted")…
+    expect(overBudget.scoreIntegrity!.widenCapped).toBe(true);
+    expect(overBudget.scoreIntegrity!.widenedDims).toEqual([]);
+    // …and said in prose, since the discrepancies themselves are still shown to the user.
+    expect((overBudget.warnings ?? []).some((w) => /more than the 2 allowed/i.test(w))).toBe(true);
+    expect(overBudget.discrepancies).toHaveLength(3);
+  });
+
+  it("counts only dimensions that could ACTUALLY be widened toward the budget", () => {
+    // D9 is deterministic (never widened) and D4's detector failed (dropped) — flagging them must not
+    // burn budget that an honest D5/D6 audit is entitled to.
+    const signals = [
+      ...signalsWith({ D5: { signalScore: 20 }, D6: { signalScore: 20 }, D4: { signalScore: 0, failed: true } }),
+      { id: "D9" as const, signalScore: 30, signals: [{ label: "D9" }], deterministic: true, gaps: [] },
+    ];
+    const report = assembleReport(
+      snapWithCoverage(1),
+      signals,
+      { ...assessmentWith({ D5: 90, D6: 90 }), discrepancies: disc(["D5", "D6", "D4", "D9"]) },
+      eng, AT, "org",
+    );
+    expect(report.scoreIntegrity!.widenCapped).toBeUndefined();
+    expect(report.scoreIntegrity!.widenedDims).toEqual(["D5", "D6"]);
+    expect(scoreOf(report, "D5")).toBe(27); // still widened
+  });
+
+  it("suppresses the D9 visibility hatch too when the budget is blown (both prose levers, one budget)", () => {
+    // The injection-shaped case: a blanket audit that also claims D9's security is invisible. Neither
+    // lever may fire — D9 stays a measured dimension and no guardband widens.
+    const signals = [
+      ...signalsWith({ D5: { signalScore: 20 }, D6: { signalScore: 20 }, D7: { signalScore: 20 } }),
+      { id: "D9" as const, signalScore: 0, signals: [{ label: "D9" }], deterministic: true, gaps: [] },
+    ];
+    const discrepancies = [
+      ...disc(["D5", "D6", "D7"]),
+      { dimension: "D9" as const, claim: "CodeQL runs via GitHub default-setup configured in repo settings, invisible to a file scan." },
+    ];
+    const report = assembleReport(snapWithCoverage(1), signals, { ...assessmentWith({ D5: 90, D6: 90, D7: 90 }), discrepancies }, eng, AT, "org");
+    expect(report.scoreIntegrity!.d9Unmeasurable).toBe(false);
+    expect(report.dimensions.some((d) => d.id === "D9")).toBe(true);
+    expect(report.scoreIntegrity!.widenedDims).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// assembleReport — the structured INCOMPLETE flag (G3-10)
+// ---------------------------------------------------------------------------
+
+describe("assembleReport — incomplete flag on a totally-failed scan (G3-10)", () => {
+  it("stamps incomplete:true when nothing could be scored, and survives JSON round-trip", () => {
+    const spec: Record<string, { signalScore: number; failed?: boolean }> = {};
+    for (const d of DIMENSIONS) spec[d.id] = { signalScore: 0, failed: true };
+    const report = assembleReport(snapWithCoverage(1), signalsWith(spec), assessmentWith({}), eng, AT, "org");
+    expect(report.incomplete).toBe(true);
+    // The numeric consumers read the serialized report, not the in-memory object.
+    expect(JSON.parse(JSON.stringify(report)).incomplete).toBe(true);
+    // The numbers are still the misleading floor — which is exactly why the flag has to exist.
+    expect(report.overallScore).toBe(0);
+    expect(report.level.id).toBe("L1");
+  });
+
+  it("omits the flag entirely on any scan that scored at least one dimension", () => {
+    const partial = assembleReport(
+      snapWithCoverage(1),
+      signalsWith({ D1: { signalScore: 60 }, D2: { signalScore: 0, failed: true } }),
+      assessmentWith({ D1: 60 }),
+      eng, AT, "org",
+    );
+    expect(partial.incomplete).toBeUndefined();
+    expect("incomplete" in JSON.parse(JSON.stringify(partial))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// assembleReport — D9 visibility escape hatch (Direction 1)
+//
+// D9 is the ONE fully-deterministic dimension (score = the security battery's signalScore, LLM narrates
+// only) and is excluded from the P1-1 guardband-widening loop, so it had no correction path for the
+// documented "config-as-code only" ceiling (docs/features/scanning/calibration.md): GitHub default-setup CodeQL and
+// org-level security policy are real controls invisible to a file scan, flooring D9 at a false 0. When
+// the model flags such a HIGH-CONFIDENCE, D9-targeted VISIBILITY blind spot, D9 becomes UNMEASURABLE
+// (n/a) — excluded + renormalized, never a measured 0 and never raised by the LLM.
+// ---------------------------------------------------------------------------
+
+describe("assembleReport — D9 visibility escape hatch (Direction 1)", () => {
+  // D9 carries `deterministic: true` (its final score IS the signalScore — the security battery's
+  // risk-weighted mean); the other 8 dimensions are ordinary blended signals.
+  function d9Signals(d9 = 0, others = 60): DimensionSignals[] {
+    return DIMENSIONS.map((d) =>
+      d.id === "D9"
+        ? {
+            id: "D9",
+            signalScore: d9,
+            signals: [{ label: "SAST [posture/medium]: 0/10 — No SAST wired into CI." }],
+            deterministic: true,
+            gaps: [],
+          }
+        : { id: d.id, signalScore: others, signals: [{ label: `${d.id} signal` }] },
+    );
+  }
+  // LLM assessment scoring the 8 non-deterministic dims (D9 is deterministic, so its LLM score is inert).
+  const llmAll = (score = 60) =>
+    assessmentWith(Object.fromEntries(DIMENSIONS.filter((d) => d.id !== "D9").map((d) => [d.id, score])));
+  // A concrete, D9-targeted invisibility-mechanism claim (the two documented ceiling cases).
+  const blindspot = [
+    {
+      dimension: "D9" as const,
+      claim:
+        "D9 scored 0 but CodeQL runs via GitHub default-setup configured in repo settings (no committed workflow file), and the org enforces a SECURITY.md at the org-level in its .github repository.",
+    },
+  ];
+
+  it("a high-confidence D9 visibility discrepancy makes D9 unmeasurable (excluded + renormalized + warned)", () => {
+    const signals = d9Signals(0);
+    const withDisc = assembleReport(snapWithCoverage(1), signals, { ...llmAll(), discrepancies: blindspot }, eng, AT, "org");
+    const without = assembleReport(snapWithCoverage(1), signals, llmAll(), eng, AT, "org");
+
+    // D9 is dropped entirely — treated as n/a, not folded as a measured 0.
+    expect(withDisc.dimensions.some((d) => d.id === "D9")).toBe(false);
+    expect(withDisc.dimensions).toHaveLength(8);
+    // The escape-hatch warning is surfaced in the report.
+    expect(
+      (withDisc.warnings ?? []).some((w) => /Security \(D9\)/.test(w) && /UNMEASURABLE/i.test(w) && /visibility blind spot/i.test(w)),
+    ).toBe(true);
+    // Overall renormalizes over just the 8 measured dims — strictly higher than counting D9's 0.
+    const present = withDisc.dimensions.map((d) => ({ id: d.id, score: d.score }));
+    expect(withDisc.overallScore).toBe(overallScoreFor(present, "org"));
+    expect(withDisc.overallScore).toBeGreaterThan(without.overallScore);
+    // The discrepancy itself is still surfaced (transparency), not swallowed.
+    expect(withDisc.discrepancies).toEqual(blindspot);
+  });
+
+  // scoreIntegrity is the machine-readable record of the two LLM-prose-triggered step changes. It
+  // exists because a consumer that ANCHORS a number (briefing, percentile, signed export, diligence
+  // verdict) has to be able to attribute a headline move on an unchanged commit rather than report it
+  // as repository change. Asserting it here — the only place both levers can be driven deterministically
+  // — because nothing downstream would notice if it silently stopped being populated.
+  it("records the D9 escape hatch, the widened dims, and the realized blend on scoreIntegrity", () => {
+    const signals = d9Signals(0);
+    // One D9 blind-spot claim (drops D9) plus one D2 discrepancy (doubles D2's guardband) — the two
+    // levers fire independently, so drive both at once and assert they are reported separately.
+    const discrepancies = [...blindspot, { dimension: "D2" as const, claim: "Tests exist but run in a separate repo." }];
+    const report = assembleReport(snapWithCoverage(1), signals, { ...llmAll(), discrepancies }, eng, AT, "org");
+
+    expect(report.scoreIntegrity).toMatchObject({ d9Unmeasurable: true, effectiveBlend: SCORE_BLEND });
+    expect(report.scoreIntegrity!.widenedDims).toEqual(["D2"]);
+    // D9 was flagged too, but it was DROPPED — it never reached the blend, so listing it as "widened"
+    // would overstate how far the model was trusted on this report.
+    expect(report.scoreIntegrity!.widenedDims).not.toContain("D9");
+  });
+
+  it("scoreIntegrity reports a clean run honestly: no hatch, no widening, and the realized blend", () => {
+    // The realized blend is SCORE_BLEND × coverage, not the configured constant — a half-seen repo
+    // leans on the deterministic signal and scores differently with zero repo change, which is the
+    // third way an unchanged commit moves. Pin that the field reports the REALIZED value.
+    const half = assembleReport(snapWithCoverage(0.5), d9Signals(40), llmAll(), eng, AT, "org");
+    expect(half.scoreIntegrity).toEqual({ d9Unmeasurable: false, widenedDims: [], effectiveBlend: SCORE_BLEND * 0.5 });
+  });
+
+  // UNMEASURED IS NOT A GAP. A worktree scan with no GitHub fold to carry cannot observe D2/D3/D4 at
+  // all, and the coverage guarantee used to mint a follow-up for each of them on every such scan —
+  // an infinite false backlog the loop then ground on forever. The suppression changes NO score; it
+  // changes what becomes work, and it says so out loud on scoreIntegrity.
+  it("names the dimensions a BLIND scan could not observe, and owes them no follow-up", () => {
+    const model = { ...llmAll(), roadmap: [{ title: "m", dimension: "D1" as const, impact: "high" as const, effort: "low" as const, rationale: "r", explore: [] }] };
+    const blind = assembleReport(snapWithCoverage(1), d9Signals(40), model, eng, AT, "org", undefined, platformSignalsUnavailable());
+    const observed = assembleReport(snapWithCoverage(1), d9Signals(40), model, eng, AT, "org");
+
+    // The disclosure: a reader (and the integrity chip) can tell "not measured" from "measured, fine".
+    expect(blind.scoreIntegrity!.unmeasuredDims).toEqual(["D2", "D3", "D4"]);
+    // No manufactured coverage entry for any of them...
+    expect(blind.roadmap.map((r) => r.dimension)).not.toContain("D4");
+    expect(blind.roadmap.map((r) => r.dimension)).not.toContain("D2");
+    // ...while every dimension the scan COULD read still carries its guaranteed one.
+    expect(blind.roadmap.map((r) => r.dimension)).toContain("D5");
+    // The score itself is untouched — this is about work, not about the number.
+    expect(blind.dimensions).toEqual(observed.dimensions);
+    expect(blind.overallScore).toBe(observed.overallScore);
+    // An OBSERVED scan is byte-identical to today: the field is absent, not an empty array.
+    expect(observed.scoreIntegrity!.unmeasuredDims).toBeUndefined();
+    expect(observed.roadmap.map((r) => r.dimension)).toContain("D4");
+  });
+
+  it("leaves the D9 deterministic path byte-identical when no visibility discrepancy is present", () => {
+    const signals = d9Signals(0);
+    const report = assembleReport(snapWithCoverage(1), signals, llmAll(), eng, AT, "org");
+    const d9 = report.dimensions.find((d) => d.id === "D9")!;
+    expect(d9).toBeDefined();
+    expect(d9.score).toBe(0); // deterministic signalScore, unchanged
+    expect(report.dimensions).toHaveLength(9);
+    expect((report.warnings ?? []).some((w) => /UNMEASURABLE/i.test(w))).toBe(false);
+  });
+
+  it("does NOT exclude D9 for a generic discrepancy that names no invisibility mechanism (conservative)", () => {
+    const signals = d9Signals(0);
+    const generic = [{ dimension: "D9" as const, claim: "D9 seems too low for such a mature, security-conscious project." }];
+    const report = assembleReport(snapWithCoverage(1), signals, { ...llmAll(), discrepancies: generic }, eng, AT, "org");
+    expect(report.dimensions.some((d) => d.id === "D9")).toBe(true);
+    expect((report.warnings ?? []).some((w) => /UNMEASURABLE/i.test(w))).toBe(false);
+  });
+
+  it("only fires for a D9-TARGETED discrepancy, not blind-spot language on a different dimension", () => {
+    const signals = d9Signals(0);
+    const d3 = [{ dimension: "D3" as const, claim: "CI runs off-github via a default-setup pipeline outside the repo." }];
+    const report = assembleReport(snapWithCoverage(1), signals, { ...llmAll(), discrepancies: d3 }, eng, AT, "org");
+    expect(report.dimensions.some((d) => d.id === "D9")).toBe(true);
+    expect((report.warnings ?? []).some((w) => /UNMEASURABLE/i.test(w))).toBe(false);
+  });
+
+  it("never lets the LLM RAISE D9 — with the discrepancy D9 goes n/a; without it, a high LLM score can't move the deterministic 0", () => {
+    const signals = d9Signals(0);
+    // The model both flags the blind spot AND scores D9 at 95. D9 must be DROPPED (n/a), never surfaced at 95.
+    const base = llmAll();
+    const assessment = {
+      ...base,
+      dimensions: [...base.dimensions, { id: "D9" as const, score: 95, summary: "", strengths: [], gaps: [] }],
+      discrepancies: blindspot,
+    };
+    const report = assembleReport(snapWithCoverage(1), signals, assessment, eng, AT, "org");
+    expect(report.dimensions.some((d) => d.id === "D9")).toBe(false);
+    // With NO discrepancy, that same 95 llmScore still cannot move the deterministic 0 (D9 stays 0).
+    const noEsc = assembleReport(snapWithCoverage(1), signals, { ...assessment, discrepancies: [] }, eng, AT, "org");
+    const d9 = noEsc.dimensions.find((d) => d.id === "D9")!;
+    expect(d9.score).toBe(0);
+    expect(d9.llmScore).toBe(95); // recorded for transparency, but never blended into the score
+  });
+});
+
+// ---------------------------------------------------------------------------
+// assembleReport — prStats threads into aiUsage (Direction 2b, P0-5)
+//
+// detectAiUsage's AUTHORITATIVE AI signal is PR-level involvement with tool attribution, not the
+// bot-commit fraction. assembleReport now accepts prStats and passes it through, so a caller gets the
+// P0-5-correct aiUsage from the engine itself. aiUsage is a separate indicator — threading it must NEVER
+// move the score.
+// ---------------------------------------------------------------------------
+
+describe("assembleReport — prStats threads into aiUsage without touching scoring (Direction 2b)", () => {
+  it("uses PR-level AI involvement for aiUsage when prStats is passed, and scoring is byte-identical", () => {
+    const signals = signalsWith({ D1: { signalScore: 60 }, D2: { signalScore: 60 } });
+    const assessment = assessmentWith({ D1: 60, D2: 60 });
+    const withPr = assembleReport(
+      snapWithCoverage(1),
+      signals,
+      assessment,
+      eng,
+      AT,
+      "org",
+      prStats({ aiInvolvedRate: 40, tools: [{ name: "Claude", count: 3 }] }),
+    );
+    const withoutPr = assembleReport(snapWithCoverage(1), signals, assessment, eng, AT, "org");
+
+    // The PR-level AI signal only surfaces in aiUsage when prStats is threaded through.
+    expect(withPr.aiUsage.detected).toBe(true);
+    expect(withPr.aiUsage.signals.some((s) => /AI involved in 40% of recent PRs/.test(s))).toBe(true);
+    // The blank snapshot has no commit/tooling AI evidence, so without prStats nothing is detected.
+    expect(withoutPr.aiUsage.detected).toBe(false);
+
+    // aiUsage is an indicator, not a scoring input — threading it must not move the headline or any dim.
+    expect(withPr.overallScore).toBe(withoutPr.overallScore);
+    expect(withPr.dimensions).toEqual(withoutPr.dimensions);
+  });
+});

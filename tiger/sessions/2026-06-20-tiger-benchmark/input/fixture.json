@@ -1,0 +1,197 @@
+{
+  "repo": {
+    "owner": "donutworks",
+    "name": "checkout-svc",
+    "url": "https://github.com/donutworks/checkout-svc",
+    "stars": 340,
+    "forks": 28,
+    "defaultBranch": "main",
+    "primaryLanguage": "TypeScript",
+    "pushedAt": "2026-06-14T09:00:00Z",
+    "description": "Payment + checkout service for the Donutworks storefront."
+  },
+  "archetype": "team",
+  "signals": [
+    {
+      "id": "D1",
+      "signalScore": 35,
+      "signals": [
+        {
+          "label": "AGENTS.md present",
+          "detail": "820 chars — thin"
+        },
+        {
+          "label": "no .cursor/rules or copilot-instructions"
+        }
+      ]
+    },
+    {
+      "id": "D2",
+      "signalScore": 22,
+      "signals": [
+        {
+          "label": "no test files detected by pattern"
+        }
+      ]
+    },
+    {
+      "id": "D3",
+      "signalScore": 55,
+      "signals": [
+        {
+          "label": "GitHub Actions: ci.yml (install, build, lint)"
+        },
+        {
+          "label": "no deploy/release workflow"
+        }
+      ]
+    },
+    {
+      "id": "D4",
+      "signalScore": 18,
+      "signals": [
+        {
+          "label": "no AI code-review or auto-fix/auto-PR workflows"
+        }
+      ]
+    },
+    {
+      "id": "D5",
+      "signalScore": 60,
+      "signals": [
+        {
+          "label": "README 4.2k chars"
+        },
+        {
+          "label": "docs/ has 3 markdown files"
+        }
+      ]
+    },
+    {
+      "id": "D6",
+      "signalScore": 48,
+      "signals": [
+        {
+          "label": "eslint config present"
+        },
+        {
+          "label": "tsconfig strict=true"
+        },
+        {
+          "label": "no pre-commit hooks"
+        }
+      ]
+    },
+    {
+      "id": "D7",
+      "signalScore": 50,
+      "signals": [
+        {
+          "label": "42 commits in 30d"
+        },
+        {
+          "label": "conventional-commit rate ~70%"
+        }
+      ]
+    },
+    {
+      "id": "D8",
+      "signalScore": 40,
+      "signals": [
+        {
+          "label": "main is protected; requires PR + 1 approval"
+        },
+        {
+          "label": "no code-owner review, no signatures"
+        }
+      ]
+    },
+    {
+      "id": "D9",
+      "signalScore": 45,
+      "signals": [
+        {
+          "label": "dependabot.yml present"
+        },
+        {
+          "label": "3 of 5 GitHub Actions unpinned (use @v4 tags, not SHAs)"
+        }
+      ]
+    }
+  ],
+  "commitSample": [
+    "feat(checkout): add idempotency key to charge endpoint",
+    "fix(webhook): verify Stripe signature before parsing body",
+    "chore(deps): bump stripe to 14.2.0",
+    "test(checkout): cover partial-refund path",
+    "refactor: extract money math into cents.ts",
+    "ci: cache pnpm store"
+  ],
+  "files": [
+    {
+      "path": "package.json",
+      "bytes": 540,
+      "content": "{\n  \"name\": \"checkout-svc\",\n  \"scripts\": {\n    \"build\": \"tsc -p .\",\n    \"lint\": \"eslint src\",\n    \"test\": \"vitest run\",\n    \"dev\": \"tsx watch src/index.ts\"\n  },\n  \"dependencies\": { \"stripe\": \"14.2.0\", \"zod\": \"3.23.0\" },\n  \"devDependencies\": { \"vitest\": \"2.1.0\", \"typescript\": \"5.6.0\", \"eslint\": \"9.0.0\" }\n}"
+    },
+    {
+      "path": "tests/checkout.test.ts",
+      "bytes": 720,
+      "content": "import { describe, it, expect } from \"vitest\";\nimport { computeTotalCents, applyRefund } from \"../src/cents\";\n\ndescribe(\"checkout money math\", () => {\n  it(\"sums line items in integer cents (no float drift)\", () => {\n    expect(computeTotalCents([{ cents: 199 }, { cents: 850 }, { cents: 1 }])).toBe(1050);\n  });\n  it(\"rejects a refund larger than the captured amount\", () => {\n    expect(() => applyRefund(1000, 1500)).toThrow(/exceeds captured/);\n  });\n  it(\"applies a partial refund and returns the remaining balance\", () => {\n    expect(applyRefund(1000, 300)).toBe(700);\n  });\n});"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "bytes": 360,
+      "content": "name: ci\non: [push, pull_request]\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n      - run: pnpm install --frozen-lockfile\n      - run: pnpm build\n      - run: pnpm lint"
+    },
+    {
+      "path": "AGENTS.md",
+      "bytes": 820,
+      "content": "# Agent notes\nThis is a payment service. Be careful with money math — always integer cents.\nRun `pnpm test` before pushing. Stripe webhooks must verify signatures."
+    },
+    {
+      "path": "src/cents.ts",
+      "bytes": 480,
+      "content": "export function computeTotalCents(items: { cents: number }[]): number {\n  return items.reduce((sum, i) => sum + i.cents, 0);\n}\nexport function applyRefund(capturedCents: number, refundCents: number): number {\n  if (refundCents > capturedCents) throw new Error(\"refund exceeds captured amount\");\n  return capturedCents - refundCents;\n}"
+    },
+    {
+      "path": "README.md",
+      "bytes": 4200,
+      "content": "# checkout-svc\nPayment + checkout for Donutworks. Stripe-backed. Express + Zod validation.\n## Setup\npnpm install && pnpm dev\n## Testing\npnpm test (vitest)\n## Deploy\nManual: build a container, push to ECR, update the ECS service. (No release automation yet.)"
+    }
+  ],
+  "prStats": {
+    "analyzed": 38,
+    "totalCount": 96,
+    "open": 4,
+    "merged": 30,
+    "closedUnmerged": 4,
+    "mergeRate": 78,
+    "reviewedRate": 65,
+    "avgReviews": 1.1,
+    "avgComments": 1.8,
+    "medianHoursToMerge": 26,
+    "medianHoursToFirstReview": 5,
+    "avgLineChanges": 180,
+    "avgChangedFiles": 5,
+    "smallPrRate": 52,
+    "botAuthoredRate": 12,
+    "aiInvolvedRate": 30,
+    "aiGovernedRate": 50,
+    "revertRate": 3,
+    "draftRate": 8,
+    "tools": []
+  },
+  "governance": {
+    "defaultBranch": "main",
+    "readable": true,
+    "protected": true,
+    "requiresPullRequest": true,
+    "requiredApprovals": 1,
+    "requiresStatusChecks": true,
+    "requiresCodeOwnerReview": false,
+    "requiresSignatures": false,
+    "linearHistory": false,
+    "ruleCount": 2
+  },
+  "stackFit": null
+}
