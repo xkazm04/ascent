@@ -6,7 +6,7 @@
 
 import { describe, it, expect } from "vitest";
 import type { LlmRoadmapItem, PersistedRecommendation } from "@/lib/types";
-import { committableRecs } from "./RoadmapSandboxCommit";
+import { committableRecs, sandboxCommitNote, sandboxCommitSummary } from "./RoadmapSandboxCommit";
 
 const roadmap = [
   { dimension: "D1", title: "Add agent guidance" },
@@ -90,5 +90,53 @@ describe("committableRecs — identity is minted, not the rendered string", () =
     const rendered = [{ dimension: "D2", title: "Improve docs" }] as unknown as LlmRoadmapItem[];
     const persisted = [rec({ id: "r1", dimension: "D1", title: "Improve docs" })];
     expect(committableRecs(rendered, persisted, new Set([0]))).toHaveLength(0);
+  });
+});
+
+// D10: the ledger says what it did, including the sign. The note is written into the recommendation's
+// PERMANENT timeline, so a modeled regression floored to "+0" ("modeled, moves nothing") was a number
+// the sandbox never produced, and the completion line named only the successes while the per-row catch
+// swallowed the rest.
+describe("sandboxCommitNote — the projection keeps its sign", () => {
+  it("carries a positive projection as a signed figure", () => {
+    expect(sandboxCommitNote(6.4)).toBe("Committed from sandbox simulation, projected +6 pts overall.");
+  });
+
+  it("carries a NEGATIVE projection as a signed figure, never floored to +0", () => {
+    const note = sandboxCommitNote(-3.2);
+    expect(note).toBe("Committed from sandbox simulation, projected -3 pts overall.");
+    expect(note).not.toContain("+0");
+  });
+
+  it("omits the figure entirely when the projection rounds to zero", () => {
+    for (const d of [0, 0.4, -0.4]) {
+      const note = sandboxCommitNote(d);
+      expect(note).toBe("Committed from sandbox simulation, no projected gain to the overall score.");
+      expect(note).not.toMatch(/[+-]?0 pts/);
+    }
+  });
+});
+
+describe("sandboxCommitSummary — N of M, and the shortfall is named", () => {
+  it("reads 'N of M' on a full success and points at the reload", () => {
+    expect(sandboxCommitSummary(3, 3)).toBe(
+      "3 of 3 recommendations marked in progress. Reload the roadmap to see the tracker update.",
+    );
+  });
+
+  it("names the failures instead of reporting only what landed", () => {
+    const line = sandboxCommitSummary(3, 8);
+    expect(line).toContain("3 of 8 recommendations marked in progress.");
+    expect(line).toContain("5 couldn’t be saved and stayed open");
+  });
+
+  it("says so when nothing landed at all", () => {
+    expect(sandboxCommitSummary(0, 2)).toContain("0 of 2 recommendations marked in progress.");
+    expect(sandboxCommitSummary(0, 2)).toContain("2 couldn’t be saved");
+  });
+
+  it("keeps the singular, and the empty case", () => {
+    expect(sandboxCommitSummary(1, 1)).toContain("1 of 1 recommendation marked in progress.");
+    expect(sandboxCommitSummary(0, 0)).toBe("Nothing new to commit.");
   });
 });

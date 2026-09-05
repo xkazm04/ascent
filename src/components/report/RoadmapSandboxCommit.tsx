@@ -46,6 +46,39 @@ export function committableRecs(
   return out;
 }
 
+/**
+ * The permanent event-trail note stamped on every rec this bar commits.
+ *
+ * It used to floor the projection at zero (`+${Math.max(0, …)}`), so a sandbox that modeled a
+ * REGRESSION wrote "projected +0 pts overall" into the recommendation's timeline — a modeled loss
+ * re-reported as "modeled, moves nothing", and a `+0` the data never said (G4). The rounded
+ * projection now carries its own sign, and a projection that rounds to zero omits the figure
+ * entirely rather than emitting a number that reads as a measurement of nothing.
+ */
+export function sandboxCommitNote(projectedDelta: number): string {
+  const pts = Math.round(projectedDelta);
+  if (pts > 0) return `Committed from sandbox simulation, projected +${pts} pts overall.`;
+  if (pts < 0) return `Committed from sandbox simulation, projected ${pts} pts overall.`;
+  return "Committed from sandbox simulation, no projected gain to the overall score.";
+}
+
+/**
+ * What the bar reports when the loop finishes. It used to name only the successes ("3 recommendations
+ * marked in progress") while the per-row catch below swallowed failures silently, so 3-of-8 and 3-of-3
+ * read identically and the five rows that never landed were invisible. The attempted total is always
+ * named, and any shortfall is stated with what to do about it (the button stays enabled: the
+ * un-committed rows are still open, so committing again retries exactly them).
+ */
+export function sandboxCommitSummary(saved: number, total: number): string {
+  if (total === 0) return "Nothing new to commit.";
+  const head = `${saved} of ${total} recommendation${total > 1 ? "s" : ""} marked in progress.`;
+  const failed = total - saved;
+  if (failed > 0) {
+    return `${head} ${failed} couldn’t be saved and stayed open — commit again to retry ${failed > 1 ? "them" : "it"}.`;
+  }
+  return `${head} Reload the roadmap to see the tracker update.`;
+}
+
 type CommitState =
   | { kind: "idle" }
   | { kind: "saving"; done: number; total: number }
@@ -81,7 +114,7 @@ export function SandboxCommitBar({
 
   async function commit() {
     if (n === 0 || state.kind === "saving" || state.kind === "blocked") return;
-    const note = `Committed from sandbox simulation, projected +${Math.max(0, Math.round(projectedDelta))} pts overall.`;
+    const note = sandboxCommitNote(projectedDelta);
     let saved = 0;
     setState({ kind: "saving", done: 0, total: n });
     // Sequential PATCHes through the existing per-row path (no batch API). On the first 403/503, every
@@ -123,10 +156,8 @@ export function SandboxCommitBar({
         {/* Polite live region so the commit outcome is announced without stealing focus. */}
         <div role="status" aria-live="polite">
           {state.kind === "done" && (
-            <p className="mt-1 type-body-sm text-emerald-300">
-              {state.saved > 0
-                ? `${state.saved} recommendation${state.saved > 1 ? "s" : ""} marked in progress. Reload the roadmap to see the tracker update.`
-                : "Nothing new to commit."}
+            <p className={`mt-1 type-body-sm ${state.saved < state.total ? "text-amber-200/90" : "text-emerald-300"}`}>
+              {sandboxCommitSummary(state.saved, state.total)}
             </p>
           )}
           {state.kind === "blocked" && (
