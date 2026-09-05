@@ -171,6 +171,29 @@ export interface UsageSummary {
   byomScans: number;
   firstScanAt: string | null;
   lastScanAt: string | null;
+  /**
+   * The half-open window every period figure above was computed over, echoed as ISO strings so a
+   * reader (or a downstream sheet) never has to reconstruct it from `periodDays` and a local clock.
+   * `windowBefore` is EXCLUSIVE: it is midnight UTC of tomorrow, not "now".
+   */
+  windowSince: string;
+  windowBefore: string;
+  /**
+   * The start of the window actually COVERED by the daily series: `windowSince`, or the org's first
+   * scan day when the requested window reaches back before the org existed (see clampDailySeries).
+   * When this differs from `windowSince` the page says the window was shortened, rather than drawing
+   * measured zeros for days nobody was watching.
+   */
+  effectiveSince: string;
+  /** Days in `daily` after that clamp — `periodDays` unless the window was shortened. */
+  effectiveDays: number;
+  /**
+   * The timezone EVERY date on this response is expressed in. Day bucketing, the window bounds and
+   * the axis keys are all UTC (`date_trunc('day', ...)` server-side, `toISOString().slice(0,10)` in
+   * JS); a reader in UTC-8 whose "yesterday" straddles two of these buckets needs to be told which
+   * calendar they are looking at. Constant by construction, and stated rather than assumed.
+   */
+  timezone: "UTC";
 }
 
 /**
@@ -210,9 +233,65 @@ export function boundUsageDays(raw: string | null | undefined, isPublic: boolean
   return Math.min(isPublic ? 90 : 365, Math.max(1, Math.floor(Number(raw)) || 30));
 }
 
+/**
+ * The half-open, UTC-day-anchored window every figure on /usage is computed over: `[since, before)`
+ * where `since` is midnight UTC of the oldest day shown and `before` is midnight UTC of TOMORROW.
+ *
+ * Exported because a second reader of the same period — the credit reconciliation on the same page —
+ * used to derive its own `Date.now() - days * 86_400_000` rolling wall-clock cutoff. Two windows of
+ * DIFFERENT KINDS were labelled "last {days}d" side by side, and the panel blamed the resulting
+ * difference on "rows straddling the window edge": a structural mismatch presented as incidental.
+ * One helper, one window, or the two panels are not comparable.
+ */
+export interface UsageWindow {
+  /** Inclusive lower bound: midnight UTC of the oldest day in the period. */
+  since: Date;
+  /** EXCLUSIVE upper bound: midnight UTC of tomorrow. Load-bearing — see the note in getUsageSummary. */
+  before: Date;
+}
+
+/** Build {@link UsageWindow} for `periodDays` ending with the UTC day containing `nowMs`. */
+export function usageWindow(periodDays: number, nowMs: number = Date.now()): UsageWindow {
+  const todayUtcMs = utcDayStart(nowMs);
+  return {
+    since: new Date(todayUtcMs - (Math.max(1, Math.floor(periodDays)) - 1) * 86_400_000),
+    before: new Date(todayUtcMs + 86_400_000),
+  };
+}
+
+/**
+ * Clamp the zero-filled day series at the org's FIRST scan.
+ *
+ * `emptyDailySeries` always emits `periodDays` rows, so a five-day-old org asked for `days=365`
+ * rendered 360 days of *measured zeros* — and exported them to the finance CSV, where a zero is a
+ * claim that nothing happened rather than that nothing was being watched. Absence of a record is not
+ * evidence of no activity. The trimmed days are all-zero by construction (no scan can predate the
+ * first scan), so this changes only what the page CLAIMS to have measured, never a count.
+ *
+ * Head-only: the tail is today, which the chart marks as partial rather than hides. An org with no
+ * scans at all is left alone — its series is honestly all-zero and there is no first scan to clamp to.
+ * Exported for the test.
+ */
+export function clampDailySeries(
+  daily: UsageDay[],
+  since: Date,
+  firstScanAt: string | null,
+): { daily: UsageDay[]; effectiveSince: string } {
+  const requested = since.toISOString();
+  if (!firstScanAt || daily.length === 0) return { daily, effectiveSince: requested };
+  const firstDay = firstScanAt.slice(0, 10);
+  const i = daily.findIndex((d) => d.date >= firstDay);
+  if (i <= 0) return { daily, effectiveSince: requested }; // -1: first scan is future-dated; 0: no trim
+  const trimmed = daily.slice(i);
+  return { daily: trimmed, effectiveSince: `${trimmed[0]!.date}T00:00:00.000Z` };
+}
+
 export async function getUsageSummary(
   orgSlug = "public",
   periodDays = 30,
+  /** The window to compute over. Defaults to `usageWindow(periodDays)`; a caller that must compute
+   *  the SAME window for another read (the /usage page's credit reconciliation) passes its own. */
+  window?: UsageWindow,
 ): Promise<UsageSummary | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
@@ -222,6 +301,10 @@ export async function getUsageSummary(
   // row here and rendered an empty "no scans metered yet" summary despite real data. Normalize so the
   // DB lookup agrees with every downstream check; /api/usage shares this path, so it's fixed too.
   const slug = orgSlug.trim().toLowerCase();
+
+  // ONE window helper, shared with every other reader of this period (see usageWindow).
+  const win = window ?? usageWindow(periodDays);
+  const { since, before } = win;
 
   const empty: UsageSummary = {
     org: slug,
@@ -247,6 +330,11 @@ export async function getUsageSummary(
     byomScans: 0,
     firstScanAt: null,
     lastScanAt: null,
+    windowSince: since.toISOString(),
+    windowBefore: before.toISOString(),
+    effectiveSince: since.toISOString(),
+    effectiveDays: periodDays,
+    timezone: "UTC",
   };
 
   const orgRow = await prisma.organization.findUnique({ where: { slug }, select: { id: true, kind: true } });
@@ -254,19 +342,18 @@ export async function getUsageSummary(
   const orgId = orgRow.id;
   const unmeteredFunnel = orgRow.kind === "public";
 
-  // Anchor the window to UTC calendar days. `since` is the START of the oldest day shown on the
-  // chart, derived from the SAME UTC-day floor the axis uses (emptyDailySeries) — so every counted
-  // scan's UTC date is guaranteed to land on a generated axis day. The previous code stepped the
-  // axis from a LOCAL `new Date()` while keying buckets by UTC date, so near-midnight-UTC scans
-  // fell into the idx-miss gap and were silently dropped (under-reporting billable volume).
-  const todayUtcMs = utcDayStart(Date.now());
-  const since = new Date(todayUtcMs - (periodDays - 1) * 86_400_000);
-  // UPPER bound: the exclusive end of TODAY's UTC day — the same edge the generated day axis stops at.
-  // Without it the period counts were open-ended while the series index only spans since→today, so a
-  // future-dated / clock-skewed scan was counted in the headline Stat tile yet silently idx-missed out
-  // of the chart and CSV (`idx.get(row.day)` undefined → row dropped) — the headline and the trend
-  // total disagreeing on the org's billing page. Both sides now share this window.
-  const before = new Date(todayUtcMs + 86_400_000);
+  // The window is anchored to UTC calendar days (usageWindow). `since` is the START of the oldest day
+  // shown on the chart, derived from the SAME UTC-day floor the axis uses (emptyDailySeries) — so
+  // every counted scan's UTC date is guaranteed to land on a generated axis day. The previous code
+  // stepped the axis from a LOCAL `new Date()` while keying buckets by UTC date, so near-midnight-UTC
+  // scans fell into the idx-miss gap and were silently dropped (under-reporting billable volume).
+  //
+  // The UPPER bound is exclusive — the end of TODAY's UTC day, the same edge the generated day axis
+  // stops at. Without it the period counts were open-ended while the series index only spans
+  // since→today, so a future-dated / clock-skewed scan was counted in the headline Stat tile yet
+  // silently idx-missed out of the chart and CSV (`idx.get(row.day)` undefined → row dropped) — the
+  // headline and the trend total disagreeing on the org's billing page.
+  const todayUtcMs = before.getTime() - 86_400_000;
   const where = { repo: { orgId } };
   // The billable/free split and provider mix are shown beside the "Last Nd" window, so they
   // must be scoped to the same window as periodScans — otherwise the billable figure reported
@@ -411,6 +498,11 @@ export async function getUsageSummary(
 
   // ONE fold of the scan lane's team split, read two ways: as the team panel's rows and as the scan
   // ROW of the showback matrix. Two folds of the same groups would eventually disagree (MC-B45).
+  // The zero-fill is clamped at the org's first scan: 360 rows of "0 scans" for days before the org
+  // existed are measured-looking absence, and the CSV exported them as data (see clampDailySeries).
+  const firstScanAt = agg._min.scannedAt ? agg._min.scannedAt.toISOString() : null;
+  const clamped = clampDailySeries(daily, since, firstScanAt);
+
   const scanCells = isPublic ? [] : await scanTeamUsage(prisma, scanTeamGroups);
   const byTeam: TeamUsage[] = isPublic ? [] : mergeTeamUsage(scanTeamRows(scanCells), otherTeams);
   const byLaneTeam: LaneTeamCell[] = isPublic ? [] : mergeLaneTeamCells([...scanCells, ...laneTeamCells]);
@@ -429,7 +521,7 @@ export async function getUsageSummary(
     byProvider: providerGroups
       .map((g) => ({ provider: g.engineProvider, count: g._count }))
       .sort((a, b) => b.count - a.count),
-    daily,
+    daily: clamped.daily,
     inputTokens,
     outputTokens,
     estimatedCostUsd,
@@ -440,8 +532,13 @@ export async function getUsageSummary(
     byLaneTeam,
     ...foldLaneCost(byLane),
     byomScans,
-    firstScanAt: agg._min.scannedAt ? agg._min.scannedAt.toISOString() : null,
+    firstScanAt,
     lastScanAt: agg._max.scannedAt ? agg._max.scannedAt.toISOString() : null,
+    windowSince: since.toISOString(),
+    windowBefore: before.toISOString(),
+    effectiveSince: clamped.effectiveSince,
+    effectiveDays: clamped.daily.length,
+    timezone: "UTC",
   };
 }
 

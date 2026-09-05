@@ -490,12 +490,26 @@ export async function sumRefundClawback(orgSlug: string, orderId: string): Promi
 }
 
 /**
- * Reconcile the credit ledger over the last `days` (USE-4): credits debited (scan spends), refunded
+ * Reconcile the credit ledger over a window (USE-4): credits debited (scan spends), refunded
  * (failed/deduped scans return their credit — a positive delta whose reason says so), granted (other
  * positives), and the net. Windows the recent ledger rows by date here (server-side) so the /usage
  * page stays a pure render. Null when persistence is off.
+ *
+ * The window is passed IN — the caller's `[since, before)`, not a `days` count re-derived here.
+ * This function used to take `days` and cut at `Date.now() - days * 86_400_000`, a rolling
+ * wall-clock instant, while the scan figures it is reconciled against on the same screen were
+ * counted over a UTC-day-anchored half-open window (`usageWindow` in ./usage.ts). Both were labelled
+ * "last {days}d", and when the two totals disagreed the panel offered "rows straddling the window
+ * edge" as the explanation — an incidental-sounding phrase for a window that was, up to 24 hours
+ * wide, structurally a different period. Two numbers presented as comparable must be measured over
+ * ONE window; taking it as an argument is what makes that checkable instead of coincidental.
+ *
+ * `before` is EXCLUSIVE, matching the scan side's upper bound exactly.
  */
-export async function getCreditReconciliation(orgSlug: string, days: number): Promise<CreditReconciliation | null> {
+export async function getCreditReconciliation(
+  orgSlug: string,
+  window: { since: Date; before: Date },
+): Promise<CreditReconciliation | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const orgId = await getOrgId(orgSlug);
@@ -505,9 +519,8 @@ export async function getCreditReconciliation(orgSlug: string, days: number): Pr
   // (daily autoscans write 20-40 ledger rows/day) silently lost every row beyond the most-recent 200
   // in a 30-day window, understating debited/refunded/granted/net on the money-facing /usage page.
   // Select only the two fields the reconciliation needs, for all rows inside the window.
-  const cutoff = new Date(Date.now() - Math.max(1, days) * 86_400_000);
   const rows = await prisma.creditLedger.findMany({
-    where: { orgId, createdAt: { gte: cutoff } },
+    where: { orgId, createdAt: { gte: window.since, lt: window.before } },
     select: { delta: true, reason: true },
   });
   const sum = (pred: (e: { delta: number; reason: string }) => boolean, abs = false) =>

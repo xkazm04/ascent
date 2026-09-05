@@ -21,8 +21,11 @@ import {
   estimateLlmCostUsd,
   foldLaneCost,
   getUsageSummary,
+  clampDailySeries,
   isBillableScan,
   unpricedScanCalls,
+  usageWindow,
+  type UsageDay,
 } from "./usage";
 
 describe("foldLaneCost", () => {
@@ -607,5 +610,113 @@ describe("estimateLlmCostFromTable / unpricedScanCalls — the BYOM guard (Direc
     expect(unpricedScanCalls([{ ...row, provider: "ollama", byom: true, calls: 4 }])).toBe(4);
     // …while the same local run on Ascent's own account has a real price, and it is zero.
     expect(unpricedScanCalls([{ ...row, provider: "ollama", byom: false, calls: 4 }])).toBe(0);
+  });
+});
+
+// Direction 9 (a)+(e). The page is honest about WHEN: one shared half-open UTC-day window, echoed on
+// the response, and a zero-fill that stops at the org's first scan instead of exporting 360 rows of
+// "0 scans" for days before the org existed. Absent is not zero.
+describe("usageWindow — the ONE window every reader of the period shares", () => {
+  it("is half-open, UTC-day-anchored, and exactly periodDays wide", () => {
+    const w = usageWindow(7, Date.UTC(2026, 6, 28, 17, 43, 12));
+    expect(w.since.toISOString()).toBe("2026-07-22T00:00:00.000Z");
+    // EXCLUSIVE upper bound: midnight UTC of tomorrow, not "now" — so today's scans are all inside.
+    expect(w.before.toISOString()).toBe("2026-07-29T00:00:00.000Z");
+    expect((w.before.getTime() - w.since.getTime()) / 86_400_000).toBe(7);
+  });
+
+  it("does not move with the wall clock inside a day — the trap the credit cutoff fell into", () => {
+    const morning = usageWindow(30, Date.UTC(2026, 6, 28, 0, 1));
+    const evening = usageWindow(30, Date.UTC(2026, 6, 28, 23, 59));
+    expect(morning).toEqual(evening);
+  });
+});
+
+describe("clampDailySeries — the zero-fill stops at the org's first scan (Direction 9e)", () => {
+  const days = (from: string, n: number): UsageDay[] =>
+    Array.from({ length: n }, (_, i) => ({
+      date: new Date(Date.parse(`${from}T00:00:00Z`) + i * 86_400_000).toISOString().slice(0, 10),
+      billable: 0,
+      free: 0,
+    }));
+
+  it("trims the days before the first scan and reports the effective start", () => {
+    const series = days("2026-01-01", 30);
+    const out = clampDailySeries(series, new Date("2026-01-01T00:00:00.000Z"), "2026-01-26T09:30:00.000Z");
+    expect(out.daily).toHaveLength(5); // 26th..30th
+    expect(out.daily[0]!.date).toBe("2026-01-26");
+    expect(out.effectiveSince).toBe("2026-01-26T00:00:00.000Z");
+  });
+
+  it("keeps the first scan's OWN day — the day it happened is measured, not trimmed", () => {
+    const out = clampDailySeries(days("2026-01-01", 30), new Date("2026-01-01T00:00:00.000Z"), "2026-01-26T00:00:00.000Z");
+    expect(out.daily[0]!.date).toBe("2026-01-26");
+  });
+
+  it("leaves a window that starts after the first scan alone — nothing to shorten", () => {
+    const series = days("2026-01-01", 30);
+    const out = clampDailySeries(series, new Date("2026-01-01T00:00:00.000Z"), "2025-11-02T00:00:00.000Z");
+    expect(out.daily).toBe(series);
+    expect(out.effectiveSince).toBe("2026-01-01T00:00:00.000Z");
+  });
+
+  it("leaves an org with NO scans alone — an honest all-zero axis, with no first scan to clamp to", () => {
+    const series = days("2026-01-01", 30);
+    expect(clampDailySeries(series, new Date("2026-01-01T00:00:00.000Z"), null).daily).toBe(series);
+  });
+});
+
+describe("getUsageSummary — echoes the window it actually covered (Direction 9)", () => {
+  const NOW = Date.UTC(2026, 6, 28, 12, 0, 0);
+  function stub(firstScan: Date | null) {
+    mockIsDbConfigured.mockReturnValue(true);
+    mockGetPrisma.mockReturnValue({
+      organization: { findUnique: vi.fn(async () => ({ id: "org1", kind: "org" })) },
+      scan: {
+        count: vi.fn(async () => 1),
+        groupBy: vi.fn(async () => []),
+        aggregate: vi.fn(async () => ({ _min: { scannedAt: firstScan }, _max: { scannedAt: firstScan } })),
+      },
+      repository: { count: vi.fn(async () => 1), findMany: vi.fn(async () => []) },
+      usageEvent: { groupBy: vi.fn(async () => []) },
+      $queryRaw: vi.fn(async () => []),
+    });
+  }
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    mockGetPrisma.mockReset();
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("returns the half-open window and names the timezone, so no reader rebuilds it from a local clock", async () => {
+    stub(new Date(Date.UTC(2020, 0, 1)));
+    const s = (await getUsageSummary("acme", 30))!;
+    expect(s.windowSince).toBe("2026-06-29T00:00:00.000Z");
+    expect(s.windowBefore).toBe("2026-07-29T00:00:00.000Z");
+    expect(s.timezone).toBe("UTC");
+    expect(s.effectiveSince).toBe(s.windowSince); // an old org: nothing to clamp
+    expect(s.effectiveDays).toBe(30);
+    expect(s.daily).toHaveLength(30);
+  });
+
+  it("clamps a 365-day window on a five-day-old org instead of exporting 360 measured zeros", async () => {
+    stub(new Date(Date.UTC(2026, 6, 24, 8, 0)));
+    const s = (await getUsageSummary("acme", 365))!;
+    expect(s.periodDays).toBe(365); // what was asked for, unchanged
+    expect(s.daily).toHaveLength(5); // …what was actually measured
+    expect(s.effectiveDays).toBe(5);
+    expect(s.effectiveSince).toBe("2026-07-24T00:00:00.000Z");
+    expect(s.effectiveSince).not.toBe(s.windowSince); // the page says "window shortened to first scan"
+    expect(s.daily[0]!.date).toBe("2026-07-24");
+    expect(s.daily.at(-1)!.date).toBe("2026-07-28");
+  });
+
+  it("accepts a caller-supplied window verbatim, so a sibling read can share it exactly", async () => {
+    stub(new Date(Date.UTC(2020, 0, 1)));
+    const win = usageWindow(7, Date.UTC(2026, 0, 10, 6, 0));
+    const s = (await getUsageSummary("acme", 7, win))!;
+    expect(s.windowSince).toBe(win.since.toISOString());
+    expect(s.windowBefore).toBe(win.before.toISOString());
   });
 });

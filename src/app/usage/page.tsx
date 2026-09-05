@@ -4,7 +4,7 @@ import { Shell, Notice } from "./usageShell";
 import { UsageDashboard } from "./usageDashboard";
 import { countMeteredScansThisMonth, getCreditReconciliation, getCreditState, getQuotaEventTotals, getUsageSummary, isDbConfigured, type CreditReconciliation, type CreditState, type QuotaEventTotals, type UsageSummary } from "@/lib/db";
 import { creditNotice } from "./creditNotice";
-import { boundUsageDays } from "@/lib/db/usage";
+import { boundUsageDays, usageWindow } from "@/lib/db/usage";
 import { getActiveOrg, PUBLIC_ORG } from "@/lib/auth";
 import { resolveSignInState } from "@/lib/signin-gate";
 import { canReadOrg } from "@/lib/authz";
@@ -54,6 +54,12 @@ export default async function UsagePage({
   // helper FLOORS a fractional ?days= so `since`, the day axis, and the counts share one integer window
   // (an un-floored 1.5 stepped the axis by half-days and silently dropped today from the chart/CSV).
   const days = boundUsageDays(daysParam, org.toLowerCase() === PUBLIC_ORG);
+  // ONE window for both reads on this page. The reconciliation panel sits beside the billable-scan
+  // tile under a single "last {days}d" label, and used to be measured over a rolling wall-clock
+  // cutoff while the scans were counted over the UTC-day-anchored half-open window — up to a day of
+  // traffic apart, explained away in the panel's own copy as rows "straddling the window edge".
+  // Resolving the window HERE, once, and handing the same object to both makes them comparable.
+  const win = usageWindow(days);
 
   // Cross-tenant IDOR guard — the canonical read-side tenant gate (the same canReadOrg the sibling
   // /api/usage route and the other org-scoped pages use). It opens PUBLIC_ORG to everyone, requires
@@ -97,11 +103,11 @@ export default async function UsagePage({
   let meteredThisMonth: number | null = null;
   try {
     [usage, credit, recon, quotaEvents, meteredThisMonth] = await Promise.all([
-      getUsageSummary(org, days),
+      getUsageSummary(org, days, win),
       org.toLowerCase() === PUBLIC_ORG
         ? Promise.resolve(null)
         : getCreditState(org).catch(() => null),
-      org.toLowerCase() === PUBLIC_ORG ? Promise.resolve(null) : getCreditReconciliation(org, days).catch(() => null),
+      org.toLowerCase() === PUBLIC_ORG ? Promise.resolve(null) : getCreditReconciliation(org, win).catch(() => null),
       org.toLowerCase() === PUBLIC_ORG ? getQuotaEventTotals().catch(() => null) : Promise.resolve(null),
       org.toLowerCase() === PUBLIC_ORG ? Promise.resolve(null) : countMeteredScansThisMonth(org).catch(() => null),
     ]);

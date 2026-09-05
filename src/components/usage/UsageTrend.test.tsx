@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from "vitest";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
-import { bucketUsageDays, UsageTrend } from "./UsageTrend";
+import { bucketUsageDays, partialNote, UsageTrend } from "./UsageTrend";
 import type { UsageDay } from "@/lib/db";
 
 type El = ReactElement<{ className?: string; href?: string; style?: { backgroundColor?: string; height?: string }; children?: ReactNode }>;
@@ -70,11 +70,19 @@ describe("UsageTrend — non-visual access to the billing data (usage-metering 2
   it("renders a visually-hidden per-day table as the text alternative (dates + both series)", () => {
     const table = els().find((el) => el.type === "table");
     expect(table).toBeDefined();
+    // A row header is now `[date, partialSuffix]` (the newest row is marked "today, partial"), so
+    // flatten each cell's children to text rather than expecting a single string child.
     const cells = flatten(table!.props.children)
-      .map((el) => el.props.children)
-      .filter((c) => typeof c === "string" || typeof c === "number");
+      .map((el) =>
+        (Array.isArray(el.props.children) ? el.props.children : [el.props.children])
+          .filter((c) => typeof c === "string" || typeof c === "number")
+          .join(""),
+      )
+      .filter((c) => c !== "");
     expect(cells).toContain("2026-01-01");
-    expect(cells).toContain("2026-01-02");
+    expect(cells.some((c) => c.startsWith("2026-01-02"))).toBe(true);
+    // The newest row carries its incompleteness in the TEXT alternative too, not only on hover.
+    expect(cells.at(-3)).toContain("today, partial");
   });
 
   it("hides the redundant visual axis labels from AT (the table carries the dates)", () => {
@@ -134,5 +142,80 @@ describe("export links", () => {
   it("offers per-day CSV, JSON and the showback CSV over the same org + window", () => {
     const base = "/api/usage?org=acme&days=30";
     expect(hrefs()).toEqual([`${base}&format=csv`, `${base}&format=json`, `${base}&view=showback`]);
+  });
+});
+
+// Direction 9 (c)+(d): the chart says WHEN it is talking about. Every bucket is a UTC calendar day,
+// and the newest one is always incomplete — the window's upper bound is midnight UTC of tomorrow, so
+// the last bar is today, still accruing. Drawn at full weight beside finished bars it reads as a
+// collapse in volume; in a 365-day window the trailing 7-day chunk can hold a single day.
+describe("UsageTrend — the newest bucket is marked partial, and the days are named UTC", () => {
+  const mkDays = (n: number): UsageDay[] =>
+    Array.from({ length: n }, (_, i) => ({
+      date: new Date(Date.UTC(2025, 6, 15) + i * 86_400_000).toISOString().slice(0, 10),
+      billable: 1,
+      free: 1,
+    }));
+
+  /** Every string rendered anywhere in the tree, joined — copy assertions read over the whole page. */
+  function textOf(node: ReactNode): string {
+    if (node == null || typeof node === "boolean") return "";
+    if (typeof node === "string" || typeof node === "number") return String(node);
+    if (Array.isArray(node)) return node.map(textOf).join("");
+    if (isValidElement(node)) return textOf((node as El).props?.children);
+    return "";
+  }
+  const render = (daily: UsageDay[], props: Partial<{ days: number; shortened: boolean }> = {}) =>
+    UsageTrend({ daily, org: "acme", days: props.days ?? daily.length, shortened: props.shortened });
+
+  it("names the trailing chunk's real length rather than drawing 1 day as a week", () => {
+    // 365 = 52 weeks + 1 day: the last bucket is ONE day wide and was drawn like the 52 beside it.
+    expect(bucketUsageDays(mkDays(365)).trailingDays).toBe(1);
+    expect(partialNote(true, 1)).toBe("partial: 1 of 7 days");
+    expect(partialNote(true, 7)).toBe("partial: week to date");
+    expect(partialNote(false, 1)).toBe("today, partial");
+  });
+
+  it("marks the newest per-day bar as today and partial — in the title, the axis and the sr table", () => {
+    const els = flatten(render(mkDays(30)));
+    const bars = els.filter((el) => (el.props.className ?? "").includes("cursor-help"));
+    const titles = bars.map((el) => (el.props as { title?: string }).title ?? "");
+    expect(titles.at(-1)).toContain("today, partial");
+    // …and ONLY the newest one: a mark on every bar marks nothing.
+    expect(titles.filter((t) => t.includes("partial"))).toHaveLength(1);
+    // Visually distinguished too, not by tooltip alone.
+    expect(bars.at(-1)!.props.className).toContain("opacity-60");
+    const text = textOf(render(mkDays(30)));
+    expect(text).toContain("today, partial");
+    expect(text).toContain("Days are UTC.");
+  });
+
+  it("marks the trailing WEEK bucket, and says how many days it actually covers", () => {
+    const text = textOf(render(mkDays(365), { days: 365 }));
+    expect(text).toContain("partial: 1 of 7 days");
+    const bars = flatten(render(mkDays(365), { days: 365 })).filter((el) =>
+      (el.props.className ?? "").includes("cursor-help"),
+    );
+    expect(bars.at(-1)!.props.className).toContain("opacity-60");
+  });
+
+  it("states UTC on the caption rather than leaving a bare MM-DD axis to imply a locale", () => {
+    expect(textOf(render(mkDays(30)))).toContain("(UTC)");
+  });
+
+  it("reports the days actually covered, and says when the window was clamped at the first scan", () => {
+    // The page asked for 365 days; the org is 5 days old, so the series is 5 rows (Direction 9e).
+    const text = textOf(render(mkDays(5), { days: 365, shortened: true }));
+    expect(text).toContain("Last 5 days (UTC)");
+    expect(text).toContain("window shortened to first scan");
+    // …but the exports still carry the REQUESTED window, so the link is not silently narrowed.
+    const hrefs = flatten(render(mkDays(5), { days: 365, shortened: true }))
+      .map((el) => el.props.href)
+      .filter((h): h is string => typeof h === "string");
+    expect(hrefs[0]).toContain("days=365");
+  });
+
+  it("says nothing about shortening when the window was not shortened", () => {
+    expect(textOf(render(mkDays(30)))).not.toContain("shortened");
   });
 });

@@ -317,7 +317,8 @@ describe("grantCredits idempotency (webhook redelivery anti-double-grant)", () =
  * which resolves the org id via `organization.findUnique`, then pulls rows via `creditLedger.findMany`.
  * We hand findMany a fixed, crafted set of rows so the classifier (positive-delta refund-vs-grant split,
  * negative-delta debited bucket) and the date window are exercised in isolation. Each row carries a real
- * `Date` createdAt so the `e.createdAt.getTime() >= cutoff` window filter runs for real.
+ * `Date` createdAt so the HALF-OPEN `[since, before)` window filter runs for real — both bounds, since
+ * the caller now supplies the same UTC-day-anchored window the scan figures beside it are counted over.
  */
 function fakePrismaForReconciliation(rows: Array<{ delta: number; reason: string; createdAt: Date }>) {
   let lastFindManyArgs: unknown = null;
@@ -328,11 +329,15 @@ function fakePrismaForReconciliation(rows: Array<{ delta: number; reason: string
     creditLedger: {
       findMany: vi.fn(async (args: unknown) => {
         lastFindManyArgs = args;
-        // Model the DB doing the windowing: getCreditReconciliation now passes
-        // `where: { createdAt: { gte: cutoff } }` (full-window aggregate, no 200-row cap), so honor
-        // that filter here instead of returning every row and relying on JS-side trimming.
-        const gte = (args as { where?: { createdAt?: { gte?: Date } } } | undefined)?.where?.createdAt?.gte;
-        const windowed = gte ? rows.filter((r) => r.createdAt.getTime() >= gte.getTime()) : rows;
+        // Model the DB doing the windowing: getCreditReconciliation passes the caller's half-open
+        // `where: { createdAt: { gte: since, lt: before } }` (full-window aggregate, no 200-row cap),
+        // so honor BOTH bounds here instead of returning every row and relying on JS-side trimming.
+        const at = (args as { where?: { createdAt?: { gte?: Date; lt?: Date } } } | undefined)?.where?.createdAt;
+        const windowed = rows.filter(
+          (r) =>
+            (!at?.gte || r.createdAt.getTime() >= at.gte.getTime()) &&
+            (!at?.lt || r.createdAt.getTime() < at.lt.getTime()),
+        );
         return windowed.map((r, i) => ({
           id: `cl_${i}`,
           delta: r.delta,
@@ -350,6 +355,7 @@ function fakePrismaForReconciliation(rows: Array<{ delta: number; reason: string
 }
 
 import { getCreditReconciliation, CREDIT_REASON, isRefundReason } from "./credits";
+import { usageWindow } from "./usage";
 
 /**
  * Fake prisma for consumeScanCredit's plan-resolution + casing contract. Unlike `fakePrisma` (which
@@ -488,6 +494,9 @@ describe("consumeScanCredit plan-resolution + casing contract", () => {
 describe("getCreditReconciliation refund-vs-grant classification", () => {
   const now = Date.now();
   const daysAgo = (d: number) => new Date(now - d * 86_400_000);
+  /** The window the /usage page hands in — the SAME UTC-day-anchored half-open one the scan figures
+   *  on that page are counted over, instead of the rolling wall-clock cutoff this used to derive. */
+  const lastDays = (d: number) => usageWindow(d);
 
   it("classifies a refund as refunded (NOT granted) and a grant as granted — over a mixed ledger", async () => {
     // A 30-day window: one scan debit (-1), one refund (+1), one top-up grant (+50).
@@ -498,7 +507,7 @@ describe("getCreditReconciliation refund-vs-grant classification", () => {
     ]);
     mockGetPrisma.mockReturnValue(prisma);
 
-    const rec = await getCreditReconciliation("acme", 30);
+    const rec = await getCreditReconciliation("acme", lastDays(30));
 
     // THE refund-vs-grant boundary: a +1/"refund" lands in `refunded`, the +50/"grant" in `granted`.
     // If a misclassification double-counted the refund as a fresh grant, granted would be 51 (and
@@ -528,7 +537,7 @@ describe("getCreditReconciliation refund-vs-grant classification", () => {
     ]);
     mockGetPrisma.mockReturnValue(prisma);
 
-    const rec = await getCreditReconciliation("acme", 30);
+    const rec = await getCreditReconciliation("acme", lastDays(30));
 
     expect(rec!.refunded).toBe(5); // 2 + 3, the canonical-refund positives only
     expect(rec!.granted).toBe(125); // 100 + 25, the non-refund positives only
@@ -552,7 +561,7 @@ describe("getCreditReconciliation refund-vs-grant classification", () => {
     ]);
     mockGetPrisma.mockReturnValue(prisma);
 
-    const rec = await getCreditReconciliation("acme", 30);
+    const rec = await getCreditReconciliation("acme", lastDays(30));
     expect(rec!.refunded).toBe(4);
     expect(rec!.granted).toBe(7);
   });
@@ -564,7 +573,7 @@ describe("getCreditReconciliation refund-vs-grant classification", () => {
     ]);
     mockGetPrisma.mockReturnValue(prisma);
 
-    const rec = await getCreditReconciliation("acme", 30);
+    const rec = await getCreditReconciliation("acme", lastDays(30));
 
     expect(rec!.debited).toBe(6); // |−5| + |−1|
     expect(rec!.refunded).toBe(0);
@@ -580,18 +589,57 @@ describe("getCreditReconciliation refund-vs-grant classification", () => {
     ]);
     mockGetPrisma.mockReturnValue(prisma);
 
-    const rec = await getCreditReconciliation("acme", 7);
+    const rec = await getCreditReconciliation("acme", lastDays(7));
 
     expect(rec!.entries).toBe(1); // only the in-window row survived the filter
     expect(rec!.granted).toBe(10);
     expect(rec!.net).toBe(10);
   });
 
+  // Direction 9(a). The reconciliation and the scan figures it is compared against sit in one panel
+  // on /usage under one "last {days}d" label. This function used to cut at `Date.now() - days*86.4e6`
+  // — a rolling wall-clock instant — while the scans were counted over a UTC-day-anchored half-open
+  // window, so the two could differ by up to a full day's traffic and the panel blamed it on "rows
+  // straddling the window edge". The window is now an ARGUMENT, which is what makes this assertable.
+  it("queries the caller's half-open window verbatim — both bounds, no re-derived cutoff", async () => {
+    const { prisma, getArgs } = fakePrismaForReconciliation([]);
+    mockGetPrisma.mockReturnValue(prisma);
+    const win = usageWindow(30);
+
+    await getCreditReconciliation("acme", win);
+
+    const where = (getArgs() as { where: { createdAt: { gte: Date; lt: Date } } }).where;
+    expect(where.createdAt.gte).toEqual(win.since);
+    expect(where.createdAt.lt).toEqual(win.before);
+    // …and that window is the UTC-day-anchored one, not a rolling instant: both bounds are midnights.
+    expect(where.createdAt.gte.getTime() % 86_400_000).toBe(0);
+    expect(where.createdAt.lt.getTime() % 86_400_000).toBe(0);
+  });
+
+  it("counts a ledger row on today's UTC day, which a rolling `now - days` cutoff also kept, AND one from the oldest UTC day, which it dropped", async () => {
+    const win = usageWindow(7);
+    // The oldest UTC day in the window, one hour after its midnight: inside `[since, before)`, but
+    // OUTSIDE the old `Date.now() - 7*86_400_000` cutoff whenever the process clock is past 01:00Z.
+    const oldestDay = new Date(win.since.getTime() + 3_600_000);
+    const { prisma } = fakePrismaForReconciliation([
+      { delta: 12, reason: "grant", createdAt: oldestDay },
+      { delta: -3, reason: CREDIT_REASON.SCAN, createdAt: new Date(win.before.getTime() - 1) },
+      { delta: 99, reason: "grant", createdAt: new Date(win.since.getTime() - 1) }, // the day before: out
+    ]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const rec = await getCreditReconciliation("acme", win);
+
+    expect(rec!.entries).toBe(2);
+    expect(rec!.granted).toBe(12);
+    expect(rec!.debited).toBe(3);
+  });
+
   it("an empty ledger yields all zeroes and never NaN", async () => {
     const { prisma } = fakePrismaForReconciliation([]);
     mockGetPrisma.mockReturnValue(prisma);
 
-    const rec = await getCreditReconciliation("acme", 30);
+    const rec = await getCreditReconciliation("acme", lastDays(30));
 
     expect(rec).toEqual({ debited: 0, refunded: 0, granted: 0, net: 0, entries: 0 });
     for (const v of Object.values(rec!)) expect(Number.isNaN(v)).toBe(false);
@@ -599,7 +647,7 @@ describe("getCreditReconciliation refund-vs-grant classification", () => {
 
   it("returns null when persistence is off (no DB)", async () => {
     mockIsDbConfigured.mockReturnValue(false);
-    const rec = await getCreditReconciliation("acme", 30);
+    const rec = await getCreditReconciliation("acme", lastDays(30));
     expect(rec).toBeNull();
   });
 });

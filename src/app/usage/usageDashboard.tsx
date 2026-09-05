@@ -69,7 +69,15 @@ export function UsageDashboard({
 
       {/* Trend is the lead: usage as a per-day time series (billable vs free), with export. */}
       <div className="mt-8">
-        <UsageTrend daily={usage.daily} org={usage.org} days={usage.periodDays} />
+        <UsageTrend
+          daily={usage.daily}
+          org={usage.org}
+          days={usage.periodDays}
+          /* The zero-fill was clamped at the org's first scan, so the chart covers fewer days than
+             were asked for. Told, not inferred: the alternative was 360 bars of measured-looking
+             zero for an org that is five days old. */
+          shortened={usage.effectiveSince !== usage.windowSince}
+        />
       </div>
 
       {/* Compact totals beneath the trend, for at-a-glance context. */}
@@ -130,10 +138,16 @@ export function UsageDashboard({
               sub={recon.granted > 0 ? `incl. ${recon.granted.toLocaleString()} granted` : "debits − refunds/grants"}
             />
           </div>
+          {/* The ledger and the scans are now counted over ONE window — the same UTC-day-anchored
+              half-open `[since, before)` the page resolves once and hands to both reads. This note
+              used to offer "rows straddling the window edge" as an explanation, which was true of
+              the OLD rolling wall-clock ledger cutoff and is no longer a cause: naming a fixed
+              mismatch as an incidental one taught the reader to shrug at a real gap. */}
           {billable !== recon.debited - recon.refunded && (
             <p className="mt-3 type-body-sm text-slate-500">
-              {billable} billable scans vs {Math.max(0, recon.debited - recon.refunded)} net credits debited. Differences
-              come from unlimited-plan scans (not debited), grants, or scans/ledger rows straddling the window edge.
+              {billable} billable scans vs {Math.max(0, recon.debited - recon.refunded)} net credits debited over the
+              same window. Differences come from unlimited-plan scans (not debited) or from credit grants, not from
+              the two figures being measured over different periods.
             </p>
           )}
         </Surface>
@@ -222,8 +236,12 @@ export function UsageDashboard({
 
       <AbuseLimitsPanel quotaEvents={quotaEvents} />
 
+      {/* This line reads an ALL-TIME aggregate (getUsageSummary's `_min`/`_max` over the org's whole
+          Scan history, not the period), so labelling it "Window" made the one sentence on the page
+          that names the window the one sentence that ignores it. The period is stated on every tile
+          and panel above; this is the org's lifetime span, and now says so. */}
       <p className="mt-6 type-body-sm text-slate-500">
-        Window:{" "}
+        First scan → last scan (all time):{" "}
         {usage.firstScanAt
           ? usage.lastScanAt
             ? `${timeAgo(usage.firstScanAt)} → ${timeAgo(usage.lastScanAt)}`
