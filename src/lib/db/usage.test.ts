@@ -22,6 +22,7 @@ import {
   foldLaneCost,
   getUsageSummary,
   isBillableScan,
+  unpricedScanCalls,
 } from "./usage";
 
 describe("foldLaneCost", () => {
@@ -480,5 +481,131 @@ describe("getUsageSummary — byLane and byTeam", () => {
     expect(s.byTeam).toEqual([]);
     // The lane view still works: the public funnel's scan volume is a real, readable figure.
     expect(s.byLane.map((l) => l.lane)).toEqual(["scan"]);
+  });
+});
+
+// Direction 8 — BYOM tokens are not priced into the org's cost. `meter()` already refuses to price a
+// BYOM call on every OTHER lane (`if (byom === true) return null`), and usage.md states the rule for
+// all of them; the scan lane grouped its tokens with no byom filter and handed them straight to
+// estimateLlmCostFromTable. An org running BYOM scans saw a dollar figure for tokens it had already
+// paid its own vendor for — the one number on this page that could OVERSTATE money.
+describe("getUsageSummary — BYOM scan tokens are counted but never priced (Direction 8)", () => {
+  const PRICED = { engineProvider: "gemini", engineModel: "gemini-3.7-flash", engineByom: false, _count: 3, _sum: { inputTokens: 2_000_000, outputTokens: 1_000_000 } };
+  const BYOM = { engineProvider: "gemini", engineModel: "gemini-3.7-flash", engineByom: true, _count: 2, _sum: { inputTokens: 4_000_000, outputTokens: 2_000_000 } };
+
+  /** A prisma stub whose per-model groupBy returns exactly `modelRows` (already split by engineByom). */
+  function stub(modelRows: typeof PRICED[]) {
+    const groupBy = vi.fn(async (args: { by: string[] }) => {
+      if (args.by.includes("repoId")) return [];
+      if (args.by.includes("engineModel")) return modelRows;
+      return [{ engineProvider: "gemini", _count: modelRows.reduce((a, r) => a + r._count, 0) }];
+    });
+    mockIsDbConfigured.mockReturnValue(true);
+    mockGetPrisma.mockReturnValue({
+      organization: { findUnique: vi.fn(async () => ({ id: "org1", kind: "org" })) },
+      scan: {
+        count: vi.fn(async () => modelRows.reduce((a, r) => a + r._count, 0)),
+        groupBy,
+        aggregate: vi.fn(async () => ({ _min: { scannedAt: null }, _max: { scannedAt: null } })),
+      },
+      repository: { count: vi.fn(async () => 1), findMany: vi.fn(async () => []) },
+      usageEvent: { groupBy: vi.fn(async () => []) },
+      $queryRaw: vi.fn(async () => []),
+    });
+    return groupBy;
+  }
+
+  beforeEach(() => {
+    mockIsDbConfigured.mockReturnValue(false);
+    mockGetPrisma.mockReset();
+  });
+
+  it("splits the priced fold on engineByom in SQL rather than pricing the whole window", async () => {
+    const groupBy = stub([PRICED, BYOM]);
+    await getUsageSummary("acme", 30);
+    const modelCall = groupBy.mock.calls
+      .map((c) => (c as unknown[])[0] as { by: string[] })
+      .find((a) => a.by.includes("engineModel") && !a.by.includes("repoId"));
+    expect(modelCall!.by).toContain("engineByom");
+  });
+
+  it("prices ONLY the platform-account half of a mixed window", async () => {
+    stub([PRICED, BYOM]);
+    const s = (await getUsageSummary("acme", 30))!;
+    // The estimate is exactly the non-BYOM half — not the whole 9M tokens.
+    const pricedOnly = estimateLlmCostFromTable([
+      { model: "gemini-3.7-flash", provider: "gemini", inputTokens: 2_000_000, outputTokens: 1_000_000 },
+    ])!;
+    expect(s.estimatedCostUsd).toBeCloseTo(pricedOnly, 10);
+    const all = estimateLlmCostFromTable([
+      { model: "gemini-3.7-flash", provider: "gemini", inputTokens: 6_000_000, outputTokens: 3_000_000 },
+    ])!;
+    expect(s.estimatedCostUsd).toBeLessThan(all);
+  });
+
+  it("still counts the BYOM tokens in the volume tiles — they were really consumed", async () => {
+    stub([PRICED, BYOM]);
+    const s = (await getUsageSummary("acme", 30))!;
+    expect(s.inputTokens).toBe(6_000_000);
+    expect(s.outputTokens).toBe(3_000_000);
+  });
+
+  it("reports the BYOM scans separately and as unpriced calls, so the gap is explained", async () => {
+    stub([PRICED, BYOM]);
+    const s = (await getUsageSummary("acme", 30))!;
+    expect(s.byomScans).toBe(2);
+    // Same shape as every other unpriceable call: disclosed volume, never a silent $0.
+    expect(s.byLane.find((l) => l.lane === "scan")!.unpricedCalls).toBe(2);
+    expect(s.allLanesUnpricedCalls).toBe(2);
+  });
+
+  it("gives a BYOM-ONLY window no estimate at all — null, never $0.00", async () => {
+    stub([BYOM]);
+    const s = (await getUsageSummary("acme", 30))!;
+    expect(s.estimatedCostUsd).toBeNull();
+    expect(s.allLanesCostUsd).toBeNull();
+    expect(s.costBasis).toBeNull();
+    expect(s.byomScans).toBe(2);
+  });
+
+  it("does not let the operator's env rates price BYOM tokens either", async () => {
+    const prev = [process.env.LLM_INPUT_COST_PER_MTOK, process.env.LLM_OUTPUT_COST_PER_MTOK];
+    process.env.LLM_INPUT_COST_PER_MTOK = "3";
+    process.env.LLM_OUTPUT_COST_PER_MTOK = "15";
+    try {
+      stub([PRICED, BYOM]);
+      const mixed = (await getUsageSummary("acme", 30))!;
+      // 2M in + 1M out at the configured rates — the BYOM 4M/2M contributes nothing.
+      expect(mixed.estimatedCostUsd).toBeCloseTo(2 * 3 + 1 * 15, 10);
+      expect(mixed.costBasis).toBe("env");
+      stub([BYOM]);
+      const only = (await getUsageSummary("acme", 30))!;
+      // Configured rates and nothing they may price: "no estimate", not a $0 that reads as free.
+      expect(only.estimatedCostUsd).toBeNull();
+    } finally {
+      if (prev[0] === undefined) delete process.env.LLM_INPUT_COST_PER_MTOK;
+      else process.env.LLM_INPUT_COST_PER_MTOK = prev[0];
+      if (prev[1] === undefined) delete process.env.LLM_OUTPUT_COST_PER_MTOK;
+      else process.env.LLM_OUTPUT_COST_PER_MTOK = prev[1];
+    }
+  });
+});
+
+describe("estimateLlmCostFromTable / unpricedScanCalls — the BYOM guard (Direction 8)", () => {
+  const row = { model: "gemini-3.7-flash", provider: "gemini", inputTokens: 1_000_000, outputTokens: 1_000_000 };
+
+  it("skips a BYOM row without setting pricedAny — a BYOM-only fold is null, not 0", () => {
+    expect(estimateLlmCostFromTable([{ ...row, byom: true }])).toBeNull();
+  });
+
+  it("prices the platform rows beside it unchanged", () => {
+    const both = estimateLlmCostFromTable([row, { ...row, byom: true }]);
+    expect(both).toBeCloseTo(estimateLlmCostFromTable([row])!, 10);
+  });
+
+  it("counts a BYOM call as unpriced even on a zero-cost local provider", () => {
+    expect(unpricedScanCalls([{ ...row, provider: "ollama", byom: true, calls: 4 }])).toBe(4);
+    // …while the same local run on Ascent's own account has a real price, and it is zero.
+    expect(unpricedScanCalls([{ ...row, provider: "ollama", byom: false, calls: 4 }])).toBe(0);
   });
 });

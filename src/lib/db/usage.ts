@@ -160,6 +160,15 @@ export interface UsageSummary {
   /** Calls across every lane that could not be priced (unknown model, BYOM, or no tokens reported).
    *  Non-zero means `allLanesCostUsd` is a FLOOR — the headline must say so. */
   allLanesUnpricedCalls: number;
+  /**
+   * Computed scans in the period that ran BYOM — in the ORG'S OWN provider account.
+   *
+   * Their tokens are counted in `inputTokens`/`outputTokens` (they were really consumed) but are
+   * excluded from every dollar figure on this page, because the org paid its own vendor for them and
+   * Ascent has no figure. Reported separately so the estimate can say WHY it covers less than the
+   * volume beside it, instead of leaving a reader to assume the difference was free.
+   */
+  byomScans: number;
   firstScanAt: string | null;
   lastScanAt: string | null;
 }
@@ -235,6 +244,7 @@ export async function getUsageSummary(
     byLaneTeam: [],
     allLanesCostUsd: null,
     allLanesUnpricedCalls: 0,
+    byomScans: 0,
     firstScanAt: null,
     lastScanAt: null,
   };
@@ -285,7 +295,10 @@ export async function getUsageSummary(
       // Grouped by (provider, model), not model alone: the price fold needs the PROVIDER to recognize
       // a $0 engine (a local Ollama/vLLM run), and a model id by itself cannot say who served it.
       prisma.scan.groupBy({
-        by: ["engineProvider", "engineModel"],
+        // `engineByom` rides in the grouping key so the BYOM half can be split OUT of the priced
+        // fold without a second query: the org's own-account tokens stay counted and shown, and are
+        // never invoiced (see estimateLlmCostFromTable).
+        by: ["engineProvider", "engineModel", "engineByom"],
         where: periodWhere,
         // `_count` rides along for the lane view's `unpricedCalls`: the cost fold refuses to price an
         // unknown model, and an operator reading a null cost needs to know HOW MANY calls that was.
@@ -305,18 +318,33 @@ export async function getUsageSummary(
   const modelUsage: ModelTokenUsage[] = modelGroups.map((g) => ({
     model: g.engineModel,
     provider: g.engineProvider,
+    byom: g.engineByom ?? null,
     inputTokens: g._sum.inputTokens ?? 0,
     outputTokens: g._sum.outputTokens ?? 0,
   }));
+  // The token TILES report the period's WHOLE volume: BYOM tokens were really consumed, and hiding
+  // them would understate what this org's scanning costs to run. The COST fold sees only the priced
+  // half (estimateLlmCostFromTable skips `byom === true`), and `byomScans` below explains the gap.
   const inputTokens = modelUsage.reduce((a, m) => a + m.inputTokens, 0);
   const outputTokens = modelUsage.reduce((a, m) => a + m.outputTokens, 0);
+  const priceable = modelUsage.filter((m) => m.byom !== true);
+  const pricedInputTokens = priceable.reduce((a, m) => a + m.inputTokens, 0);
+  const pricedOutputTokens = priceable.reduce((a, m) => a + m.outputTokens, 0);
+  /** Computed scans in the period that ran in the org's OWN provider account — priced by nobody here. */
+  const byomScans = modelGroups.reduce((a, g) => a + (g.engineByom === true ? g._count : 0), 0);
   // Cost basis precedence: env rates (operator override, both set) > built-in per-model table > null.
-  const envEstimate = estimateLlmCostUsd(
-    inputTokens,
-    outputTokens,
-    process.env.LLM_INPUT_COST_PER_MTOK,
-    process.env.LLM_OUTPUT_COST_PER_MTOK,
-  );
+  // The operator's per-MTok rates price ASCENT's account, so they are applied to the PRICED tokens
+  // only. When every token in the period is BYOM there is nothing for those rates to price, and the
+  // estimate is null: a `$0.00` there would be the same overstatement-by-implication in reverse.
+  const envEstimate =
+    inputTokens + outputTokens > 0 && pricedInputTokens + pricedOutputTokens === 0
+      ? null
+      : estimateLlmCostUsd(
+          pricedInputTokens,
+          pricedOutputTokens,
+          process.env.LLM_INPUT_COST_PER_MTOK,
+          process.env.LLM_OUTPUT_COST_PER_MTOK,
+        );
   const estimatedCostUsd = envEstimate ?? estimateLlmCostFromTable(modelUsage);
   const costBasis: UsageSummary["costBasis"] =
     envEstimate != null ? "env" : estimatedCostUsd != null ? "builtin" : null;
@@ -356,7 +384,9 @@ export async function getUsageSummary(
       ? Promise.resolve([])
       : prisma.scan
           .groupBy({
-            by: ["repoId", "engineProvider", "engineModel"],
+            // Same BYOM split as the model groupBy above: a team's showback cell must not price the
+            // org's own-account tokens either.
+            by: ["repoId", "engineProvider", "engineModel", "engineByom"],
             where: periodWhere,
             _count: true,
             _sum: { inputTokens: true, outputTokens: true },
@@ -409,6 +439,7 @@ export async function getUsageSummary(
     byTeam,
     byLaneTeam,
     ...foldLaneCost(byLane),
+    byomScans,
     firstScanAt: agg._min.scannedAt ? agg._min.scannedAt.toISOString() : null,
     lastScanAt: agg._max.scannedAt ? agg._max.scannedAt.toISOString() : null,
   };
@@ -444,6 +475,11 @@ export interface ModelTokenUsage {
   /** Persisted `Scan.engineProvider`. Optional so older callers/mocks still typecheck, but supplying
    *  it is what lets the fold recognize a $0 provider — see {@link estimateLlmCostFromTable}. */
   provider?: string | null;
+  /** Persisted `Scan.engineByom`. `true` means the scan ran in the ORG'S OWN provider account: the
+   *  org already paid its vendor for those tokens and Ascent has no figure for them. Nullable/absent
+   *  (rows predating the column, older mocks) means the platform account, so it stays priceable —
+   *  the same `!== true` rule {@link isBillableScan} and the meter's `byom === true` guard apply. */
+  byom?: boolean | null;
   inputTokens: number;
   outputTokens: number;
 }
@@ -459,6 +495,14 @@ export function estimateLlmCostFromTable(usage: ModelTokenUsage[]): number | nul
   let cost = 0;
   let pricedAny = false;
   for (const m of usage) {
+    // BYOM: the org bought these tokens from its OWN vendor on its own account, so Ascent has no
+    // figure for them and must not invent one. `pricedAny` is deliberately NOT set — a period whose
+    // only tokens are BYOM prices as null ("no estimate"), never as a $0 that reads like a free
+    // month. This is the rule `meter()` already applies to every other lane (`if (byom === true)
+    // return null`, src/lib/llm/meter.ts) and the one docs/features/billing/usage.md states for all
+    // of them; the scan lane was the single exception, and it was the one figure on this page that
+    // could OVERSTATE money. The volume is not lost: those calls land in `unpricedScanCalls`.
+    if (m.byom === true) continue;
     if (m.inputTokens + m.outputTokens === 0) continue; // token-less rows (mock) price as nothing
     // Local inference bills nothing per token: it ran on the operator's own GPU. Priced at exactly
     // zero rather than skipped, so a self-hosted org whose ONLY engine is local reads "$0.00" instead
@@ -484,11 +528,12 @@ type ModelCallGroup = ModelTokenUsage & { calls: number };
 
 /** Shape the per-model groupBy into the fold's input, once, so the two consumers agree. */
 function modelUsageWithCounts(
-  groups: { engineProvider: string; engineModel: string | null; _count: number; _sum: { inputTokens: number | null; outputTokens: number | null } }[],
+  groups: { engineProvider: string; engineModel: string | null; engineByom?: boolean | null; _count: number; _sum: { inputTokens: number | null; outputTokens: number | null } }[],
 ): ModelCallGroup[] {
   return groups.map((g) => ({
     model: g.engineModel,
     provider: g.engineProvider,
+    byom: g.engineByom ?? null,
     calls: g._count,
     inputTokens: g._sum.inputTokens ?? 0,
     outputTokens: g._sum.outputTokens ?? 0,
@@ -497,13 +542,20 @@ function modelUsageWithCounts(
 
 /**
  * How many of the period's scans could NOT be costed — the number that makes a null (or a $0)
- * estimate readable. Two causes, both counted: a token-less run (mock / degraded — no basis exists)
- * and a token-bearing run on a model `MODEL_PRICES` does not know (the table refuses to guess a rate).
+ * estimate readable. Three causes, all counted: a BYOM run (the org paid its own vendor; Ascent has
+ * no figure), a token-less run (mock / degraded — no basis exists) and a token-bearing run on a
+ * model `MODEL_PRICES` does not know (the table refuses to guess a rate).
  * A zero-cost provider is NOT counted: local inference has a real price and it is zero.
  */
 export function unpricedScanCalls(usage: ModelCallGroup[]): number {
   let unpriced = 0;
   for (const m of usage) {
+    // Unpriceable BY POLICY rather than for want of a rate, and checked FIRST: a BYOM run served by
+    // a zero-cost local provider is still the org's own spend, not Ascent's priced $0.
+    if (m.byom === true) {
+      unpriced += m.calls;
+      continue;
+    }
     if (isZeroCostProvider(m.provider)) continue;
     if (m.inputTokens + m.outputTokens === 0 || !priceForModel(m.model)) unpriced += m.calls;
   }
@@ -525,7 +577,7 @@ export function unpricedScanCalls(usage: ModelCallGroup[]): number {
  */
 async function scanTeamUsage(
   prisma: ReturnType<typeof getPrisma>,
-  groups: { repoId: string; engineProvider: string; engineModel: string | null; _count: number; _sum: { inputTokens: number | null; outputTokens: number | null } }[],
+  groups: { repoId: string; engineProvider: string; engineModel: string | null; engineByom?: boolean | null; _count: number; _sum: { inputTokens: number | null; outputTokens: number | null } }[],
 ): Promise<LaneTeamCell[]> {
   if (groups.length === 0) return [];
   const repoIds = [...new Set(groups.map((g) => g.repoId))];
@@ -544,6 +596,7 @@ async function scanTeamUsage(
       {
         model: g.engineModel,
         provider: g.engineProvider,
+        byom: g.engineByom ?? null,
         calls: g._count,
         inputTokens: g._sum.inputTokens ?? 0,
         outputTokens: g._sum.outputTokens ?? 0,

@@ -33,9 +33,16 @@ export function costHeadline(usage: {
   costBasis: UsageSummary["costBasis"];
   allLanesCostUsd: number | null;
   allLanesUnpricedCalls: number;
+  byomScans?: number;
   byLane: { lane: string }[];
 }): { value: string; sub: string } {
   const { allLanesCostUsd, allLanesUnpricedCalls } = usage;
+  // BYOM scans are already inside `allLanesUnpricedCalls` (they are unpriceable calls), but "34
+  // calls unpriced" and "34 calls unpriced, 12 of them BYOM" are different answers: the first invites
+  // the reader to go configure a rate, and no rate will ever price a BYOM scan. Naming the BYOM share
+  // is the difference between a gap the operator can close and one that is closed by design.
+  const byom = usage.byomScans ?? 0;
+  const byomNote = byom > 0 ? ` · ${byom.toLocaleString()} BYOM scan${byom === 1 ? "" : "s"}, unpriced` : "";
   // One lane in the period means "all lanes" would be a distinction without a difference — name the
   // lane instead, so the caption is never vaguer than the page's own itemization.
   const scope =
@@ -51,8 +58,8 @@ export function costHeadline(usage: {
       value: "—",
       sub:
         allLanesUnpricedCalls > 0
-          ? `${allLanesUnpricedCalls.toLocaleString()} call${allLanesUnpricedCalls === 1 ? "" : "s"} unpriced · set LLM_*_COST_PER_MTOK to estimate`
-          : "set LLM_*_COST_PER_MTOK to estimate",
+          ? `${allLanesUnpricedCalls.toLocaleString()} call${allLanesUnpricedCalls === 1 ? "" : "s"} unpriced${byomNote} · set LLM_*_COST_PER_MTOK to estimate`
+          : `set LLM_*_COST_PER_MTOK to estimate${byomNote}`,
     };
   }
 
@@ -62,6 +69,6 @@ export function costHeadline(usage: {
       : "";
   return {
     value: `$${allLanesCostUsd.toFixed(2)}`,
-    sub: `last ${usage.periodDays}d · ${scope} · ${basisPhrase(usage.costBasis, usage.byLane.length > 1)}${floor}`,
+    sub: `last ${usage.periodDays}d · ${scope} · ${basisPhrase(usage.costBasis, usage.byLane.length > 1)}${floor}${byomNote}`,
   };
 }

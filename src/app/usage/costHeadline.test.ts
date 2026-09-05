@@ -46,6 +46,25 @@ describe("costHeadline", () => {
     expect(h.sub).toContain("built-in rates");
   });
 
+  // Direction 8: BYOM scans are unpriceable BY DESIGN, not for want of a rate. "34 calls unpriced"
+  // sends the reader to configure LLM_*_COST_PER_MTOK; no rate will ever price a BYOM scan.
+  it("names the BYOM share of the unpriced floor beside the estimate", () => {
+    const h = costHeadline({ ...base, allLanesCostUsd: 25.9, allLanesUnpricedCalls: 12, byomScans: 12, byLane: [{ lane: "scan" }] });
+    expect(h.sub).toContain("floor: +12 calls unpriced");
+    expect(h.sub).toContain("12 BYOM scans, unpriced");
+  });
+
+  it("singularizes the BYOM note and says nothing at all when there are none", () => {
+    expect(costHeadline({ ...base, allLanesCostUsd: 25.9, allLanesUnpricedCalls: 1, byomScans: 1, byLane: [{ lane: "scan" }] }).sub).toContain("1 BYOM scan, unpriced");
+    expect(costHeadline({ ...base, allLanesCostUsd: 25.9, byomScans: 0, byLane: [{ lane: "scan" }] }).sub).not.toContain("BYOM");
+  });
+
+  it("still names the BYOM scans when the whole window was BYOM and nothing priced", () => {
+    const h = costHeadline({ ...base, costBasis: null, allLanesCostUsd: null, allLanesUnpricedCalls: 4, byomScans: 4, byLane: [{ lane: "scan" }] });
+    expect(h.value).toBe("—");
+    expect(h.sub).toContain("4 BYOM scans, unpriced");
+  });
+
   it("shows the em dash with the unpriced volume when nothing could be priced", () => {
     const h = costHeadline({ ...base, costBasis: null, allLanesCostUsd: null, allLanesUnpricedCalls: 7, byLane: [{ lane: "local" }] });
     expect(h.value).toBe("—");
