@@ -10,7 +10,18 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
+      # DEPTH, because the unit suite reads THIS repository's own history. `LocalFsSource` is exercised
+      # against the checkout it runs in (src/lib/local/source.test.ts: "the fixture that is always
+      # present wherever the suite runs"), and asserts the commit feed the follow-up trailer close
+      # depends on. actions/checkout defaults to fetch-depth: 1, so on CI that feed was ONE commit and
+      # the assertion failed here while passing on every developer machine — a green suite locally and
+      # a red one in CI, for a reason that is about the runner and not the code.
+      #
+      # 50 rather than 0: enough that a history assertion is meaningful, bounded so the clone stays
+      # cheap as the repository grows. If a test ever needs more than 50 commits it should say so.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
