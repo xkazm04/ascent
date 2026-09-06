@@ -180,6 +180,16 @@ background" (gate the org, then constrain the query by it, so a foreign run id i
 `POST /api/org/import` keeps its own scan loop; only its claim moved onto the queue (`claimRepoWork`
 → `settleJob`).
 
+**Three skip reasons, kept apart (2026-09-06).** The worker emits `insufficient_credits`, `no_token`
+and `in_progress`. The `result` frame used to carry only the first and the third, and the client
+overwrites its running skip count with the authoritative `skippedForCredits` — so an org whose
+GitHub App install was revoked or suspended skipped *every* repo and the run settled on a clean
+N/N with no failures, no skips and no error: a completed scan that produced nothing. `skippedNoToken`
+now rides the frame and gets its own counter and its own line ("GitHub App access unavailable.
+Reconnect the installation on Connect"), because *buy credits* and *reconnect the App* are not the
+same instruction. `skippedInProgress` stays deliberately unrendered — a claim collision means
+another worker has that repo right now, which needs nothing from the user.
+
 ## Sub-stage progress frames on `/api/org/scan`
 
 `POST /api/org/scan` streams the fleet run to the Live tab over SSE. Since 2026-08-22 it emits
@@ -232,6 +242,18 @@ Since the queue landed there is **one** implementation of this: `runRescoreJob` 
 loop, because it also meters the public-scan allowance below). The policy was moved, not rewritten —
 three copies that could drift became one, and the held reservation is now recorded on the job row
 (`ScanJob.creditCharged`) rather than in a local variable, so a process kill leaves it attributable.
+
+**And the retry now READS it back (2026-09-06).** Being attributable was only half the point: the
+row was written and never consulted, so the sequence this queue exists to survive — reserve, start
+inference, get process-killed at the 300s ceiling, `reapExpiredLeases` requeues (clearing state and
+lease, deliberately *not* `creditCharged`, since `settleJob` is the only clearer and clears it only
+on a refund) — ended with the next worker reserving a **second** credit for the same job, up to
+`MAX_JOB_ATTEMPTS` = 5 times for one repo. `runRescoreJob` now carries the credit the row already
+holds instead of buying another, and `charged` starts from the row so the refund boundary is
+unchanged. **Not atomic, stated rather than hidden:** a kill landing between `reserveScanCredit` and
+`markJobCredit` still leaves the row saying `false` and that attempt does re-reserve — the window
+narrows from the whole inference to one DB write, which is as far as it goes without one transaction
+across two stores.
 
 It tracks the boundary with an `inferenceBilled` flag set immediately after `scanRepository`
 returns, guarded by `report.engine.provider !== "mock"`:
@@ -339,6 +361,14 @@ through the calendar (a flat 30-day step fires 12.2 times a year, one day earlie
 
 ## Known gaps
 
+- **Three metering decisions still key on the org SLUG, not the org row.** `/api/org/scan`,
+  `/api/org/import` and `runRescoreJob` each decide `metered` with `slug !== "public"`. UAT MC-B20
+  moved the sibling decision — the LLM ledger's "do not meter this org" — onto `Organization.kind`
+  precisely because a slug is a spelling and the question is a property of the org. Converting these
+  three is a money change gated on every writer stamping the funnel row, which is not yet true: of
+  the six writers that can materialize an Organization, `ensureOrgId` stamps and repairs it, the
+  watch path stamps it as of 2026-09-06, and `plan.ts` / `installations.ts` / `org-memory.ts` /
+  `org-skills.ts` still create rows unstamped.
 - **Cron schedules live in deploy config** (`vercel.json` / dashboard), not in code; this doc
   covers the handler's behavior once invoked, not the invocation cadence.
 - **The rescore lane runs on the deployment's configured `LLM_PROVIDER`** (e.g. Bedrock/Gemini):
