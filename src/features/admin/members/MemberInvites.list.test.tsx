@@ -6,7 +6,7 @@
 // into <name>.<theme>.test.tsx, each with its own pragma and mock setup).
 
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, within, act, cleanup } from "@testing-library/react";
 import { MemberInvites, type InviteRow } from "@/features/admin/members/MemberInvites";
 
 interface Deferred {
@@ -80,5 +80,42 @@ describe("InviteList — nothing pending", () => {
   it("drops the empty state as soon as there is a row", () => {
     render(<MemberInvites slug="acme" initialInvites={[invite({ id: "alpha" })]} />);
     expect(screen.queryByText(/no pending invit/i)).toBeNull();
+  });
+});
+
+// Revoke sat one click from irreversible while the roster's Remove — the same panel, a row apart —
+// asks first. Re-issuing mints a NEW token, so the link the owner already emailed is dead either
+// way: an accidental revoke costs a re-send, not an undo.
+describe("InviteList — revoking asks first", () => {
+  const rowFor = (login: string) => screen.getByText(`@${login}`).closest("li") as HTMLElement;
+
+  it("a first click arms the confirm and sends nothing", async () => {
+    render(<MemberInvites slug="acme" initialInvites={[invite({ id: "alpha" })]} />);
+    await act(async () => {
+      within(rowFor("alpha")).getByRole("button", { name: /^revoke$/i }).click();
+    });
+    expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(0);
+    expect(within(rowFor("alpha")).getByRole("button", { name: /confirm/i })).toBeTruthy();
+    expect(screen.getByText("@alpha")).toBeTruthy();
+  });
+
+  it("confirm sends the DELETE; cancel puts the row back untouched", async () => {
+    render(<MemberInvites slug="acme" initialInvites={[invite({ id: "alpha" })]} />);
+    await act(async () => {
+      within(rowFor("alpha")).getByRole("button", { name: /^revoke$/i }).click();
+    });
+    await act(async () => {
+      within(rowFor("alpha")).getByRole("button", { name: /cancel/i }).click();
+    });
+    expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(0);
+
+    await act(async () => {
+      within(rowFor("alpha")).getByRole("button", { name: /^revoke$/i }).click();
+    });
+    await act(async () => {
+      within(rowFor("alpha")).getByRole("button", { name: /confirm/i }).click();
+    });
+    expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(1);
+    expect(screen.queryByText("@alpha")).toBeNull();
   });
 });

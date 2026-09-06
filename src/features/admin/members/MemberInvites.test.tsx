@@ -49,20 +49,24 @@ const invite = (over: Partial<InviteRow> & { id: string }): InviteRow => ({
   ...over,
 });
 
-/** The revoke button inside the row whose target label is `@login`. */
-function revokeButtonFor(login: string): HTMLElement {
-  const row = screen.getByText(`@${login}`).closest("li");
-  if (!row) throw new Error(`no row for @${login}`);
-  return within(row as HTMLElement).getByRole("button", { name: /revoke/i });
+/** Drive a full revoke on the row labelled `@login`: arm the two-step confirm, then confirm it.
+ *  The confirm is InviteList's (see MemberInvites.list.test.tsx); what THIS file is about is what
+ *  the optimistic update does once the DELETE is actually in flight. */
+async function revoke(login: string): Promise<void> {
+  const row = () => screen.getByText(`@${login}`).closest("li") as HTMLElement;
+  await act(async () => {
+    within(row()).getByRole("button", { name: /^revoke$/i }).click();
+  });
+  await act(async () => {
+    within(row()).getByRole("button", { name: /confirm/i }).click();
+  });
 }
 
 describe("MemberInvites — optimistic revoke rollback (DOM)", () => {
   it("a failed revoke restores only its own row and surfaces the error", async () => {
     render(<MemberInvites slug="acme" initialInvites={[invite({ id: "alpha" }), invite({ id: "beta" })]} />);
 
-    await act(async () => {
-      revokeButtonFor("alpha").click();
-    });
+    await revoke("alpha");
     expect(screen.queryByText("@alpha")).toBeNull();
     expect(screen.getByText("@beta")).toBeTruthy();
 
@@ -81,12 +85,8 @@ describe("MemberInvites — optimistic revoke rollback (DOM)", () => {
     render(<MemberInvites slug="acme" initialInvites={[invite({ id: "alpha" }), invite({ id: "beta" })]} />);
 
     // Both revokes are in flight at once — nothing in this panel serializes them.
-    await act(async () => {
-      revokeButtonFor("alpha").click();
-    });
-    await act(async () => {
-      revokeButtonFor("beta").click();
-    });
+    await revoke("alpha");
+    await revoke("beta");
 
     const alphaCall = calls.find((c) => c.method === "DELETE" && c.url.includes("alpha"));
     const betaCall = calls.find((c) => c.method === "DELETE" && c.url.includes("beta"));
