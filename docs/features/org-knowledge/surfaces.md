@@ -18,9 +18,9 @@ reader deep-links into the scene. Nothing here judges the fleet; it is reference
 
 | URL | View |
 | --- | --- |
-| `?tab=surfaces` | the gallery: every subject as a card, grouped by subcategory in the taxonomy's order — showcased cards link into their scene; absence cards say `Not yet showcased — run /surface <slug>`; input-and-editing cards say they are out of this repo's scope (`.ai/manifest.yaml`) |
-| `&subject=<slug>` | the scene: toolbar (path kicker, freshness badge, fixture-volume chips, "simulate reduced motion", back to gallery) · rail · canvas · drawer. A slug with no showcase lands on the gallery with that subject's absence card ringed |
-| `&technique=<slug>` | the drawer open on that technique; its region is ringed and the rest of the scene dimmed |
+| `?tab=surfaces` | the gallery: one column per subcategory in the taxonomy's order, every subject a single line sorted by name — showcased lines link into their scene and carry a technique count; unshowcased ones are muted; a whole out-of-scope category says so once under its header (`.ai/manifest.yaml`). Category and name are the metadata here; a subject's summary lives in its scene |
+| `&subject=<slug>` | the scene, in three rows: masthead + numbered technique index · the canvas showing ONE region · the reader (Mechanism / Source / In Ascent / Deviation, one page at a time). With no `technique` the first one is live; "show the whole scene" restores every region. A slug with no showcase lands on the gallery with that subject's line ringed |
+| `&technique=<slug>` | that technique is the live one: its region is the only one in layout (the scene stays mounted, so a running instrument keeps its state) and the reader below is on it |
 
 `subject` and `technique` are both in `TAB_SCOPED_PARAM_KEYS`, so a tab switch clears them. The
 technique is written with `router.replace` off the React-tracked search string; the simulate toggle
@@ -61,13 +61,15 @@ it, and logs the consult + application leads. It refuses input-and-editing subje
 | Path | Role |
 | --- | --- |
 | `src/features/shared/surfaces/SurfacesTab.tsx` | server tab; reads `sp.subject` / `sp.technique`; gallery or scene |
-| `SurfacesGallery.tsx` / `SurfaceCard.tsx` | the grouped gallery; showcased, absence and out-of-scope cards |
+| `SurfacesGallery.tsx` | the gallery: five subcategory columns, subjects by name, `sceneHref()` |
 | `SurfaceScene.tsx` | client orchestrator: selection, body + scope chunk load, quiet gap, inline error card with retry |
-| `SurfaceFrame.tsx` | toolbar · rail · canvas · drawer; owns the spotlight effect |
-| `SurfaceRail.tsx` / `SurfaceDrawer.tsx` / `SurfaceControls.tsx` | the technique list (`aria-current`, arrow keys), the mechanism reader, the knobs |
+| `SurfaceFrame.tsx` | the three rows: index · canvas · reader; owns the solo-region effect |
+| `SurfaceHeader.tsx` | the masthead: taxonomy path, title, freshness badge, authored-against line |
+| `SurfaceMechanismParts.tsx` | the four readings a technique has to give, as placeable blocks |
+| `SurfaceControls.tsx` | the knobs: fixture volume, simulate reduced motion, back to the gallery |
 | `SurfaceFreshnessBadge.tsx` | `freshnessOf()` + the badge |
 | `useSurfaceSelection.ts` | technique (URL) + simulate-reduced + volume (local) |
-| `surfaceSpotlight.ts` | `applySpotlight(root, selected)` / `regionSlugs(root)` |
+| `surfaceSpotlight.ts` | `applySoloRegion(root, selected)` (the frame's layout mode) · `applySpotlight` / `regionSlugs` (the region contract each scene's test asserts) |
 | `<slug>/{index.ts, Scene.tsx, techniques.ts, fixtures.ts, brief.md, Scene.dom.test.tsx, …}` | one folder per showcased subject |
 
 ## Showcased subjects
@@ -96,9 +98,13 @@ it, and logs the consult + application leads. It refuses input-and-editing subje
   run lands; input-and-editing's eight are out of scope by manifest and stay absence cards.
 - The freshness badge depends on the org having indexed the registry with the digest mirror; older
   index passes carry `digest: null` and show no badge.
-- With no technique selected the drawer still reserves its column, so tall scenes (search,
-  diff-comparison) run narrow; collapsing the empty drawer is a follow-up.
-- The rail is a local list, not `SectionRailNav`; if a second flat, state-driven rail appears, extract
-  a shared primitive.
+- The gallery and the frame were redesigned on 2026-09-06 (prototype round: Columns beat a ledger and
+  the original cards; Dossier beat a console and the original three columns). Measured full-page
+  height on a 1440x900 viewport: gallery 3981px → 900px, the ten-region motion scene 3076px → 1065px.
+- Solo mode takes the unselected regions out of LAYOUT (`display:none`); it does not unmount them, so
+  the scene keeps its state while you switch. True per-region mounting would need every scene to
+  expose its regions individually — a contract change across all 14.
+- The brand treatment of the tab's own chrome (index cells, reader chips, canvas) is unresolved and
+  scheduled for its own round.
 - Scenes were observed in headless Chromium (zero page errors, every declared region present); no
   axe pass runs yet, so the accessibility scene's claims are verified by its own jsdom gates only.

@@ -8,6 +8,11 @@
 // re-implement the same ring, and forget it once. Tailwind classes are used verbatim so the
 // stylesheet already contains them.
 
+// NOTE (2026-09-06): the shipped frame renders ONE region at a time (`applySoloRegion` below), so
+// `applySpotlight` is no longer a frame path. It stays because it is the region-marking CONTRACT
+// every scene is tested against — each scene's `Scene.dom.test.tsx` calls it to prove that every
+// technique it declares has a region the frame can point at, and that clearing puts the scene back.
+
 export const SPOTLIGHT_ATTR = "data-technique";
 
 export const SPOT_CLASSES = ["ring-1", "ring-accent", "ring-offset-2", "ring-offset-ink", "rounded-xl"] as const;

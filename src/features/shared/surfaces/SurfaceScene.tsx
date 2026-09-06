@@ -14,7 +14,8 @@ import { chipButtonClass } from "@/components/ui";
 import { useReducedMotion } from "@/components/ui/useReducedMotion";
 import type { SurfaceRecord } from "@/lib/org/surface-catalog";
 import { SURFACE_BODIES } from "./surfaceBodies";
-import { SurfaceFrame, type LoadedScene } from "./SurfaceFrame";
+import type { LoadedScene } from "./surfaceBody";
+import { SurfaceFrame } from "./SurfaceFrame";
 import type { FreshnessLabel } from "./SurfaceFreshnessBadge";
 import { useSurfaceSelection } from "./useSurfaceSelection";
 

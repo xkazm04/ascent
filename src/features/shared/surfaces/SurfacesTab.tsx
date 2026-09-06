@@ -15,9 +15,7 @@
 import { surfaceRecord } from "@/lib/org/surface-catalog";
 import { getSurfaceFreshness } from "@/lib/org/surface-freshness";
 import { SurfaceScene } from "./SurfaceScene";
-// PROTOTYPE round 1 (2026-09-06): the gallery renders behind an A/B switcher. Consolidation puts
-// `SurfacesGallery` (or the winning variant) back here directly.
-import { SurfacesGallerySwitcher } from "./SurfacesGallerySwitcher";
+import { SurfacesGallery } from "./SurfacesGallery";
 import { freshnessOf } from "./SurfaceFreshnessBadge";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
@@ -32,7 +30,7 @@ export async function SurfacesTab({ slug, sp = {} }: { slug: string; sp?: Search
   const subject = one(sp, "subject");
   const record = subject ? surfaceRecord(subject) : null;
 
-  if (!record) return <SurfacesGallerySwitcher slug={slug} freshness={freshness} focusedSlug={subject} />;
+  if (!record) return <SurfacesGallery slug={slug} freshness={freshness} focusedSlug={subject} />;
 
   return (
     <SurfaceScene
