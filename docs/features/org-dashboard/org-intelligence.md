@@ -1292,14 +1292,21 @@ Org membership and role enforcement are wired end to end, backed by the `User` /
   (`authGateEnabled()`), the shared `viewerOrgRole` resolver seeds an owner only for an
   identity-verified viewer: their own personal namespace, or a GitHub-confirmed org admin
   via the App installation, never for the first stranger to touch an ownerless org.
+  **An org that already has an owner is a hard wall** — holding the GitHub App installation grants
+  nothing there. Four docstrings and the Members tab's own roles line still promised the removed
+  "installation owners are seeded as owner automatically" rule until 2026-09-06; the customer-facing
+  one now says what happens instead (first GitHub-verified admin becomes owner; everyone after joins
+  by invite or by an owner assigning a role).
 - **Invites**: `GET`/`POST`/`DELETE /api/org/invites` (owner-only, `src/app/api/org/invites/route.ts`)
   list, create, and revoke single-use invite tokens (role capped at `admin`; `owner` can
   only be conferred by promoting an existing member, not minted as a link). Acceptance is a
   same-origin, signed-in-only `POST /api/org/invites/accept` (`src/app/api/org/invites/accept/route.ts`),
   deliberately not a GET-on-render, since a GET would let link-prefetch/unfurlers burn the
   invite. `src/app/invite/[token]/page.tsx` is the UI that collects the token and fires the
-  accept POST. Both create and accept are recorded to the audit log
-  (`org.member.invited`, `org.member.invite_accepted`).
+  accept POST. All three transitions are recorded to the audit log —
+  `org.member.invited` (create), `org.member.invite_accepted` (the grant) and
+  `org.member.invite_revoked` (withdrawal, added 2026-09-06; the revoke row names the target,
+  not just the invite id, and `revokeInvite` returns `{ revoked, target }` to supply it).
 - **The invite is now delivered** (G7-02): creating an invite with an `email` sends **one**
   transactional message to that address via the shared email transport (`src/lib/email/invite.ts`).
   *Trigger*: an owner's `POST /api/org/invites` with `email` set. *Recipient*: only that address.
@@ -1311,7 +1318,21 @@ Org membership and role enforcement are wired end to end, backed by the `User` /
   still requires the accepter's Supabase-**confirmed** email to match the pin (`acceptInvite`), so a
   misdirected message cannot hand a stranger the role. The response reports `emailed`:
   `"sent" | "skipped" | "failed" | null`, and the invite + token are returned either way, so the
-  owner's manual copy/paste path is never lost. The audit entry records the outcome.
+  owner's manual copy/paste path is never lost. The audit entry records the outcome, **and so does
+  the UI** (2026-09-06): the Members tab renders the three real outcomes from one table keyed by the
+  wire token — "Invitation emailed to X", "Nothing was sent … copy the link below and share it
+  yourself" (no provider), and a `role="alert"` "Couldn't email X" — so an owner on a provider-less
+  deploy is no longer shown a bare success and left waiting for mail that will not arrive. `null` is
+  deliberately not rendered: a GitHub-login invite has no address, so there is no delivery to report.
+- **The owner's pending-invite roster** (`src/features/admin/members/InviteList.tsx`, split out of
+  `MemberInvites.tsx` under the 200-LOC cap) shows, per invite: the target, the role, **who sent it**
+  (`invitedBy`, previously stored on every row and dropped on the way to the panel), the copy-link
+  affordance only for invites minted in this session, and the expiry **as a countdown** —
+  "expires in 3 days", the same sentence the invite mail sends, with the exact moment on the hover
+  title (registry `software-engineering/status-vocabulary` → `timestamp-display`: relative by
+  default, absolute one hover away). The roster has a real empty state, and revoking is a two-step
+  `Revoke? → confirm / cancel`, matching the roster's Remove a row above — re-issuing mints a NEW
+  token, so an accidental revoke costs a re-send rather than an undo.
 
 ### Delivery outcomes — the AI-vs-human failure split (W4, 2026-08-14)
 
