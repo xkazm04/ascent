@@ -45,6 +45,31 @@ The same hazard reaches the **registry** through the skill symlinks: a reflectio
 a parallel run has already swept an in-flight version bump into its own commit here.
 
 ## Skill improvement log
+- **2026-09-06 (develop, Org Import/Scan/Watchlist) — the zero-consumer field scan is this repo's
+  highest-yield instrument, and it finds MONEY bugs, not just dead fields.** Round 2 used it to find
+  two dead producers; round 3 used it on the scan queue and the third hit, `ScanJob.creditCharged`,
+  was a live double-billing defect: the field is written as "the single record of the reservation - a
+  process kill leaves it attributable", `reapExpiredLeases` requeues without clearing it, and nothing
+  read it, so a killed worker's job reserved a SECOND credit on retry (up to MAX_JOB_ATTEMPTS = 5 per
+  repo). Run it early in every round here: walk the context's producer modules for
+  `export interface`, grep each field against every non-test file that is not a producer, and read
+  the survivors' docstrings — the ones that ASSERT a purpose ("leaves it attributable", "so a surface
+  can state the basis") are where the defects are, because the docstring is the consumer that was
+  never written.
+
+- **2026-09-06 — this repo's UAT findings (MC-*, RC*-N*, G*-**) are a map of half-applied rules.**
+  Three of this round's findings came from reading one: MC-B20 moved "do not meter this org" off
+  `orgSlug === "public"` and onto `Organization.kind`, and left three credit-metering call sites and
+  four of six org-row writers un-converted. When a comment cites a UAT id, grep the id and the
+  predicate it replaced across `src/` — the fix usually landed at one site and the rule applies at
+  several. `grep -rn 'MC-B\|RC[0-9]-N\|UAT ' src/` is the index.
+
+- **2026-09-06 — a `.catch(() => [])` on a read whose RESULT decides whether to tell the user
+  something is the same silence a lost frame is.** Two instances found here (`listJobsForRun` in
+  /api/org/scan). When reviewing a catch in this repo, ask what the swallowed value is used FOR: a
+  fallback that feeds a display is fine, a fallback that feeds a "should I warn?" branch turns a
+  failure into a false all-clear.
+
 - **2026-09-06 (develop, Members & Access Control) — the whole-tree `tsc` gate can be structurally
   unavailable here, and "wait for the tree to settle" does not terminate.** A foreign session ran
   `next dev` on this shared checkout for the whole round; turbopack rewrites
