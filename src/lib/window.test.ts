@@ -206,10 +206,24 @@ describe("resolveWindow — custom HALF-OPEN boundary [start, endExclusive)", ()
     const open = resolveWindow({ range: "custom", from: "2026-01-01" }, NOW);
     expect(open.title).toBe("2026-01-01 → now");
 
-    // No parseable start = nothing to echo; the generic label is the honest fallback.
+    // No parseable start AND no upper bound = nothing to echo; the generic label is honest.
     const bad = resolveWindow({ range: "custom", from: "not-a-date" }, NOW);
     expect(bad.title).toBe("Custom range");
     expect(bad.reviewTitle).toBe("Range in review");
+  });
+
+  it("echoes a bounding `to` even when `from` did not parse — the numbers are still clipped by it", () => {
+    // The half-fixed case. `start` is null so there is no baseline and no delta, but `endExclusive`
+    // is real and every figure on the page is cut off at it. Titling that "Custom range" is the
+    // exact failure the echo exists to prevent: a window the reader cannot see, silently bounding
+    // what they are reading. Reachable from a hand-edited link, a truncated share, or a period
+    // cookie written by an older serializer.
+    const w = resolveWindow({ range: "custom", from: "not-a-date", to: "2026-03-31" }, NOW);
+    expect(w.start).toBeNull();
+    expect(w.endExclusive!.getTime()).toBe(zonedMidnight(2026, 4, 1).getTime());
+    expect(w.comparisonLabel).toBe(""); // no start ⇒ no baseline ⇒ still no delta claim
+    expect(w.title).toBe("all time → 2026-03-31");
+    expect(w.reviewTitle).toBe("all time → 2026-03-31 in review");
   });
 });
 
