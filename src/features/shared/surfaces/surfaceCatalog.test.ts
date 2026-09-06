@@ -66,8 +66,12 @@ describe("SURFACE_CATALOG ⇄ SURFACE_BODIES", () => {
     expect(surfaceRecord("modal-stack")).toBeNull();
   });
 
-  it("every record's techniqueSlugs ⇄ its body's techniques, and every technique is complete", async () => {
-    for (const r of SURFACE_CATALOG) {
+  // One case per record: each scene body is its own chunk (fourteen and growing), and importing all
+  // of them inside one case blew the 15s budget under full-suite load (2026-09-06). Per-record cases
+  // keep the budget per import and name the offending subject when one fails.
+  it.each(SURFACE_CATALOG.map((r) => [r.slug, r] as const))(
+    "%s: techniqueSlugs ⇄ its body's techniques, and every technique is complete",
+    async (_slug, r) => {
       const body = await SURFACE_BODIES[r.slug]();
       expect(typeof body.Scene).toBe("function");
       expect(body.techniques.map((t) => t.slug).sort()).toEqual([...r.techniqueSlugs].sort());
@@ -77,6 +81,6 @@ describe("SURFACE_CATALOG ⇄ SURFACE_BODIES", () => {
         expect(t.source.trim().length, `${r.slug}/${t.slug} source`).toBeGreaterThan(20);
         if (t.inAscent) expect(t.inAscent.file).toMatch(/^src\//);
       }
-    }
-  });
+    },
+  );
 });
