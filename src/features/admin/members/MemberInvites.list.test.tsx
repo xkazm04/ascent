@@ -6,7 +6,7 @@
 // into <name>.<theme>.test.tsx, each with its own pragma and mock setup).
 
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, within, act, cleanup } from "@testing-library/react";
+import { render, screen, cleanup } from "@testing-library/react";
 import { MemberInvites, type InviteRow } from "@/features/admin/members/MemberInvites";
 
 interface Deferred {
@@ -35,9 +35,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const ok = () => new Response(JSON.stringify({ ok: true }), { status: 200 });
-const fail = () => new Response(JSON.stringify({ error: "boom" }), { status: 500 });
-
 const invite = (over: Partial<InviteRow> & { id: string }): InviteRow => ({
   email: null,
   githubLogin: over.id,
@@ -45,13 +42,6 @@ const invite = (over: Partial<InviteRow> & { id: string }): InviteRow => ({
   expiresAt: new Date(Date.now() + 6 * 86_400_000).toISOString(),
   ...over,
 });
-
-/** The revoke button inside the row whose target label is `@login`. */
-function revokeButtonFor(login: string): HTMLElement {
-  const row = screen.getByText(`@${login}`).closest("li");
-  if (!row) throw new Error(`no row for @${login}`);
-  return within(row as HTMLElement).getByRole("button", { name: /revoke/i });
-}
 
 describe("InviteList — an invite's provenance", () => {
   it("names the owner who sent it", () => {
