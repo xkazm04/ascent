@@ -1,4 +1,5 @@
-// STUB — the adaptive-fidelity-tiers showcase body. Replaced by the /surface run (spark ui-surfaces-showcase).
+// The `adaptive-fidelity-tiers` showcase body — what `SURFACE_BODIES["adaptive-fidelity-tiers"]`
+// resolves to. Scene + drawer entries.
 
 import type { SurfaceBody } from "../surfaceBody";
 import { Scene } from "./Scene";

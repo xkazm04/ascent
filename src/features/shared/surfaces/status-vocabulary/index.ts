@@ -1,4 +1,5 @@
-// STUB — the status-vocabulary showcase body. Replaced by the /surface run (spark ui-surfaces-showcase).
+// The `status-vocabulary` showcase body — what `SURFACE_BODIES["status-vocabulary"]` resolves to.
+// Scene + drawer entries.
 
 import type { SurfaceBody } from "../surfaceBody";
 import { Scene } from "./Scene";

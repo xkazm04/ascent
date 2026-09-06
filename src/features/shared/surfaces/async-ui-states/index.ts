@@ -1,4 +1,4 @@
-// STUB — the async-ui-states showcase body. Replaced by the /surface run (spark ui-surfaces-showcase).
+// The `async-ui-states` showcase body — what `SURFACE_BODIES["async-ui-states"]` resolves to.
 
 import type { SurfaceBody } from "../surfaceBody";
 import { Scene } from "./Scene";
