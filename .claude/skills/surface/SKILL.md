@@ -209,8 +209,8 @@ rule):
    sentence, the scene concept), `authoredAgainst: { digest, verifiedOn }` from the
    brief, `techniqueSlugs` in rail order. Keep registry order among records.
 2. `src/features/shared/surfaces/surfaceBodies.ts`: add the `import("./<slug>")` entry
-   to `SURFACE_BODIES`, in the same shape as the `motion` entry (default export vs
-   named: copy what `motion` does).
+   to `SURFACE_BODIES`: `<slug>: () => import("./<slug>").then((m) => m.body)` - the
+   body is a NAMED export `body` from `<slug>/index.ts`, exactly like `motion`.
 3. Confirm the slug is in `SURFACE_SUBJECTS` (step 0 did; the bijection test does again).
 
 ## Step 5: Gate

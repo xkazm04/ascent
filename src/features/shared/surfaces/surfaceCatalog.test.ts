@@ -61,8 +61,9 @@ describe("SURFACE_CATALOG ⇄ SURFACE_BODIES", () => {
       expect(isSurfaceShowcased(r.slug)).toBe(true);
       expect(surfaceRecord(r.slug)).toBe(r);
     }
-    expect(isSurfaceShowcased("table")).toBe(false);
-    expect(surfaceRecord("table")).toBeNull();
+    // modal-stack is shell-and-navigation: outside the 2026-09-06 v1 scope, so it stays unshowcased.
+    expect(isSurfaceShowcased("modal-stack")).toBe(false);
+    expect(surfaceRecord("modal-stack")).toBeNull();
   });
 
   it("every record's techniqueSlugs ⇄ its body's techniques, and every technique is complete", async () => {

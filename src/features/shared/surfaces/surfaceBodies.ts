@@ -11,4 +11,17 @@ import type { SurfaceBody } from "./surfaceBody";
 
 export const SURFACE_BODIES: Record<string, () => Promise<SurfaceBody>> = {
   motion: () => import("./motion").then((m) => m.body),
+  "accessibility": () => import("./accessibility").then((m) => m.body),
+  "adaptive-fidelity-tiers": () => import("./adaptive-fidelity-tiers").then((m) => m.body),
+  "async-ui-states": () => import("./async-ui-states").then((m) => m.body),
+  "design-tokens": () => import("./design-tokens").then((m) => m.body),
+  "status-vocabulary": () => import("./status-vocabulary").then((m) => m.body),
+  "toasts-notifications": () => import("./toasts-notifications").then((m) => m.body),
+  "canvas-graph": () => import("./canvas-graph").then((m) => m.body),
+  "data-viz": () => import("./data-viz").then((m) => m.body),
+  "diff-comparison": () => import("./diff-comparison").then((m) => m.body),
+  "feed": () => import("./feed").then((m) => m.body),
+  "file-browsing": () => import("./file-browsing").then((m) => m.body),
+  "search": () => import("./search").then((m) => m.body),
+  "table": () => import("./table").then((m) => m.body),
 };
