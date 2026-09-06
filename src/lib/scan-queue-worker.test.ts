@@ -246,3 +246,52 @@ describe("the probe lane spends nothing", () => {
     expect(h.settleJob.mock.calls[0]![1]).toMatchObject({ state: "done", result: { written: 2, transitions: 1 } });
   });
 });
+
+// ── DOUBLE-BILLING ACROSS RETRIES ───────────────────────────────────────────────────────────────
+// The suite above pins the CONCURRENT race (two workers, one claim, one reservation). The other half
+// is SEQUENTIAL and is the case this queue exists for: a worker reserves a credit, starts inference,
+// and is process-killed at the 300s ceiling — no finally, no settleJob, no refund. Fifteen minutes
+// later reapExpiredLeases returns the row to the queue with `creditCharged` still true, because
+// settleJob is the ONLY path that clears it and it never ran.
+//
+// `creditCharged` is written precisely so that reservation survives the kill — runRescoreJob's own
+// comment calls it "the single record of the reservation - a process kill leaves it attributable".
+// Nothing read it, so the retry reserved a second credit for a job already holding one, up to
+// MAX_JOB_ATTEMPTS times.
+describe("a requeued job does not buy its credit twice", () => {
+  it("reuses the credit the row already holds instead of reserving another", async () => {
+    // What the reaper leaves behind: queued again, lease cleared, creditCharged untouched.
+    h.claimJobById.mockResolvedValueOnce(job({ creditCharged: true, attempts: 2 }));
+
+    const out = await drainLane("rescore", opts({ jobs: [{ id: "job_1", repo: "acme/api" }] }));
+
+    expect(out.done).toBe(1);
+    expect(h.reserveScanCredit).not.toHaveBeenCalled();
+    // Nothing to re-mark: the row already says so.
+    expect(h.markJobCredit).not.toHaveBeenCalled();
+    expect(h.scanRepository).toHaveBeenCalledTimes(1);
+  });
+
+  it("still refunds that carried credit when the retry fails BEFORE inference", async () => {
+    // The carried credit must behave exactly like a freshly reserved one at the refund boundary —
+    // otherwise skipping the reservation would silently strand it.
+    h.claimJobById.mockResolvedValueOnce(job({ creditCharged: true }));
+    h.scanRepository.mockRejectedValueOnce(new Error("github 502"));
+
+    const out = await drainLane("rescore", opts({ jobs: [{ id: "job_1", repo: "acme/api" }] }));
+
+    expect(out.failed).toBe(1);
+    expect(h.refundScanCredit).toHaveBeenCalledWith("acme", true, { actor: "queue:cadence", repoFullName: "acme/api" });
+    expect(h.settleJob).toHaveBeenCalledWith("job_1", expect.objectContaining({ state: "failed", creditRefunded: true }));
+  });
+
+  it("still reserves for a first attempt — the row says it holds nothing", async () => {
+    // The control: creditCharged false is the normal path and must be untouched by the guard.
+    h.claimJobById.mockResolvedValueOnce(job({ creditCharged: false }));
+
+    await drainLane("rescore", opts({ jobs: [{ id: "job_1", repo: "acme/api" }] }));
+
+    expect(h.reserveScanCredit).toHaveBeenCalledTimes(1);
+    expect(h.markJobCredit).toHaveBeenCalledWith("job_1", true);
+  });
+});
