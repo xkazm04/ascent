@@ -207,7 +207,21 @@ export async function POST(request: Request) {
         // Capture the team-standings decomposition as a durable output of this full org scan
         // (best-effort — a failure here must never break the scan or the SSE result).
         await persistTeamStandings(org).catch(() => {});
-        send("result", { runId, scanned, total, skippedForCredits, skippedInProgress: summary.skipped, queued: remaining });
+        // skippedNoToken rides the result frame beside the other two skip reasons. Without it a fleet
+        // whose GitHub App install is revoked/suspended skipped EVERY repo, the client's mid-run count
+        // was then overwritten by `skippedForCredits` (0), and the run settled as a clean N/N with no
+        // failures and no error — a completed scan that produced nothing. The cron sibling has
+        // reported this number in its JSON since the queue landed; the interactive path, which is the
+        // one a human is watching, dropped it.
+        send("result", {
+          runId,
+          scanned,
+          total,
+          skippedForCredits,
+          skippedNoToken: summary.skippedNoToken,
+          skippedInProgress: summary.skipped,
+          queued: remaining,
+        });
       } catch (err) {
         send("error", { error: err instanceof Error ? err.message : "Bulk scan failed." });
       } finally {
