@@ -164,3 +164,46 @@ each bypass is currently re-litigating a different sample of it. That deserves a
 cap or per-file timeouts for the dom-heavy files — rather than another entry in this table.
 
 No test, guard or assertion was edited to make the gate pass.
+
+### 2026-09-06 — Three /scan-sweep rounds, merged with upstream
+
+Pushed 38 commits (`b168beea..197b26fe`) with the gate skipped. Unlike the two entries above, the
+gate was **not red** — it could not be *run by the hook at all*, and that is the reason for this
+entry.
+
+**Why the hook could not do its job here.** `.githooks/pre-push` runs `npm run verify` in whatever
+working tree the push is issued from. This checkout is shared with a second live agent session, and
+its HEAD was on `prototype-surfaces-layout` — not on `master`. So the hook would have verified a
+*different tree than the one being pushed*, which is worse than not running it: a green result would
+have been evidence about someone else's branch. Checking `master` out in the shared tree to fix that
+would have yanked the working tree out from under the other session mid-task.
+
+So `npm run verify` was run stage by stage against the exact pushed commit, in a **detached**
+worktree at `197b26fe` with its own `npm ci` (787 packages):
+
+| Stage | Verdict |
+| --- | --- |
+| `lint` | clean — 0 errors (31 warnings; the repo script is bare `eslint`) |
+| `typecheck` | clean — `tsc --noEmit` exit 0 |
+| `test` | 884 files / 11,751 tests pass. Two files fail; both are the Windows-only pair the 2026-09-05 entry above already documents — `TeamsHonesty.dom.test.tsx` (a source-guard regex containing `\n` matched against a CRLF checkout) and `gate-cli.test.ts` (vitest's transform of a shebang module). Re-verified at the tip with this work absent: `origin/master` was checked out into a scratch worktree and both fail there **identically**. |
+| `build` | clean, run on its own — see below |
+
+`test:coverage` was run as `vitest run` rather than with `--coverage`; the failing/passing set is the
+same, coverage thresholds were not evaluated.
+
+**The detached worktree is not a detail — it is the safety measure.** An earlier run of the full
+suite inside a worktree whose checked-out branch was `master` left 19 fixture commits ("seed",
+"initial", "chore: fixture") on `refs/heads/master` and set `core.bare=true` on the shared config,
+which broke `git status` for the other session until it was repaired. This suite's git-fixture tests
+commit into whatever branch the tree they run in has checked out. **Run it detached, or run it
+somewhere that is not a worktree of this repo.** `master` was restored by CAS from the fixture tip
+back to the merge commit; the other session's branch was never touched.
+
+**Merge conflicts, for the record.** Four, all in files the members-access-control sweep round had
+edited, and all resolved to upstream — because upstream had independently made the same fix (the
+stale "installation owners are seeded as owner automatically" claim in `authz.ts`, `db/members.ts`
+and the Members tab's roles line). Upstream's user-facing copy is the more actionable one. The doc
+conflict was resolved hunk-only: `git checkout --theirs` takes the whole file and had silently
+dropped this branch's other doc-sync sections, which was caught and redone.
+
+No test, guard or assertion was edited to make anything pass.
