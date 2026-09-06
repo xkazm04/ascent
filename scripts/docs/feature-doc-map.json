@@ -434,6 +434,14 @@
         "src/lib/db/org-registry-dispatch.ts",
         "src/app/api/org/[slug]/registry/dispatch/**"
       ]
+    },
+    {
+      "area": "org-knowledge",
+      "doc": "docs/features/org-knowledge/surfaces.md",
+      "sourceGlobs": [
+        "src/features/shared/surfaces/**",
+        "src/lib/org/surface-*.ts"
+      ]
     }
   ]
 }

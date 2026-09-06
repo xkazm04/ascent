@@ -1,7 +1,7 @@
 ---
 product: "ascent"
 stack: "Next 16 (canary/preview) · React 19 · TS · Tailwind v4 hand-rolled primitives · Prisma 6 + Postgres/Aurora DSQL · Supabase auth · vitest + playwright · no i18n"
-vault: ["C:/Users/kazda/Documents/Obsidian/ascent"]
+vault: ["C:/Users/kazda/Documents/Obsidian/ascent", "C:/Users/mkdol/Documents/Obsidian/ascent"]
 vault_subdir: Spark
 context_map: context-map.json
 base_branch: master
@@ -196,3 +196,17 @@ Pasted verbatim into every builder brief:
 - 2026-08-22: ascent overlay scaffolded (the personas vault's gates don't apply here).
 - 2026-08-25: overlay moved from the vault to `.claude/spark/config.md`; gates gained the
   `next build` boundary case, the prisma-generate/dev-restart case, and the structure caps.
+
+- 2026-09-06 (knowledge-context-matrix): **the main checkout may be on ANOTHER session's branch** with
+  dirty files (it was on `spark-ui-surfaces-showcase`, editing this very config). Merge from the spark
+  worktree instead: `git checkout master && git merge --ff-only <branch>` there, then switch back — a
+  branch can be checked out in only one worktree, and master was free. Rebase onto master first.
+- 2026-09-06 (knowledge-context-matrix): **a fresh worktree checks out CRLF while the main checkout is
+  LF**, and three master-green tests fail on it: `src/lib/scoring/gate-cli.test.ts` (SyntaxError),
+  `src/features/bought/teams/TeamsHonesty.dom.test.tsx` (source-regex), `src/lib/local/pairing.test.ts`
+  (timeout under full-run load only). The 2026-08-25 line-ending-guard class, two more instances; verify
+  a full-run failure against the main checkout before treating it as yours.
+- 2026-09-06 (knowledge-context-matrix): the overlay's `vault:` names the Wolf path only; on Fox the
+  Obsidian root is `C:/Users/mkdol/Documents/Obsidian/ascent` (memory `fox-device-perfect-vault`) and
+  `Spark/` was scaffolded there this run — the two vaults are not synced. Add the Fox path as a second
+  candidate when this file is next committed cleanly (it was dirty under another session this run).

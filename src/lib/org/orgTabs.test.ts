@@ -59,10 +59,13 @@ describe("org tab catalog", () => {
 
   // `shared` holds what the org publishes once and every repo consumes — the registry repo and the
   // three libraries it distributes. Governance (a reading of the fleet's controls) moved to Standing
-  // and Developer left the nav entirely, so a stray id drifting back in fails here.
+  // and Developer left the nav entirely, so a stray id drifting back in fails here. `surfaces` is
+  // LAST on purpose (spark ui-surfaces-showcase): the Knowledge base's ui-surfaces subjects as
+  // live scenes — reference about reference, the one item with no fleet state at all.
   it("scopes the Shared group to the registry and what it distributes", () => {
     const shared = ORG_NAV_GROUPS.find((g) => g.key === "shared");
-    expect(shared?.items.map((i) => i.id)).toEqual(["registry", "practices", "skills", "memory", "knowledge"]);
+    expect(shared?.items.map((i) => i.id)).toEqual(["registry", "practices", "skills", "memory", "knowledge", "surfaces"]);
+    expect(orgTabLabel("surfaces")).toBe("UI surfaces");
   });
 
   // Governance is an audit of where the fleet stands, not something the org distributes: it is the
@@ -121,6 +124,8 @@ describe("org tab catalog", () => {
       "registry",
       "security",
       "skills",
+      // Repo-shipped showcases of the registry's ui-surfaces subjects — reference, like `knowledge`.
+      "surfaces",
     ]);
   });
 
@@ -261,6 +266,8 @@ describe("TAB_SCOPED_PARAM_KEYS", () => {
       "b",
       "domain",
       "subject",
+      // UI surfaces: the open mechanism drawer. A tab switch must not carry a technique anywhere.
+      "technique",
       "q",
       "search",
       "posture",

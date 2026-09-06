@@ -98,6 +98,7 @@ export function KnowledgeLoom({
 
       <KnowledgeSubjectDetail
         view={view}
+        slug={slug}
         subject={subjectRow}
         registryUrl={view.registry?.url ?? null}
         pickedRepo={sel.repo}
