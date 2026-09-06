@@ -12,7 +12,7 @@
 
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { join, posix as posixPath } from "node:path";
 import { runGit } from "@/lib/local/git";
 import { linkDependencyDirs, unlinkDependencyDirs } from "@/lib/local/worktree-deps";
 
@@ -207,7 +207,21 @@ const normalize = (p: string): string => p.replace(BACKSLASHES, "/").replace(TRA
  * checkout happens to sit on a matching branch is therefore untouched.
  */
 export function isLoopTempWorktree(dir: string, tempRoot: string): boolean {
-  return normalize(dirname(dir)) === normalize(tempRoot) && basename(dir).startsWith("ascent-loop-");
+  // SPLIT THE PATH IN ONE DIALECT, ON EVERY PLATFORM. `dir` comes from `git worktree list --porcelain`,
+  // so its separators are whatever the checkout that created it used — a Windows-made worktree can be
+  // read back on any host, and this predicate is the safety gate in front of a recursive delete.
+  //
+  // It used to call node's platform-flavoured `dirname`/`basename` FIRST and normalize after. On POSIX
+  // a backslash is an ordinary filename character, so `C:	mpscent-loop-ab12` was one atom:
+  // `dirname` returned ".", `basename` returned the whole string, the prefix test failed, and the
+  // sweep skipped a stranded worktree it should have removed. Failing CLOSED made it invisible — the
+  // directory simply stayed on disk. Slash-normalize first, then split with the POSIX rules, so both
+  // dialects resolve identically wherever this runs.
+  const posixDir = dir.replace(BACKSLASHES, "/").replace(TRAILING_SLASHES, "");
+  return (
+    normalize(posixPath.dirname(posixDir)) === normalize(tempRoot) &&
+    posixPath.basename(posixDir).startsWith("ascent-loop-")
+  );
 }
 
 export interface StrandedSweepDeps {
