@@ -45,6 +45,43 @@ The same hazard reaches the **registry** through the skill symlinks: a reflectio
 a parallel run has already swept an in-flight version bump into its own commit here.
 
 ## Skill improvement log
+- **2026-09-06 — NEVER run this repo's test suite inside a git worktree of this repo, and never
+  junction `node_modules` into one.** Both bit hard while shipping the three sweep rounds, and both
+  damaged the SHARED checkout that another live session was working in.
+  1. **The suite commits to whatever branch its tree has checked out.** The git-fixture tests
+     ("seed", "initial", "chore: fixture", "fix: apply the session's uncommitted changes") ran in a
+     worktree whose branch was `master` and left **19 fixture commits on `refs/heads/master`**,
+     burying the real tip. They also set **`core.bare=true` on the shared `.git/config`**, which
+     makes `git status` / `add` / `commit` fail with "this operation must be run in a work tree" for
+     every session using the checkout. Repair: `git update-ref refs/heads/<b> <good-sha> <bad-sha>`
+     (the CAS form) and `git config core.bare false`. **Prevention: run it in a `--detach`ed
+     worktree** — fixture commits then land on a detached HEAD and no branch ref can move. `master`'s
+     reflog here already had 89 entries, so this has been happening for a long time.
+  2. **`git worktree remove --force` on a worktree containing a `node_modules` JUNCTION deletes
+     through the link.** It errored "Filename too long" partway and took the real
+     `node_modules/.bin` (all 111 shims) and some deep packages (`@aws-sdk/client-bedrock-runtime`)
+     with it — breaking `npm run` and `npx` repo-wide, for every session. `npm rebuild` restores the
+     shims but NOT missing packages; `npm install` is the actual repair. **Prevention: unlink the
+     junction first** with `[System.IO.Directory]::Delete($path, $false)` (never `rm -rf`, never
+     `remove --force` while it exists), and prefer a real `npm ci` in the worktree when the task
+     needs `next build` — Turbopack rejects a junction outright ("points out of the filesystem
+     root").
+
+- **2026-09-06 — the pre-push gate cannot be used from a shared checkout that is on someone else's
+  branch.** `.githooks/pre-push` runs `npm run verify` in the tree the push is issued from, not on
+  the ref being pushed. With the shared checkout on another session's branch it would verify the
+  wrong tree (a green result would be evidence about their work) AND its fixture tests would clobber
+  their branch. The route that worked: run each verify stage against the exact commit in a detached
+  worktree with its own `npm ci`, then push with `ASCENT_SKIP_GATE=1` and record the stage-by-stage
+  evidence in `docs/DEPLOY.md` — the convention that file already establishes.
+
+- **2026-09-06 — `docs/DEPLOY.md`'s bypass log is the first thing to read when the suite is red
+  here.** Both files that failed the merge verification (`TeamsHonesty.dom.test.tsx`,
+  `gate-cli.test.ts`) were already documented there, with root causes, as Windows-only environment
+  failures — a CRLF checkout defeating a source-guard regex containing `\n`, and vitest's transform
+  of a shebang module. Reading it first would have saved a baseline worktree run. Read it BEFORE
+  diagnosing a red suite, not after.
+
 - **2026-09-06 (develop, Org Import/Scan/Watchlist) — the zero-consumer field scan is this repo's
   highest-yield instrument, and it finds MONEY bugs, not just dead fields.** Round 2 used it to find
   two dead producers; round 3 used it on the scan queue and the third hit, `ScanJob.creditCharged`,
@@ -113,26 +150,6 @@ a parallel run has already swept an in-flight version bump into its own commit h
   seventeen call sites can be pure). When adding a time renderer, put `nowMs: number = Date.now()` in
   the signature and keep it injectable for the tests — do not lift the clock read to the caller.
 
-
-- **2026-09-04 — NEVER `git stash` here; commit instead, even if that means carrying another
-  session's work.** The overlay above already forbade stash and a round used it anyway (path-limited,
-  `--keep-index`), then lost its own edit restoring a backup over the stashed file — recovered only
-  because the stash held exactly one path. The operator's rule, stated after: **prefer committing and
-  combining another session's progress over stashing.** A commit is recoverable by anyone and visible
-  in the log; a stash is invisible to the other sessions sharing this checkout, and `pop` can conflict
-  with work they have since done. If a fix needs a clean tree to prove a fail-before, take a copy of
-  the file with `cp`, edit in place, and restore from the copy — no git state changes at all. That
-  worked five times in the same session; the one stash was the only step that lost work.
-- **2026-09-04 — the eslint gate cannot pass on every file in this repo.** `npx eslint <paths>
-  --max-warnings=0` is the overlay's declared gate, but `src/app/api/cron/digest/route.test.ts` and
-  `src/lib/db/invites.ts` carry pre-existing unused-var warnings. Do not reinterpret the gate silently:
-  assert **0 errors** on the files you touched, confirm a warning is pre-existing with
-  `git show HEAD:<file> | npx eslint --stdin --stdin-filename <file>`, and say so in the report.
-- **2026-09-04 — the generated `.ai/registry-map.json` misses `authorization` for the
-  Members & Access Control context** (it joins `status-vocabulary` + `data-access`). Two of five fixes
-  in that round came from reading `security/identity-and-access/authorization` anyway. When a context
-  is obviously governed by a subject the map does not list, resolve it through
-  `knowledge/<domain>/index.json` and say in the header that you went outside the map.
 
 - **2026-08-29 (moonshot round)** — `--develop --ideas-only` over ALL 54 contexts with `feature-scout` +
   `moonshot-architect` (operator-defined; not in `references/lenses.md`), L/XL only. Method that worked:
