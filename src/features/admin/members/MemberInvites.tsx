@@ -54,13 +54,26 @@ export function MemberInvites({ slug, initialInvites }: { slug: string; initialI
   }
 
   async function revokeInvite(id: string) {
-    const prev = invites;
+    // Remember only THIS row + its position, never a whole-array snapshot: nothing here serializes
+    // two revokes (there is no per-row busy lock), so replaying the array captured at call time
+    // resurrects an invite a concurrent revoke has already deleted on the server — and the owner
+    // then sees a pending invite whose link is dead. Same rule, and the same targeted functional
+    // re-insert, as the roster's useMembersPanel.remove (members-access-control 07-09 #4).
+    const idx = invites.findIndex((i) => i.id === id);
+    const removed = idx >= 0 ? invites[idx] : null;
     setInvites((xs) => xs.filter((i) => i.id !== id));
     try {
       const res = await fetch(`/api/org/invites?org=${encodeURIComponent(slug)}&id=${encodeURIComponent(id)}`, { method: "DELETE" });
       if (!res.ok) throw new Error();
     } catch {
-      setInvites(prev);
+      if (removed) {
+        setInvites((xs) => {
+          if (xs.some((i) => i.id === id)) return xs; // already present — don't duplicate
+          const next = [...xs];
+          next.splice(Math.min(idx, next.length), 0, removed);
+          return next;
+        });
+      }
       setInviteError("Failed to revoke the invite.");
     }
   }
