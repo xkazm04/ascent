@@ -45,6 +45,7 @@ export async function MembersTab({ slug }: { slug: string }) {
     email: i.email,
     githubLogin: i.githubLogin,
     role: i.role,
+    invitedBy: i.invitedBy,
     expiresAt: i.expiresAt,
   }));
   return <MembersPanel slug={slug} initial={initial} initialInvites={initialInvites} selfLogin={selfLogin} />;

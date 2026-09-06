@@ -16,18 +16,11 @@ import { useState } from "react";
 import type { OrgRole } from "@/lib/db/members";
 import { INVITE_ROLES } from "@/features/admin/members/memberRoles";
 import { InviteList } from "./InviteList";
+import type { InviteRow } from "./MembersTypes";
 
-export interface InviteRow {
-  id: string;
-  email: string | null;
-  githubLogin: string | null;
-  role: OrgRole;
-  // Present only for invites created in THIS session (the POST create response). Pre-existing
-  // pending invites loaded from the server no longer carry the token (it's the capability, shown
-  // once), so the copy-link affordance appears only right after creation.
-  token?: string | null;
-  expiresAt: string;
-}
+// Re-exported so the panel and the tab keep importing it from here (pure relocation).
+export type { InviteRow };
+
 
 /** The `emailed` wire vocabulary, rendered from ONE table keyed by the wire token — label and
  *  severity together, so a future member cannot gain a colour in one place and a sentence in

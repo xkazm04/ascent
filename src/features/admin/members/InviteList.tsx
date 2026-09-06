@@ -5,7 +5,7 @@
 // delivery disclosure it was missing (AGENTS.md: a file approaching the limit is the signal to
 // extract, not to keep appending).
 
-import type { InviteRow } from "./MemberInvites";
+import type { InviteRow } from "./MembersTypes";
 
 export function InviteList({
   invites,
@@ -25,6 +25,7 @@ export function InviteList({
         <li key={i.id} className="flex flex-wrap items-center gap-2 type-mono-sm">
           <span className="text-slate-300">{i.githubLogin ? `@${i.githubLogin}` : i.email}</span>
           <span className="rounded border border-slate-700 px-1.5 py-0.5 text-slate-400">{i.role}</span>
+          {i.invitedBy && <span className="text-slate-600">invited by @{i.invitedBy}</span>}
           {i.token ? (
             <button onClick={() => onCopy(i.token!)} className="text-accent transition hover:text-white">
               {copied === i.token ? "copied ✓" : "copy link"}
