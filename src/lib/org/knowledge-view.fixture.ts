@@ -20,6 +20,8 @@ import type {
   KnowledgeCategory,
   KnowledgeCell,
   KnowledgeCellState,
+  KnowledgeContextRow,
+  KnowledgeContextState,
   KnowledgeRepo,
   KnowledgeSubject,
   KnowledgeView,
@@ -37,7 +39,26 @@ const S = (
   digest: string,
   useWhen: string[],
   laws: string[],
-): KnowledgeSubject => ({ bundle: "software-engineering", slug, category, subcategory, status, file, techniqueCount, useWhen, laws, digest, revision: null, changedAt: null });
+): KnowledgeSubject => {
+  // Revision and change date are shaped from the slug so they never reshuffle; one subject in nine
+  // predates revisions (both null) so the "r? · unversioned" reading is reachable.
+  const h = hash(slug);
+  const versioned = h % 9 !== 0;
+  const day = 1 + (h % 28);
+  const month = 3 + (h % 6);
+  return {
+    bundle: "software-engineering", slug, category, subcategory, status, file, techniqueCount, useWhen, laws, digest,
+    revision: versioned ? 3 + (h % 40) : null,
+    changedAt: versioned ? `2026-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}` : null,
+  };
+};
+
+/** FNV-1a — a stable, dependency-free spread so the shaped verdicts never reshuffle between renders. */
+function hash(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193) >>> 0;
+  return h % 1000;
+}
 
 export const SE_TAXONOMY: KnowledgeCategory[] = [
   { id: "ui-surfaces", title: "UI surfaces", order: 1, subjects: [], subcategories: [
@@ -174,10 +195,21 @@ const repo = (
 /** Eight repos, one per fact the matrix has to keep apart. Counts are filled from the cells below. */
 const REPOS: KnowledgeRepo[] = [
   repo("r-web", "acme/web-app", "current", { contexts: 41, weaklyGoverned: ["Marketing pages"] }),
-  repo("r-api", "acme/api", "conform", { contexts: 33, weaklyGoverned: ["Legacy SOAP bridge", "Cron shims"] }),
-  repo("r-billing", "acme/billing-service", "conform", { contexts: 19 }),
+  repo("r-api", "acme/api", "conform", {
+    contexts: 33,
+    weaklyGoverned: ["Legacy SOAP bridge", "Cron shims"],
+    orphaned: 2,
+    renamed: 1,
+    contextMapRevision: "2026-09-02.4",
+    repoContextMapRevision: "2026-09-02.4",
+  }),
+  repo("r-billing", "acme/billing-service", "conform", { contexts: 19, arrived: 3, contextMapRevision: "2026-09-04.1", repoContextMapRevision: "2026-09-04.1" }),
   repo("r-infra", "acme/infra", "conform", {
     contexts: 24,
+    // The context map moved after the registry map was built: subscriptions are owed.
+    contextMapRevision: "2026-08-30.7",
+    repoContextMapRevision: "2026-09-05.2",
+    mapBehind: true,
     scope: { outOfScopeCategories: ["software-engineering/ui-surfaces"], outOfScopeSubjects: ["software-engineering/companion-runtime"] },
     directions: [
       { subject: "eval-harness", bundle: "software-engineering", decision: "declined" },
@@ -195,13 +227,6 @@ const REPOS: KnowledgeRepo[] = [
   repo("r-pipeline", "acme/data-pipeline", "populate"),
 ];
 
-/** FNV-1a — a stable, dependency-free spread so the shaped verdicts never reshuffle between renders. */
-function hash(s: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193) >>> 0;
-  return h % 1000;
-}
-
 /** The registry's absence rule (`build-fleet-map.mjs`), first match wins. Mirrors `src/lib/registry/absence.ts`. */
 function absence(s: KnowledgeSubject, r: KnowledgeRepo): KnowledgeCellState {
   if (!r.hasMap) return "no-map";
@@ -218,15 +243,58 @@ const EVIDENCE: Record<string, string> = {
   "not-applicable": "no surface of this kind exists in the repo",
 };
 
+/** Context names per repo — the pool a cell's rows are drawn from, so the same context recurs across subjects. */
+const CONTEXT_POOL: Record<string, { name: string; group: string | null }[]> = {
+  "r-web": [
+    { name: "Checkout", group: "Commerce" }, { name: "Account settings", group: "Identity" }, { name: "Marketing pages", group: null },
+    { name: "Search", group: "Discovery" }, { name: "Notifications", group: "Messaging" }, { name: "Admin console", group: "Operations" },
+    { name: "Feature flags", group: "Platform" }, { name: "Analytics events", group: "Platform" },
+  ],
+  "r-api": [
+    { name: "Auth gateway", group: "Identity" }, { name: "Orders service", group: "Commerce" }, { name: "Legacy SOAP bridge", group: null },
+    { name: "Cron shims", group: null }, { name: "Webhook intake", group: "Integration" }, { name: "Rate limiter", group: "Platform" },
+  ],
+  "r-billing": [{ name: "Invoicing", group: "Billing" }, { name: "Plan catalog", group: "Billing" }, { name: "Dunning worker", group: "Billing" }, { name: "Usage meter", group: "Billing" }],
+  "r-infra": [{ name: "Terraform modules", group: "Infra" }, { name: "Secrets rotation", group: "Security" }, { name: "Deploy pipeline", group: "CI" }, { name: "Alert routing", group: "Observability" }],
+  "r-design": [{ name: "Token pipeline", group: "Design" }, { name: "Component library", group: "Design" }, { name: "Docs site", group: null }],
+  "r-docs": [{ name: "Content pipeline", group: null }, { name: "Locale bundles", group: null }],
+};
+
+const VERDICT_RANK: Record<KnowledgeContextState, number> = { deviation: 3, unknown: 2, conformant: 1, "not-applicable": 0 };
+
+/**
+ * The rows under a folded cell: `1 + h % 3` of them, the worst carrying the cell's state and the rest
+ * no worse, sorted worst first then by name — the same order the fleet fold emits. Stale rows live
+ * only where the cell is stale; one in two of them predates revisions (`judgedRevision: null`);
+ * arrived rows are unjudged by definition.
+ */
+function contextRows(s: KnowledgeSubject, r: KnowledgeRepo, h: number, state: KnowledgeContextState, stale: boolean): KnowledgeContextRow[] {
+  const pool = CONTEXT_POOL[r.repositoryId] ?? [{ name: "Core", group: null }];
+  const n = Math.min(1 + (h % 3), pool.length);
+  const milder: KnowledgeContextState[] = state === "deviation" ? ["conformant", "conformant", "not-applicable"] : state === "unknown" ? ["unknown", "conformant"] : [state];
+  const rows: KnowledgeContextRow[] = [];
+  for (let i = 0; i < n; i++) {
+    const ctx = pool[(h + i * 3) % pool.length]!;
+    const rowState = i === 0 ? state : milder[(h + i) % milder.length]!;
+    const arrived = r.arrived > 0 && rowState === "unknown" && (h + i) % 3 === 0;
+    const rowStale = stale && (i === 0 || (h + i) % 2 === 0);
+    let judgedRevision: number | null = null;
+    if (rowState !== "unknown" && s.revision != null) judgedRevision = rowStale ? ((h + i) % 2 === 0 ? null : Math.max(1, s.revision - 1 - ((h + i) % 3))) : s.revision;
+    rows.push({ name: ctx.name, group: ctx.group, state: rowState, stale: rowStale, judgedRevision, arrived });
+  }
+  return rows.sort((a, b) => VERDICT_RANK[b.state] - VERDICT_RANK[a.state] || a.name.localeCompare(b.name));
+}
+
 function verdict(s: KnowledgeSubject, r: KnowledgeRepo, h: number): KnowledgeCell {
   const stale = r.repositoryId === "r-api" && h % 7 === 0;
-  let state: KnowledgeCellState;
+  let state: KnowledgeContextState;
   if (r.repositoryId === "r-web") state = (["conformant", "conformant", "deviation", "not-applicable"] as const)[h % 4] ?? "conformant";
   else if (r.repositoryId === "r-api") state = h % 10 < 4 ? "unknown" : h % 3 === 0 ? "deviation" : "conformant";
   else if (r.repositoryId === "r-billing") state = h % 10 < 7 ? "unknown" : "conformant";
   else if (r.repositoryId === "r-infra") state = h % 5 === 0 ? "deviation" : h % 5 === 1 ? "unknown" : "conformant";
   else state = h % 6 === 0 ? "deviation" : "conformant";
-  return { subject: s.slug, repositoryId: r.repositoryId, state, stale, contexts: 1 + (h % 3), evidence: EVIDENCE[state] ?? null, contextRows: [] };
+  const rows = contextRows(s, r, h, state, stale);
+  return { subject: s.slug, repositoryId: r.repositoryId, state, stale, contexts: rows.length, evidence: EVIDENCE[state] ?? null, contextRows: rows };
 }
 
 function buildCells(subjects: KnowledgeSubject[], repos: KnowledgeRepo[]): KnowledgeCell[] {

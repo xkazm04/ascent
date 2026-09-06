@@ -12,6 +12,7 @@ import type {
   KnowledgeCategory,
   KnowledgeCell,
   KnowledgeCellState,
+  KnowledgeContextRow,
   KnowledgeRepo,
   KnowledgeSubject,
   KnowledgeView,
@@ -129,4 +130,23 @@ export function readSignal(s: { contributors: number; consults: number | null; d
   if (!s || s.contributors === 0) return "no witness";
   const n = (v: number | null) => (v == null ? "—" : v.toLocaleString());
   return `${n(s.consults)} consults · ${n(s.deviations)} deviations`;
+}
+
+/** `r12 · 2026-08-14`; the null halves read `r?` / `unversioned` — an index that predates revisions says so. */
+export function readRevision(s: { revision: number | null; changedAt: string | null }): string {
+  return `${s.revision == null ? "r?" : `r${s.revision}`} · ${s.changedAt ?? "unversioned"}`;
+}
+
+/**
+ * How one context row was judged, against the subject's current revision:
+ *   `judged at r7`            current
+ *   `judged at r5, 2 behind`  the verdict predates the subject's revision
+ *   `judged at ? (stale)`     a stale verdict older than revisions — nothing to count behind from
+ *   `unjudged` / `new`        the matcher paired them and nobody judged (new = arrived this map)
+ */
+export function readJudged(row: KnowledgeContextRow, revision: number | null): string {
+  if (row.arrived) return "new";
+  if (row.judgedRevision == null) return row.stale ? "judged at ? (stale)" : row.state === "unknown" ? "unjudged" : "judged at ?";
+  const behind = revision != null && revision > row.judgedRevision ? revision - row.judgedRevision : 0;
+  return `judged at r${row.judgedRevision}${behind ? `, ${behind} behind` : ""}`;
 }

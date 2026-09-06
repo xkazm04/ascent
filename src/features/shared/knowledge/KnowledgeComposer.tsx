@@ -12,8 +12,9 @@
 
 import { Kicker, chipButtonClass } from "@/components/ui";
 import type { KnowledgeView, RegistryDispatchRow, RegistryDispatchStage } from "@/lib/org/knowledge-shape";
+import { KnowledgeComposerContexts } from "./KnowledgeComposerContexts";
 import { StageChip } from "./KnowledgeShared";
-import { STAGE_ACTION, fmtCost, sweepAge } from "./knowledgeModel";
+import { STAGE_ACTION, fmtCost, indexCells, sweepAge } from "./knowledgeModel";
 import type { KnowledgeActionsApi } from "./useKnowledgeActions";
 import type { KnowledgeSelectionApi } from "./useKnowledgeSelection";
 
@@ -70,6 +71,13 @@ export function KnowledgeComposer({
   const stage: RegistryDispatchStage | null = !repoRow ? null : conform ? "conform" : repoRow.stage === "populate" || repoRow.stage === "map" ? repoRow.stage : null;
   const ready = !!repoRow && stage !== null && (conform ? sel.picked.length > 0 : true) && !state.pending;
   const busy = (a: string) => state.pending === a;
+  const cells = indexCells(view.cells);
+  const picks = repoRow
+    ? sel.picked.flatMap((slug) => {
+        const subject = view.subjects.find((s) => s.slug === slug);
+        return subject ? [{ subject, cell: cells.get(slug, repoRow.repositoryId) }] : [];
+      })
+    : [];
 
   return (
     <section className={`space-y-3 rounded-2xl border border-divider bg-surface/40 p-4 ${className}`} aria-label="Dispatch composer">
@@ -110,6 +118,15 @@ export function KnowledgeComposer({
           ) : null}
           {conform && !sel.picked.length ? (
             <p className="type-caption text-slate-500">Pick the cells to judge — unjudged, stale, deviation or candidate — in this repo&rsquo;s column.</p>
+          ) : null}
+          {conform && (picks.length || repoRow.mapBehind) ? (
+            <KnowledgeComposerContexts
+              repo={repoRow}
+              picks={picks}
+              canBrief={view.capabilities.canBrief}
+              pending={!!state.pending}
+              onMapBrief={() => actions.composeBrief(repoRow.repositoryId, "map", [])}
+            />
           ) : null}
           <div className="flex flex-wrap items-center gap-2">
             {view.capabilities.canBrief ? (
