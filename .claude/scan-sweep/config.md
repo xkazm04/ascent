@@ -45,6 +45,49 @@ The same hazard reaches the **registry** through the skill symlinks: a reflectio
 a parallel run has already swept an in-flight version bump into its own commit here.
 
 ## Skill improvement log
+- **2026-09-06 (develop, Members & Access Control) — the whole-tree `tsc` gate can be structurally
+  unavailable here, and "wait for the tree to settle" does not terminate.** A foreign session ran
+  `next dev` on this shared checkout for the whole round; turbopack rewrites
+  `.next/dev/types/{routes.d.ts,validator.ts}` continuously and leaves them TRUNCATED mid-write
+  (`ing; }` as a top-level statement), and `tsconfig.json` *includes* `.next/dev/types/**`. A second
+  session was simultaneously half-applying the `/surface` feature, so `OrgTabChunks.tsx` imported
+  modules that did not exist yet. Both make `npx tsc --noEmit` red on paths that are never yours.
+  Three things learned, in order of usefulness:
+  1. **`npx next typegen` regenerates `.next/types`, NOT `.next/dev/types`.** It does not fix this.
+     `rm -rf .next/dev/types` does (gitignored, unowned once no `next dev` is running) — but a live
+     foreign dev server recreates the corruption within seconds.
+  2. **`exclude` cannot drop a transitively-imported tree.** A sweep tsconfig with
+     `exclude: ["src/features/shared/surfaces/**"]` still typechecks those files, because a
+     non-excluded file imports them. Excluding is only a root-file filter.
+  3. **What works is `files:`, not `include`/`exclude`** — a tsconfig extending `./tsconfig.json`
+     whose `files` are the round's changed files plus `next-env.d.ts` plus each changed file's
+     CONSUMERS (the db barrel, the routes, the panels). TS pulls the full import closure, so this is
+     a real assertion on everything the change can break at compile time, and it is immune to
+     unrelated churn. Delete the temp tsconfig before the round ends and never stage it.
+  Say `DEGRADED` in the report and name the foreign paths; do not report a whole-tree pass you did
+  not get.
+
+- **2026-09-06 — the overlay's `--max-warnings=0` is STRICTER than the repo's own gate.**
+  `package.json` `lint` is bare `eslint`. `src/lib/db/invites.ts:68` carries a pre-existing
+  `'_token' is assigned a value but never used` warning, so anyone touching that file gets a red
+  `--max-warnings=0` that is not theirs. Confirm with
+  `git show HEAD:<file> | npx eslint --stdin --stdin-filename <file>` before treating a warning as
+  yours — and DO fix the ones that are: a test-file split copies the whole preamble, and this round
+  left 8 unused-helper warnings behind in two sibling files before noticing.
+
+- **2026-09-06 — adding ANY `recordAudit` / `recordOrgAudit` call site is a two-file change.**
+  `src/features/admin/audit/AuditLogCells.actions.test.ts` statically walks every call site in `src/`
+  and fails when a recorded action has no entry in `src/features/admin/audit/auditActions.ts`. That
+  registry file belongs to the *Security Posture & Audit Log* context, so an observability finding in
+  any other context is structurally cross-context. It is the gate's own design (its header says so),
+  not scope creep — declare the crossing in the commit, keep the edit to one appended line, and check
+  `git status --porcelain` first.
+
+- **2026-09-06 — `react-hooks/purity` rejects `Date.now()` in a component body.** The house shape is
+  a DEFAULTED clock parameter inside the primitive (`timeAgo(iso)` reads the clock itself; that is why
+  seventeen call sites can be pure). When adding a time renderer, put `nowMs: number = Date.now()` in
+  the signature and keep it injectable for the tests — do not lift the clock read to the caller.
+
 
 - **2026-08-29 (moonshot round)** — `--develop --ideas-only` over ALL 54 contexts with `feature-scout` +
   `moonshot-architect` (operator-defined; not in `references/lenses.md`), L/XL only. Method that worked:
