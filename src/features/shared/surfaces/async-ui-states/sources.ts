@@ -36,7 +36,7 @@ export function ghostWidth(row, col) { const v = ((row * 7 + col * 13) * 2654435
 // ListPanel.tsx — the ghost renders in exactly one state
 {state === "loading" ? <GhostRows count={PAGE_SIZE} reduced={reduced} rowClass={ROW} />
  : state === "settled-empty" ? <p data-empty="no-match">No repositories match …</p>
- : <ul ref={listRef}>…rows…</ul>}`;
+ : <ul ref={setListEl}>…rows…</ul>}`;
 
 export const SRC_BUSY = `// BusyButton.tsx — the call site hands over the promise; the button owns the rest
 const press = () => {
@@ -113,7 +113,7 @@ export const windowKey = (page, sort) => \`page \${page} · \${sort}\`;
 issue({ rows, latencyMs }, { key: windowKey(q.page, q.sort), drop: axis === "identifying", tag });
 const superseded = region.content.length > 0 && region.appliedKey !== windowKey(page, sort);
 // the consumer table, applied by the handlers — one direction only
-const search = (t) => { setTerm(t); setPage(1); seen.reset(); listRef.current?.scrollTo?.({ top: 0 }); run({ term: t, page: 1, sort }, "identifying", "arrival"); };
+const search = (t) => { setTerm(t); setPage(1); seen.reset(); listEl?.scrollTo?.({ top: 0 }); run({ term: t, page: 1, sort }, "identifying", "arrival"); };
 const turnPage = (p) => { setPage(p); run({ term, page: p, sort }, "windowing", "window"); };   // term untouched
 // ListPanel.tsx — superseded marks the CONTENT region, not an ambient indicator
 <div className={superseded ? "opacity-50" : ""} data-content={state} data-superseded={superseded}>`;

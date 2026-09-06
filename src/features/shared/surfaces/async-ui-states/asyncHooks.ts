@@ -59,10 +59,10 @@ export function useRequestRegion<T>(): Region<T> {
     const t = timers.current;
     return () => t.forEach(clearTimeout);
   }, []);
-  // Staleness clock: ticks while content is held, restarts when a response applies.
+  // Staleness clock: ticks while content is held. The restart (`ageS = 0`) is folded into the apply
+  // event below, so the effect only subscribes the interval — no setState in its body.
   useEffect(() => {
     if (applied === 0) return;
-    setAgeS(0);
     const id = setInterval(() => setAgeS((s) => s + 1), 1000);
     return () => clearInterval(id);
   }, [applied]);
@@ -87,6 +87,7 @@ export function useRequestRegion<T>(): Region<T> {
         }
         setSettled(true); // sticky: success or failure, the first completion settles the region
         setApplied(seq);
+        setAgeS(0); // the staleness clock restarts on the apply edge (success or failure alike)
         setAppliedTag(opts.tag ?? "");
         if (job.fail) {
           setError(job.fail); // held content survives; the failure is admitted beside it

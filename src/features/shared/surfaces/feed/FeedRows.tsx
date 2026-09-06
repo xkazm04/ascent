@@ -7,6 +7,7 @@
 // play within the first viewport; under `reduced` every row appears settled.
 
 import { motion } from "framer-motion";
+import type { Ref } from "react";
 import { absolute, dayBucket, newerThan, relative, rowKey, rowTs, type FeedRow, type OrderKey, type Tuple } from "./feedOrder";
 import { textOf, type Occurrence } from "./fixtures";
 import { BTN } from "./sceneParts";
@@ -23,6 +24,8 @@ type Props = {
   entered: ReadonlySet<string>;
   reduced: boolean;
   onExpand: (id: string) => void;
+  /** Attached to the list at commit: the region marks every committed key as entered from it. */
+  listRef?: Ref<HTMLOListElement>;
 };
 
 function Row({ o, orderKey, now, stored, className = "" }: { o: Occurrence; orderKey: OrderKey; now: number; stored: Tuple; className?: string }) {
@@ -73,20 +76,35 @@ function Cluster({ c, open, onExpand, ...rest }: { c: Extract<FeedRow, { type: "
   );
 }
 
-export function FeedRows({ rows, orderKey, now, entry, stored, expanded, entered, reduced, onExpand }: Props) {
+type Laid = { r: FeedRow; key: string; dayDivider: string | null; sinceDivider: boolean };
+
+/**
+ * The dividers are a pure function of the ordered rows: a day divider where the day bucket changes
+ * from the row before, and the one "new since you last looked" divider at the first row that is NOT
+ * newer than the entry anchor. Computed here, not by mutating counters while the list renders.
+ */
+export function layoutRows(rows: FeedRow[], orderKey: OrderKey, now: number, entry: Tuple): Laid[] {
+  const out: Laid[] = [];
   let lastDay = "";
   let dividerDone = false;
+  for (const r of rows) {
+    const ts = rowTs(r, orderKey);
+    const day = dayBucket(ts, now);
+    const dayDivider = day !== lastDay ? day : null;
+    lastDay = day;
+    const isNew = ts > entry.ts || (ts === entry.ts && (r.type === "row" ? r.o.seq : r.members[0]!.seq) > entry.seq); // a cluster row carries >= 2 members (clusterRows)
+    const sinceDivider = !dividerDone && !isNew;
+    if (sinceDivider) dividerDone = true;
+    out.push({ r, key: rowKey(r), dayDivider, sinceDivider });
+  }
+  return out;
+}
+
+export function FeedRows({ rows, orderKey, now, entry, stored, expanded, entered, reduced, onExpand, listRef }: Props) {
+  const laid = layoutRows(rows, orderKey, now, entry);
   return (
-    <ol className="space-y-1.5">
-      {rows.map((r, i) => {
-        const ts = rowTs(r, orderKey);
-        const day = dayBucket(ts, now);
-        const dayDivider = day !== lastDay ? day : null;
-        lastDay = day;
-        const isNew = ts > entry.ts || (ts === entry.ts && (r.type === "row" ? r.o.seq : r.members[0]!.seq) > entry.seq); // a cluster row carries >= 2 members (clusterRows)
-        const sinceDivider = !dividerDone && !isNew;
-        if (sinceDivider) dividerDone = true;
-        const key = rowKey(r);
+    <ol className="space-y-1.5" ref={listRef}>
+      {laid.map(({ r, key, dayDivider, sinceDivider }, i) => {
         const enters = !reduced && i < ANIMATED_DEPTH && !entered.has(key);
         return (
           <motion.li key={key} data-entered={enters ? "now" : "settled"} initial={enters ? { opacity: 0, y: -8 } : false} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24 }}>
@@ -109,7 +127,7 @@ export function FeedRows({ rows, orderKey, now, entry, stored, expanded, entered
 export function PendingStrip({ o, onConfirm }: { o: Occurrence; onConfirm: () => void }) {
   return (
     <div className="mb-2 flex items-center justify-between gap-3 rounded-md border border-dashed border-slate-700 px-2 py-1" data-pending>
-      <span className="type-caption text-slate-400">pending · {textOf(o)} · no key yet (the renderer's clock does not rank)</span>
+      <span className="type-caption text-slate-400">pending · {textOf(o)} · no key yet (the renderer&apos;s clock does not rank)</span>
       <button type="button" className={BTN} onClick={onConfirm}>
         server confirms
       </button>

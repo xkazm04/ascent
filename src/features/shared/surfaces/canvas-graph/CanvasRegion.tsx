@@ -15,7 +15,7 @@ import { EdgeLayer } from "./EdgeLayer";
 import { NodeView } from "./NodeView";
 import type { RenderList } from "./renderList";
 import { BTN, Readout, Region } from "./sceneParts";
-import type { CameraApi } from "./useCamera";
+import type { CameraApi, CameraStats } from "./useCamera";
 import type { ConnectState, NodeHandlers, PortHandlers } from "./useNodeGestures";
 
 export type CanvasProps = {
@@ -40,8 +40,8 @@ export type CanvasProps = {
 };
 
 export function CanvasRegion(p: CanvasProps) {
-  const { camera, graph, positions, list, mounted, selected, cursor, connect } = p;
-  const { cam } = camera;
+  const { camera, graph, positions, list, mounted, selected, cursor, connect, provisionalRef, phase } = p;
+  const { cam, svgRef, worldRef, handlers, stats } = camera;
   const full = list.tier === "full";
   const shown = list.ranked.slice(0, mounted);
   const fitSelection = () => {
@@ -71,7 +71,7 @@ export function CanvasRegion(p: CanvasProps) {
         </span>
       </div>
       <svg
-        ref={camera.svgRef}
+        ref={svgRef}
         className="focus-ring h-[26rem] w-full touch-none rounded-lg border border-divider bg-surface-strong/40 select-none"
         tabIndex={0}
         role="application"
@@ -80,10 +80,10 @@ export function CanvasRegion(p: CanvasProps) {
         data-canvas
         onKeyDown={p.onKeyDown}
         onClick={p.onBackgroundClick}
-        {...camera.handlers}
+        {...handlers}
       >
         <g
-          ref={camera.worldRef}
+          ref={worldRef}
           transform={camTransform(cam)}
           data-world
           style={{ ["--label-scale" as string]: labelScale(cam.z).toFixed(3), ["--label-opacity" as string]: lod(cam.z, DETAIL_Z, DETAIL_Z + 0.2).toFixed(2) }}
@@ -105,20 +105,19 @@ export function CanvasRegion(p: CanvasProps) {
             const target = connect?.target === n.id ? (connect.ok ? "ok" : "bad") : null;
             return <NodeView key={n.id} id={n.id} name={n.name} kind={n.kind} score={n.score} x={x} y={y} selected={selected.has(n.id)} cursor={cursor === n.id} target={target} detail={full} node={p.node} port={p.port} onHover={p.onHover} />;
           })}
-          <path ref={p.provisionalRef} d="" fill="none" stroke="var(--color-accent-soft)" strokeWidth={2 / cam.z} strokeDasharray={`${6 / cam.z} ${4 / cam.z}`} pointerEvents="none" data-provisional-edge />
+          <path ref={provisionalRef} d="" fill="none" stroke="var(--color-accent-soft)" strokeWidth={2 / cam.z} strokeDasharray={`${6 / cam.z} ${4 / cam.z}`} pointerEvents="none" data-provisional-edge />
         </g>
       </svg>
       <div className="mt-2 grid gap-1 sm:grid-cols-3">
-        <Readout label="gesture" value={<span data-gesture-phase={p.phase}>{p.phase}</span>} />
-        <Readout label="commits" value={<CommitCount camera={camera} />} />
+        <Readout label="gesture" value={<span data-gesture-phase={phase}>{phase}</span>} />
+        <Readout label="commits" value={<CommitCount stats={stats} />} />
         <Readout label="live ≡ committed" value={<span data-loan="repaid">at every commit</span>} />
       </div>
     </Region>
   );
 }
 
-/** Reads the camera's counters after each commit — a render of this readout is itself a commit's consequence, never a per-frame one. */
-function CommitCount({ camera }: { camera: CameraApi }) {
-  const s = camera.stats.current;
+/** The camera's counters as snapshotted at the last commit — a render of this readout is itself a commit's consequence, never a per-frame one. */
+function CommitCount({ stats: s }: { stats: CameraStats }) {
   return <span data-commits={s.commits}>{`${s.commits} (wheel ${s.wheelEvents} ev · ${s.gestureFrames} frames · ${s.interimCommits} interim)`}</span>;
 }

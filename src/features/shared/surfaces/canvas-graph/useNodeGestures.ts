@@ -97,7 +97,7 @@ export function useNodeGestures(deps: Deps) {
     }
     setPhase("idle");
   };
-  const onNodePointerUp = useCallback((e: RPointerEvent<SVGGElement>) => finishDrag(e, false), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const onNodePointerUp = useCallback((e: RPointerEvent<SVGGElement>) => finishDrag(e, false), []);
 
   const drawProvisional = (from: string, to: Pt) => {
     const { positions } = latest.current;
@@ -115,7 +115,7 @@ export function useNodeGestures(deps: Deps) {
     setConnect({ from, target: null, ok: false, reason: "drag to a node" });
     setPhase("connect");
     drawProvisional(from, nodeCenter(posAt(latest.current.positions, from)));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const onPortPointerMove = useCallback((e: RPointerEvent<SVGElement>) => {
     const c = conn.current;
@@ -130,7 +130,7 @@ export function useNodeGestures(deps: Deps) {
     c.last = under;
     const v = under ? connectValidity(graph, c.from, under) : { ok: false, reason: "drag to a node" };
     setConnect({ from: c.from, target: under, ok: v.ok, reason: v.reason });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const finishConnect = (cancelled: boolean) => {
     const c = conn.current;
@@ -148,13 +148,13 @@ export function useNodeGestures(deps: Deps) {
     setConnect(null);
     setPhase("idle");
   };
-  const onPortPointerUp = useCallback(() => finishConnect(false), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const onPortPointerUp = useCallback(() => finishConnect(false), []);
 
   /** Escape: the in-flight gesture ends with the model untouched. */
   const cancel = useCallback(() => {
     if (drag.current) finishDrag({ currentTarget: drag.current.target, shiftKey: false } as unknown as RPointerEvent<SVGGElement>, true);
     if (conn.current) finishConnect(true);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // One stable handler bundle for every node: memoized nodes compare it by reference.
   const node = useMemo(() => ({ onPointerDown: onNodePointerDown, onPointerMove: onNodePointerMove, onPointerUp: onNodePointerUp, onPointerCancel: onNodePointerUp }), [onNodePointerDown, onNodePointerMove, onNodePointerUp]);

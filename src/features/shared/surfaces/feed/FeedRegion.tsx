@@ -8,7 +8,7 @@
 // failed walk is said, never rendered as a clean resume. Entrances are identity-keyed and only play
 // within the first viewport.
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { rowKey } from "./feedOrder";
 import type { Action, State } from "./feedStore";
 import { FeedRows, PendingStrip } from "./FeedRows";
@@ -20,14 +20,18 @@ export const BAND_PX = 24;
 
 export function FeedRegion({ s, d, dispatch, reduced }: { s: State; d: Derived; dispatch: (a: Action) => void; reduced: boolean }) {
   const viewport = useRef<HTMLDivElement>(null);
-  // The identity-keyed entrance guard: ids that have already rendered. Written after commit, so a
-  // refetch or a catch-up that re-delivers a known id renders it plainly.
+  // The identity-keyed entrance guard: ids that have already rendered. Written by the commit itself —
+  // the list's ref callback runs once the rows are in the DOM, never during render — so a refetch or a
+  // catch-up that re-delivers a known id renders it plainly.
   const [entered, setEntered] = useState<ReadonlySet<string>>(() => new Set());
   const keys = d.rows.map(rowKey);
-  useEffect(() => {
-    if (keys.every((k) => entered.has(k))) return;
-    setEntered((prev) => new Set([...prev, ...keys]));
-  }, [keys, entered]);
+  const markCommitted = useCallback(
+    (el: HTMLOListElement | null) => {
+      if (!el) return;
+      setEntered((prev) => (keys.every((k) => prev.has(k)) ? prev : new Set([...prev, ...keys])));
+    },
+    [keys],
+  );
 
   const jump = () => {
     dispatch({ type: "jump" });
@@ -61,7 +65,7 @@ export function FeedRegion({ s, d, dispatch, reduced }: { s: State; d: Derived; 
           ) : null}
           {s.pending ? <PendingStrip o={s.pending} onConfirm={() => dispatch({ type: "confirm" })} /> : null}
           {d.rows.length === 0 ? <p className="type-body-sm text-slate-500">Nothing has happened here yet.</p> : null}
-          <FeedRows rows={d.rows} orderKey={s.key} now={s.now} entry={s.entry} stored={s.stored} expanded={s.expanded} entered={entered} reduced={reduced} onExpand={(id) => dispatch({ type: "expand", id })} />
+          <FeedRows rows={d.rows} orderKey={s.key} now={s.now} entry={s.entry} stored={s.stored} expanded={s.expanded} entered={entered} listRef={markCommitted} reduced={reduced} onExpand={(id) => dispatch({ type: "expand", id })} />
           <EdgeMarker s={s} dispatch={dispatch} />
         </div>
       </div>

@@ -64,7 +64,7 @@ export function HonestyRegion({ state, cap, onCap, retry, base, cand }: { state:
           <p className="type-caption text-slate-500">failure state: <span className="text-slate-300">none</span> — the kill switch in the offload region shows what a dead kernel renders as.</p>
         )}
         <p className="type-caption text-slate-500">
-          vocabulary matches alignment: under positional alignment a mismatched slot reads as <span className="text-slate-300">changed (positional)</span> in the predicate — a weaker claim than keyed "changed", and the surface says which one it made.
+          vocabulary matches alignment: under positional alignment a mismatched slot reads as <span className="text-slate-300">changed (positional)</span> in the predicate — a weaker claim than keyed &quot;changed&quot;, and the surface says which one it made.
         </p>
       </div>
     </Region>

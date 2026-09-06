@@ -68,7 +68,7 @@ export function ViewsPanel({ s }: { s: FleetSearch }) {
 
       {dead.length ? (
         <div className="mt-3 rounded-lg border border-danger/40 bg-danger/5 p-2" role="alert" data-dead-clauses={dead.length}>
-          <p className="type-caption text-danger">This view's clause no longer binds — results are withheld, not widened.</p>
+          <p className="type-caption text-danger">This view&apos;s clause no longer binds — results are withheld, not widened.</p>
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
             {dead.map((d) => (
               <Chip key={d.field} tone="danger" title={d.why}>

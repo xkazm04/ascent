@@ -12,7 +12,11 @@ const FIRST_WAVE = 120;
 
 export function useWavedMount(total: number): { mounted: number; waves: number; waveSize: number } {
   const [mounted, setMounted] = useState(0);
+  // Frame timing stays in a ref (written by the raf and the measuring effect, never read in render);
+  // what the readout shows — the wave count and the size the last wave was scheduled with — is state
+  // set alongside `mounted`, so the two land in the same commit.
   const wave = useRef({ size: FIRST_WAVE, count: 0, scheduledAt: 0, pending: false });
+  const [shown, setShown] = useState({ waves: 0, waveSize: FIRST_WAVE });
 
   // Measure the slice that just committed — guarded, so a re-run for any other reason is not mistaken
   // for a slow frame — and size the next one from it.
@@ -32,10 +36,11 @@ export function useWavedMount(total: number): { mounted: number; waves: number; 
       w.pending = true;
       w.scheduledAt = performance.now();
       w.count += 1;
+      setShown({ waves: w.count, waveSize: w.size });
       setMounted((m) => Math.min(total, m + w.size));
     });
     return () => cancelAnimationFrame(raf);
   }, [mounted, total]);
 
-  return { mounted: Math.min(mounted, total), waves: wave.current.count, waveSize: wave.current.size };
+  return { mounted: Math.min(mounted, total), waves: shown.waves, waveSize: shown.waveSize };
 }

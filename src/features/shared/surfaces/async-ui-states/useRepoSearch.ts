@@ -28,7 +28,9 @@ export function useRepoSearch(volume: SurfaceVolume, latency: Latency) {
   const [scrollResets, setScrollResets] = useState(0);
   const region = useRequestRegion<Repo>();
   const seen = useSeenSet();
-  const listRef = useRef<HTMLUListElement>(null);
+  // The list element is STATE set by a callback ref (never a ref read during render): the owner's
+  // animationend listener re-subscribes when the list remounts, and the handlers scroll it.
+  const [listEl, setListEl] = useState<HTMLUListElement | null>(null);
   const latencyRef = useRef(latency);
   useEffect(() => {
     latencyRef.current = latency;
@@ -56,7 +58,7 @@ export function useRepoSearch(volume: SurfaceVolume, latency: Latency) {
     setTerm(t);
     setPage(1); // dependent coordinate: identifying → windowing, one direction only
     seen.reset(); // these will be first appearances
-    listRef.current?.scrollTo?.({ top: 0 });
+    listEl?.scrollTo?.({ top: 0 });
     setScrollResets((n) => n + 1);
     run({ term: t, page: 1, sort }, "identifying", "arrival");
   };
@@ -83,7 +85,7 @@ export function useRepoSearch(volume: SurfaceVolume, latency: Latency) {
   };
 
   const superseded = region.content.length > 0 && region.appliedKey !== windowKey(page, sort);
-  return { term, page, pages, sort, total, region, seen, listRef, change, scrollResets, superseded, search, turnPage, resort, refresh, race };
+  return { term, page, pages, sort, total, region, seen, listEl, setListEl, change, scrollResets, superseded, search, turnPage, resort, refresh, race };
 }
 
 export type RepoSearch = ReturnType<typeof useRepoSearch>;

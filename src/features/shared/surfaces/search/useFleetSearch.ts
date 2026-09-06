@@ -6,7 +6,7 @@
 // from the source whenever its inputs move (a derivation that names its recomputation); under the
 // "grow" posture the index deliberately lags deletions so the drift is observable.
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { SurfaceVolume } from "@/lib/org/surface-catalog";
 import { DEFAULT_PREDICATE, facetCounts, passes, withClauses, type Predicate } from "./facets";
 import { PAGE_SIZE, repoRows, type Repo } from "./fixtures";
@@ -18,6 +18,20 @@ import { DEFAULT_TOKENIZER, type TokenizerOptions } from "./tokenize";
 
 export type IndexOpts = { mode: "index" | "scan"; posture: "sync" | "grow"; tok: TokenizerOptions };
 export type Command = PaletteItem & { run: () => void };
+
+/** One measured number with subscribers: the shape `useSyncExternalStore` reads. */
+function makeReading() {
+  let value = 0;
+  const subs = new Set<() => void>();
+  return {
+    get: () => value,
+    subscribe: (fn: () => void) => (subs.add(fn), () => void subs.delete(fn)),
+    set: (v: number) => {
+      value = v;
+      subs.forEach((fn) => fn());
+    },
+  };
+}
 
 export function useFleetSearch(volume: SurfaceVolume) {
   const repos = useMemo(() => repoRows(volume), [volume]);
@@ -51,11 +65,17 @@ export function useFleetSearch(volume: SurfaceVolume) {
   }, [docs, indexOpts.mode]);
 
   const parsed = useMemo(() => parseQuery(text, indexOpts.tok), [text, indexOpts.tok]);
-  const { exec, ms } = useMemo(() => {
+  const exec = useMemo(() => runLadder(engine, parsed, { down }), [engine, parsed, down]);
+  // The wall time is an instrument, not a derivation: the clock is an external system, so render never
+  // reads it. After commit the same pure ladder is re-run under the clock and the reading is published
+  // through a store the render subscribes to (the reader pays a second run for the figure).
+  const [clock] = useState(makeReading);
+  useEffect(() => {
     const t0 = performance.now();
-    const e = runLadder(engine, parsed, { down });
-    return { exec: e, ms: performance.now() - t0 };
-  }, [engine, parsed, down]);
+    runLadder(engine, parsed, { down });
+    clock.set(performance.now() - t0);
+  }, [clock, engine, parsed, down]);
+  const ms = useSyncExternalStore(clock.subscribe, clock.get, clock.get);
   const full = useMemo(() => withClauses(predicate, parsed.clauses), [predicate, parsed.clauses]);
   const hitRows = useMemo<Repo[]>(() => (exec.kind === "ok" ? [...exec.hits.keys()].map((id) => sourceById.get(id)).filter((r): r is Repo => Boolean(r)) : []), [exec, sourceById]);
   const counts = useMemo(() => facetCounts(hitRows, full), [hitRows, full]);

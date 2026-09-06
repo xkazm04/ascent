@@ -218,9 +218,15 @@ rule):
 Run in this order; a red gate stops the run, it does not get narrated around.
 
 ```bash
-npx tsc --noEmit
+npx eslint src/features/shared/surfaces/<slug>   # 0 errors: the React Compiler rules (refs/purity/set-state-in-effect) are errors here
+npx tsc --noEmit                                 # output must be EMPTY, see below
 npx vitest run src/features/shared/surfaces src/lib/org
 ```
+
+Lint is part of the repo's pre-push gate (`npm run verify`), so a scene that reads a ref during
+render, calls `performance.now()` in render, sets state synchronously at the top of an effect, or
+leaves a bare `'`/`"` in JSX blocks the release even when tsc and vitest are green. Frame-rate values
+stay in refs and are written to the DOM in effects; anything JSX reads is state or derived.
 
 **A typecheck is hollow while any file has a SYNTAX error.** tsc reports syntactic diagnostics
 first and skips every semantic check when it finds one. A killed or restarted `next dev` can

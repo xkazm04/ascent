@@ -40,6 +40,7 @@ export function useComparison(req: Request, { killed, forceDelayMs = 0 }: { kill
   const [state, setState] = useState<ComparisonState>({ status: "idle" });
   const seqRef = useRef(0);
   const cacheRef = useRef(new Map<string, DiffResult>());
+  const [cacheSize, setCacheSize] = useState(0); // the cache's size as of its last write — the ref itself is never read in render
   const [dropped, setDropped] = useState(0);
   const [hits, setHits] = useState(0);
   const [retries, setRetries] = useState(0);
@@ -72,6 +73,7 @@ export function useComparison(req: Request, { killed, forceDelayMs = 0 }: { kill
       cache.set(key, result);
       // The cache names its reaper: past the cap the oldest entry leaves.
       while (cache.size > CACHE_CAP) cache.delete(cache.keys().next().value as string);
+      setCacheSize(cache.size);
       setState({ status: "ready", seq, result, fromCache: false, path: delay === 0 ? "sync" : "scheduled" });
     };
     if (delay === 0) {
@@ -97,5 +99,8 @@ export function useComparison(req: Request, { killed, forceDelayMs = 0 }: { kill
     setRetries((r) => r + 1);
   }, []);
 
-  return { state, dropped, hits, cacheSize: cacheRef.current.size, seq: seqRef.current, n, delay, retry, race, key };
+  // Every settled or scheduled state carries the request it answers, so the current sequence number is
+  // derived from state rather than read off the ref mid-render.
+  const seq = state.status === "idle" ? 0 : state.seq;
+  return { state, dropped, hits, cacheSize, seq, n, delay, retry, race, key };
 }

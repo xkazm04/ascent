@@ -25,7 +25,10 @@ export function useCamera(reduced: boolean, initial: Camera) {
   const [size, setSize] = useState<Size>(DEFAULT_SIZE);
   const [phase, setPhase] = useState<PanPhase>("idle");
   const live = useRef<Camera>(initial);
+  // Per-frame counters live in a ref (written from handlers and rafs, never read in render); a snapshot
+  // is taken at every commit so the readout is the commit's consequence, never a per-frame one.
   const stats = useRef<CameraStats>({ commits: 0, wheelEvents: 0, gestureFrames: 0, interimCommits: 0 });
+  const [statsSnapshot, setStatsSnapshot] = useState<CameraStats>({ commits: 0, wheelEvents: 0, gestureFrames: 0, interimCommits: 0 });
   const gesture = useRef<{ ox: number; oy: number; start: Camera; panning: boolean; lastCommit: Pt } | null>(null);
   const suppressClick = useRef(false);
   const flight = useRef<number>(0);
@@ -37,6 +40,7 @@ export function useCamera(reduced: boolean, initial: Camera) {
   const commit = useCallback(() => {
     stats.current.commits += 1;
     setCam({ ...live.current });
+    setStatsSnapshot({ ...stats.current }); // batched with the camera commit: one render, both current
   }, []);
 
   // Committed state and the live copy agree whenever no gesture holds the loan.
@@ -184,7 +188,7 @@ export function useCamera(reduced: boolean, initial: Camera) {
   const fit = useCallback((rect: Rect) => fly(fitTo(rect, size)), [fly, size]);
   const panTo = useCallback((p: Pt) => fly(centerOn(live.current, p, size)), [fly, size]);
 
-  return { cam, size, measured, phase, live, stats, svgRef, worldRef, zoomBy, fit, panTo, handlers: { onPointerDown, onPointerMove, onPointerUp: endGesture, onPointerCancel: endGesture, onClickCapture } };
+  return { cam, size, measured, phase, live, stats: statsSnapshot, svgRef, worldRef, zoomBy, fit, panTo, handlers: { onPointerDown, onPointerMove, onPointerUp: endGesture, onPointerCancel: endGesture, onClickCapture } };
 }
 
 export type CameraApi = ReturnType<typeof useCamera>;

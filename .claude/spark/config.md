@@ -17,7 +17,8 @@ Moved here from `$VAULT/Spark/config.md` on 2026-08-25 (the repo overlay is the 
 ## Gates
 
 always:
-- `npx tsc --noEmit`
+- `npx eslint <touched paths>` — 0 errors (React Compiler rules are errors; lint is in the pre-push master gate)
+- `npx tsc --noEmit` — output EMPTY (a syntax error anywhere, e.g. a truncated `.next/dev/types/validator.ts`, silences every semantic check)
 - `npx vitest run` (scope with a path arg while iterating; **full run before merge**)
 
 when a client/server boundary may have moved:
@@ -110,6 +111,15 @@ Pasted verbatim into every builder brief:
 
 ## Skill improvement log
 
+- 2026-09-06 (ui-surfaces-showcase): **`npm run lint` is part of the pre-push master gate (`npm run verify`)
+  and the React Compiler rules (`react-hooks/refs|purity|set-state-in-effect|immutability`) are ERRORS** —
+  the overlay's `## Gates` never listed lint, so 15 builders shipped 37 lint errors past tsc + vitest and the
+  push to master was refused by the hook. Add `npx eslint <paths>` to every builder brief and to `always:`.
+  Also: `git push . <branch>:master` runs that hook (lint, typecheck, coverage tests, build, ~10 min); run
+  `npm run verify` once yourself BEFORE the push so a red gate is diagnosed with full output, not a 2-line tail.
+- 2026-09-06 (ui-surfaces-showcase): `src/lib/scan-ingest.test.ts` "overlaps the siblings instead of trailing
+  them" fails under `test:coverage` full-run load only (4/4 green alone, with and without coverage) — a
+  timing test; verify against the file alone before treating it as yours.
 - 2026-09-06 (ui-surfaces-showcase): **`npx tsc --noEmit` is HOLLOW while `.next/dev/types/validator.ts` is
   syntactically corrupt** — tsc skips all semantic diagnostics when any syntactic error exists, so "only the
   validator error" means nothing was checked. Sixteen builders and the Director passed this gate all session;

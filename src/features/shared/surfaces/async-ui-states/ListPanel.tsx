@@ -27,9 +27,9 @@ export function ListRegion({ s, reduced, latency, setLatency }: { s: RepoSearch;
     const ids = rows.filter((r) => !(arrival && !reduced && !has(r.id))).map((r) => r.id);
     if (ids.length) mark(ids);
   }, [rows, arrival, reduced, has, mark]);
-  const listRef = s.listRef;
+  const { listEl, setListEl } = s;
   useEffect(() => {
-    const el = listRef.current;
+    const el = listEl;
     if (!el) return;
     const onEnd = (e: Event) => {
       const id = (e.target as HTMLElement | null)?.closest<HTMLElement>("[data-id]")?.dataset.id;
@@ -37,7 +37,7 @@ export function ListRegion({ s, reduced, latency, setLatency }: { s: RepoSearch;
     };
     el.addEventListener("animationend", onEnd);
     return () => el.removeEventListener("animationend", onEnd);
-  }, [mark, listRef, state]);
+  }, [mark, listEl]);
 
   return (
     <Region technique="placeholder-design" title="Repositories" note="Chrome renders now and never leaves. Only the rows have a state — and the ghost shows in exactly one of them.">
@@ -94,7 +94,7 @@ export function ListRegion({ s, reduced, latency, setLatency }: { s: RepoSearch;
             </button>
           </p>
         ) : (
-          <ul ref={listRef} className="space-y-1" data-rows>
+          <ul ref={setListEl} className="space-y-1" data-rows>
             {rows.map((r, i) => (
               <li key={r.id} data-id={r.id} data-entering={entering[i]} className={ROW} style={{ animation: entering[i] ? riseAnimation(i) : "none" }}>
                 <span className="type-caption text-slate-300">{r.label}</span>
