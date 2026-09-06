@@ -3,6 +3,8 @@
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
 import { segmentScope } from "@/lib/db/org-shared";
+// The ONE sentinel, from the dependency-free leaf that exists to stop it being re-typed per site.
+import { PUBLIC_ORG } from "@/lib/org-constants";
 import { withAuditSignature } from "@/lib/db/audit-integrity";
 import { writeConformanceReport } from "@/lib/db/org-conformance";
 import type { CheckLevel } from "@/lib/standard/check-ids";
@@ -100,6 +102,20 @@ export async function isRepoWatched(orgSlug: string, fullName: string): Promise<
 }
 
 async function ensureOrg(slug: string) {
+  // The funnel org carries BOTH halves of its identity, not just the name. `kind: "public"` is the
+  // column the LLM usage ledger's skip decision actually reads (usage-events.ts UNMETERED_ORG_KIND,
+  // UAT MC-B20: that decision used to be `orgSlug === "public"` as a string, and was moved onto the
+  // ROW precisely so a slug could not stand in for a property of the org). `Organization.kind`
+  // defaults to "org", so an unstamped funnel row is METERED — and this writer already knew the slug
+  // was special enough to rename, which made it the one place that created that row half-formed.
+  //
+  // Six writers can materialize an Organization; ensureOrgId (scans-shared.ts, RC3-N1) stamps on
+  // create AND repairs an existing row. The REPAIR deliberately stays there: it is the hot path
+  // every scan goes through, so duplicating an updateMany here would add a write to every watch
+  // toggle to fix a row the next scan fixes anyway. What this writer owes is not creating the
+  // problem — a repo watched under the funnel before anything is scanned used to leave the org
+  // flavored "org", and everything until the next scan was ledgered as a tenant's usage.
+  const funnel = slug === PUBLIC_ORG;
   return getPrisma().organization.upsert({
     where: { slug },
     update: {},
@@ -107,7 +123,7 @@ async function ensureOrg(slug: string) {
     // mint the legacy non-PlanId string "private" (which planFeatures resolved to the free tier
     // anyway); aligned with installations.ts/members.ts so first-touch order can't change the
     // stored plan (github-app-installation-webhooks #1).
-    create: { slug, name: slug === "public" ? "Public Scans" : slug, plan: "free" },
+    create: { slug, name: funnel ? "Public Scans" : slug, plan: "free", ...(funnel ? { kind: PUBLIC_ORG } : {}) },
   });
 }
 
