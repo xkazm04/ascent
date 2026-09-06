@@ -9,16 +9,11 @@ import { CopyForLlm } from "@/components/CopyForLlm";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { scoreHex } from "@/lib/ui";
 import { orgTabHref } from "@/lib/org/orgTabs";
-import { AdoptionSpectrum } from "./AdoptionSpectrum";
+import { AdoptionSpectrum, BAND } from "./AdoptionSpectrum";
 import { ChampionsCard } from "./ChampionsCard";
 import { TeamAdoption } from "./TeamAdoption";
 import { DeliveryStrip } from "./DeliveryStrip";
 import { AdoptionToolFootprint } from "./AdoptionToolFootprint";
-
-// Adoption-band hues (neutral accent, not the red→green maturity ramp — low adoption is an expected
-// early baseline, not a defect). Restored from the origin/master side of the 2026-07-02 merge, whose
-// resolution kept the BAND.some Tile colors but dropped this constant.
-const BAND = { high: "#16a34a", some: "#3b9eff", none: "#64748b" } as const;
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
@@ -68,7 +63,15 @@ export async function AdoptionOverviewPanel({ slug, sp }: { slug: string; sp: Se
       <div className={TILE_GRID}>
         {/* Adoption metrics use a neutral accent hue, not the red→green maturity ramp: low adoption
             here is an expected early baseline, not a defect, so scoreHex would read 8% as alarm-red. */}
-        <Tile label="Org AI commit share" value={`${a.orgAiShare}%`} color={BAND.some} sub="commit-weighted" />
+        {/* The share carries its denominator, like every tile beside it. `orgCommits` is null (never
+            0) when the naming floor withheld the per-person rows the total is summed from — then the
+            sub says how the number is weighted and claims no population. */}
+        <Tile
+          label="Org AI commit share"
+          value={`${a.orgAiShare}%`}
+          color={BAND.some}
+          sub={a.orgCommits != null ? `commit-weighted, of ${a.orgCommits.toLocaleString()} commits` : "commit-weighted"}
+        />
         <Tile
           label="AI-active contributors"
           value={`${a.contributors.aiActive}/${a.contributors.total}`}

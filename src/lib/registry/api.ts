@@ -20,7 +20,8 @@ export type RegistryErrorCode =
   | "not-mapped"
   | "already-installed"
   | "github-error"
-  | "no-op";
+  | "no-op"
+  | "not-found";
 
 export function registryError(code: RegistryErrorCode, error: string, status: number): NextResponse {
   return NextResponse.json({ error, code }, { status });
@@ -45,6 +46,16 @@ export function githubErrorResponse(err: unknown): NextResponse {
 export async function guardRegistryRead(slug: string): Promise<NextResponse | null> {
   if (!isDbConfigured()) return registryError("persistence-off", "The registry requires a database.", 503);
   return requireOrgRead(slug);
+}
+
+/**
+ * ROLE gate without a token: persistence, then `minRole`. For registry writes that touch ONLY
+ * Ascent's own ledger (composing a dispatch brief) — nothing is minted because nothing reaches
+ * GitHub, so a deployment with no App installed can still hand a brief to an operator.
+ */
+export async function guardRegistryRole(slug: string, minRole: "owner" | "admin" | "member"): Promise<NextResponse | null> {
+  if (!isDbConfigured()) return registryError("persistence-off", "The registry requires a database.", 503);
+  return requireOrgRole(slug, minRole);
 }
 
 export interface RegistryWriteContext {

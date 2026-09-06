@@ -116,7 +116,13 @@ export interface EnrichmentSource {
     token: string,
     signal?: AbortSignal,
   ): Promise<Governance | null>;
-  deployments?(owner: string, repo: string, token: string, limit?: number): Promise<DeploymentRecord[]>;
+  deployments?(
+    owner: string,
+    repo: string,
+    token: string,
+    signal?: AbortSignal,
+    limit?: number,
+  ): Promise<DeploymentRecord[]>;
   ciHealth?(
     owner: string,
     repo: string,

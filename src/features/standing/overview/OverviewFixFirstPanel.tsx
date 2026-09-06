@@ -1,6 +1,7 @@
 import { OverviewFixFirst } from "./OverviewFixFirst";
 import { deriveFixFirst } from "./fixFirst";
 import { getOrgMovers } from "@/lib/db/org-insights";
+import type { OrgWindow } from "@/lib/db/org-rollup";
 import { listGoals, resolvedKeys } from "@/lib/db";
 import { getOrgFindings } from "@/lib/org/nav-counts";
 
@@ -17,7 +18,10 @@ export async function OverviewFixFirstPanel({
   scopeQuery,
 }: {
   slug: string;
-  win: { start: Date | null; end: Date | null };
+  /** The window as the db layer takes it — half-open `{ start, endExclusive }` from `orgWindowBounds`.
+   *  Typed as `OrgWindow` (which carries the legacy inclusive `end` as an optional) rather than
+   *  re-declaring an inclusive-only pair here, which is what pinned the tab to the old dialect. */
+  win: OrgWindow;
   scopeQuery?: string;
 }) {
   const [movers, goals, findings, resolved] = await Promise.all([

@@ -20,9 +20,9 @@ import { ApiTokensPanelChunk } from "@/features/shared/skills/SkillsTabChunks";
 import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
 import {
   getCreditState,
-  getOrgRollup,
   getOrgSkillAdoption,
   listOrgApiTokens,
+  listOrgRepoNames,
   listOrgSkills,
   SKILL_TOKEN_SCOPES,
   workspaceAllowsSkills,
@@ -42,12 +42,13 @@ async function SkillsRegistryStrip({ slug, sync }: { slug: string; sync: Promise
 async function SkillsLibraryData({ slug, isMember, sync }: { slug: string; isMember: Promise<boolean>; sync: Promise<RegistrySync> }) {
   // usage/outcomes are the drift-loop half: is each skill still used (dormancy), and did adopting it
   // move the adopting repo's score. Both degrade to {} rather than failing the catalog render.
-  const [skills, adoption, usage, outcomes, rollup, credit, member, isAdmin] = await Promise.all([
+  const [skills, adoption, usage, outcomes, repoOptions, credit, member, isAdmin] = await Promise.all([
     listOrgSkills(slug),
     getOrgSkillAdoption(slug),
     getOrgSkillUsage(slug).catch(() => ({})),
     getOrgSkillOutcomes(slug).catch(() => ({})),
-    getOrgRollup(slug),
+    // One column, one query — the catalog reads repo NAMES, not a fleet rollup (see listOrgRepoNames).
+    listOrgRepoNames(slug),
     getCreditState(slug).catch(() => null),
     isMember,
     hasOrgRole(slug, "admin"),
@@ -56,7 +57,6 @@ async function SkillsLibraryData({ slug, isMember, sync }: { slug: string; isMem
   const registryBase = registryBlobBase(await sync);
   // Team+ orgs, or a personal workspace (individual tier: free-with-limits authoring).
   const planAllowed = await workspaceAllowsSkills(slug, credit?.plan);
-  const repoOptions = (rollup?.repos ?? []).map((r) => r.fullName).sort();
 
   return (
     <SkillsPanel

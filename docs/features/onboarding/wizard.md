@@ -117,10 +117,48 @@ With the toggle off, the run is the pre-W6b behavior: live in the wizard, credit
 The public funnel and credit-less orgs never take the upgrade path (`resolveImportPlan` pins this).
 Their runs are unchanged.
 
-**Resume.** The wizard snapshots its resumable inputs (source, install id, selection) to
-`sessionStorage` (`RESUME_KEY`) on every change and rehydrates on mount, re-fetching the source's
-repos and re-applying the selection. A refresh or auth bounce lands back on **select**, not step
-one. The snapshot wins over `?org=`; it clears once the scan is saved.
+**Resume.** The wizard snapshots its resumable inputs (source, install id, selection, and since
+2026-09-05 the **phase** and the import's **`runId`**) to `sessionStorage` (`RESUME_KEY`) on every
+change and rehydrates on mount, re-fetching the source's repos and re-applying the selection. A
+refresh or auth bounce on the pick/select steps lands back on **select**, not step one. The snapshot
+wins over `?org=`; it clears once the scan is saved.
+
+**A refresh mid-scan re-attaches instead of re-running (2026-09-05).** The import stream is not
+the run: `mapPool` in `POST /api/org/import` outlives the request, so a closed tab keeps scanning
+and spending. The route now announces its `runId` on an opening `queued` frame and again on
+`result` (the same frame shape as `/api/org/scan`). A snapshot taken while `phase === "scanning"`
+carries that id, and rehydrating from it re-enters the scan step in a **Reconnected** state
+(`OnboardingReconnected.tsx`): `useImportReattach` polls the already-gated
+`GET /api/org/scan/queue?org=&runId=` on the same cadence the org scan button uses, folds job
+states into the rows (a finished job renders as "scanned, open the report", never with a
+fabricated level), and shows the done screen once nothing is pending. Rows the run never reported
+resolve to "not scanned". If the follow itself is refused (no database, no access) the notice says
+the run may still be going and points at the dashboard rather than claiming it finished. A
+`beforeunload` guard is armed while scanning.
+
+**Retry carries the same consent as the batch (2026-09-05).** The per-row Retry used to post only
+`{ org, repos, installationId, mock }`, so `watch` defaulted to true on the App path and re-enrolled
+the repo in the weekly billable autoscan the user had declined, and the missing `publicFunnel` made a
+free-funnel retry metered. It now resolves the same plan the batch did (`resolveImportPlan` over the
+preview-first and autoscan opt-in stores plus `resolveScanMode`) and posts `watch`, `schedule` and
+`publicFunnel` explicitly.
+
+**Skip reasons are the server's, not "out of credits" (2026-09-05).** The stream deferred a repo
+for one of three reasons (`insufficient_credits`, `monthly_quota`, `in_progress`) and every one
+rendered as "out of credits"; leftovers the stream never named were relabelled as credits too. Each
+reason now has its own row label and done-screen banner (`skipReason.ts`,
+`OnboardingSkipNotices.tsx`); leftovers take the reason of the last capping notice, else the neutral
+"not scanned"; `too_many_repos` and `listing_truncated` notices are surfaced instead of dropped.
+
+**The scan step states how long it will take (2026-09-05).** `scanExpectation.ts` derives "Usually
+about N min for M repositories, 4 at a time" from the report's own calibration constants in
+`scanEstimate.ts` and the route's real `SCAN_CONCURRENCY` (`ceil(repos / 4)` waves), so the wizard
+carries no second number. While the provider is unresolved it says "Up to …" (the slowest ceiling,
+the report's backstop rule); the line waits for the run mode to resolve so it never prints a number
+that then grows, and it is suppressed on the reconnected and done states. In-flight rows read
+"scanning now" with a motion-safe accent dot; queued rows read "queued". The route emits no
+`started` frame, so in-flight is inferred from `mapPool`'s index-order lane discipline; a `started`
+frame would make it exact.
 
 **The done phase carries one INSTALLABLE step, not an activation checklist (moonshot #35).** W6b
 deleted the wizard-state-derived 5–6 step list (`buildChecklistSteps`, gone with its test) because it

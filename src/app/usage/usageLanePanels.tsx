@@ -61,7 +61,13 @@ export function LanePanels({
     <div className="mt-6 grid gap-4 lg:grid-cols-2">
       <Surface className="p-6">
         <h2 className="type-body font-semibold text-white">
-          Spend by lane <span className="font-normal text-slate-500">· model calls · last {periodDays}d</span>
+          {/* "model calls" was wrong for the row a reader looks at first: the scan lane's count is
+              `periodScans` — EVERY computed scan in the window, including keyless/mock runs that made
+              no model call at all. The count is deliberate and must stay: deriving the scan lane from
+              the same Scan rows as the headline tile and the chart is what stops those three numbers
+              from disagreeing, and a mock scan really is a computed scan. So the CAPTION moves, not
+              the number, and the scan row says what it counts. */}
+          Spend by lane <span className="font-normal text-slate-500">· calls · last {periodDays}d (UTC)</span>
         </h2>
         <div className="mt-3 space-y-2 type-body">
           {byLane.length === 0 ? (
@@ -83,6 +89,13 @@ export function LanePanels({
                     total.
                   </p>
                 )}
+                {l.lane === "scan" && (
+                  <p className="mt-1 type-body-sm text-slate-500">
+                    Computed scans (incl. mock): every scan the pipeline ran in the window, counted
+                    from the same rows as the tiles and the chart above — a keyless/mock run made no
+                    model call and is priced as nothing, not billed as free.
+                  </p>
+                )}
                 {l.unpricedCalls > 0 && (
                   <p className="mt-1 type-body-sm text-slate-500">
                     {l.unpricedCalls.toLocaleString()} of {l.calls.toLocaleString()} call
@@ -102,7 +115,7 @@ export function LanePanels({
 
       <Surface className="p-6">
         <h2 className="type-body font-semibold text-white">
-          Spend by team <span className="font-normal text-slate-500">· code owners · last {periodDays}d</span>
+          Spend by team <span className="font-normal text-slate-500">· code owners · last {periodDays}d (UTC)</span>
         </h2>
         <div className="mt-3 space-y-2 type-body">
           {byTeam.length === 0 ? (

@@ -89,9 +89,9 @@ export function toDeploymentRecord(d: GhDeployment, latest: GhDeploymentStatus |
  * The null-on-failure contract is deliberately unchanged — callers here treat an unavailable
  * deployments API as "no deployments known", never as a scan failure.
  */
-async function ghJson<T>(path: string, token: string): Promise<T | null> {
+async function ghJson<T>(path: string, token: string, signal?: AbortSignal): Promise<T | null> {
   try {
-    const res = await ghFetch(`${githubApiBase()}${path}`, { token, cache: "no-store" });
+    const res = await ghFetch(`${githubApiBase()}${path}`, { token, cache: "no-store", signal });
     if (!res.ok) return null;
     return (await res.json()) as T;
   } catch {
@@ -122,25 +122,36 @@ export const DEPLOYMENT_PAGE_SIZE = 20;
  * and the whole thing is best-effort: a repo that does not use GitHub Deployments returns an empty
  * list and the scan is unaffected. A 404/403 (no deployments read scope) yields null → no rows, and
  * the derived reads render "not measured" rather than a zero failure rate.
+ *
+ * `signal` is the SCAN's abort signal, and it is the reason this read is now abortable at all. The
+ * loop below is strictly sequential on purpose — a page of parallel status calls trips GitHub's
+ * SECONDARY rate limit (see DEPLOYMENT_PAGE_SIZE) — which makes it the longest-running enrichment in
+ * the ingest, and until now the ONLY one that kept issuing requests after the client had gone. Each
+ * `ghJson` merges the signal with its own timeout; the check between iterations stops the loop at the
+ * next boundary instead of at the next timeout.
  */
 export async function fetchDeployments(
   owner: string,
   repo: string,
   token: string,
+  signal?: AbortSignal,
   limit = DEPLOYMENT_PAGE_SIZE,
 ): Promise<DeploymentRecord[]> {
   const o = encodeURIComponent(owner);
   const r = encodeURIComponent(repo);
-  const list = await ghJson<GhDeployment[]>(`/repos/${o}/${r}/deployments?per_page=${Math.min(100, limit)}`, token);
+  const list = await ghJson<GhDeployment[]>(`/repos/${o}/${r}/deployments?per_page=${Math.min(100, limit)}`, token, signal);
   if (!Array.isArray(list) || list.length === 0) return [];
 
   const out: DeploymentRecord[] = [];
   for (const d of list.slice(0, limit)) {
     if (d.id == null) continue;
+    // Aborted mid-page: hand back what was already read rather than the 20 more calls nobody wants.
+    if (signal?.aborted) break;
     // `?per_page=1` — statuses come newest-first, so the first is the latest.
     const statuses = await ghJson<GhDeploymentStatus[]>(
       `/repos/${o}/${r}/deployments/${encodeURIComponent(String(d.id))}/statuses?per_page=1`,
       token,
+      signal,
     );
     const rec = toDeploymentRecord(d, Array.isArray(statuses) ? (statuses[0] ?? null) : null);
     if (rec) out.push(rec);

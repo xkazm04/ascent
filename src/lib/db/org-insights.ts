@@ -1,6 +1,14 @@
 // Org insight aggregates over the fleet's latest scans: movers (F1), org-level recommendations (F2),
 // the assignable backlog, calibration discrepancies, the practice library (P2), cross-repo gap
 // analysis, and the corpus benchmark (F6). All guarded by DATABASE_URL.
+//
+// WHAT THE WINDOW MEANS HERE — getOrgMovers takes the same half-open `[start, endExclusive)` bounds
+// as every other org reader, but its "now" is the latest scan INSIDE the window (compared against the
+// latest scan strictly before `start`). A mover is a before/after MEASUREMENT, so both endpoints must
+// be real scans; a repo with no scan during the period simply has no move to report. This is NOT
+// getOrgRollup's rule, which takes each repo's latest scan at-or-before the upper bound with no lower
+// bound at all — so a repo can be inside the rollup average and absent from movers. By design; see
+// org-rollup.ts' header for the full per-reader table. (Pinned by src/lib/org/period.dialect.test.ts.)
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { DIMENSION_BY_ID, weightsFor } from "@/lib/maturity/model";
@@ -13,7 +21,9 @@ import { retentionCutoff } from "@/lib/plans";
 // The canonical noise band — the same primitive alerts/digest/format already share, so a movers tile
 // and a digest line can never disagree about whether a delta was real.
 import { classifyDelta } from "@/lib/maturity/noise";
-import type { OrgWindow } from "@/lib/db/org-rollup";
+// The ONE mock-floor predicate, from the producer that defines it (org-rollup.ts). A movers pair is a
+// before/after MEASUREMENT, so an endpoint the scanner never scored cannot be one of its ends.
+import { isMockScore, type OrgWindow } from "@/lib/db/org-rollup";
 // The single canonical parser for stored `string[]` columns (the explore questions live in one) — reuse
 // it here rather than forking a second parser, exactly as scans-read/scans-recommendations do.
 import { parseStringArray } from "@/lib/db/scans-shared";
@@ -73,6 +83,19 @@ interface ScanLite {
   level: string;
   posture: string;
   scannedAt: Date;
+  /** The engine that produced this scan — "mock" is the deterministic floor, never a measurement. */
+  engineProvider: string;
+}
+
+/**
+ * Is this before/after pair a comparison of two real MEASUREMENTS? A mock endpoint on either side
+ * makes the difference an engine transition, not repo movement — a mock→live re-scan otherwise
+ * reports as the fleet's top gainer in Fix-first, the weekly digest and the Executive Briefing, while
+ * `getOrgRollup`'s cohort delta and the cohort card's `avgRealMove` both refuse exactly that pair.
+ * Applied at the MOVE BUILDER so every branch (windowed and since-last-scan) inherits it.
+ */
+function isRealPair(now: ScanLite, prev: ScanLite): boolean {
+  return !isMockScore(now.engineProvider) && !isMockScore(prev.engineProvider);
 }
 
 /** Construct a RepoMove from a baseline (`prev`) and current (`now`) scan of one repo. `baselineKind`
@@ -137,6 +160,8 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
         level: true,
         posture: true,
         scannedAt: true,
+        // The provenance the mock guard reads (isRealPair) — one column, no extra round trip.
+        engineProvider: true,
         repo: { select: { fullName: true, name: true } },
       },
       orderBy: { scannedAt: "desc" },
@@ -154,6 +179,8 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
         level: true,
         posture: true,
         scannedAt: true,
+        // The provenance the mock guard reads (isRealPair) — one column, no extra round trip.
+        engineProvider: true,
         repo: { select: { fullName: true, name: true } },
       },
       orderBy: { scannedAt: "desc" },
@@ -183,6 +210,7 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
       const realBaseline = baselineByRepo.get(repoId);
       const prev = realBaseline ?? arr[arr.length - 1];
       if (!now || !prev || prev === now) continue; // no baseline, or nothing moved within the window
+      if (!isRealPair(now, prev)) continue; // an engine transition is not repo movement
       moves.push(buildMove(now.repo.fullName, now.repo.name, now, prev, realBaseline ? "period" : "onboarded"));
     }
   } else {
@@ -194,13 +222,14 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
         scans: {
           orderBy: { scannedAt: "desc" },
           take: 2,
-          select: { overallScore: true, adoptionScore: true, rigorScore: true, level: true, posture: true, scannedAt: true },
+          select: { overallScore: true, adoptionScore: true, rigorScore: true, level: true, posture: true, scannedAt: true, engineProvider: true },
         },
       },
     });
     for (const r of repos) {
       if (r.scans.length < 2) continue;
       const [now, prev] = r.scans as [ScanLite, ScanLite]; // safe: length >= 2 checked above
+      if (!isRealPair(now, prev)) continue; // an engine transition is not repo movement
       moves.push(buildMove(r.fullName, r.name, now, prev));
     }
   }
@@ -252,8 +281,24 @@ export interface OrgRec {
   liftsRepos: number;
 }
 
-/** Aggregate open recommendations across the fleet's latest scans → highest-leverage moves. */
-export async function getOrgRecommendations(orgSlug: string, limit = 8, segmentId?: string | null, techGroupId?: string | null): Promise<OrgRec[] | null> {
+/**
+ * Aggregate open recommendations across the fleet's latest scans → highest-leverage moves.
+ *
+ * `repoFullName` narrows the result to the moves that affect ONE repository, and it exists because
+ * filtering after the call cannot work: the ranking is fleet-wide and the cap is applied here, so a
+ * caller that sliced to the top 10 and then filtered by repo could get an empty list for a repository
+ * with plenty of open gaps — its own top items simply were not the fleet's. The filter is applied to
+ * the SORTED list before the cap, so the ordering and the leverage arithmetic are untouched (they are
+ * deliberately still fleet-wide: how many repositories share a gap is what makes a move leverage, and
+ * recomputing it over one repo would answer a different question). Absent → behaviour is unchanged.
+ */
+export async function getOrgRecommendations(
+  orgSlug: string,
+  limit = 8,
+  segmentId?: string | null,
+  techGroupId?: string | null,
+  repoFullName?: string | null,
+): Promise<OrgRec[] | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const org = await getOrgBySlug(orgSlug);
@@ -263,6 +308,10 @@ export async function getOrgRecommendations(orgSlug: string, limit = 8, segmentI
     where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
     select: {
       name: true,
+      // Read only so `repoFullName` can be matched precisely. `OrgRec.repos` keeps carrying the BARE
+      // name it always has — every other consumer renders that string, and widening it here would be
+      // a change to the shape rather than to the filter.
+      fullName: true,
       scans: {
         orderBy: { scannedAt: "desc" },
         take: 1,
@@ -290,7 +339,10 @@ export async function getOrgRecommendations(orgSlug: string, limit = 8, segmentI
   // rationale + explore are captured from the FIRST rec seen in a group: dedup keys on `dimId::title`,
   // and identical gaps share the same catalog-derived rationale/questions, so the first is representative.
   const groups = new Map<string, { title: string; dimId: string; impact: string; rationale: string; explore: string[]; repos: Set<string> }>();
+  /** bare name → "owner/name", for the `repoFullName` filter below. */
+  const fullNames = new Map<string, string>();
   for (const r of repos) {
+    if (r.fullName) fullNames.set(r.name, r.fullName);
     const scan = r.scans[0];
     if (scan) repoDims.set(r.name, { archetype: scan.archetype, dims: (scan.dimensions ?? []).map((d) => ({ id: d.dimId, score: d.score })) });
     const recs = scan?.recommendations ?? [];
@@ -334,7 +386,21 @@ export async function getOrgRecommendations(orgSlug: string, limit = 8, segmentI
     };
   });
   recs.sort((a, b) => b.leverage - a.leverage || b.repoCount - a.repoCount);
-  return recs.slice(0, limit);
+  const wanted = repoFullName?.trim().toLowerCase();
+  // Matched on "owner/name", because that is what every caller of this filter holds. THE BARE-NAME
+  // FALLBACK IS NOT A CONVENIENCE: `repos` carries bare names, so the MCP door's own
+  // `r.repos.includes("acme/api")` filter never matched anything and answered `count: 0` for every
+  // repository it was asked about. Falling back keeps a row whose `fullName` was not read matchable.
+  const wantedTail = wanted?.includes("/") ? wanted.slice(wanted.lastIndexOf("/") + 1) : wanted;
+  const scoped = wanted
+    ? recs.filter((r) =>
+        r.repos.some((name) => {
+          const full = fullNames.get(name);
+          return full ? full.toLowerCase() === wanted : name.toLowerCase() === wantedTail;
+        }),
+      )
+    : recs;
+  return scoped.slice(0, limit);
 }
 
 // ── Recommendation backlog — owners, due dates, and a trackable roadmap ─────────

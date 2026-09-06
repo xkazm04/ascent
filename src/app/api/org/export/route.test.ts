@@ -239,6 +239,56 @@ describe("GET /api/org/export — authorized export", () => {
     expect(res.headers.get("content-disposition")).toBeNull();
   });
 
+  it("exports declines + autonomy tier + the measured score, so an ACCEPTED gap is not a clean repo", async () => {
+    // The rollup's passports are POST-overlay: an accepted gap has already been retired from
+    // `blockers`. Without the declined columns this row exported byte-identical to a repo that
+    // genuinely has error tracking — the subtraction the Pareto explicitly refuses to make. And a
+    // production score an OWNER lifted (rollback) must not export in the same form as a measured one.
+    mockGetOrgRollup.mockResolvedValue({
+      repos: [
+        {
+          fullName: "acme/edge",
+          name: "edge",
+          passport: {
+            automationReadiness: { level: "L3", score: 61, blockers: [] },
+            productionReadiness: {
+              band: "beta", score: 72,
+              ci: { level: "gated", provider: "github-actions" },
+              tests: { level: "partial", coveragePct: 41 },
+              security: { level: "scanning" },
+              observability: { level: "none" },
+              delivery: { migrations: "versioned", iac: true, rollback: true },
+              blockers: [],
+              overridden: { reason: "rollback", delta: 8, measuredScore: 64, measuredBand: "beta", by: "alice", at: "2026-09-01" },
+            },
+            autonomy: { tier: "T2" },
+            declined: [
+              { path: "productionReadiness.observability", label: "Observability", reason: "internal cron worker" },
+              { path: "productionReadiness.security", label: "Security scanning", needsReconfirm: true },
+            ],
+          },
+        },
+      ],
+    } as never);
+
+    const res = await get("?org=acme&kind=passports&format=csv");
+    const csv = await res.text();
+    const [header, row] = csv.trim().split(/\r?\n/);
+
+    expect(header).toContain("declinedCount");
+    expect(header).toContain("declinedPaths");
+    expect(header).toContain("declinedNeedingReconfirm");
+    expect(header).toContain("autonomyTier");
+    expect(header).toContain("productionScoreMeasured");
+    expect(row).toContain("T2");
+    // Both accepted gaps are named, and the one awaiting re-confirmation is counted separately.
+    expect(row).toContain("productionReadiness.observability; productionReadiness.security");
+    expect(row).toContain(",2,");
+    // The owner-lifted score ships with the measurement it moved, and with its author.
+    expect(row).toContain("alice");
+    expect(row).toContain("64");
+  });
+
   it("returns 404 when the passports rollup lookup itself returns null (matches its sibling branches)", async () => {
     mockGetOrgRollup.mockResolvedValue(null as never);
 

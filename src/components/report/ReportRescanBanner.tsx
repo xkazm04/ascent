@@ -13,11 +13,15 @@ import {
   type Progress,
 } from "@/components/report/ReportClientStatus";
 import { formatDuration } from "@/components/report/scanEstimate";
+import { RescanAlert } from "@/components/report/ReportRescanAlert";
+import type { ScanErrorClass } from "@/components/report/useReportScan";
 
 export function RescanBanner({
   repo,
   progress,
   error,
+  errorClass = {},
+  signInNext,
   onRetry,
   onDismiss,
 }: {
@@ -25,6 +29,11 @@ export function RescanBanner({
   progress: Progress;
   /** Non-null once the re-scan failed: the report below stays, this row becomes a retry/dismiss alert. */
   error: string | null;
+  /** How it failed. An empty class is the transient failure — the only one Retry can clear; the rest
+   *  (sign-in wall, monthly quota, credits, unreadable repo) get their own CTA in RescanAlert. */
+  errorClass?: ScanErrorClass;
+  /** Where to return after a sign-in round-trip, when the re-scan hit the auth wall. */
+  signInNext: string;
   onRetry: () => void;
   onDismiss: () => void;
 }) {
@@ -33,27 +42,14 @@ export function RescanBanner({
 
   if (error) {
     return (
-      <div
-        role="alert"
-        className="animate-fade-up sticky top-16 z-10 mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 type-body text-danger-soft backdrop-blur"
-      >
-        <span aria-hidden>⚠</span>
-        <span className="flex-1">Re-scan failed. Your existing report is unchanged. {error}</span>
-        <button
-          type="button"
-          onClick={onRetry}
-          className="focus-ring rounded-md border border-danger/40 px-3 py-1 type-body-sm font-medium transition hover:bg-danger/10"
-        >
-          Retry
-        </button>
-        <button
-          type="button"
-          onClick={onDismiss}
-          className="focus-ring rounded-md border border-slate-700 px-3 py-1 type-body-sm text-slate-300 transition hover:border-slate-500 hover:text-white"
-        >
-          Dismiss
-        </button>
-      </div>
+      <RescanAlert
+        repo={repo}
+        error={error}
+        errorClass={errorClass}
+        signInNext={signInNext}
+        onRetry={onRetry}
+        onDismiss={onDismiss}
+      />
     );
   }
 

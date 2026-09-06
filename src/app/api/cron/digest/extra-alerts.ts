@@ -23,6 +23,7 @@ import {
   buildSpendAnomalyMessage,
   dispatchAlert,
   isSpendAnomaly,
+  sinkKindForOrg,
   type GoalRisk,
 } from "@/lib/alerts";
 
@@ -75,7 +76,7 @@ async function claimAndDispatch(
     ...record,
     body: message.text,
     delivered: ok,
-    sinkKind: ctx.webhookUrl && /^mailto:/i.test(ctx.webhookUrl) ? "email" : "webhook",
+    sinkKind: sinkKindForOrg(ctx.webhookUrl),
     suppressedReason: ok ? null : "dispatch-failed",
   });
   return ok;

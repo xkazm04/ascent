@@ -46,6 +46,22 @@ export interface TeamStanding {
 }
 
 export interface TeamStandings {
+  /**
+   * The fleet average this section's `overallDelta` bars diverge from: the mean latest overall score
+   * across the DISTINCT live-scored repos any team owns.
+   *
+   * It used to be `roundedMean(teams.map(t => t.avgOverall))` — a mean of team MEANS. A repo owned by
+   * three CODEOWNERS teams was counted three times, a repo owned by one was counted once, and a
+   * two-repo team weighed exactly as much as a forty-repo one. That number was then rendered next to
+   * the org rollup's own fleet average, which is a per-repo mean, with no label distinguishing the
+   * two — so the same page carried two different "fleet averages" and neither said what it was over.
+   * Deduping by `fullName` and averaging the repos themselves makes this the same KIND of number as
+   * the rollup's (a per-repo mean), differing only in its stated population: attributed repos.
+   *
+   * Mock-floor rows (`TeamRepoScore.mock`) are excluded, matching every sibling average
+   * (`isMockScore` in org-rollup.ts) — a placeholder is not a measurement. Repos with no CODEOWNERS
+   * team are not in this population at all; they are the rollup's `unowned` list.
+   */
   fleetAvgOverall: number;
   /** Fleet mean per dimension — the baseline the factor bars diverge from. */
   fleetDimAvgs: { dimId: string; label: string; avg: number }[];
@@ -67,7 +83,11 @@ const MAX_FACTORS = 5; // dimensions shown per team — enough to explain the ga
 export function explainTeamStandings(teams: TeamRollup[]): TeamStandings | null {
   if (teams.length < 2) return null;
 
-  const fleetAvgOverall = roundedMean(teams.map((t) => t.avgOverall));
+  // Per-repo mean over the DISTINCT live-scored repos across every team — see `fleetAvgOverall`.
+  // A repo shared by several teams votes ONCE, and each team's weight is its actual repo count.
+  const distinctRepos = new Map<string, number>();
+  for (const t of teams) for (const r of t.repos) if (!r.mock) distinctRepos.set(r.fullName, r.overall);
+  const fleetAvgOverall = roundedMean([...distinctRepos.values()]);
   const fleetAiShare = roundedMean(teams.map((t) => t.aiCommitShare));
 
   // Fleet mean per dimension, over the teams scored on it (some teams may lack a dimension).

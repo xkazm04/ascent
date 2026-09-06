@@ -107,6 +107,26 @@ persisted timestamp instead of racing it.
 | --- | --- | --- |
 | `PUSH_RESCAN_MIN_INTERVAL_MINUTES` | `15` | Minimum minutes between push-triggered scans of the same repo. `0` disables the throttle (every default-branch push scans). |
 
+### A push rescan pays for itself (2026-09-05)
+
+"LLM-billed" was, until 2026-09-05, a description with no debit behind it: `runPushRescan` ran real
+inference with no credit reservation, so a watched org at balance zero kept scanning free on every
+push and the throttle was the only cost ceiling. It now mirrors the queue worker's money loop
+(`reserveScanCredit` / `refundScanCredit` / `shouldRefundScan`, `src/lib/scan-credit.ts`):
+
+- **Reserve before inference**, on a metered scan (`isMeteredScan`; self-hosted, DB-less and the
+  public org are exempt and stay free). The ledger row carries actor `webhook:push` and the repo,
+  so push-driven spend is separable from `queue:*` and interactive spend.
+- **Out of credits → the push is skipped**, never served free. A webhook has nobody to 402, so the
+  skip is recorded on the repository (`recordScanOutcome`, the worker's precedent: `lastScanStatus`
+  / `lastScanError` = "insufficient credits", visible on the Repositories tab) and logged as
+  `insufficient_credits`. The delivery is deliberately not released for redelivery (an empty wallet
+  is not transient). The throttle is derived from the prior *persisted* scan, so a credits-skipped
+  push opens no window: a topped-up org scans on its very next push.
+- **Refunds** on degrade-to-mock, on a dedup (unchanged head), and on a failure *before* a real
+  report exists; a failure after real inference keeps the credit, as in the worker.
+- `maybeAlertLowCredits` fires on a push-funded crossing exactly as it does for `/api/scan`.
+
 ### A degraded rescan is discarded, not persisted
 
 The push rescan asks for a real LLM grade. When the provider is unavailable `scanRepository`

@@ -330,7 +330,14 @@ describe("POST /api/org/import — credit-cap slice + per-repo refund (metered)"
     // The reservation was made (consumeScanCredit) and then refunded exactly once on the throw.
     expect(mockConsume).toHaveBeenCalledTimes(1);
     expect(mockGrant).toHaveBeenCalledTimes(1);
-    expect(mockGrant).toHaveBeenCalledWith("acme", 1, { reason: "refund", actor: "system" });
+    // The refund row carries the SAME repo (and actor) as the debit it reverses, so per-repo spend
+    // nets out on the ledger instead of leaving an unattributable +1. No viewer is signed in in this
+    // suite, so the honest actor is "system".
+    expect(mockGrant).toHaveBeenCalledWith("acme", 1, {
+      reason: "refund",
+      actor: "system",
+      repoFullName: "acme/boom",
+    });
     // The failure is surfaced honestly on the repo event, not swallowed.
     expect(events.find((e) => e.event === "repo")?.data).toMatchObject({ repo: "acme/boom", error: "github 500" });
   });
@@ -389,7 +396,11 @@ describe("POST /api/org/import — credit-cap slice + per-repo refund (metered)"
     mockScan.mockResolvedValue(report); // `report` is provider:"mock"
     mockPersist.mockRejectedValueOnce(new Error("write failed"));
     const events = await collectImport({ org: "acme", repos: ["acme/deg"], mock: false, watch: false });
-    expect(mockGrant).toHaveBeenCalledWith("acme", 1, { reason: "refund", actor: "system" });
+    expect(mockGrant).toHaveBeenCalledWith("acme", 1, {
+      reason: "refund",
+      actor: "system",
+      repoFullName: "acme/deg",
+    });
     expect(events.find((e) => e.event === "repo")?.data).toMatchObject({ charged: false });
   });
 
@@ -744,5 +755,47 @@ describe("POST /api/org/import — the 429 names the scope that refused", () => 
     expect(res.status).toBe(429);
     expect(res.headers.get("x-ascent-ratelimit-scope")).toBe("unavailable");
     expect(await res.json()).toMatchObject({ code: "rate_limit_unavailable", scope: "unavailable", evaluated: false });
+  });
+});
+
+// Direction 8 — the run's identity on the wire. `importRunId` was minted only as the queue's
+// idempotency bucket and never told to the client, so a browser that lost this stream (a refresh, an
+// auth bounce) had no handle to find the run again — while the server kept scanning and spending,
+// since the mapPool below is not tied to the request signal. The wizard stores this id in its resume
+// snapshot and re-attaches through GET /api/org/scan/queue instead of re-running the import.
+describe("POST /api/org/import — the run id is emitted, not just used internally", () => {
+  beforeEach(() => {
+    mockScan.mockResolvedValue(report as ScanReport);
+    // The rate-limit suite above leaves the shared limiter denying; this suite needs it to allow.
+    vi.mocked(rateLimitRequestShared).mockResolvedValue({ ok: true });
+  });
+
+  it("emits runId on an opening `queued` frame (the sibling scan route's shape) and again on `result`", async () => {
+    const events = await collectImport({ org: "acme", repos: ["acme/a", "acme/b"], watch: false });
+
+    const queued = events.find((e) => e.event === "queued")?.data as
+      | { runId?: string; queued?: number; total?: number }
+      | undefined;
+    expect(queued).toBeDefined();
+    expect(typeof queued?.runId).toBe("string");
+    expect(queued?.runId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(queued).toMatchObject({ queued: 2, total: 2 });
+
+    // The opening frame arrives BEFORE any repo result — that is the whole point: a client that dies
+    // mid-run must already hold the handle.
+    const order = events.map((e) => e.event);
+    expect(order.indexOf("queued")).toBeLessThan(order.indexOf("repo"));
+
+    // Same id on the terminal frame, for a client that joined late.
+    const result = events.find((e) => e.event === "result")?.data as { runId?: string } | undefined;
+    expect(result?.runId).toBe(queued?.runId);
+  });
+
+  it("mints a fresh id per import — one run's handle can never poll another's jobs", async () => {
+    const a = await collectImport({ org: "acme", repos: ["acme/a"], watch: false });
+    const b = await collectImport({ org: "acme", repos: ["acme/a"], watch: false });
+    const idOf = (evs: { event: string; data: unknown }[]) =>
+      (evs.find((e) => e.event === "queued")?.data as { runId: string }).runId;
+    expect(idOf(a)).not.toBe(idOf(b));
   });
 });

@@ -17,9 +17,6 @@ vi.mock("next/link", () => ({
 }));
 // The per-blocker decision widget is fetch-driven and out of scope here.
 vi.mock("@/components/org/DecisionControl", () => ({ DecisionControl: () => null }));
-// DeclineControl (the decline writer) calls useRouter for its post-write refresh; its own behaviour
-// is pinned in DeclineControl.dom.test.tsx.
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
 const { PassportRowDetail } = await import("./PassportRowDetail");
 

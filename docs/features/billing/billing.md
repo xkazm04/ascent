@@ -423,6 +423,16 @@ balance-driven.**
 - `Organization.scanCredits` is the balance; `CreditLedger` is the append-only audit trail (`delta`,
   `balanceAfter`, `reason`, `repoFullName`, `scanId`, `actor`, `externalId`). Canonical `reason` values:
   `CREDIT_REASON.{SCAN, GRANT, ADJUSTMENT, REFUND, POLAR_REFUND}`.
+- **Every movement is attributed at write time (2026-09-05).** A `scan` debit carries `repoFullName`
+  and `actor`; its `refund` carries the same two, so a reversal nets against the debit it reverses
+  and per-repo spend can be summed from the ledger alone. Actor vocabulary: the GitHub login for an
+  interactive scan or import, `queue:<reason>` (`cadence` / `manual` / `webhook`) for a drained queue
+  job, `system` as the floor when no human or job is behind the movement. A genuine grant (Polar
+  top-up, owner adjustment) leaves `repoFullName`/`scanId` null: it pays for no particular repo.
+  `scanId` stays **null by design** on scan debits and refunds: every path reserves *before*
+  inference, so no `Scan` row exists at debit time, and the ledger is written once, never back-filled.
+  Callers that know the row up front may pass it, which also upgrades the idempotency key to the
+  natural `scan:<id>`.
 - `grantCredits` / `consumeScanCredit` / `clawbackOrderRefund` all run inside a transaction with
   `withRetry` and a stable `externalId` (caller-supplied for webhook events, else synthesized
   per-invocation), so a commit-ambiguity retry or an at-least-once webhook redelivery can never

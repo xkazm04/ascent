@@ -22,13 +22,16 @@ vi.mock("@/lib/db", () => ({
   reportPermalink: vi.fn(() => "/report/acme/api/sha-head"),
 }));
 vi.mock("@/lib/scan", () => ({ scanRepository: vi.fn() }));
+// TENANCY: which org's state governs this repo. Defaults to the owner login (the resolver's own fast
+// path), so every pre-existing case here is unchanged; the slug≠owner case overrides it.
+vi.mock("@/lib/db/org-tenancy", () => ({ orgSlugForRepo: vi.fn(async (owner: string) => owner) }));
 vi.mock("@/lib/site", () => ({ publicBaseUrl: vi.fn(() => "https://ascent.example.dev") }));
 // `tightenGatePolicy` and `defaultGatePolicy` are the REAL implementations: the assertion this file
 // carries about the admission layer is that the Check Run folds it the same way the public endpoint
 // does, and mocking the merge would make that assertion vacuous.
 vi.mock("@/lib/scoring/gate", async (orig) => ({
   ...(await orig<typeof import("@/lib/scoring/gate")>()),
-  evaluateGate: vi.fn(() => ({ pass: true, policy: {}, failures: [] })),
+  evaluateGate: vi.fn(() => ({ pass: true, policy: {}, failures: [], skipped: [], caveats: [] })),
 }));
 // #8/#16 — the org-scoped reads the gate now makes. Mocked at the SEAM both surfaces share, so a
 // test that stubs it here is stubbing the same function the public route calls.
@@ -51,6 +54,7 @@ vi.mock("@/lib/scoring/engine", () => ({ diffReports: vi.fn(() => ({ unchanged: 
 import { runPrGate, RERUN_ACTION } from "./pr-gate";
 import { getInstallationToken } from "@/lib/github/app";
 import { getOrgGatePolicy } from "@/lib/db";
+import { orgSlugForRepo } from "@/lib/db/org-tenancy";
 import { scanRepository } from "@/lib/scan";
 import { evaluateGate } from "@/lib/scoring/gate";
 import { buildGateComment } from "@/lib/scoring/gate-comment";
@@ -67,6 +71,7 @@ const mockCheck = vi.mocked(createCheckRun);
 const mockSticky = vi.mocked(upsertStickyComment);
 const mockDiff = vi.mocked(diffReports);
 const mockAdmission = vi.mocked(resolveAdmissionLayer);
+const mockOrgSlug = vi.mocked(orgSlugForRepo);
 const mockChecks = vi.mocked(loadCheckStates);
 
 /** Just enough report for runPrGate itself — it only reads `repo.headSha` (for the permalink). */
@@ -77,9 +82,10 @@ const REF = { installationId: 42, owner: "acme", repo: "api", prNumber: 7, headS
 beforeEach(() => {
   vi.clearAllMocks();
   mockToken.mockResolvedValue("tok");
+  mockOrgSlug.mockImplementation(async (owner: string) => owner);
   mockPolicy.mockResolvedValue(null);
   mockScan.mockResolvedValue(report("sha-head"));
-  mockEvaluate.mockReturnValue({ pass: true, policy: {}, failures: [] });
+  mockEvaluate.mockReturnValue({ pass: true, policy: {}, failures: [], skipped: [], caveats: [] });
   mockCheck.mockResolvedValue({ url: "u", id: 1 });
   mockSticky.mockResolvedValue({ url: "c", updated: false });
   mockAdmission.mockResolvedValue({ overlay: {}, admission: null });
@@ -122,7 +128,8 @@ describe("runPrGate — the happy path writes the merge status and the narrative
     expect(mockEvaluate).toHaveBeenCalledWith(
       expect.anything(),
       { minLevel: "L4", minDimensionFor: { D9: 70 } },
-      { checkStates: null },
+      // The honesty flags ride along in the same bag (gate-liveness); the assertion here is about the POLICY.
+      expect.objectContaining({ checkStates: null }),
     );
   });
 });
@@ -144,7 +151,8 @@ describe("runPrGate — the admission layer is folded identically to the public 
     expect(mockEvaluate).toHaveBeenCalledWith(
       expect.anything(),
       { minLevel: "L2", forbidPostures: ["ungoverned"], requireProtectedBranch: true, minAiGovernedRate: 100 },
-      { checkStates: null },
+      // The honesty flags ride along in the same bag (gate-liveness); the assertion here is about the POLICY.
+      expect.objectContaining({ checkStates: null }),
     );
   });
 
@@ -155,7 +163,7 @@ describe("runPrGate — the admission layer is folded identically to the public 
 
     await runPrGate(REF);
 
-    expect(mockEvaluate).toHaveBeenCalledWith(expect.anything(), orgBar, { checkStates: null });
+    expect(mockEvaluate).toHaveBeenCalledWith(expect.anything(), orgBar, expect.objectContaining({ checkStates: null }));
   });
 
   it("reads the conformance ledger ONLY when the effective policy names a required check", async () => {
@@ -167,16 +175,18 @@ describe("runPrGate — the admission layer is folded identically to the public 
     mockScan.mockResolvedValue(report("sha-head"));
     mockCheck.mockResolvedValue({ url: "u", id: 1 });
     mockSticky.mockResolvedValue({ url: "c", updated: false });
-    mockEvaluate.mockReturnValue({ pass: true, policy: {}, failures: [] });
+    mockEvaluate.mockReturnValue({ pass: true, policy: {}, failures: [], skipped: [], caveats: [] });
     mockAdmission.mockResolvedValue({ overlay: {}, admission: null });
     mockChecks.mockResolvedValue({ "control.prepush.lint": "fail" });
     mockPolicy.mockResolvedValue({ requireChecks: ["control.prepush.lint"] });
 
     await runPrGate(REF);
     expect(mockChecks).toHaveBeenCalledWith("acme", "acme/api");
-    expect(mockEvaluate).toHaveBeenCalledWith(expect.anything(), expect.anything(), {
-      checkStates: { "control.prepush.lint": "fail" },
-    });
+    expect(mockEvaluate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ checkStates: { "control.prepush.lint": "fail" } }),
+    );
   });
 });
 
@@ -295,5 +305,58 @@ describe("runPrGate — confirmOwner binds the installation to the owner", () =>
     ).resolves.toBeUndefined();
 
     expect(mockCheck).toHaveBeenCalledWith(expect.objectContaining({ conclusion: "neutral" }));
+  });
+});
+
+// The check-run surface is the one that can actually block a merge, so it is the one where a
+// full-confidence green check over a scan whose sensors threw does the most damage
+// (quality-gates/gate-liveness). Same seam, same threading as the public endpoint.
+describe("runPrGate — the scan's honesty flags reach the verdict", () => {
+  it("threads sensorFailures + confidence from the HEAD report into the evaluator", async () => {
+    mockScan.mockResolvedValue({ repo: { headSha: "sha-head" }, sensorFailures: ["governance"], confidence: 0.35 } as never);
+
+    await runPrGate(REF);
+
+    expect(mockEvaluate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ sensorFailures: ["governance"], confidence: 0.35 }),
+    );
+  });
+
+  it("passes an EMPTY list (never undefined) when the report records no failed sensor", async () => {
+    // Absent is not "nothing failed" on a reconstructed report — but a live scan that recorded none
+    // must reach the evaluator as an explicit empty list rather than as a hole.
+    await runPrGate(REF);
+    expect(mockEvaluate).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ sensorFailures: [] }));
+  });
+});
+
+// The merge-blocking surface must resolve org state the same way the public endpoint does, and by the
+// same fact: the org that TRACKS the repository. Keyed on the owner login, an org named for its team
+// found neither its persisted bar nor its admission overlay — and a missing bar reads as "none
+// configured", so the check that blocks merges enforced the archetype default instead.
+describe("runPrGate — org state resolves by tenancy, not by the owner login", () => {
+  it("reads the policy, the admission overlay and the ledger under the TRACKING org's slug", async () => {
+    mockOrgSlug.mockResolvedValue("kiro");
+    mockPolicy.mockResolvedValue({ minLevel: "L4", requireChecks: ["control.prepush.lint"] });
+    mockChecks.mockResolvedValue({ "control.prepush.lint": "pass" });
+
+    await runPrGate({ ...REF, owner: "xkazm04", repo: "kp" });
+
+    expect(mockOrgSlug).toHaveBeenCalledWith("xkazm04", "xkazm04/kp");
+    expect(mockPolicy).toHaveBeenCalledWith("kiro");
+    expect(mockAdmission).toHaveBeenCalledWith("kiro", "xkazm04/kp");
+    expect(mockChecks).toHaveBeenCalledWith("kiro", "xkazm04/kp");
+  });
+
+  it("a failed tenant resolve posts the neutral check and releases the delivery — never a green one", async () => {
+    const onRetryable = vi.fn();
+    mockOrgSlug.mockRejectedValue(new Error("db down"));
+
+    await runPrGate(REF, { onRetryable });
+
+    expect(mockCheck).toHaveBeenCalledWith(expect.objectContaining({ conclusion: "neutral", title: "Maturity gate could not run" }));
+    expect(onRetryable).toHaveBeenCalled();
   });
 });

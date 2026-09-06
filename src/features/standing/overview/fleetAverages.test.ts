@@ -18,6 +18,7 @@ import {
   type RepoTrajectory,
 } from "@/features/standing/overview/repoTrajectory";
 import { agg, buildGroups } from "@/features/standing/overview/repoCategoryRollupLogic";
+import { buildScoreBadges, type StandingSource } from "@/features/standing/overview/overviewStanding";
 
 function repo(name: string, overall: number, engine: string, opts: Partial<RepoTrajectory> = {}): RepoTrajectory {
   return {
@@ -137,5 +138,41 @@ describe("agg — per-group aggregates", () => {
     expect(order).toEqual(["ai-native", "manual", "early"]);
     // …and the all-mock cohort's inflated 90 never becomes a score at all.
     expect(agg(rows.filter((r) => r.posture === "early")).avg).toBeNull();
+  });
+});
+
+// ── The headline badge and the cohort card are ONE number ──────────────────────────────────────────
+//
+// Both sit in the same scroll on the Overview. The cohort card has excluded mocks since the fix these
+// tests pin; the headline badge averaged them in, so with any mock repo present the two disagreed —
+// and the headline was the one without a stated basis. The exclusion now lives in the PRODUCER
+// (`getOrgRollup`, pinned in src/lib/db/org-rollup.test.ts: the MIXED fleet below yields
+// avgOverall 70 / realScoredCount 2 / mockCount 1), so the badge inherits it. This pins the join:
+// the same fleet, read through both paths, states the same average and the same denominator.
+describe("badge vs cohort card — one fleet average, one denominator", () => {
+  /** The StandingSource `getOrgRollup` emits for MIXED (see org-rollup.test.ts for that assertion). */
+  const FROM_ROLLUP: StandingSource = {
+    avgOverall: 70,
+    avgAdoption: 70,
+    avgRigor: 70,
+    scannedCount: MIXED.length,
+    repoCount: MIXED.length,
+    deltas: null,
+    realScoredCount: 2,
+    mockCount: 1,
+  };
+
+  it("states the same average as the cohort card for a fleet with one mock repo", () => {
+    const card = summarize(MIXED);
+    const [badge] = buildScoreBadges(FROM_ROLLUP);
+    expect(badge!.value).toBe(card.avgOverall); // 70 on both — NOT 53 on one and 70 on the other
+  });
+
+  it("states the same denominator, and discloses the same exclusion", () => {
+    const card = summarize(MIXED);
+    const [badge] = buildScoreBadges(FROM_ROLLUP);
+    expect(FROM_ROLLUP.realScoredCount).toBe(card.realScored);
+    expect(FROM_ROLLUP.mockCount).toBe(card.mock);
+    expect(badge!.note).toBe("1 mock (excluded from avg)");
   });
 });

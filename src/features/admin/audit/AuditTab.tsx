@@ -14,17 +14,27 @@
 
 import { SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
 import { AuditLogViewer } from "./AuditLogViewer";
+import { AuditHealthNotice } from "./AuditHealthNotice";
 import { getAuditLog } from "@/lib/db";
+import { getAuditHealth } from "@/lib/db/audit-health";
 
 export async function AuditTab({ slug }: { slug: string }) {
   const page = await getAuditLog(slug, { limit: 25 });
+  // Read per render (it's a process-local counter, not a query) so the notice reflects the failures this
+  // instance has accumulated up to the moment the tab was drawn.
+  const health = getAuditHealth();
 
   if (!page || page.entries.length === 0) {
+    // The notice matters MOST here: an empty trail with dropped writes behind it is the one state a
+    // reader would otherwise misread as "nothing has happened".
     return (
-      <SectionEmpty>
-        No audit activity yet for this org. Scans, recommendation updates, and other
-        recorded actions will appear here as they happen.
-      </SectionEmpty>
+      <>
+        <AuditHealthNotice health={health} />
+        <SectionEmpty>
+          No audit activity yet for this org. Scans, recommendation updates, and other
+          recorded actions will appear here as they happen.
+        </SectionEmpty>
+      </>
     );
   }
 
@@ -40,6 +50,7 @@ export async function AuditTab({ slug }: { slug: string }) {
           </>
         }
       />
+      <AuditHealthNotice health={health} />
       <AuditLogViewer org={slug} initial={page} />
     </div>
   );

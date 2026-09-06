@@ -2,7 +2,7 @@
 // shape: standing headline, benchmark, strengths/weaknesses, movement, and a trailing actionable ASK.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { benchmarkCaption, briefingLoopProofLine, briefingMarkdown, briefingProofLine, briefingTrajectoryNote, buildLoopProof, engineMixCaveat, movementLine, valueRealizedHeading, valueRealizedLine, type ExecBriefing } from "./briefing";
+import { benchmarkCaption, briefingHasScore, briefingLevelCaption, briefingLoopProofLine, briefingMarkdown, briefingProofLine, briefingTrajectoryNote, buildLoopProof, coverageLine, engineMixCaveat, mockDisclosure, movementLine, noScoreLine, scoreBasisLine, scoreValue, valueRealizedHeading, valueRealizedLine, type ExecBriefing } from "./briefing";
 import { forecastTrajectory } from "@/lib/maturity/forecast";
 
 // `buildExecBriefing` is pure assembly over five @/lib/db reads (rollup/benchmark/movers/goals +
@@ -38,6 +38,8 @@ const fixture: ExecBriefing = {
   generatedOn: "2026-06-09",
   maturity: { overall: 62, levelId: "L3", levelName: "Managed", adoption: 58, rigor: 66 },
   coverage: { scanned: 8, total: 12 },
+  realScoredCount: 8,
+  mockCount: 0,
   periodDelta: 4,
   priorPeriod: {
     overall: 58,
@@ -117,10 +119,14 @@ describe("valueRealizedLine — the renewal-justification, only when there's val
 
   // UAT DANA-L1-012 — the points figure is fleet-wide; the movement line beside it is
   // comparable-only. A board reader could not reconcile "-6 pts" with "0 improved and 0 regressed".
-  it("states the basis of the points figure when the scanned count is supplied", () => {
+  // Direction 1 — and the basis is the LIVE-SCORED count, not the scanned one: `pointsMoved` is a
+  // difference of two means over `realScoredCount`, so naming the scanned set overstated the
+  // denominator by exactly `mockCount`.
+  it("states the basis of the points figure as the LIVE-SCORED set", () => {
     expect(valueRealizedLine({ recsEngaged: 0, recsActioned: 1, pointsMoved: -6, reposPromoted: 0 }, 6)).toBe(
-      "1 recommendation completed · fleet -6 pts across 6 scanned repos",
+      "1 recommendation completed · fleet -6 pts across 6 live-scored repos",
     );
+    expect(valueRealizedLine({ recsEngaged: 0, recsActioned: 1, pointsMoved: -6, reposPromoted: 0 }, 6)).not.toContain("scanned");
   });
 });
 
@@ -165,12 +171,105 @@ describe("benchmarkCaption — a suppressed percentile says why, never quotes th
 // UAT DANA-L1-012 — the movement denominator is a SUBSET of the scanned denominator; say so.
 describe("movementLine — the comparable set is named as a subset of the scanned set", () => {
   it("states both denominators", () => {
+    // Direction 1 — the superset is the LIVE-SCORED set: getOrgMovers refuses any pair with a mock
+    // endpoint, so a mock placeholder was never eligible to be one of the `compared` repos.
     expect(movementLine({ up: 1, down: 1, compared: 2 }, 6)).toBe(
-      "2 of 2 repos with a comparable prior scan moved (of 6 scanned) (1 up / 1 down)",
+      "2 of 2 repos with a comparable prior scan moved (of 6 live-scored) (1 up / 1 down)",
     );
   });
   it("is null when nothing was comparable", () => {
     expect(movementLine({ up: 0, down: 0, compared: 0 }, 6)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Direction 1 — the briefing follows the ROLLUP's denominator.
+//
+// `getOrgRollup` states the contract on `avgOverall` itself: the three headline averages are means
+// over the LIVE-SCORED repos, and "when that denominator is 0 this number is a division guard (0),
+// NOT a grade, and every renderer must land on its no-score path". `buildExecBriefing` guarded only
+// on `scannedCount === 0`, so an all-mock fleet produced a confident 0/100 · L1 on four surfaces,
+// and every basis clause quoted a denominator overstated by exactly `mockCount`.
+// ---------------------------------------------------------------------------
+
+describe("the score's denominator — briefingHasScore / scoreValue / level caption", () => {
+  const scored = { ...fixture, realScoredCount: 6, mockCount: 2 };
+  const unscored = { ...fixture, realScoredCount: 0, mockCount: 8 };
+
+  it("a fleet with live-scored repos has a score; an all-mock fleet does not", () => {
+    expect(briefingHasScore(scored)).toBe(true);
+    expect(briefingHasScore(unscored)).toBe(false);
+  });
+
+  it("renders an em dash — never the division guard — when nothing was live-scored", () => {
+    expect(scoreValue(scored, scored.maturity.overall)).toBe("62");
+    expect(scoreValue(unscored, 0)).toBe("—");
+  });
+
+  it("suppresses the LEVEL caption at a zero denominator (levelForScore(0) is L1, the worst misread)", () => {
+    expect(briefingLevelCaption(scored)).toBe("L3 Managed");
+    expect(briefingLevelCaption(unscored)).toBeNull();
+  });
+});
+
+describe("scoreBasisLine / noScoreLine / coverageLine — two denominators, stated separately", () => {
+  it("names the LIVE-SCORED set as the basis of the averages, and singularizes", () => {
+    expect(scoreBasisLine({ ...fixture, realScoredCount: 6 })).toBe("averaged over 6 live-scored repositories");
+    expect(scoreBasisLine({ ...fixture, realScoredCount: 1 })).toBe("averaged over 1 live-scored repository");
+  });
+
+  it("keeps COVERAGE on the scanned set — it answers a different question", () => {
+    expect(coverageLine({ ...fixture, realScoredCount: 6, mockCount: 2 })).toBe("Coverage: 8/12 repositories scanned");
+  });
+
+  it("swaps the basis for a sentence, with no figure in it, when there is no score", () => {
+    const b = { ...fixture, realScoredCount: 0, mockCount: 8 };
+    expect(scoreBasisLine(b)).toBeNull();
+    expect(noScoreLine(b)).toContain("No live-scored repositories in this period");
+    expect(noScoreLine(b)).not.toMatch(/\d/);
+    expect(noScoreLine(fixture)).toBeNull();
+  });
+});
+
+describe("mockDisclosure — the exclusion engineMixCaveat cannot cover", () => {
+  it("names the count excluded from every average, and singularizes", () => {
+    expect(mockDisclosure({ mockCount: 2 })).toBe("2 mock placeholders excluded from every average");
+    expect(mockDisclosure({ mockCount: 1 })).toBe("1 mock placeholder excluded from every average");
+  });
+
+  it("is null on a clean fleet — never an empty '0 excluded' line", () => {
+    expect(mockDisclosure({ mockCount: 0 })).toBeNull();
+  });
+
+  // The two are NOT redundant (G9): the engine mix counts scans that RAN inside the window, while
+  // the averages read each repo's latest scan at-or-before the upper bound. A fleet whose mock scans
+  // predate the window gets no engine-mix caveat at all and still has a shrunken denominator.
+  it("fires even when the period's engine mix is entirely live", () => {
+    const b = { ...fixture, engineMix: [{ provider: "claude-cli", count: 4 }], realScoredCount: 6, mockCount: 2 };
+    expect(engineMixCaveat(b.engineMix)).toBeNull();
+    expect(mockDisclosure(b)).toBe("2 mock placeholders excluded from every average");
+  });
+});
+
+describe("briefingMarkdown — the no-score path and the stated basis", () => {
+  it("prints the basis line beside coverage on a mixed fleet, and discloses the exclusion", () => {
+    const md = briefingMarkdown({ ...fixture, realScoredCount: 6, mockCount: 2 });
+    expect(md).toContain("- Coverage: 8/12 repositories scanned");
+    expect(md).toContain("- Score basis: averaged over 6 live-scored repositories");
+    expect(md).toContain("- Provenance: 2 mock placeholders excluded from every average");
+  });
+
+  it("refuses a grade on an all-mock fleet — no 0/100, no L1, and a reason", () => {
+    const md = briefingMarkdown({
+      ...fixture,
+      maturity: { overall: 0, levelId: "L1", levelName: "Ad-hoc", adoption: 0, rigor: 0 },
+      realScoredCount: 0,
+      mockCount: 8,
+    });
+    expect(md).not.toContain("**0/100**");
+    expect(md).not.toContain("L1 Ad-hoc");
+    expect(md).toContain("- Overall maturity: — · No live-scored repositories in this period");
+    expect(md).toContain("- Provenance: 8 mock placeholders excluded from every average");
   });
 });
 
@@ -226,16 +325,16 @@ describe("briefingMarkdown", () => {
   });
 
   it("surfaces the value realized this period (the renewal-justification line)", () => {
-    // UAT DANA-L1-012 — the fleet points figure now names its own basis (the scanned set), so it can
-    // be reconciled with the comparable-only movement line beside it.
-    expect(md).toContain("Value this period: 3 recommendations completed · fleet +4 pts across 8 scanned repos · 2 repos leveled up");
+    // UAT DANA-L1-012 + Direction 1 — the fleet points figure names its own basis, and that basis is
+    // the LIVE-SCORED set the two means it differences were computed over.
+    expect(md).toContain("Value this period: 3 recommendations completed · fleet +4 pts across 8 live-scored repos · 2 repos leveled up");
   });
 
   it("surfaces the fleet adoption rate and the FULL movement scale (not just the top-3 listed)", () => {
     expect(md).toContain("Fleet adoption: 58% of scanned repos at a high AI-adoption posture");
     // 5 up + 2 down full counts, even though only 1 gainer + 1 regression are listed below.
     // UAT DANA-L1-012 — the comparable set is now named as a subset of the scanned set.
-    expect(md).toContain("7 of 8 repos with a comparable prior scan moved (of 8 scanned) (5 up / 2 down)");
+    expect(md).toContain("7 of 8 repos with a comparable prior scan moved (of 8 live-scored) (5 up / 2 down)");
   });
 
   it("NAMES the recommended next move from the RANKED list (not the old risks[0]/security heuristic)", () => {
@@ -317,6 +416,10 @@ function rollup(over: Partial<Rollup> = {}): Rollup {
     avgOverall: 70,
     avgAdoption: 66,
     avgRigor: 74,
+    // The denominator behind those three averages (Direction 1). Default: a clean, fully live-scored
+    // fleet, so every pre-existing case is unaffected; the mock cases override it.
+    realScoredCount: 8,
+    mockCount: 0,
     postureCounts: {},
     dimAverages: [
       { dimId: "D1", avg: 90 },
@@ -374,6 +477,58 @@ describe("buildExecBriefing — coverage + maturity headline", () => {
     const b = (await buildExecBriefing("acme", undefined, "last 30 days"))!;
     expect(b.org).toBe("acme");
     expect(b.periodTitle).toBe("last 30 days");
+  });
+});
+
+describe("buildExecBriefing — the rollup's denominator travels onto the briefing (Direction 1)", () => {
+  it("carries realScoredCount / mockCount straight off the rollup on a MIXED fleet", async () => {
+    mockRollup.mockResolvedValue(rollup({ scannedCount: 8, realScoredCount: 6, mockCount: 2 }));
+    const b = (await buildExecBriefing("acme"))!;
+    // Coverage still counts every scanned repo — a count of repos with a scan is a count.
+    expect(b.coverage).toEqual({ scanned: 8, total: 10 });
+    // …but the AVERAGES' denominator is the live-scored six, and it is now on the briefing so a
+    // renderer never has to guess which of the two a figure stands on.
+    expect(b.realScoredCount).toBe(6);
+    expect(b.mockCount).toBe(2);
+    expect(b.realScoredCount + b.mockCount).toBe(b.coverage.scanned);
+    expect(briefingHasScore(b)).toBe(true);
+  });
+
+  it("an ALL-MOCK fleet is still built (coverage is real) but carries NO score", async () => {
+    // The exact shape the old guard let through: eight scanned repos, none live-scored, so
+    // avgOverall is the division guard 0 — which used to render as "0/100 (L1 Ad hoc)".
+    mockRollup.mockResolvedValue(
+      rollup({ scannedCount: 8, realScoredCount: 0, mockCount: 8, avgOverall: 0, avgAdoption: 0, avgRigor: 0, dimAverages: [] }),
+    );
+    const b = (await buildExecBriefing("acme"))!;
+    expect(b).not.toBeNull();
+    expect(b.coverage.scanned).toBe(8);
+    expect(briefingHasScore(b)).toBe(false);
+    expect(scoreValue(b, b.maturity.overall)).toBe("—");
+    expect(briefingLevelCaption(b)).toBeNull();
+    expect(mockDisclosure(b)).toBe("8 mock placeholders excluded from every average");
+    // The dimension lists come out empty because getOrgRollup's dimAverages iterate the live-scored
+    // set too — so there is no 0/100 dimension row to print either.
+    expect(b.strengths).toEqual([]);
+    expect(b.risks).toEqual([]);
+  });
+
+  it("refuses a prior-period comparison against an all-mock prior window", async () => {
+    // A delta against a division guard is a fabricated +70, not a comparison.
+    mockRollup
+      .mockResolvedValueOnce(rollup())
+      .mockResolvedValueOnce(rollup({ scannedCount: 4, realScoredCount: 0, mockCount: 4, avgOverall: 0 }));
+    const b = (await buildExecBriefing("acme", { start: new Date("2026-05-01"), endExclusive: new Date("2026-06-01") }))!;
+    expect(b.priorPeriod).toBeNull();
+  });
+
+  it("carries the prior window's own denominator when the comparison IS made", async () => {
+    mockRollup
+      .mockResolvedValueOnce(rollup())
+      .mockResolvedValueOnce(rollup({ scannedCount: 5, realScoredCount: 4, mockCount: 1, avgOverall: 60 }));
+    const b = (await buildExecBriefing("acme", { start: new Date("2026-05-01"), endExclusive: new Date("2026-06-01") }))!;
+    expect(b.priorPeriod?.realScoredCount).toBe(4);
+    expect(b.priorPeriod?.dOverall).toBe(10);
   });
 });
 
@@ -736,6 +891,8 @@ const emptyBriefing: ExecBriefing = {
   generatedOn: "2026-06-09",
   maturity: { overall: 0, levelId: "L1", levelName: "Ad-hoc", adoption: 0, rigor: 0 },
   coverage: { scanned: 0, total: 0 },
+  realScoredCount: 0,
+  mockCount: 0,
   periodDelta: null,
   priorPeriod: null,
   forecastHeadline: null,
@@ -766,8 +923,11 @@ describe("briefingMarkdown — null / empty branches", () => {
     // The non-conditional skeleton is always present even with zero data.
     expect(md).toContain("# Ascent AI-native engineering maturity briefing: acme");
     expect(md).toContain("## Standing");
-    expect(md).toContain("Overall maturity: **0/100** (L1 Ad-hoc)");
-    expect(md).toContain("- AI Adoption: 0/100 · Engineering Rigor: 0/100");
+    // Direction 1 — a briefing with NO live-scored repository has no grade to print. It used to
+    // render "**0/100** (L1 Ad-hoc)" here, which is the division guard laundered into a level.
+    expect(md).not.toContain("**0/100**");
+    expect(md).not.toContain("L1 Ad-hoc");
+    expect(md).toContain("- Overall maturity: — · No live-scored repositories in this period");
     expect(md).toContain("Coverage: 0/0 repositories scanned");
     expect(md).toContain("## Strengths (top dimensions)");
     expect(md).toContain("## Weakest dimensions (where to focus)");

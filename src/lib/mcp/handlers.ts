@@ -33,6 +33,8 @@ import { fail, findSkills, getGoverningSubject, getSkill, getSkillLessons, str, 
 import { citeMemory, reportSkillInvoke } from "@/lib/mcp/registry-writes";
 import { compareAgainstExemplar } from "@/lib/mcp/exemplar-tool";
 import { claimFollowupsTool, getFixBriefTool, reportAttemptTool } from "@/lib/mcp/work-tools";
+import { MCP_TOOLS } from "@/lib/mcp/tools";
+import { validateArgs } from "@/lib/mcp/validate-args";
 
 export interface ToolResult {
   structuredContent: unknown;
@@ -145,20 +147,35 @@ async function gateVerdict(org: string, args: Args): Promise<ToolResult> {
 
 async function openRecommendations(org: string, args: Args): Promise<ToolResult> {
   const limit = num(args, "limit", 10, 50);
-  const recs = await getOrgRecommendations(org, limit);
-  if (!recs) return fail(`No data for organization "${org}".`);
   const repo = str(args, "repo");
-  const scoped = repo ? recs.filter((r) => r.repos?.some((x) => x.toLowerCase() === repo.toLowerCase())) : recs;
+  // THE REPO FILTER RUNS BEFORE THE CAP, inside the query. This handler used to ask for the fleet's
+  // top `limit` moves and filter them by repo afterwards — so a repository with plenty of open gaps
+  // answered `count: 0` whenever none of its own gaps were the FLEET's highest-leverage ones, and the
+  // agent read that silence as "nothing to do here". Same ranking, same arithmetic; only the slice
+  // moved (`getOrgRecommendations`'s `repoFullName`).
+  const recs = await getOrgRecommendations(org, limit, null, null, repo);
+  if (!recs) return fail(`No data for organization "${org}".`);
   return {
     structuredContent: {
       org,
-      count: scoped.length,
-      recommendations: scoped.slice(0, limit).map((r) => ({
+      ...(repo ? { repo } : {}),
+      count: recs.length,
+      recommendations: recs.map((r) => ({
         title: r.title,
         dimension: r.dimId,
         impact: r.impact,
         repos: r.repos ?? [],
       })),
+      // ABSENCE IS ANSWERED, NEVER LEFT AS AN EMPTY LIST. `count: 0` with no sentence reads to a model
+      // as "this repository is clean"; for a repo that is simply unscanned, or whose gaps are all
+      // closed, those are different facts and only one of them is good news.
+      ...(recs.length === 0
+        ? {
+            note: repo
+              ? `No open, tracked recommendation names ${repo}. That means this organization has none recorded against it — either it has no scan, or its gaps are closed — not that the repository is known to be in good shape.`
+              : `This organization has no open, tracked recommendations recorded. That is an absence of records, not a clean bill of health.`,
+          }
+        : {}),
     },
   };
 }
@@ -368,10 +385,27 @@ async function recallMemory(org: string, args: Args): Promise<ToolResult> {
  * in-process without either door having to know how the other authenticated.
  */
 export interface McpPrincipal {
-  /** The value stored in `Recommendation.claimActor` — `agent:<token name>`. */
+  /**
+   * The value stored in `Recommendation.claimActor` — `agent:<token id>`.
+   *
+   * THE ID, NOT THE NAME. `createOrgApiToken` enforces no uniqueness on a token's name, so the old
+   * `agent:<name>` form made two live tokens called `ci` ONE holder: either could brief and report on
+   * rows the other leased. An id is unique by construction, so the ledger's holder comparison is now
+   * a comparison of credentials rather than of labels somebody chose twice.
+   */
   actor: string;
+  /**
+   * TRANSITIONAL — the pre-2026-09-05 holder form `agent:<token name>`, accepted ALONGSIDE `actor`
+   * so rows claimed before the change stay workable by the token that claimed them. It carries the
+   * old form's ambiguity for those rows only. Leases are hours, so every such row lapses back to the
+   * queue within a day; after that this field and the dual-match in `followup-claims.ts` are deleted
+   * together. Absent for a caller that never stored the old form.
+   */
+  legacyActor?: string | null;
   /** The verified token's id, for the audit row. */
   tokenId: string | null;
+  /** The token's human NAME — a display label only. Never an identity: see `actor`. */
+  label?: string | null;
 }
 
 /**
@@ -385,13 +419,24 @@ export interface McpPrincipal {
  * the state a fail-closed default should be in.
  */
 export async function runTool(name: string, org: string, args: Args, principal?: McpPrincipal): Promise<ToolResult> {
+  // THE SCHEMA IS ENFORCED HERE, BEFORE THE SWITCH — at the dispatcher rather than at either door, so
+  // the MCP route and Athena's in-process grounding cannot disagree about what a tool accepts, and a
+  // handler added by a future lane is validated without remembering to be. `null` for an unknown
+  // tool: that is the default branch's answer to give, not a schema complaint.
+  const def = MCP_TOOLS.find((t) => t.name === name);
+  const violation = def ? validateArgs(def.inputSchema, args) : null;
+  if (violation) {
+    // In-band, addressed to the model: the request was well-formed and its argument was not, which
+    // is something the caller can fix on its next call. See `validate-args.ts`.
+    return fail(`${violation} Fix the argument and call ${name} again — nothing was done.`);
+  }
   switch (name) {
     case "claim_followups":
-      return principal ? claimFollowupsTool(org, args, principal.actor, principal.tokenId) : unattributed(name);
+      return principal ? claimFollowupsTool(org, args, principal) : unattributed(name);
     case "get_fix_brief":
-      return principal ? getFixBriefTool(org, args, principal.actor) : unattributed(name);
+      return principal ? getFixBriefTool(org, args, principal) : unattributed(name);
     case "report_attempt":
-      return principal ? reportAttemptTool(org, args, principal.actor, principal.tokenId) : unattributed(name);
+      return principal ? reportAttemptTool(org, args, principal) : unattributed(name);
     case "report_skill_invoke":
       return reportSkillInvoke(org, args, Date.now());
     case "cite_memory":

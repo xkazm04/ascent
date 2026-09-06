@@ -21,7 +21,13 @@ import {
   estimateLlmCostUsd,
   foldLaneCost,
   getUsageSummary,
+  clampDailySeries,
   isBillableScan,
+  unpricedScanCalls,
+  mergeRepoUsage,
+  usageWindow,
+  type RepoUsage,
+  type UsageDay,
 } from "./usage";
 
 describe("foldLaneCost", () => {
@@ -101,42 +107,179 @@ describe("estimateLlmCostFromTable (built-in per-model basis, llm 06-11 #2)", ()
   });
 });
 
-describe("getUsageSummary byRepo scope (usage-metering 06-11 #4)", () => {
+// ── ONE pass over the period, folded three ways, and the money half of the repo attribution ─────
+//
+// The window used to be grouped THREE times over the identical `periodWhere` — (provider, model,
+// byom) for the cost basis, (repoId) for the top-repos panel, (repoId, provider, model, byom) for the
+// team split — and the third was a superset of the other two; the window's repos were then read from
+// `Repository` TWICE (names for the panel, default owners for the split). One groupBy and one
+// findMany now feed all three folds, and the billable scoping the SQL `where` used to do moved into
+// JS against the same predicate (`isBillableScan`) every other aggregate on the page uses.
+function summaryPrisma(opts: {
+  scanGroups?: Record<string, unknown>[];
+  repos?: Record<string, unknown>[];
+  eventRepos?: Record<string, unknown>[];
+}) {
+  const calls = { scanGroupBy: [] as Record<string, unknown>[], repoFindMany: [] as unknown[] };
+  mockIsDbConfigured.mockReturnValue(true);
+  mockGetPrisma.mockReturnValue({
+    organization: { findUnique: vi.fn(async () => ({ id: "org1", slug: "acme", kind: "org" })) },
+    scan: {
+      count: vi.fn(async () => 3),
+      groupBy: vi.fn(async (args: { by: string[] }) => {
+        calls.scanGroupBy.push(args as unknown as Record<string, unknown>);
+        return args.by.includes("repoId") ? (opts.scanGroups ?? []) : [];
+      }),
+      aggregate: vi.fn(async () => ({ _min: { scannedAt: null }, _max: { scannedAt: null } })),
+    },
+    repository: {
+      count: vi.fn(async () => 1),
+      findMany: vi.fn(async (args: unknown) => {
+        calls.repoFindMany.push(args);
+        return opts.repos ?? [];
+      }),
+    },
+    usageEvent: {
+      groupBy: vi.fn(async (args: { by: string[] }) =>
+        args.by[0] === "repoFullName" ? (opts.eventRepos ?? []) : [],
+      ),
+    },
+    $queryRaw: vi.fn(async () => []),
+  });
+  return calls;
+}
+
+const scanGroup = (repoId: string, o: Record<string, unknown> = {}) => ({
+  repoId,
+  engineProvider: "gemini",
+  engineModel: "gemini-3-flash-preview",
+  engineByom: false,
+  _count: 1,
+  _sum: { inputTokens: 2_000_000, outputTokens: 0 }, // $1.00 at the built-in rate
+  ...o,
+});
+const repoRow = (id: string, fullName: string, isPrivate = true) => ({ id, fullName, isPrivate, teams: [] });
+
+describe("getUsageSummary: one groupBy, one Repository read", () => {
   beforeEach(() => {
     mockIsDbConfigured.mockReturnValue(false);
     mockGetPrisma.mockReset();
   });
 
-  it("groups the top-repos aggregate over PRIVATE repos only (metered = billable)", async () => {
-    const groupBy = vi.fn(async () => []);
-    mockIsDbConfigured.mockReturnValue(true);
-    mockGetPrisma.mockReturnValue({
-      organization: { findUnique: vi.fn(async () => ({ id: "org1", slug: "acme" })) },
-      scan: {
-        count: vi.fn(async () => 0),
-        groupBy,
-        aggregate: vi.fn(async () => ({
-          _min: { scannedAt: null },
-          _max: { scannedAt: null },
-          _sum: { inputTokens: 0, outputTokens: 0 },
-        })),
-      },
-      repository: { count: vi.fn(async () => 0), findMany: vi.fn(async () => []) },
-      $queryRaw: vi.fn(async () => []),
+  it("asks the period for its finest key ONCE and resolves the window's repos ONCE", async () => {
+    const calls = summaryPrisma({ scanGroups: [scanGroup("r1")], repos: [repoRow("r1", "acme/api")] });
+
+    await getUsageSummary("acme", 30);
+
+    // Two scan groupBys in total: the provider mix, and the one (repo × provider × model × byom) pass
+    // the cost basis, the repo attribution and the team split are all folded out of.
+    expect(calls.scanGroupBy).toHaveLength(2);
+    const repoKeyed = calls.scanGroupBy.filter((a) => (a.by as string[]).includes("repoId"));
+    expect(repoKeyed).toHaveLength(1);
+    expect(repoKeyed[0]!.by).toEqual(["repoId", "engineProvider", "engineModel", "engineByom"]);
+    expect(calls.repoFindMany).toHaveLength(1);
+  });
+
+  it("still scopes the repo attribution to BILLABLE scans — a public repo is not bill-driving volume", async () => {
+    // The predicate moved from the SQL `where` into JS; it must classify identically. A public repo,
+    // a mock (keyless) run and a BYOM run are all free — only the private metered scan drives a bill.
+    summaryPrisma({
+      scanGroups: [
+        scanGroup("pub"),
+        scanGroup("mock", { engineProvider: "mock" }),
+        scanGroup("byom", { engineByom: true }),
+        scanGroup("priv"),
+      ],
+      repos: [
+        repoRow("pub", "acme/site", false),
+        repoRow("mock", "acme/mock"),
+        repoRow("byom", "acme/own"),
+        repoRow("priv", "acme/api"),
+      ],
     });
 
     const summary = await getUsageSummary("acme", 30);
 
-    expect(summary).not.toBeNull();
-    const byRepoCall = groupBy.mock.calls
-      .map((c) => (c as unknown[])[0] as { by: string[]; where: Record<string, unknown> })
-      .find((args) => args.by.includes("repoId"));
-    expect(byRepoCall).toBeDefined();
-    // The metered-attribution panel must not count FREE public scans as billable volume…
-    expect(byRepoCall!.where.repo).toEqual({ orgId: "org1", isPrivate: true });
-    // …nor private scans that consumed no Ascent-metered inference (mock / BYOM).
-    expect(byRepoCall!.where.engineProvider).toEqual({ not: "mock" });
-    expect(byRepoCall!.where.OR).toEqual([{ engineByom: false }, { engineByom: null }]);
+    expect(summary!.byRepo.map((r) => r.fullName)).toEqual(["acme/api"]);
+    expect(summary!.byRepo[0]!.estimatedCostUsd).toBeCloseTo(1, 6);
+  });
+
+  it("merges the ledger's per-repo spend into the same row, and keeps repo-less work as its own", async () => {
+    summaryPrisma({
+      scanGroups: [scanGroup("r1")],
+      repos: [repoRow("r1", "acme/api")],
+      eventRepos: [
+        { repoFullName: "acme/api", _count: { _all: 4, costMicros: 4 }, _sum: { costMicros: 500_000 } },
+        { repoFullName: null, _count: { _all: 2, costMicros: 2 }, _sum: { costMicros: 250_000 } },
+      ],
+    });
+
+    const summary = await getUsageSummary("acme", 30);
+
+    const api = summary!.byRepo.find((r) => r.fullName === "acme/api")!;
+    expect(api.scans).toBe(1);
+    expect(api.calls).toBe(5); // one billable scan + four ledger calls
+    expect(api.estimatedCostUsd).toBeCloseTo(1.5, 6); // $1.00 scan lane + $0.50 ledger
+    // Work with no repository is the explicit LAST row, never a dropped one.
+    const last = summary!.byRepo.at(-1)!;
+    expect(last.fullName).toBeNull();
+    expect(last.label).toBe("Org-wide (no repo)");
+    expect(last.calls).toBe(2);
+  });
+
+  it("refuses a partial dollar figure: unknown + known is unknown, per repo as per team", async () => {
+    summaryPrisma({
+      scanGroups: [scanGroup("r1")],
+      repos: [repoRow("r1", "acme/api")],
+      eventRepos: [
+        // Four ledger calls nothing could price: adding only the priced half would print a confident
+        // figure that omits real spend.
+        { repoFullName: "acme/api", _count: { _all: 4, costMicros: 0 }, _sum: { costMicros: null } },
+      ],
+    });
+
+    const summary = await getUsageSummary("acme", 30);
+
+    const api = summary!.byRepo[0]!;
+    expect(api.estimatedCostUsd).toBeNull();
+    expect(api.unpricedCalls).toBe(4);
+  });
+});
+
+describe("mergeRepoUsage", () => {
+  const row = (o: Partial<RepoUsage> & { fullName: string | null }): RepoUsage => ({
+    label: o.fullName ?? "Org-wide (no repo)",
+    scans: 0,
+    tokens: 0,
+    calls: 1,
+    estimatedCostUsd: 1,
+    unpricedCalls: 0,
+    ...o,
+  });
+
+  it("sorts by metered scan volume, as the panel always did, with a stable name tiebreak", () => {
+    const out = mergeRepoUsage(
+      [row({ fullName: "a/one", scans: 2, calls: 2 }), row({ fullName: "a/two", scans: 9, calls: 9 })],
+      [],
+    );
+    expect(out.map((r) => r.fullName)).toEqual(["a/two", "a/one"]);
+  });
+
+  it("keeps the repo-less bucket out of the top-N race and always last", () => {
+    const many = Array.from({ length: 12 }, (_, i) => row({ fullName: `a/r${i}`, scans: 12 - i, calls: 1 }));
+    const out = mergeRepoUsage(many, [row({ fullName: null, calls: 3 })]);
+    expect(out).toHaveLength(11); // ten repos + the org-wide row
+    expect(out.at(-1)!.fullName).toBeNull();
+  });
+
+  it("never adds a priced side to an unpriced one", () => {
+    const out = mergeRepoUsage(
+      [row({ fullName: "a/one", scans: 1, calls: 1, estimatedCostUsd: 2 })],
+      [row({ fullName: "a/one", calls: 5, estimatedCostUsd: null, unpricedCalls: 5 })],
+    );
+    expect(out[0]!.estimatedCostUsd).toBeNull();
+    expect(out[0]!.calls).toBe(6);
+    expect(out[0]!.unpricedCalls).toBe(5);
   });
 });
 
@@ -480,5 +623,243 @@ describe("getUsageSummary — byLane and byTeam", () => {
     expect(s.byTeam).toEqual([]);
     // The lane view still works: the public funnel's scan volume is a real, readable figure.
     expect(s.byLane.map((l) => l.lane)).toEqual(["scan"]);
+  });
+});
+
+// Direction 8 — BYOM tokens are not priced into the org's cost. `meter()` already refuses to price a
+// BYOM call on every OTHER lane (`if (byom === true) return null`), and usage.md states the rule for
+// all of them; the scan lane grouped its tokens with no byom filter and handed them straight to
+// estimateLlmCostFromTable. An org running BYOM scans saw a dollar figure for tokens it had already
+// paid its own vendor for — the one number on this page that could OVERSTATE money.
+describe("getUsageSummary — BYOM scan tokens are counted but never priced (Direction 8)", () => {
+  const PRICED = { engineProvider: "gemini", engineModel: "gemini-3.7-flash", engineByom: false, _count: 3, _sum: { inputTokens: 2_000_000, outputTokens: 1_000_000 } };
+  const BYOM = { engineProvider: "gemini", engineModel: "gemini-3.7-flash", engineByom: true, _count: 2, _sum: { inputTokens: 4_000_000, outputTokens: 2_000_000 } };
+
+  /** A prisma stub whose per-model groupBy returns exactly `modelRows` (already split by engineByom).
+   *  The period is now asked for ONE grouping — (repoId, provider, model, byom) — and the cost basis
+   *  is a fold of it, so the rows carry a repo id they did not need when the model pass was its own
+   *  query. Every figure below is unchanged by that: the fold sums the same rows. */
+  function stub(modelRows: typeof PRICED[]) {
+    const groupBy = vi.fn(async (args: { by: string[] }) => {
+      if (args.by.includes("engineModel")) return modelRows.map((r) => ({ repoId: "r1", ...r }));
+      return [{ engineProvider: "gemini", _count: modelRows.reduce((a, r) => a + r._count, 0) }];
+    });
+    mockIsDbConfigured.mockReturnValue(true);
+    mockGetPrisma.mockReturnValue({
+      organization: { findUnique: vi.fn(async () => ({ id: "org1", kind: "org" })) },
+      scan: {
+        count: vi.fn(async () => modelRows.reduce((a, r) => a + r._count, 0)),
+        groupBy,
+        aggregate: vi.fn(async () => ({ _min: { scannedAt: null }, _max: { scannedAt: null } })),
+      },
+      repository: { count: vi.fn(async () => 1), findMany: vi.fn(async () => []) },
+      usageEvent: { groupBy: vi.fn(async () => []) },
+      $queryRaw: vi.fn(async () => []),
+    });
+    return groupBy;
+  }
+
+  beforeEach(() => {
+    mockIsDbConfigured.mockReturnValue(false);
+    mockGetPrisma.mockReset();
+  });
+
+  it("splits the priced fold on engineByom in SQL rather than pricing the whole window", async () => {
+    const groupBy = stub([PRICED, BYOM]);
+    await getUsageSummary("acme", 30);
+    // `engineByom` rides in the ONE grouping key the period is asked for, so the BYOM half can be
+    // split out of the priced fold without a second query.
+    const modelCall = groupBy.mock.calls
+      .map((c) => (c as unknown[])[0] as { by: string[] })
+      .find((a) => a.by.includes("engineModel"));
+    expect(modelCall!.by).toContain("engineByom");
+  });
+
+  it("prices ONLY the platform-account half of a mixed window", async () => {
+    stub([PRICED, BYOM]);
+    const s = (await getUsageSummary("acme", 30))!;
+    // The estimate is exactly the non-BYOM half — not the whole 9M tokens.
+    const pricedOnly = estimateLlmCostFromTable([
+      { model: "gemini-3.7-flash", provider: "gemini", inputTokens: 2_000_000, outputTokens: 1_000_000 },
+    ])!;
+    expect(s.estimatedCostUsd).toBeCloseTo(pricedOnly, 10);
+    const all = estimateLlmCostFromTable([
+      { model: "gemini-3.7-flash", provider: "gemini", inputTokens: 6_000_000, outputTokens: 3_000_000 },
+    ])!;
+    expect(s.estimatedCostUsd).toBeLessThan(all);
+  });
+
+  it("still counts the BYOM tokens in the volume tiles — they were really consumed", async () => {
+    stub([PRICED, BYOM]);
+    const s = (await getUsageSummary("acme", 30))!;
+    expect(s.inputTokens).toBe(6_000_000);
+    expect(s.outputTokens).toBe(3_000_000);
+  });
+
+  it("reports the BYOM scans separately and as unpriced calls, so the gap is explained", async () => {
+    stub([PRICED, BYOM]);
+    const s = (await getUsageSummary("acme", 30))!;
+    expect(s.byomScans).toBe(2);
+    // Same shape as every other unpriceable call: disclosed volume, never a silent $0.
+    expect(s.byLane.find((l) => l.lane === "scan")!.unpricedCalls).toBe(2);
+    expect(s.allLanesUnpricedCalls).toBe(2);
+  });
+
+  it("gives a BYOM-ONLY window no estimate at all — null, never $0.00", async () => {
+    stub([BYOM]);
+    const s = (await getUsageSummary("acme", 30))!;
+    expect(s.estimatedCostUsd).toBeNull();
+    expect(s.allLanesCostUsd).toBeNull();
+    expect(s.costBasis).toBeNull();
+    expect(s.byomScans).toBe(2);
+  });
+
+  it("does not let the operator's env rates price BYOM tokens either", async () => {
+    const prev = [process.env.LLM_INPUT_COST_PER_MTOK, process.env.LLM_OUTPUT_COST_PER_MTOK];
+    process.env.LLM_INPUT_COST_PER_MTOK = "3";
+    process.env.LLM_OUTPUT_COST_PER_MTOK = "15";
+    try {
+      stub([PRICED, BYOM]);
+      const mixed = (await getUsageSummary("acme", 30))!;
+      // 2M in + 1M out at the configured rates — the BYOM 4M/2M contributes nothing.
+      expect(mixed.estimatedCostUsd).toBeCloseTo(2 * 3 + 1 * 15, 10);
+      expect(mixed.costBasis).toBe("env");
+      stub([BYOM]);
+      const only = (await getUsageSummary("acme", 30))!;
+      // Configured rates and nothing they may price: "no estimate", not a $0 that reads as free.
+      expect(only.estimatedCostUsd).toBeNull();
+    } finally {
+      if (prev[0] === undefined) delete process.env.LLM_INPUT_COST_PER_MTOK;
+      else process.env.LLM_INPUT_COST_PER_MTOK = prev[0];
+      if (prev[1] === undefined) delete process.env.LLM_OUTPUT_COST_PER_MTOK;
+      else process.env.LLM_OUTPUT_COST_PER_MTOK = prev[1];
+    }
+  });
+});
+
+describe("estimateLlmCostFromTable / unpricedScanCalls — the BYOM guard (Direction 8)", () => {
+  const row = { model: "gemini-3.7-flash", provider: "gemini", inputTokens: 1_000_000, outputTokens: 1_000_000 };
+
+  it("skips a BYOM row without setting pricedAny — a BYOM-only fold is null, not 0", () => {
+    expect(estimateLlmCostFromTable([{ ...row, byom: true }])).toBeNull();
+  });
+
+  it("prices the platform rows beside it unchanged", () => {
+    const both = estimateLlmCostFromTable([row, { ...row, byom: true }]);
+    expect(both).toBeCloseTo(estimateLlmCostFromTable([row])!, 10);
+  });
+
+  it("counts a BYOM call as unpriced even on a zero-cost local provider", () => {
+    expect(unpricedScanCalls([{ ...row, provider: "ollama", byom: true, calls: 4 }])).toBe(4);
+    // …while the same local run on Ascent's own account has a real price, and it is zero.
+    expect(unpricedScanCalls([{ ...row, provider: "ollama", byom: false, calls: 4 }])).toBe(0);
+  });
+});
+
+// Direction 9 (a)+(e). The page is honest about WHEN: one shared half-open UTC-day window, echoed on
+// the response, and a zero-fill that stops at the org's first scan instead of exporting 360 rows of
+// "0 scans" for days before the org existed. Absent is not zero.
+describe("usageWindow — the ONE window every reader of the period shares", () => {
+  it("is half-open, UTC-day-anchored, and exactly periodDays wide", () => {
+    const w = usageWindow(7, Date.UTC(2026, 6, 28, 17, 43, 12));
+    expect(w.since.toISOString()).toBe("2026-07-22T00:00:00.000Z");
+    // EXCLUSIVE upper bound: midnight UTC of tomorrow, not "now" — so today's scans are all inside.
+    expect(w.before.toISOString()).toBe("2026-07-29T00:00:00.000Z");
+    expect((w.before.getTime() - w.since.getTime()) / 86_400_000).toBe(7);
+  });
+
+  it("does not move with the wall clock inside a day — the trap the credit cutoff fell into", () => {
+    const morning = usageWindow(30, Date.UTC(2026, 6, 28, 0, 1));
+    const evening = usageWindow(30, Date.UTC(2026, 6, 28, 23, 59));
+    expect(morning).toEqual(evening);
+  });
+});
+
+describe("clampDailySeries — the zero-fill stops at the org's first scan (Direction 9e)", () => {
+  const days = (from: string, n: number): UsageDay[] =>
+    Array.from({ length: n }, (_, i) => ({
+      date: new Date(Date.parse(`${from}T00:00:00Z`) + i * 86_400_000).toISOString().slice(0, 10),
+      billable: 0,
+      free: 0,
+    }));
+
+  it("trims the days before the first scan and reports the effective start", () => {
+    const series = days("2026-01-01", 30);
+    const out = clampDailySeries(series, new Date("2026-01-01T00:00:00.000Z"), "2026-01-26T09:30:00.000Z");
+    expect(out.daily).toHaveLength(5); // 26th..30th
+    expect(out.daily[0]!.date).toBe("2026-01-26");
+    expect(out.effectiveSince).toBe("2026-01-26T00:00:00.000Z");
+  });
+
+  it("keeps the first scan's OWN day — the day it happened is measured, not trimmed", () => {
+    const out = clampDailySeries(days("2026-01-01", 30), new Date("2026-01-01T00:00:00.000Z"), "2026-01-26T00:00:00.000Z");
+    expect(out.daily[0]!.date).toBe("2026-01-26");
+  });
+
+  it("leaves a window that starts after the first scan alone — nothing to shorten", () => {
+    const series = days("2026-01-01", 30);
+    const out = clampDailySeries(series, new Date("2026-01-01T00:00:00.000Z"), "2025-11-02T00:00:00.000Z");
+    expect(out.daily).toBe(series);
+    expect(out.effectiveSince).toBe("2026-01-01T00:00:00.000Z");
+  });
+
+  it("leaves an org with NO scans alone — an honest all-zero axis, with no first scan to clamp to", () => {
+    const series = days("2026-01-01", 30);
+    expect(clampDailySeries(series, new Date("2026-01-01T00:00:00.000Z"), null).daily).toBe(series);
+  });
+});
+
+describe("getUsageSummary — echoes the window it actually covered (Direction 9)", () => {
+  const NOW = Date.UTC(2026, 6, 28, 12, 0, 0);
+  function stub(firstScan: Date | null) {
+    mockIsDbConfigured.mockReturnValue(true);
+    mockGetPrisma.mockReturnValue({
+      organization: { findUnique: vi.fn(async () => ({ id: "org1", kind: "org" })) },
+      scan: {
+        count: vi.fn(async () => 1),
+        groupBy: vi.fn(async () => []),
+        aggregate: vi.fn(async () => ({ _min: { scannedAt: firstScan }, _max: { scannedAt: firstScan } })),
+      },
+      repository: { count: vi.fn(async () => 1), findMany: vi.fn(async () => []) },
+      usageEvent: { groupBy: vi.fn(async () => []) },
+      $queryRaw: vi.fn(async () => []),
+    });
+  }
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    mockGetPrisma.mockReset();
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("returns the half-open window and names the timezone, so no reader rebuilds it from a local clock", async () => {
+    stub(new Date(Date.UTC(2020, 0, 1)));
+    const s = (await getUsageSummary("acme", 30))!;
+    expect(s.windowSince).toBe("2026-06-29T00:00:00.000Z");
+    expect(s.windowBefore).toBe("2026-07-29T00:00:00.000Z");
+    expect(s.timezone).toBe("UTC");
+    expect(s.effectiveSince).toBe(s.windowSince); // an old org: nothing to clamp
+    expect(s.effectiveDays).toBe(30);
+    expect(s.daily).toHaveLength(30);
+  });
+
+  it("clamps a 365-day window on a five-day-old org instead of exporting 360 measured zeros", async () => {
+    stub(new Date(Date.UTC(2026, 6, 24, 8, 0)));
+    const s = (await getUsageSummary("acme", 365))!;
+    expect(s.periodDays).toBe(365); // what was asked for, unchanged
+    expect(s.daily).toHaveLength(5); // …what was actually measured
+    expect(s.effectiveDays).toBe(5);
+    expect(s.effectiveSince).toBe("2026-07-24T00:00:00.000Z");
+    expect(s.effectiveSince).not.toBe(s.windowSince); // the page says "window shortened to first scan"
+    expect(s.daily[0]!.date).toBe("2026-07-24");
+    expect(s.daily.at(-1)!.date).toBe("2026-07-28");
+  });
+
+  it("accepts a caller-supplied window verbatim, so a sibling read can share it exactly", async () => {
+    stub(new Date(Date.UTC(2020, 0, 1)));
+    const win = usageWindow(7, Date.UTC(2026, 0, 10, 6, 0));
+    const s = (await getUsageSummary("acme", 7, win))!;
+    expect(s.windowSince).toBe(win.since.toISOString());
+    expect(s.windowBefore).toBe(win.before.toISOString());
   });
 });

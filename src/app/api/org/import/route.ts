@@ -204,6 +204,11 @@ export async function POST(request: Request) {
   if (metered && authGateEnabled() && !(await getViewer())) {
     return NextResponse.json({ error: "Sign in to import a private organization." }, { status: 401 });
   }
+  // Ledger attribution for every credit this import moves. Resolved HERE, in the route body, for the
+  // same reason `publicQuotaIdentity` below is: a cookie-scoped read inside the SSE `start()` returns
+  // null, which would stamp every debit "system" and lose the person who actually ran the import. The
+  // metered path already required a viewer at the wall above, so this is a real login in practice.
+  const importActor = metered ? ((await getViewer().catch(() => null))?.login ?? "system") : undefined;
   let unlimited = true;
   // Scan capacity for a non-unlimited org = monthly FREE allowance left + prepaid credits. Capping on
   // credits alone wrongly skipped an org's INCLUDED free scans (a Free org with its 10 monthly scans
@@ -329,7 +334,18 @@ export async function POST(request: Request) {
           });
           return;
         }
+        // One id for this import, used as the queue's idempotency bucket so each import gets its own
+        // claim row per repo — a second import of the same repo is new work, not a collision with the
+        // settled row the first one left behind.
+        const importRunId = randomUUID();
         send("progress", { stage: "found", total: fullNames.length, mock, watch, schedule });
+        // The run's IDENTITY, on the wire, before any work starts. It was minted purely as an internal
+        // claim bucket and never told to the client, so a browser that lost this stream (a refresh, an
+        // auth bounce) had no way to find the run again — while the server kept scanning and spending,
+        // because `mapPool` below is not tied to the request signal. Same frame shape as the sibling
+        // /api/org/scan's `queued`, so one client-side reader handles both: the wizard stores it in its
+        // resume snapshot and re-attaches through GET /api/org/scan/queue instead of re-running.
+        send("queued", { runId: importRunId, queued: fullNames.length, total: fullNames.length });
 
         // 2. Scan + persist each, with bounded concurrency (each lane emits its own per-repo events
         // as it resolves; the SSE consumer keys off each message's repo, not arrival order). A
@@ -344,10 +360,6 @@ export async function POST(request: Request) {
         let processed = 0;
         let scanned = 0;
         let skippedInProgress = 0;
-        // One id for this import, used as the queue's idempotency bucket so each import gets its own
-        // claim row per repo — a second import of the same repo is new work, not a collision with the
-        // settled row the first one left behind.
-        const importRunId = randomUUID();
         await mapPool(fullNames, SCAN_CONCURRENCY, async (r) => {
           // CLAIM this repo BEFORE reserving a credit or scanning — the run-level dedup guard. If
           // another in-flight run (a second import tab, another member, or an overlapping
@@ -375,7 +387,7 @@ export async function POST(request: Request) {
             // mock or throws.
             let reserved = false;
             if (metered && !unlimited) {
-              const reservation = await reserveScanCredit(org, r.fullName);
+              const reservation = await reserveScanCredit(org, r.fullName, { actor: importActor });
               if (reservation.skip) {
                 skippedForCredits += 1;
                 processed += 1;
@@ -410,7 +422,9 @@ export async function POST(request: Request) {
             // produced" must give it back. A caller that remembered only credits would silently burn a
             // free public slot on a deduped or degraded scan.
             const refundCredit = async () => {
-              await refundScanCredit(org, reserved);
+              // Stamped with the SAME repo and actor as the debit above, so the reversal is joinable to
+              // the row it reverses instead of landing as an anonymous +1.
+              await refundScanCredit(org, reserved, { actor: importActor, repoFullName: r.fullName });
               await refundQuota();
             };
             send("progress", { stage: "scan", repo: r.fullName, index: processed, total: fullNames.length });
@@ -479,7 +493,9 @@ export async function POST(request: Request) {
         // (best-effort — every repo is persisted by now, so the rollup is fresh; a failure here must
         // never break the scan or the SSE result).
         await persistTeamStandings(org).catch(() => {});
-        send("result", { org, scanned, total: fullNames.length, skippedForCredits, skippedForQuota, skippedInProgress, dashboard: `/org/${org}` });
+        // `runId` again on the terminal frame (mirroring the sibling route), so a client that joined late
+        // or missed the opening frame still learns the handle it would need to re-attach.
+        send("result", { org, runId: importRunId, scanned, total: fullNames.length, skippedForCredits, skippedForQuota, skippedInProgress, dashboard: `/org/${org}` });
       } catch (err) {
         send("error", { error: err instanceof Error ? err.message : "Org import failed." });
       } finally {

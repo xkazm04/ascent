@@ -5,122 +5,12 @@
 // fetched. Deliberately NOT a card grid: one list surface, severity carried by a labelled chip.
 
 import { Surface } from "@/components/ui";
-import { fmtHours } from "@/components/org/shared/ui";
-import { REVIEW_TARGET } from "./PrSignalsBand";
+import { derivePriorities, type Priority } from "./derivePriorities";
 import type { OrgGovernance, OrgPrSignals } from "@/lib/db";
 
-interface Priority {
-  severity: "fix" | "improve";
-  title: string;
-  evidence: string;
-  href: string;
-  action: string;
-}
-
-const SLOW_MERGE_HOURS = 48;
-/** A PR waiting a full working day for its FIRST review is the review-capacity ceiling showing —
- *  the universally named Assist→Delegate bottleneck (W1a review-capacity signal). */
-const SLOW_FIRST_REVIEW_HOURS = 24;
-/** Fleet revert share above this reads as rework eating delivery, not noise. */
-const REVERT_ALERT_RATE = 5;
-
-function nameFew(names: string[], max = 3): string {
-  const head = names.slice(0, max).join(", ");
-  return names.length > max ? `${head} +${names.length - max} more` : head;
-}
-
-/** Derive the ranked priority list. Exported for the page to test emptiness (renders nothing vs. all-clear). */
-export function derivePriorities(pr: OrgPrSignals | null, gov: OrgGovernance | null): Priority[] {
-  const out: Priority[] = [];
-
-  if (gov) {
-    const unprotected = gov.perRepo.filter((r) => !r.protected);
-    if (unprotected.length > 0) {
-      out.push({
-        severity: "fix",
-        title: `Protect ${unprotected.length} default branch${unprotected.length > 1 ? "es" : ""}`,
-        evidence: `${nameFew(unprotected.map((r) => r.name))}: anyone with push access can commit straight to main.`,
-        href: "#governance",
-        action: "Review gaps",
-      });
-    }
-    const zeroApproval = gov.perRepo.filter((r) => r.protected && r.requiredApprovals < 1);
-    if (zeroApproval.length > 0) {
-      out.push({
-        severity: "fix",
-        title: `Require an approving review on ${zeroApproval.length} protected repo${zeroApproval.length > 1 ? "s" : ""}`,
-        evidence: `${nameFew(zeroApproval.map((r) => r.name))}: protection is on, but 0 approvals are required, so authors can self-merge unreviewed.`,
-        href: "#governance",
-        action: "Review gaps",
-      });
-    }
-  }
-
-  if (pr) {
-    if (pr.avgReviewedRate != null && pr.avgReviewedRate < REVIEW_TARGET) {
-      const worst = pr.perRepo.find((r) => r.reviewedRate != null);
-      out.push({
-        severity: "improve",
-        title: "Lift human review coverage",
-        evidence: `${pr.avgReviewedRate}% of human-merged PRs get an approving review (target ≥${REVIEW_TARGET}%)${
-          worst ? `, weakest: ${worst.name} at ${worst.reviewedRate}%` : ""
-        }.`,
-        href: "#per-repo",
-        action: "See repos",
-      });
-    }
-    if (pr.avgAiInvolvedRate >= 10 && pr.avgAiGovernedRate != null && pr.avgAiGovernedRate < REVIEW_TARGET) {
-      out.push({
-        severity: "improve",
-        title: "Put AI-assisted PRs under human review",
-        evidence: `${pr.avgAiInvolvedRate}% of PRs are AI-involved, but only ${pr.avgAiGovernedRate}% of those get an approving review.`,
-        href: "#per-repo",
-        action: "See repos",
-      });
-    }
-    // W1a review-capacity read: slow first review WHILE AI is scaling PR volume is the named
-    // Assist→Delegate bottleneck — review capacity, not authoring, is what caps delegation.
-    if (pr.typicalHoursToFirstReview != null && pr.typicalHoursToFirstReview > SLOW_FIRST_REVIEW_HOURS) {
-      const aiPressure = pr.avgAiInvolvedRate >= 10;
-      out.push({
-        severity: "improve",
-        title: "Unblock the review queue",
-        evidence: `A typical PR waits ${fmtHours(pr.typicalHoursToFirstReview)} for its first review${
-          aiPressure ? ` while ${pr.avgAiInvolvedRate}% of PRs are AI-involved; review capacity, not authoring, is the bottleneck to delegating more` : ""
-        }.`,
-        href: "#per-repo",
-        action: "See repos",
-      });
-    }
-    if (pr.avgRevertRate != null && pr.avgRevertRate >= REVERT_ALERT_RATE) {
-      const worst = pr.perRepo.reduce<(typeof pr.perRepo)[number] | null>(
-        (acc, r) => (r.revertRate != null && (acc?.revertRate == null || r.revertRate > acc.revertRate) ? r : acc),
-        null,
-      );
-      out.push({
-        severity: "improve",
-        title: "Stabilize what ships",
-        evidence: `${pr.avgRevertRate}% of PRs are reverts: shipped work coming back out${
-          worst?.revertRate != null ? ` (worst: ${worst.name} at ${worst.revertRate}%)` : ""
-        }.`,
-        href: "#per-repo",
-        action: "See repos",
-      });
-    }
-    if (pr.typicalHoursToMerge != null && pr.typicalHoursToMerge > SLOW_MERGE_HOURS) {
-      out.push({
-        severity: "improve",
-        title: "Shorten time-to-merge",
-        evidence: `A typical PR takes ${fmtHours(pr.typicalHoursToMerge)} to merge. The per-repo table below surfaces the slowest queues.`,
-        href: "#per-repo",
-        action: "See repos",
-      });
-    }
-  }
-
-  // fix before improve, original (impact) order within each band; cap so it stays a punch list.
-  return [...out.filter((p) => p.severity === "fix"), ...out.filter((p) => p.severity === "improve")].slice(0, 4);
-}
+// Kept as a re-export so `derivePriorities`' one call site outside this file (its test) and any
+// future consumer can keep importing it from the component it belongs to.
+export { derivePriorities } from "./derivePriorities";
 
 const CHIP: Record<Priority["severity"], string> = {
   fix: "border-warn/40 bg-warn/10 text-orange-300",

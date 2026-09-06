@@ -46,6 +46,15 @@ describe("EXTRA_PRACTICES — starters beyond the spine", () => {
     expect(p!.starter.length).toBeGreaterThan(2);
   });
 
+  // The catalog is TEN: the nine-row spine plus consolidate-guidance. This number is quoted in
+  // docs/features/org-dashboard/practices.md, so a catalog change that does not update the doc is
+  // meant to be visible here.
+  it("makes the full catalog ten practices — nine spine rows plus the extras", () => {
+    expect(PRACTICES).toHaveLength(9);
+    expect(ALL_PRACTICES).toHaveLength(10);
+    expect(ALL_PRACTICES.slice(0, 9)).toEqual(PRACTICES);
+  });
+
   it("every practice carries a non-empty starter shape and no repo-specific content", () => {
     for (const p of ALL_PRACTICES) {
       expect(p.starter.length).toBeGreaterThan(0);

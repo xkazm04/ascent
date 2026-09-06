@@ -1045,6 +1045,25 @@ export function resolveAlertWebhook(orgWebhookUrl?: string | null): string | nul
   return global || null;
 }
 
+/**
+ * What KIND of sink an alert actually left by — for the AlertEvent history row, not for routing.
+ *
+ * Takes the ORG's sink field and RESOLVES it first (org → the global ALERT_WEBHOOK_URL → none), because
+ * the row must describe the channel the message travelled on, not the column the caller happened to
+ * read. Classifying the unresolved field gets two things wrong on a tenant riding the global fallback:
+ * it reports `webhook` for a global `mailto:` sink (the mail went out; the record says otherwise), and
+ * it reports `webhook` where the org had no sink at all instead of the honest `null`.
+ *
+ * `src/lib/scan-alerts.ts` and `src/lib/standard/conformance-alerts.ts` already classified a RESOLVED
+ * url; this is the same rule, exported so a caller holding only the org's field cannot restate it
+ * against the wrong input.
+ */
+export function sinkKindForOrg(orgWebhookUrl: string | null | undefined): "webhook" | "email" | null {
+  const resolved = resolveAlertWebhook(orgWebhookUrl);
+  if (!resolved) return null;
+  return emailSinkAddress(resolved) ? "email" : "webhook";
+}
+
 /** Whether an alert sink is configured (so callers can skip the work entirely when it isn't).
  *  Pass the org's webhook (when known) so a tenant with its own sink counts even with no global. */
 export function isAlertConfigured(orgWebhookUrl?: string | null): boolean {

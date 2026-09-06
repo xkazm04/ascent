@@ -259,6 +259,8 @@ describe("TAB_SCOPED_PARAM_KEYS", () => {
       "edit",
       "a",
       "b",
+      "domain",
+      "subject",
       "q",
       "search",
       "posture",

@@ -16,7 +16,7 @@ import type { CiHealth } from "@/lib/github/actions-health";
 import { resolveForge } from "@/lib/forge/registry";
 import type { EnrichmentSource, Forge } from "@/lib/forge/types";
 import { DIMENSIONS } from "@/lib/maturity/model";
-import type { Governance, GuidanceFreshness, PrStats, RepoSnapshot, SecurityExposure, SecurityPosture } from "@/lib/types";
+import type { Governance, GuidanceFreshness, PrStats, RepoSnapshot, ScanSensorId, SecurityExposure, SecurityPosture } from "@/lib/types";
 
 export interface IngestPhaseInput {
   parsed: ParsedRepo;
@@ -57,7 +57,9 @@ export interface IngestPhaseResult {
   prFetchFailed: boolean;
   governance: Governance | null;
   /** W4 — recent deployments with their latest status. Empty on an anonymous scan, or on a repo that
-   *  doesn't use GitHub Deployments; emptiness means "not observable here", never "never deployed". */
+   *  doesn't use GitHub Deployments; emptiness means "not observable here", never "never deployed".
+   *  When the READ itself failed, the empty list is accompanied by `deployments` in `sensorFailures`,
+   *  which is what tells the two emptinesses apart. */
   deployments: DeploymentRecord[];
   securityPosture: SecurityPosture | null;
   securityExposure: SecurityExposure | null;
@@ -73,7 +75,30 @@ export interface IngestPhaseResult {
   guidanceFreshnessPromise: Promise<GuidanceFreshness[]>;
   /** AI-attributed PRs as durable evidence rows; empty when scanning without a token. */
   aiChanges: AiChangeRecord[];
+  /**
+   * The sensors whose read THREW — the general form of `prFetchFailed`, which stays separate because
+   * it already has its own typed flag and its own caveat.
+   *
+   * Every enrichment below swallows its failure into the SAME value a successful-but-empty read
+   * produces (`null` / `[]`), and downstream that value is scored as absence: a null posture makes
+   * `securityPolicy()` report "No security policy (SECURITY.md) found" with a remediation for a
+   * control the org may well have, and a null App inventory floors SAST and dependency-updates at 0
+   * although the inventory's own contract says null NEVER means "no Apps installed". Recording WHICH
+   * read failed is what lets the D9 battery exclude those checks and `buildScanWarnings` say it out
+   * loud. Ordered by SENSOR_ORDER (stable), never by which promise rejected first.
+   */
+  sensorFailures: ScanSensorId[];
 }
+
+/** Canonical report order for the sensors — so the warning text is stable across runs. */
+const SENSOR_ORDER: readonly ScanSensorId[] = [
+  "governance",
+  "securityPosture",
+  "securityExposure",
+  "appInventory",
+  "ciHealth",
+  "deployments",
+];
 
 /**
  * Fetch the snapshot plus the score-bearing enrichments (PR stats, governance, security posture and
@@ -94,6 +119,15 @@ export async function ingestRepository(input: IngestPhaseInput): Promise<IngestP
   // awaited before analysis so PR signals fold into the dimension scores (F4). GraphQL needs a
   // token — skip gracefully (null) when scanning anonymously.
   let prFetchFailed = false;
+  // ONE recorder for every sensor below, so a new enrichment cannot be added with a silent
+  // `.catch(() => null)`. It returns the same degraded value the catch already returned — the shape of
+  // the pipeline is unchanged — and only ADDS the fact that the read failed.
+  const failedSensors = new Set<ScanSensorId>();
+  const sensorFailed = <T>(id: ScanSensorId, degraded: T) => (err: unknown): T => {
+    console.error(`[scan] ${id} read failed:`, err);
+    failedSensors.add(id);
+    return degraded;
+  };
   const prPromise: Promise<{ stats: PrStats; partial: boolean; aiChanges: AiChangeRecord[] } | null> = token && enrich.pullRequests
     ? enrich.pullRequests(parsed.owner, parsed.repo, token, signal).catch((err) => {
         // The sensor failed — record the fact so it persists with the scan (a caveat via
@@ -124,12 +158,12 @@ export async function ingestRepository(input: IngestPhaseInput): Promise<IngestP
   // the snapshot, so they start now and run alongside the LLM call. Governance folds into the
   // score (awaited before analysis); activity is display-only (awaited at compose time).
   const govPromise: Promise<Governance | null> = token && enrich.branchGovernance
-    ? enrich.branchGovernance(parsed.owner, parsed.repo, snapshot.meta.defaultBranch, token, signal).catch(() => null)
+    ? enrich.branchGovernance(parsed.owner, parsed.repo, snapshot.meta.defaultBranch, token, signal).catch(sensorFailed("governance", null))
     : Promise.resolve(null);
   // GitHub-native security posture (published advisories + org-level security policy) — fed to the
   // Security (D9) check battery below (the Security-Policy check). Public reads, token-gated.
   const secPromise: Promise<SecurityPosture | null> = token && enrich.securityPosture
-    ? enrich.securityPosture(parsed.owner, parsed.repo, token, signal).catch(() => null)
+    ? enrich.securityPosture(parsed.owner, parsed.repo, token, signal).catch(sensorFailed("securityPosture", null))
     : Promise.resolve(null);
   // Current EXPOSURE — open known vulns from OSV (parsed from the committed npm lockfile). The
   // "open vulns are the real negative" axis, kept separate from posture; degrades to UNKNOWN.
@@ -139,7 +173,7 @@ export async function ingestRepository(input: IngestPhaseInput): Promise<IngestP
   // "clean". Firing GitHub's reader with a GitLab token — what an unrouted call would have done — is
   // the bug this line closes.
   const expPromise: Promise<SecurityExposure | null> = token && enrich.securityExposure
-    ? enrich.securityExposure(parsed.owner, parsed.repo, snapshot.meta.headSha ?? snapshot.meta.defaultBranch, token, signal).catch(() => null)
+    ? enrich.securityExposure(parsed.owner, parsed.repo, snapshot.meta.headSha ?? snapshot.meta.defaultBranch, token, signal).catch(sensorFailed("securityExposure", null))
     : Promise.resolve(null);
   const activityPromise: Promise<number[] | null> = token && enrich.commitActivity
     ? enrich.commitActivity(parsed.owner, parsed.repo, token, signal).catch(() => null)
@@ -151,17 +185,24 @@ export async function ingestRepository(input: IngestPhaseInput): Promise<IngestP
   // with the others before analysis.
   const scoredSha = snapshot.meta.headSha ?? pinnedRef ?? snapshot.meta.defaultBranch;
   const appInventoryPromise: Promise<AppInventory | null> = token && enrich.appInventory
-    ? enrich.appInventory(parsed.owner, parsed.repo, scoredSha, token, signal).catch(() => null)
+    ? enrich.appInventory(parsed.owner, parsed.repo, scoredSha, token, signal).catch(sensorFailed("appInventory", null))
     : Promise.resolve(null);
   const ciHealthPromise: Promise<CiHealth | null> = token && enrich.ciHealth
-    ? enrich.ciHealth(parsed.owner, parsed.repo, snapshot.meta.defaultBranch, token, signal).catch(() => null)
+    ? enrich.ciHealth(parsed.owner, parsed.repo, snapshot.meta.defaultBranch, token, signal).catch(sensorFailed("ciHealth", null))
     : Promise.resolve(null);
   // W4 — deployments, the outcome anchor. Token-gated and BEST-EFFORT: a repo that doesn't use
   // GitHub Deployments returns an empty list, and no read scope returns null → no rows, which the
   // outcome views render as "not measured" rather than as a zero failure rate. It never blocks or
   // fails a scan; deployments are an enrichment, not a score input.
+  //
+  // It is the LONGEST read here — up to 21 strictly-sequential REST calls (sequential on purpose:
+  // a parallel page trips GitHub's secondary rate limit, see DEPLOYMENT_PAGE_SIZE) — and it used to
+  // be started without the abort signal and awaited OUTSIDE the Promise.all below, in the return
+  // object literal. That put its whole sequential tail on the critical path AFTER every other
+  // enrichment had already resolved. It now starts here like its siblings, carries the signal like
+  // its siblings, and is awaited WITH them, so its calls overlap theirs instead of following them.
   const deploymentsPromise: Promise<DeploymentRecord[]> = token && enrich.deployments
-    ? enrich.deployments(parsed.owner, parsed.repo, token).catch(() => [])
+    ? enrich.deployments(parsed.owner, parsed.repo, token, signal).catch(sensorFailed("deployments", []))
     : Promise.resolve([]);
   // Context Health (W4): last-modified per detected guidance file. Deliberately NOT token-gated —
   // the /commits?path= endpoint answers anonymously within rate limits — and pinned to the commit
@@ -177,19 +218,33 @@ export async function ingestRepository(input: IngestPhaseInput): Promise<IngestP
       ).catch(() => guidancePaths.map((path) => ({ path })))
     : Promise.resolve([]);
 
-  emit({ stage: "analyze", message: `Analyzing signals across ${DIMENSIONS.length} dimensions…`, pct: 62 });
-  const [prResult, governance, securityPosture, securityExposure, appInventory, ciHealth] = await Promise.all([
+  // THE FRAME TABLE. `fetch` → `tree` → `files` (45) → *this* → `analyze` (62) → `score` → `compose`
+  // (95) → `done`. Everything between 45 and 62 is GitHub I/O — PR pages, governance, security
+  // posture and exposure, the App inventory, CI health, deployments — and the UI used to read
+  // "Analyzing signals across 9 dimensions…" for the whole of it, because the `analyze` frame was
+  // emitted BEFORE the await below. The copy now describes what is actually happening; `analyze`
+  // moves to where the analysis really starts.
+  //
+  // It reuses the `analyze` STAGE ID rather than introducing an `enrich` one: the stage union is a
+  // closed type read by the fleet stream fold (src/lib/scan-stage.ts), the report status strip and
+  // the cockpit lane, so a new id is a cross-cutting change rather than a progress-copy one.
+  emit({ stage: "analyze", message: "Reading GitHub signals (pull requests, governance, security)…", pct: 52 });
+  const [prResult, governance, securityPosture, securityExposure, appInventory, ciHealth, deployments] = await Promise.all([
     prPromise,
     govPromise,
     secPromise,
     expPromise,
     appInventoryPromise,
     ciHealthPromise,
+    deploymentsPromise,
   ]);
+  emit({ stage: "analyze", message: `Analyzing signals across ${DIMENSIONS.length} dimensions…`, pct: 62 });
 
   return {
     snapshot,
     prStats: prResult?.stats ?? null,
+    // Read AFTER every enrichment promise has settled, so no rejection can land later than this line.
+    sensorFailures: SENSOR_ORDER.filter((id) => failedSensors.has(id)),
     // graphql.ts sets `partial` when the PR page came back truncated (null nodes / an `errors` array on a
     // 200). Such results must not be treated as authoritative or cached — so `prPartial` IS consumed by
     // the caller (the poisoning guard): it appends a reliability warning and stamps the typed
@@ -202,9 +257,9 @@ export async function ingestRepository(input: IngestPhaseInput): Promise<IngestP
     // extracted from the same fetched nodes. Empty on an anonymous scan — GraphQL needs a token — and
     // that emptiness means "not observable here", never "this repo has no AI changes".
     aiChanges: prResult?.aiChanges ?? [],
-    // W4 — awaited alongside the rest rather than deferred: it is bounded (one list page + one
-    // status call each) and the persister needs it in the same transaction as the scan row.
-    deployments: await deploymentsPromise,
+    // W4 — resolved in the Promise.all above alongside every other enrichment (the persister needs it
+    // in the same transaction as the scan row, and it is bounded: one list page + one status call each).
+    deployments,
     governance,
     securityPosture,
     securityExposure,

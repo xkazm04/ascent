@@ -1,8 +1,14 @@
 "use client";
 
-import { ScanRowView, type ScanRow } from "@/components/onboarding/OnboardingScanRow";
+import { ScanRowView, type ScanRow, type ScanRowState } from "@/components/onboarding/OnboardingScanRow";
+import { ScanExpectation } from "@/components/onboarding/OnboardingScanExpectation";
 import { InvitePanel } from "@/components/onboarding/OnboardingInvitePanel";
 import { FoundationPanel } from "@/components/onboarding/OnboardingFoundationPanel";
+import { SkipNotices } from "@/components/onboarding/OnboardingSkipNotices";
+import type { ImportNotice } from "@/components/onboarding/skipReason";
+import { ReconnectedNotice } from "@/components/onboarding/OnboardingReconnected";
+import type { ReattachState } from "@/components/onboarding/useImportReattach";
+import { SCAN_CONCURRENCY } from "@/lib/pool";
 import { LEVELS } from "@/lib/maturity/model";
 import { LEVEL_CLASSES, LEVEL_GLYPH } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
@@ -26,9 +32,11 @@ export function ScanStep({
   error,
   announce,
   preview = false,
+  modeResolved = true,
   previewCause = null,
   upgradePlanned = false,
-  creditSkipped = 0,
+  notices = [],
+  reattach,
   onCancel,
   onViewDashboard,
   onScanAnother,
@@ -44,6 +52,9 @@ export function ScanStep({
   /** The scan was a deterministic PREVIEW (mock), not a real LLM scan — disclosed so the numbers
    *  aren't mistaken for live scores. */
   preview?: boolean;
+  /** False until the run's mode (preview vs live) is known. The time expectation waits for it so it
+   *  never prints a number that then grows; defaults true for callers that pass a settled mode. */
+  modeResolved?: boolean;
   /** WHY the run was a preview, when the default explanation would misdiagnose: "credit_unknown"
    *  means the credit read failed (balance unknown, fail-closed) — the user may well have the App
    *  installed AND credits, so the banner must not tell them to install/top up. */
@@ -52,9 +63,13 @@ export function ScanStep({
    *  handoff flag and auto-starts from the dashboard header. Switches the preview banner + done CTA
    *  to the handoff copy (the default "install the App / top up" recovery would misdiagnose). */
   upgradePlanned?: boolean;
-  /** Repos the server deferred for insufficient credits — disclosed on the done screen so the run
-   *  isn't presented as complete coverage when some repos were skipped. */
-  creditSkipped?: number;
+  /** Batch-level `notice` frames from the import stream (too_many_repos / listing_truncated /
+   *  the capping notices). Per-repo skips are read off `rows` — they are the truth, since every
+   *  capped repo lands as a row — so this carries only what no row can express. */
+  notices?: ImportNotice[];
+  /** Set when this scanning step was RESTORED from a snapshot rather than started here: the run is
+   *  still going server-side and the wizard is following it (no stream to read, nothing to cancel). */
+  reattach?: ReattachState;
   onCancel: () => void;
   onViewDashboard: () => void;
   onScanAnother: () => void;
@@ -77,6 +92,23 @@ export function ScanStep({
   const errorCount = Object.values(rows).filter((r) => r.error).length;
   const scanTotal = Object.keys(rows).length;
   const pct = scanTotal ? Math.round((completed / scanTotal) * 100) : 0;
+  const reattached = Boolean(reattach && reattach.status !== "off");
+
+  // Direction 9 — which unsettled rows are actually in a scan lane right now. The import route emits
+  // no "started" frame (only terminal `repo` frames), so this is inferred from the route's own pool
+  // discipline: mapPool takes items in index order with SCAN_CONCURRENCY lanes, so the unsettled rows
+  // with the lowest indices are the ones being scanned. Only for a run THIS tab is streaming — a
+  // re-attached run's queue poll gives no ordering to infer from, so its rows keep "scanning…".
+  const streaming = phase === "scanning" && !reattached;
+  const lanes = new Set<string>();
+  if (streaming) {
+    for (const r of Object.values(rows)) {
+      if (lanes.size >= SCAN_CONCURRENCY) break;
+      if (!r.level && !r.error && !r.skipped && !r.completed) lanes.add(r.repo);
+    }
+  }
+  const rowState = (row: ScanRow): ScanRowState | undefined =>
+    streaming ? (lanes.has(row.repo) ? "active" : "queued") : undefined;
 
   return (
     <div key={phase} className="animate-phase-in">
@@ -129,7 +161,9 @@ export function ScanStep({
         <span className="type-mono-sm tabular-nums text-slate-400">
           {pct}% · {completed}/{scanTotal}
         </span>
-        {phase === "scanning" && (
+        {/* Cancel belongs to the stream this tab owns. A re-attached run has none — aborting nothing
+            client-side would stop no work and no spend, so offering it would be a lie. */}
+        {phase === "scanning" && !reattached && (
           <button
             type="button"
             onClick={onCancel}
@@ -140,6 +174,16 @@ export function ScanStep({
         )}
       </div>
 
+      {/* How long this is going to take. Suppressed on the reconnected surface (ReconnectedNotice
+          already owns that state, and this tab doesn't know when that run started) and on done.
+          `preview` is the run's mode: a mock preview is seconds, a live run has no resolved provider
+          client-side, so its copy states the slowest-provider ceiling ("Up to …"). */}
+      {phase === "scanning" && (
+        <ScanExpectation repoCount={scanTotal} mode={preview ? "mock" : "unknown"} hidden={reattached || !modeResolved} />
+      )}
+
+      {reattach && <ReconnectedNotice state={reattach} />}
+
       {error && (
         <p role="alert" className="mt-3 type-body text-danger-soft">
           {error}
@@ -148,7 +192,7 @@ export function ScanStep({
 
       <div className="mt-5 space-y-1.5">
         {Object.values(rows).map((row) => (
-          <ScanRowView key={row.repo} row={row} onRetry={onRetryRepo} />
+          <ScanRowView key={row.repo} row={row} onRetry={onRetryRepo} state={rowState(row)} />
         ))}
       </div>
 
@@ -181,12 +225,10 @@ export function ScanStep({
         </p>
       )}
 
-      {phase === "done" && creditSkipped > 0 && (
-        <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 type-body-sm text-amber-300">
-          {creditSkipped} {creditSkipped === 1 ? "repository was" : "repositories were"}{" "}
-          <strong>skipped (out of credits)</strong>. Top up your prepaid balance, then scan the rest from the dashboard.
-        </p>
-      )}
+      {/* Reason-specific disclosure of everything this run did NOT scan. One banner used to claim
+          "out of credits" for all three server reasons, which sent a public-funnel user who had spent
+          their FREE monthly allowance to top up a prepaid balance they were told they didn't need. */}
+      {phase === "done" && <SkipNotices rows={rows} notices={notices} />}
 
       {phase === "done" && (
         <>

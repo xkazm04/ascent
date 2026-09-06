@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 import { censusArtifacts, extractPracticeShape, parsePracticeShape } from "./practice-shape";
 import { contentDigest } from "@/lib/registry/parse";
 import { buildArtifact } from "@/lib/practice-artifact";
-import { PRACTICES } from "@/lib/practices";
+import { ALL_PRACTICES } from "@/lib/practices";
 import type { FetchedFile, RepoFile } from "@/lib/types";
 
 const blob = (path: string): RepoFile => ({ path, type: "blob" }) as RepoFile;
@@ -77,7 +77,7 @@ describe("censusArtifacts", () => {
   // lands somewhere the census does not look would silently never be reconcilable.
   it("covers every path buildArtifact actually writes", () => {
     const ctx = { fullName: "acme/api", name: "api", primaryLanguage: "typescript" };
-    for (const p of PRACTICES) {
+    for (const p of ALL_PRACTICES) {
       const spec = buildArtifact(p.id, ctx);
       if (!spec) continue;
       const seen = censusArtifacts([blob(spec.path)], []);
@@ -92,7 +92,7 @@ describe("censusArtifacts", () => {
   it("gives every practice ONE artifact path, independent of the repo", () => {
     const a = { fullName: "acme/api", name: "api", primaryLanguage: "typescript" };
     const b = { fullName: "other/svc", name: "svc", primaryLanguage: "go", description: "x" };
-    for (const p of PRACTICES) {
+    for (const p of ALL_PRACTICES) {
       const first = buildArtifact(p.id, a);
       if (!first) continue;
       expect(buildArtifact(p.id, b)!.path, `practice ${p.id}`).toBe(first.path);

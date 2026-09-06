@@ -6,7 +6,8 @@
 //
 // Mental model: the front page of an index report. One column, hairline rules, mono figures on the
 // right, and every line item says what it is, what it means, and where it leads. In reading order:
-//   1. the standing strip (four numbers + the maturity trend sparkline),
+//   1. the standing strip (four numbers + the maturity trend sparkline), and beside it the fleet
+//      trajectory card (where the trend is heading) when the fit is presentable,
 //   2. posture composition (one bar of true shares, each segment a filtered deep link),
 //   3. the dimensions as a LEDGER grouped by SDLC phase (LedgerDimensionRows) — status word,
 //      one-line reading, and two NAMED affordances per row,
@@ -18,11 +19,13 @@
 
 import { Card, DIMS, SectionHeader } from "@/components/org/shared/ui";
 import { FOLLOW_UP_BELOW } from "@/lib/maturity/model";
+import type { Forecast } from "@/lib/maturity/forecast";
 import type { ScoreBadge } from "./OrgScoreBadges";
 import type { TrendPoint } from "@/components/report/TrendChart";
 import type { HeatRow } from "./RepoDimensionHeatmap";
 import type { RepoTrajectory } from "./repoTrajectory";
 import { OrgScoreBadges } from "./OrgScoreBadges";
+import { OverviewTrajectoryCard } from "./OverviewTrajectoryCard";
 import { PostureCompositionBar } from "./PostureCompositionBar";
 import { LedgerDimensionRows } from "./LedgerDimensionRows";
 import { RepoCategoryRollup } from "./RepoCategoryRollup";
@@ -38,6 +41,9 @@ export interface OverviewLedgerData {
   sortDim?: string;
   badges: ScoreBadge[];
   trend: { points: TrendPoint[]; label: string };
+  /** The rollup's forward-looking fit over the maturity trend. Already computed on the landing path;
+   *  the card gates it on presentability and renders nothing below the gate. */
+  forecast: Forecast | null;
   postureCounts: Record<string, number>;
   dims: { dimId: string; avg: number }[];
   dimDeltas: { dimId: string; delta: number }[] | null;
@@ -53,6 +59,10 @@ export function OverviewLedger(d: OverviewLedgerData) {
   return (
     <div className="space-y-6">
       <OrgScoreBadges badges={d.badges} trend={d.trend} />
+
+      {/* Where the fleet is HEADING, beside where it stands. Self-gating: renders nothing when the
+          fit is not presentable, so the strip closes up on a thin-history org. */}
+      <OverviewTrajectoryCard forecast={d.forecast} />
 
       <Card>
         <SectionHeader

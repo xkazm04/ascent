@@ -1,4 +1,4 @@
-// POST /api/scan/stream  { url, mock?, installationId? }
+// POST /api/scan/stream  { url, mock?, installationId?, fresh?, headSha?, headEtag?, notify?, email?, ref?, subPath? }
 // Server-Sent Events: emits `progress` events through the scan, then a `result` event
 // with the final ScanReport (or an `error` event). Powers the live progress UI.
 
@@ -12,7 +12,8 @@ import { isScopedScan, scopeWarning } from "@/lib/scan-scope";
 import { resolveScanScope } from "@/lib/scan-scope-server";
 import { tooManyRequests } from "@/lib/rate-limit";
 import { cacheAndPersistScan, classifyScanResult, consumeScanQuota } from "@/lib/scan-finalize";
-import { scanAuthGate, scanRateLimitGate } from "@/lib/scan-gates";
+import { scanAuthGate, scanCreditGate, scanRateLimitGate } from "@/lib/scan-gates";
+import { paymentRequired } from "@/lib/entitlement";
 import { getViewer } from "@/lib/access";
 import { publicBaseUrl } from "@/lib/site";
 import { reportPermalink } from "@/lib/ui";
@@ -127,7 +128,10 @@ export async function POST(request: Request) {
   // source of truth for the window and allowance): public scans get a free per-window allowance
   // (shared with /api/scan via
   // consumeScanQuota). The /report flow peeks the cache first (cheap, unconsumed); reaching the stream
-  // means a real scan, so consume one slot here. Private (token) scans are credit-metered and skip this.
+  // means a real scan, so consume one slot here. Private (token) scans skip the monthly quota because
+  // they are credit-metered by the gate immediately below — a claim this comment made for a long time
+  // while NO credit code was imported here at all, so a private org repo's LLM inference on this route
+  // (the one the report UI drives) was billed by neither meter.
   const quota = await consumeScanQuota(request, { orgSlug, token, mock });
   if (quota.blocked) return quota.blocked;
   const quotaRemaining = quota.quotaRemaining;
@@ -136,6 +140,26 @@ export async function POST(request: Request) {
   // Refund the consumed slot from the in-stream no-delivery paths below (cached hit, degrade-to-mock,
   // failure) — the free tier meters on commit, not attempt (same policy as credit metering).
   const refundQuota = quota.refund;
+
+  // Credit RESERVATION for a metered (private / installed-org) scan — the fourth and last pre-scan
+  // gate, shared with /api/scan via scanCreditGate and sequenced there identically (rate limit →
+  // sign-in wall → quota → credit). Reserved HERE, before the stream opens and before any inference,
+  // so a 402 is a plain JSON response rather than an SSE `error` frame, and so two concurrent scans
+  // cannot both pass a point-in-time balance read and both run paid inference. Public (token-less)
+  // and mock scans are never charged — `isMeteredScan` inside the gate short-circuits them, so the
+  // public funnel still pays only the monthly quota consumed above.
+  const credit = await scanCreditGate(orgSlug, {
+    mock,
+    repoFullName: `${parsed.owner}/${parsed.repo}`,
+    // The viewer was already resolved in request scope above (cookies aren't readable inside start()),
+    // so the thunk just hands it back — the ledger row names the person whose scan spent the credit.
+    resolveActor: () => viewer?.login ?? null,
+  });
+  if (!credit.ok) return paymentRequired(credit.balance);
+  // Refund the reservation from the same in-stream no-delivery paths `refundQuota` fires on (cached
+  // hit, coalesce join, degrade-to-mock, dedup, throw/abort): the credit meter, like the free tier,
+  // meters on commit, not attempt. Idempotent — at most one refund per reservation.
+  const refundCredit = credit.hold.refund;
 
   // Hoisted so the stream's cancel() (fired when the client disconnects and tears the stream down
   // mid-scan) can stop the heartbeat immediately, rather than letting it fire on a dead controller
@@ -216,6 +240,7 @@ export async function POST(request: Request) {
           // (the cache probe lives inside start()), so refund the slot — a cached report is
           // free everywhere. The quota headers already sent overstate usage by this one slot.
           await refundQuota();
+          await refundCredit();
           send("progress", {
             stage: "done",
             message: lookup.source === "db" ? "Loaded from a saved scan" : "Loaded from cache",
@@ -282,7 +307,10 @@ export async function POST(request: Request) {
               sendProgress,
             )
           : await runScan(request.signal);
-        if (joinedInflight) await refundQuota();
+        if (joinedInflight) {
+          await refundQuota();
+          await refundCredit();
+        }
 
         // Derive the cache-poisoning guards — shared with /api/scan via classifyScanResult.
         // degradedToMock: a transient LLM failure fell back to MockProvider but the lookup key is still
@@ -299,12 +327,17 @@ export async function POST(request: Request) {
         // A degrade-to-mock run cost no LLM inference and delivered the deterministic floor, not
         // the product the slot pays for — refund it, mirroring the credit rule ("a degrade-to-mock
         // run is free").
-        if (degradedToMock) await refundQuota();
+        if (degradedToMock) {
+          await refundQuota();
+          await refundCredit();
+        }
         // Cache + persist behind the shared guards: skip BOTH caches on a degraded/low-coverage report
         // (getScanReportByCommit's DB tier would otherwise re-serve the floor cross-instance under ::llm).
-        // The stream surfaces nothing from the result, so the deduped/persistedOk return is ignored here.
+        // `deduped` IS read now (it was ignored while this route had no credit meter): a commit already
+        // scored produced no new scored row, so the reservation is handed back — "a dedup run is free",
+        // the same rule /api/scan and the fleet paths apply.
         // Pass the whole guard object so a new poisoning vector (e.g. partialPrSlice) can't be dropped.
-        await cacheAndPersistScan(report, resultClass, {
+        const { deduped } = await cacheAndPersistScan(report, resultClass, {
           tag: "scan/stream",
           repo: parsed ? `${parsed.owner}/${parsed.repo}` : url,
           orgSlug,
@@ -314,6 +347,7 @@ export async function POST(request: Request) {
           // entry is still written under the scoped key, which cannot collide with the whole-repo one.
           persist: !scoped,
         });
+        if (deduped) await refundCredit();
         // Stop the keepalive at the terminal frame (co-located), not only in finally, so a 15s ping
         // can't interleave after the result on a slow close.
         if (heartbeat) clearInterval(heartbeat);
@@ -360,6 +394,7 @@ export async function POST(request: Request) {
         // the monthly slot in every case: the user received nothing, and a mid-scan refresh or a
         // GitHub blip must not burn one of the free tier's monthly slots.
         await refundQuota();
+        await refundCredit();
         // A deliberate abort (client disconnect / scan timeout) is not a scan error to report — the
         // consumer is already gone and the scan stopped as intended. Don't emit a misleading
         // "Unexpected error" frame (the JSON route maps the same AbortError to a 499); just unwind.
@@ -406,6 +441,12 @@ export async function POST(request: Request) {
       ...(quotaRemaining !== null ? { "x-ascent-quota-remaining": String(quotaRemaining) } : {}),
       ...(quotaResetAt !== null ? { "x-ascent-quota-reset": String(quotaResetAt) } : {}),
       ...(quotaScope !== null ? { "x-ascent-quota-scope": quotaScope } : {}),
+      // The org's prepaid balance after this metered scan's RESERVATION, mirroring /api/scan. Headers
+      // are flushed when the stream opens, which is before start() can refund, so — unlike the JSON
+      // route's — this figure is pre-refund: a scan that degrades, dedups or fails hands the credit
+      // back and the real balance is one higher than the number sent here. Same soft-header caveat the
+      // quota fields above already carry.
+      ...(credit.hold.remaining !== null ? { "x-ascent-credits-remaining": String(credit.hold.remaining) } : {}),
     },
   });
 }

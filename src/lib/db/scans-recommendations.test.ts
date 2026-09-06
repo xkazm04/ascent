@@ -21,8 +21,9 @@ vi.mock("@/lib/db/client", () => ({
   getPrisma: mockGetPrisma,
 }));
 
-import { updateRecommendation, getRecommendationEvents, handoffRecommendations } from "./scans-recommendations";
+import { updateRecommendation, getRecommendationEvents, handoffRecommendations, REC_EVENTS_LIMIT } from "./scans-recommendations";
 import { toPersistedRec } from "./scans-shared";
+import { verifyAudit } from "./audit-integrity";
 
 /** A minimal Recommendation row that satisfies toPersistedRec's field reads. */
 function recRow(overrides: Partial<Record<string, unknown>> = {}) {
@@ -331,6 +332,31 @@ describe("getRecommendationEvents — newest-first timeline order + ISO mapping"
 
     expect(await getRecommendationEvents("rec_1")).toBeNull();
     expect(findMany).not.toHaveBeenCalled();
+  });
+
+  // D11: the read is BOUNDED. RecommendationEvent is append-only and grows with every status flip,
+  // behind a route any org reader can call, so an unbounded findMany let a caller grow the page by
+  // toggling a status. The bound is on the query, and the order stays newest-first so what is dropped
+  // is the oldest history, never the current state.
+  it("bounds the read at REC_EVENTS_LIMIT, newest-first", async () => {
+    const { prisma, findMany } = fakePrismaForEvents([]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await getRecommendationEvents("rec_1");
+
+    const args = findMany.mock.calls[0][0] as { take: number; orderBy: unknown };
+    expect(args.take).toBe(REC_EVENTS_LIMIT);
+    expect(REC_EVENTS_LIMIT).toBe(200);
+    expect(args.orderBy).toEqual([{ createdAt: "desc" }, { id: "desc" }]);
+  });
+
+  it("honours an explicit smaller bound", async () => {
+    const { prisma, findMany } = fakePrismaForEvents([]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await getRecommendationEvents("rec_1", 5);
+
+    expect((findMany.mock.calls[0][0] as { take: number }).take).toBe(5);
   });
 });
 
@@ -652,5 +678,115 @@ describe("handoffRecommendations — membership-scoped batch read + CAS-guarded 
   it("returns null when the DB is unconfigured", async () => {
     mockIsDbConfigured.mockReturnValue(false);
     expect(await handoffRecommendations("acme", ["a"])).toBeNull();
+  });
+
+  it("SIGNS every batch audit row, each over the shared instant it stores", async () => {
+    // The batch path was a third unsigned site the earlier audit missed: it wrote unsigned rows for
+    // the SAME action the per-item path next to it signed. One `at` is shared by the batch (they
+    // commit in one transaction, so one instant is the truthful timestamp) and each row is signed
+    // over that same instant.
+    process.env.AUDIT_SIGNING_SECRET = "test-secret";
+    try {
+      const { prisma, tx } = fakeHandoffPrisma({ a: { status: "open" }, b: { status: "open" } });
+      mockGetPrisma.mockReturnValue(prisma);
+
+      await handoffRecommendations("acme", ["a", "b"], { actor: "alice" });
+
+      const rows = tx.auditLog.createMany.mock.calls[0][0].data as Array<{
+        action: string;
+        at: Date;
+        orgId: string | null;
+        actorId: string | null;
+        meta: string;
+      }>;
+      expect(rows).toHaveLength(2);
+      expect(rows[0]!.at.getTime()).toBe(rows[1]!.at.getTime()); // one shared instant for the batch
+      for (const row of rows) {
+        const meta = JSON.parse(row.meta) as Record<string, unknown>;
+        expect(typeof meta._sig).toBe("string");
+        expect(
+          verifyAudit({
+            action: row.action,
+            orgId: row.orgId,
+            actorId: row.actorId,
+            createdAt: row.at.toISOString(),
+            meta,
+          }),
+        ).toBe("ok");
+      }
+      // Each row still signs its OWN id, so swapping two rows' meta is detectable.
+      expect(JSON.parse(rows[0]!.meta).id).toBe("a");
+      expect(JSON.parse(rows[1]!.meta).id).toBe("b");
+    } finally {
+      delete process.env.AUDIT_SIGNING_SECRET;
+    }
+  });
+});
+
+// ── Audit tamper-evidence: both recommendation.updated writers are SIGNED ────────────────────────
+//
+// `recommendation.updated` is the product's most-edited record, and BOTH of its in-transaction
+// writers (the per-item updateRecommendation create, and the handoffRecommendations createMany)
+// used to JSON.stringify their meta directly — bypassing withAuditSignature — so every backlog
+// mutation landed with no `_sig` and read as "unsigned" in the audit viewer's Integrity column.
+// The signature covers `createdAt`, so `at` must be stamped explicitly and match what was signed;
+// a DB-defaulted timestamp would sign a different instant than the row stores and verify as
+// `tampered` forever. Exemplar: recordConformance in src/lib/db/org-watch.ts.
+describe("recommendation.updated audit rows are signed", () => {
+  it("updateRecommendation SIGNS its row over the timestamp it stores (verifies ok)", async () => {
+    process.env.AUDIT_SIGNING_SECRET = "test-secret";
+    try {
+      const { prisma, tx } = fakePrisma(recRow({ status: "open" }), { orgId: "org_42" });
+      mockGetPrisma.mockReturnValue(prisma);
+
+      await updateRecommendation("rec_1", { status: "done" }, { actor: "bob" });
+
+      const { data } = tx.auditLog.create.mock.calls[0][0] as {
+        data: { action: string; at: Date; orgId: string | null; actorId: string | null; meta: string };
+      };
+      const meta = JSON.parse(data.meta) as Record<string, unknown>;
+      expect(data.at).toBeInstanceOf(Date); // stamped explicitly — never DB-defaulted
+      expect(typeof meta._sig).toBe("string"); // signed at all — the regression this pins
+      // Signing leaves the payload the viewer's Details column reads untouched.
+      expect(meta).toMatchObject({ id: "rec_1", actor: "bob", changes: [{ kind: "status", from: "open", to: "done" }] });
+
+      expect(
+        verifyAudit({
+          action: data.action,
+          orgId: data.orgId,
+          actorId: data.actorId,
+          createdAt: data.at.toISOString(),
+          meta,
+        }),
+      ).toBe("ok");
+    } finally {
+      delete process.env.AUDIT_SIGNING_SECRET;
+    }
+  });
+
+  it("an edited meta field no longer verifies (the tamper-evidence is real, not decorative)", async () => {
+    process.env.AUDIT_SIGNING_SECRET = "test-secret";
+    try {
+      const { prisma, tx } = fakePrisma(recRow({ status: "open" }), { orgId: "org_42" });
+      mockGetPrisma.mockReturnValue(prisma);
+
+      await updateRecommendation("rec_1", { status: "done" }, { actor: "bob" });
+
+      const { data } = tx.auditLog.create.mock.calls[0][0] as {
+        data: { action: string; at: Date; orgId: string | null; actorId: string | null; meta: string };
+      };
+      const meta = JSON.parse(data.meta) as Record<string, unknown>;
+      expect(
+        verifyAudit({
+          action: data.action,
+          orgId: data.orgId,
+          actorId: data.actorId,
+          createdAt: data.at.toISOString(),
+          meta: { ...meta, actor: "mallory" }, // someone rewrites who did it, at rest
+        }),
+      ).toBe("tampered");
+    } finally {
+      delete process.env.AUDIT_SIGNING_SECRET;
+    }
   });
 });

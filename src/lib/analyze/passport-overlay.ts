@@ -37,6 +37,17 @@ export interface DeclineEntry {
   /** 0.4.0: the finding's severity as it stood when the owner declined — the baseline for "has this
    *  gap HARDENED since it was accepted?". Absent on pre-0.4.0 declines, same rule as `code`. */
   severity?: FindingSeverity;
+  /** WHO made this decision — the session login, stamped server-side by the overrides route and never
+   *  accepted from the client. A decline is a decision record ("an owner may accept a real gap"), and a
+   *  decision record with no author is an assertion nobody owns: the actor used to exist only in the
+   *  `passport.declines_set` audit row, which no reader of the passport ever sees.
+   *
+   *  NOT A PASSPORT VERSION EVENT. `by` is added on the OVERRIDE side — it lives in
+   *  Repository.passportOverridesJson, which is never versioned by PASSPORT_VERSION and never lifted by
+   *  upgradePassport; the projection it feeds (`DeclinedByChoice`) is rebuilt read-time on every read.
+   *  So there is no stored passport whose shape changed, and nothing to migrate. Absent on declines
+   *  recorded before this field, which renders as UNKNOWN AUTHOR — never a fabricated one. */
+  by?: string;
 }
 
 /** How long an accepted gap stands before the owner is asked to re-confirm it.
@@ -64,6 +75,12 @@ export interface PassportOverrides {
   criticality?: Criticality;
   lifecycle?: Lifecycle;
   rollback?: boolean;
+  /** Who last wrote this blob and on what day (YYYY-MM-DD) — recorded server-side from the session by
+   *  the overrides route, never accepted from the client. They exist so a score an OWNER moved can be
+   *  ATTRIBUTED (see ScoreOverride): an unattributed lift is indistinguishable from a measurement.
+   *  Absent on blobs written before this field, which reads as unknown author, never a fabricated one. */
+  by?: string;
+  at?: string;
   /** Declines keyed by an allowed dotted passport field path (see DECLINABLE_PATHS). */
   declined?: Record<string, DeclineEntry>;
 }
@@ -114,44 +131,33 @@ export const DECLINABLE_PATHS: Record<string, DeclinableField> = {
 /** True when `path` is one an owner may decline. Exported for route-level validation. */
 export const isDeclinablePath = (path: string): boolean => Object.hasOwn(DECLINABLE_PATHS, path);
 
-/**
- * The declinable field path an owner would write to stand a MINTED finding id down — or null when
- * nothing on the allow-list stands against it, which is the honest answer for an evidence limitation
- * (`enforcement-not-observable` and friends), for a positional `unclassified` back-fill id, and for a
- * finding no owner may legitimately opt out of.
+/** Reverse index: minted finding id -> the ONE declinable path a UI should offer for it.
  *
- * This exists so a UI can ask "may this blocker be declined, and at which path?" without duplicating
- * the table. A second copy of the allow-list is the failure that the `finding` join key was introduced
- * to end: the tables drift, and the UI starts offering a decline the route then 400s.
+ *  This is the list a decline control offers, and building it from DECLINABLE_PATHS is the point: a
+ *  finding with no entry here — the tokenless "enforcement (branch protection) not observable" caveat
+ *  above all — is a limitation of the EVIDENCE, not a trade-off an owner may accept, and must never be
+ *  offered. "We could not see this" is not declinable; only "we saw this and I choose to live with it".
  *
- * Two paths can carry the same finding id (`stack.monitoring.errorTracking` and
- * `productionReadiness.observability` both retire `prod.zero-observability`). The winner is the path
- * on the finding's OWN axis — `prod.*` -> `productionReadiness.*`, `auto.*` -> `automationReadiness.*`
- * — because that is the sub-scale the reader is looking at when the blocker is in front of them. Ties
- * fall back to allow-list order, so the answer is deterministic either way.
- */
-export function declinablePathForFinding(findingId: string | null | undefined): string | null {
-  if (!findingId) return null;
-  const axisPrefix = findingId.startsWith("prod.")
-    ? "productionReadiness."
-    : findingId.startsWith("auto.")
-      ? "automationReadiness."
-      : null;
-  let fallback: string | null = null;
-  for (const [path, field] of Object.entries(DECLINABLE_PATHS)) {
-    if (field.finding !== findingId) continue;
-    if (axisPrefix && path.startsWith(axisPrefix)) return path;
-    fallback ??= path;
+ *  Two paths can name the same finding (stack.monitoring.errorTracking and
+ *  productionReadiness.observability both stand down prod.zero-observability). The axis-rooted path
+ *  wins, deterministically: it is the one the reader sees the blocker under. */
+export const DECLINABLE_BY_FINDING: Record<string, string> = (() => {
+  const out: Record<string, string> = {};
+  for (const path of Object.keys(DECLINABLE_PATHS).sort()) {
+    const field = DECLINABLE_PATHS[path];
+    if (!field?.finding) continue;
+    const axisRoot = field.axis === "automation" ? "automationReadiness." : "productionReadiness.";
+    const incumbent = out[field.finding];
+    if (!incumbent || (!incumbent.startsWith(axisRoot) && path.startsWith(axisRoot))) out[field.finding] = path;
   }
-  return fallback;
-}
+  return out;
+})();
 
-/** Cap on an owner's decline rationale, enforced on parse. Exported so the control that COLLECTS the
- *  reason enforces the same number the route does, rather than silently truncating on the server. */
-export const DECLINE_REASON_MAX = 280;
-
-const MAX_REASON = DECLINE_REASON_MAX;
+const MAX_REASON = 280;
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+/** A GitHub login, the only author identity this module ever stores. Anything else is dropped rather
+ *  than trusted: the author of a decision is written server-side from the session. */
+const LOGIN = /^[A-Za-z\d](?:[A-Za-z\d]|-(?=[A-Za-z\d])){0,38}$/;
 
 // ── the overlay ───────────────────────────────────────────────────────────────────────────────────
 
@@ -262,6 +268,7 @@ function applyDeclines(next: AppPassport, declined: Record<string, DeclineEntry>
       ...(retired ? { blocker: retired } : {}),
       ...(current ? { findingId: current.id } : {}),
       ...(entry.at ? { at: entry.at } : {}),
+      ...(entry.by ? { by: entry.by } : {}),
       ...(reconfirm ? { needsReconfirm: true, reconfirmReason: reconfirm } : {}),
     });
   }
@@ -277,10 +284,26 @@ export function applyPassportOverrides(pp: AppPassport, ov: PassportOverrides | 
   if (ov.criticality) next.identity.criticality = ov.criticality;
   if (ov.lifecycle) next.identity.lifecycle = ov.lifecycle;
   if (ov.rollback !== undefined && ov.rollback !== next.productionReadiness.delivery.rollback) {
+    // An override MOVES a measured score, so it must not look measured. The decline path in this same
+    // file never touches a score; this one legitimately does (the owner knows a fact the scan cannot
+    // observe), and the answer is provenance rather than suppression: keep the effect, record who
+    // moved it, by how much, and what the scan actually measured.
+    const measuredScore = next.productionReadiness.score;
+    const measuredBand = next.productionReadiness.band;
     next.productionReadiness.delivery.rollback = ov.rollback;
     const { score, band } = deriveProductionScore(next.productionReadiness);
     next.productionReadiness.score = score;
     next.productionReadiness.band = band;
+    if (score !== measuredScore || band !== measuredBand) {
+      next.productionReadiness.overridden = {
+        reason: "rollback",
+        delta: score - measuredScore,
+        measuredScore,
+        measuredBand,
+        ...(ov.by ? { by: ov.by } : {}),
+        ...(ov.at ? { at: ov.at } : {}),
+      };
+    }
   }
   if (ov.declined && Object.keys(ov.declined).length) applyDeclines(next, ov.declined);
   return next;
@@ -297,11 +320,12 @@ export function parseDeclined(raw: unknown): Record<string, DeclineEntry> | null
     if (!isDeclinablePath(path)) continue;
     const entry: DeclineEntry = {};
     if (v && typeof v === "object") {
-      const o = v as { reason?: unknown; at?: unknown; code?: unknown; severity?: unknown };
+      const o = v as { reason?: unknown; at?: unknown; code?: unknown; severity?: unknown; by?: unknown };
       if (typeof o.reason === "string" && o.reason.trim()) entry.reason = o.reason.trim().slice(0, MAX_REASON);
       if (typeof o.at === "string" && ISO_DAY.test(o.at)) entry.at = o.at;
       if (typeof o.code === "string" && /^[a-z0-9-]{1,64}$/.test(o.code)) entry.code = o.code;
       if (typeof o.severity === "string" && Object.hasOwn(SEVERITY_RANK, o.severity)) entry.severity = o.severity as FindingSeverity;
+      if (typeof o.by === "string" && LOGIN.test(o.by)) entry.by = o.by;
     }
     out[path] = entry;
   }
@@ -318,6 +342,8 @@ export function parsePassportOverrides(raw: string | null | undefined): Passport
     if (v.criticality && CRITICALITY.has(v.criticality)) out.criticality = v.criticality;
     if (v.lifecycle && LIFECYCLE.has(v.lifecycle)) out.lifecycle = v.lifecycle;
     if (typeof v.rollback === "boolean") out.rollback = v.rollback;
+    if (typeof v.by === "string" && LOGIN.test(v.by)) out.by = v.by;
+    if (typeof v.at === "string" && ISO_DAY.test(v.at)) out.at = v.at;
     const declined = parseDeclined(v.declined);
     if (declined) out.declined = declined;
     return Object.keys(out).length ? out : null;

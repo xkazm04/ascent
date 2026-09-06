@@ -1,9 +1,7 @@
 "use client";
 
-// The privacy ledger + setup block. This is the tab's load-bearing trust surface, so it is shared
-// verbatim by all three variants and only its frame changes:
-//   `list`   — an editorial two-column ledger of on/off rows (Companion).
-//   `switch` — a switch panel: each row a physical-looking state cell (Cockpit).
+// The privacy ledger + setup block — the page's load-bearing trust surface, an editorial two-column
+// ledger of on/off rows.
 //
 // The rows that are permanently OFF (transcript text, prompts/diffs, per-person org rows) are stated
 // explicitly rather than omitted: silence about them reads as "maybe", which is exactly the doubt that
@@ -11,7 +9,7 @@
 
 import { SectionEmpty } from "@/components/org/shared/ui";
 import { timeAgo } from "@/lib/ui";
-import { CareAction, CarePrivacyNote } from "./CareBits";
+import { CareAction, CareCopyAction, CarePrivacyNote } from "./CareBits";
 import type { DeveloperView } from "@/lib/org/developer-view";
 
 function StateMark({ shared, locked }: { shared: boolean; locked: boolean }) {
@@ -43,52 +41,25 @@ export function CareSetupStrip({ setup }: { setup: DeveloperView["setup"] }) {
       <span className="type-mono-sm tabular-nums text-slate-400">
         last share <span className="text-slate-300">{setup.lastShareAt ? timeAgo(setup.lastShareAt) : "never"}</span>
       </span>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {setup.mentorInstalled ? (
           <CareAction label="Share again" intent="mentor.share" />
         ) : (
           <CareAction label="Install the mentor" intent="mentor.install" />
         )}
-        <CareAction label="Copy npx ascent mentor init" intent="mentor.copyCommand" payload={{ cmd: "npx ascent mentor init" }} />
+        {/* The install path's one real action: the command is on the page to take, by button or by
+            hand. The other Care buttons log their intent; a label saying "Copy" cannot. */}
+        <CareCopyAction command="npx ascent mentor init" />
       </div>
     </div>
   );
 }
 
-export function CarePrivacyLedger({
-  setup,
-  layout = "list",
-}: {
-  setup: DeveloperView["setup"];
-  layout?: "list" | "switch";
-}) {
+export function CarePrivacyLedger({ setup }: { setup: DeveloperView["setup"] }) {
   if (setup.sharing.length === 0) {
     return <SectionEmpty>Nothing is shared, because the mentor has never run here.</SectionEmpty>;
   }
   const locked = (note?: string) => Boolean(note && /never/i.test(note));
-
-  if (layout === "switch") {
-    return (
-      <div className="mt-3">
-        <div className="grid gap-px overflow-hidden rounded-2xl border border-divider bg-divider sm:grid-cols-2">
-          {setup.sharing.map((row) => (
-            <div key={row.field} className="flex items-start justify-between gap-3 bg-ink px-4 py-3">
-              <div className="min-w-0">
-                <div className="type-body text-slate-200">{row.field}</div>
-                {row.note ? <div className="type-body-sm text-slate-500">{row.note}</div> : null}
-              </div>
-              <div className="shrink-0 pt-1">
-                <StateMark shared={row.shared} locked={locked(row.note)} />
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="mt-3">
-          <CarePrivacyNote />
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="mt-3">

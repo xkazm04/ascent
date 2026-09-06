@@ -45,8 +45,9 @@ export type { AppPassport, ArtifactGrade, AutomationLevel, DeclinedByChoice, Fie
 export { GRADE_RANK, gradeMemory, gradeSkills } from "./passport-grades";
 export { deriveProductionScore } from "./passport-score";
 export { TOKENLESS_MISSING, deriveAutonomyForStored, deriveAutonomyTier } from "./passport-autonomy";
-export { PASSPORT_VERSION, upgradePassport } from "./passport-migrate";
+export { PASSPORT_SCHEMA_URL, PASSPORT_VERSION, upgradePassport } from "./passport-migrate";
 export {
+  DECLINABLE_BY_FINDING,
   DECLINABLE_PATHS,
   DECLINE_MAX_AGE_DAYS,
   applyPassportOverrides,

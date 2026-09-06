@@ -1,6 +1,14 @@
 // Shared internals for the org-rollup family (org-*.ts). Private to the db layer — re-exported
 // through org.ts only where part of the public surface; the helpers here are not. All guarded by
 // DATABASE_URL at the call sites.
+//
+// ONE WINDOW SHAPE, DIFFERENT ENDPOINTS. `upperBound`/`dateRange` below give the whole family one
+// closure convention — half-open `[start, endExclusive)`, produced for the UI by `orgWindowBounds`
+// (src/lib/org/period.ts) and no longer hand-written per tab. What each reader SELECTS out of those
+// bounds still differs on purpose: getOrgRollup takes each repo's latest scan at-or-before the upper
+// bound with no lower bound; getOrgMovers / getOrgTeamRollup take the latest scan strictly inside the
+// window; getOrgRepoHistories takes every scan in it. Bounds are shared, endpoints are each reader's
+// own — stated in each reader's header, pinned by src/lib/org/period.dialect.test.ts.
 
 import { cache } from "react";
 import { getPrisma } from "@/lib/db/client";

@@ -88,8 +88,11 @@ export function ClearanceCard({ repo }: { repo: RepoAutonomy }) {
               size="sm"
               ariaLabel={`${repo.name} progress toward ${next.code}`}
             />
+            {/* Direction 8 — the SHARED ladder's own sentence for the first unmet condition, not a
+                prototype gate's `action`. The two used to disagree: the stamp came from the persisted
+                ladder while this line came from a five-gate approximation nobody grades against. */}
             <p className="mt-2 type-body-sm text-slate-200">
-              {repo.blocking[0]?.action ?? "All conditions met. Raise the clearance."}
+              {repo.blocking[0] ?? "All conditions met. Raise the clearance."}
             </p>
             {repo.blocking.length > 1 && (
               <p className="mt-1 type-label tracking-[0.18em] text-slate-500">

@@ -21,6 +21,8 @@
 // production traffic, and its Claude-Code relay engine runs offline LLM tasks on this device.
 
 import type { ProviderName, TokenUsage } from "@/lib/types";
+// TYPE-ONLY: leg.ts is a leaf that imports nothing from src/lib/llm/**, so this stays acyclic.
+import type { LlmLegKind } from "@/lib/llm/leg";
 
 const DEFAULT_URL = "http://127.0.0.1:8787";
 /** The POST is detached; this bounds how long the abort timer keeps the request alive. */
@@ -61,6 +63,13 @@ export interface LlmCallTrack {
    */
   surface?: string;
   tags?: string[];
+  /**
+   * The LightTrack use-case key this call answers to (see .ai/use-cases.json), e.g. `athena.turn`,
+   * `scan.calibrate`. Omitted — never a placeholder — when a call genuinely has no declared use case.
+   * Prefer {@link legKindUseCase} over inventing a name at a call site that already carries a
+   * `legKind`.
+   */
+  name?: string;
 }
 
 function truthy(v: string | undefined): boolean {
@@ -110,6 +119,10 @@ const TRACKLIGHT_PROVIDER: Record<ProviderName, string> = {
   // protocol it borrows) so tracklight's cost book never prices self-hosted GPU tokens at a vendor's
   // API rate — the same reasoning as isZeroCostProvider in config.ts.
   local: "local",
+  // A hosted vendor with its own price list, so it is keyed under its own name rather than
+  // "openai" (whose wire protocol it borrows). tracklight's provider vocabulary is open (M8), so a
+  // new vendor id is a price-book row waiting to be added, not an "unknown".
+  nebius: "nebius",
   mock: "mock",
 };
 
@@ -169,6 +182,37 @@ export function toTracklightModel(name: ProviderName, model: string): string {
   return m;
 }
 
+/**
+ * Map a metered leg kind (src/lib/llm/leg.ts) to its LightTrack use-case key from .ai/use-cases.json.
+ * `undefined` means "this leg kind has no declared use case here" — the caller should omit `name`
+ * rather than send a placeholder.
+ *
+ * `memory` is the one leg kind this cannot resolve precisely: src/lib/memory/consolidation-engine.ts's
+ * `resolveMemoryRunner` builds ONE runner shared by analyzeWrite's write-gate judgment
+ * (memory.write_gate) and reflection.ts's rollup summarization (memory.reflection) — both run under
+ * `legKind: "memory"`, and this seam has no signal to tell them apart without restructuring that
+ * runner (out of scope for a telemetry-plumbing change). It attributes to `memory.write_gate` rather
+ * than inventing a third, undeclared name.
+ */
+export function legKindUseCase(kind: LlmLegKind): string | undefined {
+  switch (kind) {
+    case "athena_turn":
+      return "athena.turn";
+    case "athena_cycle":
+      return "athena.cycle";
+    case "briefing":
+      return "org.briefing_narrative";
+    case "lane_summary":
+      return "local.lane_summary";
+    case "memory":
+      return "memory.write_gate";
+    case "scan":
+      // The scan pipeline's model calls are tracked directly by scan-assess.ts as `scan.calibrate`,
+      // not through this leg-kind seam — a "scan" legKind reaching here has no use case of its own.
+      return undefined;
+  }
+}
+
 /** Build the tracklight /v1/events body for a tracked call. Exported for unit testing. */
 export function buildEventBody(ev: LlmCallTrack, project?: string): Record<string, unknown> {
   // A token count the provider did NOT report is OMITTED, never zero-filled. `input: 0, output: 0` is
@@ -188,6 +232,7 @@ export function buildEventBody(ev: LlmCallTrack, project?: string): Record<strin
     source: "ascent",
     operation: ev.operation ?? "chat",
   };
+  if (ev.name) body.name = ev.name;
   if (Object.keys(usage).length) body.usage = usage;
   if (project) body.project_id = project;
   if (ev.latencyMs != null) body.latency_ms = Math.trunc(ev.latencyMs);

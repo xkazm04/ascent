@@ -90,8 +90,8 @@ export async function GovernancePanel({ slug, sp }: { slug: string; sp: SearchPa
       <GovernanceFailingReposCard slug={slug} g={g} />
       {/* "Cheapest path to green" (GovernanceClosestToGreenCard) sat here and was deleted 2026-08-19.
           It re-listed the failing repos the card above already lists, re-sorted. `GovernanceOverview.
-          closestToGreen` (and the greenPath walk that builds it in src/lib/org/governance.ts) is now
-          UI-less — still computed, still unit-tested, read by nothing. */}
+          closestToGreen` and the greenPath walk that built it went with the card — see the note at
+          the top of src/lib/org/governance.ts; nothing computes it any more. */}
       <GovernanceCiCard gateQuery={g.gateQuery} snippet={snippet} />
 
       {/* W2 — the evidence pack sits with the stance and the gate policy on purpose: this is where an

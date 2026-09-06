@@ -146,10 +146,11 @@ export function OrgTabChunks({ slug, tab, sp }: { slug: string; tab: OrgTabId; s
           </Suspense>
         ) : null}
 
-        {/* The registry's knowledge lane, overview only — takes no `sp`, offers no drill-down. */}
+        {/* The registry's knowledge lane as the registry structures it, plus the fleet's standing
+            against it. Reads `?domain=` and `?subject=` (both tab-scoped). */}
         {tab === "knowledge" ? (
           <Suspense fallback={<OrgTabGap minH="min-h-[32rem]" />}>
-            <KnowledgeTab slug={slug} />
+            <KnowledgeTab slug={slug} sp={sp} />
           </Suspense>
         ) : null}
 

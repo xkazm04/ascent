@@ -9,8 +9,12 @@ and its "apply" buttons.
 
 ## Catalog (`src/lib/practices.ts`)
 
-`PRACTICES: PracticeDef[]` defines nine practices, each with `{ id, label, dimId, what,
-starter[] }`. `dimId` ties the practice to the dimension it strengthens, so the org gap
+`PRACTICES: PracticeDef[]` defines nine spine practices (one per dimension), each with `{ id, label,
+dimId, what, starter[] }`, and `EXTRA_PRACTICES` adds a tenth, `consolidate-guidance`
+(`artifactPath: docs/AGENT-GUIDANCE.md`); `ALL_PRACTICES` is the union. Since 2026-09-05 the artifact
+builder, practice mining, generate/apply/apply-batch/rollout and the #33 census all read the union,
+so the tenth practice is generatable and appliable like the nine (the by-dimension lookups still read
+the spine, so the D1 dimension keeps one answer). `dimId` ties the practice to the dimension it strengthens, so the org gap
 analysis can link a weak dimension to its practice.
 
 | ID | Practice | Dim |
@@ -113,7 +117,8 @@ AI-stance module reuses to open its `AI_POLICY.md` PR (`/api/org/ai-stance/apply
   consolidated away is a standing decision, so the loop reads its own dispatch history and
   falls through to a backlog lane instead of reinstalling. The PR doors are unaffected; a
   human may still apply the same practice as often as they like.
-- **Content-drift guard.** The caller may pass the `expectedFingerprint` it previewed.
+- **Content-drift guard.** The caller may pass the `previewFingerprint` it previewed (the wire
+  field; `PracticeApply` sends it and `apply/route.ts` reads it).
   If `artifactFingerprint(artifact.body)` no longer matches, apply returns
   `{ kind: "content-drift" }` and **opens no PR**, so a template or repo-context
   change between preview and apply can't silently land unreviewed content.
@@ -129,13 +134,19 @@ to `MAX_BATCH = 25`, fanned out with `mapPool` at `SCAN_CONCURRENCY`, with per-r
 error isolation so one failure doesn't sink the batch. Driven by
 `PracticeApplyBatch.tsx` / `PracticeApplyBatchResults.tsx`.
 
-## UI (`src/app/org/[slug]/practices/page.tsx`, `src/features/shared/practices/PracticeApply.tsx`)
+## UI (`src/features/shared/practices/`, mounted by the Practices tab)
 
-The practices page renders one card per practice (label, "what", adoption meter, exemplar
-link, gap repos, the reusable-shape checklist) with an embedded `PracticeApply`. That
-client component lets the user pick a target gap repo, **Preview** (→ `/generate`, shows
-the artifact body in a collapsible block), and **Open draft PR** (→ `/apply`, shows a link
-to the PR, labeled "Existing draft PR" when reused). Errors surface inline.
+`src/app/org/[slug]/practices/page.tsx` is a permanent redirect into the tab shell; the real
+mount is `PracticesTab` (`OrgTabChunks.tsx`). The tab renders the registry strip, the house
+pattern, four tiles (Practices, Fleet adoption with its `strong/measured` basis, Could adopt, PRs
+in flight), the drift strip and a dense **ledger table** (`PracticesView` → `PracticeLedger`),
+one row per practice. Opening a row shows a layer-2 modal (`PracticeDetailModal` →
+`MinedPracticeDetail`) with the embedded `PracticeApply`: pick a target gap repo, **Preview**
+(→ `/generate`, the artifact body in a collapsible block), **Open draft PR** (→ `/apply`, a link
+to the PR, labelled "Existing draft PR" when reused), or **Roll out to the fleet**
+(`PracticeApplyBatch` → `/apply-batch`, confirm dialog, neediest-first, `skipped` surfaced).
+Errors surface inline. (Rewritten 2026-09-05; the previous text described the pre-tab card
+page.)
 
 ## Playbooks: the org's OWN standards (authored, not mined)
 
@@ -362,8 +373,10 @@ org-internal: no public report, leaderboard, shared corpus or cross-org read.
 
 ## Known gaps
 
-- **Overwrites existing files**: `PUT` updates a file already at the path; there's no
-  "create-only" safety check.
+- (Closed; the entry was wrong, corrected 2026-09-05.) ~~Overwrites existing files~~: `openDraftPr`
+  (`src/lib/github/write.ts`, `existingFileSha`) reads the path on the **base** branch and refuses
+  with a 409 rather than overwrite it with a starter artifact; it checks base, not the branch, so a
+  re-seed of the draft branch stays idempotent. The 25-repo fan-out is the reason the guard exists.
 - **Batch apply is capped**: both `POST /api/practices/apply-batch` and
   `POST /api/org/playbooks/[id]/apply-batch` are bounded to **25 repos per call** (a
   deliberate bound, not a limitation to remove: one click must never become hundreds of

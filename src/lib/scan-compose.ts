@@ -31,6 +31,7 @@ import type {
   RepoArchetype,
   RepoSnapshot,
   ScanReport,
+  ScanSensorId,
   TechStack,
   TokenUsage,
 } from "@/lib/types";
@@ -183,6 +184,14 @@ export interface ScanWarningsInput {
   /** A token was present but PR ingestion threw — the PR sensor FAILED (vs. the keyless skip). */
   prFetchFailed: boolean;
   /**
+   * The OTHER enrichment sensors whose read threw (governance, security posture/exposure, App
+   * inventory, CI health, deployments — see `IngestPhaseResult.sensorFailures`). One warning names
+   * them all: each of these degrades to the same `null`/`[]` a successful-but-empty read produces,
+   * and the score treats that as absence, so without this line a broken read is published as a
+   * finding about the repository. `pullRequests` never appears here — it has `prFetchFailed` above.
+   */
+  sensorFailures?: readonly ScanSensorId[];
+  /**
    * Prose caveat for a SCOPED scan (a non-default ref and/or a monorepo sub-path — see
    * `scopeWarning` in src/lib/scan-scope.ts), or null for an ordinary whole-repo default-branch scan.
    * Emitted LAST because it qualifies the whole report's subject rather than one signal's reliability:
@@ -200,6 +209,17 @@ export interface ScanWarningsInput {
    */
   outputBudget?: OutputBudget | null;
 }
+
+/** Reader-facing name for each sensor, so the caveat names the READ rather than the code path. */
+const SENSOR_LABEL: Record<ScanSensorId, string> = {
+  pullRequests: "pull requests",
+  governance: "branch governance",
+  securityPosture: "security posture (advisories, org policy)",
+  securityExposure: "dependency exposure",
+  appInventory: "installed-App inventory",
+  ciHealth: "CI health",
+  deployments: "deployments",
+};
 
 /**
  * Surface non-fatal reliability caveats so the score is interpreted in context. Pure: same facts in,
@@ -221,6 +241,15 @@ export function buildScanWarnings(input: ScanWarningsInput): string[] {
     // as "this repository has no pull requests" (which deflates Review/Velocity/Delivery silently).
     warnings.push(
       "Pull-request ingestion FAILED during this scan, so PR-derived signals (Review, Velocity, Delivery) are missing — this reflects a failed read, not a repository without pull requests.",
+    );
+  }
+  // Every OTHER failed sensor, in one line. Mirrors the prFetchFailed caveat above deliberately: the
+  // failure mode is identical (a read that threw collapses to the value an empty read produces, and
+  // the score reads that as absence), so the honesty channel is the same shape.
+  const failed = (input.sensorFailures ?? []).filter((id) => id !== "pullRequests");
+  if (failed.length) {
+    warnings.push(
+      `GitHub signal reads FAILED during this scan (${failed.map((id) => SENSOR_LABEL[id]).join(", ")}), so the signals they feed are missing — this reflects failed reads, not controls the repository lacks. Checks that only those reads could have credited were excluded from the score rather than scored zero.`,
     );
   }
   if (input.llmFailed) {

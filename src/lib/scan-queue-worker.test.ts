@@ -130,6 +130,7 @@ describe("double-billing across instances", () => {
     expect(b.claimed).toBe(0);
     expect(b.skipped).toBe(1);
     expect(h.reserveScanCredit).toHaveBeenCalledTimes(1);
+    expect(h.reserveScanCredit).toHaveBeenCalledWith("acme", "acme/api", { actor: "queue:cadence" });
     expect(h.scanRepository).toHaveBeenCalledTimes(1);
   });
 });
@@ -142,7 +143,9 @@ describe("the refund boundary is carried over unedited", () => {
     const s = await drainLane("rescore", opts({ jobs: [{ id: "job_1", repo: "acme/api" }] }));
 
     expect(s.failed).toBe(1);
-    expect(h.refundScanCredit).toHaveBeenCalledWith("acme", true);
+    // Attributed: the refund names the repo it reverses and the queue reason that spent the credit
+    // ("cadence" here — a scheduled rescan), so ledger spend is joinable rather than an anonymous +1.
+    expect(h.refundScanCredit).toHaveBeenCalledWith("acme", true, { actor: "queue:cadence", repoFullName: "acme/api" });
     expect(h.settleJob.mock.calls[0]![1]).toMatchObject({ state: "failed", creditRefunded: true });
     // A failed scan backs off 6h rather than waiting a whole cadence.
     expect(h.advanceScheduleAfterFailure).toHaveBeenCalledWith("repo_1");
@@ -165,7 +168,9 @@ describe("the refund boundary is carried over unedited", () => {
 
     await drainLane("rescore", opts({ jobs: [{ id: "job_1", repo: "acme/api" }] }));
 
-    expect(h.refundScanCredit).toHaveBeenCalledWith("acme", true);
+    // Attributed: the refund names the repo it reverses and the queue reason that spent the credit
+    // ("cadence" here — a scheduled rescan), so ledger spend is joinable rather than an anonymous +1.
+    expect(h.refundScanCredit).toHaveBeenCalledWith("acme", true, { actor: "queue:cadence", repoFullName: "acme/api" });
     expect(h.settleJob.mock.calls[0]![1]).toMatchObject({ state: "done", creditRefunded: true });
   });
 

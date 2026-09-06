@@ -13,6 +13,8 @@ import { getPreviewFirst, resetPreviewFirst } from "@/components/onboarding/Onbo
 import { resolveImportPlan } from "@/components/onboarding/importPlan";
 import { setUpgradeScanFlag } from "@/components/onboarding/upgradeScan";
 import { classifyScanFailure, gateAnnouncement, type ScanGate } from "@/components/onboarding/scanGate";
+import { leftoverSkipReason, type ImportNotice } from "@/components/onboarding/skipReason";
+import { useImportReattach } from "@/components/onboarding/useImportReattach";
 import type { PickErrorSource } from "@/components/onboarding/OnboardingPickStep";
 import {
   MAX_LIST,
@@ -60,6 +62,11 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
   // Whether the just-run scan was a PREVIEW (mock) — disclosed on the done state so the scores are
   // never mistaken for live numbers. Real only on the App path when the org actually has credits.
   const [previewScan, setPreviewScan] = useState(true);
+  // False from the moment a run starts until resolveScanMode has answered: the phase flips to
+  // "scanning" BEFORE the mode is known, and an expectation rendered off the reset `previewScan`
+  // would print the mock number for one paint and then grow - the opposite of the report's
+  // forward-only rule. Consumers that state a duration wait for this instead.
+  const [modeResolved, setModeResolved] = useState(false);
   // How many teammates were invited from the done state (App path) — marks the checklist step done.
   const [invitedCount, setInvitedCount] = useState(0);
   // W6b: the just-run preview was "fast preview first" on the App path — a LIVE upgrade scan is owed
@@ -71,9 +78,20 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
   // on the response since the listing was bounded, but nothing ever read it — so a fork-heavy org's
   // partial list was presented as the org's complete reality. The select step discloses it.
   const [listTruncated, setListTruncated] = useState(false);
-  // How many repos the server deferred for insufficient credits this run — surfaced on the done
-  // screen so a credit shortfall is disclosed rather than left as ghost "scanning…" rows.
-  const [creditSkipped, setCreditSkipped] = useState(0);
+  // Every batch-level `notice` the import stream sent this run, verbatim. It used to be a single
+  // number that only ever counted `insufficient_credits`: "monthly_quota" (the FREE public allowance
+  // ran out), "too_many_repos" and "listing_truncated" were read off the wire and dropped on the
+  // floor, and the done screen then told a public-funnel user to top up a prepaid balance the select
+  // step had just promised they would not need. Kept as the raw frames so the disclosure can say what
+  // the server actually said (see skipReason.ts / OnboardingSkipNotices.tsx).
+  const [notices, setNotices] = useState<ImportNotice[]>([]);
+  // The server-side handle for the run currently in flight, from the import stream's opening `queued`
+  // frame. Persisted in the resume snapshot so a refresh can RE-ATTACH to the run (poll its job
+  // states) instead of abandoning it — the scan does not stop when the browser goes away.
+  const [importRunId, setImportRunId] = useState<string | null>(null);
+  // This "scanning" phase was restored from a snapshot, not started here: there is no stream to read
+  // and no controller to cancel, so the step renders the reconnected surface and polls instead.
+  const [reattached, setReattached] = useState(false);
   // An ACCESS gate returned by the import kickoff (401/403) — rendered as a human recovery step
   // INSTEAD of the raw server string. Distinct from `error` on purpose: `error` stays the channel for
   // genuine unexpected failures (where losing the server's diagnostic would be worse than a raw
@@ -170,9 +188,9 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
   }, [gate]);
 
   // ONB-2 — rehydrate once on mount (must run BEFORE the persist effect below so the snapshot is read
-  // before that effect could overwrite it). Reads the saved source + selection and re-enters the
-  // select step. Only the inputs are restored; the repo list is re-fetched live, so a stale scanning/
-  // done phase resolves to a clean select step rather than a broken empty view.
+  // before that effect could overwrite it). Reads the saved source + selection and re-enters the step
+  // it was taken on: a "scanning" snapshot with a run handle RE-ATTACHES to that run (below), and
+  // anything else re-fetches the repo list live and lands back on select.
   const rehydrated = useRef(false);
   useEffect(() => {
     if (rehydrated.current || typeof window === "undefined") return;
@@ -184,7 +202,12 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
     } catch {
       snap = null;
     }
-    if (snap?.sourceLabel) {
+    if (snap?.phase === "scanning" && snap.runId && snap.sourceLabel) {
+      // A run was in flight when this tab went away. It did NOT stop (the import route's mapPool is
+      // not tied to the request signal), so re-enter the scan step and FOLLOW it — re-running would
+      // scan and charge the same repos twice, and going back to "select" would hide it entirely.
+      resumeRunning(snap);
+    } else if (snap?.sourceLabel) {
       void resumeFrom(snap);
     } else {
       // ?org=<handle> — the intent handoff for links that already know which account the user wants
@@ -210,12 +233,38 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
         return;
       }
       if (!sourceLabel) return; // nothing meaningful to resume until a source is chosen
-      const snap: ResumeSnapshot = { org, sourceLabel, sourceInstallId, selected: [...selected] };
+      // The snapshot now carries the STEP and, while scanning, the run's server-side handle. Without
+      // them a refresh mid-scan rehydrated to "select" — the repo picker, with no sign that the run
+      // was still going (and still spending) on the server, whose obvious next move is to run the
+      // same scan a second time.
+      const snap: ResumeSnapshot = {
+        org,
+        sourceLabel,
+        sourceInstallId,
+        selected: [...selected],
+        phase: phase === "scanning" ? "scanning" : "select",
+        runId: phase === "scanning" ? importRunId : null,
+      };
       sessionStorage.setItem(RESUME_KEY, JSON.stringify(snap));
     } catch {
       /* sessionStorage unavailable (private mode / quota) — resumability is best-effort */
     }
-  }, [phase, org, sourceLabel, sourceInstallId, selected]);
+  }, [phase, org, sourceLabel, sourceInstallId, selected, importRunId]);
+
+  // Re-enter the SCANNING step for a run that is still going server-side. Everything the step needs
+  // comes from the snapshot (no repo re-listing: the rows, not the picker, are what the user is
+  // looking at); the job states then arrive from the queue poll below.
+  function resumeRunning(snap: ResumeSnapshot) {
+    setOrg(snap.org || snap.sourceLabel);
+    setSourceLabel(snap.sourceLabel);
+    setSourceInstallId(snap.sourceInstallId);
+    setSelected(new Set(snap.selected));
+    setRows(Object.fromEntries(snap.selected.map((fullName) => [fullName, { repo: fullName }])));
+    setImportRunId(snap.runId ?? null);
+    setReattached(true);
+    setPhase("scanning");
+    setAnnounce("Reconnected to a scan that is still running.");
+  }
 
   // Re-fetch the saved source's repos, then re-apply the saved selection (landing on the select step).
   async function resumeFrom(snap: ResumeSnapshot) {
@@ -333,7 +382,7 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
   // "Scan another": reset the FULL per-run state, not just the visible rows/selection. The original
   // inline reset list predated the money/checklist state and left `credit` (a pre-scan snapshot the
   // next run's cost copy + money-gate would trust over a fresh read), `creditReady`, `previewScan`/
-  // `previewCause`, `invitedCount`, and `creditSkipped` to leak into the second run — understating
+  // `previewCause`, `invitedCount`, and the run's stream notices to leak into the second run — understating
   // recurring cost on a just-drained org and pre-ticking "Invite your team". (ambiguity-ui #3)
   function resetRun() {
     setPhase("pick");
@@ -345,9 +394,12 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
     setCredit(null);
     creditReady.current = null;
     setPreviewScan(true);
+    setModeResolved(false);
     setPreviewCause(null);
     setInvitedCount(0);
-    setCreditSkipped(0);
+    setNotices([]);
+    setImportRunId(null);
+    setReattached(false);
     setGate(null);
     setUpgradePlanned(false);
     // The autoscan opt-in is per-run consent, not a sticky preference: a second run must start from
@@ -373,12 +425,17 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
     setRows(Object.fromEntries(picks.map((r) => [r.fullName, { repo: r.fullName }])));
     setError(null);
     setGate(null);
-    setCreditSkipped(0);
+    setNotices([]);
+    setImportRunId(null);
+    setReattached(false);
     setAnnounce(`Scanning ${picks.length} ${picks.length === 1 ? "repository" : "repositories"}.`);
 
     const controller = new AbortController();
     abortRef.current = controller;
     const total = picks.length;
+    // Notices as they arrive, for the leftover resolution in onResult (which cannot read the state it
+    // just queued). One array per run, so a previous run's cap can never explain this one.
+    const seen: ImportNotice[] = [];
     // Settle the balance before deciding real-vs-preview. The whole decision (await the in-flight read,
     // retry once on an unknown balance, fail closed) lives in scanMode.ts so the per-repo retry on the
     // done screen re-checks the money gate through the SAME code path. The credit read is its own fetch
@@ -412,6 +469,7 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
     // An upgrade run IS a preview run — disclosed as such on the done screen, with the handoff copy
     // (upgradePlanned) instead of the "install the App / top up" recovery, which would misdiagnose.
     setPreviewScan(!canRunReal || plan.upgradeAfter);
+    setModeResolved(true);
     setUpgradePlanned(plan.upgradeAfter);
     setPreviewCause(!canRunReal && creditUnknown ? "credit_unknown" : null);
     try {
@@ -449,27 +507,30 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
               return next;
             });
           },
-          // A credit shortfall caps the batch server-side; forward the count so it's disclosed and
-          // the leftover (never-scanned) rows can be resolved to a skipped state on completion.
-          onNotice: ({ reason, skipped }) => {
-            if (reason === "insufficient_credits" && skipped > 0) setCreditSkipped(skipped);
+          // EVERY notice is kept, not just the credit one: the server caps a batch for four distinct
+          // reasons and each has a different recovery. `seen` is the same list, collected locally so
+          // onResult below can read it synchronously (a state read there would see the pre-run value).
+          // The run's identity, before any repo is scanned — persisted by the snapshot effect below, so
+          // a refresh one second later can still find this run.
+          onQueued: ({ runId }) => setImportRunId(runId),
+          onNotice: (notice) => {
+            seen.push(notice);
+            setNotices((cur) => [...cur, notice]);
           },
-          onResult: () => {
-            // The stream is done: any row still with no level/error/skipped was deferred for credits
-            // (the route emits no event for the repos it sliced off), so resolve those ghosts to a
-            // skipped state instead of leaving a perpetual "scanning…" row + stuck progress bar.
+          onResult: (data) => {
+            if (data?.runId) setImportRunId(data.runId);
+            // The stream is done: any row still with no level/error/skipped was never reported (the
+            // route emits no event for the repos it sliced off), so resolve those ghosts to a skipped
+            // state instead of leaving a perpetual "scanning…" row + stuck progress bar. The reason is
+            // the one the SERVER gave for capping this batch — or the neutral "not_scanned" when it
+            // gave none. The old unconditional "insufficient_credits" relabel is exactly how a
+            // monthly-allowance stop became a prepaid-balance lie on the done screen.
+            const leftoverReason = leftoverSkipReason(seen);
             setRows((cur) => {
-              let leftover = 0;
               const next: typeof cur = {};
               for (const [key, r] of Object.entries(cur)) {
-                if (!r.level && !r.error && !r.skipped) {
-                  leftover += 1;
-                  next[key] = { ...r, skipped: "insufficient_credits" };
-                } else {
-                  next[key] = r;
-                }
+                next[key] = !r.level && !r.error && !r.skipped ? { ...r, skipped: leftoverReason } : r;
               }
-              if (leftover > 0) setCreditSkipped((n) => Math.max(n, leftover));
               return next;
             });
             // Preview-then-upgrade handoff: the mock rows are persisted, so record the one-shot flag
@@ -525,9 +586,65 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
       creditReady,
       fetchCredit,
       retries: retriesRef,
+      // Direction 6: the retry resolves its request plan from the SAME two select-step stores the
+      // batch read, so watch/schedule/publicFunnel travel with the retry instead of falling back to
+      // runImportScan's App-path defaults (which re-subscribed a declined repo to the weekly draw).
+      // Read at click time, not at render: both stores are per-run and only reset by resetRun, which
+      // leaves the done screen entirely.
+      previewFirst: getPreviewFirst(),
+      watchOptIn: getAutoWatchOptIn(),
       setRows,
       setAnnounce,
     });
+
+  // RE-ATTACH: follow a run restored from a snapshot until every job settles. Read-only — the polling
+  // lives in its own co-located hook (useImportReattach) so this module doesn't grow another block,
+  // and it is inert (`active:false`) for every normally-started run.
+  const reattach = useImportReattach({
+    active: reattached && phase === "scanning",
+    org: sourceLabel,
+    runId: importRunId,
+    onRows: (incoming) => {
+      setRows((cur) => {
+        const next = { ...cur };
+        for (const row of incoming) {
+          const existing = next[row.repo];
+          // Never overwrite a row that already settled — the poll's view (job states) is coarser than
+          // anything already on screen.
+          if (existing && (existing.level || existing.error || existing.skipped || existing.completed)) continue;
+          next[row.repo] = row;
+        }
+        return next;
+      });
+    },
+    onSettled: () => {
+      // The run is over. Rows the queue never accounted for get the neutral reason, exactly as the
+      // streamed path resolves its leftovers — never an invented credit shortfall.
+      setRows((cur) => {
+        const next: typeof cur = {};
+        for (const [key, r] of Object.entries(cur)) {
+          next[key] = !r.level && !r.error && !r.skipped && !r.completed ? { ...r, skipped: "not_scanned" } : r;
+        }
+        return next;
+      });
+      setPhase("done");
+      setAnnounce("The scan you reconnected to has finished.");
+    },
+  });
+
+  // Leaving mid-scan is expensive and invisible: the server keeps scanning (and, on a metered run,
+  // charging) after the tab is gone. Ask before it happens. Registered only while a scan is actually
+  // in flight and removed on settle/unmount, so it can never linger over the done screen. The browser
+  // shows its own generic wording — preventDefault is the whole API.
+  useEffect(() => {
+    if (phase !== "scanning" || typeof window === "undefined") return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [phase]);
 
   return {
     router,
@@ -551,12 +668,16 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
     announce,
     credit,
     previewScan,
+    modeResolved,
     previewCause,
     upgradePlanned,
     invitedCount,
     setInvitedCount,
-    creditSkipped,
+    notices,
     listTruncated,
+    importRunId,
+    // The reconnected surface: "off" for a run this tab started, otherwise the poll's live state.
+    reattach,
     gate,
     setGate,
     flowRef,

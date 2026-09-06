@@ -52,8 +52,37 @@ LLM/mock cache → resolve the policy → `evaluateGate(report, policy)` → ret
 
 ```jsonc
 { "repo", "ref", "pass", "degraded", "level", "overallScore", "posture", "archetype",
-  "policy": { … }, "failures": [ … ], "engine", "confidence", "warnings" }
+  "policy": { … }, "failures": [ … ], "skipped": [ … ], "caveats": [ … ],
+  "engine", "confidence", "warnings" }
 ```
+
+**A skipped criterion is announced, everywhere (2026-09-05).** Four bars can only be judged when
+their input was read: `require_protection` needs branch governance, `min_ai_governed` and
+`no_ungoverned_ai` need PR stats, `requireChecks` needs the control ledger. When the input is
+missing, `evaluateNormalized` records `skipped: [{ code, why }]` instead of silently passing, and
+the skip is rendered on every surface: the check-run summary and the sticky PR comment ("Not
+measured on this run"), the API body, the Action's `skipped` step output and its printed summary
+(on the pass path too), and the `[gate:verdict]` telemetry as per-code counts. The `policy` echo
+stays complete, with each untested bar marked "(not measured)". Two consequences worth knowing:
+on **this public endpoint** the scan runs without a token, so `require_protection`,
+`min_ai_governed` and `no_ungoverned_ai` are always skipped here and only the App-mode check run
+can enforce them; and a non-finite score is still a **failure**, never a skip. A scan whose
+governance or pull-request **sensor read failed** (today's `sensorFailures`) skips the same bars
+with "read failed" as the reason; failures of score-feeding sensors become `caveats` rather than
+skips, because a security floor on an understated D9 must still bite. `caveats[]` (the report's own
+coverage/truncation warnings, a confidence below `GATE_CONFIDENCE_FLOOR`, a partial PR slice) renders
+as "Read this verdict with caveats" above the failures on both GitHub surfaces. An incomplete scan's
+headline no longer prints a level or a score. `policySource` in telemetry now keys on an explicit
+policy parameter being present, not on any query string at all (older logs over-report "params").
+
+**Org state resolves by tenancy (2026-09-05).** The org gate policy and the admission overlay are
+looked up through `orgSlugForRepo` (`src/lib/db/org-tenancy.ts`): the owner-login match is the fast
+path, else the `Repository` tenancy row; the shared public org and personal workspaces are never
+chosen, and when more than one real tenant tracks the repo the resolver refuses to guess and falls
+back to the owner login. A failed resolve is treated like a failed policy read (503 here, neutral
+check in App mode). The endpoint **writes nothing** but its own scan caches: the admission read is
+the non-seeding `readRepoAdmission`; the seeding reader stays with the authenticated propose /
+ruleset routes and the MCP admission tools.
 
 ### Policy precedence: ONE ordered fold, every layer TIGHTENS
 
@@ -70,7 +99,9 @@ The `manifest` slot is deck item #5's and is not built yet; the fold's shape res
 lands as a fourth layer rather than as a second precedence rule. Nothing in the chain can weaken what
 precedes it, which is the whole safety argument for reading org-scoped state on an anonymous request.
 
-**Adding a bar is four edits and never a fifth resolution path**: (1) the `GatePolicy` field, (2) a
+**Adding a bar is four edits and never a fifth resolution path** (and, since 2026-09-05, a skip path:
+`gate-policy-sources.test.ts` holds the `GateSkip["code"]` table structurally, so a skippable criterion
+without one is a compile error): (1) the `GatePolicy` field, (2) a
 `sanitizeGatePolicy` clause, (3) a `tightenGatePolicy` rule, (4) a `describeGatePolicy` row — plus
 either an absolute input on `NormalizedGate` or an honest-null skip there.
 `src/lib/scoring/gate-policy-sources.test.ts` holds that as a table-driven structural guard typed over
@@ -434,7 +465,12 @@ all, so the new bar simply applies on each PR's next push or CI run.
   what it renders" and "A write that drops a bar says so").
 - The gate API scores via **mock** by default; pass `?mock=0` / `live: true` for an
   LLM-scored verdict (slower, needs a key, and a provider outage then surfaces as a `503`
-  rather than a silent floor score).
+  rather than a silent floor score). **That inference is not debited** (there is no org to
+  charge on an anonymous endpoint; the only cost control is the shared scan rate limit). It is
+  measured, though: the scan persists under the shared public org, so it is visible and priceable as
+  that org's scan lane on `/usage`. Deliberately free, documented rather than built (2026-09-05).
+- `action.yml` declares no `skipped` output yet, although the CLI now emits one; a consumer
+  reading it from `$GITHUB_OUTPUT` works today, a typed `outputs:` entry is owed.
 - The policy-change sweep is a **courtesy**, not a guarantee: PRs past the 25-repo / 20-PR
   cap pick the new bar up on their next push or a manual "Re-run".
 - Sticky-comment lookup scans forward with a 50-page (5000-comment) safety ceiling; the

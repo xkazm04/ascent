@@ -28,9 +28,12 @@ import type { MeterContext } from "@/lib/llm/meter";
  *   - `athena_turn`  — one interactive Athena reply to an operator's message.
  *   - `athena_cycle` — Athena's unattended background pass (no human waiting on it).
  *   - `briefing`     — the executive briefing's one LLM-written paragraph (src/lib/org/briefing-narrative.ts).
- *                      It does NOT run through this seam's transports (it calls the Anthropic Messages
- *                      API directly), so the kind exists to NAME the surface in the meter, not to route
- *                      it. Like `scan` and `memory` it is deliberately ABSENT from LEG_TEMPERATURE_ENV /
+ *                      It DOES run through this seam now: the narrative resolves its runner through
+ *                      `resolveTextRunnerForOrg`, so an org's connected BYOM model writes its own
+ *                      board paragraph and the platform provider is used only when there is no BYOM.
+ *                      (It used to raw-`fetch` the Anthropic Messages API on a platform key, ignoring
+ *                      the org's model choice — the one LLM path in the app that did.) Like `scan` and
+ *                      `memory` it is deliberately ABSENT from LEG_TEMPERATURE_ENV /
  *                      LEG_TEMPERATURE_DEFAULT (src/lib/llm/config.ts): adding a row there would change
  *                      a resolved temperature, which is a scoring-reproducibility decision (D29), not a
  *                      metering one.

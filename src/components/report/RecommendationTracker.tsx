@@ -2,20 +2,14 @@
 
 import { useState } from "react";
 import type { PersistedRecommendation, RecStatus, ScanReport } from "@/lib/types";
-import { ExemplarPointer, ExploreList, PayoffChip, RoadmapMeta, RoadmapSortToggle, TrackerProgress } from "@/components/report/roadmapPieces";
-import { isQuickWin, QuickWinBadge, roadmapLiftKey, sortRoadmap, type RoadmapLifts, type RoadmapSortMode } from "@/components/report/roadmapPriority";
-import { ExpectedLiftBasis } from "@/components/report/ExpectedLiftBasis";
+import { RoadmapSortToggle, TrackerProgress } from "@/components/report/roadmapPieces";
+import { roadmapLiftKey, sortRoadmap, type RoadmapLifts, type RoadmapSortMode } from "@/components/report/roadmapPriority";
 import { expectedLiftClause } from "@/lib/outcomes/expected-lift";
 import { applyOptimisticStatus, rollbackRowStatus } from "@/components/report/recommendationRowState";
-import { STATUS_LABEL, STATUS_ACCENT } from "@/components/org/shared/backlogShared";
-import { StatusSelect, useSavingIds } from "@/components/org/shared/recStatusUi";
-import {
-  DismissReasonPrompt,
-  DoneReconciliation,
-  RowErrorNotice,
-  RowSpinner,
-  type RowError,
-} from "@/components/report/recommendationRowUi";
+import { STATUS_LABEL } from "@/components/org/shared/backlogShared";
+import { useSavingIds } from "@/components/org/shared/recStatusUi";
+import { RecommendationRow } from "@/components/report/RecommendationRow";
+import type { RowError } from "@/components/report/recommendationRowUi";
 import { OrphanedTracking } from "@/components/report/OrphanedTracking";
 
 export function RecommendationTracker({
@@ -203,87 +197,35 @@ export function RecommendationTracker({
         onApplied={(rec) => setItems((cur) => cur.map((i) => (i.id === rec.id ? { ...i, ...rec } : i)))}
       />
 
-      {ordered.map((item, i) => {
-        const muted = item.status === "done" || item.status === "dismissed";
-        const err = errors[item.id];
-        const saving = savingIds.has(item.id);
-        // Non-retryable kinds (config, stale) render informational amber; only transient is red+Retry.
-        const edge = err ? (err.kind === "transient" ? "#ef4444" : "#eab308") : STATUS_ACCENT[item.status];
-        return (
-          <div
-            key={item.id}
-            aria-busy={saving}
-            className="rounded-xl border bg-surface/40 p-5"
-            style={{ borderLeftWidth: 3, borderLeftColor: edge }}
-          >
-            {/* Per-row polite live region — each save's success/failure is announced independently,
-                so overlapping saves on other rows can't clobber this one's message. */}
-            <div role="status" aria-live="polite" className="sr-only">
-              {announcements[item.id] ?? ""}
-            </div>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              {/* Priority number + quick-win badge mirror RoadmapSteps, so the persisted tracker keeps
-                  the public roadmap's "do these first" signaling (roadmap-recommendation-tracking #2).
-                  min-w-0 lets the title shrink; break-words then wraps a long unbroken rec title
-                  instead of overflowing the row (a rec title is descriptive text — wrap, don't clip). */}
-              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-slate-700 type-mono-sm text-slate-300">
-                  {i + 1}
-                </span>
-                <h3 className={`min-w-0 break-words font-semibold ${muted ? "text-slate-400 line-through decoration-slate-600" : "text-white"}`}>
-                  {item.title}
-                </h3>
-                {isQuickWin(item) && !muted && <QuickWinBadge />}
-              </div>
-              <div className="flex items-center gap-2 type-body-sm">
-                <RoadmapMeta item={item} />
-                <PayoffChip report={report} dim={item.dimension} />
-                {saving && <RowSpinner />}
-                <StatusSelect
-                  value={item.status}
-                  busy={saving}
-                  onChange={(status) => pickStatus(item.id, status)}
-                  // A pick made WHILE this row is saving is dropped and the select snaps back with no
-                  // visual cue (the spinner is aria-hidden) — announce the swallow through this row's
-                  // live region so the user knows to re-pick once the save settles (#4 07-16).
-                  onBusyChange={() =>
-                    announce(item.id, "Still saving the previous change. Pick the status again in a moment.")
-                  }
-                  aria-label="Recommendation status"
-                />
-              </div>
-            </div>
-            {item.rationale && <p className="mt-2 type-body leading-relaxed text-slate-400">{item.rationale}</p>}
-            {item.status === "done" && (
-              <DoneReconciliation
-                dimension={item.dimension}
-                prevScore={prevDimScores?.get(item.dimension)}
-                currentScore={dimScores.get(item.dimension)}
-              />
-            )}
-            {!muted && <ExpectedLiftBasis item={item} lifts={lifts} />}
-            {!muted && <ExploreList items={item.explore} />}
-            {!muted && <ExemplarPointer dim={item.dimension} />}
-            {pendingDismiss === item.id && (
-              <DismissReasonPrompt
-                onConfirm={(reason) => {
-                  setPendingDismiss(null);
-                  void setStatus(item.id, "dismissed", reason || undefined);
-                }}
-                onCancel={() => setPendingDismiss(null)}
-              />
-            )}
-            {err && (
-              <RowErrorNotice
-                err={err}
-                saving={saving}
-                onRetry={() => setStatus(item.id, err.status, err.reason)}
-                onDismiss={() => clearError(item.id)}
-              />
-            )}
-          </div>
-        );
-      })}
+      {ordered.map((item, i) => (
+        <RecommendationRow
+          key={item.id}
+          item={item}
+          index={i}
+          report={report}
+          lifts={lifts}
+          prevScore={prevDimScores?.get(item.dimension)}
+          currentScore={dimScores.get(item.dimension)}
+          saving={savingIds.has(item.id)}
+          err={errors[item.id]}
+          announcement={announcements[item.id] ?? ""}
+          dismissing={pendingDismiss === item.id}
+          onPickStatus={(status) => pickStatus(item.id, status)}
+          onBusySwallowed={() =>
+            announce(item.id, "Still saving the previous change. Pick the status again in a moment.")
+          }
+          onConfirmDismiss={(reason) => {
+            setPendingDismiss(null);
+            void setStatus(item.id, "dismissed", reason || undefined);
+          }}
+          onCancelDismiss={() => setPendingDismiss(null)}
+          onRetry={() => {
+            const err = errors[item.id];
+            if (err) void setStatus(item.id, err.status, err.reason);
+          }}
+          onDismissError={() => clearError(item.id)}
+        />
+      ))}
     </div>
   );
 }

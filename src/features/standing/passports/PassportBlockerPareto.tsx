@@ -40,6 +40,10 @@ function draftFor(a: Agg, org: string, scopeLabel: string, inView: number): Issu
   const origin = window.location.origin;
   return {
     title: a.label.replace(/\.$/, ""),
+    // The finding id the issue route dedupes on (an open issue carrying this marker is relinked, not
+    // re-filed). `code` is the minted cause code on a 0.4.0 passport, or the normalized sentence on an
+    // older row - either is stable across rewordings, which is what a dedupe key needs.
+    findingId: `${a.axis === "automation" ? "auto" : "prod"}.${a.code}`,
     context: `${a.axis} blocker · ${a.repos.length}/${inView} repos in view`,
     body: [
       `Ascent flagged a **${a.axis} readiness** blocker on this repository:`,

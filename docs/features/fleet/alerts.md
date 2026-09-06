@@ -190,9 +190,9 @@ concerns, **unestablished baselines first**: a guard that cannot run outranks a 
 Deliberately ONE list and one heading — *"observed, cause not attributed"* is already true of both,
 each line names its own subject, and a second block would be a second thing for a reader to learn for a
 distinction that lives in the sentence. They count toward `digestHasSignal`'s `standingConcerns`, so a
-fleet whose only news is a disabled guard still sends. A fleet with none raises nothing and the block
-says so — *"Standing concerns: none open."* — while a run that could not READ either column omits the
-block entirely: the same three-state contract `controlsFailed` keeps (2026-09-04).
+fleet whose only news is a disabled guard still sends. A fleet with none reads *"Standing concerns:
+none open."*; the block is omitted only when a read could not be taken — the same three-state contract
+the Controls block keeps (see below).
 
 The loop tells the **agent** too, but only that the cycle cannot be verified and that it should work
 conservatively — it does **not** ask for a repair, and there is no attempt counter. That half lives in
@@ -253,6 +253,15 @@ new event system:
   client.
 - **Degrades:** auth-off deployments, the public org, a viewer with no membership, or any read
   failure answer `{ movement: null }` and the chip renders exactly as it did before.
+
+**The config form's four states (2026-09-05):** `denied` (401/403 — "admins only"), `loadFailed`,
+loading, and the form. `loadFailed` is the one that was missing: a 5xx on the lazy
+`GET /api/org/alerts` never reached the `.catch`, so every field read as unset and the popover
+rendered a pristine-looking form with **no error** — blank webhook ("on the global sink"), blank
+thresholds ("inheriting the defaults"). `save()` posts BOTH thresholds every time, so an admin who
+typed a webhook into that blank slate wrote `null` over the org's real `alertOverallDrop` /
+`alertDimensionDrop`. The form is now withheld on a failed load and the error is shown in its place,
+so a blank field cannot be saved over settings that were never read.
 
 ## Weekly fleet digest (`GET /api/cron/digest`)
 
@@ -331,14 +340,12 @@ silent rather than training the inbox filter.
   window-scoped for the same reason — the whole failure they close began before this week:
   `getRedBaselines(org, { limit: 5 })` first (a repository the loop's guard could not establish a
   baseline for, so it cannot run at all) then `getStandingRegressions(org, { limit: 5 })`.
-
-  Until 2026-09-04 the cron caller kept none of that: both reads were `.catch(() => [])` and the
-  block was passed only when non-empty, so an unreadable ledger, a clean fleet and a block that was
-  never computed all rendered as the same silence — the `failure-not-empty-success` law the registry's
-  `alerting` subject names in its `periodic-digest` technique, and the exact defect `controlsFailed`
-  had already been fixed for three lines above. Both reads now catch to `null`; `[]` reaches the
-  builder and renders "none open."; `null` from BOTH omits the block; one read failing still prints
-  the other's rows (they are true observations, and the block is a top-5, never an exhaustive total).
+  **(Corrected 2026-09-05.)** The route used to catch both reads into `[]` and then send
+  `length > 0 ? rows : undefined`, collapsing the middle state: the "none open" branch was
+  unit-tested and unreachable in production, and a clean week rendered byte-identical to a week
+  neither read could be taken. Both reads now fail to `null`, **either** null omits the block (one
+  heading over two sources cannot say "none open" off half a read), and the array is passed through
+  empty or not.
 - **Schedule/trigger:** invoked by Vercel Cron (see `vercel.json`) hitting
   `GET /api/cron/digest` (`src/app/api/cron/digest/route.ts`), `runtime: "nodejs"`,
   `maxDuration: 300`. Orgs are processed with bounded concurrency (`mapPool`, concurrency 4)
@@ -352,10 +359,19 @@ silent rather than training the inbox filter.
   temporary `CRON_ALLOW_QUERY_KEY=1` deprecation hatch, which warns on every use) and is
   compared with a constant-time `timingSafeEqual` (length-mismatch short-circuits without
   calling it, since `timingSafeEqual` throws on unequal-length buffers).
-- **At-most-once per window:** an atomic conditional-insert claim (`claimOrgAuditOnce` /
-  `releaseAuditClaim`, `src/lib/db/scans-audit.ts`) against the `org.digest.sent` audit
-  action guards against double-sends from a platform retry or an overlapping schedule fire;
-  a failed dispatch releases the claim so the next run retries.
+- **At-most-once per window, with EXACTLY ONE evaluator:** an atomic conditional-insert claim
+  (`claimOrgAuditOnce` / `releaseAuditClaim`, `src/lib/db/scans-audit.ts`) against the
+  `org.digest.sent` audit action guards against double-sends from a platform retry or an overlapping
+  schedule fire; a failed dispatch releases the claim so the next run retries.
+  **(Fixed 2026-09-05.)** The route also ran a cheap `getAuditLog(org.digest.sent, since: windowStart)`
+  pre-check at the top of the loop, to skip the rollup work for an already-notified org. That was
+  correct while a release DELETED the claim row; once the release changed to APPEND a `claim.released`
+  record, the marker survived a release and the pre-check — a plain trail read that knows nothing
+  about releases — skipped every org whose dispatch had failed, **dropping the digest for the whole
+  week**, which is the exact failure the release exists to prevent. Only `claimOrgAuditOnce` subtracts
+  releases (via the private `releasedClaimIds`), so the pre-check was deleted rather than taught: one
+  suppression rule, one evaluator. The cost is that an already-sent org does its rollup reads before
+  losing the claim, on re-runs alone.
 - **Block-Kit message shape:** `buildFleetDigestMessage(input)` (`src/lib/alerts.ts`,
   pure) builds the same `AlertMessage { text, blocks }` shape as the regression/promotion
   builders: a headline (`📊 Ascent weekly digest: <org>`), a summary line (fleet maturity,
@@ -432,9 +448,10 @@ spend-anomaly pushes. There is no second transport and no second recipient list.
   deliberate act as pointing the sink at a Slack channel). `validateAlertWebhookUrl` accepts the
   `mailto:` scheme, requires a single well-formed address (no comma-separated fan-out), and
   normalizes the stored value. The global `ALERT_WEBHOOK_URL` may also be a `mailto:` for a
-  single-tenant deployment. The Alerts popover's sink field **names the address form** in its help
-  text and placeholder (2026-09-04); before that it said only "Slack-compatible incoming webhook",
-  so the one surface that configures this channel never mentioned it existed.
+  single-tenant deployment. **The Alerts popover names it (2026-09-05):** the field's prose offers
+  `mailto:you@example.com` and its placeholder shows both accepted forms. Until then the only
+  configuration surface for the channel described the Slack form alone, so the orgs this was built
+  for had no way to discover it from the field that configures it.
 - **Who receives it:** exactly the one configured address. Nothing is ever sent to org members,
   to a scan requester, or to any address the org did not store as its sink.
 - **Off by default, three ways over:** no sink stored, no global `ALERT_WEBHOOK_URL`, and no
@@ -488,12 +505,21 @@ headline, no second push fires: one slide must not ping twice. It takes its own 
 
 Every dispatch decision is persisted to the **`AlertEvent`** table
 (`src/lib/db/alert-events.ts`: `recordAlertEvent` / `listAlertEvents`), deliberately NOT
-`AuditLog`, whose claim rows are deleted on failed delivery (`releaseAuditClaim`) and purged by
-`retentionAuditDays`. Rows are written **even when no sink is configured**
+`AuditLog`, which is purged by `retentionAuditDays` — an alert history built there would age out
+from under the UI. (The other half of this reason is gone: `releaseAuditClaim` used to DELETE a claim
+row on failed delivery and now appends a `claim.released` record instead, so the trail no longer
+loses the attempt. See the at-most-once note under the weekly digest — that same change is what made
+the route's old audit-log pre-check wrong.) Rows are written **even when no sink is configured**
 (`delivered=false, suppressedReason="no-sink"`), so a webhook-less org finally has a trace of what
 it would have been told. Fields: kind (`regression | promotion | security | low-credits | digest |
 goal-at-risk | spend-anomaly | control`), severity, repo, title, body, `delivered`, `sinkKind`
-(`webhook | email`), `suppressedReason` (`no-sink | cooldown | dispatch-failed`). Writers:
+(`webhook | email | null`), `suppressedReason` (`no-sink | cooldown | dispatch-failed`).
+**`sinkKind` names the channel the message LEFT BY, so it is computed from the RESOLVED sink**
+(`sinkKindForOrg` in `src/lib/alerts.ts`: org field → global `ALERT_WEBHOOK_URL` → none), never from
+the org's raw column. Classifying the raw column got two things wrong for every tenant riding the
+global fallback — a global `mailto:` sink recorded `webhook` on a row whose message went out as
+mail, and an org with no sink of its own recorded `webhook` instead of `null`. (Corrected 2026-09-05;
+`scan-alerts.ts` and `conformance-alerts.ts` already resolved first.) Writers:
 `scan-alerts.ts` (regression / promotion / security / low-credits / control), the digest cron (digest), and
 `extra-alerts.ts` (goal-at-risk / spend-anomaly). Test alerts are deliberately not recorded.
 

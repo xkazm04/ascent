@@ -80,17 +80,6 @@ docs/harness/
 # /consult skill log (counts reach the ai-registry signals lane; the log itself stays local)
 .ai/consults.jsonl
 
-# BEGIN ai-registry linked skills (managed by ai-registry/scripts/link-skills.mjs)
-# The links are machine state; the declaration lives in .ai/manifest.yaml `skills:`.
-/.claude/skills/consult
-/.claude/skills/perfect
-/.claude/skills/project-populate
-/.claude/skills/scan-sweep
-/.claude/skills/ship-loop
-/.claude/skills/tiger
-/.claude/skills/uat
-# END ai-registry linked skills
-
 # BEGIN ai-registry linked skills (managed by ai-registry/scripts/link-registry.mjs)
 # Links are machine state; the declarations live in .ai/manifest.yaml (`skills:` and `knowledge.domains`).
 /.claude/skills/architect
@@ -111,3 +100,6 @@ docs/harness/
 
 # detached dev-server log (see docs/features/local-mode)
 dev-server.log
+
+# Spark vault (local, never committed; the overlay vault path does not exist on this machine)
+.spark/

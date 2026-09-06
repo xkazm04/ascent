@@ -98,12 +98,12 @@ export function PracticeDriftStrip({ slug, summary }: { slug: string; summary: P
               key={t.bucket}
               onClick={() => void openConfirm(t)}
               disabled={busy}
-              className="font-mono text-sm uppercase tracking-widest text-accent hover:text-white disabled:opacity-50"
+              className="type-mono-sm uppercase tracking-widest text-accent hover:text-white disabled:opacity-50"
             >
               Roll out to the {t.value} repo{t.value === 1 ? "" : "s"} behind →
             </button>
           ))}
-        {error && <p className="text-sm text-orange-300">{error}</p>}
+        {error && <p className="type-body-sm text-orange-300">{error}</p>}
       </div>
 
       <PracticeApplyBatchResults batchResults={results} batchSummary={meta} />

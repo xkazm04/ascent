@@ -1,5 +1,7 @@
-// The App-token side channel that fetches a managed repo's `.ai/registry-map.json` and
-// `.ai/consults.jsonl` (#18).
+// The App-token side channel that fetches a managed repo's `.ai/registry-map.json`,
+// `.ai/consults.jsonl` and — since the knowledge-base rebuild — its FOUNDATION files:
+// `.ai/manifest.yaml` (or `.yml`), `.ai/directions/ledger.jsonl` and the PRESENCE of
+// `context-map.json` at the root (#18).
 //
 // WHY THIS IS NOT A SCAN FETCH, which is the whole reason the file exists. `pickFilesToFetch` spends
 // a 50-file budget and truncates every file at 14,000 bytes, because what it fetches goes into an
@@ -13,11 +15,18 @@
 
 import { githubAppFetch, AppApiError } from "@/lib/github/app";
 import { encodePathSegments } from "@/lib/github/host";
+import { FOUNDATION_SPINES } from "@/lib/local/lane-kind";
 import { REGISTRY_MAP_PATH, REGISTRY_SPINE_PATH, REPO_CONSULTS_PATH } from "./layout";
 
 /** Hard ceiling per file. The map is the big one (~113KB here); half a megabyte is generous headroom
  *  and still bounds the memory a fleet-wide sweep can hold at once. */
 export const MAX_STANDARDS_BYTES = 512 * 1024;
+
+/** In a managed repo: the owner's decisions on proposed directions, one JSON object per line. */
+export const REPO_DIRECTIONS_LEDGER_PATH = ".ai/directions/ledger.jsonl";
+
+/** In a managed repo: the context map `/populate` writes at the root. Read for PRESENCE only. */
+export const REPO_CONTEXT_MAP_PATH = "context-map.json";
 
 export interface RepoStandardsFiles {
   /** `.ai/registry-map.json` body, or null when the repo has none / it was unreadable. */
@@ -29,6 +38,15 @@ export interface RepoStandardsFiles {
   mapSha: string | null;
   /** Why the map is null, when it is. Null when the map was read. */
   reason: string | null;
+  /** `.ai/manifest.yaml` (or `.yml`, the alternate spelling `FOUNDATION_SPINES` names) body, or null. */
+  manifest: string | null;
+  /** `.ai/directions/ledger.jsonl` body, or null when the repo has never decided a direction. */
+  ledger: string | null;
+  /** Whether `context-map.json` exists at the repo root. The body is NEVER read — it is large and
+   *  the sweep needs only the fact of it (the `populate` stage). */
+  hasContextMap: boolean;
+  /** Reads that could not be completed short of a transport failure, for the repo's warnings. */
+  warnings: string[];
 }
 
 interface ContentsFile {
@@ -70,12 +88,35 @@ async function readFile(
 }
 
 /**
- * Both standards files for one repo. `ref` is optional — omitted, GitHub serves the default branch,
- * which is what a fleet sweep wants and is why this does not need a `defaultBranch` column.
+ * The repo's ROOT listing — one request that answers "is `context-map.json` there?" and "is there
+ * an `.ai/` directory at all?" without fetching either body. The Git Trees API (non-recursive)
+ * is the HEAD-style probe here: GitHub's Contents endpoint always returns the base64 body, and a
+ * context map is the one file the sweep must never pay to read. `null` = the probe itself failed
+ * (a 404 on an empty repo, a transport error), which the caller treats as UNKNOWN, not absent.
+ */
+async function readRootListing(token: string, owner: string, repo: string, ref?: string): Promise<Set<string> | null> {
+  try {
+    const tree = await githubAppFetch<{ tree?: { path?: string; type?: string }[] }>(
+      `/repos/${owner}/${repo}/git/trees/${encodeURIComponent(ref ?? "HEAD")}`,
+      token,
+    );
+    return new Set((tree.tree ?? []).map((e) => e.path).filter((p): p is string => typeof p === "string"));
+  } catch (err) {
+    if (err instanceof AppApiError && (err.status === 404 || err.status === 409)) return null;
+    throw err;
+  }
+}
+
+/**
+ * Every standards + foundation file for one repo. `ref` is optional — omitted, GitHub serves the
+ * default branch, which is what a fleet sweep wants and is why this does not need a `defaultBranch`
+ * column.
  *
- * Never throws for an ABSENT file. A transport failure still throws, so the sweep can report that
- * repo as a warning rather than silently recording it as having no map — those are different facts
- * and conflating them would turn an outage into a fleet-wide "nobody has standards".
+ * Never throws for an ABSENT file. A transport failure on the MAP still throws, so the sweep can
+ * report that repo as a warning rather than silently recording it as having no map — those are
+ * different facts and conflating them would turn an outage into a fleet-wide "nobody has standards".
+ * The optional lanes (consults, manifest, ledger) each degrade on their own: failing to read one
+ * must not cost the map already held.
  */
 export async function readRepoStandardsFiles(
   token: string,
@@ -83,12 +124,37 @@ export async function readRepoStandardsFiles(
   repo: string,
   ref?: string,
 ): Promise<RepoStandardsFiles> {
-  const map = await readFile(token, owner, repo, REGISTRY_MAP_PATH, ref);
-  if (!map) return { map: null, consults: null, mapSha: null, reason: "no .ai/registry-map.json" };
-  // The consults lane is optional and its absence is a legitimate state, so its read failing must
-  // not cost us the map we already hold.
-  const consults = await readFile(token, owner, repo, REPO_CONSULTS_PATH, ref).catch(() => null);
-  return { map: map.text, consults: consults?.text ?? null, mapSha: map.sha, reason: null };
+  const warnings: string[] = [];
+  const root = await readRootListing(token, owner, repo, ref);
+  if (root === null) warnings.push(`${REPO_CONTEXT_MAP_PATH}: presence could not be probed — stage may read as populate`);
+  const hasContextMap = root?.has(REPO_CONTEXT_MAP_PATH) ?? false;
+  // No `.ai/` directory at all: nothing below can exist, so spend no requests looking.
+  const hasAi = root === null ? true : root.has(".ai");
+
+  const optional = async (path: string): Promise<string | null> => {
+    if (!hasAi) return null;
+    try {
+      return (await readFile(token, owner, repo, path, ref))?.text ?? null;
+    } catch (err) {
+      warnings.push(`${path}: not read (${err instanceof Error ? err.message : String(err)})`);
+      return null;
+    }
+  };
+
+  // The manifest under either spelling; the first that exists wins.
+  let manifest: string | null = null;
+  for (const spine of FOUNDATION_SPINES) {
+    manifest = await optional(spine);
+    if (manifest !== null) break;
+  }
+  const ledger = await optional(REPO_DIRECTIONS_LEDGER_PATH);
+
+  const map = hasAi ? await readFile(token, owner, repo, REGISTRY_MAP_PATH, ref) : null;
+  if (!map) {
+    return { map: null, consults: null, mapSha: null, reason: `no ${REGISTRY_MAP_PATH}`, manifest, ledger, hasContextMap, warnings };
+  }
+  const consults = await optional(REPO_CONSULTS_PATH);
+  return { map: map.text, consults, mapSha: map.sha, reason: null, manifest, ledger, hasContextMap, warnings };
 }
 
 /**

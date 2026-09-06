@@ -23,34 +23,59 @@
 //      caller cannot tell the difference structurally, and there is no error state to render — the
 //      same fallback posture the scan pipeline takes when a provider fails.
 //
-// OFF BY DEFAULT. Requires BOTH `BRIEFING_NARRATIVE=1` and `ANTHROPIC_API_KEY`. With neither set —
-// the default everywhere, including CI — this module performs no network I/O at all and the briefing
-// carries the deterministic paragraph.
+// OFF BY DEFAULT. Requires `BRIEFING_NARRATIVE=1`. Unset — the default everywhere, including CI —
+// this module performs no network I/O at all and the briefing carries the deterministic paragraph.
 //
-// PROVIDER SHAPE. Raw `fetch` against the Anthropic Messages API, matching the repo's existing
-// convention (`src/lib/llm/openai.ts` is likewise fetch-based, "no SDK dependency added"); the
-// per-call timeout goes through the shared `withLlmTimeout` the real scan providers use. Sampling
-// params (`temperature`/`top_p`) are deliberately absent — they are rejected with a 400 on this model
-// family — and adaptive thinking is left at its default with a low effort hint.
+// PROVIDER SHAPE — THE ORG'S OWN MODEL, NOT THE PLATFORM'S. This module used to raw-`fetch`
+// `https://api.anthropic.com/v1/messages` on a platform `ANTHROPIC_API_KEY`, which made it the ONE
+// LLM path in the app that ignored an org's connected model: an enterprise on Bedrock, OpenRouter or
+// a local Ollama server had its fleet briefing (org slug, repo names, per-dimension scores, goals,
+// recommendations) POSTed to Anthropic anyway, against the "nothing leaves the machine" promise the
+// pricing page makes for a self-hosted model — and an Ollama-only install could never use the feature
+// at all, because the key gate refused. It now resolves its runner through `resolveTextRunnerForOrg`
+// (src/lib/llm/text-org.ts), the same seam the Athena gate uses, so:
+//   - the org's connected BYOM provider answers when it has one;
+//   - the platform provider answers ONLY when the org has no BYOM configured;
+//   - an org whose BYOM is ACTIVE BUT UNRESOLVABLE falls back to the deterministic template and
+//     NEVER to the platform provider — the seam throws for exactly that case and this module treats
+//     the throw as "no engine". Same rule, same reason as the Athena gate: "couldn't tell" is not
+//     "no BYOM", and guessing routes a tenant's content to a vendor it never connected.
+// The seam owns the wire format, the per-call `withLlmTimeout` deadline, the model choice and the
+// metering — which is why no model id, no sampling parameter and no `meter()` call live in this file
+// any more. Metering is NOT duplicated here: `textRunnerFrom` writes exactly one `briefing`-lane
+// ledger row per call (success, error and timeout alike), derived from `legKind: "briefing"`.
 
-import { briefingMarkdown, briefingNextMove, briefingTrajectoryNote, type ExecBriefing } from "@/lib/org/briefing";
-import { withLlmTimeout } from "@/lib/llm/config";
-import { meter } from "@/lib/llm/meter";
+import {
+  briefingHasScore,
+  briefingMarkdown,
+  briefingNextMove,
+  briefingTrajectoryNote,
+  noScoreLine,
+  scoreBasisLine,
+  type ExecBriefing,
+} from "@/lib/org/briefing";
+import type { ResolvedTextRunner } from "@/lib/llm/text";
+import { resolveTextRunnerForOrg } from "@/lib/llm/text-org";
 import { PROSE_STYLE_RULE, deEmDash } from "@/lib/llm/prose";
 
-const ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages";
-const ANTHROPIC_VERSION = "2023-06-01";
-const DEFAULT_MODEL = "claude-opus-5";
-/** Bounded so a slow provider can't hold a PDF download open; well under the route's maxDuration. */
+/** Bounded so a slow provider can't hold a PDF download open; well under the route's maxDuration.
+ *  Handed to the seam, which applies it through the shared `withLlmTimeout`. */
 const DEFAULT_TIMEOUT_MS = 20_000;
 /** A narrative longer than this is not an executive summary any more — reject rather than truncate. */
 const MAX_NARRATIVE_CHARS = 1_400;
 const MIN_NARRATIVE_CHARS = 80;
 
-/** True only when a deployment has explicitly opted in AND a key is present. */
+/**
+ * True only when a deployment has explicitly opted in. The feature switch, and nothing else.
+ *
+ * It used to ALSO require a platform `ANTHROPIC_API_KEY`, which is why an org running its own model
+ * could never reach the narrative: the key gate refused before the org's provider was ever consulted.
+ * "Is there an engine for THIS org?" is not a question env can answer — `resolveTextRunnerForOrg`
+ * answers it, per org, and returns `null` when there is none.
+ */
 export function briefingNarrativeEnabled(): boolean {
   const flag = (process.env.BRIEFING_NARRATIVE ?? "").trim().toLowerCase();
-  return (flag === "1" || flag === "true") && !!process.env.ANTHROPIC_API_KEY;
+  return flag === "1" || flag === "true";
 }
 
 /**
@@ -219,9 +244,20 @@ export function deterministicNarrative(b: ExecBriefing): string {
       : b.periodDelta === 0
         ? ", unchanged over the period"
         : `, ${b.periodDelta > 0 ? "up" : "down"} ${Math.abs(b.periodDelta)} points over the period`;
-  s.push(
-    `Across ${b.coverage.scanned} of ${b.coverage.total} repositories scanned, ${b.org} stands at ${b.maturity.overall}/100 overall (${b.maturity.levelId} ${b.maturity.levelName})${delta}, with AI Adoption at ${b.maturity.adoption} and Engineering Rigor at ${b.maturity.rigor}.`,
-  );
+  // Direction 1 — the no-score path. `maturity.overall` is a division guard (0) whenever
+  // `realScoredCount` is 0, and this template is the paragraph that OPENS a board document: it read
+  // "stands at 0/100 overall (L1 Ad hoc)" for a fleet whose every score was a mock placeholder. The
+  // opening sentence now states the absence, and the scored branch names what the average is
+  // averaged over (`scoreBasisLine`) instead of leaving `coverage.scanned` to be read as its basis.
+  if (!briefingHasScore(b)) {
+    s.push(
+      `Across ${b.coverage.scanned} of ${b.coverage.total} repositories scanned, ${b.org} has no fleet maturity score for this period. ${noScoreLine(b)}`,
+    );
+  } else {
+    s.push(
+      `Across ${b.coverage.scanned} of ${b.coverage.total} repositories scanned, ${b.org} stands at ${b.maturity.overall}/100 overall (${b.maturity.levelId} ${b.maturity.levelName})${delta}, with AI Adoption at ${b.maturity.adoption} and Engineering Rigor at ${b.maturity.rigor} — ${scoreBasisLine(b)}.`,
+    );
+  }
   if (b.benchmark?.percentile != null) {
     s.push(
       `That places the fleet in the ${b.benchmark.percentile}th percentile against ${b.benchmark.corpusRepos} benchmarked repositories, whose average overall score is ${b.benchmark.corpusAvgOverall}.`,
@@ -232,7 +268,10 @@ export function deterministicNarrative(b: ExecBriefing): string {
       // UAT DANA-L1-012 — this sentence and the "N of M repositories scanned" sentence above it were
       // two unlabelled repository denominators in the same paragraph. Name the subset relationship so a
       // fleet-wide delta and a comparable-only movement count can be reconciled by the reader.
-      `Of the ${b.coverage.scanned} scanned repositories, ${b.movement.compared} had a comparable prior scan in the period; of those, ${b.movement.up} improved and ${b.movement.down} regressed.`,
+      // Direction 1 — the superset is the LIVE-SCORED set: a mock-floored repo can never be one of
+      // the `compared` pairs (getOrgMovers' isRealPair guard), so quoting the scanned count invited
+      // the reader to subtract repos that were never in the running.
+      `Of the ${b.realScoredCount} live-scored repositories, ${b.movement.compared} had a comparable prior scan in the period; of those, ${b.movement.up} improved and ${b.movement.down} regressed.`,
     );
   }
   // MC-B1 — the deterministic narrative is a briefing surface too, and an LLM handed a bare slope
@@ -243,7 +282,9 @@ export function deterministicNarrative(b: ExecBriefing): string {
   else if (b.forecastInsufficiency) s.push(b.forecastInsufficiency);
   const strongest = b.strengths[0];
   const weakest = b.risks[0];
-  if (strongest && weakest) {
+  // Dimension averages share the maturity averages' denominator, so they are a division guard too
+  // when nothing is live-scored — the strongest/weakest sentence would read "strongest on D2 (0/100)".
+  if (strongest && weakest && briefingHasScore(b)) {
     s.push(
       `The fleet is strongest on ${strongest.dimId} ${strongest.label} (${strongest.avg}/100) and weakest on ${weakest.dimId} ${weakest.label} (${weakest.avg}/100).`,
     );
@@ -276,100 +317,47 @@ const SYSTEM_PROMPT = [
 ].join("\n");
 
 /**
- * The `provider` id this lane's spend is recorded under.
+ * Ask the org's model for a narrative. Resolves to the text on success, or null on ANY failure —
+ * no engine for this org, BYOM unresolvable, network, refusal, malformed shape, timeout, empty text.
+ * Never throws.
  *
- * This egress does NOT go through `src/lib/llm/transports.ts` — it is a raw fetch against the
- * first-party Anthropic Messages API on its own `ANTHROPIC_API_KEY` — so it is genuinely a provider
- * `ProviderName` does not carry. `claude` is the legacy id `PROVIDER_LABEL` already knows, which keeps
- * the /usage panels able to name it. Re-plumbing this onto the shared seam is BACKLOG C3: it would
- * change which credential and which vendor an operator's briefing bills to, a design question, not a
- * wiring task. Metered where it is, until that is decided.
- */
-const BRIEFING_PROVIDER = "claude";
-
-/**
- * Ask the provider for a narrative. Resolves to the text on success, or null on ANY failure —
- * unconfigured, network, non-2xx, refusal, malformed shape, empty text. Never throws.
- *
- * Every outcome is METERED (#11): this was the last real billed call in the app that reached no meter
- * at all — the response's own `usage` block was parsed by nobody and discarded. `orgSlug` is the
- * briefing's own org, so the spend shows up under the org that ordered the document.
+ * `orgSlug` is the briefing's own org: it selects WHICH provider answers (its BYOM, else the
+ * platform's) and it is the ledger tenant the seam meters the call against, on the `briefing` lane.
  */
 async function requestNarrative(facts: string, orgSlug: string | null, signal?: AbortSignal): Promise<string | null> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return null;
   const timeoutMs = Number(process.env.BRIEFING_NARRATIVE_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS;
-  const model = process.env.BRIEFING_NARRATIVE_MODEL || DEFAULT_MODEL;
-  const startedAt = Date.now();
-  /** One ledger row for this call, whatever its outcome. Never throws (see meter's contract). */
-  const record = (status: "success" | "error" | "timeout", usage?: { inputTokens?: number; outputTokens?: number }) =>
-    meter({
-      orgSlug,
-      lane: "briefing",
-      legKind: "briefing",
-      provider: BRIEFING_PROVIDER,
-      model,
-      usage,
-      status,
-      latencyMs: Date.now() - startedAt,
-    });
-  const { signal: combined, clear } = withLlmTimeout(signal, timeoutMs, "Briefing narrative request timed out.");
+  let runner: ResolvedTextRunner | null;
   try {
-    const res = await fetch(ANTHROPIC_MESSAGES_URL, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": ANTHROPIC_VERSION,
-      },
-      // No temperature/top_p (rejected on this model family). Adaptive thinking is the default; a low
-      // effort hint keeps a short, factual summary cheap. max_tokens covers thinking + text.
-      body: JSON.stringify({
-        model,
-        max_tokens: 2_000,
-        output_config: { effort: "low" },
-        system: SYSTEM_PROMPT,
-        messages: [{ role: "user", content: `<FACTS>\n${facts}\n</FACTS>\n\nWrite the briefing narrative.` }],
-      }),
-      signal: combined,
-    });
-    if (!res.ok) {
-      record("error");
-      return null;
-    }
-    const data = (await res.json()) as {
-      stop_reason?: string;
-      content?: { type?: string; text?: string }[];
-      usage?: { input_tokens?: number; output_tokens?: number };
-    };
-    // The Messages API's own usage block, which this module used to discard entirely. Absent fields
-    // stay absent — `meter` writes null, never 0, for anything the provider did not report.
-    const usage = {
-      inputTokens: data.usage?.input_tokens,
-      outputTokens: data.usage?.output_tokens,
-    };
-    // A refusal still SPENT the tokens it took to refuse, so it is metered as a success (the call
-    // completed) and rejected downstream. Recording it as an error would misreport the endpoint's health.
-    record("success", usage);
-    // A safety refusal is a normal 200 with an empty/partial body — check it before reading content.
-    if (data.stop_reason === "refusal") return null;
-    const text = (data.content ?? [])
-      .filter((blk) => blk.type === "text" && typeof blk.text === "string")
-      .map((blk) => blk.text as string)
-      .join("")
-      .trim();
+    // Attribution (`meter.orgSlug`) and BYOM provenance are filled in by the seam from `orgSlug`, so
+    // no `meter` context is passed here — supplying one would only re-state what it already knows.
+    runner = await resolveTextRunnerForOrg(orgSlug, { legKind: "briefing", timeoutMs });
+  } catch {
+    // THE FAIL-CLOSED CASE. The seam throws when this org's BYOM is active but its stored credentials
+    // cannot be resolved. Swallowing it into the deterministic template is deliberate: the alternative
+    // — retrying on the platform provider — would send a tenant's fleet data to a vendor it never
+    // connected, which is precisely the breach this whole change removes. The board document simply
+    // opens with the template paragraph instead, indistinguishable in shape from any other degrade.
+    return null;
+  }
+  // `null` is the ordinary "no engine here" answer (no BYOM and no platform key, mock, claude-cli in
+  // production). Same floor: the template.
+  if (!runner) return null;
+  try {
+    // The seam carries a single prompt (no separate system field), so the rules ride at the top of it.
+    const text = await runner.run(
+      `${SYSTEM_PROMPT}\n\n<FACTS>\n${facts}\n</FACTS>\n\nWrite the briefing narrative.`,
+      signal,
+    );
     // This narrative never passes through validateAssessment/cap (that path is for the scan
     // assessment), so the em-dash backstop has to be applied here or it is not applied at all.
     // SANITIZE rather than reject: em dashes are the single most common model habit, so gating the
     // narrative on them would fall back to the deterministic template almost every time and quietly
     // delete the feature. The gates below still judge the cleaned text.
-    return text ? deEmDash(text) : null;
+    return text?.trim() ? deEmDash(text) : null;
   } catch {
-    // Our own timer firing is a timeout; anything else (network, a caller disconnect) is an error.
-    record(combined.aborted && !signal?.aborted ? "timeout" : "error");
+    // Timeout, abort, transport error, a refusal the transport surfaced as a throw — one floor.
+    // The seam has already metered the failure; nothing to record here.
     return null;
-  } finally {
-    clear();
   }
 }
 
@@ -378,18 +366,21 @@ async function requestNarrative(facts: string, orgSlug: string | null, signal?: 
  * deterministic template otherwise. Never throws, never returns an empty string.
  */
 export async function writeBriefingNarrative(b: ExecBriefing, opts: { signal?: AbortSignal } = {}): Promise<string> {
-  const fallback = deterministicNarrative(b);
-  if (!briefingNarrativeEnabled()) return fallback;
+  // Direction 3 — built only when it is actually needed. `deterministicNarrative` walks the briefing
+  // and (through `briefingTrajectoryNote`) composes the trajectory read, and it was computed EAGERLY
+  // on every call — including the default path where the model is off and the return is immediate.
+  const fallback = () => deterministicNarrative(b);
+  if (!briefingNarrativeEnabled()) return fallback();
   const facts = narrativeFacts(b);
   // `b.org` is the org SLUG buildExecBriefing stamped on the briefing — the ledger's tenant key.
   const text = await requestNarrative(facts, b.org ?? null, opts.signal);
-  if (!text) return fallback;
-  if (!isWellFormedNarrative(text)) return fallback;
+  if (!text) return fallback();
+  if (!isWellFormedNarrative(text)) return fallback();
   // The load-bearing gate: no figure the briefing itself doesn't already contain...
-  if (!isGrounded(text, allowedNumbers(b))) return fallback;
+  if (!isGrounded(text, allowedNumbers(b))) return fallback();
   // ...and no figure of ANOTHER subject's presented as this one's. Membership is not referential
   // integrity (see guarantee 2 in the header): both gates have to hold for the prose to be true.
-  if (!referentGrounded(text, b)) return fallback;
+  if (!referentGrounded(text, b)) return fallback();
   return text.trim();
 }
 

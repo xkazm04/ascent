@@ -20,6 +20,8 @@ const BASE: StandingSource = {
   scannedCount: 12,
   repoCount: 40,
   deltas: null,
+  realScoredCount: 12,
+  mockCount: 0,
 };
 
 describe("buildScoreBadges", () => {
@@ -59,6 +61,73 @@ describe("buildScoreBadges", () => {
   it("never emits a goal qualifier — goal pacing needs a query the Overview does not make", () => {
     const badges = buildScoreBadges({ ...BASE, deltas: { overall: 4, adoption: 1, rigor: 1 } });
     expect(badges.every((b) => b.goal === undefined)).toBe(true);
+  });
+});
+
+describe("buildScoreBadges — every period delta states its basis", () => {
+  const MOVED: StandingSource = { ...BASE, deltas: { overall: 4, adoption: -2, rigor: 0 } };
+
+  it("carries the window's canonical comparison label onto every arrow it renders", () => {
+    const [maturity, adoption, rigor, coverage] = buildScoreBadges(MOVED, "vs 30d ago");
+    expect(maturity!.deltaLabel).toBe("vs 30d ago");
+    expect(adoption!.deltaLabel).toBe("vs 30d ago");
+    expect(rigor!.deltaLabel).toBe("vs 30d ago");
+    // The coverage badge has no delta, so it has no basis to state.
+    expect(coverage!.deltaLabel).toBeUndefined();
+  });
+
+  it("omits the label rather than inventing one when the window has no comparison", () => {
+    // "All time": ResolvedWindow.comparisonLabel is "", and there is no baseline either — so no
+    // arrow renders. A basis must degrade to ABSENCE, never to a fabricated one.
+    expect(buildScoreBadges(MOVED, "")[0]!.deltaLabel).toBeUndefined();
+    expect(buildScoreBadges(MOVED)[0]!.deltaLabel).toBeUndefined();
+  });
+
+  it("still passes the deltas themselves through untouched", () => {
+    expect(buildScoreBadges(MOVED, "vs quarter start").map((b) => b.delta)).toEqual([4, -2, 0, undefined]);
+  });
+});
+
+describe("buildScoreBadges — the average's basis travels with it", () => {
+  it("titles every score badge with the denominator it was measured over", () => {
+    const [maturity, adoption, rigor, coverage] = buildScoreBadges(BASE);
+    for (const b of [maturity, adoption, rigor]) expect(b!.title).toBe("Average over the 12 live-scored repos");
+    expect(coverage!.title).toBeUndefined(); // a count is not an average — it has no basis to state
+  });
+
+  it("discloses the excluded mock placeholders on the headline badge, in the cohort card's words", () => {
+    const mixed = { ...BASE, scannedCount: 12, realScoredCount: 9, mockCount: 3 };
+    const [maturity, adoption] = buildScoreBadges(mixed);
+    expect(maturity!.note).toBe("3 mock (excluded from avg)");
+    expect(maturity!.title).toBe("Average over the 9 live-scored repos · 3 mock placeholders excluded");
+    // One chip, not three copies of one fact.
+    expect(adoption!.note).toBeUndefined();
+  });
+
+  it("singularizes the denominator and the exclusion", () => {
+    const one = { ...BASE, realScoredCount: 1, mockCount: 1 };
+    expect(buildScoreBadges(one)[0]!.title).toBe("Average over the 1 live-scored repo · 1 mock placeholder excluded");
+    expect(buildScoreBadges(one)[0]!.note).toBe("1 mock (excluded from avg)");
+  });
+
+  it("shows NO score — never a 0 — when nothing in the set was live-scored", () => {
+    // `avgOverall` is `roundedMean([])` here: a division guard, not a grade. A 0 rendered in
+    // scoreHex(0) alarm-red would assert a catastrophic fleet grade over a fleet nobody graded.
+    const allMock = { ...BASE, avgOverall: 0, avgAdoption: 0, avgRigor: 0, realScoredCount: 0, mockCount: 12, deltas: { overall: 4, adoption: 2, rigor: 1 } };
+    const [maturity, adoption, rigor] = buildScoreBadges(allMock);
+    for (const b of [maturity, adoption, rigor]) {
+      expect(b!.value).toBe("—");
+      expect(b!.color).toBeUndefined();
+      expect(b!.delta).toBeUndefined(); // no cohort, so no movement to claim either
+    }
+    expect(maturity!.sub).toBeUndefined(); // and no level band for a score that does not exist
+    expect(maturity!.title).toBe("No live-scored repositories in this set (all 12 carry a deterministic mock score)");
+  });
+
+  it("leaves an all-live fleet's badges exactly as they were", () => {
+    const [maturity] = buildScoreBadges(BASE);
+    expect(maturity!.value).toBe(62);
+    expect(maturity!.note).toBeUndefined();
   });
 });
 

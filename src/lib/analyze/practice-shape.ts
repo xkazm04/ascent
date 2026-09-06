@@ -150,6 +150,9 @@ const CENSUS_FIXED_PATHS = [
   "docs/commit_conventions.md",
   "docs/ai_harness.md",
   "security.md",
+  // The tenth catalog practice (consolidate-guidance, ALL_PRACTICES) lands here; without this entry
+  // the #33 census could never see an applied artifact and the adoption ledger would never reconcile.
+  "docs/agent-guidance.md",
 ];
 
 const CENSUS_EXTRA_RULES: RegExp[] = [

@@ -46,6 +46,16 @@ describe("toAdmissionViews", () => {
     expect(toAdmissionViews([row({ stanceVersion: 3 })], null)[0]!.stale).toBe(false);
   });
 
+  // A repo with no passport and no decision has NO admission row at all — the gate applies no bar to
+  // it — so the view must be able to say that instead of borrowing the middle rung's label.
+  it("marks a repo with neither a measurement nor a decision as UNASSESSED", () => {
+    expect(toAdmissionViews([row({ derivedTier: null })], 4)[0]!.unassessed).toBe(true);
+    // A decision on an unassessed repo IS enforced (mode floors apply without a tier), so it is not
+    // unassessed in this sense — somebody decided.
+    expect(toAdmissionViews([row({ derivedTier: null, decidedBy: "octocat" })], 4)[0]!.unassessed).toBe(false);
+    expect(toAdmissionViews([row()], 4)[0]!.unassessed).toBe(false);
+  });
+
   it("orders by full name so the list is stable across reloads", () => {
     const views = toAdmissionViews([row({ repoFullName: "acme/zeta" }), row({ repoFullName: "acme/alpha" })], 4);
     expect(views.map((v) => v.fullName)).toEqual(["acme/alpha", "acme/zeta"]);
@@ -74,7 +84,20 @@ describe("admissionSummary", () => {
     expect(s).not.toContain("nobody has decided");
   });
 
-  it("has an honest empty state", () => {
-    expect(admissionSummary([])).toContain("No repository has an admission decision yet");
+  // The list is now the org's TRACKED REPOSITORIES, not the decision table, so an empty one means the
+  // org tracks nothing — the old sentence described a list that no longer exists and was shown to
+  // every org whose repos simply had no rows seeded.
+  it("has an honest empty state about repositories, not decisions", () => {
+    expect(admissionSummary([])).toContain("tracks no repositories yet");
+  });
+
+  // "Nobody has decided" and "there is nothing to decide against yet" are different problems with
+  // different fixes, so the summary must not fold one into the other.
+  it("counts unassessed repos apart from undecided ones", () => {
+    const s = admissionSummary(
+      toAdmissionViews([row({ repoFullName: "acme/a" }), row({ repoFullName: "acme/b", derivedTier: null })], 4),
+    );
+    expect(s).toContain("1 still on the seeded default");
+    expect(s).toContain("1 not assessed — no bar applies");
   });
 });

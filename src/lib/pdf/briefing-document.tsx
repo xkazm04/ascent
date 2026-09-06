@@ -5,10 +5,10 @@
 // Shares its light-theme scaffolding (palette, scoreColor, base styles, Stat, Footer) with
 // report-document.tsx + security-document.tsx via ./theme.
 
-import type { ReactNode } from "react";
 import { Document, Page, Image, StyleSheet, Text, View } from "@react-pdf/renderer";
-import { benchmarkCaption, briefingLoopProofLine, briefingNextMove, briefingProofLine, briefingTrajectoryNote, engineMixCaveat, engineMixLabel, movementLine, nextMoveLine, valueRealizedHeading, valueRealizedLine } from "@/lib/org/briefing";
-import type { BriefingDim, BriefingMove, ExecBriefing } from "@/lib/org/briefing";
+import { ColumnHeading, DimLine, MoveLine, SectionHeading } from "./briefing-document-rows";
+import { benchmarkCaption, briefingHasScore, briefingLevelCaption, briefingLoopProofLine, briefingNextMove, briefingProofLine, briefingTrajectoryNote, coverageLine, engineMixCaveat, engineMixLabel, mockDisclosure, movementLine, nextMoveLine, noScoreLine, scoreBasisLine, scoreValue, valueRealizedHeading, valueRealizedLine } from "@/lib/org/briefing";
+import type { ExecBriefing } from "@/lib/org/briefing";
 import { ACCENT, INK, MUTED, FAINT, baseStyles, scoreColor, Stat, Footer } from "./theme";
 import { latin1Safe } from "./latin1";
 
@@ -36,53 +36,6 @@ const styles = StyleSheet.create({
   nextMove: { marginTop: 4, color: INK, lineHeight: 1.45 },
 });
 
-// G5-06: `wrap={false}` was previously applied only to the goal row, so a content-rich briefing could
-// split a dimension/movement row's label from its value across a page break. Both row components now
-// get the same unsplittable-row treatment as the goal row.
-function DimLine({ d }: { d: BriefingDim }) {
-  return (
-    <View style={styles.dimRow} wrap={false}>
-      <Text>{d.dimId} · {d.label}</Text>
-      <Text style={{ fontFamily: "Helvetica-Bold", color: scoreColor(d.avg) }}>{d.avg}/100</Text>
-    </View>
-  );
-}
-
-function MoveLine({ tone, m }: { tone: "up" | "down"; m: BriefingMove }) {
-  const color = tone === "up" ? "#16a34a" : "#d97706";
-  return (
-    <View style={styles.moveRow} wrap={false}>
-      <Text>{tone === "up" ? "+ " : "- "}{m.name}{m.levelFrom !== m.levelTo ? ` (${m.levelFrom} -> ${m.levelTo})` : ""}</Text>
-      <Text style={{ fontFamily: "Helvetica-Bold", color }}>{m.dOverall >= 0 ? "+" : ""}{m.dOverall}</Text>
-    </View>
-  );
-}
-
-// G5-06: a section heading (with its preceding rule) had no protection against being stranded alone
-// at the bottom of a page while every row under it was pushed to the next — `wrap={false}` keeps the
-// rule+heading together as one block, and `minPresenceAhead` refuses to place that block at all unless
-// there's room left for at least the start of its first row, so the whole block moves to the next page
-// together instead of splitting.
-function SectionHeading({ children }: { children: ReactNode }) {
-  return (
-    <View wrap={false} minPresenceAhead={28}>
-      <View style={baseStyles.rule} />
-      <Text style={baseStyles.sectionH}>{children}</Text>
-    </View>
-  );
-}
-
-// Same orphan protection as SectionHeading, minus the rule — for headings inside the Strengths/
-// Weakest-dimensions two-column layout, where the rule is shared above both columns rather than
-// per-column.
-function ColumnHeading({ children }: { children: ReactNode }) {
-  return (
-    <View wrap={false} minPresenceAhead={20}>
-      <Text style={baseStyles.sectionH}>{children}</Text>
-    </View>
-  );
-}
-
 export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefing; branding?: BriefingBranding }) {
   const b = briefing;
   const accent = branding?.brandColor || ACCENT;
@@ -90,6 +43,7 @@ export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefin
   // must show as a visible "?" rather than being silently dropped by the built-in Helvetica (see ./latin1).
   const brandLabel = latin1Safe(branding?.brandName || "Ascent");
   const org = latin1Safe(b.org);
+  const scored = briefingHasScore(b);
   return (
     <Document title={`${brandLabel} executive briefing — ${org}`} author={brandLabel} subject="AI-native engineering maturity">
       <Page size="A4" style={baseStyles.page}>
@@ -106,9 +60,18 @@ export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefin
 
         <View style={baseStyles.rule} />
         <View style={baseStyles.statsRow}>
-          <Stat label="Overall" value={`${b.maturity.overall}`} sub={`${b.maturity.levelId} ${b.maturity.levelName}`} color={scoreColor(b.maturity.overall)} />
-          <Stat label="Adoption" value={`${b.maturity.adoption}`} color={scoreColor(b.maturity.adoption)} />
-          <Stat label="Rigor" value={`${b.maturity.rigor}`} color={scoreColor(b.maturity.rigor)} />
+          {/* Direction 1 — at `realScoredCount === 0` the three averages are a division guard, not a
+              grade, so the headline Stats show "—" and the level caption is suppressed. The PDF is the
+              artifact most likely to leave the building unedited; "OVERALL 0 / L1 Ad hoc" on it is a
+              claim about a fleet that was never measured. */}
+          <Stat
+            label="Overall"
+            value={scoreValue(b, b.maturity.overall)}
+            sub={briefingLevelCaption(b) ?? undefined}
+            color={scored ? scoreColor(b.maturity.overall) : FAINT}
+          />
+          <Stat label="Adoption" value={scoreValue(b, b.maturity.adoption)} color={scored ? scoreColor(b.maturity.adoption) : FAINT} />
+          <Stat label="Rigor" value={scoreValue(b, b.maturity.rigor)} color={scored ? scoreColor(b.maturity.rigor) : FAINT} />
           <Stat
             label="Percentile"
             value={b.benchmark?.percentile != null ? `${b.benchmark.percentile}` : "—"}
@@ -118,7 +81,10 @@ export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefin
             color={b.benchmark?.percentile != null ? scoreColor(b.benchmark.percentile) : FAINT}
           />
         </View>
-        {b.periodDelta != null && (
+        {/* The no-score sentence stands where the "change vs …" line would: a reader who sees "—" in
+            three headline tiles is owed the reason on the same page, above the fold. */}
+        {!scored ? <Text style={styles.line}>{noScoreLine(b)}</Text> : null}
+        {scored && b.periodDelta != null && (
           <Text style={styles.line}>Change vs {b.periodTitle} start: {b.periodDelta >= 0 ? "+" : ""}{b.periodDelta}</Text>
         )}
         {/* MC-B1 — this is THE artifact with the org's name on it, and it was the one printing
@@ -140,16 +106,19 @@ export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefin
             {b.benchmark.cohort.adoptionPercentile != null ? ` · ${b.benchmark.cohort.adoptionPercentile}th on AI adoption` : ""}
           </Text>
         ) : null}
-        <Text style={styles.line}>Coverage: {b.coverage.scanned}/{b.coverage.total} repositories scanned</Text>
+        <Text style={styles.line}>{coverageLine(b)}</Text>
+        {/* Direction 1 — coverage answers "how much did we look at"; this answers "what is the
+            average averaged over". They are different denominators and used to be conflated. */}
+        {scoreBasisLine(b) ? <Text style={baseStyles.meta}>Score basis: {scoreBasisLine(b)}</Text> : null}
         {/* executive-briefing 07-16 #4: the PDF is the surface "most likely to leave the building
             unedited", yet it silently dropped the value-realized (renewal-justification) and
             fleet-adoption lines the exec page + LLM markdown carry. Keep the three renderers in lockstep. */}
         {/* UAT DANA-L1-010 — the heading follows the SIGN. A fleet regression printed under the word
             "Value" is the tool not knowing which direction is good; the number itself is never hidden
             (G1), and it now carries the basis its neighbouring movement line is counted on. */}
-        {valueRealizedLine(b.valueRealized, b.coverage.scanned) ? (
+        {valueRealizedLine(b.valueRealized, b.realScoredCount) ? (
           <Text style={styles.line}>
-            {valueRealizedHeading(b.valueRealized)}: {valueRealizedLine(b.valueRealized, b.coverage.scanned)}
+            {valueRealizedHeading(b.valueRealized)}: {valueRealizedLine(b.valueRealized, b.realScoredCount)}
           </Text>
         ) : null}
         {b.adoptionRate != null ? (
@@ -181,6 +150,14 @@ export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefin
             ) : null}
           </Text>
         )}
+        {/* G9 — the mock disclosure rides in the PDF BODY, beside the engine-mix caveat, never in a
+            footer. It is NOT the same claim: the engine mix counts scans that ran inside the window,
+            while the averages read each repo's latest scan at-or-before the upper bound, so a fleet
+            whose mock scans predate the window gets no engine-mix caveat and still has a shrunken
+            denominator. Direction 1. */}
+        {mockDisclosure(b) ? (
+          <Text style={{ ...styles.line, color: "#d97706" }}>⚠ {mockDisclosure(b)}</Text>
+        ) : null}
 
         {/* G5-05: Strengths/Weakest-dimensions used to render both column headings unconditionally,
             leaving a labeled-but-blank column when one array is empty (unlike goals/movement, which
@@ -233,7 +210,7 @@ export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefin
                 built-in Helvetica has no ▲/▼ glyphs (see ./latin1). */}
             {b.movement.compared > 0 ? (
               <Text style={{ ...baseStyles.muted, marginBottom: 4 }}>
-                {movementLine(b.movement, b.coverage.scanned)}
+                {movementLine(b.movement, b.realScoredCount)}
               </Text>
             ) : null}
             {b.topGainers.map((m) => <MoveLine key={`g-${m.name}`} tone="up" m={m} />)}

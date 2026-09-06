@@ -43,17 +43,20 @@ vi.mock("@/lib/rate-limit", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/rate-limit")>();
   return {
     rateLimitRequest: vi.fn(() => ({ ok: true, retryAfterSec: 0 })),
+    rateLimitKeyed: vi.fn(() => ({ ok: true, retryAfterSec: 0 })),
     tooManyRequests: actual.tooManyRequests,
     GATE_RATE_LIMIT: {},
+    MCP_RATE_LIMIT: { name: "mcp", perIp: 300, global: 3_000, windowMs: 60_000, basis: "inherited" },
   };
 });
 
 import { POST } from "./route";
 import { recordOrgAudit, verifyOrgApiToken, workspaceAllowsMemory, workspaceAllowsSkills } from "@/lib/db";
 import { runTool } from "@/lib/mcp/handlers";
-import { rateLimitRequest } from "@/lib/rate-limit";
+import { rateLimitKeyed, rateLimitRequest } from "@/lib/rate-limit";
 
 const mockLimiter = vi.mocked(rateLimitRequest);
+const mockTokenLimiter = vi.mocked(rateLimitKeyed);
 const mockVerify = vi.mocked(verifyOrgApiToken);
 const mockMemoryPlan = vi.mocked(workspaceAllowsMemory);
 const mockSkillsPlan = vi.mocked(workspaceAllowsSkills);
@@ -72,6 +75,7 @@ function post() {
 beforeEach(() => {
   vi.clearAllMocks();
   mockLimiter.mockReturnValue({ ok: true, retryAfterSec: 0 } as never);
+  mockTokenLimiter.mockReturnValue({ ok: true, retryAfterSec: 0 } as never);
   mockMemoryPlan.mockResolvedValue(true);
   mockSkillsPlan.mockResolvedValue(true);
 });
@@ -147,6 +151,54 @@ describe("POST /api/mcp — the 429 names the scope that refused", () => {
     const res = await post();
     expect(res.status).not.toBe(429);
   });
+
+  // ───────────────────────────────────────────────────────────────────────────────────────────────
+  // THE KEY LADDER (Direction 3). The pre-auth per-IP check is the cheap first gate and CANNOT be the
+  // real budget: with `trustedProxyHops() === 0` — the default — `clientIp` is the shared "unknown"
+  // bucket, so every agent on a self-hosted deployment would share one window. The budget that
+  // matters is charged on the VERIFIED token id, after the credential is known.
+  // ───────────────────────────────────────────────────────────────────────────────────────────────
+  it("charges the real budget against the token id, after the IP gate", async () => {
+    tokenWith(["mcp:read"]);
+    await call("tools/list");
+    expect(mockLimiter).toHaveBeenCalledTimes(1); // the cheap pre-auth gate still runs
+    expect(mockTokenLimiter).toHaveBeenCalledWith("tok_1", expect.objectContaining({ name: "mcp" }));
+  });
+
+  it("refuses a token over its own budget with the mcp limiter named", async () => {
+    tokenWith(["mcp:read"]);
+    mockTokenLimiter.mockReturnValue({
+      ok: false,
+      retryAfterSec: 3,
+      scope: "ip",
+      limiter: "mcp",
+      limit: 300,
+      windowSec: 60,
+      evaluated: true,
+    } as never);
+
+    const res = await call("tools/list");
+    expect(res.status).toBe(429);
+    expect(await res.json()).toMatchObject({ limiter: "mcp", limit: 300 });
+  });
+
+  it("refuses an oversize body as a PROTOCOL error, before any parse", async () => {
+    tokenWith(["mcp:read"]);
+    const res = await POST(
+      new Request("http://localhost/api/mcp", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer askl_test",
+          "mcp-protocol-version": "2026-07-28",
+          "mcp-method": "tools/list",
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", pad: "x".repeat(70_000) }),
+      }),
+    );
+    expect(res.status).toBe(413);
+    expect((await res.json()).error.message).toMatch(/exceeds/i);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -216,11 +268,11 @@ describe("POST /api/mcp — plan gates", () => {
     const [action, org, meta, actor] = vi.mocked(recordOrgAudit).mock.calls[0]!;
     expect(action).toBe("mcp.write.report_skill_invoke");
     expect(org).toBe("acme");
-    expect(actor).toBe("token:agent");
+    expect(actor).toBe("token:tok_1");
     // The key SHAPE plus the idempotency key — never the raw argument object. A citation `note` is
     // free text an agent wrote, and the audit trail must not become a second place it is stored and
     // re-read; the idempotency key carries only identifiers, by construction.
-    expect(meta).toMatchObject({ tool: "report_skill_invoke", argKeys: ["session", "skill"] });
+    expect(meta).toMatchObject({ tool: "report_skill_invoke", argKeys: ["session", "skill"], tokenId: "tok_1", tokenName: "agent" });
     expect(meta).not.toHaveProperty("args");
 
     // A write the gate refuses never reaches the handler and never audits: an audit trail of
@@ -240,6 +292,48 @@ describe("POST /api/mcp — plan gates", () => {
     const body = await res.json();
     expect(res.status).toBe(400);
     expect(body.error.message).toBe("Unknown tool: report_skill_invoke");
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────────────────────────
+  // THE TOKEN ID IS THE IDENTITY (Direction 1). A token's NAME is not unique — `createOrgApiToken`
+  // enforces nothing — so keying the audit actor or the work-queue holder on it made two tokens
+  // called `ci` one actor with one shared daily ceiling and one shared claim identity. Both keys are
+  // now the token id, and the name rides along as a label.
+  //
+  // FAIL-BEFORE: restore `token:${token.name}` / `agent:${token.name}` in route.ts and both
+  // assertions below fail.
+  // ───────────────────────────────────────────────────────────────────────────────────────────────
+  it("keys the audit actor and the work-queue holder on the token ID, with the name as a label", async () => {
+    tokenWith(["mcp:read", "followups:write", "telemetry:write"]);
+    await call("tools/call", { name: "report_attempt", arguments: { id: "rec-1", verdict: "skipped", reason: "r" } });
+
+    const principal = vi.mocked(runTool).mock.calls[0]![3]!;
+    expect(principal.actor).toBe("agent:tok_1");
+    // The label, carried but never compared. And the TRANSITIONAL name form, so a row claimed before
+    // this change is still workable by the token that claimed it.
+    expect(principal.label).toBe("agent");
+    expect(principal.legacyActor).toBe("agent:agent");
+    expect(vi.mocked(recordOrgAudit).mock.calls[0]![3]).toBe("token:tok_1");
+  });
+
+  it("gives two tokens with the SAME NAME different actors, so they share no counter and no lease", async () => {
+    tokenWith(["mcp:read", "followups:write", "telemetry:write"]);
+    await call("tools/call", { name: "report_attempt", arguments: { id: "rec-1", verdict: "skipped", reason: "r" } });
+    // Same org, same name `agent`, a different credential.
+    mockVerify.mockResolvedValue({
+      tokenId: "tok_2",
+      orgSlug: "acme",
+      name: "agent",
+      scopes: ["mcp:read", "followups:write", "telemetry:write"],
+    } as never);
+    await call("tools/call", { name: "report_attempt", arguments: { id: "rec-1", verdict: "skipped", reason: "r" } });
+
+    const actors = vi.mocked(runTool).mock.calls.map((c) => c[3]!.actor);
+    expect(actors).toEqual(["agent:tok_1", "agent:tok_2"]);
+    // The daily ceiling counts on this string (`countTokenWritesToday(org, actorId, action)`), so two
+    // distinct audit actors are two distinct budgets.
+    const auditActors = vi.mocked(recordOrgAudit).mock.calls.map((c) => c[3]);
+    expect(auditActors).toEqual(["token:tok_1", "token:tok_2"]);
   });
 
   it("does not resolve the plan gates for a discovery probe", async () => {

@@ -61,9 +61,23 @@ quota is consumed, so a typo can never burn one of the free tier's monthly scan 
 **Pre-scan gates, the same order on both routes** (`src/lib/scan-gates.ts`):
 
 ```
-rate limit  →  sign-in wall  →  monthly quota
-   429            401              429 { code: "monthly_quota" }
+rate limit  →  sign-in wall  →  monthly quota                   →  credit reserve
+   429            401              429 { code: "monthly_quota" }     402 INSUFFICIENT_CREDITS
 ```
+
+The **credit reserve** (`scanCreditGate`) is the last gate because it is the only one that mutates
+an org's balance: every cheaper refusal is answered before a credit moves. It applies to a
+**metered** scan only (private / installed-org, non-mock; `isMeteredScan`) and reserves one credit
+*before* inference, then hands it back on every path that delivered nothing billable: cached hit,
+coalesce join, degrade-to-mock, dedup, throw/abort. Public scans pay the monthly quota and never
+reach it. Until 2026-09-05 this gate lived inline in `/api/scan` only, so `/api/scan/stream` (the
+route the report UI drives) ran paid inference on private repos with no meter at all; both routes now
+share the one gate. Both also answer `x-ascent-credits-remaining`: on `/api/scan` it is the
+post-refund balance; on the SSE route the headers flush before `start()` can refund, so it is the
+**pre-refund** figure (the same soft-header caveat the `x-ascent-quota-*` fields carry). The report
+client renders the 402 as its own out-of-credits wall (see
+[report.md](../reporting/report.md#failure-states-on-the-report-page-2026-09-05)). A GitHub network
+failure inside `ghJson` now crosses back as a fixed sentence; the raw error is logged server-side.
 
 ### The anonymous public scan is exempt from the sign-in wall
 
@@ -153,6 +167,20 @@ of them and D9 fell forty points with no repository change. `readPicksWithReserv
 `.ai/`, `CLAUDE.md`, `AGENTS.md`. The rest fill the remaining budget in pick order and the result is
 restored to pick order, so the prompt window is unchanged for the files it was going to read anyway.
 Test: `source.reserve.test.ts`.
+
+**The GitHub byte budget is a plan, not a race (2026-09-05, rubric `r17`).** `fetchSnapshot` used to
+spend `MAX_TOTAL_BYTES` inside the 8-wide fetch pool with an optimistic per-file claim reconciled
+after each await, so which picks were displaced depended on network timing. `planFetchBudget` now
+walks the picks in `fetchRank` order and admits each while `planned + min(listed blob size,
+per-file cap) <= MAX_TOTAL_BYTES`, closing admission at the first pick that does not fit; only the
+admitted set is fetched (through the shared `mapPool`). The set a scan reads is a pure function of
+(tree, picks, budget): re-scanning the same commit reads the same files and produces the same score.
+Displaced picks are disclosed through coverage as their own term (`attempted / (attempted +
+displaced)`), the same depression they always caused, now reproducible. The GitLab source, whose
+tree carries no sizes, reaches the same guarantee by deciding admission in strict pick order from a
+single consumer (at most seven in-flight reads beyond the cut). See the `r17` entry in
+[maturity-model.md](maturity-model.md#6-rubric-versioning-scoring_rubric_version) for why this is a
+rubric bump.
 
 The other half of worktree comparability is D9's GitHub-only inputs (branch protection, installed
 Apps, org policy): an observed scan records them on `platformSignals.securityInputs`, a worktree
@@ -519,6 +547,35 @@ as missing evidence rather than as a finding. **No score moves** — D4 keeps wh
 changes is what becomes work. See
 [the loop does not arm what it cannot verify](../org-planning/live.md#the-loop-does-not-arm-what-it-cannot-verify-2026-08-30).
 
+### A failed sensor read is unknown, never zero (2026-09-05)
+
+The token-gated enrichments (branch governance, security posture, dependency exposure, the
+installed-App inventory, CI health, deployments) each degrade to the same `null` / `[]` a
+successful-but-empty read produces. Until 2026-09-05 only the PR sensor recorded the difference
+(`prFetchFailed`); a failed posture read on a repo whose org has a `SECURITY.md` persisted score 0,
+"No security policy found" and a remediation for a control the repo has, and a failed governance
+read silently dropped the D3/D6/D8 credit. Now `ingestRepository` records every sensor whose read
+threw on `IngestPhaseResult.sensorFailures` (typed `ScanSensorId[]`, carried on
+`ScanReport.sensorFailures`), and:
+
+- `buildScanWarnings` emits **one** caveat naming the failed reads in reader words ("GitHub signal
+  reads FAILED during this scan (…), so the signals they feed are missing - this reflects failed
+  reads, not controls the repository lacks"). It persists through `warningsJson` like every other
+  caveat; there is no dedicated column for the typed list yet.
+- D9 checks whose only GitHub-side refutation came from a failed sensor (security policy from
+  posture; SAST and dependency updates from the App inventory) return `score: null` with evidence
+  "not observable: <sensor> read failed" and are **excluded** from the blend, through the same
+  `githubCanRefuteZero` path a structurally blind scan already uses. A sensor that ran and found
+  nothing scores exactly as before.
+- Governance and platform folds are not given partial credit; the caveat is the record. An absent
+  `platformSignals` record **plus** `appInventory`/`ciHealth` in `sensorFailures` means
+  *unmeasured*; an absent record with nothing listed means the scan looked and measured nothing.
+- `fetchDeployments` now accepts the scan's abort signal and joins the enrichment `Promise.all`
+  (its loop stays sequential for the secondary rate limit); the two score-input DB reads run in
+  parallel (measured on a modelled fixture: 268 ms → 134 ms); the outcome counters no longer block
+  the hot path. The ingest emits "Reading GitHub signals…" at 52 before the enrichment await and
+  "Analyzing signals…" at 62 after it, so the UI no longer claims to analyze during GitHub I/O.
+
 `engineProvider = "mock"` cannot carry the second on its own: it is also what a keyless deploy and an
 explicit `?mock=1` demo look like, and neither of those is a failure. All three are nullable — a row
 written before the columns is **unknown**, which is deliberately not the same value as "not degraded"
@@ -750,7 +807,9 @@ three workflows shows its first three in pick order.
 - **PR + governance + platform signals require a token.** Anonymous scans skip PR stats,
   governance, security posture/exposure, deployments, the installed-App inventory and CI
   health, and warn. Every token-gated fold is additive, so an anonymous scan is a floor, not a
-  different rubric.
+  different rubric. A *failed* token-gated read is reported separately from an empty one since
+  2026-09-05 (see "A failed sensor read is unknown, never zero"); the typed `sensorFailures` list
+  has no `Scan` column, so only the prose caveat survives persistence.
 - **The App inventory is one page of one commit.** It reads the suites on the *scored* commit
   only (≤100, `truncated` flags a floor). An App that posts suites only on pull-request heads
   and never on the default branch is invisible to it; the observed `aiPreReviewedRate` covers

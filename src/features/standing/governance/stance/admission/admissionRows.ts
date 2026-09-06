@@ -32,6 +32,16 @@ export interface AdmissionView {
   /** The decision was recorded against an older stance version — recompiled, but not re-affirmed. */
   stale: boolean;
   rulesetId: string | null;
+  /**
+   * No tier was assessed AND nobody has decided — so nothing is recorded for this repository and the
+   * gate applies no admission bar to it (`getRepoAdmission` returns null; the overlay is `{}`).
+   *
+   * It is a distinct state from "assisted-only", not a shade of it. The list now renders every repo
+   * the org tracks, including ones no scan has produced a passport for, and painting those with the
+   * middle rung's label would claim a bar the gate does not enforce — on the one surface whose whole
+   * job is keeping a measurement apart from a decision.
+   */
+  unassessed: boolean;
 }
 
 /**
@@ -54,21 +64,33 @@ export function toAdmissionViews(rows: RepoAdmissionRow[], activeStanceVersion: 
       overridesDerived: r.derivedTier && r.derivedTier !== r.grantedTier ? r.derivedTier : null,
       stale: activeStanceVersion !== null && r.stanceVersion < activeStanceVersion,
       rulesetId: r.rulesetId,
+      unassessed: r.derivedTier === null && r.decidedBy === null,
     }))
     .sort((a, b) => a.fullName.localeCompare(b.fullName));
 }
 
-/** The one-line summary above the column. States the counts a fleet owner actually asks for. */
+/**
+ * The one-line summary above the column. States the counts a fleet owner actually asks for.
+ *
+ * The EMPTY STATE is now about repositories, not decisions. The list is the org's tracked repo set,
+ * so an empty one means the org tracks nothing at all — the old sentence ("no repository has an
+ * admission decision yet") described a list that no longer exists, and it was shown to every org
+ * whose repos simply had no rows seeded, next to no affordance for making the first decision.
+ */
 export function admissionSummary(views: AdmissionView[]): string {
-  if (views.length === 0) return "No repository has an admission decision yet.";
+  if (views.length === 0) return "This organization tracks no repositories yet — connect or scan one to admit it.";
   const blocked = views.filter((v) => v.mode === "blocked").length;
-  const allowed = views.filter((v) => v.mode === "agents-allowed").length;
-  const undecided = views.filter((v) => !v.decided).length;
+  const allowed = views.filter((v) => !v.unassessed && v.mode === "agents-allowed").length;
+  const unassessed = views.filter((v) => v.unassessed).length;
+  const undecided = views.filter((v) => !v.decided && !v.unassessed).length;
   const parts = [`${views.length} repositor${views.length === 1 ? "y" : "ies"}`];
   if (allowed) parts.push(`${allowed} admit agents`);
   if (blocked) parts.push(`${blocked} blocked`);
   // Said plainly rather than folded into the counts: a seed is not a decision, and a fleet where
   // nobody has decided anything must not read as a fleet that decided "assisted-only".
   if (undecided) parts.push(`${undecided} still on the seeded default — nobody has decided`);
+  // Counted apart from the undecided: "nobody has decided" and "there is nothing to decide against
+  // yet" are different problems with different fixes (record a decision vs scan the repo).
+  if (unassessed) parts.push(`${unassessed} not assessed — no bar applies`);
   return parts.join(" · ") + ".";
 }

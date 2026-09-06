@@ -174,21 +174,21 @@ under the Supabase wall `getSession()` is null and this collapses to the viewer,
 | Standing | Overview | `org/[slug]?tab=overview` | `src/features/standing/overview/` | The **Fix first** band (up to 3 triage-ordered next moves: worst regresser, busiest unresolved findings queue, behind-pace goal; own Suspense boundary, `OverviewFixFirstPanel`), then four sections, top to bottom, **all off one `getOrgRollup` read**: the standing strip (maturity + level band, adoption, rigor, repos scanned, each with its cohort-matched period delta (`OrgRollup.movement` carries that delta **with** its matched-cohort size and the excluded composition change — `deltas` is the deprecated bare triple), plus the maturity trend as an inline sparkline) · posture distribution + the **dimension ledger** (per-dimension averages grouped by SDLC phase, each row a status word, a reading and two named affordances — see *The Overview ledger* below) · the Fleet category rollup (repos grouped by Type/Stack/Level; **Level groups are ordered L1→L5**, Type/Stack strongest-first) · the repo × dimension heatmap, whose cells open the per-dimension drill-in (`RepoDimensionModal`, on the brand `Modal` portal, `reading` width; summary rendered as markdown-lite via `MarkdownLite`, gaps as a list; "Next steps" says *nothing owed* for a green-band dimension and *not on record, re-scan* for a below-green one). The whole region is one client component, `OverviewLedger`, fed serialised data by the server `OverviewFleetPanel`. |
 | Standing | Repositories | `org/[slug]/repositories` | `src/app/org/[slug]/repositories/page.tsx` | The repo **leaderboard** first (level/overall/adoption/rigor/posture/last scan + repo × dimension heatmap), then the **Context half-life** panel (W4, see below). Also renders **Segments** as its `?tab=segments` view (see below); there is no separate rail item or route for Segments anymore. |
 | Standing | Tech Stacks | `org/[slug]/tech-stacks` | `src/app/org/[slug]/tech-stacks/` | Tech-stack breakdown across the fleet: per-stack maturity profiles and the **dimension analysis** board (see below). |
-| Standing | Passports | `org/[slug]/passports` | `src/features/standing/passports/` | Repo passports, as three switcher views: **Baseline** (the automation × production portfolio), **Clearance** (the passport as a per-repo security clearance), and **Capabilities** (the declared-vs-proven capability matrix), and **Controls** (the per-check doctor findings each repo's own CI reported back) — both below. |
+| Standing | Passports | `org/[slug]/passports` | `src/features/standing/passports/` | **2026-09-05:** the tab's autonomy tier, blocking conditions and progress all come from the one persisted resolver (`deriveAutonomyForStored`); the prototype five-gate ladder is presentation only, so a T2 repo can no longer list gates T2 never consulted. The context gate reads real `contextHealthJson` freshness and an unmeasured freshness costs nothing (the mock staleness penalty is gone). Passport blocker decisions key on `findings[].id`, with a read-side alias for decisions stored under the old prose key until 2027-03-01, so a blocker whose text changes keeps its decision. Repo passports, as three switcher views: **Baseline** (the automation × production portfolio), **Clearance** (the passport as a per-repo security clearance), and **Capabilities** (the declared-vs-proven capability matrix), and **Controls** (the per-check doctor findings each repo's own CI reported back) — both below. |
 | Standing | Security | `org/[slug]/security` | `src/features/standing/security/` | Security posture across the fleet, in three stacked pieces: the summary-tile ledger (avg D9 · branch protection · repos at risk · gate), whose bottom edge **is** the D9 band spectrum (`SecurityBandSpectrum`, a `col-span-full` ledger cell — see below); the **D9 check battery** (`SecurityRiskRegister`; renamed from "Control matrix" 2026-08-31, MC-B10); and **Findings to decide** (`SecurityFindings`, see below). |
-| Standing | Adoption | `org/[slug]/adoption` | `src/features/standing/adoption/` | Adoption signals: AI-share tiles, the contributor spread bar, tool footprint, champions, per-team adoption and the delivery strip. **Rates, bands and teams — no named per-person roster**; the "Who to enable next" table moved to Contributors (2026-08-19) and the spread bar's "none" follow-up deep-links across to it. |
+| Standing | Adoption | `org/[slug]/adoption` | `src/features/standing/adoption/` | Adoption signals: AI-share tiles, the contributor spread bar, tool footprint, champions, per-team adoption and the delivery strip. **Rates, bands and teams — no named per-person roster**; the "Who to enable next" table moved to Contributors (2026-08-19) and the spread bar's "none" follow-up deep-links across to it. **2026-09-05:** the \"Org AI commit share\" tile carries its commit denominator (withheld, not zeroed, below the naming floor); the enablement cohort requires activity within 90 days of the fleet's latest observed activity as well as three commits, and the Contributors tab states that horizon. |
 | Standing | Follow-ups | `org/[slug]?tab=followups` | `src/components/org/followups/` | Every open gap across the fleet in one ledger — tick a batch, one fix prompt for a local agent, hand off, and the next default-branch scan closes what landed. Replaced the **Plan** and **Backlog** tabs (retired 2026-08-17). See [org-followups/README.md](../org-followups/README.md). |
 | Shared | Practices | `org/[slug]/practices` | `src/app/org/[slug]/practices/page.tsx` | The Practice Library (see [../practices.md](./practices.md)). |
 | Shared | Skills | `org/[slug]/skills` | `src/app/org/[slug]/skills/` | Skill drift/dormancy views. |
 | Shared | Memory | `org/[slug]/memory` | `src/app/org/[slug]/memory/` | Shared Org Memory browser. |
-| Shared | Knowledge base | `org/[slug]?tab=knowledge` | `src/features/shared/knowledge/` | Overview of the Reference Knowledge Bundles the registry publishes under `knowledge/<domain>/`, counted per domain across the three layers that ship (Golden Path → Technique → Application; Evidence is consumer-side and is deliberately not counted). Unmapped/empty/error registries each get their own notice rather than a zeroed table. Born inside the `?tab=` shell, so unlike its Shared siblings it has **no** `/org/[slug]/knowledge` route — which is exactly why its id must sit in `MIGRATED_ORG_TAB_IDS`: a tab outside that set is redirected by `/org/[slug]/page.tsx` to a legacy path it never had (it shipped that way on 2026-08-19 and 404'd the rail link; `orgTabs.test.ts` now asserts every un-migrated tab owns a real route). The counts are still `provisional` — the registry indexer walks skills/practices/memory and does not parse `knowledge/**` yet, so the view says so in the UI. |
+| Shared | Knowledge base | `org/[slug]?tab=knowledge` | `src/features/shared/knowledge/` | The registry's knowledge lane as the registry structures it (bundle → category → subcategory → subject) and the fleet's standing against it: one cell per subject × swept repo in an eleven-state vocabulary (four verdicts, seven classified absences), a subject reader, and the dispatch composer that hands a repo its next registry stage (populate → map → conform) as a brief or a local run. Reads `?domain=` and `?subject=`. Born inside the `?tab=` shell, so unlike its Shared siblings it has **no** `/org/[slug]/knowledge` route — which is exactly why its id must sit in `MIGRATED_ORG_TAB_IDS`. See [org-knowledge/knowledge-base.md](../org-knowledge/knowledge-base.md). |
 | — (header menu) | Developer | `/org/developer` | `src/features/developer/` | UC3 individual care. Reached from the **header identity menu** (your own name), not from the org rail — it is not org-scoped, so it is in `ORG_TABS_NOT_IN_NAV`. Not a `?tab=` panel either: a static route personalized to the signed-in viewer (their commits and AI share, the open gaps of their repos, their private care loop). It renders the same `OrgShell` as every tab, with `activeTab="developer"`. The anonymized org aggregate lives in Contributors, under `CHAMPION_MIN_POP`, never a per-person row — see [developer.md](developer.md). |
 | Standing | Governance | `org/[slug]/governance` | `src/features/standing/governance/` | Governance rollups: gate tiles, the editable policy card, fail-reasons, failing repos, the CI snippet, the evidence pack, and the AI stance section. No standfirst under the title, and no "Cheapest path to green" card (both deleted 2026-08-19 — see below). |
 | In flight | Live | `org/[slug]/live` | `src/app/org/[slug]/live/` | Live/war-room view. |
 | Bought | Briefing | `org/[slug]/executive` | `src/app/org/[slug]/executive/` | Executive briefing view. |
-| Bought | Delivery | `org/[slug]/delivery` | `src/app/org/[slug]/delivery/page.tsx` | PR signals, branch governance, 12-week fleet commit activity, and (2026-07-28) a **Delivery-over-time** section: nine small-multiple day-by-day panels (review coverage, AI involvement, AI PRs reviewed, protected default branch, merge rate, small PRs, revert rate, time to first review, time to merge) plus gated slope reads, scoped by the shared org period selector. **W1a (2026-08-12)** surfaced three metrics every scan already persisted (`revertRate`, `medianHoursToFirstReview`, `smallPrRate`) into the signal band, the per-repo table, the trend, and a **review-latency slope** (`hoursToFirstReview` in `DELIVERY_FIT_METRICS`, hours/week with inverted goodness tone): the review-capacity read behind the Assist→Delegate bottleneck. Because the metrics come from the historical `prStats` blobs, the trend back-filled from existing scans day one; a blob written before the fields existed reads null ("not in these scans"), never a fabricated 0. **W2 (2026-08-12)** added two trailer-era attribution metrics from the extended `PR_QUERY` (merge-commit + PR-commit messages, review-author `__typename`): `aiTrailerRate`: share of merged PRs whose commit messages carry an AI attribution trailer (trailer-GROUNDED attribution, vs the self-declared marker rate); and `aiPreReviewedRate`: share of merged PRs an AI/bot reviewer (CodeRabbit, Copilot code review, Greptile, …) reviewed before the first human review. Both surface in the signal band (now 10 cells), the per-repo table, and two new trend panels; both are null on pre-W2 blobs and under the ≥5 merged-PR floor. The AI-delivery ROI model (`aiDeliveryModel.ts`) prefers trailer-grounded counts as its **allocation weight** where present (a commit trailer is tooling-written evidence; markers are self-declared), refining the "allocated" fidelity tier only, complementing (never replacing) the measured per-repo OTel path. "Fix first" adds two derived priorities: a slow first review (>24h, called out against AI PR share) and a fleet revert rate ≥5%. **W5 (2026-08-12)** added `reworkRate` (share of merged PRs later reverted, from revert linkage) to the delivery-trend point keys on the same null-back-fill discipline (data only so far, no dedicated panel yet); the metric's home surface (the Backlog tab's Debt Ledger) retired 2026-08-17 — `getOrgRework` is currently an orphaned read awaiting a Delivery-tab home. Its five rollup queries (PR signals, governance, activity, AI usage, delivery trend) run via `Promise.allSettled`, not `Promise.all`: one query erroring degrades only its own panel (an explicit "couldn't load" banner, not a silent empty state), instead of blanking the whole tab. |
-| Bought | Contributors | `org/[slug]/contributors` | `src/features/bought/contributors/` | AI champions, involvement table (withheld below 3 contributors), **Who to enable next** (`EnablementTargets`, moved here from Adoption 2026-08-19 — see below), an **Org resilience** module (fleet key-person exposure, repo-level only, names nobody), and the per-repo concentration / bus-factor table. |
-| Bought | Teams | `org/[slug]/teams` | `src/app/org/[slug]/teams/page.tsx` | Per-team (CODEOWNERS) Adoption×Rigor, dimension shape, AI-knowledge & champions, movers; the org's AI-knowledge leader + a suggested cross-team pairing. |
+| Bought | Delivery | `org/[slug]/delivery` | `src/app/org/[slug]/delivery/page.tsx` | PR signals, branch governance, 12-week fleet commit activity, and (2026-07-28) a **Delivery-over-time** section: eleven small-multiple day-by-day panels (review coverage, AI involvement, AI PRs reviewed, AI trailers, AI pre-review, protected default branch, merge rate, small PRs, revert rate, time to first review, time to merge; count corrected 2026-09-05) plus gated slope reads, scoped by the shared org period selector. **W1a (2026-08-12)** surfaced three metrics every scan already persisted (`revertRate`, `medianHoursToFirstReview`, `smallPrRate`) into the signal band, the per-repo table, the trend, and a **review-latency slope** (`hoursToFirstReview` in `DELIVERY_FIT_METRICS`, hours/week with inverted goodness tone): the review-capacity read behind the Assist→Delegate bottleneck. Because the metrics come from the historical `prStats` blobs, the trend back-filled from existing scans day one; a blob written before the fields existed reads null ("not in these scans"), never a fabricated 0. **W2 (2026-08-12)** added two trailer-era attribution metrics from the extended `PR_QUERY` (merge-commit + PR-commit messages, review-author `__typename`): `aiTrailerRate`: share of merged PRs whose commit messages carry an AI attribution trailer (trailer-GROUNDED attribution, vs the self-declared marker rate); and `aiPreReviewedRate`: share of merged PRs an AI/bot reviewer (CodeRabbit, Copilot code review, Greptile, …) reviewed before the first human review. Both surface in the signal band (now 10 cells), the per-repo table, and two new trend panels; both are null on pre-W2 blobs and under the ≥5 merged-PR floor. The AI-delivery ROI model (`aiDeliveryModel.ts`) prefers trailer-grounded counts as its **allocation weight** where present (a commit trailer is tooling-written evidence; markers are self-declared), refining the "allocated" fidelity tier only, complementing (never replacing) the measured per-repo OTel path. "Fix first" adds two derived priorities: a slow first review (>24h, called out against AI PR share) and a fleet revert rate ≥5%. **W5 (2026-08-12)** added `reworkRate` (share of merged PRs later reverted, from revert linkage) to the delivery-trend point keys on the same null-back-fill discipline (data only so far, no dedicated panel yet); the metric's home surface (the Backlog tab's Debt Ledger) retired 2026-08-17 — `getOrgRework` is currently an orphaned read awaiting a Delivery-tab home. Its five rollup queries (PR signals, governance, activity, AI usage, delivery trend) run via `Promise.allSettled`, not `Promise.all`: one query erroring degrades only its own panel (an explicit "couldn't load" banner, not a silent empty state), instead of blanking the whole tab. **2026-09-05:** every PR-rate cell and repo-table row carries the population it was computed over (`rateBasis`, `PrRepoRow.population` — produced since W1a, rendered now); the headline says each rate names its own population; a `SnapshotScopeNotice` states which sections are period-scoped (trend, unit economics, outcomes) and which are latest-scan (PR signals, governance, activity); `derivePriorities` refuses to name a worst reverter under five PRs. Parked: the analyzer-level `revertRate` floor (needs `PrStats.revertRate` widened to `number | null` in `src/lib/types.ts`). |
+| Bought | Contributors | `org/[slug]/contributors` | `src/features/bought/contributors/` | AI champions, involvement table (withheld below 3 contributors), **Who to enable next** (`EnablementTargets`, moved here from Adoption 2026-08-19 — see below), an **Org resilience** module (fleet key-person exposure, repo-level only, names nobody), and the per-repo concentration / bus-factor table. **2026-09-05:** the \"You\" strip says attribution is *withheld* below the naming floor instead of \"no commits attributed\"; each section degrades on its own (`allSettled`), so one failed read no longer blanks the tab. |
+| Bought | Teams | `org/[slug]/teams` | `src/app/org/[slug]/teams/page.tsx` | Per-team (CODEOWNERS) Adoption×Rigor, dimension shape, AI-knowledge & champions, movers; the org's AI-knowledge leader + a suggested cross-team pairing. **2026-09-05:** per-section degradation; the Δ footnote derives from the period's `deltaLabel`; the AI% cell carries its contributor population in the row; the provenance stamp says \"captured fleet-wide\" under an active filter; the window goes through `orgWindowBounds`. |
 | Admin | Members | `org/[slug]/members` | `src/app/org/[slug]/members/` | Membership + roles. |
 | Admin | Integrations | `org/[slug]/integrations` | `src/app/org/[slug]/integrations/` | Connect AI coding providers: Claude Code (measured, OTel push) and Copilot (seats-only, admin pull); OpenAI staged as planned. See [Provider integrations](#provider-integrations-orgslugintegrations-owner-only). |
 | Admin | Audit | `org/[slug]/audit` | `src/app/org/[slug]/audit/page.tsx` | Searchable, keyset-paginated audit trail. |
@@ -601,7 +601,7 @@ barrel) keep an unchanged public surface for callers:
 | `src/lib/db/org-signals.ts` | `getOrgPrSignals`, `getOrgGovernance`, `getOrgDimensionGaps`, `getOrgActivity`. The commit-activity week grid bins in the **canonical org zone** (same zone the window snaps in), flooring to Sunday *before* indexing — the epoch 7-day grid is Thursday-anchored. GitHub's `commit_activity` buckets are Sunday-**UTC**-aligned, so each provider bucket is placed on the zoned grid by its midpoint (the zoned week it mostly covers); converting the grid without converting through the source bucket is an off-by-one week on every bar. |
 | `src/lib/db/org-insights.ts` | `getOrgMovers`, `getOrgRecommendations`, `getOrgBacklog`, `dueBucketFor`, `getOrgBenchmark`, `getOrgPractices`, `getOrgGapAnalysis`, `getOrgDiscrepancies`. |
 | `src/lib/db/org-teams.ts` | `getOrgTeamRollup`, `rollupTeams`. |
-| `src/lib/db/org-nav-counts.ts` | `getOrgNavCounts`, `getOrgPassportBlockers`. |
+| `src/lib/db/org-nav-counts.ts` | `getOrgNavCounts`, `getOrgPassportBlockers`, `listOrgRepoNames` (one column, request-cached; the repo picker on the Practices and Skills tabs, which used to buy a full rollup for it). |
 
 ### Shell cost discipline: nobody buys a rollup to read a scalar (2026-08-03)
 
@@ -616,6 +616,9 @@ now on narrow queries.
 | Overview `generateMetadata` (unfurl copy) | full unscoped `getOrgRollup` | `getOrgHeaderSummary` (fixed earlier) |
 | `passports` nav badge (`deriveFindings`, org **shell** → every tab) | full unscoped `getOrgRollup`, read `repos[].passport.*.blockers` | `getOrgPassportBlockers` |
 | `opengraph-image.tsx` (per crawler fetch) | full unscoped `getOrgRollup`, read 5 scalars | `getOrgHeaderSummary` |
+| Practices / Skills repo picker (2026-09-05) | full `getOrgRollup` for `repos[].fullName` (6 queries, two unbounded scan sweeps) | `listOrgRepoNames` (1 query, 1 column) |
+| Repositories tab (2026-09-05) | two full rollups per render (leaderboard scoped, Context Health unscoped, so the lens ignored `?stack=`) | one `getOrgRollupShared` (request-cached on primitive args) feeding both panels with the same scope; 12 → 7 queries |
+| `getOrgRollup` itself (2026-09-05) | `include:` at both levels: ~36 Repository + ~39 Scan columns for every scan in history (the nested `take: 1` is applied client-side) | `select:` of the 18 + 11 fields the mapper reads |
 
 - **`getOrgPassportBlockers(slug)`** (`src/lib/db/org-nav-counts.ts`): the passport blob lives on
   `Repository`, not on `Scan`, so the badge needs no scan join at all: three columns over the same
@@ -898,6 +901,27 @@ family — so a `font-mono` being replaced must stay explicit at the first group
 
 ## Canonical time-zone policy (`src/lib/org/timezone.ts`)
 
+**One closure convention (2026-09-05).** Every org window is half-open, `[start, endExclusive)`. The
+UI no longer hand-writes the inclusive `{ start, end }` pair: `orgWindowBounds(period)`
+(`src/lib/org/period.ts`) is the single adapter between the cookie-resolved `ResolvedWindow` and the
+db layer's `OrgWindow`, and `upperBound()` (`src/lib/db/org-shared.ts`) turns it into
+`lt: endExclusive`. Overview, Security, Executive (both the briefing and the Impact Ledger), the
+Briefing PDF route, the digest cron and the Teams panel all go through it. The deprecated
+`ResolvedWindow.end` is exactly `endExclusive - 1 ms`, so the migration changed no figure on any
+surface at millisecond resolution; `src/lib/org/period.dialect.test.ts` replays both dialects over
+the same fixture for every period shape and three readers and asserts identical rows while the emitted
+SQL changed from `lte` to `lt`. What half-open buys: Postgres keeps microseconds, so a scan landing in
+the final millisecond of a period matched the old `lte: end` and the next window's `gte: start`,
+counting once on each side of two abutting windows; half-open partitions cleanly.
+
+**What "now" means to each reader, by design.** `getOrgRollup`'s "current" is each repo's latest scan
+at-or-before the upper bound with no lower bound (where the fleet stands as of the period's end);
+`getOrgMovers` and `getOrgTeamRollup`'s "now" is the latest scan inside the window, compared with the
+latest scan strictly before `start` (a move is a measurement, so both endpoints must be real scans);
+`getOrgRepoHistories` is every scan in the window. The visible consequence: a repo not scanned during
+the period counts in the rollup average and is absent from movers, and the two counts are not expected
+to reconcile. Each reader's file header states its rule.
+
 Every calendar-day decision the org dashboard makes (window preset starts, custom-range
 parsing, trend day-keys, due-date bucketing) resolves in **one** reference frame. Before
 this existed each of those picked its own: presets and the custom-range parser used the
@@ -1030,10 +1054,27 @@ to disagree with the server's bucket by a day).
 
 `buildExecBriefing(org, window, periodTitle, segmentId, techGroupId)` is pure assembly over the
 rollups above. **Three surfaces render the same `ExecBriefing`** and must never disagree: the
-Briefing tab (`src/app/org/[slug]/executive/page.tsx`), the board PDF
+Briefing tab (`src/features/bought/executive/ExecutiveTab.tsx`; `src/app/org/[slug]/executive/page.tsx` is a redirect into the tab shell), the board PDF
 (`GET /api/org/briefing/pdf` → `src/lib/pdf/briefing-document.tsx`), and the "Copy for LLM"
 markdown (`briefingMarkdown`). The anonymous share link (`/share/briefing/[token]`) re-runs the
 same builder against the token's window.
+
+**Two denominators, stated on all four surfaces (2026-09-05).** Coverage (`scanned/total`) answers
+"how much was looked at"; the score basis (`realScoredCount`, carried on `ExecBriefing` from the
+rollup) answers "what the averages are averaged over". Every basis clause that stands on an average
+("across N live-scored repos", "(of N live-scored)", the narrative's "averaged over N live-scored
+repositories") uses the live-scored count; the ranked next move keeps the scanned denominator because
+its recommendation count reads mock-floored repos too. A fleet with no live-scored repository has
+**no grade**: the tab tiles, the PDF Stats, the markdown and the share page print "—" plus a sentence
+(never 0/100, never L1), and a prior-period comparison is refused when the prior window scored nothing
+live. A separate disclosure, "N mock placeholders excluded from every average", renders beside the
+engine-mix caveat on every surface, including the PDF body. All of it is composers in `briefing.ts`
+(`briefingHasScore`, `scoreValue`, `briefingLevelCaption`, `noScoreLine`, `scoreBasisLine`,
+`mockDisclosure`, `coverageLine`), and the HTML surfaces now call `benchmarkCaption` and
+`movementLine` like the PDF always did, so a one-repo corpus reads "not enough peers to rank" rather
+than "vs 1 repos", and the coverage line renders on the tab and the share page. Share tokens carry a
+half-open `winEndX` beside the unchanged inclusive `winEnd`, so tokens minted before 2026-09-05 still
+verify and render identically; the impact ledger's rows carry six cells for their six headers.
 
 ### The trajectory clause states its basis, or it refuses to project (MC-B1, 2026-08-31)
 
@@ -1117,10 +1158,9 @@ namespace prefix, and failing **closed** by construction (an unreachable ledger 
 A second copy of a revocation check is how one surface starts honouring revocations the other
 ignores.
 
-**Known gap:** `src/app/share/briefing/[token]/page.tsx` still performs that lookup inline
-(`getSessionVersion(briefingShareRevocationKey(jti)) > 0`, with its own `.catch(() => true)`)
-instead of calling `isBriefingShareRevoked`. Same result today; it is the copy the consolidation
-exists to remove.
+(Closed; the entry had gone stale, corrected 2026-09-05.) ~~`src/app/share/briefing/[token]/page.tsx`
+still performs that lookup inline~~ — the share page imports and calls `isBriefingShareRevoked` from
+`@/lib/db/org-share`; the consolidation landed and only this note lagged.
 
 The page is a **live re-render of a frozen period, not a stored document**, and now says so. The
 token carries `briefingFigureDigest(b)`, a fingerprint of the figures the sender saw; the page
@@ -1211,11 +1251,16 @@ are enforced in code:
    markdown-structured, tag-leaking, or ungrounded ⇒ `deterministicNarrative(b)`, assembled from the
    same figures by template. There is no error state to render.
 
-**Off by default**, requiring both `BRIEFING_NARRATIVE=1` and `ANTHROPIC_API_KEY`; with neither
-(the default, including CI) the module performs no network I/O. `BRIEFING_NARRATIVE_MODEL` and
-`BRIEFING_NARRATIVE_TIMEOUT_MS` (default 20s) tune it. Transport is raw `fetch` against the Anthropic
-Messages API, matching `src/lib/llm/openai.ts`'s "no SDK dependency added" convention and reusing the
-scan providers' `withLlmTimeout`.
+**Off by default**: `BRIEFING_NARRATIVE=1` is the only switch; with it unset (the default,
+including CI) the module performs no network I/O. `BRIEFING_NARRATIVE_TIMEOUT_MS` (default 20s)
+tunes the call. Since 2026-09-05 (BACKLOG C3) the transport is the org-aware seam,
+`resolveTextRunnerForOrg(orgSlug, { legKind: "briefing" })`: an org's connected BYOM model writes its
+own board paragraph, the platform provider is used only when the org has none, and an active but
+unresolvable BYOM falls back to the deterministic template rather than to the platform vendor (the
+same rule the Athena gate applies), so the pricing page's "nothing leaves the machine" holds for this
+path too. The model is whatever the seam resolves; the old `BRIEFING_NARRATIVE_MODEL` /
+`ANTHROPIC_API_KEY` requirements are gone, so an Ollama-only install can use the feature. Metering is
+the seam's (one `briefing`-lane row per call, BYOM priced `null`).
 
 `ExecBriefing.narrative` is **not** populated by `buildExecBriefing`; a deliverable opts in via
 `attachBriefingNarrative(b)`. Only the PDF route does, deliberately: the "Copy for LLM" markdown is
@@ -1242,8 +1287,23 @@ consumed by another model, which gains nothing from prose we generated for it.
 | `/api/audit` | `GET` | `?org=&action=&cursor=&limit=` → `{ entries, nextCursor }`. Keyset pagination, filterable by action, org-scoped. Each entry carries `integrity`, the per-row HMAC verdict (`ok` \| `tampered` \| `unsigned` \| `no-secret`) recomputed on read, so tamper-evidence is actually *checked* rather than only written. `format=csv` carries it as a column. |
 
 Recorded actions include `scan.created`, `recommendation.status_changed`,
-`practice.pr_opened`, `scan.regression`, `retention.purged`.
+`practice.pr_opened`, `scan.regression`, `retention.purged`, and since 2026-09-05 `claim.released`.
 `src/features/admin/audit/AuditLogViewer.tsx` is the searchable, paginated client viewer.
+
+**The ledger has no delete door (2026-09-05).** The once-per-window claim markers the digest and
+Athena crons write through `claimOrgAuditOnce` used to be hard-deleted by `releaseAuditClaim` when
+the guarded dispatch failed: the only delete on `AuditLog` outside retention, and one that erased the
+evidence that a dispatch was attempted. A release now appends a signed **`claim.released`** row
+pointing at the claim it cancels, and a cancelled claim is not "live", so the next window retries
+exactly as before. A failed dispatch therefore leaves two visible rows (the claim and its release)
+where it used to leave none.
+
+**Failed audit writes are counted and surfaced (2026-09-05).** Every audit write is best-effort by
+design (losing a row must never fail the scan or mutation that produced it), but a dropped row used
+to die in a server log. `src/lib/db/audit-health.ts` counts each failed write per process, and the
+Audit tab renders a red **"Audit gap"** notice ("N audit writes have failed on this instance since
+<UTC time>, the trail below has known gaps") above the table and above the empty state. The counter
+is per instance and resets on restart; the notice says so.
 
 ## Membership, roles & invites
 
@@ -1376,9 +1436,17 @@ actionable signal that attribution is missing.
 
 ## Provider integrations (`org/[slug]/integrations`, owner-only)
 
-Connects AI coding providers so the **AI delivery** views run on real usage. One card per
+Connects AI coding providers so the **AI delivery** views have a spend layer at all. One card per
 provider from the registry (`src/lib/integrations/providers.ts`), each declaring the best
-per-repo **fidelity** it can reach:
+per-repo **fidelity** it can reach. **The connect surface is derived from the row, never from an id
+(2026-09-05):** `status: "available"` + `connectKind: "otel-push"` renders the Claude Code OTel setup,
+`"admin-pull"` renders `CopilotSetup` (a one-click owner **Sync now** against `POST
+/api/integrations/copilot/sync`, with the route's denied / not-configured / absent / unreachable
+branches rendered as remedies), and a `planned` row renders no surface. The status line under each
+card is likewise keyed on the row: a seats-only provider reports **seats and peak engaged users**
+and never a dollar figure, so a synced Copilot org can no longer read "$0.00 over the last 35
+days". Before this the panel keyed on the literal `claude-code` id, so Copilot showed a green
+"Available" badge with nothing to click while its finished sync route had no caller.
 
 | Fidelity | Provider | What it means |
 | --- | --- | --- |
@@ -1398,9 +1466,11 @@ success response rather than leaving the operator to wonder why no money appeare
 can do; `ModelFidelity` (`measured | allocated | none`, in `aiDeliveryTypes.ts`) states what the built
 delivery model ended up *with*. They stay separate on purpose — `seats-only` is a capability, `none`
 is an outcome, and `none` is also reachable with nothing connected at all — but the correspondence is
-now a total `Record<Fidelity, ModelFidelity>` (`modelFidelityOfConnector`, with the reverse
-`CONNECTOR_TIERS_BEHIND`), so adding a tier to either vocabulary is a compile error until it is
-mapped. Previously the alignment was maintained by hand, and the money columns depend on it.
+now a total `Record<Fidelity, ModelFidelity>` (`modelFidelityOfConnector`), so adding a connector
+tier is a compile error until it is mapped. (A reverse table, `CONNECTOR_TIERS_BEHIND`, was removed
+2026-09-05: nothing read it.) The delivery fidelity badge is keyed on `ModelFidelity` the same way,
+so the `none` outcome renders as **"No cost source"**; it used to miss its lookup and print the
+literal identifier `noCostSource spend`.
 
 **Provenance travels per figure, not per model (2026-08-20).** The delivery model's `fidelity` scalar
 badges the **spend layer only**; `model.provenance` carries a tier per figure group — `adoption`
@@ -1509,10 +1579,10 @@ lives in metrics; folding log events into usage is a later step.
 | `src/lib/window.ts` | Resolves `?range=/from=/to=` into a `ResolvedWindow` (`start`, half-open `endExclusive`, the deprecated `end` compat bound produced by the single `inclusiveEnd()` adapter, labels) using the canonical zone. Pure + isomorphic. `src/lib/org/period.ts` adds the `ascent_period` cookie precedence (`?range` > cookie > default). |
 | `src/lib/maturity/forecast.ts` | Linear-fit projection + ETA to next level. |
 | `src/lib/org/briefing.ts` | `buildExecBriefing` (the one assembly behind page/PDF/markdown/share), `briefingMarkdown`, and the single ranked next move (`briefingNextMove` / `nextMoveLine`). |
-| `src/lib/org/briefing-narrative.ts` | Opt-in, number-grounded LLM narrative for the board PDF, with a deterministic template floor. Off unless `BRIEFING_NARRATIVE=1` + `ANTHROPIC_API_KEY`. |
+| `src/lib/org/briefing-narrative.ts` | Opt-in, number-grounded LLM narrative for the board PDF, with a deterministic template floor. Off unless `BRIEFING_NARRATIVE=1`; resolves the org's own model through `resolveTextRunnerForOrg` (2026-09-05). |
 | `src/components/org/shell/OrgTabNav.tsx` | Persistent nav rail (two-level `SectionRailNav`), grouped by the transition journey. |
 | `src/components/OrgSwitcher.tsx` | Org/installation picker (persists active org). |
-| `src/features/standing/overview/Trajectory.tsx` | Forecast "GPS" card. Mounted by `/trends` (`TrajectoryPanel`) and the personal overview, **not** by the org Overview tab, whose forward-looking read is the standing strip's sparkline. |
+| `src/features/standing/overview/Trajectory.tsx` | Forecast "GPS" card. Mounted by `/trends` (`TrajectoryPanel`), the personal overview and, since 2026-09-05, the org Overview ledger (`OverviewTrajectoryCard`, beside the standing strip, behind the same presentability gate the personal tier uses; renders nothing below it). |
 | `src/components/org/shared/OrgScanButton.tsx` | Scan-all-watched button (SSE progress). |
 | `src/features/admin/audit/AuditLogViewer.tsx` | Audit trail viewer. |
 | `src/components/org/followups/` | The Follow-ups ledger (replaced the Backlog panel 2026-08-17): `FollowupsWorklist` (ranked table, bulk bar), `FollowupsPromptModal` (fix prompt + hand-off), `FollowupHistory` (per-row timeline), `followupsModel.ts` (filters, selection, org-wide spread, `patchStatuses` bulk runner). |
@@ -1530,12 +1600,24 @@ rows are excluded from it:
 
 | Figure | Rule |
 | --- | --- |
+| Headline **Org maturity** badge, adoption and rigor badges (`getOrgRollup.avgOverall/avgAdoption/avgRigor`), and the shell header chip, OG card and page description (`getOrgHeaderSummary`) | Since 2026-09-05 the **producer** excludes mock placeholders (both readers narrow identically, so one page cannot show two fleet averages) and carries `realScoredCount` + `mockCount`; the badge is titled with its denominator and shows an "N mock (excluded from avg)" chip; the cohort-matched period deltas, movement, dimension deltas and baseline exclude a mock endpoint on either side. A fleet with no live-scored repo renders "—" in the badge and the header chip, the fallback OG card and the generic description, never a 0/100. |
+| Per-dimension fleet averages (`dimAverages`), the maturity **trend series** and the **forecast ETA** fit over it | Since 2026-09-05 (round 4) all three exclude mock rows at the producer, so the badge, the line under it and the ETA share one population. |
+| `getOrgMovers` (Fix-first, digest, briefing, Athena) | Since 2026-09-05 both branches require a real-scored pair (`isRealPair`): a mock→live or live→mock engine transition is not repo movement in either direction. |
+| `getOrgTeamRollup` team averages and movers; `explainTeamStandings.fleetAvgOverall` | Since 2026-09-05 team averages/dimension bars/posture exclude mock rows; an onboarded repo (no pre-window baseline) is segregated into `onboardedRepos` rather than folded into improving/declining, and `comparedRepos` counts only real period baselines; `realScoredCount`/`mockCount` ride on `TeamRollup` (not yet rendered). The standings "fleet average" is a mean over the DISTINCT live-scored repos any team owns (shared repos vote once), not a mean of team means. |
 | Fleet masthead `avg`, per-group `avg` (`avgRealScore`) | Averaged over live-scored repos only. **Null, never 0**, when the set has none: the renderers land on the `—` no-score path, because a `0` in `scoreHex(0)` alarm-red reads as a catastrophic grade rather than "not measured". The repo *count* still describes the whole set, and the tooltip names the denominator (`N live-scored · M mock excluded`). |
 | Fleet + per-group `avg move` (`avgRealMove`) | Excludes single-scan repos and **engine-transition** deltas, so a mock→live re-scan cannot fake improvement. Pre-existing; the score average now matches its precedent. |
 | Corpus percentile (`getOrgBenchmark`) | Both sides filtered to non-`mock` engines at the current rubric version (see above). |
 
 Groups with no live-scored repo sort **last**, not as the worst-scoring cohort. Pinned by
 `src/features/standing/overview/fleetAverages.test.ts` (all-mock, mixed, and zero-scored fleets).
+
+**Every period delta states its basis (2026-09-05).** The standing-strip arrows carry the window's
+`comparisonLabel` ("vs 30d ago", "vs quarter start") as visible text plus screen-reader text and a
+tooltip naming the cohort match; the Fix-first regression cell says "vs its last scan before this
+period" and the cohort rows' net move is titled "first to last scan in this period", because the two
+use different endpoints and both used to say only "this period".
+
+**(Closed 2026-09-05, round 4.)** ~~`dimAverages` still folds mock dimension rows~~ — see the table rows above.
 
 ## AI stance (Governance tab, W3)
 
@@ -1561,7 +1643,10 @@ The rule itself is unchanged and still binding: never claim a clause is enforced
 
 Everything not marked *compiled* remains declared-vs-observed attribution from existing scan data.
 `compileStance` publishes the same split as a machine-readable `unenforceable[]` list, so the
-`get_ai_stance` MCP tool tells an agent exactly which clauses only it can honor.
+`get_ai_stance` MCP tool tells an agent exactly which clauses only it can honor, and since
+2026-09-05 the stance perimeter renders the same list to the owner ("What this stance cannot
+enforce", `UnenforceableClauses`, one derivation shared with MCP; nothing when the list is empty;
+at org scope only the declaration-level clauses, since no repository has been read there).
 
 - **Model**: `OrgAiStance` versioned rows (draft → published → superseded; see
   [data-model.md](../data/data-model.md)) with `stanceJson` typed as `AiStance` in `src/lib/types.ts`
@@ -1666,6 +1751,11 @@ autonomy model's own `DATA_MODEL_GAPS` recorded as a gap. That line is now delet
 - **UI**: `src/features/standing/governance/stance/admission/` — the admission column sits under the
   tier bands (the measurement it departs from), with an owner-only override that disables the tier
   select for an unassessed repo and shows the derived value beside the grant whenever they differ.
+  Since 2026-09-05 the list endpoint returns **every tracked repository** with its derived tier
+  (`deriveRepoAdmission`, computed in memory; a read writes nothing) overlaid with any stored decision,
+  so the column offers the override before any row exists and the first override creates the row; a
+  repo with neither passport nor decision reads "Not assessed" on a neutral rail. The empty-state
+  sentence appears only when the org tracks no repositories.
 - **MCP**: `get_ai_stance` takes an optional `repo` and returns that repository's compiled controls,
   admission mode and `unenforceable[]` list. Read-only, `mcp:read`, no new tool, and the `repo`
   argument is constrained to the caller's own org.
@@ -1699,8 +1789,15 @@ autonomy model's own `DATA_MODEL_GAPS` recorded as a gap. That line is now delet
   history that *does* exist (`AiChange.authorLogin`) is documented in the schema as internal-only and
   pseudonymized in customer-facing packs, so building a profile page on it would invert an existing
   privacy decision. Team-level drill-down already exists (the expandable `TeamsMatrixDetail` row).
-- **No DORA panel, deliberately**: of DORA's four metrics, Ascent ingests neither a deployment feed
-  nor an incident feed, so **deployment frequency** and **time to restore** are not derivable at all;
+- **No DORA panel, deliberately** (partly overtaken since W4, wording corrected 2026-09-05): the scan
+  now reads the GitHub Deployments API, and the Delivery outcomes card ships **deployment frequency**
+  and a **change-failure rate** off that feed (`DeliveryOutcomes`), so the first two of the four are
+  derivable for repos that deploy through GitHub Deployments; there is still no incident feed, so
+  **time to restore** is not derivable at all, and the panels stay deliberately unlabelled as DORA.
+  (The trend section's on-screen note still says no deployment feed is ingested; that sentence is
+  now stale for the outcomes card and is tracked as a residual.) Original reasoning, still the
+  policy for the label: of DORA's four metrics, Ascent ingests no incident feed, so **time to
+  restore** is not derivable;
   **lead time for changes** (commit → running in production) is only partially observable as PR
   open→merge latency, which the Delivery trend ships under its true name ("time to merge"); and
   **change failure rate** has only `prStats.revertRate` (a VCS revert, not a production failure)

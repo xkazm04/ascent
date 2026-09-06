@@ -15,6 +15,7 @@ import { DimensionExplorer } from "@/components/report/DimensionExplorer";
 import { RoadmapSandbox } from "@/components/report/RoadmapSandbox";
 import { ContributorsPanel } from "@/components/report/ContributorsPanel";
 import { NextLevelPath, RoadmapSteps, TrustLadder } from "@/components/report/roadmapPieces";
+import type { RoadmapLifts } from "@/components/report/roadmapPriority";
 import { RecommendationTracker } from "@/components/report/RecommendationTracker";
 
 export interface ReportPanelsProps {
@@ -24,6 +25,10 @@ export interface ReportPanelsProps {
   /** Recent contributors / PR signals surfaced a Contributors tab (else it's a dead end). */
   showActivity: boolean;
   recs: PersistedRecommendation[] | null;
+  /** The org's measured lift map, read server-side on the permalink path and threaded down. Absent
+   *  (live-scan / anonymous path, or an empty ledger) ⇒ both roadmap renderings behave exactly as
+   *  they always did: no basis clause from the map, no measured-sort toggle, no reordering. */
+  lifts?: RoadmapLifts;
   // Scoring-tab derived series (computed once in ReportView from live report + persisted history).
   overallDelta: number | null;
   trendPoints: TrendPoint[];
@@ -87,9 +92,9 @@ export function ReportPanels(props: ReportPanelsProps) {
             <NextLevelPath report={report} />
             <div className="mt-4">
               {recs && recs.length > 0 ? (
-                <RecommendationTracker items={recs} report={report} prevDimScores={props.prevDimScores} />
+                <RecommendationTracker items={recs} report={report} prevDimScores={props.prevDimScores} lifts={props.lifts} />
               ) : (
-                <RoadmapSteps items={report.roadmap} report={report} />
+                <RoadmapSteps items={report.roadmap} report={report} lifts={props.lifts} />
               )}
             </div>
           </div>

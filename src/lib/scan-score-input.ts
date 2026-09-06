@@ -27,6 +27,7 @@ import type {
   PrStats,
   RepoArchetype,
   RepoSnapshot,
+  ScanSensorId,
   SecurityExposure,
   SecurityPosture,
   TechStack,
@@ -42,6 +43,10 @@ export interface ScoreInputPhaseInput {
   appInventory?: AppInventory | null;
   /** Deepening pass: default-branch Actions run health; null = not observable. */
   ciHealth?: CiHealth | null;
+  /** The ingest sensors whose read THREW (src/lib/scan-ingest.ts). Threaded into the D9 battery so a
+   *  check whose 0 only a failed sensor could have refuted is EXCLUDED rather than scored as absence.
+   *  Empty/omitted ⇒ nothing is known to have failed and every check scores exactly as before. */
+  sensorFailures?: readonly ScanSensorId[];
   /** The scan timestamp, resolved once by the caller so D7's recency bonus is deterministic. */
   now: string;
   /**
@@ -131,6 +136,13 @@ export async function buildScanScoreInput(input: ScoreInputPhaseInput): Promise<
     {
       platformUnobservable: input.platformSignalsUnobservable === true && observed.record == null,
       provenance: carriedSecurity && carry ? `GitHub-side reading carried from scan ${carry.scanId}` : null,
+      // A sensor that CARRIED a reading is not unread — drop it, so a carried posture/App inventory
+      // still scores its check instead of being excluded for a failure the carry already repaired.
+      failedSensors: (input.sensorFailures ?? []).filter(
+        (id) =>
+          !(id === "securityPosture" && (securityPosture ?? carriedSecurity?.posture) != null) &&
+          !(id === "appInventory" && (appInventory ?? carriedSecurity?.apps) != null),
+      ),
     },
   );
   const signals = baseSignals.map((s) =>
@@ -155,17 +167,21 @@ export async function buildScanScoreInput(input: ScoreInputPhaseInput): Promise<
   // dismissing a finding becomes context the next assessment reads instead of re-raising the gap.
   // decisionSlug (individual tier) points the read at the TRIGGERING viewer's personal org on the
   // public funnel; org scans keep reading their own org via the orgSlug fallback.
-  const orgDecisions = decisionSlug
-    ? await decisionsForRepo(decisionSlug, `${snapshot.meta.owner}/${snapshot.meta.name}`).catch(() => [])
-    : [];
-
+  //
   // CRAFT ALREADY BUILT — the rungs this repository has completed, so the assessment proposes the NEXT
   // one instead of re-proposing what is already there. Same read shape, same slug and the same
-  // best-effort posture as the decisions above: this is the second half of the same loop (what the
-  // org decided; what the repo then built), and an unreachable store must never fail a scan.
-  const craftBuilt = decisionSlug
-    ? await getCraftBuilt(decisionSlug, `${snapshot.meta.owner}/${snapshot.meta.name}`).catch(() => [])
-    : [];
+  // best-effort posture as the decisions: this is the second half of the same loop (what the org
+  // decided; what the repo then built), and an unreachable store must never fail a scan.
+  //
+  // The two are INDEPENDENT reads of the same store for the same repo, and were awaited one after the
+  // other for no reason but the order they were written in. One `Promise.all` costs the slower of the
+  // two instead of their sum; each keeps its OWN `.catch`, so one unreachable read still degrades to
+  // an empty list rather than failing its sibling.
+  const repoFullName = `${snapshot.meta.owner}/${snapshot.meta.name}`;
+  const [orgDecisions, craftBuilt] = await Promise.all([
+    decisionSlug ? decisionsForRepo(decisionSlug, repoFullName).catch(() => []) : Promise.resolve([]),
+    decisionSlug ? getCraftBuilt(decisionSlug, repoFullName).catch(() => []) : Promise.resolve([]),
+  ]);
 
   const scoreInput: LlmScoreInput = {
     repo: snapshot.meta,

@@ -25,6 +25,7 @@ import {
   scanDedupKey,
 } from "@/lib/db/scans-read";
 import { syncTechStackGroups } from "@/lib/db/tech-groups";
+import { withAuditSignature } from "@/lib/db/audit-integrity";
 // MOONSHOT #1 — the control ledger. `governanceToSamples`/`diffSamples` are W3-L's PURE mappers and
 // `recordObservations` its writer; this path is a second SOURCE into the same ledger, not a second
 // implementation of it.
@@ -728,18 +729,35 @@ export async function persistScanReport(
 
         // Audit entry through the same tx, so a scan is never persisted unaudited (the compliance
         // gap the old best-effort write could leave). Mirrors recordAudit's "scan.created" shape.
+        // SIGNED like every other audit write (exemplar: recordConformance in org-watch.ts). This
+        // path used to JSON.stringify the meta directly, so the highest-volume action in the product
+        // landed with no `_sig` and verified as "unsigned" on every read — in the one table whose
+        // whole purpose is tamper-evidence. `at` is stamped explicitly because canonical() signs
+        // createdAt: letting the DB default the timestamp would sign a different instant than the row
+        // stores, and the row would verify as `tampered` forever.
+        const auditActorId = opts.actorId ?? null;
+        const auditAt = new Date();
         await tx.auditLog.create({
           data: {
             action: "scan.created",
-            meta: JSON.stringify({
-              repo: fullName,
-              scanId: scan.id,
-              headSha,
-              level: report.level.id,
-              score: report.overallScore,
-            }),
+            at: auditAt,
+            meta: JSON.stringify(
+              withAuditSignature({
+                action: "scan.created",
+                orgId,
+                actorId: auditActorId,
+                createdAt: auditAt.toISOString(),
+                meta: {
+                  repo: fullName,
+                  scanId: scan.id,
+                  headSha,
+                  level: report.level.id,
+                  score: report.overallScore,
+                },
+              }),
+            ),
             orgId,
-            actorId: opts.actorId ?? null,
+            actorId: auditActorId,
           },
         });
 

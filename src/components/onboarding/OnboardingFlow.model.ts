@@ -24,6 +24,15 @@ export interface ResumeSnapshot {
   sourceLabel: string;
   sourceInstallId: string | null;
   selected: string[];
+  /** Which step the snapshot was taken on. Everything used to rehydrate to "select", including a
+   *  snapshot written mid-scan — so a refresh during a scan dropped the user on the repo picker with
+   *  no sign that a run was still going server-side (and still spending: the import route's mapPool
+   *  is not tied to the request signal). "scanning" re-enters the scan step instead. */
+  phase?: Phase;
+  /** The import run's server-side handle, from the stream's opening `queued` frame. With it, a
+   *  rehydrated "scanning" snapshot RE-ATTACHES (polls GET /api/org/scan/queue) rather than either
+   *  abandoning the run or re-running it, which would scan and charge the same repos twice. */
+  runId?: string | null;
 }
 
 // Cap the installation selector so a large org (hundreds/thousands of repos) yields a usable

@@ -182,6 +182,8 @@ const fixture: ExecBriefing = {
   generatedOn: "2026-07-28",
   maturity: { overall: 62, levelId: "L3", levelName: "Managed", adoption: 58, rigor: 66 },
   coverage: { scanned: 8, total: 12 },
+  realScoredCount: 8,
+  mockCount: 0,
   periodDelta: 4,
   priorPeriod: null,
   forecastHeadline: null,

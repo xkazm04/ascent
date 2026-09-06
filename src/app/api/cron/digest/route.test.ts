@@ -81,6 +81,10 @@ vi.mock("@/lib/alerts", () => ({
   // routing decisions: here, any truthy webhookUrl is a configured sink (env fallback not needed
   // for these tests — every routed org carries its own URL).
   isAlertConfigured: vi.fn((url?: string | null) => Boolean(url)),
+  // The AlertEvent row's channel, RESOLVED (org sink → global env) rather than read off the org's
+  // field — the real helper's whole point. These tests always route a per-org URL, so the mock just
+  // classifies it; the resolution half is pinned in src/lib/alerts.test.ts.
+  sinkKindForOrg: vi.fn((url?: string | null) => (url ? (/^mailto:/i.test(url) ? "email" : "webhook") : null)),
   dispatchAlert: vi.fn(async () => true),
   buildFleetDigestMessage: vi.fn((d: { org: string }) => ({
     // Tag the built message with its org so a cross-tenant build is detectable too.
@@ -322,24 +326,42 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
 
   // ---- (5b) LAST-SENT GUARD — at-most-once dispatch per window (cron retry/overlap) ----
 
-  it("skips an org already sent a digest within the window — no rollup/build/dispatch (skippedAlreadySent++)", async () => {
+  it("skips an org already sent a digest within the window — no build/dispatch (skippedAlreadySent++)", async () => {
     mockListOrgs.mockResolvedValue(["orgSent", "orgFresh"]);
     mockOrgWebhook.mockResolvedValue("https://hooks.example.com/X");
     mockRollup.mockResolvedValue(rollupWith());
-    // orgSent already has a digest-sent audit entry in this window; orgFresh has none.
-    mockAuditLog.mockImplementation(async (org: string) =>
-      org === "orgSent"
-        ? { entries: [{ id: "a1" }] as unknown as never, nextCursor: null }
-        : { entries: [], nextCursor: null },
+    // The at-most-once decision belongs to the release-aware claim, not to a plain audit read: orgSent
+    // loses the claim (a live marker exists for this window), orgFresh takes it.
+    mockClaim.mockImplementation(async (_action: string, org: string) =>
+      org === "orgSent" ? { claimed: false, id: null } : { claimed: true, id: "clm_1" },
     );
 
     const res = await GET(req({ auth: `Bearer ${SECRET}` }));
     const body = await bodyOf(res);
 
-    // The already-sent org short-circuits BEFORE getOrgRollup; only orgFresh is processed + dispatched.
     expect(body).toMatchObject({ orgs: 2, sent: 1, skippedAlreadySent: 1 });
-    expect(mockRollup).toHaveBeenCalledTimes(1);
-    expect(mockRollup.mock.calls[0][0]).toBe("orgFresh");
+    expect(mockDispatch).toHaveBeenCalledTimes(1);
+    expect((mockDispatch.mock.calls[0][1] as { webhookUrl?: string }).webhookUrl).toBe("https://hooks.example.com/X");
+  });
+
+  it("RETRIES a window whose claim was RELEASED — the surviving audit row must not block it", async () => {
+    // The other half of "so the next run retries this org". A release APPENDS a `claim.released`
+    // record and leaves the `org.digest.sent` row in place, so an audit-log read still sees it; only
+    // `claimOrgAuditOnce` subtracts releases. While the route pre-checked the audit log, the run after
+    // a failed dispatch skipped the org before reaching that gate and the digest was dropped for the
+    // week — the exact outcome the release exists to prevent.
+    mockListOrgs.mockResolvedValue(["orgRetry"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/R");
+    mockRollup.mockResolvedValue(rollupWith());
+    // The previous run's (released) marker is still in the trail…
+    mockAuditLog.mockResolvedValue({ entries: [{ id: "a1" }] as unknown as never, nextCursor: null });
+    // …and the release-aware gate correctly hands the window back.
+    mockClaim.mockResolvedValue({ claimed: true, id: "clm_2" });
+
+    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
+    const body = await bodyOf(res);
+
+    expect(body).toMatchObject({ sent: 1, skippedAlreadySent: 0 });
     expect(mockDispatch).toHaveBeenCalledTimes(1);
   });
 
@@ -555,42 +577,62 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     expect(line).toContain("`controls.ciHardPass`");
   });
 
-  it("raises NOTHING for a fleet whose baselines were established — and SAYS SO", async () => {
+  it("passes an EMPTY array through when both reads succeeded and found nothing — a clear fleet SAYS so", async () => {
+    // The three-state contract `controlsFailed` keeps, on this block too. `alerts.ts` documents `[]` as
+    // "we looked and nothing is standing down" and `buildFleetDigestMessage` renders it as "Standing
+    // concerns: none open." — but this caller collapsed `[]` to `undefined`, so that branch was
+    // unit-tested and unreachable in production, and a clean fleet rendered byte-identical to a fleet
+    // neither read could be taken for.
     mockListOrgs.mockResolvedValue(["orgGreen"]);
     mockOrgWebhook.mockResolvedValue("https://hooks.example.com/G");
     mockRollup.mockResolvedValue(rollupWith());
+    vi.mocked(getStandingRegressions).mockResolvedValue([] as never);
     vi.mocked(getRedBaselines).mockResolvedValue([] as never);
 
     await GET(req({ auth: `Bearer ${SECRET}` }));
     expect(mockHasSignal).toHaveBeenCalledWith(expect.objectContaining({ standingConcerns: 0 }));
-    // …and an EMPTY ARRAY reaches the builder, which renders "Standing concerns: none open."
-    // This assertion used to pin `undefined`, and its comment claimed that WAS the three-state
-    // contract `controlsFailed` keeps — it was the opposite: both reads ran and found nothing, which
-    // is the positive statement, not the silence. `undefined` is now reserved for the case below.
     const sent = mockBuild.mock.calls[0]![0] as { standingConcerns?: unknown };
     expect(sent.standingConcerns).toEqual([]);
+    // …and it is NOT the omit-the-block state, which now means only "we could not read".
+    expect(sent.standingConcerns).not.toBeUndefined();
   });
 
-  it("OMITS the block when NEITHER standing read succeeded — failure is not empty success", async () => {
-    // The `failure-not-empty-success` law the alerting subject's `periodic-digest` technique names: a
-    // digest that could not read the two standing columns must not print an all-clear it did not
-    // measure. Both reads were `.catch(() => [])`, which spelled a dead DB exactly like a clean fleet.
-    mockListOrgs.mockResolvedValue(["orgBlind"]);
-    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/B");
+  it("OMITS the block when a read failed — an unreadable ledger must not be able to say 'none open'", async () => {
+    mockListOrgs.mockResolvedValue(["orgUnread"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/U");
     mockRollup.mockResolvedValue(rollupWith());
     vi.mocked(getStandingRegressions).mockRejectedValue(new Error("db down"));
+    vi.mocked(getRedBaselines).mockResolvedValue([] as never);
+
+    await GET(req({ auth: `Bearer ${SECRET}` }));
+    const sent = mockBuild.mock.calls[0]![0] as { standingConcerns?: unknown };
+    expect(sent.standingConcerns).toBeUndefined();
+    // Absent means "not computed", not zero — the gate counts it as no signal either way, but the
+    // MESSAGE must not print an all-clear it cannot support.
+    expect(mockHasSignal).toHaveBeenCalledWith(expect.objectContaining({ standingConcerns: 0 }));
+  });
+
+  it("OMITS the block when the OTHER read failed — one heading over two sources, so either poisons it", async () => {
+    mockListOrgs.mockResolvedValue(["orgUnread2"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/U2");
+    mockRollup.mockResolvedValue(rollupWith());
+    vi.mocked(getStandingRegressions).mockResolvedValue([] as never);
     vi.mocked(getRedBaselines).mockRejectedValue(new Error("db down"));
 
     await GET(req({ auth: `Bearer ${SECRET}` }));
-    // An unreadable ledger contributes NO signal — it must not manufacture a push out of a flat week.
-    expect(mockHasSignal).toHaveBeenCalledWith(expect.objectContaining({ standingConcerns: 0 }));
     const sent = mockBuild.mock.calls[0]![0] as { standingConcerns?: unknown };
     expect(sent.standingConcerns).toBeUndefined();
   });
 
-  it("still prints the rows one surviving read returned — a partial failure is not a silence", async () => {
-    // A true observation is not withheld because its sibling column was unreadable: the block is a
-    // top-5, never an exhaustive total, so printing what was actually read overstates nothing.
+  it("omits the block when EITHER read failed, even if the other returned rows", async () => {
+    // A HALF-READ LIST CANNOT SAY "none open". One heading covers both sources, so printing the rows
+    // one surviving column returned states a count over a population that was never fully read — and
+    // the reader has no way to see which half is missing.
+    //
+    // Two independent sweeps fixed this same defect and disagreed here: the earlier one on this branch
+    // printed the surviving rows (reasoning that the block is a top-5, so partial output overstates
+    // nothing). That is wrong about the HEADING, which is not a top-5 claim, and the stricter rule is
+    // the one kept.
     mockListOrgs.mockResolvedValue(["orgHalf"]);
     mockOrgWebhook.mockResolvedValue("https://hooks.example.com/H");
     mockRollup.mockResolvedValue(rollupWith());
@@ -600,9 +642,10 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     ] as never);
 
     await GET(req({ auth: `Bearer ${SECRET}` }));
-    expect(mockHasSignal).toHaveBeenCalledWith(expect.objectContaining({ standingConcerns: 1 }));
-    const sent = mockBuild.mock.calls[0]![0] as { standingConcerns?: { repo: string }[] };
-    expect(sent.standingConcerns?.map((c) => c.repo)).toEqual(["orgHalf/kp"]);
+    // An unreadable half contributes no signal — it must not manufacture a push out of a flat week.
+    expect(mockHasSignal).toHaveBeenCalledWith(expect.objectContaining({ standingConcerns: 0 }));
+    const sent = mockBuild.mock.calls[0]![0] as { standingConcerns?: unknown };
+    expect(sent.standingConcerns).toBeUndefined();
   });
 
   // ---- The Controls block's three states, from the ONLY production caller ------------------

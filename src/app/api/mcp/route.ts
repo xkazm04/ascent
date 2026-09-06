@@ -20,6 +20,21 @@
 // the door cannot be used to enumerate an org's surface, a plan refusal is stated in words because
 // the caller already holds this org's own token and is owed a fact it can act on.
 //
+// TWO RATE LIMITS, IN LADDER ORDER. The pre-auth one is per IP (`GATE_RATE_LIMIT`) and exists to make
+// an unauthenticated flood cheap — it is charged before any body handling or token crypto. It cannot
+// be the real budget: with `trustedProxyHops() === 0` (the default) `clientIp` is the shared
+// "unknown" bucket, so on a self-hosted deployment every agent on earth would share one window. The
+// budget that matters is charged AFTER the token is verified, keyed on the token id
+// (`MCP_RATE_LIMIT`), because an authenticated door does not have to guess who is calling.
+//
+// AND A BODY CAP, before the parse, using the ingest door's own `readCappedBody` rather than a second
+// implementation of it: this is the other route in the app an arbitrary body arrives at behind a
+// bearer token, and an unbounded `req.json()` lets one request pin an instance's memory.
+//
+// IDENTITY IS THE TOKEN ID. Both the audit actor (`token:<id>`) and the work-queue holder
+// (`agent:<id>`) key on the token's id, never its name — names are not unique, so a name-keyed
+// identity made two tokens called `ci` one holder and one daily counter. The name travels as a label.
+//
 // HONEST LIMIT: this is bearer-token auth, not the OAuth 2.1 resource-server flow the revision
 // describes. A `WWW-Authenticate` challenge is emitted on 401 so a client is told how to
 // authenticate, but ascent is not yet an OAuth resource server with a paired authorization server.
@@ -44,7 +59,8 @@ import {
 } from "@/lib/mcp/protocol";
 import { MCP_TOOLS, TOOLS_CACHE_SCOPE, TOOLS_TTL_MS, toolsForScopes, toWireTool } from "@/lib/mcp/tools";
 import { countTokenWritesToday, gateOpen, planRefusal, resolveMcpGates } from "@/app/api/mcp/gates";
-import { rateLimitRequest, tooManyRequests, GATE_RATE_LIMIT } from "@/lib/rate-limit";
+import { rateLimitKeyed, rateLimitRequest, tooManyRequests, GATE_RATE_LIMIT, MCP_RATE_LIMIT } from "@/lib/rate-limit";
+import { readCappedBody } from "@/lib/integrations/ingest-guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -64,6 +80,14 @@ function originAllowed(req: Request): boolean {
 }
 
 const CHALLENGE = 'Bearer realm="ascent", scope="mcp:read"';
+
+/**
+ * Max accepted request body. A JSON-RPC frame here is a method, an id and a tool's arguments — the
+ * largest realistic one is a `report_attempt` whose `reason` is a paragraph, a few KB. 64 KB is an
+ * order of magnitude of headroom over that while bounding a hostile body; the named ceiling is
+ * checked before the value is used, the same convention `/api/org/issue` and the ingest door keep.
+ */
+const MCP_MAX_BODY = 64_000;
 
 function rpc(body: Record<string, unknown>, status: number, extra?: Record<string, string>): NextResponse {
   return NextResponse.json(body, {
@@ -97,6 +121,11 @@ export async function POST(req: Request) {
       "www-authenticate": CHALLENGE,
     });
   }
+  // THE REAL BUDGET, keyed on the verified credential (see the header). Charged before the scope
+  // check so a token looping on tools it cannot reach is throttled like any other caller.
+  const tokenRl = rateLimitKeyed(token.tokenId, MCP_RATE_LIMIT);
+  if (!tokenRl.ok) return tooManyRequests(tokenRl);
+
   const scopes = token.scopes as SkillTokenScope[];
   if (!scopes.includes("mcp:read")) {
     return rpc(
@@ -107,8 +136,20 @@ export async function POST(req: Request) {
   }
 
   let body: JsonRpcRequest;
+  const raw = await readCappedBody(req, MCP_MAX_BODY);
+  if (!raw.ok) {
+    // A PROTOCOL error, not a tool result: nothing was parsed, so there is no request id to answer
+    // and no model-fixable argument to name — the frame itself is inadmissible.
+    return rpc(
+      err(null, {
+        code: RPC.invalidRequest,
+        message: `Request body exceeds ${MCP_MAX_BODY} bytes. A JSON-RPC frame at this door is a tool name and its arguments; send less.`,
+      }),
+      413,
+    );
+  }
   try {
-    body = (await req.json()) as JsonRpcRequest;
+    body = JSON.parse(raw.text) as JsonRpcRequest;
   } catch {
     return rpc(err(null, { code: RPC.parseError, message: "Invalid JSON." }), 400);
   }
@@ -194,7 +235,13 @@ export async function POST(req: Request) {
       // THE WRITE DOOR. Only tools the catalog marks `mutates` reach this block, and only after the
       // scope and plan gates above — this is the third gate, not the first. `actorId` is what the
       // org's audit viewer shows and what the daily ceiling is counted against.
-      const actorId = `token:${token.name}`;
+      //
+      // KEYED ON THE TOKEN ID, NOT ITS NAME. `createOrgApiToken` enforces no uniqueness on a name, so
+      // `token:ci` was one bucket for every token an org happened to call `ci` — two agents shared one
+      // `perTokenDailyMax` and one entry in the audit viewer's actor column. The id is unique by
+      // construction; the NAME rides along in the audit meta as a label, which is where a
+      // human-readable string belongs and where an ambiguous one costs nothing.
+      const actorId = `token:${token.tokenId}`;
       const policy = def.mutates ? WRITE_TOOL_POLICY[name] : undefined;
       if (def.mutates) {
         if (!policy) {
@@ -230,8 +277,14 @@ export async function POST(req: Request) {
         // ledger records what held the row, and collapsing the two would make the ledger's holder
         // comparison depend on the credential type it happened to arrive under.
         const result = await runTool(name, token.orgSlug, args, {
-          actor: `agent:${token.name}`,
+          actor: `agent:${token.tokenId}`,
+          // TRANSITIONAL: rows claimed before 2026-09-05 stored `agent:<name>`, and their holder must
+          // still be able to brief and report on them. `followup-claims.ts`'s `holderActors` matches
+          // either form; that arm (and this field) come out once every such lease has lapsed — hours,
+          // not weeks — leaving the id as the only holder identity.
+          legacyActor: `agent:${token.name}`,
           tokenId: token.tokenId,
+          label: token.name,
         });
         // ONE AUDIT ROW PER ACCEPTED WRITE, after the handler and only when it did not report an
         // error — an audit trail of attempts that failed validation would drown the trail of actual
@@ -245,6 +298,9 @@ export async function POST(req: Request) {
             {
               tool: name,
               tokenId: token.tokenId,
+              // The name is a LABEL beside the id, never the key: it is what makes the audit row
+              // readable to the person who minted the token, and it is not unique.
+              tokenName: token.name,
               argKeys: Object.keys(args).sort(),
               idempotencyKey: policy.idempotencyKey(token.orgSlug, args),
             },

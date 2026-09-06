@@ -11,7 +11,7 @@
 
 import type { ProviderName } from "@/lib/types";
 import { withLlmTimeout } from "@/lib/llm/config";
-import { trackLlmCall } from "@/lib/llm/tracklight";
+import { trackLlmCall, legKindUseCase } from "@/lib/llm/tracklight";
 import { meter } from "@/lib/llm/meter";
 import type { LegCall, ResolvedLegRunner, ResolvedTextRunner, TextRunner, TextRunnerOptions } from "@/lib/llm/leg";
 
@@ -26,6 +26,7 @@ export const ENGINE_LABEL: Record<ProviderName, string> = {
   bedrock: "Bedrock",
   "claude-cli": "Claude CLI",
   "codex-cli": "Codex CLI",
+  nebius: "Nebius Token Factory",
   mock: "Mock",
 };
 
@@ -51,6 +52,7 @@ function withTimeout(
         status: "success",
         // The leg kind IS the surface tag unless a caller overrides it — see TextRunnerOptions.legKind.
         surface: opts.surface ?? opts.legKind,
+        name: legKindUseCase(opts.legKind),
         operation: "text",
       });
       // The DURABLE half of the same fact. tracklight is an optional local mirror an operator may not
@@ -76,6 +78,7 @@ function withTimeout(
         status: signal.aborted && !callerSignal?.aborted ? "timeout" : "error",
         error: err instanceof Error ? err.message : String(err),
         surface: opts.surface ?? opts.legKind,
+        name: legKindUseCase(opts.legKind),
         operation: "text",
       });
       // A FAILED call is metered too, with no tokens and no cost: an endpoint that times out on every

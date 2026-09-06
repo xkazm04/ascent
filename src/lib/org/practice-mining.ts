@@ -22,7 +22,7 @@
 // suggestion an engineer cannot audit is a suggestion they are entitled to ignore.
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 
-import { PRACTICES } from "@/lib/practices";
+import { ALL_PRACTICES } from "@/lib/practices";
 import { contentDigest } from "@/lib/registry/parse";
 import type { RepoPracticeShape } from "@/lib/analyze/practice-shape";
 
@@ -109,7 +109,11 @@ function agreed(perRepo: Map<string, string[]>, min: number): MinedLine[] {
  * — the honest answer when an org has one strong repo, since one repo's document is not a standard.
  */
 export function minePracticeShapes(sources: ShapeSource[]): MinedPractice[] {
-  return PRACTICES.map((p) => {
+  // The FULL catalog: mining answers "what could this org offer here", and a practice a surface may
+  // offer but the miner never returns is one the house pattern can never reach. Every consumer looks
+  // its practice up by id or filters on `offerable`, so a catalog entry no repo carries a shape for
+  // simply mines an empty, non-offerable row — the same honest answer a young org already gets.
+  return ALL_PRACTICES.map((p) => {
     const withShape = sources.filter((s) => s.shape.entries.some((e) => e.practiceId === p.id));
     const exemplars = withShape.filter((s) => (s.dims[p.dimId] ?? 0) >= EXEMPLAR_FLOOR);
     const gapRepos = sources

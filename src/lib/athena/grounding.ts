@@ -102,10 +102,21 @@ export interface AthenaGrounding {
  * Filtered on the tool's OWN `mutates` marker and `planGate` rather than on a list kept here: a write
  * tool added by a future lane is refused to Athena the moment it is marked, with no edit to this file
  * and no chance of the list being forgotten.
+ *
+ * AND ON THE PRINCIPAL SCOPE, for the same structural reason. `mutates` catches the writes; it does
+ * not catch `get_fix_brief`, which reads — but reads only rows a named HOLDER holds, and this runner
+ * has no principal to be one (`runTool` fails it closed with "acts on this organization's work queue
+ * on behalf of a named holder, and this call carried none"). Offering it was offering a tool whose
+ * every invocation was a refusal: the model spends a turn on it, reports the capability as broken, and
+ * the org's tokens paid for both. `followups:write` is the catalog's own marker for "this tool needs a
+ * holder", so a future work tool disappears from here the moment it declares that scope.
  */
+const PRINCIPAL_SCOPE = "followups:write" as const;
+
 export function athenaToolCatalog(opts: { memoryAllowed: boolean; skillsAllowed?: boolean }): AthenaTool[] {
   const open = { memory: opts.memoryAllowed, skills: Boolean(opts.skillsAllowed) };
   return MCP_TOOLS.filter((t) => !t.mutates)
+    .filter((t) => !t.scopes.includes(PRINCIPAL_SCOPE))
     .filter((t) => !t.planGate || open[t.planGate])
     .map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema }));
 }

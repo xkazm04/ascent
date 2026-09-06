@@ -28,7 +28,7 @@ import { BillingReturnNotice } from "@/components/org/shared/BillingReturnNotice
 import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
 import { getOrgHeaderSummary } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
-import { resolveOrgWindow } from "@/lib/org/period";
+import { orgWindowBounds, resolveOrgWindow } from "@/lib/org/period";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
@@ -53,7 +53,11 @@ export async function OverviewTab({ slug, sp }: { slug: string; sp: SearchParams
   // An explicit ?range= wins (shareable links stay authoritative); otherwise the remembered period
   // cookie, then the default. Cookie-only — no database, so the period chrome never blocks.
   const period = await resolveOrgWindow(sp);
-  const win = { start: period.start, end: period.end };
+  // The one window shape the db layer queries with — half-open `{ start, endExclusive }`. Hand-writing
+  // the inclusive `{ start, end }` pair here is how the deprecated dialect kept spreading: a row in the
+  // window's final millisecond is matched by `lt: endExclusive` and missed by `lte: end`, so two tabs on
+  // the same period could disagree about a boundary row. Same rows, one convention.
+  const win = orgWindowBounds(period);
 
   // Segment + tech-stack scope still applies via deep links (?segment= / ?stack= carried from other
   // tabs); the in-view Type/Stack/Level dropdowns replace the old top-of-page selectors. Deliberately
@@ -96,7 +100,15 @@ export async function OverviewTab({ slug, sp }: { slug: string; sp: SearchParams
       </Suspense>
 
       <Suspense fallback={<OrgTabGap minH="min-h-[32rem]" />}>
-        <OverviewFleetPanel slug={slug} scope={scope} win={win} periodTitle={period.title} sortDim={dimParam} search={search} />
+        <OverviewFleetPanel
+          slug={slug}
+          scope={scope}
+          win={win}
+          periodTitle={period.title}
+          comparisonLabel={period.comparisonLabel}
+          sortDim={dimParam}
+          search={search}
+        />
       </Suspense>
     </div>
   );

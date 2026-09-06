@@ -13,11 +13,15 @@ function repo(
   fullName: string,
   opts: {
     teams?: { slug: string; isDefaultOwner?: boolean }[];
-    scans?: { overall: number; adoption: number; rigor: number; dims: Dim[] }[]; // most-recent first
+    scans?: { overall: number; adoption: number; rigor: number; dims: Dim[]; engine?: string }[]; // most-recent first
     contributors?: { login: string; commits: number; aiCommits: number }[];
+    windowDelta?: number | null;
+    windowBaselineKind?: "period" | "onboarded";
   } = {},
 ): TeamRollupRepoInput {
+  const windowed = "windowDelta" in opts ? { windowDelta: opts.windowDelta, windowBaselineKind: opts.windowBaselineKind } : {};
   return {
+    ...windowed,
     fullName,
     name: fullName.split("/")[1] ?? fullName,
     teams: (opts.teams ?? []).map((t) => ({ slug: t.slug, ownedPaths: 1, isDefaultOwner: t.isDefaultOwner ?? false })),
@@ -27,6 +31,8 @@ function repo(
       rigorScore: s.rigor,
       level: "L3",
       posture: "ai-native",
+      // Default to a live engine; "mock" is the deterministic FLOOR the rollup must never grade.
+      engineProvider: s.engine ?? "anthropic",
       dimensions: s.dims,
     })),
     contributors: (opts.contributors ?? []).map((c) => ({ login: c.login, name: null, commits: c.commits, aiCommits: c.aiCommits })),
@@ -255,5 +261,131 @@ describe("rollupTeams — empty / no-team fleets", () => {
     ]);
     expect(out.teamCount).toBe(1);
     expect(out.pairing).toBeNull();
+  });
+});
+
+// ── The deterministic mock FLOOR never enters a team average or a team mover ──────────────────────
+// getOrgRollup has excluded `engineProvider: "mock"` from its fleet averages and cohort deltas since
+// 2026-09-05; this rollup folded it in, so the SAME fleet reported one maturity number on the badge
+// and a different one on the Teams table — and a mock→live re-scan read as the team improving.
+describe("rollupTeams — mock-floor exclusion", () => {
+  const fleet: TeamRollupRepoInput[] = [
+    repo("acme/live", {
+      teams: [{ slug: "@acme/core", isDefaultOwner: true }],
+      scans: [{ overall: 80, adoption: 80, rigor: 80, dims: [{ dimId: "D1", score: 80 }] }],
+    }),
+    repo("acme/placeholder", {
+      teams: [{ slug: "@acme/core" }],
+      scans: [{ overall: 20, adoption: 20, rigor: 20, dims: [{ dimId: "D1", score: 20 }], engine: "mock" }],
+    }),
+  ];
+  const core = rollupTeams("acme", fleet).teams.find((t) => t.slug === "@acme/core")!;
+
+  it("keeps the mock repo out of the averages and states the denominator it used", () => {
+    expect(core.avgOverall).toBe(80); // NOT avg(80, 20) = 50
+    expect(core.avgAdoption).toBe(80);
+    expect(core.avgRigor).toBe(80);
+    expect(core.realScoredCount).toBe(1);
+    expect(core.mockCount).toBe(1);
+    // The repo COUNT and the repo LIST still describe every scanned repo — a count is a count.
+    expect(core.repoCount).toBe(2);
+    expect(core.repos.map((r) => r.fullName).sort()).toEqual(["acme/live", "acme/placeholder"]);
+    expect(core.repos.find((r) => r.fullName === "acme/placeholder")!.mock).toBe(true);
+  });
+
+  it("keeps the mock repo's dimension scores out of the dimension bars", () => {
+    expect(core.dimAverages.find((d) => d.dimId === "D1")!.avg).toBe(80); // NOT 50
+  });
+
+  it("omits a team whose every scanned repo is a mock placeholder (rather than grading it 0)", () => {
+    const out = rollupTeams("acme", [
+      repo("acme/m1", {
+        teams: [{ slug: "@acme/ghost" }],
+        scans: [{ overall: 20, adoption: 20, rigor: 20, dims: [{ dimId: "D1", score: 20 }], engine: "mock" }],
+      }),
+      ...fleet,
+    ]);
+    expect(out.teams.find((t) => t.slug === "@acme/ghost")).toBeUndefined();
+    // The repo is still ATTRIBUTED — the exclusion is about grades, not about ownership.
+    expect(out.attributedRepos).toBe(3);
+  });
+
+  it("refuses a since-last-scan delta whose endpoints cross engines (mock → live is not movement)", () => {
+    const out = rollupTeams("acme", [
+      repo("acme/promoted", {
+        teams: [{ slug: "@acme/core" }],
+        scans: [
+          { overall: 75, adoption: 75, rigor: 75, dims: [{ dimId: "D1", score: 75 }] },
+          { overall: 20, adoption: 20, rigor: 20, dims: [{ dimId: "D1", score: 20 }], engine: "mock" }, // the floor it was on
+        ],
+      }),
+      repo("acme/real", {
+        teams: [{ slug: "@acme/core" }],
+        scans: [
+          { overall: 60, adoption: 60, rigor: 60, dims: [{ dimId: "D1", score: 60 }] },
+          { overall: 55, adoption: 55, rigor: 55, dims: [{ dimId: "D1", score: 55 }] },
+        ],
+      }),
+    ]);
+    const core2 = out.teams.find((t) => t.slug === "@acme/core")!;
+    // Only the real pair (+5) is compared; the +55 engine transition never becomes team momentum.
+    expect(core2.comparedRepos).toBe(1);
+    expect(core2.improving).toBe(1);
+    expect(core2.avgDelta).toBe(5);
+  });
+});
+
+// ── An ONBOARDED repo's lifetime delta is segregated, exactly as getOrgMovers segregates it ───────
+// A repo with no pre-window baseline moves from its FIRST EVER score, not from where the period
+// started. Folding that into improving/avgDelta/comparedRepos overstated team momentum for precisely
+// the periods an org is onboarding repos (G4-06).
+describe("rollupTeams — onboarded repos are reported separately from period movers", () => {
+  const out = rollupTeams("acme", [
+    repo("acme/established", {
+      teams: [{ slug: "@acme/core" }],
+      scans: [{ overall: 70, adoption: 70, rigor: 70, dims: [{ dimId: "D1", score: 70 }] }],
+      windowDelta: 4,
+      windowBaselineKind: "period",
+    }),
+    repo("acme/brand-new", {
+      teams: [{ slug: "@acme/core" }],
+      scans: [{ overall: 60, adoption: 60, rigor: 60, dims: [{ dimId: "D1", score: 60 }] }],
+      windowDelta: 45, // its whole life, compressed into this window
+      windowBaselineKind: "onboarded",
+    }),
+  ]);
+  const core = out.teams.find((t) => t.slug === "@acme/core")!;
+
+  it("counts only the real period baseline in comparedRepos / improving / avgDelta", () => {
+    expect(core.comparedRepos).toBe(1);
+    expect(core.improving).toBe(1);
+    expect(core.declining).toBe(0);
+    expect(core.avgDelta).toBe(4); // NOT avg(4, 45) = 25
+  });
+
+  it("still reports the onboarded repo — segregated, never dropped", () => {
+    expect(core.onboardedRepos).toBe(1);
+    // Its SNAPSHOT state is unaffected: onboarding changes what a delta means, not what a score is.
+    expect(core.repoCount).toBe(2);
+    expect(core.avgOverall).toBe(65);
+  });
+
+  it("reports no onboarding in the unwindowed (since-last-scan) mode, where the concept doesn't apply", () => {
+    const legacy = rollupTeams("acme", [
+      repo("acme/a", {
+        teams: [{ slug: "@acme/core" }],
+        scans: [
+          { overall: 70, adoption: 70, rigor: 70, dims: [{ dimId: "D1", score: 70 }] },
+          { overall: 60, adoption: 60, rigor: 60, dims: [{ dimId: "D1", score: 60 }] },
+        ],
+      }),
+      repo("acme/b", {
+        teams: [{ slug: "@acme/core" }],
+        scans: [{ overall: 50, adoption: 50, rigor: 50, dims: [{ dimId: "D1", score: 50 }] }],
+      }),
+    ]);
+    const core2 = legacy.teams.find((t) => t.slug === "@acme/core")!;
+    expect(core2.onboardedRepos).toBe(0);
+    expect(core2.comparedRepos).toBe(1);
   });
 });

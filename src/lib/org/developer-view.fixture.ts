@@ -1,7 +1,8 @@
 // Fixture view models for the Developer route, selected by the client-side "preview as" control
 // (docs/REGISTRY-AND-CARE-IMPL.md §5.3 — React state, never a search param).
 //
-// PREVIEW ONLY. Imported lazily by `DeveloperHome` and shown only while the real view has nothing to
+// PREVIEW ONLY. Imported lazily by `DeveloperHome` (a dynamic `import()` the moment a preview is
+// chosen, so none of this reaches the initial client bundle) and shown only while the real view has nothing to
 // render, and every fixture carries `demo` so the page can stamp a visible "preview" chip — a fixture
 // must never be mistaken for a developer's real data.
 //
@@ -219,6 +220,3 @@ export function developerFixture(demo: string, login: string | null = null): Dev
       return null;
   }
 }
-
-/** The preview states, for the page's "Preview as" control. */
-export const DEVELOPER_PREVIEW_STATES = ["personal", "personal-empty"] as const;

@@ -486,9 +486,12 @@ describe("withDb — proactive refresh is best-effort while a client is cached",
     delete process.env.DATABASE_URL;
     // The mint failure's message depends on the machine: where @aws-sdk/dsql-signer isn't installed
     // the import itself rejects ("dsql-signer"); where it IS resolvable (e.g. hoisted by another
-    // workspace) the signer runs and rejects at the AWS credential chain instead. Either way the
+    // workspace) the signer runs and rejects at the AWS credential chain instead — and a machine with a
+    // stale AWS SSO login rejects with "Your session has expired. Please reauthenticate". Either way the
     // guarantee under test is the same: with no cached client, withDb REJECTS rather than proceeding.
-    await expect(withDb(async () => "unreachable")).rejects.toThrow(/dsql-signer|credential/i);
+    await expect(withDb(async () => "unreachable")).rejects.toThrow(
+      /dsql-signer|credential|session has expired|reauthenticate/i,
+    );
   });
 });
 

@@ -8,7 +8,7 @@
 // fills in — it never invents architecture it can't know. Language-aware where it helps
 // (commands, CI matrix).
 
-import { PRACTICES, type PracticeDef } from "@/lib/practices";
+import { ALL_PRACTICES, type PracticeDef } from "@/lib/practices";
 import { publicBaseUrl } from "@/lib/site";
 import { reportPermalink } from "@/lib/ui";
 
@@ -290,7 +290,12 @@ ${setup}      - run: ${cmd.install}
 
 /** Build the concrete artifact for a practice + target repo, or null for an unknown practice id. */
 export function buildArtifact(practiceId: string, ctx: RepoContext): ArtifactSpec | null {
-  const p = PRACTICES.find((x) => x.id === practiceId);
+  // The FULL catalog, not the one-per-dimension spine: a surface that OFFERS a practice must be able
+  // to generate it, and resolving against `PRACTICES` here is what made the tenth practice
+  // (`consolidate-guidance`) answer `unknown-practice` from /api/practices/generate and /apply while
+  // the Practice Library happily listed it. The by-dimension lookups elsewhere keep reading the
+  // spine; see the note on EXTRA_PRACTICES in src/lib/practices.ts for why the two lists differ.
+  const p = ALL_PRACTICES.find((x) => x.id === practiceId);
   if (!p) return null;
   const cmd = commandsFor(ctx.primaryLanguage);
   // Escape every repo-supplied field before it lands in the committed file (practices #7). The TODO
@@ -477,6 +482,68 @@ ${shape(p)}
 
 ## Notes
 ${TODO}: link the CI workflows that enforce the above (SAST, dependency/secret scanning, signing).
+`;
+      break;
+
+    // The tenth practice (#15's EXTRA_PRACTICES). Its path is DECLARED on the catalog entry rather
+    // than written as a literal here, so the adoption ledger's key — (org, repo, practice, path) —
+    // has exactly one definition. The body is the arbiter's verdict turned into work: an inventory of
+    // every vendor format that can hold guidance, a reconciliation step BEFORE any generation (a
+    // contradiction copied into five files is still a contradiction), then the canonical/projection
+    // declaration the doctor can hold. It never guesses which file is canonical — that is the one
+    // decision only the team can make, and the arbiter's basis is evidence for it, not a substitute.
+    case "consolidate-guidance":
+      path = p.artifactPath ?? "docs/AGENT-GUIDANCE.md";
+      body = `# ${name}: canonical agent guidance
+
+> ONE document agents believe, with every other format generated from it. Replace the
+> ${"`<...>`"} / TODO placeholders with this repo's specifics.
+
+${desc}
+
+## The problem this file exists to end
+When ${"`CLAUDE.md`"}, ${"`AGENTS.md`"}, ${"`.cursorrules`"}, ${"`.github/copilot-instructions.md`"} and
+${"`.windsurfrules`"} each say something slightly different, the answer an agent gets depends on which
+file it happened to open. More copies is not more guidance — it is less.
+
+## Step 1 — inventory
+Tick every guidance file this repository actually carries. These are the paths an agent (and Ascent's
+guidance arbiter) will read:
+
+- [ ] ${"`CLAUDE.md`"}
+- [ ] ${"`AGENTS.md`"} / ${"`AGENT.md`"}
+- [ ] ${"`.cursorrules`"} and ${"`.cursor/rules/*.mdc`"}
+- [ ] ${"`.github/copilot-instructions.md`"} and ${"`.github/instructions/*.md`"}
+- [ ] ${"`.windsurfrules`"} and ${"`.windsurf/rules/*.md`"}
+- [ ] ${TODO} any nested per-package copy of the above
+
+## Step 2 — reconcile before you generate
+${TODO}: for each pair that disagrees, record which one is true. Generating projections from an
+unreconciled source only propagates the contradiction faster.
+
+| Topic | File A says | File B says | Which is true |
+| --- | --- | --- | --- |
+| Build / test command | ${"`<...>`"} | ${"`<...>`"} | ${"`<...>`"} |
+| ${"`<...>`"} | ${"`<...>`"} | ${"`<...>`"} | ${"`<...>`"} |
+
+## Step 3 — declare the canonical source and its projections
+${shape(p)}
+
+\`\`\`yaml
+# .ai/manifest.yaml
+guidance:
+  canonical: <...>          # the ONE document above that is authoritative
+  projections:              # generated from it; never hand-edited
+    - <...>
+\`\`\`
+
+## Step 4 — let the doctor hold the line
+A projection carries a generated-from header naming its source and both hashes. A hand-edited
+projection fails; a stale one warns. Both name the file to fix, so the canonical document stays the
+only place anyone writes guidance.
+
+## Notes
+${TODO}: link the CI job that runs the doctor, so this cannot regress silently.
 `;
       break;
 

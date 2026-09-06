@@ -8,6 +8,7 @@ import { NextResponse } from "next/server";
 import { openDraftPr } from "@/lib/github/write";
 import { isAppConfigured } from "@/lib/github/app";
 import { getRepoPassport, isDbConfigured, recordOrgAudit } from "@/lib/db";
+import { PASSPORT_SCHEMA_URL } from "@/lib/analyze/passport";
 import { PUBLIC_ORG, isAuthConfigured, requireSameOrigin, readableOrgForOwner } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { requireOrgRole } from "@/lib/authz";
@@ -54,7 +55,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "No passport for this repository yet. Scan it first." }, { status: 404 });
   }
   // The committed file: schema pointer first, then the (override-applied) passport.
-  const fileContent = JSON.stringify({ $schema: "https://ascent.dev/schemas/app-passport-0.2.json", ...passport }, null, 2) + "\n";
+  // The pointer is DERIVED from PASSPORT_VERSION (never re-typed here): a hand-written one went stale
+  // and shipped `app-passport-0.2.json` into customer repos alongside a 0.4.0 body.
+  const fileContent = JSON.stringify({ $schema: PASSPORT_SCHEMA_URL, ...passport }, null, 2) + "\n";
   // resolveViewerLogin: getSession() is null under the ACTIVE Supabase wall, so this PR-write audit
   // row recorded a null actor in production.
   const actorLogin = await resolveViewerLogin();

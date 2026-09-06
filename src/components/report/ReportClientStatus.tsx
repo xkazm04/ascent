@@ -53,6 +53,7 @@ const SCORE_STEP_LABEL: Record<Exclude<ProviderName, "bedrock">, string> = {
   mock: "Running deterministic rubric",
   "claude-cli": "Asking Claude",
   "codex-cli": "Asking Codex",
+  nebius: "Asking the model on Nebius",
 };
 
 /** The generic copy, used only when NO provider has been reported yet (or an unknown one arrives over
@@ -267,8 +268,18 @@ export function Empty({
             ]
           : // Transient failure (timeout / interrupted / network): retry is the right primary.
             [
+              // `fresh=1` is what makes this button ACTUALLY try again. On /report the plain
+              // `?repo=` href is the URL the user is already on, so the search params — and with
+              // them useReportScan's effect deps — never change and nothing re-runs. `fresh=1` both
+              // changes the URL and forces a re-score that bypasses the report cache.
               ...(repo
-                ? [{ label: "Try again", href: `/report?repo=${encodeURIComponent(repo)}`, primary: true }]
+                ? [
+                    {
+                      label: "Try again",
+                      href: `/report?repo=${encodeURIComponent(repo)}&fresh=1`,
+                      primary: true,
+                    },
+                  ]
                 : []),
               { label: "← Back home", href: "/" },
             ]

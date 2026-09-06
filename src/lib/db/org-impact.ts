@@ -25,7 +25,8 @@
 // nav-counts.ts and getting-started.ts, so every rule above is unit-testable without a database.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
-import { getOrgBySlug } from "@/lib/db/org-shared";
+import { getOrgBySlug, upperBound } from "@/lib/db/org-shared";
+import type { OrgWindow } from "@/lib/db/org-rollup";
 import { PRACTICES } from "@/lib/practices";
 import {
   foldImprovementEvents,
@@ -198,24 +199,30 @@ function retireMergedLanes(
 /**
  * The ledger for `orgSlug` over an optional merge window (the shared org period selector's bounds;
  * both null = all time). Reads only merged rows — an open PR is in flight, not bought.
+ *
+ * Takes the family's `OrgWindow`, so the half-open `{ start, endExclusive }` the Executive tab hands
+ * every other reader reaches this one too, and the upper bound goes through the SHARED `upperBound`
+ * helper rather than a local `lte`. Row-identical at millisecond resolution (`end` is
+ * `endExclusive − 1ms`); the point is that the ledger and the briefing beside it close the period the
+ * same way. See src/lib/org/period.ts.
  */
 export async function getOrgImpactLedger(
   orgSlug: string,
-  window?: { start: Date | null; end: Date | null },
+  window?: OrgWindow,
 ): Promise<ImpactLedger | null> {
   if (!isDbConfigured()) return null;
   const org = await getOrgBySlug(orgSlug);
   if (!org) return null;
 
-  const mergedAt: { gte?: Date; lte?: Date } = {};
-  if (window?.start) mergedAt.gte = window.start;
-  if (window?.end) mergedAt.lte = window.end;
+  const upper = upperBound(window);
+  const mergedAt: { gte?: Date; lte?: Date; lt?: Date } = { ...(window?.start ? { gte: window.start } : {}), ...(upper ?? {}) };
+  const bounded = Object.keys(mergedAt).length > 0;
 
   const prs = await getPrisma().improvementPr.findMany({
     where: {
       orgId: org.id,
       state: "merged",
-      ...(mergedAt.gte || mergedAt.lte ? { mergedAt } : { mergedAt: { not: null } }),
+      ...(bounded ? { mergedAt } : { mergedAt: { not: null } }),
     },
     orderBy: { mergedAt: "desc" },
     select: {
@@ -235,7 +242,7 @@ export async function getOrgImpactLedger(
   // The lane half. Empty by construction on managed cloud (no loop runs exist there), so this reader
   // degrades to exactly its previous behaviour rather than to a branch somebody has to remember.
   const { listLaneImpactInputs } = await import("@/lib/db/loop-runs-read");
-  const lanes = await listLaneImpactInputs(orgSlug, window ?? { start: null, end: null }).catch(() => []);
+  const lanes = await listLaneImpactInputs(orgSlug, window ?? { start: null, endExclusive: null }).catch(() => []);
 
   return buildImpactLedger(prs, lanes);
 }

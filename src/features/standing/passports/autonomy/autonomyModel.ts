@@ -1,10 +1,16 @@
-// ⚠️ PROTOTYPE DERIVATION — NOT a production data model. ⚠️
+// The Autonomy Passport surface (P1) asks: "what can you safely hand an agent in THIS repo?"
 //
-// The Autonomy Passport reframe (P1) asks: "what can you safely hand an agent in THIS repo?"
-// Since passport 0.3.0 (W1b) the production answer lives in `pp.autonomy` (derived by
-// src/lib/analyze/passport-autonomy.ts) and the artifacts block carries REAL `sandbox`/`hooks`
-// detector booleans — this module PREFERS those when present and keeps its own derivation as the
-// fallback for pre-0.3.0 data. Every gate is marked with a `source`:
+// ONE VERDICT (Direction 8). This module used to run its OWN five-gate ladder to a tier, then
+// overwrite that tier with the persisted `pp.autonomy.tier` while KEEPING the prototype ladder's
+// `blocking` list and `nextProgress` — so a repo shown at T2 could list conditions the T2 predicate
+// had never consulted, and the "what would raise this" line described a ladder nobody grades against.
+// The tier, the blocking conditions and the progress now ALL come from `deriveAutonomyForStored`
+// (src/lib/analyze/passport-autonomy.ts) — the same symbol `derivedTierFor` (src/lib/db/org-admission.ts)
+// seeds an admission row from, so the tab and the governance perimeter cannot disagree about a repo.
+//
+// The five gates are RETAINED AS PRESENTATION ONLY: they are the evidence rows under "conditions of
+// clearance" — what the scan saw about tests, CI, sandbox, context and hooks — and they no longer
+// decide anything. Each still declares its own `source`:
 //
 //   source: "scan"    — read straight off observed passport/scan fields. Trustworthy today.
 //   source: "derived" — a PROXY assembled from adjacent observed fields. Directionally right,
@@ -15,12 +21,13 @@
 //
 // The scan-side work this surface implies is listed at the bottom of the file (DATA_MODEL_GAPS).
 
+import { TOKENLESS_MISSING, deriveAutonomyForStored } from "@/lib/analyze/passport-autonomy";
 import type { ManifestReadout } from "@/lib/standard/readout";
-import type { AppPassport } from "@/lib/types";
+import type { AppPassport, ContextHealth } from "@/lib/types";
 
 import { ciGate, contextGate, hooksGate, sandboxGate, testsGate } from "./autonomyGateBuilders";
-import { GATE_ORDER, type AutonomyGate, type GateId } from "./autonomyGates";
-import { TIERS, type AutonomyTier } from "./autonomyTiers";
+import { GATE_ORDER, type AutonomyGate } from "./autonomyGates";
+import type { AutonomyTier } from "./autonomyTiers";
 
 // Barrel — the tier vocabulary (autonomyTiers.ts), the gate shape (autonomyGates.ts) and the five
 // per-gate derivations (autonomyGateBuilders.ts) live in co-located modules under the 200-LOC rule,
@@ -30,15 +37,16 @@ export type { AutonomyTier, TierMeta } from "./autonomyTiers";
 export { GATE_ORDER } from "./autonomyGates";
 export type { AutonomyGate, GateId, GateSource, GateStatus } from "./autonomyGates";
 
-// ── tier requirements ───────────────────────────────────────────────────────────────────────────
+// ── the shared ladder's shape ───────────────────────────────────────────────────────────────────
 
-/** Gates that must be at least `partial` (T1/T2) or `pass` (T3) to hold a tier. */
-const TIER_REQUIRES: Record<AutonomyTier, GateId[]> = {
-  0: [],
-  1: ["tests"],
-  2: ["tests", "ci", "sandbox"],
-  3: ["tests", "ci", "sandbox", "context", "hooks"],
-};
+/**
+ * How many predicates the shared ladder checks CUMULATIVELY for each tier — T1's three, plus T2's
+ * three, plus T3's three (see `tierPredicates` in src/lib/analyze/passport-autonomy.ts). The resolver
+ * reports only the UNMET ones, so this is the denominator that turns "3 conditions left" into a
+ * progress percentage. It is pinned by a test that counts the real predicates against a
+ * floor passport, so a predicate added upstream fails here loudly instead of skewing a meter.
+ */
+export const LADDER_PREDICATES: Record<1 | 2 | 3, number> = { 1: 3, 2: 6, 3: 9 };
 
 // ── the per-repo verdict ────────────────────────────────────────────────────────────────────────
 
@@ -48,10 +56,11 @@ export interface RepoAutonomy {
   purpose: string;
   tier: AutonomyTier;
   nextTier: AutonomyTier | null;
+  /** The five evidence rows. PRESENTATION ONLY — they explain, they do not decide. */
   gates: AutonomyGate[];
-  /** Gates that stop `nextTier`, worst first. */
-  blocking: AutonomyGate[];
-  /** 0–100 readiness for `nextTier` (mean of that tier's required gates). */
+  /** The shared ladder's unmet conditions for `nextTier`, in the resolver's own words. */
+  blocking: string[];
+  /** 0–100 readiness for `nextTier`: the share of that tier's cumulative predicates already met. */
   nextProgress: number;
   autoScore: number;
   prodScore: number;
@@ -73,40 +82,41 @@ export interface AutonomyInput {
   engine?: string | null;
   /** #13 — the scan's readout of this repo's `.ai/manifest.yaml`; null-safe, absent keeps today's scoring. */
   manifest?: ManifestReadout | null;
+  /** W4 — the persisted context-health read (Repository.contextHealthJson). Absent/null = freshness
+   *  UNKNOWN, which the context gate says rather than inventing. */
+  contextHealth?: ContextHealth | null;
 }
-
-const holds = (gates: Map<GateId, AutonomyGate>, tier: AutonomyTier): boolean =>
-  TIER_REQUIRES[tier].every((id) => {
-    const g = gates.get(id);
-    if (!g) return false;
-    return tier === 3 ? g.status === "pass" : g.status !== "fail";
-  });
 
 export function deriveAutonomy(input: AutonomyInput): RepoAutonomy {
   const pp = input.passport;
+  // The evidence rows. Built for display; nothing below reads their scores.
   const list: AutonomyGate[] = [
     testsGate(pp),
     ciGate(pp, input.protectedBranch),
     sandboxGate(pp),
-    contextGate(pp, input.aiConformance ?? null, input.fullName, input.manifest ?? null),
+    contextGate(pp, input.aiConformance ?? null, input.manifest ?? null, input.contextHealth ?? null),
     hooksGate(pp, input.fullName),
   ];
   const map = new Map(list.map((g) => [g.id, g]));
 
-  let tier: AutonomyTier = 0;
-  for (const t of TIERS) if (holds(map, t)) tier = t;
-  // Prefer the REAL persisted verdict (0.3.0 pp.autonomy, derived by passport-autonomy.ts with the
-  // token-honesty cap) over this surface's gate-score approximation when the passport carries it.
-  const persisted = pp.autonomy?.tier;
-  if (persisted) tier = Number(persisted.slice(1)) as AutonomyTier;
-
+  // THE verdict. `deriveAutonomyForStored` is the shared resolver: the same call `derivedTierFor`
+  // makes when it seeds an admission row, so this tab and the Governance Perimeter show one tier for
+  // one repo. It is called even when `pp.autonomy` is present — that block was written BY this
+  // resolver (buildPassport / upgradePassport), so re-deriving is free of surprise and keeps a
+  // pre-0.3.0 row, which carries no block at all, on exactly the same path.
+  const verdict = deriveAutonomyForStored(pp);
+  const tier = Number(verdict.tier.slice(1)) as AutonomyTier;
   const nextTier = tier < 3 ? ((tier + 1) as AutonomyTier) : null;
-  const required = nextTier ? TIER_REQUIRES[nextTier] : [];
-  const blocking = required
-    .map((id) => map.get(id)!)
-    .filter((g) => (nextTier === 3 ? g.status !== "pass" : g.status === "fail"))
-    .sort((a, b) => a.score - b.score);
-  const nextProgress = required.length ? Math.round(required.reduce((s, id) => s + map.get(id)!.score, 0) / required.length) : 100;
+
+  // The unmet conditions for the NEXT rung, verbatim from the ladder that decided the tier. The
+  // tokenless cap is one of them, and it leads the list — a repo that cannot climb because the scan
+  // had no token must say so rather than list three conditions it may already meet.
+  const blocking = nextTier ? (verdict.unlocks.find((u) => u.tier === `T${nextTier}`)?.missing ?? []) : [];
+  const total = nextTier ? LADDER_PREDICATES[nextTier] : 0;
+  // The tokenless entry is a VISIBILITY caveat, not a predicate, so it is excluded from the
+  // denominator's arithmetic — counting it would push a meter below the repo's real standing.
+  const unmet = blocking.filter((m) => m !== TOKENLESS_MISSING).length;
+  const nextProgress = total ? Math.max(0, Math.round((100 * (total - Math.min(unmet, total))) / total)) : 100;
 
   return {
     fullName: input.fullName,
@@ -146,11 +156,10 @@ export const tierCounts = (repos: RepoAutonomy[]): Record<AutonomyTier, number> 
  *  decision: `derivedTier` keeps the measurement, `grantedTier` carries the grant, `decidedBy`
  *  separates the two, and the Governance Perimeter is where an owner moves it. */
 export const DATA_MODEL_GAPS = [
-  // W4 note: the DATA now exists — scans persist per-guidance-file freshness/quality/drift as
-  // Repository.contextHealthJson (src/lib/analyze/context-health.ts). Remaining gap is WIRING:
-  // this surface reads only AppPassport, so contextGate's staleness penalty is still mock until
-  // the gate consumes contextHealth (the planned "present AND healthy" T1 predicate, W4 v2).
-  "context freshness: signal persisted (W4 contextHealthJson) but not yet consumed by this gate — contextGate still mocks staleness",
+  // CLOSED by Direction 8: contextGate now consumes the persisted Repository.contextHealthJson
+  // (threaded through PassportsTab), and the fabricated staleness penalty is gone. A repo whose scan
+  // recorded no freshness reads as UNKNOWN — no penalty, and the evidence says so — rather than
+  // carrying an invented "last touched ~Nd ago" under a "scan" provenance pin.
   "agent policy: declared tool allow-list, no-AI paths, review tier by risk (feeds P2 AI stance)",
   "attribution: AI-assisted PR share via git trailers, to verify a granted tier is actually being used",
 ] as const;

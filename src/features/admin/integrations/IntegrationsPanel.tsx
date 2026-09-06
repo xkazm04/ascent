@@ -1,15 +1,22 @@
 // The Integrations module: a fidelity explainer (how each provider's spend reaches a repo) tied back
-// to the /delivery views, then one card per provider. Claude Code (available) renders its OTel connect
-// surface inline; Copilot + OpenAI render as "planned". Server-safe — only the Claude Code setup panel
-// is a client component.
+// to the /delivery views, then one card per provider. Every available provider renders its connect
+// surface inline — Claude Code the OTel push panel, Copilot the admin-pull sync — and a `planned`
+// provider renders none. Server-safe: only the two setup panels are client components.
+//
+// The dispatch reads the REGISTRY ROW (`connectKind` + `status`), never a literal id. It used to test
+// `p.id === "claude-code"`, which meant Copilot — declared available + admin-pull in providers.ts
+// since W3b, with a finished owner-gated sync route behind it — showed a green "Available" badge and
+// offered no way to act on it. Keying on the row means adding a provider is a data change: give it a
+// status and a connect kind and the right surface appears, or none does.
 
 import Link from "next/link";
 import { Surface, Kicker } from "@/components/ui";
-import { PROVIDERS, FIDELITY_META, type Fidelity } from "@/lib/integrations/providers";
+import { PROVIDERS, FIDELITY_META, type Fidelity, type ProviderDef } from "@/lib/integrations/providers";
 import type { ProviderIngestStatus } from "@/lib/db";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { ProviderCard } from "./ProviderCard";
 import { ClaudeCodeSetup } from "./ClaudeCodeSetup";
+import { CopilotSetup } from "./CopilotSetup";
 
 export function IntegrationsPanel({
   slug,
@@ -34,7 +41,8 @@ export function IntegrationsPanel({
               <Link href={orgTabHref(slug, "delivery")} className="text-accent transition hover:text-white">
                 AI delivery
               </Link>{" "}
-              views at the best fidelity it supports. Until one is connected, those views run on a simulated placeholder.
+              views at the best fidelity it supports. Until one that reports COST is connected, those views have no spend layer at all: the
+              money columns stay empty rather than being filled with an estimate.
             </p>
           </div>
           <ul className="flex flex-col gap-1.5">
@@ -54,10 +62,30 @@ export function IntegrationsPanel({
       <div className="space-y-4">
         {PROVIDERS.map((p) => (
           <ProviderCard key={p.id} provider={p} status={statuses.find((s) => s.source === p.id) ?? null}>
-            {p.id === "claude-code" ? <ClaudeCodeSetup slug={slug} ingestToken={ingestToken} ingestPath={ingestPath} /> : null}
+            {connectSurface(p, { slug, ingestToken, ingestPath })}
           </ProviderCard>
         ))}
       </div>
     </div>
   );
+}
+
+/** The connect surface a provider row asks for. `planned` gets none; the rest dispatch on the
+ *  mechanism the row declares, so the switch is exhaustive over `ConnectKind` by type — a new kind is
+ *  a compile error here rather than a card that silently offers nothing.
+ *
+ *  Called as a FUNCTION, not rendered as `<ConnectSurface/>`: a component element is always truthy,
+ *  so a planned provider would hand ProviderCard a non-null child and draw an empty hairline block
+ *  under its card. Returning the node itself keeps `null` meaning "no connect surface". */
+function connectSurface(
+  provider: ProviderDef,
+  { slug, ingestToken, ingestPath }: { slug: string; ingestToken: string; ingestPath: string },
+): React.ReactNode {
+  if (provider.status !== "available") return null;
+  switch (provider.connectKind) {
+    case "otel-push":
+      return <ClaudeCodeSetup slug={slug} ingestToken={ingestToken} ingestPath={ingestPath} />;
+    case "admin-pull":
+      return <CopilotSetup slug={slug} />;
+  }
 }

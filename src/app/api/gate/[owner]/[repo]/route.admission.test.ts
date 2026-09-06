@@ -49,6 +49,9 @@ vi.mock("@/lib/scoring/gate", async (orig) => ({
   evaluateGate: vi.fn(() => ({ pass: true, policy: {}, failures: [] })),
 }));
 vi.mock("@/lib/db/org-gate", () => ({ getOrgGatePolicy: vi.fn(async () => null) }));
+// TENANCY: which org's state governs this repo. Defaults to the owner login (the fast path), so every
+// pre-existing case in this file is unchanged; the slug≠owner case overrides it.
+vi.mock("@/lib/db/org-tenancy", () => ({ orgSlugForRepo: vi.fn(async (owner: string) => owner) }));
 vi.mock("@/lib/scoring/gate-admission", () => ({
   resolveAdmissionLayer: vi.fn(async () => ({ overlay: {}, admission: null })),
   loadCheckStates: vi.fn(async () => null),
@@ -66,12 +69,14 @@ import { cacheGet } from "@/lib/cache";
 import { evaluateGate } from "@/lib/scoring/gate";
 import { getOrgGatePolicy } from "@/lib/db/org-gate";
 import { loadCheckStates, resolveAdmissionLayer } from "@/lib/scoring/gate-admission";
+import { orgSlugForRepo } from "@/lib/db/org-tenancy";
 
 const mockCacheGet = vi.mocked(cacheGet);
 const mockEvaluate = vi.mocked(evaluateGate);
 const mockOrgPolicy = vi.mocked(getOrgGatePolicy);
 const mockAdmission = vi.mocked(resolveAdmissionLayer);
 const mockCheckStates = vi.mocked(loadCheckStates);
+const mockOrgSlug = vi.mocked(orgSlugForRepo);
 
 const report = () =>
   ({
@@ -85,9 +90,9 @@ const report = () =>
     warnings: [],
   }) as unknown as ScanReport;
 
-async function get(query = "") {
-  return GET(new Request(`http://localhost/api/gate/acme/widget${query}`), {
-    params: Promise.resolve({ owner: "acme", repo: "widget" }),
+async function get(query = "", owner = "acme", repo = "widget") {
+  return GET(new Request(`http://localhost/api/gate/${owner}/${repo}${query}`), {
+    params: Promise.resolve({ owner, repo }),
   });
 }
 
@@ -101,7 +106,8 @@ beforeEach(() => {
   mockOrgPolicy.mockResolvedValue(null);
   mockAdmission.mockResolvedValue({ overlay: {}, admission: null });
   mockCheckStates.mockResolvedValue(null);
-  mockEvaluate.mockReturnValue({ pass: true, policy: { minLevel: "L3" }, failures: [] });
+  mockOrgSlug.mockImplementation(async (owner: string) => owner);
+  mockEvaluate.mockReturnValue({ pass: true, policy: { minLevel: "L3" }, failures: [], skipped: [], caveats: [] });
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -117,7 +123,7 @@ describe("no admission row — the byte-identical no-op", () => {
   it("does not read the conformance ledger when no policy names a check", async () => {
     await get();
     expect(mockCheckStates).not.toHaveBeenCalled();
-    expect(inputsUsed()).toEqual({ checkStates: null });
+    expect(inputsUsed()).toMatchObject({ checkStates: null });
   });
 });
 
@@ -234,7 +240,7 @@ describe("requireChecks reads the ledger only when a check is named", () => {
     await get();
 
     expect(mockCheckStates).toHaveBeenCalledWith("acme", "acme/widget");
-    expect(inputsUsed()).toEqual({ checkStates: { "control.prepush.lint": "fail" } });
+    expect(inputsUsed()).toMatchObject({ checkStates: { "control.prepush.lint": "fail" } });
   });
 
   it("a null ledger reaches the evaluator as null — a skip, never a manufactured failure", async () => {
@@ -243,6 +249,47 @@ describe("requireChecks reads the ledger only when a check is named", () => {
 
     await get();
 
-    expect(inputsUsed()).toEqual({ checkStates: null });
+    expect(inputsUsed()).toMatchObject({ checkStates: null });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ORG STATE BY TENANCY (Direction 7)
+//
+// Both org-scoped reads keyed on the GITHUB OWNER LOGIN. For an org whose slug is not its owner
+// namespace — an org named for the team, watching repos under a personal account, which is the case
+// `repoUnderOrg` was already fixed for — the persisted policy and the admission overlay BOTH resolved
+// to null, silently, and null reads as "no bar configured". The gate then went green on the archetype
+// default while the org's own dashboard displayed the bar it believed was being enforced.
+// ---------------------------------------------------------------------------
+describe("the governing org is the one that TRACKS the repo, not the owner login", () => {
+  it("reads the persisted policy AND the admission overlay under the tracking org's slug", async () => {
+    // org `kiro` tracks `xkazm04/kp`; the owner namespace is not an org at all.
+    mockOrgSlug.mockResolvedValue("kiro");
+    mockOrgPolicy.mockResolvedValue({ minLevel: "L4" });
+    mockAdmission.mockResolvedValue({
+      overlay: { requireProtectedBranch: true },
+      admission: { mode: "assisted-only", tier: "T1", source: "derived" },
+    });
+
+    const res = await get("", "xkazm04", "kp");
+    const body = await res.json();
+
+    expect(mockOrgSlug).toHaveBeenCalledWith("xkazm04", "xkazm04/kp");
+    // FAIL-BEFORE: both of these were called with "xkazm04" and found nothing.
+    expect(mockOrgPolicy).toHaveBeenCalledWith("kiro");
+    expect(mockAdmission).toHaveBeenCalledWith("kiro", "xkazm04/kp");
+    // And the found bar is the one enforced: the org's level, tightened by the overlay's rule.
+    expect(mockEvaluate.mock.calls[0]![1]).toMatchObject({ minLevel: "L4", requireProtectedBranch: true });
+    expect(body.admission).toMatchObject({ tier: "T1" });
+  });
+
+  it("503s when the tenant could not be resolved — not determining the org IS not reading the bar", async () => {
+    mockOrgSlug.mockRejectedValue(new Error("db down"));
+
+    const res = await get("", "xkazm04", "kp");
+
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("could not be read") });
   });
 });

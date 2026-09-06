@@ -19,7 +19,7 @@ and per code-owning team. Nothing about what an org is *charged* changed (see
 | `scan` | the scoring pipeline | **`Scan` rows** — not mirrored into `UsageEvent`; that lane already has an authoritative ledger and a copy would drift |
 | `athena` | the companion's interactive turns *and* its unattended cycles (both leg kinds fold to one lane) | `runToolLoop`, **one event per loop**, never per leg |
 | `memory` | Shared Org Memory's write-gate + reflection passes | the single-shot seam, via `resolveMemoryRunner(orgSlug)` |
-| `briefing` | the executive briefing's LLM-written paragraph | metered **in place** in `briefing-narrative.ts` (its own Anthropic egress; re-plumbing it is BACKLOG C3) |
+| `briefing` | the executive briefing's LLM-written paragraph | the shared seam (`textRunnerFrom`), like `athena` and `memory` since 2026-09-05: it resolves through `resolveTextRunnerForOrg`, so a BYOM org's briefing is written by its own model and priced `null` |
 | `local` | the local remediation agent | the agent supplies its own cost envelope, idempotency key **and the owning team of the repo it worked** (`defaultOwnerTeamForRepo`) |
 | `unknown` | *read-side only* — rows tagged with a lane string this build does not know (a newer or rolled-back deploy) | folded into one disclosed bucket by `laneTotals`, never dropped |
 
@@ -44,7 +44,11 @@ honest default; the funnel's own scans never reach this ledger anyway (the scan 
 provider reported nothing (the `claude-cli` path reports no usage at all and still writes a
 token-less row, so the *call* is visible even when its cost is not), when the org runs BYOM (it paid
 its own vendor; Ascent has no figure), or when the model has no `MODEL_PRICES` rate. `unpricedCalls`
-is reported per lane so a `$0.00` line reads as "nothing to price", not "free".
+is reported per lane so a `$0.00` line reads as "nothing to price", not "free". Since 2026-09-05
+the **scan lane applies the same BYOM rule**: scans with `engineByom: true` are grouped separately,
+never priced (a BYOM-only window prices as `null`, never `$0.00`, and the env-rate override is
+refused when every token is BYOM), and `UsageSummary.byomScans` drives a "N BYOM scans, unpriced"
+note beside the estimate. Their tokens still count in the volume tiles.
 
 **Idempotency.** `idemKey` is `"<lane>:<refId>"` when the caller owns a stable id, else `null`
 (NULLs are distinct under the unique index — the same at-least-once fallback `Scan.dedupKey` uses).
@@ -53,7 +57,9 @@ A retried write collides on P2002 and is swallowed by the best-effort writer: no
 **Privacy.** `teamKey` is a CODEOWNERS *team* slug, never a person — no contributor login, email or
 individual attribution enters `UsageEvent`, and no prompt or response text is stored (token counts,
 model id and status only). The team view is omitted entirely for the public funnel, whose summary is
-anonymously readable.
+anonymously readable. The credit ledger writes an `actor` on every debit and refund for audit and
+reconciliation, but since 2026-09-05 the org-facing read (`getCreditLedger`, served by
+`GET /api/org/credits`) no longer selects it: a repo is not a person, a login is.
 
 **Audit.** Spend-shaped, so `UsageEvent` *is* the audit row; there is no `AuditLog` entry per metered
 call (one row per model call would drown the trail).
@@ -92,8 +98,16 @@ lockstep: `isBillableScan()` (JS; also the daily series' fallback path), `billab
 
 ## Aggregation (`src/lib/db/usage.ts`)
 
-`getUsageSummary(org, periodDays)` → `UsageSummary`:
+`getUsageSummary(org, periodDays, window?)` → `UsageSummary` (the page resolves the window once with
+`usageWindow(days)` and hands the same object to `getCreditReconciliation(org, { since, before })`,
+which no longer takes `days`):
 
+- `byRepo` (2026-09-05): the union of the scan-lane groups and `UsageEvent.repoFullName` totals
+  (`repoTotals`, one `groupBy` on the same window), merged by `mergeRepoUsage` under exactly the
+  `mergeTeamUsage` rule (unknown + known = unknown, never a partial dollar figure; BYOM counted,
+  never priced), with an explicit `Org-wide (no repo)` row appended last. The three period
+  `groupBy` passes collapsed to one folded three ways, and the two `repository.findMany` to one
+  (13 → 10 Scan queries per render, 11 with the event read).
 - `totalScans` (all-time), `periodScans` (last *N* days), `privateScans` / `publicScans`
   (period), `distinctRepos`.
   - `privateScans` is the **billable** count per the predicate above (the name is wire
@@ -139,16 +153,27 @@ lockstep: `isBillableScan()` (JS; also the daily series' fallback path), `billab
   UTC day in SQL (`date_trunc`, portable to Aurora DSQL) with a JS row-bucketing fallback.
 - `firstScanAt` / `lastScanAt` (all-time).
 
-**Window:** the period counts and the daily series share one half-open UTC window,
-`[since, tomorrow-UTC)`. The upper bound is load-bearing: without it a future-dated /
-clock-skewed row was counted in the headline tile but silently dropped from the chart (its
-day key isn't on the axis), so the billing page disagreed with itself.
+**Window:** the period counts, the daily series and (since 2026-09-05) the credit reconciliation
+share one half-open UTC window, `[since, tomorrow-UTC)`, built by `usageWindow(days)`. The upper
+bound is load-bearing: without it a future-dated / clock-skewed row was counted in the headline
+tile but silently dropped from the chart (its day key isn't on the axis), so the billing page
+disagreed with itself. The reconciliation used to cut at a rolling wall-clock instant, up to a day
+off the scan window under the same "last Nd" label; that skew is gone and the mismatch note no longer
+offers it as an explanation. The page states **UTC** on the chart and the lane headers, and the API
+echoes `timezone: "UTC"`, `windowSince` / `windowBefore` (requested) and `effectiveSince` /
+`effectiveDays` (the zero-filled series is clamped at the org's first scan, and the chart says
+"window shortened to first scan" when they differ; the CSV follows). The trailing bucket is marked
+partial ("today, partial" / "partial: N of 7 days") in the bar, its title, a footnote and the
+screen-reader table; buckets chunk forward from the window start so their keys stay stable across
+reloads. The footer that used to read "Window: first → last" now says "First scan → last scan (all
+time)", since it never was period-scoped. The scan row is captioned "Computed scans (incl. mock)"
+under a "calls" header rather than "model calls".
 
 ## Page & API
 
 | Surface | Behavior |
 | --- | --- |
-| `src/app/usage/page.tsx` | Auth-gated, org-scoped (`?org=` or active-org cookie). Stat cards (total, period, billable, distinct repos), public-vs-private + provider breakdowns, timeframe picker (`?days=`, default 30, max 365). The closing note is **conditional**: the shared funnel is told per-org attribution activates with auth / the GitHub App; a private org — which is reading its own per-team, per-repo, per-lane breakdown, i.e. that attribution — is told it is attributed and given the link to plans & credit pricing this billing page otherwise lacked (UAT MC-B31 / VICTOR-L1-06). |
+| `src/app/usage/page.tsx` | Auth-gated, org-scoped (`?org=` or active-org cookie). Stat cards (total, period, billable, distinct repos), public-vs-private + provider breakdowns, timeframe picker (`TimeframePicker`, server-rendered links for 7 / 30 / 90 / 1y that preserve `?org=`; 1y is disabled with its reason on the public funnel, whose bound is 90) (`?days=`, default 30, max 365). The closing note is **conditional**: the shared funnel is told per-org attribution activates with auth / the GitHub App; a private org — which is reading its own per-team, per-repo, per-lane breakdown, i.e. that attribution — is told it is attributed and given the link to plans & credit pricing this billing page otherwise lacked (UAT MC-B31 / VICTOR-L1-06). |
 | `GET /api/usage` | `?org=` (default `public`), `?days=`, `?format=json\|csv`. Returns `UsageSummary` JSON, or a CSV/JSON file download. `503` without DB. **IDOR guard:** when auth is on, a private org requires a session with an installation in it; public is readable by any signed-in user. |
 | `GET /api/usage?view=showback` | The lane × team allocation as CSV (`scope,lane,team,calls,estimatedCostUsd,unpricedCalls`), for finance. Same route, same auth, same window — a projection, not a new surface. A row that could not be priced exports an **empty** cost cell, never `0`. The `team` column is omitted entirely for the public funnel. Kept separate from `?format=csv` on purpose: the per-day export's shape is a reconciliation artifact downstream sheets key on, and a lane is not a property of a day's scan count. **Linked from the page** as the third export button — for its first months it was built, correct, reconciling and reachable only by hand-typing the query string (UAT MC-B19). |
 | `src/app/usage/usageShowbackPanel.tsx` | **Showback · lane × team**, on the page, under the two panels it joins (MC-B45). Lanes down, teams across, `Org-wide (no repo)` last; a pair with nothing recorded is an em dash with the reason on hover, a pair that ran unpriced says *no estimate* with its unpriced count. The table scrolls inside its own container so the page body never scrolls sideways. **Before any team is attributed** — no repo in the window has a CODEOWNERS default owner — it renders no grid at all and says attribution is on and accruing, because a one-column table of `Org-wide / $0.00` reads as a finding rather than as a wait. Renders nothing when the ledger is empty; the lane table above has already said so. |
@@ -172,6 +197,20 @@ Every public, unauthenticated endpoint that can cost money (`/api/scan`, `/api/s
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | — | Required for `upstash`. Spoken over `fetch` against the REST `/pipeline` endpoint: **no npm client dependency**. If either is missing the store falls back to `memory` rather than failing requests. |
 | `ASCENT_RATE_LIMIT_SHARED_FAIL_OPEN` | unset (fail **closed**) | When the shared store is unreachable, `1` degrades to the in-memory ceiling (availability) instead of returning 429 (safety). |
 | `RATE_LIMIT_{SCAN,PEEK,QUOTA_PEEK,ORG_IMPORT,GATE,CONTACT,ORG_REPOS}_{PER_IP,GLOBAL}` | see source | Per-endpoint overrides; window is 60s. |
+| `ASCENT_TRUSTED_PROXY_HOPS` | `1` | How many proxies in front of the app are trusted to set honest forwarding headers, which is the key every per-IP limit *and* the 30-day free-scan quota is bucketed on. `0` trusts nothing (all forwarding headers ignored: anonymous callers share one burst bucket and the monthly quota treats them as unidentifiable); `1` trusts one proxy (`x-real-ip`, else the right-most `X-Forwarded-For` hop); `N` declares an N-hop chain (CDN, LB, app = `2`), taking the Nth-from-the-right XFF entry and ignoring `x-real-ip`. Read by `trustedProxyHops()` in `src/lib/env.ts`. |
+
+**Set `ASCENT_TRUSTED_PROXY_HOPS` on a self-hosted deployment.** At the default of `1`, `x-real-ip`
+is trusted verbatim. If the app is reachable without a trusted proxy (the port is exposed, or the
+proxy forwards client headers unchanged) a caller can mint a fresh burst bucket *and* a fresh
+monthly-quota bucket on every request just by setting that header. Since 2026-09-05 the app logs one
+warning per process at first use when the variable is unset and no platform witness (`VERCEL`) is
+present. On Vercel the default is correct and nothing needs setting.
+
+**A refused request spends nothing (2026-09-05).** The per-IP window is checked first but recorded
+only after the global ceiling admits, so a caller refused by the global ceiling, or by the
+fail-closed "store unreachable" branch, keeps their own per-minute budget intact. Before this the
+per-IP hit was recorded up front, so during global saturation an innocent caller's own allowance
+drained on requests that were never served.
 
 `ORG_REPOS` (`10`/min per IP, `60`/min global) covers `GET /api/org/repos`, the App-free public org
 listing behind the onboarding selector — added 2026-08-28, when it was the last public endpoint with
@@ -295,6 +334,7 @@ Until a route adopts `rateLimitRequestShared()`, its global ceiling remains per-
 | `src/lib/db/usage.ts` | `getUsageSummary()`: totals, provider mix, zero-filled daily series, the lane + team folds. |
 | `src/lib/llm/meter.ts` | The meter chokepoint: lane vocabulary, pure cost math (`costMicrosFor`), fire-and-forget `meter()`. |
 | `src/lib/db/usage-events.ts` | `recordUsageEvent()` (best-effort writer) + `laneTotals()` / `teamTotals()` / `listUsageEvents()`. |
+| `src/app/usage/usageRepoPanel.tsx` | **Top repositories** with a cost column (em dash + "not a measured zero" tooltip for unknown; `· N unpriced` for partials), captioned by metered scans, last N days, UTC. Per-repo cost rides `GET /api/usage` JSON additively; both CSVs keep their shape (G19). |
 | `src/app/usage/usageDashboard.tsx` | The page's panel order: tiles → trend → provider mix → lane/team → the showback matrix. |
 | `src/app/usage/usageLanePanels.tsx` | The "Spend by lane" / "Spend by team" server panels. |
 | `src/lib/db/usage-showback.ts` | `laneTeamTotals()` (the lane × team ledger read) + `buildShowbackMatrix()` (the pure grid fold). |
@@ -315,11 +355,12 @@ Until a route adopts `rateLimitRequestShared()`, its global ceiling remains per-
   [billing.md](billing.md)), which is wired end-to-end (plans, checkout, webhook
   fulfilment, refunds); this page only surfaces scan counts/trends and doesn't
   itself drive invoicing.
-- **The briefing narrative is metered where it stands, not on the shared seam.** It calls the
-  Anthropic Messages API directly on its own `ANTHROPIC_API_KEY`, so its lane is recorded under the
-  legacy `claude` provider id. Routing it through `src/lib/llm/transports.ts` would change which
-  credential and which vendor an operator's briefing bills to — an open design question (BACKLOG C3),
-  not a wiring task.
+- **The briefing narrative moved onto the shared seam (2026-09-05, BACKLOG C3).** It used to
+  raw-`fetch` the Anthropic Messages API on a platform key and meter itself in place under the legacy
+  `claude` provider id. It now resolves through `resolveTextRunnerForOrg`, so the provider, model and
+  `byom` flag on a `briefing` row are the org's own, and a BYOM briefing prices at `null` rather than
+  at list rates the org never paid. The only lane still off the seam is `local` (W2-G supplies its own
+  events).
 - **The showback CSV is still two flat sections, not the matrix.** `toShowbackCsv` exports one `lane`
   scope block and one `team` scope block; the on-page panel is the only place the *intersection* is
   read (MC-B45 built the read half). Adding a third `scope=lane×team` block would change a file shape

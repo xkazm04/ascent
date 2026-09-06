@@ -1488,6 +1488,23 @@ same unchanged `HEAD`, so the loop rediscovered and rewrote the same fix run aft
 repositories did not improve until the campaign harness started fast-forwarding the branches itself
 (`scripts/loop-campaign.mjs --land`, a harness-only workaround for a product-level gap).
 
+**The harness's `--land` is `--ff-only` too, and a 10-round campaign on two live checkouts
+(2026-09-05, `xkazm04/pumper` + `xkazm04/lighttrack`) measured what that refuses in practice.** Three
+of ten pumper rounds were duplicates: another session committed to `master` mid-campaign (registry-map
+regenerations), the fast-forward refused as *diverged*, and the next run cut from a `HEAD` without the
+previous lane's work and re-did it — the same rediscovery the 21-run campaign saw, now caused by a
+moving base rather than a static one. On lighttrack the block was a *dirty* file: the operator's
+uncommitted edit to the very test the lane extended, so seven rounds each rebuilt the same D6
+commit-message gate on a fresh branch. Two harness knobs answer the first case:
+`--land-fallback "<command>"` runs `<command> <dir> <branch>` whenever `--ff-only` refuses (both at
+start-up, for pending branches, and after each run) — the campaign that measured this used a
+cherry-pick onto the moved tip that skips `MEMORY.md`, the one file every lane and the operator both
+touch — and `--verify-timeout-min` raises the guard's per-check ceiling for repositories whose own
+check is a cold `cargo test` in a fresh worktree. The dirty-file case has no harness answer on
+purpose: the product's rule that a dirty file is a stop sign, not an obstacle to clear, holds in the
+harness too. The run summary also prints the run's real cost now: `economics` is one row per lane in
+micro-cents, and the harness had been reading it as a single object, printing `$0.00` for every run.
+
 So delivery is now a **dial on the run**, recorded on `LoopRun.delivery` and on `LoopDrive.delivery`
 (a drive inherits one mode for its whole chain, and it survives a resume — see `resumeParams`).
 

@@ -103,8 +103,27 @@ export interface TeamUsage {
   estimatedCostUsd: number | null;
 }
 
-/** The label a team-less bucket carries. One constant so the panel, the CSV and the tests agree. */
+/** The label a team-less bucket carries. One constant so the panel, the CSV and the tests agree.
+ *  Shared with the per-REPO view, whose repo-less bucket is the same fact seen one level finer. */
 export const ORG_WIDE_TEAM_LABEL = "Org-wide (no repo)";
+
+/**
+ * Per-REPO spend within a window, from the `UsageEvent` ledger.
+ *
+ * `repoFullName === null` is the explicit org-wide bucket — a briefing, an org-wide memory pass —
+ * never a dropped row, exactly as `teamKey === null` is in {@link TeamUsage}. A repo is the finest
+ * attribution this ledger carries and the finest it ever will: `teamKey` is a CODEOWNERS team and
+ * `repoFullName` a repository, and per-PERSON attribution is ruled out by
+ * docs/features/billing/usage.md's privacy note.
+ */
+export interface RepoEventUsage {
+  repoFullName: string | null;
+  calls: number;
+  /** `null` when NOTHING in the repo's calls could be priced — never rendered as $0.00. When only
+   *  SOME could, this is a floor and `unpricedCalls` says by how many calls. */
+  estimatedCostUsd: number | null;
+  unpricedCalls: number;
+}
 
 /** USD from the stored micros, or null when nothing in the group was priceable. Exported so the
  *  showback matrix converts micros by the same rule — null is "not priced", never 0. */
@@ -297,6 +316,36 @@ export async function teamTotals(orgSlug: string, since: Date, before: Date): Pr
     label: g.teamKey ?? ORG_WIDE_TEAM_LABEL,
     calls: g._count,
     estimatedCostUsd: usdFromMicros(g._sum.costMicros),
+  }));
+}
+
+/**
+ * Per-repo totals over the same half-open window `[since, before)` the lane and team reads use.
+ *
+ * ONE query, not the two `laneTotals` needs: the unpriced count rides along as a per-FIELD `_count`
+ * (`costMicros` counts only non-null values), so `_all - costMicros` is the number of calls no basis
+ * could price without a second groupBy over `costMicros: null`.
+ *
+ * A row with no `repoFullName` lands in the explicit `null` bucket. Every lane that knows the repo it
+ * worked stamps it at write time (`src/lib/llm/meter.ts`), so this is the per-repo half of the money
+ * the lane/team panels already show — not a new measurement.
+ */
+export async function repoTotals(orgSlug: string, since: Date, before: Date): Promise<RepoEventUsage[]> {
+  if (!isDbConfigured()) return [];
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return [];
+  const groups = await getPrisma().usageEvent.groupBy({
+    by: ["repoFullName"],
+    where: { orgId, createdAt: { gte: since, lt: before } },
+    _count: { _all: true, costMicros: true },
+    _sum: { costMicros: true },
+  });
+  return groups.map((g) => ({
+    repoFullName: g.repoFullName,
+    calls: g._count._all,
+    estimatedCostUsd: usdFromMicros(g._sum.costMicros),
+    // Priced rows are the ones with a non-null costMicros; the rest ran and could not be costed.
+    unpricedCalls: Math.max(0, g._count._all - g._count.costMicros),
   }));
 }
 

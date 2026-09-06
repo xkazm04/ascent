@@ -4,7 +4,10 @@
 //                                                Check Run + sticky PR comment (Feature 2).
 //   • push (to the default branch, head moved) → re-scan a watched repo and alert on a
 //                                                regression vs the prior scan (Feature 4), throttled to
-//                                                one paid scan per repo per PUSH_RESCAN_MIN_INTERVAL_MINUTES.
+//                                                one paid scan per repo per PUSH_RESCAN_MIN_INTERVAL_MINUTES
+//                                                and PAID FOR: the rescan reserves a prepaid credit
+//                                                before inference exactly like the queue worker, and
+//                                                is skipped (never served free) when the org is out.
 //   • branch_protection_rule / repository_ruleset / repository / member / team
 //                                             → enqueue a FREE control probe (moonshot #10). These
 //                                                events move a repo's governance posture without
@@ -34,6 +37,7 @@ import {
   isRepoWatched,
   listWatchedRepos,
   persistScanReport,
+  recordScanOutcome,
   reconcileWatchedRepos,
   removeInstallation,
   resumeInstallation,
@@ -63,6 +67,14 @@ import { abandonDelivery, deliveryAlreadySeen, forgetLocalDelivery } from "@/lib
 // it as hooks — behavior is unchanged.
 import { runPrGate, type PrGateHooks } from "@/lib/github/pr-gate";
 import { checkAndAlertRegression } from "@/lib/scan-alerts";
+// The push rescan is a REAL, LLM-billed scan and must pay for itself. Same pair the queue worker and
+// the import funnel use (src/lib/scan-queue-worker.ts, src/app/api/org/import/route.ts) — deliberately
+// NOT a second reserve mechanism, and NOT `scanCreditGate` (that shape exists to 402 an interactive
+// caller; a webhook has nobody to 402, so it mirrors the worker's reserve/skip/refund instead).
+// `reserveScanCredit` also fires `maybeAlertLowCredits` on a debit that crossed the low-water mark, so
+// a push-funded depletion pushes the same lifecycle alert /api/scan does.
+import { refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
+import { isMeteredScan } from "@/lib/entitlement";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -529,33 +541,97 @@ async function runPushRescan(installationId: number, owner: string, repo: string
         );
         return;
       }
-      const token = await getInstallationToken(installationId);
-      const report = await scanRepository(fullName, { token });
-      // DEGRADE-TO-MOCK GUARD. This path asks for a real LLM grade; when the provider is down
-      // scanRepository still returns a report, stamped engine.provider = "mock" — the deterministic
-      // FLOOR, not a measurement. Persisting it makes that floor the repo's current public reading AND
-      // the next run's regression baseline, and the alert below would then diff a real prior scan
-      // against our own outage and tell the customer their repo regressed. The interactive routes
-      // already refuse to store such a report (scan-finalize.ts's `authoritative` gate); this path
-      // recognised the degrade only for BILLING (the sibling cron/org-scan routes refund the credit on
-      // exactly this condition) and never applied the same judgment to the data.
+      // ── CREDIT RESERVATION ──────────────────────────────────────────────────────────────────────
+      // This is the money gate the header promises, and until now it did not exist: the push rescan
+      // ran real LLM inference on a private org repo with no reservation at all, so a watched org at
+      // balance zero kept scanning free forever and the 15-minute throttle was the only cost ceiling.
+      // Mirrors the queue worker's shape (reserve → skip / refund), because the outcomes are the same
+      // ones a background scan has: a webhook cannot 402 anybody.
       //
-      // Deliberately NOT released for redelivery: a provider outage would degrade the retry too, so a
-      // release turns one outage into a scan storm. The repo is covered by the next push past the
-      // window or its scheduled autoscan — the same "coalesce, don't queue" reasoning as the throttle
-      // above.
-      // Optional-chained on purpose: a report with no engine stamp (a legacy/reconstructed shape) is
-      // not PROVEN degraded, so it persists — fail toward keeping a real scan, never toward dropping one.
-      if (report.engine?.provider === "mock") {
-        console.warn(
-          `[webhook] push rescan for ${fullName} degraded to the deterministic floor (LLM unavailable) — not persisted, no regression alert`,
-        );
-        return;
+      // ORDER: the throttle check above runs FIRST, on purpose. The throttle is not a stamp we set —
+      // it is derived from the PRIOR PERSISTED SCAN's `scannedAt`, so only a scan that actually ran
+      // and persisted moves the window. A push skipped for credits therefore consumes nothing, and a
+      // later top-up scans on the very next push instead of waiting out a window it never opened.
+      // Checking credits first would only add a ledger read to pushes that were going to coalesce.
+      //
+      // `mock: false` — this path asks for a real grade (no orgSlug is passed to scanRepository, so it
+      // uses the platform provider, never a BYOM key). isMeteredScan still exempts self-hosted, a
+      // DB-less deployment and the public org, which is the whole set of not-metered deployments here.
+      const metered = isMeteredScan(orgSlug, false);
+      // Attribution for BOTH sides of the movement: no human is behind a push delivery, so the honest
+      // actor is the path itself, and the refund below names the same actor and repo as the debit.
+      const actor = "webhook:push";
+      let charged = false;
+      if (metered) {
+        const reservation = await reserveScanCredit(orgSlug, fullName, { actor });
+        if (reservation.skip) {
+          // SKIP, don't scan-for-free and don't release the delivery: the balance is exhausted, and a
+          // GitHub redelivery would find it exhausted too (releasing would turn an empty wallet into a
+          // retry storm). Same "coalesce, don't queue" reasoning as the throttle — the repo is covered
+          // by the next push after a top-up, or by its scheduled autoscan.
+          //
+          // A DURABLE trace, not just a log line. This is the one skip an OWNER has to be able to act
+          // on — nobody is watching the response (it was sent before after() ran) and the fix is to buy
+          // credits — so it writes the same Repository.lastScanStatus/lastScanError the queue worker
+          // writes for its own skips (scan-queue-worker.ts). The Repositories tab already renders that
+          // pair, so a watched repo going stale says WHY on the dashboard instead of only in the logs.
+          // Best-effort, exactly as everywhere else: a bookkeeping write must not decide the skip.
+          await recordScanOutcome(orgSlug, fullName, { ok: false, error: "insufficient credits" }).catch(() => {});
+          console.warn(
+            `[webhook] push rescan for ${fullName} skipped: insufficient_credits (balance ${reservation.balance ?? "unknown"})`,
+          );
+          return;
+        }
+        charged = reservation.reserved; // true only on an overflow DEBIT — a within-allowance scan is free
       }
-      const persisted = await persistScanReport(report, { orgSlug });
-      if (persisted && !persisted.deduped) {
-        const orgId = (await getOrgId(orgSlug).catch(() => null)) ?? undefined;
-        await checkAndAlertRegression(prev, report, { orgId, orgSlug });
+      // Give the credit back when nothing billable was produced. No-op unless an overflow credit was
+      // actually debited; refunding a free scan would MINT one.
+      const refundCredit = () => refundScanCredit(orgSlug, charged, { actor, repoFullName: fullName });
+
+      // Every unwind path from here on has to answer "was anything billable produced?". A throw
+      // BEFORE a real report (token mint, provider error) produced nothing and releases the delivery
+      // for redelivery, so it must refund or every retry buys a second credit; a throw AFTER one keeps
+      // the credit, because the inference genuinely ran. Same rule as the worker's `inferenceBilled`.
+      let inferenceBilled = false;
+      try {
+        const token = await getInstallationToken(installationId);
+        const report = await scanRepository(fullName, { token });
+        inferenceBilled = report.engine?.provider != null && report.engine.provider !== "mock";
+        // DEGRADE-TO-MOCK GUARD. This path asks for a real LLM grade; when the provider is down
+        // scanRepository still returns a report, stamped engine.provider = "mock" — the deterministic
+        // FLOOR, not a measurement. Persisting it makes that floor the repo's current public reading AND
+        // the next run's regression baseline, and the alert below would then diff a real prior scan
+        // against our own outage and tell the customer their repo regressed. The interactive routes
+        // already refuse to store such a report (scan-finalize.ts's `authoritative` gate), and the
+        // sibling cron/org-scan routes refund the credit on exactly this condition — as, now, does the
+        // reserve above: the degrade is recognised for BOTH the data and the billing here.
+        //
+        // Deliberately NOT released for redelivery: a provider outage would degrade the retry too, so a
+        // release turns one outage into a scan storm. The repo is covered by the next push past the
+        // window or its scheduled autoscan — the same "coalesce, don't queue" reasoning as the throttle
+        // above.
+        // Optional-chained on purpose: a report with no engine stamp (a legacy/reconstructed shape) is
+        // not PROVEN degraded, so it persists — fail toward keeping a real scan, never toward dropping one.
+        if (report.engine?.provider === "mock") {
+          await refundCredit(); // no inference was bought, so the org keeps its credit
+          console.warn(
+            `[webhook] push rescan for ${fullName} degraded to the deterministic floor (LLM unavailable) — not persisted, credit refunded, no regression alert`,
+          );
+          return;
+        }
+        const persisted = await persistScanReport(report, { orgSlug });
+        // The shared refund policy, byte-for-byte the worker's: degrade-to-mock (handled above) or a
+        // dedup — an unchanged head scored no new row, and "a dedup run is free".
+        if (shouldRefundScan({ engine: { provider: report.engine?.provider ?? "" } }, persisted)) {
+          await refundCredit();
+        }
+        if (persisted && !persisted.deduped) {
+          const orgId = (await getOrgId(orgSlug).catch(() => null)) ?? undefined;
+          await checkAndAlertRegression(prev, report, { orgId, orgSlug });
+        }
+      } catch (err) {
+        if (!inferenceBilled) await refundCredit();
+        throw err; // the outer catch owns the delivery release + the log
       }
     });
   } catch (err) {

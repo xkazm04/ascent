@@ -35,11 +35,11 @@ import {
   type FollowUpItem,
 } from "@/lib/org/followups";
 import { fail, str, type Args } from "@/lib/mcp/registry-reads";
-import type { ToolResult } from "@/lib/mcp/handlers";
+import type { McpPrincipal, ToolResult } from "@/lib/mcp/handlers";
+import { MAX_CLAIM_COUNT } from "@/lib/mcp/tools";
 import type { AutonomyTierId } from "@/lib/types";
 
 const DEFAULT_CLAIM_COUNT = 3;
-const MAX_CLAIM_COUNT = 10;
 
 const ids = (a: Args, k: string): string[] => {
   const v = a[k];
@@ -102,7 +102,8 @@ async function repoGate(
  * be the same question asked five times with the same answer, and a partial refusal would read as if
  * some of the repo's rows were more claimable than others.
  */
-export async function claimFollowupsTool(org: string, args: Args, actor: string, tokenId: string | null): Promise<ToolResult> {
+export async function claimFollowupsTool(org: string, args: Args, principal: McpPrincipal): Promise<ToolResult> {
+  const actor = principal.actor;
   const repo = str(args, "repo");
   if (!repo) return fail('Provide `repo` as "owner/name" — a claim is always scoped to one repository.');
 
@@ -132,7 +133,12 @@ export async function claimFollowupsTool(org: string, args: Args, actor: string,
     );
   }
 
-  const leaseMs = clampLeaseMs(int(args, "leaseMinutes", 0, 0, 240) * 60_000 || null);
+  // THE LOWER BOUND MATCHES THE SCHEMA. This read used to clamp to `min: 0` while the schema declared
+  // `minimum: 5`, so an explicit `leaseMinutes: 0` became `0 * 60_000 || null` — the DEFAULT lease,
+  // silently, which is the one answer the caller did not ask for. `0` here means only "absent"; a
+  // value that reaches the clamp is already at or above the declared floor (the door validates it).
+  const askedMinutes = int(args, "leaseMinutes", 0, 5, 240);
+  const leaseMs = clampLeaseMs(askedMinutes > 0 ? askedMinutes * 60_000 : null);
   const res = await claimFollowups({
     org,
     ids: wanted.slice(0, MAX_CLAIM_COUNT),
@@ -140,7 +146,7 @@ export async function claimFollowupsTool(org: string, args: Args, actor: string,
     executor: "remote-agent",
     leaseMs,
     note: "Claimed over the agent door (MCP)",
-    tokenId,
+    tokenId: principal.tokenId,
   });
   if (!res) return fail("This installation has no persistence configured, so there is no queue to claim from.");
 
@@ -151,7 +157,10 @@ export async function claimFollowupsTool(org: string, args: Args, actor: string,
     await attachRemoteClaim({
       orgSlug: org,
       repoFullName: repo,
-      claimedBy: actor,
+      // The LABEL, not the identity: this string is rendered in the cockpit's lane rail, and
+      // `agent:tok_0f3…` names nothing a person recognizes. The identity that arbitrates the claim is
+      // `actor` above, and it is the only one the ledger compares.
+      claimedBy: principal.label ? `agent:${principal.label}` : actor,
       leaseUntil: res.claimed[0]!.leaseUntil ? new Date(res.claimed[0]!.leaseUntil) : null,
     }).catch(() => false);
   }
@@ -191,14 +200,24 @@ async function itemsFor(org: string, held: readonly FollowupClaimRow[]): Promise
  *
  * A row held by somebody else is named in `refused` rather than dropped: an agent that asked for five
  * briefs and got three needs to know which two it lost, because those are the two it must not work.
+ *
+ * ADMISSION IS RE-CHECKED PER REPO, not trusted from the claim. `claimability` used to run only at
+ * `claim_followups`, so a repository moved to `assisted-only` or `blocked` — or sealed into a no-AI
+ * zone — kept handing out working briefs to whoever held a lease taken minutes earlier, for the whole
+ * four hours of it. A governance decision that takes effect only at the next claim is a decision the
+ * agent currently inside the repo does not have to honour, which is exactly backwards. Such a row is
+ * refused BY NAME with the org's own refusal sentence, the same way a lost row is.
  */
-export async function getFixBriefTool(org: string, args: Args, actor: string): Promise<ToolResult> {
+export async function getFixBriefTool(org: string, args: Args, principal: McpPrincipal): Promise<ToolResult> {
+  const actor = principal.actor;
   const wanted = ids(args, "ids");
   if (wanted.length === 0) return fail("Provide `ids` — the follow-ups you hold. Claim some first with claim_followups.");
 
-  const held = await heldFollowups(org, wanted, actor);
+  const held = await heldFollowups(org, wanted, actor, principal.legacyActor);
   const heldIds = new Set(held.map((h) => h.id));
-  const refused = wanted.filter((id) => !heldIds.has(id));
+  const refused: { id: string; reason: string; detail?: string }[] = wanted
+    .filter((id) => !heldIds.has(id))
+    .map((id) => ({ id, reason: "not-held" }));
   if (held.length === 0) {
     return fail(
       "You hold none of those follow-ups. A lease that expired released its rows back to the queue; claim again with claim_followups.",
@@ -215,6 +234,19 @@ export async function getFixBriefTool(org: string, args: Args, actor: string): P
 
   for (const [repo, rows] of byRepo) {
     const gate = await repoGate(org, repo);
+    // THE SAME gate the claim ran, re-run against the CURRENT decision — see the doc comment. A repo
+    // whose facts have gone (`gate === null`) reaches `claimability` as an unassessed tier, which it
+    // already refuses: unknown is not green, at the brief exactly as at the claim.
+    const verdict = claimability({
+      autonomyTier: gate?.tier ?? null,
+      executor: "remote-agent",
+      sealed: gate?.sealed ?? false,
+      admissionMode: gate?.mode ?? null,
+    });
+    if (!verdict.allowed) {
+      for (const r of rows) refused.push({ id: r.id, reason: "repo-closed", detail: claimRefusalText(verdict.reason, repo) });
+      continue;
+    }
     const picked = rows.map((r) => items.get(r.id)).filter((x): x is FollowUpItem => Boolean(x));
     if (picked.length === 0) continue;
     // THE ORG'S STANDARD TRAVELS WITH THE REMOTE BRIEF TOO (`PRIYA-L1-706`). The local lane has
@@ -240,7 +272,10 @@ export async function getFixBriefTool(org: string, args: Args, actor: string): P
         repo,
         autonomyTier: gate?.tier ?? null,
         reviewText: gate?.reviewText ?? null,
-        requiresHumanReview: gate ? gate.tier !== "T3" : true,
+        // ONE SOURCE for this fact: the verdict `claimability` just returned, not a second derivation
+        // of the same rule. The inline `tier !== "T3"` copy that used to sit here would have had to be
+        // found and changed by hand the first time the tier rule moved.
+        requiresHumanReview: verdict.requiresHumanReview,
         leaseUntil: rows.map((r) => r.leaseUntil).filter((l): l is string => Boolean(l)).sort()[0] ?? "no lease",
         stance: published?.stance ?? null,
       }),
@@ -251,8 +286,10 @@ export async function getFixBriefTool(org: string, args: Args, actor: string): P
     structuredContent: {
       org,
       briefs,
-      // Named, never silently dropped — see the doc comment.
-      refused: refused.map((id) => ({ id, reason: "not-held" })),
+      // Named, never silently dropped — see the doc comment. `not-held` is a lease you lost;
+      // `repo-closed` is a repository that no longer admits agent work, and it carries the org's own
+      // sentence so the agent stops rather than retries.
+      refused,
     },
     // The brief is the payload a model actually reads, so it is the text channel too, joined rather
     // than JSON-quoted: a markdown document rendered as an escaped JSON string is a document the
@@ -269,7 +306,8 @@ export async function getFixBriefTool(org: string, args: Args, actor: string): P
  * visibly open. This is the answer to the catalog's own question — the write path has no verb that
  * closes a recommendation, so an agent cannot certify its own homework.
  */
-export async function reportAttemptTool(org: string, args: Args, actor: string, tokenId: string | null): Promise<ToolResult> {
+export async function reportAttemptTool(org: string, args: Args, principal: McpPrincipal): Promise<ToolResult> {
+  const actor = principal.actor;
   const id = str(args, "id");
   const verdict = str(args, "verdict");
   const reason = str(args, "reason");
@@ -285,11 +323,12 @@ export async function reportAttemptTool(org: string, args: Args, actor: string, 
     org,
     id,
     actor,
+    legacyActor: principal.legacyActor,
     verdict,
     reason,
     branch: str(args, "branch"),
     prUrl: str(args, "prUrl"),
-    tokenId,
+    tokenId: principal.tokenId,
   });
   if (!row) {
     return fail(

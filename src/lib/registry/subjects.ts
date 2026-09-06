@@ -26,6 +26,9 @@ export interface KnowledgeSubject {
   useWhen: string[];
   /** The union of the cross-cutting laws this subject's techniques cite. */
   laws: string[];
+  /** The subject's content digest (`sha256:…`) as the index states it — what a map pair's
+   *  `evaluatedAgainst` is compared to. Null when the index carries none: unknown, never current. */
+  digest: string | null;
 }
 
 const strOrNull = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
@@ -79,7 +82,7 @@ export function readBundleSubjects(
       continue;
     }
     for (const [slug, raw] of Object.entries(subjects as Record<string, unknown>)) {
-      const s = raw as { category?: unknown; subcategory?: unknown; status?: unknown; file?: unknown; techniques?: unknown };
+      const s = raw as { category?: unknown; subcategory?: unknown; status?: unknown; file?: unknown; techniques?: unknown; digest?: unknown };
       if (!s || typeof s !== "object") {
         warnings.push(`${path}: subjects["${slug}"] is not an object — subject skipped`);
         continue;
@@ -109,6 +112,7 @@ export function readBundleSubjects(
         techniqueCount: techniques.length,
         useWhen,
         laws,
+        digest: strOrNull(s.digest),
       });
     }
   }

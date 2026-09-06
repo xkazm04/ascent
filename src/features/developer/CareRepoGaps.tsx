@@ -4,59 +4,18 @@
 // one machine's transcripts; ascent sees the standing of every repo the developer commits to, and can
 // say which open recommendation they are already the natural champion of.
 //
-// `cards` (Companion / Climb) and `rows` (Cockpit) are the same facts at two densities.
-
-import { OrgTable, SectionEmpty } from "@/components/org/shared/ui";
+import { SectionEmpty } from "@/components/org/shared/ui";
 import { reportPermalink } from "@/lib/ui";
 import { CareLevelMark, CareLinkAction } from "./CareBits";
 import type { DeveloperView } from "@/lib/org/developer-view";
 
-export function CareRepoGaps({ repos, layout = "cards" }: { repos: DeveloperView["myRepos"]; layout?: "cards" | "rows" }) {
+export function CareRepoGaps({ repos }: { repos: DeveloperView["myRepos"] }) {
   if (repos.length === 0) {
     return (
       <SectionEmpty>
         No repos linked yet. Watch the repositories you commit to and their open gaps show up here — the reason a move
         can be grounded in more than one machine&apos;s transcripts.
       </SectionEmpty>
-    );
-  }
-
-  if (layout === "rows") {
-    return (
-      <OrgTable
-        className="mt-3"
-        caption="Repositories you commit to and their open recommendations"
-        head={
-          <tr>
-            <th className="px-4 py-2 text-left">Repository</th>
-            <th className="px-4 py-2 text-left">Standing</th>
-            <th className="px-4 py-2 text-left">Open recommendations you could champion</th>
-          </tr>
-        }
-      >
-        {repos.map((r) => (
-          <tr key={r.fullName}>
-            <td className="px-4 py-3 align-top">
-              <a className="focus-ring font-mono type-body text-accent hover:text-white" href={reportPermalink(r.fullName)}>
-                {r.fullName}
-              </a>
-            </td>
-            <td className="px-4 py-3 align-top">
-              <CareLevelMark level={r.level} score={r.score} />
-            </td>
-            <td className="px-4 py-3 align-top">
-              <ul className="space-y-1">
-                {r.openRecommendations.map((rec) => (
-                  <li key={rec.title} className="type-body text-slate-300">
-                    <span className="type-label tracking-widest text-slate-500">{rec.dimension} · </span>
-                    {rec.title}
-                  </li>
-                ))}
-              </ul>
-            </td>
-          </tr>
-        ))}
-      </OrgTable>
     );
   }
 
@@ -70,6 +29,11 @@ export function CareRepoGaps({ repos, layout = "cards" }: { repos: DeveloperView
             </a>
             <CareLevelMark level={r.level} score={r.score} />
           </div>
+          {/* A repo with nothing open is a fact worth stating. The rule with an empty list under it
+              read as a section that had failed to load. */}
+          {r.openRecommendations.length === 0 ? (
+            <p className="mt-3 border-t border-divider pt-3 type-body-sm text-slate-500">No open gaps.</p>
+          ) : (
           <ul className="mt-3 space-y-2 border-t border-divider pt-3">
             {r.openRecommendations.map((rec) => (
               <li key={rec.title}>
@@ -81,6 +45,7 @@ export function CareRepoGaps({ repos, layout = "cards" }: { repos: DeveloperView
               </li>
             ))}
           </ul>
+          )}
         </div>
       ))}
     </div>

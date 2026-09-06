@@ -1,7 +1,7 @@
 ---
 product: "ascent"
 stack: "a product that scores how AI-native a repository/org is (Next.js 16.3.0-preview.5 + React 19 + TS + Tailwind 4 + Prisma with embedded PGlite in dev; vitest for unit tests)"
-vault: ["C:/Users/kazda/Documents/Obsidian/ascent"]
+vault: ["C:/Users/mkdol/Documents/Obsidian/ascent", "C:/Users/kazda/Documents/Obsidian/ascent"]  # Fox, Wolf - first existing wins; each device keeps its own vault
 vault_subdir: Perfect
 base_branch: master
 wave_size: 3
@@ -17,7 +17,7 @@ locale_count: 1
 
 # perfect overlay - ascent
 
-First run: create `C:/Users/kazda/Documents/Obsidian/ascent` (the user keeps per-project vaults there).
+First run: create the vault root for THIS device (Fox: `C:/Users/mkdol/Documents/Obsidian/ascent`, Wolf: `C:/Users/kazda/Documents/Obsidian/ascent`) - the user keeps per-project vaults there. The vaults are per-device and not synced; a session on one device does not see the other's loop state.
 Builds fork from and land on `master` - if the session starts on a stray branch, note it and base the
 wave on `master`. `round_shape: round`: propose for 1-3 contexts, gate, build that slate immediately
 (the owner can say "hold" at the wave-plan gate); thin slates of 1-3 keep winning here.
@@ -105,6 +105,28 @@ Authority: `AGENTS.md` (300-LOC `.tsx` cap) + `src/components/ui/BRAND.md`.
   one). Do not pre-shrink a wave out of caution — present the full plan with its risks named.
 
 ## Skill improvement log
+- 2026-09-05 (Fox, round 1): the tsc gate was blind at dispatch - a stale generated Prisma client (572 errors) and two missing packages (`server-only`, `libsodium-wrappers`) made every builder report "errors outside my write set". Run `npx prisma generate` + `npm install` and drop stale `.next/dev/types` BEFORE dispatching builders; a green base gate is a Phase 0 ritual here.
+- 2026-09-05: the registry-map `deviation` pairs were the whole slate (9/9 directions) and 8/9 were accepted - keep mining `.ai/registry-map.json` first; the three remaining deviations (Quotas & Rate Limiting, Repo Report Shell, Onboarding Wizard) are round 2.
+- 2026-09-05: docs made Director-only for the wave worked (two audit lots would have collided on org-intelligence.md); keep that rule while lots share a doc.
+- 2026-09-05 (round 2): a builder died at its FULL gate with a complete direction on disk. Salvage was cheap (Director ran the gate, fixed 3 lint errors, committed) - but the brief should say: targeted gates -> commit -> THEN the full gate, so death at the gate never strands a finished direction.
+- 2026-09-05 (round 2): 9/9 accepted; the report-shell 402 dead end that round 1 created was the headline - "if your wave creates an overstatement, your wave corrects it" held. Remaining deviation pairs in the registry map: none; round 3 must score from headroom, not from the map.
+- 2026-09-05 (round 3): 11/11 accepted with the map's deviations exhausted - scoring from scout residuals + docs Known gaps works; the biggest finding (a persisted false negative in D9 on a failed sensor read) came from asking the scout "is a FAILED read distinguishable from an empty one, per sensor".
+- 2026-09-05 (round 3): a wave's own change opened a same-page divergence (badge vs header chip); the builder scoped it out, the Director landed it in-wave (309f65ec). If the wave creates it, the wave corrects it.
+- 2026-09-05 (round 3): a builder refuted a direction's premise with a measurement (deployments already overlapped) - keep demanding measured deltas. A change to what the detectors SEE is the product owner's rubric call: asked at the gate, bumped r17.
+- 2026-09-05 (round 3): `git switch <base>` aborted at landing because a sibling session had dirty files that differ between base and wave (src/lib/types.ts). Land with `git branch -f master HEAD` (ff) then switch - identical commits touch no files. Never `git checkout -f`.
+- 2026-09-05 (round 4): a foreign session's dirty file (src/lib/types.ts) blocked one criterion mid-wave (the analyzer revertRate floor); the builder stopped correctly. Treat every dirty foreign file as a hard write-set wall in the brief AND pre-check each direction's write set against `git status` before dispatch - this one was avoidable at planning time.
+- 2026-09-05 (round 4): never edit a template literal with sed; a dropped backtick shipped a broken test in a Director commit and cost a repair commit. Use the python replace-with-assert pattern for every code edit.
+- 2026-09-05 (round 4): a sibling session bare-commits onto whatever branch is checked out (aef6a59b landed on the wave branch). Harmless for a ff-merge, but the wave branch is not private; review `git log master..HEAD` for foreign commits before merging.
+- 2026-09-05 (round 5): pre-checking write sets against the foreign dirty set at PLANNING time deferred one direction cleanly (the narrative seam) and nothing blocked mid-wave - keep it. The deferred direction sits in the pool; build it the moment src/lib/llm is clean.
+- 2026-09-05 (round 5): the honesty work in this repo lands on the durable artifacts (PDF, markdown) first and the HTML surfaces lag a cycle - "composer has exactly one caller" is the grep that finds it (benchmarkCaption, movementLine). Use it as a standing scout question on any context with several renderers of one model.
+- 2026-09-05 (round 5): a public endpoint that never carries a token can advertise policy flags that can never fire there (the gate); ask scouts "which criteria are unconditionally inert on this surface" for every gate/policy context.
+- 2026-09-05 (round 6): a test harness rewrote .git/config mid-wave (core.bare=true, a fake user.*), breaking plain git for one builder and mis-attributing one commit. Add to Phase 0 AND to the pre-merge check: `git config --local --get core.bare` must be false and `git log --format=%an base..HEAD` must show only real authors; a harness that shares the checkout is a write-set hazard for .git itself.
+- 2026-09-05 (round 6): a builder's evidence-backed refusal of a one-line criterion (page.tsx owner->admin) was right - the criterion flattened two routes with two bars into one flag. When a builder refuses with a mechanism-level argument, the Director redesigns the criterion, not the builder.
+- 2026-09-05 (round 6): "shipped but half-mounted" is this repo's dominant residual class (lift map: two transports, zero readers; firstStep on the fallback only; decline PATCH with no caller; unenforceable[] MCP-only). Scout prompt line: for every mechanism, name EVERY renderer/consumer and which ones actually receive it.
+- 2026-09-05: `db/client.test.ts` fails on this device on an AWS-credential message ("Your session has expired") - environmental, ignore in the gate unless client.ts was touched.
+- 2026-09-05 (smoke): SSR `curl` is blind on this app - every org tab body is a client chunk, so the HTML carries only the shell. The repo's own `node_modules/playwright` + cached Chromium made Plan A cheap: one fresh context per hop, `innerText` + full-page screenshot + console/4xx capture, then `grep` the text. Import it by absolute `file:///.../node_modules/playwright/index.mjs` from a scratchpad script.
+- 2026-09-05 (smoke): the demo seed decides what a smoke can reach. All 60 repos are mock-scored with no passports and no CODEOWNERS, and mock-engine scans are never persisted, so passports/teams/trajectory/measured-lift surfaces are unreachable here by construction. Budget the "not drivable" list before driving, and treat a seed gap as a direction candidate rather than a smoke failure.
+- 2026-09-05 (smoke): when a check needs a minted credential, mint -> run EVERY call -> revoke in ONE command; two tokens were revoked before their calls ran because the header requirements (Mcp-Protocol-Version, Mcp-Method, Mcp-Name) surfaced one at a time.
 ### Migrated from the vault's config.md on 2026-09-04 (rounds 1-10; the per-builder worktree recipe in it is v1 and superseded by the one-branch wave)
 ### Round 10 (2026-08-03, session 7) — 10/10 accepted, 10/10 shipped
 

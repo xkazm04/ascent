@@ -21,30 +21,7 @@ import { OrgTable, SectionHeader, Tile, TILE_LEDGER } from "@/components/org/sha
 import type { ImpactLedger as ImpactLedgerModel } from "@/lib/db/org-impact";
 // The field-notes paragraph lives in a co-located sibling (200-line cap).
 import { FieldNotes } from "./ImpactLedgerFieldNotes";
-
-const GOOD = "#22c55e";
-const BAD = "#f97316";
-const MUTED = "#94a3b8";
-
-/** Signed points, always with an explicit sign so a negative can't be misread as a magnitude. */
-function signed(n: number): string {
-  return n > 0 ? `+${n}` : String(n);
-}
-
-function deltaCell(value: number | null, unmeasuredTitle: string) {
-  if (value == null) {
-    return (
-      <span className="font-mono tabular-nums text-slate-500" title={unmeasuredTitle}>
-        —
-      </span>
-    );
-  }
-  return (
-    <span className="font-mono tabular-nums" style={{ color: value > 0 ? GOOD : value < 0 ? BAD : MUTED }}>
-      {signed(value)}
-    </span>
-  );
-}
+import { BAD, GOOD, MUTED, SOURCE_LABEL, SOURCE_TITLE, deltaCell, signed } from "./ImpactLedgerCells";
 
 export function ImpactLedger({
   slug,
@@ -168,6 +145,14 @@ export function ImpactLedger({
               </td>
               <td className="px-4 py-3 text-right">{deltaCell(row.verified ? row.impactDim : null, unmeasured)}</td>
               <td className="px-4 py-3 text-right">{deltaCell(row.verified ? row.impactOverall : null, unmeasured)}</td>
+              {/* Six headers were declared and five cells emitted, so every badge sat one column left
+                  of its own heading: the verified/awaiting state rendered under "Source" and "Status"
+                  stood empty. On a receipt, a value under the wrong heading is worse than no value. */}
+              <td className="px-4 py-3">
+                <span className="type-label tracking-widest text-slate-400" title={SOURCE_TITLE[row.source]}>
+                  {SOURCE_LABEL[row.source]}
+                </span>
+              </td>
               <td className="px-4 py-3">
                 {row.verified ? (
                   <span className="type-label tracking-widest" style={{ color: GOOD }}>

@@ -51,10 +51,13 @@ export function runStamp(now: Date = new Date()): string {
   return now.toISOString().replace(/[-:T]/g, "").slice(0, 14);
 }
 
+/** The loop's branch prefix. Other lanes (a registry dispatch) pass their own; the fold is shared. */
+export const LOOP_BRANCH_PREFIX = "ascent/loop-";
+
 /** Branch names are git refs, not free text: fold "owner/name" to a single safe segment. */
-export function branchNameFor(repo: string, stamp: string): string {
+export function branchNameFor(repo: string, stamp: string, prefix: string = LOOP_BRANCH_PREFIX): string {
   const slug = repo.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").toLowerCase() || "repo";
-  return `ascent/loop-${stamp}-${slug}`;
+  return `${prefix}${stamp}-${slug}`;
 }
 
 export async function createLoopWorktree(

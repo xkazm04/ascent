@@ -52,6 +52,7 @@ const decoder = new TextDecoder();
 let buf = "";
 let ok = 0;
 let failed = 0;
+let skipped = 0;
 
 const handle = (event, data) => {
   if (event === "progress") {
@@ -61,6 +62,11 @@ const handle = (event, data) => {
     if (data.error) {
       failed++;
       console.log(`  ✗ ${data.repo.padEnd(36)} ${data.error}`);
+    } else if (data.skipped) {
+      // A skip is neither a scan nor a failure: `in_progress` is a live ScanJob claim (15-minute
+      // lease) on the same repo; `insufficient_credits` / `monthly_quota` are entitlement stops.
+      skipped++;
+      console.log(`  ↷ ${data.repo.padEnd(36)} skipped: ${data.skipped}`);
     } else {
       ok++;
       console.log(
@@ -70,7 +76,8 @@ const handle = (event, data) => {
       );
     }
   } else if (event === "result") {
-    console.log(`\nDone: ${data.scanned}/${data.total} scanned (${ok} ok, ${failed} failed).`);
+    console.log(`\nDone: ${data.scanned}/${data.total} scanned (${ok} ok, ${failed} failed, ${skipped} skipped).`);
+    if (data.skippedInProgress) console.log(`  ${data.skippedInProgress} skipped as in_progress: another run holds a live ScanJob claim (15-minute lease). Retry after it expires.`);
     console.log(`Open: ${base}${data.dashboard}`);
   } else if (event === "error") {
     console.error(`\nERROR: ${data.error}`);

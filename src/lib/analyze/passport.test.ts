@@ -4,8 +4,11 @@
 // one — the PRESENT-vs-ENFORCED honesty cap: a tokenless scan (governance null) must NOT claim a "gated"
 // CI/security rung it couldn't observe, and must say so in evidence/blockers.
 
+import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import {
+  DECLINABLE_BY_FINDING,
+  PASSPORT_SCHEMA_URL,
   PASSPORT_VERSION,
   applyPassportOverrides,
   buildPassport,
@@ -263,6 +266,17 @@ const V010: AppPassport = {
   evidence: { confidence: 0.7, source: "static-scan", files: [] },
 };
 
+describe("PASSPORT_SCHEMA_URL — one definition, derived from PASSPORT_VERSION", () => {
+  it("names the major.minor of PASSPORT_VERSION and matches the schema document's $id", () => {
+    const [major, minor] = PASSPORT_VERSION.split(".");
+    expect(PASSPORT_SCHEMA_URL).toBe(`https://ascent.dev/schemas/app-passport-${major}.${minor}.json`);
+    // The committed schema document is the other half of the contract: a bump to PASSPORT_VERSION that
+    // forgets `app-passport.schema.json` would otherwise ship a pointer at a document that isn't there.
+    const schema = JSON.parse(readFileSync(new URL("../../../app-passport.schema.json", import.meta.url), "utf8")) as { $id: string };
+    expect(schema.$id).toBe(PASSPORT_SCHEMA_URL);
+  });
+});
+
 describe("upgradePassport — 0.1.0 → current on read", () => {
   it("lifts boolean memory/skills to the ladder: true→adhoc, false→none", () => {
     const up = upgradePassport(V010);
@@ -329,6 +343,18 @@ describe("applyPassportOverrides — declined by choice", () => {
     ]);
   });
 
+  it("carries the decision's AUTHOR through to the projection, and reads an absent one as unknown", () => {
+    // The actor used to exist only in the `passport.declines_set` audit row, which no reader of the
+    // passport ever sees. It is now part of the decision record the overlay projects.
+    const withAuthor = applyPassportOverrides(base, {
+      declined: { "productionReadiness.observability": { reason: "internal", by: "alice", at: "2026-02-02" } },
+    });
+    expect(withAuthor.declined?.[0]).toMatchObject({ by: "alice", at: "2026-02-02" });
+    // Pre-authorship declines simply carry no author — the renderers say "unknown", nothing is invented.
+    const without = applyPassportOverrides(base, { declined: { "productionReadiness.observability": { reason: "internal" } } });
+    expect(without.declined?.[0]?.by).toBeUndefined();
+  });
+
   it("NEVER moves a score — a decline is a decision, not a fix", () => {
     const pp = applyPassportOverrides(base, { declined: { "productionReadiness.observability": {}, "productionReadiness.ci": {} } });
     expect(pp.productionReadiness.score).toBe(base.productionReadiness.score);
@@ -366,6 +392,18 @@ describe("applyPassportOverrides — declined by choice", () => {
   });
 });
 
+describe("DECLINABLE_BY_FINDING — what a decline control may offer", () => {
+  it("maps a declinable finding to its axis-rooted path and OMITS the blind-spot caveats", () => {
+    expect(DECLINABLE_BY_FINDING["prod.zero-observability"]).toBe("productionReadiness.observability");
+    expect(DECLINABLE_BY_FINDING["auto.no-manifest"]).toBe("automationReadiness.artifacts.manifest");
+    // "We could not see this" is a limitation of the evidence, never a trade-off an owner may accept.
+    expect(DECLINABLE_BY_FINDING["prod.enforcement-not-observable"]).toBeUndefined();
+    expect(DECLINABLE_BY_FINDING["auto.self-verify-gaps"]).toBeUndefined();
+    // Every path it names is one the route will accept.
+    for (const path of Object.values(DECLINABLE_BY_FINDING)) expect(isDeclinablePath(path)).toBe(true);
+  });
+});
+
 describe("parseDeclined / isDeclinablePath — allow-list validation", () => {
   it("keeps allow-listed paths, drops the rest", () => {
     expect(isDeclinablePath("stack.monitoring.errorTracking")).toBe(true);
@@ -383,6 +421,11 @@ describe("parseDeclined / isDeclinablePath — allow-list validation", () => {
     expect(out?.["stack.monitoring.metrics"]?.reason).toHaveLength(280);
     expect(out?.["stack.monitoring.metrics"]?.at).toBeUndefined();
     expect(parseDeclined({ "stack.monitoring.metrics": { at: "2026-07-27" } })?.["stack.monitoring.metrics"]?.at).toBe("2026-07-27");
+  });
+
+  it("keeps a valid author and drops a malformed one (the author is written server-side)", () => {
+    expect(parseDeclined({ "productionReadiness.ci": { by: "alice" } })).toEqual({ "productionReadiness.ci": { by: "alice" } });
+    expect(parseDeclined({ "productionReadiness.ci": { by: "not a login!" } })).toEqual({ "productionReadiness.ci": {} });
   });
 
   it("round-trips through the stored-overrides parser alongside the P4 fields", () => {
@@ -412,12 +455,49 @@ describe("applyPassportOverrides — owner overlay (P4)", () => {
     expect(pp.productionReadiness.delivery.rollback).toBe(true);
     expect(pp.productionReadiness.score).toBeGreaterThan(base.productionReadiness.score);
   });
+
+  it("MARKS a score it moved: provenance with the author, the delta and the measured figure", () => {
+    // An override is a decision, not a measurement. The lift stands (the owner knows a fact the scan
+    // cannot observe), but the passport must not present it in the same form as a measured score —
+    // the exported JSON, the hero and the CSV all read this block.
+    const pp = applyPassportOverrides(base, { rollback: true, by: "alice", at: "2026-09-05" });
+    const ovr = pp.productionReadiness.overridden;
+    expect(ovr).toBeDefined();
+    expect(ovr!.reason).toBe("rollback");
+    expect(ovr!.by).toBe("alice");
+    expect(ovr!.at).toBe("2026-09-05");
+    expect(ovr!.measuredScore).toBe(base.productionReadiness.score);
+    expect(ovr!.measuredBand).toBe(base.productionReadiness.band);
+    expect(ovr!.delta).toBe(pp.productionReadiness.score - base.productionReadiness.score);
+    expect(ovr!.delta).toBeGreaterThan(0);
+  });
+
+  it("records the override WITHOUT an author when the blob predates `by` — never a fabricated one", () => {
+    const ovr = applyPassportOverrides(base, { rollback: true }).productionReadiness.overridden;
+    expect(ovr).toBeDefined();
+    expect(ovr!.by).toBeUndefined();
+    expect(ovr!.at).toBeUndefined();
+  });
+
+  it("marks nothing when the override does not move the score (criticality/lifecycle, or a no-op rollback)", () => {
+    expect(applyPassportOverrides(base, { criticality: "business" }).productionReadiness.overridden).toBeUndefined();
+    const same = applyPassportOverrides(base, { rollback: base.productionReadiness.delivery.rollback });
+    expect(same.productionReadiness.overridden).toBeUndefined();
+  });
+
+  it("keeps `by`/`at` out of the score path: they alone are not a decision", () => {
+    // A blob carrying only authorship (no asserted fact) must stay a no-op, not clone the passport.
+    expect(applyPassportOverrides(base, { by: "alice", at: "2026-09-05" })).toBe(base);
+  });
 });
 
 describe("parsePassportOverrides — validation", () => {
   it("keeps valid enum/boolean values, drops unknowns, null when empty", () => {
     expect(parsePassportOverrides(JSON.stringify({ criticality: "business", lifecycle: "beta", rollback: true }))).toEqual({ criticality: "business", lifecycle: "beta", rollback: true });
     expect(parsePassportOverrides(JSON.stringify({ criticality: "bogus", lifecycle: "nope" }))).toBeNull();
+    // Authorship round-trips, but only in the shapes it can legitimately take.
+    expect(parsePassportOverrides(JSON.stringify({ rollback: true, by: "alice", at: "2026-09-05" }))).toEqual({ rollback: true, by: "alice", at: "2026-09-05" });
+    expect(parsePassportOverrides(JSON.stringify({ rollback: true, by: "not a login!", at: "yesterday" }))).toEqual({ rollback: true });
     expect(parsePassportOverrides(null)).toBeNull();
     expect(parsePassportOverrides("{}")).toBeNull();
   });

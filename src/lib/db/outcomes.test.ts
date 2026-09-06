@@ -57,7 +57,13 @@ const findMany = vi.fn(async () => []);
 function harness(scans: Record<string, Bookend | null>, repo: { isPrivate: boolean } | null = { isPrivate: false }) {
   mockIsDbConfigured.mockReturnValue(true);
   mockGetPrisma.mockReturnValue({
-    scan: { findUnique: async ({ where }: { where: { id: string } }) => scans[where.id] ?? null },
+    scan: {
+      // The bookends are read in ONE query for the whole candidate set (recordOutcomesForScanPairs),
+      // so the harness answers `findMany` with the requested ids that exist — an absent id is simply
+      // missing from the result, which is what a real `in` query does.
+      findMany: async ({ where }: { where: { id: { in: string[] } } }) =>
+        where.id.in.map((id) => (scans[id] ? { id, ...scans[id] } : null)).filter(Boolean),
+    },
     repository: { findUnique: async () => repo },
     interventionOutcome: { upsert, findMany },
   });

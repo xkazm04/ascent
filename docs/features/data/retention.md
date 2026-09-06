@@ -283,6 +283,15 @@ conflict retries.
   for without `ERASE_AUDIT_FORCE=1` (nothing at all was erased — the floor is checked before the first
   delete); `404` unknown org/repo, `503` no DB.
 
+### The registry ledger figure
+
+`eraseOrgLedgers` drains the #18 registry tables as ONE figure (`registryLedgerDeleted`):
+`OrgKnowledgeSubject`, `RepoConformance`, `RepoConformanceMap`, `RegistrySignal`,
+`RegistrySignalContribution`, `OrgSkillUsageSample` and, since the Knowledge base rebuild
+(2026-09-05), `RegistryDispatch` — a dispatch names the repo, the branch, the PR URL, the subjects a
+brief cited and a local run's summary or error text, which is tenant data. Batched and retried like
+every other drain, resumable, and the preview counts it without deleting.
+
 ## Return shape (`PurgeSummary`)
 
 ```ts

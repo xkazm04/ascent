@@ -90,8 +90,24 @@ describe("POST /api/report/passport/overrides", () => {
   it("persists + audits on the happy path", async () => {
     const res = await POST(post({ repo: "acme/web", criticality: "mission-critical", lifecycle: "ga", rollback: true }));
     expect(res.status).toBe(200);
-    expect(h.setPassportOverrides).toHaveBeenCalledWith("acme", "acme/web", { criticality: "mission-critical", lifecycle: "ga", rollback: true });
+    // Authorship is stamped onto the BLOB, not only the audit row: `rollback` moves the production
+    // score, and an unattributed lift is indistinguishable from a measurement on the passport itself.
+    const written = h.setPassportOverrides.mock.calls[0][2] as { by?: string; at?: string };
+    expect(h.setPassportOverrides).toHaveBeenCalledWith("acme", "acme/web", expect.objectContaining({ criticality: "mission-critical", lifecycle: "ga", rollback: true, by: "alice" }));
+    expect(written.at).toMatch(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/);
     expect(h.recordOrgAudit.mock.calls[0][0]).toBe("passport.overrides_set");
+  });
+
+  it("REJECTS a client-supplied author — `by` comes from the session, never the body", async () => {
+    const res = await POST(post({ repo: "acme/web", rollback: true, by: "mallory" }));
+    expect(res.status).toBe(400);
+    expect(h.setPassportOverrides).not.toHaveBeenCalled();
+  });
+
+  it("writes no author when the session cannot be resolved (unknown, never fabricated)", async () => {
+    h.getSession.mockResolvedValue(null);
+    await POST(post({ repo: "acme/web", rollback: true }));
+    expect((h.setPassportOverrides.mock.calls[0][2] as { by?: string }).by).toBeUndefined();
   });
 
   it("accepts declined-by-choice entries and validates the field path against the allow-list", async () => {
@@ -109,8 +125,23 @@ describe("PATCH /api/report/passport/overrides (declines)", () => {
   it("merges a decline keyed by field path, and audits it", async () => {
     const res = await PATCH(patch({ repo: "acme/web", declined: { "productionReadiness.delivery.iac": { reason: "serverless" } } }));
     expect(res.status).toBe(200);
-    expect(h.mergePassportDeclines).toHaveBeenCalledWith("acme", "acme/web", { "productionReadiness.delivery.iac": { reason: "serverless" } });
+    // A decline is a decision record: the author and the day come from the server, not the caller.
+    const written = (h.mergePassportDeclines.mock.calls[0][2] as Record<string, { reason?: string; by?: string; at?: string }>)["productionReadiness.delivery.iac"];
+    expect(written.reason).toBe("serverless");
+    expect(written.by).toBe("alice");
+    expect(written.at).toMatch(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/);
     expect(h.recordOrgAudit.mock.calls[0][0]).toBe("passport.declines_set");
+  });
+
+  it("REJECTS a client-supplied decline author, and writes no author when the session is unresolved", async () => {
+    const spoofed = await PATCH(patch({ repo: "acme/web", declined: { "productionReadiness.ci": { reason: "x", by: "mallory" } } }));
+    expect(spoofed.status).toBe(400);
+    expect(h.mergePassportDeclines).not.toHaveBeenCalled();
+
+    h.getSession.mockResolvedValue(null);
+    await PATCH(patch({ repo: "acme/web", declined: { "productionReadiness.ci": { reason: "x" } } }));
+    const entry = (h.mergePassportDeclines.mock.calls[0][2] as Record<string, { by?: string }>)["productionReadiness.ci"];
+    expect(entry.by).toBeUndefined();
   });
 
   it("a null value RETRACTS a decline", async () => {

@@ -40,6 +40,16 @@ import { deriveAutonomyForStored } from "./passport-autonomy";
 
 export const PASSPORT_VERSION = "0.4.0";
 
+/** The published JSON Schema this passport shape validates against, DERIVED from PASSPORT_VERSION so
+ *  the two can never drift. `app-passport.schema.json` is versioned major.minor (patch releases are
+ *  additive within a minor and reuse the same document), so the pointer drops the patch.
+ *
+ *  This exists because the committed `.ai/passport.json` used to carry a hand-written
+ *  `app-passport-0.2.json` pointer while the body said `passportVersion: 0.4.0` — a customer repo
+ *  ended up holding a file that named a schema its own contents did not satisfy, and a validating
+ *  reader would reject it. One definition, one place to bump. */
+export const PASSPORT_SCHEMA_URL = `https://ascent.dev/schemas/app-passport-${PASSPORT_VERSION.split(".").slice(0, 2).join(".")}.json`;
+
 const MIGRATION_NOTE_020 =
   "Lifted from passport 0.1.0: automation artifacts memory/skills were booleans; present→adhoc, absent→none. These are migration floors, not a fresh assessment. Re-scan to grade them.";
 

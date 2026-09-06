@@ -1,9 +1,10 @@
 // The in-app alert history — one row per alert the product DECIDED to raise, whether or not a sink
-// was configured or the POST succeeded. Deliberately its own table, not AuditLog: audit claim rows
-// are DELETED on dispatch failure (releaseAuditClaim) and the whole trail is subject to
-// retentionAuditDays purging, so an alert history built there would show fewer rows than attempts
-// and no failures at all. Writers never throw (recordAudit's discipline): losing a history row must
-// never suppress the alert itself or fail a scan.
+// was configured or the POST succeeded. Deliberately its own table, not AuditLog: the whole trail is
+// subject to retentionAuditDays purging, so an alert history built there would age out from under the
+// UI. (The other half of this reason is GONE: releaseAuditClaim used to DELETE a claim row on dispatch
+// failure; it now appends a `claim.released` record instead, so the audit trail no longer loses the
+// attempt — but a purge-able table still isn't where alert history belongs.) Writers never throw
+// (recordAudit's discipline): losing a history row must never suppress the alert itself or fail a scan.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";

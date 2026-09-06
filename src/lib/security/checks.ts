@@ -17,7 +17,7 @@
 // check was added for it — a fresh 0-default control would drag D9 for every token scan and open a
 // token-vs-anonymous downward divergence, which is exactly the asymmetry this enrichment exists to avoid.
 
-import type { Governance, RepoSnapshot, SecurityAssessment, SecurityCheck, SecurityExposure, SecurityPosture } from "@/lib/types";
+import type { Governance, RepoSnapshot, ScanSensorId, SecurityAssessment, SecurityCheck, SecurityExposure, SecurityPosture } from "@/lib/types";
 import type { AppInventory } from "@/lib/github/check-suites";
 import { appsOf } from "@/lib/github/check-suites";
 import { hasDependencyBotCommits } from "@/lib/analyze";
@@ -272,16 +272,21 @@ interface PostureSpec {
    *  App, the org's `.github` policy). Set ⇒ in worktree mode a 0 is "not measurable", not a finding.
    *  Branch protection already goes n/a without governance, so it needs no entry. */
   githubCanRefuteZero?: string;
+  /** The ingest SENSOR that produces `githubCanRefuteZero`'s input. When that sensor's read FAILED
+   *  (not "returned nothing"), this check's 0 is unrefuted only because nobody could look — the same
+   *  claim `blind` makes about a worktree, arrived at from the other direction. Set exactly where
+   *  `githubCanRefuteZero` is set. */
+  sensor?: ScanSensorId;
 }
 
 const POSTURE_SPEC: PostureSpec[] = [
   { id: "branch-protection", name: "Branch protection", risk: "high", weight: 3, run: (s, g) => branchProtection(g) },
   { id: "dangerous-workflow", name: "Dangerous workflow", risk: "critical", weight: 3, run: (s) => dangerousWorkflow(workflowFiles(s)) },
   { id: "token-permissions", name: "Token permissions", risk: "high", weight: 2, run: (s) => tokenPermissions(workflowFiles(s)) },
-  { id: "sast", name: "SAST", risk: "medium", weight: 2, run: (s, g, p, apps) => sast(workflowFiles(s), s, apps), githubCanRefuteZero: "App inventory" },
-  { id: "dependency-updates", name: "Dependency updates", risk: "high", weight: 2, run: (s, g, p, apps) => dependencyUpdateTool(s, apps), githubCanRefuteZero: "App inventory" },
+  { id: "sast", name: "SAST", risk: "medium", weight: 2, run: (s, g, p, apps) => sast(workflowFiles(s), s, apps), githubCanRefuteZero: "App inventory", sensor: "appInventory" },
+  { id: "dependency-updates", name: "Dependency updates", risk: "high", weight: 2, run: (s, g, p, apps) => dependencyUpdateTool(s, apps), githubCanRefuteZero: "App inventory", sensor: "appInventory" },
   { id: "pinned-dependencies", name: "Pinned dependencies", risk: "medium", weight: 2, run: (s) => pinnedDependencies(workflowFiles(s), s) },
-  { id: "security-policy", name: "Security policy", risk: "medium", weight: 1, run: (s, g, p) => securityPolicy(s, p), githubCanRefuteZero: "org policy" },
+  { id: "security-policy", name: "Security policy", risk: "medium", weight: 1, run: (s, g, p) => securityPolicy(s, p), githubCanRefuteZero: "org policy", sensor: "securityPosture" },
   { id: "signed-releases", name: "Signed releases", risk: "high", weight: 1, run: (s) => signedReleases(workflowFiles(s)) },
   { id: "sbom", name: "SBOM", risk: "low", weight: 1, run: (s) => sbom(workflowFiles(s)) },
 ];
@@ -310,13 +315,34 @@ export function computeSecurityChecks(
    * When the inputs were CARRIED from an earlier observed scan (`provenance` names it), the checks run
    * normally and every check that consumed a carried input says so in its evidence.
    */
-  opts: { platformUnobservable?: boolean; provenance?: string | null } = {},
+  opts: {
+    platformUnobservable?: boolean;
+    provenance?: string | null;
+    /**
+     * The ingest sensors whose read THREW on this scan (src/lib/scan-ingest.ts). This is the SECOND
+     * way a GitHub-side input can be missing without the repo lacking the control, and it needed the
+     * same treatment as `platformUnobservable`: a failed posture read made `securityPolicy` publish
+     * "No security policy (SECURITY.md) found" — with a remediation — for an org that has one, and a
+     * failed App-inventory read floored SAST and dependency-updates at 0 against the inventory's own
+     * documented contract. A check whose 0 only that sensor could have refuted is EXCLUDED (score
+     * null) instead. A sensor that RAN and found nothing is not in this set and scores as before.
+     */
+    failedSensors?: Iterable<ScanSensorId>;
+  } = {},
 ): SecurityAssessment {
   const blind = opts.platformUnobservable === true && gov == null && apps == null && posture == null;
   const provenance = opts.provenance ?? null;
+  const failed = new Set(opts.failedSensors ?? []);
   const checks: SecurityCheck[] = POSTURE_SPEC.map((spec) => {
     let r = spec.run(snap, gov, posture, apps);
-    if (blind && spec.githubCanRefuteZero && r.score === 0) {
+    // A read that FAILED, on a scan that could otherwise see GitHub. Same exclusion as `blind`, and
+    // deliberately the same trigger (`score === 0`): a check that scored on evidence the failed sensor
+    // could not have supplied — a repo-local SECURITY.md, a committed CodeQL workflow — is a real
+    // measurement and keeps its score.
+    const unread = spec.sensor != null && failed.has(spec.sensor);
+    if (unread && !blind && spec.githubCanRefuteZero && r.score === 0) {
+      r = { score: null, evidence: `${spec.name} not observable: ${spec.sensor} read failed (${r.evidence.replace(/\.$/, "")}; GitHub-side ${spec.githubCanRefuteZero} could not be read).` };
+    } else if (blind && spec.githubCanRefuteZero && r.score === 0) {
       r = { score: null, evidence: `${spec.name} not measurable from a worktree (${r.evidence.replace(/\.$/, "")}; GitHub-side ${spec.githubCanRefuteZero} not readable here).` };
     } else if (provenance && spec.githubCanRefuteZero && r.score !== null) {
       r = { ...r, evidence: `${r.evidence.replace(/\.$/, "")} · ${provenance}.` };

@@ -9,6 +9,7 @@
 //
 // Server-safe (no hooks, no handlers) — both pieces render inside the tab's server components.
 
+import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
 import { orgTabHref } from "@/lib/org/orgTabs";
 
 /** The inline mark on the viewer's own row/card. Nothing else about the row changes. */
@@ -31,12 +32,41 @@ export function isViewer(login: string, viewerLogin: string | null | undefined):
 /**
  * The quiet strip for a viewer who is NOT in the roster. Deliberately understated: absence from this
  * table is normal (an EM, a new joiner, anyone under the floor) and must not read as a deficiency.
+ *
+ * Two DIFFERENT absences share this strip and must not share copy. Below the naming floor the
+ * producer empties `insights.contributors` entirely (getContributorInsights), so the roster test
+ * fails for EVERYONE — including the org's top committer. Printing "no commits attributed to you"
+ * there states an absence the data never established: the rows were withheld, not empty. When
+ * `namingAllowed` is false the strip says the attribution is suppressed and that the viewer's
+ * commits are still inside the totals above.
  */
-export function ContributorsYouStrip({ slug, viewerLogin }: { slug: string; viewerLogin: string | null }) {
+export function ContributorsYouStrip({
+  slug,
+  viewerLogin,
+  namingAllowed = true,
+}: {
+  slug: string;
+  viewerLogin: string | null;
+  /** From the insights payload. False ⇒ per-person rows were withheld, not absent. */
+  namingAllowed?: boolean;
+}) {
   return (
     <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900/20 px-4 py-3">
       <p className="type-body-sm text-slate-400">
-        {viewerLogin ? (
+        {!namingAllowed ? (
+          <>
+            Individual attribution is withheld below {CHAMPION_MIN_POP} contributors
+            {viewerLogin ? (
+              <>
+                {" "}
+                — <span className="font-mono text-slate-300">{viewerLogin}</span>&apos;s commits still count in the
+                totals above.
+              </>
+            ) : (
+              <> — every contributor&apos;s commits still count in the totals above.</>
+            )}
+          </>
+        ) : viewerLogin ? (
           <>
             No commits attributed to <span className="font-mono text-slate-300">{viewerLogin}</span> in this
             workspace&apos;s scanned repositories — your own activity, gaps and care loop still have a home.

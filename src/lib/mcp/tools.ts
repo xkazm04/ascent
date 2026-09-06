@@ -59,6 +59,16 @@ export interface McpToolDef {
   inputSchema: Record<string, unknown>;
 }
 
+/**
+ * How many rows one claim may take, and the ceiling `ids` is validated against.
+ *
+ * Declared HERE, in the catalog, because the schema is the contract: `work-tools.ts` used to hold the
+ * only copy and `slice(0, MAX_CLAIM_COUNT)` it silently, so an eleventh id appeared in neither
+ * `claimed` nor `refused` and the caller believed it held a row nobody had leased. Now the door
+ * refuses the call by name and the handler imports the same number.
+ */
+export const MAX_CLAIM_COUNT = 10;
+
 const repoArg = {
   type: "object",
   properties: {
@@ -95,6 +105,17 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
             "Your own session id. One vote per memory per session — re-sending revises your vote rather than adding one.",
         },
         note: { type: "string", description: "One line on how it applied, or why it did not. Optional." },
+        // DECLARED RATHER THAN DROPPED. The handler already read this and wrote it to the citation
+        // row, whose `actor` column is documented as "the caller's DECLARED identity" — so the field
+        // has a real meaning and the honest fix is to advertise it, with its limit stated: it is
+        // self-asserted and unverified. The VERIFIED identity of the caller is the token, and it is
+        // recorded separately on the audit row this write also produces.
+        actor: {
+          type: "string",
+          description:
+            "What to record as the citing identity — your agent's own name. Self-declared and not verified; " +
+            "the token that authorized this call is recorded separately. Optional (defaults to `mcp-agent`).",
+        },
       },
       required: ["id", "used", "session"],
       additionalProperties: false,
@@ -118,9 +139,16 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
         ids: {
           type: "array",
           items: { type: "string" },
-          description: "Recommendation ids to claim. Omit to take the top `count` open items for the repository.",
+          // The cap is DECLARED, so an over-long list is refused by name rather than truncated.
+          maxItems: MAX_CLAIM_COUNT,
+          description: `Recommendation ids to claim (at most ${MAX_CLAIM_COUNT}). Omit to take the top \`count\` open items for the repository.`,
         },
-        count: { type: "integer", minimum: 1, maximum: 10, description: "How many to take when `ids` is omitted (default 3)." },
+        count: {
+          type: "integer",
+          minimum: 1,
+          maximum: MAX_CLAIM_COUNT,
+          description: "How many to take when `ids` is omitted (default 3).",
+        },
         leaseMinutes: {
           type: "integer",
           minimum: 5,

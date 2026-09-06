@@ -4,21 +4,19 @@
 // replacement: the report explains the maturity score; the passport names the stack + the prod posture.
 
 import { Card, Meter, SectionHeader } from "@/components/org/shared/ui";
-import { PlaceholderMark, isPlaceholderEngine } from "@/features/standing/passports/PlaceholderMark";
-import { OwnerSetCue, type PassportOwnerSet } from "@/features/standing/passports/OwnerSetCue";
+import { PassportOverridePin } from "@/components/report/PassportOverridePin";
+import { PassportCardDeclined } from "@/features/standing/passports/PassportCardDeclined";
+import { PassportDeclineControl } from "@/features/standing/passports/PassportDeclineControl";
 import { PassportOwnerControls } from "@/features/standing/passports/PassportOwnerControls";
 import { bandColor, bandLabel, passportStackChips } from "@/lib/org/passport-display";
 import { scoreHex } from "@/lib/ui";
 import type { AppPassport } from "@/lib/types";
 
-function Rung({ label, value, tone, cue }: { label: string; value: string; tone?: "warn" | "ok"; cue?: React.ReactNode }) {
+function Rung({ label, value, tone }: { label: string; value: string; tone?: "warn" | "ok" }) {
   return (
     <div className="flex items-center justify-between gap-3 border-b border-slate-800/60 py-1.5 type-body-sm last:border-0">
       <span className="font-mono uppercase tracking-widest text-slate-500">{label}</span>
-      <span className={`font-mono ${tone === "warn" ? "text-orange-300" : tone === "ok" ? "text-emerald-300" : "text-slate-300"}`}>
-        {value}
-        {cue}
-      </span>
+      <span className={`font-mono ${tone === "warn" ? "text-orange-300" : tone === "ok" ? "text-emerald-300" : "text-slate-300"}`}>{value}</span>
     </div>
   );
 }
@@ -27,26 +25,21 @@ export function PassportCard({
   passport: pp,
   repo,
   canEdit = false,
-  engine,
-  ownerSet,
+  canFilePr = canEdit,
 }: {
   passport: AppPassport;
   repo: string;
+  /** Owner: may set overrides and declines. */
   canEdit?: boolean;
-  /** Which of the passport identity fields this repo OWNER asserted (P4 overrides), so an assertion
-   *  is not rendered in the same voice as a measurement. Absent = no overrides on record, and every
-   *  value below reads as scan-observed exactly as it always did. */
-  ownerSet?: PassportOwnerSet | null;
-  /** The engine that produced the scan behind this passport. `"mock"` is the deterministic
-   *  placeholder floor — the card says so rather than presenting a floor as a grade. Optional and
-   *  additive: a caller that does not know the engine makes no claim either way. */
-  engine?: string | null;
+  /** Admin or owner: may open the .ai/passport.json PR (the PR route accepts admins). */
+  canFilePr?: boolean;
 }) {
-  const placeholder = isPlaceholderEngine(engine);
   const auto = pp.automationReadiness;
   const prod = pp.productionReadiness;
   const chips = passportStackChips(pp);
-  const blockers = [...auto.blockers, ...prod.blockers].slice(0, 6);
+  const allBlockers = [...auto.blockers, ...prod.blockers];
+  const blockers = allBlockers.slice(0, 6);
+  const hidden = allBlockers.length - blockers.length;
 
   return (
     <Card>
@@ -88,18 +81,13 @@ export function PassportCard({
             <span className="type-mono-sm text-slate-500">/100 · trusted in prod</span>
           </div>
           <Meter className="mt-2" size="sm" value={prod.score} color={bandColor(prod.band)} />
+          {prod.overridden ? <PassportOverridePin overridden={prod.overridden} className="mt-2" /> : null}
           <div className="mt-3 space-y-0">
             <Rung label="CI" value={prod.ci.level} tone={prod.ci.level === "gated" || prod.ci.level === "delivery" || prod.ci.level === "progressive" ? "ok" : "warn"} />
             <Rung label="Tests" value={prod.tests.level} tone={prod.tests.criticalPathCovered ? "ok" : "warn"} />
             <Rung label="Security" value={prod.security.level} tone={prod.security.level === "gated" || prod.security.level === "supply-chain" ? "ok" : "warn"} />
             <Rung label="Observability" value={prod.observability.level} tone={prod.observability.level === "none" ? "warn" : "ok"} />
-            <Rung
-              label="Delivery"
-              value={`migrations: ${prod.delivery.migrations}${prod.delivery.iac ? " · iac" : ""}${prod.delivery.rollback ? " · rollback" : ""}`}
-              // Rollback is the one rung on this scale an owner asserts rather than the scan reading
-              // it, and it LIFTS the production score -- the most expensive silent assertion here.
-              cue={ownerSet?.rollback ? <OwnerSetCue /> : null}
-            />
+            <Rung label="Delivery" value={`migrations: ${prod.delivery.migrations}${prod.delivery.iac ? " · iac" : ""}${prod.delivery.rollback ? " · rollback" : ""}`} />
           </div>
         </div>
       </div>
@@ -132,39 +120,54 @@ export function PassportCard({
               </li>
             ))}
           </ul>
+          {/* Truncation is DISCLOSED. Six of eleven blockers under a heading that says "Blockers" reads
+              as the whole list, which is the one thing an honest scorecard must not do. */}
+          {hidden > 0 && (
+            <p className="mt-1.5 type-caption text-slate-600">
+              +{hidden} more — see the <a href={`/api/report/passport?repo=${encodeURIComponent(repo)}&download`} className="focus-ring text-slate-400 underline decoration-dotted hover:text-white">full passport</a>.
+            </p>
+          )}
         </div>
       )}
 
-      {/* Criticality and lifecycle FRAME how to read both scores, so where they show is exactly where
-          the reader has to be told whether a person asserted them or a scan saw them. */}
+      {/* Gaps the owner has ACCEPTED. Retired from `blockers` above by the overlay, so without this
+          list an accepted gap is invisible — indistinguishable from a gap that isn't there. */}
+      <PassportCardDeclined declined={pp.declined} />
+
       {(pp.identity.criticality || pp.identity.lifecycle) && (
         <p className="mt-3 type-mono-sm text-slate-500">
-          {pp.identity.criticality && (
-            <>criticality: <span className="text-slate-300">{pp.identity.criticality}</span>{ownerSet?.criticality && <OwnerSetCue />}</>
-          )}
+          {pp.identity.criticality && <>criticality: <span className="text-slate-300">{pp.identity.criticality}</span></>}
           {pp.identity.criticality && pp.identity.lifecycle ? " · " : ""}
-          {pp.identity.lifecycle && (
-            <>lifecycle: <span className="text-slate-300">{pp.identity.lifecycle}</span>{ownerSet?.lifecycle && <OwnerSetCue />}</>
-          )}
+          {pp.identity.lifecycle && <>lifecycle: <span className="text-slate-300">{pp.identity.lifecycle}</span></>}
         </p>
       )}
 
-      <p className="mt-3 flex flex-wrap items-center gap-1.5 type-caption text-slate-600">
-        <span>
-          {pp.evidence.source} · confidence {Math.round(pp.evidence.confidence * 100)}% · as of {pp.generatedAt}
-        </span>
-        {/* Same wording the Clearance card has always used, from the same module — a placeholder scan
-            is a floor emitted without a model, and the provenance line is where the card says so. */}
-        {placeholder && <PlaceholderMark />}
+      <p className="mt-3 type-caption text-slate-600">
+        {pp.evidence.source} · confidence {Math.round(pp.evidence.confidence * 100)}% · as of {pp.generatedAt}
       </p>
 
       {canEdit && (
+        <>
+          <PassportOwnerControls
+            repo={repo}
+            criticality={pp.identity.criticality}
+            lifecycle={pp.identity.lifecycle}
+            rollback={pp.productionReadiness.delivery.rollback}
+            canFilePr={canFilePr}
+          />
+          <PassportDeclineControl repo={repo} passport={pp} />
+        </>
+      )}
+      {!canEdit && canFilePr && (
+        // An admin who is not an owner: the PR route accepts them, the overrides route does not, so
+        // only the PR affordance renders (the form would 403).
         <PassportOwnerControls
           repo={repo}
           criticality={pp.identity.criticality}
           lifecycle={pp.identity.lifecycle}
           rollback={pp.productionReadiness.delivery.rollback}
-          ownerSet={ownerSet}
+          canFilePr
+          prOnly
         />
       )}
     </Card>

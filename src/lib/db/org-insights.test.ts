@@ -68,6 +68,8 @@ interface FakeScan {
   level: string;
   posture: string;
   dimensions?: { dimId: string; score: number }[];
+  /** Scan provenance. Defaults to a live engine; "mock" is the deterministic floor. */
+  engineProvider?: string;
 }
 interface FakeRepo {
   id: string;
@@ -134,6 +136,7 @@ function fakeOrgPrisma(repos: FakeRepo[], scans: FakeScan[], plan = "enterprise"
             level: s.level,
             posture: s.posture,
             scannedAt: s.scannedAt,
+            engineProvider: s.engineProvider ?? "anthropic",
             repo: { fullName: repo.fullName, name: repo.name },
           };
         });
@@ -142,8 +145,11 @@ function fakeOrgPrisma(repos: FakeRepo[], scans: FakeScan[], plan = "enterprise"
     repository: {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- prisma query-arg shape on a test double
       findMany: vi.fn(async (args: any) => {
-        const end = args?.include?.scans?.where?.scannedAt?.lte as Date | undefined;
-        const take = args?.include?.scans?.take ?? undefined;
+        // getOrgRollup names its columns (`select`); getOrgMovers' unwindowed branch uses `select`
+        // too. Read the scans sub-query from either key so this double stays faithful to both.
+        const scansArg = args?.select?.scans ?? args?.include?.scans;
+        const end = scansArg?.where?.scannedAt?.lte as Date | undefined;
+        const take = scansArg?.take ?? undefined;
         const ordered = [...repos].sort((a, b) => a.fullName.localeCompare(b.fullName));
         return ordered.map((r) => {
           let rScans = scans
@@ -159,6 +165,7 @@ function fakeOrgPrisma(repos: FakeRepo[], scans: FakeScan[], plan = "enterprise"
               rigorScore: s.rigorScore,
               posture: s.posture,
               scannedAt: s.scannedAt,
+              engineProvider: s.engineProvider ?? "anthropic",
               dimensions: s.dimensions ?? [],
             })),
           };
@@ -194,6 +201,7 @@ function scan(repoId: string, scannedAt: string, overall: number, extra: Partial
     level: extra.level ?? "L2",
     posture: extra.posture ?? "developing",
     dimensions: extra.dimensions,
+    engineProvider: extra.engineProvider ?? "anthropic",
   };
 }
 
@@ -619,6 +627,7 @@ function fakeRecPrisma(reposRecs: { name: string; recs: FakeRec[] }[]) {
       findMany: vi.fn(async () =>
         reposRecs.map((r) => ({
           name: r.name,
+          fullName: `acme/${r.name}`,
           scans: [{ recommendations: r.recs.map((rec) => ({ ...rec })) }],
         })),
       ),
@@ -1065,5 +1074,115 @@ describe("getOrgBenchmark — corpus eligibility", () => {
     expect(b!.corpusRepos).toBe(0);
     expect(b!.overallPercentile).toBeNull(); // no corpus ⇒ no rank, never a hard 0/100
     expect(b!.corpusBasis).toEqual({ rubric: SCORING_RUBRIC_VERSION, excludesMockEngine: true });
+  });
+});
+
+// ── A mock endpoint is an ENGINE TRANSITION, not repo movement (fleet-rollups-insights) ──────────
+// `getOrgRollup` refuses a mock endpoint on either side of its cohort delta, and the Overview cohort
+// card's `avgRealMove` refuses it client-side. getOrgMovers did not — so the same mock→live re-scan
+// that the badge above declines to count was reported as the fleet's TOP GAINER in Fix-first, the
+// weekly digest and the Executive Briefing PDF. Same predicate (isMockScore), applied at the move
+// builder so both branches (windowed and since-last-scan) inherit it.
+describe("getOrgMovers — the mock floor is never an endpoint of a move", () => {
+  it("drops a mock→live promotion instead of reporting it as the top gainer (windowed)", async () => {
+    const repos = [repo("r1", "acme/promoted"), repo("r2", "acme/real")];
+    const scans = [
+      // r1 sat on the deterministic floor before the window and got a real score inside it (+70).
+      scan("r1", "2026-03-01T00:00:00.000Z", 10, { engineProvider: "mock" }),
+      scan("r1", "2026-05-01T00:00:00.000Z", 80),
+      // r2 is a genuine, modest climb.
+      scan("r2", "2026-03-01T00:00:00.000Z", 60),
+      scan("r2", "2026-05-01T00:00:00.000Z", 68),
+    ];
+    mockGetPrisma.mockReturnValue(fakeOrgPrisma(repos, scans));
+
+    const movers = (await getOrgMovers("acme", WINDOW))!;
+
+    expect(movers.gainers.map((m) => m.fullName)).toEqual(["acme/real"]);
+    expect(movers.gainers[0]!.dOverall).toBe(8);
+    expect(movers.comparedRepos).toBe(1); // r1 was never compared, so it is not in the denominator
+    // …and it isn't quietly re-filed as an onboarded repo either: the pair simply isn't a measurement.
+    expect(movers.onboarded).toEqual([]);
+  });
+
+  it("drops a live→mock DEGRADATION too — a fallback to the floor is not a regression", async () => {
+    // The symmetric case, and the one that would put a healthy repo on the Executive Briefing's
+    // "biggest regressions" list because an inference provider had an outage.
+    const repos = [repo("r1", "acme/degraded")];
+    const scans = [
+      scan("r1", "2026-03-01T00:00:00.000Z", 80),
+      scan("r1", "2026-05-01T00:00:00.000Z", 10, { engineProvider: "mock" }),
+    ];
+    mockGetPrisma.mockReturnValue(fakeOrgPrisma(repos, scans));
+
+    const movers = (await getOrgMovers("acme", WINDOW))!;
+
+    expect(movers.regressers).toEqual([]);
+    expect(movers.comparedRepos).toBe(0);
+  });
+
+  it("applies the same rule to the unwindowed 'since last scan' branch", async () => {
+    const repos = [repo("r1", "acme/promoted"), repo("r2", "acme/real")];
+    const scans = [
+      scan("r1", "2026-03-01T00:00:00.000Z", 10, { engineProvider: "mock" }),
+      scan("r1", "2026-05-01T00:00:00.000Z", 80),
+      scan("r2", "2026-03-01T00:00:00.000Z", 60),
+      scan("r2", "2026-05-01T00:00:00.000Z", 68),
+    ];
+    mockGetPrisma.mockReturnValue(fakeOrgPrisma(repos, scans));
+
+    const movers = (await getOrgMovers("acme"))!; // no window → latest two scans per repo
+
+    expect(movers.gainers.map((m) => m.fullName)).toEqual(["acme/real"]);
+    expect(movers.comparedRepos).toBe(1);
+  });
+
+  it("still reports a move whose BOTH endpoints are live (the exclusion is narrow)", async () => {
+    const repos = [repo("r1", "acme/alpha")];
+    const scans = [scan("r1", "2026-03-01T00:00:00.000Z", 50), scan("r1", "2026-05-01T00:00:00.000Z", 70)];
+    mockGetPrisma.mockReturnValue(fakeOrgPrisma(repos, scans));
+
+    const movers = (await getOrgMovers("acme", WINDOW))!;
+
+    expect(movers.gainers.map((m) => m.fullName)).toEqual(["acme/alpha"]);
+    expect(movers.gainers[0]!.dOverall).toBe(20);
+  });
+});
+
+// ── The `repoFullName` filter: applied to the SORTED list, before the cap ──────────────────────
+//
+// The MCP door asked for the fleet's top N and filtered by repo afterwards, so a repository whose
+// gaps were real but not the fleet's highest-leverage answered `count: 0`. (Worse: it filtered
+// `repos`, which carries BARE names, against "owner/name" — so it matched nothing at all.)
+describe("getOrgRecommendations — the repo filter", () => {
+  const fleet = () =>
+    fakeRecPrisma([
+      { name: "alpha", recs: [{ title: "Shared gap", dimId: "D1", impact: "high" }] },
+      { name: "bravo", recs: [{ title: "Shared gap", dimId: "D1", impact: "high" }, { title: "Bravo only", dimId: "D5", impact: "low" }] },
+    ]) as never;
+
+  it("keeps a repo's own move that the fleet-wide cap would have cut", async () => {
+    mockGetPrisma.mockReturnValue(fleet());
+    // limit 1, fleet-wide: only the 2-repo "Shared gap" survives, and "Bravo only" is invisible.
+    expect((await getOrgRecommendations("acme", 1))!.map((r) => r.title)).toEqual(["Shared gap"]);
+    // Scoped to bravo with the same cap of 1… still the top move FOR BRAVO. Raise the cap and the
+    // repo's own item is there, which the old post-filter could never return.
+    expect((await getOrgRecommendations("acme", 5, null, null, "acme/bravo"))!.map((r) => r.title)).toEqual([
+      "Shared gap",
+      "Bravo only",
+    ]);
+  });
+
+  it("matches on \"owner/name\" and excludes a repo the move does not affect", async () => {
+    mockGetPrisma.mockReturnValue(fleet());
+    expect((await getOrgRecommendations("acme", 5, null, null, "acme/alpha"))!.map((r) => r.title)).toEqual(["Shared gap"]);
+    expect(await getOrgRecommendations("acme", 5, null, null, "acme/ghost")).toEqual([]);
+  });
+
+  it("is behaviour-neutral when absent", async () => {
+    mockGetPrisma.mockReturnValue(fleet());
+    const all = await getOrgRecommendations("acme", 5);
+    expect(await getOrgRecommendations("acme", 5, null, null, null)).toEqual(all);
+    expect(all!.map((r) => r.repos)).toEqual([["alpha", "bravo"], ["bravo"]]);
   });
 });

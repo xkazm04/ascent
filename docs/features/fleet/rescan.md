@@ -10,6 +10,11 @@ The fleet runs at **two speeds**, over one durable queue (`ScanJob`, `src/lib/db
 Both are guarded by the shared `CRON_SECRET` (`src/lib/cron-auth.ts`, `requireCronAuth`) and require
 the GitHub App + `DATABASE_URL`.
 
+A third trigger sits outside the cron queue: the **push rescan** (`POST /api/app/webhook`, a
+default-branch push to a watched repo). Since 2026-09-05 it is metered like the `rescore` lane, one
+credit reserved before inference and skipped at zero balance, see
+[github-app.md](../github/github-app.md#a-push-rescan-pays-for-itself-2026-09-05).
+
 **Why two.** Re-scoring is expensive and paid, so it runs on cadence. But a repo's *controls* —
 branch protection, required reviews, rulesets, visibility, whether the repo still exists — move
 without a line of code changing, and reading them is free. Separating them means "which of my 900

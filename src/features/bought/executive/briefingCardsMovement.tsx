@@ -8,6 +8,7 @@ import { Card, InlineEmpty, Meter, SectionHeader } from "@/components/org/shared
 // public share page, and the wording must have one source across every goal surface.
 import { GOAL_ATTAINMENT_MARKER } from "@/components/org/shared/goalViewLogic";
 import { MoveRow } from "./briefingShared";
+import { movementLine } from "@/lib/org/briefing";
 import { scoreHex } from "@/lib/ui";
 import type { BriefingGoal, BriefingMove, ExecBriefing } from "@/lib/org/briefing";
 
@@ -25,6 +26,7 @@ export function BriefingMovementCard({
   gainers,
   regressions,
   movement = null,
+  liveScoredRepos = 0,
   reportLinks = false,
   className = "",
 }: {
@@ -32,20 +34,22 @@ export function BriefingMovementCard({
   regressions: BriefingMove[];
   /** Fleet-wide movement scale, rendered above the rows when `compared > 0`. */
   movement?: ExecBriefing["movement"] | null;
+  /** `ExecBriefing.realScoredCount` — the SUPERSET the scale line names the comparable set against.
+   *  0 (the default) simply omits the "(of N live-scored)" clause; the line still renders. */
+  liveScoredRepos?: number;
   /** Exec-only: link each mover to its report permalink. */
   reportLinks?: boolean;
   className?: string;
 }) {
   if (gainers.length === 0 && regressions.length === 0) return null;
+  const scale = movement ? movementLine(movement, liveScoredRepos) : null;
   return (
     <Card className={className}>
       <SectionHeader size="sm" title="Movement this period" />
-      {movement && movement.compared > 0 && (
-        <p className="mt-2 type-mono-sm text-slate-500">
-          {movement.up + movement.down} of {movement.compared} compared repos moved
-          ({movement.up} ▲ / {movement.down} ▼)
-        </p>
-      )}
+      {/* Direction 2 — the composed line (G12). The inlined copy read "{up+down} of {compared}
+          compared repos moved" with no statement of what `compared` is a subset OF, which is the
+          gap UAT DANA-L1-012 named; the PDF and the markdown were already reading the composer. */}
+      {scale && <p className="mt-2 type-mono-sm text-slate-500">{scale}</p>}
       <div className="mt-3 space-y-1.5">
         {gainers.map((m) => (
           <MoveRow

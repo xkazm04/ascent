@@ -505,6 +505,20 @@ so it carries no `mutates` marker, no `telemetry:write` and no policy row — bu
 answerable for rows the caller HOLDS, and only a token that can claim can hold one, so it is scoped
 with `followups:write` all the same.
 
+**Arguments are validated at the door (2026-09-05).** `runTool` validates every call against the
+tool's declared `inputSchema` (types, required, `additionalProperties: false`, min/max, enum,
+`maxItems`) before dispatch, for the MCP route and Athena alike; a violation is an in-band
+`isError: true` result naming the argument and the rule, since the model that wrote the arguments is
+the party that can fix them. `claim_followups.ids` is capped at ten by the schema (refused by name,
+never silently truncated); `leaseMinutes` honours its minimum; `cite_memory` declares `actor` as a
+self-asserted, unverified label (the verified identity is on the audit row). The door's rate limit is a
+ladder: the per-IP `GATE_RATE_LIMIT` before auth, then `MCP_RATE_LIMIT` keyed on the token id
+(300/min per token, 3,000/min global, env-overridable, basis stated in code), plus a 64 KB body cap.
+`get_fix_brief` re-runs `claimability` per repo and refuses `repo-closed` rows by id, so admission
+binds the agent already holding a lease, not only the next claimer. `list_open_recommendations`
+filters by repository before the cap and names an empty result (it used to filter after, on bare repo
+names, so every `repo` argument returned zero). Athena's catalog offers no tool that needs a principal.
+
 `mcp:read` is the **door** scope and is deliberately separate from the resource scopes beside it: a
 token holding it alone sees only the org-standing tools, and `memory:read` / `skills:read` unlock
 their families *on top*. So granting an agent the door does not silently grant it the org's memory or
@@ -553,7 +567,10 @@ A write must clear four gates, in order (`src/lib/mcp/write-gate.ts`):
    in the fleet and make the ledger read empty to everyone else until the leases lapsed.
 
 Then exactly one `AuditLog` row per accepted write, action `mcp.write.<tool>`, actor
-`token:<name>`, meta carrying the argument *key shape* and the idempotency key — never the raw
+`token:<tokenId>` (since 2026-09-05; the name rides as `tokenName` in the meta, because names are not
+unique and two tokens named `ci` used to share one daily counter and one work-queue holder identity —
+the holder is `agent:<tokenId>` with a transitional match on the old name form that lapses with the
+leases), meta carrying the argument *key shape* and the idempotency key — never the raw
 arguments, because a citation `note` is free text an agent wrote. **There is no separate registry
 audit table**: `AuditLog` already has the org audit viewer, the retention purge and the integrity
 chain, and a second store would fork all three.

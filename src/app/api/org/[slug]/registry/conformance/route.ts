@@ -46,13 +46,20 @@ export async function POST(request: Request, ctx: { params: Promise<{ slug: stri
   const gate = await guardRegistryWrite(slug);
   if (gate instanceof NextResponse) return gate;
 
-  const body = (await request.json().catch(() => ({}))) as { repositoryIds?: unknown };
+  const body = (await request.json().catch(() => ({}))) as { repositoryIds?: unknown; repositoryId?: unknown };
   const repositoryIds = Array.isArray(body.repositoryIds)
     ? body.repositoryIds.filter((v): v is string => typeof v === "string" && v.length > 0).slice(0, 500)
     : undefined;
+  // The one-repo form (a dispatch closing on the repo it touched). Gate-then-constrain like the
+  // list: the id travels into the org-constrained query, so a foreign repo is a 409 "nothing to
+  // sweep", never a read of someone else's map.
+  const repositoryId = typeof body.repositoryId === "string" && body.repositoryId.length > 0 ? body.repositoryId : undefined;
 
   try {
-    const result = await sweepConformance(slug, gate.token, repositoryIds ? { repositoryIds } : {});
+    const result = await sweepConformance(slug, gate.token, {
+      ...(repositoryIds ? { repositoryIds } : {}),
+      ...(repositoryId ? { repositoryId } : {}),
+    });
     if (result.scanned === 0) {
       return registryError("no-op", "This organization has no repositories to sweep.", 409);
     }

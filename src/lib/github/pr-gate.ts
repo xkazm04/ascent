@@ -13,6 +13,7 @@
 
 import { getInstallationToken } from "@/lib/github/app";
 import { getOrgGatePolicy, reportPermalink } from "@/lib/db";
+import { orgSlugForRepo } from "@/lib/db/org-tenancy";
 import { scanRepository } from "@/lib/scan";
 import { publicBaseUrl } from "@/lib/site";
 import { defaultGatePolicy, evaluateGate, tightenGatePolicy } from "@/lib/scoring/gate";
@@ -111,7 +112,15 @@ export async function runPrGate(ref: PrGateRef, hooks: PrGateHooks = {}): Promis
     // archetype default — silently relaxing the merge gate for the duration of a DB blip, on the one
     // status that actually blocks merges. Letting it propagate reaches the outer catch, which posts the
     // neutral "could not run" check and releases the delivery so GitHub's redelivery retries.
-    const orgPolicy = (await getOrgGatePolicy(owner)) ?? undefined;
+    // TENANCY, not the owner login: the org whose bar applies is the one that TRACKS this repository
+    // (the same fix `repoUnderOrg` carries). An org named for its team — watching repos under a
+    // personal account — resolved to nothing here, and nothing reads as "no bar configured", so the
+    // merge-blocking check enforced the archetype default while the org believed its bar was live.
+    // The owner-login match stays the fast path, so the common deployment is unchanged. A throw
+    // reaches the outer catch, which posts the neutral "could not run" check — the same fail-closed
+    // treatment the policy read itself gets, and for the same reason.
+    const orgSlug = await orgSlugForRepo(owner, fullName);
+    const orgPolicy = (await getOrgGatePolicy(orgSlug)) ?? undefined;
     // #8 — THE SAME admission layer the public endpoint folds, resolved by the SAME function. This
     // module exists precisely so a second gate surface cannot fork the evaluator, and an overlay
     // applied on one surface but not the other would be that fork in its most expensive form: the
@@ -122,13 +131,20 @@ export async function runPrGate(ref: PrGateRef, hooks: PrGateHooks = {}): Promis
     // returns an empty overlay without throwing for every legitimate absence, so a throw reaches the
     // outer catch, posts the neutral "could not run" check and releases the delivery for a retry —
     // never a green check scored against a bar we could not read.
-    const admissionLayer = await resolveAdmissionLayer(owner, fullName);
+    const admissionLayer = await resolveAdmissionLayer(orgSlug, fullName);
     const base = orgPolicy ?? defaultGatePolicy(headReport.archetype);
     // Folded, never assigned: tighten-only, so the admission row can only raise this bar.
     const policy = tightenGatePolicy(base, admissionLayer.overlay);
     // #16 — judged against the repo's own latest conformance report; null skips (see loadCheckStates).
-    const checkStates = policy.requireChecks?.length ? await loadCheckStates(owner, fullName) : null;
-    const gate = evaluateGate(headReport, policy, { checkStates });
+    const checkStates = policy.requireChecks?.length ? await loadCheckStates(orgSlug, fullName) : null;
+    // The scan's own honesty flags, threaded at this seam too (gate-liveness): the Check Run is the
+    // status that BLOCKS a merge, so a verdict produced from a scan whose sensors failed must carry
+    // that fact into the summary rather than render as a full-confidence green check.
+    const gate = evaluateGate(headReport, policy, {
+      checkStates,
+      sensorFailures: headReport.sensorFailures ?? [],
+      confidence: headReport.confidence,
+    });
     // The check-run surface is the one that can actually block a merge, so its verdicts are the ones
     // worth counting. `scoredHead: false` marks the fork fallback as non-authoritative so it is never
     // tallied as a repository failing the bar.

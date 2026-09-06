@@ -3,6 +3,16 @@
 //   - default / format=json (no download): the UsageSummary as JSON
 //   - format=csv  -> per-day CSV, as a file download (finance reconciliation)
 //   - format=json + download: the summary as a pretty JSON file download
+//
+// EVERY date this route emits is UTC, and the body says so in `timezone`. The window is the
+// half-open `[windowSince, windowBefore)` echoed on the body — UTC-day-anchored, with the upper
+// bound at midnight UTC of TOMORROW, not "now" — and each `daily[].date` is a UTC calendar day
+// (`date_trunc('day', …)` server-side). `?days=` selects the window LENGTH; it does not shift the
+// day boundary to the caller's locale, so a consumer in UTC-8 reconciling against local-midnight
+// books must re-bucket rather than assume. The window is echoed rather than left to be rebuilt from
+// `days` and a local clock, and `effectiveSince` reports where the day series actually starts: a
+// window reaching back before the org's first scan is CLAMPED there instead of exporting rows of
+// zeros for days nobody was measuring.
 
 import { NextResponse } from "next/server";
 import { getUsageSummary, isDbConfigured, type UsageSummary } from "@/lib/db";
@@ -30,7 +40,10 @@ function toCsv(summary: UsageSummary): string {
  *
  * A SEPARATE view rather than columns bolted onto the per-day export, deliberately: the day series is
  * a reconciliation artifact whose shape (`date,billable,free,total`) downstream sheets already key
- * on, and a lane is not a property of a day's scan count. Both go through the shared `csvTable`, so
+ * on, and a lane is not a property of a day's scan count. The same rule holds for the per-REPO spend
+ * the summary now carries (`byRepo[].estimatedCostUsd`): it rides the JSON body ADDITIVELY and enters
+ * neither CSV — a third `repo` scope block here would change a file shape, not add a column (G19).
+ * Both go through the shared `csvTable`, so
  * the formula-injection guard and the quoting rules are the same ones every other export uses.
  *
  * `team` is OMITTED entirely for the public funnel: the shared anonymous org has no teams, and its

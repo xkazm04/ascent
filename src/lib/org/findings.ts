@@ -9,15 +9,16 @@
 // The whole design rests on key stability. A key built from wording ("Default branch is unprotected")
 // changes the moment a rubric or an LLM reworded the sentence, silently orphaning the decision and
 // resurrecting a finding the user already dismissed. So keys are built from the most stable identity
-// available — the repo's fullName plus a stable check id — and fall back to hashing free text ONLY
-// where no such id exists (see `blockerKey`). Adding a new module means adding a builder here, never
-// inventing keys at the call site.
+// available — the repo's fullName plus a stable id — and fall back to hashing free text only where no
+// id exists. Adding a new module means adding a builder here, never inventing keys at the call site.
 //
-// Passport blockers were the one module still keyed by prose. They are not any more: passport 0.4.0
-// mints `findings[].id` per CAUSE, and `passportFindingKey` joins on it, so an LLM rewording a blocker
-// no longer resets the owner's snooze. The prose hash survives as the documented fallback for rows
-// with no durable id — which includes the `unclassified` back-fill `upgradePassport` mints for an
-// unrecognized stored blocker, an id that is positional and must never carry a decision.
+// PASSPORT BLOCKERS (Direction 8). These were the one text-hashed key left, on the grounds that they
+// are "LLM-authored prose with no id". Passport 0.4.0 made that false: every blocker is minted with a
+// `findings[].id` (`auto.self-verify-gaps`), which the decline join and the fleet Pareto already key
+// on. Text-hashing was actively wrong for at least one of them — `auto.self-verify-gaps` embeds the
+// missing-script list in its sentence, so a repo that adds a `lint` script rotated its key and
+// ORPHANED the decision its owner had recorded. `blockerKeys` therefore returns the id key as the
+// write key and the old prose key as a read-only legacy alias.
 //
 // Framework-free and pure: no Prisma, no React, no db imports. Inputs are narrow structural types so
 // callers can pass the slices of getOrgRollup / getOrgTeamRollup / getContributorInsights /
@@ -51,30 +52,6 @@ export interface Finding {
    * identity, and `title` is what gets persisted onto the decision.
    */
   subject?: string;
-  /**
-   * Keys this finding may ALREADY be stored under from before its identity improved — read-only, and
-   * never written to. A builder that changes how it keys must list the old key here, or every
-   * decision recorded under the old one silently stops counting and the badge re-raises findings a
-   * human already closed. Consumed by `isFindingResolved`, which is the only place a key comparison
-   * belongs. Absent when the finding has only ever had one identity.
-   */
-  legacyKeys?: string[];
-}
-
-/**
- * Has a human already settled this finding? True when the module's resolved set holds the finding's
- * current key OR any key it used to have.
- *
- * The alternative — comparing `itemKey` alone — makes any improvement to a key derivation a
- * user-visible REGRESSION: a snooze recorded yesterday stops suppressing its badge today, and the
- * only cure is for the user to make the same decision twice. That is the exact failure the whole
- * module exists to prevent, so the tolerance for an old key lives here, in the one place that asks
- * the question, rather than being sprinkled through consumers.
- */
-export function isFindingResolved(resolved: Set<string> | undefined, finding: Finding): boolean {
-  if (!resolved) return false;
-  if (resolved.has(finding.itemKey)) return true;
-  return (finding.legacyKeys ?? []).some((k) => resolved.has(k));
 }
 
 /**
@@ -149,105 +126,75 @@ export function teamsFindings(unowned: TeamsFindingInput[]): Finding[] {
 
 // ── Passports ─────────────────────────────────────────────────────────────────────────────────────
 
-/** The half of a passport `PassportFinding` an identity is derived from: the minted id (0.4.0) plus
- *  the rendered sentence that is all a pre-0.4.0 row has. Structural, so a caller can pass a passport
- *  finding, a nav-count row or a hand-built `{ text }` without importing the passport types. */
-export interface PassportFindingRef {
-  /** Minted, axis-scoped cause id — e.g. `prod.zero-observability`. Null/absent on a row with none. */
-  id?: string | null;
-  /** The cause code without its axis prefix. Only read to spot the non-durable `unclassified` bucket. */
-  code?: string | null;
-  /** The rendered sentence AS OF this generation. The fallback identity, never the preferred one. */
-  text: string;
-}
-
 export interface PassportFindingInput {
   fullName: string;
   /** Automation + production readiness blockers, already merged by the caller. */
   blockers: string[];
-  /** 0.4.0: the same blockers WITH their minted ids, merged across both axes. Preferred over
-   *  `blockers` when present — see `passportFindingKey`. */
-  findings?: PassportFindingRef[];
+  /**
+   * Passport 0.4.0's minted findings behind those blockers (same sentences, plus a stable `id`).
+   * OPTIONAL and matched by text: a caller that has not plumbed them through yet keeps producing the
+   * legacy text-hashed key exactly as before, so nothing moves for it. Supplying them switches this
+   * repo's findings onto the id key — the identity a decision should have been keyed on all along.
+   */
+  findings?: { id: string; text: string }[];
 }
 
 /**
- * Blockers are LLM-authored prose, so the LEGACY key hashes the normalized text. A materially
- * reworded blocker is a NEW finding under this key — which is exactly the orphaning that passport
- * 0.4.0's minted ids exist to end. Kept as the fallback identity (and as the key every decision
- * recorded before 0.4.0 is stored under), never as the first choice.
+ * The LEGACY key: repo + a hash of the normalized blocker TEXT. Retained because decisions recorded
+ * before Direction 8 are stored under it — see {@link blockerKeys} for how they are still honoured,
+ * and for when this can be deleted. Never use it as the write key for a blocker that carries an id.
  */
 export function blockerKey(fullName: string, blocker: string): string {
   return `${fullName}::${fnv1a(stableText(blocker))}`;
 }
 
-/** The back-fill bucket `upgradePassport` mints for a stored blocker it cannot classify. */
-const UNCLASSIFIED = "unclassified";
-
 /**
- * Is this finding's id safe to persist a judgment against?
- *
- * `upgradePassport` back-fills a pre-0.4.0 row's blockers with ids, but an unmatched line gets
- * `auto.unclassified.<index>` — an id that MOVES when the list changes and which passport-migrate.ts
- * documents as "INTENTIONALLY not durable, so nothing downstream may persist a judgment against it".
- * Keying a decision on it would be strictly worse than the prose hash: a reworded blocker at least
- * rotates the hash honestly, whereas a positional id silently re-points an old decision at a
- * different finding. So an unclassified id reads here as NO id.
+ * The identity of a passport blocker: the repo plus the minted finding id. Rewording the blocker's
+ * sentence — which the self-verify blocker does every time the repo's script list changes — leaves
+ * this key untouched, which is the whole point: a decision is about the CAUSE, not about the
+ * sentence that described it on the day it was made.
  */
-function durableId(f: PassportFindingRef): string | null {
-  if (!f.id || f.code === UNCLASSIFIED) return null;
-  return f.id.split(".").includes(UNCLASSIFIED) ? null : f.id;
+export function findingItemKey(fullName: string, findingId: string): string {
+  return `${fullName}::${findingId}`;
 }
 
 /**
- * The ONE identity for a passport blocker — used by the nav badge's derivation and by the drawer's
- * per-blocker decision control alike. Never derive a second one at a call site: two derivations of a
- * decision key is the same bug as no key at all, discovered later.
+ * Every key a decision for this blocker may be stored under, newest first.
  *
- * Prefers the minted finding id, so rewording a blocker no longer orphans the decision recorded
- * against it (the property `src/lib/analyze/passport-overlay.ts` already relies on for declines).
- * Falls back to the prose hash when there is no durable id, which keeps pre-0.4.0 rows resolving the
- * decisions they already have.
+ * `[0]` is the WRITE key. The rest are READ-ONLY legacy aliases a lookup falls back to, so a decision
+ * recorded before Direction 8 keeps suppressing its finding instead of silently re-opening.
+ *
+ * CLEANUP. The alias is dead weight once every pre-Direction-8 passport decision has either been
+ * re-decided or aged out. Two quarters is the window: after 2027-03-01, delete the legacy element
+ * here, the `?? decisions[legacy]` fallbacks at the call sites, and the title-derived alias in
+ * `resolvedKeys` (src/lib/db/org-decisions.ts). Nothing else reads it.
  */
-export function passportFindingKey(fullName: string, finding: PassportFindingRef): string {
-  const id = durableId(finding);
-  return id ? `${fullName}::${id}` : blockerKey(fullName, finding.text);
-}
-
-/**
- * Every key a decision on this finding may be STORED under, most-preferred first: the id key, then
- * the legacy prose key it would have been written under before the id existed. A reader dual-reads
- * this list so an owner's existing snooze/accept survives the switch; a WRITER always uses
- * `passportFindingKey` (element 0), which migrates the decision forward the next time it is touched.
- */
-export function passportFindingKeys(fullName: string, finding: PassportFindingRef): string[] {
-  const primary = passportFindingKey(fullName, finding);
-  const legacy = blockerKey(fullName, finding.text);
-  return primary === legacy ? [primary] : [primary, legacy];
+export function blockerKeys(fullName: string, blocker: string, findingId?: string | null): string[] {
+  const legacy = blockerKey(fullName, blocker);
+  return findingId ? [findingItemKey(fullName, findingId), legacy] : [legacy];
 }
 
 export function passportFindings(repos: PassportFindingInput[]): Finding[] {
   const out: Finding[] = [];
   for (const r of repos) {
-    // 0.4.0 rows carry ids; a caller that only has prose (or a passport whose axes have no `findings`)
-    // still gets the legacy behaviour, one line at a time.
-    const refs: PassportFindingRef[] = r.findings?.length ? r.findings : r.blockers.map((text) => ({ text }));
-    // A repo can list the same blocker on both readiness axes; one finding is enough. De-duping on the
-    // KEY rather than the text also collapses one cause listed twice under one id.
+    // A repo can list the same blocker on both readiness axes; one finding is enough. De-duping on
+    // the KEY rather than the text also collapses two differently-worded sentences that the passport
+    // minted under one cause id — which is the same thing the fleet Pareto's bucketing does.
     const seen = new Set<string>();
-    for (const f of refs) {
-      if (!stableText(f.text)) continue;
-      const [itemKey, ...legacyKeys] = passportFindingKeys(r.fullName, f);
-      if (seen.has(itemKey!)) continue;
-      seen.add(itemKey!);
+    const idFor = (text: string): string | undefined =>
+      r.findings?.find((f) => stableText(f.text) === stableText(text))?.id;
+    for (const b of r.blockers) {
+      const text = stableText(b);
+      if (!text) continue;
+      const key = blockerKeys(r.fullName, b, idFor(b))[0]!;
+      if (seen.has(key)) continue;
+      seen.add(key);
       out.push({
         module: "passports",
-        itemKey: itemKey!,
+        itemKey: key,
         repo: r.fullName,
-        title: f.text.trim(),
+        title: b.trim(),
         detail: `Readiness blocker on ${r.fullName}.`,
-        // The prose key this blocker was decided under before 0.4.0's ids. Carried so the badge keeps
-        // subtracting an existing snooze instead of re-raising a finding its owner already closed.
-        ...(legacyKeys.length ? { legacyKeys } : {}),
       });
     }
   }

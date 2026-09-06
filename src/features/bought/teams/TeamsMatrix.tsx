@@ -66,6 +66,22 @@ export function TeamsMatrix({
       return next;
     });
 
+  // The AI% cell is a commit-weighted SHARE; the row printed it bare, so the only place a reader
+  // could learn how many people it rests on was the expanded detail. A team of two with one AI user
+  // and a team of forty read identically at "50". The population now rides the cell itself.
+  const aiCell = (t: TeamRollup) => (
+    <td
+      className="px-2 py-2 text-right font-mono tabular-nums"
+      style={{ color: scoreHex(t.aiCommitShare) }}
+      title={`${t.aiCommitShare}% of this team's commits are AI-attributed · ${t.aiContributors} of ${t.contributors} contributor${t.contributors === 1 ? " has" : "s have"} at least one AI-attributed commit`}
+    >
+      {t.aiCommitShare}
+      <span className="ml-1 type-micro text-slate-600">
+        {t.aiContributors}/{t.contributors}
+      </span>
+    </td>
+  );
+
   const scoreCell = (v: number) => (
     <td className="px-2 py-2 text-right font-mono tabular-nums" style={{ color: scoreHex(v) }}>
       {v}
@@ -108,7 +124,7 @@ export function TeamsMatrix({
             {scoreCell(t.avgOverall)}
             {scoreCell(t.avgAdoption)}
             {scoreCell(t.avgRigor)}
-            {scoreCell(t.aiCommitShare)}
+            {aiCell(t)}
             <td
               className="px-2 py-2 text-right font-mono tabular-nums"
               style={{ color: t.comparedRepos > 0 ? deltaHex(t.avgDelta) : undefined }}

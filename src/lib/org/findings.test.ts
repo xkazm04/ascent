@@ -7,13 +7,12 @@
 import { describe, expect, it } from "vitest";
 import {
   blockerKey,
+  blockerKeys,
+  findingItemKey,
   contributorFindings,
   fnv1a,
   isFindingModule,
-  isFindingResolved,
   practiceFindings,
-  passportFindingKey,
-  passportFindingKeys,
   passportFindings,
   securityFindings,
   teamsFindings,
@@ -74,7 +73,7 @@ describe("passportFindings", () => {
     expect(blockerKey("acme/api", "No CI")).not.toBe(blockerKey("acme/web", "No CI"));
   });
 
-  it("rotates the key when the blocker is materially reworded (a new finding deserves a fresh look)", () => {
+  it("rotates the LEGACY key when the blocker is reworded — the defect the id key exists to fix", () => {
     expect(blockerKey("acme/api", "No CI pipeline")).not.toBe(blockerKey("acme/api", "No CD pipeline"));
   });
 
@@ -86,109 +85,79 @@ describe("passportFindings", () => {
   it("drops blank blockers", () => {
     expect(passportFindings([{ fullName: "acme/api", blockers: ["", "   "] }])).toEqual([]);
   });
-});
 
-// Passport 0.4.0 minted `findings[].id` per CAUSE precisely so rewording a blocker stops orphaning the
-// judgment recorded against it — the decline overlay already joins on it. These pin the org-decision
-// half onto the SAME identity, so the two subsystems stop holding two names for one finding.
-describe("passportFindingKey", () => {
-  const obs = { id: "prod.zero-observability", code: "zero-observability", text: "Zero observability: no error tracking." };
-
-  it("keys on the minted id, so a reworded blocker keeps its decision", () => {
-    const reworded = { ...obs, text: "This service emits no telemetry of any kind." };
-    expect(passportFindingKey("acme/api", reworded)).toBe(passportFindingKey("acme/api", obs));
-    expect(passportFindingKey("acme/api", obs)).toBe("acme/api::prod.zero-observability");
-  });
-
-  it("separates two different causes that happen to read identically", () => {
-    const a = { id: "auto.no-manifest", code: "no-manifest", text: "The repo has no agent contract." };
-    const b = { id: "auto.no-context-graph", code: "no-context-graph", text: "The repo has no agent contract." };
-    expect(passportFindingKey("acme/api", a)).not.toBe(passportFindingKey("acme/api", b));
-  });
-
-  it("scopes the id to the repo, like every other key here", () => {
-    expect(passportFindingKey("acme/api", obs)).not.toBe(passportFindingKey("acme/web", obs));
-  });
-
-  it("falls back to the legacy prose key when the finding has no id at all", () => {
-    expect(passportFindingKey("acme/api", { text: "No CI pipeline" })).toBe(blockerKey("acme/api", "No CI pipeline"));
-  });
-
-  // upgradePassport back-fills a stored pre-0.4.0 blocker it can't classify as `auto.unclassified.<i>`
-  // and documents that id as positional and NOT durable. Keying a decision on it would silently
-  // re-point that decision at a different blocker when the list order changes — strictly worse than
-  // the prose hash, which at least rotates honestly.
-  it("refuses a positional `unclassified` back-fill id and uses the prose key instead", () => {
-    const backfilled = { id: "auto.unclassified.3", code: "unclassified", text: "Something the migration could not classify." };
-    expect(passportFindingKey("acme/api", backfilled)).toBe(blockerKey("acme/api", backfilled.text));
-  });
-
-  it("offers the legacy prose key as a second read, so a pre-0.4.0 decision still resolves", () => {
-    expect(passportFindingKeys("acme/api", obs)).toEqual([
-      "acme/api::prod.zero-observability",
-      blockerKey("acme/api", obs.text),
-    ]);
-    // Nothing to dual-read when the two derivations already agree.
-    expect(passportFindingKeys("acme/api", { text: "No CI" })).toEqual([blockerKey("acme/api", "No CI")]);
-  });
-});
-
-describe("passportFindings — id-keyed rows", () => {
-  const obs = { id: "prod.zero-observability", code: "zero-observability", text: "Zero observability." };
-
-  it("prefers `findings` over `blockers` and keys each on its id", () => {
-    const found = passportFindings([{ fullName: "acme/api", blockers: ["stale prose"], findings: [obs] }]);
-    expect(found.map((f) => f.itemKey)).toEqual(["acme/api::prod.zero-observability"]);
-    expect(found[0]!.title).toBe("Zero observability.");
-  });
-
-  it("collapses one cause listed on both axes into a single finding", () => {
+  // ── Direction 8: the key is the CAUSE, not the sentence ───────────────────────────────────────
+  it("keys on the minted finding id when the caller supplies findings", () => {
     const found = passportFindings([
-      { fullName: "acme/api", blockers: [], findings: [obs, { ...obs, text: "Reworded on the other axis." }] },
+      {
+        fullName: "acme/api",
+        blockers: ["Agent can't self-verify (missing lint, test)."],
+        findings: [{ id: "auto.self-verify-gaps", text: "Agent can't self-verify (missing lint, test)." }],
+      },
     ]);
-    expect(found).toHaveLength(1);
+    expect(found[0]!.itemKey).toBe("acme/api::auto.self-verify-gaps");
+    expect(found[0]!.itemKey).toBe(findingItemKey("acme/api", "auto.self-verify-gaps"));
   });
 
-  it("still reads `blockers` when the caller has no findings (the pre-0.4.0 path is unchanged)", () => {
+  it("SURVIVES the blocker text changing — the exact orphaning bug (self-verify lists the scripts)", () => {
+    const before = passportFindings([
+      {
+        fullName: "acme/api",
+        blockers: ["Agent can't self-verify (missing lint, test)."],
+        findings: [{ id: "auto.self-verify-gaps", text: "Agent can't self-verify (missing lint, test)." }],
+      },
+    ]);
+    // The repo adds a `lint` script; the sentence changes, the cause does not.
+    const after = passportFindings([
+      {
+        fullName: "acme/api",
+        blockers: ["Agent can't self-verify (missing test)."],
+        findings: [{ id: "auto.self-verify-gaps", text: "Agent can't self-verify (missing test)." }],
+      },
+    ]);
+    expect(after[0]!.itemKey).toBe(before[0]!.itemKey);
+    // The legacy text key would have rotated — that is what orphaned the decision.
+    expect(blockerKey("acme/api", "Agent can't self-verify (missing test).")).not.toBe(
+      blockerKey("acme/api", "Agent can't self-verify (missing lint, test)."),
+    );
+  });
+
+  it("falls back to the legacy text key for a pre-0.4.0 row that carries no findings", () => {
     const found = passportFindings([{ fullName: "acme/api", blockers: ["No CI pipeline"] }]);
     expect(found[0]!.itemKey).toBe(blockerKey("acme/api", "No CI pipeline"));
   });
 
-  it("carries the prose key it used to be decided under, and only when that key differs", () => {
-    const [withId] = passportFindings([{ fullName: "acme/api", blockers: [], findings: [obs] }]);
-    expect(withId!.legacyKeys).toEqual([blockerKey("acme/api", obs.text)]);
-    // Nothing to carry when the finding never had a second identity.
-    const [proseOnly] = passportFindings([{ fullName: "acme/api", blockers: ["No CI pipeline"] }]);
-    expect(proseOnly!.legacyKeys).toBeUndefined();
+  it("collapses two differently-worded sentences minted under ONE cause id into one finding", () => {
+    const found = passportFindings([
+      {
+        fullName: "acme/api",
+        blockers: ["Agent can't self-verify (missing lint).", "Agent can't self-verify (missing test)."],
+        findings: [
+          { id: "auto.self-verify-gaps", text: "Agent can't self-verify (missing lint)." },
+          { id: "auto.self-verify-gaps", text: "Agent can't self-verify (missing test)." },
+        ],
+      },
+    ]);
+    expect(found).toHaveLength(1);
   });
 });
 
-// Improving a key derivation must never cost a user a decision they already made. Without this the
-// switch to minted ids was a visible REGRESSION: yesterday's snooze stops suppressing the rail badge,
-// and the only cure is to decide the same finding twice.
-describe("isFindingResolved", () => {
-  const obs = { id: "prod.zero-observability", code: "zero-observability", text: "Zero observability." };
-  const [finding] = passportFindings([{ fullName: "acme/api", blockers: [], findings: [obs] }]);
-
-  it("counts a decision stored under the LEGACY prose key as resolved", () => {
-    const resolved = new Set([blockerKey("acme/api", obs.text)]);
-    expect(isFindingResolved(resolved, finding!)).toBe(true);
+describe("blockerKeys — the write key plus its read-only legacy alias", () => {
+  it("returns [id key, legacy prose key] when a finding id is known", () => {
+    const keys = blockerKeys("acme/api", "No CI pipeline", "prod.no-ci");
+    expect(keys).toEqual(["acme/api::prod.no-ci", blockerKey("acme/api", "No CI pipeline")]);
   });
 
-  it("counts a decision stored under the current id key as resolved", () => {
-    expect(isFindingResolved(new Set(["acme/api::prod.zero-observability"]), finding!)).toBe(true);
+  it("returns ONLY the legacy key with no id — nothing is invented", () => {
+    expect(blockerKeys("acme/api", "No CI pipeline")).toEqual([blockerKey("acme/api", "No CI pipeline")]);
+    expect(blockerKeys("acme/api", "No CI pipeline", null)).toHaveLength(1);
   });
 
-  it("stays unresolved for an unrelated key, an empty set, and a module with no decisions at all", () => {
-    expect(isFindingResolved(new Set(["acme/api::something-else"]), finding!)).toBe(false);
-    expect(isFindingResolved(new Set(), finding!)).toBe(false);
-    expect(isFindingResolved(undefined, finding!)).toBe(false);
-  });
-
-  it("does not leak one repo's decision onto another repo's identical blocker", () => {
-    const [other] = passportFindings([{ fullName: "acme/web", blockers: [], findings: [obs] }]);
-    const resolved = new Set([blockerKey("acme/api", obs.text), "acme/api::prod.zero-observability"]);
-    expect(isFindingResolved(resolved, other!)).toBe(false);
+  it("the write key is stable across a rewording that rotates the legacy alias", () => {
+    const a = blockerKeys("acme/api", "old wording", "auto.x");
+    const b = blockerKeys("acme/api", "NEW wording entirely", "auto.x");
+    expect(b[0]).toBe(a[0]);
+    expect(b[1]).not.toBe(a[1]);
   });
 });
 

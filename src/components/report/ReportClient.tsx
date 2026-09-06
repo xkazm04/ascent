@@ -7,6 +7,7 @@ import { Empty, Loading } from "@/components/report/ReportClientStatus";
 import { RescanBanner } from "@/components/report/ReportRescanBanner";
 import { useReportScan } from "@/components/report/useReportScan";
 import { QuotaBanner, QuotaBlocked, QuotaStaleNotice } from "@/components/report/QuotaNotice";
+import { CreditsBlocked } from "@/components/report/CreditsNotice";
 import { SignInNotice } from "@/components/SignInNotice";
 
 export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
@@ -46,6 +47,11 @@ export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
   }
   if (state.status === "error") {
     if (state.authRequired) return <SignInNotice next={signInNext} provider="supabase" />;
+    // Out of credits (402) is its own wall: a retry re-trips the same gate, so it names the balance
+    // and leads to the org's credits control instead of the generic "Couldn't scan that repo".
+    if (state.credits) {
+      return <CreditsBlocked message={state.message} balance={state.credits.balance} repo={repo} />;
+    }
     return state.blocked ? (
       <QuotaBlocked message={state.message} scope={state.blocked.scope} signInNext={signInNext} />
     ) : (
@@ -66,6 +72,8 @@ export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
           repo={repo}
           progress={progress}
           error={rescan.error}
+          errorClass={rescan.errorClass}
+          signInNext={signInNext}
           onRetry={retest}
           onDismiss={dismissRescan}
         />

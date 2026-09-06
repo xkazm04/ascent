@@ -21,8 +21,34 @@ import type { OrgRollup } from "@/lib/db";
  *  error here rather than a silently blank badge. */
 export type StandingSource = Pick<
   OrgRollup,
-  "avgOverall" | "avgAdoption" | "avgRigor" | "scannedCount" | "repoCount" | "deltas"
+  | "avgOverall"
+  | "avgAdoption"
+  | "avgRigor"
+  | "scannedCount"
+  | "repoCount"
+  | "deltas"
+  | "realScoredCount"
+  | "mockCount"
 >;
+
+/** What a score badge shows when the set it averages over is EMPTY of live-scored repos. Never a 0:
+ *  `roundedMean([])` is a division guard, and a 0 in `scoreHex(0)` alarm-red reads as a catastrophic
+ *  fleet grade rather than "nothing here was measured". Same rendering the cohort card lands on. */
+const NO_SCORE = "—";
+
+/**
+ * The basis line for the three averages — the denominator they were measured over and the count they
+ * excluded. Worded to MATCH the cohort card's tooltip (RepoCategoryRollup) verbatim, because the two
+ * numbers now come from the same predicate and a reader comparing them should not have to decide
+ * whether two different sentences describe the same rule.
+ */
+function basisTitle(r: StandingSource): string {
+  if (r.realScoredCount === 0)
+    return `No live-scored repositories in this set${r.mockCount > 0 ? ` (all ${r.mockCount} carry a deterministic mock score)` : ""}`;
+  return `Average over the ${r.realScoredCount} live-scored repo${r.realScoredCount === 1 ? "" : "s"}${
+    r.mockCount > 0 ? ` · ${r.mockCount} mock placeholder${r.mockCount === 1 ? "" : "s"} excluded` : ""
+  }`;
+}
 
 /**
  * The four headline numbers, in the order a leader reads them: where the fleet stands (with its
@@ -32,19 +58,32 @@ export type StandingSource = Pick<
  * `delta` is the rollup's COHORT-MATCHED period movement (repos present on both sides of the
  * window), not current-minus-fleet-average — so a mid-period onboarding wave never reads as
  * improvement. `undefined`/`0` hides the arrow, which is why the coverage badge carries none.
+ *
+ * `comparisonLabel` is the window's canonical delta basis ("vs 30d ago", "vs quarter start" — the
+ * `ResolvedWindow` field that exists for exactly this) and rides out with the arrow. A period delta
+ * with no stated endpoints is unreadable, and this Overview prints two other cells both called "this
+ * period" that measure different things; the badge arrow was the one carrying no label at all.
+ * Empty for "All time", which also has no baseline, so no arrow renders there anyway.
  */
-export function buildScoreBadges(r: StandingSource): ScoreBadge[] {
+export function buildScoreBadges(r: StandingSource, comparisonLabel?: string): ScoreBadge[] {
+  const measured = r.realScoredCount > 0;
+  const title = basisTitle(r);
   const level = levelForScore(r.avgOverall);
+  // One chip, on the headline badge only — the same words the cohort card uses. Repeating it under
+  // all three averages would be three copies of one fact.
+  const note = r.mockCount > 0 ? `${r.mockCount} mock (excluded from avg)` : undefined;
+
+  const score = (label: string, value: number, delta: number | undefined): ScoreBadge =>
+    measured
+      ? { label, value, color: scoreHex(value), delta, deltaLabel: comparisonLabel || undefined, title }
+      : // No live-scored repo in this set: there is no average to state, and no movement to state
+        // either — a delta over an empty cohort is not a measurement of anything.
+        { label, value: NO_SCORE, title };
+
   return [
-    {
-      label: "Org maturity",
-      value: r.avgOverall,
-      sub: `${level.id} · ${level.name}`,
-      color: scoreHex(r.avgOverall),
-      delta: r.deltas?.overall,
-    },
-    { label: "AI Adoption", value: r.avgAdoption, color: scoreHex(r.avgAdoption), delta: r.deltas?.adoption },
-    { label: "Engineering Rigor", value: r.avgRigor, color: scoreHex(r.avgRigor), delta: r.deltas?.rigor },
+    { ...score("Org maturity", r.avgOverall, r.deltas?.overall), sub: measured ? `${level.id} · ${level.name}` : undefined, note },
+    score("AI Adoption", r.avgAdoption, r.deltas?.adoption),
+    score("Engineering Rigor", r.avgRigor, r.deltas?.rigor),
     { label: "Repos scanned", value: `${r.scannedCount}/${r.repoCount}` },
   ];
 }

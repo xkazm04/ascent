@@ -26,7 +26,10 @@ describe("Empty action primacy (permanent vs transient failure)", () => {
     render(<Empty title="Scan timed out" message="…" repo="acme/app" />);
     const retry = screen.getByRole("link", { name: /^try again$/i });
     expect(retry.className).toBe(CTA_PRIMARY);
-    expect(retry).toHaveAttribute("href", `/report?repo=${encodeURIComponent("acme/app")}`);
+    // `fresh=1` is what makes the button actually try again: without it the href is the URL the
+    // user is already on (same search params → the scan effect never re-runs), so the primary
+    // action of the transient-failure state did nothing.
+    expect(retry).toHaveAttribute("href", `/report?repo=${encodeURIComponent("acme/app")}&fresh=1`);
     expect(screen.queryByRole("link", { name: /connect github/i })).toBeNull();
   });
 });

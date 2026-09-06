@@ -53,6 +53,13 @@ export interface GateVerdictEvent {
   admission?: { mode: string; tier: string | null; source: string } | null;
 }
 
+/** Skips folded to `{ code: count }` — a shape a log drain can sum without parsing a list. */
+function countByCode(skipped: GateResult["skipped"]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const s of skipped ?? []) out[s.code] = (out[s.code] ?? 0) + 1;
+  return out;
+}
+
 /**
  * Emit one queryable line for a gate verdict. Never throws — telemetry must not be able to break the
  * gate it is observing, and `blocked` is stated explicitly rather than inferred from `pass` so a
@@ -76,6 +83,13 @@ export function logGateVerdict(report: ScanReport, gate: GateResult, e: GateVerd
         // Which conditions bite, deduped — the fleet view can rank these across stored scans, but only
         // this can rank them across the PRs teams are actually pushing.
         codes: [...new Set(gate.failures.map((f) => f.code))],
+        // WHICH CONDITIONS COULD NOT BE TESTED, counted per criterion. This is the aggregation the
+        // skip channel exists for: "a condition skipped for most of the population has become advisory
+        // by data starvation" is only knowable by counting skips over traffic, and a pass rate cannot
+        // show it — an untested bar is indistinguishable from a satisfied one in `pass`/`codes`. The
+        // public endpoint scans token-less, so `governance` and the two PR-derived criteria are
+        // expected to dominate here; that number is the finding, not a bug in the log.
+        skipped: countByCode(gate.skipped),
         policySource: e.policySource,
         admission: e.admission ?? null,
         level: report.level?.id ?? null,

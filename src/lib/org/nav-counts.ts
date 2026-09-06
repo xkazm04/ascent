@@ -41,7 +41,6 @@ import { getOrgNavCounts, type OrgNavCounts } from "@/lib/db";
 import { buildSecurityOverview } from "@/lib/org/security";
 import {
   contributorFindings,
-  isFindingResolved,
   passportFindings,
   practiceFindings,
   securityFindings,
@@ -124,12 +123,7 @@ export const getOrgFindingCounts = cache(async (orgSlug: string) => {
   ]);
   const counts = { ...NO_DERIVED };
   for (const f of findings) {
-    // Not `resolved.has(f.itemKey)`: a finding whose key derivation has IMPROVED (passport blockers
-    // moved from a prose hash to passport 0.4.0's minted id) still carries the key its decision was
-    // actually stored under. Matching the current key alone would have made that improvement a
-    // regression for every owner who had already snoozed something — the badge re-raising a finding
-    // they closed, curable only by deciding it a second time.
-    if (isFindingResolved(resolved.get(f.module), f)) continue;
+    if (resolved.get(f.module)?.has(f.itemKey)) continue;
     counts[f.module] += 1;
   }
   return counts;

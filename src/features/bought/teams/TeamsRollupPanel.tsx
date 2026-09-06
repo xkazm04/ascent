@@ -7,10 +7,13 @@ import { TeamsMatrix } from "./TeamsMatrix";
 import { TeamsSignals } from "./TeamsSignals";
 import { TeamsStandings } from "./TeamsStandings";
 import { TeamsUnowned } from "./TeamsUnowned";
-import { teamAnchorId } from "./teamsShared";
+import { deltaFootnote, teamAnchorId } from "./teamsShared";
 import { getOrgTeamRollup, getTeamStandingsProvenance } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
-import { resolveOrgWindow } from "@/lib/org/period";
+import { orgWindowBounds, resolveOrgWindow } from "@/lib/org/period";
+// The Delivery tab's settle helper, reused rather than re-implemented: one classification of a
+// settled query ("null value" vs "actually failed") for every tab that degrades per section.
+import { settle } from "@/features/bought/delivery/deliveryLoad";
 import { decisionMap } from "@/lib/org/decision-map";
 import { explainTeamStandings } from "@/lib/org/teamStandings";
 import { scoreHex } from "@/lib/ui";
@@ -25,13 +28,38 @@ export async function TeamsRollupPanel({ slug, sp }: { slug: string; sp: { [key:
   // window now threads into the rollup (period-scoped, half-open baseline like getOrgMovers) and the
   // Δ surfaces are labeled with what they actually compare.
   const period = await resolveOrgWindow(sp);
-  const window = period.start ? { start: period.start, end: period.end } : undefined;
+  // The one window shape the db layer queries with (`{ start, endExclusive }`) — this panel used to
+  // hand-write the inclusive `{ start, end }` pair, which is how the inclusive dialect spread: a row
+  // in the window's final millisecond is matched by `lt: endExclusive` and missed by `lte: end`, so
+  // Teams and its sibling tabs could disagree about a boundary scan on the same period.
+  const window = period.start ? orgWindowBounds(period) : undefined;
   const deltaLabel = window && period.comparisonLabel ? period.comparisonLabel : "since last scan";
 
-  const [rollup, decisions] = await Promise.all([
+  // Per-section degradation (the Delivery tab's G4-10 fix, applied here): under Promise.all a blip on
+  // decisionMap — a side annotation on the unowned list — rejected the whole tab and blanked the
+  // rollup, the matrix, the standings and the signals that would all have rendered fine. Each query
+  // now fails on its own, with an explicit "couldn't load" banner rather than an empty state that
+  // would claim the org has no CODEOWNERS attribution.
+  //
+  // The provenance read joins this set instead of being awaited serially after it: it now resolves
+  // the org through the cached getOrgBySlug, so it costs one indexed row read on a resolver the
+  // rollup has already warmed.
+  const [rollupSettled, decisionsSettled, provenanceSettled] = await Promise.allSettled([
     getOrgTeamRollup(slug, segmentId, techGroupId, window),
     decisionMap(slug, "teams"),
+    getTeamStandingsProvenance(slug),
   ]);
+  const { value: rollup, failed: rollupFailed } = settle(rollupSettled);
+  const { value: decisionsValue, failed: decisionsFailed } = settle(decisionsSettled);
+  const { value: standingsProvenance } = settle(provenanceSettled);
+  const decisions = decisionsValue ?? {};
+  for (const [label, r] of [
+    ["getOrgTeamRollup", rollupSettled],
+    ["decisionMap", decisionsSettled],
+    ["getTeamStandingsProvenance", provenanceSettled],
+  ] as const) {
+    if (r.status === "rejected") console.error(`[teams/${slug}] ${label} failed:`, r.reason);
+  }
 
   const hasFilters = barProps.segments.length > 0 || barProps.techGroups.length > 0;
   const filterBar = hasFilters && <ScopeFilterBar {...barProps} />;
@@ -40,11 +68,19 @@ export async function TeamsRollupPanel({ slug, sp }: { slug: string; sp: { [key:
     return (
       <div>
         {filterBar && <div className="mb-4 flex justify-end">{filterBar}</div>}
+        {/* "Couldn't load" is a different claim from "no team attribution" — telling someone to go
+            write a CODEOWNERS when the query simply threw sends them at work they may not need. */}
+        {rollupFailed ? (
+          <SectionEmpty>
+            Team attribution couldn&apos;t load right now (a query failed). Try refreshing this page.
+          </SectionEmpty>
+        ) : (
         <SectionEmpty>
           {segmentId
             ? "No team attribution for this segment. Pick another segment, or add CODEOWNERS team owners to its repos and re-scan."
             : "No team attribution yet. Teams are parsed from each repo's CODEOWNERS file at scan time. Add a CODEOWNERS that assigns paths to @org/team owners, then re-scan and this view fills in."}
         </SectionEmpty>
+        )}
         {/* The fix-it list: exactly which scanned repos need a CODEOWNERS owner, with the snippet. */}
         {rollup && <TeamsUnowned slug={slug} unowned={rollup.unowned} decisions={decisions} />}
       </div>
@@ -55,7 +91,10 @@ export async function TeamsRollupPanel({ slug, sp }: { slug: string; sp: { [key:
   // scan-gathered rollup the table renders (see explainTeamStandings). Rendered live so it always
   // agrees with the table above; the snapshot captured at scan time supplies the provenance stamp.
   const standings = explainTeamStandings(rollup.teams);
-  const standingsProvenance = standings ? await getTeamStandingsProvenance(slug) : null;
+  // The snapshot is WHOLE-ORG (persistTeamStandings takes no filter). Under an active segment/stack
+  // filter these standings are NOT what that scan captured, so the stamp says fleet-wide instead of
+  // implying the filtered decomposition was the thing recorded.
+  const scoped = segmentId != null || techGroupId != null;
 
   return (
     <div>
@@ -102,17 +141,36 @@ export async function TeamsRollupPanel({ slug, sp }: { slug: string; sp: { [key:
       </div>
 
       {/* Why the top leads and the bottom lags — factor decomposition against the fleet mean. */}
-      {standings && <TeamsStandings standings={standings} capturedAt={standingsProvenance?.generatedAt ?? null} />}
+      {standings && (
+        <TeamsStandings
+          standings={standings}
+          capturedAt={standingsProvenance?.generatedAt ?? null}
+          capturedScopeNote={scoped && standingsProvenance ? "captured fleet-wide, not for this filter" : null}
+        />
+      )}
 
       {/* Headline signals: knowledge leader + top pairing opportunities, linked into the matrix. */}
       <TeamsSignals slug={slug} leader={rollup.knowledgeLeader} pairings={rollup.pairings} />
 
       <TeamsUnowned slug={slug} unowned={rollup.unowned} decisions={decisions} />
 
+      {/* The decisions annotation degrades alone: the lists above still render, and this says the
+          annotations are missing rather than letting them read as "no decisions recorded". */}
+      {decisionsFailed && (
+        <div className="mt-4">
+          <SectionEmpty>
+            Recorded decisions couldn&apos;t load right now, so the lists above show none. Try refreshing this page.
+          </SectionEmpty>
+        </div>
+      )}
+
+      {/* The Δ footnote is DERIVED from the same deltaLabel the column header and its tooltips use.
+          It used to assert "each repo's two latest scans" under a period-scoped Δ — a footnote
+          contradicting the column two sections above it. */}
       <p className="mt-6 max-w-3xl type-mono-sm text-slate-600">
         Attribution parses CODEOWNERS at scan time; a repo counts toward every team that owns part of it, so numbers reflect
-        responsibility, never a ranking. Δ compares each repo&apos;s two latest scans. GitHub Teams (GraphQL) attribution is
-        on the roadmap.
+        responsibility, never a ranking. Δ compares {deltaFootnote(deltaLabel)}.{" "}
+        GitHub Teams (GraphQL) attribution is on the roadmap.
       </p>
     </div>
   );

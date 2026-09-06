@@ -171,3 +171,63 @@ describe("OpenAiProvider.assess — cancellation (shared withLlmTimeout)", () =>
     expect(vi.getTimerCount()).toBe(0);
   });
 });
+
+describe("completion-cap truncation is reported as a cap, not as an empty or malformed model", () => {
+  // Measured 2026-09-05 against Nebius GLM-5.3-Flash on ascent's real assessment prompt:
+  // finish_reason "length", 16,000 completion tokens, 0 characters of content, 66,708 of reasoning.
+  // Reported as "Empty response" that reads as a broken endpoint; the cause is a knob we set.
+  function cappedResponse(body: { content?: string; reasoning_content?: string }) {
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [{ finish_reason: "length", message: { role: "assistant", ...body } }],
+        usage: { prompt_tokens: 900, completion_tokens: 16000 },
+      }),
+    } as unknown as Response;
+  }
+
+  it("names the cap and the env var when the model reasoned instead of answering", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(cappedResponse({ content: "", reasoning_content: "x".repeat(66708) })),
+    );
+    await expect(new OpenAiProvider({ apiKey: "k" }).assess(input)).rejects.toThrow(
+      /completion cap \(max_tokens=\d+\).*OPENAI_MAX_TOKENS/s,
+    );
+  });
+
+  it("reports the reasoning volume, which is the evidence that it was a cap", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(cappedResponse({ content: "", reasoning_content: "x".repeat(66708) })),
+    );
+    await expect(new OpenAiProvider({ apiKey: "k" }).assess(input)).rejects.toThrow(/66708 characters of reasoning/);
+  });
+
+  it("does not blame the model's SHAPE when the answer was truncated mid-object", async () => {
+    // Nemotron returned 67k characters of content, cut off mid-JSON. The old path reached the shape
+    // guard and said "returned JSON that is not an assessment object" — blaming the model for our cap.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(cappedResponse({ content: '{"dimensions":[{"id":"D1","sco' })),
+    );
+    const err = await new OpenAiProvider({ apiKey: "k" })
+      .assess(input)
+      .catch((e: Error) => e.message);
+    expect(err).toMatch(/truncated/);
+    expect(err).not.toMatch(/not an assessment object/);
+  });
+
+  it("still says Empty response when the model genuinely returned nothing at all", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ finish_reason: "stop", message: { content: "" } }], usage: {} }),
+      } as unknown as Response),
+    );
+    await expect(new OpenAiProvider({ apiKey: "k" }).assess(input)).rejects.toThrow(/Empty response/);
+  });
+});

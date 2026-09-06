@@ -15,6 +15,7 @@ export type ProviderName =
   | "openai"
   | "openrouter"
   | "local"
+  | "nebius"
   | "mock"
   | "claude-cli"
   | "codex-cli";
@@ -78,6 +79,14 @@ export interface PersistedRecommendation {
   projectedPoints?: number | null;
   /** The maturity level closing this gap crosses into (e.g. "L3"), or null/absent when in band. */
   unlocks?: string | null;
+  /** The org's measured basis for closing this gap, as ONE ready-to-render clause carrying its own
+   * median, sample count and instrument (`expectedLiftClause`) — or `null` when nothing publishable
+   * has been measured. NEVER a number: a client handed `0` would render "we measured this and it does
+   * nothing", which is the opposite of "nobody has measured this" (G4). Attached by
+   * `GET /api/recommendations` and read by the tracker on the client-fetch (live-scan) path; the
+   * server-rendered permalink threads the distribution MAP down instead, because ordering by measured
+   * evidence needs the numbers a rendered sentence cannot carry. */
+  expectedLift?: string | null;
 }
 
 /** One entry in a recommendation's activity timeline — who changed what, from → to, when. */
@@ -334,12 +343,37 @@ export interface DeclinedByChoice {
   findingId?: string;
   /** 0.4.0: YYYY-MM-DD the choice was made, carried through so the reader can age it. */
   at?: string;
+  /** The login that made the decision, recorded server-side. A decline is a decision record, and one
+   *  with no author is an assertion nobody owns. Absent on declines recorded before this field —
+   *  rendered as "unknown", never a fabricated author. */
+  by?: string;
   /** 0.4.0: set when the accepted gap has CHANGED since it was accepted (the finding hardened, its
    *  kind changed, or the decision aged past the re-confirmation window). The blocker then STAYS in
    *  the blocker list — an accepted risk about a different repo is not an accepted risk. */
   needsReconfirm?: boolean;
   /** The sentence telling the owner what changed and why they are being asked again. */
   reconfirmReason?: string;
+}
+
+/** 0.4.0 - PROVENANCE for a score an OWNER moved. `rollback` is an owner-asserted fact a scan cannot
+ *  observe, and asserting it re-derives productionReadiness.score/band - worth up to +15 weighted
+ *  points. Without this block the exported passport, the hero and the CSV showed an owner-lifted score
+ *  in exactly the same form as a measured one, while the decline path in the same overlay is explicit
+ *  that a decline never moves a score. The override's EFFECT stands (the owner knows something the scan
+ *  doesn't); what changes is that it is now visible, with the measured figure readable beside it. */
+export interface ScoreOverride {
+  /** Which owner-asserted field moved the score. Only `rollback` today. */
+  reason: "rollback";
+  /** score - measuredScore. Signed: an owner who corrects a false positive moves it DOWN. */
+  delta: number;
+  /** The scan-derived score/band before the override - the honest measurement, kept readable. */
+  measuredScore: number;
+  measuredBand: ProductionBand;
+  /** The login that set the override, and the day (YYYY-MM-DD) they set it. Both recorded server-side
+   *  from the session; absent on overrides stored before this field existed - which reads as UNKNOWN
+   *  AUTHOR, never a fabricated one. */
+  by?: string;
+  at?: string;
 }
 
 export interface AppPassport {
@@ -424,6 +458,9 @@ export interface AppPassport {
     blockers: string[];
     /** 0.4.0: the same blockers WITH minted ids — see PassportFinding. */
     findings?: PassportFinding[];
+    /** Set by the read-time override overlay when an owner assertion MOVED this score. Absent means
+     *  the score is purely measured. */
+    overridden?: ScoreOverride;
   };
   links: { report?: string; contextMap?: string; manifest?: string };
   /** `confidence` is the WHOLE-ARTIFACT figure (how much of the app could be inspected at all).
@@ -1071,6 +1108,26 @@ export interface GuidanceGraph {
   penalties: { reason: string; points: number; paths: string[] }[];
 }
 
+/**
+ * One token-gated enrichment read the ingest phase performs — a SENSOR.
+ *
+ * Named so a read that FAILED can be reported as such. Every one of these enrichments degrades to
+ * `null` / `[]` on error, which is byte-identical to the value a scan that legitimately found nothing
+ * produces — and downstream, that value is scored as absence (a missing SECURITY.md, no SAST, no
+ * governance). The sensor id is the thing that makes "did not run" sayable.
+ *
+ * `pullRequests` is listed for completeness but is carried by its own older flag (`prFetchFailed`),
+ * not by `ScanReport.sensorFailures`; see that field.
+ */
+export type ScanSensorId =
+  | "pullRequests"
+  | "governance"
+  | "securityPosture"
+  | "securityExposure"
+  | "appInventory"
+  | "ciHealth"
+  | "deployments";
+
 export interface ScanReport {
   repo: RepoMeta;
   overallScore: number;
@@ -1164,6 +1221,22 @@ export interface ScanReport {
    *  report must not be cached or persisted as authoritative. `graphql.ts` computes this and `pulls.ts`
    *  propagates it; before this existed the flag was computed, documented, and read by nobody. */
   prPartial?: boolean;
+  /**
+   * The GitHub-side sensors whose read THREW during this scan (never "returned nothing").
+   *
+   * A failed sensor and an absent finding are indistinguishable once both have collapsed to `null`,
+   * and null is scored as ABSENCE almost everywhere downstream. This is the typed half of the honesty
+   * channel — the prose half is the matching `buildScanWarnings` caveat in `warnings`, which is what
+   * actually persists (`warningsJson`). Empty/absent = no sensor is KNOWN to have failed; on a report
+   * reconstructed from the DB it is simply unknown, which is why it is optional rather than defaulted.
+   *
+   * It is what makes `platformSignals` readable: an absent record plus `appInventory`/`ciHealth` here
+   * means UNMEASURED (the read failed), while an absent record with no entry here means the scan
+   * looked and measured nothing (an anonymous scan, or a repo with no platform signals at all).
+   * `pullRequests` is deliberately NOT listed — it has its own typed flag and its own dedicated
+   * caveat (`prFetchFailed`), which pre-date this field.
+   */
+  sensorFailures?: ScanSensorId[];
   scannedAt: string;
   /** The scoring identity that produced this report. `rubricVersion` (SCORING_RUBRIC_VERSION) is
    *  populated on a DB-reconstructed report so the cross-instance cache tier can detect a rubric bump

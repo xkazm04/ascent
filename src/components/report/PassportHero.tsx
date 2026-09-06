@@ -13,6 +13,7 @@ import { scoreHex } from "@/lib/ui";
 import { bandColor, bandLabel, passportForDisplay } from "@/lib/org/passport-display";
 import { usePrefersReducedMotion } from "@/components/report/chartMotion";
 import { PassportArtifactGrades, PassportDeclined } from "@/components/report/PassportDeclined";
+import { PassportOverridePin } from "@/components/report/PassportOverridePin";
 import { Surface, Kicker } from "@/components/ui";
 import { r2 } from "@/components/report/svgCoord";
 
@@ -63,6 +64,13 @@ export function PassportHero({ passport, repo }: { passport: AppPassport; repo: 
             />
           </div>
         </div>
+
+        {/* An owner-moved production score never stands unmarked beside the measured one. */}
+        {prod.overridden ? (
+          <div className="mt-3 flex justify-end">
+            <PassportOverridePin overridden={prod.overridden} />
+          </div>
+        ) : null}
 
         {/* Production sub-rungs — instrument equalizer */}
         <div className="mt-5">

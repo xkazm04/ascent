@@ -392,6 +392,16 @@ dropdowns with **optimistic updates**, a per-row `savingIds` set (overlapping sa
 disable only their own row), rollback on failure, and an `aria-live` region announcing
 each save. When the DB isn't configured it degrades to the read-only `RoadmapSteps`.
 
+**2026-09-05.** Both renderings share one `RoadmapFirstStep` (the tracker used to drop `firstStep`
+while the anonymous fallback rendered it) and both receive the measured `lifts` map from the page.
+`PersistedRecommendation.expectedLift` is a declared field: the live-scan path, which has no server
+render, reads the per-item clause `/api/recommendations` computes, while the permalink path threads
+the distribution map, which wins when both are present. The sandbox commit writes a **signed**
+projection into the timeline (a projection rounding to zero omits the figure: "no projected gain") and
+reports "N of M marked in progress" with failures named, instead of a clamped `+0` and a saved-only
+count. `GET /api/recommendations/[id]/events` returns `{ events, truncated, limit }`, newest first,
+bounded at 200.
+
 Both renderings order through one contract, `sortRoadmap` (`roadmapPriority.tsx`). Its default
 `"priority"` mode is the long-standing label sort — impact↑/effort↓, quick wins first — derived from
 the model's own `impact`/`effort` labels. Its `"measured"` mode adjusts that order by what the org has
@@ -399,6 +409,13 @@ actually **measured** about each gap; see below. The default has not changed, an
 the two modes return the same order by construction.
 
 ### Measured outcomes: the intervention ledger
+
+**Reconcile coverage is honest (2026-09-05).** `listDoneRecCandidates` dedupes per recommendation
+in the database (`groupBy` on the last close) *before* taking fifty, and excludes closes already
+carrying an `InterventionOutcome.sourceRowId`, so successive ticks walk into the tail instead of
+re-reading the same fifty newest closes forever; `ReconcileResult` carries `remaining` and
+`truncated`. The bookend scans are read in one batched query per tick: a 50-candidate tick costs
+five reads where it cost about 151.
 
 Four loops in Ascent already compute an honest before/after delta — a merged practice PR verified
 against its post-merge rescan, a skill adoption paired across the same instrument, a recommendation
@@ -749,6 +766,25 @@ model contributed"), and the scan's `warnings`; the card **refuses to draw a num
 `incomplete` scan (a renormalized 0/100 is not a measurement) and shows a DEMO badge for a
 mock-engine report.
 
+## Passport decisions: declines, overrides, and the committed file (2026-09-05)
+
+The decline write (`PATCH /api/report/passport/overrides`) is reachable from the product:
+`PassportDeclineControl` (owner-only, beside the owner controls) offers exactly the intersection of the
+passport's open findings and the overlay's allow-list, so a "we could not see this" caveat is never
+offered; a reason is required and a retract sends an explicit `null`. A decline carries `by`, stamped
+server-side from the session (a client-supplied author is a 400), and renders as "declined by X on
+date" on the report card, the hero strip and the fleet list ("unknown" for rows written before
+authorship). The report card now honours `needsReconfirm` like the fleet list, so a re-surfaced
+decline reads as open with its reason rather than as settled, and blocker truncation is disclosed
+("+N more"). An override that moves the production score (`rollback`) carries typed provenance,
+`productionReadiness.overridden` ("+N by owner override · measured 64 · alice · date"), rendered as a
+pin on hero and card and present in the exported JSON; the Passports CSV gained `autonomyTier`, the
+`declined*` columns and the measured-score/override columns, so an accepted gap and a lifted score are
+no longer indistinguishable from clean rows. Neither field bumps `PASSPORT_VERSION`: both live on the
+override side or are read-time projections, so no stored row changed shape. The PR writer's committed
+`$schema` pointer derives from `PASSPORT_VERSION` (`PASSPORT_SCHEMA_URL`), pinned against the schema
+document's own `$id`; it used to hard-code 0.2 under a 0.4.0 body.
+
 ## Passport autonomy tier (0.3.0)
 
 The App Readiness Passport (`src/lib/analyze/passport.ts`, exported at `/api/report/passport`)
@@ -853,7 +889,16 @@ by deciding the same finding twice. `legacyKeys` is read-only; a write always us
 ## Customer-repo PR writes require **admin** (`/api/report/{passport,foundation}/pr`)
 
 Both routes open a draft PR into the scanned repository using the **org's GitHub App installation
-token**, so both gate on `requireOrgRole(org, "admin")`, not merely `requireOrgAccess` (member),
+token**, so both gate on `requireOrgRole(org, "admin")`, not merely `requireOrgAccess` (member).
+Since 2026-09-05 the same bar applies to **issue writes** (`POST /api/org/issue`, which was
+member-gated while its own comment said owner), and the issue writer is idempotent: the route mints
+an HTML-comment marker from a validated `findingId`, `createRepoIssue` searches the repo's open
+issues for it and returns `{ reused: true, url }` instead of filing again (closed issues do not block
+a re-file), and the blocker docket renders "already filed" beside a reused link. The report page gates
+its two passport affordances separately, because they front two routes with two bars: the override
+form stays owner-only, the ".ai/passport.json" PR button follows the PR route's admin bar, so an admin
+who is not an owner sees the button and not a form that would 403. Both routes gate on
+`requireOrgRole(org, "admin")`, not merely `requireOrgAccess` (member),
 which is what they used until the gate was unified with `/api/practices/apply{,-batch}`. One action
 must not have two gates: a plain member of the org now gets `403 "This action requires the admin role
 in this organization."` and no branch, commit, or PR is created. Draft status is a review convenience,
@@ -918,6 +963,26 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/components/leaderboard/ScorecardSummary.tsx` | The scorecard headline; renders the refusal state when `verifiedCount === 0`. |
 | `src/app/scorecard/[owner]/opengraph-image.tsx` | Scorecard OG card, on the shared `og-brand` shell; falls back to the neutral card rather than drawing an average over previews. |
 
+## Failure states on the report page (2026-09-05)
+
+`useReportScan` classifies every pre-stream refusal and every in-stream error into one
+`ScanErrorClass` (`authRequired` / `blocked` monthly quota / `credits` / `notFound`, or none for a
+transient failure), and both surfaces branch on it:
+
+- **Out of credits.** A metered scan (private / installed-org repo) is refused by the credit gate
+  with a plain JSON `402 { code: "INSUFFICIENT_CREDITS", balance }` *before* the stream opens. The
+  page renders `CreditsBlocked` (`CreditsNotice.tsx`): the refused balance and an "Add credits"
+  link to the owning org's dashboard, where the credits control lives. No "Try again": a retry only
+  re-trips the gate.
+- **"Try again" re-scans.** The transient-failure action now links to `/report?repo=…&fresh=1`, so
+  on the `/report` route it actually forces a fresh run. It used to build the URL the user was
+  already on, which changed nothing and ran nothing.
+- **A failed in-place re-scan keeps its class.** `ReportRescanAlert` shows the sign-in button, the
+  "resets on <date>" quota line with a plans link, the credits link, or the connect-GitHub hint,
+  and offers **Retry only for the transient class**. The report underneath is never unmounted.
+- **Upstream errors are opaque.** A GitHub network failure surfaces as a fixed sentence; the raw
+  fetch error (which on a GHES deploy could name the internal API host) goes to the server log only.
+
 ## Known gaps
 
 - **Textual, not semantic, diffing.** `norm()` collapses whitespace/case but won't equate
@@ -935,9 +1000,9 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
   The invitational voice is untouched (guardrail **G2**) — titles stay observations, `explore`
   stays questions; the field is additive and never fabricated: absent on pre-field scans and on
   rows where the model omitted it, so old reports render exactly as before.
-- **The lift map is not yet mounted on the report page.** `RoadmapSteps`, `RecommendationTracker` and
-  `reportLlmMarkdown` all accept the measured `lifts` map and render the basis clause when given one;
-  `/api/recommendations` supplies it today. The report page (`ReportPanels`) does not yet call
-  `getOrgExpectedLifts` and pass it down, so the clause is reachable through the API before it is
-  reachable in the page. One prop, one server read — deliberately left as a seam rather than widened
-  into another lane's file.
+- (Closed 2026-09-05.) ~~The lift map is not yet mounted on the report page.~~ The permalink page reads
+  `getOrgExpectedLifts` in the same `Promise.all` as the recommendations, under the same org, and
+  threads `lifts` through `ReportView` → `ReportPanels` to both the tracker and `RoadmapSteps`, so
+  `ExpectedLiftBasis` and the measured sort toggle are live in-app. **Remaining half:** `reportLlmMarkdown`'s
+  `options.lifts` still has no caller (`ReportHeader.tsx` and `/api/report/llm` do not pass it), so the
+  Copy-for-LLM markdown does not yet carry the basis clause.

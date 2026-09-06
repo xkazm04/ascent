@@ -5,6 +5,7 @@
 // this module free of an import cycle back through the org-security assembly (which imports @/lib/db).
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import { getOrgBySlug } from "@/lib/db/org-shared";
 import { PUBLIC_ORG } from "@/lib/org-constants";
 
 export interface PersonalSecurityRow {
@@ -38,10 +39,7 @@ function parseStringArray(raw: string | null | undefined): string[] {
 export async function getPersonalSecurityRows(personalSlug: string): Promise<PersonalSecurityRow[] | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({
-    where: { slug: personalSlug.trim().toLowerCase() },
-    select: { id: true },
-  });
+  const org = await getOrgBySlug(personalSlug);
   if (!org) return null;
 
   const watched = await prisma.repository.findMany({
@@ -50,7 +48,7 @@ export async function getPersonalSecurityRows(personalSlug: string): Promise<Per
   });
   if (watched.length === 0) return [];
 
-  const pub = await prisma.organization.findUnique({ where: { slug: PUBLIC_ORG }, select: { id: true } });
+  const pub = await getOrgBySlug(PUBLIC_ORG);
   if (!pub) return [];
 
   const repos = await prisma.repository.findMany({

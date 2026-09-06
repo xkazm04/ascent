@@ -167,13 +167,20 @@ export async function resolveScanAuth(
 
 /** Public entry point. Wraps the pipeline in outcome tallies (src/lib/scan-outcome.ts): a failed scan
  *  writes no Scan row, so without these counters a pipeline failure is invisible. The counters are
- *  best-effort and the error is always re-thrown unchanged — behavior for every caller is identical. */
+ *  best-effort and the error is always re-thrown unchanged — behavior for every caller is identical.
+ *
+ *  FIRE AND FORGET, both of them. These are counter upserts, documented best-effort at the top of
+ *  scan-outcome.ts and already swallowing their own errors (db/best-effort.ts `bumpCounter`) — so
+ *  awaiting them only ever bought a database round-trip on the scan's critical path: one before any
+ *  work starts, and one before the caller sees an error it is already going to receive. `void` them,
+ *  on exactly the discipline `recordScanDegraded` already uses below. Nothing observes their
+ *  completion, and an unhandled rejection is impossible because neither can reject. */
 export async function scanRepository(input: string, opts: ScanOptions = {}): Promise<ScanReport> {
-  await recordScanStarted();
+  void recordScanStarted();
   try {
     return await runScanRepository(input, opts);
   } catch (err) {
-    await recordScanFailure(err);
+    void recordScanFailure(err);
     throw err;
   }
 }
@@ -222,7 +229,7 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
   signal?.throwIfAborted();
 
   // ── Phase 1: ingest ───────────────────────────────────────────────────────────────────────────
-  const { snapshot, prStats, prPartial, prFetchFailed, governance, securityPosture, securityExposure, appInventory, ciHealth, activityPromise, guidanceFreshnessPromise, aiChanges, deployments } =
+  const { snapshot, prStats, prPartial, prFetchFailed, sensorFailures, governance, securityPosture, securityExposure, appInventory, ciHealth, activityPromise, guidanceFreshnessPromise, aiChanges, deployments } =
     await ingestRepository({
       parsed,
       source,
@@ -266,6 +273,9 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
     securityExposure,
     appInventory,
     ciHealth,
+    // Which of those enrichments FAILED rather than came back empty. The D9 battery excludes the
+    // checks a failed sensor could have refuted instead of scoring them 0 (src/lib/security/checks.ts).
+    sensorFailures,
     now,
     // decisionOrgSlug (individual tier) points the standing-decision read at the TRIGGERING viewer's
     // personal org on the public funnel; org scans keep reading their own org via the orgSlug fallback.
@@ -378,6 +388,12 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
   // for the same reason `degraded` is: the compose phase knows the SIGNALS, not the provenance of the
   // enrichment that produced them.
   if (platformSignals) report.platformSignals = platformSignals;
+  // The typed half of the sensor-failure channel. It is what makes an ABSENT `platformSignals` record
+  // readable: with `appInventory`/`ciHealth` listed here the fold was UNMEASURED (the read failed);
+  // without them the scan looked and measured nothing. Stamped only when non-empty so a clean scan's
+  // report is byte-identical to what it was before. NOTE: `Scan` has no column for it, so only the
+  // prose caveat below survives persistence — see the report note for the doc/schema follow-up.
+  if (sensorFailures.length) report.sensorFailures = [...sensorFailures];
   // Surface non-fatal reliability caveats so the score is interpreted in context.
   const warnings = buildScanWarnings({
     detectorWarnings,
@@ -390,6 +406,7 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
     stackFit,
     prPartial,
     prFetchFailed,
+    sensorFailures,
     // The god-scan indicator: how much of the model's output ceiling this single assessment call
     // used. Measured from the usage the winning provider reported, against that provider's model.
     outputBudget: classifyOutputBudget(report.usage?.outputTokens, report.engine?.model),

@@ -10,7 +10,7 @@
 //     `tightenGatePolicy`. It is never assigned over anything. On the unauthenticated endpoint that
 //     is the whole safety argument: an admission row can only ever RAISE a bar, so reading one can
 //     never turn the public gate into a way to get a weaker verdict.
-//  2. FAIL CLOSED ON A READ ERROR. `getRepoAdmission` returns null WITHOUT throwing for every
+//  2. FAIL CLOSED ON A READ ERROR. `readRepoAdmission` returns null WITHOUT throwing for every
 //     legitimate "no decision here" case (no DB, unknown org, untracked repo, no passport). So a
 //     throw means exactly one thing — we could not determine the bar — and the caller must say that
 //     (503, no verdict) rather than publish a verdict against a bar it could not read. This mirrors
@@ -20,7 +20,7 @@
 import type { CheckLevel } from "@/lib/standard/check-ids";
 import type { GatePolicy } from "@/lib/scoring/gate";
 import { admissionGateOverlay, type AdmissionTierSource, type AdmissionMode } from "@/lib/org/admission";
-import { getRepoAdmission } from "@/lib/db/org-admission";
+import { readRepoAdmission } from "@/lib/db/org-admission";
 import { loadControlMatrix } from "@/lib/db/org-conformance";
 
 /** The triple a CI log needs to explain *why* this repository was held to this bar. */
@@ -41,12 +41,18 @@ export interface AdmissionLayer {
  * Resolve one repo's admission layer. Throws on a read failure (see rule 2); returns an empty
  * overlay and a null triple for every legitimate absence.
  *
+ * READ-ONLY, and that is load-bearing: this seam is reached from the UNAUTHENTICATED `GET /api/gate`,
+ * so it goes through `readRepoAdmission` — the non-seeding twin — rather than the lazy-seeding
+ * `getRepoAdmission` the authenticated admission routes use. An anonymous CI call must not create a
+ * governance row as a side effect of asking for a verdict. The bar it resolves is identical either
+ * way; only the INSERT is gone.
+ *
  * The tier that reaches the overlay is the GRANTED one, and only when a tier was assessed at all —
  * the same rule `compileStance` applies, kept here rather than imported wholesale so this seam does
  * not have to fetch a stance and a repo's facts just to answer "which floors apply".
  */
 export async function resolveAdmissionLayer(orgSlug: string, repoFullName: string): Promise<AdmissionLayer> {
-  const row = await getRepoAdmission(orgSlug, repoFullName);
+  const row = await readRepoAdmission(orgSlug, repoFullName);
   if (!row) return { overlay: {}, admission: null };
   const assessed = row.derivedTier !== null;
   const tier = assessed ? row.grantedTier : null;

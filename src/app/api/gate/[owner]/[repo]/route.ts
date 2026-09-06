@@ -14,6 +14,7 @@ import { cacheGet, cacheSet, makeCacheKey, normalizeRepoName } from "@/lib/cache
 import { defaultGatePolicy, evaluateGate, explicitPolicyFromParams, policyFromParams, tightenGatePolicy, type GatePolicy } from "@/lib/scoring/gate";
 import { logGateVerdict } from "@/lib/scoring/gate-telemetry";
 import { getOrgGatePolicy } from "@/lib/db/org-gate";
+import { orgSlugForRepo } from "@/lib/db/org-tenancy";
 import { loadCheckStates, resolveAdmissionLayer } from "@/lib/scoring/gate-admission";
 import { rateLimitRequest, rateLimitRequestShared, tooManyRequests, SCAN_RATE_LIMIT, GATE_RATE_LIMIT } from "@/lib/rate-limit";
 
@@ -56,6 +57,13 @@ export async function GET(
   // credentials. Token-less ingestion of a private repo 404s, which we surface honestly below.
   // Private repos are gated through the authenticated GitHub App check-run path (/api/app/webhook),
   // not this endpoint. Same construction as the public scan routes.
+  //
+  // AND IT WRITES NOTHING. The org-scoped state this route reads — the gate policy, the admission
+  // overlay, the conformance ledger — is read through non-seeding readers (`readRepoAdmission`, not
+  // the lazy-seeding `getRepoAdmission`). Before that, an anonymous CI call INSERTED a `RepoAdmission`
+  // row on a read miss: a governance record manufactured by a stranger's curl, on a surface whose
+  // only promised effect is a verdict. The single write this route still performs is to its own scan
+  // caches.
   // Rate-limiting strategy (denial-of-wallet defense that still lets real CI through):
   //  - The real-LLM path (?mock=0) is always throttled up-front with the strict SCAN_RATE_LIMIT — it
   //    spends both LLM budget and a full GitHub ingest.
@@ -197,9 +205,18 @@ export async function GET(
     // the duration of the outage. `getOrgGatePolicy` returns null WITHOUT throwing when there is no DB
     // and when the org/column is unset, so a throw here means only one thing: we could not determine the
     // bar. Say that (503) rather than enforce a weaker one.
+    // TENANCY, not the owner login (the same defect `repoUnderOrg` was fixed for). The org whose bar
+    // applies is the org that TRACKS this repository; resolving by owner namespace found nothing for
+    // an org named for its team, and "nothing" is indistinguishable from "no bar configured" — so the
+    // gate went green on the archetype default while the owner's dashboard displayed a bar it believed
+    // was enforced. `orgSlugForRepo` keeps the owner-login match as its fast path, so a deployment
+    // whose slugs are owner namespaces is byte-identical. Resolved INSIDE this try: failing to
+    // determine the tenant is failing to read the bar, and both must produce the same honest 503.
     let orgPolicy: GatePolicy | null;
+    let orgSlug = ownerN;
     try {
-      orgPolicy = await getOrgGatePolicy(ownerN);
+      orgSlug = await orgSlugForRepo(ownerN, coordinate);
+      orgPolicy = await getOrgGatePolicy(orgSlug);
     } catch (err) {
       console.error("[gate] org policy read failed — refusing to gate on the archetype default", err);
       return NextResponse.json(
@@ -228,7 +245,7 @@ export async function GET(
     // only that the bar could not be determined. Say that; never enforce a weaker one.
     let admissionLayer;
     try {
-      admissionLayer = await resolveAdmissionLayer(ownerN, coordinate);
+      admissionLayer = await resolveAdmissionLayer(orgSlug, coordinate);
     } catch (err) {
       console.error("[gate] admission read failed — refusing to gate on a bar we could not read", err);
       return NextResponse.json(
@@ -253,13 +270,27 @@ export async function GET(
     // when the effective policy actually names a check, so the common gate call pays no extra query;
     // null (no ledger, no report, a summary-only report) SKIPS every named check rather than failing
     // a repo for a measurement that was never due.
-    const checkStates = policy.requireChecks?.length ? await loadCheckStates(ownerN, coordinate) : null;
-    const gate = evaluateGate(report, policy, { checkStates });
+    const checkStates = policy.requireChecks?.length ? await loadCheckStates(orgSlug, coordinate) : null;
+    // THE SCAN'S OWN HONESTY FLAGS, threaded explicitly at the seam rather than left implicit: this
+    // surface reads `sensorFailures` + `confidence` off the report it just produced, so a scan whose
+    // governance or security sensor THREW cannot answer with a full-confidence green verdict. (The
+    // evaluator defaults to exactly these; naming them here is what makes the read visible where the
+    // verdict is produced.)
+    const gate = evaluateGate(report, policy, {
+      checkStates,
+      sensorFailures: report.sensorFailures ?? [],
+      confidence: report.confidence,
+    });
     logGateVerdict(report, gate, {
       surface: "api",
       repo: coordinate,
       ref,
-      policySource: orgPolicy ? "org" : searchParams.size > 0 ? "params" : "archetype",
+      // "params" must mean A POLICY PARAM WAS SUPPLIED, not "the URL had a query string". `searchParams.size`
+      // counted `?ref=<sha>` and `?mock=0` — which every CI call carries — so almost every archetype-default
+      // verdict logged as "params", and the field's stated purpose (telling "nobody is gated" apart from
+      // "nobody fails") was defeated by its own most common caller. Keyed on the parsed policy instead, which
+      // is the same function the fold uses, so the log cannot disagree with the bar.
+      policySource: orgPolicy ? "org" : Object.keys(explicitPolicyFromParams(searchParams)).length > 0 ? "params" : "archetype",
       degraded: degradedToMock(report),
       admission: admissionLayer.admission,
     });
@@ -298,6 +329,19 @@ export async function GET(
         archetype: report.archetype,
         policy: gate.policy,
         failures: gate.failures,
+        // WHAT THIS RUN COULD NOT TEST. `policy` echoes every configured bar and cannot say which of
+        // them were actually evaluated — and on THIS endpoint that gap is the norm, not the exception:
+        // the scan is token-less by construction (see the security note above), so branch governance and
+        // PR statistics are never read here and `requireProtectedBranch` / `minAiGovernedRate` /
+        // `forbidAiAuthorship` are inert on every call. A CI consumer reading `pass: true` beside
+        // `policy.requireProtectedBranch: true` was entitled to believe the branch was checked. This is
+        // the correction, and it is machine-readable so a workflow can fail on an empty measurement.
+        skipped: gate.skipped,
+        // The gate's own reading of this scan's reliability — a failed sensor, coverage under the
+        // scan's declared floor, a truncated PR page. `warnings` below is the scan's raw prose; this
+        // is the subset that qualifies THIS VERDICT, in the gate's voice, and it is what the check-run
+        // summary and the PR comment render.
+        caveats: gate.caveats,
         // #8 — WHY this repository was held to this bar. A CI log that only carries the effective
         // policy cannot explain why two repos under one org got different verdicts; the triple can.
         // Omitted entirely (not nulled) when no admission row applied, so a repo without one produces

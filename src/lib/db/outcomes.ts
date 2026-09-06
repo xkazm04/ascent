@@ -228,34 +228,63 @@ export async function recordOutcomes(inputs: readonly OutcomeInput[]): Promise<v
  * table's whole value — see the header.
  */
 export async function recordOutcomeForScanPair(input: OutcomePairInput): Promise<boolean> {
-  if (!isDbConfigured()) return false;
-  const { beforeScanId, afterScanId } = input;
-  if (!beforeScanId || !afterScanId || beforeScanId === afterScanId) return false;
+  const [ok] = await recordOutcomesForScanPairs([input]);
+  return ok ?? false;
+}
+
+/**
+ * The same measurement for MANY pairs, reading every bookend scan in ONE query.
+ *
+ * The per-pair entry point above is right for a hook holding a single pair, and wrong for a
+ * reconcile tick: `reconcileRecommendationOutcomes` ran it in a loop, so a 50-candidate tick issued
+ * 100 sequential `scan.findUnique` calls (two per candidate) on top of one `scan.findFirst` per
+ * candidate to locate the "after" — ~150 round trips to measure 50 closes. The bookend set is known
+ * up front, so it is read once; the refusals, the deltas and the upsert identity are byte-identical,
+ * because both paths run the same `measurablePair` + `recordOutcome`.
+ *
+ * Returns one boolean per input, in order: `true` where a row was written, `false` for every pair the
+ * table declines (missing id, self-pair, absent scan, instrument disagreement).
+ */
+export async function recordOutcomesForScanPairs(inputs: readonly OutcomePairInput[]): Promise<boolean[]> {
+  if (!isDbConfigured() || inputs.length === 0) return inputs.map(() => false);
   try {
-    const prisma = getPrisma();
-    const [before, after] = await Promise.all([
-      prisma.scan.findUnique({ where: { id: beforeScanId }, select: BOOKEND_SELECT }),
-      prisma.scan.findUnique({ where: { id: afterScanId }, select: BOOKEND_SELECT }),
-    ]);
-    const measured = measurablePair(before, after);
-    if (!measured) return false;
-    await recordOutcome({
-      orgId: input.orgId,
-      repoFullName: input.repoFullName,
-      kind: input.kind,
-      identityKey: input.identityKey,
-      dimId: input.dimId,
-      beforeScanId,
-      afterScanId,
-      interventionAt: input.interventionAt,
-      sourceRowId: input.sourceRowId ?? null,
-      ...measured,
-      dimDelta: input.dimId ? dimDeltaFor(before!, after!, input.dimId) : null,
+    const ids = new Set<string>();
+    for (const i of inputs) {
+      if (i.beforeScanId) ids.add(i.beforeScanId);
+      if (i.afterScanId) ids.add(i.afterScanId);
+    }
+    if (ids.size === 0) return inputs.map(() => false);
+    const rows = await getPrisma().scan.findMany({
+      where: { id: { in: [...ids] } },
+      select: { id: true, ...BOOKEND_SELECT },
     });
-    return true;
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const results = await mapPool(inputs, OUTCOME_WRITE_CONCURRENCY, async (input) => {
+      const { beforeScanId, afterScanId } = input;
+      if (!beforeScanId || !afterScanId || beforeScanId === afterScanId) return false;
+      const before = byId.get(beforeScanId) ?? null;
+      const after = byId.get(afterScanId) ?? null;
+      const measured = measurablePair(before, after);
+      if (!measured) return false;
+      await recordOutcome({
+        orgId: input.orgId,
+        repoFullName: input.repoFullName,
+        kind: input.kind,
+        identityKey: input.identityKey,
+        dimId: input.dimId,
+        beforeScanId,
+        afterScanId,
+        interventionAt: input.interventionAt,
+        sourceRowId: input.sourceRowId ?? null,
+        ...measured,
+        dimDelta: input.dimId ? dimDeltaFor(before!, after!, input.dimId) : null,
+      });
+      return true;
+    });
+    return results;
   } catch (err) {
     console.warn("[outcomes] pair read failed", err instanceof Error ? err.message : err);
-    return false;
+    return inputs.map(() => false);
   }
 }
 
@@ -418,6 +447,32 @@ export interface DoneRecCandidate {
 }
 
 /**
+ * How many unreconciled closes beyond this tick's own take are counted, so `remaining` is a real
+ * number instead of a boolean. Past it the count is a FLOOR and `truncated` says so — the ledger
+ * would rather report "at least 200 waiting" than guess a total.
+ */
+export const RECONCILE_REMAINING_PROBE = 200;
+
+/** Ledgered closes read to build the skip set. A tick past this many measured closes still makes
+ *  progress: the extras are simply re-examined and re-upserted onto their own identity. */
+const RECONCILED_ID_CAP = 5_000;
+
+/** Scans read in the ONE query that locates every candidate's "after" bookend. A candidate whose
+ *  after-scan falls outside the window is reported as awaiting a rescan — no row, retried next
+ *  tick — never as a measurement taken against the wrong scan. */
+const AFTER_SCAN_WINDOW = 500;
+
+/** One tick's worth of candidates, with what it could NOT reach stated beside them. */
+export interface DoneRecCandidatePage {
+  candidates: DoneRecCandidate[];
+  /** Unreconciled closes this tick did not take. A FLOOR when `truncated`. */
+  remaining: number;
+  /** More than {@link RECONCILE_REMAINING_PROBE} were waiting behind the take, so `remaining` is a
+   *  floor rather than a total. */
+  truncated: boolean;
+}
+
+/**
  * The durable `done` events for an org, resolved into scan pairs.
  *
  * Driven off `RecommendationEvent` — the append-only status log — rather than the render-time diff in
@@ -427,60 +482,106 @@ export interface DoneRecCandidate {
  *
  * Newest event wins per recommendation: a row toggled done → open → done was closed at the LAST close,
  * and that is the intervention instant a later scan should be measured against.
+ *
+ * ── Two things this read got wrong, and why they mattered ────────────────────────────────────────
+ *
+ * It took the 50 newest `done` EVENTS and deduped to one per recommendation AFTERWARDS, so a row
+ * toggled done → open → done consumed three of the fifty slots and a tick could measure far fewer
+ * closes than it claimed to consider. The dedupe now happens in the DATABASE — one group per
+ * recommendation, ordered by its last close — so the take is fifty recommendations, always.
+ *
+ * And the window never moved: ordering by `createdAt desc` with no cursor meant an org past fifty
+ * closes reconciled the same newest fifty on every tick, forever. Its older closes could never become
+ * ledger rows and therefore could never count toward `OUTCOME_MIN_SAMPLES`, and nothing said so. The
+ * watermark is the LEDGER ITSELF: a close already carrying an `InterventionOutcome` row
+ * (`sourceRowId`) is excluded in the query, so each tick advances into the tail. A close that is not
+ * yet measurable (no rescan since) writes no row and is deliberately NOT excluded — it must be
+ * re-examined once the rescan lands — which is exactly the population `remaining` discloses.
  */
-export async function listDoneRecCandidates(orgId: string, limit = RECONCILE_MAX): Promise<DoneRecCandidate[]> {
-  if (!isDbConfigured()) return [];
+export async function listDoneRecCandidates(orgId: string, limit = RECONCILE_MAX): Promise<DoneRecCandidatePage> {
+  const empty: DoneRecCandidatePage = { candidates: [], remaining: 0, truncated: false };
+  if (!isDbConfigured()) return empty;
   return dbReadSafe(async () => {
     const prisma = getPrisma();
-    const events = await prisma.recommendationEvent.findMany({
-      where: { kind: "status", toValue: "done", recommendation: { scan: { repo: { orgId } } } },
-      orderBy: { createdAt: "desc" },
-      take: limit,
+    // 1 — the watermark, derived from the ledger rather than from a column this schema doesn't have.
+    const ledgered = await prisma.interventionOutcome.findMany({
+      where: { orgId, kind: "recommendation", sourceRowId: { not: null } },
+      select: { sourceRowId: true },
+      take: RECONCILED_ID_CAP,
+    });
+    const reconciled = ledgered.map((r) => r.sourceRowId).filter((id): id is string => Boolean(id));
+
+    // 2 — one group per RECOMMENDATION (the dedupe, in the database, before the take), ordered by the
+    // last close, and skipping what the ledger already holds.
+    const groups = await prisma.recommendationEvent.groupBy({
+      by: ["recommendationId"],
+      where: {
+        kind: "status",
+        toValue: "done",
+        recommendation: { scan: { repo: { orgId } } },
+        ...(reconciled.length ? { recommendationId: { notIn: reconciled } } : {}),
+      },
+      _max: { createdAt: true },
+      orderBy: { _max: { createdAt: "desc" } },
+      take: limit + RECONCILE_REMAINING_PROBE,
+    });
+    const page = groups.slice(0, limit);
+    const remaining = groups.length - page.length;
+    const truncated = groups.length >= limit + RECONCILE_REMAINING_PROBE;
+    if (page.length === 0) return { candidates: [], remaining, truncated };
+
+    // 3 — the rows behind those ids, in one query.
+    const recs = await prisma.recommendation.findMany({
+      where: { id: { in: page.map((g) => g.recommendationId) } },
       select: {
-        createdAt: true,
-        recommendation: {
+        id: true,
+        dimId: true,
+        title: true,
+        scanId: true,
+        scan: {
           select: {
-            id: true,
-            dimId: true,
-            title: true,
-            scanId: true,
-            scan: {
-              select: {
-                repoId: true,
-                repo: { select: { fullName: true } },
-                dimensions: { select: { dimId: true, score: true } },
-              },
-            },
+            repoId: true,
+            repo: { select: { fullName: true } },
+            dimensions: { select: { dimId: true, score: true } },
           },
         },
       },
     });
+    const recById = new Map(recs.map((r) => [r.id, r]));
 
-    const seen = new Set<string>();
-    const candidates: DoneRecCandidate[] = [];
-    for (const e of events) {
-      const rec = e.recommendation;
-      if (!rec || seen.has(rec.id)) continue;
-      seen.add(rec.id);
-      const after = await prisma.scan.findFirst({
-        where: { repoId: rec.scan.repoId, scannedAt: { gt: e.createdAt } },
-        orderBy: [{ scannedAt: "asc" }, { createdAt: "asc" }, { id: "asc" }],
-        select: { id: true, dimensions: { select: { dimId: true, score: true } } },
-      });
-      candidates.push({
+    const closes = page
+      .map((g) => ({ rec: recById.get(g.recommendationId), doneAt: g._max.createdAt }))
+      .filter((c): c is { rec: NonNullable<ReturnType<typeof recById.get>>; doneAt: Date } => Boolean(c.rec && c.doneAt));
+    if (closes.length === 0) return { candidates: [], remaining, truncated };
+
+    // 4 — every candidate's "after" bookend in ONE query: the repos involved, from the earliest close
+    // forward, in the same order the per-candidate findFirst used, so each candidate still picks the
+    // FIRST scan after its own close.
+    const earliest = closes.reduce((min, c) => (c.doneAt < min ? c.doneAt : min), closes[0]!.doneAt);
+    const repoIds = [...new Set(closes.map((c) => c.rec.scan.repoId))];
+    const laterScans = await prisma.scan.findMany({
+      where: { repoId: { in: repoIds }, scannedAt: { gt: earliest } },
+      orderBy: [{ scannedAt: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+      take: AFTER_SCAN_WINDOW,
+      select: { id: true, repoId: true, scannedAt: true, dimensions: { select: { dimId: true, score: true } } },
+    });
+
+    const candidates = closes.map(({ rec, doneAt }) => {
+      const after = laterScans.find((s) => s.repoId === rec.scan.repoId && s.scannedAt > doneAt) ?? null;
+      return {
         recommendationId: rec.id,
         repoFullName: rec.scan.repo.fullName,
         dimId: rec.dimId,
         title: rec.title,
-        doneAt: e.createdAt,
+        doneAt,
         beforeScanId: rec.scanId,
         beforeDimScore: rec.scan.dimensions.find((d) => d.dimId === rec.dimId)?.score ?? null,
         afterScanId: after?.id ?? null,
         afterDimScore: after?.dimensions.find((d) => d.dimId === rec.dimId)?.score ?? null,
-      });
-    }
-    return candidates;
-  }, []);
+      };
+    });
+    return { candidates, remaining, truncated };
+  }, empty);
 }
 
 /**

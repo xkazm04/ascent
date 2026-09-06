@@ -1852,11 +1852,17 @@ CREATE TABLE "OrgKnowledgeSubject" (
     "techniqueCount" INTEGER NOT NULL DEFAULT 0,
     "useWhenJson" TEXT NOT NULL DEFAULT '[]',
     "lawsJson" TEXT NOT NULL DEFAULT '[]',
+    -- NULL = the index pass predates the digest mirror ("unknown", never "current").
+    "digest" TEXT,
     "archived" BOOLEAN NOT NULL DEFAULT false,
     "indexedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "OrgKnowledgeSubject_pkey" PRIMARY KEY ("id")
 );
+
+-- Knowledge base rebuild: the subject's content digest, what a map pair's evaluatedAgainst is
+-- compared to. Additive for an existing bootstrap.
+ALTER TABLE "OrgKnowledgeSubject" ADD COLUMN IF NOT EXISTS "digest" TEXT;
 
 -- CreateIndex
 CREATE UNIQUE INDEX "OrgKnowledgeSubject_registryId_bundle_slug_key" ON "OrgKnowledgeSubject"("registryId", "bundle", "slug");
@@ -1866,11 +1872,13 @@ CREATE INDEX "OrgKnowledgeSubject_orgId_bundle_idx" ON "OrgKnowledgeSubject"("or
 
 -- CreateTable: #18 the HEADER of one repo's .ai/registry-map.json — the counts and provenance, so a
 -- reader can tell "judged 3 of 40 pairs" apart from "conformant".
+-- ONE ROW PER SWEPT REPO, mapped or not (knowledge base rebuild): "mapSha" NULL = the sweep found no
+-- .ai/registry-map.json; the counts are then 0, "schema" '' and "generatedAt" the sweep time.
 CREATE TABLE "RepoConformanceMap" (
     "id" TEXT NOT NULL,
     "orgId" TEXT NOT NULL,
     "repositoryId" TEXT NOT NULL,
-    "mapSha" TEXT NOT NULL,
+    "mapSha" TEXT,
     "schema" TEXT NOT NULL,
     "generatedAt" TIMESTAMP(3) NOT NULL,
     "contexts" INTEGER NOT NULL,
@@ -1884,11 +1892,27 @@ CREATE TABLE "RepoConformanceMap" (
     "bundleDigestsJson" TEXT NOT NULL DEFAULT '{}',
     -- NULL = the map carried no consult lane. That is NOT "zero consults".
     "consults30d" INTEGER,
+    -- Foundation presence probed by the sweep: context-map.json at the root (presence only) and
+    -- .ai/manifest.yaml (or .yml).
+    "hasContextMap" BOOLEAN NOT NULL DEFAULT false,
+    "hasManifest" BOOLEAN NOT NULL DEFAULT false,
+    -- TEXT JSON { outOfScopeCategories: string[], outOfScopeSubjects: string[] }; '{}' when none.
+    "scopeJson" TEXT NOT NULL DEFAULT '{}',
+    -- TEXT JSON { subject, bundle, decision }[] — .ai/directions/ledger.jsonl, latest per subject.
+    "directionsJson" TEXT NOT NULL DEFAULT '[]',
     "warningsJson" TEXT NOT NULL DEFAULT '[]',
     "ingestedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "RepoConformanceMap_pkey" PRIMARY KEY ("id")
 );
+
+-- Knowledge base rebuild: one row per SWEPT repo. Existing bootstraps get the nullable map sha and
+-- the four foundation columns additively.
+ALTER TABLE "RepoConformanceMap" ALTER COLUMN "mapSha" DROP NOT NULL;
+ALTER TABLE "RepoConformanceMap" ADD COLUMN IF NOT EXISTS "hasContextMap" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "RepoConformanceMap" ADD COLUMN IF NOT EXISTS "hasManifest" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "RepoConformanceMap" ADD COLUMN IF NOT EXISTS "scopeJson" TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE "RepoConformanceMap" ADD COLUMN IF NOT EXISTS "directionsJson" TEXT NOT NULL DEFAULT '[]';
 
 -- CreateIndex
 CREATE UNIQUE INDEX "RepoConformanceMap_repositoryId_key" ON "RepoConformanceMap"("repositoryId");
@@ -1978,6 +2002,45 @@ CREATE TABLE "RegistrySignalContribution" (
 
 -- CreateIndex
 CREATE INDEX "RegistrySignalContribution_orgId_createdAt_idx" ON "RegistrySignalContribution"("orgId", "createdAt");
+
+-- CreateTable: knowledge base rebuild — one hand-off of registry work (populate / map / conform)
+-- for a fleet repo, as a brief given to an operator or a local agent run. Ascent writes this ledger
+-- and nothing else: the repo, its map and the registry only change through the PR a dispatch opens.
+-- "status" is closed: handed_off | running | proposed | done | failed | superseded.
+CREATE TABLE "RegistryDispatch" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "repositoryId" TEXT NOT NULL,
+    "registryId" TEXT NOT NULL,
+    "stage" TEXT NOT NULL,
+    "mode" TEXT NOT NULL,
+    "status" TEXT NOT NULL,
+    "subjectsJson" TEXT NOT NULL DEFAULT '[]',
+    "briefDigest" TEXT NOT NULL,
+    "actor" TEXT NOT NULL,
+    "branch" TEXT,
+    "prUrl" TEXT,
+    "mapShaBefore" TEXT,
+    "mapShaAfter" TEXT,
+    "model" TEXT,
+    -- Micro-dollars. NULL for a brief nothing ran.
+    "costMicros" INTEGER,
+    "turns" INTEGER,
+    "agentDurationMs" INTEGER,
+    "summary" TEXT,
+    "error" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "startedAt" TIMESTAMP(3),
+    "endedAt" TIMESTAMP(3),
+
+    CONSTRAINT "RegistryDispatch_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX "RegistryDispatch_orgId_repositoryId_idx" ON "RegistryDispatch"("orgId", "repositoryId");
+
+-- CreateIndex
+CREATE INDEX "RegistryDispatch_orgId_createdAt_idx" ON "RegistryDispatch"("orgId", "createdAt");
 
 -- CreateTable: #36 one "## " entry in skills/<name>/LESSONS.md. Heading slots are stored VERBATIM —
 -- a version that did not parse stays '' rather than being guessed — and headingRaw keeps the line.

@@ -4,14 +4,18 @@
 import { SectionHeader } from "@/components/org/shared/ui";
 import { PrSignalsBand } from "./PrSignalsBand";
 import { PrRepoTable } from "./PrRepoTable";
+import { prSectionBasisLine } from "./prBasis";
 import type { OrgPrSignals } from "@/lib/db";
 
 export function DeliveryPrSection({ pr }: { pr: OrgPrSignals }) {
   return (
     <div>
+      {/* `totalPrs` / `repos` describe the fleet's COVERAGE, not any one rate's denominator — the old
+          headline read as though all ten percentages below shared them. Each cell now names its own
+          population (prBasis), and this line says so instead of implying a shared basis. */}
       <SectionHeader
         title="Pull request signals"
-        description={`How systematically the fleet ships: ${pr.totalPrs} PRs across ${pr.repos} repos.`}
+        description={prSectionBasisLine(pr.totalPrs, pr.repos)}
         right={
           pr.tools.length > 0 ? (
             <span className="flex flex-wrap items-center gap-1.5 type-mono-sm text-slate-500">
@@ -35,7 +39,7 @@ export function DeliveryPrSection({ pr }: { pr: OrgPrSignals }) {
           <SectionHeader
             size="sm"
             title="By repository"
-            description="Riskiest first: lowest review coverage, then slowest merges. Click a repo for its full report."
+            description="Riskiest first: lowest review coverage, then slowest merges. Each rate carries its own denominator (hover a cell); the PRs column is the analyzed count, not every rate's population. Click a repo for its full report."
           />
           <div className="mt-3">
             <PrRepoTable rows={pr.perRepo} />

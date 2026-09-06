@@ -30,6 +30,7 @@ export function AlertsControl({ org }: { org: string }) {
     setDimensionDrop,
     configured,
     denied,
+    loadFailed,
     busy,
     error,
     notice,
@@ -78,18 +79,28 @@ export function AlertsControl({ org }: { org: string }) {
           <div className="type-mono-sm uppercase tracking-widest text-accent">Alert routing</div>
           {denied ? (
             <p className="mt-2 type-body-sm text-slate-400">Only org admins can configure alert routing.</p>
+          ) : loadFailed ? (
+            /* The form stays HIDDEN on a failed load. Its fields would render blank — which reads as
+               "no webhook, thresholds on the defaults" — and Save posts both thresholds every time,
+               so an admin acting on that blank slate would overwrite the org's real settings with it. */
+            <p className="mt-2 type-body-sm text-danger">
+              Couldn&apos;t load this org&apos;s alert settings. Close and reopen to retry — the form stays hidden so a
+              blank field can&apos;t overwrite the webhook or thresholds already saved.
+            </p>
           ) : !loaded ? (
             <p className="mt-2 type-mono-sm text-slate-500">Loading…</p>
           ) : (
             <>
-              {/* The sink accepts an EMAIL ADDRESS as well as a webhook (G7-01) — a shipped, documented
-                  channel that this, the only surface that configures it, named nowhere. An org whose
-                  leadership doesn't live in Slack read "Slack-compatible incoming webhook" and
-                  concluded Ascent could not reach them. */}
+              {/* The sink field accepts an ADDRESS as well as a webhook (G7-01: a `mailto:` value routes
+                  every alert through the mail transport, with a one-click unsubscribe in each message).
+                  That shipped with a validation branch, a renderer, a transport and an unsubscribe
+                  route — and this, its only configuration surface, named neither the option nor the
+                  syntax, so an org whose leadership doesn't live in Slack had no way to find it. */}
               <p id="alert-sink-help" className="mt-1 type-body-sm text-slate-400">
-                Where this org&apos;s regression, low-credit, and weekly-digest alerts are sent: a
-                Slack-compatible incoming webhook, or <code className="text-slate-300">mailto:you@example.com</code>{" "}
-                to receive them as email. Leave blank to use the deployment&apos;s global sink.
+                Where this org&apos;s alerts go: a Slack-compatible incoming webhook, or{" "}
+                <code className="text-slate-300">mailto:you@example.com</code> to get them as email. Covers
+                regression, control, credit, goal, spend and weekly-digest alerts. Leave blank to use the
+                deployment&apos;s global sink.
               </p>
               {/* a11y: the two threshold fields below carry <label>s; this one — the primary control of
                   the dialog — had only a placeholder, so a screen reader announced it as an unnamed
@@ -100,7 +111,7 @@ export function AlertsControl({ org }: { org: string }) {
                 onChange={(e) => setWebhookUrl(e.target.value)}
                 aria-label="Alert sink: webhook URL or mailto: address"
                 aria-describedby="alert-sink-help"
-                placeholder="https://hooks.slack.com/… or mailto:you@example.com"
+                placeholder="https://hooks.slack.com/services/… or mailto:you@example.com"
                 className="mt-2 w-full rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-mono-sm text-slate-200 outline-none focus:border-accent"
               />
 
