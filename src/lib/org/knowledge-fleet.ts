@@ -27,6 +27,9 @@ export function toKnowledgeSubject(row: KnowledgeSubjectRow): KnowledgeSubject {
     useWhen: row.useWhen,
     laws: row.laws,
     digest: row.digest,
+    // WP-A1 wires these from the subject mirror; the stub keeps the wire shape honest (null = unknown).
+    revision: (row as { revision?: number | null }).revision ?? null,
+    changedAt: (row as { changedAt?: string | null }).changedAt ?? null,
   };
 }
 
@@ -84,6 +87,13 @@ export function buildKnowledgeFleet(subjects: KnowledgeSubject[], maps: Conforma
       deviations: m.deviations,
       weaklyGoverned: m.weaklyGovernedContexts,
       sweptAt: m.ingestedAt,
+      // WP-A1 fills these from the map's churn stats and the sweep's context-map read.
+      orphaned: 0,
+      arrived: 0,
+      renamed: 0,
+      contextMapRevision: null,
+      repoContextMapRevision: null,
+      mapBehind: false,
     };
   });
 
@@ -93,7 +103,15 @@ export function buildKnowledgeFleet(subjects: KnowledgeSubject[], maps: Conforma
       const folded = foldPairs(byRepo.get(r.repositoryId)?.get(s.slug) ?? [], s.digest);
       cells.push(
         folded
-          ? { subject: s.slug, repositoryId: r.repositoryId, state: folded.state, stale: folded.stale, contexts: folded.contexts, evidence: folded.evidence }
+          ? {
+              subject: s.slug,
+              repositoryId: r.repositoryId,
+              state: folded.state,
+              stale: folded.stale,
+              contexts: folded.contexts,
+              evidence: folded.evidence,
+              contextRows: folded.contextRows,
+            }
           : {
               subject: s.slug,
               repositoryId: r.repositoryId,
@@ -101,6 +119,7 @@ export function buildKnowledgeFleet(subjects: KnowledgeSubject[], maps: Conforma
               stale: false,
               contexts: 0,
               evidence: null,
+              contextRows: [],
             },
       );
     }

@@ -37,7 +37,7 @@ const S = (
   digest: string,
   useWhen: string[],
   laws: string[],
-): KnowledgeSubject => ({ bundle: "software-engineering", slug, category, subcategory, status, file, techniqueCount, useWhen, laws, digest });
+): KnowledgeSubject => ({ bundle: "software-engineering", slug, category, subcategory, status, file, techniqueCount, useWhen, laws, digest, revision: null, changedAt: null });
 
 export const SE_TAXONOMY: KnowledgeCategory[] = [
   { id: "ui-surfaces", title: "UI surfaces", order: 1, subjects: [], subcategories: [
@@ -162,6 +162,12 @@ const repo = (
   deviations: 0,
   weaklyGoverned: [],
   sweptAt: SWEPT_AT,
+  orphaned: 0,
+  arrived: 0,
+  renamed: 0,
+  contextMapRevision: null,
+  repoContextMapRevision: null,
+  mapBehind: false,
   ...patch,
 });
 
@@ -220,7 +226,7 @@ function verdict(s: KnowledgeSubject, r: KnowledgeRepo, h: number): KnowledgeCel
   else if (r.repositoryId === "r-billing") state = h % 10 < 7 ? "unknown" : "conformant";
   else if (r.repositoryId === "r-infra") state = h % 5 === 0 ? "deviation" : h % 5 === 1 ? "unknown" : "conformant";
   else state = h % 6 === 0 ? "deviation" : "conformant";
-  return { subject: s.slug, repositoryId: r.repositoryId, state, stale, contexts: 1 + (h % 3), evidence: EVIDENCE[state] ?? null };
+  return { subject: s.slug, repositoryId: r.repositoryId, state, stale, contexts: 1 + (h % 3), evidence: EVIDENCE[state] ?? null, contextRows: [] };
 }
 
 function buildCells(subjects: KnowledgeSubject[], repos: KnowledgeRepo[]): KnowledgeCell[] {
@@ -229,7 +235,11 @@ function buildCells(subjects: KnowledgeSubject[], repos: KnowledgeRepo[]): Knowl
     for (const s of subjects) {
       const h = hash(`${s.slug}|${r.fullName}`);
       const present = r.hasMap && r.domains.includes(s.bundle) && absence(s, r) === "candidate" && h % 100 < 58;
-      cells.push(present ? verdict(s, r, h) : { subject: s.slug, repositoryId: r.repositoryId, state: absence(s, r), stale: false, contexts: 0, evidence: null });
+      cells.push(
+        present
+          ? verdict(s, r, h)
+          : { subject: s.slug, repositoryId: r.repositoryId, state: absence(s, r), stale: false, contexts: 0, evidence: null, contextRows: [] },
+      );
     }
   }
   return cells;
