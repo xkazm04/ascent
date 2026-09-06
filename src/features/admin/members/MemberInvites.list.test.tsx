@@ -54,3 +54,17 @@ describe("InviteList — an invite's provenance", () => {
     expect(screen.queryByText(/invited by/i)).toBeNull();
   });
 });
+
+// The invite mail tells the invitee "expires in N days"; the owner's own list stated the same
+// deadline as a raw host-locale date, so finding the invite about to lapse meant subtracting dates.
+// Relative by default, absolute one hover away (registry status-vocabulary → timestamp-display).
+describe("InviteList — when an invite lapses", () => {
+  it("counts the days down rather than printing a date", () => {
+    const iso = new Date(Date.now() + 6 * 86_400_000).toISOString();
+    render(<MemberInvites slug="acme" initialInvites={[invite({ id: "alpha", expiresAt: iso })]} />);
+    const el = screen.getByText(/expires in 6 days/i);
+    expect(el).toBeTruthy();
+    // ...and the precise moment is still reachable, on the hover title.
+    expect(el.getAttribute("title")).toBe(new Date(iso).toLocaleString());
+  });
+});

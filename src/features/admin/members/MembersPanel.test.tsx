@@ -96,3 +96,22 @@ describe("MembersPanel — optimistic rollback (DOM)", () => {
     expect((screen.getByLabelText("Role for alice") as HTMLSelectElement).value).toBe("owner"); // alice reverted
   });
 });
+
+// The roster's "Joined" cell rendered `new Date(createdAt).toLocaleDateString()` — the format taken
+// from whichever machine happened to render it, and the only surface in this feature not using the
+// house past-moment primitive that seventeen others do.
+describe("MembersTable — the Joined cell speaks the house time vocabulary", () => {
+  it("renders a relative label with the exact moment one hover away", () => {
+    const joined = new Date(Date.now() - 3 * 86_400_000).toISOString();
+    render(
+      <MembersPanel
+        slug="acme"
+        initial={[{ login: "alice", name: null, role: "owner", createdAt: joined }]}
+        initialInvites={[]}
+        selfLogin="alice"
+      />,
+    );
+    const cell = screen.getByText("3d ago");
+    expect(cell.getAttribute("title")).toBe(new Date(joined).toLocaleString());
+  });
+});

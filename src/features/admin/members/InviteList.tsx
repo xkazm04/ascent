@@ -6,6 +6,7 @@
 // extract, not to keep appending).
 
 import type { InviteRow } from "./MembersTypes";
+import { absoluteMoment, expiresIn } from "./memberTime";
 
 export function InviteList({
   invites,
@@ -38,7 +39,12 @@ export function InviteList({
           <button onClick={() => onRevoke(i.id)} className="text-slate-600 transition hover:text-danger-soft">
             revoke
           </button>
-          <span className="text-slate-600">expires {new Date(i.expiresAt).toLocaleDateString()}</span>
+          {/* Relative by default, absolute one hover away — the same sentence the invite mail sends
+              the invitee, so one deadline reads one way (registry status-vocabulary →
+              timestamp-display). The raw date left the owner subtracting to find what was lapsing. */}
+          <span className="text-slate-600" title={absoluteMoment(i.expiresAt)}>
+            {expiresIn(i.expiresAt)}
+          </span>
         </li>
       ))}
     </ul>

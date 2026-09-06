@@ -7,6 +7,8 @@
 import type { OrgRole } from "@/lib/db/members";
 import { ROLES, ROLE_HINT } from "@/features/admin/members/memberRoles";
 import type { Member } from "./MembersTypes";
+import { absoluteMoment } from "./memberTime";
+import { timeAgo } from "@/lib/ui";
 
 export function MembersTable({
   members,
@@ -91,8 +93,11 @@ export function MembersTable({
                   </div>
                 )}
               </td>
-              <td className="px-4 py-2.5 type-mono-sm text-slate-500">
-                {new Date(m.createdAt).toLocaleDateString()}
+              {/* The house past-moment primitive (17 other surfaces use it), with the precise
+                  moment one hover away. A bare toLocaleDateString() took its format from whatever
+                  machine rendered it. */}
+              <td className="px-4 py-2.5 type-mono-sm text-slate-500" title={absoluteMoment(m.createdAt)}>
+                {timeAgo(m.createdAt)}
               </td>
               <td className="px-4 py-2.5 text-right">
                 {confirmRemove === m.login ? (
