@@ -100,16 +100,29 @@ export async function peekInvite(token: string): Promise<InvitePeek> {
   };
 }
 
-/** Revoke a pending invite (owner action). Scoped to the org so an id from another tenant can't be hit. */
-export async function revokeInvite(orgSlug: string, id: string): Promise<boolean> {
-  if (!isDbConfigured()) return false;
+/**
+ * Revoke a pending invite (owner action). Scoped to the org so an id from another tenant can't be hit.
+ *
+ * Returns the TARGET as well as the outcome so the route can write an audit row a human can read: an
+ * `org.member.invite_revoked` entry carrying only an opaque invite id says that something was
+ * withdrawn without saying from whom. The target is read before the conditional update, which remains
+ * the authority — `revoked` is still `count > 0`, so a racing revoke loses exactly as before and the
+ * only cost of the race is a null target on the row that did the work.
+ */
+export async function revokeInvite(orgSlug: string, id: string): Promise<{ revoked: boolean; target: string | null }> {
+  if (!isDbConfigured()) return { revoked: false, target: null };
   const orgId = await getOrgId(orgSlug);
-  if (!orgId) return false;
-  const res = await getPrisma().invite.updateMany({
+  if (!orgId) return { revoked: false, target: null };
+  const prisma = getPrisma();
+  const row = await prisma.invite.findFirst({
+    where: { id, orgId, status: "pending" },
+    select: { githubLogin: true, email: true },
+  });
+  const res = await prisma.invite.updateMany({
     where: { id, orgId, status: "pending" },
     data: { status: "revoked" },
   });
-  return res.count > 0;
+  return { revoked: res.count > 0, target: row?.githubLogin ?? row?.email ?? null };
 }
 
 export type AcceptResult =
