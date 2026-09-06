@@ -16,7 +16,7 @@ its `.ai/registry-map.json`, and Ascent's sweep reads them. This tab is a mirror
 
 | Use case | Where it lives on the tab |
 | --- | --- |
-| **Map the registry into Ascent** — see the corpus as the registry lays it out | the row labels: categories and subcategories in the taxonomy's declared order, subject slugs verbatim; the subject reader (`use_when` triggers, laws, status, technique count, the golden path's real file path and a link into the registry repo) |
+| **Map the registry into Ascent** — see the corpus as the registry lays it out | the row labels: categories and subcategories in the taxonomy's declared order, subject slugs verbatim; the subject reader (`use_when` triggers, laws, status, technique count, the golden path's real file path, a link into the registry repo, and — when the subject has a showcase — an `Open showcase →` link into `?tab=surfaces&subject=<slug>`; see [surfaces.md](surfaces.md)) |
 | **Map Ascent projects into the registry** — scan → map → conform | the "off the loom" strip (repos with no map and their next act), the dispatch composer, the hand-off ledger; see [Dispatch](../org-registry/README.md#dispatching-a-registry-stage-to-a-repo) |
 | **Domain matrix** — which projects consume which topics of a domain | the loom itself: every subject of the selected bundle × every mapped repo |
 
@@ -27,7 +27,7 @@ its `.ai/registry-map.json`, and Ascent's sweep reads them. This tab is a mirror
 | `src/features/shared/knowledge/KnowledgeTab.tsx` | server tab; reads `?domain=` and `?subject=`; unmapped / error / empty notices; the dev-only preview shell |
 | `KnowledgeLoom.tsx` (+ `KnowledgeLoomGrid.tsx`) | the client orchestrator and the matrix |
 | `KnowledgeComposer.tsx` | the dispatch composer + the hand-off ledger |
-| `KnowledgeSubjectDetail.tsx` | the subject reader (a `Modal`) |
+| `KnowledgeSubjectDetail.tsx` | the subject reader (a `Modal`); footer deep-links to the UI surfaces showcase when `isSurfaceShowcased(slug)` |
 | `KnowledgeShared.tsx` | `CellButton`, `StateLegend`, `StageChip`, `Spectrum`, `SweepStrip`, `DomainPicker` |
 | `knowledgeModel.ts` / `knowledgeVocabulary.ts` | pure derivations; labels, glyphs and tones for the eleven states and four stages |
 | `useKnowledgeSelection.ts` | domain / focused subject / picked cells; URL sync |
