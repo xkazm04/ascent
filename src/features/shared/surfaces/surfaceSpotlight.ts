@@ -28,6 +28,63 @@ export function applySpotlight(root: ParentNode, selected: string | null): void 
   }
 }
 
+// ── Solo mode (prototype 2026-09-06) ─────────────────────────────────────────────────────────────
+// The spotlight above keeps every region on screen and dims the unselected ones, which is why a
+// scene with ten regions is a very tall page. Solo mode renders ONE region's worth of page instead:
+// the selected region stays, everything that holds only other regions is display:none'd, and the
+// survivor spans whatever grid it sat in. The scene stays MOUNTED — its instruments keep running,
+// its state survives switching — so this is a layout mode, not an unmount.
+//
+// Why it also hides ancestors: a region is usually a cell in the scene's own grid. Hiding its
+// siblings alone leaves the survivor at half width beside an empty column, so any ancestor branch
+// that contains regions but not the selected one is hidden too. Scene chrome that holds no region
+// (headings, the fixture note) is never touched — it belongs to the whole scene.
+
+const SOLO_HIDDEN_ATTR = "data-solo-hidden";
+/** Written verbatim so Tailwind's scanner emits them; they are applied from script. */
+const HIDE_CLASS = "hidden";
+const SPAN_CLASS = "col-span-full";
+
+function clearSolo(root: ParentNode): void {
+  for (const el of root.querySelectorAll<HTMLElement>(`[${SOLO_HIDDEN_ATTR}]`)) {
+    el.classList.remove(HIDE_CLASS);
+    el.removeAttribute(SOLO_HIDDEN_ATTR);
+  }
+  for (const el of root.querySelectorAll<HTMLElement>("[data-solo]")) {
+    el.classList.remove(SPAN_CLASS);
+    el.removeAttribute("data-solo");
+  }
+}
+
+/**
+ * Show only `selected`'s region inside `root`. `null` restores the whole composed scene.
+ * Idempotent: the frame calls it after every commit, and it clears its own previous work first.
+ */
+export function applySoloRegion(root: HTMLElement, selected: string | null): void {
+  clearSolo(root);
+  if (selected === null) return;
+  const target = root.querySelector<HTMLElement>(`[${SPOTLIGHT_ATTR}="${selected}"]`);
+  if (!target) return;
+
+  const hide = (el: HTMLElement) => {
+    el.classList.add(HIDE_CLASS);
+    el.setAttribute(SOLO_HIDDEN_ATTR, "true");
+  };
+  for (const el of root.querySelectorAll<HTMLElement>(`[${SPOTLIGHT_ATTR}]`)) {
+    if (el !== target && !el.contains(target)) hide(el);
+  }
+  // Walk up to the canvas, hiding sibling branches that carry regions the reader did not pick.
+  for (let node: HTMLElement = target; node !== root && node.parentElement; node = node.parentElement) {
+    for (const sib of Array.from(node.parentElement.children)) {
+      if (sib === node) continue;
+      const el = sib as HTMLElement;
+      if (el.querySelector(`[${SPOTLIGHT_ATTR}]`)) hide(el);
+    }
+  }
+  target.classList.add(SPAN_CLASS);
+  target.setAttribute("data-solo", "true");
+}
+
 /** Every technique slug the scene actually marked — what the rail can point at. */
 export function regionSlugs(root: ParentNode): string[] {
   return Array.from(root.querySelectorAll<HTMLElement>(`[${SPOTLIGHT_ATTR}]`))

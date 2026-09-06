@@ -8,7 +8,7 @@
 // (surfaceSpotlight.ts), so a technique with no region is a technique the frame cannot point at —
 // the per-scene jsdom test pins that every declared slug has one.
 
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import type { SurfaceVolume } from "@/lib/org/surface-catalog";
 
 export type SurfaceTechnique = {
@@ -40,4 +40,13 @@ export type SurfaceSceneProps = {
 export type SurfaceBody = {
   Scene: ComponentType<SurfaceSceneProps>;
   techniques: readonly SurfaceTechnique[];
+};
+
+/**
+ * What the loader hands a frame: the body plus the motion scope that arrived with it. It lives here
+ * rather than in a frame file so every frame variant can name it without importing a sibling frame.
+ */
+export type LoadedScene = {
+  body: SurfaceBody;
+  Scope: ComponentType<{ reduced: boolean; children: ReactNode }>;
 };

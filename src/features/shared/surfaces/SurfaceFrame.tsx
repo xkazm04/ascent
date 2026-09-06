@@ -1,95 +1,64 @@
 "use client";
 
-// The scene frame: toolbar (Kicker path, freshness badge, controls) · rail · canvas · drawer.
-// Owns the SPOTLIGHT — after the body mounts and on every selection change it rings
-// `[data-technique=<selected>]` inside the canvas and dims the rest (surfaceSpotlight.ts).
+// THROWAWAY PROTOTYPE SWITCHER (round 1, 2026-09-06) — A/B for the scene layout.
 //
-// Imports NO framer-motion: the MotionScope arrives with the body through `import()` (see
-// SurfaceScene). `reduced` here is already the frame's resolution of OS preference OR simulate
-// toggle; the scene receives it as a prop and never runs its own media query.
+// The shipped frame (three columns, every region on screen, a 20rem drawer) is kept as "Baseline"
+// so the comparison has a reference; the two candidates are three-ROW layouts that render one
+// technique's region at a time. Consolidation deletes this file's strip and promotes the winner —
+// no switcher survives the round.
+//
+// Every variant takes the identical props, so SurfaceScene (and the type it imports from here)
+// is untouched by the round.
 
-import { useEffect, useRef } from "react";
-import { Kicker, Surface } from "@/components/ui";
+import { useState } from "react";
 import type { SurfaceRecord } from "@/lib/org/surface-catalog";
-import type { ComponentType, ReactNode } from "react";
-import type { SurfaceBody } from "./surfaceBody";
-import { SurfaceControls } from "./SurfaceControls";
-import { SurfaceDrawer } from "./SurfaceDrawer";
-import { SurfaceFreshnessBadge, type FreshnessLabel } from "./SurfaceFreshnessBadge";
-import { SurfaceRail } from "./SurfaceRail";
-import { applySpotlight } from "./surfaceSpotlight";
+import type { ReactNode } from "react";
+import type { LoadedScene } from "./surfaceBody";
+import type { FreshnessLabel } from "./SurfaceFreshnessBadge";
+import { SurfaceFrameBaseline } from "./SurfaceFrameBaseline";
+import { SurfaceFrameConsole } from "./SurfaceFrameConsole";
+import { SurfaceFrameDossier } from "./SurfaceFrameDossier";
 import type { SurfaceSelectionApi } from "./useSurfaceSelection";
 
-export type LoadedScene = { body: SurfaceBody; Scope: ComponentType<{ reduced: boolean; children: ReactNode }> };
+export type { LoadedScene };
 
-export function SurfaceFrame({
-  record,
-  freshness,
-  sel,
-  osReduced,
-  loaded,
-  canvasFallback,
-}: {
+type FrameProps = {
   record: SurfaceRecord;
   freshness: FreshnessLabel | null;
   sel: SurfaceSelectionApi;
   osReduced: boolean;
-  /** Null while the body chunk loads (or failed) — `canvasFallback` fills the canvas then. */
   loaded: LoadedScene | null;
   canvasFallback: ReactNode;
-}) {
-  const canvasRef = useRef<HTMLDivElement>(null);
-  const reduced = osReduced || sel.simulateReduced;
-  const techniques = loaded?.body.techniques ?? [];
-  const selected = techniques.find((t) => t.slug === sel.technique) ?? null;
+};
 
-  // Spotlight after every commit that could change the regions: the selection, the body arriving,
-  // the knobs re-rendering the scene. Cheap (a querySelectorAll over one canvas) and idempotent.
-  useEffect(() => {
-    const root = canvasRef.current;
-    if (root) applySpotlight(root, sel.technique);
-  });
+const VARIANTS = [
+  { id: "console", label: "Console", note: "3 rows · one channel at a time · wide readout band", View: SurfaceFrameConsole },
+  { id: "dossier", label: "Dossier", note: "3 rows · numbered index · one page of the file at a time", View: SurfaceFrameDossier },
+  { id: "baseline", label: "Baseline (shipped)", note: "3 columns · every region at once · 20rem drawer", View: SurfaceFrameBaseline },
+] as const;
+
+export function SurfaceFrame(props: FrameProps) {
+  const [variant, setVariant] = useState<(typeof VARIANTS)[number]["id"]>("console");
+  const active = VARIANTS.find((v) => v.id === variant) ?? VARIANTS[0];
 
   return (
-    <div className="space-y-4" data-surface-frame={record.slug}>
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <Kicker tone="muted">
-            UI surfaces / {record.subcategory} / {record.slug}
-          </Kicker>
-          <div className="mt-1 flex flex-wrap items-center gap-3">
-            <h2 className="type-lede font-semibold text-white">{record.title}</h2>
-            <SurfaceFreshnessBadge label={freshness} />
-            <span className="type-caption text-slate-500">
-              authored {record.authoredAgainst.verifiedOn} against {record.authoredAgainst.digest}
-            </span>
-          </div>
-        </div>
-        <SurfaceControls
-          volume={sel.volume}
-          onVolume={sel.setVolume}
-          simulateReduced={sel.simulateReduced}
-          onSimulateReduced={sel.setSimulateReduced}
-          osReduced={osReduced}
-          galleryHref={sel.galleryHref}
-        />
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-px overflow-hidden rounded-xl border border-divider bg-divider" role="group" aria-label="Layout prototype">
+        <span className="bg-ink px-3 py-2 type-caption text-slate-600">prototype</span>
+        {VARIANTS.map((v) => (
+          <button
+            key={v.id}
+            type="button"
+            onClick={() => setVariant(v.id)}
+            aria-pressed={v.id === variant}
+            className={`focus-ring flex-1 px-3 py-2 text-left transition ${v.id === variant ? "bg-accent/10 text-white" : "bg-ink text-slate-400 hover:bg-surface/60"}`}
+          >
+            <span className="type-body-sm font-medium">{v.label}</span>
+            <span className="ml-2 type-caption text-slate-500">{v.note}</span>
+          </button>
+        ))}
       </div>
-
-      <div className="grid gap-4 lg:grid-cols-[12rem_minmax(0,1fr)_20rem]">
-        <SurfaceRail techniques={techniques} selected={sel.technique} onSelect={sel.setTechnique} onStep={sel.step} />
-        <Surface tone="strong" className="min-h-[28rem] p-5" data-surface-canvas={record.slug}>
-          <div ref={canvasRef} className="min-h-full">
-            {loaded ? (
-              <loaded.Scope reduced={reduced}>
-                <loaded.body.Scene technique={sel.technique} reduced={reduced} volume={sel.volume} />
-              </loaded.Scope>
-            ) : (
-              canvasFallback
-            )}
-          </div>
-        </Surface>
-        <SurfaceDrawer technique={selected} />
-      </div>
+      <active.View {...props} />
     </div>
   );
 }
