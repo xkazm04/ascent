@@ -51,11 +51,15 @@ describe("LocalFsSource against this repository", () => {
     // every developer machine. The workflow now asks for depth 50; this guard names the requirement at
     // the point of failure, so the next shallow runner reports its own cause instead of an
     // "expected 1 to be greater than 5" that points at the product.
-    const shallow = execFileSync("git", ["rev-parse", "--is-shallow-repository"], { encoding: "utf8" }).trim();
+    // ASSERT THE REQUIREMENT, NOT A PROXY FOR IT. The first version of this guard asked
+    // `--is-shallow-repository`, which is true for ANY bounded fetch-depth — including the depth 50 the
+    // workflow asks for — so it failed a checkout that was perfectly adequate. What this suite actually
+    // needs is enough commits to be reachable, so that is what it checks.
+    const reachable = Number(execFileSync("git", ["rev-list", "--count", "HEAD"], { encoding: "utf8" }).trim());
     expect(
-      shallow,
+      reachable,
       "this suite reads the repository's own commit history; check out with fetch-depth >= 50 (see .github/workflows/ci.yml)",
-    ).toBe("false");
+    ).toBeGreaterThan(5);
     expect(snap.commits.length).toBeGreaterThan(5);
     expect(snap.commits[0]!.message.length).toBeGreaterThan(0);
 
