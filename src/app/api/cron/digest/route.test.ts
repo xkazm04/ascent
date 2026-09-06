@@ -110,6 +110,7 @@ import {
   getAuditLog,
   getStandingRegressions,
   getRedBaselines,
+  recordAlertEvent,
 } from "@/lib/db";
 import { claimOrgAuditOnce, releaseAuditClaim } from "@/lib/db/scans-audit";
 import { dispatchAlert, buildFleetDigestMessage, digestHasSignal } from "@/lib/alerts";
@@ -133,6 +134,7 @@ const mockAuditLog = vi.mocked(getAuditLog);
 const mockClaim = vi.mocked(claimOrgAuditOnce);
 const mockRelease = vi.mocked(releaseAuditClaim);
 const mockExtra = vi.mocked(dispatchExtraAlerts);
+const mockRecordAlertEvent = vi.mocked(recordAlertEvent);
 
 const SECRET = "digest-secret-xyz";
 
@@ -410,6 +412,24 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     expect(mockRelease.mock.calls[0][0]).toBe("clm_1");
   });
 
+  it("a FAILING release still counts the failure and still writes the history row", async () => {
+    // The worst outcome this route can reach — delivery failed AND the window is still claimed, so
+    // this org gets no digest at all this week — used to be the one that left no trace: an unhandled
+    // release rejection threw past `failed` and past recordAlertEvent into the per-org catch.
+    mockListOrgs.mockResolvedValue(["orgStuck"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/S");
+    mockRollup.mockResolvedValue(rollupWith());
+    mockDispatch.mockResolvedValue(false);
+    mockRelease.mockRejectedValue(new Error("release blew up"));
+
+    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
+    const body = (await bodyOf(res)) as { failed: number; errors: string[] };
+    expect(body.failed).toBe(1);
+    expect(body.errors.join(" ")).toContain("claim release failed");
+    // …and the attempt is still remembered, with its outcome.
+    expect(mockRecordAlertEvent).toHaveBeenCalledWith("orgStuck", expect.objectContaining({ delivered: false }));
+  });
+
   // ---- (6) PARTIAL-FAILURE ISOLATION — one org failing doesn't abort others ----
 
   it("isolates a per-org failure: a throwing org is counted in errors, the OTHER org still gets sent", async () => {
@@ -600,6 +620,30 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     vi.mocked(getRedBaselines).mockRejectedValue(new Error("db down"));
 
     await GET(req({ auth: `Bearer ${SECRET}` }));
+    const sent = mockBuild.mock.calls[0]![0] as { standingConcerns?: unknown };
+    expect(sent.standingConcerns).toBeUndefined();
+  });
+
+  it("omits the block when EITHER read failed, even if the other returned rows", async () => {
+    // A HALF-READ LIST CANNOT SAY "none open". One heading covers both sources, so printing the rows
+    // one surviving column returned states a count over a population that was never fully read — and
+    // the reader has no way to see which half is missing.
+    //
+    // Two independent sweeps fixed this same defect and disagreed here: the earlier one on this branch
+    // printed the surviving rows (reasoning that the block is a top-5, so partial output overstates
+    // nothing). That is wrong about the HEADING, which is not a top-5 claim, and the stricter rule is
+    // the one kept.
+    mockListOrgs.mockResolvedValue(["orgHalf"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/H");
+    mockRollup.mockResolvedValue(rollupWith());
+    vi.mocked(getStandingRegressions).mockRejectedValue(new Error("db down"));
+    vi.mocked(getRedBaselines).mockResolvedValue([
+      { repoFullName: "orgHalf/kp", observation: "no baseline for `npm test` since 2026-08-30", evidence: [] },
+    ] as never);
+
+    await GET(req({ auth: `Bearer ${SECRET}` }));
+    // An unreadable half contributes no signal — it must not manufacture a push out of a flat week.
+    expect(mockHasSignal).toHaveBeenCalledWith(expect.objectContaining({ standingConcerns: 0 }));
     const sent = mockBuild.mock.calls[0]![0] as { standingConcerns?: unknown };
     expect(sent.standingConcerns).toBeUndefined();
   });

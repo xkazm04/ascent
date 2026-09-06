@@ -15,6 +15,7 @@ import {
   bandColor,
   type PassportCohort,
 } from "@/lib/org/passport-display";
+import { PLACEHOLDER_LABEL, PLACEHOLDER_TITLE } from "@/features/standing/passports/PlaceholderMark";
 
 export interface ScatterPoint {
   name: string;
@@ -23,6 +24,9 @@ export interface ScatterPoint {
   band: string;
   /** Outside the active cohort filter — rendered faded so the filtered set pops. */
   faded?: boolean;
+  /** Scored by the deterministic MOCK engine — a placeholder floor, not a graded scan. Drawn hollow
+   *  with a dashed ring so it is still IN the plot (never excluded), just visibly not measured. */
+  placeholder?: boolean;
 }
 
 const W = 440;
@@ -105,14 +109,15 @@ export function PassportScatter({
             cy={py(p.y)}
             r={5}
             fill={bandColor(p.band)}
-            fillOpacity={0.85}
+            fillOpacity={p.placeholder ? 0.12 : 0.85}
             opacity={p.faded ? 0.18 : 1}
-            stroke="#04070e"
-            strokeWidth={0.75}
+            stroke={p.placeholder ? bandColor(p.band) : "#04070e"}
+            strokeWidth={p.placeholder ? 1.25 : 0.75}
+            strokeDasharray={p.placeholder ? "2 2" : undefined}
             className={`transition-opacity duration-300 motion-reduce:transition-none${onPoint && !p.faded ? " cursor-pointer" : ""}`}
             onClick={onPoint && !p.faded ? () => onPoint(p.name) : undefined}
           >
-            <title>{`${p.name}: automation ${p.x}, production ${p.y} (${p.band})${onPoint && !p.faded ? " · click to open in table" : ""}`}</title>
+            <title>{`${p.name}: automation ${p.x}, production ${p.y} (${p.band})${p.placeholder ? ` · ${PLACEHOLDER_LABEL}` : ""}${onPoint && !p.faded ? " · click to open in table" : ""}`}</title>
           </circle>
         ))}
       </svg>
@@ -124,6 +129,14 @@ export function PassportScatter({
             {BAND_LABEL[b]}
           </span>
         ))}
+        {/* Only when the plot actually contains one — the legend explains the marks on screen, it does
+            not teach a vocabulary for a state this fleet is not in. */}
+        {points.some((p) => p.placeholder) && (
+          <span className="inline-flex items-center gap-1.5" title={PLACEHOLDER_TITLE}>
+            <span aria-hidden className="h-2 w-2 rounded-full border border-dashed border-slate-500" />
+            {PLACEHOLDER_LABEL}
+          </span>
+        )}
       </div>
     </div>
   );

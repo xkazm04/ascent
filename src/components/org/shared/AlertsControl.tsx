@@ -96,16 +96,21 @@ export function AlertsControl({ org }: { org: string }) {
                   That shipped with a validation branch, a renderer, a transport and an unsubscribe
                   route — and this, its only configuration surface, named neither the option nor the
                   syntax, so an org whose leadership doesn't live in Slack had no way to find it. */}
-              <p className="mt-1 type-body-sm text-slate-400">
+              <p id="alert-sink-help" className="mt-1 type-body-sm text-slate-400">
                 Where this org&apos;s alerts go: a Slack-compatible incoming webhook, or{" "}
                 <code className="text-slate-300">mailto:you@example.com</code> to get them as email. Covers
                 regression, control, credit, goal, spend and weekly-digest alerts. Leave blank to use the
                 deployment&apos;s global sink.
               </p>
+              {/* a11y: the two threshold fields below carry <label>s; this one — the primary control of
+                  the dialog — had only a placeholder, so a screen reader announced it as an unnamed
+                  edit box. Named here, and pointed at the copy that explains what it accepts. */}
               <input
                 type="url"
                 value={webhookUrl}
                 onChange={(e) => setWebhookUrl(e.target.value)}
+                aria-label="Alert sink: webhook URL or mailto: address"
+                aria-describedby="alert-sink-help"
                 placeholder="https://hooks.slack.com/services/… or mailto:you@example.com"
                 className="mt-2 w-full rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-mono-sm text-slate-200 outline-none focus:border-accent"
               />

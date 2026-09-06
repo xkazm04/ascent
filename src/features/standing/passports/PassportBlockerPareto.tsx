@@ -22,8 +22,9 @@
 
 import { useState } from "react";
 import { PassportBlockerShell } from "@/features/standing/passports/PassportBlockerShell";
+import { PLACEHOLDER_LABEL, PLACEHOLDER_TITLE } from "@/features/standing/passports/PlaceholderMark";
 import { CreateIssueModal, type IssueDraft } from "@/components/github/CreateIssueModal";
-import { AXIS_TONE, aggregateBlockers, type Agg } from "@/features/standing/passports/passportBlockerAgg";
+import { AXIS_TONE, aggregateBlockers, scopeCounts, type Agg } from "@/features/standing/passports/passportBlockerAgg";
 import type { PassportRow } from "@/features/standing/passports/PassportTable";
 import { reportPermalink } from "@/lib/ui";
 
@@ -61,6 +62,7 @@ function draftFor(a: Agg, org: string, scopeLabel: string, inView: number): Issu
 
 export function PassportBlockerPareto({ rows, scopeLabel, org, max = 8 }: { rows: PassportRow[]; scopeLabel: string; org: string; max?: number }) {
   const top = aggregateBlockers(rows).slice(0, max);
+  const scope = scopeCounts(rows);
   const [draft, setDraft] = useState<IssueDraft | null>(null);
 
   const anyDeclined = top.some((a) => a.declinedRepos.length > 0);
@@ -75,6 +77,22 @@ export function PassportBlockerPareto({ rows, scopeLabel, org, max = 8 }: { rows
       }
       empty={top.length === 0}
     >
+      {/* The docket's predicate, stated. A placeholder-scanned repo is COUNTED in every bucket below
+          (excluding it would shrink a real fleet problem), so the disclosure has to be arithmetic
+          the reader can apply: how many of the ranked repos were never graded by a model. */}
+      <p className="mt-2 type-caption text-slate-500">
+        <span className="font-mono tabular-nums text-slate-400">
+          {scope.repos} repo{scope.repos === 1 ? "" : "s"}
+        </span>
+        {scope.placeholderRepos > 0 && (
+          <span title={PLACEHOLDER_TITLE}>
+            {" · of which "}
+            <span className="font-mono tabular-nums text-slate-400">
+              {scope.placeholderRepos} from {PLACEHOLDER_LABEL}s
+            </span>
+          </span>
+        )}
+      </p>
       <div className="mt-3 space-y-1">
         {top.map((a) => {
           const tone = AXIS_TONE[a.axis];

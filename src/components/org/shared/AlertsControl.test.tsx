@@ -36,6 +36,9 @@ const WEBHOOK_PLACEHOLDER = "https://hooks.slack.com/services/… or mailto:you@
 
 /** Type a new candidate URL into the webhook field, making the form dirty. */
 function editWebhook(value: string) {
+  // Located by placeholder, matching the three sibling assertions in this file. The field also has an
+  // accessible NAME now (it had none — only the dialog did), pinned separately below so that fix has
+  // a test of its own rather than riding on a locator choice.
   fireEvent.change(screen.getByPlaceholderText(WEBHOOK_PLACEHOLDER), { target: { value } });
 }
 
@@ -151,5 +154,20 @@ describe("AlertsControl names the email sink — its only configuration surface"
     expect(screen.getByPlaceholderText(WEBHOOK_PLACEHOLDER)).toBeInTheDocument();
     expect(WEBHOOK_PLACEHOLDER).toMatch(/mailto:/);
     expect(screen.getByText("mailto:you@example.com")).toBeInTheDocument();
+  });
+
+  it("gives the sink field an accessible NAME, not just a placeholder", async () => {
+    // The dialog carried an aria-label; its primary control carried none, so a screen reader announced
+    // an unnamed edit box. A placeholder is not an accessible name — it disappears on input and is not
+    // reliably announced — and the two threshold fields beside this one have had real labels all along.
+    mockFetch((u) => (String(u).includes("movement=1") ? okJson({ movement: null }) : okJson({ webhookUrl: null })));
+    render(<AlertsControl org="acme" />);
+    fireEvent.click(screen.getByRole("button", { name: "Alerts" }));
+    await screen.findByRole("button", { name: "Save" });
+
+    const field = screen.getByLabelText(/Alert sink/i);
+    expect(field).toBe(screen.getByPlaceholderText(WEBHOOK_PLACEHOLDER)); // same element, two locators
+    // …and it points at the copy that explains what the field accepts.
+    expect(field).toHaveAttribute("aria-describedby", "alert-sink-help");
   });
 });

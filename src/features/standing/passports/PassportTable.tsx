@@ -12,6 +12,10 @@ import Link from "next/link";
 import { OrgTable } from "@/components/org/shared/ui";
 import { bandColor, bandLabel } from "@/lib/org/passport-display";
 import { PassportRowDetail, type PassportDetail } from "@/features/standing/passports/PassportRowDetail";
+import { PassportTableHead } from "@/features/standing/passports/PassportTableHead";
+import { PlaceholderMark } from "@/features/standing/passports/PlaceholderMark";
+import type { PassportOwnerSet } from "@/features/standing/passports/OwnerSetCue";
+import { ordinalOf, type SortKey, type ThSort } from "@/features/standing/passports/passportTableSort";
 import type { DecisionMap } from "@/lib/org/decision-map";
 import { scoreHex } from "@/lib/ui";
 
@@ -26,42 +30,14 @@ export interface PassportRow {
   tests: string;
   security: string;
   observability: string;
+  /** The latest scan came from the deterministic MOCK engine — a placeholder floor, not a graded
+   *  scan. Optional so a caller that has not plumbed the engine through contributes no claim either
+   *  way (absent reads as "not a known placeholder", never as "confirmed live"). */
+  placeholder?: boolean;
+  /** P4 provenance: which passport identity fields this repo OWNER asserted rather than the scan
+   *  observing them. Null/absent for a repo with no overrides. Optional and additive. */
+  ownerSet?: PassportOwnerSet | null;
   detail: PassportDetail;
-}
-
-type SortKey = "name" | "autoScore" | "prodScore" | "ci" | "tests" | "security" | "observability";
-
-const CI_ORDER = ["none", "build", "checks", "gated", "delivery", "progressive"];
-const TEST_ORDER = ["none", "smoke", "partial", "substantial", "comprehensive"];
-const SEC_ORDER = ["none", "policy", "scanning", "gated", "supply-chain"];
-const OBS_ORDER = ["none", "logs", "errors", "metrics", "tracing"];
-const rank = (order: string[], v: string) => order.indexOf(v);
-
-function ordinalOf(r: PassportRow, key: SortKey): number | string {
-  switch (key) {
-    case "name": return r.name.toLowerCase();
-    case "autoScore": return r.autoScore;
-    case "prodScore": return r.prodScore;
-    case "ci": return rank(CI_ORDER, r.ci);
-    case "tests": return rank(TEST_ORDER, r.tests);
-    case "security": return rank(SEC_ORDER, r.security);
-    case "observability": return rank(OBS_ORDER, r.observability);
-  }
-}
-
-type ThSort = { key: SortKey; dir: "asc" | "desc"; onSort: (k: SortKey) => void };
-
-/** Sortable table-header cell. Declared at module scope (not inside the component) so it isn't
- *  recreated on every render; the sort state it needs is passed in via `sort`. */
-function Th({ k, label, align = "left", sort }: { k: SortKey; label: string; align?: "left" | "right"; sort: ThSort }) {
-  return (
-    <th className={`px-3 py-2 text-${align}`}>
-      <button type="button" onClick={() => sort.onSort(k)} className="inline-flex items-center gap-1 uppercase tracking-[0.2em] transition hover:text-slate-200">
-        {label}
-        <span aria-hidden className={sort.key === k ? "text-accent" : "text-slate-700"}>{sort.key === k ? (sort.dir === "asc" ? "▲" : "▼") : "↕"}</span>
-      </button>
-    </th>
-  );
 }
 
 export function PassportTable({
@@ -115,18 +91,7 @@ export function PassportTable({
     <OrgTable
       caption="Fleet passport portfolio: automation and production readiness per repo. Expand a row for blockers and facts"
       minWidth={760}
-      head={
-        <tr>
-          <Th k="name" label="Repo" sort={sort} />
-          <Th k="autoScore" label="Automation" align="right" sort={sort} />
-          <Th k="prodScore" label="Production" align="right" sort={sort} />
-          <Th k="ci" label="CI" sort={sort} />
-          <Th k="tests" label="Tests" sort={sort} />
-          <Th k="security" label="Security" sort={sort} />
-          <Th k="observability" label="Observability" sort={sort} />
-          <th className="w-10 px-2 py-2" aria-label="Expand row" />
-        </tr>
-      }
+      head={<PassportTableHead sort={sort} />}
     >
       {sorted.map((r) => {
         const open = expanded === r.fullName;
@@ -138,13 +103,18 @@ export function PassportTable({
             onClick={() => setExpanded(open ? null : r.fullName)}
           >
             <td className="px-3 py-2">
-              <Link
-                href={`/report?repo=${encodeURIComponent(r.fullName)}`}
-                onClick={(e) => e.stopPropagation()}
-                className="type-mono-sm text-white hover:text-accent"
-              >
-                {r.name}
-              </Link>
+              <span className="flex min-w-0 items-center gap-1.5">
+                <Link
+                  href={`/report?repo=${encodeURIComponent(r.fullName)}`}
+                  onClick={(e) => e.stopPropagation()}
+                  className="truncate type-mono-sm text-white hover:text-accent"
+                >
+                  {r.name}
+                </Link>
+                {/* Provenance, never exclusion: a placeholder row stays in the table, in the scatter
+                    and in the Pareto counts — it is only LABELLED, so the reader can discount it. */}
+                {r.placeholder && <PlaceholderMark />}
+              </span>
             </td>
             <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: scoreHex(r.autoScore) }}>
               {r.autoLevel} <span className="text-slate-500">·</span> {r.autoScore}

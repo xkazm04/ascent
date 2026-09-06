@@ -32,6 +32,7 @@ import {
   type RepoDimSnap,
 } from "@/lib/db/org-rollup";
 import { retentionCutoff } from "@/lib/plans";
+import { __resetOrgTimeZoneCache } from "@/lib/org/timezone";
 
 /** Terse snapshot builder: same overall/adoption/rigor unless overridden. */
 function snap(repoId: string, overall: number, adoption = overall, rigor = overall): RepoScoreSnap {
@@ -195,8 +196,9 @@ describe("computeDimDeltas — cohort matching per dimension", () => {
 // ── getOrgRollup — baseline query shape + local-day trend (fleet-rollups-insights #1, #2) ──────────
 // Integration-ish coverage over the real query pipeline (real org-shared / forecast / parsers, a faked
 // prisma, mirroring org-signals.test.ts): the pre-window baseline query must fetch ONE row per repo at
-// the DB (distinct), not the org's whole pre-window history; and the maturity trend must bucket by LOCAL
-// calendar day (the same zone the window snaps to), collapsing multiple same-day scans to one point.
+// the DB (distinct), not the org's whole pre-window history; and the maturity trend must bucket by the
+// CANONICAL ORG ZONE's calendar day (the same zone the window snaps to), collapsing multiple same-day
+// scans to one point.
 
 describe("getOrgRollup — baseline query shape + local-day trend", () => {
   beforeEach(() => {
@@ -204,8 +206,12 @@ describe("getOrgRollup — baseline query shape + local-day trend", () => {
     mockIsDbConfigured.mockReturnValue(true);
   });
 
-  const localDayKey = (d: Date): string =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  // The ORACLE IS THE ZONE POLICY, not a copy of the implementation. This helper used to restate the
+  // implementation's own `getFullYear/getMonth/getDate` formula, so the assertion held no matter which
+  // zone the code chose — coverage theatre: it could only fail if the code disagreed with ITSELF. It now
+  // derives the expected key from `Intl` in the canonical zone, independently of the code under test.
+  const canonicalDayKey = (d: Date, tz = process.env.ASCENT_ORG_TZ || "UTC"): string =>
+    new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
 
   /** One repo row with a single latest scan, shaped as getOrgRollup's include reads it. */
   function repoRow(id: string, scannedAt: Date) {
@@ -254,10 +260,9 @@ describe("getOrgRollup — baseline query shape + local-day trend", () => {
     expect(baselineCall!.where.scannedAt).toEqual({ lt: start });
   });
 
-  it("buckets the maturity trend by LOCAL calendar day, collapsing same-day scans to one averaged point (fleet-rollups-insights #2)", async () => {
-    // Two scans on one local day + one on a later day. Expected buckets are computed with the SAME local-day
-    // grouping the code uses, so this holds in any timezone AND catches a regression to UTC-day bucketing
-    // wherever the run zone isn't UTC.
+  it("buckets the maturity trend by the CANONICAL ZONE's calendar day, collapsing same-day scans to one averaged point (fleet-rollups-insights #2)", async () => {
+    // Two scans on one canonical-zone day + one on a later day, with the expected buckets derived from
+    // the ZONE POLICY rather than from the implementation's formula.
     const rows = [
       { scannedAt: new Date("2026-05-10T11:00:00Z"), overallScore: 60 },
       { scannedAt: new Date("2026-05-10T13:00:00Z"), overallScore: 80 },
@@ -269,12 +274,37 @@ describe("getOrgRollup — baseline query shape + local-day trend", () => {
     const res = await getOrgRollup("acme");
 
     const byDay: Record<string, number[]> = {};
-    for (const r of rows) (byDay[localDayKey(r.scannedAt)] ??= []).push(r.overallScore);
+    for (const r of rows) (byDay[canonicalDayKey(r.scannedAt)] ??= []).push(r.overallScore);
     const expected = Object.keys(byDay)
       .sort()
       .map((date) => ({ date, avg: Math.round(byDay[date]!.reduce((a, b) => a + b, 0) / byDay[date]!.length) }));
 
     expect(res!.trend).toEqual(expected); // same-day pair collapses to one point (avg 70)
+  });
+
+  it("labels a trend bucket in the canonical zone even when the HOST zone would name a different day", async () => {
+    // The defect this pins, stated as the pair it is: the trend was FILTERED by canonical-zone window
+    // bounds and LABELLED by the server's local zone. On a UTC host with the UTC default they agree,
+    // which is the only configuration anything ran in — so nothing saw it. Here the two are forced
+    // apart, and the label must follow the zone the WINDOW uses.
+    const scannedAt = new Date("2026-05-01T01:00:00.000Z");
+    const { prisma } = fakePrisma([{ scannedAt, overallScore: 70 }]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const prevTz = process.env.ASCENT_ORG_TZ;
+    process.env.ASCENT_ORG_TZ = "America/New_York";
+    __resetOrgTimeZoneCache();
+    try {
+      const res = await getOrgRollup("acme");
+      // 2026-05-01T01:00Z is 2026-04-30 21:00 in New York. The old local-zone label said 2026-05-01
+      // (on a UTC host); the window that selected this row counts it as 2026-04-30.
+      expect(res!.trend.map((t) => t.date)).toEqual(["2026-04-30"]);
+      expect(res!.trend[0]!.date).toBe(canonicalDayKey(scannedAt, "America/New_York"));
+    } finally {
+      if (prevTz === undefined) delete process.env.ASCENT_ORG_TZ;
+      else process.env.ASCENT_ORG_TZ = prevTz;
+      __resetOrgTimeZoneCache();
+    }
   });
 
   it("surfaces `movement` with the cohort size beside the deltas (deltas stays its narrow projection)", async () => {

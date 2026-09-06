@@ -14,15 +14,17 @@ import type { PassportRow } from "./PassportTable";
 vi.mock("@/components/github/CreateIssueModal", () => ({ CreateIssueModal: () => null }));
 
 const { PassportBlockerPareto } = await import("./PassportBlockerPareto");
+const { PLACEHOLDER_LABEL } = await import("./PlaceholderMark");
 
 const OBS = "Zero observability: no error tracking, structured logs, metrics, or tracing.";
 
 /** A row whose production axis carries one finding, optionally declined by its owner. */
-function row(name: string, opts: { open?: boolean; declined?: "standing" | "resurfaced" } = {}): PassportRow {
+function row(name: string, opts: { open?: boolean; declined?: "standing" | "resurfaced"; placeholder?: boolean } = {}): PassportRow {
   const open = opts.open ?? !opts.declined;
   return {
     fullName: `acme/${name}`,
     name,
+    placeholder: opts.placeholder,
     autoLevel: "L3", autoScore: 60, band: "beta", prodScore: 50,
     ci: "checks", tests: "partial", security: "policy", observability: "none",
     detail: {
@@ -79,5 +81,34 @@ describe("PassportBlockerPareto — declines are shown, not folded in", () => {
     panel([row("a"), row("c", { open: true, declined: "resurfaced" })]);
     expect(screen.getByText("2")).toBeTruthy();
     expect(screen.queryByText(/accepted$/)).toBeNull();
+  });
+});
+
+// A placeholder-scanned repo's blockers come from a deterministic floor, not from a model. They are
+// still COUNTED (excluding them would shrink a real fleet problem — the same defect declines caused),
+// so the docket has to state its predicate instead: how many of the ranked repos were never graded.
+describe("PassportBlockerPareto — the docket states what it counted over", () => {
+  it("names the ranked repo count, and the placeholder share when there is one", () => {
+    panel([row("a"), row("b"), row("c", { placeholder: true })]);
+    expect(screen.getByText("3 repos")).toBeTruthy();
+    expect(screen.getByText(`1 from ${PLACEHOLDER_LABEL}s`)).toBeTruthy();
+    // Labelled, never filtered: all three still rank in the bucket.
+    expect(screen.getByText("3")).toBeTruthy();
+  });
+
+  it("omits the suffix entirely when no repo in view carries a placeholder scan", () => {
+    panel([row("a"), row("b")]);
+    expect(screen.getByText("2 repos")).toBeTruthy();
+    expect(screen.queryByText(new RegExp(PLACEHOLDER_LABEL))).toBeNull();
+  });
+
+  it("says so for an all-placeholder fleet rather than reading as a graded ranking", () => {
+    panel([row("a", { placeholder: true }), row("b", { placeholder: true })]);
+    expect(screen.getByText(`2 from ${PLACEHOLDER_LABEL}s`)).toBeTruthy();
+  });
+
+  it("singularizes the one-repo case", () => {
+    panel([row("solo")]);
+    expect(screen.getByText("1 repo")).toBeTruthy();
   });
 });

@@ -174,6 +174,19 @@ export interface LaneWatchdog {
   stage<T>(name: LaneStage, work: () => Promise<T>): Promise<T>;
   /** Cut the lane NOW, as a stop rather than a timeout. Idempotent. */
   abort(): void;
+  /**
+   * THE SAME CUT, PASSED OUTWARD TO WHATEVER HOLDS A PROCESS.
+   *
+   * Aborted on the same `fire()` that trips the stage race — a stop and a deadline alike — with the
+   * `LaneDeadlineError` as its `reason`, so a runner that reads it can quote the stage that was in
+   * flight. Handed to `runClaudeAgent` so the child process TREE dies with the lane instead of
+   * outliving it (see kill-tree.ts).
+   *
+   * It does NOT change what frees the lane: the race still resolves on its own, this is the addition
+   * that reaches the process. `dispose()` deliberately does not abort it — a finished cycle has
+   * nothing to kill, and aborting there would signal a session that already exited.
+   */
+  readonly signal: AbortSignal;
   /** The stage that was in flight when the watchdog fired, or null (fired between stages / not fired). */
   readonly firedStage: LaneStage | null;
   readonly firedReason: LaneAbortReason | null;
@@ -201,6 +214,7 @@ export function createLaneWatchdog(opts: { deadlineMs: number }): LaneWatchdog {
   let fired: LaneDeadlineError | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
+  const cut = new AbortController();
   let trip: (err: LaneDeadlineError) => void = () => {};
   const tripped = new Promise<never>((_resolve, reject) => {
     trip = reject;
@@ -221,6 +235,15 @@ export function createLaneWatchdog(opts: { deadlineMs: number }): LaneWatchdog {
     );
     if (timer) clearTimeout(timer);
     timer = null;
+    // THE PROCESS FIRST, THEN THE RACE. `abort()` runs its listeners synchronously, so the kill is
+    // already under way when the lane's stage rejects a microtask later; the ORDER is what stops a
+    // stopped run from freeing its slot while the child it dispatched is still running. Listener
+    // failures must never swallow the trip, which is the mechanism that frees the lane.
+    try {
+      cut.abort(fired);
+    } catch {
+      /* a listener threw — the lane is still cut below */
+    }
     trip(fired);
   };
 
@@ -232,6 +255,7 @@ export function createLaneWatchdog(opts: { deadlineMs: number }): LaneWatchdog {
 
   return {
     deadlineMs,
+    signal: cut.signal,
     get firedStage() {
       return fired?.stage ?? null;
     },

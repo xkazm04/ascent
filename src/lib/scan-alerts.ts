@@ -32,6 +32,7 @@ import {
 import { getAuditLog, getOrgAlertThresholds, getOrgAlertWebhook, recordAlertEvent, recordAudit, reportPermalink } from "@/lib/db";
 import type { AlertEventInput } from "@/lib/db";
 import { publicBaseUrl } from "@/lib/site";
+import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
 // MOONSHOT #1 — the control ledger is the SOURCE for the control push; `ScanDiff` gains no
 // governance field, because a flip observed by a probe between two scans would never appear in one.
 import { listObservationsSince } from "@/lib/db/control-observations";
@@ -49,6 +50,9 @@ export interface RegressionOutcome {
   dispatched: boolean;
   /** Whether this scan crossed a maturity band UPWARD and took the celebratory path instead. */
   promoted?: boolean;
+  /** Set when `prev` was scored under a DIFFERENT rubric than `fresh`: the delta measures the ruler,
+   *  not the repository, so neither the regression nor the promotion branch ran. */
+  rulerChanged?: boolean;
 }
 
 /** Absolute report URL when a public base is configured, else the relative permalink. */
@@ -130,6 +134,19 @@ export async function checkAndAlertRegression(
   await alertControlTransitions(prev, fresh, opts).catch(() => {});
 
   if (!prev) return { regressed: false, verdict: null, dispatched: false };
+  // THE RULER CHANGING IS NOT THE REPO MOVING. A rubric bump re-scores every repository, and the first
+  // scan after it diffs an r(N) report against an r(N-1) one: the delta measures the ruler, and
+  // alerting on it would page every org in the fleet at once for nothing any of them did. The outcomes
+  // lane already keys every aggregate by rubricVersion for exactly this reason (lib/outcomes/aggregate.ts);
+  // the alert lane must be as strict. A persisted `prev` carries its rubric (types.ts: populated on a
+  // DB-reconstructed report); a live `fresh` may omit it and IS the current rubric. A legacy `prev` row
+  // with no recorded rubric is UNKNOWN, not "changed" — it takes the ordinary path, never a silent skip.
+  // Registry: conformance-checking/edition-stratified-conformance.
+  const prevRubric = prev.engine?.rubricVersion;
+  const freshRubric = fresh.engine?.rubricVersion ?? SCORING_RUBRIC_VERSION;
+  if (prevRubric && prevRubric !== freshRubric) {
+    return { regressed: false, verdict: null, dispatched: false, rulerChanged: true };
+  }
   try {
     const diff = diffReports(prev, fresh);
     // Per-org sensitivity, falling back to DEFAULT_THRESHOLDS per field when unset (best-effort —

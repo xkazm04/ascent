@@ -6,7 +6,7 @@
 // everybody had accepted looked like the one nobody had.
 
 import { describe, it, expect } from "vitest";
-import { aggregateBlockers, type BlockerAggRow } from "@/features/standing/passports/passportBlockerAgg";
+import { aggregateBlockers, scopeCounts, type BlockerAggRow } from "@/features/standing/passports/passportBlockerAgg";
 
 const row = (name: string, over: Partial<BlockerAggRow["detail"]> = {}): BlockerAggRow => ({
   name,
@@ -87,5 +87,24 @@ describe("aggregateBlockers — declines are counted beside, never subtracted", 
   it("skips a pre-0.4.0 decline with no findingId rather than guessing it into a bucket", () => {
     const out = aggregateBlockers([row("legacy", { declined: [{ path: "productionReadiness.observability", label: "Observability" }] })]);
     expect(out).toEqual([]);
+  });
+});
+
+describe("scopeCounts — the docket's predicate is arithmetic, not a filter", () => {
+  it("counts placeholder-scanned repos WITHOUT removing them from the ranked set", () => {
+    const blocked = (n: string) => row(n, { prodBlockers: [obs().text], prodFindings: [obs()] });
+    const rows = [blocked("live1"), blocked("live2"), { ...blocked("floor"), placeholder: true }];
+    expect(scopeCounts(rows)).toEqual({ repos: 3, placeholderRepos: 1 });
+    // The buckets are unchanged: labelling is not exclusion, so the fleet problem keeps its size.
+    expect(aggregateBlockers(rows)[0]!.repos).toHaveLength(3);
+  });
+
+  it("reports zero placeholders for a fleet whose rows never carry the flag", () => {
+    expect(scopeCounts([row("a"), row("b")])).toEqual({ repos: 2, placeholderRepos: 0 });
+  });
+
+  it("counts an all-placeholder fleet in full — the case seeded dev data actually produces", () => {
+    const rows = [{ ...row("a"), placeholder: true }, { ...row("b"), placeholder: true }];
+    expect(scopeCounts(rows)).toEqual({ repos: 2, placeholderRepos: 2 });
   });
 });

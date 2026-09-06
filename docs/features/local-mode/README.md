@@ -171,6 +171,16 @@ Guardrails, each load-bearing:
   stored on the run (and on the drive, which hands it to every run it dispatches) and printed beside
   the lift, because two lifts from two setups are not comparable. `--effort` is appended only when a
   level was chosen. Details: [org-planning/live.md](../org-planning/live.md#per-run-model-and-effort-2026-08-28).
+- **A stop reaches the process, not just the lane** (2026-09-04, `src/lib/local/kill-tree.ts`). The
+  session is spawned through a shell (`claude.cmd` on Windows needs it), so `child.kill()` signals the
+  shell and the real `claude` process — a grandchild — survives it; measured on this host, it did.
+  Stopping a run (or hitting the lane's deadline) now aborts the watchdog's `AbortSignal`, and the
+  runner kills the process **tree**: `taskkill /PID <pid> /T /F` on win32, a `SIGTERM`-then-`SIGKILL`
+  to the negative (process-group) pid on POSIX, where the child is spawned `detached`. The lane's own
+  error line then reports what the kill achieved — `agent process terminated (pid N)`, or `agent
+  process termination unconfirmed`, which means a session **may still be running on the host** and is
+  never rounded up to success. The kill is an addition to the watchdog, not a replacement: settling
+  the wait is still what frees the lane.
 - **No-progress stop**: a cycle with zero commits and zero closed rows ends the run early (applied
   per lane by the engine, so in a multi-repo run one stalled repo no longer ends the pass).
 - **One run per org**, enforced against the database, not a process `Map`. Phase, branch, log and

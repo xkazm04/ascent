@@ -17,6 +17,7 @@ import { ExportCsvLink, SectionEmpty, SectionHeader } from "@/components/org/sha
 import { SegmentSelector } from "@/components/org/shared/SegmentSelector";
 import { PassportsSwitcher } from "./PassportsSwitcher";
 import { deriveAutonomy, type RepoAutonomy } from "./autonomy/autonomyModel";
+import { isPlaceholderEngine } from "./PlaceholderMark";
 import type { PassportRow } from "./PassportTable";
 import { getOrgRollup } from "@/lib/db";
 import { getFoundationRollout } from "@/lib/db/org-foundation";
@@ -56,6 +57,16 @@ export async function PassportsTab({ slug, sp }: { slug: string; sp: SearchParam
       tests: prod.tests.level,
       security: prod.security.level,
       observability: prod.observability.level,
+      // Round 10 taught the fleet AVERAGES that a mock score is a deterministic floor, not a grade.
+      // The portfolio never followed: on the default Baseline view a placeholder passport rendered
+      // identically to a live one and its blockers were folded into the fleet Pareto unmarked. The
+      // engine was already threaded into `deriveAutonomy` below — it just never reached the rows.
+      // Labelled, never excluded: the row, the point and the docket's predicate all say so.
+      placeholder: isPlaceholderEngine(r.latest?.engine),
+      // P4 provenance: WHICH identity fields this repo owner asserted. The rollup used to apply the
+      // overrides and drop the blob, so an asserted "GA, mission-critical" was indistinguishable from
+      // an observed one on every surface below it. Null for a repo with no overrides.
+      ownerSet: r.passportOwnerSet ?? null,
       detail: {
         purpose: pp.identity.purpose,
         autoBlockers: auto.blockers,
