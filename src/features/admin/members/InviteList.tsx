@@ -19,7 +19,14 @@ export function InviteList({
   onCopy: (token: string) => void;
   onRevoke: (id: string) => void;
 }) {
-  if (invites.length === 0) return null;
+  // Rendering nothing left the owner unable to tell "nobody is waiting" from "the list didn't
+  // load" — and the copy directly above promises a list. An empty state is the third state this
+  // component can be in, so it says which one it is.
+  if (invites.length === 0) {
+    return (
+      <p className="mt-3 type-mono-sm text-slate-600">No pending invites — everyone invited has joined or been revoked.</p>
+    );
+  }
   return (
     <ul className="mt-3 space-y-1.5">
       {invites.map((i) => (

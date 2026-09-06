@@ -68,3 +68,17 @@ describe("InviteList — when an invite lapses", () => {
     expect(el.getAttribute("title")).toBe(new Date(iso).toLocaleString());
   });
 });
+
+// With no pending invites the roster rendered NOTHING — the owner could not tell "nobody is waiting"
+// from "the list didn't load", and the panel's own copy promises a list right above the silence.
+describe("InviteList — nothing pending", () => {
+  it("says so, rather than rendering an absence", () => {
+    render(<MemberInvites slug="acme" initialInvites={[]} />);
+    expect(screen.getByText(/no pending invit/i)).toBeTruthy();
+  });
+
+  it("drops the empty state as soon as there is a row", () => {
+    render(<MemberInvites slug="acme" initialInvites={[invite({ id: "alpha" })]} />);
+    expect(screen.queryByText(/no pending invit/i)).toBeNull();
+  });
+});
