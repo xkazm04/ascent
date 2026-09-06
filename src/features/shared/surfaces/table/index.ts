@@ -1,4 +1,4 @@
-// STUB — the table showcase body. Replaced by the /surface run (spark ui-surfaces-showcase).
+// The `table` showcase body — what `SURFACE_BODIES.table` resolves to. Scene + drawer entries.
 
 import type { SurfaceBody } from "../surfaceBody";
 import { Scene } from "./Scene";

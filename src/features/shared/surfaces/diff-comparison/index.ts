@@ -1,4 +1,4 @@
-// STUB — the diff-comparison showcase body. Replaced by the /surface run (spark ui-surfaces-showcase).
+// The `diff-comparison` showcase body — what `SURFACE_BODIES["diff-comparison"]` resolves to.
 
 import type { SurfaceBody } from "../surfaceBody";
 import { Scene } from "./Scene";

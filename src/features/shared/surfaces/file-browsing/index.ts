@@ -1,4 +1,4 @@
-// STUB — the file-browsing showcase body. Replaced by the /surface run (spark ui-surfaces-showcase).
+// The `file-browsing` showcase body — what `SURFACE_BODIES["file-browsing"]` resolves to. Scene + drawer entries.
 
 import type { SurfaceBody } from "../surfaceBody";
 import { Scene } from "./Scene";

@@ -1,4 +1,4 @@
-// STUB — the search showcase body. Replaced by the /surface run (spark ui-surfaces-showcase).
+// The `search` showcase body — what `SURFACE_BODIES.search` resolves to. Scene + drawer entries.
 
 import type { SurfaceBody } from "../surfaceBody";
 import { Scene } from "./Scene";

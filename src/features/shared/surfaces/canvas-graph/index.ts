@@ -1,4 +1,4 @@
-// STUB — the canvas-graph showcase body. Replaced by the /surface run (spark ui-surfaces-showcase).
+// The `canvas-graph` showcase body — what `SURFACE_BODIES["canvas-graph"]` resolves to. Scene + drawer entries.
 
 import type { SurfaceBody } from "../surfaceBody";
 import { Scene } from "./Scene";
