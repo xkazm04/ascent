@@ -1854,6 +1854,10 @@ CREATE TABLE "OrgKnowledgeSubject" (
     "lawsJson" TEXT NOT NULL DEFAULT '[]',
     -- NULL = the index pass predates the digest mirror ("unknown", never "current").
     "digest" TEXT,
+    -- The subject's derived revision (order, where digest is identity) and YYYY-MM-DD of its last
+    -- change, as the index states them. NULL = the index predates revisions ("unknown", never r0).
+    "revision" INTEGER,
+    "changedAt" TEXT,
     "archived" BOOLEAN NOT NULL DEFAULT false,
     "indexedAt" TIMESTAMP(3) NOT NULL,
 
@@ -1863,6 +1867,10 @@ CREATE TABLE "OrgKnowledgeSubject" (
 -- Knowledge base rebuild: the subject's content digest, what a map pair's evaluatedAgainst is
 -- compared to. Additive for an existing bootstrap.
 ALTER TABLE "OrgKnowledgeSubject" ADD COLUMN IF NOT EXISTS "digest" TEXT;
+
+-- Knowledge context matrix: the subject's revision and last-change date beside the digest.
+ALTER TABLE "OrgKnowledgeSubject" ADD COLUMN IF NOT EXISTS "revision" INTEGER;
+ALTER TABLE "OrgKnowledgeSubject" ADD COLUMN IF NOT EXISTS "changedAt" TEXT;
 
 -- CreateIndex
 CREATE UNIQUE INDEX "OrgKnowledgeSubject_registryId_bundle_slug_key" ON "OrgKnowledgeSubject"("registryId", "bundle", "slug");
@@ -1901,10 +1909,25 @@ CREATE TABLE "RepoConformanceMap" (
     -- TEXT JSON { subject, bundle, decision }[] — .ai/directions/ledger.jsonl, latest per subject.
     "directionsJson" TEXT NOT NULL DEFAULT '[]',
     "warningsJson" TEXT NOT NULL DEFAULT '[]',
+    -- Context churn as the map's own stats assert it; 0 for a map from an older builder.
+    "orphanedVerdicts" INTEGER NOT NULL DEFAULT 0,
+    "arrivedContexts" INTEGER NOT NULL DEFAULT 0,
+    "renamedContexts" INTEGER NOT NULL DEFAULT 0,
+    -- The context-map revision the map was built from, and the one the sweep read at the root.
+    -- NULL = unknown on that side; "behind" is derived only when both are known and differ.
+    "contextMapRevision" TEXT,
+    "repoContextMapRevision" TEXT,
     "ingestedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "RepoConformanceMap_pkey" PRIMARY KEY ("id")
 );
+
+-- Knowledge context matrix: churn counts and the two context-map revisions. Additive.
+ALTER TABLE "RepoConformanceMap" ADD COLUMN IF NOT EXISTS "orphanedVerdicts" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "RepoConformanceMap" ADD COLUMN IF NOT EXISTS "arrivedContexts" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "RepoConformanceMap" ADD COLUMN IF NOT EXISTS "renamedContexts" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "RepoConformanceMap" ADD COLUMN IF NOT EXISTS "contextMapRevision" TEXT;
+ALTER TABLE "RepoConformanceMap" ADD COLUMN IF NOT EXISTS "repoContextMapRevision" TEXT;
 
 -- Knowledge base rebuild: one row per SWEPT repo. Existing bootstraps get the nullable map sha and
 -- the four foundation columns additively.
@@ -1941,11 +1964,24 @@ CREATE TABLE "RepoConformance" (
     "evidence" TEXT,
     "evaluatedAt" TIMESTAMP(3),
     "evaluatedAgainst" TEXT,
+    -- Revision-aware verdicts: the subject revision judged at, the subject revision at build time
+    -- (both NULL before revisions existed — unknown, never r0), whether the context is new to the
+    -- map, and the builder's own source word (match | retained | conform | renamed).
+    "evaluatedRevision" INTEGER,
+    "revision" INTEGER,
+    "arrived" BOOLEAN NOT NULL DEFAULT false,
+    "source" TEXT,
     "mapSha" TEXT NOT NULL,
     "ingestedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "RepoConformance_pkey" PRIMARY KEY ("id")
 );
+
+-- Knowledge context matrix: revision-aware pair columns. Additive.
+ALTER TABLE "RepoConformance" ADD COLUMN IF NOT EXISTS "evaluatedRevision" INTEGER;
+ALTER TABLE "RepoConformance" ADD COLUMN IF NOT EXISTS "revision" INTEGER;
+ALTER TABLE "RepoConformance" ADD COLUMN IF NOT EXISTS "arrived" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "RepoConformance" ADD COLUMN IF NOT EXISTS "source" TEXT;
 
 -- CreateIndex
 CREATE UNIQUE INDEX "RepoConformance_repositoryId_contextName_subjectSlug_key" ON "RepoConformance"("repositoryId", "contextName", "subjectSlug");

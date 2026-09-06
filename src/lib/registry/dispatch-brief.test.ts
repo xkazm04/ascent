@@ -5,6 +5,7 @@
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import type { KnowledgeContextRow } from "@/lib/org/knowledge-shape";
 import { DISPATCH_TRAILER_KEY, briefDigest, buildRegistryBrief, type RegistryBriefInput } from "./dispatch-brief";
 
 const base: RegistryBriefInput = {
@@ -82,6 +83,85 @@ describe("buildRegistryBrief", () => {
   it("reaches no clock and no random source (asserted on the module text)", () => {
     const src = readFileSync(new URL("./dispatch-brief.ts", import.meta.url), "utf8");
     expect(src).not.toMatch(/\bnew Date\b|Date\.now|Math\.random|randomUUID/);
+  });
+});
+
+describe("subscribed contexts and context-map churn (knowledge-context-matrix)", () => {
+  const row = (name: string, over: Partial<KnowledgeContextRow> = {}): KnowledgeContextRow => ({
+    name,
+    group: "Fleet",
+    state: "conformant",
+    stale: false,
+    judgedRevision: null,
+    arrived: false,
+    ...over,
+  });
+
+  it("lists each picked subject's context rows in the fold's order, with the subject's revision line when known", () => {
+    const text = buildRegistryBrief({
+      ...base,
+      subjects: ["quality-gates", "remediation-handoff"],
+      subjectContexts: [
+        {
+          slug: "remediation-handoff",
+          revision: null,
+          changedAt: null,
+          contextRows: [],
+        },
+        {
+          slug: "quality-gates",
+          revision: 14,
+          changedAt: "2026-09-01",
+          contextRows: [
+            row("Fleet/CI Gate", { state: "deviation", stale: true, judgedRevision: 12 }),
+            row("Fleet/Rescan", { state: "conformant", judgedRevision: 14 }),
+            row("Fleet/Alerts", { group: null, state: "unknown", arrived: true }),
+          ],
+        },
+      ],
+    });
+    const start = text.indexOf("## Subscribed contexts");
+    const end = text.indexOf("## Return contract");
+    expect(start).toBeGreaterThan(text.indexOf("## Do this"));
+    expect(text.slice(start, end).trimEnd().split("\n")).toEqual([
+      "## Subscribed contexts",
+      "",
+      "### quality-gates — r14 · 2026-09-01",
+      "- Fleet/CI Gate (Fleet) — deviation, stale, judged at r12",
+      "- Fleet/Rescan (Fleet) — conformant, judged at r14",
+      "- Fleet/Alerts — unknown, new",
+      "",
+      "### remediation-handoff",
+      "- (no subscribed contexts in the map)",
+    ]);
+  });
+
+  it("omits the section entirely when the caller gave no rows, and for non-conform stages", () => {
+    expect(buildRegistryBrief(base)).not.toContain("## Subscribed contexts");
+    expect(buildRegistryBrief({ ...base, stage: "map", subjects: [], subjectContexts: [{ slug: "x", revision: 1, changedAt: null, contextRows: [row("a")] }] })).not.toContain(
+      "## Subscribed contexts",
+    );
+  });
+
+  it("a map brief states the churn counts, and the two revisions only when the map is behind", () => {
+    const repo = { orphaned: 2, arrived: 3, renamed: 1, contextMapRevision: "aaa111", repoContextMapRevision: "bbb222", mapBehind: true };
+    const behind = buildRegistryBrief({ ...base, stage: "map", subjects: [], repo });
+    expect(behind).toContain("## Context map");
+    expect(behind).toContain("- Orphaned verdicts: 2 · arrived contexts: 3 · renamed contexts: 1");
+    expect(behind).toContain("built from revision `aaa111`, `context-map.json` is now `bbb222`");
+
+    const current = buildRegistryBrief({ ...base, stage: "map", subjects: [], repo: { ...repo, repoContextMapRevision: "aaa111", mapBehind: false } });
+    expect(current).toContain("- Orphaned verdicts: 2 · arrived contexts: 3 · renamed contexts: 1");
+    expect(current).not.toContain("moved after the registry map was built");
+
+    // Conform ignores the churn block; without `repo` a map brief has no such section at all.
+    expect(buildRegistryBrief({ ...base, repo })).not.toContain("## Context map");
+    expect(buildRegistryBrief({ ...base, stage: "map", subjects: [] })).not.toContain("## Context map");
+  });
+
+  it("stays deterministic with the new sections", () => {
+    const input: RegistryBriefInput = { ...base, subjectContexts: [{ slug: "quality-gates", revision: 3, changedAt: "2026-08-01", contextRows: [row("a", { judgedRevision: 2 })] }] };
+    expect(buildRegistryBrief(input)).toBe(buildRegistryBrief({ ...input }));
   });
 });
 

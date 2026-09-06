@@ -29,9 +29,16 @@ export interface KnowledgeSubject {
   /** The subject's content digest (`sha256:…`) as the index states it — what a map pair's
    *  `evaluatedAgainst` is compared to. Null when the index carries none: unknown, never current. */
   digest: string | null;
+  /** The subject's DERIVED revision as the index states it (`git rev-list --count` on the subject
+   *  dir, +1 while dirty) — order, where `digest` is identity. Null when the index carries none. */
+  revision: number | null;
+  /** `YYYY-MM-DD` of the subject's last change, as the index states it. Null when it carries none. */
+  changedAt: string | null;
 }
 
 const strOrNull = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
+/** A revision is a non-negative integer or nothing; a generator that wrote none wrote no order. */
+const revOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : null);
 
 function pushUnique(into: string[], from: unknown, cap: number): void {
   if (!Array.isArray(from)) return;
@@ -82,7 +89,16 @@ export function readBundleSubjects(
       continue;
     }
     for (const [slug, raw] of Object.entries(subjects as Record<string, unknown>)) {
-      const s = raw as { category?: unknown; subcategory?: unknown; status?: unknown; file?: unknown; techniques?: unknown; digest?: unknown };
+      const s = raw as {
+        category?: unknown;
+        subcategory?: unknown;
+        status?: unknown;
+        file?: unknown;
+        techniques?: unknown;
+        digest?: unknown;
+        revision?: unknown;
+        changedAt?: unknown;
+      };
       if (!s || typeof s !== "object") {
         warnings.push(`${path}: subjects["${slug}"] is not an object — subject skipped`);
         continue;
@@ -113,6 +129,9 @@ export function readBundleSubjects(
         useWhen,
         laws,
         digest: strOrNull(s.digest),
+        // Beside the digest, as the index writes them; an older generator wrote neither.
+        revision: revOrNull(s.revision),
+        changedAt: strOrNull(s.changedAt),
       });
     }
   }

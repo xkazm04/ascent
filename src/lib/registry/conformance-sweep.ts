@@ -13,6 +13,8 @@
 // standing deviation backlog because GitHub timed out would be the worst outcome available here.
 
 import { mapPool } from "@/lib/pool";
+import { githubAppFetch } from "@/lib/github/app";
+import { encodePathSegments } from "@/lib/github/host";
 import {
   clearRepoConformance,
   ingestRepoConformance,
@@ -20,7 +22,7 @@ import {
   type RepoFoundation,
 } from "@/lib/db/org-registry-conformance";
 import { OPEN_DISPATCH_STATUSES, listDispatches, markDispatch } from "@/lib/db/org-registry-dispatch";
-import { countConsults, parseConformanceMap, type ConformancePair } from "./conformance-map";
+import { countConsults, parseConformanceMap, parseContextMapRevision, type ConformancePair } from "./conformance-map";
 import { EMPTY_SCOPE, parseDirectionsLedger, parseManifestFoundation } from "./conformance-foundation";
 import { readRepoStandardsFiles, type RepoStandardsFiles } from "./conformance-read";
 import { parseFullName } from "./layout";
@@ -58,6 +60,41 @@ export function foundationOf(files: Pick<RepoStandardsFiles, "manifest" | "ledge
   };
 }
 
+/** The repo's own context map at the root — the ONE file the sweep reads beyond `.ai/`. */
+const REPO_CONTEXT_MAP_PATH = "context-map.json";
+
+/** Ceiling on the context-map body. This repo's is ~170KB; the cap bounds a fleet sweep's memory,
+ *  and a map past it reads as "revision unknown" — never as "behind". */
+export const MAX_CONTEXT_MAP_BYTES = 512 * 1024;
+
+/**
+ * The `revision` of the repo's `context-map.json`, or null. ONE additional Contents read per swept
+ * repo that has the file; skipped (null) when the root listing said it is not there.
+ *
+ * NEVER throws and never fails the sweep: a 404, a 403, a transport error, an oversized body or a
+ * document that is not JSON all come back as null, which the fleet builder reads as "unknown" and
+ * `mapBehind` reads as false. The map was already read by the time this runs, so the worst this
+ * degrade can cost is the drift signal for one repo — never the repo's standing verdicts.
+ */
+export async function readContextMapRevision(token: string, owner: string, repo: string): Promise<string | null> {
+  try {
+    const file = await githubAppFetch<{ content?: string; encoding?: string; size?: number; type?: string }>(
+      `/repos/${owner}/${repo}/contents/${encodePathSegments(REPO_CONTEXT_MAP_PATH)}`,
+      token,
+    );
+    if (file.type !== "file" || !file.content) return null;
+    if ((file.size ?? 0) > MAX_CONTEXT_MAP_BYTES) return null;
+    if (file.encoding && file.encoding !== "base64") return null;
+    const buf = Buffer.from(file.content, "base64");
+    if (buf.byteLength > MAX_CONTEXT_MAP_BYTES) return null;
+    return parseContextMapRevision(buf.toString("utf8"));
+  } catch {
+    // A 404 / 403 is the expected shape of "not readable"; a transport failure costs the same —
+    // this one signal for this one repo — so neither is distinguished here.
+    return null;
+  }
+}
+
 /**
  * Sweep an org's repositories. `org` is the slug (routes) or `{ orgId }` (the indexer, chaining
  * after a pass). `opts.repositoryIds` narrows it and `opts.repositoryId` is the one-repo form (a
@@ -92,11 +129,14 @@ export async function sweepConformance(
       const files = await readRepoStandardsFiles(token, ref.owner, ref.repo);
       const foundation = foundationOf(files);
       const repoWarnings = files.warnings ?? [];
+      // The context map's revision is read only when the root listing saw the file: a repo at stage
+      // `populate` has none, and a request for it would be a request for a known 404.
+      const repoContextMapRevision = foundation.hasContextMap ? await readContextMapRevision(token, ref.owner, ref.repo) : null;
       if (files.map === null) {
         withoutMap += 1;
         // The map went away (or never was): the repo is no longer claiming any of those verdicts,
         // so neither do we — but the header row stays, carrying the foundation facts.
-        await clearRepoConformance({ orgId, repositoryId: repo.id, foundation, warnings: repoWarnings, now: opts.now }).catch(() => {});
+        await clearRepoConformance({ orgId, repositoryId: repo.id, foundation, warnings: repoWarnings, now: opts.now, repoContextMapRevision }).catch(() => {});
         return;
       }
       const parsedMap = parseConformanceMap(files.map);
@@ -117,6 +157,7 @@ export async function sweepConformance(
         consults30d,
         warnings: repoWarnings,
         foundation,
+        repoContextMapRevision,
       });
       withMap += 1;
       pairs += written.pairs;

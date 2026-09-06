@@ -37,8 +37,9 @@ import {
 } from "@/lib/db/org-registry-dispatch";
 import { autopilotEnabled } from "@/lib/local/agent";
 import type { RegistryDispatchMode, RegistryDispatchStage } from "@/lib/org/knowledge-shape";
+import { getKnowledgeView } from "@/lib/org/knowledge-view";
 import { guardRegistryRead, guardRegistryRole, guardRegistryWrite, registryError } from "@/lib/registry/api";
-import { MAX_CONFORM_SUBJECTS, briefDigest, buildRegistryBrief } from "@/lib/registry/dispatch-brief";
+import { MAX_CONFORM_SUBJECTS, briefDigest, briefInputsFromView, buildRegistryBrief } from "@/lib/registry/dispatch-brief";
 import { defaultDispatchDeps, detectDefaultBranch, runLocalDispatch } from "@/lib/registry/dispatch-local";
 
 export const runtime = "nodejs";
@@ -131,6 +132,9 @@ export async function POST(request: Request, ctx: { params: Promise<{ slug: stri
   // The id is minted HERE so the brief carries it verbatim and the digest is of the final text.
   const dispatchId = randomUUID();
   const defaultBranch = await detectDefaultBranch(localPath);
+  // The context×path relation the tab showed: the same view, so the brief and the composer agree.
+  // A loader failure drops the sections rather than the dispatch.
+  const view = await getKnowledgeView(slug).catch(() => null);
   const brief = buildRegistryBrief({
     dispatchId,
     repoFullName: repo.fullName,
@@ -139,6 +143,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ slug: stri
     subjects,
     registry: { fullName: registry.fullName, localHint: REGISTRY_LOCAL_HINT },
     domains,
+    ...briefInputsFromView(view, repositoryId, subjects),
   });
   const actor = (await resolveViewerLogin().catch(() => null)) ?? "unknown";
   await supersedeOpenDispatches(orgId, repositoryId, stage);
