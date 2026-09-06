@@ -389,3 +389,46 @@ describe("rollupTeams — onboarded repos are reported separately from period mo
     expect(core2.comparedRepos).toBe(1);
   });
 });
+
+// ── Per-repo commit totals travel on the ROW ─────────────────────────────────────────────────────
+// `TeamRepoScore.commits`/`aiCommits` exist so a downstream fleet aggregate can dedupe on the repo
+// (a repo owned by three CODEOWNERS teams is one repo) and weight an AI share by its real
+// denominator. Summing per-team percentages instead is the mean-of-team-means error that
+// `TeamStandings.fleetAvgOverall` documents at length; see teamStandings.test.ts for the other half.
+describe("rollupTeams — per-repo commit totals on TeamRepoScore", () => {
+  const out = rollupTeams("acme", FLEET);
+  const frontend = out.teams.find((t) => t.slug === "@acme/frontend")!;
+  const data = out.teams.find((t) => t.slug === "@acme/data")!;
+
+  it("carries the repo's HUMAN commit totals, excluding bots", () => {
+    const web = frontend.repos.find((r) => r.fullName === "acme/web")!;
+    // alice 10/9; build[bot] 40/0 is excluded — the same isBot filter the people map applies.
+    expect(web.commits).toBe(10);
+    expect(web.aiCommits).toBe(9);
+  });
+
+  it("sums every human on the repo", () => {
+    const api = data.repos.find((r) => r.fullName === "acme/api")!;
+    expect(api.commits).toBe(12); // carol 8 + dan 4
+    expect(api.aiCommits).toBe(1); // dan 1
+  });
+
+  it("is 0/0 for an owned repo with no contributor snapshot rather than undefined", () => {
+    const withNone = rollupTeams("acme", [
+      repo("acme/bare", {
+        teams: [{ slug: "@acme/frontend", isDefaultOwner: true }],
+        scans: [{ overall: 50, adoption: 50, rigor: 50, dims: [{ dimId: "D1", score: 50 }] }],
+      }),
+    ]);
+    const bare = withNone.teams[0]!.repos[0]!;
+    expect(bare.commits).toBe(0);
+    expect(bare.aiCommits).toBe(0);
+  });
+
+  it("agrees with the team's own aiCommitShare, which is what makes the two comparable", () => {
+    // frontend: one repo, 9 AI of 10 human commits = 90; the team figure is computed independently
+    // from the people map, so equality here is a real cross-check, not a tautology.
+    const web = frontend.repos.find((r) => r.fullName === "acme/web")!;
+    expect(Math.round((web.aiCommits / web.commits) * 100)).toBe(frontend.aiCommitShare);
+  });
+});

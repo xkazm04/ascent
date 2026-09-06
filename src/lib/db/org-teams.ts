@@ -50,6 +50,16 @@ export interface TeamRepoScore {
    *  publishes — and it travels on the ROW so a downstream aggregate over these repos
    *  (`explainTeamStandings`) can apply the same exclusion instead of re-deriving it. */
   mock: boolean;
+  /** This repo's HUMAN commit total from its latest contributor snapshot (bots and "unknown"
+   *  excluded, exactly as the team's own people map excludes them). Carried on the ROW for the same
+   *  reason `mock` is: a downstream aggregate over these repos (`explainTeamStandings`) needs the
+   *  DENOMINATOR to weight a fleet AI share, and deriving it from per-team percentages is the
+   *  mean-of-means error that `TeamStandings.fleetAvgOverall` documents at length.
+   *  NOT gated on `mock`: the mock floor is a statement about the SCORE, not about whether the
+   *  commits happened, and the per-team `aiCommitShare` counts them. */
+  commits: number;
+  /** AI-attributed subset of {@link TeamRepoScore.commits}, same population and same exclusions. */
+  aiCommits: number;
 }
 
 export interface TeamChampion {
@@ -245,6 +255,9 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
           posture: latest.posture,
           isDefaultOwner: t.isDefaultOwner,
           mock: isMockScore(latest.engineProvider),
+          // Filled by the contributor merge below, which walks this repo's snapshot once.
+          commits: 0,
+          aiCommits: 0,
         };
         a.repos.push(score);
         // The mock floor is a placeholder, not a grade: it stays out of the team's averages and its
@@ -278,6 +291,11 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
         // blank the team) and relies on this documented semantics instead.
         for (const c of r.contributors) {
           if (isBot(c.login)) continue;
+          // Per-REPO totals as well as per-person: the repo row is the unit a fleet-level aggregate
+          // can dedupe on (a repo owned by three teams is one repo), which a per-person sum spread
+          // across teams is not. Same humans-only population, same single walk.
+          score.commits += c.commits;
+          score.aiCommits += c.aiCommits;
           const p = a.people.get(c.login) ?? { login: c.login, name: c.name, commits: 0, aiCommits: 0 };
           p.commits += c.commits;
           p.aiCommits += c.aiCommits;

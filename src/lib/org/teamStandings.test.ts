@@ -6,8 +6,16 @@ import type { TeamRepoScore, TeamRollup } from "@/lib/db/org-teams";
 // distance from the fleet mean to the dimensions driving it. No DB — mirrors teamRollup.test's
 // "test the pure transform" approach.
 
-/** One owned repo at a given overall score. `mock` marks the deterministic floor (never a grade). */
-export function repo(fullName: string, overall: number, mock = false): TeamRepoScore {
+/** One owned repo at a given overall score. `mock` marks the deterministic floor (never a grade).
+ *  `commits`/`aiCommits` are the repo's HUMAN commit totals — the population behind the fleet AI
+ *  share; they default to 0 so every pre-existing fixture below is unchanged by their arrival. */
+export function repo(
+  fullName: string,
+  overall: number,
+  mock = false,
+  commits = 0,
+  aiCommits = 0,
+): TeamRepoScore {
   return {
     fullName,
     name: fullName.split("/").pop()!,
@@ -18,6 +26,8 @@ export function repo(fullName: string, overall: number, mock = false): TeamRepoS
     posture: "manual",
     isDefaultOwner: true,
     mock,
+    commits,
+    aiCommits,
   };
 }
 
@@ -132,9 +142,18 @@ describe("explainTeamStandings", () => {
   });
 
   it("carries the human/trajectory context (AI-share delta vs fleet, momentum)", () => {
-    const fleetAi = Math.round((60 + 30 + 10) / 3); // 33
-    expect(out.leader.aiShareDelta).toBe(60 - fleetAi);
-    expect(out.laggard.aiShareDelta).toBe(10 - fleetAi);
+    // This case USED to spell the mean of team means out in the assertion itself —
+    // `Math.round((60 + 30 + 10) / 3)` — which is how the formula `fleetAvgOverall`'s docstring
+    // condemns survived a rewrite of the file it lives in: the test asserted the defect.
+    //
+    // The FLEET fixtures carry no commit data, so the commit-weighted baseline is 0 and each team's
+    // delta IS its own share. Both halves are pinned: the new value, and the explicit refusal of the
+    // old one, so a revert cannot go green.
+    const meanOfTeamMeans = Math.round((60 + 30 + 10) / 3); // 33 — the WRONG baseline
+    expect(out.leader.aiShareDelta).toBe(60);
+    expect(out.laggard.aiShareDelta).toBe(10);
+    expect(out.leader.aiShareDelta).not.toBe(60 - meanOfTeamMeans);
+    expect(out.laggard.aiShareDelta).not.toBe(10 - meanOfTeamMeans);
     expect(out.leader.avgDelta).toBe(8);
     expect(out.laggard.avgDelta).toBe(-4);
   });
@@ -209,5 +228,78 @@ describe("explainTeamStandings — fleetAvgOverall population", () => {
       }),
     ];
     expect(explainTeamStandings(teams)!.fleetAvgOverall).toBe(70);
+  });
+});
+
+// ── The fleet AI share is COMMIT-WEIGHTED over distinct repos ────────────────────────────────────
+//
+// `fleetAvgOverall` right above it was fixed for exactly this reason and documents why at length: a
+// mean of team MEANS counts a shared repo once per owning team and weighs a two-repo team the same
+// as a forty-repo one. `fleetAiShare` — the baseline `aiShareDelta` is measured against, rendered as
+// a coloured signed delta on TeamsStandings — was left on that same shape, 38 lines below the
+// docstring condemning it.
+describe("explainTeamStandings — fleetAiShare", () => {
+  /** A tiny high-AI team beside a large low-AI one: the two formulas diverge hardest here. */
+  const skewed = (): TeamRollup[] => [
+    team("@acme/tiny", {
+      avgOverall: 60,
+      aiCommitShare: 100,
+      repos: [repo("acme/tiny", 60, false, 10, 10)],
+      dims: [{ dimId: "D1", label: "AI Tooling", avg: 60 }],
+    }),
+    team("@acme/big", {
+      avgOverall: 60,
+      aiCommitShare: 5,
+      repos: [repo("acme/big", 60, false, 200, 10)],
+      dims: [{ dimId: "D1", label: "AI Tooling", avg: 60 }],
+    }),
+  ];
+
+  it("weighs the fleet baseline by commits, not by team count", () => {
+    const out = explainTeamStandings(skewed())!;
+    // 20 AI of 210 human commits = 9.52 -> 10. The mean of team means would be (100 + 5) / 2 = 53.
+    const byTeam = out.leader.aiCommitShare - out.leader.aiShareDelta;
+    expect(byTeam).toBe(10);
+  });
+
+  it("stops telling the team that IS the fleet that it is 48 points below it", () => {
+    const out = explainTeamStandings(skewed())!;
+    const big = [out.leader, out.laggard].find((t) => t.slug === "@acme/big")!;
+    const tiny = [out.leader, out.laggard].find((t) => t.slug === "@acme/tiny")!;
+    // @acme/big carries 200 of the fleet's 210 commits, so it very nearly IS the fleet: -5, not -48.
+    expect(big.aiShareDelta).toBe(-5);
+    expect(tiny.aiShareDelta).toBe(90);
+  });
+
+  it("counts a repo owned by two teams ONCE — the same dedupe fleetAvgOverall applies", () => {
+    const shared = repo("acme/shared", 60, false, 100, 50);
+    const out = explainTeamStandings([
+      team("@acme/a", { avgOverall: 60, aiCommitShare: 50, repos: [shared], dims: [{ dimId: "D1", label: "AI Tooling", avg: 60 }] }),
+      team("@acme/b", { avgOverall: 60, aiCommitShare: 50, repos: [shared], dims: [{ dimId: "D1", label: "AI Tooling", avg: 60 }] }),
+    ])!;
+    // Double-counting would still yield 50 here, so the assertion that bites is the total: one repo.
+    const byTeam = out.leader.aiCommitShare - out.leader.aiShareDelta;
+    expect(byTeam).toBe(50);
+    expect(out.leader.aiShareDelta).toBe(0);
+  });
+
+  it("INCLUDES mock-floor repos, unlike fleetAvgOverall — the per-team share includes them too", () => {
+    // The subtle one, pinned so nobody "corrects" it into symmetry. rollupTeams merges a repo's
+    // contributors into the team regardless of `mock` (the mock floor is about the SCORE, not about
+    // whether the commits happened), so per-team aiCommitShare counts them. A fleet baseline that
+    // excluded them would be a different population from the numbers it is subtracted from.
+    const out = explainTeamStandings([
+      team("@acme/a", { avgOverall: 80, aiCommitShare: 0, repos: [repo("acme/live", 80, false, 100, 0)], dims: [{ dimId: "D1", label: "AI Tooling", avg: 80 }] }),
+      team("@acme/b", { avgOverall: 40, aiCommitShare: 100, repos: [repo("acme/floor", 40, true, 100, 100)], dims: [{ dimId: "D1", label: "AI Tooling", avg: 40 }] }),
+    ])!;
+    const byTeam = out.leader.aiCommitShare - out.leader.aiShareDelta;
+    expect(byTeam).toBe(50); // 100 AI of 200 commits — the mock repo's commits count
+    // ...while the SCORE average still excludes the mock row: only acme/live is a grade.
+    expect(out.fleetAvgOverall).toBe(80);
+  });
+
+  it("reports 0 rather than NaN when the fleet has no human commits at all", () => {
+    const out = explainTeamStandings(FLEET)!; // the default fixtures carry no commit data
+    expect(out.leader.aiShareDelta).toBe(out.leader.aiCommitShare);
   });
 });
