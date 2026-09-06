@@ -235,10 +235,16 @@ describe("session installation checks (scan-token IDOR)", () => {
   // own `account.login`, carried in an HMAC-signed cookie, so it can hold neither whitespace nor an
   // attacker's choice of string. Trimming it could therefore only matter in a world where it IS
   // attacker-writable — and there it would WIDEN the gate. These pin the fail-closed direction.
-  // sessionOwnsOrg / sessionHasInstallation remain exported and are still used by /api/app/repos to
-  // check the CALLER's own installation list. Their untrimmed-session-side semantics stay pinned here.
-  // What changed is that no org GATE consults them any more, so these are now assertions about the
-  // helpers alone — the gate cases moved to the retired-stack tests above.
+  // sessionHasInstallation is still used by /api/app/repos (route.ts:100) to check the CALLER's own
+  // installation list, and its untrimmed-session-side semantics stay pinned here.
+  //
+  // sessionOwnsOrg is NOT. This comment used to name both as /api/app/repos consumers; grep the repo
+  // and the only non-comment references to it are the four assertions below. It has ZERO production
+  // callers — no gate consults it, and the three route comments that mention it describe it as "the
+  // old gate". It is kept exported and pinned deliberately, not by oversight: it is the predicate the
+  // cross-tenant IDOR was built on, so the cases below record which direction it fails in for anyone
+  // tempted to reach for it again. Deleting it is a live question, not a foregone one — but a reader
+  // who believes the old sentence will not even see that there is a question.
   it("a whitespace-padded session login does NOT match the org (untrimmed = fail closed)", async () => {
     mockGetSession.mockResolvedValue(sessionWith([" acme"]));
     expect(await sessionOwnsOrg("acme")).toBe(false);
