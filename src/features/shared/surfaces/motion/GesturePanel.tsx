@@ -13,7 +13,8 @@ import { BTN, Region } from "./sceneParts";
 
 type TrackRow = { property: string; job: string; duration: DurationClass; easing: EasingRole };
 
-const TRACKS: readonly TrackRow[] = [
+// Exactly three tracks — the destructure below names each one, so the type says so.
+const TRACKS: readonly [TrackRow, TrackRow, TrackRow] = [
   { property: "border-color", job: "claims selection", duration: "fast", easing: "move" },
   { property: "transform: scale", job: "lifts to claim emphasis", duration: "base", easing: "enter" },
   { property: "opacity + translateY (detail)", job: "opens the detail, unhurried", duration: "deliberate", easing: "enter" },

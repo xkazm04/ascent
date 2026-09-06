@@ -103,6 +103,7 @@ export function derivePositions(graph: Graph, s: GraphState): Positions {
   const at = new Map<string, number>();
   for (let i = 0; i < n; i++) {
     const node = graph.nodes[i];
+    if (!node) continue;
     const p = s.placed.get(node.id) ?? generatedPosition(node, s.layoutRun);
     x[i] = p.x;
     y[i] = p.y;
@@ -113,7 +114,7 @@ export function derivePositions(graph: Graph, s: GraphState): Positions {
 
 export const posAt = (pos: Positions, id: string): Pt => {
   const i = pos.at.get(id);
-  return i === undefined ? { x: 0, y: 0 } : { x: pos.x[i], y: pos.y[i] };
+  return i === undefined ? { x: 0, y: 0 } : { x: pos.x[i] ?? 0, y: pos.y[i] ?? 0 };
 };
 
 /** Live validity of a connection — shown during the hover, never as a rejection after release. */

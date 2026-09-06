@@ -35,7 +35,8 @@ export function useSurfaceSelection(slug: string, techniqueSlugs: readonly strin
       if (!techniqueSlugs.length) return;
       const i = technique ? techniqueSlugs.indexOf(technique) : -1;
       const n = (i + delta + techniqueSlugs.length) % techniqueSlugs.length;
-      setTechnique(techniqueSlugs[n]);
+      const next = techniqueSlugs[n];
+      if (next !== undefined) setTechnique(next);
     },
     [technique, techniqueSlugs, setTechnique],
   );

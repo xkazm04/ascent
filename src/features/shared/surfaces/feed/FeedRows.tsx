@@ -83,7 +83,7 @@ export function FeedRows({ rows, orderKey, now, entry, stored, expanded, entered
         const day = dayBucket(ts, now);
         const dayDivider = day !== lastDay ? day : null;
         lastDay = day;
-        const isNew = ts > entry.ts || (ts === entry.ts && (r.type === "row" ? r.o.seq : r.members[0].seq) > entry.seq);
+        const isNew = ts > entry.ts || (ts === entry.ts && (r.type === "row" ? r.o.seq : r.members[0]!.seq) > entry.seq); // a cluster row carries >= 2 members (clusterRows)
         const sinceDivider = !dividerDone && !isNew;
         if (sinceDivider) dividerDone = true;
         const key = rowKey(r);

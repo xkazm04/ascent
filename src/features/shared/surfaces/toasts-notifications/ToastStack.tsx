@@ -33,7 +33,8 @@ export function StackRegion({ desk, reduced, fleet }: { desk: Desk; reduced: boo
     document.addEventListener("focusin", onFocusIn);
     return () => document.removeEventListener("focusin", onFocusIn);
   }, []);
-  const [a, b] = fleet;
+  // The fleet window is never empty in the scene; the names only back an emptied fixture.
+  const [a = "alloy-01", b = "basalt-02"] = fleet;
   const fire = (ev: Parameters<typeof dispatch>[0]) => dispatch(ev);
 
   return (

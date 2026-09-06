@@ -83,7 +83,8 @@ export function excerpt(original: string, folded: string, matched: Iterable<stri
   if (original.length <= width) return { segments: mark(original, spans, 0, original.length), leading: false, trailing: false };
   let bestStart = 0;
   let best = -1;
-  for (const [s] of spans.length ? spans : [[0, 0]]) {
+  const seeds: [number, number][] = spans.length ? spans : [[0, 0]];
+  for (const [s] of seeds) {
     const start = Math.max(0, Math.min(s - 20, original.length - width));
     const n = spans.filter(([a, b]) => a >= start && b <= start + width).length;
     if (n > best) (best = n), (bestStart = start);

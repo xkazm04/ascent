@@ -135,7 +135,7 @@ export function churn(store: Store, seed: number, location: Entry | undefined, c
     return { store: write(store, (m) => doomed.forEach((id) => m.delete(id))), journal: [`deleted folder ${location.name}/ and its ${candidates.length} entries`] };
   }
   if (leaves.length === 0) return { store, journal: ["nothing to touch here"] };
-  const pick = (): Entry => leaves[Math.floor(rnd() * leaves.length)];
+  const pick = (): Entry => leaves[Math.floor(rnd() * leaves.length)]!; // leaves is non-empty (guarded above) and rnd() < 1
   const [gone, renamed, rewritten] = [pick(), pick(), leaves.find((e) => e.kind === "image") ?? pick()];
   const journal: string[] = [];
   const next = write(store, (m) => {

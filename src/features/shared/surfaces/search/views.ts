@@ -55,7 +55,8 @@ export const DEFAULT_VIEW: SavedView = {
   builtIn: true,
 };
 
-export const SEED_VIEWS: SavedView[] = [
+/** Non-empty by type: the panel opens on the first (default) view. */
+export const SEED_VIEWS: [SavedView, ...SavedView[]] = [
   DEFAULT_VIEW,
   { id: "view-2", name: "Failing Python", predicate: { text: "", include: [{ field: "status", values: ["fail"] }, { field: "lang", values: ["python"] }], exclude: [], sort: "recent" }, shared: true, builtIn: false },
   { id: "view-3", name: "Morning triage", predicate: { text: "session events", include: [{ field: "level", values: ["1", "2"] }], exclude: [{ field: "status", values: ["archived"] }], sort: "relevance" }, shared: false, builtIn: false },

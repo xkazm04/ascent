@@ -10,7 +10,7 @@
 // proving shape carries the distinction on its own.
 
 import { useEffect, useReducer } from "react";
-import { HOSTILE_SAMPLES, SKEW_ROW } from "./fixtures";
+import { SKEW_ROW, TOKEN_LOOKALIKE_SAMPLE } from "./fixtures";
 import { useSceneLocale } from "./locale";
 import { SeverityPill, StatusPill } from "./primitives";
 import { BTN, BTN_ON, Readout, Region } from "./sceneParts";
@@ -104,7 +104,7 @@ export function ColorRegion({ noColor, onNoColor }: { noColor: boolean; onNoColo
       <div className="mt-3 flex flex-wrap items-center gap-2" aria-label="Sample pills">
         <StatusPill token="warned" />
         <SeverityPill token="critical" />
-        <span className="type-caption text-slate-600">← the pill takes the token and owns the table; a name that looks like one ({HOSTILE_SAMPLES[3].value}) never reaches it</span>
+        <span className="type-caption text-slate-600">← the pill takes the token and owns the table; a name that looks like one ({TOKEN_LOOKALIKE_SAMPLE.value}) never reaches it</span>
       </div>
     </Region>
   );

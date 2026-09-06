@@ -33,7 +33,10 @@ const MIN = 60_000;
 
 const ACTORS = ["mira", "tomas", "lena", "ci", "bot-rescan"] as const;
 const REPOS = ["acme/api", "acme/web", "acme/infra", "acme/mobile", "acme/docs", "acme/billing", "acme/edge", "acme/ml"] as const;
-const SINGLE_KINDS: Kind[] = ["scan", "scan", "scan", "level-up", "security", "followup", "followup", "scan-failed", "member"];
+const SINGLE_KINDS = ["scan", "scan", "scan", "level-up", "security", "followup", "followup", "scan-failed", "member"] as const satisfies readonly Kind[];
+
+/** A seeded pick from a non-empty tuple: rnd() < 1, so the index is always inside the tuple. */
+const pick = <T>(arr: readonly [T, ...T[]], rnd: () => number): T => arr[Math.floor(rnd() * arr.length)]!; // non-empty tuple, index < length
 
 export function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
@@ -74,25 +77,26 @@ export function occurrencesFor(volume: SurfaceVolume): Occurrence[] {
     if (room > 1 && rnd() < 0.12) {
       const size = Math.min(room, 5 + Math.floor(rnd() * 36));
       const actor = rnd() < 0.6 ? "bot-sync" : "bot-rescan";
-      for (let k = 0; k < size; k++) out.push(make(seq--, "sync", actor, REPOS[Math.floor(rnd() * REPOS.length)], t, Math.floor(rnd() * 20_000), rnd() < 0.06));
+      for (let k = 0; k < size; k++) out.push(make(seq--, "sync", actor, pick(REPOS, rnd), t, Math.floor(rnd() * 20_000), rnd() < 0.06));
     } else {
-      const kind = SINGLE_KINDS[Math.floor(rnd() * SINGLE_KINDS.length)];
-      out.push(make(seq--, kind, ACTORS[Math.floor(rnd() * ACTORS.length)], REPOS[Math.floor(rnd() * REPOS.length)], t, Math.floor(rnd() * 20_000)));
+      const kind = pick(SINGLE_KINDS, rnd);
+      out.push(make(seq--, kind, pick(ACTORS, rnd), pick(REPOS, rnd), t, Math.floor(rnd() * 20_000)));
     }
     t -= Math.round(avgGap * (0.3 + rnd() * 1.4));
   }
   // The newest row is a scan still running: in flight, so never eligible for the reaper.
-  out[0] = { ...out[0], kind: "scan", settled: false, warn: false };
+  const newest = out[0];
+  if (newest) out[0] = { ...newest, kind: "scan", settled: false, warn: false };
   return out;
 }
 
 /** The n-th live arrival, deterministic in `n`. `eventAt` backdates the event (a late arrival: it happened earlier, arrives now). */
 export function arrivalAt(n: number, seq: number, now: number, opts: { eventAt?: number; sync?: boolean } = {}): Occurrence {
   const rnd = mulberry32(1000 + n);
-  const kind: Kind = opts.sync ? "sync" : SINGLE_KINDS[Math.floor(rnd() * SINGLE_KINDS.length)];
-  const actor = opts.sync ? "bot-sync" : ACTORS[Math.floor(rnd() * ACTORS.length)];
+  const kind: Kind = opts.sync ? "sync" : pick(SINGLE_KINDS, rnd);
+  const actor = opts.sync ? "bot-sync" : pick(ACTORS, rnd);
   const eventAt = opts.eventAt ?? now;
-  const row = make(seq, kind, actor, REPOS[Math.floor(rnd() * REPOS.length)], eventAt, 0, opts.sync && rnd() < 0.1);
+  const row = make(seq, kind, actor, pick(REPOS, rnd), eventAt, 0, opts.sync && rnd() < 0.1);
   return { ...row, arrivedAt: now };
 }
 

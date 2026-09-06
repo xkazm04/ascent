@@ -32,6 +32,11 @@ function mulberry32(seed: number): () => number {
   };
 }
 
+/** `list[i mod len]`: a non-empty list is always hit, whatever the index. */
+function cycle<T>(list: readonly T[], i: number): T {
+  return list[i % list.length]!; // invariant: every list fed here is a non-empty constant
+}
+
 const NAMES = ["alloy-api", "basalt-web", "cirrus-worker", "delta-cli", "ember-docs", "fathom-sdk", "granite-infra", "harbor-ui", "isobar-etl", "juniper-mobile"];
 const OFFSETS_S = [12, 95, 740, 3_900, 26_000, 90_000, 400_000, 3_000_000];
 
@@ -41,8 +46,8 @@ export function rowsFor(volume: SurfaceVolume, seed = 11): ScanRow[] {
   const out: ScanRow[] = [];
   for (let i = 0; i < volume; i++) {
     const r = rnd();
-    const status: ScanStatus = SCAN_STATUS_MEMBERS[Math.floor(rnd() * SCAN_STATUS_MEMBERS.length)];
-    const sev: Severity = SEVERITY_MEMBERS[Math.floor(rnd() * SEVERITY_MEMBERS.length)];
+    const status: ScanStatus = cycle(SCAN_STATUS_MEMBERS, Math.floor(rnd() * SCAN_STATUS_MEMBERS.length));
+    const sev: Severity = cycle(SEVERITY_MEMBERS, Math.floor(rnd() * SEVERITY_MEMBERS.length));
     out.push({
       id: `scan-${i + 1}`,
       repo: `${NAMES[i % NAMES.length]}-${String(i + 1).padStart(2, "0")}`,
@@ -52,7 +57,7 @@ export function rowsFor(volume: SurfaceVolume, seed = 11): ScanRow[] {
       costUsd: i % 4 === 1 ? 0.0042 : i % 4 === 2 ? 0 : i % 4 === 3 ? null : Math.round(r * 250_000) / 100,
       tokens: Math.round(rnd() * 2_400_000),
       passRate: Math.round(rnd() * 1000) / 1000,
-      finishedOffsetS: OFFSETS_S[i % OFFSETS_S.length],
+      finishedOffsetS: cycle(OFFSETS_S, i),
     });
   }
   return out;
@@ -76,10 +81,12 @@ export const SKEW_ROW: ScanRow = {
 export const SMALL_SKEW_OFFSET_S = -40;
 
 /** Hostile names the untrusted-label region offers as one-click samples. */
+/** A repository name that spells a severity token — the pill must never be handed it. */
+export const TOKEN_LOOKALIKE_SAMPLE = { key: "looks like a token", value: "critical" } as const;
 export const HOSTILE_SAMPLES: readonly { key: string; value: string }[] = [
   { key: "markup", value: '<img src=x onerror="alert(1)"> <b>bold?</b>' },
   { key: "no spaces", value: "a".repeat(48) + "-service-that-never-breaks-" + "b".repeat(48) },
   { key: "RTL", value: "שירות-נתונים main-api" },
-  { key: "looks like a token", value: "critical" },
+  TOKEN_LOOKALIKE_SAMPLE,
   { key: "emoji", value: "🚀🔥 launch-svc ✨" },
 ];

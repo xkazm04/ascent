@@ -79,10 +79,14 @@ function lookup(engine: Engine, term: string, prefix: boolean): Map<string, Hit>
     let hi = vocab.length;
     while (lo < hi) {
       const mid = (lo + hi) >> 1;
-      if (vocab[mid] < term) lo = mid + 1;
+      if ((vocab[mid] ?? "") < term) lo = mid + 1; // mid < hi <= vocab.length, so the fallback is never read
       else hi = mid;
     }
-    for (let i = lo; i < vocab.length && vocab[i].startsWith(term); i++) for (const [id, tf] of postings.get(vocab[i])!) add(id, tf, vocab[i]);
+    for (let i = lo; i < vocab.length; i++) {
+      const v = vocab[i];
+      if (v === undefined || !v.startsWith(term)) break;
+      for (const [id, tf] of postings.get(v) ?? []) add(id, tf, v);
+    }
     return out;
   }
   for (const d of engine.list) {
@@ -95,11 +99,12 @@ function lookup(engine: Engine, term: string, prefix: boolean): Map<string, Hit>
 }
 
 const intersect = (maps: Map<string, Hit>[]): Map<string, Hit> => {
-  if (maps.length === 0) return new Map();
+  const [first, ...others] = maps;
+  if (first === undefined) return new Map();
   const out = new Map<string, Hit>();
-  for (const [id, h] of maps[0]) {
-    const rest = maps.slice(1).map((m) => m.get(id));
-    if (rest.every(Boolean)) out.set(id, rest.reduce<Hit>((acc, r) => ({ id, tf: addTf(acc.tf, r!.tf), matched: new Set([...acc.matched, ...r!.matched]) }), h));
+  for (const [id, h] of first) {
+    const rest = others.map((m) => m.get(id));
+    if (rest.every((r): r is Hit => r !== undefined)) out.set(id, rest.reduce<Hit>((acc, r) => ({ id, tf: addTf(acc.tf, r.tf), matched: new Set([...acc.matched, ...r.matched]) }), h));
   }
   return out;
 };

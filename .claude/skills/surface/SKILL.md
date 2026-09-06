@@ -222,6 +222,14 @@ npx tsc --noEmit
 npx vitest run src/features/shared/surfaces src/lib/org
 ```
 
+**A typecheck is hollow while any file has a SYNTAX error.** tsc reports syntactic diagnostics
+first and skips every semantic check when it finds one. A killed or restarted `next dev` can
+leave `.next/dev/types/validator.ts` truncated (`error TS1128` at its last line); while it is,
+"tsc shows only that one error" means tsc checked NOTHING of yours (2026-09-06: fourteen
+scenes passed this way and surfaced ~200 `noUncheckedIndexedAccess` errors later). If the
+only error is in `.next/`, delete that file, let the dev server regenerate it (or run with
+`--project tsconfig.json` after excluding it), and re-run until the output is empty.
+
 The vitest scope holds the bijection test (`surfaceCatalog.test.ts`: every record has a
 body and vice versa, unique slugs, every record slug in `SURFACE_SUBJECTS`, every
 `techniqueSlugs` entry matches the body's `techniques`) and your `Scene.dom.test.tsx`

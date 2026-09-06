@@ -37,7 +37,7 @@ function words(raw: string): { text: string; phrase: boolean }[] {
   const out: { text: string; phrase: boolean }[] = [];
   let i = 0;
   while (i < raw.length) {
-    const c = raw[i];
+    const c = raw.charAt(i);
     if (/\s/.test(c)) {
       i++;
       continue;
@@ -53,7 +53,7 @@ function words(raw: string): { text: string; phrase: boolean }[] {
       continue;
     }
     let j = i;
-    while (j < raw.length && !/\s/.test(raw[j]) && raw[j] !== '"') j++;
+    while (j < raw.length && !/\s/.test(raw.charAt(j)) && raw.charAt(j) !== '"') j++;
     out.push({ text: raw.slice(i, j), phrase: false });
     i = j;
   }
@@ -70,16 +70,19 @@ export function parseQuery(raw: string, tok: TokenizerOptions): ParsedQuery {
   for (const w of words(raw)) {
     if (w.phrase) {
       const toks = tokenize(w.text, tok).filter((t) => t.length >= MIN_TOKEN);
+      const [only] = toks;
       if (toks.length > 1) q.phrases.push(toks);
-      else if (toks.length === 1) admit(toks[0], q.terms);
+      else if (only !== undefined) admit(only, q.terms);
       continue;
     }
     const negated = w.text.startsWith("-") && w.text.length > 1;
     const body = negated ? w.text.slice(1) : w.text;
     const m = /^([^:]+):(.+)$/.exec(body);
-    if (m && isFacetField(m[1].toLowerCase())) {
-      const field = m[1].toLowerCase() as FacetField;
-      const value = fold(m[2]);
+    const prefix = m?.[1]?.toLowerCase();
+    const rest = m?.[2];
+    if (prefix !== undefined && rest !== undefined && isFacetField(prefix)) {
+      const field: FacetField = prefix;
+      const value = fold(rest);
       q.clauses.push({ field, value, negated, known: SCHEMA[field].values.includes(value) });
       continue;
     }

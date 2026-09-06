@@ -62,7 +62,9 @@ export const QUEUE: readonly Followup[] = [
 
 /** The fictional worlds the empty-state region can settle into. `raw` is the unfiltered count. */
 export type EmptyWorld = "first-run" | "prerequisite" | "no-match" | "permission" | "drained";
-export const WORLDS: readonly { id: EmptyWorld; raw: number; filtered: number; label: string }[] = [
+type World = { id: EmptyWorld; raw: number; filtered: number; label: string };
+/** Non-empty by type: the panel falls back to the first world when the picked id is unknown. */
+export const WORLDS: readonly [World, ...World[]] = [
   { id: "first-run", raw: 0, filtered: 0, label: "nothing exists yet" },
   { id: "prerequisite", raw: 0, filtered: 0, label: "app not connected" },
   { id: "no-match", raw: 40, filtered: 0, label: "filters exclude all 40" },

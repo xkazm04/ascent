@@ -13,7 +13,8 @@ export type Sort = { col: ColId; dir: Dir };
 
 /** Columns are data: id, label, semantic type, alignment, and the direction a first click chooses. */
 export type Column = { id: ColId; label: string; kind: "text" | "number" | "rank" | "instant"; align: "left" | "right"; firstDir: Dir };
-export const COLUMNS: readonly Column[] = [
+/** Non-empty by type: the sort instrument falls back to the first column when a sort names none. */
+export const COLUMNS: readonly [Column, ...Column[]] = [
   { id: "name", label: "Repository", kind: "text", align: "left", firstDir: "asc" },
   { id: "level", label: "Level", kind: "rank", align: "right", firstDir: "desc" },
   { id: "score", label: "Score", kind: "number", align: "right", firstDir: "desc" },

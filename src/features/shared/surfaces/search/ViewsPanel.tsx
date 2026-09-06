@@ -9,7 +9,7 @@
 import { useState } from "react";
 import { DEFAULT_PREDICATE } from "./facets";
 import type { FleetSearch } from "./useFleetSearch";
-import { isDirty, mintViewId, SEED_VIEWS, toPredicate, toStored, validateView, type SavedView, type ViewPredicate } from "./views";
+import { DEFAULT_VIEW, isDirty, mintViewId, SEED_VIEWS, toPredicate, toStored, validateView, type SavedView, type ViewPredicate } from "./views";
 import { BTN, BTN_ON, Chip, Readout, Region } from "./sceneParts";
 
 export function ViewsPanel({ s }: { s: FleetSearch }) {
@@ -17,7 +17,7 @@ export function ViewsPanel({ s }: { s: FleetSearch }) {
   // The applied view and the exact state its application produced: "dirty" compares against that snapshot.
   const [appliedId, setAppliedId] = useState<string>(SEED_VIEWS[0].id);
   const [snapshot, setSnapshot] = useState<ViewPredicate>(SEED_VIEWS[0].predicate);
-  const applied = views.find((v) => v.id === appliedId) ?? views[0];
+  const applied = views.find((v) => v.id === appliedId) ?? views[0] ?? DEFAULT_VIEW;
   const current = toStored(s.text, s.predicate, s.sort);
   const dead = validateView(applied.predicate);
   const dirty = isDirty(current, snapshot);

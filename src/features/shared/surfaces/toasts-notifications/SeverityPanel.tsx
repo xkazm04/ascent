@@ -20,7 +20,7 @@ const SAMPLES = [
 
 export function SeverityRegion() {
   const [pick, setPick] = useState(0);
-  const s = SAMPLES[pick];
+  const s = SAMPLES[pick] ?? SAMPLES[0];
   const row = SEVERITY_TABLE[s.ev.severity];
   const slots = slotsFor(s.ev.severity);
   const recovered = demoteForRecovery(s.ev.severity);

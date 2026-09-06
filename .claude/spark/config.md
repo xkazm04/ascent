@@ -110,6 +110,23 @@ Pasted verbatim into every builder brief:
 
 ## Skill improvement log
 
+- 2026-09-06 (ui-surfaces-showcase): **`npx tsc --noEmit` is HOLLOW while `.next/dev/types/validator.ts` is
+  syntactically corrupt** — tsc skips all semantic diagnostics when any syntactic error exists, so "only the
+  validator error" means nothing was checked. Sixteen builders and the Director passed this gate all session;
+  ~200 `noUncheckedIndexedAccess` errors surfaced only after the dev server regenerated the file. The
+  2026-09-05 line said "delete it, it regenerates" — make that the FIRST step of every tsc gate, and treat a tsc
+  output that is not empty as red even when every line is in `.next/`.
+- 2026-09-06 (ui-surfaces-showcase): **a parallel session committed 16 of its commits onto this spark's branch**
+  because the main checkout sat on it. Working on a branch in the main checkout (the 2026-09-05 default) is
+  only safe while no other session commits here; when one does, its commits ride to master with yours —
+  say so in the merge. A worktree costs the node_modules junction problem; the branch costs this.
+- 2026-09-06 (ui-surfaces-showcase): **the catalog bijection test imported all scene bodies in one 15s case**
+  and timed out under full-suite load only; `it.each` per record keeps the budget per import and names the
+  failing subject.
+- 2026-09-06 (ui-surfaces-showcase): a builder misread AGENTS.md's "Nothing in a feature group may be imported
+  from here" (about `org/shared/`, which features MAY import) as forbidding the import, and another imported
+  a palette from a sibling feature GROUP (forbidden). State both directions explicitly in builder briefs; no
+  lint catches the cross-group import today.
 - 2026-09-05 (knowledge-base-rebuild): **the prototype round blocked on an unonboarded device.** The
   operator answered the pick gate with "onboard ascent on this device first". Before the go-gate,
   verify the operator can OBSERVE the surface: a dev server they can reach, an org with data, and the

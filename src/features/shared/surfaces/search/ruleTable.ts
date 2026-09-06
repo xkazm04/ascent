@@ -19,7 +19,9 @@ export const VALIDITY_TABLE: readonly ValidityRow[] = [
 ];
 
 /** Rules persisted before this session. One was saved under a schema that has since retired `tier`. */
-export const SEED_RULES: readonly { id: string; name: string; src: string }[] = [
+export type SeedRule = { id: string; name: string; src: string };
+/** Non-empty by type: the panel opens on the first rule. */
+export const SEED_RULES: readonly [SeedRule, ...SeedRule[]] = [
   { id: "rule-1", name: "Failing, low tier", src: 'status == "fail" and level < 3' },
   { id: "rule-2", name: "Regulated core", src: 'tags contains "regulated" or tags contains "core"' },
   { id: "rule-3", name: "Gold tier (2025)", src: 'tier == "gold" and not archived' },

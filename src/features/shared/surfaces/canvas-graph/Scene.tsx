@@ -43,7 +43,7 @@ export function Scene({ reduced, volume }: SurfaceSceneProps) {
   );
 }
 
-function Atlas({ reduced, volume }: SurfaceSceneProps) {
+function Atlas({ reduced, volume }: Pick<SurfaceSceneProps, "reduced" | "volume">) {
   const base = useMemo(() => makeGraph(volume), [volume]);
   const [state, dispatch] = useReducer((s: GraphState, a: GraphAction) => reduce(s, a, base), null, initialState);
   // Named derivations: the live graph recomputes when the canvas creates a node or an edge; the
@@ -77,7 +77,11 @@ function Atlas({ reduced, volume }: SurfaceSceneProps) {
 
   const addNode = (kind: NodeKind) => {
     const at = toWorld(camera.cam, { x: camera.size.w / 2 - NODE_W / 2, y: camera.size.h / 2 - NODE_H / 2 });
-    const occupied = list.ranked.map((i) => nodeBounds({ x: positions.x[i], y: positions.y[i] }));
+    const occupied = list.ranked.flatMap((i) => {
+      const x = positions.x[i];
+      const y = positions.y[i];
+      return x === undefined || y === undefined ? [] : [nodeBounds({ x, y })];
+    });
     dispatch({ type: "add-node", kind, near: focusNode, at, occupied });
     announce(`added a ${kind} ${focusNode ? "beside the focused node" : "in view"}`);
   };

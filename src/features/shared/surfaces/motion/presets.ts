@@ -98,13 +98,13 @@ export function presetMs(name: PresetName): number {
  * `animationend` a caller awaits still fires — exact zero is a different behaviour, not a faster one.
  */
 export function animationFor(name: PresetName, reduced: boolean, opts: { delayMs?: number; loop?: boolean } = {}): string {
-  const p = PRESETS[name];
+  const p: Preset = PRESETS[name]; // the declared type, so the optional flag is readable
   if (!p.keyframes) return "none";
   const iter = opts.loop ? " infinite alternate" : " both";
   const delay = opts.delayMs ? ` ${opts.delayMs}ms` : "";
   if (!reduced || p.timingLoadBearing) {
     const t = p.tracks[0];
-    const ease = t.kind === "timed" ? EASING[t.easing] : EASING.move;
+    const ease = t?.kind === "timed" ? EASING[t.easing] : EASING.move;
     const ms = opts.loop ? BUDGET.ambientPeriodMs : presetMs(name);
     return `${p.keyframes} ${ms}ms ${ease}${delay}${iter}`;
   }

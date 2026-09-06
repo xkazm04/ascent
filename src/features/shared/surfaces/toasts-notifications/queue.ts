@@ -90,8 +90,8 @@ function applyOverflow(q: QueueState): QueueState {
     const byKind = new Map<string, Toast[]>();
     for (const t of rest) if (t.kind !== "summary") byKind.set(t.kind, [...(byKind.get(t.kind) ?? []), t]);
     for (const [kind, group] of byKind) {
-      if (group.length < 2) continue;
       const head = group[0];
+      if (group.length < 2 || !head) continue;
       const count = group.reduce((n, t) => n + t.count, 0);
       const merged: Toast = { ...head, key: `${kind}:*`, subject: "*", title: `${count} × ${KIND_META[head.kind as DeskEvent["kind"]].label}`, count, verb: "Open center" };
       coalesced += group.length - 1;

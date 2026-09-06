@@ -40,6 +40,7 @@ export function deriveRenderList(graph: Graph, pos: Positions, cam: Camera, size
   for (let i = 0; i < graph.nodes.length; i++) {
     const x = pos.x[i];
     const y = pos.y[i];
+    if (x === undefined || y === undefined) continue;
     if (x + NODE_W < view.x || x > view.x + view.w || y + NODE_H < view.y || y > view.y + view.h) continue;
     hits.push({ i, d: Math.hypot(x - cx, y - cy) });
   }
@@ -55,8 +56,10 @@ export function deriveRenderList(graph: Graph, pos: Positions, cam: Camera, size
     const ia = pos.at.get(e.from);
     const ib = pos.at.get(e.to);
     if (ia === undefined || ib === undefined) continue;
-    const pa = { x: pos.x[ia], y: pos.y[ia] };
-    const pb = { x: pos.x[ib], y: pos.y[ib] };
+    const ax = pos.x[ia], ay = pos.y[ia], bx = pos.x[ib], by = pos.y[ib];
+    if (ax === undefined || ay === undefined || bx === undefined || by === undefined) continue;
+    const pa: Pt = { x: ax, y: ay };
+    const pb: Pt = { x: bx, y: by };
     const a = anchorToward(pa, { x: pb.x + NODE_W / 2, y: pb.y + NODE_H / 2 });
     const b = anchorToward(pb, { x: pa.x + NODE_W / 2, y: pa.y + NODE_H / 2 });
     if (!edgeVisible(a, b, view)) continue;
@@ -87,6 +90,7 @@ function bundled(graph: Graph, cam: Camera, size: Size, view: Rect): RenderList 
   const bundles: Bundle[] = [];
   for (const [key, count] of counts) {
     const [from, to] = key.split(">").map(Number);
+    if (from === undefined || to === undefined) continue;
     const a = { x: from * LAYER_GAP + NODE_W, y: h / 2 };
     const b = { x: to * LAYER_GAP, y: h / 2 };
     if (!rectsIntersect({ x: Math.min(a.x, b.x), y: 0, w: Math.abs(b.x - a.x) + 1, h }, view)) continue;

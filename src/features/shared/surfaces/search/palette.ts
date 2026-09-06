@@ -9,7 +9,7 @@ export const FLOOR = 12;
 
 export type Match = { score: number; positions: number[] };
 
-const isBoundary = (label: string, i: number): boolean => i === 0 || !/[\p{L}\p{N}]/u.test(label[i - 1]) || (/\p{Lu}/u.test(label[i]) && /\p{Ll}/u.test(label[i - 1]));
+const isBoundary = (label: string, i: number): boolean => i === 0 || !/[\p{L}\p{N}]/u.test(label.charAt(i - 1)) || (/\p{Lu}/u.test(label.charAt(i)) && /\p{Ll}/u.test(label.charAt(i - 1)));
 
 /** Every query character in order; scored so initials outrank an interior substring of the wrong item. */
 export function fuzzy(query: string, label: string): Match | null {
@@ -29,7 +29,8 @@ export function fuzzy(query: string, label: string): Match | null {
         break;
       }
     }
-    const consecutive = positions.length > 0 && idx === positions[positions.length - 1] + 1;
+    const last = positions[positions.length - 1];
+    const consecutive = last !== undefined && idx === last + 1;
     score += isBoundary(label, idx) ? 10 : 2;
     if (consecutive) score += 6;
     score -= Math.max(0, idx - at); // the gap penalty grows with distance

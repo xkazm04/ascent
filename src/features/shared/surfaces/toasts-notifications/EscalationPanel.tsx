@@ -6,6 +6,7 @@
 // a note is withdrawn when the news is read in-app, updated in place on a repeat, and marked failed
 // (never silently dropped) when the platform refuses — the toast and the ledger row still stand.
 
+import type { Action } from "./desk";
 import type { Desk } from "./useDesk";
 import { KINDS, blockedKinds } from "./escalation";
 import { EVENTS, KIND_META, type Surface } from "./fixtures";
@@ -17,7 +18,7 @@ export function EscalationRegion({ desk }: { desk: Desk }) {
   const { state, dispatch } = desk;
   const os = state.os;
   const blocked = blockedKinds(os);
-  const set = (patch: Parameters<typeof dispatch>[0] extends infer A ? Extract<A, { type: "os:set" }>["patch"] : never) => dispatch({ type: "os:set", patch });
+  const set = (patch: Extract<Action, { type: "os:set" }>["patch"]) => dispatch({ type: "os:set", patch });
   return (
     <Region technique="os-escalation" title="Escalation, not a mirror" note="Only news that justifies pulling the user back leaves the app. Never about what they are looking at; never without consent asked in context.">
       <div className="grid gap-3 sm:grid-cols-2">

@@ -49,9 +49,11 @@ export function CanvasRegion(p: CanvasProps) {
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const id of selected) {
       const i = positions.at.get(id);
-      if (i === undefined) continue;
-      x0 = Math.min(x0, positions.x[i]); y0 = Math.min(y0, positions.y[i]);
-      x1 = Math.max(x1, positions.x[i] + NODE_W); y1 = Math.max(y1, positions.y[i] + NODE_H);
+      const x = i === undefined ? undefined : positions.x[i];
+      const y = i === undefined ? undefined : positions.y[i];
+      if (x === undefined || y === undefined) continue;
+      x0 = Math.min(x0, x); y0 = Math.min(y0, y);
+      x1 = Math.max(x1, x + NODE_W); y1 = Math.max(y1, y + NODE_H);
     }
     camera.fit({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
   };
@@ -97,8 +99,11 @@ export function CanvasRegion(p: CanvasProps) {
           ))}
           {shown.map((i) => {
             const n = graph.nodes[i];
+            const x = positions.x[i];
+            const y = positions.y[i];
+            if (!n || x === undefined || y === undefined) return null;
             const target = connect?.target === n.id ? (connect.ok ? "ok" : "bad") : null;
-            return <NodeView key={n.id} id={n.id} name={n.name} kind={n.kind} score={n.score} x={positions.x[i]} y={positions.y[i]} selected={selected.has(n.id)} cursor={cursor === n.id} target={target} detail={full} node={p.node} port={p.port} onHover={p.onHover} />;
+            return <NodeView key={n.id} id={n.id} name={n.name} kind={n.kind} score={n.score} x={x} y={y} selected={selected.has(n.id)} cursor={cursor === n.id} target={target} detail={full} node={p.node} port={p.port} onHover={p.onHover} />;
           })}
           <path ref={p.provisionalRef} d="" fill="none" stroke="var(--color-accent-soft)" strokeWidth={2 / cam.z} strokeDasharray={`${6 / cam.z} ${4 / cam.z}`} pointerEvents="none" data-provisional-edge />
         </g>

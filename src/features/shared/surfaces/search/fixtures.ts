@@ -64,7 +64,11 @@ const AREAS = ["the fleet portal", "the mobile app", "partner integrations", "th
 const STATES = ["indexing of session events is slow", "retries are unbounded", "coverage gate is green", "the reindex job runs nightly", "telemetry sampling was reduced", "a rewrite is scheduled", "tokens rotate weekly"];
 const TAGS = ["core", "edge", "legacy", "pilot", "regulated", "internal"];
 
-const pick = <T,>(rnd: () => number, arr: readonly T[]): T => arr[Math.floor(rnd() * arr.length)];
+const pick = <T,>(rnd: () => number, arr: readonly T[]): T => {
+  const v = arr[Math.floor(rnd() * arr.length)];
+  if (v === undefined) throw new Error("pick: empty pool"); // every pool above is a non-empty literal
+  return v;
+};
 
 /** Two pinned rows the tests and the drawer prose point at, then `volume - 2` generated ones. */
 const PINNED: Repo[] = [

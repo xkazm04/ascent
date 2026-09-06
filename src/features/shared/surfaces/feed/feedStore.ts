@@ -65,16 +65,23 @@ export type Action =
   | { type: "confirm" };
 
 export const comparatorOf = (s: Pick<State, "comparator" | "key">) => (s.comparator === "tuple" ? compareDesc(s.key) : timestampOnly(s.key));
-const headOf = (rows: readonly Occurrence[], key: OrderKey): Tuple | null => (rows.length ? tupleOf([...rows].sort(compareDesc(key))[0], key) : null);
+const headOf = (rows: readonly Occurrence[], key: OrderKey): Tuple | null => {
+  const top = [...rows].sort(compareDesc(key))[0];
+  return top ? tupleOf(top, key) : null;
+};
 
 export function initial(volume: SurfaceVolume): State {
   const key: OrderKey = "event";
   const { kept, reaped } = reap(occurrencesFor(volume), DEFAULT_RETENTION, SCENE_NOW, key);
   const client = kept.slice(0, FIRST_PAGE);
-  const anchor = tupleOf(kept[Math.min(ENTRY_DEPTH, kept.length - 1)], key);
+  const newest = client[0];
+  const entryRow = kept[Math.min(ENTRY_DEPTH, kept.length - 1)];
+  // The newest fixture row is in flight and never reaped, so the stream is never empty.
+  if (!newest || !entryRow) throw new Error("feed fixture produced no occurrences");
+  const anchor = tupleOf(entryRow, key);
   return {
     now: SCENE_NOW, n: 0, nextSeq: volume + 1, key, server: kept, client, held: [], atHead: true, flushes: 0,
-    connected: true, lastDelivered: tupleOf(client[0], key), seam: null, catchup: null,
+    connected: true, lastDelivered: tupleOf(newest, key), seam: null, catchup: null,
     entry: anchor, stored: anchor, writes: 0, filter: "all", clusterOn: true, expanded: [],
     retention: DEFAULT_RETENTION, reapedTotal: reaped.length, forfeited: 0, lastPage: null,
     comparator: "tuple", swaps: 0, refetches: 0, pending: null,

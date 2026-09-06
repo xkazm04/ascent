@@ -64,7 +64,8 @@ const LOG_CAP = 8;
 /** A high percentile over the window — the statistic is about the bad frames. */
 export function percentile(samples: number[], q = PERCENTILE): number {
   const sorted = [...samples].sort((a, b) => a - b);
-  return sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(q * sorted.length) - 1))];
+  // Only an empty window reaches the fallback; every real window carries WINDOW_SAMPLES frames.
+  return sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(q * sorted.length) - 1))] ?? 0;
 }
 
 export function verdictFor(p90: number): Exclude<Verdict, "discarded"> {
@@ -136,7 +137,7 @@ export function probeReducer(s: ProbeState, a: ProbeAction): ProbeState {
     case "tick": {
       if (s.phase === "unmeasured") return probeReducer(s, { type: "fire", winner: "idle" });
       if (s.phase !== "sampling") return s;
-      const kind = TRACE[s.cursor % TRACE.length];
+      const kind = TRACE[s.cursor % TRACE.length]!; // modulo index into a non-empty literal trace
       return { ...closeWindow(s, kind, false), cursor: s.cursor + 1 };
     }
     case "rearm":

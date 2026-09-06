@@ -58,8 +58,8 @@ export function useCamera(reduced: boolean, initial: Camera) {
       return;
     }
     const ro = new ResizeObserver(([e]) => {
-      const r = e.contentRect;
-      if (r.width > 0 && r.height > 0) setSize({ w: r.width, h: r.height });
+      const r = e?.contentRect;
+      if (r && r.width > 0 && r.height > 0) setSize({ w: r.width, h: r.height });
       setMeasured(true);
     });
     ro.observe(el);

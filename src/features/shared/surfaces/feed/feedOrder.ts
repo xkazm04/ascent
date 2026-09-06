@@ -32,7 +32,7 @@ export const newerThan = (o: Occurrence, anchor: Tuple, key: OrderKey): boolean 
 /** Positions at which two renderings of the same rows disagree — the observable defect of a partial order. */
 export function swapsBetween(a: readonly Occurrence[], b: readonly Occurrence[]): number {
   let n = 0;
-  for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i].id !== b[i].id) n++;
+  for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i]?.id !== b[i]?.id) n++;
   return n;
 }
 
@@ -41,7 +41,9 @@ export function shuffled<T>(rows: readonly T[], rnd: () => number): T[] {
   const out = [...rows];
   for (let i = out.length - 1; i > 0; i--) {
     const j = Math.floor(rnd() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]];
+    const tmp = out[i]!; // 0 < i < out.length, so both slots exist
+    out[i] = out[j]!; // 0 <= j <= i
+    out[j] = tmp;
   }
   return out;
 }
@@ -92,21 +94,24 @@ export function clusterRows(sorted: readonly Occurrence[], key: "event" | "arriv
   let i = 0;
   while (i < sorted.length) {
     const head = sorted[i];
+    if (!head) break;
     const rel = relationOf(head);
     if (!rel) {
       out.push({ type: "row", o: head });
       i++;
       continue;
     }
-    const members = [head];
+    const members: Occurrence[] = [head];
+    let oldest = head;
     let j = i + 1;
-    while (j < sorted.length && members.length < opts.cap && relationOf(sorted[j]) === rel && tsOf(members[members.length - 1], key) - tsOf(sorted[j], key) <= opts.windowMs) {
-      members.push(sorted[j]);
-      j++;
+    for (; j < sorted.length && members.length < opts.cap; j++) {
+      const next = sorted[j];
+      if (!next || relationOf(next) !== rel || tsOf(oldest, key) - tsOf(next, key) > opts.windowMs) break;
+      members.push(next);
+      oldest = next;
     }
     if (members.length === 1) out.push({ type: "row", o: head });
     else {
-      const oldest = members[members.length - 1];
       out.push({ type: "cluster", id: `${rel}:${oldest.seq}`, relation: rel, members, warn: members.filter((m) => m.warn).length, newest: tsOf(head, key), oldest: tsOf(oldest, key) });
     }
     i = j;

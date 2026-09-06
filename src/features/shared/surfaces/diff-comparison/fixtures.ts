@@ -53,7 +53,8 @@ export function ancestralSignals(volume: SurfaceVolume): Signal[] {
     const kind: SignalKind = n === 3 ? "blob" : n === 5 ? "volatile" : n % 3 === 0 ? "flag" : n % 3 === 1 ? "count" : "text";
     const value =
       kind === "blob" ? "<binary 4.2 KB sha:91ab>" : kind === "volatile" ? "2026-08-19T06:12:40Z" : kind === "flag" ? "present" : kind === "count" ? String(Math.round(rnd() * 40)) : `${NOUNS[i % NOUNS.length]} configured`;
-    out.push({ id: `sig-${n}`, dim: DIMS[i % DIMS.length], name: `${NOUNS[i % NOUNS.length]}-${String(n).padStart(2, "0")}`, value, kind });
+    const dim = DIMS[i % DIMS.length]!; // modulo index into a non-empty literal list
+    out.push({ id: `sig-${n}`, dim, name: `${NOUNS[i % NOUNS.length]}-${String(n).padStart(2, "0")}`, value, kind });
   }
   return out;
 }
@@ -93,14 +94,13 @@ export function signalsFor(volume: SurfaceVolume, scan: ScanId): Signal[] {
     out.push(s);
   }
   for (let k = e.inserts; k > 0; k--) {
-    out.unshift({ id: `new-${scan}-${k}`, dim: DIMS[k % DIMS.length], name: `arrival-${k}`, value: "present", kind: "flag" });
+    const dim = DIMS[k % DIMS.length]!; // modulo index into a non-empty literal list
+    out.unshift({ id: `new-${scan}-${k}`, dim, name: `arrival-${k}`, value: "present", kind: "flag" });
   }
   if (e.move && out.length > 12) {
     const idx = out.findIndex((s) => s.id === "sig-8");
-    if (idx >= 0) {
-      const [row] = out.splice(idx, 1);
-      out.splice(Math.min(out.length, idx + 9), 0, row);
-    }
+    const [row] = idx >= 0 ? out.splice(idx, 1) : [];
+    if (row) out.splice(Math.min(out.length, idx + 9), 0, row);
   }
   return out;
 }

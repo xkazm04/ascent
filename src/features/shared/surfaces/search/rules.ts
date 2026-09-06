@@ -4,6 +4,7 @@
 // never coerced. Every writer (editor, persisted rules) passes through `compileRule`. No React.
 
 import type { Repo } from "./fixtures";
+import { Ill, lex, type Tok } from "./ruleLex";
 
 export type RType = "string" | "int" | "bool" | "regex" | "list<string>";
 export type RuleRow = { name: string; owner: string; lang: string; status: string; level: number; findings: number; archived: boolean; tags: string[] };
@@ -12,33 +13,6 @@ export type RuleRow = { name: string; owner: string; lang: string; status: strin
 export const TYPING_CONTEXT: Record<string, RType> = { name: "string", owner: "string", lang: "string", status: "string", level: "int", findings: "int", archived: "bool", tags: "list<string>" };
 
 export const toRuleRow = (r: Repo): RuleRow => ({ name: r.name, owner: r.owner, lang: r.lang, status: r.status, level: r.level, findings: r.findings, archived: r.status === "archived", tags: r.tags });
-
-class Ill extends Error {
-  constructor(message: string, public s: number, public e: number) {
-    super(message);
-  }
-}
-type Tok = { k: "num" | "str" | "re" | "id" | "op" | "end"; t: string; s: number; e: number };
-const LEX = /\s*(?:(\d+)|("(?:[^"\\]|\\.)*")|(\/(?:[^/\\]|\\.)+\/)|([A-Za-z_][A-Za-z0-9_]*)|(==|!=|<=|>=|[<>+\-(),[\]]))/y;
-
-function lex(src: string): Tok[] {
-  const out: Tok[] = [];
-  let at = 0;
-  while (at < src.length) {
-    LEX.lastIndex = at;
-    const m = LEX.exec(src);
-    if (!m || m[0].length === 0) {
-      if (/^\s*$/.test(src.slice(at))) break;
-      const bad = src.slice(at).search(/\S/) + at;
-      throw new Ill(`unexpected character "${src[bad]}"`, bad, bad + 1);
-    }
-    const s = at + m[0].length - (m[1] ?? m[2] ?? m[3] ?? m[4] ?? m[5]).length;
-    out.push({ k: m[1] ? "num" : m[2] ? "str" : m[3] ? "re" : m[4] ? "id" : "op", t: m[1] ?? m[2] ?? m[3] ?? m[4] ?? m[5], s, e: at + m[0].length });
-    at = LEX.lastIndex;
-  }
-  out.push({ k: "end", t: "", s: src.length, e: src.length });
-  return out;
-}
 
 type Node =
   | { k: "lit"; type: RType; v: unknown; s: number; e: number }
@@ -51,8 +25,10 @@ const CMP = new Set(["==", "!=", "<", "<=", ">", ">=", "contains", "startswith",
 
 function parse(toks: Tok[]): Node {
   let i = 0;
-  const peek = () => toks[i];
-  const take = () => toks[i++];
+  // `lex` always ends the stream with an `end` sentinel; reading past it yields that sentinel again.
+  const END: Tok = toks[toks.length - 1] ?? { k: "end", t: "", s: 0, e: 0 };
+  const peek = (): Tok => toks[i] ?? END;
+  const take = (): Tok => toks[i++] ?? END;
   const is = (t: string) => peek().t === t && peek().k !== "str";
   const expect = (t: string) => {
     if (!is(t)) throw new Ill(`expected "${t}"`, peek().s, Math.max(peek().e, peek().s + 1));
@@ -79,7 +55,7 @@ function parse(toks: Tok[]): Node {
     if (t.t === "[") {
       const items: Node[] = [];
       while (!is("]")) {
-        if (peek().k === "end") throw new Ill("unclosed list", t.s, toks[i].e);
+        if (peek().k === "end") throw new Ill("unclosed list", t.s, peek().e);
         items.push(expr());
         if (!is("]")) expect(",");
       }
@@ -131,9 +107,11 @@ function typeOf(n: Node): RType {
     case "list":
       for (const it of n.items) if (typeOf(it) !== "string") throw new Ill("lists hold strings only", it.s, it.e);
       return "list<string>";
-    case "id":
-      if (!(n.name in TYPING_CONTEXT)) throw new Ill(`unknown identifier "${n.name}"`, n.s, n.e);
-      return TYPING_CONTEXT[n.name];
+    case "id": {
+      const bound = TYPING_CONTEXT[n.name];
+      if (bound === undefined) throw new Ill(`unknown identifier "${n.name}"`, n.s, n.e);
+      return bound;
+    }
     case "un": {
       const x = typeOf(n.x);
       if (n.op === "not" && x !== "bool") throw new Ill(`"not" wants a bool, got ${x}`, n.x.s, n.x.e);

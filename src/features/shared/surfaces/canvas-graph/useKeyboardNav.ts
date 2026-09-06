@@ -29,10 +29,14 @@ export function spatialNext(graph: Graph, pos: Positions, from: string, dir: Pt)
   let best: string | null = null;
   let bestD = Infinity;
   for (let i = 0; i < graph.nodes.length; i++) {
-    const id = graph.nodes[i].id;
+    const node = graph.nodes[i];
+    const px = pos.x[i];
+    const py = pos.y[i];
+    if (!node || px === undefined || py === undefined) continue;
+    const id = node.id;
     if (id === from) continue;
-    const dx = pos.x[i] + NODE_W / 2 - c.x;
-    const dy = pos.y[i] + NODE_H / 2 - c.y;
+    const dx = px + NODE_W / 2 - c.x;
+    const dy = py + NODE_H / 2 - c.y;
     const along = dx * dir.x + dy * dir.y;
     if (along <= 0) continue;
     const perp = Math.abs(dx * dir.y - dy * dir.x);
@@ -90,9 +94,10 @@ export function useKeyboardNav(deps: Deps) {
         .sort((a, b) => a.d - b.d)
         .slice(0, 24)
         .map((x) => x.id);
-      if (candidates.length === 0) return announce("no eligible target");
+      const first = candidates[0];
+      if (first === undefined) return announce("no eligible target");
       setPick({ from, candidates, index: 0 });
-      announce(`connect from ${graph.byId.get(from)?.name}: candidate ${graph.byId.get(candidates[0])?.name}, eligible. Enter confirms, Escape cancels`);
+      announce(`connect from ${graph.byId.get(from)?.name}: candidate ${graph.byId.get(first)?.name}, eligible. Enter confirms, Escape cancels`);
     },
     [announce, graph, positions],
   );
@@ -104,7 +109,7 @@ export function useKeyboardNav(deps: Deps) {
         setPick(null);
         announce("connection cancelled");
       } else if (key === "Enter") {
-        const to = pick.candidates[pick.index];
+        const to = pick.candidates[pick.index]!; // pick.index is always reduced modulo a non-empty candidates list (startPick)
         dispatch({ type: "connect", from: pick.from, to, kind: graph.byId.get(pick.from)?.kind === "app" ? "deploy" : "import" });
         announce(`connected ${graph.byId.get(pick.from)?.name} to ${graph.byId.get(to)?.name}`);
         setPick(null);
@@ -112,7 +117,7 @@ export function useKeyboardNav(deps: Deps) {
         const dir = key === "ArrowLeft" || key === "ArrowUp" || (key === "Tab" && e.shiftKey) ? -1 : 1;
         const index = (pick.index + dir + pick.candidates.length) % pick.candidates.length;
         setPick({ ...pick, index });
-        land(pick.candidates[index]);
+        land(pick.candidates[index]!); // index was just reduced modulo the non-empty candidates list
       } else return;
       e.preventDefault();
       return;
@@ -125,19 +130,21 @@ export function useKeyboardNav(deps: Deps) {
     if (key === "+" || key === "=") return camera.zoomBy(1.25);
     if (key === "-") return camera.zoomBy(0.8);
     if (key === "0") return camera.fit(worldBounds(graph));
-    if (key === "Home") return land(graph.nodes[0].id);
-    const at = cursor ?? graph.nodes[0]?.id;
+    const first = graph.nodes[0];
+    if (key === "Home") return first ? land(first.id) : undefined;
+    const at = cursor ?? first?.id;
     if (!at) return;
-    if (key in DIRS) {
+    const dir = DIRS[key];
+    if (dir) {
       e.preventDefault();
       if (e.shiftKey) {
         const step = e.altKey ? NUDGE_COARSE : NUDGE;
         const ids = selected.size > 0 ? [...selected] : [at];
-        dispatch({ type: "move", ids, dx: DIRS[key].x * step, dy: DIRS[key].y * step, via: "nudge" }); // one transaction per key gesture
+        dispatch({ type: "move", ids, dx: dir.x * step, dy: dir.y * step, via: "nudge" }); // one transaction per key gesture
         return announce(`nudged ${ids.length} by ${step}`);
       }
       if (!cursor) return land(at);
-      const next = mode === "spatial" ? spatialNext(graph, positions, at, DIRS[key]) : topologicalNext(graph, at, key);
+      const next = mode === "spatial" ? spatialNext(graph, positions, at, dir) : topologicalNext(graph, at, key);
       return next ? land(next) : announce(mode === "spatial" ? "nothing further that way" : "no node along that relationship");
     }
     if (key === "Enter" || key === " ") {

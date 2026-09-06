@@ -45,9 +45,9 @@ export function codebaseFor(volume: SurfaceVolume): SourceLine[] {
   for (let i = 0; i < volume; i++) {
     const r = rnd();
     const file = `src/${DIRS[i % DIRS.length]}/${NAMES[Math.floor(rnd() * NAMES.length)]}-${String(i + 1).padStart(3, "0")}.tsx`;
-    let classes = CLEAN[i % CLEAN.length];
+    let classes = CLEAN[i % CLEAN.length]!; // modulo index into a non-empty literal list
     if (r < 0.11) {
-      classes = RAW[Math.floor(rnd() * RAW.length)];
+      classes = RAW[Math.floor(rnd() * RAW.length)]!; // rnd() < 1, so the index is in range
       if (rnd() < 0.06) classes = `${SUPPRESSION} ${classes}`;
     }
     out.push({ file, classes });

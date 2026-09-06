@@ -50,7 +50,7 @@ export function makeRepos(volume: SurfaceVolume, seed = 11): Repo[] {
       level,
       score,
       commits: Math.floor(rnd() * 400),
-      status: STATUSES[Math.floor(rnd() * STATUSES.length)],
+      status: STATUSES[Math.floor(rnd() * STATUSES.length)] ?? "ok",
       scannedDaysAgo: scanned ? Math.floor(rnd() * 90) : null,
     });
   }

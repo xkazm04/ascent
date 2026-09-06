@@ -20,6 +20,7 @@ export function SearchBox({ s }: { s: FleetSearch }) {
   const stripClause = (i: number) => {
     // Removing a chip edits the text it came from: the chip is the deletion affordance.
     const c = p.clauses[i];
+    if (!c) return;
     const token = `${c.negated ? "-" : ""}${c.field}:`;
     const re = new RegExp(`(^|\\s)${token.replace(/[-]/g, "\\-")}\\S+`, "i");
     s.setText(s.text.replace(re, "$1").replace(/\s{2,}/g, " ").trim());
