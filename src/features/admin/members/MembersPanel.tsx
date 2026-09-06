@@ -65,9 +65,15 @@ export function MembersPanel({
         onConfirmRemove={(login) => p.remove(login)}
         onCancelRemove={() => p.setConfirmRemove(null)}
       />
+      {/* This line used to promise "Installation owners are seeded as owner automatically". That
+          stopped being true when the owner land-grab was closed: once an org HAS an owner, holding
+          the GitHub App installation grants nothing, and a teammate the owner was waiting to see
+          appear here never would. An owner acting on a stated limitation they have been told wrongly
+          is worse than an owner told nothing. */}
       <p className="mt-3 type-mono-sm text-slate-500">
-        Roles: owner → admin → member → viewer. Installation owners are seeded as owner automatically;
-        the last owner can&apos;t be removed.
+        Roles: owner → admin → member → viewer. The first GitHub-verified admin of this org becomes
+        its owner; after that, people join by invite or by an owner assigning them a role here. The
+        last owner can&apos;t be removed.
       </p>
 
       <MemberInvites slug={slug} initialInvites={initialInvites} />

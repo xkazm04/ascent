@@ -3,9 +3,15 @@
 // identity). A User row is keyed by `githubLogin` (email is set to the GitHub noreply form to satisfy
 // the required-unique column). Roles: owner > admin > member > viewer.
 //
-// Today the only writer is ensureOwnerMembership (called when an installation-owner accesses their org,
-// seeding them as `owner`) and the owner-gated member admin endpoint. The resolver getMembershipRole is
-// read by src/lib/authz.ts (requireOrgRole). A future invite/SSO flow populates members/viewers.
+// Writers: ensureOwnerMembership (the identity-bound bootstrap — authz.viewerOrgRole seeds an
+// OWNERLESS org to a viewer who is provably entitled to it, their own personal namespace or a
+// GitHub-confirmed admin of the org behind the installation; an org that already has an owner is
+// never auto-claimed), the owner-gated member admin endpoint, and acceptInvite (src/lib/db/invites.ts)
+// via setMembershipRole. The resolver getMembershipRole is read by src/lib/authz.ts (requireOrgRole).
+//
+// This header used to say "a future invite/SSO flow populates members/viewers" and describe the seed
+// as firing whenever "an installation-owner accesses their org". The invite flow shipped, and the
+// seed became identity-bound; both sentences described a system that no longer exists.
 
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
@@ -110,8 +116,11 @@ export async function getMembershipRole(orgSlug: string, login: string): Promise
 
 /**
  * Seed `login` as `owner` of `orgSlug` if they have no membership yet (idempotent; never downgrades an
- * existing role). Called lazily when an installation-owner accesses their org, so the RBAC tables stop
- * being vestigial and an admin/invite flow has a real owner to build on. Best-effort — callers ignore
+ * existing role). Called by authz.viewerOrgRole for an OWNERLESS org, and only for a viewer it has
+ * already proven entitled to it — their own personal namespace, or a GitHub-confirmed admin of the org
+ * behind the installation. NOT "whenever an installation-owner accesses their org", which is what this
+ * line used to say and what the owner land-grab fix removed: the gate is the caller's, and a reader who
+ * believes the wider rule will write the next call site without one. Best-effort — callers ignore
  * failures (it must never block a read).
  */
 export async function ensureOwnerMembership(orgSlug: string, login: string, name?: string | null, opts?: { kind?: "personal" }): Promise<void> {
