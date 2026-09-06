@@ -11,6 +11,7 @@ import type { KnowledgeSubject, KnowledgeView } from "@/lib/org/knowledge-shape"
 import { buildUrl, clearedTabScopedParams } from "@/lib/org/orgTabs";
 import { isSurfaceShowcased } from "@/lib/org/surface-catalog";
 import { CellButton, StageChip } from "./KnowledgeShared";
+import { KnowledgeSubjectImpact } from "./KnowledgeSubjectImpact";
 import { STATE_LABEL, columnRepos, indexCells, readSignal } from "./knowledgeModel";
 
 export function KnowledgeSubjectDetail({
@@ -73,6 +74,8 @@ export function KnowledgeSubjectDetail({
                 </p>
               </div>
             </section>
+
+            <KnowledgeSubjectImpact view={view} subject={subject} cells={cells} />
 
             <section className="space-y-2">
               <Kicker tone="muted">Fleet standing</Kicker>

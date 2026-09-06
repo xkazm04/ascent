@@ -18,6 +18,8 @@ const subject = (slug: string, digest: string | null = `sha256:${slug}`): Knowle
   useWhen: [],
   laws: [],
   digest,
+  revision: null,
+  changedAt: null,
 });
 
 const map = (over: Partial<ConformanceMapRow>): ConformanceMapRow => ({
@@ -40,6 +42,11 @@ const map = (over: Partial<ConformanceMapRow>): ConformanceMapRow => ({
   scope: { outOfScopeCategories: [], outOfScopeSubjects: [] },
   directions: [],
   warnings: [],
+  orphanedVerdicts: 0,
+  arrivedContexts: 0,
+  renamedContexts: 0,
+  contextMapRevision: null,
+  repoContextMapRevision: null,
   ingestedAt: "2026-09-04T12:00:00.000Z",
   ...over,
 });
@@ -57,6 +64,10 @@ const pair = (over: Partial<ConformanceRow>): ConformanceRow => ({
   evidence: null,
   evaluatedAt: null,
   evaluatedAgainst: "sha256:table",
+  evaluatedRevision: null,
+  revision: null,
+  arrived: false,
+  source: null,
   mapSha: "m1",
   ingestedAt: "2026-09-04T12:00:00.000Z",
   ...over,
@@ -138,5 +149,85 @@ describe("sweep summary", () => {
     expect(sweepWarnings([map({ warnings: ["context-map.json: presence could not be probed"] }), map({ repoFullName: "acme/web", warnings: [] })])).toEqual([
       "acme/api: context-map.json: presence could not be probed",
     ]);
+  });
+});
+
+// ── knowledge-context-matrix: real churn fields, the mapBehind rule, the context×path rows ──────
+import { isMapBehind, toKnowledgeSubject } from "./knowledge-fleet";
+import type { KnowledgeSubjectRow } from "@/lib/db/org-registry-subjects";
+
+describe("mapBehind", () => {
+  it("is true only when BOTH revisions are known and differ", () => {
+    // both known & differ → true
+    expect(isMapBehind("bbb", "aaa")).toBe(true);
+    // both known & equal → false
+    expect(isMapBehind("aaa", "aaa")).toBe(false);
+    // either null → false: unknown is not evidence of drift
+    expect(isMapBehind(null, "aaa")).toBe(false);
+    expect(isMapBehind("bbb", null)).toBe(false);
+    expect(isMapBehind(null, null)).toBe(false);
+  });
+
+  it("is derived on the repo row from the header's two revisions", () => {
+    const behind = buildKnowledgeFleet([], [map({ contextMapRevision: "aaa", repoContextMapRevision: "bbb" })], []).repos[0]!;
+    expect(behind).toMatchObject({ contextMapRevision: "aaa", repoContextMapRevision: "bbb", mapBehind: true });
+    const current = buildKnowledgeFleet([], [map({ contextMapRevision: "aaa", repoContextMapRevision: "aaa" })], []).repos[0]!;
+    expect(current.mapBehind).toBe(false);
+    const unread = buildKnowledgeFleet([], [map({ contextMapRevision: "aaa", repoContextMapRevision: null })], []).repos[0]!;
+    expect(unread.mapBehind).toBe(false);
+  });
+});
+
+describe("churn fields and context rows", () => {
+  it("carries the header's orphaned / arrived / renamed counts onto the repo row", () => {
+    const r = buildKnowledgeFleet([], [map({ orphanedVerdicts: 3, arrivedContexts: 2, renamedContexts: 1 })], []).repos[0]!;
+    expect(r).toMatchObject({ orphaned: 3, arrived: 2, renamed: 1 });
+  });
+
+  it("a judged cell's contextRows come from the fold — worst first, judgedRevision and arrived wired from the pair — and contexts === contextRows.length", () => {
+    const pairs = [
+      pair({ contextName: "A/B", state: "conformant", evaluatedRevision: 14 }),
+      pair({ contextName: "A/C", state: "deviation", evaluatedRevision: 12, evaluatedAgainst: "sha256:old" }),
+      pair({ contextName: "A/D", state: "unjudged", evaluatedAgainst: null, arrived: true, source: "renamed" }),
+    ];
+    const { cells } = buildKnowledgeFleet([subject("table")], [map({})], pairs);
+    const cell = cells[0]!;
+    expect(cell.contexts).toBe(3);
+    expect(cell.contextRows).toHaveLength(cell.contexts);
+    expect(cell.contextRows).toEqual([
+      { name: "A/C", group: "A", state: "deviation", stale: true, judgedRevision: 12, arrived: false },
+      { name: "A/B", group: "A", state: "conformant", stale: false, judgedRevision: 14, arrived: false },
+      { name: "A/D", group: "A", state: "unknown", stale: false, judgedRevision: null, arrived: true },
+    ]);
+  });
+
+  it("an absence cell has no rows and contexts 0 — the invariant holds for both kinds of cell", () => {
+    const { cells } = buildKnowledgeFleet([subject("table")], [map({})], []);
+    expect(cells[0]).toMatchObject({ state: "candidate", contexts: 0, contextRows: [] });
+  });
+});
+
+describe("toKnowledgeSubject", () => {
+  const row = (over: Partial<KnowledgeSubjectRow>): KnowledgeSubjectRow => ({
+    bundle: "software-engineering",
+    slug: "table",
+    category: null,
+    subcategory: null,
+    status: null,
+    file: "k/table.md",
+    techniqueCount: 1,
+    useWhen: [],
+    laws: [],
+    digest: "sha256:table",
+    revision: null,
+    changedAt: null,
+    indexedAt: "2026-09-05T00:00:00.000Z",
+    ...over,
+  });
+
+  it("maps the mirror's real revision and changedAt, and null when the index predates them", () => {
+    expect(toKnowledgeSubject(row({ revision: 14, changedAt: "2026-09-01" }))).toMatchObject({ revision: 14, changedAt: "2026-09-01" });
+    expect(toKnowledgeSubject(row({}))).toMatchObject({ revision: null, changedAt: null });
+    expect("indexedAt" in toKnowledgeSubject(row({}))).toBe(false);
   });
 });

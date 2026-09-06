@@ -27,7 +27,19 @@ export function toKnowledgeSubject(row: KnowledgeSubjectRow): KnowledgeSubject {
     useWhen: row.useWhen,
     laws: row.laws,
     digest: row.digest,
+    revision: row.revision,
+    changedAt: row.changedAt,
   };
+}
+
+/**
+ * THE `mapBehind` RULE: the repo's `context-map.json` moved after its registry map was built. True
+ * only when BOTH revisions are known and differ. Either side null is "unknown" — an older map that
+ * carries no `contextMapRevision`, or a root read the sweep could not complete — and unknown is not
+ * evidence of drift. A fetch failure that read as "behind" would dispatch `map` work nobody owes.
+ */
+export function isMapBehind(repoContextMapRevision: string | null, contextMapRevision: string | null): boolean {
+  return repoContextMapRevision !== null && contextMapRevision !== null && repoContextMapRevision !== contextMapRevision;
 }
 
 export interface KnowledgeFleet {
@@ -84,6 +96,13 @@ export function buildKnowledgeFleet(subjects: KnowledgeSubject[], maps: Conforma
       deviations: m.deviations,
       weaklyGoverned: m.weaklyGovernedContexts,
       sweptAt: m.ingestedAt,
+      // The map's own churn stats (0 for a map from an older builder — "0 known", not "none").
+      orphaned: m.orphanedVerdicts,
+      arrived: m.arrivedContexts,
+      renamed: m.renamedContexts,
+      contextMapRevision: m.contextMapRevision,
+      repoContextMapRevision: m.repoContextMapRevision,
+      mapBehind: isMapBehind(m.repoContextMapRevision, m.contextMapRevision),
     };
   });
 
@@ -93,7 +112,15 @@ export function buildKnowledgeFleet(subjects: KnowledgeSubject[], maps: Conforma
       const folded = foldPairs(byRepo.get(r.repositoryId)?.get(s.slug) ?? [], s.digest);
       cells.push(
         folded
-          ? { subject: s.slug, repositoryId: r.repositoryId, state: folded.state, stale: folded.stale, contexts: folded.contexts, evidence: folded.evidence }
+          ? {
+              subject: s.slug,
+              repositoryId: r.repositoryId,
+              state: folded.state,
+              stale: folded.stale,
+              contexts: folded.contexts,
+              evidence: folded.evidence,
+              contextRows: folded.contextRows,
+            }
           : {
               subject: s.slug,
               repositoryId: r.repositoryId,
@@ -101,6 +128,7 @@ export function buildKnowledgeFleet(subjects: KnowledgeSubject[], maps: Conforma
               stale: false,
               contexts: 0,
               evidence: null,
+              contextRows: [],
             },
       );
     }

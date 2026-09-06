@@ -6,6 +6,7 @@
 // cells are data — the `table` golden path's chrome/body split.
 
 import type { KnowledgeDomain, KnowledgeRepo } from "@/lib/org/knowledge-shape";
+import { KnowledgeRepoBadges } from "./KnowledgeRepoBadges";
 import { CellButton, StageChip } from "./KnowledgeShared";
 import { type CellIndex, type TreeGroup, countStates } from "./knowledgeModel";
 import type { KnowledgeSelectionApi } from "./useKnowledgeSelection";
@@ -33,7 +34,7 @@ export function KnowledgeLoomGrid({
 
   return (
     <div className="overflow-x-auto rounded-2xl border border-divider bg-ink">
-      <table className="w-full border-collapse" style={{ minWidth: `${260 + cols.length * 44}px` }}>
+      <table className="w-full border-collapse" style={{ minWidth: `${260 + cols.length * 52}px` }}>
         <caption className="sr-only">Every subject of {domain.title} against every mapped repository</caption>
         <thead className="sticky top-0 z-10 bg-ink">
           <tr>
@@ -45,6 +46,7 @@ export function KnowledgeLoomGrid({
                 <button type="button" className={`focus-ring flex flex-col items-center gap-1 ${sel.repo === r.repositoryId ? "text-accent" : "text-slate-400"}`} onClick={() => api.focusRepo(sel.repo === r.repositoryId ? null : r.repositoryId)} aria-pressed={sel.repo === r.repositoryId}>
                   <span className="type-micro font-mono [writing-mode:vertical-rl] rotate-180">{r.fullName.split("/").pop()}</span>
                   <StageChip stage={r.stage} className="scale-90" />
+                  <KnowledgeRepoBadges repo={r} />
                 </button>
               </th>
             ))}

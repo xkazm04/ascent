@@ -88,6 +88,13 @@ export type KnowledgeSubject = {
   laws: string[];
   /** The subject's content digest from the index; null when the index pass predates the mirror. */
   digest: string | null;
+  /**
+   * The subject's DERIVED revision from the index (`git rev-list --count` on the subject dir, +1
+   * while dirty) — ordering, where `digest` is identity. Null when the index predates revisions.
+   */
+  revision: number | null;
+  /** `YYYY-MM-DD` of the subject's last change per the index; null when the index predates it. */
+  changedAt: string | null;
 };
 
 /**
@@ -121,6 +128,37 @@ export type KnowledgeRepo = {
   weaklyGoverned: string[];
   /** ISO time of the sweep that produced this row; null only for a fixture row that was never swept. */
   sweptAt: string | null;
+  /** Verdicts whose context vanished from `context-map.json`; the map retains them under `orphans`. */
+  orphaned: number;
+  /** Contexts absent from the previous map — every pair on them is a fresh subscription. */
+  arrived: number;
+  /** Contexts the map re-attached by path overlap (`source: "renamed"`). */
+  renamed: number;
+  /** The `contextMapRevision` the map was built from; null when the map carries none. */
+  contextMapRevision: string | null;
+  /** The repo's own `context-map.json` `revision` as the sweep read it; null when unreadable. */
+  repoContextMapRevision: string | null;
+  /**
+   * The context map moved after the registry map was built — subscriptions are owed. False when
+   * either revision is unknown: a fetch failure is not evidence of drift.
+   */
+  mapBehind: boolean;
+};
+
+/** A verdict state as the repo's map wrote it (the matcher's `unknown` included). */
+export type KnowledgeContextState = "unknown" | "conformant" | "deviation" | "not-applicable";
+
+/** One subscribed context inside a judged cell — the context×path relation, one row per pair. */
+export type KnowledgeContextRow = {
+  name: string;
+  group: string | null;
+  state: KnowledgeContextState;
+  /** The pair's own verdict predates the subject's current digest. */
+  stale: boolean;
+  /** The subject revision the verdict was judged at; null for verdicts older than revisions. */
+  judgedRevision: number | null;
+  /** The context was not in the previous map: a new subscription nobody has judged yet. */
+  arrived: boolean;
 };
 
 /**
@@ -160,6 +198,8 @@ export type KnowledgeCell = {
   contexts: number;
   /** `file:line` evidence exactly as the map stated it, for the worst pair; null for absences. */
   evidence: string | null;
+  /** The subscribed contexts, worst state first then by name; [] for absences. `contexts === contextRows.length`. */
+  contextRows: KnowledgeContextRow[];
 };
 
 export type RegistryDispatchStage = "populate" | "map" | "conform";

@@ -58,6 +58,8 @@ vi.mock("@/lib/db/org-registry-dispatch", async (importOriginal) => {
   };
 });
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: h.login }));
+// The matrix read is best-effort: a null view composes the pre-relation brief (see route.ts).
+vi.mock("@/lib/org/knowledge-view", () => ({ getKnowledgeView: async () => null }));
 vi.mock("@/lib/registry/dispatch-local", () => ({
   runLocalDispatch: h.run,
   detectDefaultBranch: h.branch,

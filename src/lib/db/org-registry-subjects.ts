@@ -24,6 +24,10 @@ export interface KnowledgeSubjectRow {
   laws: string[];
   /** `sha256:…` from the index; null when the index pass predates the digest mirror. */
   digest: string | null;
+  /** The subject's derived revision from the index; null when the index predates revisions. */
+  revision: number | null;
+  /** `YYYY-MM-DD` of the subject's last change; null when the index predates it. */
+  changedAt: string | null;
   indexedAt: string;
 }
 
@@ -54,6 +58,8 @@ export async function listOrgKnowledgeSubjects(orgId: string, bundle?: string): 
     useWhen: parseList(r.useWhenJson),
     laws: parseList(r.lawsJson),
     digest: r.digest ?? null,
+    revision: r.revision ?? null,
+    changedAt: r.changedAt ?? null,
     indexedAt: r.indexedAt.toISOString(),
   }));
 }
@@ -88,6 +94,8 @@ export async function replaceRegistrySubjects(
       useWhenJson: JSON.stringify(s.useWhen),
       lawsJson: JSON.stringify(s.laws),
       digest: s.digest ? s.digest.slice(0, 200) : null,
+      revision: s.revision,
+      changedAt: s.changedAt ? s.changedAt.slice(0, 40) : null,
       archived: false,
       indexedAt,
     };

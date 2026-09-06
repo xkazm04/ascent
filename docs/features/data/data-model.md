@@ -135,9 +135,9 @@ chain is computed over are exported by `GET /api/org/controls?org=…&format=csv
 | `OrgSkillDownload` | One rolling download/use tally row per skill: the denormalized hot sort key for "most used". | `count`, `lastSeen`; `@@unique([skillId])` |
 | `OrgSkillEvent` | Append-only per-use event (download\|sync\|invoke) for slicing use rate by repo/type/source. | `type`, `repo?`, `source?` (cli\|hook\|ci\|web) |
 | `OrgApiToken` | Org-scoped API token for machine access to the Skills Library and org-memory recall. Only the SHA-256 hash is stored; the raw value is shown once at creation. Scopes: `skills:read` \| `skills:write` \| `telemetry:write` \| `memory:read`. | `name`, `tokenHash`, `tokenPrefix`, `scopes` (comma-joined), `revokedAt?` (soft-revoke) |
-| `OrgKnowledgeSubject` | One subject per registry bundle, mirrored from the bundle's generated `index.json` on every index pass (soft-archived when it leaves the corpus — a conformance row may still cite it). | `bundle`, `slug`, `category?`, `subcategory?`, `status?`, `file` (verbatim), `techniqueCount`, JSON `useWhen`, JSON `laws`, `digest?` (NULL = index predates the mirror), `archived`; `@@unique([registryId, bundle, slug])` |
-| `RepoConformanceMap` | One row per SWEPT repo (mapped or not): the header of its `.ai/registry-map.json` plus the foundation the sweep probed. `mapSha` NULL = no map; counts then 0. | `mapSha?`, `contexts`, `pairs`, `judged`, `deviations`, JSON `weaklyGovernedJson` (context names), `hasContextMap`, `hasManifest`, JSON `scopeJson`, JSON `directionsJson` (latest decision per subject), JSON `domainsJson`, `consults30d?`, JSON `warningsJson`; `@@unique([repositoryId])` |
-| `RepoConformance` | One judged (context × subject) pair from a repo's map, as its own `/conform` wrote it. | `state` (conformant\|deviation\|not-applicable\|unjudged), `evidence?`, `evaluatedAt?`, `evaluatedAgainst?` (digest → stale detection), `mapSha`; `@@unique([repositoryId, contextName, subjectSlug])` |
+| `OrgKnowledgeSubject` | One subject per registry bundle, mirrored from the bundle's generated `index.json` on every index pass (soft-archived when it leaves the corpus — a conformance row may still cite it). | `bundle`, `slug`, `category?`, `subcategory?`, `status?`, `file` (verbatim), `techniqueCount`, JSON `useWhen`, JSON `laws`, `digest?` (NULL = index predates the mirror), `revision?` / `changedAt?` (the subject's derived revision and `YYYY-MM-DD` of its last change, from the index; NULL = the index predates revisions — unknown, never r0), `archived`; `@@unique([registryId, bundle, slug])` |
+| `RepoConformanceMap` | One row per SWEPT repo (mapped or not): the header of its `.ai/registry-map.json` plus the foundation the sweep probed. `mapSha` NULL = no map; counts then 0. | `mapSha?`, `contexts`, `pairs`, `judged`, `deviations`, JSON `weaklyGovernedJson` (context names), `hasContextMap`, `hasManifest`, JSON `scopeJson`, JSON `directionsJson` (latest decision per subject), JSON `domainsJson`, `consults30d?`, JSON `warningsJson`, `orphanedVerdicts` / `arrivedContexts` / `renamedContexts` (the map's own churn stats; 0 for a map from an older builder — "0 known", not "none"), `contextMapRevision?` (the `context-map.json` revision the map was built from) / `repoContextMapRevision?` (the one the sweep read at the root; NULL when it could not); `@@unique([repositoryId])` |
+| `RepoConformance` | One judged (context × subject) pair from a repo's map, as its own `/conform` wrote it. | `state` (conformant\|deviation\|not-applicable\|unjudged), `evidence?`, `evaluatedAt?`, `evaluatedAgainst?` (digest → stale detection), `evaluatedRevision?` (the subject revision `/conform` judged at) / `revision?` (the subject's revision when the map was built; both NULL for pre-revision verdicts), `arrived` (the context was not in the previous map), `source?` (the builder's word: match \| retained \| conform \| renamed), `mapSha`; `@@unique([repositoryId, contextName, subjectSlug])` |
 | `RegistrySignal` | The registry's `signals/` lane as one contributor published it; every count nullable (absent ≠ zero). | `contributor`, `bundle`, `subjectSlug`, `consults?`, `deviations?`, `cit*?`, `windowDays` |
 | `RegistryDispatch` | One hand-off of registry work for a fleet repo — a populate / map / conform brief given to an operator or run by the local agent. Ascent writes only this ledger; the map changes through the PR a dispatch produces, and the sweep closes the row. | `stage`, `mode` (brief\|local), `status` (handed_off\|running\|proposed\|done\|failed\|superseded), JSON `subjectsJson`, `briefDigest`, `actor`, `branch?`, `prUrl?`, `mapShaBefore?`, `mapShaAfter?`, the local run's receipt (`model?`, `costMicros?`, `turns?`, `agentDurationMs?`, `summary?`, `error?`); indexes `(orgId, repositoryId)`, `(orgId, createdAt)` |
 
@@ -266,6 +266,30 @@ default, so every pre-r10 row is a `gap`. Migration `20260826120000_add_recommen
 the per-dimension score movement is the independent witness for an in-progress row's fate (see
 `docs/features/org-followups/README.md`). Kept rows that matched nothing on the new scan are copied
 forward as `in_progress` with a same-status `RecommendationEvent` carrying the reason.
+
+## Revision-aware conformance columns (knowledge-context-matrix, 2026-09-06)
+
+Eleven additive columns across the three `#18` knowledge tables, every one nullable or defaulted so
+a pre-existing row reads as "unknown" rather than as a fabricated value:
+
+- `OrgKnowledgeSubject.revision INTEGER` / `changedAt TEXT` — the subject's derived revision and
+  `YYYY-MM-DD` of its last change, read beside `digest` from the bundle's `index.json`
+  (`src/lib/registry/subjects.ts`). `digest` is identity; `revision` is order.
+- `RepoConformance.evaluatedRevision INTEGER` / `revision INTEGER` / `arrived BOOLEAN DEFAULT
+  false` / `source TEXT` — per pair, from `.ai/registry-map.json` (`src/lib/registry/conformance-map.ts`).
+- `RepoConformanceMap.orphanedVerdicts` / `arrivedContexts` / `renamedContexts INTEGER DEFAULT 0`,
+  `contextMapRevision TEXT`, `repoContextMapRevision TEXT` — the map's own churn stats and the two
+  context-map revisions (the map's `contextMapRevision`; the `revision` the sweep read from the repo's
+  root `context-map.json`). `mapBehind` is NOT a column: `buildKnowledgeFleet` derives it as "both
+  known and different", so a failed read is never evidence of drift.
+
+**Migration convention followed:** the `#18` tables (`OrgKnowledgeSubject`, `RepoConformanceMap`,
+`RepoConformance`) have no `prisma/migrations/*` entry — they were created in `prisma/init.sql`
+only (commit `d6538af8`), and their later columns (`digest`, `hasContextMap`, `weaklyGovernedJson`)
+landed the same way: in the `CREATE TABLE` block **and** as `ALTER TABLE … ADD COLUMN IF NOT
+EXISTS` beside it, so a fresh bootstrap and an existing data dir both converge. These columns follow
+that exactly; PGlite picks them up on boot via the defaulted-column reconcile, and `init-sql.test.ts`
+holds the mirror to the schema.
 
 ## Known gaps
 
