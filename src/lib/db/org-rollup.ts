@@ -20,6 +20,7 @@ import { forecastTrajectory, type Forecast } from "@/lib/maturity/forecast";
 import { levelForScore } from "@/lib/maturity/model";
 import { GroupedMean, dateRange, getOrgBySlug, normalizeOrgSlug, roundedMean, segmentScope, techGroupScope, upperBound } from "@/lib/db/org-shared";
 import { retentionCutoff } from "@/lib/plans";
+import { dayKeyInZone } from "@/lib/org/timezone";
 import { parseTechStackJson } from "@/lib/analyze/tech-extract";
 import { applyPassportOverrides, parsePassportJson, parsePassportOverrides } from "@/lib/analyze/passport";
 import { parseContextHealthJson } from "@/lib/analyze/context-health";
@@ -187,6 +188,46 @@ export async function getRepoStates(orgSlug: string): Promise<Record<string, Rep
   return out;
 }
 
+/**
+ * Which passport identity fields this repo's OWNER asserted, rather than the scan observing them.
+ *
+ * Criticality, lifecycle and tested-rollback are things a scan cannot see: an owner states them
+ * through the overrides blob, and `applyPassportOverrides` merges them into the passport at read
+ * time. That merge is lossy on purpose — the passport is then a single coherent artifact — but it
+ * also erased the one thing the readiness-passports standard requires the artifact to say: who
+ * issued each claim. This summary carries only the FLAGS; the values stay on the passport.
+ *
+ * Booleans only, by design — the overrides blob keeps no timestamp for the identity fields (only a
+ * decline records `at`), so there is no date to report and none is invented. No `Date` crosses here.
+ */
+export interface PassportOwnerSet {
+  /** The owner asserted `identity.criticality`. */
+  criticality?: true;
+  /** The owner asserted `identity.lifecycle`. */
+  lifecycle?: true;
+  /** The owner asserted `productionReadiness.delivery.rollback` (which also lifts the prod score). */
+  rollback?: true;
+}
+
+/** Parse the passport and its overrides ONCE, returning the merged passport beside the provenance
+ *  summary — so the row does not parse the same blob twice to answer "who said this?". */
+function passportWithProvenance(
+  passportJson: string | null,
+  overridesJson: string | null,
+): { passport: AppPassport | null; ownerSet: PassportOwnerSet | null } {
+  const pp = parsePassportJson(passportJson);
+  if (!pp) return { passport: null, ownerSet: null };
+  const ov = parsePassportOverrides(overridesJson);
+  const ownerSet: PassportOwnerSet = {};
+  if (ov?.criticality) ownerSet.criticality = true;
+  if (ov?.lifecycle) ownerSet.lifecycle = true;
+  if (typeof ov?.rollback === "boolean") ownerSet.rollback = true;
+  return {
+    passport: applyPassportOverrides(pp, ov),
+    ownerSet: Object.keys(ownerSet).length ? ownerSet : null,
+  };
+}
+
 export interface OrgRepoRow {
   fullName: string;
   owner: string;
@@ -201,6 +242,10 @@ export interface OrgRepoRow {
   /** App Readiness Passport cached from the latest scan — null until first scan / if absent. Drives the
    *  portfolio passports view (the two readiness axes + named stack). */
   passport: AppPassport | null;
+  /** P4 provenance for the passport above: which identity fields the OWNER asserted rather than the
+   *  scan observing them. Null when this repo has no overrides — additive and optional, so every
+   *  existing reader of the row is unaffected. */
+  passportOwnerSet?: PassportOwnerSet | null;
   /** Context Health (W4) cached from the latest scan — guidance-file freshness/quality/drift, the
    *  Half-life panel's per-repo input. Null when the latest scan PREDATES the signal (or on parse
    *  failure), which the UI must render as "not assessed by this scan — re-scan", never as absent. */
@@ -487,18 +532,32 @@ export function computeDimDeltas(
 }
 
 /**
- * The org maturity TREND buckets scans by LOCAL calendar day — the SAME zone the window boundaries use
- * (window.ts `startOfDay` snaps `start`/`end` to LOCAL midnight). Bucketing by `toISOString().slice(0,10)`
- * (a UTC day) meant a scan was FILTERED by one calendar and LABELLED by another whenever the server runs
- * off UTC: a late-evening local scan (e.g. 2026-05-01 01:00 local = 2026-04-30 23:00Z) landed in the
- * previous UTC day's bucket, splitting one local day across two trend points and skewing the
- * forecastTrajectory ETA. One zone shared with the window. Mirrors window.ts `toDayInput`. (fleet-rollups-insights #2)
+ * The org maturity TREND buckets scans by the CANONICAL ORG ZONE's calendar day — the same zone the
+ * window boundaries are computed in. `dayKeyInZone` is that zone's one day-key derivation; this
+ * function exists only to name the intent at the call site.
+ *
+ * IT USED TO READ THE SERVER'S LOCAL ZONE (`getFullYear`/`getMonth`/`getDate`), with a comment
+ * asserting that was "the SAME zone the window boundaries use (window.ts `startOfDay` snaps to LOCAL
+ * midnight)". That was true when it was written and stopped being true when window.ts migrated to the
+ * canonical zone (`src/lib/org/timezone.ts`, UTC by default, `ASCENT_ORG_TZ`- and per-org-column
+ * overridable) — whose own header now says boundaries are "never in the server's local zone, which was
+ * only ever whatever the host happened to be set to". So the trend was FILTERED by one calendar and
+ * LABELLED by another: precisely the defect the old comment describes itself as having fixed,
+ * reintroduced from the other side, with the comment left behind claiming the two agree.
+ *
+ * Measured 2026-09-04 over three sample scan instants: 2 of 3 mislabelled under `ASCENT_ORG_TZ=
+ * America/New_York` on a UTC host, 1 of 3 under a non-UTC host with the default UTC org zone. Both are
+ * supported configurations; a UTC host with the UTC default was the only one where it agreed, which is
+ * why nothing caught it. The consequences are a day's scans split across two trend points, a
+ * `forecastTrajectory` ETA computed off the split series, and trend keys that no longer join to
+ * `daysBetweenDayKeys` arithmetic done in the canonical zone.
+ *
+ * `org-signals.ts` migrated its own week grid to this zone with an essay about why ("the moment an org
+ * sets a non-UTC zone the trend grid kept UTC weeks while the window moved"); this was its unmigrated
+ * sibling in the same family. (fleet-rollups-insights #2, re-fixed)
  */
-function localDayKey(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+function orgDayKey(d: Date): string {
+  return dayKeyInZone(d);
 }
 
 export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentId?: string | null, techGroupId?: string | null): Promise<OrgRollup | null> {
@@ -616,6 +675,7 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
     // W2 provenance signal for the fleet gate — parsed from the SAME persisted prStats blob the
     // activity columns read, so it costs no extra query and no extra parse pass of its own.
     const prov = parseProvenanceLite(s?.prStats);
+    const overrides = passportWithProvenance(r.passportJson, r.passportOverridesJson);
     return {
       fullName: r.fullName,
       owner: r.owner,
@@ -624,10 +684,15 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
       watched: r.watched,
       primaryLanguage: r.primaryLanguage ?? null,
       techStack: parseTechStackJson(r.techStackJson),
-      passport: (() => {
-        const pp = parsePassportJson(r.passportJson);
-        return pp ? applyPassportOverrides(pp, parsePassportOverrides(r.passportOverridesJson)) : null;
-      })(),
+      passport: overrides.passport,
+      // P4 PROVENANCE. `applyPassportOverrides` folds the owner's asserted criticality / lifecycle /
+      // rollback INTO the passport and then the parsed blob is gone, so every surface downstream
+      // renders an asserted "GA, mission-critical" exactly like an observed one. Declines already
+      // carry their own provenance (`at`, re-confirmation); the identity overrides carried none
+      // outside the edit form. This is the minimal summary that restores it — WHICH fields the owner
+      // set, nothing about their values, which the passport already holds. Null when the repo has no
+      // overrides at all, so a repo nobody has touched is unchanged.
+      passportOwnerSet: overrides.ownerSet,
       contextHealth: parseContextHealthJson(r.contextHealthJson),
       manifest: parseManifestReadoutJson(r.manifestJson),
       guidanceGraph: parseGuidanceGraphJson(r.guidanceGraphJson),
@@ -707,9 +772,9 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
     orderBy: { scannedAt: "asc" },
   });
   const byDay = new GroupedMean();
-  // LOCAL calendar day (localDayKey) — the same zone the window snaps to — so different-cadence repos
-  // bucket into the SAME day instead of splitting across a UTC midnight (bug+ui scan timezone fix).
-  for (const s of allScans) byDay.add(localDayKey(s.scannedAt), s.overallScore);
+  // CANONICAL-ZONE calendar day (orgDayKey) — the same zone the window snaps to — so different-cadence
+  // repos bucket into the SAME day instead of splitting across a midnight the filter does not share.
+  for (const s of allScans) byDay.add(orgDayKey(s.scannedAt), s.overallScore);
   const trend = byDay
     .keys()
     .sort()

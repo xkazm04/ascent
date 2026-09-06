@@ -40,7 +40,7 @@
 // not link its dependencies still runs; it simply verifies as `baseline-unavailable` or `skipped` the way it
 // did before this module existed.
 
-import { lstat, rm, stat, symlink } from "node:fs/promises";
+import { appendFile, lstat, mkdir, readFile, rm, stat, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { runGit } from "@/lib/local/git";
 
@@ -83,6 +83,55 @@ const exists = (p: string): Promise<boolean> => lstat(p).then(() => true, () => 
  * mentioned at all — most repositories use one ecosystem, and a note per absent name would be noise
  * that buries the one refusal that matters.
  */
+/**
+ * THE LINK WE CREATE IS A FILE TO GIT, AND THE CONVENTIONAL IGNORE PATTERN IS DIRECTORY-ONLY.
+ *
+ * `node_modules/` — the pattern essentially every repository ships — matches a DIRECTORY. On Windows
+ * the link is a junction, which the filesystem reports as a directory, so the pattern matches and the
+ * link is invisible to git. On POSIX it is a symlink, which git classifies as a FILE, so the same
+ * pattern does not match and the link surfaces as an untracked entry in the lane's file census —
+ * inflating the worktree rescan's file count against the before-scan it is compared to, which is the
+ * exact harm the check above exists to prevent. The directory-form proof was measured on Windows and
+ * silently did not carry.
+ *
+ * The repair keeps the census driven by git's own ignore machinery (see the header of
+ * `src/lib/local/source.ts`: excluded "by the repo's own ignore rules rather than by a second,
+ * drifting list here") by making git ignore the FILE form too — in the one place git actually reads a
+ * repo-local exclude for a worktree, which is measured, not assumed: a linked worktree's OWN
+ * `$GIT_DIR/info/exclude` is NOT consulted; `$GIT_COMMON_DIR/info/exclude` is.
+ *
+ * That file belongs to the operator's checkout, so the write is fenced hard:
+ *   - only ever a name this module is about to link, which it has ALREADY proven the repository
+ *     ignores in directory form — so the line cannot hide anything the repo was not already hiding;
+ *   - never committed and never pushed (`info/exclude` is repo-local by construction);
+ *   - idempotent, and best-effort: a failure returns false and the caller declines to link, exactly
+ *     as it declines for a repository that does not ignore the directory at all.
+ */
+async function ensureIgnoredAsFile(worktreeDir: string, name: string): Promise<boolean> {
+  // Already ignored in the form we are about to create (a junction host, or a repo whose pattern has
+  // no trailing slash) — nothing to write.
+  if ((await runGit(worktreeDir, ["check-ignore", "-q", "--", name])).ok) return true;
+
+  const common = await runGit(worktreeDir, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+  if (!common.ok) return false;
+  const excludePath = join(common.stdout.trim(), "info", "exclude");
+  try {
+    const existing = await readFile(excludePath, "utf8").catch(() => "");
+    if (!existing.split(/\r?\n/).some((line) => line.trim() === name)) {
+      await mkdir(join(common.stdout.trim(), "info"), { recursive: true });
+      await appendFile(
+        excludePath,
+        `${existing.endsWith("\n") || existing === "" ? "" : "\n"}# ascent: the lane worktree links this as a symlink, which the repo's directory-only pattern misses\n${name}\n`,
+        "utf8",
+      );
+    }
+  } catch {
+    return false;
+  }
+  // Prove it, rather than assume the write took.
+  return (await runGit(worktreeDir, ["check-ignore", "-q", "--", name])).ok;
+}
+
 export async function linkDependencyDirs(
   sourceDir: string,
   worktreeDir: string,
@@ -103,6 +152,15 @@ export async function linkDependencyDirs(
     // every link. Exit 0 = ignored; 1 = not ignored; 128 = git could not answer — the last two are
     // both "do not link", because the census guarantee has to be proven, not assumed.
     const ignored = await runGit(worktreeDir, ["check-ignore", "-q", "--", `${name}/`]);
+    // …and then the FILE form, because that is what a symlink is to git. See `ensureIgnoredAsFile`.
+    if (ignored.ok && !(await ensureIgnoredAsFile(worktreeDir, name))) {
+      notes.push(
+        `Did not link \`${name}\` into this lane's worktree: the repository ignores it as a directory but the link ` +
+          `itself would show up as an untracked file, which would put the paired checkout into the lane's own file ` +
+          `census and move its score for a reason that is not a change.`,
+      );
+      continue;
+    }
     if (!ignored.ok) {
       notes.push(
         `Did not link \`${name}\` into this lane's worktree: the repository does not ignore it, so linking it would ` +

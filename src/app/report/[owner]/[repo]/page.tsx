@@ -170,6 +170,11 @@ async function ReportPermalinkBody({
       />
       {passport && (
         <div className="mt-8 animate-fade-up" style={{ animationDelay: "120ms" }}>
+          {/* The `engine` prop this branch passed is dropped: master's PassportCard cluster (declines
+              with identity, the autonomy verdict, PassportCardDeclined) is the landed implementation of
+              the same feature set and does not take one. Labelling a placeholder scan on the repo's own
+              page is therefore NOT on master — it survives only in the org portfolio, and is recorded as
+              an open item rather than silently carried by a prop the component would ignore. */}
           <PassportCard passport={passport} repo={repoRef} canEdit={canEditPassport} canFilePr={canFilePassportPr} />
         </div>
       )}

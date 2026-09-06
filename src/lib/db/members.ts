@@ -3,19 +3,16 @@
 // identity). A User row is keyed by `githubLogin` (email is set to the GitHub noreply form to satisfy
 // the required-unique column). Roles: owner > admin > member > viewer.
 //
-// Writers: ensureOwnerMembership (the identity-bound bootstrap — authz.viewerOrgRole seeds an
-// OWNERLESS org to a viewer who is provably entitled to it, their own personal namespace or a
-// GitHub-confirmed admin of the org behind the installation; an org that already has an owner is
-// never auto-claimed), the owner-gated member admin endpoint, and acceptInvite (src/lib/db/invites.ts)
-// via setMembershipRole. The resolver getMembershipRole is read by src/lib/authz.ts (requireOrgRole).
-//
-// This header used to say "a future invite/SSO flow populates members/viewers" and describe the seed
-// as firing whenever "an installation-owner accesses their org". The invite flow shipped, and the
-// seed became identity-bound; both sentences described a system that no longer exists.
+// Writers: ensureOwnerMembership (the identity-bound owner seed — the viewer's own personal namespace,
+// or a GitHub-confirmed admin of an org that has no owner yet; see authz.viewerOrgRole), the owner-gated
+// member admin endpoint, and acceptInvite. The resolver getMembershipRole is read by src/lib/authz.ts
+// (requireOrgRole). Merely holding the GitHub App installation has not conferred owner since the custom
+// OAuth stack was retired.
 
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
+import { normalizeOrgSlug } from "@/lib/db/org-shared";
 import { PUBLIC_ORG } from "@/lib/org-constants";
 
 export type OrgRole = "owner" | "admin" | "member" | "viewer";
@@ -30,6 +27,33 @@ export function roleAtLeast(role: OrgRole | null | undefined, min: OrgRole): boo
 
 export function isOrgRole(v: string): v is OrgRole {
   return v === "owner" || v === "admin" || v === "member" || v === "viewer";
+}
+
+/** The least privilege this vocabulary can express — where an unreadable role resolves to. */
+export const LEAST_PRIVILEGED_ROLE: OrgRole = "viewer";
+
+/**
+ * Coerce a STORED role string to an OrgRole. A value the vocabulary does not know (DB corruption, a
+ * hand-run migration, a role renamed in a future release and read by an old deploy) resolves to the
+ * MOST RESTRICTIVE reading, loudly — never to a mid-tier default.
+ *
+ * The five sites that needed this each spelled it `isOrgRole(x) ? x : "member"`, and `member` is not a
+ * floor: it clears `requireOrgAccess` (min `member`) and `canReadOrg` (min `viewer`), so an unreadable
+ * role string was granting the right to ACT on the org. Worse, `acceptInvite` fed the same expression
+ * straight into `setMembershipRole`, turning a corrupt stored value into a persisted grant. The
+ * authorization corpus names this exactly: "a parser that maps 'couldn't read the restriction list' to
+ * 'no restrictions' has converted data corruption into privilege escalation", and absent (a legitimate
+ * reviewed state, here `null`) must resolve differently from corrupt (an error).
+ *
+ * `null`/absent is NOT this function's business — every caller already handles a missing row as `null`
+ * and must keep doing so. This is only for "a row exists and its role is unreadable".
+ */
+export function coerceStoredRole(raw: string, where: string): OrgRole {
+  if (isOrgRole(raw)) return raw;
+  // Loudly: corrupt-input restrictiveness is the branch nobody exercises manually, so the one signal
+  // that it fired must not be silent. Not warn-once — each occurrence names a different row.
+  console.error(`[members] unreadable stored role ${JSON.stringify(raw)} at ${where}; resolving to ${LEAST_PRIVILEGED_ROLE}`);
+  return LEAST_PRIVILEGED_ROLE;
 }
 
 export interface OrgMember {
@@ -111,26 +135,33 @@ export async function getMembershipRole(orgSlug: string, login: string): Promise
     select: { role: true },
   });
   if (!m) return null;
-  return isOrgRole(m.role) ? m.role : "member";
+  return coerceStoredRole(m.role, "getMembershipRole");
 }
 
 /**
  * Seed `login` as `owner` of `orgSlug` if they have no membership yet (idempotent; never downgrades an
- * existing role). Called by authz.viewerOrgRole for an OWNERLESS org, and only for a viewer it has
- * already proven entitled to it — their own personal namespace, or a GitHub-confirmed admin of the org
- * behind the installation. NOT "whenever an installation-owner accesses their org", which is what this
- * line used to say and what the owner land-grab fix removed: the gate is the caller's, and a reader who
- * believes the wider rule will write the next call site without one. Best-effort — callers ignore
+ * existing role). Called lazily when an installation-owner accesses their org, so the RBAC tables stop
+ * being vestigial and an admin/invite flow has a real owner to build on. Best-effort — callers ignore
  * failures (it must never block a read).
  */
 export async function ensureOwnerMembership(orgSlug: string, login: string, name?: string | null, opts?: { kind?: "personal" }): Promise<void> {
   if (!isDbConfigured()) return;
   const prisma = getPrisma();
   const gh = normalizeLogin(login);
-  if (!gh || orgSlug === "public") return;
+  // CANONICALIZE THE SLUG. This is the only org-row WRITER in this module, and it took the caller's
+  // string raw while every reader goes through getOrgId → normalizeOrgSlug (trim + lower-case). The
+  // asymmetry is worse on an upsert than on a find: `PostHog` does not miss the `posthog` row, it
+  // CREATES a second one — a duplicate tenant, owned by this viewer, that no read in the app can
+  // reach. Callers happen to normalize today (authz.viewerOrgRole, /api/me/watch), but OrgShell's
+  // bypass seed passes the raw `[slug]` route param, and "every caller remembers" is not a guarantee.
+  const slug = normalizeOrgSlug(orgSlug);
+  // …and the sentinel comes from the shared constant this file already imports. The literal here was
+  // the last hand-written copy of it, sitting on the guard that stops an owner being seeded on the
+  // shared funnel org — so a rename of PUBLIC_ORG would have silently switched that guard off.
+  if (!gh || !slug || slug === PUBLIC_ORG) return;
   const userId = await ensureUserId(prisma, gh, name);
   const org = await prisma.organization.upsert({
-    where: { slug: orgSlug },
+    where: { slug },
     // `kind: "personal"` is stamped on UPDATE too (not just create): the scan pipeline's ensureOrgId
     // may have materialized this slug earlier as a default "org" row, and only the identity-bound
     // personal-namespace claim (login === slug, verified in authz.viewerOrgRole) passes `opts.kind` —
@@ -142,7 +173,7 @@ export async function ensureOwnerMembership(orgSlug: string, login: string, name
     // pin it here so first-touch is deterministic and a future schema-default change can't silently
     // repoint new orgs. (org-watch's ensureOrg still uses a legacy "private" string, which planFeatures
     // also resolves to the free tier — reconciling that outlier + backfilling old rows is out of scope.)
-    create: { slug: orgSlug, name: orgSlug, plan: "free", ...(opts?.kind ? { kind: opts.kind } : {}) },
+    create: { slug, name: slug, plan: "free", ...(opts?.kind ? { kind: opts.kind } : {}) },
     select: { id: true },
   });
   await prisma.membership.upsert({
@@ -209,9 +240,10 @@ export async function setMembershipRole(orgSlug: string, login: string, role: Or
 
 /**
  * Remove a member entirely (owner-gated). Refuses to remove the LAST owner so an org can't be
- * orphaned with no one able to manage it. Returns a typed outcome the route maps to a status.
+ * orphaned with no one able to manage it. Returns a typed outcome the route maps to a status —
+ * including `db_error`, the same distinction its sibling setMembershipRole draws (see below).
  */
-export async function removeMembership(orgSlug: string, login: string): Promise<"ok" | "not_found" | "last_owner"> {
+export async function removeMembership(orgSlug: string, login: string): Promise<"ok" | "not_found" | "last_owner" | "db_error"> {
   if (!isDbConfigured()) return "not_found";
   const prisma = getPrisma();
   const gh = normalizeLogin(login);
@@ -235,10 +267,16 @@ export async function removeMembership(orgSlug: string, login: string): Promise<
       return "ok" as const;
     }, { isolationLevel: "Serializable" });
   } catch {
-    // A serialization abort (the loser of two concurrent owner removals) lands here too. removeMembership's
-    // outcome type has no db_error variant, so it maps to not_found — safe (the removal simply didn't
-    // happen; the org keeps its owner), just a benign retry for the caller. The invariant is preserved.
-    return "not_found";
+    // A serialization abort (the loser of two concurrent owner removals) or a DB blip. This used to
+    // return "not_found", which the route renders as "No such member." — a statement about the WORLD
+    // ("that member is already gone, nothing to do") for an event that is entirely about THIS REQUEST
+    // ("your removal did not happen; try again"). The member is still there, the optimistic row snaps
+    // back in the panel, and the admin is told the opposite of what to do next.
+    //
+    // Its sibling setMembershipRole already drew exactly this distinction — a transient write failure
+    // is `db_error` → 503, a genuinely unknown target is not — and the two are the same surface. The
+    // invariant was never at risk either way (the removal simply did not happen); the LIE was.
+    return "db_error";
   }
 }
 
@@ -338,7 +376,7 @@ export async function listOrgsForLogin(login: string): Promise<ViewerOrg[]> {
       .map((r) => ({
         slug: r.org.slug,
         name: r.org.name,
-        role: isOrgRole(r.role) ? r.role : "member",
+        role: coerceStoredRole(r.role, "listOrgsForLogin"),
       }))
       .sort((a, b) => ROLE_RANK[b.role] - ROLE_RANK[a.role]);
   }, [] as ViewerOrg[]);
@@ -358,7 +396,7 @@ export async function listOrgMembers(orgSlug: string): Promise<OrgMember[]> {
   return rows.map((r) => ({
     login: r.user.githubLogin ?? "(unknown)",
     name: r.user.name ?? null,
-    role: isOrgRole(r.role) ? r.role : "member",
+    role: coerceStoredRole(r.role, "listOrgMembers"),
     createdAt: r.createdAt,
   }));
 }

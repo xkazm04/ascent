@@ -50,6 +50,23 @@ describe("a null graph is not assessed — never a zero bar", () => {
     expect(s.headline).toMatch(/no repository has been assessed/i);
   });
 
+  it("tells an EMPTY fleet to add repositories, and a scanned-but-unassessed fleet to re-scan", () => {
+    // The list region reached one message for three different facts. An org with no repositories in
+    // scope was told to "re-scan" — an instruction with nothing to act on. Each state now gets the
+    // remedy that applies to it, and neither restates the headline rendered directly above it.
+    const none = coherenceFleetSummary([]);
+    expect(none.emptyMessage).toMatch(/no repositories in scope/i);
+    expect(none.emptyMessage).not.toMatch(/re-scan/i);
+
+    const unassessed = coherenceFleetSummary(buildCoherenceRows([repo("o/a", null), repo("o/b", null)]));
+    expect(unassessed.emptyMessage).toMatch(/re-scan/i);
+    expect(unassessed.emptyMessage).toContain("2 repositories in scope");
+
+    // …and the message is null exactly when the list has rows to draw, so the card's branch and the
+    // copy can never disagree about which one is showing.
+    expect(coherenceFleetSummary(buildCoherenceRows([repo("o/a", graph())])).emptyMessage).toBeNull();
+  });
+
   it("a repo with a graph but no guidance document has a null coherence, not 0", () => {
     const [row] = buildCoherenceRows([repo("o/bare", graph({ nodes: [], canonical: null, canonicalBasis: null, coherence: null }))]);
     expect(row!.assessed).toBe(true);

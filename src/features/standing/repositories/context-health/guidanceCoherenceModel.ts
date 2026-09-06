@@ -101,6 +101,16 @@ export interface CoherenceFleetSummary {
   meanCoherence: number | null;
   /** The fleet-count sentence, which NAMES its own denominator. */
   headline: string;
+  /**
+   * What the LIST region says when it has no row to draw — or null when it has rows.
+   *
+   * Three states reach an empty list and they are not the same fact: no repositories in scope at all,
+   * repositories in scope but none assessed yet, and (via the ordering filter) rows present but every
+   * one unassessed. The card printed ONE sentence for all of them, telling an org with zero
+   * repositories to "re-scan" — an instruction that cannot help, because there is nothing to scan.
+   * The summary already computes the distinction for its tiles; this carries it into the copy.
+   */
+  emptyMessage: string | null;
 }
 
 export function coherenceFleetSummary(rows: readonly RepoCoherenceRow[]): CoherenceFleetSummary {
@@ -116,7 +126,16 @@ export function coherenceFleetSummary(rows: readonly RepoCoherenceRow[]): Cohere
     ? `${contradicting} of ${measured.length} assessed repositor${measured.length === 1 ? "y" : "ies"} have contradicting agent guidance` +
       (unmeasured ? ` (${unmeasured} not assessed or carrying no guidance document — excluded)` : "")
     : "No repository has been assessed for guidance coherence yet — re-scan to read it.";
-  return { measured: measured.length, unmeasured, contradicting, meanCoherence: mean, headline };
+  // The list is empty exactly when nothing is measured; each state gets the remedy that applies to it.
+  // Deliberately does NOT restate `headline` — the two render one above the other, and saying the same
+  // thing twice in two vocabularies ("assessed for guidance coherence" / "scanned under rubric r11")
+  // reads as two different facts.
+  const emptyMessage = measured.length
+    ? null
+    : rows.length === 0
+      ? "No repositories in scope. Add repositories, or widen the segment and stack filters."
+      : `Re-scan to read the guidance layer — none of the ${rows.length} repositor${rows.length === 1 ? "y" : "ies"} in scope has been assessed yet.`;
+  return { measured: measured.length, unmeasured, contradicting, meanCoherence: mean, headline, emptyMessage };
 }
 
 /** Worst first: the repos where an agent is most likely to be reading the wrong instructions. */

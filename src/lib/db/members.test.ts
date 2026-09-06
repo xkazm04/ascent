@@ -24,7 +24,7 @@ vi.mock("@/lib/db/client", () => ({
   dbReadSafe: mockDbReadSafe,
 }));
 
-import { isOrgRole, roleAtLeast, setMembershipRole, removeMembership, getMembershipRole, listOrgsForLogin } from "./members";
+import { isOrgRole, roleAtLeast, setMembershipRole, removeMembership, getMembershipRole, listOrgsForLogin, ensureOwnerMembership } from "./members";
 import { createInvite, listPendingInvites } from "./invites";
 
 describe("roleAtLeast", () => {
@@ -205,12 +205,14 @@ describe("listOrgsForLogin", () => {
     expect(orgs[0]).toEqual({ slug: "vercel", name: "Vercel", role: "owner" });
   });
 
-  it("coerces an unknown stored role to 'member' rather than dropping the org", async () => {
+  it("coerces an unknown stored role to the FLOOR rather than dropping the org", async () => {
+    // Was pinned at "member". An unreadable role is not evidence of a mid-tier grant, and `member`
+    // clears requireOrgAccess — so the display and the gate now agree on the least privilege.
     mockGetPrisma.mockReturnValue(
       fakeOrgsPrisma({ memberships: [{ role: "guest", slug: "acme", name: "Acme", createdAt: new Date() }] }),
     );
     const orgs = await listOrgsForLogin("bob");
-    expect(orgs).toEqual([{ slug: "acme", name: "Acme", role: "member" }]);
+    expect(orgs).toEqual([{ slug: "acme", name: "Acme", role: "viewer" }]);
   });
 
   it("degrades to [] when the DB is configured but UNREACHABLE (it renders in the site header)", async () => {
@@ -285,6 +287,37 @@ describe("removeMembership last-owner guard", () => {
 // SERIALIZABLE isolation so the count read participates in the serialization graph and one writer aborts.
 // These pin that the isolation option is actually passed (the fake $transaction ignores it, so a
 // regression that drops it would silently reopen the hole).
+describe("ensureOwnerMembership canonicalizes the org it writes", () => {
+  it("upserts the org under the CANONICAL slug, never the caller's casing", async () => {
+    // The only org-row WRITER in this module used to take the slug raw. Every reader normalizes, so a
+    // mixed-case write does not miss the row — it creates a SECOND tenant that nothing can read.
+    const upsert = vi.fn(async () => ({ id: "org_1" }));
+    mockGetPrisma.mockReturnValue({
+      user: { upsert: vi.fn(async () => ({ id: "user_1" })) },
+      organization: { upsert },
+      membership: { upsert: vi.fn(async () => ({})) },
+    } as never);
+
+    await ensureOwnerMembership("  PostHog ", "Alice");
+
+    const args = upsert.mock.calls[0]![0] as { where: { slug: string }; create: { slug: string; name: string } };
+    expect(args.where.slug).toBe("posthog");
+    expect(args.create).toMatchObject({ slug: "posthog", name: "posthog" });
+  });
+
+  it("refuses the shared public org however it is spelled", async () => {
+    const upsert = vi.fn();
+    mockGetPrisma.mockReturnValue({ organization: { upsert } } as never);
+
+    await ensureOwnerMembership("PUBLIC", "alice");
+    await ensureOwnerMembership(" public ", "alice");
+
+    // The guard was a hand-written "public" literal beside an imported PUBLIC_ORG — one rename away
+    // from silently letting a viewer be seeded as owner of the shared funnel org.
+    expect(upsert).not.toHaveBeenCalled();
+  });
+});
+
 describe("last-owner guard pins SERIALIZABLE isolation", () => {
   it("setMembershipRole runs the guard transaction at Serializable", async () => {
     const { prisma } = fakePrisma({ existingRole: "owner", ownerCount: 2 });
@@ -298,6 +331,18 @@ describe("last-owner guard pins SERIALIZABLE isolation", () => {
     mockGetPrisma.mockReturnValue(prisma);
     await removeMembership("acme", "alice");
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "Serializable" });
+  });
+
+  it("removeMembership reports a serialization abort as db_error, NOT as not_found", async () => {
+    // The loser of two concurrent owner removals aborts (40001). That is a fact about THIS REQUEST
+    // ("it did not happen, retry"), not about the world ("no such member") — and the route renders
+    // the difference as 503 vs 404. setMembershipRole has always drawn this distinction; its sibling
+    // collapsed it, so the admin was told the row was already gone while it was still there.
+    const { prisma } = fakePrisma({ existingRole: "owner", ownerCount: 2 });
+    prisma.$transaction.mockRejectedValue(Object.assign(new Error("could not serialize access"), { code: "40001" }));
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await expect(removeMembership("acme", "alice")).resolves.toBe("db_error");
   });
 });
 
@@ -457,7 +502,10 @@ describe("canonical-identifier audit invariant", () => {
 // org (by slug), membership (by orgId_userId) — each guarded by an early `return null`. The load-bearing
 // invariant: ANY miss (DB-off, blank login, unknown user, unknown org, no membership row) yields `null`
 // and NEVER a crash, a default-grant, or a stray truthy role; a present-but-corrupted role string is
-// coerced down to "member" (the DB-corruption guard at members.ts:70), never surfaced raw to RBAC.
+// coerced to the LEAST privilege the vocabulary can express (coerceStoredRole), never surfaced raw to
+// RBAC. It used to coerce to "member", which is not a floor at all: `member` clears requireOrgAccess
+// (min member) and canReadOrg (min viewer), so an unreadable role string granted the right to ACT on
+// the org. Corrupt and absent are different facts, and only the second has a documented default.
 //
 // `resolverPrisma` lets each leg of the walk independently resolve or miss: `user`/`org` are the lookup
 // results (null = miss), `membershipRole` is the stored role string (null = no row). It records the exact
@@ -570,15 +618,31 @@ describe("getMembershipRole resolution misses", () => {
     await expect(getMembershipRole("acme", "alice")).resolves.toBe("admin");
   });
 
-  it("coerces a corrupted/legacy non-OrgRole stored value down to 'member' (never surfaces it raw to RBAC)", async () => {
+  it("coerces a corrupted/legacy non-OrgRole stored value to the FLOOR — and says so", async () => {
     const { prisma } = resolverPrisma({
       user: { id: "user_1" },
       org: { id: "org_1" },
       membershipRole: "superuser", // not one of owner|admin|member|viewer
     });
     mockGetPrisma.mockReturnValue(prisma);
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await expect(getMembershipRole("acme", "alice")).resolves.toBe("member");
+    // NOT "member": a role string nobody can read must not confer the right to act on the org.
+    await expect(getMembershipRole("acme", "alice")).resolves.toBe("viewer");
+    // Loudly — corrupt-input restrictiveness is the branch nobody exercises manually, so the single
+    // signal that it fired must reach a log rather than being swallowed into a plausible-looking role.
+    expect(err).toHaveBeenCalledWith(expect.stringContaining("unreadable stored role"));
+    err.mockRestore();
+  });
+
+  it("a role string that merely LOOKS privileged is refused the same as any other unreadable value", async () => {
+    const { prisma } = resolverPrisma({ user: { id: "user_1" }, org: { id: "org_1" }, membershipRole: "OWNER" });
+    mockGetPrisma.mockReturnValue(prisma);
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    // Case matters: the vocabulary is lower-case, so "OWNER" is unreadable, not an owner grant.
+    await expect(getMembershipRole("acme", "alice")).resolves.toBe("viewer");
+    err.mockRestore();
   });
 
   it("yields a valid OrgRole or null on every shape — never throws across the resolution walk", async () => {
@@ -588,7 +652,7 @@ describe("getMembershipRole resolution misses", () => {
       { p: resolverPrisma({ org: null }).prisma, expected: null },
       { p: resolverPrisma({ membershipRole: null }).prisma, expected: null },
       { p: resolverPrisma({ membershipRole: "owner" }).prisma, expected: "owner" },
-      { p: resolverPrisma({ membershipRole: "" }).prisma, expected: "member" }, // empty string is not an OrgRole
+      { p: resolverPrisma({ membershipRole: "" }).prisma, expected: "viewer" }, // empty string is not an OrgRole
     ];
     for (const { p, expected } of cases) {
       mockGetPrisma.mockReturnValue(p);

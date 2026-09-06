@@ -172,8 +172,18 @@ function workingDeps(over: Partial<LaneDeps> = {}): Partial<LaneDeps> {
 }
 
 /** Wait until every run this process is driving has finished. */
-async function settle(runId: string): Promise<void> {
-  for (let i = 0; i < 2000 && isLoopRunLive(runId); i += 1) await new Promise((r) => setTimeout(r, 1));
+async function settle(runId: string, budgetMs = 15_000): Promise<void> {
+  // A WALL-CLOCK deadline, not an iteration count. This used to spin 2000 times on `setTimeout(…, 1)`,
+  // and what that buys depends entirely on the host's timer granularity: ~1ms on Linux (≈2s of budget)
+  // against ~15ms on Windows (≈30s). Tests that wait on a timed backstop therefore had a budget that
+  // silently differed by an order of magnitude per platform — one passed here and failed on CI for a
+  // reason no assertion mentioned. A deadline means the same thing everywhere.
+  //
+  // 15s because the longest thing a stopping run legitimately waits on is AGENT_KILL_NOTE_MS (5s in
+  // loop-lane.ts): the cut lane races the agent promise for that long to report what the kill
+  // achieved. The budget must clear it with room, or a correct engine looks wedged.
+  const deadline = Date.now() + budgetMs;
+  while (isLoopRunLive(runId) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
 }
 
 beforeEach(() => {
@@ -387,6 +397,21 @@ describe("stopLoopRun", () => {
     // the recorded stage below are the same facts either way. A 5ms grace made the assertion a race
     // against the lane's own startup instead: under a loaded suite the abort could arrive while the
     // guard's baseline was still probing the worktree, and the row then honestly named `baseline`.
+    //
+    // WHAT THIS ACTUALLY WAITS ON, and why it broke on CI. The lane's force-fail is not instant: for a
+    // cut `agent` stage `agentTerminationNote` races the agent promise against AGENT_KILL_NOTE_MS
+    // (5s, loop-lane.ts) to report what the kill achieved — and THIS fixture's agent never settles, so
+    // that race always runs the full five seconds before the row can be written. `c8de0a5f` added it.
+    //
+    // So the test needs a settle budget comfortably above 5s. It had one on Windows only by accident:
+    // the old iteration-count `settle` spun 2000 × setTimeout(1), which is ~30s at Windows' ~15ms timer
+    // granularity and ~2s at Linux's ~1ms. Two seconds is less than five, so the row was still
+    // `running` on CI. The budget is now wall-clock and explicit (see `settle`).
+    //
+    // `terminalMs` is deliberately left at its default: the backstop is the LAST resort, and this test
+    // pins the force-fail path, so shortening it would make the backstop win the race and assert the
+    // wrong mechanism (measured: at terminalMs 300 the run reaches `stopped` with the lane still
+    // `dispatching`).
     expect(await stopLoopRun(run.id, { graceMs: 250 })).toBe(true);
     await settle(run.id);
 

@@ -10,6 +10,12 @@
 // a zero bar: "not assessed" and "scored zero" are different statements about a repository.
 //
 // SERVER component (no hooks, no handlers) — it stays on the server side of the boundary.
+//
+// TYPE SCALE: every size here is a semantic `type-*` class (globals.css layer 2), not a raw
+// `text-sm`/`text-[11px]`. This card was one of four files in the app still on raw utilities after the
+// sweep that introduced the scale — and globals.css says that sweep "replaced every site" — so it sat
+// one pixel under every sibling surface on the same page (the tokens are re-based +1px) and named its
+// smallest text in absolute pixels rather than in the ramp's floor.
 
 import Link from "next/link";
 import { Kicker, Surface } from "@/components/ui";
@@ -34,7 +40,7 @@ const CHIP_TONE: Record<ProjectionChip["state"], string> = {
 function FormatChip({ chip }: { chip: ProjectionChip }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 font-mono text-[11px] ${CHIP_TONE[chip.state]}`}
+      className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 type-micro font-mono ${CHIP_TONE[chip.state]}`}
       title={`${chip.path} — ${chip.state}`}
     >
       <span className="truncate max-w-[14rem]">{chip.path}</span>
@@ -48,20 +54,20 @@ function CoherenceRow({ r }: { r: RepoCoherenceRow }) {
   return (
     <div className={`bg-ink px-5 py-4 ${r.assessed ? "" : "opacity-70"}`}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <Link href={`/report/${r.fullName}`} className="truncate font-mono text-sm text-white hover:text-accent">
+        <Link href={`/report/${r.fullName}`} className="truncate type-mono-sm text-white hover:text-accent">
           {r.fullName}
         </Link>
         <div className="flex items-baseline gap-2">
-          <span className="font-mono text-lg tabular-nums" style={{ color: hex }}>
+          <span className="type-lede font-mono tabular-nums" style={{ color: hex }}>
             {r.coherence != null ? r.coherence : "—"}
           </span>
-          <span className="font-mono text-xs uppercase tracking-[0.18em] text-slate-600">coherence</span>
+          <span className="type-label tracking-[0.18em] text-slate-600">coherence</span>
         </div>
       </div>
-      <p className="mt-1 text-sm text-slate-400">{r.verdict}</p>
+      <p className="mt-1 type-body-sm text-slate-400">{r.verdict}</p>
 
       {r.canonical ? (
-        <p className="mt-2 font-mono text-xs text-slate-500">
+        <p className="mt-2 type-caption text-slate-500">
           canonical: <span className="text-slate-300">{r.canonical}</span>
           {r.canonicalBasis ? <span className="text-slate-600"> · {BASIS_LABEL[r.canonicalBasis]}</span> : null}
         </p>
@@ -78,9 +84,9 @@ function CoherenceRow({ r }: { r: RepoCoherenceRow }) {
       {r.penalties.length ? (
         <ul className="mt-3 space-y-1">
           {r.penalties.map((p) => (
-            <li key={p.reason} className="text-xs text-slate-500">
+            <li key={p.reason} className="type-note text-slate-500">
               <span className="font-mono text-amber-300">−{p.points}</span> {p.reason}
-              <span className="block font-mono text-[11px] text-slate-600">{p.paths.join(" ↔ ")}</span>
+              <span className="block type-micro font-mono text-slate-600">{p.paths.join(" ↔ ")}</span>
             </li>
           ))}
         </ul>
@@ -89,15 +95,15 @@ function CoherenceRow({ r }: { r: RepoCoherenceRow }) {
       {r.contradictions.length ? (
         <ul className="mt-3 space-y-2 border-l border-slate-800 pl-3">
           {r.contradictions.slice(0, 4).map((c) => (
-            <li key={`${c.kind}:${c.subject}:${c.a.path}`} className="text-xs">
-              <span className="font-mono uppercase tracking-[0.14em] text-slate-600">
+            <li key={`${c.kind}:${c.subject}:${c.a.path}`} className="type-note">
+              <span className="type-label tracking-[0.14em] text-slate-600">
                 {c.kind} · {c.subject}
                 {c.confidence === "possible" ? " · possible" : ""}
               </span>
-              <span className="mt-0.5 block font-mono text-slate-400">
+              <span className="mt-0.5 block type-caption text-slate-400">
                 {c.a.path}: <span className="text-slate-300">&ldquo;{c.a.quote}&rdquo;</span>
               </span>
-              <span className="block font-mono text-slate-400">
+              <span className="block type-caption text-slate-400">
                 {c.b.path}: <span className="text-slate-300">&ldquo;{c.b.quote}&rdquo;</span>
               </span>
             </li>
@@ -128,7 +134,7 @@ export function GuidanceCoherenceCard({ rows }: { rows: RepoCoherenceRow[] }) {
         <Tile label="Contradicting" value={s.contradicting} sub="agent gets two answers" />
         <Tile label="Not assessed" value={s.unmeasured} sub="excluded from every share" />
       </div>
-      <p className="mt-3 text-sm text-slate-400">{s.headline}</p>
+      <p className="mt-3 type-body-sm text-slate-400">{s.headline}</p>
 
       {ordered.length ? (
         <div className={`mt-5 ${TILE_LEDGER}`}>
@@ -137,7 +143,10 @@ export function GuidanceCoherenceCard({ rows }: { rows: RepoCoherenceRow[] }) {
           ))}
         </div>
       ) : (
-        <InlineEmpty>No repository has been scanned under rubric r11 yet — re-scan to read the guidance layer.</InlineEmpty>
+        // State-aware, and from the model so it is unit-tested beside the headline it sits under: an
+        // org with NO repositories in scope was previously told to "re-scan", which is not a remedy it
+        // can act on. `emptyMessage` is non-null exactly when this branch renders.
+        <InlineEmpty>{s.emptyMessage}</InlineEmpty>
       )}
     </Surface>
   );

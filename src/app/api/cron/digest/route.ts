@@ -336,7 +336,15 @@ export async function GET(request: Request) {
       } else {
         // Delivery failed AFTER we claimed the window — RELEASE the claim so the next run retries this
         // org, rather than the window staying falsely marked sent (which would DROP the digest).
-        await releaseAuditClaim(claim.id);
+        //
+        // CAUGHT, like the same call in ./extra-alerts. Unhandled, a release failure threw past the
+        // `failed` counter AND past the AlertEvent row below into the per-org catch, so the one
+        // outcome that most needs a record — delivery failed and the window is still claimed, i.e.
+        // this org gets no digest at all — was the outcome that left none. A release that fails is
+        // worth an error line; it is not worth destroying the history row for the send.
+        await releaseAuditClaim(claim.id).catch((err: unknown) => {
+          errors.push(`${org}: digest claim release failed (${err instanceof Error ? err.message : "unknown"})`);
+        });
         failed += 1; // sink unresolvable at send time, non-2xx, or the deadline aborted the POST
       }
       // History row for the in-app drawer — the released claim forgets a failed window (so next run

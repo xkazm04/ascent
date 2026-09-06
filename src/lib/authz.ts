@@ -279,20 +279,17 @@ export async function hasOrgRole(org: string, min: OrgRole): Promise<boolean> {
 
 /**
  * Role-gated authorization — the RBAC layer over {@link requireOrgAccess}. Returns a NextResponse
- * (401/403) when the caller's role in `org` is below `min`, or null when allowed. Auth-off
- * deployments and PUBLIC_ORG are open, mirroring requireOrgAccess. Use for owner/admin-only actions:
- * billing/credit grants, member admin, destructive deletes. For "any member may act" use
- * requireOrgAccess; for reads use requireOrgRead.
+ * (401/403) when the caller's role in `org` is below `min`, or null when allowed. Role resolution is
+ * {@link viewerOrgRole}: an explicit Membership row wins, and an org with NO owner yet may be claimed
+ * only by a viewer who is provably entitled to it (their own personal namespace, or a GitHub-confirmed
+ * admin of the installed org). Auth-off deployments and PUBLIC_ORG are open, mirroring
+ * requireOrgAccess. Use for owner/admin-only actions: billing/credit grants, member admin, destructive
+ * deletes. For "any member may act" use requireOrgAccess; for reads use requireOrgRead.
  *
- * Role resolution is viewerOrgRole's, and NOT what this docstring used to claim. It said "otherwise
- * an installation-owner (sessionOwnsOrg) is treated as `owner` and seeded as one" — that path was
- * removed when the owner land-grab was closed, and this gate has not consulted sessionOwnsOrg since.
- * What actually happens: an explicit Membership row wins; an org that ALREADY has an owner is a hard
- * wall (invite or an owner assigning a role — no auto-claim, whatever installations the caller
- * holds); and only an ownerless org may be bootstrapped, to a viewer who is provably entitled to it
- * (their own personal namespace, or a GitHub-CONFIRMED admin of the org backing the installation).
- * A docstring promising a wider seeding rule than the code performs is how the next person
- * re-introduces the land-grab.
+ * This used to read "an installation-owner (sessionOwnsOrg) is treated as owner and seeded as one".
+ * That path was REMOVED with the retired custom-OAuth stack, and sessionOwnsOrg no longer participates
+ * in any gate in this file — a sentence describing a mechanism that no longer exists, on the function
+ * that decides who may administer an org, is the most expensive kind of stale comment there is.
  */
 export async function requireOrgRole(org: string, min: OrgRole): Promise<NextResponse | null> {
   const gate = await requireViewer();

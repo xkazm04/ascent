@@ -6,7 +6,9 @@
 // member | viewer (see src/lib/db/members.ts). This is the management surface that makes RBAC usable —
 // an org owner can grant a teammate `viewer` (read-only) or `admin` (destructive ops) without giving
 // them the GitHub App installation. Every privilege change is audited (the action that most needs a
-// trail). Resolution still treats an installation-owner as owner by default.
+// trail). Role resolution is authz.viewerOrgRole: a Membership row, or — for an org that has no owner
+// yet — an identity-verified claim (the viewer's own personal namespace, or a GitHub-confirmed admin
+// of the installed org). Merely holding the installation no longer confers owner.
 
 import { NextResponse } from "next/server";
 import { getMembershipRole, isDbConfigured, listOrgMembers, recordOrgAudit, removeMembership, setMembershipRole } from "@/lib/db";
@@ -87,6 +89,12 @@ export async function DELETE(request: Request) {
   if (denied) return denied;
   const outcome = await removeMembership(org, login);
   if (outcome === "not_found") return NextResponse.json({ error: "No such member." }, { status: 404 });
+  // Transient write failure (a serialization abort from two concurrent owner removals, a DB blip) —
+  // 503 + retry, never the 404 "No such member." that tells an admin the row is already gone when it
+  // is still there. Mirrors the POST's mapping of setMembershipRole's db_error.
+  if (outcome === "db_error") {
+    return NextResponse.json({ error: "Couldn't remove the member, try again." }, { status: 503 });
+  }
   if (outcome === "last_owner") {
     return NextResponse.json({ error: "Can't remove the last owner. Assign another owner first." }, { status: 409 });
   }

@@ -120,12 +120,21 @@ export function MovementSince({ movement }: { movement: Movement | null }) {
       ) : (
         <ul className="mt-1.5 space-y-1">
           {movement.items.map((it, i) => (
-            <li key={`${it.at}-${i}`} className="flex items-baseline justify-between gap-2 type-body-sm">
-              <span className="min-w-0 text-slate-300">
-                <span className="font-mono text-slate-200">{it.repo ?? "org"}</span>{" "}
-                <span className="text-slate-500">{movementEventLabel(it.event)}</span>
-              </span>
-              <span className="shrink-0 type-caption tabular-nums text-slate-500">{movementAgo(it.at)}</span>
+            <li key={`${it.at}-${i}`} className="type-body-sm">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="min-w-0 text-slate-300">
+                  <span className="font-mono text-slate-200">{it.repo ?? "org"}</span>{" "}
+                  <span className="text-slate-500">{movementEventLabel(it.event)}</span>
+                </span>
+                <span className="shrink-0 type-caption tabular-nums text-slate-500">{movementAgo(it.at)}</span>
+              </div>
+              {/* The persisted one-liner — what actually moved. It was read from Shared Org Memory,
+                  carried through the API and typed on this very interface, then dropped: every row
+                  rendered "acme/api regressed 1h ago", identical for a 3-point wobble and a two-band
+                  demotion, while the sentence that separates them sat unused on the client. */}
+              {it.summary.trim() !== "" && (
+                <p className="mt-0.5 line-clamp-2 type-caption text-slate-500">{it.summary}</p>
+              )}
             </li>
           ))}
           {movement.capped && (

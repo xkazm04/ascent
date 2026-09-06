@@ -13,6 +13,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalFsSource } from "./source";
+import { runGit } from "./git";
 import { createLoopWorktree, removeLoopWorktree, removeStrandedWorktrees } from "./loop-worktree";
 import { LINKABLE_DEPENDENCY_DIRS, linkDependencyDirs, unlinkDependencyDirs } from "./worktree-deps";
 
@@ -176,5 +177,23 @@ describe("the scan's file census", () => {
     const snapshot = await new LocalFsSource(wt.dir).fetchSnapshot({ owner: "acme", repo: "api" });
     expect(snapshot.tree.some((f) => f.path.startsWith("node_modules/"))).toBe(false);
     expect(snapshot.tree.map((f) => f.path).sort()).toEqual([".gitignore", "README.md", "package.json"]);
+  });
+
+  it("ignores the link in the FORM IT CREATED, not only as a directory", async () => {
+    // The invariant behind the census, asserted directly and platform-independently.
+    //
+    // The fixture ignores `node_modules/` — directory-only, like essentially every real repository.
+    // A junction (Windows) IS a directory to git and matches it; a symlink (POSIX) is a FILE and does
+    // not, so on Linux the link surfaced as untracked and inflated the lane's file count. The
+    // assertions above hid it because a junction host never reproduces it.
+    //
+    // Asserting the FILE form is what makes this test mean the same thing on both platforms: whichever
+    // link type was created, git must consider that path ignored.
+    const wt = await createLoopWorktree(repo, "acme/api", "20260906101018");
+    made.push(wt);
+    expect(wt.linkedDeps).toContain("node_modules");
+
+    const asFile = await runGit(wt.dir, ["check-ignore", "-q", "--", "node_modules"]);
+    expect(asFile.ok, "the linked path must be ignored in the form the link actually takes").toBe(true);
   });
 });

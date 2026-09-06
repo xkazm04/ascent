@@ -37,7 +37,11 @@ It never throws and returns `false` when no sink resolves or the POST fails.
 `isAlertConfigured(orgWebhookUrl?)` checks for the sink. Per-org sinks and per-org
 sensitivity (`alertOverallDrop` / `alertDimensionDrop`) are configured through
 `GET`/`POST /api/org/alerts` (admin-gated) and the dashboard's Alerts popover
-(`src/components/org/shared/AlertsControl.tsx`).
+(`src/components/org/shared/AlertsControl.tsx`). The two sensitivity fields are **independently
+optional** on the POST: a body carrying only one leaves the other exactly as stored. (Until
+2026-09-04 an absent key parsed to the same `null` an explicit clear produces, so a one-sided update
+silently reset the other threshold to its default — invisible from the popover, which always posts
+both.)
 
 ### Control transitions (moonshot #1)
 
@@ -243,6 +247,10 @@ new event system:
   when the popover opens.
 - **Count:** `getOrgMovementSince(orgSlug, since)` (`src/lib/db/org-movement.ts`): ONE bounded
   `OrgMemory` query with `take: MOVEMENT_CAP + 1`, so ">9" costs no second query. Hidden at zero.
+- **Rows:** repo + event label + age, and under each, the persisted one-line summary the memory
+  record carries (2026-09-04). Without it every row read "acme/api regressed 1h ago", identical for a
+  3-point wobble and a two-band demotion, while the sentence that separates them was already on the
+  client.
 - **Degrades:** auth-off deployments, the public org, a viewer with no membership, or any read
   failure answer `{ movement: null }` and the chip renders exactly as it did before.
 

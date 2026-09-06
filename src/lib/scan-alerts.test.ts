@@ -121,6 +121,42 @@ beforeEach(() => {
   mockBuildPromo.mockReturnValue({ text: "🎉 leveled up", blocks: [] } as never);
 });
 
+describe("checkAndAlertRegression — the ruler changing is not the repo moving", () => {
+  // A rubric bump re-scores every repo; the first scan after it diffs an r(N) report against an
+  // r(N-1) one and the delta measures the RULER, not the repository. The outcomes lane already keys
+  // every aggregate by rubricVersion for exactly this reason (lib/outcomes/aggregate.ts); the alert
+  // lane must not fire on it either. Registry: conformance-checking/edition-stratified-conformance.
+  function reportAt(rubricVersion: string | undefined): ScanReport {
+    const base = report("p", "p1");
+    return rubricVersion === undefined
+      ? base
+      : ({ ...base, engine: { provider: "mock", model: "m", rubricVersion } } as unknown as ScanReport);
+  }
+
+  it("prev scored under an OLDER rubric than fresh: no diff, no audit, no dispatch, rulerChanged", async () => {
+    mockDetect.mockReturnValue(REGRESSED);
+    mockWebhook.mockResolvedValue("https://hooks.example/acme");
+    const out = await checkAndAlertRegression(reportAt("r0"), report(), { orgSlug: "acme" });
+    expect(out.regressed).toBe(false);
+    expect(out.dispatched).toBe(false);
+    expect(out.rulerChanged).toBe(true);
+    expect(mockDiff).not.toHaveBeenCalled();
+    expect(mockDetect).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
+    expect(mockDispatch).not.toHaveBeenCalled();
+  });
+
+  it("a legacy prev row with no recorded rubric is UNKNOWN, not changed: the regression path still runs", async () => {
+    mockDetect.mockReturnValue(REGRESSED);
+    mockWebhook.mockResolvedValue("https://hooks.example/acme");
+    const out = await checkAndAlertRegression(reportAt(undefined), report(), { orgSlug: "acme" });
+    expect(out.regressed).toBe(true);
+    expect(out.rulerChanged).toBeUndefined();
+    expect(mockDetect).toHaveBeenCalledTimes(1);
+    expect(mockDispatch).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("checkAndAlertRegression — gate correctness", () => {
   it("no prev (first scan) is a clean no-op: no diff, no audit, no dispatch", async () => {
     const out = await checkAndAlertRegression(null, report(), { orgSlug: "acme" });

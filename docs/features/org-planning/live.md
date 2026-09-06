@@ -403,6 +403,26 @@ removed. The read side refuses the same pair independently; see the `undelivered
   (`Stopped, but 1 lane(s) did not terminate and were abandoned: acme/web#1`), and the registry entry
   is dropped so the org is not barred from arming another run. A run that cannot be interrupted must
   still reach a terminal phase; leaving `running` on the row is the one outcome that is a lie.
+
+  **And the stop now reaches the PROCESS** (2026-09-04, `src/lib/local/kill-tree.ts`). Freeing the
+  lane and ending the child were two different jobs, and only the first was done: the abort resolved
+  every lane's race, but nothing reached the `claude -p` child, which kept running — and kept
+  spending — until its own session timer, up to 90 minutes after the operator pressed Stop. The
+  watchdog now exposes its cut as an `AbortSignal` (`LaneWatchdog.signal`, aborted by the same
+  `fire()` that trips the stage race, on a deadline as well as a stop), the lane hands it to
+  `runClaudeAgent`, and the runner kills the process **tree**: `taskkill /PID <pid> /T /F` through
+  `execFile` on win32 (never a shell — the pid is an argument, not a command line), and on POSIX a
+  `detached: true` spawn plus `SIGTERM` then `SIGKILL` to the **negative** pid, i.e. the whole process
+  group. Measured on a Windows host (2026-09-04): a real grandchild behind a `shell: true` parent
+  **survived** `child.kill()` and **died** to `taskkill /T /F`.
+
+  **The kill is IN ADDITION to settling, never instead of it** — the invariant above is unchanged, and
+  nothing on the path that frees a lane waits for a `taskkill`. What the lane *does* wait for, briefly
+  (5 s, well inside `LANE_STOP_TERMINAL_MS`), is the runner's answer, so the force-fail sentence can
+  end with `The kill reported: agent process terminated (pid 4242).` **"Unconfirmed" is a real
+  outcome** and is printed as such — a pid the OS could not see, a process group we may not signal, or
+  a runner that never answered. It means an editing session **may still be running on that host**, and
+  a line claiming "terminated" when nothing was terminated would be worse than the silence it replaced.
 - **Lane error + retry.** A worktree that cannot be created is a lane error, not a run error. `retry`
   re-runs one lane on a **fresh worktree and a fresh branch off HEAD** — by the time anyone retries,
   the run has ended and its worktree is gone, and re-creating a worktree on the old branch would

@@ -17,7 +17,7 @@
 
 import { runGit } from "@/lib/local/git";
 import { LocalFsSource, isWorkingCopyDirty } from "@/lib/local/source";
-import { runClaudeAgent } from "@/lib/local/agent";
+import { runClaudeAgent, type AgentRunResult } from "@/lib/local/agent";
 import { buildFixPrompt, type FollowUpItem } from "@/lib/org/followups";
 import { getOrgBacklog } from "@/lib/db/org-insights";
 import { getCraftItems, getCraftLedger } from "@/lib/db/org-insights-craft";
@@ -327,6 +327,32 @@ const firstLine = (s: string, max = 160): string => s.split("\n").find((l) => l.
  *  session's REASON for producing nothing is ever written down, and 160 characters cut the L2
  *  certification's one live agent run off mid-word at "…blocked by the approv". */
 const AGENT_SUMMARY_CHARS = 400;
+
+/** How long the force-fail path waits for the agent runner to report what its process kill achieved.
+ *  Well inside `LANE_STOP_TERMINAL_MS`: a `taskkill` answers in tens of milliseconds, and the lane is
+ *  ALREADY FREE by the time this runs — the only thing the wait delays is the sentence. */
+const AGENT_KILL_NOTE_MS = 5_000;
+
+/**
+ * WHAT BECAME OF THE PROCESS, for the lane's own error line. No schema change: the runner puts its
+ * kill outcome in the summary it settles with, and this lifts that clause out into the sentence the
+ * outcome sheet already prints.
+ *
+ * A runner that does not answer inside the window gets the honest sentence rather than silence — an
+ * unconfirmed termination is a real outcome (a pid we cannot see, a process group we cannot signal)
+ * and the operator needs to know a `claude` session may still be running on their box.
+ */
+async function agentTerminationNote(pending: Promise<AgentRunResult> | null): Promise<string> {
+  if (!pending) return "";
+  const timed = new Promise<null>((resolve) => {
+    const t = setTimeout(() => resolve(null), AGENT_KILL_NOTE_MS);
+    (t as unknown as { unref?: () => void }).unref?.();
+  });
+  const summary = await Promise.race([pending.then((r) => r.summary).catch(() => null), timed]);
+  const found = summary ? /agent process (?:terminated|termination unconfirmed|had no live pid)[^.]*/.exec(summary) : null;
+  if (found) return ` The kill reported: ${found[0]}.`;
+  return " The kill reported: agent process termination unconfirmed — the runner did not answer before the lane ended.";
+}
 
 /**
  * The dimensions the repo's LATEST scan could not observe at all, as a set.
@@ -794,6 +820,9 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
   /** Every git call this lane makes, raced against the deadline: `execFile`'s own timeout kills the
    *  child but cannot promise its callback (see git.ts), and this is where that promise is kept. */
   const git = (args: readonly string[]) => watch.stage("git", () => runGit(worktree.dir, args));
+  /** The agent call this cycle dispatched, if it got that far — held so the force-fail path can say
+   *  what happened to the PROCESS after the watchdog cut the lane loose from it. */
+  let agentInFlight: Promise<AgentRunResult> | null = null;
 
   try {
     const beforeScanId = await getLatestScanIdForRepo(org, repo);
@@ -1053,19 +1082,26 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         // what the work should look like, and the contract is how the session reports on it.
         (brief ? `\n\nYOUR ORGANIZATION'S STANDARD:\n${brief.text}\n` : "") +
         laneReportContract(batch.map((b) => b.id));
-      const result = await watch.stage("agent", () =>
-        deps.runAgent({
-          cwd: worktree.dir,
-          prompt,
-          ...(input.agent?.model ? { model: input.agent.model } : {}),
-          ...(input.agent?.effort ? { effort: input.agent.effort } : {}),
-          // Conditional for the same reason the two above are: an ABSENT key lets the runner fall back
-          // to the deployment's own `ASCENT_AUTOPILOT_TIMEOUT_MS`, which is what every session before
-          // this parameter used. Passing an explicit null would say the same thing, but a lane that
-          // sends the key on every call is one refactor away from sending a 0.
-          ...(input.agent?.timeoutMs ? { timeoutMs: input.agent.timeoutMs } : {}),
-        }),
-      );
+      // THE STOP REACHES THE PROCESS. The call is held in `agentInFlight` before it is raced: the
+      // race rejects the moment the watchdog fires, long before a `taskkill` can answer, so the
+      // force-fail below awaits this promise briefly to report what the kill actually confirmed.
+      const agentCall = deps.runAgent({
+        cwd: worktree.dir,
+        prompt,
+        // The watchdog's cut, passed outward. A run stop or the lane's own deadline now ends the
+        // `claude -p` process TREE instead of leaving it running unmonitored against a run nobody
+        // is watching any more — in ADDITION to the race settling, never instead of it.
+        signal: watch.signal,
+        ...(input.agent?.model ? { model: input.agent.model } : {}),
+        ...(input.agent?.effort ? { effort: input.agent.effort } : {}),
+        // Conditional for the same reason the two above are: an ABSENT key lets the runner fall
+        // back to the deployment's own `ASCENT_AUTOPILOT_TIMEOUT_MS`, which is what every session
+        // before this parameter used. Passing an explicit null would say the same thing, but a lane
+        // that sends the key on every call is one refactor away from sending a 0.
+        ...(input.agent?.timeoutMs ? { timeoutMs: input.agent.timeoutMs } : {}),
+      });
+      agentInFlight = agentCall;
+      const result = await watch.stage("agent", () => agentCall);
       await appendLaneLog(
         laneId,
         `${result.ok ? "Agent finished" : "Agent failed"}: ${firstLine(result.summary, AGENT_SUMMARY_CHARS)}`,
@@ -1390,10 +1426,14 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     // the sentence and the recorded stage.
     if (isLaneDeadlineError(err)) {
       const where = err.stage ? `${LANE_STAGE_LABEL[err.stage]} (${err.stage})` : "no stage in particular";
+      // WHAT HAPPENED TO THE PROCESS, on the one stage that holds one. "Orphaned" used to be the
+      // whole truth about a cut agent session; the runner now kills its process tree, and this is
+      // where the lane records whether that was CONFIRMED — or honestly says it could not tell.
+      const killed = err.stage === "agent" ? await agentTerminationNote(agentInFlight) : "";
       return fail(
-        err.reason === "deadline"
+        (err.reason === "deadline"
           ? `Cycle ${cycle} was FORCE-FAILED: it exceeded its ${Math.round(watch.deadlineMs / 60_000)} min deadline while ${where} was in flight, so the lane was cut loose rather than left holding the run. Whatever that call was doing is orphaned; nothing it may still produce is committed, rescanned or delivered.`
-          : `Cycle ${cycle} was FORCE-FAILED: the run was stopped while ${where} was in flight and the call did not return, so the lane was cut loose rather than left holding the run.`,
+          : `Cycle ${cycle} was FORCE-FAILED: the run was stopped while ${where} was in flight and the call did not return, so the lane was cut loose rather than left holding the run.`) + killed,
         err.stage,
       );
     }
