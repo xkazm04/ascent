@@ -6,6 +6,7 @@
 // this block (nothing else on the card reads it), so it moves with the markup.
 
 import { useState } from "react";
+import { StateSwatch, STATE_HINT } from "@/components/org/viz";
 import type { PlaybookAdoption, PlaybookRow } from "@/lib/db";
 
 export function PlaybookAdoptionRow({
@@ -74,6 +75,18 @@ export function PlaybookAdoptionRow({
           <span className="text-slate-500">
             ({adoption?.measured ?? 0}/{adoption?.repos ?? 0} measured)
           </span>
+        </span>
+      )}
+      {/* An unmeasured lift used to render NOTHING, which is an unmarked absence: the reader cannot
+          tell "no repo has been scanned on both sides" from "we did not bother". The kit's hatch is
+          that absence, made pointable, and it carries the canonical caveat on hover/focus. */}
+      {lift == null && applied.length > 0 && (
+        <span
+          className="flex items-center gap-1.5 font-mono text-slate-500"
+          title={`Lift needs a scan on both sides of the adoption mark, and no adopting repository has one yet. ${STATE_HINT["not-judged"]}`}
+        >
+          <StateSwatch state="not-judged" size={12} />
+          lift not judged
         </span>
       )}
       {applied.length > 0 &&

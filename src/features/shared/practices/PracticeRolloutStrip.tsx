@@ -1,62 +1,91 @@
-"use client";
-
-// G7-20 — the "applied → landed → lift" rollup for the whole Practice Library, above the ledger.
+// G7-20 — what the Practice Library has put in motion, DRAWN.
 //
-// Every figure here is folded from rows already on screen (see summarizeRollout); nothing is fetched
-// or persisted for it. It renders only when something has actually been rolled out, and every average
-// states its sample — a lift backed by two repos is not a fleet result, and the strip says which it is
-// rather than letting a bare "▲ +9" imply the fleet moved.
+// This panel used to be four numbers under six descriptive props. The concept underneath it is a
+// matrix — every practice against every stage of its rollout — and four of those props were the
+// epistemic states the /org kit already defines, delivered as sentences the reader had to hold in
+// their head while looking at a strip that did not show them (docs/ORG-UX-REDESIGN.md §1 / A2).
+//
+// So first sight is the matrix (§2.2), the states are painted rather than asserted (§2.4), and the
+// demoted sentences ride on `WhyChip`s and the `Legend`'s row hints — reachable on focus, absent at
+// first sight (§2.1 D). The figures themselves live below it, unchanged.
+//
+// Every number is still folded from rows already on screen (`summarizeRollout`); nothing is fetched
+// or persisted for this panel.
+//
+// Server-safe: no hooks, no handlers of its own.
 
-import { rolloutIsMeaningful, type PracticeRollout } from "./practiceRows";
+import { Kicker } from "@/components/ui";
+import { InlineEmpty } from "@/components/org/shared/ui";
+import { Legend, MatrixGrid, WhyChip } from "@/components/org/viz";
+import { rolloutIsMeaningful, type PracticeRollout, type PracticeRow } from "./practiceRows";
+import { PracticeRolloutTotals } from "./PracticeRolloutTotals";
+import {
+  ROLLOUT_AXES,
+  ROLLOUT_HINT,
+  rolloutMatrixRows,
+  rolloutScopeLine,
+  rolloutVizStates,
+} from "./practiceRolloutViz";
 
-function Stat({ label, value, hint, tone }: { label: string; value: string; hint?: string; tone?: string }) {
+/**
+ * (O) — the argument the strip used to make above a populated panel now lives where a reader has
+ * nothing to look at and a genuine reason to act: before anything has rolled out.
+ */
+const NOTHING_ROLLED_OUT =
+  "Nothing has rolled out yet. Applying a practice opens a draft pull request the target repo's own reviewers approve; the lift it produced is measured only once a scan lands on the far side of the merge.";
+
+export function PracticeRolloutStrip({
+  rollout,
+  rows,
+  fleetSize,
+}: {
+  rollout: PracticeRollout;
+  /** The ledger's own rows — the matrix folds these, so it can never disagree with the table below. */
+  rows: readonly PracticeRow[];
+  /** The org's scannable repo count: the denominator the `Assessed` column is a share of. */
+  fleetSize: number;
+}) {
+  if (rows.length === 0) return null;
+  const vizRows = rolloutMatrixRows(rows, fleetSize);
+  const states = rolloutVizStates(vizRows);
+
   return (
-    <div className="min-w-[8rem]">
-      <div className="type-mono-sm uppercase tracking-widest text-slate-500">{label}</div>
-      <div className={`font-mono type-title font-bold tabular-nums ${tone ?? "text-white"}`}>{value}</div>
-      {hint && <div className="type-mono-sm text-slate-500">{hint}</div>}
-    </div>
-  );
-}
+    <section className="space-y-4 rounded-xl border border-divider bg-surface/40 p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <Kicker>rollout</Kicker>
+        <span className="type-mono-sm text-slate-500">{rolloutScopeLine(vizRows.length, rows.length, fleetSize)}</span>
+      </div>
 
-const liftText = (n: number) => (n > 0 ? `▲ +${n}` : n < 0 ? `▼ ${n}` : "± 0");
-const liftTone = (n: number) => (n > 0 ? "text-emerald-300" : n < 0 ? "text-orange-300" : "text-slate-400");
-
-export function PracticeRolloutStrip({ rollout: r }: { rollout: PracticeRollout }) {
-  if (!rolloutIsMeaningful(r)) return null;
-
-  return (
-    <div className="flex flex-wrap items-start gap-x-8 gap-y-4 rounded-xl border border-slate-800 bg-slate-950/40 p-4">
-      <Stat
-        label="Repos adopting"
-        value={String(r.adoptingRepos)}
-        hint={`across ${r.playbooksAdopted} playbook${r.playbooksAdopted === 1 ? "" : "s"}`}
-      />
-      <Stat
-        label="Starter PRs"
-        value={`${r.prsMerged} landed`}
-        hint={r.prsOpen > 0 ? `${r.prsOpen} still in flight` : "none in flight"}
-      />
-      {r.playbookLift != null ? (
-        <Stat
-          label="Playbook lift"
-          value={liftText(r.playbookLift)}
-          tone={liftTone(r.playbookLift)}
-          hint={`avg dimension points · ${r.playbookMeasured} measured adoption${r.playbookMeasured === 1 ? "" : "s"}`}
+      <div className="max-w-lg">
+        <MatrixGrid
+          axes={[...ROLLOUT_AXES]}
+          rows={vizRows}
+          title={`Practice rollout across ${fleetSize} ${fleetSize === 1 ? "repository" : "repositories"}`}
         />
+      </div>
+
+      <Legend states={states} />
+
+      {/* The four demoted column captions, one chip each: what the column measures and what its
+          hatch or its void means. Present on focus, absent at first sight. */}
+      <ul className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+        {ROLLOUT_AXES.map((axis) => (
+          <li key={axis} className="flex items-center gap-1.5">
+            <Kicker tone="muted" as="span">
+              {axis}
+            </Kicker>
+            <WhyChip hint={ROLLOUT_HINT[axis]} label={axis} />
+          </li>
+        ))}
+      </ul>
+
+      {rolloutIsMeaningful(rollout) ? (
+        <div className="border-t border-divider pt-4">
+          <PracticeRolloutTotals rollout={rollout} />
+        </div>
       ) : (
-        <Stat label="Playbook lift" value="—" hint="no repo has been scanned on both sides yet" />
+        <InlineEmpty>{NOTHING_ROLLED_OUT}</InlineEmpty>
       )}
-      {r.practiceLift != null ? (
-        <Stat
-          label="Practice PR lift"
-          value={liftText(r.practiceLift)}
-          tone={liftTone(r.practiceLift)}
-          hint={`avg dimension points · ${r.practiceLiftSources} practice${r.practiceLiftSources === 1 ? "" : "s"} measured`}
-        />
-      ) : (
-        <Stat label="Practice PR lift" value="—" hint="awaiting a post-merge rescan" />
-      )}
-    </div>
+    </section>
   );
 }

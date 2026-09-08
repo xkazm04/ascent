@@ -148,6 +148,44 @@ to the PR, labelled "Existing draft PR" when reused), or **Roll out to the fleet
 Errors surface inline. (Rewritten 2026-09-05; the previous text described the pre-tab card
 page.)
 
+### The rollout matrix (`/org` UX redesign wave 2, 2026-09-08)
+
+The library's headline reading is a **`MatrixGrid`** from the shared `/org` viz kit
+(`src/components/org/viz`), one row per practice against four stages, drawn before any table.
+The view model is pure and separately tested (`practiceRolloutViz.ts` /
+`practiceRolloutViz.test.ts`); `PracticeRolloutStrip.tsx` only paints it.
+
+| Axis | `measured` (solid) | `declared` (dashed) | `not-judged` (hatched) | `missing` (void) |
+| --- | --- | --- | --- | --- |
+| **Assessed** | share of the fleet scored on this dimension | — | no repo has ever been scored on it | — |
+| **Adopted** | share of the *assessed* repos embodying it | an authored playbook's recorded applications | never assessed | — |
+| **Landed** | a starter PR has merged | PRs in flight, none landed | — | never applied here |
+| **Verified** | a post-merge scan stamped the lift | — | landed, no rescan yet | nothing landed |
+
+Only **Assessed** and **Adopted** carry a number. `Landed` and `Verified` count pull requests,
+not maturity, and `MatrixGrid` paints a printed score on the red→green ramp — putting a PR count
+there would report a young rollout as a failing one, the misreading `PracticesTab`'s own
+`READING_HUE` constant already guards the tiles against.
+
+Two things are now structural rather than promised. A `not-judged` cell **cannot** print a
+number (`rendersValue` is false for that state), so "never assessed" can never render as a
+score; and a `missing` cell draws nothing at all, so "never applied" can never render as a zero.
+The four column captions the strip used to carry are `WhyChip`s beside the matrix, and the two
+unmeasured lifts show the `not-judged` swatch in place of their value instead of an em dash.
+
+### Never assessed is not "not adopted" (bug fixed 2026-09-08)
+
+`getOrgPractices` builds each practice's `total` from repos whose **latest scan carries
+dimensions**; a repo that has never been scanned leaves the denominator entirely. The old
+surfaces could not show that: a practice measured on 2 of 41 repos rendered the same full-width
+adoption meter as one measured on 41 of 41, and a practice with `total === 0` arrived in the
+ledger's adoption column as the same grey em dash a genuine zero would.
+
+Both are fixed. The matrix's **Assessed** column draws fleet coverage as its own reading, and
+`PracticeLedger`'s adoption cell now carries the state on the mark: `not-judged` + "not assessed"
+where no repo has been scored, `declared` beside an authored playbook's count (a recorded
+application, not an observation of the repo), `measured` beside a scan-derived share.
+
 ## Playbooks: the org's OWN standards (authored, not mined)
 
 Alongside the mined practices, the Practice Library lists **playbooks** an org authors for
@@ -180,8 +218,12 @@ halves:
   aggregate. Playbook lift is **sample-weighted** by `adoption.measured` so a one-repo
   playbook can't outvote a twelve-repo one, and it is reported SEPARATELY from practice-PR
   lift because the two are measured on different bases (adoption mark vs. a specific merged
-  PR). A null lift means "not measured yet" and never drags an average toward zero; the
-  strip renders nothing at all until something has actually been rolled out.
+  PR). A null lift means "not measured yet" and never drags an average toward zero — since
+  2026-09-08 it renders as the kit's `not-judged` mark rather than an em dash, so it cannot be
+  read as a zero. The FIGURES still render only once something has actually been rolled out;
+  before that the panel shows the matrix plus its zero state ("applying opens a draft PR the
+  target repo's own reviewers approve; the lift is measured only once a scan lands on the far
+  side of the merge"), never a row of confident zeros.
 
 ## Relationship to recommendations
 
@@ -207,7 +249,11 @@ straight at the CI-gates practice and its exemplars.
 | `src/lib/org/playbook-apply.ts` | The shared single-repo playbook write sequence (PR + adoption mark + audit). |
 | `src/features/shared/practices/PlaybookApplyBatch.tsx` | Playbook fleet-rollout UI (select, confirm, per-repo results). |
 | `src/features/shared/practices/promotePractice.ts` | Mined practice → playbook draft mapping (pure, bounded). |
-| `src/features/shared/practices/PracticeRolloutStrip.tsx` | Fleet "applied → landed → lift" rollup strip. |
+| `src/features/shared/practices/PracticeRolloutStrip.tsx` | The rollout panel: `MatrixGrid` first, totals below, zero state instead of zeros. |
+| `src/features/shared/practices/practiceRolloutViz.ts` | Pure view model: practice × (assessed, adopted, landed, verified) → kit states. Tested. |
+| `src/features/shared/practices/PracticeRolloutTotals.tsx` | The four fleet figures; an unmeasured lift renders the `not-judged` mark, not an em dash. |
+| `src/features/shared/practices/housePatternViz.ts` | Pure view model: the Read × Travels privacy matrix (contents = a void in both). Tested. |
+| `src/features/shared/practices/HousePatternPrivacy.tsx` | Draws it, with the provenance/privacy caveats on `WhyChip`s. |
 | `src/lib/practices/reconcile.ts` | **#33** — census × ledger → transitions. Pure; the whole drift table lives here. |
 | `src/lib/practices/registry-artifact.ts` | **#33** — a registry `PRACTICE.md` → a committable `ArtifactSpec`. Pure. |
 | `src/lib/db/practice-adoption.ts` | **#33** — the ledger: stamp on apply, reconcile at scan, summary + target sets. |
@@ -250,6 +296,16 @@ script inside a fence never reaches the shape.
 
 Mined shapes are **strictly org-internal**. `getOrgPracticeShapes` is org-scoped, there is no
 cross-org variant, and nothing derived from it appears on a public report or in the shared corpus.
+
+**The panel now shows this rather than promising it** (2026-09-08). `HousePatternPrivacy` opens
+the card with a two-column `MatrixGrid` — Read × Travels — over three rows: *Headings* and *Path
+layout* are `measured` in both columns, and *File contents* is a **void in both**. The void is
+the accurate encoding, not a stylistic one: the body is not extracted, so there is nothing to
+paint, in exactly the way the kit's `missing` state means "no measurement here, and never a
+zero". A reader who counts the empty cells has verified the guarantee instead of being told it.
+`housePatternViz.test.ts` pins the two voids, so giving the contents row a mark fails the suite.
+The panel's provenance ("your own repos, never a template") is a `measured` swatch plus a
+`WhyChip` carrying the `MIN_AGREEMENT` floor, taken as an argument rather than re-typed.
 
 ### The house pattern is AGREEMENT, not the best repo's copy
 
@@ -302,6 +358,14 @@ committed file says it is a copy and names the registry path it came from
 (`src/lib/practices/registry-artifact.ts`). An archived row or an empty body builds nothing, so a
 withdrawn practice is never redistributed. The section renders nothing when there are no
 registry-origin shapes, so an org that never mapped a registry sees no empty scaffolding.
+
+**Read-only is encoded, not asserted** (2026-09-08). The header sentence that said these are
+"changed by pull request, not here" is gone; the state it described is now a `declared` swatch
+(outline only, dashed — a claim this surface has not observed and cannot change) carrying the
+sentence as its `WhyChip` hint, and — decisively — the **absence of any edit affordance** on the
+rows. Nothing here offers an edit that then refuses: a row's two actions are *Open in registry*
+(which leaves for the file's own review process) and *Copy into a repo* (a draft PR into a
+different repo, never a write back).
 
 ## Adoption ledger — is it still there? (#33, 2026-08-30)
 
