@@ -1,11 +1,17 @@
 "use client";
 
-// One proposed rollup: the summary the model wrote, the evidence for trusting it (cohesion, confidence),
-// and — the part that must never be collapsed — the FULL LIST of memories that applying it would
-// supersede. A proposal card that showed only the summary would be asking for consent to retire things
-// the reader can't see.
+// One proposed rollup: the merge DRAWN, the summary the model wrote, the evidence for trusting it
+// (cohesion, confidence), and — the part that must never be collapsed — the FULL LIST of memories that
+// applying it would supersede. A proposal card that showed only the summary would be asking for
+// consent to retire things the reader can't see.
+//
+// `MergeCluster` is the first thing under the card, and it carries the two sentences the panel header
+// used to state for the whole page: the members are drawn SUPERSEDED (applying supersedes, never
+// deletes) and the summary is drawn DECLARED until applied (nothing is written until you click).
 
 import { memoryKindLabel } from "@/lib/org/memory-kinds";
+import { Legend } from "@/components/org/viz";
+import { MergeCluster } from "@/features/shared/memory/MergeCluster";
 import type { ReflectProposal } from "@/features/shared/memory/memoryReflect";
 
 const EXCERPT = 220;
@@ -25,7 +31,15 @@ export function MemoryReflectProposal({
 
   return (
     <div className="rounded-xl border border-slate-700 bg-slate-950/40 p-3">
-      <p className="type-body-sm text-slate-200">{summaryContent}</p>
+      {/* FIRST SIGHT: what applying would do to this family, before a word about it. */}
+      <MergeCluster
+        memberCount={memberIds.length}
+        memberLabels={members.map((m) => memoryKindLabel(m.kind))}
+        applied={applied}
+      />
+      <Legend className="mt-1" states={["superseded", applied ? "decided" : "declared"]} />
+
+      <p className="mt-2 type-body-sm text-slate-200">{summaryContent}</p>
 
       <p className="mt-1.5 type-caption tabular-nums text-slate-500">
         {memberIds.length} member{memberIds.length === 1 ? "" : "s"} · cohesion {cohesion.toFixed(2)} ·

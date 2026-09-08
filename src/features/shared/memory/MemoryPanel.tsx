@@ -12,6 +12,7 @@
 // (docs/ORG-TABS-REFACTOR.md §3).
 
 import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { MemoryTrust } from "@/features/shared/memory/MemoryTrust";
 import { MemoryList } from "@/features/shared/memory/MemoryList";
 import { MemoryFilterBar } from "@/features/shared/memory/MemoryFilterBar";
 import { MemoryAuthorForm } from "@/features/shared/memory/MemoryAuthorForm";
@@ -53,8 +54,13 @@ export function MemoryPanel({
       <SectionHeader
         size="sm"
         title="Shared Org Memory"
-        description="What your organization knows: decisions, findings and procedures that outlive the session they were learned in. Write once; every member (and their agents) can recall it. New writes are checked against what's already stored, so a correction replaces the memory it fixes instead of sitting beside it."
+        description="confidence 0–1 · the rows listed below"
       />
+
+      {/* FIRST SIGHT: how trusted the org's remembered knowledge actually is. The list below can
+          only ever show rows; the shape of the confidence axis is the thing a reader cannot
+          assemble by scrolling, and it is the axis recall ranks on. */}
+      <MemoryTrust memories={m.memories} loading={m.loading} />
 
       <MemoryFilterBar
         search={m.search}
@@ -73,12 +79,13 @@ export function MemoryPanel({
 
       <div className="mt-4">
         {m.memories.length === 0 ? (
+          // (O) The argument belongs here, where a reader has nothing to look at and a reason to act.
           <p className="type-body text-slate-500">
             {m.loading
               ? "Loading…"
               : m.filtered
                 ? "No memories match your filters."
-                : "Nothing remembered yet. Record the org's first durable memory below."}
+                : "Nothing remembered yet. This is what your organization knows: decisions, findings and procedures that outlive the session they were learned in. Write one below and every member — and their agents — can recall it."}
           </p>
         ) : (
           <MemoryList

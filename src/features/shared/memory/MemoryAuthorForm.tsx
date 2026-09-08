@@ -15,6 +15,7 @@
 // and MemoryFormState in MemoryTypes.ts — both extracted to keep this file under the 200-LOC .tsx cap
 // (docs/ORG-TABS-REFACTOR.md §3).
 
+import { WhyChip } from "@/components/org/viz";
 import { CheckVerdict } from "@/features/shared/memory/MemoryCheckVerdict";
 import { MemoryAuthorFormFields } from "@/features/shared/memory/MemoryAuthorFormFields";
 import type { CheckResponse } from "@/features/shared/memory/memoryCheck";
@@ -90,6 +91,13 @@ export function MemoryAuthorForm({
       )}
 
       <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+        {/* (D) The dedup half of the panel's old header paragraph, moved to where it is actually
+            relevant: the moment someone is about to write. */}
+        <WhyChip
+          align="end"
+          label="duplicate check"
+          hint="A new write is checked against what is already stored, so a correction can replace the memory it fixes instead of sitting beside it. The check is a guardrail, never a gate — Save is always available."
+        />
         {checking ? (
           <button
             onClick={onCancelCheck}

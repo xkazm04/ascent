@@ -19,6 +19,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { FlowRibbon } from "@/components/org/viz";
 import { MemoryReflectProposal } from "@/features/shared/memory/MemoryReflectProposal";
 import {
   reflectOutcomeCopy,
@@ -95,7 +96,6 @@ export function MemoryReflectPanel({ slug, canWrite }: { slug: string; canWrite:
       <SectionHeader
         size="sm"
         title="Reflect: roll up what repeats"
-        description="Memory grows by accretion: six notes about one incident are six recall-budget entries that together say one thing. Reflect clusters what restates the same subject and asks the model for a single summary. Nothing is written until you apply a proposal, and applying supersedes the members rather than deleting them."
         right={
           canWrite ? (
             <button
@@ -117,18 +117,43 @@ export function MemoryReflectPanel({ slug, canWrite }: { slug: string; canWrite:
         }
       />
 
+      {/* FIRST SIGHT: the funnel this pass actually is — how many memories were read, how many
+          families the deterministic clustering found, how many rollups the model was willing to
+          propose. The gap between the last two is the model declining, which is a real answer. */}
+      {result ? (
+        <>
+          <FlowRibbon
+            className="mt-3"
+            title="Reflection pass"
+            stages={[
+              { id: "considered", label: "Considered", value: result.consideredCount },
+              { id: "families", label: "Families", value: result.clusterCount },
+              {
+                id: "proposals",
+                label: "Proposals",
+                // No engine means the model was never asked: an absence, not a zero.
+                value: result.llmUnavailable ? null : result.proposals.length,
+                state: "declared",
+              },
+            ]}
+          />
+          <p className="mt-1 type-caption text-slate-500">
+            {result.llmUnavailable ? "no model engine" : `judged by ${result.engine}`}
+          </p>
+        </>
+      ) : (
+        // (O) The argument, where the reader has nothing to look at and a reason to press the button.
+        <p className="mt-3 type-body-sm text-slate-500">
+          Memory grows by accretion: six notes about one incident are six recall-budget entries that
+          together say one thing. Reflect clusters what restates the same subject and asks the model
+          for a single summary.
+        </p>
+      )}
+
       {!canWrite && (
         <p className="mt-3 type-body-sm text-slate-500">
           Reflection spends a model call and can supersede memories, so it follows the same entitlement as
           writing: a member on a Team plan, or your personal workspace.
-        </p>
-      )}
-
-      {result && (
-        <p className="mt-3 type-caption text-slate-500">
-          considered {result.consideredCount} active memor{result.consideredCount === 1 ? "y" : "ies"} ·{" "}
-          {result.clusterCount} candidate famil{result.clusterCount === 1 ? "y" : "ies"} ·{" "}
-          {result.llmUnavailable ? "no model engine" : `judged by ${result.engine}`}
         </p>
       )}
 
