@@ -1592,10 +1592,57 @@ and a 202 on a payload it cannot parse would read to the collector as "delivered
 ever persists. `/v1/logs` authenticates and 202-accepts without parsing; the token/cost signal
 lives in metrics; folding log events into usage is a later step.
 
+## The shared visual kit (`src/components/org/viz/`, 2026-09-08)
+
+The org dashboard's long-standing habit was to *narrate* a reading and then show a table under it.
+The [/org UX redesign](../../ORG-UX-REDESIGN.md) reverses that, and Wave 0 of it is this kit: one
+dependency-free SVG vocabulary that every tab imports from `@/components/org/viz`, so five parallel
+redesigns cannot each invent their own gauge, hatch or dash pattern.
+
+**The epistemic state vocabulary (`states.ts`) is the load-bearing piece.** Six states, one
+definition, imported everywhere — never re-declared in a feature directory:
+
+| State | Encoding | The sentence it replaces |
+| --- | --- | --- |
+| `measured` | solid fill, full opacity | — |
+| `declared` | no fill, dashed 1px outline (`DECLARED_DASH`) | "declared, not enforced" |
+| `not-judged` | the shared 45°/2px hatch (`HATCH_ID`), **no value printed** | "not judged, never as passing" |
+| `missing` | a void — nothing drawn, a gap in the lane, an empty cell | "an em dash is a missing measurement, not a zero" |
+| `decided` | a 2px brand-accent ring around the mark | "the tier a scan derives is a measurement; admission is the decision" |
+| `superseded` | 50% opacity plus a strikethrough rule | "supersedes rather than deletes" |
+
+`STATE_LABEL` is the short label; `STATE_HINT` is the one-sentence caveat, and it is where the
+demoted prose lands — it is the generated `<title>` on the shape, the legend row's tooltip, and the
+body of a `WhyChip`. `rendersValue(state)` is the guard that stops `not-judged` and `missing` from
+ever printing a numeral, which is the part prose could not enforce. `VizDefs` renders the one hatch
+`<defs>`; nothing else in the repo may define a second one.
+
+| Component | Shape | Built for |
+| --- | --- | --- |
+| `Legend` / `StateSwatch` | symbol-first legend, **only the states present in the data** | every panel that uses more than one state |
+| `WhyChip` | keyboard-reachable ⓘ disclosure holding one caveat | the (D) Disclosed target for a demoted sentence |
+| `Distribution` | min–q1–median–q3–max strip with a "you" marker | contributors, developer |
+| `BandLadder` | nested bands + the edge that crosses without a declaration | governance stance, passport clearance |
+| `BudgetPack` | used-vs-budget fill plus omission blocks grouped by reason | memory recall (it shows the losers) |
+| `FlowRibbon` | 3-stage proportional ribbon; an absent stage breaks the ribbon | delivery unit economics |
+| `StateTrack` | state-over-time lanes, change markers, unobserved intervals as voids | governance control ledger, adoption |
+| `MatrixGrid` | declared × observed × enforced heat matrix | passports, practices, settings |
+| `ConcentrationCurve` | Lorenz curve, gini area, marked bus-factor knee | contributors, teams |
+
+Every component: `role="img"` with an `aria-label` and a `<title>` **generated from the same props
+the geometry is** (the `ProvenanceTrack` discipline — the accessible text cannot drift from the
+picture); an `sr-only` `<table>` equivalent; entrance-only motion gated on `usePrefersReducedMotion`
+(`@/components/report/chartMotion`); `tabular-nums` figures and `Kicker`-voiced labels; and a
+non-finite guard on every geometry input, so a NaN degrades to a labelled placeholder rather than a
+silently broken path. Props are plain data — no fetching, no db imports, and no function props (the
+charts are client components, so the caller passes pre-formatted tick labels rather than a
+formatter). Colour comes from `LEVEL_HEX`/`scoreHex` and the CSS tokens; never a hand-picked hex.
+
 ## Key files
 
 | File | Role |
 | --- | --- |
+| `src/components/org/viz/` | The shared visual kit (above): `states.ts` (the six-state vocabulary, `VizDefs`, `stateFill`/`stateStroke`), `Legend`/`StateSwatch`/`WhyChip`, and the seven charts. One `.dom.test.tsx` each. |
 | `src/lib/db/org.ts` | Barrel re-exporting the org rollup/aggregate queries (rollup, movers, recs, benchmark, gaps, practices, contributors, **teams** (`getOrgTeamRollup`/`rollupTeams`), governance, activity, PR signals, discrepancies) from the `org-*.ts` sub-modules above. Each fleet aggregate takes an optional `segmentId` to scope it. |
 | `src/lib/db/segments.ts` | User-defined **segments** (`Segment`/`RepoSegment` tags): CRUD + membership, `listTaggableRepos` (the tag manager's repo universe), per-segment summaries, and the side-by-side `compareSegments` (pure diff `buildSegmentComparison`, unit-tested). |
 | `src/components/org/shared/SegmentSelector.tsx` · `RepoSegmentsPanel.tsx` · `SegmentComparePicker.tsx` | Overview/Contributors segment filter (its "+ Create a segment →" pointer links to `?tab=segments`) · the Segments-view tag manager · A-vs-B comparison picker. |
