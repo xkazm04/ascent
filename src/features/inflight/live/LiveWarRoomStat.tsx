@@ -43,7 +43,7 @@ export function HeadlineStrip({
   return (
     <section
       aria-label="Fleet headline metrics"
-      className="mt-6 grid grid-cols-2 overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/40 lg:grid-cols-4"
+      className="mt-6 grid grid-cols-2 overflow-hidden rounded-2xl border border-divider bg-surface/40 lg:grid-cols-4"
     >
       <StatCell
         label="Org maturity"
@@ -60,7 +60,7 @@ export function HeadlineStrip({
         color={stats.avgAdoption == null ? undefined : scoreHex(stats.avgAdoption)}
         delta={deltas?.adoption}
         scale={scale}
-        className="border-l border-slate-800"
+        className="border-l border-divider"
       />
       <StatCell
         label="Engineering Rigor"
@@ -68,7 +68,7 @@ export function HeadlineStrip({
         color={stats.avgRigor == null ? undefined : scoreHex(stats.avgRigor)}
         delta={deltas?.rigor}
         scale={scale}
-        className="border-t border-slate-800 lg:border-l lg:border-t-0"
+        className="border-t border-divider lg:border-l lg:border-t-0"
       />
       {/* live-war-room 07-16 #4: the old `${n}/${stats.scored || stats.total}` silently swapped the
           denominator from "repos scored" to "whole fleet" when nothing was scanned yet — and hid the
@@ -82,7 +82,7 @@ export function HeadlineStrip({
         render={(n) => (stats.scored > 0 ? `${n}/${stats.scored}` : "—")}
         sub={stats.scored > 0 ? `of ${stats.scored} scored` : "no scans yet"}
         scale={scale}
-        className="border-l border-t border-slate-800 lg:border-t-0"
+        className="border-l border-t border-divider lg:border-t-0"
       />
       {/* G6-07: the settled voice of the four tiles. Empty until the numbers actually move and the
           run finishes — see useSettledAnnouncement. */}

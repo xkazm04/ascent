@@ -8,7 +8,12 @@ import Link from "next/link";
 import { Meter } from "@/components/org/shared/ui";
 import { PaceChip, goalBasisMarker, goalMeterAriaLabel, type GoalProgressView } from "@/components/org/shared/goalView";
 import { scoreHex } from "@/lib/ui";
+import { DIRECTION_TONE, deltaHex, signedDelta, toneFor } from "@/components/ui";
 import { orgTabHref } from "@/lib/org/orgTabs";
+
+/** An attained goal is not a score — it is a reached target, so it takes the brand success token
+ *  rather than a hand-picked emerald. Below attainment the meter keeps the score ramp. */
+export const goalMeterColor = (goal: GoalProgressView) => (goal.achieved ? "var(--color-success)" : scoreHex(goal.current));
 
 /** Days until a YYYY-MM-DD deadline (negative = past, 0 = due today). null when no date.
  *
@@ -43,7 +48,7 @@ export function GoalBanner({
   const toGoal = Math.max(0, goal.target - goal.current);
   const basisMarker = goalBasisMarker(goal);
   return (
-    <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+    <div className="mt-4 rounded-2xl border border-divider bg-surface-strong/40 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <span className="type-mono-sm uppercase tracking-widest text-accent">Goal</span>
@@ -61,7 +66,7 @@ export function GoalBanner({
         className="mt-2.5"
         value={goal.current}
         threshold={goal.target}
-        color={goal.achieved ? "#34d399" : scoreHex(goal.current)}
+        color={goalMeterColor(goal)}
         ariaLabel={goalMeterAriaLabel(goal)}
       />
       <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 type-mono-sm text-slate-400">
@@ -71,9 +76,10 @@ export function GoalBanner({
           {goal.achieved ? " · reached 🎉" : ` · ${toGoal} to goal`}
         </span>
         {campaignDelta != null && (
-          <span className={campaignDelta > 0 ? "text-emerald-300" : campaignDelta < 0 ? "text-orange-300" : "text-slate-500"}>
-            {campaignDelta > 0 ? "+" : ""}
-            {campaignDelta} since kickoff
+          // The brand direction triad, not a third local copy of it — same noise band the headline
+          // strip and the movers ticker now read from, so one wall never shows two verdicts on +1.
+          <span style={{ color: deltaHex(campaignDelta) }}>
+            <span aria-hidden>{DIRECTION_TONE[toneFor(campaignDelta)].arrow}</span> {signedDelta(campaignDelta)} since kickoff
           </span>
         )}
         {countdown != null && (

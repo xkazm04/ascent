@@ -17,7 +17,7 @@ export function Leaderboard({
   const shown = repos.slice(0, LEADER_MAX);
   const overflow = Math.max(0, repos.length - LEADER_MAX);
   return (
-    <div className={`rounded-2xl border border-slate-800 bg-slate-900/40 p-6 ${className}`}>
+    <div className={`rounded-2xl border border-divider bg-surface/40 p-6 ${className}`}>
       <div className="flex items-center justify-between">
         <h3 className="type-mono-sm uppercase tracking-widest text-accent">Fleet leaderboard</h3>
         {readOnly ? (
@@ -41,7 +41,7 @@ export function Leaderboard({
                   {r.name}
                 </span>
                 {r.level && <span className="hidden shrink-0 type-mono-sm text-slate-500 sm:inline">{r.level}</span>}
-                <div className="hidden h-1.5 w-28 shrink-0 overflow-hidden rounded-full bg-slate-800 sm:block">
+                <div className="hidden h-1.5 w-28 shrink-0 overflow-hidden rounded-full bg-divider sm:block">
                   <div
                     className="h-full rounded-full transition-all duration-500 motion-reduce:transition-none"
                     style={{ width: `${r.overall}%`, backgroundColor: color }}
@@ -67,7 +67,7 @@ export function Leaderboard({
               <Link
                 key={r.fullName}
                 href={reportPermalink(r.fullName)}
-                className={`${rowClass} focus-ring hover:bg-slate-800/60`}
+                className={`${rowClass} focus-ring hover:bg-divider/60`}
                 style={{ top: i * ROW_H }}
               >
                 {row}

@@ -142,7 +142,7 @@ export function LiveWarRoom({
           {/* Needs attention: watched repos whose last scan attempt failed. Each name jumps to the repo's
               report (its last good standing + error context) so the wall points at the fix, not just the fact. */}
           {!readOnly && attention && attention.length > 0 && (
-            <p className="mt-3 rounded-lg border border-orange-500/30 bg-orange-500/5 px-3 py-2 type-mono-sm text-orange-300">
+            <p className="mt-3 rounded-lg border border-warn/30 bg-warn/5 px-3 py-2 type-mono-sm text-warn">
               {attention.length} {attention.length === 1 ? "repo" : "repos"} failed the last scan:{" "}
               {attention.slice(0, 3).map((r, i) => (
                 <span key={r.fullName}>
@@ -150,7 +150,7 @@ export function LiveWarRoom({
                   <Link
                     href={reportPermalink(r.fullName)}
                     title={r.error ?? undefined}
-                    className="underline decoration-orange-500/50 underline-offset-2 hover:text-white"
+                    className="underline decoration-warn/50 underline-offset-2 hover:text-white"
                   >
                     {r.name}
                   </Link>

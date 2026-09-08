@@ -2873,3 +2873,130 @@ clean worktree), `lane-outcomes.identity.test.ts` (a re-derived row still deferr
 `claimedTrailerIds`' three cases; a verified+claimed craft row closing, an unverified or unclaimed one
 not, and a gap row never), and `org-insights-craft.claimed.test.ts` (a claimed rung in the built read,
 the 61-title case collapsing to one, another repo's claim ignored, and the odometer still strict).
+
+---
+
+## The wall's chrome, converged on the /org state vocabulary (2026-09-08)
+
+The [/org UX redesign](../../ORG-UX-REDESIGN.md) classifies Live as **"C — targeted: header/legend
+pass only, no re-architecture."** Live is the largest feature directory in the dashboard, it carries
+durable `LoopRun` state and an SSE stream, and `resolveLandingTab` sends a returning org straight to
+it while its loop runs — so it is the riskiest surface to rewrite and, because it already draws (the
+Observatory field, the timetable grid, the stage rail), the least valuable one to rewrite. This pass
+changed **chrome only**. No panel was re-architected, no streaming behaviour touched, no
+server↔client boundary moved.
+
+### A day with no scan is a void, not a low score
+
+The fleet-evolution timetable (`LiveWarRoomTimetable` / `LiveWarRoomTimetableLedger`) is the main
+wall's centerpiece: repos × scan days, each cell an overall score. `buildFleetTimetable` was already
+honest in the DATA — a repo with no scan that day is `null`, `columnAverages` returns `null` for a
+column with no readings rather than averaging nothing, and a row with fewer than two readings has a
+`null` evolution delta. **The render was not.** The same absence printed three different ways on one
+grid: a `·` in a hand-picked slate for a body cell, an em dash for the fleet-average footer, and
+another em dash for the Δ column — with nothing anywhere on the wall saying that any of them meant
+"not scanned" rather than "scored nothing".
+
+All three now draw the **one** `missing` mark from `@/components/org/viz` (`StateSwatch`: the broken
+rule with the gap between its stubs), each carrying `STATE_HINT.missing` — *"No measurement for this
+interval — an absence, never a zero"* — as its title, and the grid renders a `Legend` row for the
+void **only when it actually holds one**. A measured `0` still prints as `0` in its level colour: a
+scan that scored zero is a measurement, and the two must not look alike.
+
+`LiveWarRoomTimetable.dom.test.tsx` pins exactly that: a void prints no numeral, a measured zero
+does, and a fully-scanned window is not taught an encoding it cannot see.
+
+### The sum of nothing is null
+
+`opsImpact` (`liveWarRoomOpsShared.tsx`) reduces the verified landed PRs into the ship loop's
+headline number. Reducing an empty set gives `0`, and a `0` in that slot is a **verdict** — "the loop
+shipped no measurable movement" — for a wall whose real state is "nothing has been rescanned, so
+nothing has been measured." `netOverall` is now `number | null`, null until something is verified,
+and both readouts (`ShipLoopPipeline`'s Σ tile and the TV `NetImpact` card) draw the void with the
+kit's caveat instead of reporting `→0` as an achievement. Pinned by `liveWarRoomOpsShared.test.ts`,
+which also holds the other side of the rule: a rescan that measured no movement reports a genuine
+`0`, because that *is* a measurement.
+
+### One direction triad, one noise band
+
+Three panels each carried their own copy of "which way did it move": the movers ticker
+(`>0 ? #84cc16 : #f97316`), the headline strip's campaign chip (`text-emerald-300` / `text-orange-300`
+and its own arrows), and the goal banner's "since kickoff" line. All three now read from the brand's
+single `DIRECTION_TONE` / `deltaHex` / `signedDelta` triad in `@/components/ui`.
+
+This was not only a palette convergence. The hand-rolled copies had **no noise band and no
+non-finite guard**, which `toneFor` supplies: a within-noise `+1` (|Δ| ≤ `SCORE_NOISE_BAND`) wore the
+same confident lime ▲ as a `+12` on a projected wall, and a `NaN` delta from a missing baseline
+rendered as a confident *decline*. Arrows stay `aria-hidden` beside the signed number — screen
+readers read "▲" inconsistently, which is why `warRoomAnnounce` speaks in words.
+
+### No hand-picked hexes on the wall
+
+Nine literal hexes across six files are gone: `#84cc16`/`#f97316` → `deltaHex`, `#34d399` (the
+attained-goal green, duplicated in the banner and the TV stage) → one exported `goalMeterColor`
+reading `var(--color-success)`, `#334155` → the void mark, `#64748b` → `currentColor` /
+`var(--color-tone-flat)` / the muted text class, `#0b1322` → `var(--color-ink)`, `#fff` →
+`text-white`. A six-hex-digit grep over `src/features/inflight/live` now matches nothing outside
+tests.
+
+**`POSTURE_HEX` and `LEVEL_HEX`/`scoreHex` stay.** They are categorical/ordinal identity ramps — a
+posture is an identity and a level is an ordinal position, neither is an epistemic state — the same
+call tech-stacks made for `STACK_COLORS`. Only their *fallbacks* became tokens.
+
+The panel chrome converged with them: `border-slate-800` → `border-divider`, `bg-slate-900/40` →
+`bg-surface/40`, `bg-slate-950/40` → `bg-surface-strong/40` (byte-identical colours; `divider` is
+documented in `globals.css` as the token that replaces exactly this drift), raw `emerald-300/400/500`
+→ `success-soft`/`success`, error text → `text-danger-soft` so an error on this wall looks like an
+error everywhere else on it, and the needs-attention banner onto the same `warn` tokens its sibling
+skipped-repos banner already used. `border-slate-700` on controls is deliberately **kept**: a control
+border that reads as a hairline rule is not the same component.
+
+### What the header stopped saying
+
+The war-room header's lede — *"The whole org's scan, live: tiles climb, the leaderboard reshuffles,
+and every repo that crosses into AI-Native lights up the wall"* — narrated the animation the wall
+performs one element below it. It is documentation of this surface (it is now the paragraph above),
+not chrome for it. What replaced it is unit and window: `org-wide scan · overall score per repo`.
+
+### What deliberately stayed, and why
+
+- **`CockpitSetup`'s four paragraphs** (`hosted`, `no-repos`, `autopilot-off`, `not-owner`). Every
+  branch of that component *is* a degraded/empty state, which is the redesign's own designated home
+  (O) for exactly this copy. Live's densest prose was already sitting where the law wants it.
+- **`CockpitThroughputControls`' verify-mode copy and `AutopilotBand`'s dispatch line.** These
+  explain what a control the operator is about to flip will *do* — execute the repository's own check
+  inside a worktree, record lanes as UNVERIFIED, dispatch an editing agent into a real working copy.
+  A live operational surface legitimately says that, and shortening it would remove a consequence
+  disclosure, not a decoration.
+- **`ShipLoopBand`'s header** (`Ship loop` + `identify → triage → PR → merge → rescan → impact`).
+  Already a noun phrase plus a 46-character stage line, with its caveats already in `title`s. Nothing
+  to demote.
+- **The goal banner's deadline ramp** (`text-orange-300` past / `text-amber-300` within 7d /
+  `text-slate-400`). A deliberate three-step urgency ramp with no matching token triad; converting
+  one step would break the ramp to gain a token.
+- **The wall's em dashes at display scale** — the headline `StatCell` and the two net-impact
+  readouts. A 12px broken rule is not readable from four metres, which is the whole point of these
+  numerals, so they keep the dash and gain `stateTitle("missing", …)` as its disclosure. The kit's
+  structural rule still holds: a void never prints a *numeral*.
+- **Always-on motion** (`live-dot`, `animate-pop-in`, `animate-burst`, `burst-ring`). Untouched, and
+  already correct: `globals.css` sets `animation: none` for all four under
+  `@media (prefers-reduced-motion: reduce)`.
+
+### Recommendations this pass judged out of scope
+
+- **`ShipLoopPipeline`'s stage rail is a `FlowRibbon` that is drawn as four buttons.** Triage →
+  in-flight → landed → Σ is exactly the kit's 3-stage-plus-terminal shape, and a ribbon would encode
+  the proportions the counts currently only state. It was left alone because each node is *also* the
+  selector for the detail tray below it, so adopting `FlowRibbon` means redesigning the interaction,
+  not the drawing — re-architecture, which this pass is explicitly not.
+- **A run's stage travel is a `StateTrack` and is currently a rail of pills** (`LaneRail`,
+  `laneStages.ts`, `liveTvStages.ts`). A loop is a state machine over time and the kit has that
+  shape. Two things must be settled first, and neither is a chrome decision: whether a lane that has
+  not *reported* a stage is distinguishable in the data from one that ran a zero-duration stage (it
+  is not, today — the lane row carries the lane's current `stage`, not a per-stage interval, so an
+  unreported stage and an instantaneous one are the same absence), and what the track does with a
+  live, still-advancing run.
+- **The outcome sheet's `—` cells** (`OutcomeSheetHeader`, `OutcomeSheetRow`, `outcomeText.ts`).
+  Same void-vs-zero family as the timetable, but the sheet is an auditable row-level evidence table
+  and its dashes are load-bearing across the economics columns; converging it is a panel-sized change
+  with its own test surface.
