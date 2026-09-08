@@ -5,24 +5,21 @@
 // is ONE large shared radar overlaying the active stacks so the whole fleet's shape comparison reads
 // in a single eyesight. CONTROLLED: the selection lives in the parent (TechStacksAnalysis) so the
 // same toggle also scopes the dimension analysis below — one selection drives both.
+//
+// The paragraph that used to sit over the radar ("color = stack · radius = each dimension's score ·
+// hover a stack to isolate it") was a legend written as prose. Colour-is-identity is the rail's own
+// swatch, radius-is-score is the ring ticks the chart already labels 25/50/75/100, and the hover
+// affordance is now each row's `title`. What prose could NOT do is say which marks are absent — that
+// is the kit `Legend` below the radar, showing only the states this selection actually contains.
 
-import Link from "next/link";
+import { Legend } from "@/components/org/viz";
 import { Surface } from "@/components/ui";
-import { postureLabel } from "@/components/org/shared/ui";
 import type { SegmentSummary } from "@/lib/db";
-import { scoreHex } from "@/lib/ui";
 import { StackRadarChart, type RadarSeries } from "@/features/standing/tech-stacks/StackRadarChart";
+import { StackRow } from "@/features/standing/tech-stacks/StackRow";
+import { dimValues, stackState } from "@/features/standing/tech-stacks/stackMeasure";
 import { stackColor } from "@/features/standing/tech-stacks/stackViz";
-import { orgTabHref } from "@/lib/org/orgTabs";
-
-/** repositories tab href with a `?stack=`/scope query appended, whichever separator the base needs. */
-function repositoriesHref(org: string, query: string): string {
-  const base = orgTabHref(org, "repositories");
-  if (!query) return base;
-  return `${base}${base.includes("?") ? "&" : "?"}${query.replace(/^\?/, "")}`;
-}
 import type { AnalysisScope } from "@/features/standing/tech-stacks/analysisScope";
-import { buildUrl } from "@/lib/org/orgTabs";
 
 interface Props {
   org: string;
@@ -39,11 +36,6 @@ interface Props {
   onToggleAll: () => void;
   onHover: (id: string | null) => void;
 }
-
-const valuesFor = (s: SegmentSummary, dims: string[]): number[] => {
-  const byId = new Map(s.dimAverages.map((d) => [d.dimId, d.avg]));
-  return dims.map((d) => byId.get(d) ?? 0);
-};
 
 /** Select-all / deselect-all icon toggle — a check appears when every entity is shown. */
 function SelectAllButton({ allActive, nounPlural, onToggle }: { allActive: boolean; nounPlural: string; onToggle: () => void }) {
@@ -63,55 +55,20 @@ function SelectAllButton({ allActive, nounPlural, onToggle }: { allActive: boole
   );
 }
 
-/** One list item: the top line (swatch + full-width name + score) is the show/hide toggle; the
- *  posture + repos/brief links sit on their own line beneath, so a long name (both backends read
- *  "Backend · …") never truncates away its language. */
-function StackRow({ org, s, color, scopeQ, active, onToggle, onHover, onLeave }: {
-  org: string; s: SegmentSummary; color: string; scopeQ: (id: string | null) => string; active: boolean;
-  onToggle: () => void; onHover: () => void; onLeave: () => void;
-}) {
-  return (
-    <li
-      className={`rounded-lg px-2 py-1.5 transition hover:bg-surface/60 ${active ? "" : "opacity-45"}`}
-      onMouseEnter={onHover}
-      onMouseLeave={onLeave}
-    >
-      <button
-        type="button"
-        onClick={onToggle}
-        onFocus={onHover}
-        onBlur={onLeave}
-        aria-pressed={active}
-        className="focus-ring flex w-full items-center gap-2.5 text-left"
-      >
-        <span
-          aria-hidden
-          className="h-3 w-3 shrink-0 rounded-sm border-2"
-          style={{ borderColor: color, backgroundColor: active ? color : "transparent" }}
-        />
-        <span className="min-w-0 flex-1 truncate font-medium text-white">{s.name}</span>
-        <span className="shrink-0 font-mono type-body font-bold tabular-nums" style={{ color: scoreHex(s.avgOverall) }}>
-          {s.avgOverall}
-        </span>
-      </button>
-      <div className="mt-1 flex items-center justify-between pl-[1.375rem]">
-        <span className="type-caption text-slate-500">{postureLabel(s.posture)}</span>
-        <span className="type-mono-sm">
-          <Link href={repositoriesHref(org, scopeQ(s.id))} className="text-accent transition hover:text-white">repos</Link>
-          <span className="text-slate-700"> · </span>
-          <Link href={buildUrl(org, { tab: "executive", stack: s.id ?? null }, "")} className="text-accent transition hover:text-white">brief</Link>
-        </span>
-      </div>
-    </li>
-  );
-}
-
 export function StackProfiles({ org, stacks, dims, scope, active, allActive, hovered, onToggle, onToggleAll, onHover }: Props) {
   const colorOf = new Map(stacks.map((s, i) => [s.id, stackColor(i)]));
 
   const series: RadarSeries[] = stacks
     .filter((s) => active.has(s.id ?? ""))
-    .map((s) => ({ id: s.id ?? "", name: s.name, color: colorOf.get(s.id) ?? stackColor(0), values: valuesFor(s, dims) }));
+    .map((s) => ({ id: s.id ?? "", name: s.name, color: colorOf.get(s.id) ?? stackColor(0), values: dimValues(s, dims) }));
+
+  // Only the states this picture actually contains (Legend's contract): a plotted profile is
+  // `measured`, a hole in one is `missing`, and a stack nobody has scanned is `not-judged`.
+  const legendStates = [
+    ...(series.some((s) => s.values.some((v) => v != null)) ? (["measured"] as const) : []),
+    ...(series.some((s) => s.values.some((v) => v == null)) ? (["missing"] as const) : []),
+    ...(stacks.some((s) => stackState(s) === "not-judged") ? (["not-judged"] as const) : []),
+  ];
 
   return (
     <div className="mt-3 grid gap-5 lg:grid-cols-[minmax(230px,300px)_1fr]">
@@ -127,7 +84,7 @@ export function StackProfiles({ org, stacks, dims, scope, active, allActive, hov
         <ul className="space-y-0.5">
           {stacks.map((s) => (
             <StackRow key={s.id} org={org} s={s} color={colorOf.get(s.id) ?? stackColor(0)} scopeQ={scope.scopeQ}
-              active={active.has(s.id ?? "")} onToggle={() => onToggle(s.id ?? "")}
+              noun={scope.noun} active={active.has(s.id ?? "")} onToggle={() => onToggle(s.id ?? "")}
               onHover={() => onHover(s.id ?? "")} onLeave={() => onHover(null)} />
           ))}
         </ul>
@@ -135,9 +92,6 @@ export function StackProfiles({ org, stacks, dims, scope, active, allActive, hov
 
       {/* Right pane — the shared overlay radar. */}
       <Surface radius="2xl" className="flex flex-col p-4">
-        <p className="mb-1 type-mono-sm text-slate-500">
-          Overlaid maturity profiles · color = {scope.noun} · radius = each dimension&apos;s score · hover a {scope.noun} to isolate it
-        </p>
         {series.length === 0 ? (
           <div className="flex flex-1 items-center justify-center py-16 text-center text-slate-500">
             Select a {scope.noun} on the left to plot its profile.
@@ -147,6 +101,7 @@ export function StackProfiles({ org, stacks, dims, scope, active, allActive, hov
             <StackRadarChart series={series} dims={dims} emphasisId={hovered} />
           </div>
         )}
+        <Legend className="mt-2 justify-center" states={[...legendStates]} />
       </Surface>
     </div>
   );

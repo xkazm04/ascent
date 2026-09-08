@@ -4,16 +4,26 @@
 // tune). No hooks → server-safe, but freely imported by the client variants.
 
 import type { ReactNode } from "react";
-import { scoreHex } from "@/lib/ui";
+import { LEVEL_HEX, scoreHex } from "@/lib/ui";
 import { coverageOf, type DimClass, type DimInsight } from "@/features/standing/tech-stacks/fleetAnalysis";
 import type { ChangeType } from "@/features/standing/tech-stacks/transferPlaybook";
 
+/**
+ * The diagnosis classes, painted from the SHARED level ramp rather than four hand-picked hexes. Each
+ * class already meant a rung of that ramp — a gap is L2 territory, a shared strength is L5 — so the
+ * literals here were the ramp retyped, free to drift from it. `consistent` is the one class that is
+ * not a level (it is "no outlier", a non-verdict), so it takes the neutral direction tone.
+ */
 export const CLASS_META: Record<DimClass, { color: string; icon: string; label: string }> = {
-  divergent: { color: "#eab308", icon: "⇄", label: "Divergent" },
-  gap: { color: "#f97316", icon: "▼", label: "Gap" },
-  strength: { color: "#22c55e", icon: "▲", label: "Strength" },
-  consistent: { color: "#64748b", icon: "≈", label: "Consistent" },
+  divergent: { color: LEVEL_HEX.L3, icon: "⇄", label: "Divergent" },
+  gap: { color: LEVEL_HEX.L2, icon: "▼", label: "Gap" },
+  strength: { color: LEVEL_HEX.L5, icon: "▲", label: "Strength" },
+  consistent: { color: "var(--color-tone-flat)", icon: "≈", label: "Consistent" },
 };
+
+/** A class colour at low alpha for a pill ground. `color-mix` so a CSS token works alongside a hex —
+ *  the old `${color}1f` string concat silently produced garbage for anything but a 6-digit literal. */
+const tint = (color: string) => `color-mix(in srgb, ${color} 12%, transparent)`;
 
 const clampPct = (v: number) => Math.max(0, Math.min(100, v));
 
@@ -29,7 +39,7 @@ export function ClassPill({ klass, muted }: { klass: DimClass; muted?: boolean }
   return (
     <span
       className="inline-flex w-fit items-center gap-1 rounded px-1.5 py-0.5 type-caption"
-      style={{ backgroundColor: `${color}1f`, color }}
+      style={{ backgroundColor: tint(color), color }}
     >
       <span aria-hidden>{m.icon}</span>
       {m.label}
@@ -117,7 +127,7 @@ export function RangeBar({ d, compact }: { d: DimInsight; compact?: boolean }) {
       ))}
       <div
         className="absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full"
-        style={{ left: `${d.min}%`, width: `${Math.max(0, d.spread)}%`, backgroundColor: `${m.color}40` }}
+        style={{ left: `${d.min}%`, width: `${Math.max(0, d.spread)}%`, backgroundColor: `color-mix(in srgb, ${m.color} 25%, transparent)` }}
       />
       {d.fleet != null && (
         <div className="absolute inset-y-0 w-px bg-slate-400/70" style={{ left: `${clampPct(d.fleet)}%` }} title={`Whole-fleet baseline: ${d.fleet}`} />

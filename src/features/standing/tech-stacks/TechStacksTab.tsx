@@ -15,7 +15,7 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { TechStacksAnalysisPanel } from "./TechStacksAnalysisPanel";
-import { SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
+import { DIMS, SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
 import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
 import { listTechStackGroups } from "@/lib/db";
 import { orgTabHref } from "@/lib/org/orgTabs";
@@ -35,10 +35,7 @@ export async function TechStacksTab({ slug }: { slug: string }) {
   return (
     <div className="stagger-children space-y-6">
       <div>
-        <SectionHeader
-          title="Tech stacks"
-          description="Per-stack maturity across the fleet. Overlay stack profiles to compare their shape, then read the dimension analysis and transformation playbooks: the selection drives both."
-        />
+        <SectionHeader title="Tech stacks" description={`${groups.length} stacks · ${DIMS.length} dimensions`} />
         <Suspense fallback={<OrgTabGap minH="min-h-[28rem]" />}>
           <TechStacksAnalysisPanel slug={slug} />
         </Suspense>
