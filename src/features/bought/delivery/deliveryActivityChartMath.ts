@@ -11,8 +11,11 @@ export const INNER_W = CHART_W - CHART_MARGIN.left - CHART_MARGIN.right;
 export const PLOT_H = CHART_H - CHART_MARGIN.top - CHART_MARGIN.bottom;
 export const BASE_Y = CHART_MARGIN.top + PLOT_H;
 
-export const ACCENT = "#3b9eff";
-export const ACCENT_LIFT = "#7bbcff";
+// BRAND.md / /org redesign §2.5: colour is never picked by hand. These are the same two values the
+// hand-written hexes used to spell out (`--color-accent` #3b9eff, `--color-accent-soft` #7bbcff), now
+// read from the tokens so a palette change reaches this chart instead of passing it by.
+export const ACCENT = "var(--color-accent)";
+export const ACCENT_LIFT = "var(--color-accent-soft)";
 
 export const fmtWeek = new Intl.DateTimeFormat("en", { month: "short", day: "numeric", timeZone: "UTC" });
 export const fmtWeekYear = new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });

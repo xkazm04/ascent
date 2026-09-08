@@ -187,7 +187,7 @@ under the Supabase wall `getSession()` is null and this collapses to the viewer,
 | Standing | Governance | `org/[slug]/governance` | `src/features/standing/governance/` | Governance rollups: gate tiles, the editable policy card, fail-reasons, failing repos, the CI snippet, the evidence pack, and the AI stance section. No standfirst under the title, and no "Cheapest path to green" card (both deleted 2026-08-19 — see below). Every panel opens on a shape since the Wave-1 redesign (2026-09-08 — see "Governance, redesigned" below). |
 | In flight | Live | `org/[slug]/live` | `src/app/org/[slug]/live/` | Live/war-room view. |
 | Bought | Briefing | `org/[slug]/executive` | `src/app/org/[slug]/executive/` | Executive briefing view. |
-| Bought | Delivery | `org/[slug]/delivery` | `src/app/org/[slug]/delivery/page.tsx` | PR signals, branch governance, 12-week fleet commit activity, and (2026-07-28) a **Delivery-over-time** section: eleven small-multiple day-by-day panels (review coverage, AI involvement, AI PRs reviewed, AI trailers, AI pre-review, protected default branch, merge rate, small PRs, revert rate, time to first review, time to merge; count corrected 2026-09-05) plus gated slope reads, scoped by the shared org period selector. **W1a (2026-08-12)** surfaced three metrics every scan already persisted (`revertRate`, `medianHoursToFirstReview`, `smallPrRate`) into the signal band, the per-repo table, the trend, and a **review-latency slope** (`hoursToFirstReview` in `DELIVERY_FIT_METRICS`, hours/week with inverted goodness tone): the review-capacity read behind the Assist→Delegate bottleneck. Because the metrics come from the historical `prStats` blobs, the trend back-filled from existing scans day one; a blob written before the fields existed reads null ("not in these scans"), never a fabricated 0. **W2 (2026-08-12)** added two trailer-era attribution metrics from the extended `PR_QUERY` (merge-commit + PR-commit messages, review-author `__typename`): `aiTrailerRate`: share of merged PRs whose commit messages carry an AI attribution trailer (trailer-GROUNDED attribution, vs the self-declared marker rate); and `aiPreReviewedRate`: share of merged PRs an AI/bot reviewer (CodeRabbit, Copilot code review, Greptile, …) reviewed before the first human review. Both surface in the signal band (now 10 cells), the per-repo table, and two new trend panels; both are null on pre-W2 blobs and under the ≥5 merged-PR floor. The AI-delivery ROI model (`aiDeliveryModel.ts`) prefers trailer-grounded counts as its **allocation weight** where present (a commit trailer is tooling-written evidence; markers are self-declared), refining the "allocated" fidelity tier only, complementing (never replacing) the measured per-repo OTel path. "Fix first" adds two derived priorities: a slow first review (>24h, called out against AI PR share) and a fleet revert rate ≥5%. **W5 (2026-08-12)** added `reworkRate` (share of merged PRs later reverted, from revert linkage) to the delivery-trend point keys on the same null-back-fill discipline (data only so far, no dedicated panel yet); the metric's home surface (the Backlog tab's Debt Ledger) retired 2026-08-17 — `getOrgRework` is currently an orphaned read awaiting a Delivery-tab home. Its five rollup queries (PR signals, governance, activity, AI usage, delivery trend) run via `Promise.allSettled`, not `Promise.all`: one query erroring degrades only its own panel (an explicit "couldn't load" banner, not a silent empty state), instead of blanking the whole tab. **2026-09-05:** every PR-rate cell and repo-table row carries the population it was computed over (`rateBasis`, `PrRepoRow.population` — produced since W1a, rendered now); the headline says each rate names its own population; a `SnapshotScopeNotice` states which sections are period-scoped (trend, unit economics, outcomes) and which are latest-scan (PR signals, governance, activity); `derivePriorities` refuses to name a worst reverter under five PRs. Parked: the analyzer-level `revertRate` floor (needs `PrStats.revertRate` widened to `number | null` in `src/lib/types.ts`). |
+| Bought | Delivery | `org/[slug]/delivery` | `src/app/org/[slug]/delivery/page.tsx` | PR signals, branch governance, 12-week fleet commit activity, and (2026-07-28) a **Delivery-over-time** section: eleven small-multiple day-by-day panels (review coverage, AI involvement, AI PRs reviewed, AI trailers, AI pre-review, protected default branch, merge rate, small PRs, revert rate, time to first review, time to merge; count corrected 2026-09-05) plus gated slope reads, scoped by the shared org period selector. **W1a (2026-08-12)** surfaced three metrics every scan already persisted (`revertRate`, `medianHoursToFirstReview`, `smallPrRate`) into the signal band, the per-repo table, the trend, and a **review-latency slope** (`hoursToFirstReview` in `DELIVERY_FIT_METRICS`, hours/week with inverted goodness tone): the review-capacity read behind the Assist→Delegate bottleneck. Because the metrics come from the historical `prStats` blobs, the trend back-filled from existing scans day one; a blob written before the fields existed reads null ("not in these scans"), never a fabricated 0. **W2 (2026-08-12)** added two trailer-era attribution metrics from the extended `PR_QUERY` (merge-commit + PR-commit messages, review-author `__typename`): `aiTrailerRate`: share of merged PRs whose commit messages carry an AI attribution trailer (trailer-GROUNDED attribution, vs the self-declared marker rate); and `aiPreReviewedRate`: share of merged PRs an AI/bot reviewer (CodeRabbit, Copilot code review, Greptile, …) reviewed before the first human review. Both surface in the signal band (now 10 cells), the per-repo table, and two new trend panels; both are null on pre-W2 blobs and under the ≥5 merged-PR floor. The AI-delivery ROI model (`aiDeliveryModel.ts`) prefers trailer-grounded counts as its **allocation weight** where present (a commit trailer is tooling-written evidence; markers are self-declared), refining the "allocated" fidelity tier only, complementing (never replacing) the measured per-repo OTel path. "Fix first" adds two derived priorities: a slow first review (>24h, called out against AI PR share) and a fleet revert rate ≥5%. **W5 (2026-08-12)** added `reworkRate` (share of merged PRs later reverted, from revert linkage) to the delivery-trend point keys on the same null-back-fill discipline (data only so far, no dedicated panel yet); the metric's home surface (the Backlog tab's Debt Ledger) retired 2026-08-17 — `getOrgRework` is currently an orphaned read awaiting a Delivery-tab home. Its five rollup queries (PR signals, governance, activity, AI usage, delivery trend) run via `Promise.allSettled`, not `Promise.all`: one query erroring degrades only its own panel (an explicit "couldn't load" banner, not a silent empty state), instead of blanking the whole tab. **2026-09-05:** every PR-rate cell and repo-table row carries the population it was computed over (`rateBasis`, `PrRepoRow.population` — produced since W1a, rendered now); the headline says each rate names its own population; a `SnapshotScopeNotice` states which sections are period-scoped (trend, unit economics, outcomes) and which are latest-scan (PR signals, governance, activity); `derivePriorities` refuses to name a worst reverter under five PRs. Parked: the analyzer-level `revertRate` floor (needs `PrStats.revertRate` widened to `number | null` in `src/lib/types.ts`). **2026-09-08 (/org redesign Wave 1):** the tab was rebuilt on the shared viz kit — unit economics and AI delivery as `FlowRibbon`s whose money stage VOIDS (never zeroes) when no provider reports cost, trend lines that break at unmeasured days, a `ReviewCoverageStrip` above the per-repo table, a `GovernanceGapMatrix` that draws a zero-approval PR rule as `declared`, and DORA as a four-panel small multiple with a bracketed AI-vs-human failure gap. See “Delivery, redesigned” below. |
 | Bought | Contributors | `org/[slug]/contributors` | `src/features/bought/contributors/` | AI champions, involvement table (withheld below 3 contributors), **Who to enable next** (`EnablementTargets`, moved here from Adoption 2026-08-19 — see below), an **Org resilience** module (fleet key-person exposure, repo-level only, names nobody), and the per-repo concentration / bus-factor table. **2026-09-05:** the \"You\" strip says attribution is *withheld* below the naming floor instead of \"no commits attributed\"; each section degrades on its own (`allSettled`), so one failed read no longer blanks the tab. **2026-09-08 (redesign Wave 1):** the tab now OPENS on a graphic — an AI-share `Distribution` with the viewer's own position marked — concentration is a `ConcentrationCurve` with the bus-factor knee above the per-repo table, champions are plotted in adoption × volume space, resilience leads with a per-repo top-share quartile strip, the care section leads with a `MatrixGrid` privacy ledger whose per-person column is a column of voids, and a contributor with no commits to take a share OF renders a **void, not a 0% bar**. See [Contributors, redesigned](#contributors-redesigned-the-distribution-is-plotted-wave-1-2026-09-08). |
 | Bought | Teams | `org/[slug]/teams` | `src/app/org/[slug]/teams/page.tsx` | Per-team (CODEOWNERS) Adoption×Rigor, dimension shape, AI-knowledge & champions, movers; the org's AI-knowledge leader + a suggested cross-team pairing. **2026-09-05:** per-section degradation; the Δ footnote derives from the period's `deltaLabel`; the AI% cell carries its contributor population in the row; the provenance stamp says \"captured fleet-wide\" under an active filter; the window goes through `orgWindowBounds`. |
 | Admin | Members | `org/[slug]/members` | `src/app/org/[slug]/members/` | Membership + roles. |
@@ -1938,6 +1938,62 @@ autonomy model's own `DATA_MODEL_GAPS` recorded as a gap. That line is now delet
   admission mode and `unenforceable[]` list. Read-only, `mcp:read`, no new tool, and the `repo`
   argument is constrained to the caller's own org.
 
+### Delivery, redesigned: the flow is drawn and the gaps are holes (Wave 1, 2026-09-08)
+
+Delivery was **1184 characters of prose, six tables and three SVGs** — a page about FLOW and RATES
+rendered as grids and caveats. `SectionHeader description=` in `src/features/bought/delivery/` fell
+from **10 to 8**, and every survivor is ≤ 60 characters of unit/window only (`"Last 30 days · 12 scans · 41 repos ·
+1 pt/day"`, `"5,120 PRs analyzed · 40 repos"`). Nothing was deleted; each sentence moved.
+
+**The chains are ribbons now.** Unit economics ("what a unit of AI work costs: cost per session that
+produced code, and cost per merged AI-attributed change") and AI delivery intelligence ("where AI
+spend goes, what it produces, and whether that work gets reviewed") were both sentences describing a
+three-stage flow, so both are `FlowRibbon`s: spend → produced code → merged AI, and spend → AI PRs →
+reviewed. **When no connected provider reports cost the money stage is a `missing` VOID and the
+ribbon BREAKS.** The integrations promise — "until a provider that reports cost is connected, the
+money columns are empty rather than estimated" — is now a behaviour the drawing enforces rather than
+a claim beside it, pinned by `ai/unitFlowStages.test.ts` and `ai/DeliveryFlows.dom.test.tsx`. A
+zeroed stage would render a legible, proportional "we spent nothing" chain, which is a claim about
+the org's spend rather than an admission that nothing measured it. The reviewed stage voids the same
+way when no AI-PR sample cleared the floor.
+
+**The em-dash caveat is gone because the picture no longer offers a zero.** *"An em dash is a missing
+measurement, not a zero"* was the tab's most load-bearing sentence and the one prose could never
+enforce. Every trend line now breaks at an unmeasured day (`trendPath` in
+`deliveryTrendPanelMath.ts`), each panel counts its void days beside the delta, and the section
+legend carries `STATE_HINT.missing` on the void swatch. `DeliveryVoids.dom.test.tsx` asserts the
+negative that matters: two pen-downs, no `L` segment, no numeral at zero.
+
+**Ordering became a shape.** *"Riskiest first: lowest review coverage, then slowest merges"* is
+`ReviewCoverageStrip` — one column per repo, worst measured first, the below-target tail bracketed
+with its count, and an unmeasured repo drawn as a dashed void rather than a zero-height bar. The
+per-repo table keeps its place directly below it (§2.7: row-level auditable evidence), and the
+denominator caveat it used to carry in the header is the `PRS_COLUMN_HINT`/`BASIS_HINT` `WhyChip`s.
+
+**Governance gained a state it could not previously express.** `GovernanceGapMatrix` draws the
+at-risk repos × four guardrails; a branch rule that requires a pull request with **zero** approving
+reviews is `declared` — dashed outline, no fill — because it exists on paper and gates nothing. That
+was a `title` attribute on a "0". `MatrixGrid` was deliberately not reused: its cells paint from a
+0–100 score and print that numeral, and these four controls are boolean, so a score cell would invent
+a percentage for a yes/no fact (`governanceGaps.test.ts`, `GovernanceGapMatrix.dom.test.tsx`).
+
+**DORA reads as one instrument.** `DoraSmallMultiple` is four panels of identical geometry —
+deploys/week, change-failure rate, time to next success, attribution coverage — with the two RATE
+panels genuinely sharing the 0–100 axis and the other two carrying their own printed domain (one
+numeric axis across per-week counts and hours would be the dual-axis mistake). A reading the
+`MIN_DEPLOYMENTS` floor withholds is a void track with an em dash, so one bad deploy out of one has
+no bar to be misread as a 100% failure rate. The AI-vs-human comparison is `FailureSplitMark`: two
+bars on one axis with the point gap bracketed between their ends, replacing the accent callout
+sentence; the "human-authored is a residual, contaminated in AI's favour" caveat rides its `WhyChip`,
+reachable from the comparison rather than from a paragraph below it.
+
+**Kit alignment, not a second dialect.** `DeliveryTrendPanel` and `DeliveryActivityChart` had their
+own SVG before the kit existed; both now paint from `DEFAULT_BASE` / `--color-accent` instead of the
+hand-written `#3b9eff`/`#7bbcff` (the same two values, read from the tokens), and the trend panel's
+per-metric definition moved from a standing `<p>` into a `WhyChip`. `DeliverySlopeMark` gives the
+gated fit readouts a shape: the true slope angle in a goodness-signed colour, and a **hatched** mark
+with no numeral where `forecastInsufficiency` refuses to state one.
+
 ## Known gaps
 
 - **`permittedModels` is declared and unchecked, and stays that way.** Not an oversight and not a
@@ -1972,8 +2028,11 @@ autonomy model's own `DATA_MODEL_GAPS` recorded as a gap. That line is now delet
   and a **change-failure rate** off that feed (`DeliveryOutcomes`), so the first two of the four are
   derivable for repos that deploy through GitHub Deployments; there is still no incident feed, so
   **time to restore** is not derivable at all, and the panels stay deliberately unlabelled as DORA.
-  (The trend section's on-screen note still says no deployment feed is ingested; that sentence is
-  now stale for the outcomes card and is tracked as a residual.) Original reasoning, still the
+  (Residual closed 2026-09-08 by the Delivery redesign: the trend section's on-screen note claiming
+  no deployment feed is ingested is gone. Its replacement — `NAMING_HINT` in
+  `DeliveryTrendLegend.tsx`, disclosed on the section's "not DORA" `WhyChip` — says accurately that
+  deployment frequency and change-failure rate exist on the outcomes card and that only the incident
+  feed behind time-to-restore is missing.) Original reasoning, still the
   policy for the label: of DORA's four metrics, Ascent ingests no incident feed, so **time to
   restore** is not derivable;
   **lead time for changes** (commit → running in production) is only partially observable as PR

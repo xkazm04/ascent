@@ -20,10 +20,20 @@ describe("Delivery core panel scope notice", () => {
     expect(PANEL).toMatch(/scope="partial"/);
   });
 
+  // The /org redesign demoted the notice's second half into a WhyChip on the notice itself (§2.1 D):
+  // the reader still sees "the trend is period-scoped, everything below is a scan-time snapshot" at
+  // first sight, and the list of which sections those are — plus the `Scan.prStats` reason — is one
+  // keystroke away instead of four lines of standing prose. Case-insensitive because the sentence now
+  // opens the disclosure rather than continuing the notice, so it starts with a capital.
   it("names which sections are period-scoped and which are a scan-time snapshot", () => {
     expect(PANEL).toMatch(/period-scoped/);
-    expect(PANEL).toMatch(/pull request signals, branch governance and commit\s+activity/);
+    expect(PANEL).toMatch(/pull request signals, branch governance and commit\s+activity/i);
     expect(PANEL).toMatch(/scan-time snapshot/);
+  });
+
+  it("keeps the reason the snapshot half cannot be re-scoped, in the disclosure", () => {
+    expect(PANEL).toMatch(/<WhyChip/);
+    expect(PANEL).toMatch(/Scan\.prStats/);
   });
 
   it("takes the period from the tab rather than re-resolving it without the search params", () => {

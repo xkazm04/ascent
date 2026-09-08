@@ -7,7 +7,15 @@
 // all rather than a confident zero.
 
 import { describe, expect, it } from "vitest";
-import { fleetBasisCopy, medianBasisCopy, repoBasisMark, repoBasisTitle, prSectionBasisLine } from "./prBasis";
+import {
+  BASIS_HINT,
+  PRS_COLUMN_HINT,
+  fleetBasisCopy,
+  medianBasisCopy,
+  prSectionBasisLine,
+  repoBasisMark,
+  repoBasisTitle,
+} from "./prBasis";
 
 describe("fleetBasisCopy", () => {
   it("names the population, the denominator and the contributing repo count", () => {
@@ -60,9 +68,16 @@ describe("per-repo basis", () => {
 });
 
 describe("prSectionBasisLine", () => {
-  it("states coverage as coverage and hands each rate its own population", () => {
+  // /org redesign §2.3: the header description carries UNIT and COVERAGE only, at most 60 chars.
+  // The denominator claim it used to carry is BASIS_HINT, disclosed through the header's WhyChip.
+  it("states coverage as coverage, in unit/window form", () => {
     const line = prSectionBasisLine(5120, 40);
-    expect(line).toMatch(/5,120 PRs analyzed across 40 repos/);
-    expect(line).toMatch(/each rate below names its own population/);
+    expect(line).toBe("5,120 PRs analyzed · 40 repos");
+    expect(line.length).toBeLessThanOrEqual(60);
+  });
+
+  it("keeps the demoted denominator claim reachable rather than deleting it", () => {
+    expect(BASIS_HINT).toMatch(/do not share a denominator/);
+    expect(PRS_COLUMN_HINT).toMatch(/analyzed count/);
   });
 });

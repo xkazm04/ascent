@@ -8,6 +8,7 @@ import { Card, ExportCsvLink, SectionEmpty, SectionHeader } from "@/components/o
 import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
 import { SnapshotScopeNotice } from "@/components/org/shared/SnapshotScopeNotice";
 import { Defer } from "@/components/ui/Defer";
+import { WhyChip } from "@/components/org/viz";
 import { DeliveryPriorities } from "./DeliveryPriorities";
 import { DeliveryPrSection } from "./DeliveryPrSection";
 import { DeliveryGovernanceSection } from "./DeliveryGovernanceSection";
@@ -110,12 +111,12 @@ export async function DeliveryCorePanel({
         scope="partial"
         detail={
           <>
-            The delivery <span className="text-slate-200">trend</span> above, unit economics and outcomes are
-            period-scoped. Everything below this line — pull request signals, branch governance and commit
-            activity — is a <span className="text-slate-200">scan-time snapshot</span> read off each repo&apos;s
-            most recent scan: <span className="font-mono">Scan.prStats</span> is a pre-computed aggregate with no
-            dated PR population to re-cut, so no range can re-scope it. Read these as &ldquo;the fleet as of its
-            most recent scans&rdquo;.
+            The <span className="text-slate-200">trend</span>, unit economics and outcomes are period-scoped.
+            Everything below this line is a <span className="text-slate-200">scan-time snapshot</span>.{" "}
+            <WhyChip
+              hint="Pull request signals, branch governance and commit activity are read off each repo's most recent scan. Scan.prStats is a pre-computed aggregate with no dated PR population to re-cut, so no range can re-scope it — read these as 'the fleet as of its most recent scans'."
+              label="why this half is not period-scoped"
+            />
           </>
         }
       />
@@ -164,15 +165,21 @@ export async function DeliveryCorePanel({
       {activity && (
         <Defer strategy="visible" placeholder={<div className="reveal-quiet min-h-[16rem]" aria-hidden />}>
           <Card>
+            {/* §2.3 — unit and window only; the "real, from GitHub" provenance is the WhyChip. */}
             <SectionHeader
               size="sm"
-              title="Commit activity"
-              description={
-                <>
-                  Weekly commits across the fleet (real, from GitHub): {activity.total.toLocaleString()} commits over {activity.weeks} week{activity.weeks === 1 ? "" : "s"}{" "}
-                  <span className="type-mono-sm text-slate-600">· {activity.repos} repo{activity.repos > 1 ? "s" : ""} reporting</span>
-                </>
+              title={
+                <span className="inline-flex items-center gap-2">
+                  Commit activity
+                  <WhyChip
+                    hint="Weekly commit counts read from GitHub itself, not derived from a scan's aggregates — only the repositories that reported activity in the window contribute."
+                    label="where commit activity comes from"
+                  />
+                </span>
               }
+              description={`${activity.total.toLocaleString()} commits · ${activity.weeks} week${
+                activity.weeks === 1 ? "" : "s"
+              } · ${activity.repos} repo${activity.repos === 1 ? "" : "s"}`}
             />
             <div className="mt-4">
               <DeliveryActivityChartChunk series={activity.series} endWeekStartMs={activity.endWeekStartMs} />

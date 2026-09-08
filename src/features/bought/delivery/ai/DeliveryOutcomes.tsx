@@ -2,58 +2,42 @@
 // changes fail more than human-authored ones?
 //
 // That sentence is the most quotable thing this product can produce, which is exactly why the panel
-// spends more space on its limits than on its headline. Four of them, all rendered, none optional:
+// used to spend more space on its limits than on its headline — four of them, rendered as two
+// paragraphs under two tables. Every one survives, and every one is now carried by the drawing or by
+// a chip on the drawing (docs/ORG-UX-REDESIGN.md §2):
 //
-//   1. "FAILURE" MEANS THE DEPLOYMENT FAILED — not "caused an incident". Only the first is
-//      observable from GitHub's Deployments API, and "change failure rate" is a term of art a reader
-//      will otherwise hear as the second.
-//   2. ATTRIBUTION COVERAGE IS PRINTED. A split over 12 of 51 deployments means something very
-//      different from one over 49, and the reader must not have to ask.
-//   3. THE HUMAN BUCKET IS CONTAMINATED IN AI'S FAVOUR. Unmarked AI assistance is invisible to the
-//      detector, so it lands in "human". A measured AI-fails-more result is therefore conservative;
-//      an AI-fails-less result should be read with that in mind. Said on the panel, not in a doc.
-//   4. NO RATE UNDER THE SAMPLE FLOOR. One bad deploy out of one is not a 100% failure rate.
+//   1. "FAILURE" MEANS THE DEPLOYMENT FAILED, not "caused an incident" → the change-failure panel's
+//      WhyChip (D).
+//   2. ATTRIBUTION COVERAGE IS PRINTED — it is one of the four panels, on the same 0–100 axis as the
+//      failure rate, so how much the split is worth is read beside the split itself (E).
+//   3. THE HUMAN BUCKET IS A RESIDUAL, contaminated in AI's favour → `RESIDUAL_HINT` on the paired
+//      mark (D), reachable from the comparison rather than from a paragraph below it.
+//   4. NO RATE UNDER THE SAMPLE FLOOR → a void track with an em dash. There is no bar to misread as
+//      a 100%-out-of-one failure rate (E).
 //
 // Server-safe — no hooks, no handlers.
 
-import { Card, OrgTable, SectionHeader, Tile, TILE_LEDGER } from "@/components/org/shared/ui";
+import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { Legend } from "@/components/org/viz";
 import { orgTabHref } from "@/lib/org/orgTabs";
-import { MIN_DEPLOYMENTS, type DeliveryOutcomes as Outcomes, type OutcomeBucket } from "@/lib/db/delivery-outcomes";
-
-const BAD = "#f97316";
-const GOOD = "#22c55e";
-
-function Rate({ bucket }: { bucket: OutcomeBucket }) {
-  if (bucket.failureRate == null) {
-    return (
-      <span
-        className="font-mono tabular-nums text-slate-500"
-        title={`Fewer than ${MIN_DEPLOYMENTS} attributed deployments: too small a sample to state a rate`}
-      >
-        —
-      </span>
-    );
-  }
-  return (
-    <span className="font-mono tabular-nums" style={{ color: bucket.failureRate > 0 ? BAD : GOOD }}>
-      {bucket.failureRate}%
-    </span>
-  );
-}
+import type { DeliveryOutcomes as Outcomes } from "@/lib/db/delivery-outcomes";
+import { DoraSmallMultiple } from "./DoraSmallMultiple";
+import { DeliveryOutcomesTable } from "./DeliveryOutcomesTable";
+import { FailureSplitMark } from "./FailureSplitMark";
+import { doraPanels } from "./doraPanels";
 
 export function DeliveryOutcomes({ slug, outcomes, periodTitle }: { slug: string; outcomes: Outcomes; periodTitle: string }) {
-  // No deployments is an honest state with an actionable cause, not an error and not a zero.
+  // No deployments is an honest state with an actionable cause, not an error and not a zero — and it
+  // is the (O) Onboarding destination for the argument the panel makes when it has data.
   if (outcomes.total === 0) {
     return (
       <Card>
-        <SectionHeader
-          size="sm"
-          title="Delivery outcomes"
-          description="Deployment frequency, change-failure rate, and whether AI-attributed changes fail more often than human-authored ones."
-        />
+        <SectionHeader size="sm" title="Delivery outcomes" description={periodTitle} />
         <p className="mt-3 type-body-sm text-slate-400">
-          No deployments recorded in {periodTitle.toLowerCase()}. Ascent reads the GitHub Deployments API during a scan.
-          A repository that deploys another way (or whose scan ran without a token) contributes nothing here.{" "}
+          Deployment frequency, change-failure rate and — the number worth having — whether AI-attributed changes fail
+          more often than human-authored ones. All three read the GitHub Deployments API during a scan, and no
+          deployments were recorded in {periodTitle.toLowerCase()}. A repository that deploys another way (or whose
+          scan ran without a token) contributes nothing here.{" "}
           <a href={orgTabHref(slug, "repositories")} className="focus-ring text-accent hover:text-white">
             Re-scan the fleet
           </a>{" "}
@@ -63,106 +47,32 @@ export function DeliveryOutcomes({ slug, outcomes, periodTitle }: { slug: string
     );
   }
 
-  const gap = outcomes.failureRateGap;
+  const panels = doraPanels(outcomes);
+  const anyVoid = panels.some((p) => p.state === "missing") || outcomes.ai.failureRate == null || outcomes.human.failureRate == null;
 
   return (
     <Card>
+      {/* §2.3 — unit and window only. */}
       <SectionHeader
         size="sm"
         title="Delivery outcomes"
-        description={`${outcomes.total.toLocaleString()} deployments across ${outcomes.environments.length} ${outcomes.environments.length === 1 ? "environment" : "environments"} in ${periodTitle.toLowerCase()}, from the GitHub Deployments API.`}
+        description={`${outcomes.total.toLocaleString()} deployments · ${outcomes.environments.length} env · ${periodTitle}`}
       />
 
-      <div className={`${TILE_LEDGER} mt-4 grid-cols-2 sm:grid-cols-4`}>
-        <Tile
-          label="Deploys / week"
-          value={outcomes.perWeek == null ? "—" : String(outcomes.perWeek)}
-          sub="successful only"
-        />
-        <Tile
-          label="Change-failure rate"
-          value={outcomes.failureRate == null ? "—" : `${outcomes.failureRate}%`}
-          sub={outcomes.failureRate == null ? `under ${MIN_DEPLOYMENTS} deployments` : `${outcomes.failed} of ${outcomes.total} failed`}
-          color={outcomes.failureRate ? BAD : undefined}
-        />
-        <Tile
-          label="Time to next success"
-          value={outcomes.medianRestoreHours == null ? "—" : `${outcomes.medianRestoreHours}h`}
-          sub="median, after a failure"
-        />
-        <Tile
-          label="Attribution coverage"
-          value={outcomes.coverage == null ? "—" : `${outcomes.coverage}%`}
-          sub={`${outcomes.attributed} of ${outcomes.total} matched a change`}
-        />
+      {/* §2.2 — first sight is the four-panel instrument. */}
+      <div className="mt-4">
+        <DoraSmallMultiple panels={panels} />
       </div>
+
+      <div className="mt-5">
+        <FailureSplitMark ai={outcomes.ai} human={outcomes.human} gap={outcomes.failureRateGap} periodTitle={periodTitle} />
+      </div>
+
+      <Legend className="mt-3" states={anyVoid ? ["measured", "missing"] : ["measured"]} />
 
       <div className="mt-4">
-        <OrgTable
-          caption="Change-failure rate by authorship"
-          minWidth={520}
-          head={
-            <tr className="text-left">
-              <th className="px-4 py-3">Authored</th>
-              <th className="px-4 py-3 text-right">Deployments</th>
-              <th className="px-4 py-3 text-right">Failed</th>
-              <th className="px-4 py-3 text-right">Failure rate</th>
-            </tr>
-          }
-        >
-          <tr>
-            <td className="px-4 py-3 text-white">AI-attributed</td>
-            <td className="px-4 py-3 text-right font-mono tabular-nums text-slate-300">{outcomes.ai.deployments}</td>
-            <td className="px-4 py-3 text-right font-mono tabular-nums text-slate-300">{outcomes.ai.failed}</td>
-            <td className="px-4 py-3 text-right">
-              <Rate bucket={outcomes.ai} />
-            </td>
-          </tr>
-          <tr>
-            <td className="px-4 py-3 text-white">Human-authored</td>
-            <td className="px-4 py-3 text-right font-mono tabular-nums text-slate-300">{outcomes.human.deployments}</td>
-            <td className="px-4 py-3 text-right font-mono tabular-nums text-slate-300">{outcomes.human.failed}</td>
-            <td className="px-4 py-3 text-right">
-              <Rate bucket={outcomes.human} />
-            </td>
-          </tr>
-        </OrgTable>
+        <DeliveryOutcomesTable ai={outcomes.ai} human={outcomes.human} />
       </div>
-
-      {gap != null && (
-        <p className="mt-3 rounded-xl border border-accent/30 bg-accent/[0.06] px-4 py-3 type-body text-slate-200">
-          <span className="type-mono-sm uppercase tracking-widest text-accent">
-            {gap > 0 ? "AI changes fail more" : gap < 0 ? "AI changes fail less" : "No measured difference"}
-          </span>{" "}
-          {gap === 0
-            ? `Both buckets failed at ${outcomes.ai.failureRate}% over ${periodTitle.toLowerCase()}.`
-            : `${Math.abs(gap)} points ${gap > 0 ? "higher" : "lower"} than human-authored changes over ${periodTitle.toLowerCase()}: ${outcomes.ai.failureRate}% vs ${outcomes.human.failureRate}%.`}
-        </p>
-      )}
-
-      <p className="mt-4 rounded-lg border border-dashed border-divider bg-surface/40 px-3 py-2 type-body-sm text-slate-400">
-        <span className="type-label tracking-[0.22em] text-slate-500">How to read this</span>{" "}
-        <strong className="font-medium text-slate-200">&ldquo;Failure&rdquo; means the deployment failed.</strong> It
-        does not mean the change caused an incident. Nothing here observes your service; that claim would need a
-        different source. &ldquo;Time to next success&rdquo; is the interval to the next successful deployment in the
-        same environment, a proxy for restore time rather than a measurement of it.
-        {outcomes.unattributed > 0 && (
-          <>
-            {" "}
-            <strong className="font-medium text-amber-200">
-              {outcomes.unattributed} of {outcomes.total} deployments could not be matched to a merged change.
-            </strong>{" "}
-            A deployment names the commit it shipped, and it is attributed only when that commit is a pull
-            request&apos;s merge commit we recorded. Merge trains, tag-based deploys, and repositories scanned before
-            deployment tracking existed all land here. They are excluded from the split above, never defaulted into a
-            bucket.
-          </>
-        )}{" "}
-        <strong className="font-medium text-slate-200">Human-authored is a residual.</strong> AI assistance a developer
-        did not mark is invisible to the detector and lands in that bucket, so it is contaminated in AI&apos;s favour.
-        A measured &ldquo;AI fails more&rdquo; is conservative, and an &ldquo;AI fails less&rdquo; should be read with
-        that in mind. Rates under {MIN_DEPLOYMENTS} deployments are withheld rather than stated.
-      </p>
     </Card>
   );
 }
