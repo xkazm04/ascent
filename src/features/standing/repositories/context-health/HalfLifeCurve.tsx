@@ -47,20 +47,24 @@ export function HalfLifeCurve({
       className="shrink-0"
     >
       {/* Half-life rule — where the context is half wrong. */}
-      <line x1={pad} y1={pad + h / 2} x2={pad + w} y2={pad + h / 2} stroke="#1e293b" strokeWidth={1} strokeDasharray="2 3" />
+      <line x1={pad} y1={pad + h / 2} x2={pad + w} y2={pad + h / 2} stroke="var(--color-divider)" strokeWidth={1} strokeDasharray="2 3" />
       <polyline points={pts.join(" ")} fill="none" stroke={hex} strokeWidth={1.5} strokeOpacity={0.9} />
       <circle cx={cx} cy={cy} r={2.6} fill={hex} />
     </svg>
   );
 }
 
-/** Fleet-level decay band: one thin stacked bar of the fresh / aging / stale / absent split. */
+/** Fleet-level decay band: one thin stacked bar of the fresh / aging / stale / absent split.
+ *
+ *  "Absent" is painted in the divider token rather than at the bottom of the score ramp: a repo with
+ *  no guidance file has not scored badly, it has not been scored at all, and the ramp is reserved for
+ *  levels and scores (BRAND.md). Each band carries its own one-sentence caveat as a `title`. */
 export function BandBar({ counts, total }: { counts: { fresh: number; aging: number; stale: number; absent: number }; total: number }) {
-  const segs: { key: string; n: number; hex: string; label: string }[] = [
-    { key: "fresh", n: counts.fresh, hex: scoreHex(90), label: "Fresh" },
-    { key: "aging", n: counts.aging, hex: scoreHex(55), label: "Aging" },
-    { key: "stale", n: counts.stale, hex: scoreHex(25), label: "Stale" },
-    { key: "absent", n: counts.absent, hex: "#334155", label: "Absent" },
+  const segs: { key: string; n: number; hex: string; label: string; hint: string }[] = [
+    { key: "fresh", n: counts.fresh, hex: scoreHex(90), label: "Fresh", hint: "Potency 66% or better: the guidance still matches the code it describes." },
+    { key: "aging", n: counts.aging, hex: scoreHex(55), label: "Aging", hint: "Potency 33–65%: enough has landed since the last edit that parts of the guidance are now wrong." },
+    { key: "stale", n: counts.stale, hex: scoreHex(25), label: "Stale", hint: "Potency under 33%: the map no longer matches the territory an agent is reading it for." },
+    { key: "absent", n: counts.absent, hex: "var(--color-divider)", label: "Absent", hint: "No agent-context file at all — an absence, not a low score, and in no potency band." },
   ];
   return (
     <div>
@@ -71,7 +75,7 @@ export function BandBar({ counts, total }: { counts: { fresh: number; aging: num
       </div>
       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 type-label tracking-[0.18em] text-slate-500">
         {segs.map((s) => (
-          <span key={s.key} className="inline-flex items-center gap-1.5">
+          <span key={s.key} className="inline-flex items-center gap-1.5" title={s.hint}>
             <span aria-hidden className="h-2 w-2 rounded-full" style={{ backgroundColor: s.hex }} />
             {s.label} <span className="tabular-nums text-slate-400">{s.n}</span>
           </span>

@@ -7,9 +7,11 @@
 // hasn't got the PR yet; the per-row action provisions (or removes) report-back behind a typed
 // confirmation.
 //
-// The LEGEND is not decoration. Two of the three columns can be honestly empty, and the two empties
-// mean different things: "—" under conformance is NEVER REPORTED (not 0%), and "not provisioned" is
-// not "off". Saying so in the panel is what keeps a reader from filling the gap with an assumption.
+// Two of the three columns can be honestly empty and the empties mean different things: "—" under
+// conformance is NEVER REPORTED (not 0%), and "not provisioned" is not "off". Those two facts used to
+// be a paragraph under the table; they are now the grid's `missing` voids, which structurally cannot
+// print a number (docs/ORG-UX-REDESIGN.md §2.4, foundationViz.ts) — the reader can no longer fill the
+// gap with an assumption, rather than being asked not to.
 //
 // Role is NOT prefetched: the panel renders for anyone who can read the tab and the route answers 403
 // if they can't perform the action. That is the deliberate trade — a prefetched role would be a second
@@ -20,7 +22,9 @@ import { useRouter } from "next/navigation";
 import type { FoundationRolloutRow } from "@/lib/db/org-foundation";
 import { Card, OrgTable, SectionHeader } from "@/components/org/shared/ui";
 import { FoundationSecretsDialog } from "./FoundationSecretsDialog";
+import { FoundationRolloutGrid } from "./FoundationRolloutGrid";
 import { FoundationRolloutRowView } from "./FoundationRolloutRowView";
+import { foundationViz } from "./foundationViz";
 
 type Dialog = { repo: string; mode: "provision" | "revoke" } | null;
 
@@ -34,6 +38,7 @@ export function FoundationRolloutPanel({ slug, rows }: { slug: string; rows: Fou
   if (rows.length === 0) return null;
 
   const missing = rows.filter((r) => !r.foundationPrAt).map((r) => r.repo);
+  const viz = foundationViz(rows);
 
   async function installAll() {
     setBusy(true);
@@ -110,7 +115,7 @@ export function FoundationRolloutPanel({ slug, rows }: { slug: string; rows: Fou
       <SectionHeader
         size="sm"
         title="Foundation rollout"
-        description="Install the .ai/ foundation across the fleet, then let each repo report its own conformance back."
+        description={`${viz.reporting}/${rows.length} reporting back`}
         right={
           <div data-tour="foundation-rollout" className="flex items-center gap-3">
             <button
@@ -119,8 +124,12 @@ export function FoundationRolloutPanel({ slug, rows }: { slug: string; rows: Fou
               disabled={busy || missing.length === 0}
               className="focus-ring rounded-lg bg-accent px-4 py-2 type-body-sm font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-40"
             >
+              {/* The disabled state used to read "Foundation installed everywhere" — a claim the data
+                  cannot support, since `foundation.pr_opened` records a DRAFT PR. The CTA still says
+                  "install" (that is the intent, and the onboarding panel's twin says the same); only
+                  the state claim is corrected. */}
               {missing.length === 0
-                ? "Foundation installed everywhere"
+                ? "Foundation PR opened in every repo"
                 : `Install the foundation in ${missing.length} repo${missing.length === 1 ? "" : "s"}`}
             </button>
           </div>
@@ -132,6 +141,9 @@ export function FoundationRolloutPanel({ slug, rows }: { slug: string; rows: Fou
           {notice}
         </p>
       )}
+
+      {/* First sight is the grid; the table under it is the auditable per-repo evidence (§2.7). */}
+      <FoundationRolloutGrid viz={viz} />
 
       <div className="mt-4">
         <OrgTable
@@ -164,13 +176,6 @@ export function FoundationRolloutPanel({ slug, rows }: { slug: string; rows: Fou
           ))}
         </OrgTable>
       </div>
-
-      <p className="mt-3 type-body-sm text-slate-500">
-        <span className="font-mono text-slate-400">—</span> under Conformance means{" "}
-        <strong className="text-slate-400">never reported</strong>, not 0%.{" "}
-        <span className="text-slate-400">Not provisioned</span> means Ascent has written no report-back secrets here —
-        the repo may still run <span className="font-mono">.ai/doctor.mjs</span> locally.
-      </p>
 
       {dialog && (
         <FoundationSecretsDialog

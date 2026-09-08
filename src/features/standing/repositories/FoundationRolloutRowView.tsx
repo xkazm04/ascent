@@ -4,10 +4,15 @@
 // 200-LOC features cap; it holds no state and issues no requests — the panel owns both.
 //
 // Every cell distinguishes ABSENCE from a value, and says which it is in words rather than by a blank:
-// "Not installed" is not the same as an install that failed, and "—" under conformance is never 0%.
+// "No Ascent PR" is not the same as an install that failed, and "—" under conformance is never 0%.
 // scoreHex is the one colour source for the conformance number, so it reads on the same scale as every
-// other score in the product.
+// other score in the product, and each absent cell carries the SAME `StateSwatch` the grid above it
+// paints — so a hatch in the overview and a hatch in the evidence row are one encoding, not two.
+//
+// "PR opened", not "Installed": `foundation.pr_opened` records a DRAFT PR (src/lib/github/write.ts),
+// which nobody has necessarily merged. See foundationViz.ts for the full reasoning.
 
+import { StateSwatch } from "@/components/org/viz";
 import { scoreHex } from "@/lib/ui";
 import type { FoundationRolloutRow } from "@/lib/db/org-foundation";
 
@@ -32,22 +37,36 @@ export function FoundationRolloutRowView({
 
       <td className="px-4 py-2.5 type-body-sm">
         {row.foundationPrAt ? (
-          <span className="text-emerald-300">
-            Installed <span className="font-mono text-slate-500">{shortDate(row.foundationPrAt)}</span>
+          <span className="inline-flex items-center gap-1.5 text-slate-300">
+            <StateSwatch state="declared" />
+            PR opened <span className="font-mono text-slate-500">{shortDate(row.foundationPrAt)}</span>
           </span>
         ) : (
-          <span className="text-slate-500">Not installed</span>
+          <span
+            className="inline-flex items-center gap-1.5 text-slate-500"
+            title="Ascent has opened no foundation PR here. A repo whose team committed .ai/ by hand is invisible to this view — not judged, not absent."
+          >
+            <StateSwatch state="not-judged" />
+            No Ascent PR
+          </span>
         )}
       </td>
 
       <td className="px-4 py-2.5 type-body-sm">
         <div className="flex flex-wrap items-center gap-2">
           {provisioned ? (
-            <span className="text-emerald-300">
+            <span className="inline-flex items-center gap-1.5 text-emerald-300">
+              <StateSwatch state="measured" />
               Provisioned <span className="font-mono text-slate-500">{shortDate(row.reportBackAt)}</span>
             </span>
           ) : (
-            <span className="text-slate-500">Not provisioned</span>
+            <span
+              className="inline-flex items-center gap-1.5 text-slate-500"
+              title="Ascent has written no report-back secrets here. That is not 'off' — the repo may still run .ai/doctor.mjs locally, unseen."
+            >
+              <StateSwatch state="missing" />
+              Not provisioned
+            </span>
           )}
           <button
             type="button"
@@ -66,8 +85,11 @@ export function FoundationRolloutRowView({
 
       <td className="px-4 py-2.5 type-body-sm">
         {row.conformance == null ? (
-          <span title="Never reported — this repo has not run node .ai/doctor.mjs --json against Ascent." className="text-slate-500">
-            —
+          <span
+            title="Never reported — this repo has not run node .ai/doctor.mjs --json against Ascent. An absence, never a zero."
+            className="inline-flex items-center gap-1.5 text-slate-500"
+          >
+            <StateSwatch state="missing" />—
           </span>
         ) : (
           <span className="font-mono tabular-nums" style={{ color: scoreHex(row.conformance) }}>

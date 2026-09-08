@@ -13,6 +13,7 @@
 // SegmentsComparePanel.tsx) so this file stays under the 200-LOC cap (AGENTS.md).
 
 import { SegmentCard } from "./SegmentCard";
+import { SegmentMaturityGrid } from "./SegmentMaturityGrid";
 import { SegmentsComparePanel } from "./SegmentsComparePanel";
 import { RepoSegmentsPanel } from "./RepoSegmentsPanel";
 import { SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
@@ -71,7 +72,8 @@ export async function SegmentsSection({
         <SectionEmpty>
           No segments to roll up yet. Create one above and tag a few repos into it — named slices of the
           fleet (platform, mobile, legacy…) — then their maturity lands here and you can compare two of
-          them side by side.
+          them side by side. Tags also scope the Overview&apos;s segment filter, so every reading on that
+          tab can be narrowed to one slice.
         </SectionEmpty>
       </>
     );
@@ -97,8 +99,10 @@ export async function SegmentsSection({
       <div>
         <SectionHeader
           title="Segment maturity"
-          description="Per-segment maturity across the fleet, each slice rolled up from its tagged repos' latest scans."
+          description={`${summaries.length} slice${summaries.length === 1 ? "" : "s"} · 0–100, latest scans`}
         />
+        {/* First sight is the grid; the cards below it carry the per-segment controls (§2.2/§2.7). */}
+        <SegmentMaturityGrid className="mt-3" summaries={summaries} />
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {summaries.map((s) => {
             const tagged = s.id ? reposBySegment[s.id] ?? [] : [];

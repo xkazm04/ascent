@@ -1,25 +1,29 @@
 // The A-vs-B segment comparison — extracted out of SegmentsSection.tsx so that file stays under the
 // 200-LOC cap (AGENTS.md).
+//
+// /org redesign (docs/ORG-UX-REDESIGN.md §2): a comparison of two slices is a SHAPE, and this panel
+// rendered it as two columns of figures with a delta at the end of each row, plus two meters per
+// dimension whose lengths a reader had to compare by eye across a gap. Both are now paired rows on
+// one shared axis (SegmentDumbbell), so "which slice leads, by how much, and where they agree" is
+// read rather than computed.
+//
+// The empty-side rule is no longer enforced by hiding the comparison: `segmentViz.ts` turns an
+// unscanned side into `null`, the mark is simply not drawn, and the delta reads "—". The reader can
+// still see WHICH metrics exist on the other side, which the suppressed version denied them.
 
 import { SegmentComparePicker } from "./SegmentComparePicker";
+import { SegmentDumbbell } from "./SegmentDumbbell";
+import { dimensionPairs, headlinePairs, pairedStates } from "./segmentViz";
 import { postureText } from "./SegmentCard";
-import { Card, Meter, SectionHeader, Tile, TILE_GRID, deltaHex, fmtDelta } from "@/components/org/shared/ui";
+import { Card, SectionHeader, Tile, TILE_GRID, deltaHex, fmtDelta } from "@/components/org/shared/ui";
+import { Legend, WhyChip } from "@/components/org/viz";
 import { DIMENSION_SHORT, scoreHex } from "@/lib/ui";
 import type { SegmentComparison } from "@/lib/db";
 
-/** A − B metric row: both values plus the signed, colored delta. */
-function MetricRow({ label, a, b }: { label: string; a: number; b: number }) {
-  const d = a - b;
-  return (
-    <div className="flex items-center gap-3 type-body">
-      <span className="w-28 shrink-0 text-slate-400">{label}</span>
-      <span className="w-10 text-right font-mono tabular-nums" style={{ color: scoreHex(a) }}>{a}</span>
-      <span className="text-slate-600">·</span>
-      <span className="w-10 text-right font-mono tabular-nums" style={{ color: scoreHex(b) }}>{b}</span>
-      <span className="ml-auto type-mono-sm" style={{ color: deltaHex(d) }}>{fmtDelta(d)}</span>
-    </div>
-  );
-}
+const SENTINEL_HINT =
+  "A segment with no scanned repository has no score at all: its average reduces to 0, which is a sentinel and not a measurement. That side is drawn as a gap and its delta withheld, because a difference against a sentinel is comparison theatre.";
+
+const shortDim = (dimId: string) => DIMENSION_SHORT[dimId as keyof typeof DIMENSION_SHORT] ?? dimId;
 
 export function SegmentsComparePanel({
   options,
@@ -32,83 +36,75 @@ export function SegmentsComparePanel({
   bId: string | null;
   comparison: SegmentComparison | null;
 }) {
+  if (!comparison) {
+    return (
+      <div>
+        <SectionHeader title="Compare segments" right={<SegmentComparePicker options={options} a={aId} b={bId} />} />
+        <p className="mt-4 type-body text-slate-500">Pick two segments to compare.</p>
+      </div>
+    );
+  }
+
+  const aEmpty = comparison.a.scannedCount === 0;
+  const bEmpty = comparison.b.scannedCount === 0;
+  const headline = headlinePairs(comparison);
+  const dims = dimensionPairs(comparison, shortDim);
+  const aName = comparison.a.name;
+  const bName = comparison.b.name;
+
   return (
     <div>
-      <SectionHeader
-        title="Compare segments"
-        description="Two slices side by side: e.g. platform is AI-Native while legacy is Experimental."
-        right={<SegmentComparePicker options={options} a={aId} b={bId} />}
-      />
-      {!comparison ? (
-        <p className="mt-4 type-body text-slate-500">Pick two segments to compare.</p>
-      ) : (
-        (() => {
-          // repositories-segments #4: an unscanned side reduces to avgOverall 0 (a sentinel, not a
-          // score), so "Δ +87" against a healthy A is comparison theater. Render "—" for the empty
-          // side and suppress the delta tiles + metric/dimension rows until both sides have scans.
-          const aEmpty = comparison.a.scannedCount === 0;
-          const bEmpty = comparison.b.scannedCount === 0;
-          const anyEmpty = aEmpty || bEmpty;
-          return (
-            <>
-              <div className={`mt-4 ${TILE_GRID}`}>
-                <Tile label={comparison.a.name} value={aEmpty ? "—" : comparison.a.avgOverall} sub={aEmpty ? `no scans yet · 0/${comparison.a.repoCount} scanned` : `${postureText(comparison.a.posture)} · ${comparison.a.scannedCount}/${comparison.a.repoCount} scanned`} color={aEmpty ? undefined : scoreHex(comparison.a.avgOverall)} />
-                <Tile label={comparison.b.name} value={bEmpty ? "—" : comparison.b.avgOverall} sub={bEmpty ? `no scans yet · 0/${comparison.b.repoCount} scanned` : `${postureText(comparison.b.posture)} · ${comparison.b.scannedCount}/${comparison.b.repoCount} scanned`} color={bEmpty ? undefined : scoreHex(comparison.b.avgOverall)} />
-                <Tile label="Overall Δ" value={anyEmpty ? "—" : fmtDelta(comparison.deltas.overall)} color={anyEmpty ? undefined : deltaHex(comparison.deltas.overall)} sub={anyEmpty ? "needs scans on both sides" : `${comparison.a.name} vs ${comparison.b.name}`} />
-                <Tile label="Adopt / Rigor Δ" value={anyEmpty ? "—" : `${fmtDelta(comparison.deltas.adoption)} / ${fmtDelta(comparison.deltas.rigor)}`} sub={anyEmpty ? "needs scans on both sides" : "adoption · rigor"} />
-              </div>
+      <SectionHeader title="Compare segments" right={<SegmentComparePicker options={options} a={aId} b={bId} />} />
 
-              {anyEmpty ? (
-                <p className="mt-4 type-body text-slate-500">
-                  {[aEmpty ? comparison.a.name : null, bEmpty ? comparison.b.name : null].filter(Boolean).join(" and ")} has no
-                  scanned repos yet. Scan the segment above to make this comparison meaningful.
-                </p>
-              ) : (
-                <div className="mt-6 grid gap-6 lg:grid-cols-2">
-                  {/* Headline metrics */}
-                  <Card>
-                    <SectionHeader
-                      size="sm"
-                      title="Headline metrics"
-                      right={
-                        <span className="type-mono-sm text-slate-500">
-                          <span className="text-slate-300">{comparison.a.name}</span> · <span className="text-slate-300">{comparison.b.name}</span> · Δ
-                        </span>
-                      }
-                    />
-                    <div className="mt-4 space-y-3">
-                      <MetricRow label="Overall" a={comparison.a.avgOverall} b={comparison.b.avgOverall} />
-                      <MetricRow label="AI Adoption" a={comparison.a.avgAdoption} b={comparison.b.avgAdoption} />
-                      <MetricRow label="Engineering Rigor" a={comparison.a.avgRigor} b={comparison.b.avgRigor} />
-                    </div>
-                  </Card>
+      {/* First sight: the two slices on one axis (§2.2). */}
+      <Card className="mt-4">
+        <SectionHeader
+          size="sm"
+          title="Headline metrics"
+          right={<WhyChip hint={SENTINEL_HINT} label="why a side can be blank" align="end" />}
+        />
+        <SegmentDumbbell className="mt-2 max-w-xl" rows={headline} aName={aName} bName={bName} title="Headline metrics" />
+        <Legend states={pairedStates(headline)} className="mt-3" />
+      </Card>
 
-                  {/* Dimension comparison */}
-                  <Card>
-                    <SectionHeader size="sm" title="By dimension" />
-                    <div className="mt-4 space-y-2">
-                      {comparison.dimDeltas.map((d) => (
-                        <div key={d.dimId} className="flex items-center gap-2 type-body-sm">
-                          <span className="w-16 shrink-0 text-slate-400">{DIMENSION_SHORT[d.dimId as keyof typeof DIMENSION_SHORT] ?? d.dimId}</span>
-                          <span className="w-7 text-right font-mono tabular-nums" style={{ color: scoreHex(d.a) }}>{d.a}</span>
-                          <Meter className="flex-1" size="sm" value={d.a} color={scoreHex(d.a)} />
-                          <Meter className="flex-1" size="sm" value={d.b} color={scoreHex(d.b)} />
-                          <span className="w-7 text-left font-mono tabular-nums" style={{ color: scoreHex(d.b) }}>{d.b}</span>
-                          <span className="w-9 text-right font-mono" style={{ color: deltaHex(d.delta) }}>{fmtDelta(d.delta)}</span>
-                        </div>
-                      ))}
-                      {comparison.dimDeltas.length === 0 && <p className="type-body-sm text-slate-500">Neither segment has a scanned repo yet.</p>}
-                    </div>
-                    <p className="mt-3 type-mono-sm text-slate-600">
-                      left bar · {comparison.a.name} · right bar · {comparison.b.name}
-                    </p>
-                  </Card>
-                </div>
-              )}
-            </>
-          );
-        })()
+      <div className={`mt-4 ${TILE_GRID}`}>
+        <Tile
+          label={aName}
+          value={aEmpty ? "—" : comparison.a.avgOverall}
+          sub={aEmpty ? `no scans yet · 0/${comparison.a.repoCount} scanned` : `${postureText(comparison.a.posture)} · ${comparison.a.scannedCount}/${comparison.a.repoCount} scanned`}
+          color={aEmpty ? undefined : scoreHex(comparison.a.avgOverall)}
+        />
+        <Tile
+          label={bName}
+          value={bEmpty ? "—" : comparison.b.avgOverall}
+          sub={bEmpty ? `no scans yet · 0/${comparison.b.repoCount} scanned` : `${postureText(comparison.b.posture)} · ${comparison.b.scannedCount}/${comparison.b.repoCount} scanned`}
+          color={bEmpty ? undefined : scoreHex(comparison.b.avgOverall)}
+        />
+        <Tile
+          label="Overall Δ"
+          value={headline[0]!.delta == null ? "—" : fmtDelta(comparison.deltas.overall)}
+          color={headline[0]!.delta == null ? undefined : deltaHex(comparison.deltas.overall)}
+          sub={headline[0]!.delta == null ? "needs scans on both sides" : `${aName} vs ${bName}`}
+        />
+        <Tile
+          label="Adopt / Rigor Δ"
+          value={headline[1]!.delta == null ? "—" : `${fmtDelta(comparison.deltas.adoption)} / ${fmtDelta(comparison.deltas.rigor)}`}
+          sub={headline[1]!.delta == null ? "needs scans on both sides" : "adoption · rigor"}
+        />
+      </div>
+
+      {(aEmpty || bEmpty) && (
+        // The remedy, in the degraded state where a reader needs it (§2.1 O) — and only there.
+        <p className="mt-4 type-body text-slate-500">
+          {[aEmpty ? aName : null, bEmpty ? bName : null].filter(Boolean).join(" and ")} has no scanned repos yet. Scan
+          the segment above to make this comparison meaningful.
+        </p>
       )}
+
+      <Card className="mt-4">
+        <SectionHeader size="sm" title="By dimension" />
+        <SegmentDumbbell className="mt-2 max-w-xl" rows={dims} aName={aName} bName={bName} title="By dimension" />
+      </Card>
     </div>
   );
 }
