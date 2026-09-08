@@ -23,6 +23,7 @@ function row(over: Partial<SecurityRegisterRow> = {}): SecurityRegisterRow {
     name: "web",
     fullName: "acme/web",
     score: 72,
+    measured: true,
     gateReason: null,
     rules: null,
     checks: [],
@@ -48,5 +49,22 @@ describe("SecurityRiskRegister advisories provenance (#3)", () => {
     expect(screen.queryByTitle(/open on GitHub/i)).toBeNull();
     // The counts still render — honestly labeled, just not linked as real GitHub state.
     expect(screen.getByTitle(/no matching advisories exist on GitHub/i)).toBeInTheDocument();
+  });
+});
+
+describe("SecurityRiskRegister — an unmeasured repo never prints the fail-closed 0", () => {
+  it("renders the D9 cell as a void, not as a clickable score of 0", () => {
+    render(<SecurityRiskRegister org="acme" rows={[row({ name: "old", fullName: "acme/old", score: 0, measured: false, gateReason: "D9 not measured" })]} advisories={null} />);
+    // No score button, and nothing anywhere claims a reading of 0 for this repo.
+    expect(screen.queryByRole("button", { name: /security score/i })).toBeNull();
+    expect(screen.getByTitle(/Security \(D9\) — No measurement/i)).toBeInTheDocument();
+    // The gate still FAILS — the verdict is unchanged, only the fabricated number is gone.
+    expect(screen.getByText(/D9 not measured/)).toBeInTheDocument();
+    expect(screen.getByTitle(/D9 battery — No measurement/i)).toBeInTheDocument();
+  });
+
+  it("a measured repo keeps its clickable score", () => {
+    render(<SecurityRiskRegister org="acme" rows={[row()]} advisories={null} />);
+    expect(screen.getByRole("button", { name: /web security score 72, open detail/i })).toBeInTheDocument();
   });
 });

@@ -10,12 +10,20 @@
 // every other cell so the hairline bed shows only as a rule.
 //
 // The legend stays. The bar alone would be a colour-only signal, and the counts are the point.
+//
+// Colour comes from `scoreHex` at each band's midpoint, never a hand-picked hex (ORG-UX-REDESIGN §2.5,
+// BRAND.md). The four literals that used to sit here included a BLUE for "ok" — off the red→green
+// maturity ramp entirely, so this one bar taught a fifth colour meaning that contradicted every score
+// ring, heat cell and D9 chip beside it. Routing through the rubric also means a retuned level band
+// retunes this bar automatically instead of silently desyncing.
+
+import { scoreHex } from "@/lib/ui";
 
 const BANDS = [
-  { key: "critical", label: "critical", range: "<40", color: "#dc2626" },
-  { key: "weak", label: "weak", range: "40–59", color: "#d97706" },
-  { key: "ok", label: "ok", range: "60–79", color: "#3b9eff" },
-  { key: "strong", label: "strong", range: "80+", color: "#16a34a" },
+  { key: "critical", label: "critical", range: "<40", mid: 20 },
+  { key: "weak", label: "weak", range: "40–59", mid: 50 },
+  { key: "ok", label: "ok", range: "60–79", mid: 70 },
+  { key: "strong", label: "strong", range: "80+", mid: 90 },
 ] as const;
 
 export function SecurityBandSpectrum({
@@ -34,16 +42,16 @@ export function SecurityBandSpectrum({
           <div
             key={b.key}
             className="h-full transition-all"
-            style={{ width: `${(band[b.key] / scanned) * 100}%`, backgroundColor: b.color }}
-            title={`${band[b.key]} ${b.label} (${b.range})`}
+            style={{ width: `${(band[b.key] / scanned) * 100}%`, backgroundColor: scoreHex(b.mid) }}
+            title={`${band[b.key]} ${b.label} (D9 ${b.range})`}
           />
         ))}
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1 px-5 py-2 type-caption text-slate-400">
         {BANDS.map((b) => (
           <span key={b.key} className="inline-flex items-center gap-1.5">
-            <span aria-hidden className="h-2 w-2 rounded-full" style={{ backgroundColor: band[b.key] > 0 ? b.color : "#334155" }} />
-            <span className="tabular-nums" style={{ color: band[b.key] > 0 ? undefined : "#64748b" }}>
+            <span aria-hidden className="h-2 w-2 rounded-full" style={{ backgroundColor: band[b.key] > 0 ? scoreHex(b.mid) : "var(--color-divider)" }} />
+            <span className={`tabular-nums ${band[b.key] > 0 ? "" : "text-slate-500"}`}>
               {band[b.key]} {b.label} <span className="text-slate-600">({b.range})</span>
             </span>
           </span>

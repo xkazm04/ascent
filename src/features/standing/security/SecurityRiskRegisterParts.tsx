@@ -1,10 +1,11 @@
 "use client";
 
-// Small presentational parts of SecurityRiskRegister.tsx (the check-grade chip + sortable header
-// cell), pulled out so the table's own file stays under the 200-LOC cap (docs/ORG-TABS-REFACTOR.md).
+// Small presentational parts of SecurityRiskRegister.tsx (the coverage tally cell, the D9 score cell
+// and the sortable header cell), pulled out so the table's own file stays under the 200-LOC cap.
 
-import { gradeTone, type SortKey } from "./securityRegisterShared";
-import type { SecurityRowCheck } from "@/lib/org/security";
+import { StateSwatch, stateTitle } from "@/components/org/viz";
+import type { SortKey } from "./securityRegisterShared";
+import { checkTally, type SecurityMatrixInput } from "./securityMatrixModel";
 
 export const TONE: Record<string, string> = {
   ok: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
@@ -13,13 +14,42 @@ export const TONE: Record<string, string> = {
   na: "border-slate-800 text-slate-600",
 };
 
-export function CheckChip({ short, check }: { short: string; check?: SecurityRowCheck }) {
-  const tone = gradeTone(check?.score ?? null);
-  const grade = !check || check.score === null ? "n/a" : `${check.score}/10`;
-  const title = check ? `${check.name} (${check.risk}), ${grade}: ${check.detail}` : `${short}: not evaluated in this scan`;
+/**
+ * The Gaps cell — the two counts a row of ten chips could never show at once.
+ *
+ * The matrix above already carries WHICH control is in which state, per repo. What it cannot do at a
+ * glance across a long fleet is answer "how much of this row was never judged", and that is precisely
+ * the number a security reviewer must see before reading the rest of the row as a verdict. It is a
+ * count, never a grade: an unjudged control has no grade, which is the whole point.
+ */
+export function CoverageCell({ row }: { row: SecurityMatrixInput }) {
+  if (!row.measured) {
+    return (
+      <span className="inline-flex items-center gap-1.5 type-mono-sm text-slate-600" title={stateTitle("missing", `${row.name} · D9 battery`)}>
+        <StateSwatch state="missing" size={12} />
+        no battery
+      </span>
+    );
+  }
+  const { failing, notJudged, graded } = checkTally(row);
+  if (graded === 0 && notJudged === 0) {
+    return (
+      <span className="type-mono-sm text-slate-600" title="No deterministic checks on this scan. Re-scan to populate the control battery.">
+        re-scan for checks
+      </span>
+    );
+  }
   return (
-    <span title={title} className={`rounded border px-1.5 py-0.5 type-caption ${TONE[tone]}`}>
-      {short}
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 type-mono-sm">
+      <span className={`rounded border px-1.5 py-0.5 type-caption ${TONE[failing > 0 ? "bad" : "ok"]}`} title={`${failing} of ${graded} graded controls score below 4/10`}>
+        {failing} failing
+      </span>
+      {notJudged > 0 && (
+        <span className="inline-flex items-center gap-1 text-slate-400" title={stateTitle("not-judged", `${row.name} · ${notJudged} of ${notJudged + graded} controls`)}>
+          <StateSwatch state="not-judged" size={12} />
+          {notJudged} not judged
+        </span>
+      )}
     </span>
   );
 }

@@ -6,6 +6,7 @@
 
 import Link from "next/link";
 import { Card, SectionEmpty, SectionHeader, MeterRow } from "@/components/org/shared/ui";
+import { SecurityCheckMatrix } from "@/features/standing/security/SecurityCheckMatrix";
 import { SecurityFindings } from "@/components/org/SecurityFindings";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { getPersonalSecurityRows } from "@/lib/db";
@@ -37,14 +38,25 @@ export async function PersonalSecurity({ slug }: { slug: string }) {
 
   return (
     <div className="space-y-6">
+      {/* §3: a noun phrase plus the unit line. "Decide each failing control below…" duplicated the
+          findings section's own header one screen down; the scope/ordering facts are now drawn. */}
       <SectionHeader
-        descriptionClassName="max-w-3xl"
         title="Security"
-        description="Security (D9) across your tracked repos, weakest first, from each repo's latest public scan. Decide each failing control below: accept the work, or dismiss with a reason. Your reasons calibrate your own rescans; they never change what other watchers see."
+        description={`${rows.length} tracked repo${rows.length === 1 ? "" : "s"} · latest public scan · weakest first`}
         right={<CopyForLlm text={gateSnippet} label="Copy CI gate snippet" />}
       />
 
       <Card>
+        {/* The SAME battery grid the org register opens on — one vocabulary across both editions, and
+            it is the graphic that degrades honestly at personal scale. A quartile Distribution over
+            three watched repos would plot a shape that isn't there; a one-row matrix is simply one
+            row, and MatrixGrid falls back to a labelled role="img" placeholder when there are none. */}
+        <SecurityCheckMatrix
+          className="mb-4"
+          // Every row here came from a scan that CARRIED a D9 dimension — getPersonalSecurityRows
+          // skips repos without one — so `measured` is true by construction, not by default.
+          rows={withChecks.map((r) => ({ fullName: r.fullName, name: r.name, checks: r.checks, measured: true }))}
+        />
         <ul>
           {withChecks.map((r) => (
             <li key={r.fullName} className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-slate-800 py-3 last:border-b-0">
@@ -60,10 +72,15 @@ export async function PersonalSecurity({ slug }: { slug: string }) {
         </ul>
       </Card>
 
+      {/* `scopeNote` is KEPT VISIBLE, not demoted to a hover. The org edition has no equivalent: here
+          a dismissal is written to YOUR personal org, and someone deciding on a public repo's finding
+          needs to know — before they write it — that it calibrates their own rescans and reaches
+          nobody else's view. A scope boundary a person is about to act on is not a tooltip. */}
       <SecurityFindings
         org={slug}
         rows={withChecks.map((r) => ({ fullName: r.fullName, checks: r.checks }))}
         decisions={decisions}
+        scopeNote="Your reasons calibrate your own rescans. They never change what other watchers of these repos see."
       />
     </div>
   );
