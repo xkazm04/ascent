@@ -38,7 +38,13 @@ export async function OverviewFixFirstPanel({
     {
       regressers: movers?.regressers ?? [],
       findings: unresolved,
+      // Passed WHOLE (GoalProgress carries metricLabel/target/current beside the triage fields), so
+      // a behind-pace goal's bar can be its remaining distance to target rather than a void. No extra
+      // read: listGoals already computed them for the pace verdict this item is selected by.
       goals: goals ?? [],
+      // The population a repo's regression is divided across before it may sit on a fleet scale.
+      // Already on the movers row — a missing movers read leaves it 0, which draws a void, not a 0.
+      comparedRepos: movers?.comparedRepos ?? 0,
     },
     scopeQuery,
   );

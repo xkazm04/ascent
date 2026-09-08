@@ -18,7 +18,7 @@
 // serialisable and derived ONCE on the server in OverviewFleetPanel — nothing here awaits.
 
 import { Card, DIMS, SectionHeader } from "@/components/org/shared/ui";
-import { FOLLOW_UP_BELOW } from "@/lib/maturity/model";
+import { Legend, type VizState } from "@/components/org/viz";
 import type { Forecast } from "@/lib/maturity/forecast";
 import type { ScoreBadge } from "./OrgScoreBadges";
 import type { TrendPoint } from "@/components/report/TrendChart";
@@ -31,6 +31,11 @@ import { LedgerDimensionRows } from "./LedgerDimensionRows";
 import { RepoCategoryRollup } from "./RepoCategoryRollup";
 import { RepoDimensionHeatmap } from "./RepoDimensionHeatmap";
 import { buildDimensionReadings } from "./dimensionReading";
+import { PhaseStandingStrip } from "./PhaseStandingStrip";
+import { GREEN_FLOOR, owedCount, phaseStandings } from "./phaseStanding";
+
+// Kit order, filtered to the states the strip actually draws.
+const KIT_ORDER: VizState[] = ["measured", "not-judged", "missing"];
 
 /** Everything the Overview renders from — serialisable, derived once on the server. */
 export interface OverviewLedgerData {
@@ -54,7 +59,9 @@ export interface OverviewLedgerData {
 
 export function OverviewLedger(d: OverviewLedgerData) {
   const readings = buildDimensionReadings(d.dims, d.dimDeltas, d.heatmapRows, d.deltaLabel);
-  const owed = readings.filter((r) => r.owed).length;
+  const owed = owedCount(readings);
+  const phases = phaseStandings(readings);
+  const phaseStates = KIT_ORDER.filter((st) => phases.some((p) => p.state === st));
   const scored = Object.values(d.postureCounts).reduce((a, b) => a + b, 0);
   return (
     <div className="space-y-6">
@@ -72,15 +79,19 @@ export function OverviewLedger(d: OverviewLedgerData) {
         />
         <PostureCompositionBar slug={d.slug} postureCounts={d.postureCounts} search={d.search} />
 
-        <div className="mt-5 flex flex-wrap items-baseline justify-between gap-3 border-t border-divider pt-4">
-          <div>
+        {/* The phase strip is the FIRST SIGHT of the dimension section: three bars against the green
+            floor say which part of the pipeline carries the debt, which the sentence this replaced
+            counted ("N of 9 ... below 65") without ever locating. The count survives as a scope
+            readout beside the rule — a number, not a claim. */}
+        <div className="mt-5 border-t border-divider pt-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
             <span className="type-body-sm font-semibold uppercase tracking-wide text-slate-500">Dimensions by SDLC phase</span>
-            <p className="mt-0.5 type-body-sm text-slate-500">
-              {owed === 0
-                ? "Every dimension is in the green band."
-                : `${owed} of ${readings.length} dimensions still owe a follow-up (below ${FOLLOW_UP_BELOW}). Each row names the practice that lifts it and the repos it touches.`}
-            </p>
+            <span className="type-mono-sm tabular-nums text-slate-500">
+              {owed.n} of {owed.of} below green {GREEN_FLOOR}
+            </span>
           </div>
+          <PhaseStandingStrip phases={phases} className="mt-3 max-w-3xl" />
+          <Legend states={phaseStates} className="mt-2" />
         </div>
         <LedgerDimensionRows slug={d.slug} readings={readings} search={d.search} />
       </Card>
