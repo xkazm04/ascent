@@ -2025,10 +2025,227 @@ prose is re-derivable but not enforceable; four teams re-derived it four ways an
 a zero there has to delete the guard on purpose, in a diff, where it is visible. The doctrine did not
 change in this redesign; it acquired an implementation.
 
-**Producer-level residue.** Two of the four are still wrong upstream, fixed only at the view: `rollupTeams`
-emits `aiCommitShare: 0` rather than a nullable field (so the Teams tab and the Copy-for-LLM brief still
-print it as a measurement), and `compareSegments` returns per-segment averages with no way to
-distinguish an unscanned segment. Both are recorded in Known gaps; neither is a drawing problem.
+**Producer-level residue: none left in the mean.** Both producers named here when this section was
+written on 2026-09-08 have since been fixed at the source — `rollupTeams` in `411a002e` and the
+`roundedMean` root itself in `b1042324`. See
+[The mean of nothing is null](#the-mean-of-nothing-is-null-the-generator-fixed-2026-09-08) below; what
+remains open is narrower and recorded in Known gaps.
+
+
+
+### Teams, redesigned (Wave 3, 2026-09-08)
+
+The Teams tab was nine components, **zero SVG** and 548 characters of prose — a rollup grid that
+described itself in a paragraph, a standings section whose header narrated its own box plot, and a
+pairing list that asked the reader to perform a subtraction. It now opens each section on a shape,
+and every absence on it carries a state from the shared kit rather than a glyph.
+
+**Per-dimension averages are a matrix, not a numeric grid.** The dimension columns used to live
+inside the sortable table: one tinted box per team per dimension, and a bare `·` wherever a team had
+never been graded on one — distinguishable from a low score only by hovering it. `MatrixGrid`
+(`src/components/org/viz`) draws the same data above the table and **hatches** the ungraded cell,
+where `rendersValue` makes printing a numeral structurally impossible. The matrix follows the table's
+sort, so the two are one surface; the table keeps what a table is right for
+([§2.7](../../ORG-UX-REDESIGN.md)) — auditable row-level scalars with an expandable drill-down.
+`teamsViz.ts` is the pure view model behind it (`dimMatrixRows`, `dimMatrixStates`,
+`unjudgedCellCount`), so the picture and its generated `sr-only` table are provably the same numbers.
+
+**The standings open on the spread.** The section header used to read *"platform leads at 78 and
+mobile trails at 41, a 37-point spread across 6 teams. Each bar attributes the gap to a specific
+dimension, measured against the fleet average of 60."* Every number in that sentence is a position on
+a box plot, and the one thing it could not give is what a director opens the tab for: whether the
+fleet is clustered with two outliers or spread evenly. `TeamsSpread` plots `Distribution` over the
+team averages (`teamSpread`, R-7 quantiles, null below two teams — a point is not a spread), with the
+extremes named as chart labels that deep-link to their rows.
+
+What survived the demotion is the sentence's one genuinely load-bearing claim, which the prose had
+buried: **the box and the factor bars are measured over different populations.** The box is the
+spread of TEAM averages; the bars diverge from the fleet mean over *distinct live-scored repos*,
+where a repo owned by three teams still votes once. That now rides a `WhyChip`
+(`TWO_POPULATIONS_HINT`) on the spread itself.
+
+**The affordances carry themselves.** The header instructed — *"Click a header to sort, a team to
+open its repos and champions"* — because the only visible sign a column sorted was the `↓` that
+appeared *after* it was clicked. Every sortable header now carries a dimmed `⇅` at rest (aria-hidden;
+`aria-sort` and the button title are what a screen reader uses), and the row's disclosure control
+says on itself what it opens. A sentence telling a reader a control exists is a control that does not
+read as one.
+
+**Pairings are drawn as gaps.** `platform 78 → mobile 41 · 37-pt gap` became `TeamsPairingGap`: a
+0–100 track with both teams marked and the distance between them shaded. The positions say whether
+this is a strong team pulling a weak one up or two mid teams a few points apart — which the arrow
+glyph could not. The knowledge leader is a one-row `MatrixGrid` on the same axes the Adoption tab
+plots teams with, so the two tabs read as one system.
+
+**Unowned repos are `not-judged`, not "zero teams".** These repos were never *assessed* for team
+ownership: the scan parses CODEOWNERS, and a repo with no such file (or one naming no team) yields no
+attribution rather than a measured zero. The list carries a hatched swatch and its badge says "never
+assessed for a team owner". The tab never printed a `0` here — unowned repos are kept out of the team
+grid entirely — so this is an encoding fix, not a correctness one.
+
+**Every absence in the matrix is now a mark.** A team with no commit population (see the closed gap
+below) hatches its AI% cell; a period with no comparable scans draws the void instead of an em dash
+in a column of numbers. Pinned by `TeamsViz.dom.test.tsx` alongside the existing
+`TeamsHonesty.dom.test.tsx`, which was extended rather than replaced.
+
+Two `SectionHeader description`s survive on the tab, both ≤60 characters of unit and window:
+`"{n} attributed repos · Δ {window}"` and `"overall score · {n} teams"`.
+
+Key files: `src/features/bought/teams/` — `teamsViz.ts` (pure view models), `TeamsSpread.tsx`,
+`TeamsPairingGap.tsx`, `TeamsStandingColumn.tsx` (extracted so `TeamsStandings` could become the
+orchestrator), plus the redesigned `TeamsMatrix`, `TeamsSignals`, `TeamsUnowned` and
+`TeamsRollupPanel`.
+
+---
+
+### Tech Stacks, redesigned (Wave 3, 2026-09-08)
+
+The Tech Stacks tab was the least broken surface in the redesign — 173 characters of prose and two
+SVGs of its own — so Wave 3 converged it rather than rebuilding it. Everything the tab draws now
+speaks the shared `/org` visual vocabulary (`src/components/org/viz`), and the tab's own dialect is
+gone: the four diagnosis-class colours are the shared `LEVEL_HEX` ramp, the epistemic states are the
+kit's, and the only remaining colour literal in the directory is `STACK_COLORS` — the categorical
+identity ramp for the overlaid profiles, which deliberately avoids the score ramp so a red polygon
+can never read as a bad score.
+
+**First sight is the fleet's shape.** The tab opens on `StackSpreadStrip` — a `Distribution` over the
+measured stacks' overall scores (min · q1 · median · q3 · max, with `n`) — above the profiles rail
+and radar. The rail's sorted list of per-stack numbers is now drill-down evidence under a picture of
+the spread, not the first thing on the page.
+
+**The overlay radar encodes absence.** A stack that carries no average for a dimension — its scans
+predate that dimension — leaves a **gap in the ring**: no vertex, no dot, and the profile is not
+filled, because the enclosed area would be invented out of the missing axis. `radarShape()`
+(`stackViz.ts`) produces one open run per contiguous stretch of measured axes; a complete profile is
+still a single closed, filled polygon, so nothing about a fully-measured stack changed. The chart
+carries `role="img"`, a generated `<title>` naming each profile's unmeasured dimensions, and an
+sr-only table (`RadarSrTable`) whose cells print "No measurement" where the ring is broken.
+
+**The rail states what it does not know.** A stack with no scanned repo renders the `not-judged`
+hatch in place of a score, with the shared caveat as its title, and its second line reads
+"N repos · never scanned" instead of a posture derived from zeroes. `rendersValue()` is the guard: a
+hatched cell structurally cannot print a numeral.
+
+**Legends are marks, not sentences.** The line under the consensus board that read
+"hollow dot = laggard · filled dot = leader · vertical line = whole-fleet baseline · bar = spread" is
+a kit `Legend` whose rows render the same elements the range track draws, each carrying its sentence
+as a hover/focus hint. The profiles pane carries a second `Legend` listing only the states the
+current selection actually contains — `measured`, plus `missing` when a plotted profile has a hole,
+plus `not-judged` when an unscanned stack sits in the rail.
+
+The consensus board's "How to read" disclosure (`SectionHelp`) predates the redesign and already
+does what the law asks: it is the (D) affordance beside the heading rather than a preamble above the
+rows. It stays.
+
+### Settings tab — data erasure (Wave 3 of the /org UX redesign)
+
+The erasure control is a **setup / destructive surface**, and `docs/ORG-UX-REDESIGN.md` §2.1 and
+§4 both exempt those: a form that writes a credential, or an action that destroys data, should
+explain itself before the user acts. So nothing instructional was stripped from it. In
+particular these all stay, verbatim:
+
+- `DataErasureCard`'s header — *"On-demand erasure for a data-subject or contract request:
+  deletes this organization's scan history now, instead of waiting for the retention schedule.
+  **Irreversible.**"* Wave 1's governance precedent: a screenshot crops tooltips but keeps text.
+- The card's "what is erased / what is kept" paragraph and the typed-confirmation instruction.
+- `DataErasureManifest`'s two enumerated columns, and the "watch flags and schedules survive, so
+  a repo still on a cadence will begin building a new history" note.
+- The audit opt-in's own label (redaction is a separate decision from erasing scan data).
+
+**What changed: the blast-radius preview is now a picture as well as a count.**
+
+`ErasePreviewPanel.tsx` (extracted from `DataErasurePreview.tsx` for the 200-LOC cap, view model
+in the pure `erasePreviewViz.ts`) opens on a `MatrixGrid` from `@/components/org/viz` — five
+rows × **Erased / Kept** — above the existing counts `dl`:
+
+| | Erased | Kept |
+| --- | --- | --- |
+| Scan history | measured | *void* |
+| Repo caches | measured | *void* |
+| Audit trail | **depends on disposition** | **depends on disposition** |
+| Your settings | *void* | measured |
+| Org & members | *void* | measured |
+
+The audit row is the only one that moves, and it is the reason the picture exists:
+
+- `keep` — void in Erased, solid in Kept.
+- `redact` — **solid in BOTH.** `includeAudit: true` resolves to `auditDisposition: "redact"`
+  (`resolveAuditDisposition`, `src/lib/db/retention.ts`), which destroys the identities and keeps
+  the account of what happened. The manifest needed three sentences and a doc comment to make
+  that claim; a reader can see it in one glance and cannot mis-hold it.
+- `delete` — solid in Erased, void in Kept. Drawn for honesty; the route answers a genuine
+  `"delete"` with 409 unless the deployment sets `ERASE_AUDIT_FORCE=1`.
+
+The four permanent voids in the Erased column are the guarantee drawn rather than promised
+(Wave 1's contributors result): your organization, its repositories, its members and everything
+you configured are never in that column, and there is nothing to paint there. `ERASE_MATRIX_HINT`
+rides on a `WhyChip` beside the panel title and says what an empty cell means *here*.
+
+**Nothing numeric is in the matrix.** The counts are quantities on their own units and stay in the
+`dl` beside the picture, including the `at least …` FLOOR prefix when a preview stopped at its own
+time budget. `MatrixGrid` paints a printed score on the red→green maturity ramp, and a row count on
+that ramp would be meaningless. `erasePreviewViz.test.ts` fails if any cell is ever given a score.
+
+Everything the preview already refused to do, it still refuses: a failed preview renders **unknown**
+rather than zeros, and the confirm button stays disabled until a count has actually rendered.
+
+**Also in this tab (owned by `docs/features/scanning/llm-providers.md`, cross-linked here):** a new
+`ProviderBoundaryCard` is now the tab's first element — a `MatrixGrid` of Ascent / Bedrock /
+OpenRouter × Boundary · Billing · Plan · Active, replacing the paragraph-per-provider comparison.
+
+### The mean of nothing is null: the generator, fixed (2026-09-08)
+
+The [Wave 2 postscript](#one-rule-four-places-it-was-not-applied-wave-2-postscript-2026-09-08)
+named the defect class. Wave 3 found its **generator**, and this section records the fix
+(`b1042324`).
+
+There were **two functions named `roundedMean` in this codebase, with opposite contracts**:
+
+| | Returns for an empty list | Its own docstring |
+| --- | --- | --- |
+| `src/components/launch/fleetMapDerive.ts` | `null` | "null when nothing is scored (never NaN/0)" |
+| `src/lib/db/org-shared.ts` | `0` | "always empty-guarded, so copies that omitted the guard are corrected by routing through here" |
+
+The second one's docstring described returning `0` as **the correction**. Someone consolidated
+scattered mean calculations into a canonical helper and, in doing so, standardised the wrong answer
+across 15 call sites — while the honest implementation sat in the launch surface, months old, and the
+two were never reconciled. Every void-vs-zero bug the redesign found traces here or to a hand-rolled
+copy of the old behaviour.
+
+`mean` and `roundedMean` in `org-shared.ts` now return `number | null`. That produced exactly 33
+type errors, **all of them in `src/lib` and none in a view** — which is the diagnosis: the producers
+absorbed the sentinel and handed views a clean `number`, so the lie was manufactured at the bottom
+and laundered on the way up. Each site was resolved one of two ways and never with `?? 0`: propagate
+the null into the public type (`OrgRollup`, `OrgHeaderSummary`, `SegmentSummary`, `SegmentComparison.deltas`,
+`percentileOf`), or narrow at the producer with a type predicate over the guard that already existed.
+`hasFleetGrade()` is that predicate: the three averages share one population, so they are null together
+or present together and a consumer that has checked one has checked all three.
+
+**Two outputs changed, because the old ones were dishonest:**
+
+- `SegmentComparisonView` drew a red `0` and a **fabricated posture chip** for an unscanned side —
+  `postureFor(0, 0)` returns a real quadrant id, so a scope nobody had scanned was being
+  *classified*. Now an em dash and "Not classified", with one-ended deltas withheld.
+- `digest.ts`, `cron/digest`, `cron/athena` and `portfolio.ts` guarded on `scannedCount === 0` —
+  **a guard an all-mock fleet passes**. Such a fleet was publishing `avg 0 · L1` into a Slack push,
+  a board PDF, a portfolio row and Athena's standing: a fabricated failing grade leaving the product
+  entirely. `hasFleetGrade` is strictly stronger and closes it.
+
+Five view-side workarounds were **deleted** rather than kept — `realScoredCount === 0` /
+`scannedCount === 0` re-derivations in `overviewStanding`, `stackMeasure`, `SegmentCard`,
+`SegmentsComparePanel` and `segmentViz`, each of which existed because the view could not trust the
+average it was handed and checked a different field instead.
+
+**The two `roundedMean`s were deliberately NOT merged.** `org-shared.ts` imports `getPrisma`, and
+`fleetMapDerive.ts` is client-side (the launch star map), so a shared import would drag Prisma into the
+browser bundle — a break `tsc` and the unit suite both pass and only `next build` catches. Their shapes
+also differ for a stated reason (streaming tally vs materialized array, so `orderConstellations` keeps
+an unrounded sort key). They now agree on the **contract**, and each docstring names the other and says
+why the boundary stands.
+
+Pinned by `src/lib/db/mean-of-nothing.test.ts` (18 tests), which asserts every case as a **pair** —
+empty → null, measured-zero → 0, and the two distinguishable. Re-introducing `Math.round(m ?? 0)` at
+the root turns 21 tests red across 7 files, four of which predate this change.
 
 
 
@@ -2297,13 +2514,25 @@ with no numeral where `forecastInsufficiency` refuses to state one.
   `teamStandings` (`aiShareDelta` nulls with it; the commit-weighted fleet baseline was already
   correct and is now pinned), the Teams matrix and standings (hatched `not-judged`, no numeral), the
   Adoption tab (`teamState` reads the producer's null instead of re-deriving from `contributors`),
-  the Copy-for-LLM brief, and the CSV/JSON export (empty cell / `null`, never `0`). What remains:
+  the Copy-for-LLM brief, and the CSV/JSON export (empty cell / `null`, never `0`). ~~What remains:
   `compareSegments` (`src/lib/db/segments.ts`) returns per-segment averages only, with an unscanned
-  segment reducing to the `0` sentinel and no field distinguishing it — the A/B view hatches it at
-  the view layer, and cannot draw two real distributions because the per-repo scores summarised
-  inside `summarizeSegment` are not returned. That one is a producer fix too (`number | null` plus a
-  five-number summary per side); it is not a drawing problem, and it was deliberately left rather
-  than widening a shared query from inside a tab.
+  segment reducing to the `0` sentinel and no field distinguishing it.~~ **Also closed 2026-09-08
+  (`b1042324`)**, along with the generator behind both: `SegmentSummary.avg*` and
+  `SegmentComparison.deltas.*` are `number | null`, and `SegmentSummary.posture` is `string | null`
+  because `postureFor(0, 0)` was handing an unscanned scope a real quadrant classification. See
+  [The mean of nothing is null](#the-mean-of-nothing-is-null-the-generator-fixed-2026-09-08).
+- **A segment comparison still draws two averages, not two distributions.** The narrower half of the
+  gap above, and the only part still open: `summarizeSegment` computes per-repo scores internally but
+  `compareSegments` returns only the mean, so the A/B view can honestly draw paired rows (a dumbbell)
+  and cannot draw two boxes. Returning a five-number summary per side would turn `SegmentDumbbell`
+  into a real distribution comparison. Not a drawing problem; a shared-query widening, deliberately
+  left rather than done from inside a tab.
+- **Two adjacent sentinels of the same shape, deliberately out of scope of `b1042324`.**
+  `SegmentComparison.dimDeltas` still coalesces a dimension a scope is not scored on — that is
+  per-dimension *coverage*, a different population from the mean of nothing, and its view-side guard
+  (`value(scanned, v)` in `segmentViz.ts`) is correct today. `OrgBenchmark.corpusAvg*` still returns
+  `0` beside `corpusRepos: 0`; honestly guarded at present, but the same shape of defect if the guard
+  ever moves.
 - **`permittedModels` is declared and unchecked, and stays that way.** Not an oversight and not a
   backlog item waiting for effort: no ingest in the product retains a MODEL dimension. `AiUsage` keys
   by `(source, scope, scopeKey, day)`, and PR attribution identifies a tool, not a model. A compiled
