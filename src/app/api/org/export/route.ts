@@ -121,6 +121,12 @@ export async function GET(request: Request) {
     if (!rollup) {
       return NextResponse.json({ error: "No analytics for this org yet." }, { status: 404 });
     }
+    // COLUMN CONTRACT — `aiCommitSharePct` is NULLABLE and its absence is load-bearing. `rollupTeams`
+    // returns null for a team whose repos were scanned without commit history: there was no commit
+    // population to take a share of, which is a different fact from a measured 0%. It leaves here as
+    // JSON `null` and as an EMPTY CSV cell (csvField renders null as ""), never as a 0 — a 0 in this
+    // column would be indistinguishable from a team observed at zero AI usage, and a spreadsheet
+    // AVERAGE over the column would silently fold the unmeasured teams in.
     header = [
       "team", "name", "reposScanned", "reposOwned", "primaryOwnerOf", "avgOverall", "avgAdoption", "avgRigor",
       "posture", "contributors", "aiContributors", "aiCommitSharePct", "comparedRepos", "improving", "declining", "avgDelta",

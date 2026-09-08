@@ -59,7 +59,7 @@ describe("TeamAdoption — the void-vs-zero split, on screen", () => {
       <TeamAdoption
         slug="acme"
         pairing={null}
-        teams={[team({ aiCommitShare: 40 }), team({ slug: "@acme/ops", name: "ops", contributors: 0, aiContributors: 0, aiCommitShare: 0 })]}
+        teams={[team({ aiCommitShare: 40 }), team({ slug: "@acme/ops", name: "ops", contributors: 0, aiContributors: 0, aiCommitShare: null })]}
       />,
     );
     const measured = container.querySelector('[data-cell="@acme/core:AI commits"]')!;

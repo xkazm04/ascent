@@ -14,6 +14,7 @@ import { useMemo, useState } from "react";
 import type { TeamRollup } from "@/lib/db";
 import { OrgTable, deltaHex, fmtDelta } from "@/components/org/shared/ui";
 import { DIMENSION_SHORT, heatCell, scoreHex } from "@/lib/ui";
+import { StateSwatch, stateTitle } from "@/components/org/viz";
 import { DIMENSION_BY_ID } from "@/lib/maturity/model";
 import type { DimensionId } from "@/lib/types";
 import { TeamsMatrixSortTh, type TeamsMatrixSort } from "./TeamsMatrixSortTh";
@@ -24,7 +25,9 @@ const METRIC: Record<string, (t: TeamRollup) => number> = {
   overall: (t) => t.avgOverall,
   adoption: (t) => t.avgAdoption,
   rigor: (t) => t.avgRigor,
-  ai: (t) => t.aiCommitShare,
+  // A team with no commit population sorts BELOW every reading rather than among the zeroes: it is
+  // not the least AI-native team, it is a team with no AI-share reading at all.
+  ai: (t) => t.aiCommitShare ?? Number.NEGATIVE_INFINITY,
   delta: (t) => (t.comparedRepos > 0 ? t.avgDelta : Number.NEGATIVE_INFINITY),
 };
 
@@ -69,18 +72,29 @@ export function TeamsMatrix({
   // The AI% cell is a commit-weighted SHARE; the row printed it bare, so the only place a reader
   // could learn how many people it rests on was the expanded detail. A team of two with one AI user
   // and a team of forty read identically at "50". The population now rides the cell itself.
-  const aiCell = (t: TeamRollup) => (
-    <td
-      className="px-2 py-2 text-right font-mono tabular-nums"
-      style={{ color: scoreHex(t.aiCommitShare) }}
-      title={`${t.aiCommitShare}% of this team's commits are AI-attributed · ${t.aiContributors} of ${t.contributors} contributor${t.contributors === 1 ? " has" : "s have"} at least one AI-attributed commit`}
-    >
-      {t.aiCommitShare}
-      <span className="ml-1 type-micro text-slate-600">
-        {t.aiContributors}/{t.contributors}
-      </span>
-    </td>
-  );
+  const aiCell = (t: TeamRollup) =>
+    // NULL is not a zero. `rollupTeams` returns null when the team's repos were scanned without
+    // commit history, and this cell used to paint that with `scoreHex(0)` — alarm red, reading "0",
+    // pixel-identical to a team measured at a genuine 0% across five hundred commits. The hatched
+    // swatch is the kit's `not-judged`, and it prints no numeral at all.
+    t.aiCommitShare === null ? (
+      <td className="px-2 py-2" title={stateTitle("not-judged", `${t.slug} · AI commit share`)}>
+        <span className="flex items-center justify-end">
+          <StateSwatch state="not-judged" size={12} />
+        </span>
+      </td>
+    ) : (
+      <td
+        className="px-2 py-2 text-right font-mono tabular-nums"
+        style={{ color: scoreHex(t.aiCommitShare) }}
+        title={`${t.aiCommitShare}% of this team's commits are AI-attributed · ${t.aiContributors} of ${t.contributors} contributor${t.contributors === 1 ? " has" : "s have"} at least one AI-attributed commit`}
+      >
+        {t.aiCommitShare}
+        <span className="ml-1 type-micro text-slate-600">
+          {t.aiContributors}/{t.contributors}
+        </span>
+      </td>
+    );
 
   const scoreCell = (v: number) => (
     <td className="px-2 py-2 text-right font-mono tabular-nums" style={{ color: scoreHex(v) }}>

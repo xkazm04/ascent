@@ -2287,18 +2287,23 @@ with no numeral where `forecastInsufficiency` refuses to state one.
 
 ## Known gaps
 
-- **Two producers still emit `0` where they mean "unmeasured"** (found 2026-09-08 by the /org
+- **One producer still emits `0` where it means "unmeasured"** (found 2026-09-08 by the /org
   redesign; see [One rule, four places it was not applied](#one-rule-four-places-it-was-not-applied-wave-2-postscript-2026-09-08)).
-  `rollupTeams` (`src/lib/db/org-teams.ts`) emits `aiCommitShare: 0` for a team with no contributor
+  ~~`rollupTeams` (`src/lib/db/org-teams.ts`) emits `aiCommitShare: 0` for a team with no contributor
   attribution instead of a nullable field, so **every** consumer must re-derive the distinction from
-  `contributors === 0`. The Adoption tab now does (`adoptionTeamMatrix.teamState`); the **Teams tab
-  and the Copy-for-LLM brief still print that `0%` as a measurement**. And `compareSegments`
-  (`src/lib/db/segments.ts`) returns per-segment averages only, with an unscanned segment reducing to
-  the `0` sentinel and no field distinguishing it — the A/B view hatches it at the view layer, and
-  cannot draw two real distributions because the per-repo scores summarised inside `summarizeSegment`
-  are not returned. Both are producer fixes (`number | null`, and a five-number summary per side);
-  neither is a drawing problem, and each was deliberately left rather than widening a shared query
-  from inside a tab.
+  `contributors === 0`.~~ **Closed 2026-09-08 (Wave 3):** `rollupTeams` emits
+  `aiCommitShare: number | null` (and `knowledgeScore: number | null` with it), null meaning "no
+  commit population to take a share of". Every consumer was fixed end-to-end in the same change —
+  `teamStandings` (`aiShareDelta` nulls with it; the commit-weighted fleet baseline was already
+  correct and is now pinned), the Teams matrix and standings (hatched `not-judged`, no numeral), the
+  Adoption tab (`teamState` reads the producer's null instead of re-deriving from `contributors`),
+  the Copy-for-LLM brief, and the CSV/JSON export (empty cell / `null`, never `0`). What remains:
+  `compareSegments` (`src/lib/db/segments.ts`) returns per-segment averages only, with an unscanned
+  segment reducing to the `0` sentinel and no field distinguishing it — the A/B view hatches it at
+  the view layer, and cannot draw two real distributions because the per-repo scores summarised
+  inside `summarizeSegment` are not returned. That one is a producer fix too (`number | null` plus a
+  five-number summary per side); it is not a drawing problem, and it was deliberately left rather
+  than widening a shared query from inside a tab.
 - **`permittedModels` is declared and unchecked, and stays that way.** Not an oversight and not a
   backlog item waiting for effort: no ingest in the product retains a MODEL dimension. `AiUsage` keys
   by `(source, scope, scopeKey, day)`, and PR attribution identifies a tool, not a model. A compiled

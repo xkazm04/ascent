@@ -303,3 +303,42 @@ describe("explainTeamStandings — fleetAiShare", () => {
     expect(out.leader.aiShareDelta).toBe(out.leader.aiCommitShare);
   });
 });
+
+describe("explainTeamStandings — a null-share team", () => {
+  // The producer emits `aiCommitShare: null` when a team has no commit population (org-teams.ts).
+  // Two things must hold, and only one of them needed code: the delta becomes null (a distance from
+  // a baseline is undefined without a reading), and the fleet baseline is UNMOVED — the weighting
+  // runs over the repos' own commit totals, and such a team contributes 0 to both sums.
+  const withUnmeasured = (): TeamRollup[] => [
+    team("@acme/big", {
+      avgOverall: 60,
+      aiCommitShare: 20,
+      repos: [repo("acme/big", 60, false, 200, 40)],
+      dims: [{ dimId: "D1", label: "AI Tooling", avg: 60 }],
+    }),
+    team("@acme/silent", {
+      avgOverall: 30,
+      aiCommitShare: null,
+      contributors: 0,
+      repos: [repo("acme/silent", 30, false, 0, 0)],
+      dims: [{ dimId: "D1", label: "AI Tooling", avg: 30 }],
+    }),
+  ];
+
+  it("carries the null through instead of coalescing it to a 0% reading", () => {
+    const out = explainTeamStandings(withUnmeasured())!;
+    const silent = [out.leader, out.laggard].find((t) => t.slug === "@acme/silent")!;
+    expect(silent.aiCommitShare).toBeNull();
+    expect(silent.aiShareDelta).toBeNull();
+  });
+
+  it("leaves the commit-weighted fleet baseline untouched — no commits, no vote", () => {
+    const out = explainTeamStandings(withUnmeasured())!;
+    const big = [out.leader, out.laggard].find((t) => t.slug === "@acme/big")!;
+    // 40 AI of 200 human commits = 20; the silent team adds 0 to both sums, so @acme/big — which IS
+    // the whole commit population — sits exactly on the baseline. A 0 sentinel folded in as a team
+    // mean would have dragged the baseline to 10 and reported @acme/big as +10 above the fleet.
+    expect(big.aiShareDelta).toBe(0);
+    expect(big.aiCommitShare! - big.aiShareDelta!).toBe(20);
+  });
+});

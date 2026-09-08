@@ -11,6 +11,7 @@ import { SectionHeader, postureLabel } from "@/components/org/shared/ui";
 import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
 import { teamAnchorId } from "./teamsShared";
 import { DIMENSION_SHORT, scoreHex, timeAgo } from "@/lib/ui";
+import { STATE_LABEL, StateSwatch, stateTitle } from "@/components/org/viz";
 import type { DimensionId } from "@/lib/types";
 import type { StandingFactor, TeamStanding, TeamStandings } from "@/lib/org/teamStandings";
 
@@ -56,7 +57,12 @@ function StandingColumn({
   // card previously didn't, so a 1-person team's sole AI user was crowned a champion here alone.
   // (ambiguity-ui 2026-07-16 #3)
   const hasChampions =
-    standing.contributors >= CHAMPION_MIN_POP && standing.champions.length > 0 && standing.aiCommitShare > 0;
+    standing.contributors >= CHAMPION_MIN_POP &&
+    standing.champions.length > 0 &&
+    standing.aiCommitShare !== null &&
+    standing.aiCommitShare > 0;
+  const share = standing.aiCommitShare;
+  const shareDelta = standing.aiShareDelta;
   return (
     <div className="p-5">
       <div className="type-body-sm font-medium" style={{ color: badgeColor }}>
@@ -92,12 +98,21 @@ function StandingColumn({
       <dl className="mt-4 flex flex-wrap gap-x-5 gap-y-2 border-t border-divider pt-3 type-body-sm">
         <div>
           <dt className="text-slate-500">AI adoption</dt>
-          <dd className="mt-0.5 font-mono" style={{ color: scoreHex(standing.aiCommitShare) }}>
-            {standing.aiCommitShare}%{" "}
-            <span className="type-note" style={{ color: deltaHex(standing.aiShareDelta) }}>
-              {signedDelta(standing.aiShareDelta)}
-            </span>
-          </dd>
+          {/* NULL is not a zero: a team scanned without commit history has no share to print, so the
+              readout becomes the kit's hatched mark and no numeral is rendered at all. */}
+          {share === null || shareDelta === null ? (
+            <dd className="mt-0.5 flex items-center gap-1.5" title={stateTitle("not-judged", `${standing.slug} · AI commit share`)}>
+              <StateSwatch state="not-judged" size={12} />
+              <span className="type-note text-slate-600">{STATE_LABEL["not-judged"]}</span>
+            </dd>
+          ) : (
+            <dd className="mt-0.5 font-mono" style={{ color: scoreHex(share) }}>
+              {share}%{" "}
+              <span className="type-note" style={{ color: deltaHex(shareDelta) }}>
+                {signedDelta(shareDelta)}
+              </span>
+            </dd>
+          )}
         </div>
         <div>
           <dt className="text-slate-500">Momentum</dt>

@@ -432,3 +432,47 @@ describe("rollupTeams — per-repo commit totals on TeamRepoScore", () => {
     expect(Math.round((web.aiCommits / web.commits) * 100)).toBe(frontend.aiCommitShare);
   });
 });
+
+describe("rollupTeams — aiCommitShare is NULL when there is no commit population", () => {
+  // The producer half of "One rule, four places it was not applied" (org-intelligence.md). A team
+  // whose repos were scanned WITHOUT commit history used to arrive as `aiCommitShare: 0`, which the
+  // Teams tab painted `scoreHex(0)` alarm-red and the Copy-for-LLM brief printed as "0% AI commit
+  // share" — both indistinguishable from a team measured at a genuine 0% across 500 commits.
+  const noCommits = rollupTeams("acme", [
+    repo("acme/bare", {
+      teams: [{ slug: "@acme/ops", isDefaultOwner: true }],
+      scans: [{ overall: 50, adoption: 40, rigor: 60, dims: [{ dimId: "D1", score: 50 }] }],
+    }),
+  ]);
+
+  it("emits null, not 0, for a team with no contributor snapshot at all", () => {
+    const ops = noCommits.teams[0]!;
+    expect(ops.slug).toBe("@acme/ops");
+    expect(ops.aiCommitShare).toBeNull();
+    expect(ops.contributors).toBe(0);
+    // Still a real team with a real grade — the absence is scoped to the AI share, not to the row.
+    expect(ops.avgOverall).toBe(50);
+  });
+
+  it("nulls knowledgeScore too: half a two-input blend cannot be substituted with a zero", () => {
+    expect(noCommits.teams[0]!.knowledgeScore).toBeNull();
+    // avgAdoption 40 alone would have blended to 20 and ranked this team above a measured 15%.
+    expect(noCommits.knowledgeLeader).toBeNull();
+  });
+
+  it("serializes as null rather than 0, so the CSV/JSON export cannot print it as a measurement", () => {
+    expect(JSON.parse(JSON.stringify(noCommits)).teams[0].aiCommitShare).toBeNull();
+  });
+
+  it("keeps a MEASURED zero as 0 — a team observed at no AI usage has a reading", () => {
+    const measuredZero = rollupTeams("acme", [
+      repo("acme/manual", {
+        teams: [{ slug: "@acme/ops", isDefaultOwner: true }],
+        scans: [{ overall: 50, adoption: 40, rigor: 60, dims: [{ dimId: "D1", score: 50 }] }],
+        contributors: [{ login: "erin", commits: 500, aiCommits: 0 }],
+      }),
+    ]);
+    expect(measuredZero.teams[0]!.aiCommitShare).toBe(0);
+    expect(measuredZero.teams[0]!.knowledgeScore).toBe(20); // 0 × 0.5 + 40 × 0.5
+  });
+});

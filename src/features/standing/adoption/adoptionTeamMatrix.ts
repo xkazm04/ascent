@@ -1,17 +1,15 @@
 // Per-team adoption as a MATRIX view model — and the tab's one real correctness fix.
 //
-// THE VOID-VS-ZERO CONFLATION, found and encoded here.
-// `rollupTeams` (src/lib/db/org-teams.ts) computes `aiCommitShare = totCommits ? … : 0` over the
-// team's merged contributor rows, and keeps any team with a live-scored repo. A team whose repos
-// were scanned WITHOUT commit history therefore arrives as `contributors: 0, aiContributors: 0,
-// aiCommitShare: 0` — and the old meter row painted that with `scoreHex(0)`, an alarm-red bar reading
-// "0% · 0/0", pixel-identical to a team measured at a genuine 0% across five hundred commits. One is
-// "we looked and nobody used AI"; the other is "there was nothing to take a share OF". Prose could
-// not have separated them and the meter did not try.
+// THE VOID-VS-ZERO CONFLATION, encoded here and — since 2026-09-08 — ANSWERED UPSTREAM.
+// A team whose repos were scanned WITHOUT commit history has nothing to take an AI share OF, and the
+// old meter row painted that with `scoreHex(0)`: an alarm-red bar reading "0% · 0/0", pixel-identical
+// to a team measured at a genuine 0% across five hundred commits. One is "we looked and nobody used
+// AI"; the other is "there was nothing to measure". Prose could not have separated them.
 //
-// `contributors === 0` is an exact discriminator, not a heuristic: the team's commit totals are
-// summed over the same people map, so no contributor rows means no commits by construction. Those
-// teams become `not-judged` — hatched, and `rendersValue` stops any numeral being printed on them.
+// Wave 2 split them HERE, from `contributors === 0` — a correct discriminator, but a re-derivation
+// every consumer had to repeat, and two of them didn't. `rollupTeams` now emits
+// `aiCommitShare: number | null` (org-teams.ts), so this file reads the producer's own answer
+// instead: null ⇒ `not-judged` — hatched, and `rendersValue` stops any numeral being printed on it.
 //
 // Pure: no React. MatrixGrid paints from the states this returns.
 
@@ -26,9 +24,10 @@ export const TEAM_AXES = ["AI commits", "AI-active"] as const;
 /** How many teams the card plots before deferring to the Teams tab. */
 export const TEAM_SHOW_LIMIT = 8;
 
-/** A team with no contributor attribution has nothing to take a share of — never a measured 0%. */
-export function teamState(t: Pick<AdoptionTeam, "contributors">): VizState {
-  return t.contributors > 0 ? "measured" : "not-judged";
+/** A team with no commit population has nothing to take a share of — never a measured 0%. The test
+ *  is the producer's null, not a re-derivation from `contributors`. */
+export function teamState(t: Pick<AdoptionTeam, "aiCommitShare">): VizState {
+  return t.aiCommitShare === null ? "not-judged" : "measured";
 }
 
 function activeShare(t: AdoptionTeam): number {
