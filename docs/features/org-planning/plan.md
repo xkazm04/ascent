@@ -211,6 +211,52 @@ disagree about how much the org improved.
 **The ledger table** gains a `Source` column (`Practice` / `Loop`) — a provenance tag, not a verdict,
 so it carries no colour.
 
+## Briefing, redesigned (2026-09-08)
+
+The Briefing is what a lead takes into a leadership meeting, and until this pass it carried **17
+components and zero SVG**: five `SectionHeader description` paragraphs, a chip row standing in for a
+movement chart, and a numbered "Explore first" list standing in for a ranking. Prose in a briefing is
+the part the reader has to translate under time pressure, so [the /org redesign
+law](../../ORG-UX-REDESIGN.md) §2 was applied here in full. `SectionHeader description` in
+`src/features/bought/executive/`: **5 → 1**, and the survivor is the window (`period.title`).
+
+**What is drawn now**
+
+| Panel | Was | Is |
+| --- | --- | --- |
+| Widest shared gaps (`OrgLeverageMoves`) | A 232-char header explaining the ranking, then a numbered list with an "Explore first" pill | `LeverageBars` — one bar per gap on a shared scale, length = `perRepo × repoCount` (the fleet maturity points on the table), one segment per affected repo, an accent tick where the repos that would cross a level end |
+| Impact ledger | Tiles + a by-dimension chip row + a field-notes paragraph | A `FlowRibbon` funnel (merged → re-scanned → repos moved) beside `ImpactMovement`, a diverging per-dimension bar on one symmetric axis; then the tiles; then the receipt table |
+| Transition programme | A header sentence asserting the baseline is frozen | `ProgramBaseline` — the frozen origin as an accent **ring** (the kit's `decided` encoding: a person froze it) on the 0-100 maturity ramp, the movement to today's standing, and the target rung as a dashed edge |
+| vs previous period | A header sentence naming the comparison window | `PeriodDumbbell` in each of the three cells: hollow origin dot at the prior window's end, filled dot at now, on one track. Rendered by `PriorPeriodGrid`, so the public `/share/briefing/[token]` page gets the same mark |
+
+**The pure view-models** — `leverageMoves.ts` and `impactView.ts` decide every state and every scale,
+so the panel's refusals are unit-testable without a DOM (`leverageMoves.test.ts`,
+`impactView.test.ts`), with the render layer pinned separately in `LeverageBars.dom.test.tsx`,
+`briefingMarks.dom.test.tsx` and `ImpactLedger.dom.test.tsx`.
+
+**The two voids, which are the point.** Both used to be sentences and are now shapes that cannot be
+misread:
+
+- A gap whose `projectedPoints` is null gets **no bar at all** — a dashed rule and an em dash. The
+  old panel simply omitted the gain phrase, so a reader could not tell an unprojected gap from a
+  small one. A short bar would have been a claim ("small gain"); `rendersValue("missing")` is false,
+  so the view structurally cannot print a numeral there.
+- `ImpactLedger.dimPoints === null` (nothing re-scanned) draws a **dashed zero axis with no bars**. A
+  chart of zero-length bars would be a legible claim — "the period bought nothing" — and the ledger
+  does not have that measurement; it has no measurement.
+
+**Where the paragraphs went.** `ImpactLedgerFieldNotes.tsx` is deleted; its four sentences are now
+`IMPACT_BASIS_HINT` (a `WhyChip` on the panel title), the counted legend rows `N awaiting rescan` /
+`N with no baseline` (labels visible, sentences on hover), and `IMPACT_NO_SUM_HINT` on the *Repo
+overall* column header it governs. The ranking basis is `LEVERAGE_BASIS_HINT`; "somewhere to look
+next, not an order" is `LEVERAGE_ORDER_HINT` **and** the absence of rank numerals and CTA styling.
+The empty ledger keeps its argument — that is the state where the reader has nothing to look at.
+
+The `Source` column's provenance tag and the `merged`/`branch` split above are unchanged; the ledger
+table is deliberately still a table (§2.7: auditable row-level evidence is what a table is for). The
+`GOOD`/`BAD`/`MUTED` cell paints now read from `LEVEL_HEX` and `DIRECTION_TONE` rather than three
+hand-typed hexes — same values, one home.
+
 ## Retired on 2026-08-17 (for the record)
 
 | Was | Where it went |

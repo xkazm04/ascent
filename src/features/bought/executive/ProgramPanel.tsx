@@ -19,9 +19,20 @@ import type { LevelId } from "@/lib/types";
 // The read view and the shared labels/classes live in co-located siblings (200-line cap); this file
 // keeps all the state and both fetches.
 import { ProgramPanelSummary } from "./ProgramPanelSummary";
-import { CADENCE_LABEL, inputClass, labelClass } from "./programPanelConstants";
+import { CADENCE_LABEL, PROGRAM_ORIGIN_HINT, inputClass, labelClass } from "./programPanelConstants";
+import { WhyChip } from "@/components/org/viz";
 
-export function ProgramPanel({ slug, initial }: { slug: string; initial: TransitionProgramRow | null }) {
+export function ProgramPanel({
+  slug,
+  initial,
+  now = null,
+}: {
+  slug: string;
+  initial: TransitionProgramRow | null;
+  /** Today's fleet overall standing, so the read view can DRAW the movement from the frozen origin
+   *  rather than describe the origin in a sentence. Null ⇒ no "now" mark. */
+  now?: number | null;
+}) {
   const [program, setProgram] = useState(initial);
   const [editing, setEditing] = useState(initial == null);
   const [name, setName] = useState(initial?.name ?? "");
@@ -80,13 +91,18 @@ export function ProgramPanel({ slug, initial }: { slug: string; initial: Transit
       <div data-tour="transition-program" />
       <SectionHeader
         size="sm"
-        title="Transition programme"
-        description="The named, dated thing this org is actually doing: the frame the goals below hang off. Its baseline is frozen the moment it starts, so every later number is measured against a fixed origin."
+        title={
+          <span className="inline-flex items-center gap-2">
+            Transition programme
+            <WhyChip hint={PROGRAM_ORIGIN_HINT} label="the frozen origin" />
+          </span>
+        }
       />
 
       {!editing && program && (
         <ProgramPanelSummary
           program={program}
+          now={now}
           busy={busy}
           onEdit={() => setEditing(true)}
           onStatus={(status) => void patchStatus(status)}
