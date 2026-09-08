@@ -98,7 +98,7 @@ export function OpenRouterByomSettings({
       <SectionHeader
         size="sm"
         title="Bring your own model (OpenRouter)"
-        description="Run scans on any model via your org's OpenRouter key, billed to your OpenRouter account. Note: OpenRouter routes to third-party upstreams, so this is NOT in-boundary like Bedrock. Custom plan."
+        description="Custom plan · your OpenRouter key"
       />
 
       {!planAllowed ? (
@@ -112,6 +112,17 @@ export function OpenRouterByomSettings({
       ) : null}
 
       <div className="mt-4 space-y-3" aria-disabled={disabledAll}>
+        {/* The boundary warning, KEPT and made LOUDER rather than demoted. ProviderBoundaryCard now
+            draws it — OpenRouter's Boundary cell is a void beside Bedrock's solid one — but §2.1 of
+            docs/ORG-UX-REDESIGN.md lets a sentence stay when demoting it would weaken it, and this is
+            the one sentence on the tab that changes whether an owner should paste a key at all. It
+            used to be the tail of a 190-character header lede two lines above the fold; it is now a
+            marked caution sitting on the form itself, where the decision is actually made. */}
+        <p role="note" className="rounded-lg border border-orange-500/30 bg-orange-500/5 p-3 type-body-sm text-orange-200">
+          <span aria-hidden>⚠</span> OpenRouter routes your request — repository file samples included — to the
+          selected model&apos;s third-party upstream. This is <strong className="font-semibold">not in-boundary</strong>{" "}
+          the way Bedrock is, where inference stays in your own AWS account and region.
+        </p>
         <label className="block">
           <span className="type-mono-sm text-slate-500">Model slug</span>
           <input value={modelId} onChange={(e) => setModelId(e.target.value)} disabled={disabledAll} placeholder={DEFAULT_MODEL} className={input} />
