@@ -111,9 +111,10 @@ describe("buildScoreBadges — the average's basis travels with it", () => {
   });
 
   it("shows NO score — never a 0 — when nothing in the set was live-scored", () => {
-    // `avgOverall` is `roundedMean([])` here: a division guard, not a grade. A 0 rendered in
-    // scoreHex(0) alarm-red would assert a catastrophic fleet grade over a fleet nobody graded.
-    const allMock = { ...BASE, avgOverall: 0, avgAdoption: 0, avgRigor: 0, realScoredCount: 0, mockCount: 12, deltas: { overall: 4, adoption: 2, rigor: 1 } };
+    // `avgOverall` is `roundedMean([])` here, which is now NULL rather than a 0 the badge could not
+    // tell apart from a grade. A 0 rendered in scoreHex(0) alarm-red would assert a catastrophic fleet
+    // grade over a fleet nobody graded; the badge reads its own value's absence to refuse it.
+    const allMock = { ...BASE, avgOverall: null, avgAdoption: null, avgRigor: null, realScoredCount: 0, mockCount: 12, deltas: { overall: 4, adoption: 2, rigor: 1 } };
     const [maturity, adoption, rigor] = buildScoreBadges(allMock);
     for (const b of [maturity, adoption, rigor]) {
       expect(b!.value).toBe("—");
@@ -128,6 +129,16 @@ describe("buildScoreBadges — the average's basis travels with it", () => {
     const [maturity] = buildScoreBadges(BASE);
     expect(maturity!.value).toBe(62);
     expect(maturity!.note).toBeUndefined();
+  });
+
+  it("still prints a MEASURED zero as a score, in alarm red — 0 is a grade when someone looked", () => {
+    // The distinction the null buys: this fleet WAS live-scored and came back at 0. It keeps its
+    // numeral, its colour and its level band; only the unmeasured case above loses them.
+    const floored = { ...BASE, avgOverall: 0, avgAdoption: 0, avgRigor: 0 };
+    const [maturity] = buildScoreBadges(floored);
+    expect(maturity!.value).toBe(0);
+    expect(maturity!.color).toBeDefined();
+    expect(maturity!.sub).toBeDefined();
   });
 });
 

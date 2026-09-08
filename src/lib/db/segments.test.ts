@@ -613,7 +613,7 @@ describe("summarizeSegment scope — the segment rollup must filter to the segme
     expect(cmp!.deltas.overall).not.toBe(0);
   });
 
-  it("an empty segment yields a ZERO rollup, not the whole-fleet average", async () => {
+  it("an empty segment yields an UNMEASURED rollup — null averages, no posture, no delta", async () => {
     // platform has repos; legacy is tagged into nothing → its scoped query returns [].
     harness({ "": FLEET, platform: PLATFORM, legacy: [] });
 
@@ -623,10 +623,20 @@ describe("summarizeSegment scope — the segment rollup must filter to the segme
     expect(cmp!.b.id).toBe("legacy");
     expect(cmp!.b.repoCount).toBe(0);
     expect(cmp!.b.scannedCount).toBe(0);
-    expect(cmp!.b.avgOverall).toBe(0);
-    // Platform is intact, so the comparison is a real gap (87 vs 0), not theater.
+    // NULL, not 0. A 0 here was indistinguishable from a segment measured at a genuine 0 and drove
+    // `scoreHex(0)` alarm red on the Segments strip.
+    expect(cmp!.b.avgOverall).toBeNull();
+    expect(cmp!.b.avgAdoption).toBeNull();
+    expect(cmp!.b.avgRigor).toBeNull();
+    // And NO posture: `postureFor(0, 0)` used to hand an unscanned segment a real quadrant — a
+    // fabricated categorical, worse than a fabricated number because it reads as a finding.
+    expect(cmp!.b.posture).toBeNull();
+    // Platform is intact, but a delta needs BOTH ends: 87 − nothing is not 87.
     expect(cmp!.a.avgOverall).toBe(87);
-    expect(cmp!.deltas.overall).toBe(87);
+    expect(cmp!.a.posture).not.toBeNull();
+    expect(cmp!.deltas.overall).toBeNull();
+    expect(cmp!.deltas.adoption).toBeNull();
+    expect(cmp!.deltas.rigor).toBeNull();
   });
 });
 

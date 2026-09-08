@@ -82,7 +82,8 @@ const MAX_FACTORS = 5; // dimensions shown per team — enough to explain the ga
 /**
  * Decompose the team standings into a leader/laggard "why" explanation. Ranks teams by avgOverall
  * (the Overall column), then attributes each extreme's distance from the fleet mean to the
- * dimensions driving it. Returns null when there aren't at least two teams to contrast.
+ * dimensions driving it. Returns null when there aren't at least two teams to contrast, or when no
+ * live-scored repo is attributed to any of them (no fleet mean ⇒ nothing for the bars to diverge from).
  */
 export function explainTeamStandings(teams: TeamRollup[]): TeamStandings | null {
   if (teams.length < 2) return null;
@@ -93,6 +94,13 @@ export function explainTeamStandings(teams: TeamRollup[]): TeamStandings | null 
   for (const t of teams) for (const r of t.repos) distinctRepos.set(r.fullName, r);
   const repoRows = [...distinctRepos.values()];
   const fleetAvgOverall = roundedMean(repoRows.filter((r) => !r.mock).map((r) => r.overall));
+  // No live-scored repo is attributed to any team ⇒ there is no fleet mean, and this whole section is
+  // nothing BUT divergence from that mean (`overallDelta`, the factor bars, `maxAbsDelta`). Returning
+  // null says "nothing to contrast" the same way the two-team floor above does; the alternative — a 0
+  // baseline — would print every team as +N above a fleet nobody measured. `rollupTeams` cannot
+  // produce such a `teams` today (it emits no team without a live-scored repo), so this is a floor on
+  // hand-built inputs, not a reachable product state.
+  if (fleetAvgOverall === null) return null;
   // The AI share gets the SAME dedupe and the same commit weighting the per-team figure uses
   // (`aiCommitShare` = the team's totAi / totCommits), because `aiShareDelta` subtracts one from the
   // other and they must be the same kind of number over comparable populations. It was

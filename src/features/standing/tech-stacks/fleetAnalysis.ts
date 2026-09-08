@@ -5,6 +5,7 @@
 // beyond the score labels, and unit-tested (fleetAnalysis.test.ts) since the thresholds are load-bearing.
 
 import type { SegmentSummary } from "@/lib/db";
+import { isMeasured, type MeasuredStack } from "./stackMeasure";
 import { DIMENSION_SHORT } from "@/lib/ui";
 
 export type DimClass = "divergent" | "gap" | "strength" | "consistent";
@@ -102,7 +103,10 @@ export function computeFleetInsights(
   fleet: SegmentSummary | null,
   dims: string[],
 ): FleetInsights | null {
-  const scored = stacks.filter((s) => s.scannedCount > 0 && s.dimAverages.length > 0);
+  // `isMeasured` (the tab's one measured/not-judged decision) rather than `scannedCount > 0`: what
+  // this comparison needs is a stack that HAS a fleet average, which is the same question read off
+  // the field the sort below actually uses — and, as a type predicate, it narrows that field.
+  const scored = stacks.filter((s): s is MeasuredStack => isMeasured(s) && s.dimAverages.length > 0);
   if (scored.length < 2) return null;
 
   const fleetById = new Map((fleet?.dimAverages ?? []).map((d) => [d.dimId, d.avg]));

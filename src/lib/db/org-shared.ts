@@ -75,15 +75,70 @@ export function techGroupScope(groupId?: string | null) {
 // time. Bots ([bot]) and unattributed ("unknown") commits are excluded from the human view.
 export const isBot = (login: string) => /\[bot\]$/i.test(login) || login === "unknown";
 
-/** Arithmetic mean of a number list; 0 for an empty list (never divides by zero). */
-export function mean(xs: number[]): number {
-  return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
+/** Arithmetic mean of a number list; **null** for an empty list — never 0, never NaN. */
+export function mean(xs: number[]): number | null {
+  return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
 }
 
-/** {@link mean}, rounded to the nearest integer. The canonical rounded-average for the org rollups
- *  — always empty-guarded, so copies that omitted the guard are corrected by routing through here. */
-export function roundedMean(xs: number[]): number {
-  return Math.round(mean(xs));
+/**
+ * {@link mean}, rounded to the nearest integer. The canonical rounded-average for the org rollups.
+ *
+ * **Returns null for an empty list, and that is the whole point.** This function used to return `0`
+ * and its docstring called that "always empty-guarded, so copies that omitted the guard are corrected
+ * by routing through here" — which inverted the fix: consolidating scattered means into one helper
+ * standardised the WRONG answer at 15 call sites. The mean of nothing is not zero; it does not exist.
+ *
+ * A returned `0` is indistinguishable from a measured 0, and downstream that is not a cosmetic
+ * difference: `scoreHex(0)` is alarm red (the worst possible fleet grade), `postureFor(0, 0)` yields a
+ * real posture classification for a segment nobody scanned, and a sort on the value ranks the
+ * unmeasured below every measurement instead of outside them. The /org UX redesign found this same
+ * defect in eight surfaces across seven tabs (2026-09-08); every one traced here or to a hand-rolled
+ * copy of the old behaviour.
+ *
+ * The honest sibling already existed and had for months: `roundedMean(sum, count)` in
+ * `src/components/launch/fleetMapDerive.ts` returns `number | null`, documented "null when nothing is
+ * scored (never NaN/0)". Two functions, one name, opposite contracts — this one is now the other one.
+ *
+ * Callers render null through the shared viz vocabulary (`@/components/org/viz` — `missing` for "no
+ * population to measure", `not-judged` for "never assessed"), whose `rendersValue()` is false, so a
+ * void cannot print a numeral.
+ */
+export function roundedMean(xs: number[]): number | null {
+  const m = mean(xs);
+  return m === null ? null : Math.round(m);
+}
+
+/** The three headline fleet averages, as every scope-level summary in `src/lib/db` carries them
+ *  ({@link OrgRollup}, `OrgHeaderSummary`, `SegmentSummary`). */
+export interface FleetAverages {
+  avgOverall: number | null;
+  avgAdoption: number | null;
+  avgRigor: number | null;
+}
+
+/** {@link FleetAverages} once {@link hasFleetGrade} has proven all three exist. */
+export type Graded<T> = T & { avgOverall: number; avgAdoption: number; avgRigor: number };
+
+/**
+ * Does this scope have a fleet grade at all — i.e. did anything in it get live-scored?
+ *
+ * A type predicate rather than three coalesces, because the three averages **share one population**
+ * (`realScoredCount`): they are null together or present together, and a consumer that has checked
+ * one has checked all three. Checking them one at a time invites exactly the half-guarded call site
+ * this whole change exists to remove — `avgOverall` tested, `avgAdoption` quietly `?? 0`-ed two lines
+ * below it.
+ *
+ * Use it as the drop/render-absence gate: `if (!hasFleetGrade(rollup)) return null` reads as "this
+ * scope has no grade to report", which is the honest sentence, and narrows the three fields for
+ * everything after it. Note it is STRICTLY stronger than the `scannedCount === 0` guards it replaces:
+ * a fleet of nothing but mock placeholders is scanned but not graded, and that is precisely the case
+ * those guards let through to `levelForScore(0)` and an alarm-red badge.
+ */
+export function hasFleetGrade<T extends FleetAverages>(scope: T): scope is Graded<T> {
+  // Loose `!= null` on purpose: it also catches an `undefined` the TYPE says cannot happen but a
+  // hand-built row (a test fixture, a JSON round-trip that dropped the key) can still deliver. This
+  // is a gate against printing a grade nobody measured; erring toward "no grade" is the safe side.
+  return scope.avgOverall != null && scope.avgAdoption != null && scope.avgRigor != null;
 }
 
 /**
@@ -107,7 +162,11 @@ export class GroupedMean {
     }
   }
 
-  /** Rounded mean for a key (`Math.round(sum / n)`); 0 when the key was never added. */
+  /** Rounded mean for a key (`Math.round(sum / n)`); 0 when the key was never added.
+   *
+   *  The 0 here is NOT the mean-of-nothing {@link roundedMean} was fixed for: it is a LOOKUP miss, and
+   *  every key a caller can hold came out of `keys()`/`entries()` — i.e. was added, so it has a real
+   *  population. There is no "empty key" to answer for; asking for an absent one is out of domain. */
   get(key: string): number {
     const e = this.acc.get(key);
     return e ? Math.round(e.sum / e.n) : 0;

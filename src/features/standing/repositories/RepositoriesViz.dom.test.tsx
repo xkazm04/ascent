@@ -103,11 +103,17 @@ describe("FleetDecayScatter", () => {
   });
 });
 
+/** A segment nobody has scanned, exactly as the producer emits it: no averages, no posture. */
+const unscanned = (name: string): SegmentSummary =>
+  summary({ name, scannedCount: 0, avgOverall: null, avgAdoption: null, avgRigor: null, posture: null });
+
 describe("SegmentDumbbell", () => {
+  /** A delta needs both ends — the producer's own rule (`buildSegmentComparison`). */
+  const sub = (x: number, y: number | null) => (y === null ? null : x - y);
   const cmp = (b: SegmentSummary): SegmentComparison => ({
     a: summary({ name: "platform" }),
     b,
-    deltas: { overall: 60 - b.avgOverall, adoption: 55 - b.avgAdoption, rigor: 65 - b.avgRigor },
+    deltas: { overall: sub(60, b.avgOverall), adoption: sub(55, b.avgAdoption), rigor: sub(65, b.avgRigor) },
     dimDeltas: [],
   });
 
@@ -129,7 +135,7 @@ describe("SegmentDumbbell", () => {
   it("draws NO mark for a side with no scanned repo, and says so accessibly", () => {
     render(
       <SegmentDumbbell
-        rows={headlinePairs(cmp(summary({ name: "new", scannedCount: 0, avgOverall: 0, avgAdoption: 0, avgRigor: 0 })))}
+        rows={headlinePairs(cmp(unscanned("new")))}
         aName="platform"
         bName="new"
         title="Headline metrics"
@@ -147,12 +153,12 @@ describe("SegmentMaturityGrid", () => {
   it("hatches an unscanned segment and prints no number in it", () => {
     render(
       <SegmentMaturityGrid
-        summaries={[summary({ name: "platform" }), summary({ name: "new", scannedCount: 0, avgOverall: 0, avgAdoption: 0, avgRigor: 0 })]}
+        summaries={[summary({ name: "platform" }), unscanned("new")]}
       />,
     );
     const grid = screen.getByRole("img", { name: /Segment maturity/ });
     expect(grid.querySelector('[data-cell="new:Overall"]')?.getAttribute("data-state")).toBe("not-judged");
     expect(grid.querySelectorAll("[data-score]")).toHaveLength(3); // platform's three, and only those
-    expect(segmentMatrixRows([summary({ name: "new", scannedCount: 0 })])[0]!.cells[0]!.score).toBeUndefined();
+    expect(segmentMatrixRows([unscanned("new")])[0]!.cells[0]!.score).toBeUndefined();
   });
 });

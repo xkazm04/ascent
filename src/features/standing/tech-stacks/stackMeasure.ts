@@ -4,11 +4,14 @@
 //
 // Two absences hide inside a `SegmentSummary` and both used to surface as a NUMBER:
 //
-//  1. A stack with no scanned repo. `summarizeScopedRepos` (src/lib/db/segments.ts) reduces its
-//     averages through `roundedMean([])`, which is `Math.round(0)` — so `avgOverall` comes back 0.
-//     The rail printed that 0 in `scoreHex(0)` (red) and the panel sorted the stack to the bottom of
-//     a leaderboard as if it were the worst stack in the fleet. It is not a bad stack; it is an
-//     unread one. (The identical sentinel was found and fixed on the segments side in Wave 2.)
+//  1. A stack with no scanned repo. `summarizeScopedRepos` (src/lib/db/segments.ts) used to reduce
+//     its averages through a `roundedMean([])` that returned `Math.round(0)` — so `avgOverall` came
+//     back 0. The rail printed that 0 in `scoreHex(0)` (red) and the panel sorted the stack to the
+//     bottom of a leaderboard as if it were the worst stack in the fleet. It is not a bad stack; it
+//     is an unread one. FIXED AT THE PRODUCER (2026-09-08): `roundedMean` returns null for an empty
+//     list and `SegmentSummary.avgOverall` is `number | null`, so this module now reads the absence
+//     off the field it is drawing instead of inferring it from `scannedCount`, one field over. That
+//     inference was correct here and wrong in two sibling surfaces, which is why it moved.
 //  2. A stack that IS scanned but carries no average for a given dimension — its scans predate that
 //     dimension, so it has no vote. `fleetAnalysis.ts` already excludes those points from every
 //     verdict; the radar coerced them with `?? 0` and drew the profile into the centre on that
@@ -19,9 +22,18 @@
 import type { VizState } from "@/components/org/viz";
 import type { SegmentSummary } from "@/lib/db";
 
-/** A stack is `measured` once one of its repos has a scan; otherwise nothing about it was judged. */
-export function stackState(s: Pick<SegmentSummary, "scannedCount">): VizState {
-  return s.scannedCount > 0 ? "measured" : "not-judged";
+/** A stack whose fleet average exists — the only stack that can be plotted, scored or ranked. */
+export type MeasuredStack = SegmentSummary & { avgOverall: number };
+
+/** Narrowing form of {@link stackState}: `measured` as a type predicate, so a caller that has asked
+ *  the question keeps the answer. A 0 passes — 0 is a real score when someone looked. */
+export function isMeasured(s: SegmentSummary): s is MeasuredStack {
+  return s.avgOverall !== null;
+}
+
+/** A stack is `measured` once it carries a fleet average; otherwise nothing about it was judged. */
+export function stackState(s: Pick<SegmentSummary, "avgOverall">): VizState {
+  return s.avgOverall !== null ? "measured" : "not-judged";
 }
 
 /**
@@ -60,7 +72,7 @@ function quantile(sorted: number[], p: number): number {
  * assert a shape the data has not got. Unmeasured stacks are counted, never plotted at 0.
  */
 export function stackSpread(stacks: SegmentSummary[]): StackSpread | null {
-  const measured = stacks.filter((s) => s.scannedCount > 0);
+  const measured = stacks.filter(isMeasured);
   const unmeasured = stacks.length - measured.length;
   if (measured.length < 2) return null;
   const sorted = measured.map((s) => s.avgOverall).sort((a, b) => a - b);
@@ -77,16 +89,17 @@ export function stackSpread(stacks: SegmentSummary[]): StackSpread | null {
 
 /**
  * Leaderboard order for the rail: measured stacks by score (descending), then the unmeasured ones by
- * name. Sorting on `avgOverall` alone put an unscanned stack last *because its sentinel is 0* — the
+ * name. Sorting on `avgOverall` alone put an unscanned stack last *because its sentinel was 0* — the
  * right position for the wrong reason, and a reason that becomes visibly wrong the moment the reader
- * asks why. Here the two groups are separated explicitly, so the tail reads "not judged", not "worst".
+ * asks why. Here the two groups are separated explicitly, so the tail reads "not judged", not "worst":
+ * the unmeasured are OUTSIDE the ordering, not at the bottom of it.
  */
 export function orderStacks(stacks: SegmentSummary[]): SegmentSummary[] {
   return [...stacks].sort((a, b) => {
-    const am = a.scannedCount > 0;
-    const bm = b.scannedCount > 0;
-    if (am !== bm) return am ? -1 : 1;
-    if (!am) return a.name.localeCompare(b.name);
-    return b.avgOverall - a.avgOverall;
+    const am = a.avgOverall;
+    const bm = b.avgOverall;
+    if ((am === null) !== (bm === null)) return am === null ? 1 : -1;
+    if (am === null || bm === null) return a.name.localeCompare(b.name);
+    return bm - am;
   });
 }

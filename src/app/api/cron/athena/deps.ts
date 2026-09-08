@@ -25,6 +25,7 @@ import {
   writeAthenaEpisode,
 } from "@/lib/db/athena";
 import { getOrgMovers, getOrgRollup } from "@/lib/db";
+import { hasFleetGrade } from "@/lib/db/org-shared";
 import { levelForScore } from "@/lib/maturity/model";
 import { runToolLoop } from "@/lib/llm/tool-loop";
 import { resolveWindow, weekRangeParams } from "@/lib/window";
@@ -58,7 +59,10 @@ export function buildOrgCycleDeps(ctx: { org: string; orgId: string; signal?: Ab
       // every run — which would make "the standing moved" unreachable in report-or-absorb.
       const window = resolveWindow(weekRangeParams());
       const rollup = await getOrgRollup(org, { start: window.start, endExclusive: window.endExclusive });
-      if (!rollup || rollup.scannedCount === 0) return null;
+      // `hasFleetGrade`, not `scannedCount === 0`: a fleet of nothing but mock placeholders is scanned
+      // but has no grade, and Athena would have briefed "the org sits at 0/100, Emerging" off the old
+      // guard. No grade, no standing to report — which report-or-absorb already handles as null.
+      if (!rollup || !hasFleetGrade(rollup)) return null;
       const movers = await getOrgMovers(org, { start: window.start, endExclusive: window.endExclusive }).catch(() => null);
       const both = [...(movers?.gainers ?? []).slice(0, MOVER_LIMIT), ...(movers?.regressers ?? []).slice(0, MOVER_LIMIT)];
       return {

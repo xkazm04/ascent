@@ -9,18 +9,34 @@ export const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v
 // Human posture label with a raw-id fallback. Deliberately the lookup-then-`?? raw` form (NOT the
 // shared postureLabel(), which title-cases an unknown id) so the existing rendering is preserved
 // exactly — the data layer only ever yields known posture ids, so the branches agree in practice.
-const postureText = (posture: string) => POSTURE_LABEL[posture] ?? posture;
+// A NULL posture is a scope with no scanned repo: `postureFor` is no longer fed two sentinel zeros to
+// manufacture a quadrant for it (see `postureOf` in src/lib/db/segments.ts), so there is nothing to
+// label and the tile says so instead of naming a classification nobody made.
+const postureText = (posture: string | null) => (posture === null ? "Not classified" : POSTURE_LABEL[posture] ?? posture);
 
-/** A − B metric row: both values plus the signed, colored delta. */
-function MetricRow({ label, a, b }: { label: string; a: number; b: number }) {
-  const d = a - b;
+/** The em dash every surface in this repo prints for "no measurement" — the same glyph `fmtNum`
+ *  (@/components/org/viz) and the org header chip land on. Never a 0: `scoreHex(0)` is alarm red. */
+const NO_MEASURE = "—";
+
+/** A score's ink, or the tile/row's default ink when there is no score to colour. */
+const scoreInk = (v: number | null) => (v === null ? undefined : scoreHex(v));
+
+/** An arrowed delta, or the no-measurement glyph when one of its two ends does not exist. */
+const deltaText = (d: number | null) => (d === null ? NO_MEASURE : fmtDelta(d));
+
+/** A − B metric row: both values plus the signed, colored delta. Any of the three may be absent —
+ *  an unscanned scope has no average, and a delta needs a number on both sides. */
+function MetricRow({ label, a, b }: { label: string; a: number | null; b: number | null }) {
+  const d = a === null || b === null ? null : a - b;
   return (
     <div className="flex items-center gap-3 type-body">
       <span className="w-28 shrink-0 text-slate-400">{label}</span>
-      <span className="w-10 text-right font-mono tabular-nums" style={{ color: scoreHex(a) }}>{a}</span>
+      <span className="w-10 text-right font-mono tabular-nums" style={{ color: scoreInk(a) }}>{a ?? NO_MEASURE}</span>
       <span className="text-slate-600">·</span>
-      <span className="w-10 text-right font-mono tabular-nums" style={{ color: scoreHex(b) }}>{b}</span>
-      <span className="ml-auto type-mono-sm" style={{ color: deltaHex(d) }}>{fmtDelta(d)}</span>
+      <span className="w-10 text-right font-mono tabular-nums" style={{ color: scoreInk(b) }}>{b ?? NO_MEASURE}</span>
+      <span className="ml-auto type-mono-sm" style={{ color: d === null ? undefined : deltaHex(d) }}>
+        {d === null ? NO_MEASURE : fmtDelta(d)}
+      </span>
     </div>
   );
 }
@@ -45,10 +61,10 @@ export function SegmentComparisonView({
   return (
     <>
       <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Tile label={comparison.a.name} value={comparison.a.avgOverall} sub={`${postureText(comparison.a.posture)} · ${comparison.a.scannedCount}/${comparison.a.repoCount} scanned`} color={scoreHex(comparison.a.avgOverall)} />
-        <Tile label={comparison.b.name} value={comparison.b.avgOverall} sub={`${postureText(comparison.b.posture)} · ${comparison.b.scannedCount}/${comparison.b.repoCount} scanned`} color={scoreHex(comparison.b.avgOverall)} />
-        <Tile label="Overall Δ" value={fmtDelta(comparison.deltas.overall)} color={deltaHex(comparison.deltas.overall)} sub={`${comparison.a.name} vs ${comparison.b.name}`} />
-        <Tile label="Adopt / Rigor Δ" value={`${fmtDelta(comparison.deltas.adoption)} / ${fmtDelta(comparison.deltas.rigor)}`} sub="adoption · rigor" />
+        <Tile label={comparison.a.name} value={comparison.a.avgOverall ?? NO_MEASURE} sub={`${postureText(comparison.a.posture)} · ${comparison.a.scannedCount}/${comparison.a.repoCount} scanned`} color={scoreInk(comparison.a.avgOverall)} />
+        <Tile label={comparison.b.name} value={comparison.b.avgOverall ?? NO_MEASURE} sub={`${postureText(comparison.b.posture)} · ${comparison.b.scannedCount}/${comparison.b.repoCount} scanned`} color={scoreInk(comparison.b.avgOverall)} />
+        <Tile label="Overall Δ" value={deltaText(comparison.deltas.overall)} color={comparison.deltas.overall === null ? undefined : deltaHex(comparison.deltas.overall)} sub={`${comparison.a.name} vs ${comparison.b.name}`} />
+        <Tile label="Adopt / Rigor Δ" value={`${deltaText(comparison.deltas.adoption)} / ${deltaText(comparison.deltas.rigor)}`} sub="adoption · rigor" />
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">

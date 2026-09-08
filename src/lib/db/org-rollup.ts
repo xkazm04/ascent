@@ -364,15 +364,20 @@ export interface OrgRollup {
   scannedCount: number;
   /**
    * Mean of the latest overall score across the LIVE-SCORED repos — mock placeholders excluded (see
-   * {@link isMockScore}). `realScoredCount` is its denominator and must be rendered beside it; when
-   * that denominator is 0 this number is a division guard (0), NOT a grade, and every renderer must
-   * land on its no-score path instead of printing it.
+   * {@link isMockScore}). `realScoredCount` is its denominator and must be rendered beside it.
+   *
+   * **Null when that denominator is 0** — an org with no repo, no scan, or nothing but mock floors.
+   * This used to be `0` with the docstring "a division guard (0), NOT a grade, and every renderer
+   * must land on its no-score path instead of printing it": a rule stated in prose, enforced nowhere,
+   * and re-derived by each renderer from a DIFFERENT field (`realScoredCount === 0`). Renderers that
+   * skipped the re-derivation printed alarm-red 0s for un-scanned fleets. The absence is in the type
+   * now, so the no-score path is the only path the compiler will let a consumer take.
    */
-  avgOverall: number;
-  /** Same exclusion and same denominator as {@link OrgRollup.avgOverall}. */
-  avgAdoption: number;
-  /** Same exclusion and same denominator as {@link OrgRollup.avgOverall}. */
-  avgRigor: number;
+  avgOverall: number | null;
+  /** Same exclusion, same denominator and the same null contract as {@link OrgRollup.avgOverall}. */
+  avgAdoption: number | null;
+  /** Same exclusion, same denominator and the same null contract as {@link OrgRollup.avgOverall}. */
+  avgRigor: number | null;
   /** Scanned repos carrying a real graded score — the denominator behind the three averages above
    *  and the cohort behind `deltas`/`movement`. A count travels with its predicate. */
   realScoredCount: number;
@@ -419,6 +424,23 @@ export interface RepoScoreSnap {
 }
 
 /**
+ * The three headline means of a snapshot set — **null for an empty set**, all three together.
+ *
+ * The three move as one because they share a population: whenever one of them does not exist neither
+ * do the others, and every consumer here wants all three or none (a baseline, a movement delta). The
+ * `null` is the empty-cohort guard the call sites already had, relocated into the value so it also
+ * NARROWS: `if (!snapMeans(xs)) return …` proves to the type system what `if (!xs.length) return …`
+ * only asserted, which is why the six subtractions in {@link computeCohortMovement} no longer need a
+ * `!` apiece. See {@link roundedMean} for why the mean of nothing is not 0.
+ */
+function snapMeans(xs: readonly RepoScoreSnap[]): { overall: number; adoption: number; rigor: number } | null {
+  const overall = roundedMean(xs.map((s) => s.overall));
+  const adoption = roundedMean(xs.map((s) => s.adoption));
+  const rigor = roundedMean(xs.map((s) => s.rigor));
+  return overall === null || adoption === null || rigor === null ? null : { overall, adoption, rigor };
+}
+
+/**
  * Cohort-matched period movement: the three deltas TOGETHER WITH the size of the cohort they were
  * measured over and the composition change that was excluded from them.
  *
@@ -458,12 +480,16 @@ export function computeCohortMovement(
   const before = baseline.filter((b) => currentIds.has(b.repoId));
   const beforeIds = new Set(before.map((b) => b.repoId));
   const now = current.filter((c) => beforeIds.has(c.repoId));
-  if (!before.length || !now.length) return null;
-  const avg = roundedMean;
+  // `!before.length || !now.length` ⇔ either side has no headline means. Same guard, written through
+  // {@link snapMeans} so the six subtractions below are narrowed by it: a delta needs a number on
+  // BOTH sides, and `mean − null` is not a movement of `mean` points, it is not a movement at all.
+  const nowAvg = snapMeans(now);
+  const beforeAvg = snapMeans(before);
+  if (!nowAvg || !beforeAvg) return null;
   return {
-    overall: avg(now.map((c) => c.overall)) - avg(before.map((b) => b.overall)),
-    adoption: avg(now.map((c) => c.adoption)) - avg(before.map((b) => b.adoption)),
-    rigor: avg(now.map((c) => c.rigor)) - avg(before.map((b) => b.rigor)),
+    overall: nowAvg.overall - beforeAvg.overall,
+    adoption: nowAvg.adoption - beforeAvg.adoption,
+    rigor: nowAvg.rigor - beforeAvg.rigor,
     // The intersection is already computed above, so the qualifiers are free — the reason they were
     // missing was never cost. `now.length === before.length` by construction (both are the same repo
     // set, one snapshot each side), so either is the cohort size.
@@ -837,15 +863,27 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
     // below. We do NOT reach further back for an older live scan in their place: that would move the
     // baseline INSTANT the `asOf` label claims, trading one silent inaccuracy for another.
     const latestPerRepo = deduped.filter((s) => !isMockScore(s.engineProvider));
-    if (latestPerRepo.length) {
+    // The baseline snapshot rows the block below needs twice (its own averages, and the cohort
+    // movement's `before` side) — mapped once so the two cannot describe different populations.
+    const baselineSnaps: RepoScoreSnap[] = latestPerRepo.map((s) => ({
+      repoId: s.repoId,
+      overall: s.overallScore,
+      adoption: s.adoptionScore,
+      rigor: s.rigorScore,
+    }));
+    // `latestPerRepo.length` ⇔ `baselineAvg !== null`: same guard, but this one narrows, so the three
+    // baseline averages are plain numbers and `OrgRollup["baseline"]` keeps its non-null contract. A
+    // baseline whose averages don't exist is not a baseline — it is the `null` this already documents.
+    const baselineAvg = snapMeans(baselineSnaps);
+    if (baselineAvg) {
       baseline = {
         // asOf reflects the EFFECTIVE (retention-clamped) baseline instant, so a plan-limited
         // comparison is honestly labeled rather than claiming the full window depth.
         asOf: effStart.toISOString(),
         repos: latestPerRepo.length,
-        avgOverall: avg(latestPerRepo.map((s) => s.overallScore)),
-        avgAdoption: avg(latestPerRepo.map((s) => s.adoptionScore)),
-        avgRigor: avg(latestPerRepo.map((s) => s.rigorScore)),
+        avgOverall: baselineAvg.overall,
+        avgAdoption: baselineAvg.adoption,
+        avgRigor: baselineAvg.rigor,
       };
       const currentSnaps: RepoScoreSnap[] = repos
         .filter((r) => r.scans[0] && !isMockScore(r.scans[0]!.engineProvider))
@@ -855,10 +893,7 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
           adoption: r.scans[0]!.adoptionScore,
           rigor: r.scans[0]!.rigorScore,
         }));
-      movement = computeCohortMovement(
-        currentSnaps,
-        latestPerRepo.map((s) => ({ repoId: s.repoId, overall: s.overallScore, adoption: s.adoptionScore, rigor: s.rigorScore })),
-      );
+      movement = computeCohortMovement(currentSnaps, baselineSnaps);
       // Per-dimension movement needs the baseline scans' dimension rows — fetched for ONLY the deduped
       // latest-per-repo scan ids (bounded at one scan per repo), not every prior scan in the org.
       const priorDims = await prisma.scanDimension.findMany({
@@ -1075,11 +1110,14 @@ export interface OrgHeaderSummary {
   repoCount: number;
   scannedCount: number;
   watchedCount: number;
-  avgOverall: number;
+  /** Mean of each live-scored repo's latest overall score — mirrors `getOrgRollup.avgOverall`,
+   *  INCLUDING its null contract: null when `realScoredCount` is 0. The two must agree, because the
+   *  shell chip and the Overview badge render on the same page. */
+  avgOverall: number | null;
   /** Mean of each scanned repo's latest adoption score — mirrors `getOrgRollup.avgAdoption`. */
-  avgAdoption: number;
+  avgAdoption: number | null;
   /** Mean of each scanned repo's latest rigor score — mirrors `getOrgRollup.avgRigor`. */
-  avgRigor: number;
+  avgRigor: number | null;
   /** Scanned repos per posture id — mirrors `getOrgRollup.postureCounts`. */
   postureCounts: Record<string, number>;
   /**
@@ -1092,7 +1130,8 @@ export interface OrgHeaderSummary {
   /** Tenant flavor — "personal" swaps the shell to the individual-workspace nav subset. */
   kind: "org" | "personal";
   /** Repos whose latest scan was LIVE-scored — the denominator of the three averages above, mirroring
-   *  `getOrgRollup.realScoredCount`. 0 means the averages are undefined and must render as "—". */
+   *  `getOrgRollup.realScoredCount`. 0 means the averages are undefined — and they now SAY so, as
+   *  `null`, rather than leaving each surface to re-derive the "—" from this count. */
   realScoredCount: number;
   /** Repos whose latest scan is a mock placeholder, excluded from the averages (mirrors the rollup). */
   mockCount: number;

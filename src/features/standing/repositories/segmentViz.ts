@@ -8,10 +8,12 @@
 // than quietly widening a shared query: a real distribution per segment needs `compareSegments` to
 // return the per-repo scores it already reads, and that is `src/lib/db`'s call to make.
 //
-// The load-bearing part is the null: a segment with ZERO scanned repos reduces to `avgOverall: 0`,
-// which is a sentinel and not a score (repositories-segments #4). Every value below is `null` in that
-// case, so the mark is a void and `rendersValue` keeps a numeral off it — the panel used to protect
-// that with a paragraph and by suppressing the whole comparison.
+// The load-bearing part is the null: a segment with ZERO scanned repos has no average at all. It used
+// to reduce to `avgOverall: 0` — a sentinel, not a score (repositories-segments #4) — and this module
+// recovered the absence by testing `scannedCount === 0`, a DIFFERENT field than the one it draws. The
+// producer says it now (`SegmentSummary.avgOverall: number | null`, 2026-09-08), so the headline marks
+// read their own nullness and the re-derivation is gone. `value()` survives for the per-dimension
+// rows only, where `SegmentComparison.dimDeltas` still carries a `?? 0` of its own.
 //
 // Pure: no React, no fetch. The kit types are `import type`.
 
@@ -30,6 +32,8 @@ export interface PairedRow {
   delta: number | null;
 }
 
+/** Per-DIMENSION only: `dimDeltas` coalesces an unscored dimension to 0 in the producer, so the
+ *  segment's scan count is still the only signal that the row is a void rather than a zero. */
 const value = (scanned: number, v: number): number | null => (scanned === 0 ? null : v);
 
 /** The maturity strip's first sight: one row per segment, three measured axes or three hatches. */
@@ -37,7 +41,7 @@ export function segmentMatrixRows(summaries: readonly SegmentSummary[]): MatrixR
   return summaries.map((s) => {
     // Not `missing`: the repos exist and simply have not been scanned, which is "not judged" — and
     // never "scored zero", which is what painting the sentinel through the ramp used to imply.
-    const cell = (v: number): MatrixCell => (s.scannedCount === 0 ? { state: "not-judged" } : { state: "measured", score: v });
+    const cell = (v: number | null): MatrixCell => (v === null ? { state: "not-judged" } : { state: "measured", score: v });
     return {
       id: s.id ?? "fleet",
       label: s.name,
@@ -52,7 +56,7 @@ export function segmentMatrixStates(rows: readonly MatrixRow[]): VizState[] {
   return (["measured", "not-judged"] as VizState[]).filter((s) => present.has(s));
 }
 
-function paired(id: string, label: string, a: number | null, b: number | null, delta: number): PairedRow {
+function paired(id: string, label: string, a: number | null, b: number | null, delta: number | null): PairedRow {
   return { id, label, a, b, delta: a == null || b == null ? null : delta };
 }
 
@@ -61,9 +65,9 @@ export function headlinePairs(c: SegmentComparison): PairedRow[] {
   const A = c.a;
   const B = c.b;
   return [
-    paired("overall", "Overall", value(A.scannedCount, A.avgOverall), value(B.scannedCount, B.avgOverall), c.deltas.overall),
-    paired("adoption", "AI Adoption", value(A.scannedCount, A.avgAdoption), value(B.scannedCount, B.avgAdoption), c.deltas.adoption),
-    paired("rigor", "Eng. Rigor", value(A.scannedCount, A.avgRigor), value(B.scannedCount, B.avgRigor), c.deltas.rigor),
+    paired("overall", "Overall", A.avgOverall, B.avgOverall, c.deltas.overall),
+    paired("adoption", "AI Adoption", A.avgAdoption, B.avgAdoption, c.deltas.adoption),
+    paired("rigor", "Eng. Rigor", A.avgRigor, B.avgRigor, c.deltas.rigor),
   ];
 }
 

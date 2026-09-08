@@ -876,8 +876,14 @@ export { BENCHMARK_ELIGIBLE, COHORT_MIN, CORPUS_BASIS, CORPUS_MIN };
 const BENCHMARK_CORPUS_CAP = 5000;
 
 /** Share of `xs` at-or-below `v`, as 0..100 — null below `min` samples, because a 1-repo corpus
- *  ranks everyone a hard 0th or 100th percentile (no-sample is not a rank). Pure, for unit tests. */
-export function percentileOf(xs: readonly number[], v: number, min = 1): number | null {
+ *  ranks everyone a hard 0th or 100th percentile (no-sample is not a rank). Pure, for unit tests.
+ *
+ *  `v` is nullable for the mirror-image reason: an org with no eligible scan has no mean, and a rank
+ *  needs something TO rank. Coalescing that absence to 0 would place the org at a real 0th percentile
+ *  — "worse than every peer" — which is a measurement it does not have. Both no-population cases
+ *  return the same null the type already carried for the too-few-samples case. */
+export function percentileOf(xs: readonly number[], v: number | null, min = 1): number | null {
+  if (v === null) return null;
   if (xs.length < Math.max(1, min)) return null;
   return Math.round((xs.filter((x) => x <= v).length / xs.length) * 100);
 }
@@ -927,7 +933,14 @@ export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | n
     const s = r.scans[0];
     if (s) corpus.push({ orgId: r.orgId, lang: r.primaryLanguage, overall: s.overallScore, adoption: s.adoptionScore, rigor: s.rigorScore });
   }
-  if (corpus.length === 0) {
+  const corpusAvgOverall = roundedMean(corpus.map((c) => c.overall));
+  const corpusAvgAdoption = roundedMean(corpus.map((c) => c.adoption));
+  const corpusAvgRigor = roundedMean(corpus.map((c) => c.rigor));
+  // `corpus.length === 0` ⇔ all three corpus means are null. Written as the null check because it is
+  // the SAME guard, and writing it this way narrows the three means for the return below instead of
+  // leaving a `!` (or a second `?? 0`) at the point of use. The zeros here are not means: they ride
+  // out beside `corpusRepos: 0`, which is the field that says there was no corpus at all.
+  if (corpusAvgOverall === null || corpusAvgAdoption === null || corpusAvgRigor === null) {
     return { corpusRepos: 0, corpusBasis: CORPUS_BASIS, overallPercentile: null, corpusAvgOverall: 0, corpusAvgAdoption: 0, corpusAvgRigor: 0, cohort: null };
   }
 
@@ -980,7 +993,11 @@ export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | n
   let cohort: OrgBenchmark["cohort"] = null;
   if (domLang) {
     const peers = corpus.filter((c) => c.lang === domLang);
-    if (peers.length > 0) {
+    const peerAvgOverall = avg(peers.map((p) => p.overall));
+    // `peers.length > 0` ⇔ `peerAvgOverall !== null` — the same guard, written as the null check so
+    // the cohort's `avgOverall` is narrowed by it. No same-language peer means no cohort, which is
+    // what `cohort: null` already said.
+    if (peerAvgOverall !== null) {
       // Rank this org's mean against peer ORG means within the language (not peer repos).
       const peerOrgOverall = orgMeans(peers, (p) => p.overall);
       const peerOrgAdoption = orgMeans(peers, (p) => p.adoption);
@@ -989,7 +1006,7 @@ export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | n
         repos: peers.length,
         overallPercentile: percentileOf(peerOrgOverall, myAvgOverall, COHORT_MIN),
         adoptionPercentile: percentileOf(peerOrgAdoption, myAvgAdoption, COHORT_MIN),
-        avgOverall: avg(peers.map((p) => p.overall)),
+        avgOverall: peerAvgOverall,
       };
     }
   }
@@ -999,9 +1016,9 @@ export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | n
     corpusBasis: CORPUS_BASIS,
     // Org mean vs other orgs' means (CORPUS_MIN is now a floor on the number of peer ORGS, not repos).
     overallPercentile: percentileOf(orgMeans(corpus, (c) => c.overall), myAvgOverall, CORPUS_MIN),
-    corpusAvgOverall: avg(corpus.map((c) => c.overall)),
-    corpusAvgAdoption: avg(corpus.map((c) => c.adoption)),
-    corpusAvgRigor: avg(corpus.map((c) => c.rigor)),
+    corpusAvgOverall,
+    corpusAvgAdoption,
+    corpusAvgRigor,
     cohort,
   };
 }

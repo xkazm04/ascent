@@ -263,21 +263,53 @@ export interface SegmentSummary {
    *  scored in this rollup", not "repos tagged into this segment". */
   repoCount: number;
   scannedCount: number;
-  avgOverall: number;
-  avgAdoption: number;
-  avgRigor: number;
-  posture: string; // posture id derived from avg adoption × rigor
+  /** Mean latest overall score over this scope's SCANNED repos — **null when it has none**, which a
+   *  segment can genuinely be (every tagged repo watched but never scanned, or the scope is empty).
+   *  Same contract as {@link OrgRollup.avgOverall}, which is where the scoped variant reads it from. */
+  avgOverall: number | null;
+  avgAdoption: number | null;
+  avgRigor: number | null;
+  /**
+   * Posture id derived from avg adoption × rigor — **null when either input is**, because a
+   * classification computed from two absences is worse than a wrong number: it is a fabricated
+   * CATEGORICAL. `postureFor(0, 0)` returns a real posture ("dormant"/whatever the model floors to)
+   * and every surface renders it as a label with a colour, indistinguishable from a segment Ascent
+   * actually looked at and classified. A segment with no scanned repo has no posture.
+   */
+  posture: string | null;
   dimAverages: { dimId: string; avg: number }[];
 }
 
 export interface SegmentComparison {
   a: SegmentSummary;
   b: SegmentSummary;
-  /** a − b on the headline metrics. */
-  deltas: { overall: number; adoption: number; rigor: number };
+  /** a − b on the headline metrics — each **null when either side's average is**, because a delta
+   *  against a scope nobody scanned is not a delta. (`a.avgOverall` alone is not enough to tell:
+   *  a comparison needs both ends.) */
+  deltas: { overall: number | null; adoption: number | null; rigor: number | null };
   /** Per-dimension a/b/delta over the union of dimensions either side is scored on. */
   dimDeltas: { dimId: string; a: number; b: number; delta: number }[];
 }
+
+/**
+ * The posture a scope's two axis means classify to — **null when either mean does not exist**.
+ *
+ * This is the one site where the mean-of-nothing bug produced something worse than a wrong number.
+ * `postureFor` maps (adoption, rigor) onto a named quadrant, so feeding it the old `roundedMean`'s
+ * two sentinel zeros handed an un-scanned segment a real posture id, which the Segments strip and the
+ * comparison view then drew as a labelled, coloured classification — a judgement about a scope Ascent
+ * never looked at. A fabricated numeral at least sits next to a `scannedCount: 0` that contradicts it;
+ * a fabricated CATEGORY reads as a finding.
+ *
+ * Both of this file's summary producers route through here, so the two cannot disagree about when a
+ * scope has a posture.
+ */
+const postureOf = (adoption: number | null, rigor: number | null): string | null =>
+  adoption === null || rigor === null ? null : postureFor(adoption, rigor).id;
+
+/** `a − b`, but only when BOTH ends were measured. A subtraction needs two numbers; substituting a 0
+ *  for the missing one silently reports the other side's whole score as the gap between them. */
+const subtractMeasured = (a: number | null, b: number | null): number | null => (a === null || b === null ? null : a - b);
 
 /** Pure: diff two segment summaries into headline + per-dimension deltas (a − b). Unit-tested. */
 export function buildSegmentComparison(a: SegmentSummary, b: SegmentSummary): SegmentComparison {
@@ -288,9 +320,9 @@ export function buildSegmentComparison(a: SegmentSummary, b: SegmentSummary): Se
     a,
     b,
     deltas: {
-      overall: a.avgOverall - b.avgOverall,
-      adoption: a.avgAdoption - b.avgAdoption,
-      rigor: a.avgRigor - b.avgRigor,
+      overall: subtractMeasured(a.avgOverall, b.avgOverall),
+      adoption: subtractMeasured(a.avgAdoption, b.avgAdoption),
+      rigor: subtractMeasured(a.avgRigor, b.avgRigor),
     },
     dimDeltas: dimIds.map((dimId) => {
       const av = aDim.get(dimId) ?? 0;
@@ -338,7 +370,7 @@ export function summarizeScopedRepos(scope: { id: string | null; name: string },
     avgOverall: roundedMean(scanned.map((r) => r.latest!.overall)),
     avgAdoption,
     avgRigor,
-    posture: postureFor(avgAdoption, avgRigor).id,
+    posture: postureOf(avgAdoption, avgRigor),
     dimAverages,
   };
 }
@@ -395,7 +427,7 @@ export async function summarizeScopedRollup(
     avgOverall: rollup.avgOverall,
     avgAdoption: rollup.avgAdoption,
     avgRigor: rollup.avgRigor,
-    posture: postureFor(rollup.avgAdoption, rollup.avgRigor).id,
+    posture: postureOf(rollup.avgAdoption, rollup.avgRigor),
     dimAverages: rollup.dimAverages,
   };
 }

@@ -23,14 +23,19 @@ const stack = (over: Partial<SegmentSummary>): SegmentSummary => ({
   ...over,
 });
 
+/** A stack nobody has scanned, exactly as the producer emits it — no averages, no posture. */
+const unscanned = (over: Partial<SegmentSummary>): SegmentSummary =>
+  stack({ scannedCount: 0, avgOverall: null, avgAdoption: null, avgRigor: null, posture: null, ...over });
+
 describe("stackState", () => {
   it("calls a stack with no scanned repo not-judged, not a zero-scoring stack", () => {
-    expect(stackState(stack({ scannedCount: 0, avgOverall: 0 }))).toBe("not-judged");
+    expect(stackState(unscanned({}))).toBe("not-judged");
     expect(stackState(stack({ scannedCount: 1 }))).toBe("measured");
   });
 
   it("keeps a genuinely-zero measured stack measured", () => {
-    // 0 is a real score when someone looked. The discriminator is scannedCount, never the value.
+    // 0 is a real score when someone looked. The discriminator is the value's PRESENCE, never its
+    // size — which is only expressible because the producer stopped answering "nothing" with a 0.
     expect(stackState(stack({ scannedCount: 3, avgOverall: 0 }))).toBe("measured");
   });
 });
@@ -54,29 +59,40 @@ describe("stackSpread", () => {
       stack({ id: "b", avgOverall: 40 }),
       stack({ id: "c", avgOverall: 60 }),
       stack({ id: "d", avgOverall: 80 }),
-      stack({ id: "z", scannedCount: 0, avgOverall: 0 }),
+      unscanned({ id: "z" }),
     ]);
     expect(s).not.toBeNull();
     expect(s!.min).toBe(20);
     expect(s!.max).toBe(80);
     expect(s!.median).toBe(50);
     expect(s!.n).toBe(4);
-    // The unscanned stack's sentinel 0 must NOT drag the minimum down to 0.
+    // The unscanned stack must NOT drag the minimum down to 0 — it is counted out, not plotted.
     expect(s!.unmeasured).toBe(1);
   });
 
   it("refuses to draw a distribution from fewer than two measured stacks", () => {
-    expect(stackSpread([stack({}), stack({ id: "z", scannedCount: 0, avgOverall: 0 })])).toBeNull();
+    expect(stackSpread([stack({}), unscanned({ id: "z" })])).toBeNull();
     expect(stackSpread([])).toBeNull();
   });
 });
 
 describe("orderStacks", () => {
+  it("ranks a MEASURED zero among the scores, not among the unmeasured", () => {
+    // The two used to be the same value. A stack live-scored at 0 belongs last IN the ordering; an
+    // unscanned one belongs outside it, after every measurement, alphabetically.
+    const out = orderStacks([
+      unscanned({ id: "z", name: "Aardvark" }),
+      stack({ id: "f", name: "Floor", avgOverall: 0 }),
+      stack({ id: "b", name: "Beta", avgOverall: 90 }),
+    ]);
+    expect(out.map((s) => s.name)).toEqual(["Beta", "Floor", "Aardvark"]);
+  });
+
   it("ranks measured stacks by score and parks the unmeasured ones after them, by name", () => {
     const out = orderStacks([
-      stack({ id: "z", name: "Zeta", scannedCount: 0, avgOverall: 0 }),
+      unscanned({ id: "z", name: "Zeta" }),
       stack({ id: "a", name: "Alpha", avgOverall: 40 }),
-      stack({ id: "m", name: "Mid", scannedCount: 0, avgOverall: 0 }),
+      unscanned({ id: "m", name: "Mid" }),
       stack({ id: "b", name: "Beta", avgOverall: 90 }),
     ]);
     expect(out.map((s) => s.name)).toEqual(["Beta", "Alpha", "Mid", "Zeta"]);

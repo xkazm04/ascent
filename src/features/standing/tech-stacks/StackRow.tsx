@@ -53,7 +53,7 @@ export function StackRow({ org, s, color, scopeQ, active, noun, onToggle, onHove
           style={{ borderColor: color, backgroundColor: active ? color : "transparent" }}
         />
         <span className="min-w-0 flex-1 truncate font-medium text-white">{s.name}</span>
-        {rendersValue(state) ? (
+        {rendersValue(state) && s.avgOverall !== null ? (
           <span className="shrink-0 font-mono type-body font-bold tabular-nums" style={{ color: scoreHex(s.avgOverall) }}>
             {s.avgOverall}
           </span>

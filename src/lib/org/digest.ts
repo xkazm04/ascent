@@ -22,6 +22,7 @@
 import { getOrgRollup, type OrgWindow } from "@/lib/db/org-rollup";
 import { getOrgMovers, getOrgRecommendations, type OrgMovers, type OrgRec, type RepoMove } from "@/lib/db/org-insights";
 import { getOrgEngineMix } from "@/lib/db/org";
+import { hasFleetGrade } from "@/lib/db/org-shared";
 import {
   countScansInWindow,
   getFollowupsClosedInWindow,
@@ -115,8 +116,11 @@ export async function buildWeeklyDigest(orgSlug: string, now: Date = new Date())
     countScansInWindow(orgSlug, window).catch(degraded("The scan count for the week could not be read.")),
   ]);
 
-  // The rollup is load-bearing: no standing, no digest.
-  if (!rollup || rollup.scannedCount === 0) return null;
+  // The rollup is load-bearing: no standing, no digest. `hasFleetGrade` rather than
+  // `scannedCount === 0` because the standing IS the three averages — a fleet that is scanned but
+  // entirely mock-floored has no standing to print, and the old guard let it through to
+  // `levelForScore(0)` and a headline of 0/0/0.
+  if (!rollup || !hasFleetGrade(rollup)) return null;
 
   const scanned = rollup.scannedCount;
   const level = levelForScore(rollup.avgOverall);

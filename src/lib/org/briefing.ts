@@ -15,6 +15,7 @@ import {
   type GoalPctBasis,
 } from "@/lib/db";
 import { getOrgEngineMix, getOrgRecsActioned, type EngineMixEntry } from "@/lib/db/org";
+import { hasFleetGrade } from "@/lib/db/org-shared";
 import { getOrgPractices, getPlaybookAdoption, listPlaybooks } from "@/lib/db";
 import { buildPracticeLibrarySummary } from "@/lib/org/practice-library";
 import { getImprovementEvents, type ImprovementEvent } from "@/lib/db/improvement-events";
@@ -442,7 +443,10 @@ export async function buildExecBriefing(
       end: window?.endExclusive ?? window?.end ?? null,
     }).catch(() => [] as ImprovementEvent[]),
   ]);
-  if (!rollup || rollup.scannedCount === 0) return null;
+  // `hasFleetGrade`, not `scannedCount === 0`: the briefing's whole maturity block is the three
+  // averages, and a scanned-but-all-mock fleet has none of them. The old guard printed a board PDF
+  // headlining 0/100 at L1.
+  if (!rollup || !hasFleetGrade(rollup)) return null;
 
   const level = levelForScore(rollup.avgOverall);
   const dimSorted = [...rollup.dimAverages].sort((a, b) => b.avg - a.avg);
@@ -466,10 +470,12 @@ export async function buildExecBriefing(
     .reverse();
 
   const priorPeriod =
-    // Direction 1 — `realScoredCount > 0`, not just `scannedCount > 0`. An all-mock prior window has
-    // `avgOverall === 0` by division guard, and subtracting that from a real current average
-    // manufactures a "+62 this period" the fleet never moved.
-    priorRollup && priorRollup.scannedCount > 0 && priorRollup.realScoredCount > 0
+    // Direction 1 — the prior window needs a GRADE, not merely a scan. An all-mock prior window used
+    // to arrive with `avgOverall === 0` by division guard, and subtracting that from a real current
+    // average manufactured a "+62 this period" the fleet never moved. That was guarded here by
+    // re-deriving the condition from `realScoredCount`; `hasFleetGrade` is the same condition read off
+    // the fields it actually governs, and it narrows all three for the subtractions below.
+    priorRollup && hasFleetGrade(priorRollup)
       ? (() => {
           const priorBy = new Map(priorRollup.dimAverages.map((d) => [d.dimId, d.avg]));
           return {

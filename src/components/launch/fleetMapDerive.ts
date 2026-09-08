@@ -55,11 +55,24 @@ export function sumScoredOverall(repos: readonly RepoStar[]): { sum: number; cou
   return { sum, count };
 }
 
-/** Round a `sumScoredOverall` tally to a displayable mean, or null when nothing is scored (never
- *  NaN/0). Rounding lives here — separated from `sumScoredOverall` — because orderConstellations'
- *  maturity sort key needs the UNROUNDED mean (rounding two close-but-distinct means to the same
- *  integer would flip their sort order depending on float noise; a sort key must stay precise even
- *  though the same number gets rounded for display elsewhere). */
+/**
+ * Round a `sumScoredOverall` tally to a displayable mean, or null when nothing is scored (never
+ * NaN/0). Rounding lives here — separated from `sumScoredOverall` — because orderConstellations'
+ * maturity sort key needs the UNROUNDED mean (rounding two close-but-distinct means to the same
+ * integer would flip their sort order depending on float noise; a sort key must stay precise even
+ * though the same number gets rounded for display elsewhere).
+ *
+ * NAMESAKE, NOW AGREEING: `roundedMean(xs: number[])` in `src/lib/db/org-shared.ts` is a second
+ * function with this name. It used to return **0** for an empty population while this one returned
+ * null — two functions, one name, opposite contracts, and the /org tabs inherited the wrong one on
+ * eight surfaces. It returns null too as of 2026-09-08; this contract is the one that won.
+ *
+ * They are deliberately NOT merged, and merging them would be a bug: `org-shared.ts` imports
+ * `getPrisma`, and this module is client-side (the launch star map), so a shared import would drag
+ * the Prisma client into the browser bundle — a break `tsc` and the unit suite both pass and only
+ * `next build` catches. The shapes also differ for a stated reason (streaming tally vs materialized
+ * array, so the unrounded sort key survives). Same contract, two call shapes, one boundary between them.
+ */
 export function roundedMean(sum: number, count: number): number | null {
   return count > 0 ? Math.round(sum / count) : null;
 }

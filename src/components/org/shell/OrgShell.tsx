@@ -197,9 +197,10 @@ export async function OrgShell({
   }
 
   // The header chip mirrors the Overview badge: the average excludes mock placeholders, so a fleet
-  // with no live-scored repo shows a dash rather than a 0 that reads as a grade.
-  const headerScore = summary.realScoredCount > 0 ? summary.avgOverall : null;
-  const level = levelForScore(summary.avgOverall);
+  // with no live-scored repo shows a dash rather than a 0 that reads as a grade. The producer says
+  // that now (`avgOverall: number | null`), so this no longer re-derives it from `realScoredCount`.
+  const headerScore = summary.avgOverall;
+  const level = headerScore === null ? null : levelForScore(headerScore);
 
   // W1c — the transition programme's one-line strip. Resolved AFTER the empty-state gates so a
   // walled/first-scan org never pays for it, and null-safe: no programme (the common case today, and
@@ -222,7 +223,7 @@ export async function OrgShell({
 
   return (
     <>
-      <OrgHeader slug={slug} levelId={level.id} score={headerScore} role={myRole} actions={actions} />
+      <OrgHeader slug={slug} levelId={level?.id ?? null} score={headerScore} role={myRole} actions={actions} />
       <ProgramStrip slug={slug} status={programStatus} />
       {/* tabIndex={-1} makes <main> a programmatic focus target: it is already the skip-link
           destination, and OrgTabNav moves focus here on a real tab switch so an AT user isn't left

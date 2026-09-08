@@ -30,6 +30,10 @@ const stack = (over: Partial<SegmentSummary>): SegmentSummary => ({
   ...over,
 });
 
+/** A stack nobody has scanned, exactly as the producer emits it. */
+const unscanned = (over: Partial<SegmentSummary>): SegmentSummary =>
+  stack({ scannedCount: 0, avgOverall: null, avgAdoption: null, avgRigor: null, posture: null, ...over });
+
 const profiles = (stacks: SegmentSummary[], active: string[]) =>
   render(
     <StackProfiles
@@ -48,8 +52,8 @@ const profiles = (stacks: SegmentSummary[], active: string[]) =>
 
 describe("StackProfiles rail", () => {
   it("never prints a score for a stack nobody has scanned", () => {
-    // summarizeScopedRepos averages an empty array, so this stack arrives with avgOverall 0.
-    const { container } = profiles([stack({ id: "z", name: "Mobile", scannedCount: 0, avgOverall: 0 })], []);
+    // summarizeScopedRepos averages an empty array, so this stack arrives with avgOverall NULL.
+    const { container } = profiles([unscanned({ id: "z", name: "Mobile" })], []);
     expect(screen.getByText("Mobile")).toBeTruthy();
     expect(screen.queryByText("0")).toBeNull();
     // …and says what it is instead: the hatched not-judged swatch, plus its caveat.
@@ -100,7 +104,7 @@ describe("StackSpreadStrip", () => {
         stacks={[
           stack({ id: "a", avgOverall: 40 }),
           stack({ id: "b", avgOverall: 80 }),
-          stack({ id: "z", scannedCount: 0, avgOverall: 0 }),
+          unscanned({ id: "z" }),
         ]}
       />,
     );
@@ -111,7 +115,7 @@ describe("StackSpreadStrip", () => {
   });
 
   it("draws nothing rather than a degenerate box below two measured stacks", () => {
-    const { container } = render(<StackSpreadStrip stacks={[stack({}), stack({ id: "z", scannedCount: 0, avgOverall: 0 })]} />);
+    const { container } = render(<StackSpreadStrip stacks={[stack({}), unscanned({ id: "z" })]} />);
     expect(container.firstChild).toBeNull();
   });
 });
