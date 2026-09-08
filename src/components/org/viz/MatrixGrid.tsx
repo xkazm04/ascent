@@ -11,6 +11,7 @@
 import { useMounted, usePrefersReducedMotion } from "@/components/report/chartMotion";
 import { scoreHex } from "@/lib/ui";
 import { fmtNum, isNum, r2 } from "@/components/org/viz/vizNum";
+import { AXIS_SVG_CLASS, axisHeaderHeight, wrapAxisLabel } from "@/components/org/viz/matrixAxis";
 import {
   KICKER_SVG_CLASS,
   STATE_LABEL,
@@ -30,7 +31,8 @@ import {
 const LABEL_W = 104;
 const CELL_W = 46;
 const CELL_H = 26;
-const HEADER_H = 18;
+/** Line box for a wrapped axis header line; the band's total height comes from `axisHeaderHeight`. */
+const AXIS_LINE_H = 10;
 
 export type MatrixCell = {
   state: VizState;
@@ -71,8 +73,12 @@ export function MatrixGrid({
     );
   }
 
+  // Axis headers wrap rather than overhang their column (see matrixAxis.ts), so the header band's
+  // height is a function of the tallest label — not a constant.
+  const axisLines = axes.map((a) => wrapAxisLabel(a));
+  const headerH = axisHeaderHeight(axisLines, AXIS_LINE_H);
   const W = LABEL_W + axes.length * CELL_W;
-  const H = HEADER_H + rows.length * CELL_H;
+  const H = headerH + rows.length * CELL_H;
   const cellAt = (row: MatrixRow, i: number): MatrixCell => row.cells[i] ?? VOID_CELL;
 
   const ariaLabel =
@@ -97,14 +103,27 @@ export function MatrixGrid({
         <title>{ariaLabel}</title>
         <VizDefs />
 
-        {axes.map((a, i) => (
-          <text key={a} x={LABEL_W + i * CELL_W + CELL_W / 2} y={HEADER_H - 6} textAnchor="middle" fontSize={9} className={KICKER_SVG_CLASS}>
-            {a}
-          </text>
-        ))}
+        {axes.map((a, i) => {
+          const lines = axisLines[i] ?? [a];
+          // Bottom-aligned against the rule, so a one-line header sits where it always did and a
+          // two-line one grows upward instead of shunting the grid.
+          const firstY = headerH - 6 - (lines.length - 1) * AXIS_LINE_H;
+          return (
+            <text key={a} x={LABEL_W + i * CELL_W + CELL_W / 2} y={r2(firstY)} textAnchor="middle" fontSize={9} className={AXIS_SVG_CLASS}>
+              {/* The full name always survives in the aria-label, the <title> and the sr-only table,
+                  so an ellipsized header costs a sighted reader precision, never a reader using AT. */}
+              <title>{a}</title>
+              {lines.map((ln, li) => (
+                <tspan key={ln + li} x={LABEL_W + i * CELL_W + CELL_W / 2} dy={li === 0 ? 0 : AXIS_LINE_H}>
+                  {ln}
+                </tspan>
+              ))}
+            </text>
+          );
+        })}
 
         {rows.map((row, ri) => {
-          const y = HEADER_H + ri * CELL_H;
+          const y = headerH + ri * CELL_H;
           return (
             <g
               key={row.id}
@@ -157,7 +176,7 @@ export function MatrixGrid({
           );
         })}
         {/* header underrule — the one hairline, at 2dp so server and client serialise identically */}
-        <line x1={0} y1={r2(HEADER_H - 2)} x2={W} y2={r2(HEADER_H - 2)} stroke="var(--color-divider)" strokeWidth={1} />
+        <line x1={0} y1={r2(headerH - 2)} x2={W} y2={r2(headerH - 2)} stroke="var(--color-divider)" strokeWidth={1} />
       </svg>
 
       <table className="sr-only">
