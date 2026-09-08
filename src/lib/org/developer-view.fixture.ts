@@ -116,6 +116,7 @@ function personalFixture(login: string | null): DeveloperView {
   return {
     login,
     demo: "personal",
+    activityState: "measured",
     profile: {
       role: "Backend engineer",
       archetypeHint: "verifier",

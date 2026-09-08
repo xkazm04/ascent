@@ -1,9 +1,15 @@
 "use client";
 
 // The small pieces the Developer page's sections share: the unwired action buttons, the move chips,
-// the saving/level readouts, the privacy note and the preview stamp.
+// the saving/level readouts and the preview stamp.
+//
+// `CarePrivacyNote` used to live here — one sentence ("Transcripts, prompts and diffs never leave
+// your machine") rendered wherever shared data was shown. It is gone because the guarantee is now
+// DRAWN: `CarePrivacyLedger` gives those rows a void in both columns, and a test fails if any of
+// them ever acquires a mark. A promise a reader has to take on trust was the weaker artifact.
 
 import { chipButtonClass } from "@/components/ui";
+import { StateSwatch } from "@/components/org/viz";
 import { LEVEL_HEX, scoreHex } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
 import {
@@ -100,26 +106,27 @@ export function CareSaving({ minutes, className = "" }: { minutes: number | null
   );
 }
 
-/** A repo's level as its ramp colour — the one place level colour is allowed (BRAND principle 3). */
+/**
+ * A repo's level as its ramp colour — the one place level colour is allowed (BRAND principle 3).
+ *
+ * A repo with no scan has no standing to print, and a bare "—" was indistinguishable from a score we
+ * had simply not rendered. It now draws the `missing` void, whose title says which absence it is.
+ */
 export function CareLevelMark({ level, score }: { level: string | null; score: number | null }) {
+  if (level == null && score == null) {
+    return (
+      <span className="flex shrink-0 items-center gap-1.5" title="Never scanned — no level and no score exist for this repo yet. Not a zero.">
+        <StateSwatch state="missing" size={12} />
+        <span className="type-label tracking-widest text-slate-600">no scan</span>
+      </span>
+    );
+  }
   const hex = level && level in LEVEL_HEX ? LEVEL_HEX[level as LevelId] : score != null ? scoreHex(score) : undefined;
   return (
     <span className="type-mono-sm tabular-nums" style={hex ? { color: hex } : undefined}>
       {level ?? "—"}
       {score != null ? <span className="text-slate-500"> · {score}</span> : null}
     </span>
-  );
-}
-
-/**
- * The standing promise, rendered wherever shared data is shown. Not decoration: the whole UC3 design
- * rests on the developer believing it, so it is stated in the surface rather than in a docs page.
- */
-export function CarePrivacyNote({ children }: { children?: React.ReactNode }) {
-  return (
-    <p className="type-body-sm text-slate-500">
-      {children ?? "Only what you chose to share is here. Transcripts, prompts and diffs never leave your machine."}
-    </p>
   );
 }
 

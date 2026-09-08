@@ -97,10 +97,46 @@ describe("getDeveloperView — the Standing column", () => {
   it("does not read repo states for a login the snapshot has no row for", async () => {
     // Below the naming floor the producer withholds every per-person row; there are then no repos to
     // put a standing against, so the extra query must not be issued.
-    getContributorInsights.mockResolvedValue({ totalContributors: 2, contributors: [], champions: [] });
+    getContributorInsights.mockResolvedValue({ totalContributors: 2, contributors: [], champions: [], namingAllowed: false });
     const view = await getDeveloperView("ada", "acme");
     expect(view.activity).toBeNull();
     expect(view.myRepos).toEqual([]);
     expect(getRepoStates).not.toHaveBeenCalled();
+  });
+});
+
+// ── WHY `activity` is null (the Developer page encodes each of these differently) ─────────────────
+//
+// `activity: null` carried four unrelated facts and the page narrated all four with one paragraph.
+// The worst pairing: a SUPPRESSED row (the workspace is under the naming floor, so the producer
+// withheld the developer's own numbers) read exactly like "you have never committed here". These pin
+// the four apart at the source, because a UI cannot encode a distinction the loader did not make.
+describe("getDeveloperView — activityState", () => {
+  it("is `measured` when the snapshot carries this login", async () => {
+    const view = await getDeveloperView("ada", "acme");
+    expect(view.activityState).toBe("measured");
+  });
+
+  it("is `withheld` when the producer suppressed every per-person row", async () => {
+    getContributorInsights.mockResolvedValue({ totalContributors: 2, contributors: [], champions: [], namingAllowed: false });
+    const view = await getDeveloperView("ada", "acme");
+    expect(view.activityState).toBe("withheld");
+  });
+
+  it("is `absent` when naming was allowed and this login is simply not in the snapshot", async () => {
+    getContributorInsights.mockResolvedValue({ totalContributors: 8, contributors: [], champions: [], namingAllowed: true });
+    const view = await getDeveloperView("ada", "acme");
+    expect(view.activityState).toBe("absent");
+  });
+
+  it("is `unreadable` when the snapshot read failed — not an absence of the developer", async () => {
+    getContributorInsights.mockRejectedValue(new Error("db down"));
+    const view = await getDeveloperView("ada", "acme");
+    expect(view.activityState).toBe("unreadable");
+  });
+
+  it("is `signed-out` when nobody is signed in", async () => {
+    const view = await getDeveloperView(null, "acme");
+    expect(view.activityState).toBe("signed-out");
   });
 });

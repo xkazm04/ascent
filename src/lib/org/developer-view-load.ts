@@ -20,11 +20,14 @@ import { emptyDeveloperView, emptyOrgView, type CareOrgView, type DeveloperView 
  * journal, session shape) stays the honest EMPTY state until C3 ships `POST /api/me/mentor/share` and
  * the personal tables — nothing here is invented to fill it.
  *
- * Two honest degradations, both silent by design:
- *   - no viewer login (signed out / no identity) ⇒ the empty view, no reads issued;
- *   - the org population is under the naming floor, so `getContributorInsights` withholds every
- *     per-person row ⇒ `activity` is null and `myRepos` is empty. The page says so rather than
- *     showing zeros that read as "you did nothing".
+ * Four honest degradations, each one NAMED in `activityState` rather than collapsed into a null:
+ *   - `signed-out` — no viewer login, no reads issued;
+ *   - `unreadable` — the contributor snapshot could not be read;
+ *   - `withheld`   — the org population is under the naming floor, so `getContributorInsights`
+ *                    suppressed every per-person row. The numbers exist and were withheld;
+ *   - `absent`     — the snapshot was read and carries no row for this login.
+ * `activity` is null in all four; only the state tells them apart, and the page encodes the
+ * difference rather than showing zeros that would read as "you did nothing".
  */
 export async function getDeveloperView(viewerLogin: string | null, orgSlug: string): Promise<DeveloperView> {
   const view = emptyDeveloperView(viewerLogin);
@@ -33,8 +36,15 @@ export async function getDeveloperView(viewerLogin: string | null, orgSlug: stri
   const insights = await getContributorInsights(orgSlug).catch(() => null);
   const login = viewerLogin.toLowerCase();
   const me = insights?.contributors.find((c) => c.login.toLowerCase() === login) ?? null;
-  if (!me) return view;
+  if (!me) {
+    // Which absence this is, said out loud. `namingAllowed === false` means the producer suppressed
+    // EVERY per-person row (population under CHAMPION_MIN_POP) — the developer's own numbers exist
+    // and were withheld, which must not render as "you have never committed here".
+    view.activityState = !insights ? "unreadable" : insights.namingAllowed === false ? "withheld" : "absent";
+    return view;
+  }
 
+  view.activityState = "measured";
   view.activity = {
     commits: me.commits,
     aiCommits: me.aiCommits,

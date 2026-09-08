@@ -7,6 +7,7 @@
 // argument for the app going unmade.
 
 import { SectionEmpty } from "@/components/org/shared/ui";
+import { StateSwatch } from "@/components/org/viz";
 import { CareAction, CareCategoryChip, CareLinkAction, CareSaving, CareStateChip, CARE_STATE_LABEL } from "./CareBits";
 import { careMovesByState, CARE_MOVE_STATES, type CareMove } from "@/lib/org/developer-view";
 
@@ -34,9 +35,11 @@ function MoveCard({ move }: { move: CareMove }) {
           {move.evidence}
         </p>
       ) : (
-        <p className="mt-1.5 type-body-sm text-slate-600">
-          <span className="type-label tracking-widest">fleet · </span>
-          nothing observed yet
+        // A move with no fleet evidence is an ABSENCE, not a weak result. The void mark says which,
+        // in the same vocabulary the rest of the page uses.
+        <p className="mt-1.5 flex items-center gap-2 type-body-sm text-slate-600" title="No other repo in this workspace has adopted this move, so there is nothing measured to add. Not evidence against it.">
+          <StateSwatch state="missing" size={12} />
+          <span className="type-label tracking-widest">fleet · nothing observed yet</span>
         </p>
       )}
       {move.droppedReason ? <p className="mt-1.5 type-body-sm text-slate-500">Dropped: {move.droppedReason}</p> : null}
@@ -65,7 +68,16 @@ export function CareMovesBoard({ moves }: { moves: CareMove[] }) {
 
   const byState = careMovesByState(moves);
   return (
-    <div className="mt-3 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+    <div className="mt-3">
+      {/* KEPT AS TEXT, deliberately. This is a use-constraint on a list of suggestions, and no visual
+          encoding carries it — the same call Wave 1 made for "not a to-do list for anyone" on
+          Contributors. It has to be met at the same moment as the content, so it sits on the board
+          rather than in a hover or a header. The UI holds up its half: no checkboxes, no completion
+          affordance, no ordinal numbering, and the only verbs are the developer's own (keep, drop). */}
+      <p className="type-body-sm text-slate-500">
+        Proposed by your local mentor from your own journal. Nothing here is assigned to you.
+      </p>
+      <div className="mt-3 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
       {CARE_MOVE_STATES.map((state) => (
         <section key={state} aria-label={CARE_STATE_LABEL[state]}>
           <div className="flex items-baseline justify-between border-b border-divider pb-2">
@@ -81,6 +93,7 @@ export function CareMovesBoard({ moves }: { moves: CareMove[] }) {
           </div>
         </section>
       ))}
+      </div>
     </div>
   );
 }
