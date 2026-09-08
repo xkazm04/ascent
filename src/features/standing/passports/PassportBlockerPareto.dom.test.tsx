@@ -68,12 +68,23 @@ describe("PassportBlockerPareto — declines are shown, not folded in", () => {
     expect(screen.getByTitle("d — accepted by choice")).toBeTruthy();
   });
 
-  it("explains the hollow mark in the intro only when there is one", () => {
+  // The explanation is a LEGEND ROW now, not a sentence above the panel (/org redesign §2.1 D): the
+  // hollow mark itself is shown, with the sentence on its hover/focus hint. The rule the old intro
+  // followed still holds — a legend teaches only the marks this docket actually draws.
+  it("shows the hollow mark's legend row only when there is a hollow mark", () => {
     const { unmount } = panel([row("a"), row("b", { declined: "standing" })]);
-    expect(screen.getByText(/hollow one is a repo whose owner has accepted the gap/)).toBeTruthy();
+    expect(screen.getByText("accepted by owner")).toBeTruthy();
+    expect(screen.getByTitle(/hollow mark is a repository whose owner has accepted this gap/)).toBeTruthy();
     unmount();
     panel([row("a")]);
-    expect(screen.queryByText(/hollow one/)).toBeNull();
+    expect(screen.queryByText("accepted by owner")).toBeNull();
+    expect(screen.getByText("blocked")).toBeTruthy();
+  });
+
+  // The ranking basis lived only in a code comment; it is now reachable from the surface itself.
+  it("discloses the ranking basis behind a keyboard-reachable chip", () => {
+    panel([row("a")]);
+    expect(screen.getByLabelText(/Why: how this docket is ranked/i)).toBeTruthy();
   });
 
   it("does not double-count a re-surfaced decline (it is already open)", () => {

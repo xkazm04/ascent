@@ -1,15 +1,26 @@
 "use client";
 
-// #16 — Standing › Passports › Controls: the fleet control matrix, sourced from the repositories'
-// OWN CI. Every cell is a clause a repo's `.ai/doctor.mjs` judged in the repo's own pipeline and
-// reported back — not a remote scanner's opinion about the repo, which is the thing that makes it
-// admissible as evidence.
+// #16 — Standing › Passports › Doctor checks: the fleet control matrix, sourced from the
+// repositories' OWN CI. Every cell is a clause a repo's `.ai/doctor.mjs` judged in the repo's own
+// pipeline and reported back — not a remote scanner's opinion about the repo, which is the thing
+// that makes it admissible as evidence.
+//
+// /org redesign (docs/ORG-UX-REDESIGN.md §2): the 331-character lede is gone. Its every clause is now
+// either an encoding (the hatched `not-judged` cell, which structurally cannot print a number), a
+// disclosure (the `WhyChip` on the header, the kit `Legend`, each cell's generated `<title>`), or
+// documentation (the two sibling catalogues, in docs/features/reporting/report.md). The grid is the
+// overview; the expandable table below is the drill-down.
 
 import { Kicker, SectionHeading } from "@/components/ui";
 import { Tile, TILE_LEDGER } from "@/components/org/shared/ui";
+import { Legend, MatrixGrid, WhyChip } from "@/components/org/viz";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { ControlMatrixGrid } from "./ControlMatrixGrid";
+import { controlVizModel } from "./controlMatrixViz";
 import { useControlMatrix } from "./useControlMatrix";
+
+const AUDIT_HINT =
+  "These rows are derived. The tamper-evident copy of every report is the signed conformance.reported entry in this organization's audit log.";
 
 export function ControlMatrixPanel({ org }: { org: string }) {
   const { rows, loading, error, expanded, toggleFamily } = useControlMatrix(org);
@@ -17,17 +28,14 @@ export function ControlMatrixPanel({ org }: { org: string }) {
   const reporting = rows?.filter((r) => !r.summaryOnly) ?? [];
   const failing = reporting.filter((r) => r.checks.some((c) => c.level === "fail")).length;
   const summaryOnly = rows?.filter((r) => r.summaryOnly).length ?? 0;
+  const viz = controlVizModel(rows ?? []);
 
   return (
     <section className="space-y-6">
       <div>
         <Kicker>proven in your own CI</Kicker>
-        {/* MC-B10: named for its SOURCE, because three tabs carried a catalogue called "controls".
-            The intro cross-links the other two so a reader who wanted one of them can leave. */}
-        <SectionHeading
-          title="Doctor checks"
-          intro="Every control each repository declares, as judged by its own doctor in its own pipeline. A clause a run did not judge shows as “not judged” — never as passing. Two other control catalogues live elsewhere: Security › D9 check battery (our deterministic security grading) and Governance › Governance control ledger (branch-protection observations over time)."
-        />
+        {/* MC-B10: named for its SOURCE, because three tabs carried a catalogue called "controls". */}
+        <SectionHeading title="Doctor checks" right={<WhyChip hint={AUDIT_HINT} label="how these rows are stored" align="end" />} />
       </div>
 
       {loading && <p className="type-body text-slate-400">Loading the doctor-check matrix…</p>}
@@ -57,6 +65,12 @@ export function ControlMatrixPanel({ org }: { org: string }) {
 
       {!loading && !error && rows && rows.length > 0 && (
         <>
+          {/* First sight is the shape: repos × check families, share of judged clauses passed. */}
+          <div className="rounded-2xl border border-divider bg-surface/40 p-4">
+            <MatrixGrid axes={viz.axes} rows={viz.rows} title="Doctor checks by repository and check family" />
+            <Legend states={viz.states} className="mt-3" />
+          </div>
+
           <div className={`${TILE_LEDGER} sm:grid-cols-3`}>
             <Tile label="Repos reporting" value={reporting.length} sub={`${rows.length} have reported at all`} />
             <Tile label="With a failing control" value={failing} sub="in their latest run" />
@@ -68,12 +82,6 @@ export function ControlMatrixPanel({ org }: { org: string }) {
           </div>
 
           <ControlMatrixGrid rows={rows} expanded={expanded} onToggleFamily={toggleFamily} />
-
-          <p className="type-body-sm text-slate-500">
-            Column headers are check families; click one to expand it into its individual clauses. These
-            rows are DERIVED data — the tamper-evident copy of every report is the signed{" "}
-            <code>conformance.reported</code> entry in this organization&apos;s audit log.
-          </p>
         </>
       )}
     </section>

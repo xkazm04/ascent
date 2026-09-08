@@ -13,16 +13,19 @@
 // that cohort. No sorting, deliberately: a clearance register is read, not ranked.
 
 import { useMemo, useState } from "react";
-import { Kicker } from "@/components/ui";
+import { Kicker, SectionHeading } from "@/components/ui";
 import { SectionEmpty, TILE_LEDGER, Tile } from "@/components/org/shared/ui";
+import { BandLadder, Legend } from "@/components/org/viz";
 import { TIERS, TIER_META, tierHex, tierCounts, type AutonomyTier, type RepoAutonomy } from "./autonomyModel";
-import { AutonomyPreamble } from "./autonomyShared";
+import { clearanceBands, clearanceEdge, clearanceStates } from "./clearanceLadder";
 import { ClearanceCard } from "./ClearanceCard";
 
 export function AutonomyClearance({ repos }: { repos: RepoAutonomy[] }) {
   const [filter, setFilter] = useState<AutonomyTier | null>(null);
   const counts = useMemo(() => tierCounts(repos), [repos]);
   const visible = useMemo(() => repos.filter((r) => filter === null || r.tier === filter), [repos, filter]);
+  const bands = useMemo(() => clearanceBands(repos), [repos]);
+  const edge = useMemo(() => clearanceEdge(repos), [repos]);
 
   // Register order: lowest clearance first — the un-cleared repos are the work, not the trophies.
   const sorted = useMemo(
@@ -41,11 +44,15 @@ export function AutonomyClearance({ repos }: { repos: RepoAutonomy[] }) {
 
   return (
     <div className="space-y-6">
-      <AutonomyPreamble
-        kicker="Autonomy clearance register"
-        title="What can you safely hand an agent here?"
-        intro="Every scanned repo holds a clearance, issued on five observable conditions. The clearance says what may be delegated today, and the countersignature line says exactly what would raise it."
-      />
+      <SectionHeading kicker="autonomy clearance" title="Clearance register" />
+
+      {/* First sight is the perimeter itself: nested bands, outermost = most permissive. What a
+          clearance PERMITS rides on each tile's `sub` below; what would RAISE one is a per-repo fact
+          and stays on the card that owns it. */}
+      <div className="rounded-2xl border border-divider bg-surface/40 p-4">
+        <BandLadder bands={bands} edge={edge} title="Clearances held across the fleet" className="mx-auto max-w-md" />
+        <Legend states={clearanceStates(bands, edge)} className="mt-3 justify-center" />
+      </div>
 
       {/* Muster ledger — one tile per clearance, and the filter. */}
       <div className={`${TILE_LEDGER} sm:grid-cols-2 lg:grid-cols-4`}>

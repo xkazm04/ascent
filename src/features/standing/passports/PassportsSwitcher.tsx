@@ -52,7 +52,7 @@ export function PassportsSwitcher({
   decisions: DecisionMap;
 }) {
   const [variant, setVariant] = useState<VariantId>("baseline");
-  const active = VARIANTS.find((v) => v.id === variant)!;
+
 
   return (
     <div className="space-y-6">
@@ -65,6 +65,10 @@ export function PassportsSwitcher({
               type="button"
               onClick={() => setVariant(v.id)}
               aria-pressed={v.id === variant}
+              /* /org redesign: the active variant's `note` used to render as a permanent sentence
+                 beside the switcher. A one-line gloss of a control belongs ON the control, where it
+                 is reachable on hover/focus and absent at first sight (§2.1 D). */
+              title={v.note}
               className={`focus-ring rounded px-2.5 py-1 type-label tracking-[0.18em] transition ${
                 v.id === variant ? "bg-accent/15 text-accent" : "text-slate-400 hover:text-slate-200"
               }`}
@@ -73,7 +77,6 @@ export function PassportsSwitcher({
             </button>
           ))}
         </div>
-        <span className="type-body-sm text-slate-500">{active.note}</span>
       </div>
 
       {variant === "baseline" && <PassportPortfolio rows={rows} org={org} decisions={decisions} />}

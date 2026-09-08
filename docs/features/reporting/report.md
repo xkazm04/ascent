@@ -810,9 +810,11 @@ live one and the blocker docket folded its floor-derived blockers into the fleet
 `src/features/standing/passports/PlaceholderMark.tsx` is now the single author of the vocabulary —
 the wording ("placeholder scan", the same phrase the Clearance card has always used), the predicate
 (`isPlaceholderEngine`) and the mark. `PassportsTab` carries `placeholder` on every row; the table
-row shows the mark beside the repo name, `PassportScatter` draws the point hollow with a dashed ring
-and adds a legend entry only when the plot contains one, and `PassportCard` shows it on its
-provenance line via an optional `engine` prop. `passportBlockerAgg.scopeCounts()` lets the docket
+row shows the mark beside the repo name, `PassportScatter` draws the point with the shared kit's
+**`not-judged` hatch** and adds a legend row only when the plot contains one, and `PassportCard`
+shows it on its provenance line via an optional `engine` prop. Since the /org redesign a placeholder
+scan is drawn as one state everywhere on the tab: the hatch on the scatter point, the hatched band or
+perimeter edge on the Clearance ladder, and the `StateSwatch` inside `PlaceholderMark` itself. `passportBlockerAgg.scopeCounts()` lets the docket
 state its predicate — "N repos · of which M from placeholder scans", suffix omitted at M = 0.
 **Labelled, never excluded:** dropping a placeholder row would shrink a real fleet problem, which is
 the same defect the 0.4.0 decline work fixed once already.
@@ -886,6 +888,44 @@ the current key OR any legacy key as settled. Without that, improving the key de
 have been the regression: an owner's existing snooze would stop suppressing the badge, curable only
 by deciding the same finding twice. `legacyKeys` is read-only; a write always uses the current key.
 
+## The Passports tab draws its epistemics instead of narrating them (2026-09-08)
+
+Wave 1 of [`docs/ORG-UX-REDESIGN.md`](../../ORG-UX-REDESIGN.md). The tab carried ~1.5k characters of
+prose over 25 components and one SVG, and its three richest concepts — the control matrix, the
+clearance ladder and the capability matrix — were all matrices and bands **rendered as text with a
+paragraph above them explaining what the text meant**. Every one of those paragraphs was already
+speaking the shared `/org` viz vocabulary (`src/components/org/viz`), so the fix was to draw it.
+
+| Surface | Was | Is |
+| --- | --- | --- |
+| `controls/ControlMatrixPanel` | a 331-char lede promising "a clause a run did not judge shows as 'not judged' — never as passing" | `MatrixGrid` of repos × check families. A family with no judged clause is `not-judged`, and `rendersValue("not-judged")` is `false`, so the cell **structurally cannot print a number**. The table below is the drill-down. |
+| `autonomy/AutonomyClearance` | a 224-char lede about clearances issued on five observable conditions | `BandLadder` — nested permission bands, outermost most permissive, counts per clearance, with clearances issued off a placeholder scan drawn as the perimeter **edge** |
+| `CapabilityMatrix` | a 175-char lede naming "what it declares · what its doctor proved · where it is enforced" | `MatrixGrid` on exactly those three axes, one row per capability. Declared is the `declared` state (dashed outline); Proven is hatched with no percentage until some doctor has actually run it; a capability nobody declares gets `missing` **voids**, never zeroes |
+| `PassportBlockerPareto` | an intro sentence describing the solid and hollow marks | the kit `Legend` showing the marks themselves, each carrying its sentence as a hover/focus hint, plus a `WhyChip` disclosing the ranking basis |
+| `PassportScatter` | the tab's one SVG, in its own dialect: three hand-picked hexes and a bespoke dashed-hollow placeholder ring | the same SVG on `VizDefs` / `stateFill` / `stateStroke` / `Legend`, hairlines on `--color-divider` |
+
+**Where the three sibling control catalogues live.** The word "controls" names three different things
+in this product, which is why none of them is called that any more:
+
+- **Passports › Doctor checks** — clause-level findings a repository's own `.ai/doctor.mjs` judged in
+  its own pipeline and reported back. Repo-asserted evidence.
+- **Security › D9 check battery** — Ascent's own deterministic security grading of the repo.
+- **Governance › Governance control ledger** — branch-protection observations over time.
+
+That disambiguation used to be the last two sentences of the Doctor-checks lede. It is documentation,
+not runtime chrome, so it lives here (redesign law §2.1 **F**).
+
+**Header rule.** `SectionHeader description` / `SectionHeading intro` in
+`src/features/standing/passports/**` went from **5 to 1**; the survivor is
+`CapabilityMatrix`'s `"N assessed · M not assessed"`, which states scope, not meaning.
+`AutonomyPreamble` — a shared primitive whose only job was to render a paragraph above a panel — is
+deleted.
+
+**Pure view-models, so the encodings are testable without a DOM:**
+`controls/controlMatrixViz.ts`, `capabilityViz.ts`, `autonomy/clearanceLadder.ts`, each with a
+sibling `.test.ts` that pins the one thing prose could never enforce — which cells are allowed to
+carry a number.
+
 ## Customer-repo PR writes require **admin** (`/api/report/{passport,foundation}/pr`)
 
 Both routes open a draft PR into the scanned repository using the **org's GitHub App installation
@@ -955,6 +995,10 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/app/report/compare/ExemplarSection.tsx` | Resolves `?against=` into a panel or a notice. |
 | `src/lib/report/validate.ts` | `parseScanReport()` trust-boundary validation. |
 | `src/lib/ui.ts` | Color/glyph/format helpers shared across the report. |
+| `src/components/org/viz/` | The shared `/org` visual kit — the six-state epistemic vocabulary (`states.ts`) plus `Legend`, `StateSwatch`, `WhyChip`, `MatrixGrid`, `BandLadder`, … Every Passports graphic imports it; none re-defines a hatch, a dash or a state label. |
+| `src/features/standing/passports/controls/controlMatrixViz.ts` | Doctor checks as repo × check-family `MatrixGrid` rows. A family with no judged clause returns `not-judged`, which cannot render a value. |
+| `src/features/standing/passports/capabilityViz.ts` | The declared × proven × enforced grid, one row per capability, over assessed repos only. |
+| `src/features/standing/passports/autonomy/clearanceLadder.ts` | The clearance perimeter: nested `BandLadder` bands per tier, with placeholder-scanned clearances on the edge. |
 | `src/lib/register/data.ts` | The public register read layer: `getPublicRegister` / `getPublicOrgScorecard`. Public-org + `isPrivate:false` on every query; mock-engine scans carried as `verified:false` and never ranked; `rubricVersion` + `currentRubric` carried so a stale-rubric row is qualified. |
 | `src/app/leaderboard/page.tsx` | The register page: server-rendered ranking, `?page=` pagination, per-page canonical + OG. |
 | `src/components/leaderboard/LeaderboardTable.tsx` | The ranked table. `ranked={false}` draws the unranked preview section; a `demo` chip marks every unverified row, a `rubric rNN` chip every stale-rubric one. |

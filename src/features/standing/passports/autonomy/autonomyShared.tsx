@@ -4,7 +4,6 @@
 //
 // Server-safe: no hooks, no handlers.
 
-import { Kicker } from "@/components/ui";
 import { scoreHex } from "@/lib/ui";
 import { TIER_META, tierHex, type AutonomyTier, type GateSource, type GateStatus } from "./autonomyModel";
 
@@ -54,13 +53,7 @@ export function TierRail({ tier, className = "" }: { tier: AutonomyTier; classNa
   );
 }
 
-/** Section eyebrow + one-line intro used at the top of every variant, so the reframe is stated once. */
-export function AutonomyPreamble({ kicker, title, intro }: { kicker: string; title: string; intro: string }) {
-  return (
-    <div>
-      <Kicker>{kicker}</Kicker>
-      <h2 className="mt-2 type-heading font-medium text-white">{title}</h2>
-      <p className="mt-2 max-w-3xl type-body text-slate-300">{intro}</p>
-    </div>
-  );
-}
+// `AutonomyPreamble` (kicker + question-shaped title + a 224-character intro) was deleted by the /org
+// redesign: a primitive whose entire job is to render a paragraph above a panel is the anti-pattern
+// itself (docs/ORG-UX-REDESIGN.md §1 A1). The surface now opens on `BandLadder`; the header is the
+// shared `SectionHeading` with a noun-phrase title and no intro.
