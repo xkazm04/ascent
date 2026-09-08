@@ -16,7 +16,15 @@ import { orgWindowBounds, resolveOrgWindow } from "@/lib/org/period";
 import { settle } from "@/features/bought/delivery/deliveryLoad";
 import { decisionMap } from "@/lib/org/decision-map";
 import { explainTeamStandings } from "@/lib/org/teamStandings";
+import { WhyChip } from "@/components/org/viz";
 import { scoreHex } from "@/lib/ui";
+
+/**
+ * (D) The attribution mechanics, demoted out of the tab's lede and its closing footnote. Both said
+ * some of this; neither said all of it, and it sat permanently above and below a populated grid.
+ */
+const ATTRIBUTION_HINT =
+  "Teams are parsed from each repo's CODEOWNERS at scan time, so this view is as current as the last scan. A repo counts toward EVERY team that owns part of it, which means the repo counts here sum to more than the fleet: these are figures about responsibility, never a ranking.";
 
 export async function TeamsRollupPanel({ slug, sp }: { slug: string; sp: { [key: string]: string | string[] | undefined } }) {
   // Optional segment + tech-stack scope (parity with Contributors/Delivery): bogus id/key → whole fleet.
@@ -98,14 +106,11 @@ export async function TeamsRollupPanel({ slug, sp }: { slug: string; sp: { [key:
 
   return (
     <div>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="max-w-3xl type-body text-slate-400">
-          The fleet rolled up by the teams that own it (from each repo&apos;s{" "}
-          <span className="font-mono text-slate-300">CODEOWNERS</span>), showing where institutional AI knowledge sits and where a
-          pairing could spread it. Inputs to explore, not a ranking.
-        </p>
-        {filterBar && <div className="flex shrink-0 items-center gap-2">{filterBar}</div>}
-      </div>
+      {/* The tab's lede was an essay (§1 A1): it named the component, defined the data source, and
+          argued the framing, above a panel the reader had not looked at yet. The source moves to the
+          Attribution WhyChip below, the framing to the standings' own chip, and the description of
+          what the grid contains is deleted — the grid says it. */}
+      {filterBar && <div className="flex justify-end">{filterBar}</div>}
 
       {/* Summary ledger — the shared hairline tile band; each stat deep-links to its evidence. */}
       <div className={`mt-6 ${TILE_GRID}`}>
@@ -133,8 +138,13 @@ export async function TeamsRollupPanel({ slug, sp }: { slug: string; sp: { [key:
       {/* The matrix — every team × every dimension, sortable, rows expand to repos/champions. */}
       <div id="teams-matrix" className="mt-8 scroll-mt-24">
         <SectionHeader
-          title="Teams × dimensions"
-          description="Each team's maturity, AI knowledge, movement, and per-dimension averages in one grid. Click a header to sort, a team to open its repos and champions."
+          title={
+            <span className="flex items-center gap-2">
+              Teams × dimensions
+              <WhyChip hint={ATTRIBUTION_HINT} label="how a repo is attributed to a team" />
+            </span>
+          }
+          description={`${rollup.attributedRepos} attributed repos · Δ ${deltaLabel}`}
           right={<ExportCsvLink org={slug} kind="teams" segmentId={segmentId} stack={activeStack?.key} className="shrink-0" />}
         />
         <TeamsMatrix teams={rollup.teams} dims={DIMS} leaderSlug={rollup.knowledgeLeader?.slug ?? null} deltaLabel={deltaLabel} />
@@ -144,6 +154,7 @@ export async function TeamsRollupPanel({ slug, sp }: { slug: string; sp: { [key:
       {standings && (
         <TeamsStandings
           standings={standings}
+          teams={rollup.teams}
           capturedAt={standingsProvenance?.generatedAt ?? null}
           capturedScopeNote={scoped && standingsProvenance ? "captured fleet-wide, not for this filter" : null}
         />
@@ -166,12 +177,12 @@ export async function TeamsRollupPanel({ slug, sp }: { slug: string; sp: { [key:
 
       {/* The Δ footnote is DERIVED from the same deltaLabel the column header and its tooltips use.
           It used to assert "each repo's two latest scans" under a period-scoped Δ — a footnote
-          contradicting the column two sections above it. */}
-      <p className="mt-6 max-w-3xl type-mono-sm text-slate-600">
-        Attribution parses CODEOWNERS at scan time; a repo counts toward every team that owns part of it, so numbers reflect
-        responsibility, never a ranking. Δ compares {deltaFootnote(deltaLabel)}.{" "}
-        GitHub Teams (GraphQL) attribution is on the roadmap.
-      </p>
+          contradicting the column two sections above it. It KEEPS its sentence: what a delta
+          compares is not an epistemic state with an encoding, and a reader who mis-reads the window
+          mis-reads every Δ on the page.
+          The attribution mechanics that shared this paragraph moved to ATTRIBUTION_HINT (D), and the
+          GitHub-Teams roadmap line to the feature doc (F) — a roadmap is not runtime chrome. */}
+      <p className="mt-6 max-w-3xl type-mono-sm text-slate-600">Δ compares {deltaFootnote(deltaLabel)}.</p>
     </div>
   );
 }

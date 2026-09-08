@@ -1,157 +1,31 @@
-// "Why the standings look this way" — the explanatory section under the Teams × dimensions table.
-// The table shows WHERE each team sits; this decomposes WHY the extremes sit there. Two columns
-// (leader | laggard), each a factor-attribution chart: one bar per dimension driving the team's
-// distance from the fleet mean (green = above, orange = below), sized to a shared scale so the two
-// sides are directly comparable — plus the human/trajectory context (AI adoption, momentum,
-// champions). Purpose-built, not a card grid. Server-safe (no hooks); all data from the scan rollup
-// via explainTeamStandings.
+// "Team standings" — the section under the Teams matrix that decomposes WHY the extremes sit where
+// they do. The matrix shows where each team is; this shows what is carrying it there.
+//
+// It opens on a shape now (`TeamsSpread`), not on a paragraph. The old header description narrated
+// the picture — who leads, who trails, the point spread, the team count, and which baseline the bars
+// diverge from — five facts that are five features of a box plot. What survived the demotion is the
+// one thing no shape can carry: that the box and the bars are measured over DIFFERENT populations,
+// which now rides a WhyChip on the spread (`TWO_POPULATIONS_HINT`).
+//
+// Server-safe (no hooks); all data from the scan rollup via explainTeamStandings. The two columns
+// live in the co-located TeamsStandingColumn.
 
-import { Surface, deltaHex, fmtDelta, signedDelta } from "@/components/ui";
-import { SectionHeader, postureLabel } from "@/components/org/shared/ui";
-import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
-import { teamAnchorId } from "./teamsShared";
-import { DIMENSION_SHORT, scoreHex, timeAgo } from "@/lib/ui";
-import { STATE_LABEL, StateSwatch, stateTitle } from "@/components/org/viz";
-import type { DimensionId } from "@/lib/types";
-import type { StandingFactor, TeamStanding, TeamStandings } from "@/lib/org/teamStandings";
+import { Surface } from "@/components/ui";
+import { SectionHeader } from "@/components/org/shared/ui";
+import { WhyChip } from "@/components/org/viz";
+import { timeAgo } from "@/lib/ui";
+import type { TeamRollup } from "@/lib/db";
+import type { TeamStandings as TeamStandingsModel } from "@/lib/org/teamStandings";
+import { StandingColumn } from "./TeamsStandingColumn";
+import { TeamsSpread } from "./TeamsSpread";
 
-function FactorBar({ factor, maxAbsDelta }: { factor: StandingFactor; maxAbsDelta: number }) {
-  // Min 6% so a small-but-real delta still reads as a bar rather than a sliver.
-  const pct = Math.max(6, Math.round((Math.abs(factor.delta) / maxAbsDelta) * 100));
-  const color = deltaHex(factor.delta);
-  const short = DIMENSION_SHORT[factor.dimId as DimensionId] ?? factor.label;
-  return (
-    <div
-      className="flex items-center gap-3"
-      title={`${factor.label}: this team ${factor.teamAvg} vs fleet ${factor.fleetAvg} (${signedDelta(factor.delta)})`}
-    >
-      <span className="w-20 shrink-0 truncate type-body-sm text-slate-300">{short}</span>
-      <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-slate-800">
-        <div className="animate-meter h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
-      </div>
-      <span className="w-8 shrink-0 text-right type-mono-sm" style={{ color: scoreHex(factor.teamAvg) }}>
-        {factor.teamAvg}
-      </span>
-      <span className="w-9 shrink-0 text-right type-mono-sm" style={{ color }}>
-        {signedDelta(factor.delta)}
-      </span>
-    </div>
-  );
-}
-
-function StandingColumn({
-  standing,
-  maxAbsDelta,
-  role,
-  fleetAvgOverall,
-}: {
-  standing: TeamStanding;
-  maxAbsDelta: number;
-  role: "leader" | "laggard";
-  fleetAvgOverall: number;
-}) {
-  const leads = role === "leader";
-  const badgeColor = deltaHex(standing.overallDelta);
-  // CHAMPION_MIN_POP is a privacy floor that "must be applied IDENTICALLY everywhere champions are
-  // surfaced" (champions.ts) — Contributors, Adoption and TeamsMatrixDetail all gate on it, but this
-  // card previously didn't, so a 1-person team's sole AI user was crowned a champion here alone.
-  // (ambiguity-ui 2026-07-16 #3)
-  const hasChampions =
-    standing.contributors >= CHAMPION_MIN_POP &&
-    standing.champions.length > 0 &&
-    standing.aiCommitShare !== null &&
-    standing.aiCommitShare > 0;
-  const share = standing.aiCommitShare;
-  const shareDelta = standing.aiShareDelta;
-  return (
-    <div className="p-5">
-      <div className="type-body-sm font-medium" style={{ color: badgeColor }}>
-        {leads ? "▲ Leads the fleet" : "▼ Trails the fleet"}
-      </div>
-      <div className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-        <a
-          href={`#${teamAnchorId(standing.slug)}`}
-          title={`${standing.slug}: jump to its row`}
-          className="focus-ring rounded font-mono type-lede text-white transition hover:text-accent"
-        >
-          {standing.slug}
-        </a>
-        <span className="font-mono type-lede" style={{ color: scoreHex(standing.avgOverall) }}>
-          {standing.avgOverall}
-        </span>
-        <span className="rounded border border-slate-700 px-1.5 py-0.5 type-caption" style={{ color: badgeColor }}>
-          {signedDelta(standing.overallDelta)} vs fleet {fleetAvgOverall}
-        </span>
-        <span className="type-caption text-slate-500">{postureLabel(standing.posture)}</span>
-      </div>
-
-      <p className="mt-3 type-body-sm text-slate-500">
-        {leads ? "Widest leads over the fleet average, by dimension:" : "Biggest drags below the fleet average, by dimension:"}
-      </p>
-      <div className="mt-2 space-y-1.5">
-        {standing.factors.map((f) => (
-          <FactorBar key={f.dimId} factor={f} maxAbsDelta={maxAbsDelta} />
-        ))}
-      </div>
-
-      {/* Human / trajectory context — separate signals from the maturity-score bars above. */}
-      <dl className="mt-4 flex flex-wrap gap-x-5 gap-y-2 border-t border-divider pt-3 type-body-sm">
-        <div>
-          <dt className="text-slate-500">AI adoption</dt>
-          {/* NULL is not a zero: a team scanned without commit history has no share to print, so the
-              readout becomes the kit's hatched mark and no numeral is rendered at all. */}
-          {share === null || shareDelta === null ? (
-            <dd className="mt-0.5 flex items-center gap-1.5" title={stateTitle("not-judged", `${standing.slug} · AI commit share`)}>
-              <StateSwatch state="not-judged" size={12} />
-              <span className="type-note text-slate-600">{STATE_LABEL["not-judged"]}</span>
-            </dd>
-          ) : (
-            <dd className="mt-0.5 font-mono" style={{ color: scoreHex(share) }}>
-              {share}%{" "}
-              <span className="type-note" style={{ color: deltaHex(shareDelta) }}>
-                {signedDelta(shareDelta)}
-              </span>
-            </dd>
-          )}
-        </div>
-        <div>
-          <dt className="text-slate-500">Momentum</dt>
-          <dd className="mt-0.5 font-mono">
-            {standing.comparedRepos > 0 ? (
-              <span style={{ color: deltaHex(standing.avgDelta) }}>
-                {fmtDelta(standing.avgDelta)}{" "}
-                <span className="type-note text-slate-500">
-                  ▲{standing.improving} ▼{standing.declining}
-                </span>
-              </span>
-            ) : (
-              <span className="text-slate-600">no prior scan</span>
-            )}
-          </dd>
-        </div>
-        {hasChampions && (
-          <div className="min-w-0">
-            <dt className="text-slate-500">AI champions</dt>
-            <dd className="mt-0.5 flex flex-wrap gap-1">
-              {standing.champions.slice(0, 3).map((c) => (
-                <span
-                  key={c.login}
-                  className="rounded border border-slate-700 px-1.5 py-0.5 type-caption text-accent"
-                  title={`${c.aiCommits} AI commits · ${c.aiShare}% of their commits AI-attributed`}
-                >
-                  {c.login}
-                </span>
-              ))}
-            </dd>
-          </div>
-        )}
-      </dl>
-    </div>
-  );
-}
+/** The framing the section's footer used to assert permanently, on demand instead (§2.1 D). */
+const NOT_A_VERDICT_HINT =
+  "A decomposition, not a verdict: a low dimension is where a pairing or a borrowed pattern would move the number most. A repo counts toward every team that owns part of it, so these are figures about responsibility, never a ranking.";
 
 export function TeamsStandings({
   standings,
+  teams,
   capturedAt,
   // The captured snapshot is whole-org (persistTeamStandings takes no segment/stack filter), while
   // these standings are computed under whatever filter is active. When the two disagree the page
@@ -159,23 +33,23 @@ export function TeamsStandings({
   // capture — provenance for something else is worse than no provenance.
   capturedScopeNote = null,
 }: {
-  standings: TeamStandings;
+  standings: TeamStandingsModel;
+  /** The rollup rows behind the spread. Optional so the section still renders without the box. */
+  teams?: TeamRollup[];
   capturedAt?: Date | null;
   capturedScopeNote?: string | null;
 }) {
-  const { leader, laggard, spread, fleetAvgOverall, maxAbsDelta, teamCount } = standings;
+  const { leader, laggard, fleetAvgOverall, maxAbsDelta } = standings;
   return (
     <div id="standings" className="mt-10 scroll-mt-24">
       <SectionHeader
-        title="Why the standings look this way"
-        description={
-          <>
-            <span className="font-mono text-slate-300">{leader.slug}</span> leads at {leader.avgOverall} and{" "}
-            <span className="font-mono text-slate-300">{laggard.slug}</span> trails at {laggard.avgOverall}, a{" "}
-            <span className="text-slate-200">{spread}-point spread</span> across {teamCount} teams. Each bar attributes the gap
-            to a specific dimension, measured against the fleet average of {fleetAvgOverall}.
-          </>
+        title={
+          <span className="flex items-center gap-2">
+            Team standings
+            <WhyChip hint={NOT_A_VERDICT_HINT} label="what this decomposition is for" />
+          </span>
         }
+        description={`overall score · ${standings.teamCount} teams`}
         right={
           <span className="type-caption text-slate-600">
             {capturedAt ? `captured by the org scan ${timeAgo(capturedAt.toISOString())}` : "live preview · captured on your next org scan"}
@@ -183,18 +57,13 @@ export function TeamsStandings({
           </span>
         }
       />
-      <Surface className="mt-3">
+      {teams && teams.length > 0 && <TeamsSpread teams={teams} standings={standings} />}
+      <Surface className="mt-4">
         <div className="grid divide-y divide-divider md:grid-cols-2 md:divide-x md:divide-y-0">
           <StandingColumn standing={leader} maxAbsDelta={maxAbsDelta} role="leader" fleetAvgOverall={fleetAvgOverall} />
           <StandingColumn standing={laggard} maxAbsDelta={maxAbsDelta} role="laggard" fleetAvgOverall={fleetAvgOverall} />
         </div>
       </Surface>
-      <p className="mt-2 type-body-sm text-slate-500">
-        A decomposition, not a verdict: a low dimension is where a pairing or a borrowed pattern would move the number most.
-        {/* Honest caption for the gate above — the old `CHAMPION_MIN_POP > 0 &&` was compile-time
-            true (it guarded nothing) and the copy omitted the population floor entirely. */}
-        {` Champions shown only for teams with at least ${CHAMPION_MIN_POP} contributors and AI-attributed activity.`}
-      </p>
     </div>
   );
 }
