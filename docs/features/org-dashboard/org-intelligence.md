@@ -2249,6 +2249,123 @@ the root turns 21 tests red across 7 files, four of which predate this change.
 
 
 
+### Security, redesigned: a check that did not run can never look like one that passed (Wave 4, 2026-09-08)
+
+Security was the smallest Tier-B tab in the triage — five components, **188 characters of
+`SectionHeader description`, zero SVG** — and the one where a misread absence is most expensive.
+Everywhere else on the dashboard a fabricated zero is embarrassing. Here, "we did not run this check"
+rendered as "this check passed" is a false assurance somebody may act on, and "we never measured this
+repo" rendered as a hard red `0` is a fabricated finding somebody may chase. Both shipped. Both are
+gone.
+
+| Panel | Was | Is |
+| --- | --- | --- |
+| Fleet band spectrum | A proportional bar over four hand-picked hexes, one of them a **blue** for "ok" — off the red→green maturity ramp entirely, so the bar taught a fifth colour meaning that contradicted every score ring beside it | The same bar, painted by `scoreHex()` at each band's midpoint, so a retuned level band retunes it automatically |
+| D9 check battery | A 370-char caption above a table whose "Control coverage" column held **ten grade-coloured chips per row**; a control that produced no grade wore the same pill in slate | `SecurityCheckMatrix` — a `MatrixGrid` of repos × ten controls, first element below the header. An ungraded control is **hatched and carries no numeral**; a repo with no battery is a **void row** |
+| Risk register table | The chip column, plus a D9 cell that printed a clickable `0` for a repo that was never scored for D9 | Kept as auditable evidence below the matrix (§7) — sortable, linkable, with the drill-in modal and the report link. The chips are replaced by a two-count `CoverageCell`, and an unmeasured repo's D9 cell is a `StateSwatch state="missing"` |
+| Findings to decide | "Every failing control, one row each. Accept the work, or dismiss with a reason: the reason reaches connected agents and the next scan. (4 open · 9 settled)" | A unit line — `4 open · 9 settled` — plus, when there are any, a **visible** count of the controls that produced no grade and therefore appear in no row |
+| Personal Security | A 250-char lede over a `MeterRow` list | The same battery matrix the org tab opens on, above the list; the header is a noun phrase plus `3 tracked repos · latest public scan · weakest first` |
+
+**The chip that was quiet, not clean.** The old grid's four tones were green ≥7, amber 4–6, red <4
+and *slate for n/a* — same pill, same border, one quieter colour. On a dark canvas a slate chip in a
+row of green ones reads as "nothing to see here", and that is precisely the reading that must never
+be available on this surface. `securityMatrixModel.ts` maps each control onto a `VizState` instead,
+so the question is settled by the geometry: `rendersValue()` returns false for `not-judged`, and
+`MatrixGrid` will not print a numeral on a cell it hatches. Pinned in
+`SecurityCheckMatrix.dom.test.tsx` — a hatched cell must carry `fill="url(#ascent-viz-hatch)"` and
+**no** `[data-score]` — and in `securityMatrixModel.test.ts`.
+
+**What the D9 data can and cannot distinguish.** `computeSecurityChecks`
+(`src/lib/security/checks.ts`) gives a control a `score` of `null` when it is excluded from the D9
+denominator, and the register parses that back out of the evidence line's `n/a`. That null is the
+producer's **one** signal, and it is reached down four different roads:
+
+| Cause | Example evidence |
+| --- | --- |
+| the control has no subject in this repo | "No GitHub Actions workflows to scope." |
+| the sensor's read **threw** | "SAST not observable: appInventory read failed (…)." |
+| the scan was a structurally-blind worktree | "Security policy not measurable from a worktree (…)." |
+| there was no token to read the platform state | "Branch protection not readable (no token/permission)." |
+
+All four are separable **only by free-text evidence**, and the UI deliberately does not re-derive the
+split from prose. A substring matcher against sentences the producer is free to reword is the failure
+mode `AGENTS.md` already names — it stops matching silently, and reports a clean codebase in a voice
+indistinguishable from success. One producer behaviour (excluded from the denominator) maps to one
+state (`not-judged`), and the direction of that choice is the safe one: a genuinely-inapplicable
+control is shown as unjudged rather than an unread one being shown as fine. The exposure check makes
+the conflation visible in a single sentence of its own — *"Dependency vulnerabilities not inspected
+(no lockfile / no alert access)"* fuses "nothing to inspect" with "could not look" at the producer.
+**Closing that split needs a structured `reason` discriminator on `SecurityCheck`, not a UI change.**
+
+What the data *can* distinguish, and the redesign now draws:
+
+- **ran vs never ran** — a numeric grade against `null`. This is the one that matters, and it is exact.
+- **battery present vs absent** — `checks.length === 0` (a legacy scan) is a void row, not a row of zeros.
+- **advisories fetched-and-none vs never fetched** — the register already separated `0` from `—`; both
+  now carry a `title`, and the `—` is the kit's `missing` swatch.
+
+**A repo with no D9 row is no longer a repo scoring zero.** `buildSecurityOverview` substitutes `0`
+for a latest scan that carried no D9 dimension — deliberately, fail-closed, pinned by a test since
+before this wave, so such a repo bands as `critical` rather than silently strong. The banding is
+untouched. What was wrong is that the substitute was then *published as a reading*: a red `0` in a
+clickable score cell, a gate verdict reading `Security 0 < 50`, and a line in the "Copy for LLM"
+brief reading `| legacy | 0/100 |` that invited a model to recommend remediation for a measurement
+that does not exist. `SecurityRegisterRow` now carries `measured: boolean`, the gate reason for such
+a repo is `D9 not measured` (still a FAIL), the brief prints `not measured`, and the register's D9
+cell is a void. This is the same defect class as the four in [One rule, four places it was not
+applied](#one-rule-four-places-it-was-not-applied-wave-2-postscript-2026-09-08), arrived at from the
+other direction: not an absence rendered as a pass, but an absence rendered as a **finding**.
+
+**The silent half of the findings ledger.** `securityFindings` mints a finding only from a check with
+a numeric score below 7 — a control with no grade is skipped, which is correct: an absence is not a
+finding. The cost is that "4 findings to decide" quietly implies every other control was judged and
+was fine. `SecurityFindings` now counts the ungraded controls and states them on the surface, with
+the `not-judged` swatch beside the number: *"7 controls across 3 repos produced no grade and so
+appear in no row below. Absence of a finding is not a pass."*
+
+**Three sentences were deliberately kept at full size rather than demoted to a hover.** The redesign's
+own law permits this, and Wave 1's governance agent set the precedent with "Ascent certifies nothing":
+a screenshot crops tooltips but keeps text.
+
+1. The degraded-advisories banner (`role="status"`). Reworded to be *louder* and more accurate — when
+   the org advisory fetch fails the **Advisories column is not rendered at all**, which is a column
+   you have to notice is missing, so the banner now says so instead of saying the cells are "blank".
+2. The unjudged-controls line under Findings to decide, above.
+3. Personal Security's scope note — *"Your reasons calibrate your own rescans. They never change what
+   other watchers of these repos see."* A person is about to write a dismissal into their own org
+   against a public repo; a scope boundary someone is acting on is not a tooltip. It moved **onto**
+   `SecurityFindings` as a `scopeNote` prop rather than staying a sibling `<p>` in the caller,
+   precisely so its render condition is the section's own — a caveat about deciding must not appear on
+   a page with nothing to decide.
+
+**D9 is guardband-scored, and the redesign draws no lever it does not have.** The deterministic
+battery *is* the number; the model only narrates it. So the matrix plots the battery itself and
+nothing else — no confidence ribbon, no model-vs-signal spread, no ±band. `ProvenanceTrack`'s header
+states the discipline: *"Drawing the same ±6 ribbon on all nine was a diagram of a lever that half of
+them do not have."* The one scale change is that the battery's 0–10 grades are rendered ×10 onto the
+0–100 axis D9 and `scoreHex` already speak, so the tab carries one number scale rather than two.
+
+**Personal Security got the matrix, not a distribution.** A personal workspace watches a handful of
+repos, and a quartile strip over three points plots a shape that is not there. `MatrixGrid` degrades
+honestly instead: one watched repo is one row, and zero repos is the kit's labelled `role="img"`
+placeholder. Every personal row is `measured: true` by construction — `getPersonalSecurityRows` skips
+repos whose latest scan carried no D9 dimension — and the call site says so rather than relying on a
+permissive default.
+
+**The triage undercounted this tab by four times, and the reason is instructive.** §1's measurement
+counts `SectionHeader description=`, which put Security at 188 characters — the smallest Tier-B tab
+on the board. Its largest paragraph was not in a `description` at all: the 370-character battery
+caption was a **sibling `<p>`**, deliberately moved out of the `description` slot in an earlier pass
+because that slot is capped at `max-w-2xl` and wrapped it into four short lines. A prose budget
+measured by prop name does not see prose that was refactored out of the prop. Real removed prose
+across these five components was **~753 characters**, not 188.
+
+So the `description=` count here went **2 → 3**, not down: `SecurityTab` gained a header line it
+never had. That is the rule working, not failing — §3 asks for ≤60 characters of unit or window, and
+`41 repos × 10 controls · gate D9 ≥ 50` (36 chars) replaced a 370-character sibling paragraph. Every
+survivor is a unit line: that one, `4 open · 9 settled`, and
+`3 tracked repos · latest public scan · weakest first` (52 chars).
+
 ## Key files
 
 | File | Role |

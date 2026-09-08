@@ -202,6 +202,75 @@ Every wave agent is given, verbatim:
 
 ---
 
+## 6a. Outcome (all four waves landed, 2026-09-08)
+
+**Status: complete.** 22 commits on `fix/local-suite-linux-20260906`. Final gate: `tsc --noEmit` exit
+0, unit suite **12,394 passing / 2 skipped** (baseline at the start of the redesign: 11,965).
+
+| Measure | Before | After |
+| --- | ---: | ---: |
+| Tabs with any graphical encoding | 7 of 24 | **19 of 24** |
+| `SectionHeader description=` across /org | 79 | **49** |
+| …of those, longer than 60 characters | 45 | **6** |
+| Unit tests | 11,965 | 12,394 |
+
+**Read the header count with care — it is a proxy, and a poor one.** It counts a *prop*, not prose:
+a tab that moves an essay out of `description` into a sibling `<p>` scores better while reading the
+same, and a tab that adds an honest 36-character unit line scores worse. Security went **2 → 3** on
+this metric while removing ~753 characters of real prose, which is the correct outcome scoring as a
+regression. The measure that actually held is the **E/D/O/F ledger** every agent filed in its commit
+body: each removed sentence accounted for as encoded, disclosed, moved to an empty state, or moved to
+a doc. The six surviving long descriptions are all on setup or destructive surfaces (integrations,
+pairing, data erasure, API tokens) or are personal-workspace scope statements — exactly the
+exemptions §4 and §2.1 carved out.
+
+### What the redesign actually found
+
+The prose was a symptom. **The codebase had no way to say "unmeasured", so it said `0`** — and then
+wrote a sentence apologising for it. Eight surfaces across seven tabs carried the same defect:
+
+| Surface | The absence | Rendered as |
+| --- | --- | --- |
+| `AiBar` (Contributors) | no commits to take a share *of* | identical to a measured 0% |
+| `RepoDimensionHeatmap` (Overview) | dimension never scored | red 0, announced "score 0", clickable |
+| `rollupTeams` → `TeamAdoption` | team scanned with no commit history | alarm-red `0% · 0/0` |
+| `getOrgPractices` → `PracticeLedger` | repos never assessed | 2-of-41 drew the same meter as 41-of-41 |
+| `summarizeScopedRepos` (Tech Stacks) | stack never scanned | red 0, **sorted last as the fleet's worst** |
+| `subjectImpact` (Knowledge) | three distinct absences | one printed `0 contexts across 0 repos` |
+| `calibrationScore` (Settings) | `mae: 0` on an unbenchmarked model | **a perfect 10 out of zero measurements** |
+| `buildSecurityOverview` (Security) | no D9 dimension | a red `0`, a gate FAIL, and a Copy-for-LLM row inviting a model to remediate a measurement that does not exist |
+
+Every one traced to `roundedMean([])` in `src/lib/db/org-shared.ts` or a hand-rolled copy of it —
+fixed at the root in `b1042324`, documented in
+[The mean of nothing is null](features/org-dashboard/org-intelligence.md). The worst consequence was
+not on screen: an all-mock fleet passed the `scannedCount === 0` guard in four places and published
+`avg 0 · L1` into a Slack push, a board PDF, a portfolio row and Athena's standing.
+
+### The three lessons worth keeping
+
+1. **A rule in prose is re-derivable but not enforceable.** This repo had already written "Null, never
+   0" for mock scores in 2026-08-03 and enforced it thoroughly *there*. Four other surfaces
+   re-derived it and three got it wrong. `states.ts` is that rule with a type behind it:
+   `rendersValue()` is false for `missing`/`not-judged`, so printing a zero into a void now requires
+   deleting a guard on purpose, in a diff.
+2. **An absence you can SEE beats an absence you are promised.** The strongest artifacts of the
+   redesign are the two privacy matrices — Practices' *File contents* and the Developer ledger's
+   *Transcripts* — where the guarantee is a permanent void with a test that fails if the cell ever
+   acquires a mark. The Developer tests go further and feed a ledger *claiming* transcripts are
+   shared, proving the guard is a guard and not an empty render.
+3. **Five sentences were duplicates of `title` attributes already shipped** on the exact affordance
+   they described. The prose was written to compensate for affordances that were already
+   self-describing. Always read the JSX before demoting a string.
+
+### Still open
+
+Recorded as Known gaps rather than silently closed: a segment comparison draws two averages rather
+than two distributions (`compareSegments` returns no per-repo spread); `SkillUsage` gives two instants
+rather than a series, so an invocation `StateTrack`'s interior is unobserved; D9's `score === null` is
+reachable four ways separable only by free-text, needing a structured `reason`; the weekly digest's
+markdown drops a section on a quiet week, so a pasted digest cannot distinguish "nothing moved" from
+"not shown"; and `PlanControl.tsx` is dead code with no importer.
+
 ## 6. Definition of done
 
 - `SectionHeader description` count across `/org` falls from **79** to **< 15**, and every survivor is
