@@ -7,7 +7,7 @@ import { OrgTable, SectionHeader } from "@/components/org/shared/ui";
 import { DecisionControl } from "@/components/org/DecisionControl";
 import type { DecisionMap } from "@/lib/org/decision-map";
 import type { ContributorInsights } from "@/lib/db";
-import { topContributorLabel } from "@/components/org/shared/champions";
+import { topContributorLabel } from "@/lib/org/champions";
 import { AiBar } from "./AiBar";
 
 export function ContributorsConcentrationTable({

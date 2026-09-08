@@ -41,7 +41,7 @@ import { controlLabel } from "@/lib/controls/catalog";
 import {
   AUTO_RECHARGE_ACTION,
   normalizeAutoRecharge,
-} from "@/components/org/shared/CreditsControl.autorecharge";
+} from "@/lib/autorecharge";
 
 export interface RegressionOutcome {
   regressed: boolean;
@@ -88,7 +88,7 @@ async function recordScanAlertEvent(
 
 /**
  * The org's own "low balance" line, when it has opted in via the auto-recharge preference
- * (CreditsControl.autorecharge.ts / `/api/billing/autorecharge`), else the global default
+ * (src/lib/autorecharge.ts / `/api/billing/autorecharge`), else the global default
  * (CREDITS_ALERT_THRESHOLD). Without this, the in-app warning (opt-in, per-org) and this Slack
  * push (global-only) disagreed about what "low" means (G1-40).
  *

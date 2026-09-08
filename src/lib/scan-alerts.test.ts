@@ -71,7 +71,7 @@ import {
   isLowCreditsCrossing,
 } from "@/lib/alerts";
 import { getOrgAlertThresholds, getOrgAlertWebhook, recordAlertEvent, recordAudit, getAuditLog } from "@/lib/db";
-import { AUTO_RECHARGE_ACTION } from "@/components/org/shared/CreditsControl.autorecharge";
+import { AUTO_RECHARGE_ACTION } from "@/lib/autorecharge";
 
 const mockDiff = vi.mocked(diffReports);
 const mockDetect = vi.mocked(detectRegression);

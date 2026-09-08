@@ -31,7 +31,7 @@ export function useCreditsControl({
   // empty ledger made a 503/403/network error masquerade as an empty (successful) ledger on a money screen.
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [ledgerError, setLedgerError] = useState(false);
-  // Opt-in low-balance preference (see CreditsControl.autorecharge.ts) — loaded lazily when the popover
+  // Opt-in low-balance preference (see src/lib/autorecharge.ts) — loaded lazily when the popover
   // first opens, defaulting to OFF until the org's real setting is known.
   const { pref, saving: prefSaving, error: prefError, save: savePref } = useAutoRechargePref(org, open);
   const ref = useRef<HTMLDivElement>(null);

@@ -22,7 +22,7 @@ import {
   DEFAULT_AUTO_RECHARGE,
   normalizeAutoRecharge,
   type AutoRechargePref,
-} from "@/components/org/shared/CreditsControl.autorecharge";
+} from "@/lib/autorecharge";
 
 /** Resolve the org, then apply a partial update to its row. False = persistence off / unknown org. */
 async function updateOrgById(orgSlug: string, data: Prisma.OrganizationUpdateInput): Promise<boolean> {

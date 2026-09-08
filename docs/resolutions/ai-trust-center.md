@@ -45,7 +45,7 @@ Verified against the tree on 2026-08-29 (symbol names, not line numbers, are the
   query to `DEFAULT_ORG_SLUG` **and** `isPrivate: false`, **re-asserting both on the second id-keyed
   fetch**, and carries mock-engine rows out as `verified: false` so they are never ranked. That header
   is the model this design copies, not merely cites.
-- `CHAMPION_MIN_POP = 3` (`src/components/org/shared/champions.ts:7`), enforced in the **producer**
+- `CHAMPION_MIN_POP = 3` (`src/lib/org/champions.ts:7`), enforced in the **producer**
   (`src/lib/db/org-contributors.ts`, `org-teams.ts`) after JSX-side re-implementations drifted
   (`src/lib/db/teamRollup.test.ts:162`). `src/lib/org/adoption.test.ts:20` already imports the constant
   from that path, so a `src/lib/trust/**` import of it needs no move.

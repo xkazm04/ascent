@@ -29,7 +29,7 @@ import { isMockScore, type OrgWindow } from "@/lib/db/org-rollup";
 import { parseStringArray } from "@/lib/db/scans-shared";
 // The one "due soon" window (rolling days) shared with the UI tiles/labels — single-sourced in the
 // client-safe backlogShared module so both layers stay in sync (backlog-management 07-16 #4).
-import { DUE_MONTH_DAYS, DUE_SOON_DAYS } from "@/components/org/shared/backlogShared";
+import { DUE_MONTH_DAYS, DUE_SOON_DAYS } from "@/lib/backlog-due";
 // The canonical org time-zone policy — ONE reference frame for every calendar-day decision on the
 // dashboard (window presets, custom-range parsing, due-date bucketing). See its header for the policy
 // and for the per-org-timezone blocker. (G4-07)
@@ -1188,7 +1188,7 @@ const HEALTHY_AVG = 50; // …while the org generally handles that dimension
 
 /**
  * Minimum scanned repos before the org-vs-repo split is a real reading rather than an artifact of a
- * tiny fleet. Chosen as 3 to match CHAMPION_MIN_POP (`@/components/org/shared/champions`) — the
+ * tiny fleet. Chosen as 3 to match CHAMPION_MIN_POP (`@/lib/org/champions`) — the
  * codebase's floor for "is this pattern real WITHIN one org's own population". The other floors,
  * CORPUS_MIN / COHORT_MIN = 5, gate ranking a fleet against OTHER ORGS, which is a different (and
  * larger) sampling problem; borrowing 5 here would mute the decomposition for most real fleets.

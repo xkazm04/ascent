@@ -8,7 +8,7 @@
 import Link from "next/link";
 import type { TeamRollup } from "@/lib/db";
 import { deltaHex, fmtDelta, postureLabel } from "@/components/org/shared/ui";
-import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
+import { CHAMPION_MIN_POP } from "@/lib/org/champions";
 import { scoreHex } from "@/lib/ui";
 
 /** Cap the owned-repos pill list so a broad CODEOWNERS owner can't render hundreds of pills. */
