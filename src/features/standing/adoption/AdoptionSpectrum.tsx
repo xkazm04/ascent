@@ -1,29 +1,48 @@
-// AdoptionSpectrum — the org's contributor population as ONE segmented bar (heavy / partial / none)
-// instead of three number cards: the proportions are the story, and every segment ends in a follow-up
-// (who to enable, which team leads). Server-safe.
+// AdoptionSpectrum — the org's contributor population as a CURVE, not three counts.
+//
+// It used to be one segmented bar under the sentence "Every contributor, by how much of their own
+// recent work is AI-attributed" — a shape described in words above a bar that could not show the
+// shape. `AdoptionCurve` draws it: three measured thresholds, a hatched envelope where the producer
+// buckets rather than observes, and the org's commit-weighted share as a reference tick on the same
+// axis. The follow-up links below the chart are affordances, not chrome, so they stay. Server-safe.
 
 import Link from "next/link";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { DEFAULT_BASE, Legend, WhyChip } from "@/components/org/viz";
 import type { AdoptionOverview } from "@/lib/org/adoption";
+import { AdoptionCurve } from "./AdoptionCurve";
+import { buildAdoptionCurve } from "./adoptionCurveModel";
+import { CURVE_HINT } from "./adoptionHints";
 
-export const BAND = { high: "#16a34a", some: "#3b9eff", none: "#64748b" } as const;
+/**
+ * The one adoption paint. Adoption is not a maturity grade — low adoption is an expected early
+ * baseline, not a defect — so it reads from the BRAND token rather than the red→green ramp, and never
+ * from a hand-picked hex (§2.5). It replaced a three-key `BAND` map of literal hexes whose keys the
+ * segmented bar needed and the curve does not. Exported: the headline tiles paint from it too.
+ */
+export const ADOPTION_TINT = DEFAULT_BASE;
 
-const SEGMENTS = [
-  { key: "high", label: "heavy (≥50% AI)" },
-  { key: "some", label: "partial (1–49%)" },
-  { key: "none", label: "none (0%)" },
-] as const;
+/**
+ * Back-compat alias. `src/features/shared/practices` imports `BAND.some` for the same reason (a
+ * reading, not a grade), and this directory does not own that one. `var(--color-accent)` IS the
+ * `#3b9eff` the old literal held — the value is identical, only its source moved to the token.
+ * @deprecated Prefer `ADOPTION_TINT`.
+ */
+export const BAND = { some: ADOPTION_TINT } as const;
 
 export function AdoptionSpectrum({
   distribution,
   total,
+  orgAiShare,
   knowledgeLeader,
   slug,
   showEnablementLink,
 }: {
   distribution: AdoptionOverview["distribution"];
   total: number;
+  /** Commit-weighted org AI share — the reference tick on the curve's threshold axis. */
+  orgAiShare: number;
   knowledgeLeader: AdoptionOverview["knowledgeLeader"];
   slug: string;
   /** True when the enablement cohort is non-empty, so the "none" follow-up can deep-link to the
@@ -31,39 +50,35 @@ export function AdoptionSpectrum({
    *  naming floor) renders the same sentence as plain text — never a link to a section that isn't there. */
   showEnablementLink: boolean;
 }) {
-  const pct = (n: number) => (total ? Math.round((n / total) * 100) : 0);
-  const summary = SEGMENTS.map((s) => `${distribution[s.key]} ${s.label}`).join(", ");
+  const model = buildAdoptionCurve(distribution, total, orgAiShare);
 
   return (
     <Card>
-      <SectionHeader size="sm" title="Adoption spread" description="Every contributor, by how much of their own recent work is AI-attributed." />
+      <SectionHeader
+        size="sm"
+        title="Adoption spread"
+        right={<WhyChip hint={CURVE_HINT} label="how the spread is measured" align="end" />}
+      />
 
-      <div
-        role="img"
-        aria-label={`Adoption spread across ${total} contributors: ${summary}`}
-        className="mt-4 flex h-3 overflow-hidden rounded-full bg-slate-800"
-      >
-        {SEGMENTS.map((s) =>
-          distribution[s.key] > 0 ? (
-            <div
-              key={s.key}
-              title={`${distribution[s.key]} contributors (${s.label})`}
-              style={{ width: `${(distribution[s.key] / total) * 100}%`, backgroundColor: BAND[s.key] }}
-            />
-          ) : null,
-        )}
-      </div>
+      <AdoptionCurve model={model} className="mt-4" />
 
-      <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1.5">
-        {SEGMENTS.map((s) => (
-          <span key={s.key} className="flex items-center gap-2 type-mono-sm text-slate-400">
-            <span aria-hidden className="h-2 w-2 rounded-full" style={{ backgroundColor: BAND[s.key] }} />
-            <span className="font-bold tabular-nums text-slate-200">{distribution[s.key]}</span>
-            {s.label}
-            <span className="text-slate-600">{pct(distribution[s.key])}%</span>
-          </span>
-        ))}
-      </div>
+      <Legend
+        className="mt-3"
+        states={["measured", "not-judged"]}
+        baseColor={DEFAULT_BASE}
+        extra={[
+          {
+            id: "org-share",
+            label: `Org share ${orgAiShare}%`,
+            swatch: (
+              <svg viewBox="0 0 14 14" width={14} height={14} aria-hidden className="shrink-0">
+                <line x1={7} y1={1} x2={7} y2={13} stroke={DEFAULT_BASE} strokeWidth={1} strokeOpacity={0.45} />
+              </svg>
+            ),
+            hint: "Commit-weighted across every contributor, plotted on the same threshold axis as the curve.",
+          },
+        ]}
+      />
 
       {(distribution.none > 0 || knowledgeLeader) && (
         <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1.5 border-t border-divider pt-3 type-mono-sm text-slate-500">

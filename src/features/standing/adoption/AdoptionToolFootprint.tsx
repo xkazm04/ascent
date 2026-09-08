@@ -2,6 +2,8 @@
 // out of the old page.tsx body (docs/ORG-TABS-REFACTOR.md) into its own named file.
 
 import { Surface, Kicker } from "@/components/ui";
+import { WhyChip } from "@/components/org/viz";
+import { TOOLING_HINT } from "./adoptionHints";
 
 export function AdoptionToolFootprint({ tools }: { tools: { name: string; count: number }[] }) {
   return (
@@ -12,7 +14,8 @@ export function AdoptionToolFootprint({ tools }: { tools: { name: string; count:
           {t.name} <span className="text-slate-500">×{t.count}</span>
         </span>
       ))}
-      <span className="type-body-sm text-slate-600">detected via PR co-authorship / body markers</span>
+      {/* (D) "detected via PR co-authorship / body markers" — a provenance caveat, on demand. */}
+      <WhyChip hint={TOOLING_HINT} label="how tooling is detected" />
     </Surface>
   );
 }

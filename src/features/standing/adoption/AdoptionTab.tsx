@@ -1,6 +1,7 @@
 // Org dashboard "Adoption" tab — AI-adoption intelligence: how much of the org's work is AI-assisted,
-// the champions, the teams carrying (or missing) the habits, who to enable next, and the delivery
-// health it sits alongside. Migrated from src/app/org/[slug]/adoption/page.tsx
+// the champions, and the teams carrying (or missing) the habits, beside the delivery health it sits
+// alongside. Enablement TARGETING belongs to Contributors, not here (2026-08-19); this tab links to
+// it and never re-derives it. Migrated from src/app/org/[slug]/adoption/page.tsx
 // (docs/ORG-TABS-REFACTOR.md).
 //
 // SERVER component, filename PINNED as AdoptionTab.tsx. No auth work — the org layout's canReadOrg
