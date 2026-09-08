@@ -10,6 +10,7 @@
 // Server-safe (no hooks, no handlers) — both pieces render inside the tab's server components.
 
 import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
+import { StateSwatch } from "@/components/org/viz";
 import { orgTabHref } from "@/lib/org/orgTabs";
 
 /** The inline mark on the viewer's own row/card. Nothing else about the row changes. */
@@ -52,6 +53,10 @@ export function ContributorsYouStrip({
 }) {
   return (
     <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900/20 px-4 py-3">
+      {/* §2.4 — the withheld branch leads with the void mark, so the SUPPRESSION is encoded and not
+          only asserted. The other branch is a genuine "we looked and you are not here", which is a
+          measurement, and carries no mark. */}
+      {!namingAllowed && <StateSwatch state="missing" />}
       <p className="type-body-sm text-slate-400">
         {!namingAllowed ? (
           <>

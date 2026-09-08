@@ -11,6 +11,8 @@ import { SnapshotScopeNotice } from "@/components/org/shared/SnapshotScopeNotice
 import { decisionMap } from "@/lib/org/decision-map";
 import { enablementTargets } from "@/lib/org/adoption";
 import { ContributorsChampionsGrid } from "./ContributorsChampionsGrid";
+import { ContributorsAdoptionStrip } from "./ContributorsAdoptionStrip";
+import { ContributorsNotes } from "./ContributorsNotes";
 import { ContributorsTiles } from "./ContributorsTiles";
 import { ContributorsConcentrationTable } from "./ContributorsConcentrationTable";
 import { EnablementTargets } from "./EnablementTargets";
@@ -71,7 +73,14 @@ export async function ContributorsInsightsPanel({
         {insightsFailed ? (
           <SectionEmpty>Contributor data couldn&apos;t load right now (a query failed). Try refreshing this page.</SectionEmpty>
         ) : (
-          <SectionEmpty>No contributor data {segmentId || activeStack ? "for this filter" : "yet"}. Scan some of this org&apos;s repositories (contributor data is captured at scan time).</SectionEmpty>
+          // (O) The tab's old permanent lede lands here, where the reader has nothing to look at and
+          // genuinely needs the argument for scanning: what this surface is FOR.
+          <SectionEmpty>
+            No contributor data {segmentId || activeStack ? "for this filter" : "yet"}. Scan some of this org&apos;s
+            repositories (contributor data is captured at scan time) to see where trust in AI could grow across the
+            team: who&apos;s leaning in, whose approach others could learn from, and where key-person risk sits. These
+            are inputs to explore, never a ranking and never directives for anyone.
+          </SectionEmpty>
         )}
       </div>
     );
@@ -87,13 +96,9 @@ export async function ContributorsInsightsPanel({
 
   return (
     <div>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="max-w-3xl type-body text-slate-400">
-          Inputs to explore where trust in AI could grow across the team: who&apos;s leaning in, whose approach others could
-          learn from, and where key-person risk sits. Not a ranking, and not a to-do list for anyone.
-        </p>
-        {filterBar && <div className="flex shrink-0 items-center gap-2">{filterBar}</div>}
-      </div>
+      {/* §2.2 — the topmost element under the tab header is a shape, not a sentence. The lede that
+          used to sit here is now the empty state's argument (O) and the strip's WhyChip (D). */}
+      {filterBar && <div className="flex justify-end">{filterBar}</div>}
 
       {/* Above the tiles, not under them: the period the user picked on another tab follows them here
           via the cookie, and nothing below honours it. */}
@@ -107,6 +112,8 @@ export async function ContributorsInsightsPanel({
           />
         </div>
       )}
+
+      <ContributorsAdoptionStrip insights={insights} viewerLogin={viewerLogin} />
 
       <ContributorsTiles insights={insights} />
 
@@ -147,9 +154,17 @@ export async function ContributorsInsightsPanel({
 
       {/* G7-18: the fleet read on key-person exposure, above the per-repo table it summarizes. It
           names no individual at any population size — see ResilienceModule's header. */}
-      {insights.resilience && <ResilienceModule resilience={insights.resilience} />}
+      {insights.resilience && (
+        <ResilienceModule resilience={insights.resilience} concentration={insights.concentration} />
+      )}
 
-      <ContributorsConcentrationTable slug={slug} rows={insights.concentration} decisions={decisions} />
+      <ContributorsConcentrationTable
+        slug={slug}
+        rows={insights.concentration}
+        contributors={insights.contributors}
+        namingAllowed={insights.namingAllowed}
+        decisions={decisions}
+      />
 
       {/* The decisions annotation degrades alone: the table above still renders, and this says the
           annotations are missing rather than letting them read as "no decisions recorded". */}
@@ -159,27 +174,11 @@ export async function ContributorsInsightsPanel({
         </div>
       )}
 
-      <p className="mt-6 max-w-3xl rounded-xl border border-slate-800 bg-slate-900/30 p-4 type-body text-slate-400">
-        <span className="text-slate-300">How to read this:</span> these are inputs to explore, never directives. Someone active
-        in a repo with thin agent guidance is well placed to seed it; a champion&apos;s approach is a pattern others can borrow.
-        The aim is to surface where trust could grow. People decide what to pick up.
-      </p>
       {/* Staleness annotation (ambiguity-ui 2026-07-16 #5): the data layer drops repos whose
           snapshot recency trails the fleet's newest scan by ~6 months, so a long-unscanned repo
-          can't crown a departed engineer champion — say so instead of silently excluding. */}
-      {insights.staleRepos > 0 && (
-        <p className="mt-4 type-mono-sm text-slate-500">
-          {insights.staleRepos} {insights.staleRepos === 1 ? "repo" : "repos"} excluded: last scanned too long ago for
-          its activity snapshot to blend honestly with the rest. Rescan to include {insights.staleRepos === 1 ? "it" : "them"}.
-        </p>
-      )}
-      <p className="mt-4 type-mono-sm text-slate-600">
-        {/* The scan-time framing leads the panel now (SnapshotScopeNotice); this keeps only the
-            pointers it uniquely carries. */}
-        For team-level rollups, see the{" "}
-        <span className="text-slate-500">Teams</span> tab (CODEOWNERS attribution). Per-person trend over time,
-        “who introduced CLAUDE.md/evals”, and GitHub Teams (GraphQL) attribution are still on the roadmap.
-      </p>
+          can't crown a departed engineer champion. The COUNT stays on screen as a void mark; the
+          explanation and the roadmap inventory that used to trail it are demoted (D / F). */}
+      <ContributorsNotes slug={slug} staleRepos={insights.staleRepos} />
     </div>
   );
 }

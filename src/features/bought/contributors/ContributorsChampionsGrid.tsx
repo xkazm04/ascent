@@ -1,13 +1,23 @@
-// AI champions leaderboard — exemplars whose adoption the team could learn from. The population floor
-// is applied by getContributorInsights itself (it returns `champions: []` below CHAMPION_MIN_POP), so
-// this renders whatever the producer was willing to name — there is nothing left to gate here.
-// Extracted out of the old page.tsx body (docs/ORG-TABS-REFACTOR.md) into its own named file — it was
-// a private inline helper, now a real sibling component.
+// AI champions — the cohort drawn as a position in adoption × volume space, with the cards below it
+// as the named evidence. The population floor is applied by getContributorInsights itself (it returns
+// `champions: []` below CHAMPION_MIN_POP), so this renders whatever the producer was willing to name.
+//
+// The header used to carry the whole ranking rule as a sentence ("Highest AI adoption across the most
+// repos, weighted by breadth and activity: exemplars whose approach the team could learn from"). The
+// scatter encodes all three variables — y is adoption, x is volume, radius is breadth — and the ★
+// rank stays on the card, where it is a label on a thing you can already see.
 
 import { SectionHeader } from "@/components/org/shared/ui";
+import { WhyChip } from "@/components/org/viz";
 import { AiBar } from "./AiBar";
 import type { ContributorInsights } from "@/lib/db";
 import { isViewer, YouMark } from "./ContributorsYouPointer";
+import { ChampionScatter } from "./ChampionScatter";
+
+/** The demoted A1 lede: what the ranking is FOR, on demand rather than above the graphic. */
+const CHAMPION_HINT =
+  "Ranked by AI adoption weighted by breadth and activity — exemplars whose approach the team could " +
+  "learn from, not a performance ranking.";
 
 export function ContributorsChampionsGrid({
   champions,
@@ -23,9 +33,19 @@ export function ContributorsChampionsGrid({
     <div className="mt-8">
       <SectionHeader
         title="AI champions"
-        description="Highest AI adoption across the most repos, weighted by breadth and activity: exemplars whose approach the team could learn from."
+        right={<WhyChip hint={CHAMPION_HINT} label="what ranks a champion" align="end" />}
       />
-      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <ChampionScatter
+        className="mt-3"
+        points={champions.map((c) => ({
+          login: c.login,
+          aiShare: c.aiShare,
+          commits: c.commits,
+          repos: c.repos,
+          isViewer: isViewer(c.login, viewerLogin),
+        }))}
+      />
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {champions.map((c, i) => (
           <div key={c.login} className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
             <div className="flex items-center justify-between gap-2">
@@ -38,7 +58,7 @@ export function ContributorsChampionsGrid({
                 <YouMark slug={slug} />
               </div>
             )}
-            <div className="mt-3"><AiBar pct={c.aiShare} /></div>
+            <div className="mt-3"><AiBar pct={c.commits > 0 ? c.aiShare : null} label={`${c.login} AI share`} /></div>
             <div className="mt-2 flex gap-4 type-mono-sm text-slate-400">
               <span>{c.commits} commits</span>
               <span>{c.aiCommits} AI</span>

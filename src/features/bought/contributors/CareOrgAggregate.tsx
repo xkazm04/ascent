@@ -5,26 +5,16 @@
 // The floors are not a UI nicety: `CHAMPION_MIN_POP` is the same guard the Contributors / Adoption /
 // Teams tabs apply, and it is stated ON SCREEN rather than silently applied — an org that cannot see
 // why a panel is empty assumes the data is broken, and one that can see the floor learns the rule.
-// There is no per-person row here and there is no prop that could produce one.
+// It is stated by the ledger graphic now (`CarePrivacyLedger`), not by the paragraph that used to
+// live here. There is no per-person row here and there is no prop that could produce one.
+//
+// `CareOrgBands` moved to CareOrgBandStrips.tsx when it became a quartile strip; this file keeps the
+// tiles, the kept-moves cards, the ask themes and the outcomes table.
 
 import { Meter, OrgTable, SectionEmpty, TILE_LEDGER, Tile } from "@/components/org/shared/ui";
 import { deltaHex, fmtDelta } from "@/components/ui";
 import { CareAction, CareCategoryChip } from "@/features/developer/CareBits";
-import {
-  CARE_SHAPE_LABEL,
-  CARE_SHAPE_ORDER,
-  careShapeValue,
-  type CareOrgView,
-} from "@/lib/org/developer-view";
-
-export function CareOrgFloorNote({ org }: { org: CareOrgView }) {
-  return (
-    <p className="type-body-sm text-slate-500">
-      Aggregates only, and only above a floor of {org.floor} participating developers ({org.population} in this
-      workspace). No row here is a person, and no view of this tab can name one.
-    </p>
-  );
-}
+import { type CareOrgView } from "@/lib/org/developer-view";
 
 export function CareOrgSuppressed({ org }: { org: CareOrgView }) {
   return (
@@ -49,7 +39,15 @@ export function CareOrgAdoptionTiles({ org }: { org: CareOrgView }) {
 }
 
 export function CareOrgKeptMoves({ org, layout = "cards" }: { org: CareOrgView; layout?: "cards" | "rows" }) {
-  if (org.topKeptMoves.length === 0) return <SectionEmpty>No move has been kept by anyone yet.</SectionEmpty>;
+  // (O) The header's old rationale lands here: what a kept move IS, and what it can become.
+  if (org.topKeptMoves.length === 0) {
+    return (
+      <SectionEmpty>
+        No move has been kept by anyone yet. These are the changes developers here tried and chose to keep; the ones
+        that describe an artifact rather than a habit can be authored into the registry from this panel.
+      </SectionEmpty>
+    );
+  }
   const max = Math.max(...org.topKeptMoves.map((m) => m.keptBy), 1);
 
   if (layout === "rows") {
@@ -98,7 +96,15 @@ export function CareOrgKeptMoves({ org, layout = "cards" }: { org: CareOrgView; 
 }
 
 export function CareOrgAsks({ org }: { org: CareOrgView }) {
-  if (org.asks.length === 0) return <SectionEmpty>No interview themes shared yet.</SectionEmpty>;
+  // (O) The header's old rationale: why anyone would want this list at all.
+  if (org.asks.length === 0) {
+    return (
+      <SectionEmpty>
+        No interview themes shared yet. Once developers share them these become the registry&apos;s backlog — written,
+        anonymized and counted, by the people who feel the waste.
+      </SectionEmpty>
+    );
+  }
   const max = Math.max(...org.asks.map((a) => a.count), 1);
   return (
     <ol className="mt-3 divide-y divide-divider border-y border-divider">
@@ -110,38 +116,6 @@ export function CareOrgAsks({ org }: { org: CareOrgView }) {
         </li>
       ))}
     </ol>
-  );
-}
-
-export function CareOrgBands({ org }: { org: CareOrgView }) {
-  const fields = CARE_SHAPE_ORDER.filter((f) => org.shapeBands[f]);
-  if (fields.length === 0) return <SectionEmpty>No shape distribution yet — nobody has shared these counts.</SectionEmpty>;
-  return (
-    <OrgTable
-      className="mt-3"
-      minWidth={520}
-      caption="Session-shape distribution across participating developers, as quartiles"
-      head={
-        <tr>
-          <th className="px-4 py-2 text-left">Shape</th>
-          <th className="px-4 py-2 text-right">p25</th>
-          <th className="px-4 py-2 text-right">median</th>
-          <th className="px-4 py-2 text-right">p75</th>
-        </tr>
-      }
-    >
-      {fields.map((f) => {
-        const band = org.shapeBands[f]!;
-        return (
-          <tr key={f}>
-            <td className="px-4 py-2.5 type-body text-slate-200">{CARE_SHAPE_LABEL[f]}</td>
-            <td className="px-4 py-2.5 text-right font-mono type-body tabular-nums text-slate-400">{careShapeValue(f, band.p25)}</td>
-            <td className="px-4 py-2.5 text-right font-mono type-body tabular-nums text-white">{careShapeValue(f, band.p50)}</td>
-            <td className="px-4 py-2.5 text-right font-mono type-body tabular-nums text-slate-400">{careShapeValue(f, band.p75)}</td>
-          </tr>
-        );
-      })}
-    </OrgTable>
   );
 }
 

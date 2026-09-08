@@ -188,7 +188,7 @@ under the Supabase wall `getSession()` is null and this collapses to the viewer,
 | In flight | Live | `org/[slug]/live` | `src/app/org/[slug]/live/` | Live/war-room view. |
 | Bought | Briefing | `org/[slug]/executive` | `src/app/org/[slug]/executive/` | Executive briefing view. |
 | Bought | Delivery | `org/[slug]/delivery` | `src/app/org/[slug]/delivery/page.tsx` | PR signals, branch governance, 12-week fleet commit activity, and (2026-07-28) a **Delivery-over-time** section: eleven small-multiple day-by-day panels (review coverage, AI involvement, AI PRs reviewed, AI trailers, AI pre-review, protected default branch, merge rate, small PRs, revert rate, time to first review, time to merge; count corrected 2026-09-05) plus gated slope reads, scoped by the shared org period selector. **W1a (2026-08-12)** surfaced three metrics every scan already persisted (`revertRate`, `medianHoursToFirstReview`, `smallPrRate`) into the signal band, the per-repo table, the trend, and a **review-latency slope** (`hoursToFirstReview` in `DELIVERY_FIT_METRICS`, hours/week with inverted goodness tone): the review-capacity read behind the Assist→Delegate bottleneck. Because the metrics come from the historical `prStats` blobs, the trend back-filled from existing scans day one; a blob written before the fields existed reads null ("not in these scans"), never a fabricated 0. **W2 (2026-08-12)** added two trailer-era attribution metrics from the extended `PR_QUERY` (merge-commit + PR-commit messages, review-author `__typename`): `aiTrailerRate`: share of merged PRs whose commit messages carry an AI attribution trailer (trailer-GROUNDED attribution, vs the self-declared marker rate); and `aiPreReviewedRate`: share of merged PRs an AI/bot reviewer (CodeRabbit, Copilot code review, Greptile, …) reviewed before the first human review. Both surface in the signal band (now 10 cells), the per-repo table, and two new trend panels; both are null on pre-W2 blobs and under the ≥5 merged-PR floor. The AI-delivery ROI model (`aiDeliveryModel.ts`) prefers trailer-grounded counts as its **allocation weight** where present (a commit trailer is tooling-written evidence; markers are self-declared), refining the "allocated" fidelity tier only, complementing (never replacing) the measured per-repo OTel path. "Fix first" adds two derived priorities: a slow first review (>24h, called out against AI PR share) and a fleet revert rate ≥5%. **W5 (2026-08-12)** added `reworkRate` (share of merged PRs later reverted, from revert linkage) to the delivery-trend point keys on the same null-back-fill discipline (data only so far, no dedicated panel yet); the metric's home surface (the Backlog tab's Debt Ledger) retired 2026-08-17 — `getOrgRework` is currently an orphaned read awaiting a Delivery-tab home. Its five rollup queries (PR signals, governance, activity, AI usage, delivery trend) run via `Promise.allSettled`, not `Promise.all`: one query erroring degrades only its own panel (an explicit "couldn't load" banner, not a silent empty state), instead of blanking the whole tab. **2026-09-05:** every PR-rate cell and repo-table row carries the population it was computed over (`rateBasis`, `PrRepoRow.population` — produced since W1a, rendered now); the headline says each rate names its own population; a `SnapshotScopeNotice` states which sections are period-scoped (trend, unit economics, outcomes) and which are latest-scan (PR signals, governance, activity); `derivePriorities` refuses to name a worst reverter under five PRs. Parked: the analyzer-level `revertRate` floor (needs `PrStats.revertRate` widened to `number | null` in `src/lib/types.ts`). |
-| Bought | Contributors | `org/[slug]/contributors` | `src/features/bought/contributors/` | AI champions, involvement table (withheld below 3 contributors), **Who to enable next** (`EnablementTargets`, moved here from Adoption 2026-08-19 — see below), an **Org resilience** module (fleet key-person exposure, repo-level only, names nobody), and the per-repo concentration / bus-factor table. **2026-09-05:** the \"You\" strip says attribution is *withheld* below the naming floor instead of \"no commits attributed\"; each section degrades on its own (`allSettled`), so one failed read no longer blanks the tab. |
+| Bought | Contributors | `org/[slug]/contributors` | `src/features/bought/contributors/` | AI champions, involvement table (withheld below 3 contributors), **Who to enable next** (`EnablementTargets`, moved here from Adoption 2026-08-19 — see below), an **Org resilience** module (fleet key-person exposure, repo-level only, names nobody), and the per-repo concentration / bus-factor table. **2026-09-05:** the \"You\" strip says attribution is *withheld* below the naming floor instead of \"no commits attributed\"; each section degrades on its own (`allSettled`), so one failed read no longer blanks the tab. **2026-09-08 (redesign Wave 1):** the tab now OPENS on a graphic — an AI-share `Distribution` with the viewer's own position marked — concentration is a `ConcentrationCurve` with the bus-factor knee above the per-repo table, champions are plotted in adoption × volume space, resilience leads with a per-repo top-share quartile strip, the care section leads with a `MatrixGrid` privacy ledger whose per-person column is a column of voids, and a contributor with no commits to take a share OF renders a **void, not a 0% bar**. See [Contributors, redesigned](#contributors-redesigned-the-distribution-is-plotted-wave-1-2026-09-08). |
 | Bought | Teams | `org/[slug]/teams` | `src/app/org/[slug]/teams/page.tsx` | Per-team (CODEOWNERS) Adoption×Rigor, dimension shape, AI-knowledge & champions, movers; the org's AI-knowledge leader + a suggested cross-team pairing. **2026-09-05:** per-section degradation; the Δ footnote derives from the period's `deltaLabel`; the AI% cell carries its contributor population in the row; the provenance stamp says \"captured fleet-wide\" under an active filter; the window goes through `orgWindowBounds`. |
 | Admin | Members | `org/[slug]/members` | `src/app/org/[slug]/members/` | Membership + roles. |
 | Admin | Integrations | `org/[slug]/integrations` | `src/app/org/[slug]/integrations/` | Connect AI coding providers: Claude Code (measured, OTel push) and Copilot (seats-only, admin pull); OpenAI staged as planned. See [Provider integrations](#provider-integrations-orgslugintegrations-owner-only). |
@@ -716,6 +716,10 @@ and pinned by tests in `pack.test.ts`:
   certification words may appear only inside a **disclaimer**, and a test enforces that by requiring
   every sentence containing one to also contain a negation.
 - Anchor to **SOC 2 CC8.1** first, **ISO/IEC 42001** Annex A second, and say the examiner decides.
+  (The card used to spell that framing out in a paragraph above the download links. It is
+  documentation, and it lives here; what stays on the card is the disclaimer itself — "Ascent
+  certifies nothing; the examiner decides" — beside the lower-bound limitation, in visible text
+  rather than a tooltip, because a screenshot crops tooltips and keeps text.)
 - **Never** claim EU AI Act conformity. The pack disclaims it *explicitly* rather than staying
   silent, and states the deferral dates (Annex III 2 Dec 2027, Annex I 2 Aug 2028).
 
@@ -771,10 +775,23 @@ the largest gap between observations. That pairing is the point. "Branch protect
 quarter" read off two observations three months apart is a sentence the evidence does not support,
 so the card never prints a state without its N.
 
-`unmeasurable` renders as an **em dash with a tooltip** — never a zero, never a red — and is counted
-separately from "not operating" in the header. A control we could not read is missing evidence, not
-a finding; colouring it like one would turn every expired token into a fleet-wide governance failure
-on the page a lead screenshots.
+`unmeasurable` renders as an **em dash with a tooltip** in the table and as the shared **hatch** in
+the lane picture above it — never a zero, never a red — and is counted separately from "not
+operating" in the header. A control we could not read is missing evidence, not a finding; colouring
+it like one would turn every expired token into a fleet-wide governance failure on the page a lead
+screenshots.
+
+Since 2026-09-08 the card **opens on a `StateTrack`** (`controlLanes.ts`, pure) rather than on a
+table header row: one lane per control, UTC-day buckets across the fleet, adjacent days that read
+the same way merged into one run. A day nobody observed is a GAP on the dotted ground; a day whose
+every observation was unreadable is hatched with no value printed; every other day is coloured by
+the share of readable observations that were operating. Lanes are budgeted at eight and the
+remainder is **counted on the card** — an omitted lane and an unobserved one must not look alike.
+Two sentences that used to sit under the table are now documentation rather than chrome: this card
+is **distinct from the Security tab's D9 check battery and from Passports › Doctor checks** (see
+*Three catalogues, three names* below), and a red state carries the catalogue's own `failMeans`
+sentence (below). The actor caveat — *scan- and probe-sourced rows carry no actor; nobody performed
+those in a way we observed* — is a `WhyChip` beside the heading.
 
 #### The catalogue's contracts render (MC-B13, 2026-08-31)
 
@@ -1637,6 +1654,92 @@ non-finite guard on every geometry input, so a NaN degrades to a labelled placeh
 silently broken path. Props are plain data — no fetching, no db imports, and no function props (the
 charts are client components, so the caller passes pre-formatted tick labels rather than a
 formatter). Colour comes from `LEVEL_HEX`/`scoreHex` and the CSS tokens; never a hand-picked hex.
+
+### Contributors, redesigned: the distribution is plotted (Wave 1, 2026-09-08)
+
+Contributors was the redesign's clearest case: **1473 characters of prose, five tables and zero SVG**
+— a page about DISTRIBUTION rendered entirely as sorted lists. Every reading it offered ("this org's
+knowledge sits in three people", "quartiles across everyone sharing", "a champion is high adoption
+across real volume") was a shape stated as a sentence. `SectionHeader description=` in the directory
+fell from **8 to 2**, and both survivors are unit/window only.
+
+| Panel | Was | Is |
+| --- | --- | --- |
+| Tab opening | A 200-char lede paragraph | `Distribution` of AI-authored share per contributor, with the viewer's own position as the `you` marker (§5.2's pointer, drawn) |
+| Concentration & bus factor | Six sorted columns under "High top-share or bus-factor 1 = key-person risk" | `ConcentrationCurve` — Lorenz sag, shaded Gini, the marked risk knee — with the per-repo table kept **below** it as auditable evidence |
+| Org resilience | Two paragraphs describing bus-factor and the exposure blend | `Distribution` of the top contributor's commit share **per repo** over the whole fleet (not the top-8 list), then the tiles, then the risk table |
+| AI champions | A ranked grid headed by the ranking rule | `ChampionScatter` — x is commit volume, y is AI share, dot radius is breadth, and the shaded band is the ≥50% "high adoption" bucket the producer already defines — with the ★ cards below as named evidence |
+| Who to enable next | A paragraph stating the 90-day recency horizon | `BudgetPack`: the zero-AI pool is the budget, the list is what was packed, and the remainder is an omission block whose label carries the horizon |
+| Care in this workspace | Five header paragraphs incl. two privacy promises | `CarePrivacyLedger` (a `MatrixGrid`) whose "Per-person row" axis is **void in every row**, and session shape as quartile strips |
+
+Two things this fixed that were not cosmetic:
+
+- **A void is not a zero, and the page could not tell you which it was.** `AiBar` took a plain
+  `number`, so a contributor with no commits in the window, a repo with no attributed commit data,
+  and a genuinely 0%-AI contributor all rendered the same empty meter. It now takes
+  `number | null` and renders the `missing` state — the broken-rule swatch, an em dash and the
+  caveat in a `title` — for anything non-finite. The call sites decide from the TYPED state
+  (`topLoginState === "unknown"`, `commits > 0`), never by string-comparing a dash.
+- **A privacy guarantee is stronger drawn than promised.** "Never who, and never a per-person row"
+  was a sentence the reader had to trust. The ledger's right-hand column is void top to bottom, and
+  the never-sent rows (transcripts, prompts/diffs, who kept what) are void on *both* axes; below the
+  floor the counted column HATCHES (suppressed, no value printed) rather than going void, because the
+  data exists and was withheld. Pinned in `CarePrivacyLedger.dom.test.tsx`.
+
+Where prose stayed it moved rather than vanished: the tab's rationale is now the **empty state's**
+argument (you only need "what this surface is for" when there is nothing to look at), the framing and
+epistemic caveats are `WhyChip` disclosures, and the roadmap inventory that used to trail the panel is
+this document's job. Quantile maths lives in the pure `contributorStats.ts` so the picture and its
+`sr-only` table are demonstrably the same numbers.
+
+### Governance, redesigned: the perimeter is drawn (Wave 1, 2026-09-08)
+
+Governance was the redesign's worst offender: **2536 characters of explanatory prose and zero SVG
+across 25 components** — a tab whose whole subject is *declared vs observed vs unreadable*, carrying
+that distinction entirely in sentences the reader had to hold in their head while looking at a table
+that did not show it. `SectionHeader description=` in the directory fell from **7 to 4**, and all
+four survivors are unit/window only (`"worst first"`, `"counted once per repo"`, the resolved period
+title, `"N scanned repos · 4 autonomy bands"`).
+
+| Panel | Was | Is |
+| --- | --- | --- |
+| AI perimeter | A 304-char paragraph ending *"declared, not enforced"* over a text layout | `BandLadder` — four nested autonomy bands, each carrying its own state, with an arrow at the outer edge for what PR attribution shows crossing with no declaration behind it (`perimeterLadder.ts`) |
+| Governance control ledger | A 300-char header fusing three jobs, plus *"a dash under State means the control was not readable"* | `StateTrack` lanes: gap = unobserved, hatch = unreadable, colour = the operating share (`controlLanes.ts`) |
+| Admission column | *"The tier a scan DERIVES is a measurement. Admission is the decision."* | `BandLadder` of the three rungs; a rung somebody decided wears the `decided` accent ring, and each row carries its own `StateSwatch` (`admissionLadder.ts`) |
+| Change-management evidence pack | A 207-char standfirst naming three things in a row | `FlowRibbon`: population → sampled → reviewed, drawn over the tab's own period and the export's own seed, so the headline and the artifact cannot disagree (`evidenceFlow.ts`) |
+| Enforce in CI | *"The dashboard gate and your pipeline run the identical policy: no drift."* | Two marks: the server policy is `measured`, the parameters you paste are `declared` — which is what makes the tighten-only asymmetry legible instead of asserted |
+| Sealed zones · unenforceable clauses · unassessed repos | Three rationale paragraphs | The `declared` dash, the `missing` void, and `WhyChip` disclosures carrying the sentences |
+
+The band state is the whole argument compressed into one ternary (`bandState`, pinned by
+`perimeterLadder.test.ts`): a tier the stance declares and repos actually sit in is `measured`; a
+tier it declares that nothing has been read into is `declared` — dashed, no fill, *the perimeter
+exists on paper only*; a tier the stance takes no position on is `not-judged`, hatched, with the kit
+refusing to print a value beside it. `PerimeterBand` reads the **same** function, so the headline
+ladder and the band detail below it cannot disagree about a tier.
+
+Three things this fixed that were not cosmetic:
+
+- **A dash could mean three different things and the page could not tell you which.** Unobserved,
+  unreadable, and observed-and-failing all reached the reader as the same character. They are now a
+  gap, a hatch, and a coloured bar.
+- **An unassessed repository is a void, not a rung.** `viewState` returns `missing` for a repo with
+  no passport and no decision: no admission row exists for it and the gate applies no bar, so the
+  ladder carries it OUT past the outer boundary rather than painting it with the middle rung's
+  colour. That was already true in the row copy; it is now true in the geometry.
+- **The evidence pack's headline is the artifact's own numbers.** `evidenceFlow` draws the sample
+  with the same seed and algorithm `/api/org/conformance-pack` uses, so the ribbon counts the rows
+  the CSV would contain. Where the population cannot be read the ribbon draws three **voids** and
+  says so — it never prints a zero for a measurement nobody made. The card owns that one read
+  (`getAiChangePopulation` over the tab's resolved window), which is the deliberate cost of a
+  headline that is true.
+
+Where prose stayed it moved rather than vanished. The A3 rationale ("without a published stance the
+fleet has one undifferentiated risk surface…") was already correctly placed — it renders only in
+`StancePublishCta`, the empty state — and stays there. The UAT-mandated disclosures stay in **visible
+text**, per this repo's own rule that a screenshot crops tooltips and keeps text: what a decision
+writes (`NADIA-L1-09`) keeps its one-line claim with the three-artifact enumeration on a chip, and
+the CI card keeps the ACTION ("re-copy the snippet after you relax the org bar") while the asymmetry
+behind it becomes the `declared` mark's hint.
 
 ## Key files
 

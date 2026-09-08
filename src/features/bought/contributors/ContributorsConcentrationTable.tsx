@@ -1,37 +1,69 @@
-// Concentration / bus factor — how spread out each repo's commits are; high top-share or bus-factor 1
-// flags key-person risk. A key-person repo is a DECISION, not just a warning chip: accept the risk,
-// dismiss it with a reason, or snooze — and it leaves the org rail's Contributors badge either way.
-// Extracted out of the old page.tsx body (docs/ORG-TABS-REFACTOR.md) into its own named file.
+// Concentration & bus factor — the single most graphical concept on this tab, drawn.
+//
+// It used to be five sorted columns under the sentence "How spread out each repo's commits are. High
+// top-share or bus-factor 1 = key-person risk." A reader had to infer "this org's knowledge sits in
+// three people" from ranked rows. The Lorenz curve says it in one shape: the sag below the equality
+// diagonal is the concentration, the shaded area IS the Gini, and the marked knee is the bus-factor
+// risk point. The per-repo table stays BELOW it, where a table is the right shape — auditable
+// row-level evidence, and the only surface on this tab that carries a decision control.
 
 import { OrgTable, SectionHeader } from "@/components/org/shared/ui";
 import { DecisionControl } from "@/components/org/DecisionControl";
+import { ConcentrationCurve, StateSwatch, WhyChip, stateTitle } from "@/components/org/viz";
+import { CHAMPION_MIN_POP, topContributorLabel } from "@/components/org/shared/champions";
 import type { DecisionMap } from "@/lib/org/decision-map";
 import type { ContributorInsights } from "@/lib/db";
-import { topContributorLabel } from "@/components/org/shared/champions";
 import { AiBar } from "./AiBar";
+
+/** The demoted A2 caveat: what the knee means for the reader, on demand rather than in the header. */
+const RISK_HINT =
+  "The knee is the smallest group whose absence would hurt most. In the table below, a top share at or " +
+  "above 80% or a bus factor of 1 is the same finding at repository scale: key-person risk.";
 
 export function ContributorsConcentrationTable({
   slug,
   rows,
+  contributors,
+  namingAllowed,
   decisions,
 }: {
   slug: string;
   rows: ContributorInsights["concentration"];
+  /** Per-person commit magnitudes for the org-wide curve. Empty below the naming floor. */
+  contributors: ContributorInsights["contributors"];
+  namingAllowed: boolean;
   decisions: DecisionMap;
 }) {
+  // Magnitudes only — the curve plots how much work each person carries and never which person, so
+  // it stays an aggregate at every population size. Below the floor the producer emits no rows at
+  // all, so there is nothing to plot; that is a WITHHOLDING, and it says so rather than degrading
+  // into the kit's generic "not enough data".
+  const values = contributors.map((c) => c.commits);
+
   return (
     <div id="concentration" className="mt-8 scroll-mt-24">
       <SectionHeader
         title="Concentration & bus factor"
-        description={
-          <>
-            How spread out each repo&apos;s commits are.{" "}
-            <span className="text-orange-400">High top-share or bus-factor 1 = key-person risk.</span>
-          </>
-        }
+        right={<WhyChip hint={RISK_HINT} label="the risk knee" align="end" />}
       />
+      {namingAllowed ? (
+        <ConcentrationCurve
+          className="mt-3 max-w-md"
+          values={values}
+          subjectLabel="contributors"
+          valueLabel="commits"
+          title="Commit concentration across contributors"
+        />
+      ) : (
+        <div className="mt-3 flex items-center gap-2" title={stateTitle("missing", "org-wide commit concentration")}>
+          <StateSwatch state="missing" />
+          <span className="type-body-sm text-slate-500">
+            Org-wide curve withheld below {CHAMPION_MIN_POP} contributors — the per-repo findings below are unaffected.
+          </span>
+        </div>
+      )}
       <OrgTable
-        className="mt-3"
+        className="mt-6"
         caption="Commit concentration and bus factor by repository"
         head={
           <tr>
@@ -61,7 +93,13 @@ export function ContributorsConcentrationTable({
                 typed state carries the distinction; this is the reader that shows it. */}
             <td className="px-3 py-2 type-mono-sm text-slate-400">{topContributorLabel(r)}</td>
             <td className="px-3 py-2">
-              <AiBar pct={r.topShare} color={r.topShare >= 80 ? "var(--color-warn)" : undefined} />
+              {/* `unknown` means there was no attributed commit data to take a share OF — a void, not
+                  a 0% bar (§2.4). The typed state decides; nothing here string-compares a dash. */}
+              <AiBar
+                pct={r.topLoginState === "unknown" ? null : r.topShare}
+                color={r.topShare >= 80 ? "var(--color-warn)" : undefined}
+                label={`${r.name} top-contributor share`}
+              />
             </td>
             <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: r.busFactor <= 1 ? "var(--color-warn)" : undefined }}>
               {r.busFactor}
