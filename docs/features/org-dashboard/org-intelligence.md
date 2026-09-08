@@ -1741,6 +1741,297 @@ writes (`NADIA-L1-09`) keeps its one-line claim with the three-artifact enumerat
 the CI card keeps the ACTION ("re-copy the snippet after you relax the org bar") while the asymmetry
 behind it becomes the `declared` mark's hint.
 
+### Overview, redesigned (Wave 2, 2026-09-08)
+
+Overview is the dashboard's **default landing surface** — the first thing anyone sees — and it opened
+on a scope readout and a punch-list of sentences. Only two `SectionHeader description=` existed in the
+directory, so almost none of this wave's gain came from deleting headers; it came from law clause 2
+(*first sight is graphical*) and clause 4 (*encode the epistemic state, don't assert it*). The tab's
+two-tier streaming architecture — one shared `resolveOrgScope` promise awaited in two `<Suspense>`
+boundaries, no skeletons, nothing converted to `"use client"` — is untouched: this was a presentational
+change on the reference implementation, and it stays the reference implementation.
+
+| Panel | Was | Is |
+| --- | --- | --- |
+| **Fix first** | Three numbered sentences. Triage ORDER was visible; projected GAIN never was, so two candidates whose worth differs by a factor of sixty read identically. | A ranked bar chart on **one shared scale** — fleet-average maturity points — labels left, `FixFirstImpactBar` right, the way `MatrixGrid`/`StateTrack` lay a subject against its marks. |
+| **Dimensions by SDLC phase** | A paragraph counting the debt (*"N of 9 dimensions still owe a follow-up (below 65)…"*) above a nine-row table. | `PhaseStandingStrip` — three lanes, one per SDLC phase, drawn against the green floor as a dashed rule. The count survives beside the section rule as a scope readout (a number, not a claim). |
+| **Repo × dimension heatmap** | A 122-char lede; an absent measurement painted as a **red 0**. | Header reduced to `N repos × M dimensions`; an absent measurement is the kit's `missing` void. See the correctness fix below. |
+| **Ledger row: window delta** | `—`, with "No baseline in this window" in a `title`. | The `missing` swatch — a dash in a column of numbers is the one glyph a reader reliably reads as *nothing changed*. |
+| **Ledger row: unbacked average** | Grey text, *"no repos scored on this dimension"*, beside the number it prints anyway. | The `not-judged` hatch, with the words beside it naming the state rather than carrying it alone. |
+
+#### The correctness fix: the landing page was fabricating scores
+
+Every heatmap cell read `byId[d] ?? 0`. A repository whose latest scan never scored a dimension — a
+legacy scan predating the dimension, an engine that returned a short dim list — was painted as a **red
+zero**, announced to a screen reader as *"score 0"*, and given a click target that opened a detail
+modal for a measurement that does not exist. The same component contradicted itself two rows down:
+`columnAverages` has always EXCLUDED those repos from the fleet mean rather than dragging it toward
+zero, and its own comment says so. One component, two answers, and the wrong one was the one in
+40-point type on the org's front page.
+
+This is the surface the *"structural zero is not a measurement"* doctrine (2026-08-31, above) already
+governs; the heatmap simply predated it. An absent cell is now a `missing` void: framed so it is
+locatable, empty so it is not a magnitude, **not a button** (there is no detail to open for a
+measurement never taken), and carrying the shared caveat in its `title`. The fleet-average footer's em
+dash became the same mark, so the body and the footer finally speak one vocabulary. Extracted as
+`HeatVoid.tsx` precisely so the pair cannot drift apart again.
+
+`RepoDimensionHeatmap.dom.test.tsx` seeds a repository with a missing dimension and pins all four
+guarantees; re-introducing `?? 0` fails three of its cases (verified by seeding the old expression
+back before committing — a matcher that stops matching reports a clean codebase in a voice
+indistinguishable from success).
+
+#### One unit, or a shared scale is a lie
+
+`fixFirstImpact.ts` computes what each Fix-first bar is worth in **fleet-average maturity points**,
+and the interesting part is the case where it refuses:
+
+- a **regression** is a loss on ONE repo, so it is divided by `OrgMovers.comparedRepos` (repos with a
+  real baseline on both sides) before it may sit on a fleet scale — a 9-point drop on one repo of 45
+  is 0.2 fleet points, not 9. With no compared population the bar is a **void**, never an undivided 9;
+- a **behind-pace goal** already names a fleet-wide target on a 0..100 metric, so `target − current` is
+  the same unit by construction; the basis names *which* metric;
+- a **findings queue has no scoring model at all.** The honest answer is `missing`, and
+  `rendersValue("missing")` is false, so the bar cannot print a `0` beside it. This is the case the
+  encoding exists for: a zero-length bar labelled "+0" would rank the product's most action-shaped
+  queue last on a scale it was never measured on.
+
+The bars introduce exactly one hazard — a reader assuming the numerals rank by bar length. They do
+not, and deliberately: the numeral is triage precedence (a live regression outranks a queue awaiting a
+decision outranks a slipping goal), because a candidate with **no bar at all** must not therefore sort
+last. The numeral's own `title` says so, and `fixFirstImpact.test.ts` pins that ordering against the
+case where the goal's bar is sixty times the regression's.
+
+No new reads: `comparedRepos` and the goal's `target`/`current`/`metricLabel` were already on rows
+`OverviewFixFirstPanel` fetches for the triage decision.
+
+#### Prose ledger (E encoded · D disclosed · O empty state · F feature doc)
+
+- **E** — *"N of 9 dimensions still owe a follow-up (below 65)"* → `PhaseStandingStrip`: three phase
+  lanes against the green floor drawn as a dashed rule at `FOLLOW_UP_BELOW`. The count stays as a
+  scope readout beside the rule.
+- **E** — *"Every dimension is in the green band."* → every lane sitting right of the floor.
+- **E** — *"Where each repo is strong or weak across all N dimensions"* → the heat grid itself, which
+  is the sentence.
+- **E** — *"Every repository grouped by `<mode>`: where each cohort stands and how it's moving"* → the
+  Group toggle beside the header names the grouping; the cohort rows carry stand + movement.
+- **E** — *"no repos scored on this dimension"* → the `not-judged` hatch on the ledger row.
+- **E** — *"No baseline in this window"* → the `missing` swatch in the delta column.
+- **D** — *"Each row names the practice that lifts it and the repos it touches."* Verified against the
+  JSX before demoting: both affordances **already** carry exactly that in their own `title`
+  attributes (`Open the practice that lifts <dim>…`, `Jump to the heatmap sorted weakest-first on
+  <dim>`). The sentence was a duplicate of a disclosure that already shipped; deleted, not moved.
+- **D** — *"Click a column to sort, a cell for its score, evaluation, and next steps."* Same check,
+  same finding: the column button and the cell button each already say it in their `title`.
+- **D** — the projected-gain basis (division by the compared population, the metric each goal's gap is
+  measured on) → `WhyChip` on the Fix-first header, plus a per-bar `<title>` naming that bar's own
+  arithmetic.
+- **D** — *"the numerals are triage precedence, not bar order"* → `title` on the ordinal.
+- **F** — the derivation contract for each Fix-first slot, and why a findings queue can carry no bar →
+  this section.
+
+**Stayed, and why** (law clause 1's escape): each Fix-first row's `detail` — *"regressed 9 pts vs its
+last scan before this period"* — names the endpoints of a subtraction that a second cell on this same
+page performs differently (the cohort card's row delta is first-to-last WITHIN the window). Two
+identical labels over two different subtractions is worse than no label, and no encoding carries the
+distinction between two baselines. It stays in visible text.
+
+#### Kit components used
+
+`FixFirstImpactBar` and `PhaseStandingStrip` are dependency-free SVG on `linScale` + `scoreHex` +
+`stateFill`/`stateStroke`/`stateFillOpacity`/`stateStrokeWidth`/`rendersValue`/`isVoid`/`stateTitle`
++ `VizDefs`, following `MatrixGrid`'s discipline exactly: the track frame is **always** drawn so a
+void is a locatable empty lane rather than a hole, the mark is drawn only when the state is not a
+void, and the number prints only where `rendersValue` allows. `Legend` (3 call sites: Fix-first,
+the phase strip, the heatmap) carries only the states present on screen. `StateSwatch` is the void /
+hatch mark in four places. `WhyChip` (1). Nothing was re-implemented; there is no second hatch.
+
+Both new drawings are **server-safe** (no hooks): the band and the ledger are direct children of the
+tab's `stagger-children` wrapper, which already cascades them in, and a second entrance would
+double-animate — the same rule `OverviewTab.tsx`'s header states about `.animate-arrive-in`.
+
+New pure view-models with sibling tests, so the encodings are provable without a DOM:
+`fixFirstImpact.ts` (15 cases) and `phaseStanding.ts` (8 cases); `OverviewFixFirst.dom.test.tsx`,
+`PhaseStandingStrip.dom.test.tsx` and `RepoDimensionHeatmap.dom.test.tsx` pin that the drawings obey
+the states. `OverviewScopeReadout` was reviewed and left alone: it is already two spans of metadata,
+not a paragraph.
+
+### Repositories, redesigned (Wave 2, 2026-09-08)
+
+Standing › Repositories carried 849 characters of explanatory chrome, four tables and two SVGs, and
+opened on a table header row. Wave 2 applied `docs/ORG-UX-REDESIGN.md` §2 to it: every panel now
+opens on a shape, and each demoted sentence landed in an encoding, a disclosure, an empty state or
+this document.
+
+**The leaderboard is a distribution first.** `RepositoriesLeaderboardPanel` renders a fleet
+`Distribution` (kit, `@/components/org/viz`) above the sorted table — the min/q1/median/q3/max of the
+overall scores in the ACTIVE posture/stack scope, so the box and the rows can never describe
+different fleets. The table is unchanged and is the drill-down evidence. Repos with no scan are
+counted beside the box under the `not-judged` hatch; they never enter a quartile, and a fleet with
+fewer than two scored repos draws the `missing` void rather than a zero-width box. The five numbers
+come from `fleetShape.ts` (pure, unit-tested), so the plot and its `sr-only` table are the same
+arithmetic.
+
+**Foundation rollout is a matrix of three epistemic states, and two of them were being asserted
+wrongly.** `foundationViz.ts` maps each repo onto `PR × Report-back × Conformance`:
+
+| Cell | State | Why |
+| --- | --- | --- |
+| Ascent opened the foundation PR | `declared` | `foundation.pr_opened` records a **draft** PR (`src/lib/github/write.ts` sends `draft: true`). An unmerged draft is a claim about the fleet, not an observation of it. |
+| No Ascent PR | `not-judged` | A team that hand-committed `.ai/` never passes through Ascent, so an empty cell here is unobserved — not "no foundation". |
+| Report-back provisioned | `measured` | Ascent wrote those secrets itself. |
+| Not provisioned | `missing` (void) | Not "off": the repo may still run `.ai/doctor.mjs` locally, unseen. |
+| Conformance reported | `measured` + score | A genuine 0% keeps its numeral. |
+| Never reported | `missing` (void) | An absence, never a zero — and `rendersValue` makes that structural rather than a caption. |
+
+The panel's disabled bulk action now reads **"Foundation PR opened in every repo"** instead of
+"Foundation installed everywhere", and each row reads **"PR opened"** instead of "Installed". The
+CTA still says "install" (that is the intent, and `OnboardingFoundationPanel` says the same); only
+the state claims were corrected.
+
+**Context half-life is drawn as decay.** `FleetDecayScatter` plots every measured repo's potency
+against the ≈commits that landed since its guidance was last edited, with the fleet's own **median**
+decay curve through the cloud — the rate is recovered from the points themselves
+(`contextDecayViz.ts`), never assumed, and no curve is drawn when no repo has decayed enough to
+supply one. A dot under the dashed 50% rule is a context file that misleads an agent more often than
+it helps. Repos that cannot be measured are counted under the plot with their own marks: freshness
+unknown and scanned-before-the-signal are `not-judged`, no-guidance-file is a `missing` void. The
+per-row ledger (`DecayRow`) carries the same marks, and the potency column is gated by
+`rendersValue`, so an unjudged repo cannot print a number.
+
+**Guidance coherence is drawn as a spread.** The card opens on a `Distribution` of the fleet's
+coherence scores (`coherenceSpread.ts`) rather than on a mean: a fleet split between clean repos and
+a handful of contradicting ones and a uniformly-middling fleet share the same average. The
+denominator rule is unchanged — a repo with `coherence: null` (not assessed, or carrying no guidance
+document) is excluded from the box and hatched beside it.
+
+**Segments compare as paired rows on one axis.** `SegmentDumbbell` replaces the two columns of
+figures and the two meters per dimension: A is the filled mark, B the hollow one, and the bar between
+them is the delta. A segment with no scanned repo has no mark at all — `segmentViz.ts` maps the
+`avgOverall: 0` sentinel to `null`, so it can be neither plotted nor printed, and the delta is
+withheld rather than computed against a sentinel. The comparison is no longer suppressed when one
+side is empty; the reader can now see which metrics exist on the other side. The maturity strip opens
+on a `SegmentMaturityGrid` (`MatrixGrid` over segments × Overall/Adopt/Rigor) with the same hatch for
+an unscanned slice; the cards below keep the per-segment scan and cadence controls.
+
+`SectionHeader description` in the directory went from 6 sentences to 5 scope/unit fragments
+(`"12/41 scanned · ~4-week activity"`, `"3/41 reporting back"`, `"12 assessed · 0–100 agreement"`,
+`"12/41 assessed · ≈commits since edit"`, `"4 slices · 0–100, latest scans"`). Two were deleted
+outright.
+
+Everything above imports the shared kit; no state encoding, hatch, dash, legend or level colour is
+re-implemented, and the new SVGs (`FleetDecayScatter`, `SegmentDumbbell`) paint only from `scoreHex`
+and CSS tokens. Each is `role="img"` with a generated `<title>` and an `sr-only` table built from the
+same numbers the geometry is.
+
+### Adoption, redesigned: the spread is a curve (Wave 2, 2026-09-08)
+
+Adoption was a **Tier-B** tab with the densest prose-per-component ratio on the dashboard: **483
+characters of `SectionHeader description` across only seven components, and zero SVG**. The thing it
+measures — how AI-native the org's engineering is — is a *distribution*, and it was rendered as four
+tiles, three meters and a segmented bar, each captioned by the sentence that told you what the shape
+below was about to say. `SectionHeader description=` in the directory fell from **4 to 1**, and the
+survivor is 57 characters of window only.
+
+| Panel | Was | Is |
+| --- | --- | --- |
+| Tab opening | A 213-char lede fusing a definition, a contents list, an adjacency claim and a CTA instruction, above a row of tiles | `AdoptionCurve` — the survival curve of personal AI share — as the first element, with the tiles beneath it as the quantities |
+| Adoption spread | One segmented bar under "Every contributor, by how much of their own recent work is AI-attributed" | The same curve: three **measured** thresholds, a hatched `not-judged` envelope where the producer buckets rather than observes, and the org's commit-weighted share as a reference tick on the same axis |
+| Team adoption | Eight `scoreHex` meters under "where AI habits live, and where they haven't spread yet" | `MatrixGrid` — AI commits × AI-active per CODEOWNERS team — where an unattributed team is **hatched and carries no numeral** |
+| AI champions | A ranked meter list under "Culture carriers: high AI adoption across real volume…" | The same meters, with the naming-floor suppression and a genuine "nobody yet" now painted as **two different marks** |
+| AI tooling in PRs | A chip band trailed by "detected via PR co-authorship / body markers" | The same chips, with the provenance caveat on a `WhyChip` |
+| Delivery context | A strip captioned "shown beside adoption, not a causal claim" | The same strip; the reading constraint is a `WhyChip`, and the PR count is left as a bare unit |
+
+**Adoption is a curve, and the honest curve is three points and a hole.** For a threshold *t*, the
+curve is "what share of contributors carry at least *t*% AI-attributed work".
+`getContributorInsights` buckets that at exactly three thresholds (0, ≥1, ≥50), so `AdoptionCurve`
+draws three measured marks, a hatched `not-judged` envelope over each interval where the curve is
+*bounded but not observed*, and **nothing at all** through the interior. A smooth line between the
+buckets would assert a shape nobody read. The bounds are real: the curve is non-increasing, so
+between ≥1% and ≥50% it provably lies between those two shares — and that is what the band is. The
+tail envelope above the heavy edge is dropped when nobody is heavy, because a zero-height band draws
+a hairline that reads as a measurement.
+
+**There is no time axis on this tab, deliberately, and the redesign did not invent one.**
+`buildAdoptionOverview` assembles latest-scan snapshots — `getContributorInsights`,
+`getOrgPrSignals`, `getOrgTeamRollup` — none of which carries per-day history, and `RepoContributor`
+is uniquely keyed `(repoId, login)` and upserted each scan (see "No per-contributor drill-down page,
+deliberately"). Adoption-over-time would have had to be fabricated, so the curve runs over the
+*population* axis instead. The one clause that survived into the header says exactly this, as a
+window statement: **"Latest-scan snapshot · the period selector does not apply"** — the period picker
+is cross-tab state, so a reader who chose "90 days" on Overview arrives with that selection still
+showing and nothing here can honour it. Delete that line only along with the period picker.
+
+**A team with nothing to measure is no longer a team measured at zero.** `rollupTeams`
+(`src/lib/db/org-teams.ts`) computes `aiCommitShare = totCommits ? … : 0` and keeps any team with a
+live-scored repo, so a team whose repos were scanned **without commit history** arrives as
+`contributors: 0, aiContributors: 0, aiCommitShare: 0`. The old meter painted that with `scoreHex(0)`
+— an alarm-red bar reading `0% · 0/0`, pixel-identical to a team measured at a genuine 0% across five
+hundred commits. One is "we looked and nobody used AI"; the other is "there was nothing to take a
+share **of**". `adoptionTeamMatrix.ts` splits them: `contributors === 0` → `not-judged`, which
+`MatrixGrid` hatches and on which `rendersValue` refuses to print any numeral. The discriminator is
+exact rather than heuristic — the team's commit totals are summed over the same people map, so no
+contributor rows means no commits by construction. Pinned in `adoptionTeamMatrix.test.ts` (the two
+identical `0%` payloads must render different states) and in `AdoptionViz.dom.test.tsx`.
+
+The same split runs through the champions card: below `CHAMPION_MIN_POP` the producer **withholds**
+the list, which is a suppression and now leads with the `not-judged` hatch; `champions.length === 0`
+above the floor is a real reading and leads with the `missing` void. They used to be the same muted
+line.
+
+Prose moved rather than vanished. `adoptionHints.ts` holds every demoted sentence in one module — the
+attribution provenance, the CODEOWNERS basis, what a champion is for, how tooling is detected, why
+delivery sits beside adoption and not beneath it, why the curve is hatched between thresholds, and
+why the commit denominator is dropped rather than printed as a zero below the naming floor — so the
+tab's caveats are auditable as a list instead of scattered across seven files, and a caveat cannot
+drift from the picture it qualifies. The CTA instruction ("copy the brief into Claude Code for an
+enablement plan") moved onto the `CopyForLlm` button's own `title`, where it is an affordance. The
+argument for the tab is now in the **empty state**, where the reader has nothing to look at.
+
+Enablement targeting stays where the 2026-08-19 decision put it: the spread's "none" follow-up is
+still the cross-tab deep link to Contributors, and this tab still never re-derives the cohort.
+
+Curve geometry lives in the pure `adoptionCurveModel.ts`, so the SVG, its generated `<title>` and its
+`sr-only` table are demonstrably the same numbers; `buildAdoptionCurve` refuses an empty or
+incoherent population (buckets exceeding the headcount) and the chart degrades to a labelled
+placeholder rather than plotting a NaN. Contributors the buckets do not claim are carried as
+`unclassified` — an absence, never folded into the "none" bucket, which asserts a measured zero.
+
+---
+
+### One rule, four places it was not applied (Wave 2 postscript, 2026-09-08)
+
+Wave 2's four correctness fixes are **one bug**, and this document already contained the rule that
+governs it. [Mock scores never enter an average](#mock-scores-never-enter-an-average-2026-08-03)
+states it for one kind of absence: a fleet with no live-scored repo renders `—`, "**Null, never 0**,
+because a `0` in `scoreHex(0)` alarm-red reads as a catastrophic grade rather than 'not measured'."
+
+That rule was written for *mock* rows and enforced there thoroughly — producer-side, with tests. It
+was never generalised, so every other flavour of absence re-learned it the hard way:
+
+| Where | The absence | What it rendered |
+| --- | --- | --- |
+| `AiBar` (Contributors, Wave 1) | contributor with no commits to take a share OF | identical to a measured 0% |
+| `RepoDimensionHeatmap` (Overview) | dimension the latest scan never scored | red 0, announced "score 0", clickable into a modal for a measurement that does not exist |
+| `rollupTeams` → `TeamAdoption` (Adoption) | team whose repos were scanned without commit history | alarm-red `0% · 0/0`, identical to a genuine 0% over 500 commits |
+| `getOrgPractices` → `PracticeLedger` (Practices) | repos never assessed for a practice | dropped from the denominator silently: 2-of-41 drew the same full-width meter as 41-of-41 |
+
+The common cause is not carelessness. It is that **the codebase had no way to say "unmeasured"**, so
+every surface reached for the nearest available value, and `0` is always available. A rule stated in
+prose is re-derivable but not enforceable; four teams re-derived it four ways and three got it wrong.
+
+`states.ts` is that rule with a type behind it. `missing` and `not-judged` return
+`rendersValue() === false`, so a void cell **cannot** print a numeral — a surface that wants to show
+a zero there has to delete the guard on purpose, in a diff, where it is visible. The doctrine did not
+change in this redesign; it acquired an implementation.
+
+**Producer-level residue.** Two of the four are still wrong upstream, fixed only at the view: `rollupTeams`
+emits `aiCommitShare: 0` rather than a nullable field (so the Teams tab and the Copy-for-LLM brief still
+print it as a measurement), and `compareSegments` returns per-segment averages with no way to
+distinguish an unscanned segment. Both are recorded in Known gaps; neither is a drawing problem.
+
+
+
 ## Key files
 
 | File | Role |
@@ -1996,6 +2287,18 @@ with no numeral where `forecastInsufficiency` refuses to state one.
 
 ## Known gaps
 
+- **Two producers still emit `0` where they mean "unmeasured"** (found 2026-09-08 by the /org
+  redesign; see [One rule, four places it was not applied](#one-rule-four-places-it-was-not-applied-wave-2-postscript-2026-09-08)).
+  `rollupTeams` (`src/lib/db/org-teams.ts`) emits `aiCommitShare: 0` for a team with no contributor
+  attribution instead of a nullable field, so **every** consumer must re-derive the distinction from
+  `contributors === 0`. The Adoption tab now does (`adoptionTeamMatrix.teamState`); the **Teams tab
+  and the Copy-for-LLM brief still print that `0%` as a measurement**. And `compareSegments`
+  (`src/lib/db/segments.ts`) returns per-segment averages only, with an unscanned segment reducing to
+  the `0` sentinel and no field distinguishing it — the A/B view hatches it at the view layer, and
+  cannot draw two real distributions because the per-repo scores summarised inside `summarizeSegment`
+  are not returned. Both are producer fixes (`number | null`, and a five-number summary per side);
+  neither is a drawing problem, and each was deliberately left rather than widening a shared query
+  from inside a tab.
 - **`permittedModels` is declared and unchecked, and stays that way.** Not an oversight and not a
   backlog item waiting for effort: no ingest in the product retains a MODEL dimension. `AiUsage` keys
   by `(source, scope, scopeKey, day)`, and PR attribution identifies a tool, not a model. A compiled
