@@ -1,15 +1,20 @@
 // The version timeline for one registry skill (#36): what each version changed, and what the runs
 // against it taught.
 //
-// Two groups are labelled rather than hidden, because both are facts about the READ and not about
-// the skill: commits whose version could not be resolved (beyond the blob-read budget) render "—",
-// and lessons whose declared version matches no resolved commit sit in their own group saying so.
-// Merging either into the newest version would look like a fuller history and be an invention.
+// FIRST SIGHT IS THE TRACK. The three facts this timeline used to caption are now its geometry — a
+// commit whose version could not be resolved hatches (`not-judged`), a lesson that matches no
+// resolved commit is a dashed outline (`declared`), and history older than the read budget is a void
+// at the left edge rather than a sentence underneath saying the picture is incomplete. Merging any of
+// them into the newest version would look like a fuller history and be an invention.
+//
+// The grouped list below is the drill-down: the same groups, with each commit and lesson in full.
 //
 // Server-safe (no hooks): pure presentation over the fold.
 
 import { timeAgo } from "@/lib/ui";
+import { Legend, StateTrack, type VizState } from "@/components/org/viz";
 import { groupLessonsByVersion, traceGroupLabel } from "@/lib/registry/trace";
+import { traceLanes } from "./skillTraceViz";
 import type { TraceEntryView, TraceLessonView } from "./skillTrace";
 import { SkillLessonList } from "./SkillLessonList";
 
@@ -27,9 +32,26 @@ export function SkillTraceTimeline({
     return <p className="type-body-sm text-slate-500">No commits and no lessons for this skill yet.</p>;
   }
   const byId = new Map(lessons.map((l) => [l.id, l]));
+  const track = traceLanes(groups, truncated);
+  const present: VizState[] = track ? [...new Set(track.rows.flatMap((r) => r.segments.map((s) => s.state)))] : [];
 
   return (
     <div className="space-y-4">
+      {track && (
+        <figure>
+          <StateTrack
+            rows={track.rows}
+            start={track.start}
+            end={track.end}
+            ticks={track.ticks}
+            title="Version history"
+          />
+          <figcaption className="mt-1.5">
+            <Legend states={present} />
+          </figcaption>
+        </figure>
+      )}
+
       {groups.map((g, i) => (
         <section key={`${g.version ?? "unresolved"}-${i}`} className="border-l border-slate-800 pl-3">
           <div className="flex flex-wrap items-baseline gap-x-2">
@@ -56,12 +78,6 @@ export function SkillTraceTimeline({
           <SkillLessonList lessons={g.lessons.map((l) => byId.get(l.id)!).filter(Boolean)} />
         </section>
       ))}
-
-      {truncated && (
-        <p className="type-caption text-slate-600">
-          older commits exist beyond the read budget — this is the recent end of the history
-        </p>
-      )}
     </div>
   );
 }
