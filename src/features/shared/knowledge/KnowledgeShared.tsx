@@ -6,10 +6,14 @@
 
 import { Kicker } from "@/components/ui";
 import { chipButtonClass } from "@/components/ui";
+import { STATE_HINT, StateSwatch } from "@/components/org/viz";
 import type { KnowledgeCell, KnowledgeCellState, KnowledgeDomain, KnowledgeRepo, KnowledgeView } from "@/lib/org/knowledge-shape";
 import {
   ABSENCE_STATES,
+  CELL_REASON,
+  CELL_VIZ_STATE,
   STAGE_LABEL,
+  STAGE_VIZ_STATE,
   STATE_CLASS,
   STATE_GLYPH,
   STATE_LABEL,
@@ -33,9 +37,11 @@ export function CellButton({
   size?: "sm" | "md";
 }) {
   const pickable = !!onPick && (cell.state === "unknown" || cell.state === "deviation" || cell.state === "candidate" || cell.stale);
+  // (D) The epistemic caveat rides here, from the kit's canonical vocabulary — the encoding's meaning
+  // first, then why THIS cell earned it. Present on hover/focus, absent at first sight.
   const title = `${repo} · ${cell.subject} — ${STATE_LABEL[cell.state]}${cell.stale ? " (stale: judged against an older standard)" : ""}${
     cell.contexts ? ` · ${cell.contexts} context${cell.contexts === 1 ? "" : "s"}` : ""
-  }${cell.evidence ? `\n${cell.evidence}` : ""}`;
+  }${cell.evidence ? `\n${cell.evidence}` : ""}\n${STATE_HINT[CELL_VIZ_STATE[cell.state]]} ${CELL_REASON[cell.state]}`;
   const box = size === "sm" ? "h-5 w-5 type-micro" : "h-7 w-11 type-mono-sm";
   const ring = picked ? "ring-2 ring-accent ring-inset" : "";
   const stale = cell.stale ? "underline decoration-dotted underline-offset-2" : "";
@@ -62,30 +68,8 @@ export function CellButton({
   );
 }
 
-const legendItem = (s: KnowledgeCellState) => (
-  <span key={s} className="inline-flex items-center gap-1.5">
-    <span className={`inline-flex h-4 w-4 items-center justify-center font-mono type-micro ${STATE_CLASS[s]}`}>{STATE_GLYPH[s]}</span>
-    <span>{STATE_LABEL[s]}</span>
-  </span>
-);
-
-/** Verdicts on one line, absences on the next — two halves of one vocabulary, never mixed. */
-export function StateLegend({ compact = false }: { compact?: boolean }) {
-  return (
-    <div className="space-y-1 type-caption text-slate-500">
-      <div className="flex flex-wrap gap-x-4 gap-y-1">
-        <span className="text-slate-600">verdicts</span>
-        {VERDICT_STATES.map(legendItem)}
-      </div>
-      {compact ? null : (
-        <div className="flex flex-wrap gap-x-4 gap-y-1">
-          <span className="text-slate-600">absences</span>
-          {ABSENCE_STATES.map(legendItem)}
-        </div>
-      )}
-    </div>
-  );
-}
+// The legend moved to `KnowledgeStateLegend.tsx`, where each row's mark is the kit's real
+// `StateSwatch` under the domain glyph rather than a tone this file invented.
 
 const STAGE_TONE: Record<KnowledgeRepo["stage"], string> = {
   populate: "border-accent/60 text-accent",
@@ -94,9 +78,18 @@ const STAGE_TONE: Record<KnowledgeRepo["stage"], string> = {
   current: "border-slate-700 text-slate-500",
 };
 
+/** A repo's next act, with its epistemic state on the mark and the caveat in the title. */
 export function StageChip({ stage, className = "" }: { stage: KnowledgeRepo["stage"]; className?: string }) {
   return (
-    <span className={`inline-flex rounded-md border px-1.5 py-0.5 type-micro uppercase tracking-[0.16em] ${STAGE_TONE[stage]} ${className}`}>
+    <span
+      className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 type-micro uppercase tracking-[0.16em] ${STAGE_TONE[stage]} ${className}`}
+      title={STATE_HINT[STAGE_VIZ_STATE[stage]]}
+    >
+      {/* Decorative here: the chip's own words name the stage, so the swatch would otherwise read
+          the vocabulary out twice inside a control's accessible name. */}
+      <span aria-hidden className="inline-flex">
+        <StateSwatch state={STAGE_VIZ_STATE[stage]} size={8} />
+      </span>
       {STAGE_LABEL[stage]}
     </span>
   );
@@ -124,7 +117,14 @@ export function SweepStrip({ view, onSweep, pending = false }: { view: Knowledge
         <Kicker tone="muted" as="span">
           Fleet sweep
         </Kicker>
-        <span className={`type-mono-sm ${never ? "text-accent" : "text-slate-300"}`}>{never ? "never run" : sweepAge(view.sweep.lastAt)}</span>
+        {/* The instrument's calibration state, encoded: a void when it never ran, a solid mark when
+            it did. The caveat is the kit's, disclosed on the mark rather than printed beside it. */}
+        <span className="inline-flex items-center gap-1.5" title={STATE_HINT[never ? "missing" : "measured"]}>
+          <span aria-hidden className="inline-flex">
+            <StateSwatch state={never ? "missing" : "measured"} size={10} />
+          </span>
+          <span className={`type-mono-sm ${never ? "text-accent" : "text-slate-300"}`}>{never ? "never run" : sweepAge(view.sweep.lastAt)}</span>
+        </span>
         {view.sweep.warnings.length ? (
           <span className="type-caption text-slate-500" title={view.sweep.warnings.join("\n")}>
             {view.sweep.warnings.length} warning{view.sweep.warnings.length === 1 ? "" : "s"}

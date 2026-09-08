@@ -16,8 +16,10 @@
 import { useState } from "react";
 import type { KnowledgeView } from "@/lib/org/knowledge-shape";
 import { KnowledgeComposer } from "./KnowledgeComposer";
+import { KnowledgeCoverage } from "./KnowledgeCoverage";
 import { KnowledgeLoomGrid } from "./KnowledgeLoomGrid";
-import { DomainPicker, StateLegend, SweepStrip } from "./KnowledgeShared";
+import { DomainPicker, SweepStrip } from "./KnowledgeShared";
+import { StateLegend } from "./KnowledgeStateLegend";
 import { KnowledgeSubjectDetail } from "./KnowledgeSubjectDetail";
 import { STAGE_ACTION, buildTree, columnRepos, indexCells, subjectsOf, unmappedRepos } from "./knowledgeModel";
 import { useKnowledgeActions } from "./useKnowledgeActions";
@@ -59,11 +61,17 @@ export function KnowledgeLoom({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <DomainPicker domains={view.domains} active={domain.name} onPick={api.setDomain} />
+        {/* Unit and window only. "N of M golden paths mirrored" is the coverage matrix's Mirrored
+            axis now — a share is a shape, not a sentence. */}
         <span className="type-caption text-slate-500">
-          {subjects.length} of {domain.subjects} golden paths mirrored · {cols.length} repo{cols.length === 1 ? "" : "s"} on the map
+          {cols.length} repo{cols.length === 1 ? "" : "s"} on the map
           {view.sweep.truncated ? " · pair list truncated" : ""}
         </span>
       </div>
+
+      {/* First sight is graphical: coverage, routability and judged share, per bundle. */}
+      <KnowledgeCoverage view={view} />
+
       <SweepStrip view={view} onSweep={() => actions.sweep()} pending={actions.state.pending === "sweep"} />
 
       {subjects.length === 0 ? (
@@ -91,7 +99,9 @@ export function KnowledgeLoom({
         </div>
       ) : null}
 
-      {subjects.length ? <KnowledgeLoomGrid domain={domain} tree={tree} cols={cols} cells={cells} api={api} collapsed={collapsed} onToggle={toggle} /> : null}
+      {subjects.length ? (
+        <KnowledgeLoomGrid view={view} domain={domain} tree={tree} cols={cols} cells={cells} api={api} collapsed={collapsed} onToggle={toggle} />
+      ) : null}
       <StateLegend />
 
       <KnowledgeComposer view={view} api={api} actions={actions} className="lg:sticky lg:bottom-3" />

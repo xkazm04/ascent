@@ -5,13 +5,20 @@
 // of eleven states. Chrome (headers, group rows) renders from the taxonomy unconditionally; only the
 // cells are data — the `table` golden path's chrome/body split.
 
-import type { KnowledgeDomain, KnowledgeRepo } from "@/lib/org/knowledge-shape";
+import { STATE_HINT, StateSwatch } from "@/components/org/viz";
+import type { KnowledgeDomain, KnowledgeRepo, KnowledgeView } from "@/lib/org/knowledge-shape";
 import { KnowledgeRepoBadges } from "./KnowledgeRepoBadges";
 import { CellButton, StageChip } from "./KnowledgeShared";
 import { type CellIndex, type TreeGroup, countStates } from "./knowledgeModel";
+import { subjectVizState } from "./knowledgeViz";
 import type { KnowledgeSelectionApi } from "./useKnowledgeSelection";
 
+/** Why THIS subject row carries THIS provenance state, beside the kit's sentence about the encoding. */
+const PROVENANCE_REASON =
+  "A solid mark means this Ascent holds the subject's own content digest and a revision, so its freshness has an answer; a dashed one means the registry declares the subject and no index pass ever resolved it.";
+
 export function KnowledgeLoomGrid({
+  view,
   domain,
   tree,
   cols,
@@ -20,6 +27,7 @@ export function KnowledgeLoomGrid({
   collapsed,
   onToggle,
 }: {
+  view: KnowledgeView;
   domain: KnowledgeDomain;
   tree: TreeGroup[];
   cols: KnowledgeRepo[];
@@ -88,9 +96,20 @@ export function KnowledgeLoomGrid({
                     ...sc.subjects.map((s) => (
                       <tr key={s.slug} className="hover:bg-surface/30">
                         <th scope="row" className="px-3 py-0.5 text-left font-normal">
-                          <button type="button" className={`focus-ring type-mono-sm hover:text-white ${sel.subject === s.slug ? "text-accent" : "text-slate-300"}`} onClick={() => api.focusSubject(s.slug)}>
-                            {s.slug}
-                          </button>
+                          {/* The warp's own provenance, drawn OUTSIDE the button so the control's
+                              accessible name stays exactly the subject slug. */}
+                          <span className="flex items-center gap-1.5">
+                            <span
+                              className="inline-flex"
+                              data-provenance={subjectVizState(view, s)}
+                              title={`${STATE_HINT[subjectVizState(view, s)]} ${PROVENANCE_REASON}`}
+                            >
+                              <StateSwatch state={subjectVizState(view, s)} size={8} />
+                            </span>
+                            <button type="button" className={`focus-ring type-mono-sm hover:text-white ${sel.subject === s.slug ? "text-accent" : "text-slate-300"}`} onClick={() => api.focusSubject(s.slug)}>
+                              {s.slug}
+                            </button>
+                          </span>
                         </th>
                         {cols.map((r) => {
                           const cell = cells.get(s.slug, r.repositoryId);

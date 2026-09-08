@@ -39,7 +39,10 @@ describe("KnowledgeLoom", () => {
   it("renders every mapped repo as a column and opens the reader from a row label", () => {
     render(<KnowledgeLoom view={view} slug="acme" />);
     const mapped = view.repos.filter((r) => r.hasMap);
-    expect(screen.getAllByRole("columnheader")).toHaveLength(mapped.length + 1);
+    // Scoped to the loom's own table: the coverage matrix above it ships an sr-only table of its own,
+    // and a document-wide columnheader count would silently absorb it.
+    const loom = within(screen.getByRole("table", { name: /against every mapped repository/ }));
+    expect(loom.getAllByRole("columnheader")).toHaveLength(mapped.length + 1);
     fireEvent.click(screen.getByRole("button", { name: "agent-memory" }));
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText(/Consulted when/)).toBeTruthy();
@@ -64,6 +67,28 @@ describe("KnowledgeLoom", () => {
     expect(body.mode).toBe("brief");
     expect(body.stage).toBe("conform");
     expect(body.subjects).toHaveLength(1);
+  });
+
+  it("teaches ONE vocabulary: every legend row is the kit's swatch under the domain glyph", () => {
+    render(<KnowledgeLoom view={view} slug="acme" />);
+    // The domain axis names which of the eleven; the kit's swatch carries the epistemic reading and
+    // its canonical sentence. A row with neither would be this tab inventing a second dialect.
+    const unjudged = screen.getByText("Unjudged").closest("li")!;
+    expect(unjudged.querySelector('svg[role="img"]')!.getAttribute("aria-label")).toMatch(/^Not judged/);
+    expect(unjudged.getAttribute("title")).toMatch(/never counted as passing/);
+    const noMap = screen.getByText("No registry map").closest("li")!;
+    expect(noMap.querySelector('svg[role="img"]')!.getAttribute("aria-label")).toMatch(/^No measurement/);
+  });
+
+  it("marks each subject row with its provenance, outside the row's own control", () => {
+    render(<KnowledgeLoom view={view} slug="acme" />);
+    const marks = document.querySelectorAll("[data-provenance]");
+    expect(marks.length).toBeGreaterThan(0);
+    expect([...marks].some((m) => m.getAttribute("data-provenance") === "measured")).toBe(true);
+    // A subject the index never resolved to a revision is declared, never drawn as fresh.
+    expect([...marks].some((m) => m.getAttribute("data-provenance") === "declared")).toBe(true);
+    // The button's accessible name is still exactly the slug — the swatch sits beside it, not in it.
+    expect(screen.getByRole("button", { name: "agent-memory" })).toBeTruthy();
   });
 
   it("says loudly when the fleet was never swept and offers the sweep", () => {

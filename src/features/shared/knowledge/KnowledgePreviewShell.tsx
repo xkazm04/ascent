@@ -10,10 +10,15 @@
 
 import { useState } from "react";
 import { Kicker } from "@/components/ui";
+import { WhyChip } from "@/components/org/viz";
 import type { KnowledgeView } from "@/lib/org/knowledge-shape";
 import { KnowledgeLoom } from "./KnowledgeLoom";
 
 const CHIP = "focus-ring rounded-md px-2.5 py-1.5 type-mono-sm transition-colors";
+
+/** (D) What the shaped fleet is made of — on demand, since it describes the picture below it. */
+const SHAPED_HINT =
+  "The registry's real software-engineering taxonomy (52 of 214 subjects) over an eight-repo fleet shaped to reach every cell state and every repo stage.";
 
 export function KnowledgePreviewShell({ slug, fixture, children }: { slug: string; fixture: KnowledgeView; children: React.ReactNode }) {
   const [shaped, setShaped] = useState(false);
@@ -31,8 +36,11 @@ export function KnowledgePreviewShell({ slug, fixture, children }: { slug: strin
             </button>
           </div>
           {shaped ? (
-            <span className="type-caption text-slate-500">
-              The registry&rsquo;s real software-engineering taxonomy (52 of 214 subjects) over an eight-repo fleet that reaches every cell state. Nothing here is this org&rsquo;s data; actions are inert.
+            // The safety half stays VISIBLE — a reader must never have to hover to learn the numbers
+            // are not theirs. The descriptive half (what the fixture is made of) is (D) disclosed.
+            <span className="inline-flex items-center gap-1.5 type-caption text-slate-500">
+              Nothing here is this org&rsquo;s data; actions are inert.
+              <WhyChip hint={SHAPED_HINT} label="shaped fleet" />
             </span>
           ) : null}
         </div>
