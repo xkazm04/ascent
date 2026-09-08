@@ -36,20 +36,28 @@ export function CellButton({
   const title = `${repo} · ${cell.subject} — ${STATE_LABEL[cell.state]}${cell.stale ? " (stale: judged against an older standard)" : ""}${
     cell.contexts ? ` · ${cell.contexts} context${cell.contexts === 1 ? "" : "s"}` : ""
   }${cell.evidence ? `\n${cell.evidence}` : ""}`;
-  const box = size === "sm" ? "h-5 w-5 type-micro" : "h-7 w-9 type-mono-sm";
+  const box = size === "sm" ? "h-5 w-5 type-micro" : "h-7 w-11 type-mono-sm";
   const ring = picked ? "ring-2 ring-accent ring-inset" : "";
   const stale = cell.stale ? "underline decoration-dotted underline-offset-2" : "";
-  const cls = `focus-ring flex ${box} items-center justify-center font-mono ${STATE_CLASS[cell.state]} ${ring} ${stale}`;
+  const cls = `focus-ring flex ${box} items-center justify-center gap-1 font-mono ${STATE_CLASS[cell.state]} ${ring} ${stale}`;
+  // A judged cell carries its context count beside the glyph — the fold hides N rows behind one
+  // state, and the number says how many. Absences are glyph-only: nothing is folded there.
+  const face = (
+    <>
+      {STATE_GLYPH[cell.state]}
+      {cell.contexts > 0 && size === "md" ? <span className="text-[10px] tabular-nums text-slate-500">{cell.contexts}</span> : null}
+    </>
+  );
   if (!pickable) {
     return (
       <span className={cls} title={title} aria-label={title}>
-        {STATE_GLYPH[cell.state]}
+        {face}
       </span>
     );
   }
   return (
     <button type="button" className={`${cls} hover:ring-1 hover:ring-accent/60 hover:ring-inset`} title={title} aria-pressed={picked} onClick={onPick}>
-      {STATE_GLYPH[cell.state]}
+      {face}
     </button>
   );
 }

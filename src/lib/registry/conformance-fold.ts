@@ -11,7 +11,7 @@
 // above nothing but absence: it is "nobody looked", never a tick.
 
 import type { ConformanceState } from "./conformance-map";
-import type { KnowledgeCellState } from "@/lib/org/knowledge-shape";
+import type { KnowledgeCellState, KnowledgeContextRow } from "@/lib/org/knowledge-shape";
 
 /** Higher wins. Shared vocabulary with `buildMatrix`'s `rank` in the feature module. */
 export const CELL_RANK: Record<ConformanceState, number> = { deviation: 4, conformant: 3, "not-applicable": 2, unjudged: 1 };
@@ -23,6 +23,13 @@ export interface FoldablePair {
   state: ConformanceState;
   evidence: string | null;
   evaluatedAgainst: string | null;
+  /** The context the pair sits on — the half of the relation the cell used to drop. */
+  contextName: string;
+  contextGroup: string | null;
+  /** The subject revision the verdict was judged at; absent/null for pre-revision verdicts. */
+  evaluatedRevision?: number | null;
+  /** The context was not in the previous map. */
+  arrived?: boolean;
 }
 
 export interface FoldedCell {
@@ -34,6 +41,22 @@ export interface FoldedCell {
   /** The worst pair's verdict was written against a digest that is not the subject's current one.
    *  False when either side is unknown — an unknown digest is not evidence of staleness. */
   stale: boolean;
+  /** One row per pair, worst state first then by context name. */
+  contextRows: KnowledgeContextRow[];
+}
+
+/** Wire the pair's context half through. Worst state first, then name, so the order is stable. */
+export function toContextRows(pairs: FoldablePair[], digest: string | null): KnowledgeContextRow[] {
+  return pairs
+    .map((p) => ({
+      name: p.contextName,
+      group: p.contextGroup,
+      state: toCellState(p.state) as KnowledgeContextRow["state"],
+      stale: isStalePair(p, digest),
+      judgedRevision: p.evaluatedRevision ?? null,
+      arrived: p.arrived ?? false,
+    }))
+    .sort((a, b) => CELL_RANK[b.state === "unknown" ? "unjudged" : b.state] - CELL_RANK[a.state === "unknown" ? "unjudged" : a.state] || a.name.localeCompare(b.name));
 }
 
 /** Is a JUDGED pair's verdict older than the subject's digest? Both sides must be known. */
@@ -59,5 +82,6 @@ export function foldPairs(pairs: FoldablePair[], digest: string | null): FoldedC
     contexts: pairs.length,
     evidence: worst.evidence,
     stale: isStalePair(worst, digest),
+    contextRows: toContextRows(pairs, digest),
   };
 }

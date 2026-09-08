@@ -209,7 +209,8 @@ async function runProbeJob(job: ScanJobRow, slug: string, ctx: OrgContext, summa
  * The paid lane. Byte-for-byte the cron's money policy, moved not rewritten:
  *   • a broken installation token backs off 6h rather than skipping a whole cadence;
  *   • the credit is reserved BEFORE inference and recorded on the JOB ROW (`creditCharged`), which is
- *     now the single record of the reservation — a process kill leaves it attributable;
+ *     now the single record of the reservation — a process kill leaves it attributable, AND the
+ *     retry READS it back so the org is not charged a second time for the same job (below);
  *   • `inferenceBilled` marks the moment a real (non-mock) report exists: a failure after that keeps
  *     the credit, because the inference genuinely ran and a refund would mint a free scan on retry.
  */
@@ -227,8 +228,22 @@ async function runRescoreJob(job: ScanJobRow, slug: string, ctx: OrgContext, sum
   }
 
   const metered = slug.toLowerCase() !== "public" && !(await ctx.isByom(slug));
-  let charged = false;
-  if (metered) {
+  // A REQUEUED row may already hold a credit. reapExpiredLeases returns a process-killed worker's job
+  // to the queue by clearing state/claimedAt/claimedBy/leaseUntil — and deliberately NOT
+  // `creditCharged`, because settleJob is the only path that clears it and it clears it only on a
+  // refund. So `creditCharged: true` on a claimed row means exactly one thing: a credit was reserved
+  // for this job and never given back. Reserving again would charge the org a second time for one
+  // scan, and up to MAX_JOB_ATTEMPTS times for one repo — precisely in the scenario this queue was
+  // built for (the 300s ceiling killing a worker mid-inference).
+  //
+  // NOT ATOMIC, and the residue is stated rather than hidden: a kill landing between
+  // reserveScanCredit and markJobCredit still leaves the row saying `false`, so that attempt does
+  // re-reserve. This narrows the window from the whole inference (seconds to minutes) to a single DB
+  // write, which is as far as it goes without folding the reservation and the mark into one
+  // transaction across two stores.
+  const carriedCredit = metered && job.creditCharged;
+  let charged = carriedCredit;
+  if (metered && !carriedCredit) {
     // Ledger attribution: no human is in the loop when a job drains, so the honest actor is the queue
     // and the reason the job was enqueued for ("manual" from the dashboard, "cadence" from the cron,
     // "webhook" from a push) — the nearest true answer to "what spent this credit", and enough to tell

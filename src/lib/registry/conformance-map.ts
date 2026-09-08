@@ -48,6 +48,15 @@ export interface ConformancePair {
   evaluatedAt: string | null;
   /** The bundle digest the verdict was written against — how a reader knows it is stale. */
   evaluatedAgainst: string | null;
+  /** The subject revision the verdict was judged at (written by `/conform`). Null = pre-revision. */
+  evaluatedRevision: number | null;
+  /** The subject's revision when the map was built. Null when the builder predates revisions. */
+  revision: number | null;
+  /** The context was not in the previous map — a fresh subscription. Absent reads as false. */
+  arrived: boolean;
+  /** The builder's own word for how the pair got there (`match` / `retained` / `conform` /
+   *  `renamed`). Carried verbatim, never interpreted; null when unstated. */
+  source: string | null;
 }
 
 /** The map's own header: provenance and the counts it asserts about itself. */
@@ -68,6 +77,20 @@ export interface MapHeader {
   /** WHICH contexts those are — the registry's backlog, authored by evidence. */
   weaklyGovernedContexts: string[];
   unmatched: number;
+  /**
+   * Context churn, from `stats`. Verdicts whose context left `context-map.json` (the map keeps
+   * their bodies under `orphans[]`, which is deliberately NOT ingested — repo-level counts are the
+   * design; the bodies stay in the map), contexts absent from the previous map, and contexts the
+   * builder re-attached by path overlap.
+   *
+   * ABSENT MEANS AN OLDER BUILDER, and reads as 0. That is "0 orphans KNOWN", not "0 orphans": a
+   * map that never counted cannot assert there are none. It is stored as 0 rather than null because
+   * the alternative — a nullable count — would make every reader carry the three-state read for a
+   * distinction the map itself cannot make either.
+   */
+  orphanedVerdicts: number;
+  arrivedContexts: number;
+  renamedContexts: number;
 }
 
 export const MAP_SCHEMA = "rkb-registry-map/1";
@@ -79,6 +102,10 @@ const strOrNull = (v: unknown): string | null => (typeof v === "string" && v.tri
 const numOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const intOr = (v: unknown, fallback: number): number =>
   typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.floor(v) : fallback;
+/** A revision is a non-negative integer or nothing. A string "12" is NOT coerced: the builder
+ *  writes numbers, and a string here is a different document than the one we parse. */
+const revOrNull = (v: unknown): number | null =>
+  typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : null;
 
 export type ParsedMap =
   | { ok: true; header: MapHeader; pairs: ConformancePair[] }
@@ -134,6 +161,10 @@ export function parseConformanceMap(text: string): ParsedMap {
         evidence: evidence ? evidence.slice(0, MAX_EVIDENCE) : null,
         evaluatedAt: strOrNull(sub?.evaluatedAt),
         evaluatedAgainst: strOrNull(sub?.evaluatedAgainst),
+        evaluatedRevision: revOrNull(sub?.evaluatedRevision),
+        revision: revOrNull(sub?.revision),
+        arrived: sub?.arrived === true,
+        source: strOrNull(sub?.source),
       });
     }
   }
@@ -163,8 +194,29 @@ export function parseConformanceMap(text: string): ParsedMap {
     weaklyGoverned: intOr(stats.weaklyGoverned, weaklyGovernedContexts.length),
     weaklyGovernedContexts,
     unmatched: intOr(stats.unmatched, 0),
+    // Absent = an older builder that never counted churn. 0 here is "0 known", see MapHeader.
+    orphanedVerdicts: intOr(stats.orphanedVerdicts, 0),
+    arrivedContexts: intOr(stats.arrivedContexts, 0),
+    renamedContexts: intOr(stats.renamedContexts, 0),
   };
   return { ok: true, header, pairs };
+}
+
+/**
+ * The `revision` of a repo's own `context-map.json` (e.g. `"ecad2b58ad5f"`), or null when the
+ * document is not JSON, not an object, or carries none. NEVER throws: the sweep reads this file
+ * beside the map and a torn read must degrade to "unknown" — which the fleet builder treats as
+ * "not evidence of drift", not as "behind".
+ */
+export function parseContextMapRevision(text: string): string | null {
+  let doc: unknown;
+  try {
+    doc = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!doc || typeof doc !== "object" || Array.isArray(doc)) return null;
+  return strOrNull((doc as Record<string, unknown>).revision);
 }
 
 /**

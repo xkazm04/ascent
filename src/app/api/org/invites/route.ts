@@ -2,6 +2,10 @@
 // POST   /api/org/invites { org, role, email?, githubLogin?, notify? } -> { invite, emailed }  create an invite
 // DELETE /api/org/invites?org=slug&id=inviteId              -> { ok }          revoke a pending invite
 //
+// All three member-lifecycle acts on an invite are audited: org.member.invited (create),
+// org.member.invite_accepted (the grant, from the accept route) and org.member.invite_revoked
+// (withdrawal). The revoke row names the target, not just the opaque invite id.
+//
 // Owner-only: inviting/revoking is an ownership-level action (mirrors /api/org/members). An invite
 // carries a single-use token returned to the owner so they can share the /invite/[token] link.
 //
@@ -140,7 +144,17 @@ export async function DELETE(request: Request) {
   if (!org || !id) return NextResponse.json({ error: "Provide ?org=&id=." }, { status: 400 });
   const denied = await requireOrgRole(org, "owner");
   if (denied) return denied;
-  const ok = await revokeInvite(org, id);
-  if (!ok) return NextResponse.json({ error: "No such pending invite." }, { status: 404 });
+  const { revoked, target } = await revokeInvite(org, id);
+  if (!revoked) return NextResponse.json({ error: "No such pending invite." }, { status: 404 });
+  // Withdrawing a granted capability is on the record, like every other member-lifecycle act
+  // (org.member.invited / .invite_accepted / .role / .removed). The trail used to stop at the
+  // withdrawal: "this invite was cancelled, by whom, and when" was unanswerable from the log.
+  const revokedBy = await resolveViewerLogin();
+  await recordOrgAudit(
+    "org.member.invite_revoked",
+    org,
+    { org, inviteId: id, target },
+    revokedBy ?? undefined,
+  ).catch(() => {});
   return NextResponse.json({ ok: true });
 }

@@ -45,7 +45,7 @@ transformation owner is asked in a leadership meeting, plus an admin tail:
 | Section | Answers | Tabs |
 | --- | --- | --- |
 | **Standing** | Where are we, honestly? | Overview · Follow-ups · Repositories · Tech Stacks · Passports · Security · Adoption · Governance |
-| **Shared** | What do we publish once and every repo consumes? | Registry · Practices · Skills · Memory · Knowledge base |
+| **Shared** | What do we publish once and every repo consumes? | Registry · Practices · Skills · Memory · Knowledge base · UI surfaces |
 | **In flight** | What is moving right now? | Live |
 | **Bought** | What did the last period buy us? | Briefing · Delivery · Contributors · Teams |
 | **Admin** | The boring rows, deliberately not hidden. | Members · Integrations · Audit · Settings |
@@ -182,6 +182,7 @@ under the Supabase wall `getSession()` is null and this collapses to the viewer,
 | Shared | Skills | `org/[slug]/skills` | `src/app/org/[slug]/skills/` | Skill drift/dormancy views. |
 | Shared | Memory | `org/[slug]/memory` | `src/app/org/[slug]/memory/` | Shared Org Memory browser. |
 | Shared | Knowledge base | `org/[slug]?tab=knowledge` | `src/features/shared/knowledge/` | The registry's knowledge lane as the registry structures it (bundle → category → subcategory → subject) and the fleet's standing against it: one cell per subject × swept repo in an eleven-state vocabulary (four verdicts, seven classified absences), a subject reader, and the dispatch composer that hands a repo its next registry stage (populate → map → conform) as a brief or a local run. Reads `?domain=` and `?subject=`. Born inside the `?tab=` shell, so unlike its Shared siblings it has **no** `/org/[slug]/knowledge` route — which is exactly why its id must sit in `MIGRATED_ORG_TAB_IDS`. See [org-knowledge/knowledge-base.md](../org-knowledge/knowledge-base.md). |
+| Shared | UI surfaces | `org/[slug]?tab=surfaces` | `src/features/shared/surfaces/` | The registry's ui-surfaces subjects rendered as composed, interactive React/Tailwind/Motion scenes (14 of 33 showcased 2026-09-06): a technique rail, the live scene with one `data-technique` region per technique, and a mechanism drawer (mechanism · source · In Ascent · deviation). Showcases are repo-shipped records in a typed catalog joined at render to the org's index mirror for a digest-freshness badge. Reads `?subject=` and `?technique=` (tab-scoped). Born inside the `?tab=` shell (in `MIGRATED_ORG_TAB_IDS`). Authored by the project-owned `/surface <slug>` skill. See [org-knowledge/surfaces.md](../org-knowledge/surfaces.md). |
 | — (header menu) | Developer | `/org/developer` | `src/features/developer/` | UC3 individual care. Reached from the **header identity menu** (your own name), not from the org rail — it is not org-scoped, so it is in `ORG_TABS_NOT_IN_NAV`. Not a `?tab=` panel either: a static route personalized to the signed-in viewer (their commits and AI share, the open gaps of their repos, their private care loop). It renders the same `OrgShell` as every tab, with `activeTab="developer"`. The anonymized org aggregate lives in Contributors, under `CHAMPION_MIN_POP`, never a per-person row — see [developer.md](developer.md). |
 | Standing | Governance | `org/[slug]/governance` | `src/features/standing/governance/` | Governance rollups: gate tiles, the editable policy card, fail-reasons, failing repos, the CI snippet, the evidence pack, and the AI stance section. No standfirst under the title, and no "Cheapest path to green" card (both deleted 2026-08-19 — see below). |
 | In flight | Live | `org/[slug]/live` | `src/app/org/[slug]/live/` | Live/war-room view. |
@@ -601,6 +602,7 @@ barrel) keep an unchanged public surface for callers:
 | `src/lib/db/org-signals.ts` | `getOrgPrSignals`, `getOrgGovernance`, `getOrgDimensionGaps`, `getOrgActivity`. The commit-activity week grid bins in the **canonical org zone** (same zone the window snaps in), flooring to Sunday *before* indexing — the epoch 7-day grid is Thursday-anchored. GitHub's `commit_activity` buckets are Sunday-**UTC**-aligned, so each provider bucket is placed on the zoned grid by its midpoint (the zoned week it mostly covers); converting the grid without converting through the source bucket is an off-by-one week on every bar. |
 | `src/lib/db/org-insights.ts` | `getOrgMovers`, `getOrgRecommendations`, `getOrgBacklog`, `dueBucketFor`, `getOrgBenchmark`, `getOrgPractices`, `getOrgGapAnalysis`, `getOrgDiscrepancies`. |
 | `src/lib/db/org-teams.ts` | `getOrgTeamRollup`, `rollupTeams`. |
+| `src/lib/db/org-family-wired.test.ts` | **Structural guard (2026-09-06).** Every exported `get`/`list`/`explain` producer in the family must be called by something outside the family and its barrels, or be named in `UNWIRED` with a reason. An aggregation layer's value is entirely downstream, and a producer nothing calls is a fleet number the product computed and never showed anyone — invisible by construction, since it typechecks, its unit tests pass, and the `org.ts` re-export makes it look consumed. `getOrgGapAnalysis` (the systemic-vs-repo-specific gap split) and `getOrgDiscrepancies` (the detector-calibration backlog) are the two currently declared unwired; both are fully implemented and tested, and two earlier sweep rounds landed correctness fixes inside that blast radius without anything noticing the larger fact. Derived from the code, like `AuditLogCells.actions.test.ts`. |
 | `src/lib/db/org-nav-counts.ts` | `getOrgNavCounts`, `getOrgPassportBlockers`, `listOrgRepoNames` (one column, request-cached; the repo picker on the Practices and Skills tabs, which used to buy a full rollup for it). |
 
 ### Shell cost discipline: nobody buys a rollup to read a scalar (2026-08-03)
@@ -971,6 +973,15 @@ inside the window on one surface and outside it on another, and a backlog item c
 `parseDayKey`, `daysBetweenDayKeys`. Pure and isomorphic (no `next/headers`, no I/O), so
 `src/lib/window.ts` (which the client `TimeRangeSelector` also imports) can depend on it.
 
+**A custom window always names its own bounds (2026-09-06).** `?range=custom` is the one period whose
+parameters are not implied by its name, so `resolveWindow` echoes the resolved dates into `title`
+(and `reviewTitle`) rather than rendering the opaque "Custom range". That echo used to be gated on
+`start` alone — so a window with an unparseable `from` and a valid `to` had no baseline (correctly:
+no delta) but a real `endExclusive`, and every figure on the page was clipped at a date the header
+hid. It now reads `all time → 2026-03-31`, mirroring the open right edge's `now`; `comparisonLabel`
+stays keyed on `start`, because the baseline IS the lower bound. Reachable from a hand-edited link, a
+truncated share, or a period cookie written by an older serializer.
+
 ### Which tabs the period actually governs (2026-08-03)
 
 The period is **cross-tab state**: `resolveOrgWindow` layers `?range=` over the `ascent_period`
@@ -1338,8 +1349,10 @@ Org membership and role enforcement are wired end to end, backed by the `User` /
   same-origin, signed-in-only `POST /api/org/invites/accept` (`src/app/api/org/invites/accept/route.ts`),
   deliberately not a GET-on-render, since a GET would let link-prefetch/unfurlers burn the
   invite. `src/app/invite/[token]/page.tsx` is the UI that collects the token and fires the
-  accept POST. Both create and accept are recorded to the audit log
-  (`org.member.invited`, `org.member.invite_accepted`).
+  accept POST. All three transitions are recorded to the audit log —
+  `org.member.invited` (create), `org.member.invite_accepted` (the grant) and
+  `org.member.invite_revoked` (withdrawal, added 2026-09-06; the revoke row names the target,
+  not just the invite id, and `revokeInvite` returns `{ revoked, target }` to supply it).
 - **The invite is now delivered** (G7-02): creating an invite with an `email` sends **one**
   transactional message to that address via the shared email transport (`src/lib/email/invite.ts`).
   *Trigger*: an owner's `POST /api/org/invites` with `email` set. *Recipient*: only that address.
@@ -1351,7 +1364,21 @@ Org membership and role enforcement are wired end to end, backed by the `User` /
   still requires the accepter's Supabase-**confirmed** email to match the pin (`acceptInvite`), so a
   misdirected message cannot hand a stranger the role. The response reports `emailed`:
   `"sent" | "skipped" | "failed" | null`, and the invite + token are returned either way, so the
-  owner's manual copy/paste path is never lost. The audit entry records the outcome.
+  owner's manual copy/paste path is never lost. The audit entry records the outcome, **and so does
+  the UI** (2026-09-06): the Members tab renders the three real outcomes from one table keyed by the
+  wire token — "Invitation emailed to X", "Nothing was sent … copy the link below and share it
+  yourself" (no provider), and a `role="alert"` "Couldn't email X" — so an owner on a provider-less
+  deploy is no longer shown a bare success and left waiting for mail that will not arrive. `null` is
+  deliberately not rendered: a GitHub-login invite has no address, so there is no delivery to report.
+- **The owner's pending-invite roster** (`src/features/admin/members/InviteList.tsx`, split out of
+  `MemberInvites.tsx` under the 200-LOC cap) shows, per invite: the target, the role, **who sent it**
+  (`invitedBy`, previously stored on every row and dropped on the way to the panel), the copy-link
+  affordance only for invites minted in this session, and the expiry **as a countdown** —
+  "expires in 3 days", the same sentence the invite mail sends, with the exact moment on the hover
+  title (registry `software-engineering/status-vocabulary` → `timestamp-display`: relative by
+  default, absolute one hover away). The roster has a real empty state, and revoking is a two-step
+  `Revoke? → confirm / cancel`, matching the roster's Remove a row above — re-issuing mints a NEW
+  token, so an accidental revoke costs a re-send rather than an undo.
 
 ### Delivery outcomes — the AI-vs-human failure split (W4, 2026-08-14)
 
@@ -1603,7 +1630,7 @@ rows are excluded from it:
 | Headline **Org maturity** badge, adoption and rigor badges (`getOrgRollup.avgOverall/avgAdoption/avgRigor`), and the shell header chip, OG card and page description (`getOrgHeaderSummary`) | Since 2026-09-05 the **producer** excludes mock placeholders (both readers narrow identically, so one page cannot show two fleet averages) and carries `realScoredCount` + `mockCount`; the badge is titled with its denominator and shows an "N mock (excluded from avg)" chip; the cohort-matched period deltas, movement, dimension deltas and baseline exclude a mock endpoint on either side. A fleet with no live-scored repo renders "—" in the badge and the header chip, the fallback OG card and the generic description, never a 0/100. |
 | Per-dimension fleet averages (`dimAverages`), the maturity **trend series** and the **forecast ETA** fit over it | Since 2026-09-05 (round 4) all three exclude mock rows at the producer, so the badge, the line under it and the ETA share one population. |
 | `getOrgMovers` (Fix-first, digest, briefing, Athena) | Since 2026-09-05 both branches require a real-scored pair (`isRealPair`): a mock→live or live→mock engine transition is not repo movement in either direction. |
-| `getOrgTeamRollup` team averages and movers; `explainTeamStandings.fleetAvgOverall` | Since 2026-09-05 team averages/dimension bars/posture exclude mock rows; an onboarded repo (no pre-window baseline) is segregated into `onboardedRepos` rather than folded into improving/declining, and `comparedRepos` counts only real period baselines; `realScoredCount`/`mockCount` ride on `TeamRollup` (not yet rendered). The standings "fleet average" is a mean over the DISTINCT live-scored repos any team owns (shared repos vote once), not a mean of team means. |
+| `getOrgTeamRollup` team averages and movers; `explainTeamStandings.fleetAvgOverall` | Since 2026-09-05 team averages/dimension bars/posture exclude mock rows; an onboarded repo (no pre-window baseline) is segregated into `onboardedRepos` rather than folded into improving/declining, and `comparedRepos` counts only real period baselines; `realScoredCount`/`mockCount` ride on `TeamRollup` (not yet rendered). The standings "fleet average" is a mean over the DISTINCT live-scored repos any team owns (shared repos vote once), not a mean of team means. **2026-09-06:** the standings' **fleet AI share** — the baseline `aiShareDelta` renders as a coloured signed delta — got the same treatment. It was still `roundedMean(teams.map(t => t.aiCommitShare))`, 38 lines below the docstring condemning that shape, so a 10-commit team at 100% weighed the same as a 200-commit team at 5% and the team carrying almost all the fleet's commits read ~48 points "below the fleet". It is now commit-weighted over the same distinct-repo population, which required `TeamRepoScore` to carry per-repo human `commits`/`aiCommits` (percentages cannot be recombined). **Two populations, deliberately:** mock rows are excluded from the SCORE average (a floor is not a grade) and INCLUDED in the AI share, because `rollupTeams` merges a repo's contributors regardless of `mock` — so the per-team share counts them and the baseline must too. Pinned in `teamStandings.test.ts`. |
 | Fleet masthead `avg`, per-group `avg` (`avgRealScore`) | Averaged over live-scored repos only. **Null, never 0**, when the set has none: the renderers land on the `—` no-score path, because a `0` in `scoreHex(0)` alarm-red reads as a catastrophic grade rather than "not measured". The repo *count* still describes the whole set, and the tooltip names the denominator (`N live-scored · M mock excluded`). |
 | Fleet + per-group `avg move` (`avgRealMove`) | Excludes single-scan repos and **engine-transition** deltas, so a mock→live re-scan cannot fake improvement. Pre-existing; the score average now matches its precedent. |
 | Corpus percentile (`getOrgBenchmark`) | Both sides filtered to non-`mock` engines at the current rubric version (see above). |

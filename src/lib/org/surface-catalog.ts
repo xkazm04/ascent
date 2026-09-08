@@ -1,0 +1,268 @@
+// The UI surfaces catalog — the typed list of repo-shipped showcases of the registry's ui-surfaces
+// subjects (spark ui-surfaces-showcase, 2026-09-06). Client-safe, no React: imported by the server
+// tab, the client scene, the Knowledge reader's deep link and the bijection test alike.
+//
+// Two lists, deliberately separate:
+//   - `SURFACE_SUBJECTS` is a STATIC MIRROR of the software-engineering bundle's ui-surfaces branch
+//     (`taxonomy.json`, registry order) — every subject the gallery must show a card for, showcased
+//     or not. A subject missing here is a subject the gallery cannot admit it has no scene for.
+//   - `SURFACE_CATALOG` is what has actually been authored: one record per scene, keyed by the
+//     subject slug, with the registry digest the scene was authored against so the tab can say
+//     "current" or "authored against an older subject" once joined to the org's index mirror
+//     (src/lib/org/surface-freshness.ts). The scene bodies themselves are loaded lazily through
+//     `src/features/shared/surfaces/surfaceBodies.ts`; `surfaceCatalog.test.ts` pins the bijection.
+//
+// Registration is a two-line edit (a record here, an `import()` in the body map); the `/surface`
+// skill does it, and the test refuses a record without a body or a body without a record.
+
+export type SurfaceSubcategory =
+  | "data-display"
+  | "feedback-and-style"
+  | "input-and-editing"
+  | "published-surfaces"
+  | "shell-and-navigation";
+
+export type SurfaceSubjectRef = { slug: string; subcategory: SurfaceSubcategory; title: string };
+
+/** Gallery section order — the taxonomy's own order — with the titles it declares. */
+export const SURFACE_SUBCATEGORIES: readonly { id: SurfaceSubcategory; title: string }[] = [
+  { id: "data-display", title: "Data display" },
+  { id: "input-and-editing", title: "Input and editing" },
+  { id: "shell-and-navigation", title: "Shell and navigation" },
+  { id: "feedback-and-style", title: "Feedback and style" },
+  { id: "published-surfaces", title: "Published surfaces" },
+];
+
+const s = (subcategory: SurfaceSubcategory, slug: string, title: string): SurfaceSubjectRef => ({ slug, subcategory, title });
+
+/** All 33 ui-surfaces subjects, in `taxonomy.json` order. Mirror — never derived at runtime. */
+export const SURFACE_SUBJECTS: readonly SurfaceSubjectRef[] = [
+  s("data-display", "table", "Table"),
+  s("data-display", "feed", "Feed"),
+  s("data-display", "data-viz", "Data visualization"),
+  s("data-display", "canvas-graph", "Canvas graph"),
+  s("data-display", "diff-comparison", "Diff comparison"),
+  s("data-display", "file-browsing", "File browsing"),
+  s("data-display", "search", "Search"),
+  s("input-and-editing", "form", "Form"),
+  s("input-and-editing", "ui-controls", "UI controls"),
+  s("input-and-editing", "draft-editing", "Draft editing"),
+  s("input-and-editing", "drag-drop", "Drag and drop"),
+  s("input-and-editing", "undo-history", "Undo history"),
+  s("input-and-editing", "wizard-flows", "Wizard flows"),
+  s("input-and-editing", "schema-driven-ui", "Schema-driven UI"),
+  s("input-and-editing", "batch-undo-commit-window", "Batch undo commit window"),
+  s("shell-and-navigation", "app-shell", "App shell"),
+  s("shell-and-navigation", "modal-stack", "Modal stack"),
+  s("shell-and-navigation", "session-resume", "Session resume"),
+  s("shell-and-navigation", "guided-tours", "Guided tours"),
+  s("shell-and-navigation", "chat-transcript", "Chat transcript"),
+  s("shell-and-navigation", "media-playback", "Media playback"),
+  s("feedback-and-style", "async-ui-states", "Async UI states"),
+  s("feedback-and-style", "status-vocabulary", "Status vocabulary"),
+  s("feedback-and-style", "toasts-notifications", "Toasts and notifications"),
+  s("feedback-and-style", "motion", "Motion system"),
+  s("feedback-and-style", "design-tokens", "Design tokens"),
+  s("feedback-and-style", "accessibility", "Accessibility"),
+  s("feedback-and-style", "adaptive-fidelity-tiers", "Adaptive fidelity tiers"),
+  s("published-surfaces", "lazy-section-addressability", "Lazy section addressability"),
+  s("published-surfaces", "long-form-reading-surface", "Long-form reading surface"),
+  s("published-surfaces", "docs-content-model", "Docs content model"),
+  s("published-surfaces", "authoring-block-vocabulary", "Authoring block vocabulary"),
+  s("published-surfaces", "public-claim-provenance", "Public claim provenance"),
+];
+
+export type SurfaceRecord = {
+  slug: string;
+  subcategory: SurfaceSubcategory;
+  title: string;
+  summary: string;
+  /** The registry subject digest (`sha256:…`, from the bundle index) the scene was read against. */
+  authoredAgainst: { digest: string; verifiedOn: string /* YYYY-MM-DD */ };
+  /** Every technique the scene embodies — each one a `[data-technique]` region and a drawer entry. */
+  techniqueSlugs: readonly string[];
+};
+
+/** The three fixture volumes a scene's data knob offers. Scenes must accept all three. */
+export const SURFACE_VOLUMES = [50, 5_000, 50_000] as const;
+export type SurfaceVolume = (typeof SURFACE_VOLUMES)[number];
+
+export const SURFACE_CATALOG: readonly SurfaceRecord[] = [
+  {
+    slug: "motion",
+    subcategory: "feedback-and-style",
+    title: "Motion system",
+    summary:
+      "An instrument panel that speaks one named motion vocabulary: presets with fallbacks, three engines side by side, frames written outside React, budgets that go red, a one-shot guard, a merged pause signal.",
+    authoredAgainst: { digest: "sha256:89022fde06571042", verifiedOn: "2026-09-06" },
+    techniqueSlugs: [
+      "gesture-decomposition",
+      "preset-vocabulary",
+      "engine-selection",
+      "performance-discipline",
+      "taste-budgets",
+      "one-shot-guarding",
+      "reduced-motion-mechanics",
+      "content-bearing-degradation",
+      "unprompted-motion-lifecycle",
+      "loop-pause-governance",
+    ],
+  },
+  {
+    slug: "accessibility",
+    subcategory: "feedback-and-style",
+    title: "Accessibility",
+    summary:
+      "A fleet follow-ups desk that stays operable with the screen off and the pointer unplugged: a roving segment strip, a native-first worklist, a drawer that closes both hiding channels, one announcer with a drain queue, a wired name chain, one preference signal, gates that audit the desk itself, and a dated pairing matrix.",
+    authoredAgainst: { digest: "sha256:e7079c6845ba0270", verifiedOn: "2026-09-06" },
+    techniqueSlugs: [
+      "primitive-level-a11y",
+      "keyboard-navigation-models",
+      "hidden-but-mounted-inertness",
+      "live-region-architecture",
+      "name-and-description-wiring",
+      "preference-respect",
+      "a11y-verification",
+      "assistive-tech-divergence",
+    ],
+  },
+  {
+    slug: "adaptive-fidelity-tiers",
+    subcategory: "feedback-and-style",
+    title: "Adaptive fidelity tiers",
+    summary:
+      "An ambient strata header with its fidelity instrument underneath: one probe measures a seeded frame trace by p90 windows and publishes a tier that falls on one bad window, climbs on a run, refuses to flicker in the dead band, settles on a deadline, defers to idle, reads per-effect budget tables, and is never created when a preference has spoken.",
+    authoredAgainst: { digest: "sha256:b28d9f28795d6750", verifiedOn: "2026-09-06" },
+    techniqueSlugs: [
+      "measured-not-declared-capability",
+      "asymmetric-tier-transitions",
+      "measurement-settle-budget",
+      "probe-deferral-to-idle",
+      "per-tier-budget-tables",
+      "preference-short-circuits-measurement",
+    ],
+  },
+  {
+    slug: "async-ui-states",
+    subcategory: "feedback-and-style",
+    title: "Async UI states",
+    summary: "A fictional org page of independent async regions — a repository search with its state ledger, key classification and arrival instruments, a review queue, typed empties and a failable alerts feed — every request simulated at a latency dial.",
+    authoredAgainst: { digest: "sha256:4d89ccb3b7b69ed0", verifiedOn: "2026-09-06" },
+    techniqueSlugs: ["state-model", "placeholder-design", "action-busy-states", "empty-state-design", "failure-states", "arrival-choreography", "windowing-vs-identifying-keys"],
+  },
+  {
+    slug: "design-tokens",
+    subcategory: "feedback-and-style",
+    title: "Design tokens",
+    summary:
+      "An appearance panel for a fictional org theme: one scope root generated from one token authority, a preview card that names roles and never a theme, and six regions that rebind it (theme, density, text scale) or gate it (admission, parity, enforcement).",
+    authoredAgainst: { digest: "sha256:285d0bf6dac74e64", verifiedOn: "2026-09-06" },
+    techniqueSlugs: ["token-taxonomy", "theme-architecture", "cross-language-token-parity", "token-enforcement", "motion-tokens", "density-and-scale-axes"],
+  },
+  {
+    slug: "status-vocabulary",
+    subcategory: "feedback-and-style",
+    title: "Status vocabulary",
+    summary: "A fleet scan ledger whose every cell crosses value-to-presentation through one primitive: token-keyed pills with a decided unknown direction, a locale-bound number renderer, one shared elapsed-time ticker with the future clamped, text-only labels, and the add-a-member checklist.",
+    authoredAgainst: { digest: "sha256:0bdc30b0870393c6", verifiedOn: "2026-09-06" },
+    techniqueSlugs: ["vocabulary-chain-integrity", "status-color-mapping", "number-formatting", "timestamp-display", "untrusted-label-rendering", "vocabulary-evolution-checklist"],
+  },
+  {
+    slug: "toasts-notifications",
+    subcategory: "feedback-and-style",
+    title: "Toasts and notifications",
+    summary:
+      "A fictional fleet desk whose out-of-band news flows through one store: a severity table every channel derives from, a transient stack with queue policy, toasts that are doors (undo window, verified retry), a durable center sharing the same identities, a simulated OS tier with a consent matrix, and one serial announcer.",
+    authoredAgainst: { digest: "sha256:4c6dc8858a53f603", verifiedOn: "2026-09-06" },
+    techniqueSlugs: ["severity-taxonomy", "queue-discipline", "actionable-toasts", "durable-notification-ledger", "os-escalation", "announcement-accessibility"],
+  },
+  {
+    slug: "canvas-graph",
+    subcategory: "data-display",
+    title: "Canvas graph",
+    summary:
+      "A dependency atlas of a fictional org's repositories — a pan/zoom node surface you can explore, rearrange and rewire — with one camera authority, a culled and waved render list, threshold-decided drags, provenance-aware layout, an edge economy and a roving keyboard cursor.",
+    authoredAgainst: { digest: "sha256:9eedbc25626767bc", verifiedOn: "2026-09-06" },
+    techniqueSlugs: ["viewport-transform", "render-budget", "direct-manipulation", "graph-layout", "edge-management", "canvas-accessibility"],
+  },
+  {
+    slug: "data-viz",
+    subcategory: "data-display",
+    title: "Data visualization",
+    summary: "A fleet instrument board: one fictional fleet's scan metrics on a headline tile, small multiples, a sparkline column, a multi-series chart, a lazily-engined dashboard row and one slot that walks every empty and degraded state.",
+    authoredAgainst: { digest: "sha256:b6657691892c6b9b", verifiedOn: "2026-09-06" },
+    techniqueSlugs: ["metric-identity", "scale-and-axis-design", "chart-loading-economics", "micro-visualizations", "encoding-vocabulary", "empty-and-degraded-chart-states"],
+  },
+  {
+    slug: "diff-comparison",
+    subcategory: "data-display",
+    title: "Diff comparison",
+    summary: "A scan comparison desk for one fictional repository: the pair names its question, the level names its claim, the kernel runs with an identity and a budget, and every silence the diff could produce is disclosed where it would form.",
+    authoredAgainst: { digest: "sha256:0df03bbd2dcbaf5d", verifiedOn: "2026-09-06" },
+    techniqueSlugs: [
+      "pair-and-baseline-selection",
+      "semantic-level-selection",
+      "computation-offload",
+      "presentation-modes",
+      "drift-against-declared",
+      "diff-honesty",
+      "invisible-differences",
+    ],
+  },
+  {
+    slug: "feed",
+    subcategory: "data-display",
+    title: "Feed",
+    summary:
+      "A fictional fleet-activity feed over one store: a total order with one comparator, a viewport that holds arrivals while the reader reads, sync bursts folded into cluster rows at render, an anchor-derived unseen badge with a frozen entry snapshot, and a declared retention whose horizon renders as an edge.",
+    authoredAgainst: { digest: "sha256:23236fee1ffbf827", verifiedOn: "2026-09-06" },
+    techniqueSlugs: ["reverse-chronology-semantics", "live-prepend", "event-clustering", "read-position-and-unseen", "feed-retention"],
+  },
+  {
+    slug: "file-browsing",
+    subcategory: "data-display",
+    title: "File browsing",
+    summary: "A vault browser over a fictional knowledge registry that a sync agent keeps writing to: a tree and trail off one location, a windowed directory read that admits its staleness, identity selection with a predicate select-all, rename/move/trash through one guard door with per-item reports, and previews cached on id@version.",
+    authoredAgainst: { digest: "sha256:ae56dce70c40004c", verifiedOn: "2026-09-06" },
+    techniqueSlugs: ["listing-and-refresh", "navigation-state", "selection-model", "file-mutations", "thumbnails-and-previews", "kind-taxonomy"],
+  },
+  {
+    slug: "search",
+    subcategory: "data-display",
+    title: "Search",
+    summary:
+      "A fleet search over a fictional corpus of repositories whose one text box is honestly three intents: a query door that reflects its parse as chips and labels the ladder rung, an inverted index (or scan) kept honest against its source, a total-order ranking with engine-derived excerpt marks, facets whose counts carry their predicate, saved views that validate against the live schema, a command palette on one registry, and a rule box that types a predicate before it runs.",
+    authoredAgainst: { digest: "sha256:54682051824eb2b3", verifiedOn: "2026-09-06" },
+    techniqueSlugs: ["query-parsing", "full-text-indexing", "ranking-and-excerpts", "faceting-and-filters", "saved-views", "command-surface", "typed-filter-language"],
+  },
+  {
+    slug: "table",
+    subcategory: "data-display",
+    title: "Table",
+    summary:
+      "A fictional fleet ledger you can use for a minute — filter, sort by a header, page, tick rows, refresh, break it on purpose — whose toolbar owns the client/server split, whose body runs the five-state machine under always-present chrome, whose footer pages by offset or keyset with a count that carries its predicate, and whose two instruments read the order contract and the performance ladder off the same live state.",
+    authoredAgainst: { digest: "sha256:6a77e71f01e80b19", verifiedOn: "2026-09-06" },
+    techniqueSlugs: ["pagination", "sorting", "performance", "loading-and-empty-states", "client-server-split"],
+  },
+];
+
+const BY_SLUG: ReadonlyMap<string, SurfaceRecord> = new Map(SURFACE_CATALOG.map((r) => [r.slug, r]));
+
+export function isSurfaceShowcased(slug: string): boolean {
+  return BY_SLUG.has(slug);
+}
+
+export function surfaceRecord(slug: string): SurfaceRecord | null {
+  return BY_SLUG.get(slug) ?? null;
+}
+
+/**
+ * Per `.ai/manifest.yaml` `scope.out_of_scope_categories`, the whole input-and-editing subcategory is
+ * out of this repo's scope: Ascent has no editing surface of its own, so a scene there would
+ * showcase a standard the repo never consumes. The gallery still lists them (an absence inside an
+ * out-of-scope category is stated, never hidden) and the `/surface` skill refuses them without
+ * `--force`.
+ */
+export function isSurfaceOutOfScope(slug: string): boolean {
+  return SURFACE_SUBJECTS.find((x) => x.slug === slug)?.subcategory === "input-and-editing";
+}

@@ -183,15 +183,24 @@ export function resolveWindow(
       // implied by its name: a shared ?range=custom link, a remembered cookie, or the silent
       // reversed-range swap above would otherwise render "Custom range" while every number on the
       // page depends on dates the reader can't see. The post-swap from/to keeps the title honest.
-      const title = start ? `${from} → ${to ?? "now"}` : "Custom range";
+      //
+      // The echo is gated on EITHER bound resolving, not on `start` alone. A window with an
+      // unparseable `from` and a valid `to` has no baseline (hence no delta) but a real
+      // `endExclusive`, so every figure on the page is clipped by a date "Custom range" hid — the
+      // very failure this echo exists to prevent, in the one case the original gate let through.
+      // The open left edge reads "all time", mirroring the open right edge's "now".
+      const title = start || toDay ? `${start ? from : "all time"} → ${to ?? "now"}` : "Custom range";
+      const titled = Boolean(start || toDay);
       return {
         key,
         start,
         end,
         endExclusive,
         title,
+        // Still keyed on `start`: the baseline is the window's lower bound, so a window without one
+        // has nothing to compare against no matter how well-titled it is.
         comparisonLabel: start ? "vs range start" : "",
-        reviewTitle: start ? `${title} in review` : "Range in review",
+        reviewTitle: titled ? `${title} in review` : "Range in review",
         from: from ?? undefined,
         to: to ?? undefined,
       };

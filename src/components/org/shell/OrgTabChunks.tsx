@@ -32,6 +32,7 @@ import { SkillsTab } from "@/features/shared/skills/SkillsTab";
 import { MemoryTab } from "@/features/shared/memory/MemoryTab";
 import { RegistryTab } from "@/features/shared/registry/RegistryTab";
 import { KnowledgeTab } from "@/features/shared/knowledge/KnowledgeTab";
+import { SurfacesTab } from "@/features/shared/surfaces/SurfacesTab";
 import { RepositoriesTab } from "@/features/standing/repositories/RepositoriesTab";
 import { TechStacksTab } from "@/features/standing/tech-stacks/TechStacksTab";
 import { TeamsTab } from "@/features/bought/teams/TeamsTab";
@@ -151,6 +152,15 @@ export function OrgTabChunks({ slug, tab, sp }: { slug: string; tab: OrgTabId; s
         {tab === "knowledge" ? (
           <Suspense fallback={<OrgTabGap minH="min-h-[32rem]" />}>
             <KnowledgeTab slug={slug} sp={sp} />
+          </Suspense>
+        ) : null}
+
+        {/* The registry's ui-surfaces subjects as live scenes: a gallery, or one scene when
+            `?subject=` names a showcased slug (`?technique=` opens its mechanism drawer). Tall gap —
+            the scene frame is rail + canvas + drawer. */}
+        {tab === "surfaces" ? (
+          <Suspense fallback={<OrgTabGap minH="min-h-[40rem]" />}>
+            <SurfacesTab slug={slug} sp={sp} />
           </Suspense>
         ) : null}
 

@@ -1,7 +1,7 @@
 ---
 product: "ascent"
 stack: "Next 16 (canary/preview) · React 19 · TS · Tailwind v4 hand-rolled primitives · Prisma 6 + Postgres/Aurora DSQL · Supabase auth · vitest + playwright · no i18n"
-vault: ["C:/Users/kazda/Documents/Obsidian/ascent"]
+vault: ["C:/Users/kazda/Documents/Obsidian/ascent", "C:/Users/mkdol/Documents/Obsidian/ascent"]
 vault_subdir: Spark
 context_map: context-map.json
 base_branch: master
@@ -17,7 +17,8 @@ Moved here from `$VAULT/Spark/config.md` on 2026-08-25 (the repo overlay is the 
 ## Gates
 
 always:
-- `npx tsc --noEmit`
+- `npx eslint <touched paths>` — 0 errors (React Compiler rules are errors; lint is in the pre-push master gate)
+- `npx tsc --noEmit` — output EMPTY (a syntax error anywhere, e.g. a truncated `.next/dev/types/validator.ts`, silences every semantic check)
 - `npx vitest run` (scope with a path arg while iterating; **full run before merge**)
 
 when a client/server boundary may have moved:
@@ -110,6 +111,32 @@ Pasted verbatim into every builder brief:
 
 ## Skill improvement log
 
+- 2026-09-06 (ui-surfaces-showcase): **`npm run lint` is part of the pre-push master gate (`npm run verify`)
+  and the React Compiler rules (`react-hooks/refs|purity|set-state-in-effect|immutability`) are ERRORS** —
+  the overlay's `## Gates` never listed lint, so 15 builders shipped 37 lint errors past tsc + vitest and the
+  push to master was refused by the hook. Add `npx eslint <paths>` to every builder brief and to `always:`.
+  Also: `git push . <branch>:master` runs that hook (lint, typecheck, coverage tests, build, ~10 min); run
+  `npm run verify` once yourself BEFORE the push so a red gate is diagnosed with full output, not a 2-line tail.
+- 2026-09-06 (ui-surfaces-showcase): `src/lib/scan-ingest.test.ts` "overlaps the siblings instead of trailing
+  them" fails under `test:coverage` full-run load only (4/4 green alone, with and without coverage) — a
+  timing test; verify against the file alone before treating it as yours.
+- 2026-09-06 (ui-surfaces-showcase): **`npx tsc --noEmit` is HOLLOW while `.next/dev/types/validator.ts` is
+  syntactically corrupt** — tsc skips all semantic diagnostics when any syntactic error exists, so "only the
+  validator error" means nothing was checked. Sixteen builders and the Director passed this gate all session;
+  ~200 `noUncheckedIndexedAccess` errors surfaced only after the dev server regenerated the file. The
+  2026-09-05 line said "delete it, it regenerates" — make that the FIRST step of every tsc gate, and treat a tsc
+  output that is not empty as red even when every line is in `.next/`.
+- 2026-09-06 (ui-surfaces-showcase): **a parallel session committed 16 of its commits onto this spark's branch**
+  because the main checkout sat on it. Working on a branch in the main checkout (the 2026-09-05 default) is
+  only safe while no other session commits here; when one does, its commits ride to master with yours —
+  say so in the merge. A worktree costs the node_modules junction problem; the branch costs this.
+- 2026-09-06 (ui-surfaces-showcase): **the catalog bijection test imported all scene bodies in one 15s case**
+  and timed out under full-suite load only; `it.each` per record keeps the budget per import and names the
+  failing subject.
+- 2026-09-06 (ui-surfaces-showcase): a builder misread AGENTS.md's "Nothing in a feature group may be imported
+  from here" (about `org/shared/`, which features MAY import) as forbidding the import, and another imported
+  a palette from a sibling feature GROUP (forbidden). State both directions explicitly in builder briefs; no
+  lint catches the cross-group import today.
 - 2026-09-05 (knowledge-base-rebuild): **the prototype round blocked on an unonboarded device.** The
   operator answered the pick gate with "onboard ascent on this device first". Before the go-gate,
   verify the operator can OBSERVE the surface: a dev server they can reach, an org with data, and the
@@ -196,3 +223,17 @@ Pasted verbatim into every builder brief:
 - 2026-08-22: ascent overlay scaffolded (the personas vault's gates don't apply here).
 - 2026-08-25: overlay moved from the vault to `.claude/spark/config.md`; gates gained the
   `next build` boundary case, the prisma-generate/dev-restart case, and the structure caps.
+
+- 2026-09-06 (knowledge-context-matrix): **the main checkout may be on ANOTHER session's branch** with
+  dirty files (it was on `spark-ui-surfaces-showcase`, editing this very config). Merge from the spark
+  worktree instead: `git checkout master && git merge --ff-only <branch>` there, then switch back — a
+  branch can be checked out in only one worktree, and master was free. Rebase onto master first.
+- 2026-09-06 (knowledge-context-matrix): **a fresh worktree checks out CRLF while the main checkout is
+  LF**, and three master-green tests fail on it: `src/lib/scoring/gate-cli.test.ts` (SyntaxError),
+  `src/features/bought/teams/TeamsHonesty.dom.test.tsx` (source-regex), `src/lib/local/pairing.test.ts`
+  (timeout under full-run load only). The 2026-08-25 line-ending-guard class, two more instances; verify
+  a full-run failure against the main checkout before treating it as yours.
+- 2026-09-06 (knowledge-context-matrix): the overlay's `vault:` names the Wolf path only; on Fox the
+  Obsidian root is `C:/Users/mkdol/Documents/Obsidian/ascent` (memory `fox-device-perfect-vault`) and
+  `Spark/` was scaffolded there this run — the two vaults are not synced. Add the Fox path as a second
+  candidate when this file is next committed cleanly (it was dirty under another session this run).

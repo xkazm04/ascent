@@ -8,8 +8,8 @@
 // persisted per-repo scans, so it's recomputed on every scan and stays honest as teams/repos change.
 // Exported pure so it can be unit-tested and serialized (the CSV export reuses `explainTeamStandings`).
 
-import type { TeamChampion, TeamRollup } from "@/lib/db/org-teams";
-import { roundedMean } from "@/lib/db/org-shared";
+import type { TeamChampion, TeamRepoScore, TeamRollup } from "@/lib/db/org-teams";
+import { aiShareOf, roundedMean } from "@/lib/db/org-shared";
 
 /** The maturity gap is composed of dimension scores, so we decompose it dimension-by-dimension: how
  *  far this team's average on a dimension sits from the fleet's average on that same dimension. */
@@ -85,10 +85,27 @@ export function explainTeamStandings(teams: TeamRollup[]): TeamStandings | null 
 
   // Per-repo mean over the DISTINCT live-scored repos across every team — see `fleetAvgOverall`.
   // A repo shared by several teams votes ONCE, and each team's weight is its actual repo count.
-  const distinctRepos = new Map<string, number>();
-  for (const t of teams) for (const r of t.repos) if (!r.mock) distinctRepos.set(r.fullName, r.overall);
-  const fleetAvgOverall = roundedMean([...distinctRepos.values()]);
-  const fleetAiShare = roundedMean(teams.map((t) => t.aiCommitShare));
+  const distinctRepos = new Map<string, TeamRepoScore>();
+  for (const t of teams) for (const r of t.repos) distinctRepos.set(r.fullName, r);
+  const repoRows = [...distinctRepos.values()];
+  const fleetAvgOverall = roundedMean(repoRows.filter((r) => !r.mock).map((r) => r.overall));
+  // The AI share gets the SAME dedupe and the same commit weighting the per-team figure uses
+  // (`aiCommitShare` = the team's totAi / totCommits), because `aiShareDelta` subtracts one from the
+  // other and they must be the same kind of number over comparable populations. It was
+  // `roundedMean(teams.map(t => t.aiCommitShare))` — the mean of team MEANS that `fleetAvgOverall`
+  // above was fixed for and documents at length, left in place 38 lines below that docstring. It put
+  // a two-repo team at 100% and a forty-repo team at 5% on equal footing, so the team carrying
+  // almost all of the fleet's actual commits was rendered ~48 points "below the fleet" it very
+  // nearly IS.
+  //
+  // TWO POPULATIONS, DELIBERATELY: mock-floor rows are excluded from the SCORE average (a floor is
+  // not a grade) and INCLUDED here (rollupTeams merges a repo's contributors regardless of `mock`,
+  // so the per-team share counts them; excluding them here would compare against a population the
+  // per-team number never had). Pinned by teamStandings.test.ts.
+  const fleetAiShare = aiShareOf(
+    repoRows.reduce((s, r) => s + r.commits, 0),
+    repoRows.reduce((s, r) => s + r.aiCommits, 0),
+  );
 
   // Fleet mean per dimension, over the teams scored on it (some teams may lack a dimension).
   const dimSum = new Map<string, { label: string; sum: number; n: number }>();

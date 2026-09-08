@@ -62,6 +62,15 @@ export interface ConformanceMapRow {
   scope: RepoScope;
   directions: RepoDirection[];
   warnings: string[];
+  /** Context churn as the map's own stats assert it; 0 for a map from an older builder (see
+   *  `MapHeader.orphanedVerdicts` for why that is "0 known", not "none"). */
+  orphanedVerdicts: number;
+  arrivedContexts: number;
+  renamedContexts: number;
+  /** The `context-map.json` revision the map was BUILT FROM; null when the map carries none. */
+  contextMapRevision: string | null;
+  /** The `context-map.json` revision the sweep READ at the repo root; null when it could not. */
+  repoContextMapRevision: string | null;
   ingestedAt: string;
 }
 
@@ -79,6 +88,14 @@ export interface ConformanceRow {
   evidence: string | null;
   evaluatedAt: string | null;
   evaluatedAgainst: string | null;
+  /** The subject revision the verdict was judged at; null for a pre-revision verdict. */
+  evaluatedRevision: number | null;
+  /** The subject's revision when the map was built; null when the builder predates revisions. */
+  revision: number | null;
+  /** The context was not in the previous map. */
+  arrived: boolean;
+  /** The builder's `source` word (match | retained | conform | renamed), verbatim; null if unstated. */
+  source: string | null;
   mapSha: string;
   ingestedAt: string;
 }
@@ -147,6 +164,8 @@ export async function ingestRepoConformance(input: {
   consults30d: number | null;
   warnings: string[];
   foundation?: RepoFoundation;
+  /** The repo's own `context-map.json` `revision` as the sweep read it; null / absent = unknown. */
+  repoContextMapRevision?: string | null;
 }): Promise<{ pairs: number; removed: number }> {
   if (!isDbConfigured()) return { pairs: 0, removed: 0 };
   const prisma = getPrisma();
@@ -173,6 +192,10 @@ export async function ingestRepoConformance(input: {
       evidence: p.evidence,
       evaluatedAt: p.evaluatedAt && Number.isFinite(Date.parse(p.evaluatedAt)) ? new Date(p.evaluatedAt) : null,
       evaluatedAgainst: p.evaluatedAgainst,
+      evaluatedRevision: p.evaluatedRevision,
+      revision: p.revision,
+      arrived: p.arrived,
+      source: p.source,
       mapSha,
       ingestedAt,
     };
@@ -209,6 +232,11 @@ export async function ingestRepoConformance(input: {
     consults30d: input.consults30d,
     ...foundationData(foundation),
     warningsJson: JSON.stringify(input.warnings.slice(0, 50)),
+    orphanedVerdicts: header.orphanedVerdicts,
+    arrivedContexts: header.arrivedContexts,
+    renamedContexts: header.renamedContexts,
+    contextMapRevision: header.contextMapRevision,
+    repoContextMapRevision: input.repoContextMapRevision ?? null,
     ingestedAt,
   };
   await prisma.repoConformanceMap.upsert({
@@ -257,6 +285,8 @@ export async function clearRepoConformance(input: {
   foundation: RepoFoundation;
   warnings?: string[];
   now?: Date;
+  /** The repo's own `context-map.json` `revision` — a map-less repo can still have one (stage `map`). */
+  repoContextMapRevision?: string | null;
 }): Promise<void> {
   if (!isDbConfigured()) return;
   const prisma = getPrisma();
@@ -279,6 +309,12 @@ export async function clearRepoConformance(input: {
     consults30d: null,
     ...foundationData(foundation),
     warningsJson: JSON.stringify((input.warnings ?? []).slice(0, 50)),
+    // No map: nothing to have churned against, and no build-time revision to be behind.
+    orphanedVerdicts: 0,
+    arrivedContexts: 0,
+    renamedContexts: 0,
+    contextMapRevision: null,
+    repoContextMapRevision: input.repoContextMapRevision ?? null,
     ingestedAt,
   };
   await prisma.repoConformanceMap.upsert({
@@ -318,6 +354,11 @@ export async function listConformanceMaps(orgId: string): Promise<ConformanceMap
       scope: parseScope(r.scopeJson),
       directions: parseDirections(r.directionsJson),
       warnings: parseList(r.warningsJson),
+      orphanedVerdicts: r.orphanedVerdicts ?? 0,
+      arrivedContexts: r.arrivedContexts ?? 0,
+      renamedContexts: r.renamedContexts ?? 0,
+      contextMapRevision: r.contextMapRevision ?? null,
+      repoContextMapRevision: r.repoContextMapRevision ?? null,
       ingestedAt: r.ingestedAt.toISOString(),
     }))
     .sort((a, b) => a.repoFullName.localeCompare(b.repoFullName));
@@ -360,6 +401,10 @@ export async function listConformance(
     evidence: r.evidence,
     evaluatedAt: r.evaluatedAt ? r.evaluatedAt.toISOString() : null,
     evaluatedAgainst: r.evaluatedAgainst,
+    evaluatedRevision: r.evaluatedRevision ?? null,
+    revision: r.revision ?? null,
+    arrived: Boolean(r.arrived),
+    source: r.source ?? null,
     mapSha: r.mapSha,
     ingestedAt: r.ingestedAt.toISOString(),
   }));

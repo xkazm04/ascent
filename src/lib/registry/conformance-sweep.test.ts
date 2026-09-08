@@ -10,16 +10,32 @@
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-const { mockTargets, mockRead, mockIngest, mockClear, mockListDispatches, mockMarkDispatch } = vi.hoisted(() => ({
+const { mockTargets, mockRead, mockIngest, mockClear, mockListDispatches, mockMarkDispatch, mockAppFetch } = vi.hoisted(() => ({
   mockTargets: vi.fn(),
   mockRead: vi.fn(),
   mockIngest: vi.fn(),
   mockClear: vi.fn(),
   mockListDispatches: vi.fn(),
   mockMarkDispatch: vi.fn(),
+  mockAppFetch: vi.fn(),
 }));
 
 vi.mock("./conformance-read", () => ({ readRepoStandardsFiles: mockRead }));
+// The ONE GitHub read the sweep makes itself: `context-map.json` for its `revision`. Defaults to a
+// 404 in beforeEach so every older test runs with the revision unknown, exactly as a repo without
+// the file would.
+vi.mock("@/lib/github/app", () => ({
+  githubAppFetch: mockAppFetch,
+  AppApiError: class AppApiError extends Error {
+    constructor(
+      readonly status: number,
+      readonly path: string,
+      readonly body: string,
+    ) {
+      super(`GitHub App API ${status} on ${path}: ${body}`);
+    }
+  },
+}));
 vi.mock("@/lib/db/org-registry-conformance", () => ({
   ingestRepoConformance: mockIngest,
   clearRepoConformance: mockClear,
@@ -85,7 +101,11 @@ beforeEach(() => {
   mockTargets.mockResolvedValue({ orgId: "org-1", repos: repos("acme/api") });
   mockListDispatches.mockResolvedValue([]);
   mockMarkDispatch.mockResolvedValue(null);
+  mockAppFetch.mockRejectedValue(Object.assign(new Error("GitHub App API 404"), { status: 404 }));
 });
+
+/** A Contents-API answer for `context-map.json` carrying the given body. */
+const contentsFile = (body: string) => ({ type: "file", encoding: "base64", size: body.length, content: Buffer.from(body, "utf8").toString("base64") });
 
 describe("sweepConformance", () => {
   it("ingests a repo whose map parses", async () => {
@@ -140,6 +160,8 @@ describe("sweepConformance", () => {
       foundation: expect.objectContaining({ hasContextMap: false, hasManifest: true, domains: ["software-engineering"] }),
       warnings: [],
       now: new Date("2026-09-05T00:00:00Z"),
+      // No context map at the root → no request made, revision unknown.
+      repoContextMapRevision: null,
     });
   });
 
@@ -335,5 +357,51 @@ describe("foundationOf", () => {
       domains: ["a"],
       scope: { outOfScopeCategories: [], outOfScopeSubjects: [] },
     });
+  });
+});
+
+// ── knowledge-context-matrix: the repo's own context-map.json revision, read beside the map ──────
+describe("sweepConformance — context-map.json revision", () => {
+  it("reads the revision when the root listing saw the file, and hands it to the ingest", async () => {
+    mockRead.mockResolvedValue(files({ hasContextMap: true }));
+    mockAppFetch.mockResolvedValue(contentsFile(JSON.stringify({ version: "1", revision: "ecad2b58ad5f", groups: [] })));
+    const r = await sweepConformance("acme", "tok");
+    expect(r.warnings).toEqual([]);
+    expect(mockAppFetch).toHaveBeenCalledWith("/repos/acme/api/contents/context-map.json", "tok");
+    expect(mockIngest.mock.calls[0]![0].repoContextMapRevision).toBe("ecad2b58ad5f");
+  });
+
+  it("hands the revision to the map-less header row too — a repo at stage `map` still has a context map", async () => {
+    mockRead.mockResolvedValue(files({ map: null, mapSha: null, reason: "no .ai/registry-map.json", hasContextMap: true }));
+    mockAppFetch.mockResolvedValue(contentsFile(JSON.stringify({ revision: "abc123" })));
+    await sweepConformance("acme", "tok");
+    expect(mockClear).toHaveBeenCalledWith(expect.objectContaining({ repositoryId: "repo-0", repoContextMapRevision: "abc123" }));
+  });
+
+  it("spends no request when the root listing said there is no context map", async () => {
+    mockRead.mockResolvedValue(files({ hasContextMap: false }));
+    await sweepConformance("acme", "tok");
+    expect(mockAppFetch).not.toHaveBeenCalled();
+    expect(mockIngest.mock.calls[0]![0].repoContextMapRevision).toBeNull();
+  });
+
+  it("a 404 / 403 / transport failure / torn body reads as NULL and never fails the sweep or costs the map", async () => {
+    for (const failure of [
+      () => mockAppFetch.mockRejectedValue(Object.assign(new Error("404"), { status: 404 })),
+      () => mockAppFetch.mockRejectedValue(Object.assign(new Error("403"), { status: 403 })),
+      () => mockAppFetch.mockRejectedValue(new Error("socket hang up")),
+      () => mockAppFetch.mockResolvedValue(contentsFile('{"revision": "abc"')),
+      () => mockAppFetch.mockResolvedValue({ type: "dir" }),
+    ]) {
+      vi.clearAllMocks();
+      mockIngest.mockResolvedValue({ pairs: 1, removed: 0 });
+      mockTargets.mockResolvedValue({ orgId: "org-1", repos: repos("acme/api") });
+      mockListDispatches.mockResolvedValue([]);
+      mockRead.mockResolvedValue(files({ hasContextMap: true }));
+      failure();
+      const r = await sweepConformance("acme", "tok");
+      expect(r).toMatchObject({ withMap: 1, pairs: 1, warnings: [] });
+      expect(mockIngest.mock.calls[0]![0].repoContextMapRevision).toBeNull();
+    }
   });
 });

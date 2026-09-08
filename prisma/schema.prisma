@@ -2246,6 +2246,12 @@ model OrgKnowledgeSubject {
   // `evaluatedAgainst` is compared to THIS to call a verdict stale. NULL = the index pass predates
   // the mirror, which is "unknown", never "current".
   digest         String?
+  // The subject's DERIVED revision (`git rev-list --count` on the subject dir, +1 while dirty) and
+  // the `YYYY-MM-DD` of its last change, both as its index states them. `digest` is identity;
+  // `revision` is ORDER — what lets a reader say "judged at r12, now r14" instead of merely "stale".
+  // NULL = the index predates revisions (an older generator), which is "unknown", never r0.
+  revision       Int?
+  changedAt      String?
   archived       Boolean  @default(false)
   indexedAt      DateTime
 
@@ -2296,6 +2302,19 @@ model RepoConformanceMap {
   // `{ subject, bundle, decision: "accepted" | "declined" | "deferred" }[]`.
   directionsJson     String   @default("[]")
   warningsJson       String   @default("[]") // TEXT JSON string[]
+  // Context churn, as the map's own `stats` assert it (spark knowledge-context-matrix). Verdicts
+  // whose context left `context-map.json` (the map retains their bodies under `orphans[]`, which is
+  // NOT ingested — repo-level counts are the design), contexts absent from the previous map, and
+  // contexts re-attached by path overlap. 0 for a map from an older builder: it asserted nothing.
+  orphanedVerdicts   Int      @default(0)
+  arrivedContexts    Int      @default(0)
+  renamedContexts    Int      @default(0)
+  // The `context-map.json` revision the map was BUILT FROM (its own `contextMapRevision`) and the
+  // one the sweep READ at the repo root. Both nullable: an older map carries none, and the root read
+  // may fail. `mapBehind` is derived by the fleet builder as "both known and different" — a fetch
+  // failure is never evidence of drift.
+  contextMapRevision     String?
+  repoContextMapRevision String?
   ingestedAt         DateTime
 
   // One map header per repo. Block-level for the same reason as UsageEvent.idemKey — the emitted
@@ -2321,6 +2340,15 @@ model RepoConformance {
   evidence         String? // file:line evidence exactly as the map stated it
   evaluatedAt      DateTime?
   evaluatedAgainst String?
+  // Revision-aware verdicts (spark knowledge-context-matrix). `evaluatedRevision` is the subject
+  // revision `/conform` judged at; `revision` is the subject's revision when the map was built. Both
+  // NULL for a pair written before revisions existed — unknown, never r0. `arrived` = the context
+  // was not in the previous map (a fresh subscription); `source` is the builder's own word for how
+  // the pair got there (match | retained | conform | renamed), NULL when it said nothing.
+  evaluatedRevision Int?
+  revision          Int?
+  arrived           Boolean   @default(false)
+  source            String?
   mapSha           String
   ingestedAt       DateTime
 

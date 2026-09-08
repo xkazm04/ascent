@@ -23,6 +23,12 @@ interface Progress {
   /** Repos skipped for lack of prepaid scan credits (`notice` up front, `repo.skipped` mid-run,
    *  authoritative total on the final `result`) — a truncated paid run must not read as success. */
   skipped: number;
+  /** Repos skipped because the org's installation token could not be minted (revoked, suspended, or
+   *  the repo removed from the install). A DIFFERENT problem from running out of credits, with a
+   *  different fix, so it is a different counter: the `result` handler below overwrites `skipped`
+   *  with the authoritative credits-only total, which used to erase these entirely and settle a
+   *  token-less fleet as a clean, empty success. */
+  skippedNoToken: number;
   /** Set when the server stopped claiming new work to stay inside its wall-clock budget. Since
    *  moonshot #10 the remainder is a DURABLE QUEUE, not a list the user must re-drive: the background
    *  worker finishes it, and this carries the run handle so the hook can poll how much is left. Kept
@@ -41,7 +47,7 @@ export type ScanScope = { staleOnlyDays?: number; repos?: string[] };
 export function useOrgScanButton(org: string, watchedCount: number) {
   const router = useRouter();
   const startScan = useScanStream();
-  const [p, setP] = useState<Progress>({ running: false, done: 0, total: watchedCount, current: "", failed: 0, skipped: 0 });
+  const [p, setP] = useState<Progress>({ running: false, done: 0, total: watchedCount, current: "", failed: 0, skipped: 0, skippedNoToken: 0 });
   const hintId = useId();
   // a11y (ambiguity-ui 2026-07-16 #5): natively-disabled buttons leave the tab order and `title` is
   // hover-only, so keyboard/SR users found dead controls with no reason. Keep them focusable with
@@ -62,7 +68,7 @@ export function useOrgScanButton(org: string, watchedCount: number) {
     // rather than showing a misleading "0/<all watched>" (or an instant 100% on a tiny stale subset).
     // A CONTINUE scope names its repos explicitly, so its denominator IS known.
     const initialTotal = scope?.repos ? scope.repos.length : scope ? 0 : watchedCount;
-    setP({ running: true, done: 0, total: initialTotal, current: "starting…", failed: 0, skipped: 0 });
+    setP({ running: true, done: 0, total: initialTotal, current: "starting…", failed: 0, skipped: 0, skippedNoToken: 0 });
     await startScan({
       body: { org, ...scope },
       onRefused: (d, status) => setP((s) => ({ ...s, running: false, error: d?.error ?? `Failed (${status}).` })),
@@ -72,10 +78,13 @@ export function useOrgScanButton(org: string, watchedCount: number) {
           setP((s) => ({ ...s, done: Number(data.index) || s.done, total: Number(data.total) || s.total, current: String(data.repo ?? "") }));
         else if (event === "repo") {
           // The server emits one `repo` event per repo: `error` on a per-repo failure, `skipped`
-          // when a mid-run credit reservation was lost (no score produced). The old consumer
-          // ignored both, so a partial run still read as N/N success — count them so the partial
-          // outcome is visible.
+          // with a REASON (insufficient_credits | no_token | in_progress). The old consumer ignored
+          // both, so a partial run still read as N/N success — count them so the partial outcome is
+          // visible. The reason is kept, not flattened: this comment used to say `skipped` meant a
+          // lost credit reservation, and that assumption is what made overwriting the whole counter
+          // with `skippedForCredits` on `result` look safe.
           if (data.error) setP((s) => ({ ...s, failed: s.failed + 1 }));
+          else if (data.skipped === "no_token") setP((s) => ({ ...s, skippedNoToken: s.skippedNoToken + 1 }));
           else if (data.skipped) setP((s) => ({ ...s, skipped: s.skipped + 1 }));
         } else if (event === "notice") {
           // Up-front partial coverage: the prepaid balance covers only `scanning` of the watched
@@ -109,7 +118,14 @@ export function useOrgScanButton(org: string, watchedCount: number) {
           // Final summary — skippedForCredits is the authoritative total (up-front slice +
           // mid-run reservation losses), so prefer it over the incremental count.
           const skippedN = Number(data.skippedForCredits);
-          if (Number.isFinite(skippedN)) setP((s) => ({ ...s, skipped: skippedN }));
+          const noTokenN = Number(data.skippedNoToken);
+          setP((s) => ({
+            ...s,
+            skipped: Number.isFinite(skippedN) ? skippedN : s.skipped,
+            // Authoritative too, and kept separate — overwriting a single counter with the
+            // credits-only total is what erased the token failures.
+            skippedNoToken: Number.isFinite(noTokenN) ? noTokenN : s.skippedNoToken,
+          }));
         } else if (event === "error") setP((s) => ({ ...s, running: false, error: String(data.error) }));
       },
       onStreamEnd: () => {

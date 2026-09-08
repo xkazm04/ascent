@@ -45,8 +45,10 @@ describe("readBundleSubjects", () => {
         "focus lands nowhere after a dialog closes",
       ],
       laws: ["gate-sees-target", "unknown-is-not-a-value"],
-      // This fixture carries no digest: unknown, never "current".
+      // This fixture carries no digest, revision or change date: unknown, never "current" / r0.
       digest: null,
+      revision: null,
+      changedAt: null,
     });
   });
 

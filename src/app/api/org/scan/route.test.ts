@@ -253,3 +253,30 @@ describe("POST /api/org/scan — credit capacity is still decided up front", () 
     expect(mockEnqueue).not.toHaveBeenCalled();
   });
 });
+
+// A BROKEN INSTALLATION is not a successful scan. The worker emits three skip reasons —
+// insufficient_credits, in_progress, no_token — and the result frame carried only the first two, so
+// an org whose GitHub App install was revoked/suspended saw every repo skip, the client's mid-run
+// count get overwritten by `skippedForCredits: 0`, and the button settle on a clean N/N with no
+// failures, no skips and no error: a completed scan that produced nothing.
+describe("POST /api/org/scan — a token-less fleet says so", () => {
+  it("reports skippedNoToken on the result frame", async () => {
+    mockDrain.mockImplementation(async (_lane, opts) => {
+      opts.onRepo?.({ repo: "acme/repo", stage: "skipped", reason: "no_token" });
+      return summary({ done: 0, skippedNoToken: 1 });
+    });
+
+    const body = await runBulkScan();
+    expect(frame(body, "repo")).toMatchObject({ skipped: "no_token" });
+    // Without this the client's only signal was the per-repo frame, which its `result` handler then
+    // overwrote with skippedForCredits (0) — so the run settled as a clean, empty success.
+    expect(frame(body, "result")).toMatchObject({ skippedNoToken: 1, scanned: 0, skippedForCredits: 0 });
+  });
+
+  it("keeps the two skip reasons apart on the wire", async () => {
+    mockDrain.mockImplementation(async () => summary({ done: 0, skippedNoToken: 2, skippedForCredits: 3 }));
+
+    const body = await runBulkScan();
+    expect(frame(body, "result")).toMatchObject({ skippedNoToken: 2, skippedForCredits: 3 });
+  });
+});

@@ -87,6 +87,11 @@ describe("parseConformanceMap", () => {
       evidence: null,
       evaluatedAt: null,
       evaluatedAgainst: null,
+      // An older map carries none of the revision-aware keys: each reads as its unknown.
+      evaluatedRevision: null,
+      revision: null,
+      arrived: false,
+      source: null,
     });
     expect(pairs[1]).toMatchObject({
       state: "deviation",
@@ -183,5 +188,66 @@ describe("countConsults", () => {
 
   it("returns zeroes for an empty file — the file existing IS the measurement", () => {
     expect(countConsults("", 30, NOW)).toEqual({ total: 0, bySubject: {} });
+  });
+});
+
+// ── knowledge-context-matrix: revision-aware pairs, churn stats, the repo's own context-map revision ──
+import { parseContextMapRevision } from "./conformance-map";
+
+describe("parseConformanceMap — revision-aware keys (additive; an older map parses unchanged)", () => {
+  it("reads an OLD map (no revision / arrived / source / churn stats) exactly as before, with the new fields at their unknowns", () => {
+    const r = parseConformanceMap(JSON.stringify(map()));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    for (const p of r.pairs) expect(p).toMatchObject({ evaluatedRevision: null, revision: null, arrived: false, source: null });
+    // Absent = an older builder: 0 KNOWN, not "no churn".
+    expect(r.header).toMatchObject({ orphanedVerdicts: 0, arrivedContexts: 0, renamedContexts: 0, contextMapRevision: "ecad2b58ad5f" });
+  });
+
+  it("reads per-pair revision, evaluatedRevision, arrived and source, and the header's churn stats", () => {
+    const r = parseConformanceMap(
+      JSON.stringify(
+        map({
+          stats: { contexts: 2, pairs: 2, unmatched: 0, weaklyGoverned: 1, judged: 1, deviations: 1, orphanedVerdicts: 3, arrivedContexts: 1, renamedContexts: 2 },
+          orphans: [{ context: "Gone/Ctx", name: "Ctx", group: "Gone", paths: ["src/gone"], subjects: [{ subject: "quality-gates", bundle: "software-engineering", state: "deviation" }] }],
+          contexts: [
+            {
+              context: "A/B",
+              group: "A",
+              subjects: [
+                { subject: "quality-gates", bundle: "software-engineering", state: "deviation", revision: 14, evaluatedRevision: 12, revisionsBehind: 2, source: "retained" },
+                { subject: "data-access", bundle: "software-engineering", state: "unknown", revision: 3, arrived: true, source: "renamed", renamedFrom: "A/Old" },
+              ],
+            },
+          ],
+        }),
+      ),
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.header).toMatchObject({ orphanedVerdicts: 3, arrivedContexts: 1, renamedContexts: 2 });
+    expect(r.pairs[0]).toMatchObject({ subjectSlug: "quality-gates", revision: 14, evaluatedRevision: 12, arrived: false, source: "retained" });
+    expect(r.pairs[1]).toMatchObject({ subjectSlug: "data-access", revision: 3, evaluatedRevision: null, arrived: true, source: "renamed" });
+    // The orphans' bodies are NOT ingested as pairs — repo-level counts are the design.
+    expect(r.pairs.map((p) => p.contextName)).toEqual(["A/B", "A/B"]);
+  });
+
+  it("refuses a string or negative revision rather than coercing it", () => {
+    const r = parseConformanceMap(
+      JSON.stringify(map({ contexts: [{ context: "A/B", subjects: [{ subject: "s", bundle: "b", state: "unknown", revision: "12", evaluatedRevision: -1, arrived: "yes" }] }] })),
+    );
+    expect(r.ok && r.pairs[0]).toMatchObject({ revision: null, evaluatedRevision: null, arrived: false });
+  });
+});
+
+describe("parseContextMapRevision", () => {
+  it("reads the top-level revision string", () => {
+    expect(parseContextMapRevision(JSON.stringify({ version: "1", revision: "ecad2b58ad5f", groups: [] }))).toBe("ecad2b58ad5f");
+  });
+  it("is null for an absent / blank revision, a non-object, or a torn document — never a throw", () => {
+    expect(parseContextMapRevision(JSON.stringify({ groups: [] }))).toBeNull();
+    expect(parseContextMapRevision(JSON.stringify({ revision: "  " }))).toBeNull();
+    expect(parseContextMapRevision("[]")).toBeNull();
+    expect(parseContextMapRevision('{"revision": "abc"')).toBeNull();
   });
 });

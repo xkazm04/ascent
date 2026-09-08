@@ -75,6 +75,16 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
             {p.skipped} {p.skipped === 1 ? "repo" : "repos"} skipped (out of scan credits).
           </p>
         )}
+        {/* A DIFFERENT failure with a different fix: the org's installation token could not be
+            minted. Its own line rather than a shared "skipped" count, because "buy credits" and
+            "reconnect the GitHub App" are not the same instruction — and because a fleet where every
+            repo skips this way used to settle as a clean, empty success. */}
+        {!p.running && p.skippedNoToken > 0 && !p.error && (
+          <p className="type-body-sm text-warn">
+            {p.skippedNoToken} {p.skippedNoToken === 1 ? "repo" : "repos"} skipped — GitHub App access
+            unavailable. Reconnect the installation on Connect.
+          </p>
+        )}
         {/* Time-budget stop — distinct from the network-error state below, and no longer an ASK.
             The repos this run reached are persisted; the remainder is a queued job the background
             worker finishes, so the surface is a count that ticks down on its own (polled in
