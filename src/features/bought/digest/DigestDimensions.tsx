@@ -1,56 +1,63 @@
-// Per-dimension score deltas over the trailing week: where the fleet stands now, and which way it
-// moved. Deliberately NOT a DimRow (../executive/briefingShared) reuse: that row renders a score and
-// an optional practice deep-link, and this one's whole point is the fourth cell — the delta, in one
-// of three presentations the digest and its markdown must agree on.
+// Per-dimension standing and movement — the chart is the panel; this file is its frame.
 //
-// The three presentations, from `band` (never re-derived from the number here — the model decides):
-//   up / down    → the signed, coloured move (deltaHex + fmtDelta)
-//   flat         → "flat (within noise)", muted: a real measurement that did not move
-//   unmeasured   → "—", muted: NOT a zero. No scan on one side of the window, so there is no delta.
-// The distinction between the last two is the one a leadership update most often loses.
+// The header used to carry the digest's copy of *"Where each dimension stands now, and how it moved
+// over the week. An em dash is a missing measurement, not a zero."* — the last live instance of a
+// sentence Delivery encoded away in Wave 1. `DigestDimChart` draws all three of its readings, and
+// the two that are genuinely epistemic (the noise band; the void) ride the legend as hover text.
+//
+// NOTE, and it is deliberate: the pasted markdown (`digest-markdown.ts`) still prints "—" and
+// "flat (within noise)" IN WORDS. A recipient reading the update in Slack has no band to look at and
+// no legend to hover, so there the words ARE the encoding. The screen and the artifact diverge here
+// on purpose; §2 governs the screen.
 
-import { Card, InlineEmpty, Meter, SectionHeader, deltaHex, fmtDelta } from "@/components/org/shared/ui";
-import { scoreHex } from "@/lib/ui";
-import type { DigestDimDelta, WeeklyDigest } from "@/lib/org/digest-types";
+import { Card, InlineEmpty, SectionHeader } from "@/components/org/shared/ui";
+import { Legend } from "@/components/org/viz";
+import type { WeeklyDigest } from "@/lib/org/digest-types";
+import { DigestDimChart } from "./DigestDimChart";
+import { NOISE, deltaExtent, dimBars, presentStates } from "./digestViz";
 
-function DeltaCell({ dim }: { dim: DigestDimDelta }) {
-  if ((dim.band === "up" || dim.band === "down") && dim.delta != null) {
-    return (
-      <span className="type-mono-sm tabular-nums" style={{ color: deltaHex(dim.delta) }}>
-        {fmtDelta(dim.delta)}
-      </span>
-    );
-  }
-  if (dim.band === "flat") return <span className="type-body-sm text-slate-500">flat (within noise)</span>;
-  return <span className="type-mono-sm text-slate-500">—</span>;
+const NOISE_HINT =
+  `A move of ${NOISE} points or less is inside the scan-to-scan noise band: two independent re-scans of the ` +
+  `same commit moved ±1, so a bar that stays in the shaded band is a hold, not a climb.`;
+
+/** The band at legend scale — the real mark, painted the way the chart paints it (Legend's rule 1). */
+function NoiseSwatch() {
+  return (
+    <svg viewBox="0 0 14 14" width={14} height={14} className="shrink-0" role="presentation" aria-hidden>
+      <rect x={0} y={1.5} width={14} height={11} fill="var(--color-divider)" fillOpacity={0.35} />
+      <line x1={7} y1={1.5} x2={7} y2={12.5} stroke="var(--color-divider)" strokeWidth={1} />
+    </svg>
+  );
 }
 
 export function DigestDimensions({ dims }: { dims: WeeklyDigest["dims"] }) {
-  const noneMeasured = dims.every((d) => d.band === "unmeasured");
+  const bars = dimBars(dims);
+  const noneMeasured = bars.every((b) => b.delta == null);
+
   return (
     <Card>
-      <SectionHeader
-        size="sm"
-        title="Score deltas per dimension"
-        description="Where each dimension stands now, and how it moved over the week. An em dash is a missing measurement, not a zero."
-      />
-      {noneMeasured && <InlineEmpty>No scans in this window — deltas are unmeasured.</InlineEmpty>}
-      <div className="mt-3 space-y-1.5">
-        {dims.map((d) => (
-          <div key={d.dimId} className="flex items-center gap-3 type-body-sm">
-            <span className="w-24 shrink-0 text-slate-400">
-              {d.dimId} · {d.label}
-            </span>
-            <Meter className="flex-1" value={d.now} color={scoreHex(d.now)} ariaLabel={`${d.label} score`} />
-            <span className="w-7 text-right font-mono tabular-nums" style={{ color: scoreHex(d.now) }}>
-              {d.now}
-            </span>
-            <span className="w-36 shrink-0 text-right">
-              <DeltaCell dim={d} />
-            </span>
+      <SectionHeader size="sm" title="Score deltas per dimension" />
+      {bars.length === 0 ? (
+        <InlineEmpty>No dimensions were scored across the fleet this week.</InlineEmpty>
+      ) : (
+        <>
+          <div className="mt-3">
+            <DigestDimChart bars={bars} extent={deltaExtent(bars.map((b) => b.delta))} />
           </div>
-        ))}
-      </div>
+          {noneMeasured && (
+            // The (O) state for the whole panel: every row is a void, and the reader is owed the
+            // reason rather than a lane of dashes.
+            <InlineEmpty>
+              No repository was scanned on both sides of this week, so no dimension has a move to report.
+            </InlineEmpty>
+          )}
+          <Legend
+            className="mt-3"
+            states={presentStates(bars.map((b) => b.state))}
+            extra={[{ id: "noise", label: `noise band ±${NOISE}`, swatch: <NoiseSwatch />, hint: NOISE_HINT }]}
+          />
+        </>
+      )}
     </Card>
   );
 }

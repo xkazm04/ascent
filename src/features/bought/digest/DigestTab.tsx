@@ -6,9 +6,11 @@
 // design — a weekly update whose window silently followed a period cookie would compare different
 // spans week to week and nobody would notice.
 //
-// SERVER component (docs/ORG-TABS-REFACTOR.md): no "use client" here or in any co-located part. The
-// one client thing on the page is `CopyForLlm`, which is already a client component and crosses the
-// boundary by itself.
+// SERVER component (docs/ORG-TABS-REFACTOR.md): no "use client" here or in any co-located part —
+// including every chart the /org redesign added, which is deliberately hook-free and motionless (a
+// digest is a static artifact people paste; an entrance animation on a document is noise). The only
+// client components on the page are `CopyForLlm` and the kit's `WhyChip`, each of which is already a
+// client component and crosses the boundary by itself.
 
 import Link from "next/link";
 import { buildWeeklyDigest } from "@/lib/org/digest";
@@ -34,9 +36,17 @@ export async function DigestTab({ slug, sp }: { slug: string; sp: SearchParams }
   const d = await buildWeeklyDigest(slug);
 
   if (!d) {
+    // (O) The two causes of "no digest" say DIFFERENT things and this state has to cover both, because
+    // `buildWeeklyDigest` collapses them: an org with nothing scanned, and an org that is scanned but
+    // has no fleet GRADE — every repo sitting on the deterministic mock floor, which `hasFleetGrade`
+    // now refuses (org-shared.ts). The old wording asserted only the first ("No scanned repositories
+    // yet"), which was flatly wrong for the second and told a team with twelve mock-scored repos that
+    // it had none.
     return (
       <SectionEmpty>
-        No scanned repositories yet. Scan some of this org&apos;s repos to generate a weekly digest.
+        No fleet grade for this week yet. A digest needs at least one repository scored by a live engine —
+        repositories still on the mock floor are excluded from every average, so a fleet of nothing but
+        mock scores has a standing of nothing rather than a standing of zero.
       </SectionEmpty>
     );
   }
@@ -46,11 +56,10 @@ export async function DigestTab({ slug, sp }: { slug: string; sp: SearchParams }
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <SectionHeader
-          descriptionClassName="max-w-3xl"
-          title="Weekly digest"
-          description={`${d.window.title}: how every dimension moved, which follow-ups closed and opened, and the next three actions. Copy it as markdown to paste into a leadership update.`}
-        />
+        {/* The description is the WINDOW and nothing else. What the page contains is the page (a table
+            of contents above one screen is chrome), and "copy it as markdown to paste into a
+            leadership update" was already the copy chip's own `title`, on the control that does it. */}
+        <SectionHeader title="Weekly digest" description={d.window.title} />
         <div className="flex flex-wrap items-center gap-2">
           {/* The standing read, over the selected period — where a reader goes when a week is not
               enough context. */}

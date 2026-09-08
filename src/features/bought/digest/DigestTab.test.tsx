@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 //
 // The Weekly digest tab renders what the model measured — including the parts it could NOT measure.
-// These cases pin the three presentations a leadership update most often flattens into each other:
-// a real move, a within-noise hold ("flat (within noise)"), and a missing measurement ("—", never a
-// zero); plus the "opened" column's unmeasurable state, which must be a sentence rather than a 0.
+// This file is the PAGE contract: the fixed window, the two header actions, the provenance that
+// travels with the numbers, and the empty state. The MARKS that carry what the header sentences used
+// to say — the noise band, the void rows, the dismissed segment — are pinned in DigestViz.dom.test.tsx.
 //
 // The model and the serializer are mocked (WP1 owns their bodies): this file is about the PAGE's
 // presentation contract against the wire shape in digest-types.ts, not about the numbers.
@@ -28,7 +28,7 @@ const { DigestTab } = await import("./DigestTab");
 
 async function renderTab(digest: unknown) {
   mockBuild.mockResolvedValue(digest);
-  render(await DigestTab({ slug: "acme", sp: {} }));
+  return render(await DigestTab({ slug: "acme", sp: {} }));
 }
 
 describe("DigestTab", () => {
@@ -42,17 +42,19 @@ describe("DigestTab", () => {
     expect(screen.getByRole("link", { name: "Full briefing" })).toHaveAttribute("href", "/org/acme?tab=executive");
   });
 
-  it("renders every dimension, with the flat and unmeasured bands worded apart", async () => {
-    await renderTab(digestFixture());
+  it("renders every dimension, and prints no numeral for the one the week could not measure", async () => {
+    const { container } = await renderTab(digestFixture());
 
     for (const label of ["Testing", "Documentation", "Context Engineering", "Security Posture"]) {
-      expect(screen.getByText(new RegExp(label))).toBeInTheDocument();
+      // the chart's own screen-reader table, built from the same rows the geometry is
+      expect(screen.getByRole("rowheader", { name: new RegExp(label) })).toBeInTheDocument();
     }
-    // A within-noise hold is a MEASUREMENT that did not move…
-    expect(screen.getByText("flat (within noise)")).toBeInTheDocument();
-    // …and an unmeasured dimension is an em dash, not a zero. (getAllByText: the em dash is the whole
-    // text of that cell, which is what distinguishes it from em dashes inside longer sentences.)
-    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+    // The three presentations are now three marks (DigestViz.dom.test.tsx owns their details); what
+    // this page-level case pins is that the unmeasured one reaches the page as a void, so no cell in
+    // a column of numbers can carry a stand-in glyph for it.
+    const unmeasured = container.querySelector('[data-row="D4"]')!;
+    expect(unmeasured.getAttribute("data-state")).toBe("missing");
+    expect(unmeasured.querySelector("[data-delta-bar]")).toBeNull();
   });
 
   it("gives rank 1 the recommended-next-move block", async () => {
@@ -62,13 +64,16 @@ describe("DigestTab", () => {
     expect(screen.getByText(/Roll out the test gate to 4 repositories/)).toBeInTheDocument();
   });
 
-  it("states the cohort the deltas were measured over, and the coverage", async () => {
+  it("draws the cohort the deltas were measured over, nested inside the coverage", async () => {
     await renderTab(digestFixture());
 
+    // The sentence this replaces held three nested populations: the org, the scanned part of it, and
+    // the part of THAT with a scan on both ends. The strip nests them and its accessible name says so.
     expect(
-      screen.getByText(/measured over 8 repositories scanned on both sides of the week \(\+2 onboarded, 1 departed\)/),
+      screen.getByRole("img", { name: /10 of 12 scanned.*8 scanned on both sides of the week/ }),
     ).toBeInTheDocument();
-    expect(screen.getByText(/10\/12 repositories scanned/)).toBeInTheDocument();
+    // The pasted markdown keeps the full sentence — a recipient in Slack has no strip and no chip.
+    expect(screen.getByRole("button", { name: "Why: delta cohort" })).toBeInTheDocument();
   });
 
   it("prints the not-measurable sentence instead of a zero when nothing pre-dates the window", async () => {
@@ -94,7 +99,11 @@ describe("DigestTab", () => {
   it("shows the empty state and no digest sections when nothing has been scanned", async () => {
     await renderTab(null);
 
-    expect(screen.getByText(/No scanned repositories yet/)).toBeInTheDocument();
+    // The guard behind this state is `hasFleetGrade`, which is STRICTLY stronger than the
+    // `scannedCount === 0` it replaced: a fleet of nothing but mock floors is scanned and ungraded,
+    // and the old copy told such a team it had no repositories at all.
+    expect(screen.getByText(/No fleet grade for this week yet/)).toBeInTheDocument();
+    expect(screen.getByText(/scored by a live engine/)).toBeInTheDocument();
     expect(screen.queryByText("Recommended next move")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Copy the weekly digest as markdown" })).not.toBeInTheDocument();
   });

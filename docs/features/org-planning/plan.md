@@ -76,8 +76,9 @@ it at `?tab=live` — in [live.md](live.md).
 
 The Briefing's fixed-window sibling, and the one page in the product designed to leave it: a lead
 opens it on Monday, reads it in a minute, and pastes it into a leadership update. Panel:
-`src/features/bought/digest/DigestTab.tsx` (a server component; the co-located `Digest*.tsx` parts
-carry no `"use client"`), assembled by `buildWeeklyDigest` (`src/lib/org/digest.ts`) and serialized by
+`src/features/bought/digest/DigestTab.tsx` (a server component; every co-located `Digest*.tsx` part is
+server-safe too — the only client components on the page are `CopyForLlm` and the kit's `WhyChip`,
+which cross the boundary by themselves), assembled by `buildWeeklyDigest` (`src/lib/org/digest.ts`) and serialized by
 `weeklyDigestMarkdown` (`src/lib/org/digest-markdown.ts`) over the shared wire contract in
 `src/lib/org/digest-types.ts`.
 
@@ -91,11 +92,11 @@ way to tell.
 
 | Section | Reads | The distinction it protects |
 | --- | --- | --- |
-| Headline tiles | `headline` | Deltas are **cohort-matched** — repos scanned on *both* sides of the week. The caption always names that denominator (`+onboarded / departed`), or says "no earlier scans to compare against" when `cohortSize` is null. |
-| Score deltas per dimension | `dims[].band` | Three presentations, never re-derived at the renderer: a signed coloured move, `flat (within noise)`, and `—` for **unmeasured**. An em dash is a missing measurement, not a zero. |
-| Follow-ups | `followups` (`src/lib/db/org-followups-week.ts`) | "Closed" is an event with a `how` (by rescan / by hand). Dismissals are counted **beside** the closes and never folded in — dismissing is a decision not to do the work. |
-| Next three actions | `actions` | Rank 1 gets the accent block and is the same sentence the markdown leads with, so the page and the pasted update cannot recommend different things. |
-| Repository movement | `movement` | A null read ("could not be read this week") stays distinct from an empty one ("nothing moved beyond the noise band"). |
+| Headline tiles | `headline` | Deltas are **cohort-matched** — repos scanned on *both* sides of the week. `DigestCoverageStrip` nests the three populations (fleet → scanned → compared); a null `cohortSize` draws the cohort as a **void** and the tiles drop their delta badges. |
+| Score deltas per dimension | `dims[].band` | Three presentations, never re-derived at the renderer. On screen they are three marks: a bar clear of the shaded noise band, a bar inside it, and — for **unmeasured** — no bar and no numeral at all. |
+| Follow-ups | `followups` (`src/lib/db/org-followups-week.ts`) | "Closed" is an event with a `how` (by rescan / by hand). Dismissals are drawn as their own segment across a visible gap, in the kit's `decided` state — dismissing is a decision not to do the work, and nothing can fold it into the closes. |
+| Next three actions | `actions` | Rank 1 gets the accent block and is the same sentence the markdown leads with. `DigestReachBars` draws each move's reach and the subset it would lift a level; the ranking rule (`leverage`) is disclosed on a `WhyChip`, not asserted in the header. |
+| Repository movement | `movement` | A null read ("could not be read this week") stays distinct from an empty one ("nothing moved beyond the noise band"). `DigestMoveAxis` shades the band every mover is, by construction, clear of. |
 | Provenance footer | `provenance` | Scan count, the mock-engine caveat, and one line per degraded read — printed, because the digest is pasted into a room where nobody can ask the database a follow-up question. |
 
 **The export.** "Copy as markdown" hands over `weeklyDigestMarkdown(d)` — a self-contained update in
@@ -106,10 +107,10 @@ tab was **born migrated** — it has never had a legacy `/org/<slug>/digest` rou
 
 **Known gap:** "opened" is a **derived identity diff**, not an event. No creation event exists for a
 follow-up, so the opened column diffs the pre-window scan against the latest one — a repository with
-no pre-window scan cannot contribute (counted and stated as `(N repositories had no earlier scan and
-are not counted)`), and when *no* repository has one the whole column is unmeasurable and says so in
-a sentence rather than printing a 0. Closing this gap means emitting a creation event when a
-recommendation first appears.
+no pre-window scan cannot contribute (counted on a hatched legend row, "N repositories not
+compared"), and when *no* repository has one the whole track is a **void**: `rendersValue("missing")`
+is false, so the 0 that would read as a calm week is unprintable. Closing this gap means emitting a
+creation event when a recommendation first appears.
 
 ### The model and its markdown (`src/lib/org/digest*.ts`, `src/lib/db/org-followups-week.ts`)
 
@@ -123,8 +124,15 @@ seven reads in parallel over aggregates that already exist and are already teste
 `getOrgMovers`, `getOrgRecommendations(…, 3)`, `getOrgEngineMix`, plus the three week-shaped reads in
 `src/lib/db/org-followups-week.ts` — hands every one of them the *same* window value, and composes the
 wire contract in `digest-types.ts`. The only load-bearing read is the rollup: with no fleet standing
-there is no digest, so a null rollup (or `scannedCount === 0`) returns `null` and the caller renders an
-empty state. Everything else is optional.
+there is no digest, so a null rollup — or one that fails `hasFleetGrade` (`src/lib/db/org-shared.ts`)
+— returns `null` and the caller renders an empty state. Everything else is optional.
+
+That guard used to be `scannedCount === 0`, **which an all-mock fleet passes**: every repo scanned,
+every score on the deterministic mock floor, every average excluded from — so the digest published
+`avg 0 · L1` into the Slack push and the board PDF. `hasFleetGrade` is strictly stronger (the three
+averages share one population, `realScoredCount`) and narrows all three fields for everything after
+it. The tab's empty state was corrected in the same wave: it used to assert "No scanned repositories
+yet", which is flatly wrong for the second cause.
 
 **Degradation is the design.** Each read is wrapped `.catch(() => null)`, because one unavailable
 aggregate must not blank an update the other six could still fill — but a failure must never
@@ -257,6 +265,73 @@ table is deliberately still a table (§2.7: auditable row-level evidence is what
 `GOOD`/`BAD`/`MUTED` cell paints now read from `LEVEL_HEX` and `DIRECTION_TONE` rather than three
 hand-typed hexes — same values, one home.
 
+## Weekly digest, redesigned (Wave 4, 2026-09-08)
+
+The digest was seven components, **zero SVG** and 508 characters of prose, and it is the one tab in
+`/org` whose output leaves the product. That makes the [redesign law](../../ORG-UX-REDESIGN.md) apply
+to it asymmetrically, and the split is worth stating because it is easy to get backwards:
+
+- **The screen rendering is fair game.** §2 governs it, and every header sentence below is gone.
+- **Prose that survives the copy is not chrome.** `weeklyDigestMarkdown` keeps its words — "flat
+  (within noise)", the `—` in the dimension table, the "not measurable" line, the cohort clause. A
+  recipient reading the update in Slack has no band to look at, no legend, and nothing to hover, so
+  there the sentence *is* the encoding. **Where the screen and the artifact diverge, they diverge on
+  purpose**, and each divergence is noted in the component that owns it.
+
+**The last live copy of the em-dash sentence is gone.** *"Where each dimension stands now, and how it
+moved over the week. An em dash is a missing measurement, not a zero."* was hand-written in two tabs;
+Delivery encoded its copy away in Wave 1 and `DigestDimChart` encodes this one. Three readings, three
+marks: a bar reaching out of the shaded band, a bar that stays inside it (the band is the reason a +1
+is not a climb — nothing has to say "flat"), and, for an unmeasured dimension, **no bar and no
+numeral anywhere on the row**. That last one is structural rather than careful: `bandState` maps the
+`unmeasured` band to the kit's `missing`, whose `rendersValue()` is false.
+
+**"Beside, never folded into" is a segment, not a promise.** `DigestLedgerBars` puts the closed and
+dismissed counts on one axis with a visible gap between them, and paints the dismissals in the kit's
+`decided` state — the accent ring is "a person decided this", which is exactly what a dismissal is.
+An unmeasurable "opened" is a void on the same axis: no rect, no numeral, and the reason on a legend
+row. The two tracks share one count scale so the week's closes and opens are comparable rather than
+each self-scaled.
+
+**The noise band is a band.** *"Repos whose overall score crossed the noise band between the two ends
+of the week"* described a shape. `getOrgMovers` admits a repo only when `classifyDelta` puts it
+outside ±`SCORE_NOISE_BAND`, so every mark on `DigestMoveAxis` is by construction clear of the shaded
+middle — and the drawing shows by how much, which the sentence could not. The gainers/slippers
+columns are gone with it; their numbers are positions on the axis now, and the deep links a list
+still owns survive as the report links under the chart.
+
+**A wrong claim, corrected.** "Next three actions" was headed *"Ranked by projected fleet gain over
+the repos each one lifts."* It is not: `getOrgRecommendations` sorts by `leverage` (reach × impact
+weight × dimension weight), and `projectedPoints` is a per-repository mean the ranking never reads —
+the two can disagree, and the header asserted the wrong one. `DigestReachBars` draws the exact reach,
+marks the subset a move would lift a level, and prints the points as the per-repo figure they are; a
+move with **no** projection draws a void instead of a short bar, where before an unprojected move and
+a low-value one looked identical. The real rule rides a `WhyChip` on the header.
+
+**The cohort is drawn, not narrated.** "measured over 8 repositories scanned on both sides of the
+week (+2 onboarded, 1 departed) · 10/12 repositories scanned" is three nested populations in one
+line. `DigestCoverageStrip` nests them; the churn that explains why the cohort is smaller than the
+scanned set is on a chip; a null cohort is a void, never a 0. The markdown keeps the sentence.
+
+**One `SectionHeader description` survives on the tab** (down from five) and it is the window —
+`2026-08-26 → 2026-09-01`, 23 characters. One clause of the removed lede turned out to duplicate a
+`title` already shipped on the exact control it described — "copy it as markdown to paste into a
+leadership update" is `CopyForLlm`'s own title — which is worth checking before demoting anything.
+
+Kit used: `Legend` + `StateSwatch` (dimensions, follow-ups, actions), `WhyChip` (ranking basis, delta
+cohort), and `states.ts` for every encoding — `stateFill`/`stateStroke`/`stateStrokeWidth`/
+`stateTitle`/`rendersValue`/`VOID_DASH`/`HATCH_ID`/`VizDefs`/`STATE_LABEL`. No hatch, dash or state
+label is re-defined. Colour is `scoreHex`, `deltaHex` and `DIRECTION_TONE`; there is no hand-picked
+hex in the directory. The charts are deliberately **server-safe and motionless**: a digest is a
+static artifact people paste, and an entrance animation on a document is noise — so there is no
+reduced-motion branch to honour rather than an unhonoured one.
+
+Key files: `src/features/bought/digest/` — `digestViz.ts` (the pure view models: every scale and
+every state, unit-tested without a DOM), `DigestDimChart.tsx`, `DigestLedgerBars.tsx`,
+`DigestMoveAxis.tsx`, `DigestReachBars.tsx`, `DigestCoverageStrip.tsx`, plus the five orchestrators.
+Pinned by `digestViz.test.ts` and `DigestViz.dom.test.tsx`; `DigestTab.test.tsx` keeps the page
+contract.
+
 ## Retired on 2026-08-17 (for the record)
 
 | Was | Where it went |
@@ -272,6 +347,18 @@ hand-typed hexes — same values, one home.
 
 ## Known gaps
 
+- **The pasted artifact's footer names the wrong denominator.** `weeklyDigestMarkdown` closes with
+  "fleet averages over scanned repositories". Since `b1042324` the averages are over **live-scored**
+  repos — mock-floored scans are excluded from every one of them (`realScoredCount`, not
+  `scannedCount`). The screen has the same imprecision in its coverage strip, which draws
+  `headline.scanned`. Fixing it properly means carrying `realScoredCount` / `mockCount` on
+  `DigestHeadline`; the mock caveat in `provenance.engineCaveat` partly covers it today. Producer-side
+  (`src/lib/org/digest*.ts`), outside the Wave 4 write set.
+- **A quiet week is invisible in the pasted artifact.** The markdown omits the whole "Repository
+  movement" section when nothing crossed the band (its rule: never a header with no rows). On screen
+  those two states are kept apart — "could not be read" vs "nothing moved beyond the noise band" — so
+  the caveat exists only on the screen side, which is the divergence running the *wrong* way. The
+  footer's degraded-read note covers the failure case but not the quiet one.
 - **Three orphaned reads** — `getOrgRework`, `getOrgGapAnalysis`, `getOrgDiscrepancies` — carry real
   data with no UI. Kept (tested) rather than deleted so a future home does not have to re-derive
   them; each is a decision, not an oversight.
