@@ -18,7 +18,9 @@ export function GovernancePolicyCard({
 }) {
   return (
     <Card>
-      <SectionHeader size="sm" title="Active policy" description="The bar every repo is held to. Change it once, enforce it everywhere." />
+      {/* Noun phrase only (§2.3). "The bar every repo is held to" restated what the list below IS,
+          and "change it once, enforce it everywhere" is the CI card's subject, one card across. */}
+      <SectionHeader size="sm" title="Active policy" />
       <ul className="mt-3 space-y-1.5">
         {policyText.map((t) => (
           <li key={t} className="flex items-start gap-2 type-body-sm text-slate-300">

@@ -4,9 +4,11 @@
 // examiner actually asks: what has each control BEEN, when did it change, and who changed it.
 //
 // Rules that govern how it renders, each the honesty contract made visible:
-//   • `unmeasurable` is an em dash with a tooltip. Never a zero, never a red. A control we could not
-//     read is missing evidence, not a finding, and colouring it like one would turn every expired
-//     token into a fleet-wide governance failure on the page a lead screenshots.
+//   • `unmeasurable` is HATCHED in the lane picture and an em dash with a tooltip in the table.
+//     Never a zero, never a red. A control we could not read is missing evidence, not a finding, and
+//     colouring it like one would turn every expired token into a fleet-wide governance failure on
+//     the page a lead screenshots. The sentence that used to say so under the table is now the
+//     `not-judged` encoding plus its Legend hint (org UX redesign §2: encode it, don't assert it).
 //   • every state is printed beside its COVERAGE — the observation count and the largest gap — so
 //     "branch protection held all quarter" cannot be read off two observations three months apart.
 //   • MC-B13: a red state carries the catalogue's own `failMeans` sentence, a descriptor renders its
@@ -17,17 +19,26 @@
 //
 // NAMING (MC-B10): "Governance control ledger". Three different things on this dashboard were called
 // controls — the Security tab's D9 check battery, the Passports tab's doctor checks, and this. Each
-// now says which it is in its own heading.
+// now says which it is in its own heading. The sentence that spelled that out in the header is
+// documentation, not chrome: it lives in docs/features/org-dashboard/org-intelligence.md (F).
 //
 // Server component: no hooks, no handlers. The expandable observation list is a native <details>, so
 // it needs no client boundary and works with JavaScript off. The one client boundary is the Verify
 // button inside LedgerIntegrityStrip.
 
 import { Card, InlineEmpty, OrgTable, SectionHeader } from "@/components/org/shared/ui";
+import { Legend, StateTrack, WhyChip } from "@/components/org/viz";
 import { TIMELINE_CAP, controlCoverage, listControlTimeline, verifySeals } from "@/lib/db/control-observations";
 import { coverageSentence, groupTimeline, timelineDisclosure, timelineTotals, truncationSentence } from "./controlTimeline";
+import { controlLanes } from "./controlLanes";
 import { ControlStateCell } from "./ControlStateCell";
 import { LedgerIntegrityStrip } from "./LedgerIntegrityStrip";
+
+/** The demoted actor caveat (D). It was a clause of a 300-character header; it is now reachable on
+ *  focus beside the heading and stated in `docs/features/org-dashboard/org-intelligence.md`. */
+const ACTOR_HINT =
+  "Scan- and probe-sourced rows carry no actor: nobody performed those in a way we observed. " +
+  "An installed GitHub App is what names the person behind a change.";
 
 const TIMELINE_LIMIT = 400;
 
@@ -49,14 +60,37 @@ export async function ControlTimelineCard({ slug }: { slug: string }) {
   const totals = timelineTotals(grouped);
   const disclosure = timelineDisclosure(rows.length, TIMELINE_LIMIT, TIMELINE_CAP);
   const truncation = truncationSentence(disclosure);
+  // First sight is graphical (§2.2): the lanes, not the table header row, carry the headline reading.
+  const lanes = controlLanes(rows);
 
   return (
     <Card>
       <SectionHeader
         size="sm"
         title="Governance control ledger"
-        description="What each branch-protection and posture control was, when it changed, and — where a GitHub event named one — who changed it. Scan- and probe-sourced rows carry no actor: nobody performed those in a way we observed. Distinct from the Security tab's D9 check battery and from Passports › Doctor checks."
+        right={<WhyChip hint={ACTOR_HINT} label="actor evidence" align="end" />}
       />
+
+      {lanes && (
+        <div className="mt-4">
+          <StateTrack
+            rows={lanes.rows}
+            start={lanes.start}
+            end={lanes.end}
+            ticks={lanes.ticks}
+            title="Control state by day"
+          />
+          <Legend className="mt-3" states={lanes.states} />
+          {lanes.omitted > 0 && (
+            // Counted, never silent: a control left out of the picture must not look like one we
+            // never observed — which is exactly what a missing lane would otherwise mean.
+            <p className="mt-2 type-micro text-slate-500">
+              {lanes.omitted} further control{lanes.omitted === 1 ? "" : "s"} observed but not drawn · all of them are
+              in the table below
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Rendered in BOTH branches: an org with no rows yet still needs to be told the ledger is
           verifiable and how. This is the half the old `<code>` string got wrong. */}
@@ -133,12 +167,6 @@ export async function ControlTimelineCard({ slug }: { slug: string }) {
               </tr>
             ))}
           </OrgTable>
-
-          <p className="mt-3 type-body-sm text-slate-500">
-            A dash under State means the control was not readable at the last observation — missing evidence, not a
-            finding. A red state carries the catalogue&apos;s own sentence for what that control failing does and does
-            not mean.
-          </p>
         </>
       )}
     </Card>

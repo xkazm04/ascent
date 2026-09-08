@@ -14,7 +14,13 @@
 // Server-safe: no hooks, no handlers, so no "use client".
 
 import { Kicker } from "@/components/ui";
+import { StateSwatch, WhyChip, stateTitle } from "@/components/org/viz";
 import type { UnenforceableClause } from "@/lib/org/admission";
+
+/** The demoted claim (D): every clause here is `declared` and nothing compiles it into a control. */
+const DECLARED_ONLY_HINT =
+  "Nothing in the product compiles these clauses into a control that can refuse a change: they stay declared. " +
+  "An agent reading the stance through MCP is told exactly this — so is everyone here.";
 
 /**
  * The list, or nothing at all.
@@ -27,15 +33,18 @@ export function UnenforceableClauses({ clauses }: { clauses: UnenforceableClause
   if (clauses.length === 0) return null;
   return (
     <section>
-      <Kicker tone="muted">What this stance cannot enforce</Kicker>
-      <p className="mb-3 mt-2 max-w-3xl type-body text-slate-300">
-        {clauses.length} clause{clauses.length === 1 ? "" : "s"} above {clauses.length === 1 ? "stays" : "stay"} declared:
-        nothing in the product compiles {clauses.length === 1 ? "it" : "them"} into a control that can refuse a change.
-        An agent reading the stance through MCP is told exactly this — so is everyone here.
-      </p>
+      {/* The paragraph that said "these stay declared" is now the dashed `declared` mark on every
+          row, with the sentence itself on the chip (§2.4 · E + D). */}
+      <div className="mb-3 flex items-center gap-1.5">
+        <Kicker tone="muted">What this stance cannot enforce · {clauses.length}</Kicker>
+        <WhyChip label="declared only" hint={DECLARED_ONLY_HINT} />
+      </div>
       <ul className="divide-y divide-divider rounded-xl border border-divider bg-surface/40">
         {clauses.map((c) => (
           <li key={c.clause} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-2.5">
+            <span className="self-center" title={stateTitle("declared", c.clause)}>
+              <StateSwatch state="declared" size={12} />
+            </span>
             <span className="font-mono type-micro uppercase tracking-[0.14em] text-orange-300">{c.clause}</span>
             <span className="flex-1 basis-64 type-body-sm text-slate-400">{c.why}</span>
           </li>

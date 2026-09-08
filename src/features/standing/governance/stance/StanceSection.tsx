@@ -5,6 +5,7 @@
 // stance is the declared policy; the section header says which is which.
 
 import { Kicker } from "@/components/ui";
+import { WhyChip } from "@/components/org/viz";
 import { getDraftOrgStance, getActiveOrgStance, isDbConfigured } from "@/lib/db";
 import { buildStanceOverview } from "@/lib/org/stance-overview";
 import { StancePerimeter } from "./StancePerimeter";
@@ -28,12 +29,15 @@ export async function StanceSection({ slug, canEdit }: { slug: string; canEdit: 
 
   return (
     <section className="space-y-4 border-t border-slate-800 pt-6">
-      <div>
+      {/* The standfirst that sat here is gone: "declared policy, distinct from the enforced gate" is
+          now the dashed band + its legend hint on the perimeter below, and the sibling-surface
+          disambiguation is documentation (docs/features/org-dashboard/org-intelligence.md). */}
+      <div className="flex items-center gap-1.5">
         <Kicker>AI stance</Kicker>
-        <p className="mt-1 max-w-3xl type-body-sm text-slate-500">
-          The org&apos;s published AI policy, versioned, acknowledged per repo, and read against observed git
-          attribution. Declared policy, distinct from the enforced maturity gate above.
-        </p>
+        <WhyChip
+          label="stance vs gate"
+          hint="The stance is DECLARED policy: it is read against observed git attribution and reported, never enforced. The maturity gate above is the enforced bar."
+        />
       </div>
 
       {overview ? <StancePerimeter overview={overview} canEdit={canEdit} /> : <StancePublishCta slug={slug} canEdit={canEdit} />}

@@ -11,9 +11,24 @@
 // decision must NOT render as "Assisted only". No admission row exists for it, the gate applies no
 // bar, and painting it with the middle rung's label would claim an enforcement that is not there.
 
-import { describe, expect, it, beforeEach, vi } from "vitest";
+import { describe, expect, it, beforeAll, beforeEach, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import type { RepoAdmissionRow } from "@/lib/org/admission";
+
+// The column now opens on a BandLadder from the shared viz kit, and every kit chart reads
+// `usePrefersReducedMotion` — which reads `window.matchMedia`, which jsdom does not implement.
+// Answer "reduce" so the geometry renders at once, exactly as the kit's own dom tests do.
+beforeAll(() => {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: (query: string) => ({
+      matches: query.includes("reduce"),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }),
+  });
+});
 
 const { AdmissionColumn } = await import("./AdmissionColumn");
 

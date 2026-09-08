@@ -27,7 +27,9 @@ export function CheckpointStrip({ stance, undeclared }: { stance: AiStance; unde
       key: "undeclared",
       title: "observed · undeclared",
       hex: undeclared.length ? "#ef4444" : "#16a34a",
-      copy: "Tools seen in PR attribution that the stance never permitted: declared vs observed, not enforced.",
+      // "declared vs observed, not enforced" left this column when the ladder above grew an edge for
+      // it — the arrow crossing the outer boundary IS that sentence (§2.4 · E).
+      copy: "Tools seen in PR attribution that the stance never permitted.",
       items: undeclared.map((u) => ({ label: u.name, note: `${u.repos.length} repo${u.repos.length === 1 ? "" : "s"}` })),
     },
   ];
