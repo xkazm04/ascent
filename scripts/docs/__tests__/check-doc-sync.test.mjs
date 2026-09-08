@@ -82,5 +82,32 @@ for (const entry of map.entries) {
   }
 }
 
+// ...AND THE CONVERSE. The check above proves no glob has gone dead; it cannot prove the map
+// REACHES a directory, so a whole feature tab could be invisible to the Stop hook while every
+// assertion passed — which is exactly what had happened: bought/contributors, bought/teams,
+// standing/adoption, admin/members and admin/settings matched no glob at all, so editing them
+// never nagged (found 2026-09-08 during the /org UX redesign). A one-directional matcher reports
+// a covered codebase in a voice indistinguishable from success; this is the other direction.
+//
+// The unit is the TAB — src/features/<group>/<tab> — because that is the granularity the nav, the
+// feature tree and the docs all share. A new tab must be added to the map in the same change.
+const allGlobs = map.entries.flatMap((e) => e.sourceGlobs.map(compileGlob));
+// A tab is the file's own directory, truncated to at most four segments — which lands on
+// `src/features/<group>/<tab>` for a grouped tab and on `src/features/developer` for the one group
+// whose files sit directly under it. Truncating (rather than assuming depth 4) is what keeps a
+// nested `live/parts/` from being scored as a tab of its own.
+const featureTabs = [
+  ...new Set(
+    tracked
+      .filter((f) => f.startsWith('src/features/'))
+      .map((f) => f.split('/').slice(0, -1).slice(0, 4).join('/')),
+  ),
+];
+ok(featureTabs.length > 0, 'found feature tab directories to check');
+for (const dir of featureTabs) {
+  const covered = tracked.some((f) => f.startsWith(`${dir}/`) && allGlobs.some((re) => re.test(f)));
+  ok(covered, `feature tab is reachable from some sourceGlob: ${dir}`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
