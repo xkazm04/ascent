@@ -10,7 +10,7 @@ import {
   TOP_CONTRIBUTOR_PLACEHOLDER,
   canNameIndividuals,
   type TopContributorState,
-} from "@/components/org/shared/champions";
+} from "@/lib/org/champions";
 
 // ── Contributor intelligence (F5) ────────────────────────────────────────────
 // All derived from the stored RepoContributor snapshots (latest scan per repo) — no extra

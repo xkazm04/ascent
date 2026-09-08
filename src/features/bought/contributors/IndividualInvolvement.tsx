@@ -2,7 +2,7 @@
 // page.tsx (300-LOC rule); behavior unchanged apart from the population-floor branch. Server-safe.
 
 import { ExportCsvLink, OrgTable } from "@/components/org/shared/ui";
-import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
+import { CHAMPION_MIN_POP } from "@/lib/org/champions";
 import type { ContributorInsights } from "@/lib/db";
 import { timeAgo } from "@/lib/ui";
 import { AiBar } from "./AiBar";

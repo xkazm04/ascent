@@ -24,7 +24,7 @@ import {
   PAIRING_MIN_GAP,
   type AdoptionOverview,
 } from "./adoption";
-import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
+import { CHAMPION_MIN_POP } from "@/lib/org/champions";
 
 const fixture: AdoptionOverview = {
   org: "acme",

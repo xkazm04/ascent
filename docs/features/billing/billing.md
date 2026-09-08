@@ -379,7 +379,7 @@ A paying org whose prepaid balance hits 0 used to discover it only from the `pau
 checkout redirect* plus a *signed fulfilment webhook*; nothing stores a payment method or a Polar
 customer session, and no off-session charge API is used. Buying credits therefore always requires a
 present human. The constant `AUTO_RECHARGE_CHARGES_AUTOMATICALLY`
-(`src/components/org/shared/CreditsControl.autorecharge.ts`) is hard-wired `false`, every "we top up for
+(`src/lib/autorecharge.ts`) is hard-wired `false`, every "we top up for
 you" string in the UI is gated on it, and the endpoint returns it as `chargesAutomatically`, so the
 product cannot drift into promising a purchase that would silently never happen. **The one genuinely
 recurring top-up that exists is a Polar *subscription* whose product is also a credit pack: its renewal

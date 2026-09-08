@@ -4,7 +4,7 @@
 import Link from "next/link";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { Card, InlineEmpty, Meter, SectionHeader } from "@/components/org/shared/ui";
-import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
+import { CHAMPION_MIN_POP } from "@/lib/org/champions";
 import type { AdoptionOverview } from "@/lib/org/adoption";
 import { scoreHex } from "@/lib/ui";
 

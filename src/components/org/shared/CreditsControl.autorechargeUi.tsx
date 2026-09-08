@@ -15,7 +15,7 @@ import {
   DEFAULT_AUTO_RECHARGE,
   normalizeAutoRecharge,
   type AutoRechargePref,
-} from "./CreditsControl.autorecharge";
+} from "@/lib/autorecharge";
 
 /**
  * The preference's client lifecycle: lazy GET the first time the popover opens, PUT on save.

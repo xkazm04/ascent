@@ -9,7 +9,7 @@
 // payment method, no customer session, no off-session charge API in use — so there is no way to buy
 // credits on the org's behalf while nobody is present. `chargesAutomatically` is therefore returned as a
 // constant false, and it is the flag the UI copy hangs off, so the product can never drift into claiming
-// an automatic purchase that would silently never happen. See CreditsControl.autorecharge.ts.
+// an automatic purchase that would silently never happen. See src/lib/autorecharge.ts.
 //
 // PERSISTENCE (G1-39): the preference lives in `Organization.autoRechargeJson` — a real column, read
 // with a column select. It used to live as the most recent `billing.autorecharge` AuditLog row, which
@@ -34,7 +34,7 @@ import {
   DEFAULT_AUTO_RECHARGE,
   MAX_LOW_BALANCE_THRESHOLD,
   normalizeAutoRecharge,
-} from "@/components/org/shared/CreditsControl.autorecharge";
+} from "@/lib/autorecharge";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

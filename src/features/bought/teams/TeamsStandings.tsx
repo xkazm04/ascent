@@ -8,7 +8,7 @@
 
 import { Surface, deltaHex, fmtDelta, signedDelta } from "@/components/ui";
 import { SectionHeader, postureLabel } from "@/components/org/shared/ui";
-import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
+import { CHAMPION_MIN_POP } from "@/lib/org/champions";
 import { teamAnchorId } from "./teamsShared";
 import { DIMENSION_SHORT, scoreHex, timeAgo } from "@/lib/ui";
 import type { DimensionId } from "@/lib/types";
