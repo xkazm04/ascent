@@ -1,3 +1,12 @@
 # Git hooks are POSIX sh run by git's shell: they must check out with LF even on
 # Windows (CRLF in a sh script is a syntax error), overriding core.autocrlf.
 .githooks/* text eol=lf
+
+# The same reason, one directory over. `scripts/*.mjs` carry a `#!/usr/bin/env node`
+# shebang AND are imported by the test suite as ESM: a CRLF shebang is "Invalid or
+# unexpected token" to the test runner's transform, so the file fails to load rather
+# than failing an assertion. Found 2026-09-08 — `src/lib/scoring/gate-cli.test.ts`
+# could not load on Windows while CI (Linux, LF) was green, which is the worst shape
+# a gate can take: unable to go green on the author's own machine, and therefore
+# routed around rather than fixed.
+scripts/*.mjs text eol=lf

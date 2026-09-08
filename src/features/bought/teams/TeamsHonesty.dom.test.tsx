@@ -116,7 +116,10 @@ describe("TeamsRollupPanel degrades per section", () => {
   });
 
   it("joins the provenance read into the settled set instead of awaiting it serially", () => {
-    expect(PANEL).toMatch(/getTeamStandingsProvenance\(slug\),\n\s*\]\)/);
+    // `\r?\n`, not `\n`: this assertion reads the panel's SOURCE TEXT, so a bare `\n`
+    // makes the test pass or fail on the checkout's line endings rather than on the
+    // code. It was green in CI (Linux, LF) and red on Windows (CRLF) until 2026-09-08.
+    expect(PANEL).toMatch(/getTeamStandingsProvenance\(slug\),\r?\n\s*\]\)/);
   });
 
   it("takes its window from orgWindowBounds, not a hand-written inclusive pair", () => {
