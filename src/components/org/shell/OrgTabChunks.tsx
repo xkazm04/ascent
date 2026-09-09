@@ -30,6 +30,7 @@ import { SecurityTab } from "@/features/standing/security/SecurityTab";
 import { PassportsTab } from "@/features/standing/passports/PassportsTab";
 import { SkillsTab } from "@/features/shared/skills/SkillsTab";
 import { MemoryTab } from "@/features/shared/memory/MemoryTab";
+import { RegistryV2Tab } from "@/features/shared/registry-v2/RegistryV2Tab";
 import { RegistryTab } from "@/features/shared/registry/RegistryTab";
 import { KnowledgeTab } from "@/features/shared/knowledge/KnowledgeTab";
 import { SurfacesTab } from "@/features/shared/surfaces/SurfacesTab";
@@ -141,6 +142,12 @@ export function OrgTabChunks({ slug, tab, sp }: { slug: string; tab: OrgTabId; s
 
         {/* The customer-owned registry repo: onboarding stepper when unmapped, dashboard once indexed.
             Takes no `sp` — the shaped example states are a React-state preview, not a URL. */}
+        {tab === "registry-v2" ? (
+          <Suspense fallback={<OrgTabGap minH="min-h-[36rem]" />}>
+            <RegistryV2Tab slug={slug} />
+          </Suspense>
+        ) : null}
+
         {tab === "registry" ? (
           <Suspense fallback={<OrgTabGap minH="min-h-[36rem]" />}>
             <RegistryTab slug={slug} />

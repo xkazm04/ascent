@@ -2716,3 +2716,9 @@ with no numeral where `forecastInsufficiency` refuses to state one.
 - **Team attribution is CODEOWNERS-only**: `getOrgTeamRollup` keys off each repo's CODEOWNERS
   (`@org/team` owners, parsed at scan time). Repos with no CODEOWNERS team show as "unowned"; the
   GitHub Teams API (GraphQL) as a fallback attribution source is still on the roadmap.
+
+### Registry v2 comparison
+
+Shared includes a parallel **Registry v2** item (`?tab=registry-v2`) for organization and personal
+workspaces. It streams the real Registry loader into a new presentation; Registry remains available.
+See [Registry](../org-registry/README.md) for workflows and limitations.
