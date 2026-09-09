@@ -33,6 +33,7 @@ import { MemoryTab } from "@/features/shared/memory/MemoryTab";
 import { RegistryTab } from "@/features/shared/registry/RegistryTab";
 import { KnowledgeTab } from "@/features/shared/knowledge/KnowledgeTab";
 import { SurfacesTab } from "@/features/shared/surfaces/SurfacesTab";
+import { KnowledgeV2Tab } from "@/features/shared/knowledge-v2/KnowledgeV2Tab";
 import { RepositoriesTab } from "@/features/standing/repositories/RepositoriesTab";
 import { TechStacksTab } from "@/features/standing/tech-stacks/TechStacksTab";
 import { TeamsTab } from "@/features/bought/teams/TeamsTab";
@@ -163,6 +164,7 @@ export function OrgTabChunks({ slug, tab, sp }: { slug: string; tab: OrgTabId; s
             <SurfacesTab slug={slug} sp={sp} />
           </Suspense>
         ) : null}
+        {tab === "knowledge-v2" ? <KnowledgeV2Tab slug={slug} /> : null}
 
         {/* UC3 "individual care" has NO branch here on purpose: it is the personalized route
             /org/developer (a rail item, not a `?tab=` panel), and its former org mode is now a

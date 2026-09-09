@@ -53,6 +53,7 @@ export const ORG_TAB_IDS = [
   // 2026-09-06). Repo-shipped showcases in a typed catalog, joined at render to the org's index
   // mirror for a digest-freshness badge. Reads `?subject=` and `?technique=` (both tab-scoped).
   "surfaces",
+  "knowledge-v2",
   // UC3 "individual care". A first-class id (label / a11y / href contract), but NEITHER a `?tab=`
   // panel NOR a rail item: it is the personalized route `/org/developer`, which every signed-in
   // developer sees their OWN slice of, so it can't be an org-scoped panel — and its one entry point is
@@ -177,6 +178,7 @@ export const ORG_NAV_GROUPS: readonly OrgNavGroup[] = [
       // `knowledge/<domain>/`. LAST in the group because it is the only one with no per-repo
       // adoption state — reference, not fleet posture.
       { id: "knowledge", label: "Knowledge base" },
+      { id: "knowledge-v2", label: "Knowledge base v2" },
       // The Knowledge base's ui-surfaces subjects rendered as live scenes. Last: it is reference
       // about reference — a showcase of what the registry publishes, with no fleet state at all.
       { id: "surfaces", label: "UI surfaces" },
@@ -249,6 +251,7 @@ export const PERSONAL_TAB_IDS: ReadonlySet<OrgTabId> = new Set<OrgTabId>([
   "knowledge",
   // Same reasoning as `knowledge`: the showcases are repo-shipped reference, no fleet state.
   "surfaces",
+  "knowledge-v2",
   // The developer's own home — in a personal workspace this surface is the point of the product. It
   // is in the personal SET (so `PERSONAL_TAB_IDS.has("developer")` stays true for any gate that asks)
   // but no longer renders as a rail item: it is not in ORG_NAV_GROUPS, and the header identity menu
@@ -457,6 +460,7 @@ export const MIGRATED_ORG_TAB_IDS: ReadonlySet<OrgTabId> = new Set<OrgTabId>([
   "digest",
   // Born migrated (2026-09-06): a `?tab=` panel only, same as knowledge/digest.
   "surfaces",
+  "knowledge-v2",
 ]);
 
 export function isMigratedOrgTab(id: OrgTabId): boolean {

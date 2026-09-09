@@ -16,6 +16,35 @@ reader deep-links into the scene. Nothing here judges the fleet; it is reference
 
 ## What the tab is
 
+### Knowledge base v2 (parallel exploration, 2026-09-09)
+
+**Shared → Knowledge base v2** (`?tab=knowledge-v2`) is an independent visual redesign of
+the surfaces collection. The original Knowledge base and UI surfaces tabs remain available.
+The new gallery leads with code-drawn previews, category filters and search (titles, short
+descriptions and technique names). It defaults to the 14 subjects with studies; “Include
+reference-only” reveals the rest of the 33-subject catalog. Unbuilt categories offer an explicit
+reference-only view instead of an empty screen. Unknown subjects return to the collection with a notice.
+
+`&subject=<slug>` opens a focused, newly authored playground. Data studies cover searchable,
+sortable, selectable and paginated repositories; activity insertion; period charts; graph node
+inspection; split/unified comparisons; and folder navigation with document previews. Feedback
+studies cover appearance, motion, manually selected fidelity, async states, statuses, native
+keyboard form interaction and save/undo notifications. All use local sample data; reset restores
+the study. These are simplified interactions, not full reproductions of the original technique
+contracts (the fidelity control, for example, is manual, not a hardware performance probe).
+
+Implementation prose is collapsed under “Behind the interface” and loaded only when opened.
+It is explicitly attributed to the original showcase, with technique-specific links into its
+source/mechanism drawer. V2 does not claim that its studies implement every original technique
+or have registry digest freshness. Reference-only subjects link to the Knowledge base reader.
+Subject links support history and preserve org-wide scope/period parameters; filters are local
+to the mounted library. Previous/next links move through the authored collection.
+
+The experiment owns CSS-module styling and semantic variables under
+`src/features/shared/knowledge-v2/`, deliberately departing from the house component appearance
+at the user's request. It preserves the shell navigation contract, native controls, visible
+keyboard focus and reduced-motion preference. It is available to org and personal workspaces.
+
 | URL | View |
 | --- | --- |
 | `?tab=surfaces` | the gallery: every subject as a card, grouped by subcategory in the taxonomy's order — showcased cards link into their scene; absence cards say `Not yet showcased — run /surface <slug>`; input-and-editing cards say they are out of this repo's scope (`.ai/manifest.yaml`) |

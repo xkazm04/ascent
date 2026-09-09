@@ -14,6 +14,11 @@ its own doc: [plan.md](../org-planning/plan.md).
 
 ## Navigation & org context
 
+The Shared group includes **Knowledge base v2** (`?tab=knowledge-v2`), a parallel visual
+exploration of the UI surfaces collection. It sits beside Knowledge base and preserves the
+original UI surfaces tab. See [the surfaces feature doc](../org-knowledge/surfaces.md) for
+its gallery, interactive studies and reference links.
+
 `/org` (`src/app/org/page.tsx`) redirects to the active org's dashboard. Each
 `/org/[slug]/*` page renders inside `src/app/org/[slug]/layout.tsx`, which centralizes the
 DB/auth/empty guards and the org header, and shows the persistent nav rail

@@ -19,7 +19,6 @@ import {
   PERSONAL_TAB_IDS,
   resolveActiveOrgTab,
   TAB_SCOPED_PARAM_KEYS,
-  type OrgTabId,
 } from "./orgTabs";
 
 const navIds = ORG_NAV_GROUPS.flatMap((g) => g.items.map((i) => i.id));
@@ -64,7 +63,8 @@ describe("org tab catalog", () => {
   // live scenes — reference about reference, the one item with no fleet state at all.
   it("scopes the Shared group to the registry and what it distributes", () => {
     const shared = ORG_NAV_GROUPS.find((g) => g.key === "shared");
-    expect(shared?.items.map((i) => i.id)).toEqual(["registry", "practices", "skills", "memory", "knowledge", "surfaces"]);
+    expect(shared?.items.map((i) => i.id)).toEqual(["registry", "practices", "skills", "memory", "knowledge", "knowledge-v2", "surfaces"]);
+    expect(orgTabLabel("knowledge-v2")).toBe("Knowledge base v2");
     expect(orgTabLabel("surfaces")).toBe("UI surfaces");
   });
 
@@ -119,6 +119,7 @@ describe("org tab catalog", () => {
       // Reference the registry publishes; identical for a personal workspace because it carries no
       // per-repo adoption state — that absence is what keeps the fleet surfaces org-only.
       "knowledge",
+      "knowledge-v2",
       "memory",
       "overview",
       "registry",
