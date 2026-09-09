@@ -221,8 +221,7 @@
         "src/lib/org/registry-view.ts",
         "src/lib/org/registry-sync.ts",
         "src/lib/db/org-registry*.ts",
-        "src/features/shared/registry/**",
-        "src/features/shared/registry-v2/**"
+        "src/features/shared/registry/**"
       ]
     },
     {

@@ -63,7 +63,7 @@ describe("org tab catalog", () => {
   // live scenes — reference about reference, the one item with no fleet state at all.
   it("scopes the Shared group to the registry and what it distributes", () => {
     const shared = ORG_NAV_GROUPS.find((g) => g.key === "shared");
-    expect(shared?.items.map((i) => i.id)).toEqual(["registry", "registry-v2", "practices", "skills", "memory", "knowledge", "surfaces"]);
+    expect(shared?.items.map((i) => i.id)).toEqual(["registry", "practices", "skills", "memory", "knowledge", "surfaces"]);
     expect(orgTabLabel("surfaces")).toBe("UI surfaces");
   });
 
@@ -121,7 +121,6 @@ describe("org tab catalog", () => {
       "memory",
       "overview",
       "registry",
-      "registry-v2",
       "security",
       "skills",
       // Repo-shipped showcases of the registry's ui-surfaces subjects — reference, like `knowledge`.

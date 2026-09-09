@@ -5,20 +5,6 @@ is wired into the real shell; the data layer — `OrgRegistry`, the mirror colum
 scaffold/migration PR writers and the API — is real, and the tab's buttons call it (`useRegistryMutation`
 — one call path, inline failures, `router.refresh()` on success). Reference registry: [github.com/xkazm04/ai-registry](https://github.com/xkazm04/ai-registry)._
 
-## Registry v2 experiment
-
-`?tab=registry-v2` is available beside Registry in Shared. It uses the same server loader,
-capability rules, mutation hook and endpoints. Its new layout shows source → index → fleet,
-contextual connection/index actions, separate registry/hosted artifact counts, and a link to
-Knowledge base. Commands, setup milestones, technical health and activity use disclosures.
-Map/create, re-index and per-artifact migration PRs retain their existing permission rules.
-Copy controls report clipboard success or failure. The original Registry remains available.
-
-Fleet sync coverage is explicitly unmeasured: the loader currently returns placeholder zeroes.
-The two telemetry sources are shown separately and missing measurements are not reported as zero.
-V2 renders real data only; the original tab retains its development-only sample-state switcher.
-The reusable process is documented in [UI redesign procedure](../../UI-REDESIGN-PROCEDURE.md).
-
 ## What it is
 
 The **registry** is a repository the customer owns (`<org>/ai-registry` by default) that becomes the

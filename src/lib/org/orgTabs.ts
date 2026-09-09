@@ -41,7 +41,6 @@ export const ORG_TAB_IDS = [
   // The customer-owned registry repo (Skills/Practices/Memory as git) — first item in `Shared`,
   // because the other three Library tabs read their source of truth from it once it is mapped.
   "registry",
-  "registry-v2",
   "skills",
   "memory",
   // The registry's fourth lane: Reference Knowledge Bundles under `knowledge/<domain>/`. Overview
@@ -169,7 +168,6 @@ export const ORG_NAV_GROUPS: readonly OrgNavGroup[] = [
       // Registry sits FIRST: it is the onboarding step Practices/Skills/Memory depend on, and their
       // sync-health strip links back here (docs/REGISTRY-AND-CARE-IMPL.md §0.2).
       { id: "registry", label: "Registry" },
-      { id: "registry-v2", label: "Registry v2" },
       { id: "practices", label: "Practices" },
       { id: "skills", label: "Skills" },
       { id: "memory", label: "Memory" },
@@ -242,7 +240,6 @@ export const PERSONAL_TAB_IDS: ReadonlySet<OrgTabId> = new Set<OrgTabId>([
   "security",
   "followups",
   "registry",
-  "registry-v2",
   "skills",
   "memory",
   // Reference published by the registry is the same for a personal workspace as for an org — it
@@ -448,7 +445,6 @@ export const MIGRATED_ORG_TAB_IDS: ReadonlySet<OrgTabId> = new Set<OrgTabId>([
   "practices",
   "followups",
   "registry",
-  "registry-v2",
   // Born migrated (2026-08-19): pairing never had a legacy route — it exists ONLY as a `?tab=` panel.
   // Omitting it here sent the rail to /org/<slug>/pairing, a page that has never existed.
   "pairing",
