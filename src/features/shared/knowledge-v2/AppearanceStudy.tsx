@@ -6,7 +6,7 @@ import styles from "./playground.module.css";
 
 export function AppearanceStudy({ slug }: { slug: string }) {
   const [state, setState] = useState("Ready");
-  const [accent, setAccent] = useState("Lavender");
+  const [accent, setAccent] = useState("Ascent");
   const [compact, setCompact] = useState(false);
   const [position, setPosition] = useState(false);
   const [motion, setMotion] = useState(true);
@@ -30,12 +30,12 @@ export function AppearanceStudy({ slug }: { slug: string }) {
           </label>
         </div>
         <div className={styles.swatches}>
-          {["Lavender", "Mint", "Sand"].map((name, i) => (
+          {["Ascent", "Mint", "Amber"].map((name, i) => (
             <button
               key={name}
               aria-label={name}
               aria-pressed={accent === name}
-              style={{ background: ["#b5a2f4", "#92d6bc", "#e9c483"][i] }}
+              style={{ background: ["var(--kb-accent)", "var(--kb-green)", "var(--kb-warn)"][i] }}
               onClick={() => {
                 setAccent(name);
                 setState("Ready");
@@ -49,7 +49,7 @@ export function AppearanceStudy({ slug }: { slug: string }) {
           className={styles.themeCard}
           style={
             {
-              "--demo-accent": { Lavender: "#b5a2f4", Mint: "#92d6bc", Sand: "#e9c483" }[accent],
+              "--demo-accent": { Ascent: "var(--kb-accent)", Mint: "var(--kb-green)", Amber: "var(--kb-warn)" }[accent],
               padding: compact ? 20 : 38,
             } as React.CSSProperties
           }

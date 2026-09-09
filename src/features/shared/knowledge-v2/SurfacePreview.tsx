@@ -101,7 +101,7 @@ export function SurfacePreview({ slug }: { slug: string }) {
       content = (
         <div className={styles.palette}>
           <div>
-            {["#b5a2f4", "#92d6bc", "#e9c483", "#f2aaa7", "#ebe9e3"].map((c) => (
+            {["var(--kb-accent)", "var(--kb-green)", "var(--kb-warn)", "var(--kb-danger)", "var(--kb-text)"].map((c) => (
               <i key={c} style={{ background: c }} />
             ))}
           </div>

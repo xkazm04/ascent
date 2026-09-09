@@ -40,10 +40,15 @@ or have registry digest freshness. Reference-only subjects link to the Knowledge
 Subject links support history and preserve org-wide scope/period parameters; filters are local
 to the mounted library. Previous/next links move through the authored collection.
 
-The experiment owns CSS-module styling and semantic variables under
-`src/features/shared/knowledge-v2/`, deliberately departing from the house component appearance
-at the user's request. It preserves the shell navigation contract, native controls, visible
-keyboard focus and reduced-motion preference. It is available to org and personal workspaces.
+The experiment owns its layout in CSS modules under `src/features/shared/knowledge-v2/`.
+Its colors now bind to Ascent's shared tokens: translucent slate panels, ink canvas, azure
+accent and semantic success/warning/error colors. Geist Sans carries reading text and controls;
+Geist Mono carries metadata, code and figures. Type sizes use the app's shared scale: 15px
+controls/secondary copy, 13px metadata, 21px card titles and 31px detail titles. Decorative
+miniature text respects the 12px floor. The appearance study starts with the Ascent accent and
+offers Mint and Amber variants drawn from the same token system. The gallery composition and
+focused study layouts remain independent. It preserves the shell navigation contract, native
+controls, visible keyboard focus and reduced-motion preference, for org and personal workspaces.
 
 | URL | View |
 | --- | --- |

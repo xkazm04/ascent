@@ -14,9 +14,9 @@ export function PreviewGraph() {
         ] as const
       ).map(([x, y], i) => (
         <g key={i}>
-          <rect x={x - 30} y={y - 16} width="60" height="32" rx="7" fill={i === 1 ? "#b5a2f4" : "#34363c"} />
-          <circle cx={x - 16} cy={y} r="3" fill="#92d6bc" />
-          <path d={`M${x - 7} ${y}h23`} stroke={i === 1 ? "#282331" : "#81838e"} />
+          <rect x={x - 30} y={y - 16} width="60" height="32" rx="7" fill={i === 1 ? "var(--kb-accent)" : "var(--kb-line)"} />
+          <circle cx={x - 16} cy={y} r="3" fill="var(--kb-green)" />
+          <path d={`M${x - 7} ${y}h23`} stroke={i === 1 ? "var(--color-on-accent)" : "var(--kb-muted)"} />
         </g>
       ))}
     </svg>
