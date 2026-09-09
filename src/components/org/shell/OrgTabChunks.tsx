@@ -33,7 +33,6 @@ import { MemoryTab } from "@/features/shared/memory/MemoryTab";
 import { RegistryTab } from "@/features/shared/registry/RegistryTab";
 import { KnowledgeTab } from "@/features/shared/knowledge/KnowledgeTab";
 import { SurfacesTab } from "@/features/shared/surfaces/SurfacesTab";
-import { KnowledgeV2Tab } from "@/features/shared/knowledge-v2/KnowledgeV2Tab";
 import { RepositoriesTab } from "@/features/standing/repositories/RepositoriesTab";
 import { TechStacksTab } from "@/features/standing/tech-stacks/TechStacksTab";
 import { TeamsTab } from "@/features/bought/teams/TeamsTab";
@@ -156,15 +155,12 @@ export function OrgTabChunks({ slug, tab, sp }: { slug: string; tab: OrgTabId; s
           </Suspense>
         ) : null}
 
-        {/* The registry's ui-surfaces subjects as live scenes: a gallery, or one scene when
-            `?subject=` names a showcased slug (`?technique=` opens its mechanism drawer). Tall gap —
-            the scene frame is rail + canvas + drawer. */}
+        {/* The visual surface collection, with subject and technique deep links. */}
         {tab === "surfaces" ? (
           <Suspense fallback={<OrgTabGap minH="min-h-[40rem]" />}>
-            <SurfacesTab slug={slug} sp={sp} />
+            <SurfacesTab slug={slug} />
           </Suspense>
         ) : null}
-        {tab === "knowledge-v2" ? <KnowledgeV2Tab slug={slug} /> : null}
 
         {/* UC3 "individual care" has NO branch here on purpose: it is the personalized route
             /org/developer (a rail item, not a `?tab=` panel), and its former org mode is now a

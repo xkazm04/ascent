@@ -444,7 +444,6 @@
       "doc": "docs/features/org-knowledge/surfaces.md",
       "sourceGlobs": [
         "src/features/shared/surfaces/**",
-        "src/features/shared/knowledge-v2/**",
         "src/lib/org/surface-*.ts"
       ]
     }

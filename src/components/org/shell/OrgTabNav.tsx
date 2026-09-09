@@ -108,7 +108,7 @@ export function OrgTabNav({
 
   const sections: RailSection[] = groups.map((g) => {
     const items = g.items.map((t) => ({
-      label: t.id === "knowledge-v2" ? <span className="type-body-sm">{t.label}</span> : t.label,
+      label: t.label,
       href: orgTabHref(slug, t.id),
       active: t.id === active,
       count: t.countKey ? counts?.[t.countKey] : undefined,
