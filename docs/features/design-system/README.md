@@ -10,6 +10,12 @@ Context-map group: **Marketing Site & Design System** (`feature`).
 
 ## Implementation roots
 
+The shared `Modal` moves focus inside after its portal mounts, preserving explicit
+child autofocus such as confirmation dialogs' Cancel button. Tab and Shift+Tab stay
+within the panel, including dialogs with no enabled controls; closing restores the
+captured opener. These keyboard paths have DOM regression coverage, not a full
+screen-reader or browser accessibility certification.
+
 | Surface | Route(s) | Source |
 | --- | --- | --- |
 | Design System: UI Primitives & Deck | — | `src/components/ui/**`, `src/components/deck/**`, `src/components/ConfirmAction.tsx` |

@@ -60,7 +60,6 @@ export function Modal({
   useEffect(() => {
     if (!open) return;
     const opener = document.activeElement as HTMLElement | null;
-    panelRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         if (!stateRef.current.locked) stateRef.current.onClose();
@@ -68,13 +67,18 @@ export function Modal({
       }
       if (e.key !== "Tab" || !panelRef.current) return;
       const focusables = panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE);
-      if (focusables.length === 0) return;
+      if (focusables.length === 0) {
+        e.preventDefault();
+        panelRef.current.focus();
+        return;
+      }
       const first = focusables[0]!;
       const last = focusables[focusables.length - 1]!;
-      if (e.shiftKey && document.activeElement === first) {
+      const atPanel = document.activeElement === panelRef.current || !panelRef.current.contains(document.activeElement);
+      if (e.shiftKey && (document.activeElement === first || atPanel)) {
         e.preventDefault();
         last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
+      } else if (!e.shiftKey && (document.activeElement === last || atPanel)) {
         e.preventDefault();
         first.focus();
       }
@@ -88,6 +92,12 @@ export function Modal({
       opener?.focus?.();
     };
   }, [open]);
+
+  // The portal appears after the mount gate. Preserve a child's intentional autofocus (e.g. Cancel).
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (open && mounted && panel && !panel.contains(document.activeElement)) panel.focus();
+  }, [open, mounted]);
 
   if (!open || !mounted) return null;
   const host = document.getElementById(MODAL_ROOT_ID) ?? document.body;
