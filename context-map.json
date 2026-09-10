@@ -323,7 +323,9 @@
             "src/lib/forge/gitlab/source.test.ts",
             "src/lib/forge/gitlab/source.ts",
             "src/lib/forge/ingestion-limits.ts",
-            "src/lib/forge/registry.test.ts"
+            "src/lib/forge/registry.test.ts",
+            "src/lib/forge/gitlab/http.test.ts",
+            "src/lib/forge/source-selection.ts"
           ],
           "target": null,
           "apiRoutes": []
@@ -667,7 +669,8 @@
             "src/components/onboarding/tour/anchors.test.ts",
             "src/components/onboarding/tour/overlayBands.test.ts",
             "src/components/onboarding/useImportReattach.ts",
-            "src/components/onboarding/useOnboardingFlow.resume.dom.test.tsx"
+            "src/components/onboarding/useOnboardingFlow.resume.dom.test.tsx",
+            "src/components/onboarding/useImportReattach.dom.test.tsx"
           ],
           "target": null,
           "apiRoutes": [

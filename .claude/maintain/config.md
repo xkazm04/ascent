@@ -19,6 +19,18 @@
 
 ## Skill improvement log
 
+- 2026-09-10, maintain@1.0.0, 20-batch run: `npm run verify` does not run the
+  standalone context-map checker tests. After adding or moving source modules, run
+  `node scripts/context-map/__tests__/check-map-drift.test.mjs` and
+  `node scripts/context-map/check-map-drift.mjs`; update justified file assignments
+  and rebuild the registry map. Mapping files earns no source-inspection credit.
+  Keep benchmark and extraction helpers under the local state directory with a
+  non-source suffix (for example `.cjs.txt`): Git exclusion alone does not exclude
+  `.cjs` helpers from the repository's ESLint scan.
+  The current map has 54 contexts, while `.personas/contexts.txt` registers 49;
+  validate memory names against the latter. Hold unmatched outcomes separately
+  until app taxonomy is refreshed; do not silently assign an older context name.
+
 - 2026-09-10, maintain@1.0.0: Org Memory clustering repeated tokenization for
   each pair. Per-call token sets preserved results and improved a 200-item local
   benchmark; keep this as a local CPU measurement, not an end-to-end latency claim.
