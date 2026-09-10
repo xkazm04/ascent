@@ -70,6 +70,14 @@ function wired(hookText, alias) {
   }
 }
 
+function block(text, key) {
+  const lines = text.split('\\n');
+  const start = lines.findIndex((line) => line.trimEnd() === key + ':');
+  if (start < 0) return '';
+  let end = start + 1;
+  while (end < lines.length && !/^[^\\s#]/.test(lines[end])) end++;
+  return lines.slice(start + 1, end).map((line) => line.replace(/\\r$/, '')).join('\\n');
+}
 function kv(text, key) {
   const m = text.match(new RegExp('^' + key + ':\\\\s*(.+)$', 'm'));
   return m ? m[1].trim().replace(/^"|"$/g, '') : null;
@@ -83,10 +91,10 @@ function flow(text, key) {
   return m ? m[1].split(',').map(s => s.trim().replace(/^"|"$/g, '')).filter(Boolean) : [];
 }
 function capabilities(text) {
-  const block = text.split(/\\ncapabilities:\\n/)[1];
-  if (!block) return {};
+  const content = block(text, 'capabilities');
+  if (!content) return {};
   const caps = {};
-  for (const line of block.split('\\n')) {
+  for (const line of content.split('\\n')) {
     // command is JSON.stringify'd by the serializer, so the value can contain backslash-escaped
     // quotes (\\") and other JSON escapes. Match the full quoted string (escapes allowed) and JSON-
     // parse it back so a command containing a " round-trips exactly, instead of truncating at \\".
@@ -116,7 +124,7 @@ if (!existsSync(path)) {
 
   // 2. pointers resolve - scope to the paths: block so a like-named capability (e.g. an "evals"
   // capability) can't shadow paths.evals via a naive first-match.
-  const pathsBlock = (text.split(/\\npaths:\\n/)[1] || '').split(/\\n[a-z]/i)[0];
+  const pathsBlock = block(text, 'paths');
   const ctxIndex = sub(pathsBlock, 'contextIndex') || '.ai/context-index.json';
   check('pointer.contextindex', existsSync(ctxIndex), 'context index ' + ctxIndex, 'warn');
   check('pointer.memory', existsSync(sub(pathsBlock, 'memory') || '.ai/memory/'), 'memory store', 'warn');

@@ -25,6 +25,17 @@ function run(root: string, ...args: string[]) {
     cwd: root, encoding: "utf8", timeout: 10_000,
   });
 }
+function doctor(root: string, ...args: string[]) {
+  writeFileSync(join(root, ".ai/doctor.mjs"), buildDoctor().body);
+  const result = spawnSync(process.execPath, [".ai/doctor.mjs", "--json", ...args], {
+    cwd: root, encoding: "utf8", timeout: 10_000,
+    env: { ...process.env, ASCENT_CONFORMANCE_URL: "", ASCENT_CONFORMANCE_TOKEN: "", GITHUB_REPOSITORY: "" },
+  });
+  expect(result.error).toBeUndefined();
+  const line = result.stdout.trim().split("\n").reverse().find((s) => s.startsWith("{"));
+  expect(line, result.stdout + result.stderr).toBeTruthy();
+  return JSON.parse(line!) as { findings: { check: string; level: string; msg: string }[] };
+}
 function manifest(eol: string, first = false) {
   const block = [
     "guidance:",
@@ -144,6 +155,25 @@ it("initializes missing indexes and preserves fields it does not own", () => {
   writeFileSync(index, JSON.stringify(original));
   expect(run(root, "touch", "src").status).toBe(0);
   expect(JSON.parse(readFileSync(index, "utf8"))).toEqual(original);
+});
+
+it.each([
+  ["\n", "capabilities"], ["\r\n", "capabilities"],
+  ["\n", "paths"], ["\r\n", "paths"],
+])("doctor reads %j blocks with %s first", (eol, first) => {
+  const root = fixture();
+  const caps = ['capabilities:', '  test: { command: "node --version", verified: false }'];
+  const paths = ['paths:', '  contextIndex: custom-index.json', '  evals: missing-declared-evals/'];
+  writeFileSync(join(root, "custom-index.json"), '{"modules":[]}');
+  writeFileSync(join(root, ".ai/manifest.yaml"), [
+    ...(first === "paths" ? paths : caps), "schema: ai-manifest", "schemaVersion: 0.1",
+    ...(first === "paths" ? caps : paths), "extension:", "  foreign: absent-foreign/", "",
+  ].join(eol));
+  const { findings } = doctor(root);
+  expect(findings).toContainEqual(expect.objectContaining({ check: "capability.declared", level: "pass" }));
+  expect(findings).toContainEqual(expect.objectContaining({ check: "pointer.contextindex", level: "pass" }));
+  expect(findings).toContainEqual(expect.objectContaining({ check: "pointer.evals", level: "warn" }));
+  expect(findings).not.toContainEqual(expect.objectContaining({ check: "pointer.foreign" }));
 });
 
 it.each([
