@@ -5,6 +5,11 @@ import { describe, it, expect } from "vitest";
 import { csvField, csvTable } from "./csv";
 
 describe("csvField — formula-injection guard", () => {
+  it.each(["\t=1+1", "\r=1+1", "\n=1+1", "＝1+1", "＋1+1", "－1+1", "＠SUM(A1)"])(
+    "applies the text-prefix mitigation to control and full-width prefixes: %j", (value) => {
+      expect(csvField(value)).toBe(`"'${value}"`);
+    },
+  );
   it.each(["=HYPERLINK(0)", "+cmd|'/c calc'", "-1+1", "@SUM(A1)"])(
     "neutralizes a non-numeric leading =/+/-/@ formula %s",
     (v) => {
@@ -36,6 +41,10 @@ describe("csvField — negative/signed numbers are data, not formulas (pdf-llm-e
 });
 
 describe("csvField — RFC-4180 quoting", () => {
+  it("quotes an embedded carriage return without changing the cell's contents", () => {
+    expect(csvField("first\rsecond")).toBe('"first\rsecond"');
+    expect(csvTable(["value", "count"], [["first\rsecond", -2]])).toBe('value,count\n"first\rsecond",-2\n');
+  });
   it("quotes a value containing a comma, quote, or newline and doubles quotes", () => {
     expect(csvField('Doe, "Jane"\nInc')).toBe('"Doe, ""Jane""\nInc"');
   });

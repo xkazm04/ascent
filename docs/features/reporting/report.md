@@ -381,6 +381,12 @@ does not.
 
 ### Export CSV
 
+Shared CSV exports quote embedded carriage returns as well as line feeds, commas,
+and quotes. Their text-prefix mitigation also covers leading tab/CR/LF and full-width
+formula prefixes, while genuine signed numbers stay numeric. This is an export-time
+mitigation; spreadsheet save/reopen behavior can change escaping
+([OWASP guidance](https://owasp.org/www-community/attacks/CSV_Injection)).
+
 The trends "Export CSV" control is a client fetch (`src/app/trends/ExportCsvButton.tsx`), not an
 anchor to the API route: a 401/403 from an expired session renders an in-page re-auth prompt instead
 of replacing the page with a raw JSON error body, and a success streams to a Blob download that keeps
