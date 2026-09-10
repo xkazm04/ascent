@@ -7,6 +7,7 @@
 // The script is authored with NO backticks or ${...} so it embeds verbatim in this template literal
 // and in the onboarding SKILL.md without escaping.
 
+import { GUIDANCE_PARSER_SOURCE } from "./guidance-parser-source";
 import type { GeneratedFile } from "./types";
 
 const DOCTOR = `#!/usr/bin/env node
@@ -34,6 +35,8 @@ const DOCTOR = `#!/usr/bin/env node
 import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+
+${GUIDANCE_PARSER_SOURCE}
 
 const ROOT = process.cwd();
 const RUN = process.argv.includes('--run');
@@ -272,13 +275,12 @@ if (!existsSync(path)) {
   //
   // A repo with no 'guidance' block is NOT failing this check - it has not adopted it. That is
   // reported as 'unchecked', which is a result rather than a silence.
-  const gblock = text.split(/\\nguidance:\\n/)[1];
-  if (!gblock) {
+  const guidance = parseGuidance(text);
+  if (!guidance) {
     add('guidance.unchecked', 'unchecked', 'no guidance block in the manifest - projection drift NOT checked (declare guidance.canonical + projections to enable it)');
   } else {
     const sha12 = (t) => createHash('sha256').update(t, 'utf8').digest('hex').slice(0, 12);
-    const cm = gblock.match(/^\\s+canonical:\\s*(.+)$/m);
-    const canonical = cm ? cm[1].trim().replace(/^"|"$/g, '') : '';
+    const { canonical } = guidance;
     const canonicalOk = canonical && existsSync(canonical);
     if (!canonicalOk) {
       add('guidance.canonical', 'fail', 'guidance.canonical does not resolve: ' + (canonical || '(not declared)'));
@@ -286,12 +288,7 @@ if (!existsSync(path)) {
       add('guidance.canonical', 'pass', 'canonical guidance is ' + canonical);
     }
     const srcHash = canonicalOk ? sha12(readFileSync(canonical, 'utf8')) : null;
-    const declared = [];
-    for (const line of gblock.split('\\n')) {
-      const m = line.match(/^\\s+-\\s*\\{\\s*agent:\\s*([^,]+),\\s*path:\\s*([^,]+),/);
-      if (m) declared.push(m[2].trim().replace(/^"|"$/g, ''));
-      else if (/^[^\\s#]/.test(line)) break;
-    }
+    const declared = guidance.rows.map((row) => row.path);
     // The header this reads is the one .ai/maintain.mjs project writes. Keep the two in step.
     const HEADER = /<!--\\s*generated-from:\\s*(\\S+)\\s+sha256:([0-9a-f]{12})\\s*\\u00b7\\s*body:\\s*sha256:([0-9a-f]{12})[^>]*-->/;
     const bodyOf = (t) => {

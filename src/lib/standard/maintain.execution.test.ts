@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { buildMaintain } from "./maintain";
+import { buildDoctor } from "./doctor";
 
 const roots: string[] = [];
 function fixture() {
@@ -76,4 +77,25 @@ it("preserves agent-shaped extension rows outside guidance.projections", () => {
   expect(updated).not.toContain('hash: "old"');
   expect(existsSync(join(root, "FOREIGN.md"))).toBe(false);
   expect(result.stdout).toContain("Projected 1 file(s)");
+});
+
+
+it.each(["\n", "\r\n"])("doctor judges the same first-key guidance projections with %j endings", (eol) => {
+  const root = fixture();
+  writeFileSync(join(root, "AGENTS.md"), "# Canonical\n");
+  const extension = ["  extension:", "    projections:", '      - { agent: custom, path: FOREIGN.md, hash: "foreign" }', ""].join(eol);
+  writeFileSync(join(root, ".ai/manifest.yaml"), manifest(eol, true) + extension);
+  expect(run(root, "project").status).toBe(0);
+  writeFileSync(join(root, ".ai/doctor.mjs"), buildDoctor().body);
+  const result = spawnSync(process.execPath, [".ai/doctor.mjs", "--json"], {
+    cwd: root, encoding: "utf8", timeout: 10_000,
+    env: { ...process.env, ASCENT_CONFORMANCE_URL: "", ASCENT_CONFORMANCE_TOKEN: "", GITHUB_REPOSITORY: "" },
+  });
+  expect(result.error).toBeUndefined();
+  const jsonLine = result.stdout.trim().split("\n").reverse().find((line) => line.startsWith("{"));
+  expect(jsonLine, result.stdout + result.stderr).toBeTruthy();
+  const findings = (JSON.parse(jsonLine!) as { findings: { check: string; level: string }[] }).findings;
+  expect(findings).toContainEqual(expect.objectContaining({ check: "guidance.canonical", level: "pass" }));
+  expect(findings).not.toContainEqual(expect.objectContaining({ check: "guidance.unchecked" }));
+  expect(findings).not.toContainEqual(expect.objectContaining({ check: expect.stringContaining("foreign") }));
 });

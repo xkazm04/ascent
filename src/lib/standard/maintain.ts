@@ -5,6 +5,7 @@
 //
 // Authored with NO backticks or ${...} so it embeds verbatim in the template literal / SKILL.md.
 
+import { GUIDANCE_PARSER_SOURCE } from "./guidance-parser-source";
 import type { GeneratedFile } from "./types";
 
 const MAINTAIN = `#!/usr/bin/env node
@@ -19,6 +20,8 @@ const MAINTAIN = `#!/usr/bin/env node
 import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+
+${GUIDANCE_PARSER_SOURCE}
 
 const cmd = process.argv[2] || 'check';
 const MEM = '.ai/memory';
@@ -154,36 +157,13 @@ if (cmd === 'project') {
   const MPATH = '.ai/manifest.yaml';
   if (!existsSync(MPATH)) { console.error('no ' + MPATH + ' - nothing to project from'); process.exit(2); }
   const mtext = readFileSync(MPATH, 'utf8');
-  const lines = mtext.split('\\n');
-  const start = lines.findIndex((line) => /^guidance:[ \\t]*\\r?$/.test(line));
-  if (start < 0) { console.log('[INFO] no guidance block in ' + MPATH + ' - nothing to project. Add: guidance: { canonical, projections }'); process.exit(0); }
-  let end = start + 1;
-  while (end < lines.length && !/^[^\\s#]/.test(lines[end])) end++;
-  const content = lines.slice(start + 1, end);
-  const indentOf = (line) => line.match(/^[ \\t]*/)[0].length;
-  const fieldIndent = Math.min(...content.filter((line) => line.trim() && !/^\\s*#/.test(line)).map(indentOf));
-  const gblock = content.filter((line) => indentOf(line) === fieldIndent).join('\\n');
-  const cm = gblock.match(/^\\s+canonical:\\s*(.+)$/m);
-  const canonical = cm ? cm[1].trim().replace(/^"|"$/g, '') : '';
+  const guidance = parseGuidance(mtext);
+  if (!guidance) { console.log('[INFO] no guidance block in ' + MPATH + ' - nothing to project. Add: guidance: { canonical, projections }'); process.exit(0); }
+  const { lines, canonical, rows } = guidance;
   if (!canonical || !existsSync(canonical)) { console.error('guidance.canonical is missing or does not resolve: ' + canonical); process.exit(1); }
   const sourceBody = readFileSync(canonical, 'utf8');
   const sha12 = (t) => createHash('sha256').update(t, 'utf8').digest('hex').slice(0, 12);
-  const rows = [];
-  const projectionRows = new Set();
-  let projectionIndent = null;
-  for (let i = start + 1; i < end; i++) {
-    const line = lines[i];
-    const heading = line.match(/^([ \\t]+)projections:[ \\t]*\\r?$/);
-    if (heading && heading[1].length === fieldIndent) { projectionIndent = fieldIndent; continue; }
-    if (projectionIndent === null || !line.trim() || /^\\s*#/.test(line)) continue;
-    const indent = line.match(/^[ \\t]*/)[0].length;
-    if (indent <= projectionIndent) { projectionIndent = null; continue; }
-    const m = line.match(/^\\s+-\\s*\\{\\s*agent:\\s*([^,]+),\\s*path:\\s*([^,]+),/);
-    if (m) {
-      rows.push({ agent: m[1].trim().replace(/^"|"$/g, ''), path: m[2].trim().replace(/^"|"$/g, '') });
-      projectionRows.add(i);
-    }
-  }
+  const projectionRows = new Set(rows.map((row) => row.line));
   if (!rows.length) { console.log('[INFO] guidance.projections is empty - declare the vendor files to generate, then re-run.'); process.exit(0); }
   // Cursor .mdc files need their own front matter FIRST; it is not part of the projected body and so
   // is deliberately outside the body hash (it is vendor transport, not the repo's guidance).
