@@ -424,6 +424,8 @@ would be the product arguing with its user.
 
 Lane brief assembly ignores unknown or legacy skill categories through the shared category
 normalizer; a malformed category cannot prevent the remaining standards from being handed over.
+A matching section omitted for size is identified as a byte-budget omission, not as an absent
+standard. Dimension and reference provenance name only entries actually included in the brief.
 
 The org lane brief (`briefJson`, W2-G) carries a `housePattern` block so an agent working in a repo is
 told which version of the org's own pattern that repo is measured against, rather than inferring it

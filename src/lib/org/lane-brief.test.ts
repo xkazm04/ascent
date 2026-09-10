@@ -126,3 +126,29 @@ it.each(["constructor", "toString", "__proto__", "future-category"])("ignores un
   const result = buildLaneBrief({ ...valid, skills: [...valid.skills, { id: "legacy", name: "Legacy", category, summary: "Old category" }] });
   expect(result).toEqual(baseline);
 });
+
+
+it("distinguishes an oversized matching playbook from an absent standard", () => {
+  const { text, provenance } = buildLaneBrief(input({ playbooks: [{
+    id: "large", title: "Detailed procedure", dimId: "D3", version: 1,
+    summary: "Real procedure", steps: Array.from({ length: 20 }, () => "x".repeat(300)),
+  }] }));
+  expect(text).not.toContain("No playbook in this organization");
+  expect(text).toContain("1 matching entry omitted by the byte budget");
+  expect(provenance.omitted).toContainEqual({ kind: "playbook", why: "byte budget" });
+  expect(briefSummaryLine(provenance)).toContain("playbook omitted (byte budget)");
+  expect(provenance.sections.some((s) => s.kind === "playbook")).toBe(false);
+});
+
+it("only attributes dimensions whose playbook entries were actually quoted", () => {
+  const { provenance } = buildLaneBrief(input({
+    dimIds: ["D1", "D9"],
+    playbooks: [
+      { id: "first", title: "Small", dimId: "D1", version: 1, summary: "Fits", steps: [] },
+      { id: "second", title: "Large", dimId: "D9", version: 1, summary: "Too large", steps: Array.from({ length: 20 }, () => "x".repeat(300)) },
+    ],
+  }));
+  expect(provenance.sections.find((s) => s.kind === "playbook")).toMatchObject({
+    count: 1, refs: ["first@1"], dimIds: ["D1"], trimmed: true,
+  });
+});

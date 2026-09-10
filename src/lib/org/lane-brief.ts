@@ -144,7 +144,7 @@ function renderPlaybooks(input: LaneBriefInput): Rendered {
     heading: "ACTIVE PLAYBOOKS — this organization's own steps for these dimensions",
     lines: cap.kept,
     refs: rows.slice(0, cap.kept.length).map((p) => `${p.id}@${p.version}`),
-    dimIds: [...new Set(rows.map((p) => p.dimId))],
+    dimIds: [...new Set(rows.slice(0, cap.kept.length).map((p) => p.dimId))],
     dropped: cap.dropped,
   };
 }
@@ -168,7 +168,7 @@ function renderHousePattern(input: LaneBriefInput): Rendered {
     heading: "HOUSE PATTERN — how this organization already does it, mined from its own repositories",
     lines: cap.kept,
     refs: rows.slice(0, cap.kept.length).map((h) => h.practiceId),
-    dimIds: [...new Set(rows.map((h) => h.dimId))],
+    dimIds: [...new Set(rows.slice(0, cap.kept.length).map((h) => h.dimId))],
     dropped: cap.dropped,
   };
 }
@@ -201,7 +201,7 @@ function renderSkills(input: LaneBriefInput): Rendered {
     heading: "REGISTRY SKILLS this organization maintains for this work",
     lines: cap.kept,
     refs: rows.slice(0, cap.kept.length).map((s) => s.id),
-    dimIds: [...new Set(rows.flatMap((s) => SKILL_CATEGORY_DIMS[normalizeSkillCategory(s.category)]))],
+    dimIds: [...new Set(rows.slice(0, cap.kept.length).flatMap((s) => SKILL_CATEGORY_DIMS[normalizeSkillCategory(s.category)]))],
     dropped: cap.dropped,
   };
 }
@@ -220,7 +220,7 @@ function renderEvidence(input: LaneBriefInput): Rendered {
     heading: "WHAT THE LAST SCAN ACTUALLY SAW in this repository",
     lines: cap.kept,
     refs: rows.slice(0, cap.kept.length).map((e) => e.dimId),
-    dimIds: rows.map((e) => e.dimId),
+    dimIds: rows.slice(0, cap.kept.length).map((e) => e.dimId),
     dropped: cap.dropped,
   };
 }
@@ -255,9 +255,12 @@ export function buildLaneBrief(input: LaneBriefInput): { text: string; provenanc
 
   for (const r of rendered) {
     if (r.lines.length === 0) {
-      // "none" rather than a silent gap — the brief SAYS the standard is absent, in words.
-      omitted.push({ kind: r.kind, why: "none" });
-      parts.push(`${r.heading}\n${ABSENCE[r.kind](dimLabel)}`);
+      const why = r.dropped > 0 ? "byte budget" : "none";
+      omitted.push({ kind: r.kind, why });
+      const absence = r.dropped > 0
+        ? `${r.dropped} matching entr${r.dropped === 1 ? "y" : "ies"} omitted by the byte budget. Content exists but was not included.`
+        : ABSENCE[r.kind](dimLabel);
+      parts.push(`${r.heading}\n${absence}`);
       continue;
     }
     const body = r.dropped > 0 ? `${r.lines.join("\n")}\n… (${r.dropped} more, trimmed)` : r.lines.join("\n");
@@ -292,6 +295,9 @@ export function briefSummaryLine(p: LaneBriefProvenance): string {
     evidence: (n) => `evidence for ${n} dimension${n === 1 ? "" : "s"}`,
   };
   const have = p.sections.map((s) => named[s.kind](s.count));
-  const none = p.omitted.map((o) => `no ${o.kind === "housePattern" ? "house pattern" : o.kind}`);
+  const none = p.omitted.map((o) => {
+    const label = o.kind === "housePattern" ? "house pattern" : o.kind;
+    return o.why === "none" ? `no ${label}` : `${label} omitted (${o.why})`;
+  });
   return [...have, ...none, `${(p.bytes / 1000).toFixed(1)} KB`].join(" · ");
 }
