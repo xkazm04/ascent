@@ -138,6 +138,8 @@ the run may still be going and points at the dashboard rather than claiming it f
 Reads are spaced 15 seconds after the previous read completes, so slow responses cannot overlap.
 Completion or refusal stops polling; transient network failures retry, and leaving the view aborts
 its pending read.
+An unreadable queue snapshot also makes following unavailable: missing or invalid counters never
+mean "finished", and malformed rows never replace the last known results.
 
 **Retry carries the same consent as the batch (2026-09-05).** The per-row Retry used to post only
 `{ org, repos, installationId, mock }`, so `watch` defaulted to true on the App path and re-enrolled

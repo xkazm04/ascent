@@ -43,6 +43,24 @@ interface QueueJob {
   state: string;
 }
 
+interface QueueSnapshot {
+  pending: number;
+  total: number;
+  repos: QueueJob[];
+}
+
+function isQueueSnapshot(value: unknown): value is QueueSnapshot {
+  if (typeof value !== "object" || value === null) return false;
+  const { pending, total, repos } = value as Partial<QueueSnapshot>;
+  return typeof pending === "number" && Number.isInteger(pending) && pending >= 0
+    && typeof total === "number" && Number.isInteger(total) && total >= pending
+    && Array.isArray(repos) && repos.every((job: unknown) => {
+      if (typeof job !== "object" || job === null) return false;
+      const row = job as Partial<QueueJob>;
+      return typeof row.repo === "string" && typeof row.state === "string";
+    });
+}
+
 /** One queue job row → the wizard's row state. The queue endpoint reports job STATE only (no score:
  *  it is the scheduler's view, not the report's), so a finished repo is rendered as "scanned, open
  *  the report" rather than with a fabricated level. A failed job carries no reason on this endpoint
@@ -115,7 +133,7 @@ export function useImportReattach({
     setState({ status: "polling", pending: 0, total: 0 });
 
     const tick = async () => {
-      let data: { pending?: number; total?: number; repos?: QueueJob[] };
+      let data: unknown;
       try {
         const res = await fetch(
           `/api/org/scan/queue?org=${encodeURIComponent(org)}&runId=${encodeURIComponent(runId)}`,
@@ -129,17 +147,22 @@ export function useImportReattach({
           setState((s) => ({ ...s, status: "unavailable" }));
           return;
         }
-        data = (await res.json()) as { pending?: number; total?: number; repos?: QueueJob[] };
+        data = await res.json();
       } catch {
         // A network blip is not information: keep the last known state and try again next tick.
         return;
       }
       if (cancelled || settled) return;
-      const jobs = Array.isArray(data.repos) ? data.repos : [];
+      if (!isQueueSnapshot(data)) {
+        // Missing counters are unknown, never evidence that the run finished.
+        unavailable = true;
+        setState((s) => ({ ...s, status: "unavailable" }));
+        return;
+      }
+      const jobs = data.repos;
       const rows = jobs.map(rowFromJob).filter((r): r is ScanRow => r !== null);
       if (rows.length) onRowsRef.current(rows);
-      const total = typeof data.total === "number" ? data.total : jobs.length;
-      const pending = typeof data.pending === "number" ? data.pending : 0;
+      const { total, pending } = data;
       setState({ status: "polling", pending, total });
       if (pending === 0) {
         // Nothing left in flight. `total === 0` lands here too: the run left no readable jobs (an old

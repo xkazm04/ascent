@@ -15,6 +15,30 @@ function follow() {
 async function advance(ms = 0) { await act(async () => { await vi.advanceTimersByTimeAsync(ms); }); }
 
 describe("import resume polling lifecycle", () => {
+  it.each([
+    null,
+    {},
+    { total: 0, repos: [] },
+    { pending: null, total: 0, repos: [] },
+    { pending: -1, total: 1, repos: [] },
+    { pending: 0.5, total: 1, repos: [] },
+    { pending: 2, total: 1, repos: [] },
+    { pending: 0, total: "1", repos: [] },
+    { pending: 0, total: 1, repos: [null] },
+    { pending: 0, total: 1, repos: [{ repo: "acme/web" }] },
+    { pending: 0, total: 1, repos: "invalid" },
+  ])("does not declare an unreadable queue snapshot finished: %j", async (snapshot) => {
+    const fetch = vi.fn().mockImplementation(async () => Response.json(snapshot));
+    vi.stubGlobal("fetch", fetch);
+    const { result, onSettled, onRows } = follow();
+    await advance();
+    expect(result.current.status).toBe("unavailable");
+    expect(onSettled).not.toHaveBeenCalled();
+    expect(onRows).not.toHaveBeenCalled();
+    await advance(REATTACH_POLL_MS * 2);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("stops after an HTTP refusal without declaring the run finished", async () => {
     const fetch = vi.fn().mockImplementation(async () => new Response(null, { status: 403 }));
     vi.stubGlobal("fetch", fetch);
