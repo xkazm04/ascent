@@ -269,6 +269,10 @@ permanently unrun.
 
 ## Grounding: the MCP tools, in-process, behind a stricter gate
 
+The shared tool validator reports wrong-type object arguments by type, without
+coercing their contents. Even an object with a `toString` data property receives
+the normal argument-correction response through both tool entry points.
+
 `src/lib/athena/grounding.ts` builds her tool list from `MCP_TOOLS` (`src/lib/mcp/tools.ts`) and
 dispatches through `runTool` (`src/lib/mcp/handlers.ts`). One catalog, one set of handlers, one
 serializer - an agent asking the MCP endpoint and Athena answering from the dashboard cannot disagree

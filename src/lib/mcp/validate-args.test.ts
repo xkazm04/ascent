@@ -11,6 +11,13 @@ import { MAX_CLAIM_COUNT, MCP_TOOLS } from "@/lib/mcp/tools";
 const schemaOf = (name: string) => MCP_TOOLS.find((t) => t.name === name)!.inputSchema;
 
 describe("validateArgs — the rules the catalog declares", () => {
+  it.each(['{"toString":null}', '{"toString":{"nested":true}}', '{"toString":null,"valueOf":null}'])(
+    "reports a wrong-type JSON object without invoking coercion: %s", (json) => {
+      expect(validateArgs(schemaOf("get_gate_verdict"), { repo: JSON.parse(json) })).toBe(
+        "`repo` must be a string; you sent an object.",
+      );
+    },
+  );
   it("required: names the missing argument", () => {
     expect(validateArgs(schemaOf("get_gate_verdict"), {})).toMatch(/`repo` is required/);
     expect(validateArgs(schemaOf("get_gate_verdict"), { repo: "acme/api" })).toBeNull();
