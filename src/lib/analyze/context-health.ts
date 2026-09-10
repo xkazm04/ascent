@@ -12,7 +12,7 @@
 // test in context-health.test.ts. Folding it into D1 later is a deliberate, versioned rubric event.
 
 import type { ContextHealth, ContextHealthFile, GuidanceFreshness, RepoFile, RepoSnapshot } from "@/lib/types";
-import { guidanceQuality } from "@/lib/analyze";
+import { guidanceQuality } from "./guidance-quality";
 export { parseContextHealthJson } from "./context-health-read";
 
 /** Shape version persisted inside contextHealthJson, for read-time tolerance. */

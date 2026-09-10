@@ -34,12 +34,8 @@ it("resolves ambiguous references in tree order, deduplicates aliases and keeps 
   expect(parsePointers(text, new Set())).toEqual([]);
 });
 
-// STRUCTURAL GUARD. `scoring/engine.ts` imports this module's `isGuidancePath` and `analyze/index.ts`
-// imports the graph itself — and BOTH are pulled into the client bundle by `RoadmapSandbox.tsx` /
-// `ScoreWaterfall.tsx`, which import `contributions`/`projectSandbox` from the engine. A `node:*`
-// import anywhere on that path fails `next build` and NOTHING else: `tsc --noEmit` stays green, and so
-// does this entire suite, because vitest runs in Node. That is the failure mode this file pins — the
-// hashing half lives in `guidance-projection.ts`, which the graph must never import.
+// These pure analysis helpers remain safe to reuse across server and client boundaries.
+// Hashing stays in guidance-projection.ts; adding a Node built-in here would break that contract.
 describe("the scanner path carries no Node built-ins", () => {
   it.each(["src/lib/analyze/guidance-graph.ts", "src/lib/analyze/context-health.ts"])(
     "%s imports nothing from node:",
