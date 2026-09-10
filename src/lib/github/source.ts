@@ -23,6 +23,7 @@ import {
 } from "@/lib/github/host";
 import { mapPool } from "@/lib/pool";
 import { boundedFetchedFile } from "@/lib/forge/fetched-file";
+import { MAX_FILE_BYTES, MAX_CODEOWNERS_BYTES, MAX_TOTAL_BYTES, COMMIT_COUNT } from "@/lib/forge/ingestion-limits";
 
 // FORGE EXTRACTION (moonshot #4). `ProgressFn` / `FetchOptions` / `ParsedRepo` / `GitHubError` /
 // `RepoSource` are DECLARED in `@/lib/forge/types` now — not a character of them changed, only the
@@ -49,16 +50,9 @@ export const MAX_FILES = 50;
 // exactly the big repos (next.js has 36 workflows), so fetch far more — ranked LAST (see pickFilesToFetch)
 // so the LLM prompt window still front-loads README/manifests/source and only the detectors read the tail.
 const MAX_WORKFLOW_FILES = 24;
-const MAX_FILE_BYTES = 14_000; // truncate any single file to this many bytes
-// CODEOWNERS is not prompt fodder — codeowners.ts parses it as an EXACT structured file for team
-// attribution (RepoTeam / getOrgTeamRollup). Truncating it to the LLM byte budget silently drops any
-// team defined past the cutoff on a large monorepo (and can mis-attribute the primary owner if the `*`
-// catch-all sits late), so give this one high-signal file a much larger per-file cap.
-const MAX_CODEOWNERS_BYTES = 60_000;
 // The three locations GitHub honors CODEOWNERS (root, .github/, docs/) — mirrors codeowners.ts's
 // CODEOWNERS_PATH_RE and the exact names pickFilesToFetch requests, matched case-insensitively.
 const CODEOWNERS_PATH_RE = /^(?:\.github\/|docs\/)?codeowners$/i;
-const MAX_TOTAL_BYTES = 280_000; // total content budget across all files (raised for full workflow ingest)
 // ── `.ai/memory` mirror (moonshot #14) ───────────────────────────────────────────────────────────
 // Repo-authored memory entries are fetched so the org can INDEX them (src/lib/memory/repo-memory-mirror.ts),
 // never so a scorer can read them. Two constants, exported because the pick guard and the quarantine
@@ -68,7 +62,6 @@ export const MAX_MEMORY_FILES = 12;
 /** A NUMBERED memory entry. README.md and unnumbered files are deliberately excluded: the number is
  *  the append-only ordering the format promises, and an unnumbered file is prose, not an entry. */
 export const MEMORY_ENTRY_RE = /^\.ai\/memory\/(\d{4})-[^/]+\.md$/i;
-const COMMIT_COUNT = 30;
 // These budgets now cover the response BODY as well as the headers (see host.ts fetchWithTimeout),
 // so each was raised: the recursive tree read on a large monorepo is multi-megabyte, and the old
 // headers-only figures would have newly aborted exactly the biggest repos.

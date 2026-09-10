@@ -32,6 +32,7 @@ import type {
 } from "@/lib/forge/types";
 import type { CommitInfo, FetchedFile, RepoFile, RepoMeta, RepoSnapshot } from "@/lib/types";
 import { boundedFetchedFile } from "@/lib/forge/fetched-file";
+import { MAX_FILE_BYTES, MAX_CODEOWNERS_BYTES, MAX_TOTAL_BYTES, COMMIT_COUNT } from "@/lib/forge/ingestion-limits";
 import {
   GITLAB_TIMEOUT_FILE_MS,
   gitlabApiBase,
@@ -48,11 +49,7 @@ import { fetchGitlabGovernance } from "@/lib/forge/gitlab/governance";
 import { fetchGitlabCiHealth } from "@/lib/forge/gitlab/pipelines";
 import { fetchGitlabDeployments } from "@/lib/forge/gitlab/deployments";
 
-// Mirrors the GitHub source's private caps — see the header. A drift here moves scores.
-const MAX_FILE_BYTES = 14_000;
-const MAX_CODEOWNERS_BYTES = 60_000;
-const MAX_TOTAL_BYTES = 280_000;
-const COMMIT_COUNT = 30;
+// Adapter-specific path recognition; numeric calibration limits are shared across sources.
 const CODEOWNERS_RE = /(^|\/)codeowners$/i;
 /** Recursive tree pages (100 entries each) before the read reports itself TRUNCATED. */
 const MAX_TREE_PAGES = 30;

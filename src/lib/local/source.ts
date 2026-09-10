@@ -30,15 +30,9 @@ import {
 } from "@/lib/github/source";
 import { runGit } from "@/lib/local/git";
 import { boundedFetchedFile } from "@/lib/forge/fetched-file";
+import { MAX_FILE_BYTES, MAX_CODEOWNERS_BYTES, MAX_TOTAL_BYTES, COMMIT_COUNT } from "@/lib/forge/ingestion-limits";
 import type { CommitInfo, FetchedFile, RepoFile, RepoMeta, RepoSnapshot } from "@/lib/types";
 
-// Content budgets — mirror GitHubPublicSource's private caps (src/lib/github/source.ts) so a local
-// scan feeds the model the same volume as a GitHub scan of the same repo; a drift here would move
-// calibrated scores between the two ingestion paths for no real reason.
-const MAX_FILE_BYTES = 14_000;
-const MAX_CODEOWNERS_BYTES = 60_000;
-const MAX_TOTAL_BYTES = 280_000;
-const COMMIT_COUNT = 30;
 const CODEOWNERS_RE = /(^|\/)codeowners$/i;
 
 // git output separators: NUL between fields, RS (0x1e) between records — characters that cannot
