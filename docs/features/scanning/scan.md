@@ -727,6 +727,8 @@ receives the *same* live progress frames as the computing owner: it gets a "join
 already in progress" frame, then a replay of the latest frame, then every subsequent one, so
 a shared scan never looks stalled to the second viewer. Abort is refcounted: the shared run is
 cancelled only when the last interested caller disconnects.
+A request arriving after that cancellation starts a new computation even if the old promise is
+still settling; the old run cannot evict the replacement when its cleanup finishes.
 
 ## Key files
 
