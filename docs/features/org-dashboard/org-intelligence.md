@@ -2735,3 +2735,7 @@ Repository attribution uses the scanner's forge router, including its host valid
 and path normalization, so a lookalike host cannot be mistaken for a GitHub repository.
 Malformed OTLP JSON containers return 400 before parsing or storage. Empty exports and
 unrecognized fields remain accepted; supported metric selection still determines usage.
+
+Copilot seat and engagement requests each use the shared 30-second GitHub timeout,
+including response-body reads. A timeout reports that source as unreachable; a
+successful companion request still contributes its available data.
