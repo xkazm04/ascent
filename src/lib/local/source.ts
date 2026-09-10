@@ -20,14 +20,13 @@
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { FetchOptions, ParsedRepo, RepoSource } from "@/lib/github/source";
+import { GitHubError, type FetchOptions, type ParsedRepo, type RepoSource } from "@/lib/forge/types";
 import {
-  GitHubError,
   MAX_FILES,
   estimateCoverage,
   pickFilesToFetch,
   quarantineMemoryFiles,
-} from "@/lib/github/source";
+} from "@/lib/forge/source-selection";
 import { runGit } from "@/lib/local/git";
 import { boundedFetchedFile } from "@/lib/forge/fetched-file";
 import { MAX_FILE_BYTES, MAX_CODEOWNERS_BYTES, MAX_TOTAL_BYTES, COMMIT_COUNT } from "@/lib/forge/ingestion-limits";

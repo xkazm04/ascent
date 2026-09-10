@@ -2,7 +2,7 @@
 //
 // INGESTION VOLUME IS THE CALIBRATION CONTRACT. This source reuses `pickFilesToFetch`, `MAX_FILES`,
 // the per-file / total byte caps, `quarantineMemoryFiles` and `estimateCoverage` from
-// `src/lib/github/source.ts` EXACTLY as `LocalFsSource` already does. That is not code-sharing for
+// `src/lib/forge/source-selection.ts` EXACTLY as `LocalFsSource` already does. That is not code-sharing for
 // tidiness: the rubric was calibrated against a specific ingestion volume, so a GitLab source that
 // read a different number of files, or ranked them differently, would score the same repository
 // differently for reasons that have nothing to do with the repository. Sharing the budget functions is
@@ -19,7 +19,7 @@ import {
   estimateCoverage,
   pickFilesToFetch,
   quarantineMemoryFiles,
-} from "@/lib/github/source";
+} from "@/lib/forge/source-selection";
 import { GitHubError } from "@/lib/forge/types";
 import type {
   EnrichmentSource,
