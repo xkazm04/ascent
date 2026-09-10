@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildGuidanceGraph, declaredCanonical } from "@/lib/analyze/guidance-graph";
+import { buildGuidanceGraph, declaredCanonical, parsePointers } from "@/lib/analyze/guidance-graph";
 import { renderProjection } from "@/lib/analyze/guidance-projection";
 import type { RepoSnapshot } from "@/lib/types";
 
@@ -26,6 +26,13 @@ const CANON = `# o/r agent guidance
 ## Rules
 - Never commit generated files.
 `;
+
+it("resolves ambiguous references in tree order, deduplicates aliases and keeps snapshot caches separate", () => {
+  const text = "@GUIDE.md [again](./guide.md) [remote](https://example.com/guide.md) @missing.md";
+  expect(parsePointers(text, new Set(["nested/guide.md", "GUIDE.md"]))).toEqual(["nested/guide.md"]);
+  expect(parsePointers(text, new Set(["GUIDE.md", "nested/guide.md"]))).toEqual(["GUIDE.md"]);
+  expect(parsePointers(text, new Set())).toEqual([]);
+});
 
 // STRUCTURAL GUARD. `scoring/engine.ts` imports this module's `isGuidancePath` and `analyze/index.ts`
 // imports the graph itself — and BOTH are pulled into the client bundle by `RoadmapSandbox.tsx` /
