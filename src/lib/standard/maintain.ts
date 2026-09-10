@@ -29,7 +29,18 @@ const MEM = '.ai/memory';
 const INDEX = '.ai/context-index.json';
 const git = (a, raw = false) => { try { const out = execSync('git ' + a, { encoding: 'utf8' }); return raw ? out : out.trim(); } catch { return ''; } };
 const dirOf = (p) => { const i = p.lastIndexOf('/'); return i < 0 ? '.' : p.slice(0, i); };
-const loadIndex = () => { try { return JSON.parse(readFileSync(INDEX, 'utf8')); } catch { return { modules: [] }; } };
+const loadIndex = () => {
+  if (!existsSync(INDEX)) return { modules: [] };
+  try {
+    const idx = JSON.parse(readFileSync(INDEX, 'utf8'));
+    if (!idx || typeof idx !== 'object' || Array.isArray(idx) || (idx.modules !== undefined && !Array.isArray(idx.modules)))
+      throw new Error('expected an object with a modules array');
+    return idx;
+  } catch (e) {
+    console.error('Cannot read ' + INDEX + ': ' + e.message + '. Repair the index before continuing; it has not been changed.');
+    process.exit(1);
+  }
+};
 const readStdin = () => { try { return readFileSync(0, 'utf8'); } catch { return ''; } };
 
 // The set of files 'check' should police depends on WHERE it runs. It is documented for a pre-push hook,

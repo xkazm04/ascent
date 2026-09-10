@@ -121,6 +121,31 @@ function git(root: string, ...args: string[]) {
   return result.stdout.trim();
 }
 
+it.each(["{broken", "null", "[]", '{"modules":{}}'])("preserves an invalid existing context index %s", (original) => {
+  const root = fixture();
+  const index = join(root, ".ai/context-index.json");
+  writeFileSync(index, original);
+  for (const args of [["touch", "src"], ["check", "--strict"]]) {
+    const result = run(root, ...args);
+    expect(readFileSync(index, "utf8")).toBe(original);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Cannot read .ai/context-index.json");
+    expect(result.stdout).not.toContain("CONTEXT graph current");
+  }
+});
+
+it("initializes missing indexes and preserves fields it does not own", () => {
+  const root = fixture();
+  const index = join(root, ".ai/context-index.json");
+  expect(run(root, "touch", "src").status).toBe(0);
+  const original = JSON.parse(readFileSync(index, "utf8"));
+  original.extension = { owner: "another tool" };
+  original.modules[0].extension = "preserve me";
+  writeFileSync(index, JSON.stringify(original));
+  expect(run(root, "touch", "src").status).toBe(0);
+  expect(JSON.parse(readFileSync(index, "utf8"))).toEqual(original);
+});
+
 it.each([
   ["src/caf\u00e9", "worktree"], ["src/caf\u00e9", "pushed"],
   [" spaced", "worktree"], [" spaced", "pushed"],

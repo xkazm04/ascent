@@ -128,6 +128,9 @@ not take any away.
 
 The upkeep freshness check reads raw, NUL-delimited Git paths. Unicode names and leading
 spaces participate in module matching in both working-tree and pre-push ranges.
+An existing context index must parse as an object with a `modules` array when that
+field is present. `check` and `touch` fail visibly on an invalid index and leave it
+unchanged. `touch` can initialize a missing index and preserves unknown fields.
 
 ## Memory note IDs
 
