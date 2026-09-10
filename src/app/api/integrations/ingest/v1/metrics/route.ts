@@ -13,6 +13,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { guardIngest, payloadTooLarge, readCappedBody } from "@/lib/integrations/ingest-guard";
 import { parseOtlpMetrics, type OtlpMetricsBody } from "@/lib/integrations/otlp";
 import { parseOtlpSessions } from "@/lib/integrations/sessions";
+import { hasOtlpMetricStructure } from "@/lib/integrations/otlp-wire";
 import { recordUsage } from "@/lib/db";
 import { recordAgentSessions } from "@/lib/db/agent-sessions";
 
@@ -51,6 +52,9 @@ export async function POST(req: NextRequest) {
     body = JSON.parse(read.text) as OtlpMetricsBody;
   } catch {
     return NextResponse.json({ error: "Invalid OTLP JSON." }, { status: 400 });
+  }
+  if (!hasOtlpMetricStructure(body)) {
+    return NextResponse.json({ error: "Invalid OTLP metrics structure." }, { status: 400 });
   }
 
   // An export that lands nothing must SAY so. `received` counts every datapoint in the payload and

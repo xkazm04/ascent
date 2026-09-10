@@ -31,6 +31,27 @@ export interface OtlpResourceMetrics {
   scopeMetrics?: { metrics?: OtlpMetric[] }[];
 }
 
+type JsonObject = Record<string, unknown>;
+const isObject = (value: unknown): value is JsonObject =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+const optionalObject = (value: unknown, check: (value: JsonObject) => boolean): boolean =>
+  value == null || (isObject(value) && check(value));
+const optionalList = (value: unknown, check: (value: JsonObject) => boolean): boolean =>
+  value == null || (Array.isArray(value) && value.every((item) => isObject(item) && check(item)));
+const hasAttributes = (value: JsonObject): boolean =>
+  optionalList(value.attributes, (attr) =>
+    (attr.key == null || typeof attr.key === "string") && optionalObject(attr.value, () => true));
+const hasDataPoints = (value: JsonObject): boolean => optionalList(value.dataPoints, hasAttributes);
+
+/** Validate containers consumed by both parsers; unknown OTLP fields remain forward compatible. */
+export function hasOtlpMetricStructure(value: unknown): boolean {
+  return isObject(value) && optionalList(value.resourceMetrics, (resource) =>
+    optionalObject(resource.resource, hasAttributes) &&
+    optionalList(resource.scopeMetrics, (scope) => optionalList(scope.metrics, (metric) =>
+      (metric.name == null || typeof metric.name === "string") &&
+      optionalObject(metric.sum, hasDataPoints) && optionalObject(metric.gauge, hasDataPoints))));
+}
+
 
 /** Flatten OTLP attribute list into a plain string map. */
 export function attrMap(attrs: OtlpAttr[] | undefined): Record<string, string> {

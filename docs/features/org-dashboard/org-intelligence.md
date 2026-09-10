@@ -2733,3 +2733,5 @@ Telemetry outside the supported metric set is counted as skipped. It does not cr
 measured usage rows or add seats to a supported metric's bucket.
 Repository attribution uses the scanner's forge router, including its host validation
 and path normalization, so a lookalike host cannot be mistaken for a GitHub repository.
+Malformed OTLP JSON containers return 400 before parsing or storage. Empty exports and
+unrecognized fields remain accepted; supported metric selection still determines usage.
