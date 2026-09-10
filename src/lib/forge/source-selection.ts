@@ -1,6 +1,7 @@
 // Pure ingestion selection, byte admission and memory quarantine shared by every source adapter.
 import type { RepoFile, FetchedFile } from "@/lib/types";
 import { MAX_FILE_BYTES, MAX_CODEOWNERS_BYTES, MAX_TOTAL_BYTES } from "./ingestion-limits";
+import { MEMORY_ENTRY_RE } from "@/lib/standard/memory-entry";
 
 
 // Ingestion budgets — keep prompts small and avoid hammering hosts.
@@ -29,7 +30,7 @@ export const MAX_MEMORY_FILES = 12;
 
 /** A NUMBERED memory entry. README.md and unnumbered files are deliberately excluded: the number is
  *  the append-only ordering the format promises, and an unnumbered file is prose, not an entry. */
-export const MEMORY_ENTRY_RE = /^\.ai\/memory\/(\d{4})-[^/]+\.md$/i;
+export { MEMORY_ENTRY_RE } from "@/lib/standard/memory-entry";
 
 
 /**

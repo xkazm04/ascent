@@ -17,6 +17,7 @@ import { clamp } from "@/lib/maturity/model";
 import { facetPoints } from "@/lib/scoring/claims";
 import { AI_TRAILER_SOURCE } from "./ai-tools";
 import { readManifestYaml } from "@/lib/standard/read";
+import { MEMORY_ENTRY_RE } from "@/lib/standard/memory-entry";
 import { gradedGuidanceNode, guidanceGraphFor } from "@/lib/analyze/guidance-graph";
 
 // ---------------------------------------------------------------------------
@@ -226,8 +227,7 @@ function aiStandard(idx: RepoIndex): {
         : { points: 2, label: ".ai/doctor.mjs present (not yet wired into CI/hook)", detail: doctorPath },
     );
   }
-  const MEMORY_PATH = /^\.ai\/memory\/\d{4}-.*\.md$/;
-  const memPaths = idx.lowerPaths.filter((p) => MEMORY_PATH.test(p));
+  const memPaths = idx.lowerPaths.filter((p) => MEMORY_ENTRY_RE.test(p));
   const mem = memPaths.length;
   if (mem >= 2) d8.push({ points: 6, label: `Structured memory in use (.ai/memory, ${mem} entries)`, detail: namedList(memPaths) });
   else if (mem === 1) d8.push({ points: 1, label: ".ai/memory seeded (not yet used)", detail: memPaths[0] });

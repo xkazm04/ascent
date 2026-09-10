@@ -868,3 +868,10 @@ three workflows shows its first three in pick order.
   `go.sum`, `poetry.lock`) return `known:false` = UNKNOWN, treated as neutral, never "clean".
   Lockfiles are deliberately **not** added to `pickFilesToFetch`: they are large, low-signal-
   per-byte, and would displace README/manifests/source from the prompt window.
+
+### Numbered repository memory
+
+Memory selection, quarantine and presence-only detection share the numbered-entry format with
+the upkeep writer. IDs have a minimum width of four digits (`9999`, `10000`, `10001`); only
+flat `.ai/memory/<id>-<slug>.md` entries count. The newest 12 remain separately quarantined
+from scoring file contents, including entries whose IDs exceed four digits.

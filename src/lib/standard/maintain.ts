@@ -6,6 +6,7 @@
 // Authored with NO backticks or ${...} so it embeds verbatim in the template literal / SKILL.md.
 
 import { GUIDANCE_PARSER_SOURCE } from "./guidance-parser-source";
+import { MEMORY_ENTRY_RE, MEMORY_FILENAME_RE } from "./memory-entry";
 import type { GeneratedFile } from "./types";
 
 const MAINTAIN = `#!/usr/bin/env node
@@ -96,7 +97,7 @@ if (cmd === 'check') {
   }
   for (const w of warnings) console.log('[WARN] ' + w);
   if (!warnings.length) console.log('[OK  ] CONTEXT graph current for changed modules.');
-  const memNew = files.some((f) => f.startsWith(MEM + '/') && /\\d{4}-/.test(f));
+  const memNew = files.some((f) => ${MEMORY_ENTRY_RE}.test(f));
   const codeChanged = files.some((f) => !f.startsWith('.ai/') && !f.endsWith('CONTEXT.md'));
   if (codeChanged && !memNew) console.log('[INFO] Learned something durable? Log it: node .ai/maintain.mjs note <kind> "<one fact>"');
   process.exit(process.argv.includes('--strict') && warnings.length ? 1 : 0);
@@ -115,7 +116,7 @@ if (cmd === 'note') {
   // loss in the append-only ledger this standard sells to multi-agent workflows. On EEXIST (same id
   // AND same slug) the loser re-lists - the winner's file now raises the max - and retries.
   for (let attempt = 0; attempt < 20; attempt++) {
-    const ids = readdirSync(MEM).map((f) => parseInt((f.match(/^(\\d{4}|[1-9]\\d{4,})-/) || [])[1], 10)).filter((n) => !isNaN(n));
+    const ids = readdirSync(MEM).map((f) => parseInt((f.match(${MEMORY_FILENAME_RE}) || [])[1], 10)).filter((n) => !isNaN(n));
     const next = String((ids.length ? Math.max(...ids) : 0) + 1).padStart(4, '0');
     const file = MEM + '/' + next + '-' + slug + '.md';
     const fm = '---\\nid: ' + next + '\\nkind: ' + kind + '\\nscope: repo\\ndate: ' + new Date().toISOString().slice(0, 10) + '\\nsupersedes: null\\nrefs: []\\n---\\n\\n';
