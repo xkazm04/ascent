@@ -29,6 +29,7 @@ import {
   quarantineMemoryFiles,
 } from "@/lib/github/source";
 import { runGit } from "@/lib/local/git";
+import { boundedFetchedFile } from "@/lib/forge/fetched-file";
 import type { CommitInfo, FetchedFile, RepoFile, RepoMeta, RepoSnapshot } from "@/lib/types";
 
 // Content budgets — mirror GitHubPublicSource's private caps (src/lib/github/source.ts) so a local
@@ -98,9 +99,9 @@ export async function readPicksWithReserve(
     const content = await read(path);
     if (content == null) continue; // deleted-but-tracked, unreadable, or binary-invalid — degrade coverage
     const cap = CODEOWNERS_RE.test(path) ? MAX_CODEOWNERS_BYTES : MAX_FILE_BYTES;
-    const truncated = content.slice(0, cap);
-    if (!exempt) totalBytes += truncated.length;
-    files.push({ path, content: truncated, bytes: content.length });
+    const file = boundedFetchedFile(path, content, cap);
+    if (!exempt) totalBytes += Buffer.byteLength(file.content, "utf8");
+    files.push(file);
   }
   return files.sort((a, b) => (order.get(a.path) ?? 0) - (order.get(b.path) ?? 0));
 }

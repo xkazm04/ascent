@@ -22,6 +22,7 @@ import {
   githubRawBase,
 } from "@/lib/github/host";
 import { mapPool } from "@/lib/pool";
+import { boundedFetchedFile } from "@/lib/forge/fetched-file";
 
 // FORGE EXTRACTION (moonshot #4). `ProgressFn` / `FetchOptions` / `ParsedRepo` / `GitHubError` /
 // `RepoSource` are DECLARED in `@/lib/forge/types` now — not a character of them changed, only the
@@ -578,8 +579,7 @@ export class GitHubPublicSource implements RepoSource {
         // flat LLM budget — the same cap the plan charged this path. A body that turns out LARGER
         // than the tree listed it still truncates here exactly as before; the plan is the admission
         // decision, this is the per-file cut.
-        const truncated = content.slice(0, capForPath(path));
-        files.push({ path, content: truncated, bytes: content.length });
+        files.push(boundedFetchedFile(path, content, capForPath(path)));
       } catch {
         // One pathological file (bad encoding, an unexpected Contents-API shape, a non-string
         // body) must not reject the worker and, via Promise.all, abort the entire scan. Skip the

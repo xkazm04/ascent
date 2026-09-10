@@ -147,6 +147,8 @@ passing `installationId` while throttled gets `401` there and `429` on the strea
   sample of source. Public repos read from `raw.githubusercontent.com`; private repos use the
   Contents API. The budget is a **fixed constant, deliberately**: it is what makes two repos'
   scores comparable, so it is not request-configurable (see [Known gaps](#known-gaps)).
+  GitHub, GitLab, and local excerpts use UTF-8 byte counts and end on complete characters;
+  each fetched file's `bytes` records its original UTF-8 size before truncation.
 - `commits: CommitInfo[]`: up to 30 recent commits (message, author, login, date).
 - `truncated`, `coverage`: flags that drive confidence + warnings.
 

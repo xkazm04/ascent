@@ -24,6 +24,14 @@ const worktree = (): Record<string, string> => {
 };
 
 describe("readPicksWithReserve", () => {
+  it("caps Unicode excerpts in UTF-8 bytes and reports the original byte size", async () => {
+    const content = "界".repeat(10_000);
+    const [file] = await readPicksWithReserve(["README.md"], async () => content);
+    expect(Buffer.byteLength(file!.content, "utf8")).toBeLessThanOrEqual(14_000);
+    expect(file!.content).toBe("界".repeat(4_666));
+    expect(file!.bytes).toBe(30_000);
+  });
+
   it("fetches every workflow (and the other reserved picks) on a worktree whose samples exhaust the byte budget", async () => {
     const fs = worktree();
     const tree: RepoFile[] = Object.keys(fs).map((path) => ({ path, type: "blob" as const }));

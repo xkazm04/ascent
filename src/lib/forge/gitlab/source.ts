@@ -31,6 +31,7 @@ import type {
   RepoSource,
 } from "@/lib/forge/types";
 import type { CommitInfo, FetchedFile, RepoFile, RepoMeta, RepoSnapshot } from "@/lib/types";
+import { boundedFetchedFile } from "@/lib/forge/fetched-file";
 import {
   GITLAB_TIMEOUT_FILE_MS,
   gitlabApiBase,
@@ -311,9 +312,9 @@ export class GitLabSource implements RepoSource {
       if (content == null) continue;
       const path = picks[i]!;
       const cap = CODEOWNERS_RE.test(path) ? MAX_CODEOWNERS_BYTES : MAX_FILE_BYTES;
-      const truncated = content.slice(0, cap);
-      totalBytes += truncated.length;
-      out.push({ path, content: truncated, bytes: content.length });
+      const file = boundedFetchedFile(path, content, cap);
+      totalBytes += Buffer.byteLength(file.content, "utf8");
+      out.push(file);
     }
     // Reads already issued for displaced picks are awaited (never abandoned unhandled) and discarded.
     await Promise.allSettled([...inflight.values()]);

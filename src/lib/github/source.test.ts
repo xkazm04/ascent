@@ -313,6 +313,17 @@ const EIGHT_PICKS = [
 afterEach(() => vi.unstubAllGlobals());
 
 describe("estimateCoverage (via GitHubPublicSource.fetchSnapshot) — transient blip must not poison the cache", () => {
+  it("uses a UTF-8 byte cap for fetched Unicode content", async () => {
+    const content = "x".repeat(13_999) + "😀tail";
+    const baseFetch = makeFetch(["readme.md"], false, () => "ok");
+    vi.stubGlobal("fetch", vi.fn(async (url: string) =>
+      url.startsWith(`${RAW}/`) ? res(null, { text: content }) : baseFetch(url),
+    ));
+    const snapshot = await new GitHubPublicSource().fetchSnapshot({ owner: "o", repo: "r" });
+    expect(snapshot.files[0]!.content).toBe("x".repeat(13_999));
+    expect(snapshot.files[0]!.bytes).toBe(Buffer.byteLength(content, "utf8"));
+  });
+
   it("(a) small repo, ALL picks succeed → 0.95 (full confidence)", async () => {
     vi.stubGlobal("fetch", makeFetch(EIGHT_PICKS, false, () => "ok"));
     const snap = await new GitHubPublicSource().fetchSnapshot({ owner: "o", repo: "r" });
