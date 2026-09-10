@@ -27,34 +27,14 @@ import { getRepoAdmission } from "@/lib/db/org-admission";
 import { compileStance } from "@/lib/org/admission";
 import { defaultGatePolicy, describeGatePolicy, evaluateGateLite } from "@/lib/scoring/gate";
 import { PRACTICES } from "@/lib/practices";
-// `Args`/`str`/`fail` come from registry-reads rather than being duplicated here; its back-edge to
-// this module is type-only, so the two do not form a runtime cycle.
-import { fail, findSkills, getGoverningSubject, getSkill, getSkillLessons, str, type Args } from "@/lib/mcp/registry-reads";
+import { findSkills, getGoverningSubject, getSkill, getSkillLessons } from "@/lib/mcp/registry-reads";
+import { fail, str, type Args, type ToolResult } from "./tool-result";
+export { toolResultText, type ToolResult } from "./tool-result";
 import { citeMemory, reportSkillInvoke } from "@/lib/mcp/registry-writes";
 import { compareAgainstExemplar } from "@/lib/mcp/exemplar-tool";
 import { claimFollowupsTool, getFixBriefTool, reportAttemptTool } from "@/lib/mcp/work-tools";
 import { MCP_TOOLS } from "@/lib/mcp/tools";
 import { validateArgs } from "@/lib/mcp/validate-args";
-
-export interface ToolResult {
-  structuredContent: unknown;
-  /** Human/model-readable text. Defaults to the JSON of structuredContent when omitted. */
-  text?: string;
-  isError?: boolean;
-}
-
-/**
- * The ONE way a tool result becomes text for a model. Lifted out of the MCP route (it was inline at
- * `src/app/api/mcp/route.ts`) when Athena became a second in-process consumer of these same handlers:
- * two doors serving the same tool must not be able to show the model two different renderings of the
- * same answer, and the only way to guarantee that is for neither of them to own the rendering.
- *
- * `text` when the handler wrote one (every `fail()` does), otherwise the pretty-printed structured
- * payload — the exact expression the route used, moved rather than rewritten.
- */
-export function toolResultText(result: ToolResult): string {
-  return result.text ?? JSON.stringify(result.structuredContent, null, 2);
-}
 
 /** A work tool reached with no verified caller. Fails closed — see `runTool`. */
 const unattributed = (name: string): ToolResult =>

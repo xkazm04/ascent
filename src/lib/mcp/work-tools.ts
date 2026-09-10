@@ -34,8 +34,8 @@ import {
   isAttemptVerdict,
   type FollowUpItem,
 } from "@/lib/org/followups";
-import { fail, str, type Args } from "@/lib/mcp/registry-reads";
-import type { McpPrincipal, ToolResult } from "@/lib/mcp/handlers";
+import { fail, str, type Args, type ToolResult } from "./tool-result";
+import type { McpPrincipal } from "@/lib/mcp/handlers";
 import { MAX_CLAIM_COUNT } from "@/lib/mcp/tools";
 import type { AutonomyTierId } from "@/lib/types";
 

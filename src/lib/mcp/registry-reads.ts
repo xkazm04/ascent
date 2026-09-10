@@ -16,20 +16,8 @@ import { getOrgId, getOrgRollup, listOrgSkills, type SkillRow } from "@/lib/db";
 import { listOrgKnowledgeSubjects } from "@/lib/db/org-registry-subjects";
 import { listSkillLessons } from "@/lib/db/org-skill-lessons";
 import { rankSkills, weakDimensionsFor } from "@/lib/mcp/skill-match";
-import type { ToolResult } from "@/lib/mcp/handlers";
-
-/** The argument bag a tool call arrives with. Untyped by the protocol; validated per handler. */
-export type Args = Record<string, unknown>;
-
-export const str = (a: Args, k: string): string | null =>
-  typeof a[k] === "string" ? (a[k] as string).trim() : null;
-
-/** A tool-execution error — actionable feedback the model can self-correct from (`isError: true`). */
-export const fail = (message: string): ToolResult => ({
-  structuredContent: { error: message },
-  text: message,
-  isError: true,
-});
+import { fail, str, type Args, type ToolResult } from "./tool-result";
+export { fail, str, type Args } from "./tool-result";
 
 /** Exact-name lookup over the org's skills. `null` = persistence off (a different fact from "absent"). */
 export async function findSkillByName(org: string, name: string): Promise<SkillRow | null | undefined> {
