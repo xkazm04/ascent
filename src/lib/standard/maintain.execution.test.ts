@@ -176,6 +176,25 @@ it.each([
   expect(findings).not.toContainEqual(expect.objectContaining({ check: "pointer.foreign" }));
 });
 
+it.each(["\n", "\r\n"])("doctor writes proven flags only to owned capability rows with %j endings", (eol) => {
+  const root = fixture();
+  const path = join(root, ".ai/manifest.yaml");
+  const foreign = '  test: { command: "foreign command", verified: false }';
+  const command = JSON.stringify('node -e "const text = \'verified: false\'; process.exit(0)"');
+  const failCommand = JSON.stringify('node -e "process.exit(1)"');
+  const passing = `  test: { command: ${command}, before: { verified: false }, verified: false, extension: "verified: false", after: { verified: false } }`;
+  const failing = `  build: { command: ${failCommand}, verified: true }`;
+  const original = ["schema: ai-manifest", "extensionBefore:", foreign, "capabilities:", passing,
+    failing, "extensionAfter:", foreign, ""].join(eol);
+  writeFileSync(path, original);
+  const { findings } = doctor(root, "--run");
+  expect(findings).toContainEqual(expect.objectContaining({ check: "capability.test.run", level: "pass" }));
+  expect(findings).toContainEqual(expect.objectContaining({ check: "capability.build.run", level: "fail" }));
+  expect(readFileSync(path, "utf8")).toBe(original
+    .replace(passing, passing.replace(", verified: false,", ", verified: true,"))
+    .replace(failing, failing.replace(", verified: true }", ", verified: false }")));
+});
+
 it.each([
   ["src/caf\u00e9", "worktree"], ["src/caf\u00e9", "pushed"],
   [" spaced", "worktree"], [" spaced", "pushed"],

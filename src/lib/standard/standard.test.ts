@@ -446,7 +446,7 @@ describe("guardrails (the invariants half — real, not a dangling pointer)", ()
  * instead cut from each function's declaration to the next top-level declaration. The functions are
  * emitted contiguously (kv, sub, flow, capabilities) ahead of `const path = '.ai/manifest.yaml';`.
  */
-const FN_ORDER = ["block", "kv", "sub", "flow", "capabilities"] as const;
+const FN_ORDER = ["blockLines", "block", "kv", "sub", "flow", "capabilities"] as const;
 function extractFn(source: string, name: string): string {
   const start = source.indexOf("function " + name + "(");
   if (start < 0) throw new Error("doctor parser not found: " + name);

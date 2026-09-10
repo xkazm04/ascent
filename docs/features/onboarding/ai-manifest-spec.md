@@ -128,6 +128,9 @@ not take any away.
 
 The reference doctor reads top-level `paths` and `capabilities` blocks with LF or
 CRLF line endings, including when either block is the first key in the manifest.
+With `--run`, verification write-back changes only the direct `verified` field of
+executed rows in `capabilities`. Same-named extension rows, quoted text, nested
+extension fields, and the manifest's line endings are preserved.
 
 The upkeep freshness check reads raw, NUL-delimited Git paths. Unicode names and leading
 spaces participate in module matching in both working-tree and pre-push ranges.

@@ -70,12 +70,17 @@ function wired(hookText, alias) {
   }
 }
 
-function block(text, key) {
+function blockLines(text, key) {
   const lines = text.split('\\n');
   const start = lines.findIndex((line) => line.trimEnd() === key + ':');
-  if (start < 0) return '';
+  if (start < 0) return { lines, start: -1, end: -1 };
   let end = start + 1;
   while (end < lines.length && !/^[^\\s#]/.test(lines[end])) end++;
+  return { lines, start, end };
+}
+function block(text, key) {
+  const { lines, start, end } = blockLines(text, key);
+  if (start < 0) return '';
   return lines.slice(start + 1, end).map((line) => line.replace(/\\r$/, '')).join('\\n');
 }
 function kv(text, key) {
@@ -103,6 +108,30 @@ function capabilities(text) {
     else if (/^[^\\s#]/.test(line)) break;
   }
   return caps;
+}
+
+// Only the direct flow-map field is owned. Skip quoted text and nested extension maps.
+function setVerified(line, passed) {
+  let depth = 0, quote = '', escaped = false, fieldStart = 0;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (ch === '\\\\' && quote === '"') escaped = true;
+      else if (ch === quote) quote = '';
+      continue;
+    }
+    if (ch === '"' || ch === "'") { quote = ch; continue; }
+    if (depth === 1 && (ch === ',' || ch === '}')) {
+      const field = line.slice(fieldStart, i);
+      if (/^\\s*verified:\\s*(true|false)\\s*$/.test(field))
+        return line.slice(0, fieldStart) + field.replace(/true|false/, String(passed)) + line.slice(i);
+      fieldStart = i + 1;
+    }
+    if (ch === '{' || ch === '[') { depth++; if (depth === 1) fieldStart = i + 1; }
+    else if (ch === '}' || ch === ']') depth--;
+  }
+  return line;
 }
 
 // The schemaVersion the manifest CLAIMS, hoisted so the report-back body can say which contract this
@@ -184,13 +213,12 @@ if (!existsSync(path)) {
   // The serializer's one-line-per-capability format makes the targeted rewrite safe; placeholder
   // capabilities are never touched. Without this the manifest promised a flip that never happened.
   if (RUN && Object.keys(runResults).length) {
-    let updated = text;
-    for (const n of Object.keys(runResults)) {
-      updated = updated.replace(
-        new RegExp('^(\\\\s{2}' + n + ':\\\\s*\\\\{[^\\\\n]*verified:\\\\s*)(true|false)', 'm'),
-        function (m, p1) { return p1 + runResults[n]; },
-      );
+    const { lines, start, end } = blockLines(text, 'capabilities');
+    for (let i = start + 1; start >= 0 && i < end; i++) {
+      const name = lines[i].match(/^ {2}([\\w-]+):/);
+      if (name && Object.hasOwn(runResults, name[1])) lines[i] = setVerified(lines[i], runResults[name[1]]);
     }
+    const updated = lines.join('\\n');
     if (updated !== text) {
       try { writeFileSync(path, updated); add('manifest.write-back', 'pass', 'manifest updated: ' + Object.keys(runResults).map(function (n) { return n + ' verified=' + runResults[n]; }).join(', ')); }
       catch (e) { add('manifest.write-back', 'warn', 'could not write verified flags back to ' + path + ': ' + (e && e.message)); }
