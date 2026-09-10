@@ -352,6 +352,9 @@ forecast is fit over the repository's full recorded history, so flipping 5d/30d/
 the ETA: a projection that moves when the viewer changes a zoom control is not a projection, and a
 5-day re-fit produces a confident-looking ETA from noise. `TrajectoryPanel` states the basis on
 screen ("All-time trajectory · fit over all N scans … does not follow the range toggle below").
+When that history includes compacted summaries, the adapter preserves their provenance and the
+basis says "history points" rather than individual scans, with the number of compacted fit days.
+A summary contributes one day to the fit regardless of how many deleted scans it represents.
 
 Below a shared sample floor the forecast is **suppressed, not annotated**:
 `forecastInsufficiency` (`src/lib/maturity/forecast.ts`) requires `MIN_FORECAST_POINTS` (3 distinct

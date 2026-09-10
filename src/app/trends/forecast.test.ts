@@ -47,6 +47,11 @@ function climbThenDip(): HistoryPoint[] {
 }
 
 describe("fitTrendForecast — range independence", () => {
+  it("preserves compacted provenance without weighting a digest as multiple scan days", () => {
+    const scans = [pt(0, 62), pt(20, 56), { ...pt(40, 52), compacted: true as const, scanCount: 100 }];
+    expect(fitTrendForecast(scans, NOW)).toMatchObject({ points: 3, compactedPoints: 1 });
+  });
+
   afterEach(() => vi.useRealTimers());
   const pinNow = () => {
     vi.useFakeTimers();

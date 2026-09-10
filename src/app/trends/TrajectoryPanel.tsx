@@ -20,11 +20,14 @@ import { forecastInsufficiency, type Forecast } from "@/lib/maturity/forecast";
 /** The line that tells the reader exactly what the number above it was computed from. */
 function FitBasis({ scanCount, forecast }: { scanCount: number; forecast: Forecast | null }) {
   const span = forecast ? `${forecast.points} distinct scan ${forecast.points === 1 ? "day" : "days"} across ${forecast.spanDays} ${forecast.spanDays === 1 ? "day" : "days"}` : null;
+  const compacted = forecast?.compactedPoints ?? 0;
+  const unit = compacted > 0 ? "history points" : scanCount === 1 ? "scan" : "scans";
   return (
     <p className="mt-2 type-body-sm text-slate-500">
       Fit over this repository&rsquo;s full recorded history: all {scanCount}{" "}
-      {scanCount === 1 ? "scan" : "scans"}
-      {span ? ` (${span})` : ""}. It does not follow the 5d / 30d / 90d range toggle below.
+      {unit}
+      {span ? ` (${span}${compacted > 0 ? `, ${compacted} of them compacted` : ""})` : ""}.
+      {" "}It does not follow the 5d / 30d / 90d range toggle below.
     </p>
   );
 }
@@ -35,7 +38,7 @@ export function TrajectoryPanel({
 }: {
   /** Fit over the FULL history, never the displayed range. Null when < 2 distinct scan days. */
   forecast: Forecast | null;
-  /** Scans the fit saw — the same series the page fetched. */
+  /** History rows the fit saw, including compacted summaries when present. */
   scanCount: number;
 }) {
   const insufficient = forecastInsufficiency(forecast);
