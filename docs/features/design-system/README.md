@@ -15,6 +15,9 @@ child autofocus such as confirmation dialogs' Cancel button. Tab and Shift+Tab s
 within the panel, including dialogs with no enabled controls; closing restores the
 captured opener. These keyboard paths have DOM regression coverage, not a full
 screen-reader or browser accessibility certification.
+When dialogs overlap, only the top mounted layer handles Escape and Tab. A locked
+confirmation also blocks Escape from reaching its parent. The body scroll lock lasts
+until the final layer closes, including when a lower layer closes first.
 
 | Surface | Route(s) | Source |
 | --- | --- | --- |
