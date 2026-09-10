@@ -26,7 +26,7 @@
 // two lanes a comparison of two prompts.
 
 import { neutralize } from "@/lib/llm/untrusted";
-import type { SkillCategory } from "@/lib/org/skill-categories";
+import { normalizeSkillCategory, type SkillCategory } from "@/lib/org/skill-categories";
 
 export type BriefSectionKind = "playbook" | "housePattern" | "memory" | "skill" | "evidence";
 
@@ -192,7 +192,7 @@ function renderMemories(input: LaneBriefInput): Rendered {
 
 function renderSkills(input: LaneBriefInput): Rendered {
   const rows = input.skills
-    .filter((s) => (SKILL_CATEGORY_DIMS[s.category as SkillCategory] ?? []).some((d) => input.dimIds.includes(d)))
+    .filter((s) => (SKILL_CATEGORY_DIMS[normalizeSkillCategory(s.category)]).some((d) => input.dimIds.includes(d)))
     .sort((a, b) => a.category.localeCompare(b.category) || a.id.localeCompare(b.id));
   const lines = rows.map((s) => `- ${s.name} (${s.category}) — ${clean(s.summary, 200)}`);
   const cap = capped(lines, SECTION_MAX_BYTES.skill);
@@ -201,7 +201,7 @@ function renderSkills(input: LaneBriefInput): Rendered {
     heading: "REGISTRY SKILLS this organization maintains for this work",
     lines: cap.kept,
     refs: rows.slice(0, cap.kept.length).map((s) => s.id),
-    dimIds: [...new Set(rows.flatMap((s) => SKILL_CATEGORY_DIMS[s.category as SkillCategory] ?? []))],
+    dimIds: [...new Set(rows.flatMap((s) => SKILL_CATEGORY_DIMS[normalizeSkillCategory(s.category)]))],
     dropped: cap.dropped,
   };
 }

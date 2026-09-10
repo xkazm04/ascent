@@ -422,6 +422,9 @@ would be the product arguing with its user.
 
 ### The lane brief is a consumer (handoff from #25)
 
+Lane brief assembly ignores unknown or legacy skill categories through the shared category
+normalizer; a malformed category cannot prevent the remaining standards from being handed over.
+
 The org lane brief (`briefJson`, W2-G) carries a `housePattern` block so an agent working in a repo is
 told which version of the org's own pattern that repo is measured against, rather than inferring it
 from a document. `briefJson.housePattern.version` is **reserved for `HousePatternVersion.version`**

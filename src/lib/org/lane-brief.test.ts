@@ -118,3 +118,11 @@ describe("briefSummaryLine", () => {
     expect(line).toMatch(/KB$/);
   });
 });
+
+
+it.each(["constructor", "toString", "__proto__", "future-category"])("ignores unknown skill category %s without losing the brief", (category) => {
+  const valid = input();
+  const baseline = buildLaneBrief(valid);
+  const result = buildLaneBrief({ ...valid, skills: [...valid.skills, { id: "legacy", name: "Legacy", category, summary: "Old category" }] });
+  expect(result).toEqual(baseline);
+});
