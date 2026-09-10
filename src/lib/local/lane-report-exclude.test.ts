@@ -1,13 +1,10 @@
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, expect, it } from "vitest";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
-vi.mock("@/lib/llm/meter", () => ({ meter: vi.fn() }));
-vi.mock("@/lib/db/loop-runs", () => ({ updateLane: vi.fn(), appendLaneLog: vi.fn() }));
-vi.mock("@/lib/db/usage-events", () => ({ defaultOwnerTeamForRepo: vi.fn() }));
-import { excludeLaneReport } from "./lane-cost";
+import { excludeLaneReport } from "./lane-report-exclude";
 import { LANE_REPORT_PATH } from "./lane-report";
 
 const roots: string[] = [];
