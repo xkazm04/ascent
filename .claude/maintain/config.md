@@ -19,6 +19,16 @@
 
 ## Skill improvement log
 
+- 2026-09-10, maintain@1.0.0, run 05: verify generated writers and their readers
+  against the same disposable files. Real Node and Git fixtures exposed CRLF/first-key
+  omissions, foreign-field write-back, malformed-index replacement and quoted Git
+  filename errors that source-text checks missed. Follow format changes through every
+  consumer: extending memory IDs also required fetch, quarantine, scoring and boundary
+  guard updates. For Git metadata, ask Git for the effective path and assert actual
+  `check-ignore`/staging behavior in a linked worktree. File creation alone did not
+  prove the exclusion worked. Use syntax-aware declaration/import boundaries for
+  extraction helpers; plain substring searches also match comments.
+
 - 2026-09-10, maintain@1.0.0, run 04: exercise generated output in its consumer.
   Copy-snippet DOM tests passed while the exported Bearer header failed in Bash;
   executing the snippet with synthetic credentials exposed and verified the fix.

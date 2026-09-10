@@ -215,7 +215,9 @@
             "src/lib/analyze/context-health.test.ts",
             "src/lib/analyze/context-health-read.ts",
             "src/lib/analyze/context-health.drift.test.ts",
-            "src/lib/analyze/context-health.parse.test.ts"
+            "src/lib/analyze/context-health.parse.test.ts",
+            "src/lib/scoring/projections.ts",
+            "src/lib/analyze/guidance-quality.ts"
           ],
           "target": null,
           "apiRoutes": []
@@ -537,7 +539,10 @@
             "src/lib/db/org-conformance.ts",
             "src/lib/db/org-conformance.test.ts",
             "src/app/api/report/conformance/matrix/route.ts",
-            "src/app/api/report/conformance/matrix/route.test.ts"
+            "src/app/api/report/conformance/matrix/route.test.ts",
+            "src/lib/standard/maintain.execution.test.ts",
+            "src/lib/standard/guidance-parser-source.ts",
+            "src/lib/standard/memory-entry.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -1914,7 +1919,8 @@
             "src/app/api/org/playbooks/[id]/apply-batch/route.test.ts",
             "src/app/api/org/playbooks/[id]/apply-batch/route.ts",
             "src/lib/org/lane-brief.ts",
-            "src/lib/org/lane-brief.test.ts"
+            "src/lib/org/lane-brief.test.ts",
+            "src/lib/org/lane-brief.budget.test.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -2060,7 +2066,9 @@
             "src/lib/local/lane-economics.test.ts",
             "src/lib/local/lane-report.test.ts",
             "src/lib/local/lane-watchdog.test.ts",
-            "src/lib/local/loop-pr.test.ts"
+            "src/lib/local/loop-pr.test.ts",
+            "src/lib/local/lane-report-exclude.ts",
+            "src/lib/local/lane-report-exclude.test.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -2955,7 +2963,8 @@
             "src/components/QuotaMeter.test.tsx",
             "src/lib/db/quota-events.test.ts",
             "src/lib/rate-limit.test.ts",
-            "src/lib/rate-limit-store.ts"
+            "src/lib/rate-limit-store.ts",
+            "src/lib/rate-limit-window.ts"
           ],
           "target": null,
           "apiRoutes": []
@@ -3117,7 +3126,9 @@
             "src/lib/env.ts",
             "src/lib/db/kpi-metrics.ts",
             "prisma/schema.prisma",
-            "src/lib/db/kpi-metrics.test.ts"
+            "src/lib/db/kpi-metrics.test.ts",
+            "src/lib/db/json-columns.ts",
+            "src/lib/db/json-columns.test.ts"
           ],
           "target": null,
           "apiRoutes": []
