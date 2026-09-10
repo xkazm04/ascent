@@ -523,38 +523,34 @@ export interface RepoDimSnap {
  * Cohort-matched per-DIMENSION movement over the window — the same cohort semantics as
  * computeWindowDeltas (only repos present on both sides count), applied per dimId so a tab can show
  * "Security (D9) +6 vs 90d ago" without composition change bleeding into the number. Each side is
- * averaged over the matched repos that carry that dimension (an old scan predating a new dimension
- * simply doesn't vote); dimensions present on only one side are omitted. Null when cohorts don't overlap.
+ * averaged over the matched repos that carry that dimension on BOTH sides (an old scan predating a
+ * new dimension simply doesn't vote); dimensions with no paired readings are omitted. Null when
+ * repo cohorts don't overlap.
  */
 export function computeDimDeltas(
   current: readonly RepoDimSnap[],
   baseline: readonly RepoDimSnap[],
 ): { dimId: string; delta: number }[] | null {
-  const currentIds = new Set(current.map((c) => c.repoId));
-  const before = baseline.filter((b) => currentIds.has(b.repoId));
-  const beforeIds = new Set(before.map((b) => b.repoId));
-  const now = current.filter((c) => beforeIds.has(c.repoId));
-  if (!before.length || !now.length) return null;
-
-  const avgByDim = (snaps: readonly RepoDimSnap[]) => {
-    const acc: Record<string, { sum: number; n: number }> = {};
-    for (const s of snaps)
-      for (const d of s.dims) {
-        const entry = (acc[d.dimId] = acc[d.dimId] || { sum: 0, n: 0 });
-        entry.sum += d.score;
-        entry.n += 1;
-      }
-    return acc;
-  };
-  const a = avgByDim(now);
-  const b = avgByDim(before);
-  return Object.keys(a)
-    .filter((dimId) => b[dimId])
-    .sort()
-    .map((dimId) => ({
-      dimId,
-      delta: Math.round(a[dimId]!.sum / a[dimId]!.n) - Math.round(b[dimId]!.sum / b[dimId]!.n),
-    }));
+  const before = new Map(baseline.map((s) => [s.repoId, new Map(s.dims.map((d) => [d.dimId, d.score]))]));
+  if (!current.some((s) => before.has(s.repoId))) return null;
+  const paired = new Map<string, { now: number; before: number; n: number }>();
+  for (const s of current) {
+    const previous = before.get(s.repoId);
+    if (!previous) continue;
+    for (const d of s.dims) {
+      const score = previous.get(d.dimId);
+      if (score === undefined) continue;
+      const acc = paired.get(d.dimId) ?? { now: 0, before: 0, n: 0 };
+      acc.now += d.score;
+      acc.before += score;
+      acc.n += 1;
+      paired.set(d.dimId, acc);
+    }
+  }
+  return [...paired.keys()].sort().map((dimId) => {
+    const acc = paired.get(dimId)!;
+    return { dimId, delta: Math.round(acc.now / acc.n) - Math.round(acc.before / acc.n) };
+  });
 }
 
 /**

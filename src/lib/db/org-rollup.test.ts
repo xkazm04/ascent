@@ -151,6 +151,14 @@ function dsnap(repoId: string, ...dims: [string, number][]): RepoDimSnap {
 }
 
 describe("computeDimDeltas — cohort matching per dimension", () => {
+  it.each([
+    { current: [dsnap("A", ["D9", 20]), dsnap("B", ["D9", 100])], baseline: [dsnap("A", ["D9", 20]), dsnap("B")], expected: [{ dimId: "D9", delta: 0 }] },
+    { current: [dsnap("A", ["D9", 20]), dsnap("B")], baseline: [dsnap("A", ["D9", 20]), dsnap("B", ["D9", 100])], expected: [{ dimId: "D9", delta: 0 }] },
+    { current: [dsnap("A", ["D9", 20]), dsnap("B")], baseline: [dsnap("A"), dsnap("B", ["D9", 100])], expected: [] },
+  ])("does not turn changing dimension coverage into movement: %j", ({ current, baseline, expected }) => {
+    expect(computeDimDeltas(current, baseline)).toEqual(expected);
+  });
+
   it("measures only repos present in BOTH windows, per dimId", () => {
     // Cohort A,B: D1 moves avg(80,90)=85 - avg(70,80)=75 = +10; D9 moves avg(40,60)=50 - avg(20,40)=30 = +20.
     // C is after-only and must not vote.

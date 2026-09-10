@@ -12,6 +12,10 @@ state. When auth is configured, org pages are scoped to installations the viewer
 (see [../auth.md](../github/auth.md)). The planning surface (goals / initiatives / simulator) has
 its own doc: [plan.md](../org-planning/plan.md).
 
+Per-dimension period deltas compare only repos with that dimension measured on both sides of the
+window. A newly measured or missing dimension does not count as score movement; if no repo has a
+paired reading, that dimension has no delta.
+
 ## Navigation & org context
 
 The Shared group's **UI surfaces** (`?tab=surfaces`) uses the visual gallery and focused
