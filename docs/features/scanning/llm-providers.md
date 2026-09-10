@@ -226,6 +226,9 @@ construction, and pinned by tests that read the child env the door actually pass
 kill, and the model-token validation that `shell:true` (Windows `.cmd` resolution) makes
 load-bearing.
 
+Output limits count bytes, and streaming UTF-8 decoding preserves characters split across
+chunks. Stderr retains only its bounded prefix, including when one chunk exceeds the cap.
+
 Both adapters are routed: `claude-cli` through `src/lib/llm/claude-cli.ts` and `codex-cli`
 through `src/lib/llm/codex-cli.ts` (see the provider sections above). Schema-constrained
 output (`--json-schema` / `--output-schema`) exists in both tools but is not yet wired

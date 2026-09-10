@@ -10,6 +10,7 @@
 // is handed to the child exactly as built — no call site can merge anything back in behind it.
 
 import { spawn } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 
 /** Cap the accumulated subprocess output. json.ts caps recovery at 256KB, but the subprocess layer
  *  that FEEDS it had no upstream byte cap — a runaway/looping CLI (compromised binary, a giant
@@ -73,6 +74,10 @@ export function captureCli(a: CaptureArgs): Promise<string> {
 
     let out = "";
     let err = "";
+    let outBytes = 0;
+    let errBytes = 0;
+    const outDecoder = new StringDecoder("utf8");
+    const errDecoder = new StringDecoder("utf8");
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
       reject(new CliRunError("timeout", `${a.label} timed out.`));
@@ -91,22 +96,31 @@ export function captureCli(a: CaptureArgs): Promise<string> {
     };
 
     child.stdout.on("data", (d) => {
-      if (out.length > MAX_OUT_BYTES) return; // already over cap and being killed — stop accumulating
-      out += d;
-      if (out.length > MAX_OUT_BYTES) {
+      if (outBytes > MAX_OUT_BYTES) return; // already over cap and being killed — stop accumulating
+      const chunk = typeof d === "string" ? Buffer.from(d) : d;
+      outBytes += chunk.length;
+      if (outBytes > MAX_OUT_BYTES) {
         child.kill("SIGKILL");
         cleanup();
         reject(new CliRunError("output-cap", `${a.label} output exceeded ${MAX_OUT_BYTES} bytes (possible runaway output).`));
+        return;
       }
+      out += outDecoder.write(chunk);
     });
     child.stderr.on("data", (d) => {
-      if (err.length < MAX_ERR_BYTES) err += d; // only a short prefix is ever surfaced
+      if (errBytes >= MAX_ERR_BYTES) return;
+      const chunk = typeof d === "string" ? Buffer.from(d) : d;
+      const prefix = chunk.subarray(0, MAX_ERR_BYTES - errBytes);
+      errBytes += prefix.length;
+      err += errDecoder.write(prefix); // only a bounded prefix is ever retained
     });
     child.on("error", (e) => {
       cleanup();
       reject(new CliRunError("spawn", e.message, e));
     });
     child.on("close", (code) => {
+      out += outDecoder.end();
+      err += errDecoder.end();
       cleanup();
       if (code !== 0) reject(new CliRunError("exit", `${a.label} exited ${code}: ${err.slice(0, 200)}`));
       else resolve(out);
