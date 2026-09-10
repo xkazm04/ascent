@@ -233,6 +233,21 @@ describe("buildCohortProfile", () => {
   const cohortRef: ExemplarRef = { kind: "cohort", by: "lang", value: "TypeScript" };
   const ref = cohortRef as Extract<ExemplarRef, { kind: "cohort" }>;
 
+  it("counts support once per repo and keeps first wording and order at the exact threshold", () => {
+    const members = [
+      member("o1", "a", 90, ["Only mine", "Only mine", "Found 6 test files", "CI workflows: 2 pinned"]),
+      member("o2", "b", 88, ["CI workflows: 9 pinned", "Found 24 test files"]),
+      member("o3", "c", 86, ["Different evidence"]),
+      member("o4", "d", 40, ["Only mine"]),
+      member("o5", "e", 30, ["Only mine"]),
+    ];
+    const before = structuredClone(members);
+    const out = buildCohortProfile(members, ref);
+    if (out.kind !== "ok") throw new Error("expected cohort");
+    expect(out.profile.dimensions[0]!.evidence).toEqual(["Found 6 test files", "CI workflows: 2 pinned"]);
+    expect(members).toEqual(before);
+  });
+
   it("refuses a 4-repo cohort — below the repo floor", () => {
     const out = buildCohortProfile(
       ["o1", "o2", "o3", "o4"].map((o, i) => member(o, "r", 60 + i, ["x"])),

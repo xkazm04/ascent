@@ -35,7 +35,7 @@
 import type { ComparableDimension, ComparableScan } from "@/lib/db/scans";
 import type { DimensionId, RepoArchetype } from "@/lib/types";
 import { DIMENSIONS } from "@/lib/maturity/model";
-import { diffSignalSets } from "@/lib/report/compare";
+import { diffSignalSets, signalNameKey } from "@/lib/report/compare";
 import { PRACTICES } from "@/lib/practices";
 import { minedStarter, type MinedPractice } from "@/lib/org/practice-mining";
 import { COHORT_MIN, CORPUS_BASIS } from "@/lib/corpus/eligibility";
@@ -410,13 +410,6 @@ function median(xs: number[]): number {
   return Math.round(s.length % 2 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2);
 }
 
-/** How many of `lists` carry the SAME SIGNAL as `s`. Signal-level, not string-level: a decile whose
- *  members each wrote their own count for one detector would otherwise support each phrasing once and
- *  clear no threshold, and the dimension would contribute no consensus evidence at all. */
-function support(s: string, lists: readonly string[][]): number {
-  return lists.filter((l) => diffSignalSets([s], l).shared.length > 0).length;
-}
-
 /**
  * The public cohort's top decile, as one profile. AGGREGATE-ONLY BY CONSTRUCTION: no member repo is
  * named, listed, linked or counted per-repo anywhere in the return value. That plus the two floors is
@@ -484,14 +477,21 @@ export function buildCohortProfile(
 /** Strings at least `min` of the lists carry. Below the threshold a dimension contributes NO evidence
  *  rather than a thin list that reads like consensus but is one repo's phrasing. */
 function consensus(lists: readonly string[][], min: number): string[] {
-  const out: string[] = [];
+  const signals = new Map<string, { first: string; support: number }>();
   for (const list of lists) {
+    // A repository supports a signal once, however many counts or duplicate lines it carries.
+    const seen = new Set<string>();
     for (const s of list) {
-      if (out.some((k) => diffSignalSets([s], [k]).shared.length > 0)) continue;
-      if (support(s, lists) >= min) out.push(s);
+      const key = signalNameKey(s);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const entry = signals.get(key);
+      if (entry) entry.support++;
+      else signals.set(key, { first: s, support: 1 });
     }
   }
-  return out;
+  // Map insertion order preserves the first encountered wording and the original output order.
+  return [...signals.values()].filter((s) => s.support >= min).map((s) => s.first);
 }
 
 // ── Transfer → practice join ─────────────────────────────────────────────────────────────────────
