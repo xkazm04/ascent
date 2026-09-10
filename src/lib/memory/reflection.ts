@@ -94,8 +94,10 @@ const MAX_SUMMARY_CHARS = 2000;
  * Returns 0 when either side has no meaningful tokens.
  */
 export function jaccard(a: string, b: string): number {
-  const A = new Set(tokenize(a));
-  const B = new Set(tokenize(b));
+  return tokenSetJaccard(new Set(tokenize(a)), new Set(tokenize(b)));
+}
+
+function tokenSetJaccard(A: ReadonlySet<string>, B: ReadonlySet<string>): number {
   if (A.size === 0 || B.size === 0) return 0;
   let inter = 0;
   for (const t of A) if (B.has(t)) inter++;
@@ -146,10 +148,12 @@ export function clusterMemories(
   if (n < minSize) return [];
 
   const sim: number[][] = Array.from({ length: n }, () => new Array<number>(n).fill(0));
+  // Tokenize each memory once; pairwise comparisons reuse these immutable word sets.
+  const tokens = items.map((item) => new Set(tokenize(item.content)));
   const uf = new UnionFind(n);
   for (let i = 0; i < n; i++) {
     for (let j = i + 1; j < n; j++) {
-      const s = jaccard(items[i]!.content, items[j]!.content);
+      const s = tokenSetJaccard(tokens[i]!, tokens[j]!);
       sim[i]![j] = s;
       sim[j]![i] = s;
       if (s >= threshold) uf.union(i, j);
