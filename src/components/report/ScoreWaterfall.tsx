@@ -1,7 +1,7 @@
 "use client";
 
 import type { ScanReport } from "@/lib/types";
-import { contributions } from "@/lib/scoring/engine";
+import { contributions } from "@/lib/scoring/projections";
 import { DIMENSION_SHORT, fmtPts, scoreHex } from "@/lib/ui";
 import { fillBarStyle, useMounted, usePrefersReducedMotion } from "@/components/report/chartMotion";
 import { ScoreBarTrack } from "@/components/report/FillBar";

@@ -10,7 +10,7 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import type { DimensionId, PersistedRecommendation, ScanReport } from "@/lib/types";
 import { LEVEL_BY_ID, clamp } from "@/lib/maturity/model";
-import { cheapestPathToNextLevel, projectSandbox } from "@/lib/scoring/engine";
+import { cheapestPathToNextLevel, projectSandbox } from "@/lib/scoring/projections";
 import { scoreHex } from "@/lib/ui";
 import { PostureQuadrant, RadarChart, ScoreRing } from "@/components/report/Charts";
 import { DeltaPill } from "@/components/report/deltas";
