@@ -54,6 +54,8 @@ Per org enforcing a policy:
    repo enumeration and the stale-scan selection are paged, not read unbounded, so a huge fleet org
    doesn't blow a single read past a statement timeout.
 2. **Prune digests** older than `retentionDigestMonths` (skipped entirely at the `0` sentinel).
+   The cutoff subtracts UTC calendar months, keeping the time of day and using the target month's
+   last day when needed (March 31 minus one month is February 28, or February 29 in a leap year).
 3. **Prune audit** entries older than the cutoff (per-org scoped), oldest first.
 4. Record a `retention.purged` audit entry (the job audits itself), only when something was
    actually deleted, so a configured-but-currently-idle policy doesn't write an all-zero row

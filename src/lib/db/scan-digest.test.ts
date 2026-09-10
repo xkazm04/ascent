@@ -280,6 +280,20 @@ describe("resolveCompaction", () => {
 });
 
 describe("monthsBefore", () => {
+  it.each([
+    ["2026-03-31T12:34:56.789Z", 1, "2026-02-28T12:34:56.789Z"],
+    ["2024-03-31T12:34:56.789Z", 1, "2024-02-29T12:34:56.789Z"],
+    ["2026-05-31T12:34:56.789Z", 1, "2026-04-30T12:34:56.789Z"],
+    ["2025-02-28T12:34:56.789Z", 12, "2024-02-28T12:34:56.789Z"],
+    ["2024-02-29T12:34:56.789Z", 12, "2023-02-28T12:34:56.789Z"],
+    ["2026-01-31T12:34:56.789Z", 2, "2025-11-30T12:34:56.789Z"],
+    ["2026-03-31T12:34:56.789Z", 0, "2026-03-31T12:34:56.789Z"],
+  ])("keeps the cutoff in its target calendar month: %s minus %i", (iso, months, expected) => {
+    const date = new Date(iso);
+    expect(monthsBefore(date, months).toISOString()).toBe(expected);
+    expect(date.toISOString()).toBe(iso);
+  });
+
   it("moves back whole UTC months", () => {
     expect(monthsBefore(new Date("2026-03-15T00:00:00Z"), 24).toISOString()).toBe("2024-03-15T00:00:00.000Z");
   });
