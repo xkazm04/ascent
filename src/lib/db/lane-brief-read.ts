@@ -11,6 +11,7 @@
 // the alternative (a lane that dies because a side read failed) is worse than both. `buildLaneBrief`
 // turns an empty section into an explicit absence line, so a failed read is at least *stated*.
 
+import { parseStringArray } from "./json-columns";
 import { candidateOrgMemories } from "@/lib/db/org-memory";
 import { getOrgPracticeShapes } from "@/lib/db/org-practice-shapes";
 import { getOrgBySlug } from "@/lib/db/org-shared";
@@ -135,24 +136,14 @@ async function readEvidence(org: string, repo: string, dimIds: readonly string[]
       dimId: d.dimId,
       name: d.name,
       score: d.score,
-      evidence: parseStrings(d.evidence),
-      gaps: parseStrings(d.gaps),
+      evidence: parseStringArray(d.evidence),
+      gaps: parseStringArray(d.gaps),
     }));
   } catch {
     return [];
   }
 }
 
-/** JSON-in-TEXT string[], defensively. A malformed column is an empty list, never a crash. */
-function parseStrings(raw: string | null | undefined): string[] {
-  if (!raw) return [];
-  try {
-    const v: unknown = JSON.parse(raw);
-    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
-  } catch {
-    return [];
-  }
-}
 
 /**
  * Everything `buildLaneBrief` needs, read in parallel.

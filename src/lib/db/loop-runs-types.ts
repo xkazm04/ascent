@@ -5,6 +5,7 @@
 //
 // Import from the `@/lib/db/loop-runs` barrel; this module is an implementation split.
 
+import { parseStringArray } from "./json-columns";
 import { normalizeDelivery, type LoopDelivery } from "@/lib/local/delivery-options";
 // Both PURE and dependency-free (no `process`, no `node:*`), so the record's shape and the client that
 // renders it share ONE declaration of the vocabulary — the same rule `delivery-options` follows.
@@ -425,17 +426,6 @@ export interface LoopRunDetail {
   itemOutcomes: LaneOutcomeRow[];
 }
 
-// ── row → record ─────────────────────────────────────────────────────────────────────────────────
-
-const parseList = (raw: string | null | undefined): string[] => {
-  if (!raw) return [];
-  try {
-    const v: unknown = JSON.parse(raw);
-    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
-  } catch {
-    return [];
-  }
-};
 
 /**
  * `reposJson` → the run's targets, accepting BOTH encodings.
@@ -618,7 +608,7 @@ export function toRunRecord(row: RunRow): LoopRunRecord {
     model: row.model ?? null,
     effort: row.effort ?? null,
     modelPolicy: asModelPolicy(row.modelPolicy),
-    models: parseList(row.modelsJson),
+    models: parseStringArray(row.modelsJson),
     // An unrecognised string parses as null — "unchosen" — and never as a guess at a mode that would
     // write into the operator's working copy. Same posture `normalizeAgentModel` takes at the route.
     delivery: normalizeDelivery(row.delivery),
@@ -643,8 +633,8 @@ export function toLaneRecord(row: LaneRow): LoopLaneRecord {
     cycle: row.cycle,
     phase: row.phase as LoopLanePhase,
     branch: row.branch,
-    batchIds: parseList(row.batchIdsJson),
-    closedIds: parseList(row.closedIdsJson),
+    batchIds: parseStringArray(row.batchIdsJson),
+    closedIds: parseStringArray(row.closedIdsJson),
     commits: row.commits,
     beforeScanId: row.beforeScanId,
     afterScanId: row.afterScanId,
