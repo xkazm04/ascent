@@ -509,6 +509,10 @@ cannot use the CLI/CI push path even though it can author through the UI.
 
 ## The agent door — MCP server (W5, 2026-08-14)
 
+Skill ranking applies dimension affinity only to declared categories. Unknown category
+strings receive no affinity bonus. Results tied on relevance, adoption, downloads,
+and name use skill ID as the final tie-breaker, so input order cannot shuffle them.
+
 `POST /api/mcp` is an MCP server implementing revision **2026-07-28**. It exists because ascent
 already ships the org's standard as *files in a PR* (the `.ai/` foundation, practice starters,
 pushed skills), which reaches an agent at setup time, not at the moment it is deciding how to write

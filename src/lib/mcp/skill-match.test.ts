@@ -72,6 +72,20 @@ describe("rankSkills", () => {
     expect(ranked[0]!.why.length).toBeGreaterThan(0);
   });
 
+  it.each(["constructor", "toString", "__proto__"])("gives undeclared category %s no dimension affinity", (category) => {
+    const result = rankSkills("release", [skill({ category })], { weakDims: ["D9"] });
+    const baseline = rankSkills("release", [skill({ category: "other" })], { weakDims: ["D9"] });
+    expect(result[0].score).toBe(baseline[0].score);
+    expect(result[0].why).toEqual(baseline[0].why);
+  });
+
+  it("breaks otherwise identical ranking ties by skill identity", () => {
+    const a = skill({ id: "a" });
+    const b = skill({ id: "b" });
+    const ids = (rows: RankableSkill[]) => rankSkills("release", rows, { weakDims: null }).map((row) => row.id);
+    expect(ids([a, b])).toEqual(ids([b, a]));
+  });
+
   it("is deterministic and tie-breaks stably", () => {
     const a = skill({ id: "a", name: "release-a" });
     const b = skill({ id: "b", name: "release-b" });

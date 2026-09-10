@@ -23,7 +23,7 @@
 // long description), deterministic, and stably tie-broken — the same query returns the same order.
 
 import { LEVELS, levelForScore } from "@/lib/maturity/model";
-import type { SkillCategory } from "@/lib/org/skill-categories";
+import { isSkillCategory, type SkillCategory } from "@/lib/org/skill-categories";
 
 /**
  * DECLARED category → dimension affinity. Which dimensions of the maturity model a skill of each
@@ -144,7 +144,7 @@ export interface RankOptions {
  * Rank skills for a task. Deterministic and total: an empty query or an empty library yields an empty
  * list, never a throw.
  *
- * Ties break on adoption, then downloads, then name — a total order, so two calls with the same
+ * Ties break on adoption, then downloads, then name and ID — a total order, so two calls with the same
  * inputs return the same sequence and a client can cache it.
  */
 export function rankSkills(query: string, skills: RankableSkill[], opts: RankOptions): RankedSkill[] {
@@ -170,7 +170,7 @@ export function rankSkills(query: string, skills: RankableSkill[], opts: RankOpt
       why.push(`Its description mentions ${descHits.join(", ")}.`);
     }
 
-    const dims = CATEGORY_DIMENSIONS[s.category as SkillCategory] ?? [];
+    const dims = isSkillCategory(s.category) ? CATEGORY_DIMENSIONS[s.category] : [];
     const weakHit = dims.filter((d) => weak.has(d));
     if (weakHit.length) {
       score += DIMENSION_WEIGHT;
@@ -194,7 +194,7 @@ export function rankSkills(query: string, skills: RankableSkill[], opts: RankOpt
         b.score - a.score ||
         b.s.adoptionCount - a.s.adoptionCount ||
         b.s.downloadCount - a.s.downloadCount ||
-        a.s.name.localeCompare(b.s.name),
+        a.s.name.localeCompare(b.s.name) || a.s.id.localeCompare(b.s.id),
     )
     .slice(0, limit)
     .map(({ s, score, why }) => ({
