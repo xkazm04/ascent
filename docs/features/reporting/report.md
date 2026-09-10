@@ -753,6 +753,11 @@ order mirrors the engine's own order of operations:
 
 ## Share exports (`GET /api/report/llm`, `GET /api/report/share-card`)
 
+The shared Copy for LLM control removes its temporary legacy clipboard element even
+when copying throws and restores the invoking control's focus. If automatic copying
+fails, the visible manual-copy textarea receives focus. Unmounting clears feedback
+timers and prevents late clipboard completions from calling the previous UI owner.
+
 Two export routes sit beside the PDF, both keyed the same way (`?repo=owner/name[@sha]`), both
 read-gated by the owning org (`readableOrgForOwner` → `requireOrgRead`, gate before read), and both
 404 rather than trigger a scan when the repo has no persisted report.
