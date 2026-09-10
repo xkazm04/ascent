@@ -676,9 +676,11 @@ it never feeds the score or the LLM prompt (pinned by the "stays display-only" t
 - **Drift**: `@file`-style path references in the guidance are extracted and checked against the
   tree index (zero extra fetches); a **dead ref** (guidance pointing at a deleted file) is the
   measurable drift signal.
+  The score uses the full dead-reference count (`deadRefsTotal`), while `deadRefs` keeps at most
+  12 examples. Older stored scans lack the exact count; their example list is only a lower bound.
 - **Shape**: `ContextHealth { version, present, files[{path, lastModifiedAt?, lastCommitSha?,
   bytes?, sectionsScore}], freshness{score|null, ageDays, commitsSinceEdit, approximate,
-  windowCapped?}, quality{score, signals}, drift{score, refsTotal, deadRefs}, score }`. Persisted as
+  windowCapped?}, quality{score, signals}, drift{score, refsTotal, deadRefsTotal?, deadRefs}, score }`. Persisted as
   `Scan.contextHealthJson`, latest cached on `Repository.contextHealthJson`
   ([data-model.md](../data/data-model.md)); surfaced as the Repositories tab's Half-life panel
   ([org-intelligence.md](../org-dashboard/org-intelligence.md)).

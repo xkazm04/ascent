@@ -1037,7 +1037,14 @@ export interface ContextHealth {
    * extra fetches). A dead ref is guidance confidently pointing at a file that no longer exists —
    * the most defensible drift signal. score = 100 when every ref resolves (or there are none).
    */
-  drift: { score: number; refsTotal: number; deadRefs: string[] };
+  drift: {
+    score: number;
+    refsTotal: number;
+    /** Exact dead-reference count across measured files. Absent on older scans. */
+    deadRefsTotal?: number;
+    /** At most 12 examples; their length is only a lower bound when the total is absent. */
+    deadRefs: string[];
+  };
   /** 0..100 composite (quality/freshness/drift blend; renormalized when freshness is unknown). */
   score: number;
 }

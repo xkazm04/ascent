@@ -135,19 +135,23 @@ export function detectRefDrift(
   guidanceText: string,
   guidancePath: string,
   treePaths: ReadonlySet<string>,
-): { refsTotal: number; deadRefs: string[] } {
+): { refsTotal: number; deadRefsTotal: number; deadRefs: string[] } {
   const dir = guidancePath.includes("/") ? guidancePath.slice(0, guidancePath.lastIndexOf("/") + 1) : "";
   const seen = new Set<string>();
   const dead: string[] = [];
+  let deadRefsTotal = 0;
   for (const m of guidanceText.matchAll(FILE_REF_RE)) {
     const ref = m[1]!;
     if (seen.has(ref)) continue;
     seen.add(ref);
     const rel = (dir + ref).toLowerCase().replace(/\/\.\//g, "/");
     const alive = treePaths.has(ref.toLowerCase()) || treePaths.has(rel);
-    if (!alive && dead.length < MAX_DEAD_REFS) dead.push(ref);
+    if (!alive) {
+      deadRefsTotal += 1;
+      if (dead.length < MAX_DEAD_REFS) dead.push(ref);
+    }
   }
-  return { refsTotal: seen.size, deadRefs: dead };
+  return { refsTotal: seen.size, deadRefsTotal, deadRefs: dead };
 }
 
 export interface DeriveContextHealthInput {
@@ -230,17 +234,20 @@ export function deriveContextHealth(input: DeriveContextHealthInput): ContextHea
   // Drift — dead `@file` refs across ALL measured guidance files vs the tree index (free).
   const treePaths = new Set(snapshot.tree.filter((t) => t.type === "blob").map((t) => t.path.toLowerCase()));
   let refsTotal = 0;
+  let deadRefsTotal = 0;
   const deadRefs: string[] = [];
   for (const f of files) {
     const text = contentByPath.get(f.path.toLowerCase());
     if (!text) continue;
     const d = detectRefDrift(text, f.path, treePaths);
     refsTotal += d.refsTotal;
+    deadRefsTotal += d.deadRefsTotal;
     for (const r of d.deadRefs) if (deadRefs.length < MAX_DEAD_REFS) deadRefs.push(r);
   }
   const drift = {
-    score: refsTotal === 0 ? 100 : Math.round(100 * ((refsTotal - deadRefs.length) / refsTotal)),
+    score: refsTotal === 0 ? 100 : Math.round(100 * ((refsTotal - deadRefsTotal) / refsTotal)),
     refsTotal,
+    deadRefsTotal,
     deadRefs,
   };
 
