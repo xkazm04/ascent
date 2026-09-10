@@ -12,6 +12,19 @@ const recordsOf = (body: OtlpMetricsBody, fallback: number) => parseOtlpMetrics(
 const FALLBACK = Date.UTC(2026, 6, 5); // 2026-07-05
 
 describe("repoFromGitAttr", () => {
+  it.each([
+    "https://notgithub.com/acme/api",
+    "https://example.test/github.com/acme/api",
+    "acme/..",
+    ".hidden/api",
+  ])("does not attribute unsupported or invalid remote %s to GitHub", (remote) => {
+    expect(repoFromGitAttr(remote)).toBeNull();
+  });
+
+  it("uses the scanner's trailing-slash normalization", () => {
+    expect(repoFromGitAttr("https://github.com/acme/api/")).toBe("acme/api");
+  });
+
   it("extracts owner/name from https, ssh, .git, and bare forms", () => {
     expect(repoFromGitAttr("https://github.com/vercel/next.js.git")).toBe("vercel/next.js");
     expect(repoFromGitAttr("git@github.com:vercel/next.js.git")).toBe("vercel/next.js");

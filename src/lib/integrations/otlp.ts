@@ -24,15 +24,11 @@ export type SkipReason = "unknown-metric" | "no-repo-attr" | "unsupported-host";
 export function resolveGitRepo(raw: string | undefined): { repo: string } | { reason: SkipReason; host: string } {
   if (!raw || !raw.trim()) return { reason: "no-repo-attr", host: "" };
   const s = raw.trim().replace(/\.git$/i, "");
-  const gh = s.match(/github\.com[:/]([^/\s]+\/[^/\s]+)$/i);
-  if (gh) return { repo: gh[1]! };
-  const bare = s.match(/^([\w.-]+\/[\w.-]+)$/);
-  if (bare) return { repo: bare[1]! };
-  // #4 — the ONE line this lane changes here. The router owns "is this a forge we read", so a remote
+  // The router owns "is this a forge we read", so every remote
   // resolves through exactly the parser the scanner would use; the identity it produces is the same
   // `forgeFullName` the persist layer writes, which is what makes the join actually land on a row.
   const routed = parseForgeUrl(s);
-  if (routed && routed.forge !== "github") return { repo: forgeFullName(routed.forge, routed.owner, routed.repo) };
+  if (routed) return { repo: forgeFullName(routed.forge, routed.owner, routed.repo) };
   // Name the host so the report is actionable ("12 datapoints from gitlab.com") rather than a bare
   // count. Falls back to a truncated raw value when the attribute isn't remote-URL-shaped at all.
   const host = /^(?:[a-z][a-z0-9+.-]*:\/\/)?(?:[^@\s/]+@)?([^\s/:]+)[:/]/i.exec(s)?.[1] ?? s.slice(0, 40);
