@@ -758,7 +758,9 @@
             "src/features/bought/digest/digest.fixture.ts",
             "src/features/bought/digest/digestViz.test.ts",
             "src/features/bought/digest/digestViz.ts",
-            "src/lib/alerts-detection.ts"
+            "src/lib/alerts-detection.ts",
+            "src/lib/alert-delivery.ts",
+            "src/lib/alerts-cancellation.test.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -1438,7 +1440,9 @@
             "src/features/admin/integrations/IntegrationsPanel.dom.test.tsx",
             "src/features/admin/integrations/forgeCapabilityLabels.test.ts",
             "src/features/admin/integrations/forgeCapabilityLabels.ts",
-            "src/lib/integrations/copilot.test.ts"
+            "src/lib/integrations/copilot.test.ts",
+            "src/lib/integrations/otlp-wire.ts",
+            "src/lib/integrations/copilot-fetch.test.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -2470,7 +2474,8 @@
             "src/lib/mcp/skill-match.test.ts",
             "src/lib/mcp/validate-args.test.ts",
             "src/lib/mcp/validate-args.ts",
-            "src/lib/mcp/write-gate.test.ts"
+            "src/lib/mcp/write-gate.test.ts",
+            "src/lib/mcp/tool-result.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -2516,7 +2521,8 @@
             "src/lib/pdf/report-document.test.ts",
             "src/lib/pdf/theme.tsx",
             "src/lib/pdf/export-response.ts",
-            "src/lib/report/llm-markdown.exemplar.test.ts"
+            "src/lib/report/llm-markdown.exemplar.test.ts",
+            "src/components/CopyForLlm.lifecycle.test.tsx"
           ],
           "target": null,
           "apiRoutes": [
@@ -3202,7 +3208,12 @@
             "src/features/shared/surfaces/SurfacesTab.tsx",
             "src/features/shared/surfaces/catalog.test.ts",
             "src/features/shared/surfaces/catalog.ts",
-            "src/features/shared/surfaces/sampleProjects.ts"
+            "src/features/shared/surfaces/sampleProjects.ts",
+            "src/components/ui/Modal.dom.test.tsx",
+            "src/components/ui/Modal.stack.dom.test.tsx",
+            "src/components/ui/modalLayer.ts",
+            "src/components/ui/Defer.lifecycle.dom.test.tsx",
+            "src/components/confirmCopy.ts"
           ],
           "target": null,
           "apiRoutes": []

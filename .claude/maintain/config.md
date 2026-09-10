@@ -19,6 +19,13 @@
 
 ## Skill improvement log
 
+- 2026-09-10, maintain@1.0.0, run 04: exercise generated output in its consumer.
+  Copy-snippet DOM tests passed while the exported Bearer header failed in Bash;
+  executing the snippet with synthetic credentials exposed and verified the fix.
+  Shared dialog checks need the real portal lifecycle: initially open, opened later,
+  nested confirmation, Cancel autofocus, and out-of-order close. Content-only tests
+  did not expose the focus and scroll-lock failures repaired in this run.
+
 - 2026-09-10, maintain@1.0.0, resumed 20-batch run: keep source stable while a
   full verification process runs. An overlapping extraction made a checkpoint
   fail; later checks passed after correction. Inspect the final asynchronous
