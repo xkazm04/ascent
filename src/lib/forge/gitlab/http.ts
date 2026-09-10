@@ -113,8 +113,12 @@ export async function gitlabPaged<T>(
     if (!Array.isArray(body)) break;
     items.push(...body);
     const next = headers.get("x-next-page");
-    if (!next || !/^\d+$/.test(next)) return { items, truncated: false };
-    page = Number(next);
+    if (!next) return { items, truncated: false };
+    const nextPage = Number(next);
+    // An unusable continuation is not the end of the collection. Stop before a repeated
+    // or backward page can inflate the tree and disclose that the retained prefix is partial.
+    if (!/^\d+$/.test(next) || !Number.isSafeInteger(nextPage) || nextPage <= page) break;
+    page = nextPage;
   }
   return { items, truncated: true };
 }

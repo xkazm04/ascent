@@ -4,6 +4,22 @@ import { gitlabGet, gitlabGetSoft, gitlabPaged, projectRef } from "./http";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("GitLab transport", () => {
+  it.each(["1", "0", "-1", "not-a-page", "9007199254740992"])("stops with an honest partial result for next page %s", async (next) => {
+    const fetch = vi.fn().mockImplementation(async () => Response.json(["a"], { headers: { "x-next-page": next } }));
+    vi.stubGlobal("fetch", fetch);
+    expect(await gitlabPaged("/tree", 3)).toEqual({ items: ["a"], truncated: true });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not revisit an earlier page after making progress", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(Response.json(["a"], { headers: { "x-next-page": "2" } }))
+      .mockImplementation(async () => Response.json(["b"], { headers: { "x-next-page": "1" } }));
+    vi.stubGlobal("fetch", fetch);
+    expect(await gitlabPaged("/tree", 5)).toEqual({ items: ["a", "b"], truncated: true });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
   it.each([500, 503])("does not expose the configured host or repository path on upstream %i", async (status) => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status })));
     await expect(gitlabGet("/projects/private%2Fproject", {

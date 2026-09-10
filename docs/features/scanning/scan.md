@@ -806,6 +806,8 @@ three workflows shows its first three in pick order.
 - **Coverage is a heuristic.** `estimateCoverage` caps confidence on truncated/large
   repos; it isn't ground truth, and reports below 50% coverage carry an "indicative only"
   warning.
+- **GitLab pagination must advance.** Invalid, repeated or backward next-page indexes stop
+  enumeration with `truncated: true`; collected items are retained without re-reading a page.
 - **A forge is scored on what it can be asked, and the gaps are NULLS.** The pipeline reads GitHub,
   GitLab and a local working copy through one `Forge` registry (`src/lib/forge/**`). A signal a forge
   cannot answer — GitLab has no platform security posture, no dependency-exposure read and no
