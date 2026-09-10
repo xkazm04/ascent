@@ -10,6 +10,10 @@ Required controls merge additively across policy layers. Each untrusted input is
 100 valid check IDs; the effective union keeps every accepted requirement, even above 100,
 so adding a layer cannot remove a failing control from the gate.
 
+Check summaries enforce a 65,535-byte output budget, including free-form caveats and roadmap
+text. Oversized summaries retain complete leading lines and disclose omitted details;
+truncation does not alter the gate conclusion.
+
 ## Why you can trust the security floor
 
 The strongest reason to turn the gate on is **D9 (Supply Chain & Security)**: it is the one

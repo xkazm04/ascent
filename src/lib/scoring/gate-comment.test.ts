@@ -46,6 +46,24 @@ const failGate: GateResult = {
 };
 
 describe("buildGateComment", () => {
+  it.each(["x", "界🦊"])("bounds a single oversized caveat in bytes (%s)", (text) => {
+    const c = buildGateComment(report(), { ...failGate, caveats: [text.repeat(70_000)] });
+    expect(Buffer.byteLength(c.summary, "utf8")).toBeLessThanOrEqual(CHECK_SUMMARY_MAX_BYTES);
+    expect(c.summary).toContain("Summary truncated");
+    expect(c.summary).toContain("Failed");
+    expect(c.summary).not.toContain("\uFFFD");
+    expect(c.conclusion).toBe("failure");
+  });
+
+  it("bounds oversized roadmap text without changing the verdict", () => {
+    const r = report();
+    r.roadmap[0]!.title = "Long title ".repeat(7000);
+    const c = buildGateComment(r, passGate);
+    expect(Buffer.byteLength(c.summary, "utf8")).toBeLessThanOrEqual(CHECK_SUMMARY_MAX_BYTES);
+    expect(c.summary).toContain("Summary truncated");
+    expect(c.conclusion).toBe("success");
+  });
+
   it("renders a passing gate with success conclusion + marker", () => {
     const c = buildGateComment(report(), passGate);
     expect(c.conclusion).toBe("success");

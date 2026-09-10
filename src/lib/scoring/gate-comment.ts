@@ -17,6 +17,23 @@ export const GATE_COMMENT_MARKER = "<!-- ascent-maturity-gate -->";
  *  surface that can block a merge would go missing. Every list this builder renders is bounded. */
 export const CHECK_SUMMARY_MAX_BYTES = 65535;
 
+/** Keep whole leading Markdown lines; list-count limits alone cannot bound free-form text. */
+function boundedSummary(lines: string[]): string {
+  const encoder = new TextEncoder();
+  const full = lines.join("\n");
+  if (encoder.encode(full).length <= CHECK_SUMMARY_MAX_BYTES) return full;
+  const notice = "\n\n_Summary truncated to fit the output limit. Open the full Ascent report for omitted details._";
+  let bytes = encoder.encode(notice).length;
+  const kept: string[] = [];
+  for (const line of lines) {
+    const size = encoder.encode(line).length + (kept.length ? 1 : 0);
+    if (bytes + size > CHECK_SUMMARY_MAX_BYTES) break;
+    kept.push(line);
+    bytes += size;
+  }
+  return kept.join("\n") + notice;
+}
+
 /** How many "not measured" lines the summary renders before collapsing the rest into a count. A
  *  `requireChecks` policy may combine several capped input lists, and each unjudged control is
  *  its own skip, so this block is the only one in the builder that can grow with policy size. */
@@ -230,7 +247,7 @@ export function buildGateComment(
       : `<sub>Scored by Ascent · ${mdInline(report.engine.provider)} · ${mdInline(report.engine.model)} · AI estimate, may vary between runs</sub>`,
   );
 
-  const summary = lines.join("\n");
+  const summary = boundedSummary(lines);
   // Derive the footer chips from the SAME canonical condition enumeration the governance dashboard /
   // gate URL / CI snippet use (describeGatePolicy), so the footer can't silently advertise a weaker
   // bar than the gate enforces. This now includes the per-dimension Security (D9) floor and the
