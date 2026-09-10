@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { parseSSE, readSSE } from "./sse";
 import type { SSEMessage } from "./sse";
 
@@ -20,6 +20,44 @@ async function drain(chunks: string[]): Promise<SSEMessage[]> {
   await readSSE(streamOf(chunks), (m) => out.push(m));
   return out;
 }
+
+describe("readSSE resource ownership", () => {
+  it("releases the body after normal completion", async () => {
+    const body = streamOf(['event: done\ndata: {}\n\n']);
+    await readSSE(body, () => {});
+    expect(body.locked).toBe(false);
+  });
+
+  it.each(["message", "chunk"])("cancels the body when the %s callback throws", async (kind) => {
+    const failure = new Error("consumer failed");
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(new TextEncoder().encode('event: progress\ndata: {}\n\n')); },
+      cancel,
+    });
+    const fail = () => { throw failure; };
+    await expect(readSSE(body, kind === "message" ? fail : () => {}, kind === "chunk" ? fail : undefined)).rejects.toBe(failure);
+    expect(cancel).toHaveBeenCalledWith(failure);
+    expect(body.locked).toBe(false);
+  });
+
+  it("preserves the consumer failure even when cancellation fails", async () => {
+    const failure = new Error("consumer failed");
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(new TextEncoder().encode('event: progress\ndata: {}\n\n')); },
+      cancel() { throw new Error("cleanup failed"); },
+    });
+    await expect(readSSE(body, () => { throw failure; })).rejects.toBe(failure);
+    expect(body.locked).toBe(false);
+  });
+
+  it("releases the body and preserves an upstream read failure", async () => {
+    const failure = new Error("connection lost");
+    const body = new ReadableStream<Uint8Array>({ start(controller) { controller.error(failure); } });
+    await expect(readSSE(body, () => {})).rejects.toBe(failure);
+    expect(body.locked).toBe(false);
+  });
+});
 
 describe("parseSSE — single frame", () => {
   it("parses an event name and JSON data payload", () => {

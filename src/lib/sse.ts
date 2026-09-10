@@ -48,18 +48,27 @@ export async function readSSE(
   const reader = body.getReader();
   const dec = new TextDecoder();
   let buf = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    onChunk?.();
-    buf += dec.decode(value, { stream: true });
-    let m: RegExpExecArray | null;
-    while ((m = FRAME_BOUNDARY.exec(buf))) {
-      const block = buf.slice(0, m.index);
-      buf = buf.slice(m.index + m[0].length);
-      const msg = parseSSE(block);
-      if (msg.event || msg.data) onMessage(msg);
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      onChunk?.();
+      buf += dec.decode(value, { stream: true });
+      let m: RegExpExecArray | null;
+      while ((m = FRAME_BOUNDARY.exec(buf))) {
+        const block = buf.slice(0, m.index);
+        buf = buf.slice(m.index + m[0].length);
+        const msg = parseSSE(block);
+        if (msg.event || msg.data) onMessage(msg);
+      }
     }
+  } catch (error) {
+    // A failed consumer has abandoned the response too. Reap its transport while
+    // preserving the original read/callback failure if cancellation itself fails.
+    await reader.cancel(error).catch(() => {});
+    throw error;
+  } finally {
+    reader.releaseLock();
   }
 }
 
