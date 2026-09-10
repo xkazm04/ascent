@@ -18,7 +18,7 @@ export const GATE_COMMENT_MARKER = "<!-- ascent-maturity-gate -->";
 export const CHECK_SUMMARY_MAX_BYTES = 65535;
 
 /** How many "not measured" lines the summary renders before collapsing the rest into a count. A
- *  `requireChecks` policy may name up to MAX_REQUIRE_CHECKS (100) controls and each unjudged one is
+ *  `requireChecks` policy may combine several capped input lists, and each unjudged control is
  *  its own skip, so this block is the only one in the builder that can grow with policy size. */
 const MAX_SKIP_LINES = 8;
 

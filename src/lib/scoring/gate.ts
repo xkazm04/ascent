@@ -27,7 +27,7 @@ import { isValidCheckId, type CheckLevel } from "@/lib/standard/check-ids";
 const SECURITY_DIM: DimensionId = "D9";
 export const DEFAULT_SECURITY_MIN = 50;
 
-/** Ceiling on `requireChecks`. A policy is untrusted input (a DB column, an admission fragment); a
+/** Per-input ceiling on `requireChecks`. A policy is untrusted input (a DB column, an admission fragment); a
  *  10k-entry list would turn every gate evaluation into a scan of it. */
 export const MAX_REQUIRE_CHECKS = 100;
 
@@ -951,6 +951,8 @@ export function tightenGatePolicy(a: GatePolicy, b: GatePolicy): GatePolicy {
   if (a.forbidAiAuthorship || b.forbidAiAuthorship) pol.forbidAiAuthorship = true;
   // #16: UNION, like forbidPostures — a layer adds required controls, never removes them.
   const checks = [...new Set([...(a.requireChecks ?? []), ...(b.requireChecks ?? [])])].sort();
-  if (checks.length) pol.requireChecks = checks.slice(0, MAX_REQUIRE_CHECKS);
+  // Inputs are capped when sanitized. Re-capping the union would drop accepted requirements
+  // whenever a later layer adds lexicographically earlier ids, weakening the effective policy.
+  if (checks.length) pol.requireChecks = checks;
   return pol;
 }
