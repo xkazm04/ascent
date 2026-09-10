@@ -2722,3 +2722,9 @@ with no numeral where `forecastInsufficiency` refuses to state one.
 - **Team attribution is CODEOWNERS-only**: `getOrgTeamRollup` keys off each repo's CODEOWNERS
   (`@org/team` owners, parsed at scan time). Repos with no CODEOWNERS team show as "unowned"; the
   GitHub Teams API (GraphQL) as a fallback attribution source is still on the roadmap.
+
+## Provider integration setup
+
+The Claude Code setup snippet quotes the complete authorization header and endpoint for
+the shell. Copying it preserves the bearer token, including the space after `Bearer`;
+the displayed snippet continues to mask credentials until explicitly revealed.

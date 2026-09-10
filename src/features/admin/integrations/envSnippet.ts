@@ -22,13 +22,14 @@ export function maskIngestToken(token: string): string {
  * build the copyable snippet and {@link maskIngestToken}'s output to build the rendered one.
  */
 export function buildEnvSnippet(endpoint: string, token: string): string {
+  const quote = (value: string) => "'" + value.replace(/'/g, "'\\''") + "'";
   return [
     "export CLAUDE_CODE_ENABLE_TELEMETRY=1",
     "export OTEL_METRICS_EXPORTER=otlp",
     "export OTEL_LOGS_EXPORTER=otlp",
     "export OTEL_EXPORTER_OTLP_PROTOCOL=http/json",
-    `export OTEL_EXPORTER_OTLP_ENDPOINT=${endpoint}`,
-    `export OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer ${token}`,
+    `export OTEL_EXPORTER_OTLP_ENDPOINT=${quote(endpoint)}`,
+    `export OTEL_EXPORTER_OTLP_HEADERS=${quote(`Authorization=Bearer ${token}`)}`,
     "export OTEL_RESOURCE_ATTRIBUTES=git.repository=$(git remote get-url origin)",
   ].join("\n");
 }
