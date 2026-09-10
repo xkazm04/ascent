@@ -110,6 +110,8 @@ export function useImportReattach({
     }
     let cancelled = false;
     let settled = false;
+    let unavailable = false;
+    const controller = new AbortController();
     setState({ status: "polling", pending: 0, total: 0 });
 
     const tick = async () => {
@@ -117,11 +119,13 @@ export function useImportReattach({
       try {
         const res = await fetch(
           `/api/org/scan/queue?org=${encodeURIComponent(org)}&runId=${encodeURIComponent(runId)}`,
+          { signal: controller.signal },
         );
         if (cancelled) return;
         if (!res.ok) {
           // A refusal (no database, no access) is terminal for the FOLLOW, not evidence about the run.
           // Stop polling and say the run can't be followed — never "finished".
+          unavailable = true;
           setState((s) => ({ ...s, status: "unavailable" }));
           return;
         }
@@ -147,11 +151,17 @@ export function useImportReattach({
       }
     };
 
-    void tick(); // answer immediately — a settled run must not hold the user for a full interval
-    const id = setInterval(() => void tick(), REATTACH_POLL_MS);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      await tick();
+      // Schedule after the read finishes so a slow endpoint cannot create overlapping requests.
+      if (!cancelled && !settled && !unavailable) timer = setTimeout(() => void poll(), REATTACH_POLL_MS);
+    };
+    void poll(); // answer immediately — a settled run must not hold the user for a full interval
     return () => {
       cancelled = true;
-      clearInterval(id);
+      controller.abort();
+      clearTimeout(timer);
     };
   }, [active, org, runId]);
 

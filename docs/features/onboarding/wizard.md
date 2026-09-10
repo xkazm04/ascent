@@ -135,6 +135,9 @@ fabricated level), and shows the done screen once nothing is pending. Rows the r
 resolve to "not scanned". If the follow itself is refused (no database, no access) the notice says
 the run may still be going and points at the dashboard rather than claiming it finished. A
 `beforeunload` guard is armed while scanning.
+Reads are spaced 15 seconds after the previous read completes, so slow responses cannot overlap.
+Completion or refusal stops polling; transient network failures retry, and leaving the view aborts
+its pending read.
 
 **Retry carries the same consent as the batch (2026-09-05).** The per-row Retry used to post only
 `{ org, repos, installationId, mock }`, so `watch` defaulted to true on the App path and re-enrolled
