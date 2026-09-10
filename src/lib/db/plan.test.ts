@@ -4,16 +4,8 @@
 // that guards `achievedAt` from being re-stamped (and the recorded achievement date corrupted) on
 // every subsequent page load is the `g.status === "active"` idempotency guard — pinned here, plus
 // the below-target "no write" case and the progress / laggard derivation math.
-//
-// ALSO pins the *what-if simulator orchestration* (test-mastery-2026-06-18 finding #2, High): the
-// DB-glue functions `simulateOrgFixes`, `rankOrgInvestments`, and `goalImpactsForScenario` read the
-// fleet snapshot / active goals from Prisma and feed the PURE simulator math (orgsim.ts) + goal
-// projector (forecast.ts). The pure leaves are covered in orgsim.test.ts / forecast.test.ts; here we
-// mock the readers and let the real math run, pinning the glue: archetype defaulting, empty-scope →
-// all-scanned-repos resolution, the documented null-on-no-data path (so the route 404s), the
-// projected fleet delta, the by-value investment ranking, and the per-scenario goal-impact mapping.
 
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 
 const { mockIsDbConfigured, mockGetPrisma } = vi.hoisted(() => ({
   mockIsDbConfigured: vi.fn(),
@@ -397,55 +389,6 @@ describe("listGoals pct — progress from a stored baseline, attainment (labelle
     expect(g.pctBasis).toBe("attainment");
   });
 });
-
-// ── What-if simulator orchestration (finding #2, High) ───────────────────────
-// simulateOrgFixes / rankOrgInvestments read fleetSnapshot from Prisma then run the PURE
-// simulateFleet / rankFleetInvestments. We mock the readers (resolveOrgId + repository.findMany)
-// and let the real math run, pinning the GLUE: scope resolution, archetype defaulting, the
-// null-on-no-data contract, and the exact projected delta / ranking the real pure layer produces.
-
-const ALL_DIMS = ["D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9"] as const;
-
-/** A repo seed with every dimension at one flat score — under the "org" lens recompute === flat. */
-function flatRepoSeed(fullName: string, score: number, archetype = "org"): SimRepoSeed {
-  const dims: Record<string, number> = {};
-  for (const d of ALL_DIMS) dims[d] = score;
-  return { fullName, name: fullName.split("/")[1] ?? fullName, overall: score, archetype, dims };
-}
-
-interface SimRepoSeed {
-  fullName: string;
-  name: string;
-  overall: number;
-  /** null models a scan that never persisted an archetype → must default to "org". */
-  archetype?: string | null;
-  dims: Record<string, number>;
-}
-
-/**
- * Fake prisma for the simulator orchestration: covers `resolveOrgId` (organization.findUnique) and
- * `fleetSnapshot` (repository.findMany). `orgId: null` models an unknown org (resolveOrgId → null).
- */
-function fakeSimPrisma(opts: { repos: SimRepoSeed[]; orgId?: string | null }) {
-  const orgId = opts.orgId === undefined ? ORG_ID : opts.orgId;
-  const repoRows = opts.repos.map((r) => ({
-    fullName: r.fullName,
-    name: r.name,
-    scans: [
-      {
-        overallScore: r.overall,
-        adoptionScore: r.overall,
-        rigorScore: r.overall,
-        archetype: r.archetype === undefined ? "org" : r.archetype,
-        dimensions: Object.entries(r.dims).map(([dimId, score]) => ({ dimId, score })),
-      },
-    ],
-  }));
-  return {
-    organization: { findUnique: vi.fn(async () => (orgId ? { id: orgId } : null)) },
-    repository: { findMany: vi.fn(async () => repoRows) },
-  };
-}
 
 describe("isGoalMetric — accepts exactly {overall, adoption, rigor, D1..D9}, rejects the rest", () => {
   const VALID = ["overall", "adoption", "rigor", "D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9"];
