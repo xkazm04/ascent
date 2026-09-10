@@ -53,8 +53,8 @@ export interface ScanProgressState {
  * clears `stage`; a sub-stage frame sets it and leaves the counters where the boundary put them.
  */
 export function foldProgressFrame(prev: ScanProgressState, data: Record<string, unknown>): ScanProgressState {
-  const index = Number(data.index);
-  const total = Number(data.total);
+  const index = numericCounter(data.index);
+  const total = numericCounter(data.total);
   const stage = data.stage;
   return {
     done: Number.isFinite(index) && index >= 0 ? index : prev.done,
@@ -62,4 +62,11 @@ export function foldProgressFrame(prev: ScanProgressState, data: Record<string, 
     current: typeof data.repo === "string" ? data.repo : prev.current,
     stage: isSubstageFrame(stage) ? stage : null,
   };
+}
+
+/** Reject null, booleans and containers before Number() can fabricate a counter from them. */
+function numericCounter(value: unknown): number {
+  return typeof value === "number" || (typeof value === "string" && value.trim() !== "")
+    ? Number(value)
+    : NaN;
 }

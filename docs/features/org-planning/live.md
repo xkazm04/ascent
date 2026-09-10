@@ -802,6 +802,9 @@ surface, not a control surface: the tab seeds every repo's latest standing from 
 (`getOrgRollup`, optionally scoped to a tech stack via `TechStackSelector`), then `LiveWarRoom`
 subscribes to the `/api/org/scan` SSE stream and animates as results land —
 
+Progress counters retain their last valid value when a frame supplies null, booleans, blank strings
+or containers. Explicit numeric zero and numeric strings remain valid counter updates.
+
 - **Headline strip** (`LiveWarRoomStat`): fleet score, adoption, rigor, with campaign deltas "since
   kickoff" when a goal exists.
 - **Goal banner** (`LiveWarRoomGoalBanner`): the first not-yet-achieved goal, its target meter, pace
