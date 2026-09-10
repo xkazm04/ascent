@@ -19,6 +19,14 @@
 
 ## Skill improvement log
 
+- 2026-09-10, maintain@1.0.0, resumed 20-batch run: keep source stable while a
+  full verification process runs. An overlapping extraction made a checkpoint
+  fail; later checks passed after correction. Inspect the final asynchronous
+  exit code before committing or recording success: one premature checkpoint
+  required an amended commit and explicit journal, coverage and memory correction.
+  Preserve the original journal row and append the correction; resolve the retained
+  commit in coverage and pending memory so future resumes do not trust a stale hash.
+
 - 2026-09-10, maintain@1.0.0, 20-batch run: `npm run verify` does not run the
   standalone context-map checker tests. After adding or moving source modules, run
   `node scripts/context-map/__tests__/check-map-drift.test.mjs` and

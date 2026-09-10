@@ -63,7 +63,8 @@
             "src/features/standing/governance/evidenceFlow.ts",
             "src/features/standing/governance/ledgerIntegrity.test.ts",
             "src/features/standing/governance/ledgerIntegrity.ts",
-            "src/lib/github/pr-gate.test.ts"
+            "src/lib/github/pr-gate.test.ts",
+            "src/lib/scoring/gate-policy-sources.test.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -152,7 +153,8 @@
             "src/lib/llm/bench/fixture.ts",
             "src/lib/llm/bench/llm-bench.test.ts",
             "src/lib/llm/nebius.test.ts",
-            "src/lib/llm/nebius.ts"
+            "src/lib/llm/nebius.ts",
+            "src/lib/llm/transport/spawn.test.ts"
           ],
           "target": null,
           "apiRoutes": []
@@ -208,7 +210,12 @@
             "src/lib/practices.test.ts",
             "src/lib/scoring/discrepancy-policy.test.ts",
             "src/lib/scoring/engine.claims.test.ts",
-            "src/lib/scoring/engine.d4-convergence.test.ts"
+            "src/lib/scoring/engine.d4-convergence.test.ts",
+            "src/lib/analyze/context-health.ts",
+            "src/lib/analyze/context-health.test.ts",
+            "src/lib/analyze/context-health-read.ts",
+            "src/lib/analyze/context-health.drift.test.ts",
+            "src/lib/analyze/context-health.parse.test.ts"
           ],
           "target": null,
           "apiRoutes": []
@@ -843,7 +850,8 @@
             "src/lib/db/scans-orphans.test.ts",
             "src/features/standing/repositories/context-health/GuidanceCoherenceCard.tsx",
             "src/features/standing/repositories/context-health/guidanceCoherenceModel.ts",
-            "src/lib/org/period.dialect.test.ts"
+            "src/lib/org/period.dialect.test.ts",
+            "src/lib/db/org-benchmark.ts"
           ],
           "target": null,
           "apiRoutes": []
@@ -1124,7 +1132,8 @@
             "src/features/standing/tech-stacks/TechStacksViz.dom.test.tsx",
             "src/features/standing/tech-stacks/rangeLegend.tsx",
             "src/features/standing/tech-stacks/stackMeasure.test.ts",
-            "src/features/standing/tech-stacks/stackMeasure.ts"
+            "src/features/standing/tech-stacks/stackMeasure.ts",
+            "src/features/standing/repositories/context-health/contextHealthReferences.test.tsx"
           ],
           "target": null,
           "apiRoutes": [
@@ -2626,7 +2635,8 @@
             "src/components/report/TrendChart.CompactedBand.tsx",
             "src/components/report/TrendChart.SrTable.tsx",
             "src/lib/report/exemplar-load.test.ts",
-            "src/lib/report/exemplar.test.ts"
+            "src/lib/report/exemplar.test.ts",
+            "src/lib/report/recommendation-identity.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -3056,7 +3066,8 @@
             "src/lib/db/scan-digest.ts",
             "src/lib/db/scan-digest.test.ts",
             "src/lib/db/scan-digest-read.test.ts",
-            "src/features/admin/settings/DataErasureCard.outcomes.test.tsx"
+            "src/features/admin/settings/DataErasureCard.outcomes.test.tsx",
+            "src/lib/db/retention-policy.ts"
           ],
           "target": null,
           "apiRoutes": [
