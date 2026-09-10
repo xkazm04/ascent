@@ -4,6 +4,8 @@
 // pure `parseSecurityChecks` in @/lib/org/security, which the rendering component applies — keeping
 // this module free of an import cycle back through the org-security assembly (which imports @/lib/db).
 
+import { parseStringArray } from "./json-columns";
+
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
 import { PUBLIC_ORG } from "@/lib/org-constants";
@@ -22,15 +24,6 @@ export interface PersonalSecurityRow {
   scannedAt: string; // ISO
 }
 
-function parseStringArray(raw: string | null | undefined): string[] {
-  if (!raw) return [];
-  try {
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr.filter((v): v is string => typeof v === "string") : [];
-  } catch {
-    return [];
-  }
-}
 
 /**
  * D9 rows for every watched repo with a scanned public report carrying the dimension. Null when the

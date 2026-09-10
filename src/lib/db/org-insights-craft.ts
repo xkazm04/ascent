@@ -18,7 +18,7 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
-import { parseStringArray } from "@/lib/db/scans-shared";
+import { parseStringArray } from "@/lib/db/json-columns";
 import { DIMENSION_BY_ID, isDimensionId } from "@/lib/maturity/model";
 import { asCraftAxis, emptyAxisTally, type CraftAxis } from "@/lib/scoring/craft";
 import type { CraftBuiltEntry } from "@/lib/llm/provider";

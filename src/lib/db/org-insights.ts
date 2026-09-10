@@ -27,7 +27,7 @@ import { classifyDelta } from "@/lib/maturity/noise";
 import { isMockScore, type OrgWindow } from "@/lib/db/org-rollup";
 // The single canonical parser for stored `string[]` columns (the explore questions live in one) — reuse
 // it here rather than forking a second parser, exactly as scans-read/scans-recommendations do.
-import { parseStringArray } from "@/lib/db/scans-shared";
+import { parseStringArray } from "@/lib/db/json-columns";
 // The one "due soon" window (rolling days) shared with the UI tiles/labels — single-sourced in the
 // client-safe backlogShared module so both layers stay in sync (backlog-management 07-16 #4).
 import { DUE_MONTH_DAYS, DUE_SOON_DAYS } from "@/components/org/shared/backlogShared";
