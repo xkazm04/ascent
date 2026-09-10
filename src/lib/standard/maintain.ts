@@ -154,7 +154,7 @@ if (cmd === 'project') {
   const MPATH = '.ai/manifest.yaml';
   if (!existsSync(MPATH)) { console.error('no ' + MPATH + ' - nothing to project from'); process.exit(2); }
   const mtext = readFileSync(MPATH, 'utf8');
-  const gblock = mtext.split(/\\nguidance:\\n/)[1];
+  const gblock = mtext.split(/(?:^|\\r?\\n)guidance:[ \\t]*\\r?\\n/)[1];
   if (!gblock) { console.log('[INFO] no guidance block in ' + MPATH + ' - nothing to project. Add: guidance: { canonical, projections }'); process.exit(0); }
   const cm = gblock.match(/^\\s+canonical:\\s*(.+)$/m);
   const canonical = cm ? cm[1].trim().replace(/^"|"$/g, '') : '';

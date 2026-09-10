@@ -97,6 +97,9 @@ guidance:
   format needs it — and writes the source hash back into the block. It is idempotent: a second run
   over an unchanged canonical writes byte-identical files.
 
+The projection command accepts LF and CRLF manifests, including a `guidance` block at the
+start of the document. Canonical document bytes remain unchanged when projecting and hashing.
+
 The header each projection carries records **two** hashes, and the pair is what makes drift
 diagnosable rather than merely visible:
 
