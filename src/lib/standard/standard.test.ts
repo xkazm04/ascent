@@ -1274,7 +1274,7 @@ function loadMaintainNoteLogic(): {
   const body = buildMaintain().body;
 
   // The id derivation: the `.map(...).filter(...)` over a filename list, then the `max+1`/pad string.
-  const idMapFilter = "files.map((f) => parseInt((f.match(/^(\\d{4})-/) || [])[1], 10)).filter((n) => !isNaN(n))";
+  const idMapFilter = "files.map((f) => parseInt((f.match(/^(\\d{4}|[1-9]\\d{4,})-/) || [])[1], 10)).filter((n) => !isNaN(n))";
   const idNext = "String((ids.length ? Math.max(...ids) : 0) + 1).padStart(4, '0')";
   // The slug pipeline, verbatim from the source (the only difference from maintain.ts is `text` is our
   // parameter rather than the CLI-derived local — the transform chain is byte-identical).
@@ -1282,7 +1282,7 @@ function loadMaintainNoteLogic(): {
 
   // Sanity: the SHIPPED source still contains these exact fragments. If a refactor renames/reshapes
   // them, this extraction is stale and the test must fail rather than silently testing a stand-in.
-  expect(body).toContain(".map((f) => parseInt((f.match(/^(\\d{4})-/) || [])[1], 10)).filter((n) => !isNaN(n))");
+  expect(body).toContain(".map((f) => parseInt((f.match(/^(\\d{4}|[1-9]\\d{4,})-/) || [])[1], 10)).filter((n) => !isNaN(n))");
   expect(body).toContain("String((ids.length ? Math.max(...ids) : 0) + 1).padStart(4, '0')");
   expect(body).toContain("text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'note'");
 
@@ -1336,8 +1336,8 @@ describe("maintain — memory-entry numbering + slug invariants (append-only led
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("a malformed 3-digit or 5-digit prefix does not match ^(\\d{4})- and is ignored", () => {
-    // Only EXACTLY-4-digit prefixes count; `999-` (3) and `00001-` (5) must not pollute the max.
+  it("a malformed 3-digit or leading-zero 5-digit prefix does not match ^(\\d{4}|[1-9]\\d{4,})- and is ignored", () => {
+    // Four-digit or canonical longer prefixes count; `999-` (3) and `00001-` (5) must not pollute the max.
     expect(nextId(["0005-real.md", "999-short.md", "00001-long.md"])).toBe("0006");
     // If NONE are valid 4-digit, fall back to 0001 (no NaN id from an unparsable prefix).
     expect(nextId(["999-short.md", "abc-nope.md"])).toBe("0001");

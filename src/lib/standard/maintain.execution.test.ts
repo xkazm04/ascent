@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -98,4 +98,19 @@ it.each(["\n", "\r\n"])("doctor judges the same first-key guidance projections w
   expect(findings).toContainEqual(expect.objectContaining({ check: "guidance.canonical", level: "pass" }));
   expect(findings).not.toContainEqual(expect.objectContaining({ check: "guidance.unchecked" }));
   expect(findings).not.toContainEqual(expect.objectContaining({ check: expect.stringContaining("foreign") }));
+});
+
+
+it("continues monotonic note IDs after the four-digit boundary", () => {
+  const root = fixture();
+  const memory = join(root, ".ai/memory");
+  mkdirSync(memory);
+  writeFileSync(join(memory, "9999-existing.md"), "existing fact\n");
+  expect(run(root, "note", "decision", "first later fact").status).toBe(0);
+  expect(run(root, "note", "decision", "second later fact").status).toBe(0);
+  expect(readdirSync(memory).sort()).toEqual([
+    "10000-first-later-fact.md", "10001-second-later-fact.md", "9999-existing.md",
+  ]);
+  expect(readFileSync(join(memory, "9999-existing.md"), "utf8")).toBe("existing fact\n");
+  expect(readFileSync(join(memory, "10001-second-later-fact.md"), "utf8")).toContain("id: 10001\n");
 });

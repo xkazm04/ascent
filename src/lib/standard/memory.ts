@@ -19,7 +19,7 @@ be indexed, filtered, and superseded. The format is referenced from \`.ai/manife
 
 ## One fact per file
 
-Name files \`NNNN-short-slug.md\` (zero-padded, monotonic). Frontmatter schema:
+Name files \`NNNN-short-slug.md\` (at least four digits, zero-padded and monotonic; 9999 is followed by 10000, then 10001). Frontmatter schema:
 
     ---
     id: 0007
