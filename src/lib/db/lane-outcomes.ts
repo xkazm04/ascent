@@ -38,7 +38,7 @@ import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
 // The SAME identity `decideInProgress` / `isRestated` / the craft ledger carry status across a rescan
 // with. A deferral that keys on anything else is a deferral the next rescan silently drops.
-import { normalizeRecTitle } from "@/lib/report/compare";
+import { normalizeRecTitle } from "@/lib/report/recommendation-identity";
 import type { LaneReport, LaneVerdict } from "@/lib/local/lane-report";
 
 /** How many cycles a skip holds before the loop is willing to try again. */

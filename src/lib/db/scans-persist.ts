@@ -7,7 +7,7 @@ import { billableInputTokens } from "@/lib/llm/config";
 import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
 import { getPrisma, isDbConfigured, withDb, withRetry } from "@/lib/db/client";
 import { cacheDelete, makeCacheKey } from "@/lib/cache";
-import { matchRecommendations } from "@/lib/report/compare";
+import { matchRecommendations } from "@/lib/report/recommendation-identity";
 import { decideInProgress, isRestated, keepNote, resolutionNote, type MovementEngines } from "@/lib/org/followups";
 import {
   canonicalRepoFullName,

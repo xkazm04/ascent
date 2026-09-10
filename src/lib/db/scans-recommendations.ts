@@ -6,7 +6,7 @@ import type { PersistedRecommendation, RecEvent, RecEventKind, RecStatus } from 
 import { Prisma } from "@prisma/client";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { canonicalRepoFullName, DEFAULT_ORG_SLUG, resolveOrgId, toPersistedRec } from "@/lib/db/scans-shared";
-import { findOrphanedTracked, type TrackedRecIdentity } from "@/lib/report/compare";
+import { findOrphanedTracked, type TrackedRecIdentity } from "@/lib/report/recommendation-identity";
 import { withAuditSignature } from "@/lib/db/audit-integrity";
 
 /** Parse a YYYY-MM-DD (or ISO) string to a Date, or null for empty/invalid input. */

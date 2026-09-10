@@ -23,7 +23,7 @@ import { DIMENSION_BY_ID, isDimensionId } from "@/lib/maturity/model";
 import { asCraftAxis, emptyAxisTally, type CraftAxis } from "@/lib/scoring/craft";
 import type { CraftBuiltEntry } from "@/lib/llm/provider";
 import type { FollowUpItem } from "@/lib/org/followups";
-import { normalizeRecTitle } from "@/lib/report/compare";
+import { normalizeRecTitle } from "@/lib/report/recommendation-identity";
 
 /** How many craft rungs the prompt's CRAFT ALREADY BUILT block is fed. Newest first. */
 const CRAFT_BUILT_LIMIT = 12;
