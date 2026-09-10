@@ -13,6 +13,7 @@
 
 import type { ContextHealth, ContextHealthFile, GuidanceFreshness, RepoFile, RepoSnapshot } from "@/lib/types";
 import { guidanceQuality } from "@/lib/analyze";
+export { parseContextHealthJson } from "./context-health-read";
 
 /** Shape version persisted inside contextHealthJson, for read-time tolerance. */
 export const CONTEXT_HEALTH_VERSION = "1";
@@ -267,27 +268,3 @@ export function deriveContextHealth(input: DeriveContextHealthInput): ContextHea
   return { version: CONTEXT_HEALTH_VERSION, present, files, freshness, quality, drift, score };
 }
 
-/** Defensive parse of a persisted contextHealthJson blob — null on malformed/legacy content, so a
- *  bad row degrades to "not assessed" instead of crashing a fleet page. Mirrors parsePassportJson. */
-export function parseContextHealthJson(raw: string | null | undefined): ContextHealth | null {
-  if (!raw) return null;
-  try {
-    const ch = JSON.parse(raw) as ContextHealth;
-    if (
-      !ch ||
-      typeof ch !== "object" ||
-      typeof ch.version !== "string" ||
-      typeof ch.present !== "boolean" ||
-      !Array.isArray(ch.files) ||
-      typeof ch.score !== "number" ||
-      !ch.freshness ||
-      !ch.quality ||
-      !ch.drift
-    ) {
-      return null;
-    }
-    return ch;
-  } catch {
-    return null;
-  }
-}

@@ -678,6 +678,8 @@ it never feeds the score or the LLM prompt (pinned by the "stays display-only" t
   measurable drift signal.
   The score uses the full dead-reference count (`deadRefsTotal`), while `deadRefs` keeps at most
   12 examples. Older stored scans lack the exact count; their example list is only a lower bound.
+  On read, malformed nested fields or inconsistent counts make the blob unassessed, preserving
+  the existing re-scan recovery instead of passing unreadable measurements into fleet views.
 - **Shape**: `ContextHealth { version, present, files[{path, lastModifiedAt?, lastCommitSha?,
   bytes?, sectionsScore}], freshness{score|null, ageDays, commitsSinceEdit, approximate,
   windowCapped?}, quality{score, signals}, drift{score, refsTotal, deadRefsTotal?, deadRefs}, score }`. Persisted as
