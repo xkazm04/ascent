@@ -287,7 +287,9 @@ and its `contextHealthMock` synthesis are deleted; every number now comes from t
   `src/lib/analyze/context-health.ts`) so scan-time potency and the panel's projection can't drift.
 - **Fleet tiles**: context **coverage %** (repos with guidance / assessed repos), median projected
   **half-life** at current commit rates, **past half-life** count (potency < 50), and **dead
-  references** (guidance pointing at deleted files). The band bar splits classifiable repos into
+  references** (guidance pointing at deleted files). New scans carry the full unresolved-reference
+  count separately from the 12 stored examples; row verdicts and fleet totals use that count.
+  Older scans with only examples show **at least N**. The band bar splits classifiable repos into
   fresh / aging / stale / absent; repos are listed most-urgent first (decayed before missing,
   since a wrong map misleads an agent further than no map).
 - **Honesty rules**: staleness figures are always **≈** (weekly-bucket derived, `windowCapped`
