@@ -19,6 +19,10 @@ When dialogs overlap, only the top mounted layer handles Escape and Tab. A locke
 confirmation also blocks Escape from reaching its parent. The body scroll lock lasts
 until the final layer closes, including when a lower layer closes first.
 
+`Defer` schedules a subtree's first appearance. Once shown, the same subtree stays
+mounted when reduced-motion or immediate-render settings change, preserving local
+input state. A newly mounted `Defer` instance still applies its own arrival policy.
+
 | Surface | Route(s) | Source |
 | --- | --- | --- |
 | Design System: UI Primitives & Deck | — | `src/components/ui/**`, `src/components/deck/**`, `src/components/ConfirmAction.tsx` |

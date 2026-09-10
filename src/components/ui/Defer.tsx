@@ -51,6 +51,8 @@ export function Defer({
   // The policy is re-evaluated per render: a user flipping the OS setting, or a reducedMotion value
   // that corrects itself after hydration, resolves here.
   const now = mountsImmediately({ strategy, reducedMotion, immediate });
+  // Readiness is one-way for this instance: changing a preference must not remove entered state.
+  if (now && !ready) setReady(true);
 
   useEffect(() => {
     if (now || ready) return;
