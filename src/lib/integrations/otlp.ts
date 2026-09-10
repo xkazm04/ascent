@@ -1,3 +1,4 @@
+import { attrMap, dpValue, type OtlpDataPoint, type OtlpResourceMetrics } from "./otlp-wire";
 // OTLP/JSON metrics → AiUsageRecord mapping for the Claude Code telemetry push path. Claude Code's
 // OpenTelemetry exporter POSTs an ExportMetricsServiceRequest to <endpoint>/v1/metrics; the
 // `git.repository` resource attribute (set via OTEL_RESOURCE_ATTRIBUTES in the connect snippet) carries
@@ -7,48 +8,8 @@
 
 import type { UsageRecordInput } from "@/lib/db";
 import { forgeFullName, parseForgeUrl } from "@/lib/forge/registry";
-
-interface OtlpValue {
-  stringValue?: string;
-  intValue?: string | number;
-  doubleValue?: number;
-  boolValue?: boolean;
-}
-interface OtlpAttr {
-  key?: string;
-  value?: OtlpValue;
-}
-interface OtlpDataPoint {
-  asInt?: string | number;
-  asDouble?: number;
-  timeUnixNano?: string | number;
-  attributes?: OtlpAttr[];
-}
-interface OtlpMetric {
-  name?: string;
-  sum?: { dataPoints?: OtlpDataPoint[] };
-  gauge?: { dataPoints?: OtlpDataPoint[] };
-}
-interface OtlpResourceMetrics {
-  resource?: { attributes?: OtlpAttr[] };
-  scopeMetrics?: { metrics?: OtlpMetric[] }[];
-}
 export interface OtlpMetricsBody {
   resourceMetrics?: OtlpResourceMetrics[];
-}
-
-/** Flatten OTLP attribute list into a plain string map. */
-function attrMap(attrs: OtlpAttr[] | undefined): Record<string, string> {
-  const m: Record<string, string> = {};
-  for (const a of attrs ?? []) {
-    if (!a?.key || !a.value) continue;
-    const v = a.value;
-    if (typeof v.stringValue === "string") m[a.key] = v.stringValue;
-    else if (v.intValue != null) m[a.key] = String(v.intValue);
-    else if (v.doubleValue != null) m[a.key] = String(v.doubleValue);
-    else if (v.boolValue != null) m[a.key] = String(v.boolValue);
-  }
-  return m;
 }
 
 /** Why a datapoint could not be turned into a usage record. Reported back to the caller so an
@@ -83,15 +44,6 @@ export function resolveGitRepo(raw: string | undefined): { repo: string } | { re
 export function repoFromGitAttr(raw: string | undefined): string | null {
   const r = resolveGitRepo(raw);
   return "repo" in r ? r.repo : null;
-}
-
-function dpValue(dp: OtlpDataPoint): number {
-  if (dp.asInt != null) {
-    const n = Number(dp.asInt);
-    return Number.isFinite(n) ? n : 0;
-  }
-  if (dp.asDouble != null) return Number.isFinite(dp.asDouble) ? dp.asDouble : 0;
-  return 0;
 }
 
 function dpDayMs(dp: OtlpDataPoint, fallbackMs: number): number {

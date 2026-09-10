@@ -1,3 +1,4 @@
+import { attrMap, dpValue, type OtlpDataPoint, type OtlpResourceMetrics } from "./otlp-wire";
 // OTLP/JSON → per-session ATTEMPT rows (W3a). The session-scoped sibling of otlp.ts's day-bucket
 // mapping, folded out of the SAME export in one pass by the caller.
 //
@@ -47,56 +48,8 @@ const SESSION_METRICS = new Set([
   "claude_code.pull_request.count",
   "claude_code.lines_of_code.count",
 ]);
-
-interface OtlpValue {
-  stringValue?: string;
-  intValue?: string | number;
-  doubleValue?: number;
-  boolValue?: boolean;
-}
-interface OtlpAttr {
-  key?: string;
-  value?: OtlpValue;
-}
-interface OtlpDataPoint {
-  asInt?: string | number;
-  asDouble?: number;
-  timeUnixNano?: string | number;
-  attributes?: OtlpAttr[];
-}
-interface OtlpMetric {
-  name?: string;
-  sum?: { dataPoints?: OtlpDataPoint[] };
-  gauge?: { dataPoints?: OtlpDataPoint[] };
-}
-interface OtlpResourceMetrics {
-  resource?: { attributes?: OtlpAttr[] };
-  scopeMetrics?: { metrics?: OtlpMetric[] }[];
-}
 export interface SessionsBody {
   resourceMetrics?: OtlpResourceMetrics[];
-}
-
-function attrMap(attrs: OtlpAttr[] | undefined): Record<string, string> {
-  const m: Record<string, string> = {};
-  for (const a of attrs ?? []) {
-    if (!a?.key || !a.value) continue;
-    const v = a.value;
-    if (typeof v.stringValue === "string") m[a.key] = v.stringValue;
-    else if (v.intValue != null) m[a.key] = String(v.intValue);
-    else if (v.doubleValue != null) m[a.key] = String(v.doubleValue);
-    else if (v.boolValue != null) m[a.key] = String(v.boolValue);
-  }
-  return m;
-}
-
-function dpValue(dp: OtlpDataPoint): number {
-  if (dp.asInt != null) {
-    const n = Number(dp.asInt);
-    return Number.isFinite(n) ? n : 0;
-  }
-  if (dp.asDouble != null) return Number.isFinite(dp.asDouble) ? dp.asDouble : 0;
-  return 0;
 }
 
 function dpMs(dp: OtlpDataPoint, fallbackMs: number): number {
