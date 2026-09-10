@@ -114,3 +114,37 @@ it("continues monotonic note IDs after the four-digit boundary", () => {
   expect(readFileSync(join(memory, "9999-existing.md"), "utf8")).toBe("existing fact\n");
   expect(readFileSync(join(memory, "10001-second-later-fact.md"), "utf8")).toContain("id: 10001\n");
 });
+
+function git(root: string, ...args: string[]) {
+  const result = spawnSync("git", args, { cwd: root, encoding: "utf8", timeout: 10_000 });
+  expect(result.status, result.stderr).toBe(0);
+  return result.stdout.trim();
+}
+
+it.each([
+  ["src/caf\u00e9", "worktree"], ["src/caf\u00e9", "pushed"],
+  [" spaced", "worktree"], [" spaced", "pushed"],
+])("checks changed files under %j in the %s range", (modulePath, mode) => {
+  const root = fixture();
+  mkdirSync(join(root, modulePath), { recursive: true });
+  writeFileSync(join(root, modulePath, "file.ts"), "before\n");
+  writeFileSync(join(root, modulePath, "CONTEXT.md"), "Original context\n");
+  writeFileSync(join(root, ".ai/context-index.json"), JSON.stringify({ modules: [
+    { id: "module", path: modulePath, context: `${modulePath}/CONTEXT.md` },
+  ] }));
+  git(root, "init", "--quiet");
+  git(root, "config", "core.quotePath", "true");
+  git(root, "add", ".");
+  const commit = () => git(root, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--quiet", "-m", "fixture");
+  commit();
+  const before = git(root, "rev-parse", "HEAD");
+  writeFileSync(join(root, modulePath, "file.ts"), "after\n");
+  if (mode === "pushed") { git(root, "add", "."); commit(); }
+  const after = git(root, "rev-parse", "HEAD");
+  const result = spawnSync(process.execPath, [".ai/maintain.mjs", "check", "--strict"], {
+    cwd: root, encoding: "utf8", timeout: 10_000,
+    input: mode === "pushed" ? `refs/heads/main ${after} refs/heads/main ${before}\n` : "",
+  });
+  expect(result.status, result.stdout + result.stderr).toBe(1);
+  expect(result.stdout).toContain('CONTEXT may be stale for "module"');
+});

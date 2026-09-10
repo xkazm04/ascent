@@ -27,7 +27,7 @@ ${GUIDANCE_PARSER_SOURCE}
 const cmd = process.argv[2] || 'check';
 const MEM = '.ai/memory';
 const INDEX = '.ai/context-index.json';
-const git = (a) => { try { return execSync('git ' + a, { encoding: 'utf8' }).trim(); } catch { return ''; } };
+const git = (a, raw = false) => { try { const out = execSync('git ' + a, { encoding: 'utf8' }); return raw ? out : out.trim(); } catch { return ''; } };
 const dirOf = (p) => { const i = p.lastIndexOf('/'); return i < 0 ? '.' : p.slice(0, i); };
 const loadIndex = () => { try { return JSON.parse(readFileSync(INDEX, 'utf8')); } catch { return { modules: [] }; } };
 const readStdin = () => { try { return readFileSync(0, 'utf8'); } catch { return ''; } };
@@ -61,20 +61,21 @@ function rangeFor(r) {
 
 function changed() {
   const files = new Set();
-  const add = (out) => { for (const f of out.split('\\n')) { const t = f.trim(); if (t) files.add(t); } };
+  // NUL records preserve Git's actual paths: no C-style quoting or whitespace trimming.
+  const add = (out) => { for (const f of out.split('\\0')) { if (f) files.add(f); } };
   // 1) PRE-PUSH: git pipes the pushed refs on stdin as "<localRef> <localSha> <remoteRef> <remoteSha>".
   //    Diff each pushed range - the commits about to leave this machine. A TTY stdin means there is no
   //    pushed-ref payload (an interactive run), so we never block trying to read it.
   const refs = process.stdin.isTTY ? [] : parsePushLines(readStdin());
-  if (refs.length) { for (const r of refs) add(git('diff --name-only ' + rangeFor(r))); return [...files]; }
+  if (refs.length) { for (const r of refs) add(git('diff --name-only -z ' + rangeFor(r), true)); return [...files]; }
   // 2) PRE-PUSH under a hook runner that did NOT forward stdin: if HEAD is committed ahead of its push/
   //    upstream ref AND the worktree is otherwise clean, diff those unpushed commits (a clean worktree
   //    diffs to nothing - the whole bug). A dirty tree falls through to (3), so pre-commit/manual survive.
   const base = git('rev-parse --verify --quiet @{push}') || git('rev-parse --verify --quiet @{upstream}');
-  if (base && !git('status --porcelain')) { add(git('diff --name-only ' + base + '..HEAD')); return [...files]; }
+  if (base && !git('status --porcelain')) { add(git('diff --name-only -z ' + base + '..HEAD', true)); return [...files]; }
   // 3) MANUAL run or a PRE-COMMIT placement: the uncommitted working tree + staged index (what it can see).
-  add(git('diff --name-only HEAD'));
-  add(git('diff --name-only --cached'));
+  add(git('diff --name-only -z HEAD', true));
+  add(git('diff --name-only -z --cached', true));
   return [...files];
 }
 

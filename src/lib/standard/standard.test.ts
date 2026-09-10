@@ -321,14 +321,14 @@ describe("maintain (self-maintaining upkeep)", () => {
     expect(body).toContain("process.stdin.isTTY");
     expect(body).toContain("parsePushLines");
     // Diffs a RANGE (remoteSha..localSha via rangeFor, or base..HEAD), not just the working tree.
-    expect(body).toContain("diff --name-only ' + rangeFor(r)");
+    expect(body).toContain("diff --name-only -z ' + rangeFor(r), true");
     expect(body).toContain("@{push}");
     expect(body).toContain("@{upstream}");
     expect(body).toContain("'..HEAD'");
     // Detects pre-commit / manual (a dirty tree) rather than guessing, so those placements still work.
     expect(body).toContain("status --porcelain");
     // The worktree + index diff survives ONLY as the manual/pre-commit fallback.
-    expect(body).toContain("diff --name-only --cached");
+    expect(body).toContain("diff --name-only -z --cached");
   });
 
   it("parsePushLines turns git's pre-push stdin into ranges, dropping deletions and junk", () => {
