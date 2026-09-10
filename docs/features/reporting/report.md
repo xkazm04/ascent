@@ -7,6 +7,10 @@ judgment → blended result), contributor AI attribution, PR signals, and a prio
 roadmap. With a database, it also shows score history over time, a "what changed" diff
 between any two scans, and per-dimension trends.
 
+The comparison's unchanged verdict includes adoption, rigor and deterministic signal scores,
+even when the overall score and posture stay flat. Signal-only movement receives its own
+attribution without inventing changes in named detector evidence.
+
 All charts are **dependency-free inline SVG** (no D3/recharts) to keep the bundle small.
 
 ## Pages

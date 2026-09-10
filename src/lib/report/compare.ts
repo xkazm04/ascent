@@ -289,8 +289,9 @@ function buildAttribution(
   disappeared: string[],
 ): string | null {
   const moved = delta !== null && delta !== 0;
+  const signalMoved = signalDelta !== null && signalDelta !== 0;
   const signalsChanged = appeared.length > 0 || disappeared.length > 0;
-  if (!moved && !signalsChanged) return null;
+  if (!moved && !signalMoved && !signalsChanged) return null;
   const head = delta !== null ? `${id} ${signed(delta)}` : id;
 
   // Score moved but the deterministic evidence didn't: attribute it to the LLM judgment
@@ -453,6 +454,8 @@ export function diffScans(before: ComparableScan, after: ComparableScan): ScanDi
 
   const unchanged =
     overall.delta === 0 &&
+    before.adoptionScore === after.adoptionScore &&
+    before.rigorScore === after.rigorScore &&
     !((beforeLevel.id !== afterLevel.id) || (beforePosture.id !== afterPosture.id)) &&
     closedGapCount === 0 &&
     openedGapCount === 0 &&
@@ -461,7 +464,7 @@ export function diffScans(before: ComparableScan, after: ComparableScan): ScanDi
     recsMovedToDone.length === 0 &&
     // A dim present on only one side is a change even though its delta is null — see oneSidedDimCount.
     oneSidedDimCount === 0 &&
-    dimensions.every((d) => (d.delta ?? 0) === 0);
+    dimensions.every((d) => (d.delta ?? 0) === 0 && (d.signalDelta ?? 0) === 0);
 
   return {
     overall,
