@@ -91,7 +91,9 @@ export function analyze(map, tracked) {
     contexts: (map.groups ?? []).reduce((n, g) => n + (g.contexts?.length ?? 0), 0),
     groups: (map.groups ?? []).length,
     mappable: mappable.length,
-    mapped: mapped.size,
+    // Coverage counts the same eligible population on both sides; docs and dead entries
+    // may belong to the taxonomy but cannot inflate its source-coverage numerator.
+    mapped: mappable.length - unmapped.length,
     unmapped,
     unmappedPct: mappable.length ? (unmapped.length / mappable.length) * 100 : 0,
     dead,
