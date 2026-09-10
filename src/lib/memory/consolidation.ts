@@ -122,8 +122,10 @@ export function tokenize(text: string): string[] {
  * either side has no meaningful tokens.
  */
 export function overlapScore(a: string, b: string): number {
-  const A = new Set(tokenize(a));
-  const B = new Set(tokenize(b));
+  return tokenSetOverlap(new Set(tokenize(a)), new Set(tokenize(b)));
+}
+
+function tokenSetOverlap(A: ReadonlySet<string>, B: ReadonlySet<string>): number {
   if (A.size === 0 || B.size === 0) return 0;
   let hits = 0;
   for (const t of A) if (B.has(t)) hits++;
@@ -135,10 +137,11 @@ export function overlapScore(a: string, b: string): number {
  * is what bounds the LLM prompt — and, when no LLM is reachable, it IS the answer. Pure.
  */
 export function shortlist(content: string, candidates: MemoryCandidate[]): DuplicateMatch[] {
+  const proposedTokens = new Set(tokenize(content));
   return candidates
     .map((c) => ({
       id: c.id,
-      similarity: Number(overlapScore(content, c.content).toFixed(3)),
+      similarity: Number(tokenSetOverlap(proposedTokens, new Set(tokenize(c.content))).toFixed(3)),
       relation: "unrelated" as MemoryRelation,
       reason: "Token overlap with an existing memory.",
     }))

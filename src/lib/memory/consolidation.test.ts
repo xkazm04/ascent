@@ -63,6 +63,16 @@ describe("overlapScore", () => {
 });
 
 describe("shortlist — bounds what reaches the model", () => {
+  it("preserves repeated-word semantics and input order for equal scores", () => {
+    const items = [mem("first", "kůň běží"), mem("second", "žluťoučký kůň"), mem("empty", "the of and")];
+    const result = shortlist("KŮŇ, kůň!", items);
+    expect(result.map(({ id, similarity }) => ({ id, similarity }))).toEqual([
+      { id: "first", similarity: 1 }, { id: "second", similarity: 1 },
+    ]);
+    expect(shortlist("the of and", items)).toEqual([]);
+    expect(shortlist("běží", items).map(({ id }) => id)).toEqual(["first"]);
+  });
+
   it("drops candidates under the noise floor and ranks the rest strongest-first", () => {
     const out = shortlist("supabase oauth login wall", [
       mem("m1", "kubernetes ingress certificate rotation"), // unrelated → filtered
