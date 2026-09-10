@@ -76,49 +76,54 @@ export function captureCli(a: CaptureArgs): Promise<string> {
     let err = "";
     let outBytes = 0;
     let errBytes = 0;
+    let settled = false;
     const outDecoder = new StringDecoder("utf8");
     const errDecoder = new StringDecoder("utf8");
     const timer = setTimeout(() => {
-      child.kill("SIGKILL");
-      reject(new CliRunError("timeout", `${a.label} timed out.`));
+      fail(new CliRunError("timeout", `${a.label} timed out.`), true);
     }, a.timeoutMs);
 
     // Client disconnected — kill the spawned process so an abandoned call doesn't keep a
     // (subscription-billed) CLI run going to completion.
     const onAbort = () => {
-      child.kill("SIGKILL");
-      reject(new CliRunError("aborted", `${a.label} aborted.`, a.signal?.reason ?? new Error(`${a.label} aborted.`)));
+      fail(new CliRunError("aborted", `${a.label} aborted.`, a.signal?.reason ?? new Error(`${a.label} aborted.`)), true);
     };
     a.signal?.addEventListener("abort", onAbort, { once: true });
     const cleanup = () => {
       clearTimeout(timer);
       a.signal?.removeEventListener("abort", onAbort);
     };
+    const fail = (error: CliRunError, terminate = false) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (terminate) child.kill("SIGKILL");
+      reject(error);
+    };
 
     child.stdout.on("data", (d) => {
-      if (outBytes > MAX_OUT_BYTES) return; // already over cap and being killed — stop accumulating
+      if (settled) return;
       const chunk = typeof d === "string" ? Buffer.from(d) : d;
       outBytes += chunk.length;
       if (outBytes > MAX_OUT_BYTES) {
-        child.kill("SIGKILL");
-        cleanup();
-        reject(new CliRunError("output-cap", `${a.label} output exceeded ${MAX_OUT_BYTES} bytes (possible runaway output).`));
+        fail(new CliRunError("output-cap", `${a.label} output exceeded ${MAX_OUT_BYTES} bytes (possible runaway output).`), true);
         return;
       }
       out += outDecoder.write(chunk);
     });
     child.stderr.on("data", (d) => {
-      if (errBytes >= MAX_ERR_BYTES) return;
+      if (settled || errBytes >= MAX_ERR_BYTES) return;
       const chunk = typeof d === "string" ? Buffer.from(d) : d;
       const prefix = chunk.subarray(0, MAX_ERR_BYTES - errBytes);
       errBytes += prefix.length;
       err += errDecoder.write(prefix); // only a bounded prefix is ever retained
     });
     child.on("error", (e) => {
-      cleanup();
-      reject(new CliRunError("spawn", e.message, e));
+      fail(new CliRunError("spawn", e.message, e));
     });
     child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
       out += outDecoder.end();
       err += errDecoder.end();
       cleanup();
@@ -130,8 +135,7 @@ export function captureCli(a: CaptureArgs): Promise<string> {
     // stdin; writing to a broken pipe emits an 'error' on child.stdin which, unhandled, becomes an
     // uncaught exception that tears down the whole Node process — not just this call. Handle it.
     child.stdin.on("error", (e) => {
-      cleanup();
-      reject(new CliRunError("spawn", e.message, e));
+      fail(new CliRunError("spawn", e.message, e), true);
     });
     if (!child.stdin.destroyed) {
       child.stdin.write(a.stdin);

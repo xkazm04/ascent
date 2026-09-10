@@ -228,6 +228,8 @@ load-bearing.
 
 Output limits count bytes, and streaming UTF-8 decoding preserves characters split across
 chunks. Stderr retains only its bounded prefix, including when one chunk exceeds the cap.
+Abort, timeout and input-delivery failure clear cancellation resources immediately and
+request child termination; late events cannot replace the first terminal result.
 
 Both adapters are routed: `claude-cli` through `src/lib/llm/claude-cli.ts` and `codex-cli`
 through `src/lib/llm/codex-cli.ts` (see the provider sections above). Schema-constrained
