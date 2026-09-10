@@ -512,6 +512,8 @@ cannot use the CLI/CI push path even though it can author through the UI.
 Skill ranking applies dimension affinity only to declared categories. Unknown category
 strings receive no affinity bonus. Results tied on relevance, adoption, downloads,
 and name use skill ID as the final tie-breaker, so input order cannot shuffle them.
+Category badges also validate before looking up curated labels: unknown or legacy
+strings are humanized as text, including names that match JavaScript object members.
 
 `POST /api/mcp` is an MCP server implementing revision **2026-07-28**. It exists because ascent
 already ships the org's standard as *files in a PR* (the `.ai/` foundation, practice starters,
