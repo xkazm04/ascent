@@ -780,6 +780,7 @@ export async function dispatchAlert(
   message: AlertMessage,
   opts: { signal?: AbortSignal; webhookUrl?: string | null; org?: string | null } = {},
 ): Promise<boolean> {
+  if (opts.signal?.aborted) return false;
   const url = resolveAlertWebhook(opts.webhookUrl);
   if (!url) return false;
   // EMAIL SINK (G7-01). Branch before the POST, and reach the mail transport through a DYNAMIC import:
@@ -798,6 +799,7 @@ export async function dispatchAlert(
     }
     try {
       const { dispatchAlertEmail } = await import("./email/alert-sink");
+      if (opts.signal?.aborted) return false;
       return await dispatchAlertEmail(to, message, { org: opts.org ?? null });
     } catch (err) {
       console.error("[alerts] email dispatch error", err instanceof Error ? err.message : err);

@@ -5,6 +5,9 @@ and (if a webhook sink is configured) posts an alert. Detection is a pure, unit-
 function over a scan diff; delivery is a separate integration layer that never lets an
 alerting failure break the scan.
 
+Delivery skips work already cancelled by the scan caller, including cancellation while the
+email transport loads. A send already handed to the email provider cannot be recalled.
+
 ## Detection (`src/lib/alerts.ts`)
 
 `detectRegression(diff, thresholds)` → `RegressionVerdict { regressed, severity, reasons[] }`
