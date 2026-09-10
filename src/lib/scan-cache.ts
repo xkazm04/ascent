@@ -26,9 +26,9 @@ import type { ScanReport } from "@/lib/types";
  * ages out on commit). The in-memory tier keeps its own short TTL; this gate is the durable one.
  */
 export function scanMaxCacheAgeMs(): number {
-  const days = Number(process.env.SCAN_MAX_CACHE_AGE_DAYS);
-  const d = Number.isFinite(days) && days >= 0 ? days : 7;
-  return d * 24 * 60 * 60 * 1000;
+  const raw = process.env.SCAN_MAX_CACHE_AGE_DAYS?.trim();
+  const ageMs = raw ? Number(raw) * 86_400_000 : NaN;
+  return Number.isFinite(ageMs) && ageMs >= 0 ? ageMs : 7 * 86_400_000;
 }
 
 /** Is a persisted scan still within the max cache age? Stale (or unparseable) → re-scan. Pure. */

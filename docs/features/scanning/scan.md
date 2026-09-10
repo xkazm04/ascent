@@ -713,6 +713,8 @@ the {provider, model, rubric} scoring identity and the optional `!scope` segment
 
 Both tiers apply the same **max cache age** (`SCAN_MAX_CACHE_AGE_DAYS`, default 7; set 0 to
 disable): a report older than the gate is a miss and re-scans even when the head hasn't moved.
+Blank, invalid, negative or overflowing overrides use the seven-day default; disabling the gate
+requires an explicit zero.
 The memory TTL bounds how long an *entry* lives; the age gate bounds how old the *report*
 inside it may be, so a DB hit that warms memory can't keep serving a report past the gate.
 
