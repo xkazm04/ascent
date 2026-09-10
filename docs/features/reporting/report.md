@@ -11,6 +11,9 @@ The comparison's unchanged verdict includes adoption, rigor and deterministic si
 even when the overall score and posture stay flat. Signal-only movement receives its own
 attribution without inventing changes in named detector evidence.
 
+Streamed report validation checks each discrepancy's dimension and claim before rendering.
+Malformed entries produce a report error instead of reaching the discrepancy UI.
+
 All charts are **dependency-free inline SVG** (no D3/recharts) to keep the bundle small.
 
 ## Pages
