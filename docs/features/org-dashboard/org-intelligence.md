@@ -2728,3 +2728,6 @@ with no numeral where `forecastInsufficiency` refuses to state one.
 The Claude Code setup snippet quotes the complete authorization header and endpoint for
 the shell. Copying it preserves the bearer token, including the space after `Bearer`;
 the displayed snippet continues to mask credentials until explicitly revealed.
+
+Telemetry outside the supported metric set is counted as skipped. It does not create
+measured usage rows or add seats to a supported metric's bucket.

@@ -125,7 +125,10 @@ export function parseOtlpMetrics(body: OtlpMetricsBody, fallbackMs: number): Otl
         const known = KNOWN_METRICS.has(metric.name ?? "");
         for (const dp of dps) {
           received++;
-          if (!known) skipped["unknown-metric"]++;
+          if (!known) {
+            skipped["unknown-metric"]++;
+            continue;
+          }
           const day = dpDayMs(dp, fallbackMs);
           const key = `${repo} ${day}`;
           const b = buckets.get(key) ?? { repo, day, tokens: 0, costCents: 0, sessions: 0, users: new Set<string>() };

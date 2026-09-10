@@ -158,6 +158,24 @@ describe("parseOtlpMetrics — skip reporting", () => {
     expect(r.records).toHaveLength(1);
   });
 
+  it("does not manufacture measured usage from an export containing only unknown metrics", () => {
+    const r = parseOtlpMetrics({ resourceMetrics: [resource("acme/api", [{ name: "unknown.counter", count: 3 }])] }, FALLBACK);
+    expect(r.received).toBe(3);
+    expect(r.skipped["unknown-metric"]).toBe(3);
+    expect(r.records).toEqual([]);
+  });
+
+  it("does not count users whose only datapoints were skipped", () => {
+    const unknown = resource("acme/api", [{ name: "unknown.counter", count: 1 }]);
+    const known = resource("acme/api", [{ name: "claude_code.token.usage", count: 1 }]);
+    unknown.resource.attributes.push({ key: "user.email", value: { stringValue: "alice@example.test" } });
+    known.resource.attributes.push({ key: "user.email", value: { stringValue: "bob@example.test" } });
+    const r = parseOtlpMetrics({ resourceMetrics: [unknown, known] }, FALLBACK);
+    expect(r.received).toBe(2);
+    expect(r.skipped["unknown-metric"]).toBe(1);
+    expect(r.records[0]!.seats).toBe(1);
+  });
+
   it("counts datapoints of metrics outside the allowlist (reported, still not stored)", () => {
     const r = parseOtlpMetrics(
       {
