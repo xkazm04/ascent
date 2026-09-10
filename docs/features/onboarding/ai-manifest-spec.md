@@ -99,6 +99,8 @@ guidance:
 
 The projection command accepts LF and CRLF manifests, including a `guidance` block at the
 start of the document. Canonical document bytes remain unchanged when projecting and hashing.
+Only declared `guidance.projections` rows are generated and have their hashes updated;
+agent-shaped rows in other sections or extension fields remain untouched.
 
 The header each projection carries records **two** hashes, and the pair is what makes drift
 diagnosable rather than merely visible:

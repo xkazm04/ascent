@@ -58,3 +58,22 @@ describe("emitted maintain script: guidance projection", () => {
     expect(readFileSync(join(root, ".ai/manifest.yaml"), "utf8")).toBe(updatedManifest);
   });
 });
+
+it("preserves agent-shaped extension rows outside guidance.projections", () => {
+  const root = fixture();
+  const foreign = '    - { agent: custom, path: FOREIGN.md, generatedFrom: other.md, hash: "human-owned" }';
+  const before = ["extensionBefore:", "  agents:", foreign, ""].join("\n");
+  const inside = ["  extension:", "    projections:", "  " + foreign, ""].join("\n");
+  const after = ["extensionAfter:", "  agents:", foreign, ""].join("\n");
+  writeFileSync(join(root, "AGENTS.md"), "# Canonical\n");
+  writeFileSync(join(root, ".ai/manifest.yaml"), before + manifest("\n") + inside + after);
+  const result = run(root, "project");
+  expect(result.status, result.stderr).toBe(0);
+  const updated = readFileSync(join(root, ".ai/manifest.yaml"), "utf8");
+  expect(updated).toContain(before);
+  expect(updated).toContain(inside);
+  expect(updated).toContain(after);
+  expect(updated).not.toContain('hash: "old"');
+  expect(existsSync(join(root, "FOREIGN.md"))).toBe(false);
+  expect(result.stdout).toContain("Projected 1 file(s)");
+});

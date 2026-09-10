@@ -154,18 +154,35 @@ if (cmd === 'project') {
   const MPATH = '.ai/manifest.yaml';
   if (!existsSync(MPATH)) { console.error('no ' + MPATH + ' - nothing to project from'); process.exit(2); }
   const mtext = readFileSync(MPATH, 'utf8');
-  const gblock = mtext.split(/(?:^|\\r?\\n)guidance:[ \\t]*\\r?\\n/)[1];
-  if (!gblock) { console.log('[INFO] no guidance block in ' + MPATH + ' - nothing to project. Add: guidance: { canonical, projections }'); process.exit(0); }
+  const lines = mtext.split('\\n');
+  const start = lines.findIndex((line) => /^guidance:[ \\t]*\\r?$/.test(line));
+  if (start < 0) { console.log('[INFO] no guidance block in ' + MPATH + ' - nothing to project. Add: guidance: { canonical, projections }'); process.exit(0); }
+  let end = start + 1;
+  while (end < lines.length && !/^[^\\s#]/.test(lines[end])) end++;
+  const content = lines.slice(start + 1, end);
+  const indentOf = (line) => line.match(/^[ \\t]*/)[0].length;
+  const fieldIndent = Math.min(...content.filter((line) => line.trim() && !/^\\s*#/.test(line)).map(indentOf));
+  const gblock = content.filter((line) => indentOf(line) === fieldIndent).join('\\n');
   const cm = gblock.match(/^\\s+canonical:\\s*(.+)$/m);
   const canonical = cm ? cm[1].trim().replace(/^"|"$/g, '') : '';
   if (!canonical || !existsSync(canonical)) { console.error('guidance.canonical is missing or does not resolve: ' + canonical); process.exit(1); }
   const sourceBody = readFileSync(canonical, 'utf8');
   const sha12 = (t) => createHash('sha256').update(t, 'utf8').digest('hex').slice(0, 12);
   const rows = [];
-  for (const line of gblock.split('\\n')) {
+  const projectionRows = new Set();
+  let projectionIndent = null;
+  for (let i = start + 1; i < end; i++) {
+    const line = lines[i];
+    const heading = line.match(/^([ \\t]+)projections:[ \\t]*\\r?$/);
+    if (heading && heading[1].length === fieldIndent) { projectionIndent = fieldIndent; continue; }
+    if (projectionIndent === null || !line.trim() || /^\\s*#/.test(line)) continue;
+    const indent = line.match(/^[ \\t]*/)[0].length;
+    if (indent <= projectionIndent) { projectionIndent = null; continue; }
     const m = line.match(/^\\s+-\\s*\\{\\s*agent:\\s*([^,]+),\\s*path:\\s*([^,]+),/);
-    if (m) rows.push({ agent: m[1].trim().replace(/^"|"$/g, ''), path: m[2].trim().replace(/^"|"$/g, '') });
-    else if (/^[^\\s#]/.test(line)) break;
+    if (m) {
+      rows.push({ agent: m[1].trim().replace(/^"|"$/g, ''), path: m[2].trim().replace(/^"|"$/g, '') });
+      projectionRows.add(i);
+    }
   }
   if (!rows.length) { console.log('[INFO] guidance.projections is empty - declare the vendor files to generate, then re-run.'); process.exit(0); }
   // Cursor .mdc files need their own front matter FIRST; it is not part of the projected body and so
@@ -189,8 +206,8 @@ if (cmd === 'project') {
   }
   // Write the source hash back into the manifest's projection rows, so the declared hash and the
   // generated files agree. A row whose hash is already current is left byte-identical.
-  const updated = mtext.split('\\n').map((line) => {
-    if (!/^\\s+-\\s*\\{\\s*agent:/.test(line)) return line;
+  const updated = lines.map((line, i) => {
+    if (!projectionRows.has(i)) return line;
     return line.replace(/hash:\\s*("(?:[^"\\\\]|\\\\.)*"|[^},]*)/, 'hash: "' + srcHash + '"');
   }).join('\\n');
   if (updated !== mtext) writeFileSync(MPATH, updated, 'utf8');
