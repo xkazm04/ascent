@@ -238,7 +238,8 @@ into its worktree before it exits:
 - **Skips are asked for as first-class answers.** A skip with a reason stops the item being
   re-dispatched next cycle; an unexplained attempt does not. The verdict is the agent's *account*, not
   the ruling — a row still closes only when the rescan stops raising the gap and the dimension moved.
-- **The file is never committed.** It is added to the worktree's `.git/info/exclude`, not to a
+- **The report is excluded from ordinary staging.** Its pattern is added to the effective
+  `info/exclude` path resolved by Git (shared by linked worktrees), not to a
   `.gitignore` (which would itself be a change to the repository, landing in every branch the lane
   produces). The contract also tells the session not to commit it; the exclude is the second belt.
 - **The parser never throws.** No file, `"{"`, a megabyte blob, an id outside the dispatched batch —

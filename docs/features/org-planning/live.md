@@ -1686,8 +1686,8 @@ will POST when #3 lands, so that lane extends this contract rather than forking 
 (`src/lib/local/lane-report.ts`) never throws: a missing file, `"{"`, a megabyte blob and an array
 where an object belongs all return `parsed: false` or drop the entry. **The batch is the report's
 authorization boundary** — an id the lane never dispatched is dropped, because an agent cannot
-adjudicate rows it was not given. The file is added to the worktree's `.git/info/exclude` so it never
-lands on the deliverable branch.
+adjudicate rows it was not given. The report pattern is added to Git's effective `info/exclude`
+path, including the shared location for linked worktrees, to keep it out of ordinary staging.
 
 **Per-item verdicts** (`LaneItemOutcome`, `src/lib/db/lane-outcomes.ts`). One row per dispatched id,
 in this precedence: the rescan closed it → `resolved` (**the verifier outranks the claim, always**);
