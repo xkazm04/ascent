@@ -13,6 +13,13 @@ control (W1c) moved to the Briefing tab.
 
 Everything below is what still exists in this area and what it is for.
 
+## Maturity forecasts
+
+Forecasts average observations within each UTC calendar day before fitting the trend.
+Scan timestamps on adjacent UTC dates count as distinct days even when less than 24 hours apart;
+multiple scans on one date contribute one daily mean. The projection remains anchored at the
+latest actual observation, and the existing point-count and span requirements still apply.
+
 ## Goals
 
 A goal is a fleet-level target. Its progress is **live**: recomputed from the latest scan

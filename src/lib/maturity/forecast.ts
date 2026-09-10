@@ -131,9 +131,10 @@ export function forecastTrajectory(series: SeriesPoint[], horizonDays = 90, nowM
     .sort((a, b) => a.t - b.t);
   if (parsed.length < 2) return null;
 
-  // Collapse to one point per calendar day (mean), indexed by whole days from the first day.
-  const firstT = parsed[0]!.t; // safe: parsed.length >= 2 checked above
-  const dayMeans = meanPerDayKey(parsed, (p) => Math.floor((p.t - firstT) / DAY_MS));
+  // Collapse by UTC calendar day, not rolling 24-hour windows from the first scan's time.
+  const firstDay = Math.floor(parsed[0]!.t / DAY_MS); // safe: parsed.length >= 2 checked above
+  const dayOffset = (p: { t: number }) => Math.floor(p.t / DAY_MS) - firstDay;
+  const dayMeans = meanPerDayKey(parsed, dayOffset);
   const xs = [...dayMeans.keys()].sort((a, b) => a - b);
   if (xs.length < 2) return null; // every observation landed on one day → no slope to read
   const ys = xs.map((d) => dayMeans.get(d)!); // safe: d ∈ dayMeans.keys()
@@ -141,7 +142,7 @@ export function forecastTrajectory(series: SeriesPoint[], horizonDays = 90, nowM
   // to stop the day's mean being a straight measurement. Counted, never weighted — MIN_FORECAST_POINTS
   // and the lowData rule see the same n they always did.
   const compactedDays = new Set<number>();
-  for (const p of parsed) if (p.compacted) compactedDays.add(Math.floor((p.t - firstT) / DAY_MS));
+  for (const p of parsed) if (p.compacted) compactedDays.add(dayOffset(p));
 
   // Ordinary least squares over (dayOffset, score).
   const n = xs.length;

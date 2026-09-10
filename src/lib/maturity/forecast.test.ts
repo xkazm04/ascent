@@ -30,6 +30,31 @@ function series(start: number, step: number, count: number, startDate = "2026-01
 const atLast = (s: SeriesPoint[]) => Date.parse(s[s.length - 1]!.date);
 
 describe("forecastTrajectory", () => {
+  it("fits calendar-day means even when the first scan is late in the day", () => {
+    const f = forecastTrajectory([
+      { date: "2026-01-02T20:00:00Z", value: 70, compacted: true },
+      { date: "2026-01-01T18:00:00Z", value: 40 },
+      { date: "2026-01-03T00:30:00Z", value: 80, compacted: true },
+      { date: "2026-01-02T06:00:00Z", value: 50, compacted: true },
+    ])!;
+    expect(f).toMatchObject({ points: 3, compactedPoints: 2, spanDays: 2, perDay: 20, current: 80, lowData: false });
+  });
+
+  it("counts adjacent UTC dates separately even when less than 24 hours apart", () => {
+    const f = forecastTrajectory([
+      { date: "2026-01-01T23:30:00Z", value: 50 },
+      { date: "2026-01-02T00:30:00Z", value: 51 },
+    ]);
+    expect(f).toMatchObject({ points: 2, spanDays: 1, perDay: 1, lowData: true });
+  });
+
+  it("uses the UTC date of offset timestamps, not their written local date", () => {
+    expect(forecastTrajectory([
+      { date: "2026-01-01T08:00:00Z", value: 50 },
+      { date: "2026-01-02T01:00:00+02:00", value: 60 },
+    ])).toBeNull();
+  });
+
   it("returns null without at least two distinct days", () => {
     expect(forecastTrajectory([])).toBeNull();
     expect(forecastTrajectory(series(50, 1, 1))).toBeNull();
