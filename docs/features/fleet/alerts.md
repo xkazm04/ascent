@@ -8,6 +8,9 @@ alerting failure break the scan.
 Delivery skips work already cancelled by the scan caller, including cancellation while the
 email transport loads. A send already handed to the email provider cannot be recalled.
 
+Scan and conformance alerts carry the owning organization into email delivery, so their
+explanation, settings destination and signed unsubscribe link refer to that organization.
+
 ## Detection (`src/lib/alerts.ts`)
 
 `detectRegression(diff, thresholds)` → `RegressionVerdict { regressed, severity, reasons[] }`

@@ -65,6 +65,7 @@ describe("alertConformanceRegressions", () => {
     mockList.mockResolvedValue([FAILING, PASSING]); // newest-first
 
     expect(await alertConformanceRegressions("acme", "acme/billing")).toBe(true);
+    expect(mockDispatch).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ org: "acme" }));
 
     const [message] = mockDispatch.mock.calls[0]!;
     expect(message.text).toContain("acme/billing");
