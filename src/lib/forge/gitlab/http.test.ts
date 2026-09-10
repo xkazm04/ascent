@@ -4,6 +4,13 @@ import { gitlabGet, gitlabGetSoft, gitlabPaged, projectRef } from "./http";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("GitLab transport", () => {
+  it.each([500, 503])("does not expose the configured host or repository path on upstream %i", async (status) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status })));
+    await expect(gitlabGet("/projects/private%2Fproject", {
+      host: { apiBase: "https://internal.gitlab.example/api/v4", webBase: "https://internal.gitlab.example" },
+    })).rejects.toMatchObject({ code: "UPSTREAM", status, message: `GitLab returned ${status}. Please try again.` });
+  });
+
   it("uses the self-managed API root and passes credentials without caching the response", async () => {
     const fetch = vi.fn().mockResolvedValue(Response.json({ id: 7 }, { headers: { "x-request-id": "r7" } }));
     vi.stubGlobal("fetch", fetch);

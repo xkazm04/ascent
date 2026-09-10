@@ -5,6 +5,9 @@ third "forge" (self-hosted mode). Bitbucket and Azure DevOps are contract-ready 
 
 Source: `src/lib/forge/**`. Prisma: `Repository.forge` / `Repository.externalId`, `Installation`.
 
+GitLab upstream failures use fixed user-facing messages with the HTTP status; configured API hosts
+and request paths are not included in those messages. Rate-limit errors retain their retry delay.
+
 ---
 
 ## Why this exists
