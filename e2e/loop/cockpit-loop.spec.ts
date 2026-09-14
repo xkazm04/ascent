@@ -130,35 +130,35 @@ test("a bounded run installs the foundation, and the ledger refuses to call a mo
   await cockpit.getByTestId("cockpit-effort").selectOption("low");
 
   await cockpit.getByRole("button", { name: "Run (1 repo)" }).click();
-  await expect(cockpit.getByText(/Run · (running|done)/)).toBeVisible();
 
-  // The run: worktree → install → commit → rescan. The rail switches to the outcome when it settles.
-  await expect(cockpit.getByText(/Outcome · done/)).toBeVisible({ timeout: 300_000 });
+  // The run: worktree → install → commit → rescan. There is no outcome RAIL any more (wave-2): the
+  // run lands as a column of the full-width outcome SHEET under the grid, and the rail goes back to
+  // the inspector. The in-flight "Run · running" panel is not asserted — a foundation lane can
+  // settle before the first poll, so that panel may never paint (it did not, in CI run 34870857552).
+  const outcome = cockpit.getByRole("region", { name: "Loop outcome" });
+  const column = outcome.getByRole("button", { name: /^Run 1 .*· done/ });
+  await expect(column).toBeVisible({ timeout: 300_000 });
 
-  // WHAT THE LIFT WAS PRODUCED UNDER. Resolved at arm time and persisted on the row, so the ledger
-  // can say it long after the process that drove the run is gone.
-  // It renders in two places, which is the design: beside the outcome's timestamp AND under the run's
-  // row in the history strip, because comparing two lifts means comparing two setups.
-  await expect(cockpit.getByText("haiku · low effort").first()).toBeVisible();
+  // WHAT THE LIFT WAS PRODUCED UNDER. Resolved at arm time and persisted on the row, so the sheet
+  // can say it long after the process that drove the run is gone — on the run's own column header,
+  // because comparing two runs means comparing two setups.
+  await expect(column).toContainText("haiku · low effort");
 
   // The headline refuses to claim anything: every scan here is a mock scan, so nothing is
-  // attributable and the one lane is reported as excluded rather than as zero movement.
-  await expect(cockpit.getByText("attributable lift")).toBeVisible();
-  await expect(cockpit.getByText(/excluded: 1 mock scan/)).toBeVisible();
+  // attributable and the takeaway says so rather than reporting zero movement as a result.
+  await expect(outcome.getByRole("heading", { name: /no attributable lift yet/ })).toBeVisible();
 
-  // The ledger row: the lane's kind, the refusal in place of a coloured delta, and the provenance.
-  // Anchored on the refusal itself, which nothing but the ledger row renders — the fleet list on the
-  // left also carries the repo's name.
-  const row = cockpit.locator("li").filter({ hasText: "not attributable: mock scan" }).first();
-  await expect(row).toContainText(FIXTURE_REPO);
-  await expect(row.getByText(".ai/ foundation", { exact: true })).toBeVisible();
-  await expect(row.getByText(/engine mock/)).toBeVisible();
-  // A local rescan cannot observe the GitHub-side platform fold and there is nothing to carry, so
-  // D2/D3/D4 are declared unmeasurable rather than scored at a floor the repo cannot raise.
-  await expect(row.getByText(/not measurable locally/)).toBeVisible();
+  // The project row: the refusal word in place of a coloured delta, and the commit footnote.
+  // Scoped to the outcome region — the fleet list on the left also carries the repo's name.
+  const project = outcome.getByRole("row", { name: new RegExp(FIXTURE_REPO) });
+  await expect(project.getByText("mock scan", { exact: true })).toBeVisible();
   // Real work landed: a commit on a real branch.
-  await expect(row.getByText(/[1-9]\d* commits/)).toBeVisible();
-  await expect(row.getByText(/ascent\/loop-/)).toBeVisible();
+  await expect(project.getByText(/[1-9]\d* commits? · /)).toBeVisible();
+  // The lane's deliverable is its own gap row, and it is COMMITTED, not merely claimed.
+  await expect(outcome.getByRole("rowheader", { name: "Installed the .ai/ foundation" })).toBeVisible();
+  await expect(outcome.getByRole("cell", { name: /Installed, committed/ })).toBeVisible();
+  // (D2/D3/D4 "not measurable locally" is no longer printed in the cockpit; the last spec asserts it
+  // on the mapping door's `green.repos[].unmeasurable`.)
 
   // THE BRANCH IS THE DELIVERABLE — verified in the repository itself, not from the screen.
   const branch = await theLoopBranch(fixtureDir);
@@ -168,9 +168,8 @@ test("a bounded run installs the foundation, and the ledger refuses to call a mo
   const mainTree = await git(fixtureDir, ["ls-tree", "-r", "--name-only", "main"]);
   expect(mainTree).not.toContain(".ai/manifest.yaml");
 
-  // ITERATE: back to the inspector with the selection intact — the run you just watched is the
-  // selection you want to run again.
-  await cockpit.getByRole("button", { name: "Back to inspect" }).click();
+  // ITERATE: the rail never left the inspector, and the selection is intact — the run you just watched
+  // is the selection you want to run again.
   // Two counters read "1 selected" (the fleet list's and the inspector's) — either proves the point.
   await expect(cockpit.getByText("1 selected").first()).toBeVisible();
   await expect(cockpit.getByRole("button", { name: "Run (1 repo)" })).toBeEnabled();
