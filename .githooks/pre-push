@@ -36,5 +36,17 @@ npm run verify || {
   exit 1
 }
 
+# English copy gate (docs/i18n/style-en.md): new error-level copy findings block; the baseline holds
+# existing debt. The checker is a gitignored registry link, absent in fresh clones - skip LOUDLY.
+if [ -f .claude/skills/native-copy/scripts/copy-check.mjs ]; then
+  echo "pre-push: running the copy gate: npm run copy:check..." >&2
+  npm run copy:check || {
+    echo "pre-push: copy:check found new copy errors — push to master blocked (see docs/i18n/style-en.md)." >&2
+    exit 1
+  }
+else
+  echo "pre-push: native-copy checker not installed - copy gate SKIPPED (run ai-registry/scripts/link-registry.mjs)" >&2
+fi
+
 echo "pre-push: gate green — pushing." >&2
 exit 0
