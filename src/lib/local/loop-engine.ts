@@ -46,6 +46,9 @@ import {
 } from "@/lib/db/loop-runs";
 import type { LoopModelPolicy, LoopTarget } from "@/lib/db/loop-runs-types";
 import type { LoopDelivery } from "@/lib/local/delivery-options";
+// ADR-0001 — the hosted gate. The pure decision table and the IO that feeds it are separate modules
+// on purpose: `hostedGateBlock` is a table a test can walk, and nothing in it can reach a database.
+import { hostedBlockReason, hostedGateBlock, type HostedBlock, type HostedGateFacts } from "@/lib/local/hosted-gate";
 import { batchSizeOf, verifyModeOf, type VerifyMode } from "@/lib/local/run-limits";
 // The guard's baseline cache is keyed by worktree DIRECTORY and lives for the life of the process, so
 // the one place that deletes a worktree is the one place that must forget its entry.
@@ -338,6 +341,132 @@ export async function startRemoteRun(input: StartRemoteRunInput): Promise<LoopRu
     });
   }
   await recordAudit("loop.remote_run_started", { runId: run.id, repos, actor: input.actor ?? null }, { orgId: run.orgId });
+  return run;
+}
+
+/** A refusal `startHostedRun` returns instead of a run. Carried rather than thrown so the route can
+ *  answer with the block's OWN status code — 402 is fixable with money, 403 with a decision, 409 not
+ *  by the caller at all, and collapsing all three into the 409 every other throw here becomes would
+ *  tell an out-of-credit org that the server was busy. */
+export class HostedRunRefused extends Error {
+  constructor(
+    readonly block: HostedBlock,
+    message: string,
+  ) {
+    super(message);
+    this.name = "HostedRunRefused";
+  }
+}
+
+export interface StartHostedRunInput {
+  org: string;
+  repos: string[];
+  /** The proposed batch per repo, from `/propose`. Stamped on each lane at arm time. */
+  batches?: Record<string, string[]>;
+  actor?: string | null;
+  /** What the caller asked for. Anything but `pr` (or omitted) is refused — see the gate table. */
+  delivery?: LoopDelivery | null;
+  /** Test seam. Omitted = the real readers in hosted-dispatch.ts. */
+  deps?: Partial<HostedRunDeps>;
+}
+
+export interface HostedRunDeps {
+  facts: (org: string) => Promise<HostedGateFacts>;
+  firstUnadmitted: (org: string, repos: readonly string[]) => Promise<string | null>;
+}
+
+// IMPORTED LAZILY, AND THAT IS A DECISION RATHER THAN A STYLE. `hosted-dispatch.ts` is the IO half of
+// the gate: it reaches `@/lib/db/credits` and `@/lib/db/org-admission`, and a static import here would
+// put the whole Prisma surface on the import graph of a module that, for `local` and `remote-agent`
+// runs, never needs it. The hosted gate's DECISION table (`hosted-gate.ts`) stays statically imported
+// because it is pure. Reading it the other way round is also true: every caller who injects `deps`
+// — the tests — gets a `startHostedRun` that touches no database module at all, not even to load one.
+const defaultHostedDeps: HostedRunDeps = {
+  facts: async (org) => (await import("@/lib/local/hosted-dispatch")).resolveHostedFacts(org),
+  firstUnadmitted: async (org, repos) => (await import("@/lib/local/hosted-dispatch")).firstUnadmittedRepo(org, repos),
+};
+
+/**
+ * ARM A RUN ASCENT CLOUD ITSELF WILL GET WORKED (ADR-0001) — `startRemoteRun`'s shape with the gate
+ * table in front of it.
+ *
+ * The body is deliberately thin, because the decision this function embodies is that hosted dispatch
+ * is NOT A SECOND ENGINE. Ascent still starts no process, opens no worktree and reads no filesystem;
+ * the lanes land in `curating` exactly as a customer-armed remote run's do, and the only difference
+ * on the row is `executor: "hosted-worker"` — which says who was asked, and is what keeps Ascent's
+ * dispatcher and a customer's own harness out of each other's lanes.
+ *
+ * WHAT IT ADDS OVER `startRemoteRun`, and each one is a row of ADR-0001 §2:
+ *   • a worker must exist on this deployment, or the lane would sit queued forever;
+ *   • the org must be entitled (the per-org opt-in `ASCENT_AUTOPILOT` could not express);
+ *   • the org must have credit headroom, refused HERE rather than discovered mid-cycle;
+ *   • every repo must carry a recorded `agents-allowed` admission — the cloud proof that stands in
+ *     for "this checkout is paired and we are allowed to edit it";
+ *   • delivery is `pr`, full stop. `land` fast-forwards into a working copy hosted does not have,
+ *     and a hosted agent must never write to a customer's default branch.
+ *
+ * `requireOrgRole("owner")` is NOT repeated here for the same reason `startRemoteRun` does not repeat
+ * it: it is the route's, it was already tenancy-correct, and it applies to every executor.
+ */
+export async function startHostedRun(input: StartHostedRunInput): Promise<LoopRunRecord> {
+  const org = input.org.trim().toLowerCase();
+  const repos = [...new Set(input.repos.map((r) => r.trim()).filter(Boolean))];
+  if (repos.length === 0) throw new Error("Pick at least one repository for the run.");
+
+  // DELIVERY IS CHECKED FIRST, before any IO: it is a property of the REQUEST, and a caller who asked
+  // for `land` gets told what is wrong with their request rather than what is wrong with their plan.
+  if (input.delivery != null && input.delivery !== "pr") {
+    throw new HostedRunRefused("delivery-not-pr", hostedBlockReason("delivery-not-pr"));
+  }
+
+  const deps = { ...defaultHostedDeps, ...input.deps };
+  const block = hostedGateBlock(await deps.facts(org));
+  if (block) throw new HostedRunRefused(block, hostedBlockReason(block));
+
+  const unadmitted = await deps.firstUnadmitted(org, repos);
+  if (unadmitted) throw new HostedRunRefused("repo-not-admitted", hostedBlockReason("repo-not-admitted", unadmitted));
+
+  // ONE ACTIVE RUN PER ORG, AND HERE THAT MEANS ONE — not `active && live.has(active.id)`, which is
+  // what `startRemoteRun` asks. That predicate reads "a run THIS process is driving", and no external
+  // run ever is, so it lets a second one be armed on top of the first. A hosted run spends Ascent's
+  // money, so it takes the strict reading ADR-0001's contract states. The cost of the strict reading
+  // is that a wedged `curating` run blocks its org until someone stops it — which is exactly why
+  // ADR-0001 puts the lease reaper (T7) in the same slice as the drain, and why no dispatcher is
+  // registered before it exists.
+  const active = await getActiveLoopRun(org);
+  if (active) throw new Error(`A loop run is already active for ${org}.`);
+
+  const run = await createLoopRun({
+    orgSlug: org,
+    repos,
+    // Every hosted lane is a `backlog` lane, for `startRemoteRun`'s reason: `foundation` and
+    // `practice` are deterministic installs Ascent performs in a worktree it owns, and there is none.
+    targets: repos.map<LoopTarget>((repo) => ({ repo, kind: "backlog", practiceId: null })),
+    concurrency: repos.length,
+    maxCycles: 1,
+    curated: Boolean(input.batches),
+    createdBy: input.actor ?? null,
+    // HONEST NULLS, unchanged from the remote path. ADR-0001 leaves the provider a hosted worker runs
+    // explicitly open, so Ascent has not chosen a model here either and must not record one.
+    model: null,
+    effort: null,
+    modelPolicy: "single",
+    models: [],
+    phase: "curating",
+    delivery: "pr",
+  });
+  if (!run) throw new Error("A hosted run requires a database.");
+
+  for (const repo of repos) {
+    await upsertLane({
+      runId: run.id,
+      repoFullName: repo,
+      cycle: 1,
+      executor: "hosted-worker",
+      batchIds: input.batches?.[repo] ?? [],
+    });
+  }
+  await recordAudit("loop.hosted_run_started", { runId: run.id, repos, actor: input.actor ?? null }, { orgId: run.orgId });
   return run;
 }
 

@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { layoutBodies, type ObservatoryHistory, type ObservatorySeed } from "../observatory";
-import { cockpitSetupState } from "./cockpitGate";
+import { canDriveLocally, cockpitDispatchMode, cockpitSetupState, type CockpitGateInput } from "./cockpitGate";
 import { driftFor, scanningRepos, type CockpitDrift } from "./cockpitDrift";
 import { lastDriveRunId } from "./driveModel";
 import { useDrive } from "./useDrive";
@@ -64,7 +64,24 @@ export function useCockpit(input: UseCockpitInput) {
   );
 
   const loop = useLoopRun({ slug, initialActive: activeRun, initialRuns: runs, initialEnabled: loopEnabled, onSettled: settle });
-  const setup = cockpitSetupState({ selfHosted, repoCount: seeds.length, isOwner, enabled: loop.enabled, pairedCount: paired.size });
+  // ONE gate input, read by three questions that must never disagree: which card blocks the rail,
+  // what this cockpit may START, and whether the DRIVE is available. Before ADR-0001 those were the
+  // same boolean because there was only one kind of run; now `hosted` clears the rail without
+  // clearing the drive, and building the input once is what keeps that distinction from being
+  // re-derived (differently) in three places.
+  const gate: CockpitGateInput = {
+    selfHosted,
+    repoCount: seeds.length,
+    isOwner,
+    enabled: loop.enabled,
+    pairedCount: paired.size,
+    hosted: loop.hosted,
+  };
+  const setup = cockpitSetupState(gate);
+  const dispatchMode = cockpitDispatchMode(gate);
+  // The `hosted-not-enabled` card renders the SERVER's sentence, because only the server knows which
+  // of plan / credit / admission refused. Every other card keeps the route's own error copy.
+  const setupMessage = setup === "hosted-not-enabled" ? loop.hosted?.reason ?? null : loop.error;
 
   const driveSettled = useCallback(
     async (status: DriveStatus) => {
@@ -81,16 +98,27 @@ export function useCockpit(input: UseCockpitInput) {
     [loop, seeds, histories, router],
   );
 
-  const drive = useDrive({ slug, enabled: setup == null, onSettled: driveSettled });
+  // `canDriveLocally`, NOT `setup == null`. A drive is a sequence of LOCAL runs, each spawning
+  // `claude -p` inside a paired working copy on this server — a hosted org has no such copy, and
+  // before ADR-0001 the two questions had the same answer so the looser predicate was harmless. It
+  // is not harmless now: clearing the rail for a hosted org would otherwise have offered it a drive
+  // that could never start.
+  const drive = useDrive({ slug, enabled: canDriveLocally(gate), onSettled: driveSettled });
   useEffect(() => {
     driveLive.current = drive.live;
   }, [drive.live]);
 
+  // THE EXECUTOR IS STAMPED HERE, not in the panel that collects the dials. Which engine works a run
+  // is a property of the DEPLOYMENT AND THE TENANT, already decided by the gate above; a run panel
+  // that had to ask would be re-deriving the gate a fourth time. `delivery` is forced with it because
+  // ADR-0001 makes hosted pr-only — the route refuses `land` and `branch` with a 400, and arming a
+  // request the server is certain to reject would be showing the operator an error instead of a run.
   const startRun = async (i: StartLoopInput) => {
     setMode("run");
     setDrift(null);
     setDriveOutcome(null);
-    if (!(await loop.start(i))) setMode("inspect");
+    const armed: StartLoopInput = dispatchMode === "hosted" ? { ...i, executor: "hosted", delivery: "pr" } : i;
+    if (!(await loop.start(armed))) setMode("inspect");
   };
 
   const startDrive = async (i: StartDriveInput) => {
@@ -140,6 +168,14 @@ export function useCockpit(input: UseCockpitInput) {
     drive,
     mode,
     setup,
+    setupMessage,
+    dispatchMode,
+    // MAY THIS VIEWER ARM A RUN? It used to read `isOwner && loop.enabled`, and `loop.enabled` is
+    // `autopilotEnabled()` — a fact about THIS SERVER's env, which governs the `local` mode alone. A
+    // hosted org's authority comes from the server's own `hosted` answer, already folded into
+    // `dispatchMode`, so asking ASCENT_AUTOPILOT about it would disable the very button ADR-0001
+    // exists to enable. Ownership stays, unchanged and for both modes: the route enforces it anyway.
+    canRun: isOwner && dispatchMode != null,
     bodies,
     paired,
     selected,

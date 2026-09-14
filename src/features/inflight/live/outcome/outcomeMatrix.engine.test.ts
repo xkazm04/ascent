@@ -45,6 +45,22 @@ describe("runEngineLabel", () => {
     expect(runEngineLabel(lanes)).toBe("remote agent");
   });
 
+  // ADR-0001. A hosted run is worked by a claimant ASCENT dispatched rather than one the customer
+  // stood up, and the label is deliberately as reticent as `remote agent`: the provider a hosted
+  // worker runs is chosen by the dispatcher and recorded nowhere on the row, so naming a model here
+  // would be the same fabricated claim "claude CLI" would be.
+  it("names a hosted run hosted, and still asserts no engine for it", () => {
+    const lanes = [lane({ id: "a", executor: "hosted-worker" }), lane({ id: "b", executor: "hosted-worker" })];
+    expect(runEngineLabel(lanes)).toBe("hosted worker");
+  });
+
+  // A hosted lane is EXTERNAL, so a run that mixes it with a local one is still unnameable — the
+  // check that matters is that it does not fall through to "claude CLI" on the local majority.
+  it("refuses to pick a majority on a run that mixes local and hosted lanes", () => {
+    const lanes = [lane({ id: "a" }), lane({ id: "b", executor: "hosted-worker" })];
+    expect(runEngineLabel(lanes)).toBe("mixed engines");
+  });
+
   it("refuses to pick a majority on a mixed run", () => {
     const lanes = [lane({ id: "a" }), lane({ id: "b", executor: "remote-agent" })];
     expect(runEngineLabel(lanes)).toBe("mixed engines");

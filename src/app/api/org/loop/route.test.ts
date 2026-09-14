@@ -20,7 +20,15 @@ vi.mock("next/server", () => ({
   },
 }));
 
-const gates = { selfHosted: true, autopilot: true, githubApp: true, access: null as unknown, role: null as unknown };
+const gates = {
+  selfHosted: true,
+  autopilot: true,
+  githubApp: true,
+  access: null as unknown,
+  role: null as unknown,
+  // ADR-0001 — what the server answers to "can THIS org dispatch a run Ascent gets worked".
+  hosted: { enabled: false, reason: null as string | null, available: false },
+};
 
 vi.mock("@/lib/api/self-host", () => ({
   selfHostGuard: () => (gates.selfHosted ? null : new Response(JSON.stringify({ error: "Not found." }), { status: 404 })),
@@ -54,14 +62,37 @@ vi.mock("@/lib/local/loop-engine", () => ({
   startLoopRun: vi.fn(async () => ({ id: "run-new", phase: "running", repos: ["acme/web"] })),
   // #3 — the hosted half. A remote run is armed in `curating` and driven by nobody here.
   startRemoteRun: vi.fn(async () => ({ id: "run-remote", phase: "curating", repos: ["acme/web"] })),
+  // ADR-0001 — the run ASCENT dispatches. Same `curating` shape; the difference is the gate table in
+  // front of it, whose refusals the route has to turn into four different status codes.
+  startHostedRun: vi.fn(async () => ({ id: "run-hosted", phase: "curating", repos: ["acme/web"] })),
+  // A REAL class, not a stub: the route branches on `instanceof`, so a mock that returned a plain
+  // object here would make the whole per-block status mapping untestable (and `instanceof undefined`
+  // throws, which would turn every hosted refusal into a 500 without anything failing here).
+  HostedRunRefused: class HostedRunRefused extends Error {
+    block: string;
+    constructor(block: string, message: string) {
+      super(message);
+      this.name = "HostedRunRefused";
+      this.block = block;
+    }
+  },
   stopLoopRun: vi.fn(async () => true),
   retryLane: vi.fn(async () => true),
   isLoopRunLive: vi.fn((id: string) => id === "run-live"),
 }));
+// The IO half of the hosted gate, mocked for the reason every other seam here is: what the route must
+// get right is the SHAPE it reports and the codes it answers with, not what Prisma says about credit.
+vi.mock("@/lib/local/hosted-dispatch", () => ({
+  resolveHostedGate: vi.fn(async () => gates.hosted),
+}));
 
 import { GET, POST } from "./route";
 import { GET as DETAIL } from "./[id]/route";
-import { startLoopRun, startRemoteRun } from "@/lib/local/loop-engine";
+import { HostedRunRefused, startHostedRun, startLoopRun, startRemoteRun } from "@/lib/local/loop-engine";
+// The block vocabulary comes from the PURE gate module, which is deliberately not mocked: these
+// tests assert the route's mapping from block → status, and a locally-invented block string would
+// let the mapping drift from the union the gate can actually produce.
+import type { HostedBlock } from "@/lib/local/hosted-gate";
 
 const post = (body: unknown) =>
   POST(new Request("http://localhost/api/org/loop", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
@@ -75,6 +106,7 @@ beforeEach(() => {
   gates.githubApp = true;
   gates.access = null;
   gates.role = null;
+  gates.hosted = { enabled: false, reason: null, available: false };
 });
 
 describe("the self-host guard runs first — for the executor that needs it", () => {
@@ -103,6 +135,107 @@ describe("the self-host guard runs first — for the executor that needs it", ()
     expect(startRemoteRun).toHaveBeenCalledWith(expect.objectContaining({ org: "acme", repos: ["acme/web"] }));
     // And it NEVER reaches the local engine, which would spawn a process.
     expect(startLoopRun).not.toHaveBeenCalled();
+  });
+
+  // ADR-0001. The THIRD executor, on the same reasoning as the second: a hosted run opens no worktree
+  // and starts no process here, so `selfHostGuard` does not apply — and applying it would 404 the one
+  // surface the managed product exists to offer.
+  it("accepts a hosted start with no self-hosted flag and no autopilot", async () => {
+    gates.selfHosted = false;
+    gates.autopilot = false;
+    const res = await post({ action: "start", org: "acme", repos: ["acme/web"], executor: "hosted" });
+    expect(res.status).toBe(202);
+    expect(startHostedRun).toHaveBeenCalledWith(expect.objectContaining({ org: "acme", repos: ["acme/web"] }));
+    expect(startLoopRun).not.toHaveBeenCalled();
+    expect(startRemoteRun).not.toHaveBeenCalled();
+  });
+});
+
+// ── ADR-0001 §3 — the hosted API contract ────────────────────────────────────────────────────────
+describe("POST /api/org/loop — executor: hosted", () => {
+  const hosted = (body: Record<string, unknown> = {}) =>
+    post({ action: "start", org: "acme", repos: ["acme/web"], executor: "hosted", ...body });
+
+  // 202, NOT 200. The run is armed and `curating`; nothing has been worked yet, and the status code
+  // is the one place the route can say "accepted, not done" without the client parsing a phase.
+  it("answers 202 with the armed run", async () => {
+    const res = await hosted();
+    expect(res.status).toBe(202);
+    expect((await res.json()) as { run: { phase: string } }).toMatchObject({ run: { phase: "curating" } });
+  });
+
+  // EACH GATE ANSWERS WITH ITS OWN CODE. 402 is fixable with money, 403 with a decision, 409 not by
+  // the caller at all — collapsing them into one 409 would tell an out-of-credit org the server was
+  // busy, and an un-entitled one that it should try again later.
+  it.each<[string, HostedBlock, number]>([
+    ["no credit headroom", "no-credit", 402],
+    ["a plan without hosted runs", "not-entitled", 403],
+    ["a repository that is not agents-allowed", "repo-not-admitted", 403],
+    ["a deployment operating no worker", "no-dispatcher", 409],
+    ["a delivery mode that is not pr", "delivery-not-pr", 400],
+  ])("maps %s to its own status", async (_why, block, status) => {
+    vi.mocked(startHostedRun).mockRejectedValueOnce(new HostedRunRefused(block, "Refused."));
+    const res = await hosted();
+    expect(res.status).toBe(status);
+    expect((await res.json()) as { code: string }).toMatchObject({ code: block });
+  });
+
+  // 404 IS RESERVED. `selfHostGuard` answers 404 to mean "this surface does not exist here", and the
+  // premise of hosted dispatch is that it DOES exist on cloud. A refusal must never borrow that code.
+  it("never answers 404 to a hosted start on cloud", async () => {
+    gates.selfHosted = false;
+    vi.mocked(startHostedRun).mockRejectedValueOnce(new HostedRunRefused("not-entitled", "Refused."));
+    expect((await hosted()).status).not.toBe(404);
+  });
+
+  // Anything that is NOT a gate refusal keeps the 409 every arm failure on this route has always
+  // been — an unrecognised failure must not be dressed up as a billing or a permission problem.
+  it("keeps 409 for a failure that is not a gate refusal", async () => {
+    vi.mocked(startHostedRun).mockRejectedValueOnce(new Error("A loop run is already active for acme."));
+    const res = await hosted();
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toMatch(/already active/i);
+  });
+
+  it("still refuses a start with no repos", async () => {
+    expect((await hosted({ repos: [] })).status).toBe(400);
+  });
+
+  // Ownership is the route's, and it applies to every executor — a hosted run's blast radius is a
+  // pull request in the customer's repository, which is not a thing a member may arm.
+  it("still requires owner", async () => {
+    gates.role = new Response(JSON.stringify({ error: "Owner only." }), { status: 403 });
+    expect((await hosted()).status).toBe(403);
+    expect(startHostedRun).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /api/org/loop — the `hosted` fact", () => {
+  // THE FIELD THAT RETIRES THE MISLEADING CARD. The cockpit used to infer dispatch capability from
+  // deployment mode in the browser; this is the server's own answer, and it travels on every read.
+  it("reports the org's hosted-dispatch answer", async () => {
+    gates.hosted = { enabled: true, reason: null, available: true };
+    const res = await get("org=acme");
+    expect((await res.json()) as { hosted: unknown }).toMatchObject({ hosted: { enabled: true, reason: null, available: true } });
+  });
+
+  it("carries the refusal's own sentence when the org may not dispatch", async () => {
+    gates.hosted = { enabled: false, reason: "Add credits to dispatch one.", available: true };
+    const res = await get("org=acme");
+    expect((await res.json()) as { hosted: { reason: string } }).toMatchObject({ hosted: { reason: "Add credits to dispatch one." } });
+  });
+
+  // A READ FAILURE DEGRADES TO REFUSED-WITH-A-REASON, never to an absent field: the gate reads an
+  // absent `hosted` as "an older server" and falls back to the pre-ADR behaviour, so a transient DB
+  // error that dropped the field would silently restore the bug this work removed.
+  it("still answers, refusing, when the hosted read throws", async () => {
+    const { resolveHostedGate } = await import("@/lib/local/hosted-dispatch");
+    vi.mocked(resolveHostedGate).mockRejectedValueOnce(new Error("db down"));
+    const res = await get("org=acme");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { hosted: { enabled: boolean; reason: string | null } };
+    expect(body.hosted.enabled).toBe(false);
+    expect(body.hosted.reason).toBeTruthy();
   });
 });
 

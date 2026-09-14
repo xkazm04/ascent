@@ -45,6 +45,11 @@ export interface CockpitRailProps {
   /** Whether a PR can be opened on this deployment at all — passed straight to the delivery dial. */
   prAvailable?: boolean;
   busy: boolean;
+  /** The copy the SETUP card should render, when it is not the route's own last error — today only
+   *  the hosted gate's `reason`, which is the one refusal the browser cannot re-derive (plan, credit
+   *  and per-repo admission are three walls with three different next actions). `null`/omitted falls
+   *  back to `loopError`, which is what every card rendered before ADR-0001. */
+  setupMessage?: string | null;
   loopError: string | null;
   driveError: string | null;
   onRun: (input: StartLoopInput) => void;
@@ -82,7 +87,7 @@ export function CockpitRail(props: CockpitRailProps) {
       />
     );
   }
-  if (setup) return <CockpitSetup state={setup} slug={props.slug} message={props.loopError} />;
+  if (setup) return <CockpitSetup state={setup} slug={props.slug} message={props.setupMessage ?? props.loopError} />;
   return (
     <>
       {props.interruptedDrive && (

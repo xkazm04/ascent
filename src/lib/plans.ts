@@ -53,7 +53,7 @@ export type PlanBilling = "free" | "subscription" | "custom";
  *  (the fleet dashboard, autoscans, segments, playbooks — see the "advertises but nothing enforces"
  *  table in docs/features/billing/billing.md), and those stay hand-written `extras` precisely so this
  *  union means "enforced" rather than "mentioned". */
-export type PlanCapability = "whiteLabel" | "skillsLibrary" | "memory" | "byom" | "pdfExport";
+export type PlanCapability = "whiteLabel" | "skillsLibrary" | "memory" | "byom" | "pdfExport" | "hostedLoop";
 
 export interface PlanCapabilityMeta {
   id: PlanCapability;
@@ -127,6 +127,20 @@ export const PLAN_CAPABILITIES: Record<PlanCapability, PlanCapabilityMeta> = {
     minPlan: "pro",
     label: "PDF export",
     detail: "Download any saved report as a PDF.",
+  },
+  // ADR-0001 §2. The cloud replacement for `ASCENT_AUTOPILOT=1`: a deployment-wide env var cannot say
+  // "org A opted in, org B did not", and a hosted run dispatches an auto-editing agent into a
+  // customer repository on Ascent's tokens. Team-and-up because that is where the other capabilities
+  // that spend Ascent's inference budget on the customer's behalf already sit, and because a hosted
+  // run is the paid tier's answer to the self-hoster's local loop — the one thing cloud OPERATES that
+  // a `git clone` does not hand you for free. Self-hosted short-circuits to allowed like every other
+  // capability (see the SELF-HOSTED note atop this file): a self-hoster who registers their own
+  // dispatcher is not held back by a tier, and one who does not still sees `available: false`.
+  hostedLoop: {
+    id: "hostedLoop",
+    minPlan: "team",
+    label: "Hosted loop runs",
+    detail: "Dispatch improvement-loop runs from Ascent Cloud — no self-hosting, no agent of your own.",
   },
 };
 
@@ -485,6 +499,13 @@ export function planAllowsByom(plan: string | null | undefined): boolean {
 /** Plans that may export a saved report as a PDF. */
 export function planAllowsPdfExport(plan: string | null | undefined): boolean {
   return planAllows("pdfExport", plan);
+}
+
+/** Plans that may arm a HOSTED loop run — one Ascent Cloud dispatches, rather than one the customer's
+ *  own agent claims. The entitlement half of ADR-0001's gate table; see src/lib/local/hosted-gate.ts
+ *  for the other three (a worker on the deployment, credit headroom, per-repo admission). */
+export function planAllowsHostedLoop(plan: string | null | undefined): boolean {
+  return planAllows("hostedLoop", plan);
 }
 
 /**
