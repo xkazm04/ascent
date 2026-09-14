@@ -23,7 +23,19 @@ test("header nav routes to the pricing page @smoke", async ({ page }) => {
   // (2026-08-14, "Enterprise becomes Custom"); this assertion kept naming it and had been red ever
   // since — invisibly, because the only place it ran was smoke.yml's post-deploy job. Wiring e2e
   // into PR CI is what surfaced it.
-  await expect(page.getByRole("heading", { name: /Pick the tier that fits your fleet/ })).toBeVisible();
+  //
+  // /pricing renders one of two pages by `selfHosted()` (src/lib/env.ts): the hosted tier page, or
+  // SelfHostPricingBlueprint. The PR e2e job sets neither ASCENT_SELF_HOSTED nor POLAR_ACCESS_TOKEN, so
+  // the server infers self-hosted and the tier heading never renders — this assertion was red on
+  // every master push since the self-host page shipped, while prod smoke (billing configured) got the
+  // tier page. Pin the h1 of whichever mode the server is in: the route must resolve to a real
+  // pricing page either way, and a mis-route or crash still fails.
+  await expect(
+    page.getByRole("heading", {
+      level: 1,
+      name: /Pick the tier that fits your fleet|This install has every tier switched on/,
+    }),
+  ).toBeVisible();
 });
 
 // Deliberately NOT @smoke: this and the next test run a real scan (GitHub ingest + live LLM engine
