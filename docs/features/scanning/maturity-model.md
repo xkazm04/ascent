@@ -138,6 +138,7 @@ pointers, nominates a canonical source, and computes a deterministic `coherence`
 - **Guidance quality** is graded on the **canonical** document (or, when the canonical is a pointer
   file, on what it points at) — not on whichever file matched first. Ascent's own `CLAUDE.md` is the
   single line `@AGENTS.md`; the old detector awarded 22 for that file and then graded that one line.
+  Since `r18` no quality rule pays for length: size alone earns nothing, only what the document says.
 - The `.ai/manifest.yaml` awards (+2 present, +4 declares capabilities + control placement) are
   unchanged.
 
@@ -613,7 +614,7 @@ is not built.
 
 Every scan records the rubric version that produced it (`Scan.rubricVersion`, stamped via
 `src/lib/cache.ts`). It is one short monotonic token, defined in exactly one place:
-`src/lib/maturity/model.ts`. **Current: `r17`.**
+`src/lib/maturity/model.ts`. **Current: `r18`.**
 
 It exists so a cached score always carries the rubric that produced it. A score computed under an
 older rubric is not wrong, it is *not comparable* — so cache reuse, the org corpus, and cross-repo
@@ -636,6 +637,7 @@ genuinely display-only change, but the reasoning belongs in the diff.
 
 | Version | Change |
 | --- | --- |
+| `r18` (2026-09-15) | **D1 stops paying for guidance length.** `guidanceQuality` paid 5 points past 1200 characters and 8 past 4000, beside eight content rules. Two characters of padding across 4000 bought 3 D1 points, and a 4001-character file of filler naming each trigger once reached the grader maximum. Both tiers are removed; the Context Health quality normalizer drops from 56 to 48. D1 falls by up to 8 on repos whose graded document passed 1200 characters. Mock replay of the ten captured bench fixtures: exact level agreement 7/10 to 8/10, within one level 10/10 unchanged. No weight, band, blend or guardband moved. Evidence: [SCORING-VALIDITY.md section 4c](../../SCORING-VALIDITY.md). |
 | `r17` (2026-09-05) | **The ingested file set is a pure function of the tree.** The byte budget used to be spent inside the concurrent fetch pool with an optimistic claim reconciled after each await, so a budget-bound repo read a timing-dependent file set (34–41 files, 4–6 distinct sets on a measured fixture). `planFetchBudget` now plans admission from listed blob sizes before any fetch (44–46 files, one set). No constant moved and nothing was priced, but the deterministic detectors now see more content on budget-bound repos, so scores can move on rescan; the bump keeps r16 rows labelled as the instrument that produced them. |
 | `r16` (2026-09-01) | **A seventh craft axis, `code-health`.** The craft rules require at least one rung under it for any dimension at or above the green floor; nothing priced. The bump exists because the system prompt asks a different question. |
 | `r15` (2026-08-31) | **The first step is asked for, not just leaked into the skeleton.** RC2-N1: r14's `firstStep` existed only as an empty key in the JSON shape and the model returned it on 0 of 9 items on the first live scan. The ROADMAP COVERAGE mandate now requests it explicitly — one sentence, stated as what the move IS (invitational voice preserved), omitted when no single concrete move exists. Prompt-only; no weight, band, blend or guardband moved. |
