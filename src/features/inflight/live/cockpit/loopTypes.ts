@@ -23,10 +23,8 @@ export { deliveryTag } from "@/lib/local/delivery-options";
 // The guard's vocabulary, re-exported for the same reason: ONE declaration of what `rejected` means,
 // so the word on a lane row and the word the engine wrote cannot drift apart.
 export { verifyVerdictTag } from "@/lib/local/verify-options";
-// "Is this lane worked somewhere other than this process?" — ONE declaration, for the reason the
-// vocabulary above is re-exported rather than restated: every caller meant this predicate and each
-// spelled it `=== "remote-agent"` before `hosted-worker` existed, which is exactly how a third
-// executor silently reads as a local one on a board that has never seen it.
+// "Is this lane worked somewhere other than this process?" — ONE declaration: every caller spelled it
+// `=== "remote-agent"` before `hosted-worker` existed, which is how a third executor reads as local.
 import { isExternalExecutor } from "@/lib/db/loop-runs-types";
 export { isExternalExecutor };
 import type { VerifyVerdict } from "@/lib/local/verify-options";

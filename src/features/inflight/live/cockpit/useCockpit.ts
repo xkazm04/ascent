@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { layoutBodies, type ObservatoryHistory, type ObservatorySeed } from "../observatory";
-import { canDriveLocally, cockpitDispatchMode, cockpitSetupState, type CockpitGateInput } from "./cockpitGate";
+import { armedStartInput, canDriveLocally, cockpitDispatchMode, cockpitSetupMessage, cockpitSetupState, type CockpitGateInput } from "./cockpitGate";
 import { driftFor, scanningRepos, type CockpitDrift } from "./cockpitDrift";
 import { lastDriveRunId } from "./driveModel";
 import { useDrive } from "./useDrive";
@@ -79,9 +79,7 @@ export function useCockpit(input: UseCockpitInput) {
   };
   const setup = cockpitSetupState(gate);
   const dispatchMode = cockpitDispatchMode(gate);
-  // The `hosted-not-enabled` card renders the SERVER's sentence, because only the server knows which
-  // of plan / credit / admission refused. Every other card keeps the route's own error copy.
-  const setupMessage = setup === "hosted-not-enabled" ? loop.hosted?.reason ?? null : loop.error;
+  const setupMessage = cockpitSetupMessage(setup, loop.hosted, loop.error);
 
   const driveSettled = useCallback(
     async (status: DriveStatus) => {
@@ -108,17 +106,12 @@ export function useCockpit(input: UseCockpitInput) {
     driveLive.current = drive.live;
   }, [drive.live]);
 
-  // THE EXECUTOR IS STAMPED HERE, not in the panel that collects the dials. Which engine works a run
-  // is a property of the DEPLOYMENT AND THE TENANT, already decided by the gate above; a run panel
-  // that had to ask would be re-deriving the gate a fourth time. `delivery` is forced with it because
-  // ADR-0001 makes hosted pr-only — the route refuses `land` and `branch` with a 400, and arming a
-  // request the server is certain to reject would be showing the operator an error instead of a run.
+  // The executor (and hosted's pr-only delivery) is stamped by the gate module — see armedStartInput.
   const startRun = async (i: StartLoopInput) => {
     setMode("run");
     setDrift(null);
     setDriveOutcome(null);
-    const armed: StartLoopInput = dispatchMode === "hosted" ? { ...i, executor: "hosted", delivery: "pr" } : i;
-    if (!(await loop.start(armed))) setMode("inspect");
+    if (!(await loop.start(armedStartInput(i, dispatchMode)))) setMode("inspect");
   };
 
   const startDrive = async (i: StartDriveInput) => {

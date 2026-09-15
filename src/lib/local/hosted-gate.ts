@@ -37,6 +37,7 @@ export type HostedBlock =
   | "unknown-org"
   | "no-dispatcher"
   | "not-entitled"
+  | "over-ceiling"
   | "no-credit"
   | "repo-not-admitted"
   | "delivery-not-pr";
@@ -50,7 +51,9 @@ export interface HostedGateFacts {
   dispatcherAvailable: boolean;
   /** `planAllows("hostedLoop", plan)` — the per-org opt-in the env var could not express. */
   entitled: boolean;
-  /** Is there headroom to pay for a hosted lane (unlimited plan, or a positive balance)? */
+  /** Is there room under the org's monthly hosted-lane ceiling for at least one more lane? */
+  ceilingHeadroom: boolean;
+  /** Can the org pay for at least one hosted lane (unlimited plan, or a balance covering its reservation)? */
   creditHeadroom: boolean;
 }
 
@@ -61,6 +64,8 @@ export function hostedGateBlock(f: HostedGateFacts): HostedBlock | null {
   // deployment does not operate would be selling them something that cannot be delivered.
   if (!f.dispatcherAvailable) return "no-dispatcher";
   if (!f.entitled) return "not-entitled";
+  // Ceiling before credit, for the reason `decideHostedCharge` gives: buying credits does not lift it.
+  if (!f.ceilingHeadroom) return "over-ceiling";
   if (!f.creditHeadroom) return "no-credit";
   return null;
 }
@@ -75,6 +80,8 @@ export function hostedBlockReason(block: HostedBlock, detail?: string): string {
       return "This deployment operates no hosted worker, so a hosted run would never be picked up. Self-host Ascent to run local lanes, or point your own agent at this org with a remote-agent run.";
     case "not-entitled":
       return "Hosted loop runs are not included in this organization's plan. Upgrade to dispatch runs from Ascent Cloud.";
+    case "over-ceiling":
+      return "This organization has reached its monthly ceiling for hosted loop runs. It resets on the 1st (UTC); a larger plan raises it.";
     case "no-credit":
       return "This organization has no credit headroom, and a hosted run spends credits. Add credits to dispatch one.";
     case "repo-not-admitted":
@@ -95,6 +102,7 @@ export function hostedBlockStatus(block: HostedBlock): number {
     case "not-entitled":
     case "repo-not-admitted":
       return 403;
+    case "over-ceiling":
     case "no-credit":
       return 402;
     case "delivery-not-pr":

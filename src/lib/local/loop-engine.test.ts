@@ -143,6 +143,7 @@ vi.mock("@/lib/local/source", () => ({ LocalFsSource: class {} }));
 
 import { HostedRunRefused, isLoopRunLive, loopRunStopRequested, startHostedRun, startLoopRun, startRemoteRun, stopLoopRun } from "@/lib/local/loop-engine";
 import type { HostedGateFacts } from "@/lib/local/hosted-gate";
+import type { HostedReservation } from "@/lib/db/hosted-credits";
 import { BACKLOG_LANE, type LaneKindProposal } from "@/lib/local/lane-kind";
 import type { LaneDeps } from "@/lib/local/loop-lane";
 
@@ -776,10 +777,13 @@ describe("startRemoteRun — a run Ascent arms and does not drive", () => {
 // this block reaches none of `@/lib/db/credits`, `@/lib/db/org-admission` or Prisma.
 describe("startHostedRun — the gate table", () => {
   /** Every gate open. Each case below shuts exactly one, so a failure names the row that moved. */
-  const open: HostedGateFacts = { orgExists: true, dispatcherAvailable: true, entitled: true, creditHeadroom: true };
-  const deps = (facts: Partial<HostedGateFacts> = {}, unadmitted: string | null = null) => ({
+  const open: HostedGateFacts = { orgExists: true, dispatcherAvailable: true, entitled: true, ceilingHeadroom: true, creditHeadroom: true };
+  const paid: HostedReservation = { ok: true, reservationId: "res-1", charged: 10 };
+  const deps = (facts: Partial<HostedGateFacts> = {}, unadmitted: string | null = null, reservation: HostedReservation = paid) => ({
     facts: async () => ({ ...open, ...facts }),
     firstUnadmitted: async () => unadmitted,
+    reserve: vi.fn(async () => reservation),
+    refund: vi.fn(async () => {}),
   });
 
   it("arms a run in `curating` with one hosted-worker lane per repo", async () => {
@@ -858,7 +862,7 @@ describe("startHostedRun — the gate table", () => {
   it("refuses `land` delivery, and does so without reading a single gate fact", async () => {
     const facts = vi.fn(async () => open);
     await expect(
-      startHostedRun({ org: "acme", repos: ["acme/web"], delivery: "land", deps: { facts, firstUnadmitted: async () => null } }),
+      startHostedRun({ org: "acme", repos: ["acme/web"], delivery: "land", deps: { ...deps(), facts } }),
     ).rejects.toMatchObject({ block: "delivery-not-pr" });
     expect(facts).not.toHaveBeenCalled();
   });
@@ -893,5 +897,76 @@ describe("startHostedRun — the gate table", () => {
   it("de-duplicates a repo named twice rather than opening two lanes for it", async () => {
     const run = await startHostedRun({ org: "acme", repos: ["acme/web", "acme/web"], deps: deps() });
     expect(db.lanes.filter((l) => l.runId === run.id)).toHaveLength(1);
+  });
+});
+
+// ── ADR-0001 T2 — the per-org credit ceiling, in front of every hosted run ─────────────────────────
+//
+// The reservation is the LAST gate and the FIRST write: nothing that refuses earlier may spend, and no
+// run or lane row may exist that was not paid for. `reserve`/`refund` are injected, so this block
+// asserts the ORDER and the all-or-nothing shape; hosted-credits.test.ts asserts the ledger itself.
+describe("startHostedRun — the credit ceiling", () => {
+  const open: HostedGateFacts = { orgExists: true, dispatcherAvailable: true, entitled: true, ceilingHeadroom: true, creditHeadroom: true };
+  const make = (reservation: HostedReservation = { ok: true, reservationId: "res-1", charged: 20 }) => ({
+    facts: vi.fn(async () => open),
+    firstUnadmitted: vi.fn(async () => null),
+    reserve: vi.fn(async () => reservation),
+    refund: vi.fn(async () => {}),
+  });
+
+  it("reserves once for the WHOLE run, sized by the de-duplicated repo set", async () => {
+    const deps = make();
+    await startHostedRun({ org: "Acme", repos: ["acme/web", "acme/api", "acme/web"], actor: "kazimi66", deps });
+    expect(deps.reserve).toHaveBeenCalledTimes(1);
+    expect(deps.reserve).toHaveBeenCalledWith({ orgSlug: "acme", lanes: 2, actor: "kazimi66" });
+    expect(deps.refund).not.toHaveBeenCalled();
+  });
+
+  it.each<[string, "over-ceiling" | "no-credit"]>([
+    ["past its monthly ceiling", "over-ceiling"],
+    ["short of the run's reservation", "no-credit"],
+  ])("refuses an org %s and writes no run and no lane", async (_why, block) => {
+    const before = db.runs.length;
+    const deps = make({ ok: false, block });
+    await expect(startHostedRun({ org: "acme", repos: ["acme/web"], deps })).rejects.toMatchObject({ name: "HostedRunRefused", block });
+    expect(db.runs).toHaveLength(before);
+    expect(db.lanes.filter((l) => l.executor === "hosted-worker")).toHaveLength(0);
+  });
+
+  // Nothing that refuses earlier may spend: a refused run must never have debited anyone.
+  it.each<[string, (d: ReturnType<typeof make>) => void]>([
+    ["an org-level gate", (d) => d.facts.mockResolvedValueOnce({ ...open, entitled: false })],
+    ["an unadmitted repo", (d) => d.firstUnadmitted.mockResolvedValueOnce("acme/web")],
+  ])("does not reserve when %s refuses first", async (_why, shut) => {
+    const deps = make();
+    shut(deps);
+    await expect(startHostedRun({ org: "acme", repos: ["acme/web"], deps })).rejects.toThrow();
+    expect(deps.reserve).not.toHaveBeenCalled();
+  });
+
+  it("does not reserve when the org already has an active run", async () => {
+    await startHostedRun({ org: "acme", repos: ["acme/web"], deps: make() });
+    const deps = make();
+    await expect(startHostedRun({ org: "acme", repos: ["acme/api"], deps })).rejects.toThrow(/already active/i);
+    expect(deps.reserve).not.toHaveBeenCalled();
+  });
+
+  it("gives the reservation back when the run row cannot be written", async () => {
+    const { createLoopRun } = await import("@/lib/db/loop-runs");
+    vi.mocked(createLoopRun).mockRejectedValueOnce(new Error("db down"));
+    const deps = make();
+    await expect(startHostedRun({ org: "acme", repos: ["acme/web"], deps })).rejects.toThrow(/db down/);
+    expect(deps.refund).toHaveBeenCalledWith({ orgSlug: "acme", reservationId: "res-1", charged: 20 });
+  });
+
+  it("records what was charged on the run's audit row", async () => {
+    const { recordAudit } = await import("@/lib/db/scans-audit");
+    vi.mocked(recordAudit).mockClear();
+    await startHostedRun({ org: "acme", repos: ["acme/web"], deps: make() });
+    expect(vi.mocked(recordAudit)).toHaveBeenCalledWith(
+      "loop.hosted_run_started",
+      expect.objectContaining({ reservationId: "res-1", creditsCharged: 20 }),
+      expect.anything(),
+    );
   });
 });

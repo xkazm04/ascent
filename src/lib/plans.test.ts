@@ -8,6 +8,7 @@ import {
   planAllowsSkillsLibrary,
   PLAN_CAPABILITIES,
   PLAN_CAPABILITY_ORDER,
+  PLAN_LISTED_CAPABILITY_ORDER,
   type PlanCapability,
   planAllowsWhiteLabel,
   planAllowsPdfExport,
@@ -268,6 +269,7 @@ const EXPECTED: Record<PlanCapability, Record<string, boolean>> = {
   memory: { free: false, pro: false, team: true, enterprise: true },
   byom: { free: false, pro: false, team: true, enterprise: true },
   pdfExport: { free: false, pro: true, team: true, enterprise: true },
+  hostedLoop: { free: false, pro: false, team: true, enterprise: true },
 };
 
 describe("capability gates — the matrix, unchanged by the move to a table", () => {
@@ -329,7 +331,7 @@ describe("self-hosted: the one gate short-circuits every capability, present and
 // the derivation actually reached the card: a buyer reading a bullet is reading the gate.
 describe("plan cards advertise exactly the capabilities their tier is gated for", () => {
   it("every capability is sold on the card of the tier that first includes it", () => {
-    for (const cap of PLAN_CAPABILITY_ORDER) {
+    for (const cap of PLAN_LISTED_CAPABILITY_ORDER) {
       const meta = PLAN_CAPABILITIES[cap];
       expect(PLAN_FEATURES[meta.minPlan].features, `${cap} on ${meta.minPlan}`).toContain(meta.label);
     }
@@ -347,8 +349,17 @@ describe("plan cards advertise exactly the capabilities their tier is gated for"
   it("a tier's `capabilities` array is what the gate reads, and is cumulative up the ladder", () => {
     expect(PLAN_FEATURES.free.capabilities).toEqual([]);
     expect(PLAN_FEATURES.pro.capabilities).toEqual(["pdfExport"]);
-    expect(PLAN_FEATURES.team.capabilities).toEqual(["whiteLabel", "skillsLibrary", "memory", "byom", "pdfExport"]);
+    expect(PLAN_FEATURES.team.capabilities).toEqual(["whiteLabel", "skillsLibrary", "memory", "byom", "pdfExport", "hostedLoop"]);
     expect(PLAN_FEATURES.enterprise.capabilities).toEqual(PLAN_FEATURES.team.capabilities);
+  });
+
+  // ENFORCED, NOT SOLD. hostedLoop's gate exists before any deployment operates a hosted worker, so
+  // Team includes it at the gate while no card, matrix row or self-host diff row advertises it.
+  it("an unlisted capability is gated but appears on no tier's card", () => {
+    expect(PLAN_LISTED_CAPABILITY_ORDER).not.toContain("hostedLoop");
+    for (const plan of PLAN_ORDER) {
+      expect(PLAN_FEATURES[plan].features).not.toContain(PLAN_CAPABILITIES.hostedLoop.label);
+    }
   });
 
   it("keeps the ungated selling points as prose — they are promises, not entitlements", () => {

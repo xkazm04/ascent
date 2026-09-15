@@ -66,7 +66,10 @@ export function setLaneDispatcher(d: LaneDispatcher | null): void {
   slot.current = d;
 }
 
-/** The installed dispatcher, or null when this deployment operates no hosted worker. */
+/** The installed dispatcher, or null when this deployment operates no hosted worker.
+ *
+ *  A drain must NOT call `.dispatch()` on this directly: `dispatchHostedLane` (hosted-dispatch.ts)
+ *  is the entry point, because it puts the per-org credit ceiling in front of every hand-off. */
 export function getLaneDispatcher(): LaneDispatcher | null {
   return slot.current;
 }

@@ -18,6 +18,7 @@
 // `canDispatch` when it meant the drive is now making a visible mistake rather than an invisible one.
 
 import type { CockpitSetupState } from "./CockpitSetup";
+import type { StartLoopInput } from "./loopClient";
 // The server's answer to "can this org dispatch a run Ascent gets worked" (ADR-0001 §3), imported
 // from the pure module that DECLARES it rather than restated here: the route composes that exact
 // object and this gate branches on two of its three fields, so a local copy is a silent drift.
@@ -79,3 +80,21 @@ export const canDispatch = (o: CockpitGateInput): boolean => cockpitDispatchMode
 /** Can this cockpit start a DRIVE? Local mode only, by construction: a drive is a sequence of local
  *  runs, each spawning `claude -p` inside a paired working copy on this server. */
 export const canDriveLocally = (o: CockpitGateInput): boolean => cockpitDispatchMode(o) === "local";
+
+/** The sentence the setup card shows. The `hosted-not-enabled` card renders the SERVER's sentence,
+ *  because only the server knows which of plan / ceiling / credit / admission refused. Every other card
+ *  keeps the route's own error copy. */
+export function cockpitSetupMessage(setup: CockpitSetupState | null, hosted: HostedDispatchFact | null | undefined, error: string | null): string | null {
+  return setup === "hosted-not-enabled" ? (hosted?.reason ?? null) : error;
+}
+
+/**
+ * THE EXECUTOR IS STAMPED HERE, not in the panel that collects the dials. Which engine works a run is
+ * a property of the DEPLOYMENT AND THE TENANT, already decided by the gate; a run panel that had to ask
+ * would be re-deriving the gate a fourth time. `delivery` is forced with it because ADR-0001 makes
+ * hosted pr-only — the route refuses `land` and `branch` with a 400, and arming a request the server
+ * is certain to reject would be showing the operator an error instead of a run.
+ */
+export function armedStartInput(i: StartLoopInput, mode: CockpitDispatchMode): StartLoopInput {
+  return mode === "hosted" ? { ...i, executor: "hosted", delivery: "pr" } : i;
+}

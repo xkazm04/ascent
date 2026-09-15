@@ -20,7 +20,7 @@ import {
 } from "./hosted-gate";
 
 /** Every gate open. Each case below closes exactly one, so a failure names the row that moved. */
-const open: HostedGateFacts = { orgExists: true, dispatcherAvailable: true, entitled: true, creditHeadroom: true };
+const open: HostedGateFacts = { orgExists: true, dispatcherAvailable: true, entitled: true, ceilingHeadroom: true, creditHeadroom: true };
 
 describe("hostedGateBlock", () => {
   it("passes an org with every gate open", () => {
@@ -31,6 +31,7 @@ describe("hostedGateBlock", () => {
     ["an org that does not exist", { orgExists: false }, "unknown-org"],
     ["a deployment operating no hosted worker", { dispatcherAvailable: false }, "no-dispatcher"],
     ["a plan without the hostedLoop capability", { entitled: false }, "not-entitled"],
+    ["an org past its monthly hosted ceiling", { ceilingHeadroom: false }, "over-ceiling"],
     ["an org with no credit headroom", { creditHeadroom: false }, "no-credit"],
   ];
   it.each(cases)("blocks %s", (_label, over, expected) => {
@@ -45,13 +46,18 @@ describe("hostedGateBlock", () => {
   });
 
   it("reports a missing org before anything else — there is no tenant to judge yet", () => {
-    expect(hostedGateBlock({ orgExists: false, dispatcherAvailable: false, entitled: false, creditHeadroom: false })).toBe("unknown-org");
+    expect(hostedGateBlock({ orgExists: false, dispatcherAvailable: false, entitled: false, ceilingHeadroom: false, creditHeadroom: false })).toBe("unknown-org");
   });
 
   // Money last among the org-level gates: an org that is not entitled cannot buy its way in with
   // credits, so naming the balance first would send the owner to the wrong page.
   it("reports entitlement before credit", () => {
     expect(hostedGateBlock({ ...open, entitled: false, creditHeadroom: false })).toBe("not-entitled");
+  });
+
+  // An org past its ceiling cannot lift it by buying credits, so "add credits" would be the wrong page.
+  it("reports the ceiling before credit", () => {
+    expect(hostedGateBlock({ ...open, ceilingHeadroom: false, creditHeadroom: false })).toBe("over-ceiling");
   });
 });
 
@@ -60,6 +66,7 @@ describe("hostedBlockStatus", () => {
   // at all. Collapsing them would tell an out-of-credit org that the server was busy.
   it("gives money, decision and not-yours their own codes", () => {
     expect(hostedBlockStatus("no-credit")).toBe(402);
+    expect(hostedBlockStatus("over-ceiling")).toBe(402);
     expect(hostedBlockStatus("not-entitled")).toBe(403);
     expect(hostedBlockStatus("repo-not-admitted")).toBe(403);
     expect(hostedBlockStatus("no-dispatcher")).toBe(409);
@@ -71,13 +78,13 @@ describe("hostedBlockStatus", () => {
   // hosted dispatch's whole premise is that it DOES exist on cloud — so a refusal must never borrow
   // that code to mean "refused". Only a missing org, which is genuinely absent, may answer 404.
   it("never answers 404 for a refusal that is not a missing org", () => {
-    const refusals: HostedBlock[] = ["no-dispatcher", "not-entitled", "no-credit", "repo-not-admitted", "delivery-not-pr"];
+    const refusals: HostedBlock[] = ["no-dispatcher", "not-entitled", "over-ceiling", "no-credit", "repo-not-admitted", "delivery-not-pr"];
     for (const b of refusals) expect(hostedBlockStatus(b)).not.toBe(404);
   });
 });
 
 describe("hostedBlockReason", () => {
-  const all: HostedBlock[] = ["unknown-org", "no-dispatcher", "not-entitled", "no-credit", "repo-not-admitted", "delivery-not-pr"];
+  const all: HostedBlock[] = ["unknown-org", "no-dispatcher", "not-entitled", "over-ceiling", "no-credit", "repo-not-admitted", "delivery-not-pr"];
 
   it("gives every block a non-empty sentence", () => {
     for (const b of all) {

@@ -49,6 +49,7 @@ import type { LoopDelivery } from "@/lib/local/delivery-options";
 // ADR-0001 — the hosted gate. The pure decision table and the IO that feeds it are separate modules
 // on purpose: `hostedGateBlock` is a table a test can walk, and nothing in it can reach a database.
 import { hostedBlockReason, hostedGateBlock, type HostedBlock, type HostedGateFacts } from "@/lib/local/hosted-gate";
+import type { HostedReservation } from "@/lib/db/hosted-credits";
 import { batchSizeOf, verifyModeOf, type VerifyMode } from "@/lib/local/run-limits";
 // The guard's baseline cache is keyed by worktree DIRECTORY and lives for the life of the process, so
 // the one place that deletes a worktree is the one place that must forget its entry.
@@ -373,6 +374,10 @@ export interface StartHostedRunInput {
 export interface HostedRunDeps {
   facts: (org: string) => Promise<HostedGateFacts>;
   firstUnadmitted: (org: string, repos: readonly string[]) => Promise<string | null>;
+  /** The per-org ceiling's arm-time debit (ADR-0001 T2). All-or-nothing for the whole run. */
+  reserve: (args: { orgSlug: string; lanes: number; actor?: string | null }) => Promise<HostedReservation>;
+  /** Give a reservation back when the run it paid for was never written. */
+  refund: (args: { orgSlug: string; reservationId: string; charged: number }) => Promise<void>;
 }
 
 // IMPORTED LAZILY, AND THAT IS A DECISION RATHER THAN A STYLE. `hosted-dispatch.ts` is the IO half of
@@ -384,6 +389,8 @@ export interface HostedRunDeps {
 const defaultHostedDeps: HostedRunDeps = {
   facts: async (org) => (await import("@/lib/local/hosted-dispatch")).resolveHostedFacts(org),
   firstUnadmitted: async (org, repos) => (await import("@/lib/local/hosted-dispatch")).firstUnadmittedRepo(org, repos),
+  reserve: async (args) => (await import("@/lib/db/hosted-credits")).reserveHostedRunCredits(args),
+  refund: async (args) => (await import("@/lib/db/hosted-credits")).refundHostedReservation(args),
 };
 
 /**
@@ -399,7 +406,8 @@ const defaultHostedDeps: HostedRunDeps = {
  * WHAT IT ADDS OVER `startRemoteRun`, and each one is a row of ADR-0001 §2:
  *   • a worker must exist on this deployment, or the lane would sit queued forever;
  *   • the org must be entitled (the per-org opt-in `ASCENT_AUTOPILOT` could not express);
- *   • the org must have credit headroom, refused HERE rather than discovered mid-cycle;
+ *   • the org must be under its monthly hosted ceiling AND pay the run's reservation, debited HERE,
+ *     before any row is written, rather than discovered mid-cycle;
  *   • every repo must carry a recorded `agents-allowed` admission — the cloud proof that stands in
  *     for "this checkout is paired and we are allowed to edit it";
  *   • delivery is `pr`, full stop. `land` fast-forwards into a working copy hosted does not have,
@@ -436,6 +444,16 @@ export async function startHostedRun(input: StartHostedRunInput): Promise<LoopRu
   const active = await getActiveLoopRun(org);
   if (active) throw new Error(`A loop run is already active for ${org}.`);
 
+  // THE CEILING (ADR-0001 T2), LAST AMONG THE GATES AND FIRST AMONG THE WRITES. Last, so a refusal on
+  // anything else costs nothing; first, so no run or lane row can exist that was not paid for. The
+  // status facts above only said ONE lane would fit; this is the authoritative, whole-run decision.
+  const reservation = await deps.reserve({ orgSlug: org, lanes: repos.length, actor: input.actor ?? null });
+  if (!reservation.ok) {
+    throw new HostedRunRefused(reservation.block, hostedBlockReason(reservation.block));
+  }
+  const { reservationId, charged } = reservation;
+  const refund = () => deps.refund({ orgSlug: org, reservationId, charged });
+
   const run = await createLoopRun({
     orgSlug: org,
     repos,
@@ -454,8 +472,14 @@ export async function startHostedRun(input: StartHostedRunInput): Promise<LoopRu
     models: [],
     phase: "curating",
     delivery: "pr",
+  }).catch(async (err: unknown) => {
+    await refund();
+    throw err;
   });
-  if (!run) throw new Error("A hosted run requires a database.");
+  if (!run) {
+    await refund();
+    throw new Error("A hosted run requires a database.");
+  }
 
   for (const repo of repos) {
     await upsertLane({
@@ -466,7 +490,11 @@ export async function startHostedRun(input: StartHostedRunInput): Promise<LoopRu
       batchIds: input.batches?.[repo] ?? [],
     });
   }
-  await recordAudit("loop.hosted_run_started", { runId: run.id, repos, actor: input.actor ?? null }, { orgId: run.orgId });
+  await recordAudit(
+    "loop.hosted_run_started",
+    { runId: run.id, repos, actor: input.actor ?? null, reservationId, creditsCharged: charged },
+    { orgId: run.orgId },
+  );
   return run;
 }
 

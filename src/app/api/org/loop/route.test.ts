@@ -169,6 +169,7 @@ describe("POST /api/org/loop — executor: hosted", () => {
   // busy, and an un-entitled one that it should try again later.
   it.each<[string, HostedBlock, number]>([
     ["no credit headroom", "no-credit", 402],
+    ["an org past its monthly hosted ceiling", "over-ceiling", 402],
     ["a plan without hosted runs", "not-entitled", 403],
     ["a repository that is not agents-allowed", "repo-not-admitted", 403],
     ["a deployment operating no worker", "no-dispatcher", 409],
@@ -268,6 +269,9 @@ describe("GET /api/org/loop", () => {
       // active run — there is nothing to wind down.
       stopping: false,
       stopHorizonMs: null,
+      // ADR-0001 §3 — the server's answer to "can this org dispatch?". The mock's default is the
+      // refusal every deployment answers today (no dispatcher registered).
+      hosted: { enabled: false, reason: null, available: false },
     });
   });
 

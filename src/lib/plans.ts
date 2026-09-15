@@ -65,6 +65,10 @@ export interface PlanCapabilityMeta {
   label: string;
   /** One-line explanation, for the credit-matrix row. */
   detail: string;
+  /** Set (to the reason) when the gate is ENFORCED but the capability must not be SOLD yet: it stays
+   *  off the plan cards, the credit matrix and the self-host diff until the reason stops being true.
+   *  A gate that exists before the thing it gates is fine; a pricing page advertising it is not. */
+  unlisted?: string;
 }
 
 /**
@@ -141,11 +145,16 @@ export const PLAN_CAPABILITIES: Record<PlanCapability, PlanCapabilityMeta> = {
     minPlan: "team",
     label: "Hosted loop runs",
     detail: "Dispatch improvement-loop runs from Ascent Cloud — no self-hosting, no agent of your own.",
+    unlisted: "No deployment registers a hosted LaneDispatcher yet (ADR-0001), so a Team buyer would be paying for a run nobody works.",
   },
 };
 
 /** Render/iteration order for capabilities — the declaration order of the table above. */
 export const PLAN_CAPABILITY_ORDER: PlanCapability[] = Object.keys(PLAN_CAPABILITIES) as PlanCapability[];
+
+/** The capabilities a buyer is SHOWN: PLAN_CAPABILITY_ORDER minus the `unlisted` ones. Every surface
+ *  that sells a tier (cards, credit matrix, self-host diff) reads this; the gate reads the full order. */
+export const PLAN_LISTED_CAPABILITY_ORDER: PlanCapability[] = PLAN_CAPABILITY_ORDER.filter((c) => !PLAN_CAPABILITIES[c].unlisted);
 
 /** Capabilities a tier includes: everything whose `minPlan` is at or below it on PLAN_ORDER. */
 function capabilitiesOf(plan: PlanId): PlanCapability[] {
@@ -156,7 +165,7 @@ function capabilitiesOf(plan: PlanId): PlanCapability[] {
 /** Capabilities a tier is the FIRST to include — what its plan card advertises as new at this step of
  *  the ladder. The cards have always listed what a tier adds rather than restating the tier below. */
 export function newCapabilitiesAt(plan: PlanId): PlanCapability[] {
-  return PLAN_CAPABILITY_ORDER.filter((c) => PLAN_CAPABILITIES[c].minPlan === plan);
+  return PLAN_LISTED_CAPABILITY_ORDER.filter((c) => PLAN_CAPABILITIES[c].minPlan === plan);
 }
 
 export interface PlanFeature {

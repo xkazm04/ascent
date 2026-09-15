@@ -84,7 +84,11 @@ Notes, all read directly from the model:
   (`planAllowsWhiteLabel`, `planAllowsSkillsLibrary`, `planAllowsMemory`, `planAllowsByom`,
   `planAllowsPdfExport`) are thin aliases kept so call sites read in domain terms.
   - Current matrix: white-label briefings, skills library, shared org memory and BYOM at **Team and
-    up** (BYOM since 2026-08-19, Custom-only before that); PDF export at **Starter and up**.
+    up** (BYOM since 2026-08-19, Custom-only before that); PDF export at **Starter and up**. Hosted loop
+    runs (`hostedLoop`, ADR-0001) are at **Team and up** at the gate but **`unlisted`**. A capability
+    whose meta carries `unlisted: <reason>` is dropped from `PLAN_LISTED_CAPABILITY_ORDER`, which is
+    what the plan cards, the credit matrix and the self-host diff read. So the gate exists before the
+    thing it gates, and no pricing surface sells it. No deployment operates a hosted worker yet.
   - Adding a capability is a **row in the table**, not a new predicate — which is what removed the
     chance of forgetting the self-hosted short-circuit. **Every capability is open on a self-hosted
     deployment**, because that build sells operation, not features; the short-circuit now exists in
@@ -422,7 +426,14 @@ balance-driven.**
 
 - `Organization.scanCredits` is the balance; `CreditLedger` is the append-only audit trail (`delta`,
   `balanceAfter`, `reason`, `repoFullName`, `scanId`, `actor`, `externalId`). Canonical `reason` values:
-  `CREDIT_REASON.{SCAN, GRANT, ADJUSTMENT, REFUND, POLAR_REFUND}`.
+  `CREDIT_REASON.{SCAN, GRANT, ADJUSTMENT, REFUND, POLAR_REFUND, HOSTED_RUN}`.
+- **Hosted loop runs debit here too (ADR-0001 T2, `src/lib/db/hosted-credits.ts`).** A hosted run
+  reserves `HOSTED_LANE_CREDITS` per lane at arm time, as one conditional debit
+  (`reason: "hosted-run"`, `externalId: hosted:<reservationId>`). If its run row fails to write, the
+  reservation is refunded as a plain `refund` (`hosted-refund:<reservationId>`). Separately, each org
+  has a monthly hosted-lane ceiling by plan (`HOSTED_MONTHLY_CEILING_CREDITS`), which also binds
+  unlimited plans; those are never debited. Both limits answer 402 on `POST /api/org/loop`. See
+  [the Live tab doc](../org-planning/live.md#hosted-runs-adr-0001-gated-metered-and-not-yet-operated).
 - **Every movement is attributed at write time (2026-09-05).** A `scan` debit carries `repoFullName`
   and `actor`; its `refund` carries the same two, so a reversal nets against the debit it reverses
   and per-repo spend can be summed from the ledger alone. Actor vocabulary: the GitHub login for an
