@@ -17,7 +17,7 @@ import {
   normalizeAutoRecharge,
   AUTO_RECHARGE_CHARGES_AUTOMATICALLY,
   type AutoRechargePref,
-} from "./CreditsControl.autorecharge";
+} from "./autorecharge";
 
 const on = (threshold: number): AutoRechargePref => ({ enabled: true, threshold, packProductId: null });
 const off = DEFAULT_AUTO_RECHARGE;

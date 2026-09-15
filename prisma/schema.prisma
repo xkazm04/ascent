@@ -75,7 +75,7 @@ model Organization {
   timezone              String?
   // Low-balance ("auto-recharge") preference as JSON in a TEXT column — the schema's no-jsonb
   // DSQL-safety contract, mirroring `gatePolicy`. Shape: AutoRechargePref
-  // { enabled, threshold, packProductId } (src/components/org/shared/CreditsControl.autorecharge.ts).
+  // { enabled, threshold, packProductId } (src/lib/autorecharge.ts).
   // null = never set → DEFAULT_AUTO_RECHARGE (feature OFF). Previously the preference lived as the most
   // recent `billing.autorecharge` AuditLog row, which cost a findMany per read and put a user SETTING
   // inside the audit trail, where any retention/purge policy could silently erase it (G1-39). The audit

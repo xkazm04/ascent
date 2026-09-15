@@ -733,7 +733,7 @@
             "src/lib/org/teamStandings.ts",
             "src/lib/org/teamStandings.test.ts",
             "src/lib/window.ts",
-            "src/components/org/shared/champions.ts",
+            "src/lib/org/champions.ts",
             "src/lib/org/period.ts",
             "src/components/org/shared/ScopeFilterBar.tsx",
             "src/lib/db/org-contributors.test.ts",
@@ -1597,6 +1597,7 @@
             "src/app/api/org/backlog/route.ts",
             "src/components/org/shared/backlogShared.ts",
             "src/components/org/shared/backlogShared.test.ts",
+            "src/lib/backlog-due.ts",
             "src/lib/db/org-insights-backlog.test.ts",
             "src/app/api/org/backlog/route.test.ts"
           ],
@@ -2527,8 +2528,8 @@
             "src/lib/db/org-settings.ts",
             "src/app/api/billing/autorecharge/route.test.ts",
             "src/app/api/billing/autorecharge/route.ts",
-            "src/components/org/shared/CreditsControl.autorecharge.test.ts",
-            "src/components/org/shared/CreditsControl.autorecharge.ts",
+            "src/lib/autorecharge.test.ts",
+            "src/lib/autorecharge.ts",
             "src/components/org/shared/CreditsControl.autorechargeUi.tsx",
             "src/components/org/shared/CreditsControl.lowBalance.test.tsx"
           ],

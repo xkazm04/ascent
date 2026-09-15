@@ -8,7 +8,7 @@
 //
 // It also carries the opt-in LOW-BALANCE warning (the honest half of "auto-recharge"): a pre-emptive
 // notice + one-click top-up while the balance is still positive, driven by a per-org threshold. Nothing
-// here charges anyone — see CreditsControl.autorecharge.ts for why that is not possible today.
+// here charges anyone — see src/lib/autorecharge.ts for why that is not possible today.
 //
 // State/effects/handlers live in useCreditsControl.ts — this file is JSX only. Public props are
 // unchanged (a sibling reads the auto-recharge preference through CreditsControl.autorechargeUi's
@@ -16,7 +16,7 @@
 
 import type { CreditPack } from "@/lib/polar";
 import { GrantSection, LedgerSection, PacksSection, UnlimitedChip } from "./CreditsControl.sections";
-import { creditPressure } from "./CreditsControl.autorecharge";
+import { creditPressure } from "@/lib/autorecharge";
 import { AutoRechargeSection, LowBalanceNotice } from "./CreditsControl.autorechargeUi";
 import { useCreditsControl } from "./useCreditsControl";
 

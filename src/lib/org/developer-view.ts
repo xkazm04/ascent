@@ -19,7 +19,7 @@
 // PURE module — no `@/lib/db` import, because every Developer component is a client component (see
 // the "build not in the gate" note: a db import here would break `next build` with tsc still green).
 
-import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
+import { CHAMPION_MIN_POP } from "@/lib/org/champions";
 import type { DimensionId } from "@/lib/types";
 
 // ── The developer's own view ──────────────────────────────────────────────────────────────────────

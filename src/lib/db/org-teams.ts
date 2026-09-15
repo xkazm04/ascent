@@ -20,7 +20,7 @@ import { DIMENSION_BY_ID, postureFor } from "@/lib/maturity/model";
 import { teamDisplayName } from "@/lib/github/codeowners";
 import type { DimensionId } from "@/lib/types";
 import { GroupedMean, aiShareOf, getOrgBySlug, isBot, pickChampions, roundedMean, upperBound } from "@/lib/db/org-shared";
-import { MIN_CHAMPION_COMMITS, canNameIndividuals } from "@/components/org/shared/champions";
+import { MIN_CHAMPION_COMMITS, canNameIndividuals } from "@/lib/org/champions";
 // The ONE mock-floor predicate, from the producer that defines it (org-rollup.ts): a deterministic
 // placeholder score is not a measurement, so it cannot average into a team maturity figure and
 // cannot be an endpoint of a team mover.
