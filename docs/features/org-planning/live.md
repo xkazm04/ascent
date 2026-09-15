@@ -1698,6 +1698,11 @@ where an object belongs all return `parsed: false` or drop the entry. **The batc
 authorization boundary** — an id the lane never dispatched is dropped, because an agent cannot
 adjudicate rows it was not given. The report pattern is added to Git's effective `info/exclude`
 path, including the shared location for linked worktrees, to keep it out of ordinary staging.
+Lessons and item reasons are **redacted at parse** (`src/lib/security/redact.ts`): a token the agent
+pasted while debugging reaches the candidate row, the reviewer and every later prompt as
+`[REDACTED]`. Independently, every prompt that quotes agent-written text (lane brief, Athena recall
+and memory tool results, consolidation, reflection, lane-summary headlines) passes it through
+`sanitizeAgentText` in `src/lib/llm/untrusted.ts`, so memory stored through another door is masked too.
 
 **Per-item verdicts** (`LaneItemOutcome`, `src/lib/db/lane-outcomes.ts`). One row per dispatched id,
 in this precedence: the rescan closed it → `resolved` (**the verifier outranks the claim, always**);

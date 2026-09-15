@@ -14,6 +14,8 @@
 //     the output schema, or any judgment;
 //  3. `neutralize` makes the markers unforgeable from inside the block.
 
+import { redactSecrets } from "@/lib/security/redact";
+
 /**
  * The named block every piece of foreign-authored text is quoted inside. Fixed (not a per-call random
  * nonce) so a cacheable SYSTEM prefix stays byte-identical; the block is only a boundary because the
@@ -38,6 +40,20 @@ const MARKER_RE = /<\/?\s*untrusted_repo_data\s*\/?\s*>/gi;
  */
 export function neutralize(s: string): string {
   return s.replace(MARKER_RE, "[boundary marker removed]").replace(/`{3,}/g, "``");
+}
+
+/**
+ * THE PROMPT EGRESS FOR TEXT WRITTEN BY AGENTS (and members): memory bodies, lane lessons, skill and
+ * lesson tool results, an agent's own deliverable clauses. Redact credential shapes FIRST, then
+ * neutralize. An agent that pasted a token while debugging stores it in its lesson, and every later
+ * prompt that quotes the lesson would otherwise hand that token to a model.
+ *
+ * NOT for repository excerpts in the scoring prompt: a claim there is verified by matching its quote
+ * against the sampled file verbatim, and a redacted excerpt would break that match. Repo content
+ * reaches only `neutralize`.
+ */
+export function sanitizeAgentText(s: string): string {
+  return neutralize(redactSecrets(s));
 }
 
 /** Quote an already-neutralized body inside the named block. The caller is responsible for running each

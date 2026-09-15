@@ -25,7 +25,7 @@
 // produce byte-identical briefs — a brief that reshuffles between runs makes every A/B comparison of
 // two lanes a comparison of two prompts.
 
-import { neutralize } from "@/lib/llm/untrusted";
+import { sanitizeAgentText } from "@/lib/llm/untrusted";
 import { normalizeSkillCategory, type SkillCategory } from "@/lib/org/skill-categories";
 
 export type BriefSectionKind = "playbook" | "housePattern" | "memory" | "skill" | "evidence";
@@ -97,8 +97,9 @@ export interface LaneBriefProvenance {
 const byteLen = (s: string): number => Buffer.byteLength(s, "utf8");
 
 /** Clean one piece of untrusted text: memory content and mined lines are written by an org's members
- *  and by its agents, so they reach a prompt through the same neutralizer repo excerpts do. */
-const clean = (s: string, max: number): string => neutralize(s).replace(/\s+/g, " ").trim().slice(0, max);
+ *  and by its agents, so they reach a prompt through the agent-text egress (credential shapes redacted,
+ *  then neutralized). */
+const clean = (s: string, max: number): string => sanitizeAgentText(s).replace(/\s+/g, " ").trim().slice(0, max);
 
 /**
  * Take entries until the section's byte cap, then stop and say how many were dropped.

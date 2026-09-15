@@ -15,6 +15,7 @@
 import type { LaneDeliverable } from "@/lib/db/loop-runs-types";
 import { HEADLINE_WORDS } from "@/lib/local/lane-deliverables";
 import { resolveTextRunner } from "@/lib/llm/text";
+import { sanitizeAgentText } from "@/lib/llm/untrusted";
 import type { TextRunner } from "@/lib/llm/leg";
 
 /** Hard ceiling on the polish call — a lane is never held longer than this for a rewrite. */
@@ -35,7 +36,11 @@ export async function resolveLaneSummaryRunner(orgSlug: string | null | undefine
 }
 
 export function buildLaneSummaryPrompt(list: readonly LaneDeliverable[]): string {
-  const rows = list.map((d, i) => `${i}. [${d.kind}${d.dimId ? ` ${d.dimId}` : ""}] ${d.headline}${d.evidence ? ` — ${d.evidence}` : ""}`);
+  // The headline is often the agent's own clause, so it leaves through the agent-text egress.
+  const rows = list.map(
+    (d, i) =>
+      `${i}. [${d.kind}${d.dimId ? ` ${d.dimId}` : ""}] ${sanitizeAgentText(d.headline)}${d.evidence ? ` — ${sanitizeAgentText(d.evidence)}` : ""}`,
+  );
   return [
     "You are rewriting the headlines of what one automated remediation lane delivered to a repository, for a dashboard cell.",
     `Below is the derived list. Rewrite EACH headline in place — one rewrite per entry, same count out as in. Never merge entries, never drop one, never add one: each entry is one gap the owner reviews individually.`,

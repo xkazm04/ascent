@@ -23,7 +23,7 @@
 // injects `RunPrompt` from consolidation-engine.ts.
 
 import { parseJsonLoose } from "@/lib/llm/json";
-import { MEMORY_UNTRUSTED_BOUNDARY, neutralize, wrapUntrusted } from "@/lib/llm/untrusted";
+import { MEMORY_UNTRUSTED_BOUNDARY, neutralize, sanitizeAgentText, wrapUntrusted } from "@/lib/llm/untrusted";
 import type { RunPrompt } from "@/lib/memory/consolidation";
 import { tokenize } from "@/lib/memory/consolidation";
 import { PROSE_STYLE_RULE } from "@/lib/llm/prose";
@@ -221,7 +221,7 @@ export function buildReflectionPrompt(
           // loop. Capping after neutralization is what makes MEMBER_EXCERPT the real cap on what
           // reaches the model. The `clipped` marker is likewise decided on the neutralized length,
           // because that is the string actually being cut.
-          const safe = neutralize(m.content);
+          const safe = sanitizeAgentText(m.content);
           const excerpt = safe.slice(0, MEMBER_EXCERPT);
           const clipped = safe.length > MEMBER_EXCERPT ? " …[truncated]" : "";
           return `  - id=${id} kind=${neutralize(m.kind)} confidence=${m.confidence}\n    ${excerpt}${clipped}`;
