@@ -135,6 +135,7 @@ function personalFixture(login: string | null): DeveloperView {
       retriesPerSession: 2,
       testsBeforeCommitPct: 71,
       skillInvokes30d: 23,
+      compactionsPerSession: null,
     },
     sharedFields: [
       "sessionsPerWeek",
@@ -143,7 +144,9 @@ function personalFixture(login: string | null): DeveloperView {
       "retriesPerSession",
       "testsBeforeCommitPct",
       "skillInvokes30d",
+      "compactionsPerSession",
     ],
+    shapeReasons: { compactionsPerSession: "below-sample" },
     orgBands: BANDS,
     activity: {
       commits: 412,

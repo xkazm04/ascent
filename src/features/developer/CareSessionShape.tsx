@@ -9,6 +9,7 @@
 import { WhyChip } from "@/components/org/viz";
 import { CareShapeRow, type CareBandGap } from "./CareShapeRow";
 import { CARE_SHAPE_ORDER, type DeveloperView } from "@/lib/org/developer-view";
+import { careShapeEmptyReason } from "@/lib/org/care-shape-contract";
 
 const SPAN_HINT =
   "The org strip runs p25 → p75 with the median marked: three shared points, not a full " +
@@ -38,6 +39,7 @@ export function CareSessionShape({ personal }: { personal: DeveloperView }) {
             shared={shared.has(field)}
             band={bands?.[field]}
             gap={gap}
+            reason={careShapeEmptyReason(personal, field)}
           />
         ))}
       </div>

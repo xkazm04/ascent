@@ -124,10 +124,19 @@ The session-shape strip carries the same discipline on four outcomes:
 
 | Situation | Encoding |
 | --- | --- |
-| never shared | the `missing` void, and **no numeral at all** — so it can never be misread as a zero |
+| no share received yet | the `missing` void, labelled "nothing shared yet", and **no numeral at all** |
+| a share arrived, this field left out | the `missing` void, "not shared" |
+| shared, the mentor saw too few sessions | the hatch, "too few sessions" (a sample exists and was not judged) |
+| shared, not measurable by your tools | the `missing` void, "not measured" |
 | shared, comparison off | the `decided` ring — your decision, not a shortage of data |
 | shared, comparison on, no band for this field | the hatch — not judged |
 | shared, band exists | the quartile strip, with your value marked |
+
+The reason is typed (`careShapeEmptyReason`, `src/lib/org/care-shape-contract.ts`). The same module is
+the C3 share contract: every field's window (30 days), numerator and denominator in `CARE_SHAPE_SCOPE`,
+only interactively launched sessions counted (SDK, MCP and CI entrypoints are excluded), and
+`validateCareShapePayload`, which refuses unknown keys, ratios outside 0 to 100, another window, and
+a reason only the server may derive. No route calls it yet; `POST /api/me/mentor/share` is still owed.
 
 And `CareShareBar` separates *no commits for a share to be a share of* (the void) from a **measured
 0%** (an empty track beside a real zero) — the org-side `AiBar` fix from Wave 1, on the surface where
@@ -147,6 +156,14 @@ The line between them is enforced in two directions:
   anonymized asks, shape bands and outcomes — all under `CHAMPION_MIN_POP`, suppressed rather than
   thinned below it. The guarantee is structural: `CareOrgView` has **no field that could hold a
   person**, and nothing per-person crosses from this page except through an explicit `share`.
+- **Shape bands have their own floor, on sharers** (2026-09-15). `careBandFromSharers` computes a
+  field's p25/p50/p75 only when at least `CARE_BAND_MIN_SHARERS` (5) people **shared that field**; the
+  population floor was the wrong key. With 3 sharers [10, 40, 90] the population floor showed
+  {25, 40, 65}, and a sharer who knows their own 10 can solve for 40 and 90 exactly (test T6 in
+  `developer-view.test.ts`). Below the floor `CareOrgView.bandGaps` carries `below-sharer-floor` and
+  `CareOrgBands` names the withheld fields in a line instead of drawing a thin band. At exactly 5 the
+  quartiles equal the 2nd, 3rd and 4th values; the extremes are never shown, so the set cannot be
+  rebuilt. No producer fills `shapeBands` yet (C4).
 
 ## Files
 

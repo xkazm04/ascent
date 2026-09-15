@@ -58,6 +58,17 @@ describe("CareShapeRow — a shared zero is not an unshared field", () => {
 });
 
 describe("CareSessionShape — which gap the rows inherit", () => {
+  it("names why each empty field is empty instead of calling every null unshared", () => {
+    const { container } = render(<CareSessionShape personal={view()} />);
+    expect(container.textContent).toContain("nothing shared yet");
+    const shared = view({ sharedFields: ["planModePct", "retriesPerSession"], shapeReasons: { planModePct: "below-sample" }, setup: { ...emptyDeveloperView().setup, lastShareAt: "2026-09-14T00:00:00.000Z" } });
+    const text = render(<CareSessionShape personal={shared} />).container.textContent;
+    expect(text).toContain("too few sessions");
+    expect(text).toContain("not measured");
+    expect(text).toContain("not shared");
+    expect(text).not.toContain("nothing shared yet");
+  });
+
   it("reads a null orgBands as comparison off, not as thin data", () => {
     const { container } = render(
       <CareSessionShape personal={view({ shape: { ...emptyDeveloperView().shape, sessionsPerWeek: 9 }, sharedFields: ["sessionsPerWeek"], orgBands: null })} />,
