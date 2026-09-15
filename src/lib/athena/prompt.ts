@@ -29,7 +29,7 @@
 // of that store and she does not inherit the recall route's hole: every recalled body goes through
 // `neutralize` and is quoted inside `wrapUntrusted`, under MEMORY_UNTRUSTED_BOUNDARY.
 
-import { MEMORY_UNTRUSTED_BOUNDARY, neutralize, wrapUntrusted } from "@/lib/llm/untrusted";
+import { MEMORY_UNTRUSTED_BOUNDARY, neutralize, sanitizeAgentText, wrapUntrusted } from "@/lib/llm/untrusted";
 // GENERATED from src/lib/athena/actions.ts — the ONE array that also drives the validator, the
 // executor binding and the capability doc. It is a constant rather than a parameter for the same
 // reason the two contracts above it are: it is byte-identical on every turn, which keeps the cached
@@ -129,7 +129,7 @@ function recallSection(recall: AthenaRecallItem[]): string | null {
   if (items.length === 0) return null;
   const body = items
     .map((r, i) => {
-      const safe = neutralize(r.content);
+      const safe = sanitizeAgentText(r.content);
       const excerpt = safe.slice(0, RECALL_EXCERPT);
       const clipped = safe.length > RECALL_EXCERPT ? " …[truncated]" : "";
       const kind = r.kind ? neutralize(r.kind) : "memory";

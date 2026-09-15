@@ -45,7 +45,7 @@
 import type { AthenaTool, ToolCall } from "@/lib/llm/leg";
 import { MCP_TOOLS } from "@/lib/mcp/tools";
 import { toolResultText, type ToolResult } from "@/lib/mcp/handlers";
-import { neutralize, wrapUntrusted } from "@/lib/llm/untrusted";
+import { sanitizeAgentText, wrapUntrusted } from "@/lib/llm/untrusted";
 
 /** The one tool that reads the org's memory store. */
 export const ATHENA_MEMORY_TOOL = "recall_org_memory";
@@ -191,8 +191,9 @@ export async function createAthenaGrounding(
         : raw;
 
     // Memory, skills, lessons and registry subjects are foreign-authored: the org wrote them, or its
-    // agents did. Everything else here is ascent's own computed standing and is not fenced.
-    return ATHENA_UNTRUSTED_TOOLS.has(name) ? wrapUntrusted(neutralize(text)) : text;
+    // agents did, so credential shapes are redacted before the model reads them. Everything else here
+    // is ascent's own computed standing and is not fenced.
+    return ATHENA_UNTRUSTED_TOOLS.has(name) ? wrapUntrusted(sanitizeAgentText(text)) : text;
   };
 
   return { tools, execute };

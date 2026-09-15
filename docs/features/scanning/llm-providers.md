@@ -731,8 +731,11 @@ above", which named a control the reader then had to go find. An artifact row ge
 there is no verdict to act on.
 - **`eval-log.ts`**: when `ASCENT_EVAL_LOG_DIR` is set, every `assess()` outcome is
   appended as one JSONL record (`captureAssessment()`): prompt (`system`/`user`, secrets
-  redacted via `redactSecrets()`, OpenAI-style keys, GitHub tokens, AWS access key ids,
-  Slack tokens, bearer/authorization headers), the structured assessment, provider/model,
+  redacted via `redactSecrets()` from `src/lib/security/redact.ts`, the one pattern list also
+  used at the prompt egress for agent-written text: PEM blocks, Google/Stripe/OpenAI-style
+  keys, GitHub and GitLab tokens, npm tokens, AWS key ids and labelled secrets, Slack tokens,
+  JWTs, connection-string credentials, auth headers, quoted and key=value assignments), the
+  structured assessment, provider/model,
   degrade flag, coverage, latency, and token usage. Makes a usable-but-wrong answer
   debuggable, a prompt-injection forensically traceable, and gives the model×tier
   benchmark a real corpus. Off by default; best-effort (a sink failure never disturbs a

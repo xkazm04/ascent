@@ -147,6 +147,12 @@ Reads the tree at HEAD through the installation token, then per artifact:
   `starter/**` paths are attached to the catalog entry but never mirrored into a row.
 - **`memory/<kind>/<slug>.md`** — `kind` (frontmatter, else the directory) mapped onto `OrgMemory.kind`,
   `confidence` clamped to 0-1; `_index.md` and `_`-prefixed files are ignored.
+- **`usage/<contributor>.json`** (`src/lib/registry/usage-samples.ts`): each skill count is re-expressed
+  as a 30-day rate from the file's declared `windowDays`, so `invokes30d` means 30 days. A file with no
+  valid window is skipped with a warning, never assumed to be 30. One contributor's normalized total is
+  clamped at 500 invokes a day (15,000 per 30 days), the same constant the MCP `report_skill_invoke`
+  door enforces (`src/lib/mcp/self-report-ceiling.ts`). A clamp is counted (`clampedContributors`) and
+  warned. Samples persist the declared numbers, and the dormancy fold bounds them again at read time.
 
 An empty document, a body-less note, an oversized blob or a failed mirror write **skips that file with a
 recorded warning**; the pass commits everything else and never throws. A total failure (no access,
