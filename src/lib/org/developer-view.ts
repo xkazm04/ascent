@@ -21,6 +21,7 @@
 
 import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
 import type { DimensionId } from "@/lib/types";
+import type { CareShapeDeclaredReason } from "./care-shape-contract";
 
 // ── The developer's own view ──────────────────────────────────────────────────────────────────────
 
@@ -54,7 +55,11 @@ export interface CareMove {
   at: string;
 }
 
-/** The 30-day session-shape counts. Every field is opt-in: see `sharedFields`. */
+/**
+ * The 30-day session-shape counts, interactive sessions only. Every field is opt-in: see `sharedFields`.
+ * Each field's window, numerator and denominator are the contract in `CARE_SHAPE_SCOPE`
+ * (`care-shape-contract.ts`); why a field is empty is `careShapeEmptyReason`, never a bare null.
+ */
 export interface CareSessionShape {
   sessionsPerWeek: number | null;
   turnsPerSession: number | null;
@@ -62,6 +67,8 @@ export interface CareSessionShape {
   retriesPerSession: number | null;
   testsBeforeCommitPct: number | null;
   skillInvokes30d: number | null;
+  /** Context compactions per session: whether guidance fits is only visible in the session. */
+  compactionsPerSession: number | null;
 }
 
 export type CareShapeField = keyof CareSessionShape;
@@ -109,6 +116,8 @@ export interface DeveloperView {
   shape: CareSessionShape;
   /** Which shape fields the developer chose to share. A field absent here reads as "not shared". */
   sharedFields: CareShapeField[];
+  /** Why a SHARED field is still null, as the producer declared it (too few sessions, not measurable). */
+  shapeReasons: Partial<Record<CareShapeField, CareShapeDeclaredReason>>;
   /** Anonymous org bands for the shared fields — present only if the developer opted into comparison. */
   orgBands: Partial<Record<CareShapeField, CareBand>> | null;
   /**
@@ -191,8 +200,10 @@ export function emptyDeveloperView(login: string | null = null): DeveloperView {
       retriesPerSession: null,
       testsBeforeCommitPct: null,
       skillInvokes30d: null,
+      compactionsPerSession: null,
     },
     sharedFields: [],
+    shapeReasons: {},
     orgBands: null,
     activity: null,
     myRepos: [],
@@ -273,6 +284,7 @@ export const CARE_SHAPE_LABEL: Record<CareShapeField, string> = {
   retriesPerSession: "Retries / session",
   testsBeforeCommitPct: "Tests before commit",
   skillInvokes30d: "Skill invokes (30d)",
+  compactionsPerSession: "Compactions / session",
 };
 
 /** Fields rendered as a percentage. Everything else is a plain count. */
@@ -295,6 +307,7 @@ export const CARE_SHAPE_ORDER: readonly CareShapeField[] = [
   "retriesPerSession",
   "testsBeforeCommitPct",
   "skillInvokes30d",
+  "compactionsPerSession",
 ];
 
 export function careMovesByState(moves: CareMove[]): Record<CareMoveState, CareMove[]> {
