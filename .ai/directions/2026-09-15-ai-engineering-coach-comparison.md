@@ -2,7 +2,7 @@
 type: comparison-study
 source: microsoft/ai-engineering-coach@18b1a3d
 date: 2026-09-15
-status: proposed
+status: accepted
 registry_run: intake-aecoach
 ---
 
