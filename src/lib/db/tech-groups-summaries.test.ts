@@ -108,7 +108,7 @@ describe("listTechStackSummaries", () => {
     expect(be.dimAverages).toEqual([{ dimId: "D1", avg: 55 }]);
   });
 
-  it("hides empty groups (listTechStackGroups' rule) and yields a zeroed summary for a group with no rolled-up repos", async () => {
+  it("hides empty groups (listTechStackGroups' rule) and yields an UNMEASURED summary for a group with no rolled-up repos", async () => {
     mockGetPrisma.mockReturnValue(
       fakePrisma(
         [...GROUPS, { id: "g_lib", key: "library", label: "Library", members: 0 }],
@@ -119,7 +119,9 @@ describe("listTechStackSummaries", () => {
     mockFleetRollup();
     const out = await listTechStackSummaries("acme");
     expect(out!.map((s) => s.id)).toEqual(["frontend", "backend:python", "mobile"]); // no "library"
-    expect(out![1]).toMatchObject({ id: "backend:python", repoCount: 0, scannedCount: 0, avgOverall: 0 });
+    // avgOverall is NULL, not 0: the group has no repo to average, so the Tech Stacks rail draws it
+    // `not-judged` instead of ranking it last as the fleet's worst stack.
+    expect(out![1]).toMatchObject({ id: "backend:python", repoCount: 0, scannedCount: 0, avgOverall: null, posture: null });
   });
 
   it("returns [] when there is nothing to roll up", async () => {

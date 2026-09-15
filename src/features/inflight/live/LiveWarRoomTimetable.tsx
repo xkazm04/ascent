@@ -9,6 +9,7 @@
 import Link from "next/link";
 import { reportPermalink } from "@/lib/ui";
 import { Kicker, deltaHex, fmtDelta } from "@/components/ui";
+import { StateSwatch, stateTitle } from "@/components/org/viz";
 import type { FleetTimetable, TimetableRow } from "@/features/inflight/live/fleetTimetable";
 import { TimetableLedger } from "@/features/inflight/live/LiveWarRoomTimetableLedger";
 
@@ -38,9 +39,23 @@ export function RepoCheck({ row, selected, onToggle, readOnly }: { row: Timetabl
   );
 }
 
-/** Signed evolution delta over the shown window (lime up · orange down), or a muted dash. */
-export function DeltaChip({ delta }: { delta: number | null }) {
-  if (delta == null) return <span className="type-caption text-slate-600">—</span>;
+/**
+ * The void, at cell scale: the kit's `missing` mark plus its caveat, never a numeral and never a 0.
+ * Used for every absence this grid can hold — a day the repo was not scanned, the fleet average of a
+ * column with no readings, and a row with too few readings to have an evolution at all.
+ */
+export function NoScan({ subject }: { subject: string }) {
+  return (
+    <span className="inline-flex align-middle" title={stateTitle("missing", subject)}>
+      <StateSwatch state="missing" size={12} />
+    </span>
+  );
+}
+
+/** Signed evolution delta over the shown window (lime up · orange down), or the void mark when the
+ *  repo has fewer than two readings in it — no baseline is an absence, not a flat zero. */
+export function DeltaChip({ delta, subject = "Evolution" }: { delta: number | null; subject?: string }) {
+  if (delta == null) return <NoScan subject={`${subject} · no baseline in this window`} />;
   return (
     <span className="type-mono-sm" style={{ color: deltaHex(delta) }}>
       {fmtDelta(delta)}

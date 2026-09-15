@@ -32,8 +32,12 @@ export interface TeamStanding {
    *  deltas (its strengths), for the laggard the biggest negative deltas (its drags). */
   factors: StandingFactor[];
   // Human / trajectory context — separate signals, not part of the maturity-score decomposition.
-  aiCommitShare: number;
-  aiShareDelta: number; // vs fleet mean aiCommitShare
+  /** The team's commit-weighted AI share, or null when it has no commit population (the producer's
+   *  own answer — see `TeamRollup.aiCommitShare`). Never coalesced to 0 on the way through here. */
+  aiCommitShare: number | null;
+  /** vs fleet mean aiCommitShare — null whenever `aiCommitShare` is, because a distance from a
+   *  baseline is undefined for a team that has no reading to measure the distance from. */
+  aiShareDelta: number | null;
   avgDelta: number; // momentum: mean overall delta (period-scoped when the rollup was windowed; since last scan otherwise)
   comparedRepos: number;
   improving: number;
@@ -78,7 +82,8 @@ const MAX_FACTORS = 5; // dimensions shown per team — enough to explain the ga
 /**
  * Decompose the team standings into a leader/laggard "why" explanation. Ranks teams by avgOverall
  * (the Overall column), then attributes each extreme's distance from the fleet mean to the
- * dimensions driving it. Returns null when there aren't at least two teams to contrast.
+ * dimensions driving it. Returns null when there aren't at least two teams to contrast, or when no
+ * live-scored repo is attributed to any of them (no fleet mean ⇒ nothing for the bars to diverge from).
  */
 export function explainTeamStandings(teams: TeamRollup[]): TeamStandings | null {
   if (teams.length < 2) return null;
@@ -89,6 +94,13 @@ export function explainTeamStandings(teams: TeamRollup[]): TeamStandings | null 
   for (const t of teams) for (const r of t.repos) distinctRepos.set(r.fullName, r);
   const repoRows = [...distinctRepos.values()];
   const fleetAvgOverall = roundedMean(repoRows.filter((r) => !r.mock).map((r) => r.overall));
+  // No live-scored repo is attributed to any team ⇒ there is no fleet mean, and this whole section is
+  // nothing BUT divergence from that mean (`overallDelta`, the factor bars, `maxAbsDelta`). Returning
+  // null says "nothing to contrast" the same way the two-team floor above does; the alternative — a 0
+  // baseline — would print every team as +N above a fleet nobody measured. `rollupTeams` cannot
+  // produce such a `teams` today (it emits no team without a live-scored repo), so this is a floor on
+  // hand-built inputs, not a reachable product state.
+  if (fleetAvgOverall === null) return null;
   // The AI share gets the SAME dedupe and the same commit weighting the per-team figure uses
   // (`aiCommitShare` = the team's totAi / totCommits), because `aiShareDelta` subtracts one from the
   // other and they must be the same kind of number over comparable populations. It was
@@ -102,6 +114,11 @@ export function explainTeamStandings(teams: TeamRollup[]): TeamStandings | null 
   // not a grade) and INCLUDED here (rollupTeams merges a repo's contributors regardless of `mock`,
   // so the per-team share counts them; excluding them here would compare against a population the
   // per-team number never had). Pinned by teamStandings.test.ts.
+  //
+  // A team whose `aiCommitShare` is NULL needs no special case and must not get one: the weighting
+  // runs over the repos' own commit totals, and a team with no commit population contributes 0 to
+  // both sums — it cannot move a baseline it has no commits in. That is why the fix is a nullable
+  // field rather than a filter here. Pinned by teamStandings.test.ts ("a null-share team").
   const fleetAiShare = aiShareOf(
     repoRows.reduce((s, r) => s + r.commits, 0),
     repoRows.reduce((s, r) => s + r.aiCommits, 0),
@@ -153,7 +170,7 @@ export function explainTeamStandings(teams: TeamRollup[]): TeamStandings | null 
     overallDelta: t.avgOverall - fleetAvgOverall,
     factors: factorsFor(t, direction),
     aiCommitShare: t.aiCommitShare,
-    aiShareDelta: t.aiCommitShare - fleetAiShare,
+    aiShareDelta: t.aiCommitShare === null ? null : t.aiCommitShare - fleetAiShare,
     avgDelta: t.avgDelta,
     comparedRepos: t.comparedRepos,
     improving: t.improving,

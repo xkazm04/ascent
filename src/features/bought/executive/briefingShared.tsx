@@ -10,6 +10,7 @@ import { Meter, deltaHex, fmtDelta, DIRECTION_TONE } from "@/components/org/shar
 import { scoreHex } from "@/lib/ui";
 import { PRACTICES } from "@/lib/practices";
 import { orgTabHref } from "@/lib/org/orgTabs";
+import { PeriodDumbbell } from "./PeriodDumbbell";
 
 // The 1:1 dimension→practice map (same source the Overview panel and Plan tab use), so briefing
 // dimension rows can deep-link to the practice that lifts them.
@@ -124,6 +125,9 @@ export function PriorPeriodGrid({
         ] as const).map(([label, priorVal, nowVal, delta]) => (
           <div key={label} className="rounded-xl border border-slate-800 bg-slate-950/30 p-3">
             <div className="type-mono-sm uppercase tracking-widest text-slate-500">{label}</div>
+            {/* The comparison is drawn before it is printed: prior → now on a 0-100 track, which is
+                the "equal-length window before it" framing the card used to state in a header line. */}
+            <PeriodDumbbell label={label} prior={priorVal} now={nowVal} delta={delta} className="mt-1.5" />
             <div className="mt-1 flex items-baseline gap-2">
               <span className="type-figure font-bold" style={{ color: scoreHex(nowVal) }}>{nowVal}</span>
               <span className="type-mono-sm text-slate-500">from {priorVal}</span>

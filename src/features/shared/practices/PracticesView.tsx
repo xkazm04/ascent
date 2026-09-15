@@ -71,10 +71,14 @@ export function PracticesView({
 
   return (
     <div className="space-y-5">
+      {/* §2.3 — a header is a noun phrase. The old description fused a definition, a provenance
+          split, an interaction instruction and the CTA's own name. The definition and the
+          authored/mined split are drawn (the rollout matrix, the ledger's Source column); the
+          instruction was an affordance problem and is fixed on the row itself; the CTA names
+          itself. What survives is the library's scope: how many, and of which kind. */}
       <SectionHeader
         title="Practice Library"
-        descriptionClassName="max-w-3xl"
-        description="Your org's standards in one place: playbooks you author and practices mined from your strongest repos. Open a row for the exemplar, gaps, and apply actions; add your own with “+ New practice”."
+        description={`${rows.length} practices · ${playbooks.length} authored`}
         right={
           <button
             onClick={() => {
@@ -90,7 +94,7 @@ export function PracticesView({
 
       {/* G7-20: what the library has actually put in motion, and what it moved — folded from the
           rows below, so it costs no extra query and can never disagree with them. */}
-      <PracticeRolloutStrip rollout={rollout} />
+      <PracticeRolloutStrip rollout={rollout} rows={rows} fleetSize={repoOptions.length} />
 
       {rows.length === 0 ? (
         <SectionEmpty>

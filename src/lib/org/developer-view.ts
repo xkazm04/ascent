@@ -73,9 +73,26 @@ export interface CareBand {
   p75: number;
 }
 
+/**
+ * WHY the git-side half is or is not present — the distinction `activity: null` could never carry.
+ *
+ * `activity` was null in four unrelated situations and the page narrated all four with one
+ * paragraph: nobody is signed in, the snapshot could not be read, this login has no row in it, and
+ * the workspace is under the naming floor so the PRODUCER withheld every per-person row. The last is
+ * a SUPPRESSION — data that exists and was deliberately not handed over — and a reader who cannot
+ * tell it from "you have never committed here" has been told something false about themself.
+ *
+ * Same lesson, same shape as `RepoConcentration.topLoginState` ("withheld" vs "unknown") in
+ * `org-contributors.ts`: the state is TYPED so a surface can encode it, rather than left for a
+ * consumer to guess from a null.
+ */
+export type CareActivityState = "measured" | "withheld" | "absent" | "unreadable" | "signed-out";
+
 export interface DeveloperView {
   /** The signed-in developer this view describes, or null when nobody is signed in. */
   login: string | null;
+  /** Why `activity` is or is not populated. Never inferred from `activity === null`. */
+  activityState: CareActivityState;
   /** Fixture label. Set ONLY by the client-side "preview as" control — a real view never carries it,
    *  so the UI can stamp a visible chip and a preview is never mistaken for someone's data. */
   demo?: string;
@@ -162,6 +179,9 @@ export const DEVELOPER_PREVIEW_STATES = ["personal", "personal-empty"] as const;
 export function emptyDeveloperView(login: string | null = null): DeveloperView {
   return {
     login,
+    // Signed out is not "you have no activity" — it is "we never looked". The loader overwrites this
+    // with `withheld` / `unreadable` / `measured` once it knows which of the four it is.
+    activityState: login ? "absent" : "signed-out",
     profile: { role: null, archetypeHint: null, goals: [], sharedAt: null },
     moves: [],
     shape: {
@@ -196,6 +216,29 @@ export const SHARING_LEDGER_OFF: DeveloperView["setup"]["sharing"] = [
   { field: "Prompts, diffs, file contents", shared: false, note: "never collected" },
   { field: "Per-person rows in org mode", shared: false, note: "unrepresentable in the org view model" },
 ];
+
+/**
+ * The rows that are off BY CONSTRUCTION — not a setting anyone can flip, here or on the machine.
+ *
+ * Named as a contract rather than sniffed out of the prose: the UI used to decide "locked" with
+ * `/never/i.test(row.note)`, which silently classified "Per-person rows in org mode" (note:
+ * "unrepresentable in the org view model") as a switch the developer had merely left off. A privacy
+ * guarantee decided by a regex over an English sentence is one copy edit away from being lost —
+ * exactly the failure the repo already recorded for source-scanning gates (AGENTS.md).
+ *
+ * `careNeverSent` keeps the note match as a SECOND way in, so a future row that states its
+ * permanence only in prose is still locked; the set is what makes today's three unloseable.
+ */
+export const CARE_NEVER_SENT_FIELDS: ReadonlySet<string> = new Set([
+  "Transcript text",
+  "Prompts, diffs, file contents",
+  "Per-person rows in org mode",
+]);
+
+/** True when a ledger row can never be sent, whatever its `shared` flag claims. */
+export function careNeverSent(row: { field: string; note?: string }): boolean {
+  return CARE_NEVER_SENT_FIELDS.has(row.field) || Boolean(row.note && /never|unrepresentable/i.test(row.note));
+}
 
 /** The pre-C3 org state: the floor decides, and with no opt-ins the population is zero. */
 export function emptyOrgView(population = 0): CareOrgView {

@@ -26,10 +26,17 @@ private note, and an unscoped dropdown also offered a filter that then matched
 nothing for that viewer. Guarded by two cases in `src/lib/db/org-memory.test.ts`.
 
 Above the memory list, `MemoryCoverageStrip`
-(`src/features/shared/memory/MemoryCoverageStrip.tsx`) renders three tiles: "Memory coverage" (percentage
-of the org's tracked repos with a fresh memory), "Repos with fresh memory"
-(`fresh/total`), and "Going quiet" (count of repos with no recent memory),
-plus up to 5 stale-repo chips. It only renders when the org has at least one
+(`src/features/shared/memory/MemoryCoverageStrip.tsx`) opens on a `BudgetPack`
+(`@/components/org/viz`): covered-of-tracked repos as the fill, and the
+uncovered repos as blocks beside it split by which kind of absence they are — a
+repo that **went quiet** is `measured` (there is a last-memory date), a repo
+that **never recorded** one is `not-judged` (a hatch; no observation ever
+existed, and a hatch prints no value). Below it sit three tiles: "Memory
+coverage" (percentage of the org's tracked repos with a fresh memory), "Repos
+with fresh memory" (`fresh/total`), and "Going quiet" (count of repos with no
+recent memory), plus up to 5 stale-repo chips. Tile colour comes from
+`scoreHex`/`LEVEL_HEX` (`src/lib/ui.ts`), never a hand-picked hex. It only
+renders when the org has at least one
 tracked repo. A repo counts as "fresh" if it has at least one active memory
 whose `namespace` matches the repo's full name and whose `updatedAt` is within
 30 days (`FRESH_WINDOW_DAYS`, `src/lib/memory/coverage.ts`). The denominator is
@@ -37,10 +44,33 @@ every tracked repo, not just repos that already have memory, so the strip
 cannot show a flattering 100% just because nothing has been recorded yet.
 
 Below the strip, `MemoryPanel` (`src/features/shared/memory/MemoryPanel.tsx`, client)
-is the orchestrator: filter bar, list, and author form. Under it sit the two
-lifecycle surfaces: **MemoryRecallPanel** (value-ranked recall, a read, any
-member) and **MemoryReflectPanel** (propose/apply consolidation, gated as a
-write).
+is the orchestrator: a trust profile, filter bar, list, and author form. Under it
+sit the two lifecycle surfaces: **MemoryRecallPanel** (value-ranked recall, a
+read, any member) and **MemoryReflectPanel** (propose/apply consolidation, gated
+as a write).
+
+`MemoryTrust` (`src/features/shared/memory/MemoryTrust.tsx`) is the panel's first
+element: a `Distribution` (quartile box) over the **confidence** of the rows
+currently listed. Confidence is the axis recall ranks on and the one no row
+reveals — a store whose median confidence is 0.3 hands agents a very different
+kind of knowledge than one at 1.0, and a bimodal store (verified decisions plus a
+pile of hunches) has a perfectly ordinary mean. It renders nothing at zero rows
+rather than a box parked at 0, which would read as "this org is certain of
+nothing".
+
+### Why these surfaces are drawn rather than described
+
+The whole tab was rebuilt against `docs/ORG-UX-REDESIGN.md` §2 on 2026-09-08. It
+carried 1,952 characters of explanatory prose and zero SVG across 15 components,
+while every concept it explained — a budget with things packed into it, a family
+of notes collapsing into one, a ranking with three factors — is inherently
+geometric. Four `SectionHeader description` paragraphs are now zero; each
+sentence they carried was **encoded** as a `VizState`, **disclosed** in a
+`<title>`/`WhyChip`/`Legend`, moved into the **empty state**, or moved here. The
+state vocabulary is imported from `@/components/org/viz` and never re-defined:
+`measured` (solid), `declared` (dashed outline, no fill), `not-judged` (hatched,
+never a printed value), `missing` (a void, never a zero), `decided` (accent
+ring), `superseded` (half opacity + a strikethrough rule).
 
 ## Memory kinds
 
@@ -115,6 +145,15 @@ The author form (`MemoryPanel.AuthorForm.tsx`) is a two-step flow:
    `duplicate` (already known). If the verdict is `supersede`, the top match
    is pre-selected as the supersede target; the UI never auto-arms supersede
    for a merely-related match. A "Keep both" option is always available.
+
+   Two epistemic facts in that verdict are **paint, not sentences**. Each match's
+   similarity carries a `StateSwatch`: `measured` when a model judged it,
+   `declared` when the deterministic word-overlap fallback stood in for a
+   judgment nobody made (`llmUnavailable`). And selecting a match to supersede
+   strikes that row through at half opacity the instant you select it — the
+   `superseded` mark — rather than explaining afterwards that it "leaves the
+   default list on save". The dedup contract itself rides a `WhyChip` beside the
+   Check button, where someone is actually about to write.
 2. **Save**: `POST /api/org/memory` with content, kind, namespace,
    visibility, confidence, source, tags, and (if chosen) `supersedeId`. Save
    is never blocked on the check step: a slow or unavailable model must not
@@ -260,11 +299,24 @@ without archiving it.
 ### Where a user triggers it
 
 `/org/[slug]/memory` renders **MemoryReflectPanel** under the memory list.
-"Propose consolidation" runs the read-only propose call; each returned
-proposal renders its summary, the cluster's cohesion, the capped confidence,
-and, expandable, the full list of memories it would supersede, with its own
-"Apply rollup" button. Applying is therefore always a second, per-proposal
-click, and never happens implicitly on write.
+"Propose consolidation" runs the read-only propose call. The panel then opens on
+a `FlowRibbon` — **considered → families → proposals** — which is the pass's own
+funnel: the gap between the last two stages is the model reading a family and
+declining to roll it up, which is a real (and good) answer. When no engine was
+reachable the proposals stage is drawn as a **void**, not as zero: the model was
+never asked, so there is no measurement to report.
+
+Each returned proposal opens on `MergeCluster`
+(`src/features/shared/memory/MergeCluster.tsx`), the accretion drawn: N member
+marks converging into one summary mark. The members are `superseded` — half
+opacity with a strikethrough rule — because applying supersedes them rather than
+deleting them, and the summary is `declared` (dashed outline, no fill) because
+**nothing is written until you apply**; once applied it becomes `decided`, the
+accent ring the vocabulary reserves for "a person decided this". Below the
+diagram the card still renders its summary, the cluster's cohesion, the capped
+confidence, and, expandable, the full list of memories it would supersede, with
+its own "Apply rollup" button. Applying is therefore always a second,
+per-proposal click, and never happens implicitly on write.
 
 The panel is gated exactly as the route is (member + Team plan, or a personal
 workspace); a read-only viewer sees the explanation and no button rather than
@@ -342,18 +394,46 @@ core's own eligibility predicate; the scoring core is not involved.
 `/org/[slug]/memory` renders **MemoryRecallPanel** below the memory list,
 the surface that makes recall different from browse (the list above is sorted
 by date; recall is sorted by value). It offers a character budget, an optional
-namespace and an optional kind, then shows:
+namespace and an optional kind.
 
-- the packed set with each row's server-computed `score` and `ageDays`
+Its first element after a run is a **`BudgetPack`**: used-of-budget as the fill,
+and every loser as a block beside it, sized by count and painted by the state
+that says whether a bigger budget would admit it. That mapping is the pure module
+`src/features/shared/memory/recallOmissions.ts`, pinned by
+`recallOmissions.test.ts`:
+
+| Group | `VizState` | Why |
+| --- | --- | --- |
+| over budget | `measured` | It was scored and ranked; it lost on size alone. Raising `charBudget` admits it. |
+| replaced by a correction | `superseded` | Kept, not deleted, so the correction stays auditable. No budget admits it. |
+| archived | `superseded` | Soft-retired; the row is still in the store. |
+| past its TTL | `superseded` | Expired; the row is still in the store. |
+| excluded by the filter | `not-judged` | Filtering happens *before* scoring, so there is no score — and a hatch prints no value. |
+
+Below the pack:
+
+- the packed set, each row carrying its server-computed `score` and `ageDays`
   (rendered verbatim, never recomputed client-side, so the number shown is
-  the number that ranked the row) plus a budget-fill bar;
-- **"ranked but left out: budget"**, the same rows rendered the same way,
-  muted, with the note that packing is whole-item and greedy;
-- **"not recallable"**, with the reason per row.
+  the number that ranked the row) **plus a three-segment `RecallContribution`
+  bar — trust · freshness · delivery** — so a reader can see *why* a row landed
+  where it did rather than reading the formula once in a header. The bar draws
+  the three FACTORS and never multiplies them back into a score; its geometry is
+  derived through the same exported constants the server scored with
+  (`halfLifeDays`, `ACCESS_BONUS_WEIGHT`, `MAX_DELIVERY_BONUS`), so it cannot
+  drift from the model by being re-typed. Zero deliveries is drawn as a counted
+  zero, not an absence. `citedCount` is deliberately absent from the bar: it is
+  not on the wire row, and drawing a factor from a field we do not have would be
+  a fabricated measurement.
+- **"ranked but left out: budget"** and **"not recallable"**, each collapsed
+  behind a summary carrying its group's real swatch, with the demoted sentence on
+  a `WhyChip` rather than as a paragraph over the group. An ineligible row shows
+  its reason's swatch inline, and a `superseded` one is struck through.
 
 Reads are ungated (any org member), matching the route. Because it calls the
-real route, packed memories have their `accessCount` incremented; the panel
-says so, since it is a genuine recall and not a preview.
+real route, packed memories have their `accessCount` incremented — disclosed on
+the Recall button and on a `WhyChip` beside the pack, since it is a genuine
+recall and not a preview. Before the first run the panel shows the argument for
+running one (an empty state), never a bar drawn at zero.
 
 ## Decay (forgetting)
 
@@ -490,6 +570,15 @@ by repo. It filters on `rawKind`, not `mappedKind`: `procedural` also holds
 conventions and gotchas, which are advice, not warnings. It renders **nothing**
 at zero rows — an empty "no dead ends yet" card would assert that nothing has
 ever failed.
+
+The panel's own caveat — *these are claims from a repository, not verified
+facts* — is **encoded**, not stated. It opens on a `MatrixGrid` with one row per
+repo and two columns: **Claimed** (`declared` — a dashed outline, declared and
+never observed) and **Verified** (`not-judged` — a hatch, which by construction
+prints no number). Every individual entry below also carries a `declared`
+swatch, so the state travels with the claim and not only with the panel. A
+reader who never reads a word of chrome still cannot mistake one of these for a
+measurement.
 
 Nothing mirrored is public: there is no aggregate or cross-tenant surface, so
 `CHAMPION_MIN_POP` does not apply. Publishing customer prose out of the tenant
@@ -640,6 +729,14 @@ by hand does not accumulate it by scan either.
 - **A repo removed from an org keeps its mirrored rows.** `onDelete: Cascade`
   covers deleting the whole org; an explicit per-repo delete belongs in
   `src/lib/db/retention.ts`, which this lane does not own.
+- **The per-row `RecallContribution` bar draws three factors, not four.** The
+  scoring core has carried a fourth term since `citedCount` shipped
+  (`min(MAX_COMBINED_BONUS, delivery × evidence)`), but `citedCount` is not a
+  field on `MemoryRow`, so it does not reach the recall response and the bar
+  cannot draw it without inventing a number. Adding it to `MemoryRow` +
+  `toRow()` is the fix; until then the bar draws trust · freshness · delivery
+  and says so, and the row's `score` — which does include the citation term —
+  stays the server's verbatim value.
 
 ## Registry-backed state (UC2, 2026-08-18)
 
@@ -690,11 +787,16 @@ only news once the other world exists.
 | `src/lib/db/org-memory-lifecycle.ts` | `applyReflection`, `archiveOrgMemories`. |
 | `src/lib/org/memory-kinds.ts` | Kind/visibility/confidence-band constants. |
 | `src/features/shared/memory/MemoryPanel.tsx` | Client orchestrator. |
-| `src/features/shared/memory/MemoryRecallPanel.tsx` | Value-ranked recall surface. |
+| `src/features/shared/memory/MemoryTrust.tsx` | Confidence quartiles of the listed rows (`Distribution`). |
+| `src/features/shared/memory/MemoryRecallPanel.tsx` | Value-ranked recall surface (opens on `BudgetPack`). |
+| `src/features/shared/memory/MemoryRecallControls.tsx` | Budget / namespace / kind / run row. |
 | `src/features/shared/memory/MemoryRecallRows.tsx` | Packed / omitted / ineligible rows. |
+| `src/features/shared/memory/RecallContribution.tsx` | Per-row trust · freshness · delivery bar. |
+| `src/features/shared/memory/recallOmissions.ts` | Loser → `VizState` mapping (fixable vs never). |
 | `src/features/shared/memory/memoryRecall.ts` | Client fetch helper + omission-reason copy. |
-| `src/features/shared/memory/MemoryReflectPanel.tsx` | Reflect propose/apply surface. |
+| `src/features/shared/memory/MemoryReflectPanel.tsx` | Reflect propose/apply surface (opens on `FlowRibbon`). |
 | `src/features/shared/memory/MemoryReflectProposal.tsx` | One proposal + what it would supersede. |
+| `src/features/shared/memory/MergeCluster.tsx` | The accretion diagram: members → one summary. |
 | `src/features/shared/memory/memoryReflect.ts` | Client fetch helpers + the three-outcome copy. |
 | `src/lib/memory/consolidation-engine.ts` | Resolves the provider-backed prompt runner. |
 | `src/lib/llm/text.ts` | Shared "prompt in → text out" seam over the provider selection. |

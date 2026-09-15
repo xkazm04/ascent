@@ -8,6 +8,7 @@
 
 import { useState } from "react";
 import { Kicker, deltaHex, fmtDelta } from "@/components/ui";
+import { stateTitle } from "@/components/org/viz";
 import { FlightRowDetail, LandedRowDetail, TriageDetail, opsImpact, type OpsView } from "@/features/inflight/live/liveWarRoomOpsShared";
 
 type Stage = "triage" | "inFlight" | "landed";
@@ -89,7 +90,7 @@ export function ShipLoopPipeline({ state, busy, accept, reject, onVerify }: OpsV
         <Arrow />
         <StageNode
           glyph="⇂"
-          glyphClass={imp.merged > 0 ? "text-emerald-400" : "text-slate-600"}
+          glyphClass={imp.merged > 0 ? "text-success-soft" : "text-slate-600"}
           count={state.counts.landed}
           label="Landed"
           caption={imp.awaiting > 0 ? `${imp.awaiting} awaiting rescan` : "merged & measured"}
@@ -103,8 +104,14 @@ export function ShipLoopPipeline({ state, busy, accept, reject, onVerify }: OpsV
             Σ
           </span>
           <span className="min-w-0">
-            <span className="block type-figure font-bold leading-none" style={{ color: deltaHex(imp.netOverall) }}>
-              {fmtDelta(imp.netOverall)}
+            {/* Nothing rescanned yet is an ABSENCE, not a net zero — the tile prints the void and
+                carries the kit's caveat, rather than reporting "→0" as the loop's achievement. */}
+            <span
+              className="block type-figure font-bold leading-none"
+              style={imp.netOverall == null ? undefined : { color: deltaHex(imp.netOverall) }}
+              title={imp.netOverall == null ? stateTitle("missing", "Net impact") : undefined}
+            >
+              {imp.netOverall == null ? "—" : fmtDelta(imp.netOverall)}
             </span>
             <Kicker tone="muted" className="mt-1">
               Net impact

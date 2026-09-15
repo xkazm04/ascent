@@ -6,10 +6,12 @@
 // (LiveWarRoomTv) owns the state machine + rotation and hands each stage this shared data bundle.
 
 import Link from "next/link";
-import { EFFORT_CLASS, IMPACT_CLASS, reportPermalink, scoreHex } from "@/lib/ui";
+import { EFFORT_CLASS, IMPACT_CLASS, reportPermalink } from "@/lib/ui";
 import { Kicker, deltaHex, fmtDelta } from "@/components/ui";
+import { stateTitle } from "@/components/org/viz";
 import { Meter } from "@/components/org/shared/ui";
 import { PaceChip, goalBasisMarker, goalMeterAriaLabel, type GoalProgressView } from "@/components/org/shared/goalView";
+import { goalMeterColor } from "@/features/inflight/live/LiveWarRoomGoalBanner";
 import { Leaderboard } from "@/features/inflight/live/LiveWarRoomLeaderboard";
 import { MoversTicker } from "@/features/inflight/live/LiveWarRoomPanels";
 import { HeadlineStrip } from "@/features/inflight/live/LiveWarRoomStat";
@@ -35,8 +37,14 @@ function NetImpact({ ops }: { ops: OpsView }) {
   return (
     <div className="rounded-2xl border border-divider bg-surface-strong/30 p-5">
       <Kicker tone="muted">Net impact shipped</Kicker>
-      <div className="mt-1 font-mono type-display-lg font-bold tabular-nums" style={{ color: deltaHex(imp.netOverall) }}>
-        {fmtDelta(imp.netOverall)}
+      {/* Nothing verified yet is an absence, not a net zero (opsImpact returns null) — the wall shows
+          the void and the line below names it, rather than reporting "→0" as the loop's achievement. */}
+      <div
+        className="mt-1 font-mono type-display-lg font-bold tabular-nums"
+        style={imp.netOverall == null ? undefined : { color: deltaHex(imp.netOverall) }}
+        title={imp.netOverall == null ? stateTitle("missing", "Net impact shipped") : undefined}
+      >
+        {imp.netOverall == null ? "—" : fmtDelta(imp.netOverall)}
       </div>
       <p className="mt-1 font-mono type-body text-slate-500">
         {imp.verified} PRs verified · {imp.dimsLifted} dims lifted{imp.awaiting > 0 ? ` · ${imp.awaiting} awaiting` : ""}
@@ -58,7 +66,7 @@ export function TvStanding({ data }: { data: TvStageData }) {
               <PaceChip pace={goal.pace} />
             </div>
             <p className="mt-1 type-lede font-medium text-white">{goal.label}</p>
-            <div className="mt-2 font-mono type-display-lg font-bold tabular-nums" style={{ color: goal.achieved ? "#34d399" : scoreHex(goal.current) }}>
+            <div className="mt-2 font-mono type-display-lg font-bold tabular-nums" style={{ color: goalMeterColor(goal) }}>
               {goal.current}
               <span className="type-title text-slate-500">/{goal.target}</span>
             </div>
@@ -66,7 +74,7 @@ export function TvStanding({ data }: { data: TvStageData }) {
                 attainment basis is VISIBLE text under the bar (the aria label repeats it for the
                 browser reader) — a goal set before baselines existed opens near-full, and unlabelled
                 next to a progress goal that opens empty it invites a comparison neither supports. */}
-            <Meter className="mt-2" value={goal.current} threshold={goal.target} color={goal.achieved ? "#34d399" : scoreHex(goal.current)} ariaLabel={goalMeterAriaLabel(goal)} />
+            <Meter className="mt-2" value={goal.current} threshold={goal.target} color={goalMeterColor(goal)} ariaLabel={goalMeterAriaLabel(goal)} />
             {goalBasisMarker(goal) && (
               <p className="mt-1.5 font-mono type-body text-slate-500">{goalBasisMarker(goal)}</p>
             )}
@@ -89,7 +97,7 @@ export function TvScanning({ data }: { data: TvStageData }) {
               {data.progress.done}/{data.progress.total}
             </span>
           </div>
-          <div className="mt-2 h-3 overflow-hidden rounded-full bg-slate-800">
+          <div className="mt-2 h-3 overflow-hidden rounded-full bg-divider">
             <div className="h-full rounded-full bg-accent transition-all motion-reduce:transition-none" style={{ width: `${Math.max(3, data.pct)}%` }} />
           </div>
           {data.progress.current && (
@@ -139,7 +147,7 @@ export function TvDecide({ data }: { data: TvStageData }) {
           type="button"
           onClick={() => ops.accept(next.recommendationId)}
           disabled={Boolean(busy)}
-          className="focus-ring rounded-md border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 font-mono type-body font-semibold text-emerald-300 transition hover:bg-emerald-500/20 disabled:opacity-50"
+          className="focus-ring rounded-md border border-success/40 bg-success/10 px-4 py-2 font-mono type-body font-semibold text-success-soft transition hover:bg-success/20 disabled:opacity-50"
         >
           {busy === "accept" ? "Opening PR…" : "✓ Open PR & watch it merge"}
         </button>

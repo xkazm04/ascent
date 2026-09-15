@@ -2,6 +2,12 @@
 
 // A sortable column header for TeamsMatrix — extracted so the matrix's own JSX stays under the
 // 200-LOC cap (AGENTS.md).
+//
+// THE AFFORDANCE CARRIES ITSELF. The section header used to instruct the reader — "Click a header to
+// sort" — because the only visible sign a column sorted was the ↓ that appeared AFTER it had been
+// clicked. A sentence telling a reader that a control exists is a control that does not read as one
+// (docs/ORG-UX-REDESIGN.md §2.2), so every sortable header now carries a dimmed ⇅ at rest. The glyph
+// is aria-hidden: `aria-sort` on the <th> plus the button's own title are what a screen reader uses.
 
 export type TeamsMatrixSort = { key: string; dir: 1 | -1 } | null; // dir 1 = desc (best first)
 
@@ -34,7 +40,15 @@ export function TeamsMatrixSortTh({
         className={`focus-ring rounded uppercase tracking-[0.2em] transition hover:text-white ${active ? "text-accent" : ""}`}
       >
         {label}
-        {active && <span className="ml-0.5">{sort.dir === 1 ? "↓" : "↑"}</span>}
+        {active ? (
+          <span className="ml-0.5" aria-hidden>
+            {sort.dir === 1 ? "↓" : "↑"}
+          </span>
+        ) : (
+          <span className="ml-0.5 text-slate-700" aria-hidden>
+            ⇅
+          </span>
+        )}
       </button>
     </th>
   );

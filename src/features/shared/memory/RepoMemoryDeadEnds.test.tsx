@@ -6,10 +6,25 @@
 // assert that nothing has ever failed), group by repo, and render a body as TEXT — the content is
 // untrusted prose mirrored out of a customer repository and this is the last place it is displayed.
 
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { RepoMemoryDeadEnds, groupByRepo } from "./RepoMemoryDeadEnds";
 import type { RepoMemoryEntryRow } from "@/lib/db/repo-memory";
+
+// The panel now opens on a MatrixGrid, which reads `prefers-reduced-motion` through
+// `useSyncExternalStore`; jsdom has no matchMedia. Stub it to the REDUCED branch, as every viz
+// `.dom.test.tsx` does, so the geometry is asserted in its settled state.
+beforeAll(() => {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: (query: string) => ({
+      matches: query.includes("reduce"),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }),
+  });
+});
 
 function row(over: Partial<RepoMemoryEntryRow> & { id: string; repoFullName: string }): RepoMemoryEntryRow {
   return {
@@ -48,8 +63,10 @@ describe("RepoMemoryDeadEnds", () => {
         ]}
       />,
     );
-    expect(screen.getByText("acme/api")).toBeTruthy();
-    expect(screen.getByText("acme/web")).toBeTruthy();
+    // Each repo now names itself twice: once as a row of the claims matrix (and its sr-only
+    // equivalent), once as the group heading over its entries.
+    expect(screen.getAllByText("acme/api").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("acme/web").length).toBeGreaterThan(0);
     expect(screen.getByText("3 across 2 repos")).toBeTruthy();
     expect(screen.getByText("2 dead ends")).toBeTruthy();
     expect(screen.getByText("1 dead end")).toBeTruthy();
@@ -76,6 +93,31 @@ describe("RepoMemoryDeadEnds", () => {
     );
     expect(screen.getByText("10 June 2026")).toBeTruthy();
     expect(screen.getByText("undated")).toBeTruthy();
+  });
+
+  it("encodes the claims-not-facts caveat as state, per repo, instead of asserting it in prose", () => {
+    // FAILS BEFORE: the caveat was the tail of a 297-char SectionHeader description; every row then
+    // rendered identically to a verified finding.
+    const { container } = render(
+      <RepoMemoryDeadEnds
+        rows={[row({ id: "1", repoFullName: "acme/api" }), row({ id: "2", repoFullName: "acme/web" })]}
+      />,
+    );
+    const claimed = container.querySelector('[data-cell="acme/api:Claimed"]');
+    const verified = container.querySelector('[data-cell="acme/api:Verified"]');
+    expect(claimed?.getAttribute("data-state")).toBe("declared");
+    expect(verified?.getAttribute("data-state")).toBe("not-judged");
+    // A hatched cell prints no number, ever — that is what "not verified" has to look like.
+    expect(verified?.querySelector("[data-score]")).toBeNull();
+    expect(container.querySelector('[data-cell="acme/web:Claimed"]')).not.toBeNull();
+  });
+
+  it("carries no SectionHeader description at all — the header is a noun phrase", () => {
+    const { container } = render(
+      <RepoMemoryDeadEnds rows={[row({ id: "1", repoFullName: "acme/api" })]} />,
+    );
+    expect(container.textContent).not.toContain("not verified facts");
+    expect(container.textContent).not.toContain("Mirrored here so the next team");
   });
 
   it("truncates a long body with an ellipsis but keeps the full text on the copy control", () => {

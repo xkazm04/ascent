@@ -18,8 +18,46 @@ members, `ApiTokensPanel`.
 `SkillsPanel` (`src/features/shared/skills/SkillsPanel.tsx`, client) debounces
 (250ms) a server-side refetch of `GET /api/org/skills` on search/category/sort
 changes — the debounce covers the timer and an `AbortController` covers the
-request it starts, so a superseded read cannot land its rows after a newer one — renders a filter bar and a table (Name / Category / Status /
-Adoptions / Uses), and expands a `SkillCard` beneath a clicked row.
+request it starts, so a superseded read cannot land its rows after a newer one —
+opens on `SkillsLifecycle` (below), then renders a filter bar and a table (Name /
+Category / Status / Adoptions / Uses), and expands a `SkillCard` beneath a
+clicked row. The header carries scope only (`N skills · M repos`); the value
+claim for authoring a skill lives in the table's **empty state**, and the two
+instructions that used to sit above the table ("copy a skill into Claude Code",
+"download it as a SKILL.md") are `title`s on the Copy and Download controls
+themselves (`SkillCardActions`).
+
+### First sight: the lifecycle, drawn (2026-09-08)
+
+`SkillsLifecycle` is two figures over the same ranked set of skills (top 10 by
+adoption, then downloads; the cut is named on screen). Both are built from
+`@/components/org/viz` — the shared `/org` state vocabulary — so the Skills tab,
+the Memory tab and Practices paint one alphabet.
+
+**Reuse across the fleet** — a `MatrixGrid`, one row per skill:
+
+| Column | Measured | Declared (outline, dashed) | Not judged (hatch) |
+| --- | --- | --- | --- |
+| Adopted | share of the org's repos that adopted it, **as a number** | no repo has adopted it | **no repositories in the fleet** — there is no denominator, so no share is drawn |
+| Copied | copied/downloaded at least once | never copied | — |
+| Ran | an invocation was observed | no invocation observed, pathway works | **this org has never emitted a skill event** |
+
+Adopted is the only genuine 0..100-over-repositories reading here, so it is the
+only column that prints a value; Copied and Ran are counts, and a count painted
+on the maturity ramp would report a young library as a failing one.
+
+**Use over time** — a `StateTrack`, one lane per skill, over the library's own
+life. The observed interval (arrival → last use) is `measured`, or `declared`
+when the only event was a `sync` (a background pull is not a use). The silence
+after it is where the two absences separate: a **void** (the dotted ground shows
+through) where this org's pathway works and recorded nothing, a **hatch** where
+the pathway has never emitted anything at all. `rendersValue()` is false for the
+hatch, so a lane or cell in that state cannot print a duration.
+
+The track's right edge is **derived from the rows** (`observedAt`: `anchorAt +
+ageDays`), never from `Date.now()` during render — that is the instant the
+dormancy windows were judged against, and it is identical on the server and after
+hydration.
 
 ## SKILL.md frontmatter contract
 
@@ -289,9 +327,27 @@ exactly as intended. Both halves of the rule (the silence threshold and the
 "still new" age guard) read the same derived `windowDays`, so a skill can
 never be `new` and `dormant` at once.
 
-`SkillDormancyBadge` renders this with `active` in emerald, `dormant` in
-amber, and `new` deliberately neutral (slate) rather than green, since it
-hasn't earned "active" yet. The badge and the "N uses" counter beside it are
+`SkillDormancyBadge` renders the **state**, not the coarse verdict (2026-09-08).
+Until then it showed `verdict`, so `abandoned`, `unused` and `unmeasured` all came
+out as one amber "dormant" chip — a skill nobody has ever measured wore the same
+warning as one the fleet tried and dropped, and its tooltip said "never used",
+which is a measurement of absence read off an instrument that was never switched
+on. Now each state carries its own word and its own mark from the shared
+vocabulary:
+
+| State | Word | Mark | Tone |
+| --- | --- | --- | --- |
+| `active` | active | measured (solid) | emerald |
+| `new` | new | declared (outline, dashed) | neutral slate — it hasn't earned "active" yet, and branding it dormant on day one would teach the org to ignore the badge |
+| `abandoned` | dormant | measured | amber — the only state that is a finding about the skill, and the only prune candidate |
+| `unused` | never used | declared | neutral — a discovery problem, not a verdict on the skill |
+| `unmeasured` | not measured | not-judged (hatch) | neutral — nothing is known; `usageDetail` says "no skill events recorded in this org" and never "never used" |
+
+A row carrying only the coarse `verdict` (a legacy or hand-built one) is not
+resolved into a finer state: `dormant` there could be any of the three, so it
+paints `not-judged` rather than guessing.
+
+The badge and the "N uses" counter beside it are
 folded from the same events, so `active` is reachable through every path that
 exists: a web copy/download, a CLI-reported `download`, a hook/MCP `invoke`, or
 a registry sample. The badge says "invoked", "used" or "synced" for the three
@@ -345,20 +401,25 @@ object that also carries `measured` / `unpaired` / `byStatus`, and
 without the population it excluded ("+5 pts mean · 2 of 4 adoptions
 measured…") — the point where selection bias would otherwise enter silently.
 
-`SkillOutcomes` renders this with an explicit disclaimer that the
-movement is correlational, not causal ("Movement in the same window as the
-adoption: correlation, not proof of cause"), and — since 2026-08-29 — marks a
-row whose pair straddles the bound with a "wide window" flag carrying both gap
-distances in its title. Until then the bound flagged nothing that reached a
-reader: the module documents `withinPairingBound` as something "a consumer that
-shows the number must show beside it", and the only consumer showed the number
-alone.
+`SkillOutcomes` opens on `meanDeltaLine(aggregateOutcomes(outcomes))` — the mean
+and the population it excluded as one string, which is the whole point of that
+helper: "+5 pts mean · 2 of 4 adoptions measured — 2 with no scan since adoption"
+is a different claim from a bare "+5", and the two cannot be separated at the
+call site. Each row then carries its status as a **mark** rather than as grey
+text, in the same vocabulary the Memory tab uses for `declared` vs `measured`:
 
-**Known gap:** the aggregation half (`aggregateOutcomes`, `coverageLabel`,
-`meanDeltaLine`, `outsidePairingBound`) has no caller anywhere in `src/`. It is
-written and tested so a mean cannot be published without its coverage, but no
-surface publishes a mean yet — so the selection-bias guard is currently a
-guarantee about a number nobody renders.
+| Status | State | Reading |
+| --- | --- | --- |
+| `measured` | measured | both sides exist and agree on their instrument; the delta prints |
+| `no-before-scan` / `no-after-scan` | missing (void) | one side of the pair does not exist — an absence, never a zero delta |
+| `instrument-mismatch` / `instrument-unknown` | not-judged (hatch) | the pair exists but is not comparable; `rendersValue()` is false, so no number can be printed |
+
+The correlational caveat is a `WhyChip` on the headline ("Movement in the same
+window as the adoption: correlation, not proof of cause"), and a row whose pair
+straddles `PAIRING_MAX_DISTANCE_DAYS` still carries its "wide window" flag with
+both gap distances in the title. `SkillOutcome.anchor` rides in the repo name's
+title, so an outcome anchored at a first invocation (a machine's observation) is
+distinguishable from one anchored at an adoption a person recorded.
 
 `skill-outcomes-load.ts` issues one `getRepositoryHistory` read (newest 100
 scans) per **distinct** adopted repo, run through `mapPool` at
@@ -735,12 +796,33 @@ improvement channel.
 A **hosted** skill is offered no Trace. It lives in ascent's own table and has no
 git history; offering one would be a promise the shape of the data cannot keep.
 
+Since 2026-09-08 the Trace **opens on a `StateTrack`** over the version history,
+with the grouped commit/lesson list as the drill-down beneath it. The three facts
+the timeline used to caption are its geometry: a version that could not be
+resolved is `not-judged` (hatched — missing evidence about the READ, never the
+neighbouring version carried backwards), a lesson whose declared version matches
+no resolved commit is `declared` (it claims a version nothing in the window
+confirms), and history older than the read budget is a `missing` void at the left
+edge whose caveat rides in the track's `sr-only` equivalent. A version shipped in
+a single commit is widened to 2% of the window so the mark is visible; the exact
+dates ride in the segment's label, so the picture rounds and the text does not.
+
 `SkillGeneration` is a different store and always was: `src/lib/db/skill-history.ts`
 is its only accessor and it logs per-repo onboarding-`SKILL.md` **generations**
 (STD-6), not registry skill versions. **Registry skill history is git**, surfaced
 as Trace.
 
 ## Known gaps
+
+- **The use-over-time track has two instants per skill, not a series.** `SkillUsage`
+  is a rollup: it carries the arrival anchor and the *last* use, not the individual
+  events. So a lane's observed segment is bounded by two instants we really saw and
+  its interior is not observed — a skill used every day and one used once at the
+  far end of the same span draw the same bar. Drawing the real series needs
+  `OrgSkillEvent` timestamps on the wire (they exist in the table; nothing projects
+  them into the tab's payload), and inventing intermediate marks from a count would
+  be a fabricated measurement, so the segment claims only what it can: use happened
+  somewhere in here, and the label names the last one.
 
 ## Key files
 
@@ -777,8 +859,13 @@ as Trace.
 | `src/lib/db/org-api-tokens.ts` | Token mint/verify/revoke, hashing. |
 | `src/lib/api-token-auth.ts` | `authorizeOrgApi()`: token-or-session gate for skills routes. |
 | `src/features/shared/skills/SkillsPanel.tsx` | Client orchestrator. |
-| `src/features/shared/skills/SkillCard.tsx` | Per-skill detail, adopt/copy/download/archive actions. |
-| `src/features/shared/skills/SkillDormancyBadge.tsx` | Dormancy status chip. |
+| `src/features/shared/skills/SkillsLifecycle.tsx` | The tab's first sight: the reuse matrix + the use-over-time track. |
+| `src/features/shared/skills/skillLifecycleViz.ts` | Pure view model: usage state → `VizState`, badge word, evidence line, reuse rows, outcome states. |
+| `src/features/shared/skills/skillDormancyTrack.ts` | Pure view model: the use-over-time lanes and the derived observation instant. |
+| `src/features/shared/skills/skillTraceViz.ts` | Pure view model: the version-history lanes (unresolved / unplaced / truncated). |
+| `src/features/shared/skills/SkillCard.tsx` | Per-skill detail, adopt actions. |
+| `src/features/shared/skills/SkillCardActions.tsx` | Copy / Download / Open-in-registry / archive — and the two CTA instructions. |
+| `src/features/shared/skills/SkillDormancyBadge.tsx` | Dormancy status chip, painted from `SkillUsage.state`. |
 | `src/features/shared/skills/SkillInvokeChip.tsx` | "N ran" — the invocation half of the use count. |
 | `src/features/shared/skills/SkillOutcomes.tsx` | Score-movement-since-adoption display. |
 | `src/features/shared/skills/ApiTokensPanel.tsx` | Token mint/list/revoke UI. |

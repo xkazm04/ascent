@@ -37,8 +37,8 @@ const fixture: SecurityOverview = {
     failingRepos: [{ name: "legacy-api", fullName: "acme/legacy-api", score: 22, reason: "Security 22 < 50" }],
   },
   register: [
-    { name: "legacy-api", fullName: "acme/legacy-api", score: 22, gateReason: "Security 22 < 50", rules: { protected: false, review: false, checks: false, signed: false }, checks: [], issues: ["No SAST configuration visible", "No SBOM generation evidenced"], summary: "Weak supply-chain posture." },
-    { name: "web", fullName: "acme/web", score: 51, gateReason: null, rules: { protected: true, review: true, checks: false, signed: false }, checks: [], issues: [], summary: "" },
+    { name: "legacy-api", fullName: "acme/legacy-api", score: 22, measured: true, gateReason: "Security 22 < 50", rules: { protected: false, review: false, checks: false, signed: false }, checks: [], issues: ["No SAST configuration visible", "No SBOM generation evidenced"], summary: "Weak supply-chain posture." },
+    { name: "web", fullName: "acme/web", score: 51, measured: true, gateReason: null, rules: { protected: true, review: true, checks: false, signed: false }, checks: [], issues: [], summary: "" },
   ],
 };
 
@@ -51,6 +51,7 @@ describe("buildGateSnippet — exhaustive over the full register", () => {
       name: `repo-${i}`,
       fullName: `acme/repo-${i}`,
       score: 20,
+      measured: true,
       gateReason: "Security 20 < 50",
       rules: null,
       checks: [],
@@ -267,6 +268,23 @@ describe("buildSecurityOverview — band classification at each boundary", () =>
     const o = (await buildSecurityOverview("acme"))!;
     expect(o.band.critical).toBe(1);
     expect(o.weakest[0].score).toBe(0);
+  });
+
+  // …and flags that the 0 is a SUBSTITUTE, so no surface publishes it as a reading. The banding above
+  // is unchanged; what changes is that "we never measured this" can no longer be printed as a score.
+  it("marks a repo with no D9 dim as UNMEASURED, and its gate reason states no number", async () => {
+    mockRollup.mockResolvedValue(rollup([repo("nodim", null), repo("real", 30)]));
+    const o = (await buildSecurityOverview("acme"))!;
+    const nodim = o.register.find((r) => r.name === "nodim")!;
+    const real = o.register.find((r) => r.name === "real")!;
+    expect(nodim.measured).toBe(false);
+    expect(nodim.gateReason).toBe("D9 not measured"); // still FAILS — fail-closed is untouched
+    expect(real.measured).toBe(true);
+    expect(real.gateReason).toBe("Security 30 < 50");
+    expect(o.securityGate.failing).toBe(2);
+    // The LLM brief must not hand a model a 0 it can "remediate".
+    expect(securityMarkdown(o)).toContain("| nodim | not measured |");
+    expect(securityMarkdown(o)).toContain("| real | 30/100 |");
   });
 });
 

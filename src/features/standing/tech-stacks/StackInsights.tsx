@@ -5,6 +5,9 @@
 // client board (AnalysisPlaybookBoard) which owns the expand state.
 
 import { Card, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
+import { Legend, STATE_LABEL } from "@/components/org/viz";
+import { CLASS_META } from "@/features/standing/tech-stacks/analysisShared";
+import { RANGE_LEGEND_EXTRA } from "@/features/standing/tech-stacks/rangeLegend";
 import type { SegmentSummary } from "@/lib/db";
 import { computeFleetInsights, type DimInsight } from "@/features/standing/tech-stacks/fleetAnalysis";
 import { AnalysisPlaybookBoard } from "@/features/standing/tech-stacks/AnalysisPlaybookBoard";
@@ -28,13 +31,15 @@ export function StackInsights({ org, stacks, fleet, dims, scope }: {
           value={ins.overall ? `${ins.overall.spread} pts` : "aligned"}
           sub={ins.overall ? `${ins.overall.leader.name} → ${ins.overall.laggard.name}` : "every stack level"}
         />
-        <Tile label="Systemic gaps" value={ins.gaps.length} sub={labels(ins.gaps)} color={ins.gaps.length ? "#f97316" : undefined} />
-        <Tile label="Shared strengths" value={ins.strengths.length} sub={labels(ins.strengths)} color={ins.strengths.length ? "#22c55e" : undefined} />
+        <Tile label="Systemic gaps" value={ins.gaps.length} sub={labels(ins.gaps)} color={ins.gaps.length ? CLASS_META.gap.color : undefined} />
+        <Tile label="Shared strengths" value={ins.strengths.length} sub={labels(ins.strengths)} color={ins.strengths.length ? CLASS_META.strength.color : undefined} />
         <Tile
           label="Widest divergence"
-          value={ins.widest ? `${ins.widest.label} Δ${ins.widest.spread}` : "—"}
-          sub={ins.widest ? `${ins.widest.leader.name} vs ${ins.widest.laggard.name}` : ""}
-          color={ins.widest && ins.widest.spread >= 35 ? "#eab308" : undefined}
+          // No widest means no dimension had two scored stacks to compare — an absence, so it says so
+          // rather than printing the em dash a reader is free to read as "zero divergence".
+          value={ins.widest ? `${ins.widest.label} Δ${ins.widest.spread}` : STATE_LABEL["not-judged"]}
+          sub={ins.widest ? `${ins.widest.leader.name} vs ${ins.widest.laggard.name}` : `no dimension has two scored ${scope.nounPlural}`}
+          color={ins.widest && ins.widest.spread >= 35 ? CLASS_META.divergent.color : undefined}
         />
       </div>
 
@@ -48,16 +53,16 @@ export function StackInsights({ org, stacks, fleet, dims, scope }: {
             Every dimension diagnosed across the {ins.scoredCount} scored {scope.nounPlural}, most-actionable
             first. Each row states how many of them its verdict rests on: a dimension only a minority can
             evidence is de-weighted, not hidden. Expand a divergent or systemic-gap row for its
-            transformation playbook (the moves, a Practices artifact, and a goal to own in Plan).
+            transformation playbook (the moves, a Practices artifact, and the gaps to work in Follow-ups).
           </SectionHelp>
         </div>
         <div className="mt-3">
           <AnalysisPlaybookBoard org={org} dims={ins.dims} scope={scope} />
         </div>
-        <p className="mt-3 type-caption text-slate-500">
-          hollow dot = laggard · filled dot = leader · vertical line = whole-fleet baseline · bar = spread · n/N = {scope.nounPlural} the
-          verdict rests on, of {ins.scoredCount} scored
-        </p>
+        {/* The four marks, as the marks. The n/N clause that used to close this line is not here on
+            purpose: CoverageChip already carries it as its own title on the chip itself — the exact
+            affordance the sentence described — so repeating it would be the same fact twice. */}
+        <Legend className="mt-3" extra={RANGE_LEGEND_EXTRA} />
       </Card>
     </div>
   );

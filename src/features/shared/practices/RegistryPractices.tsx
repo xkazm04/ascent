@@ -18,10 +18,16 @@
 // Server-safe: no hooks, no handlers.
 
 import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { Kicker } from "@/components/ui";
+import { StateSwatch, WhyChip } from "@/components/org/viz";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import { OpenInRegistry, OriginTag, registryBlobHref } from "@/features/shared/registry/RegistryOriginTag";
 import { RegistryPracticeApply } from "@/features/shared/practices/RegistryPracticeApply";
 import type { PracticeShapeRow } from "@/lib/db/org-practice-shapes";
+
+/** The (D) destination for the deleted header sentence — one caveat, on the mark that encodes it. */
+const READ_ONLY_HINT =
+  "These files live in your registry repo, versioned in git and changed by pull request there. Ascent indexes them so every repo in the fleet can see what the org already agreed on, and never writes back — which is why no row here offers an edit.";
 
 function dimensionLabel(id: string): string {
   return DIMENSIONS.find((d) => d.id === id)?.name ?? id;
@@ -44,10 +50,25 @@ export function RegistryPractices({
 
   return (
     <Card>
+      {/* §2.4 — "changed by pull request, not here" is a READ-ONLY STATE, so it is encoded rather
+          than asserted: the `declared` mark (outline only, dashed — a claim this surface has not
+          observed and cannot change) and, decisively, the ABSENCE of any edit affordance on the rows
+          below. Nothing here offers an edit that would then refuse; the two actions a row carries
+          are "Open in registry" (leaves for the file's own review process) and "Copy into a repo"
+          (a draft PR into a DIFFERENT repo, never a write back). The sentence is the mark's hint. */}
       <SectionHeader
         size="sm"
         title="From your registry"
-        description="Practices your registry repo declares. They are versioned in git and changed by pull request, not here — ascent indexes them so every repo in the fleet can see what the org already agreed on."
+        description={`${fromRegistry.length} declared`}
+        right={
+          <span className="flex items-center gap-1.5">
+            <StateSwatch state="declared" />
+            <Kicker tone="muted" as="span">
+              read-only mirror
+            </Kicker>
+            <WhyChip hint={READ_ONLY_HINT} label="read-only mirror" align="end" />
+          </span>
+        }
       />
       <ul className="mt-3 divide-y divide-slate-800">
         {fromRegistry.map((r) => (

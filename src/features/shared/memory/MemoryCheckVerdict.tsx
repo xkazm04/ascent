@@ -6,7 +6,15 @@
 // It is ADVISORY, never a wall: "Keep both" is always available and pre-selected unless the pass
 // recommends superseding. The author is the last word — an LLM that times out, or a heuristic that
 // over-matches, must not be able to stop a memory from being written.
+//
+// TWO CAVEATS ARE PAINT HERE, NOT SENTENCES:
+//  · A similarity from the deterministic word-overlap fallback is `declared`, not `measured`: it is
+//    an estimate the shape of a judgment, and the encoding says so before the tooltip does.
+//  · Selecting a duplicate to supersede strikes that row through at half opacity — the vocabulary's
+//    `superseded` mark. "On save it is marked superseded and leaves the default list; its history is
+//    kept" was a sentence that appeared AFTER you chose; the strike appears the instant you do.
 
+import { StateSwatch, WhyChip } from "@/components/org/viz";
 import { RELATION_LABEL, recommendationCopy, type CheckResponse } from "@/features/shared/memory/memoryCheck";
 import { memoryKindLabel } from "@/lib/org/memory-kinds";
 
@@ -91,15 +99,27 @@ export function CheckVerdict({
                       <span className="rounded border border-slate-700 px-1.5 py-0.5 type-caption text-slate-400">
                         {RELATION_LABEL[d.relation]}
                       </span>
-                      <span className="type-caption text-slate-500" title="Similarity to the proposed memory">
-                        {Math.round(d.similarity * 100)}% match
+                      <span className="flex items-center gap-1 type-caption text-slate-500">
+                        {/* measured = a model judged it; declared = the deterministic overlap
+                            estimate standing in for a judgment nobody made. */}
+                        <StateSwatch state={llmUnavailable ? "declared" : "measured"} size={11} />
+                        <span title="Similarity to the proposed memory">
+                          {Math.round(d.similarity * 100)}% match
+                        </span>
                       </span>
                       <span className="type-caption text-slate-600">
                         {memoryKindLabel(d.memory.kind)}
                         {d.memory.createdBy ? ` · ${d.memory.createdBy}` : ""}
                       </span>
                     </span>
-                    <span className="mt-1 block type-body-sm text-slate-300">
+                    {/* (E) Selecting this row is choosing to supersede it — so it is drawn
+                        superseded the moment it is selected: half opacity, struck through. */}
+                    <span
+                      data-state={selected ? "superseded" : "measured"}
+                      className={`mt-1 block type-body-sm text-slate-300 ${
+                        selected ? "line-through decoration-slate-500 opacity-50" : ""
+                      }`}
+                    >
                       {d.memory.content.slice(0, EXCERPT)}
                       {d.memory.content.length > EXCERPT && "…"}
                     </span>
@@ -131,9 +151,10 @@ export function CheckVerdict({
           </label>
 
           {supersedeId && (
-            <p className="mt-2 type-caption text-amber-300/80">
-              On save, the selected memory is marked superseded and leaves the default list. Its history
-              is kept.
+            <p className="mt-2 flex items-center gap-1.5 type-caption text-slate-500">
+              <StateSwatch state="superseded" size={12} />
+              <span>superseded on save</span>
+              <WhyChip state="superseded" label="supersede on save" />
             </p>
           )}
         </>

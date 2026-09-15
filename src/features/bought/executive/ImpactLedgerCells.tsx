@@ -3,6 +3,9 @@
 // 200-LOC cap under src/features (AGENTS.md); pure relocation, no behavior change. Server-safe:
 // no hooks, no handlers, so no "use client".
 
+import { DIRECTION_TONE } from "@/components/ui";
+import { LEVEL_HEX } from "@/lib/ui";
+
 /** Which surface produced the row — the "Source" column, whose cell was never emitted. Named in
  *  words rather than by the enum's id: "practice-pr" is a database value, not a reader's vocabulary. */
 export const SOURCE_LABEL: Record<string, string> = { "practice-pr": "practice", loop: "loop lane" };
@@ -11,9 +14,12 @@ export const SOURCE_TITLE: Record<string, string> = {
   loop: "A local improvement-loop lane",
 };
 
-export const GOOD = "#22c55e";
-export const BAD = "#f97316";
-export const MUTED = "#94a3b8";
+// The /org redesign forbids a hand-picked hex (docs/ORG-UX-REDESIGN.md §2.5): these three are the
+// same values they always were, now read from their canonical homes — the maturity ramp and the
+// direction-tone triad — so a rebrand of either lands here without a hunt.
+export const GOOD = LEVEL_HEX.L5;
+export const BAD = DIRECTION_TONE.falling.color;
+export const MUTED = DIRECTION_TONE.flat.color;
 
 /** Signed points, always with an explicit sign so a negative can't be misread as a magnitude. */
 export function signed(n: number): string {

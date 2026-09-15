@@ -15,11 +15,18 @@
 // the content is untrusted repo prose and this is the last place it is displayed.
 
 import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { Legend, MatrixGrid, StateSwatch, type MatrixRow } from "@/components/org/viz";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import type { RepoMemoryEntryRow } from "@/lib/db/repo-memory";
 
 /** Longest excerpt shown inline. The full entry travels with "Copy", so nothing is lost, only folded. */
 const EXCERPT = 320;
+
+/** Row-label budget for the matrix's label gutter; the full name is on the group heading below. */
+const LABEL_MAX = 18;
+
+const shortRepo = (full: string) =>
+  full.length > LABEL_MAX ? `…${full.slice(full.length - LABEL_MAX + 1)}` : full;
 
 const excerpt = (body: string) =>
   body.length > EXCERPT ? `${body.slice(0, EXCERPT).trimEnd()}…` : body;
@@ -44,13 +51,29 @@ export function RepoMemoryDeadEnds({ rows }: { rows: RepoMemoryEntryRow[] }) {
       <SectionHeader
         size="sm"
         title="Dead ends other repos already hit"
-        description="Approaches an agent tried in one of your repositories and recorded as failed, in that repo's own .ai/memory. Mirrored here so the next team reads it before spending the same week. These are claims from a repository, not verified facts — the entry says what was tried and what ruled it out."
         right={
           <span className="type-mono-sm text-slate-500">
             {rows.length} across {groups.length} repo{groups.length === 1 ? "" : "s"}
           </span>
         }
       />
+
+      {/* FIRST SIGHT — and the caveat, encoded. Every repo has CLAIMED some failed approaches
+          (dashed outline: declared, never observed) and none of them is VERIFIED (hatch: not judged,
+          and a hatch prints no number, ever). "These are claims from a repository, not verified
+          facts" was a sentence a reader had to hold in their head while reading confident prose;
+          it is now the shape of every row in the panel. */}
+      <MatrixGrid
+        className="mt-3 max-w-xs"
+        title="Dead-end claims by repository"
+        axes={["Claimed", "Verified"]}
+        rows={groups.map<MatrixRow>((g) => ({
+          id: g.repo,
+          label: shortRepo(g.repo),
+          cells: [{ state: "declared" }, { state: "not-judged" }],
+        }))}
+      />
+      <Legend className="mt-2" states={["declared", "not-judged"]} />
 
       <div className="mt-4 space-y-5">
         {groups.map((g) => (
@@ -67,8 +90,12 @@ export function RepoMemoryDeadEnds({ rows }: { rows: RepoMemoryEntryRow[] }) {
               {g.rows.map((r) => (
                 <li key={r.id} className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="min-w-0 truncate type-caption text-slate-500" title={r.path}>
-                      {r.path}
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      {/* The claim's own state travels with it, not just with the panel. */}
+                      <StateSwatch state="declared" size={11} />
+                      <span className="min-w-0 truncate type-caption text-slate-500" title={r.path}>
+                        {r.path}
+                      </span>
                     </span>
                     <div className="flex shrink-0 items-center gap-2">
                       {/* The repo-authored date, VERBATIM. Not reformatted: it is the repo's text, and

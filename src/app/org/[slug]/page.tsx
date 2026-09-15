@@ -26,8 +26,10 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const summary = (await canReadOrg(slug)) ? await getOrgHeaderSummary(slug).catch(() => null) : null;
   const title = `${slug} · fleet maturity · Ascent`;
   const description =
-    // realScoredCount: the average excludes mock placeholders; an all-mock fleet has no average to unfurl.
-    summary && summary.repoCount > 0 && summary.realScoredCount > 0
+    // `avgOverall !== null`: the average excludes mock placeholders, so an all-mock fleet has no
+    // average to unfurl. Read off the field itself now that it can say so — this used to test
+    // `realScoredCount > 0`, one field over, for exactly the same fact.
+    summary && summary.repoCount > 0 && summary.avgOverall !== null
       ? `${slug}'s fleet averages ${summary.avgOverall}/100 (${levelForScore(summary.avgOverall).id} · ${levelForScore(summary.avgOverall).name}) across ${summary.scannedCount}/${summary.repoCount} scanned repos on Ascent.`
       : `AI-native engineering maturity across ${slug}'s fleet on Ascent, a 5-level ladder across 9 dimensions, with evidence.`;
   return {

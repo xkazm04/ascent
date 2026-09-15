@@ -7,17 +7,35 @@
 // when an owner records a decision HERE, and a client that owns the read can refresh after its own
 // write without a full page round-trip. The stance version comes back with them so staleness is
 // computed against one number, not against whatever the page last happened to render.
+//
+// Org UX redesign §2: the column opens on a `BandLadder` of the three admission rungs, and the
+// sentence that used to open it — "the tier a scan DERIVES is a measurement, admission is the
+// decision" — is the `decided` accent ring plus the legend hint the kit generates for it.
 
 import { useCallback, useEffect, useState } from "react";
 import { Kicker } from "@/components/ui";
+import { BandLadder, Legend, WhyChip } from "@/components/org/viz";
 import type { RepoAdmissionRow } from "@/lib/org/admission";
-import { MODE_HEX, MODE_META, admissionSummary, toAdmissionViews, type AdmissionView } from "./admissionRows";
-import { AdmissionOverrideControl } from "./AdmissionOverrideControl";
+import { admissionSummary, toAdmissionViews, type AdmissionView } from "./admissionRows";
+import { admissionBands, admissionEdge, admissionStates } from "./admissionLadder";
+import { AdmissionRow } from "./AdmissionRow";
 
 interface Payload {
   rows: RepoAdmissionRow[];
   stanceVersion: number | null;
 }
+
+/**
+ * UAT `NADIA-L1-09`, demoted rather than deleted. The column claimed a decision is "recorded and
+ * enforceable" and said nothing about WHICH of the compiler's four artifacts one actually writes.
+ * The one-line claim stays in first sight — that is the half the finding was about — and the
+ * enumeration moves behind the chip.
+ */
+const WRITES_HINT =
+  "The gate-policy overlay applies automatically on every gate call, tighten-only, and fails closed if " +
+  "the table cannot be read. The compiler's other three artifacts — the CODEOWNERS managed block, the " +
+  ".ai/manifest.yaml controls.oversight block and the branch-ruleset — are proposals a person opens " +
+  "deliberately. Nothing here changes a repository on its own.";
 
 export function AdmissionColumn({ org, canEdit }: { org: string; canEdit: boolean }) {
   const [views, setViews] = useState<AdmissionView[] | null>(null);
@@ -50,22 +68,12 @@ export function AdmissionColumn({ org, canEdit }: { org: string; canEdit: boolea
 
   return (
     <section>
-      <Kicker>Admission · who may work here</Kicker>
-      <p className="mb-3 mt-2 max-w-3xl type-body text-slate-300">
-        The tier a scan DERIVES is a measurement. Admission is the decision: a recorded, overridable
-        statement of whether an agent may work in a repository at all — and it is the only half a gate can
-        enforce.
-      </p>
-      {/* UAT `NADIA-L1-09`. The column claimed a decision is "recorded and enforceable" and said
-          nothing about WHICH of the compiler's four artifacts a decision actually writes. Three of
-          the four are proposals with no UI yet; the fourth lands automatically. An AppSec lead
-          reading only the claim left believing all of it had shipped. */}
-      <p className="mb-3 max-w-3xl type-body-sm text-slate-500">
-        What a decision writes: the <strong className="text-slate-400">gate-policy overlay</strong> only. It applies
-        automatically on every gate call, tighten-only, and fails closed if this table cannot be read. The compiler&apos;s
-        other three artifacts — the CODEOWNERS managed block, the{" "}
-        <code className="font-mono">.ai/manifest.yaml controls.oversight</code> block and the branch-ruleset — are
-        proposals a person opens deliberately, and nothing here changes a repository on its own.
+      <div className="flex items-center gap-1.5">
+        <Kicker>Admission · who may work here</Kicker>
+        <WhyChip label="what a decision writes" hint={WRITES_HINT} />
+      </div>
+      <p className="mb-3 mt-2 max-w-3xl type-body-sm text-slate-400">
+        A decision writes the <strong className="text-slate-300">gate-policy overlay</strong> — and only that.
       </p>
       {error && (
         <p role="alert" className="type-body-sm text-orange-300">
@@ -79,6 +87,13 @@ export function AdmissionColumn({ org, canEdit }: { org: string; canEdit: boolea
           click. Reading this list writes nothing — the derived state is computed in memory. */}
       {!error && views !== null && (
         <>
+          {views.length > 0 && (
+            // §2.2 — first sight is the rung ladder, not the sentence that used to name it.
+            <div className="mb-4 max-w-md">
+              <BandLadder bands={admissionBands(views)} edge={admissionEdge(views)} title="Admission rungs" />
+              <Legend className="mt-3" states={admissionStates(views)} />
+            </div>
+          )}
           <p className="mb-3 type-body-sm text-slate-400">{admissionSummary(views)}</p>
           <div className="space-y-2">
             {views.map((v) => (
@@ -88,48 +103,5 @@ export function AdmissionColumn({ org, canEdit }: { org: string; canEdit: boolea
         </>
       )}
     </section>
-  );
-}
-
-/** The neutral rail for a repo nothing has been recorded or measured for — never a mode colour. */
-const UNASSESSED_HEX = "#475569";
-
-function AdmissionRow({ org, view, canEdit, onSaved }: { org: string; view: AdmissionView; canEdit: boolean; onSaved: () => void }) {
-  // A repo with no passport and no decision has NO admission row at all, so the gate applies no bar
-  // to it. Painting it with the middle rung's colour and label would claim an enforcement that does
-  // not exist — the exact confusion between a measurement and a decision this column is here to end.
-  const hex = view.unassessed ? UNASSESSED_HEX : MODE_HEX[view.mode];
-  return (
-    <div className="relative overflow-hidden rounded-xl border border-divider bg-surface/40 px-4 py-3">
-      <div aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ backgroundColor: hex }} />
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 pl-2">
-        <span className="type-mono-sm text-slate-100">{view.name}</span>
-        <span className="font-mono type-micro uppercase tracking-[0.18em]" style={{ color: hex }}>
-          {view.unassessed ? "Not assessed" : MODE_META[view.mode].label}
-        </span>
-        <span className="font-mono type-micro tabular-nums text-slate-400">{view.tier ?? "tier not assessed"}</span>
-        {/* A seed is not a decision, and the surface must never let the two look alike. */}
-        <span className="type-body-sm text-slate-500">
-          {view.decided
-            ? `decided by @${view.decidedBy}`
-            : view.unassessed
-              ? "nothing recorded — no admission bar applies here"
-              : "seeded from the derived tier — nobody has decided"}
-        </span>
-        {view.overridesDerived && (
-          <span className="font-mono type-micro text-orange-300">overrides derived {view.overridesDerived}</span>
-        )}
-        {view.stale && (
-          <span className="font-mono type-micro text-orange-300" title="Recorded against an older stance version and recompiled against the current one — not re-affirmed.">
-            stale decision
-          </span>
-        )}
-        {view.rulesetId && <span className="font-mono type-micro text-emerald-300">ruleset applied</span>}
-        <span className="ml-auto type-body-sm text-slate-500">
-          {view.unassessed ? "Scan this repository to derive a tier, or record a decision now." : MODE_META[view.mode].blurb}
-        </span>
-      </div>
-      {canEdit && <AdmissionOverrideControl org={org} view={view} onSaved={onSaved} />}
-    </div>
   );
 }

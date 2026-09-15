@@ -102,9 +102,10 @@ export function KnowledgeSubjectDetail({
                   );
                 })}
               </ul>
-              <p className="type-caption text-slate-600">
-                Pick a repo&rsquo;s cell to add this subject to that repo&rsquo;s conform brief. Evidence is in each cell&rsquo;s title.
-              </p>
+              {/* An instruction the reader must follow to compose — it stays. The second half
+                  ("evidence is in each cell's title") described an affordance that already ships:
+                  CellButton puts the map's file:line evidence in its `title`. */}
+              <p className="type-caption text-slate-600">Pick a cell to add this subject to that repo&rsquo;s conform brief.</p>
             </section>
 
             <section className="flex flex-wrap items-baseline justify-between gap-2 border-t border-divider pt-4">

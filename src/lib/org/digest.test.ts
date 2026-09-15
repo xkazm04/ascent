@@ -239,8 +239,12 @@ describe("buildWeeklyDigest — degradation", () => {
     expect(await buildWeeklyDigest("acme", NOW)).toBeNull();
   });
 
-  it("returns null when nothing has been scanned — there is no standing to report", async () => {
-    mockGetOrgRollup.mockResolvedValue(rollup({ scannedCount: 0 }));
+  it("returns null when nothing has been graded — there is no standing to report", async () => {
+    // An ungraded rollup carries null averages, not zeroes; the guard reads the averages themselves,
+    // so a scanned-but-all-mock fleet is refused for the same reason an unscanned one is.
+    mockGetOrgRollup.mockResolvedValue(rollup({ scannedCount: 0, avgOverall: null, avgAdoption: null, avgRigor: null }));
+    expect(await buildWeeklyDigest("acme", NOW)).toBeNull();
+    mockGetOrgRollup.mockResolvedValue(rollup({ scannedCount: 9, avgOverall: null, avgAdoption: null, avgRigor: null }));
     expect(await buildWeeklyDigest("acme", NOW)).toBeNull();
   });
 

@@ -1,38 +1,67 @@
 "use client";
 
-// A subject's blast radius across the fleet: its revision line, how many contexts subscribe to it
-// across how many repos and how many of those verdicts are stale, then the contexts BY NAME per
-// repo — a count names nothing actionable; a context name is where the golden path is read next.
+// A subject's blast radius across the fleet: its revision line, the magnitude DRAWN as one bar per
+// mapped repo, then the contexts BY NAME per repo — a count names nothing actionable; a context name
+// is where the golden path is read next.
+//
+// THE FIX THIS PANEL EXISTS TO CARRY. It used to print "0 contexts across 0 repos · 0 stale" in two
+// completely different situations: a subject genuinely nothing subscribes to, and a fleet that was
+// never swept or carries no registry map at all. The second is not a zero, it is the absence of a
+// measurement — so `subjectImpact` types it, and a `missing` / `not-judged` reading renders the kit's
+// void or hatch with no numeral anywhere near it. `rendersValue()` is the rule; this is the shape of
+// obeying it.
 
 import { useState } from "react";
 import { Kicker } from "@/components/ui";
-import type { KnowledgeRepo, KnowledgeSubject, KnowledgeView } from "@/lib/org/knowledge-shape";
-import { type CellIndex, STATE_CLASS, STATE_GLYPH, STATE_LABEL, columnRepos, readRevision } from "./knowledgeModel";
+import { STATE_HINT, StateSwatch, WhyChip } from "@/components/org/viz";
+import type { KnowledgeSubject, KnowledgeView } from "@/lib/org/knowledge-shape";
+import { type CellIndex, STATE_CLASS, STATE_GLYPH, STATE_LABEL, readRevision } from "./knowledgeModel";
+import { KnowledgeImpactBars } from "./KnowledgeImpactBars";
+import { subjectImpact } from "./knowledgeViz";
 
 const FOLD_AT = 6;
 
+/** Why the impact figure is unavailable — appended to the kit's sentence about the encoding itself. */
+const WHY = {
+  missing: "The fleet has never been swept, so no repository's registry map has been read; there is no impact figure yet, which is not the same as an impact of none.",
+  "not-judged": "No repository carries an .ai/registry-map.json, so nothing can be known about which contexts this subject governs.",
+} as const;
+
 export function KnowledgeSubjectImpact({ view, subject, cells }: { view: KnowledgeView; subject: KnowledgeSubject; cells: CellIndex }) {
-  const rows = columnRepos(view.repos)
-    .map((r) => ({ repo: r, cell: cells.get(subject.slug, r.repositoryId) }))
-    .filter((x): x is { repo: KnowledgeRepo; cell: NonNullable<typeof x.cell> } => !!x.cell && x.cell.contextRows.length > 0);
-  const contexts = rows.reduce((n, x) => n + x.cell.contextRows.length, 0);
-  const stale = rows.reduce((n, x) => n + x.cell.contextRows.filter((c) => c.stale).length, 0);
+  const impact = subjectImpact(view, subject, cells);
+  const named = impact.rows.filter((r) => r.contexts > 0);
 
   return (
     <section className="space-y-2">
       <Kicker tone="muted">Impact</Kicker>
-      <p className="type-mono-sm text-slate-400">
-        {readRevision(subject)} · {contexts} context{contexts === 1 ? "" : "s"} across {rows.length} repo{rows.length === 1 ? "" : "s"} · {stale} stale
-      </p>
-      {rows.length ? (
+
+      {impact.state === "measured" ? (
+        <p className="type-mono-sm text-slate-400">
+          {readRevision(subject)} · {impact.contexts} context{impact.contexts === 1 ? "" : "s"} across {impact.repos} repo
+          {impact.repos === 1 ? "" : "s"} · {impact.stale} stale
+        </p>
+      ) : (
+        // No numeral, by construction: the mark IS the reading, and the sentence is disclosed.
+        <p className="flex flex-wrap items-center gap-2 type-mono-sm text-slate-500">
+          <span aria-hidden className="inline-flex">
+            <StateSwatch state={impact.state} size={10} />
+          </span>
+          <span>{readRevision(subject)} · impact not measured</span>
+          <WhyChip hint={`${STATE_HINT[impact.state]} ${impact.state === "missing" ? WHY.missing : WHY["not-judged"]}`} label="impact not measured" />
+        </p>
+      )}
+
+      {impact.rows.length ? <KnowledgeImpactBars rows={impact.rows} subject={subject.slug} /> : null}
+
+      {named.length ? (
         <ul className="space-y-1.5">
-          {rows.map((x) => (
-            <ImpactRepo key={x.repo.repositoryId} name={x.repo.fullName} rows={x.cell.contextRows} />
+          {named.map((x) => (
+            <ImpactRepo key={x.repo.repositoryId} name={x.repo.fullName} rows={cells.get(subject.slug, x.repo.repositoryId)?.contextRows ?? []} />
           ))}
         </ul>
-      ) : (
+      ) : impact.state === "measured" ? (
         <p className="type-caption text-slate-600">No swept repo has a context subscribed to this subject.</p>
-      )}
+      ) : null}
     </section>
   );
 }

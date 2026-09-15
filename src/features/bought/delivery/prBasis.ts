@@ -84,9 +84,23 @@ export function repoBasisMark(population: number | undefined): string | null {
 }
 
 /**
- * The PR section headline. The old copy ("N PRs across M repos") read as though every percentage
- * below shared that denominator; none of them necessarily does.
+ * The PR section headline — COVERAGE ONLY, in unit/window form (/org redesign §2.3: a header is a
+ * noun phrase, and its description states the unit, never the meaning).
+ *
+ * The old copy ("How systematically the fleet ships: N PRs analyzed across M repos; each rate below
+ * names its own population") fused three jobs into one line. The claim about denominators is real and
+ * survives — as `BASIS_HINT` on the header's `WhyChip` — but it was never the header's job, and
+ * neither was the editorial lede. What is left is the one thing a reader needs at a glance: how much
+ * of the fleet is behind this panel at all.
  */
 export function prSectionBasisLine(totalPrs: number, repos: number): string {
-  return `How systematically the fleet ships: ${n(totalPrs)} PRs analyzed across ${repoWord(repos)}; each rate below names its own population.`;
+  return `${n(totalPrs)} PRs analyzed · ${repoWord(repos)}`;
 }
+
+/** (D) The demoted "each rate below names its own population" — now the section header's WhyChip. */
+export const BASIS_HINT =
+  "These rates do not share a denominator: each cell states the population it was actually measured over, and several rest on a handful of the fleet's repos.";
+
+/** (D) The demoted "the PRs column is the analyzed count, not every rate's population". */
+export const PRS_COLUMN_HINT =
+  "The PRs column is the analyzed count for that repo's latest scan — it is the denominator of the analyzed-based rates only; every other cell carries its own /N.";

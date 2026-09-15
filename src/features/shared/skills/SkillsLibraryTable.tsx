@@ -44,11 +44,21 @@ export function SkillsLibraryTable({
   registryBase: string | null;
 }) {
   if (skills.length === 0) {
-    return (
-      <p className="type-body text-slate-500">
-        {loading ? "Loading…" : filtered ? "No skills match your filters." : "No skills yet. Author your org's first reusable skill below."}
-      </p>
-    );
+    // The (O) destination for the panel header's value claim: a reader with nothing to look at is the
+    // one who needs the argument for authoring a skill at all. It is absent once the table has rows.
+    if (!loading && !filtered) {
+      return (
+        <div className="type-body text-slate-500">
+          <p>No skills yet.</p>
+          <p className="mt-1">
+            Author one once and the whole team discovers and reuses it: every member can copy it into
+            Claude Code or download it as a <span className="type-mono-sm text-slate-400">SKILL.md</span>,
+            and each of those uses is recorded, so the library can show you what is actually being run.
+          </p>
+        </div>
+      );
+    }
+    return <p className="type-body text-slate-500">{loading ? "Loading…" : "No skills match your filters."}</p>;
   }
 
   return (

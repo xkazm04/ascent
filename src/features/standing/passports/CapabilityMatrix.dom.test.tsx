@@ -4,12 +4,21 @@
 // VIEW does not put them back — the failure mode is a table that renders every repo uniformly and
 // quietly turns "we never read this repo's manifest" into a `0/0` that looks like a measurement.
 
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import type { ManifestReadout } from "@/lib/standard/readout";
 import type { CapabilityMatrixInput } from "./capabilityAgg";
 
 const { CapabilityMatrix } = await import("./CapabilityMatrix");
+
+// The panel now opens on the kit's `MatrixGrid`, which honours `prefers-reduced-motion`. jsdom ships
+// no `matchMedia`; the kit's own dom tests stub it the same way.
+beforeAll(() => {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: (query: string) => ({ matches: query.includes("reduce"), media: query, addEventListener: () => {}, removeEventListener: () => {} }),
+  });
+});
 
 function readout(over: Partial<ManifestReadout> = {}): ManifestReadout {
   return {

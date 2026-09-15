@@ -6,9 +6,9 @@
 // so user-authored markdown can't inject markup.
 
 import { useState } from "react";
-import { chipButtonClass } from "@/components/ui";
-import { CopyForLlm } from "@/components/CopyForLlm";
-import { SkillDormancyBadge, usageDetail } from "@/features/shared/skills/SkillDormancyBadge";
+import { SkillCardActions } from "@/features/shared/skills/SkillCardActions";
+import { SkillDormancyBadge } from "@/features/shared/skills/SkillDormancyBadge";
+import { usageDetail } from "@/features/shared/skills/skillLifecycleViz";
 import { SkillInvokeChip } from "@/features/shared/skills/SkillInvokeChip";
 import { SkillTracePanel } from "@/features/shared/skills/SkillTracePanel";
 import { SkillOutcomes } from "@/features/shared/skills/SkillOutcomes";
@@ -16,7 +16,6 @@ import { skillCategoryLabel } from "@/lib/org/skill-categories";
 import type { SkillUsage } from "@/lib/org/skill-usage";
 import type { SkillOutcome } from "@/lib/org/skill-outcomes";
 import type { SkillAdoption, SkillRow } from "@/lib/db";
-import { OpenInRegistry, registryBlobHref } from "@/features/shared/registry/RegistryOriginTag";
 
 export function SkillCard({
   skill: s,
@@ -97,28 +96,14 @@ export function SkillCard({
             </span>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <CopyForLlm text={s.content} label="Copy" ariaLabel={`Copy "${s.name}" for LLM`} onCopied={countCopy} />
-          <a
-            href={`/api/org/skills/${s.id}/download`}
-            className={chipButtonClass()}
-            title="Download the skill as a SKILL.md file"
-          >
-            <span aria-hidden>↓</span> Download
-          </a>
-          {/* A registry-origin skill is a mirror of a file in a repo the customer owns: archiving it here
-              would be undone by the next index pass, so the affordance is the file itself. Hosted rows
-              keep archive exactly as before. */}
-          {s.origin === "registry" ? (
-            <OpenInRegistry href={registryBlobHref(registryBase, s.registryPath)} />
-          ) : (
-            canArchive && (
-              <button onClick={onArchive} className="type-mono-sm text-slate-600 hover:text-orange-300" title="Archive this skill (admins only)">
-                archive
-              </button>
-            )
-          )}
-        </div>
+        {/* The Copy / Download / registry actions, and the two instructions that ride on them. */}
+        <SkillCardActions
+          skill={s}
+          canArchive={canArchive}
+          onArchive={onArchive}
+          onCopied={countCopy}
+          registryBase={registryBase}
+        />
       </div>
       {s.description && <p className="mt-1 type-body text-slate-400">{s.description}</p>}
 

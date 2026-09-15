@@ -13,10 +13,21 @@
 //   - fewer than MIN_AGREEMENT exemplars → no pattern, and it says one strong repo is not a standard;
 //   - exemplars that share nothing → no pattern, rather than promoting the best repo's document;
 //   - no gap repos → a pattern with nobody to offer it to, said plainly instead of dressed as a task.
+// All three are ZERO STATES — a reader with nothing to look at and a reason to act — which is exactly
+// where the redesign law puts an argument (§2.1 O). They stay.
+//
+// What did NOT stay is the paragraph above the populated panel. Its two halves were different jobs:
+// provenance ("your own repos, not a template") is a mark plus a disclosure, and "structure only,
+// never an artifact's contents" is a PRIVACY GUARANTEE, which is drawn by HousePatternPrivacy as a
+// row that is empty in both columns. An absence you can see beats an absence you are promised.
 //
 // Server-safe — no hooks, no handlers.
 
 import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { Kicker } from "@/components/ui";
+import { StateSwatch, WhyChip } from "@/components/org/viz";
+import { HousePatternPrivacy } from "./HousePatternPrivacy";
+import { shapeProvenanceHint } from "./housePatternViz";
 import { MIN_AGREEMENT, type MinedPractice } from "@/lib/org/practice-mining";
 
 function Lines({ title, lines }: { title: string; lines: { text: string; agreement: number }[] }) {
@@ -48,8 +59,24 @@ export function HousePattern({ mined, reposWithShape }: { mined: MinedPractice[]
       <SectionHeader
         size="sm"
         title="Your house pattern"
-        description="The practices this organization already shares, mined from the structure of your own strongest repositories, not from a generic template. Structure only: headings and layout travel between your repos, never an artifact's contents."
+        // §2.4 — provenance as a MARK, not a claim. `measured` says this was observed in the org's
+        // own repositories; the chip carries the agreement floor and the never-a-template sentence.
+        right={
+          <span className="flex items-center gap-1.5">
+            <StateSwatch state="measured" />
+            <Kicker tone="muted" as="span">
+              mined from your repos
+            </Kicker>
+            <WhyChip hint={shapeProvenanceHint(MIN_AGREEMENT)} label="provenance" align="end" />
+          </span>
+        }
       />
+
+      {/* First sight is the guarantee (§2.2): two columns, three rows, and the contents row is a
+          void in both. */}
+      <div className="mt-3">
+        <HousePatternPrivacy reposWithShape={reposWithShape} />
+      </div>
 
       {reposWithShape === 0 && (
         <p className="mt-3 type-body-sm text-slate-400">
@@ -98,14 +125,6 @@ export function HousePattern({ mined, reposWithShape }: { mined: MinedPractice[]
         </p>
       )}
 
-      <p className="mt-4 rounded-lg border border-dashed border-divider bg-surface/40 px-3 py-2 type-body-sm text-slate-400">
-        <span className="type-label tracking-[0.22em] text-slate-500">How this is built</span> A
-        heading or path counts only when at least {MIN_AGREEMENT} of your exemplar repositories carry it
-        independently, so what you see is agreement rather than the highest-scoring repository&apos;s copy. The{" "}
-        <strong className="font-medium text-slate-200">{"n×"}</strong> beside each line is how many agreed. Only
-        document skeletons and path layouts are read (never an artifact&apos;s body), and a mined pattern stays inside
-        this organization.
-      </p>
     </Card>
   );
 }

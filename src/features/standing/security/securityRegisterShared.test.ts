@@ -9,7 +9,7 @@ function check(over: Partial<SecurityRowCheck>): SecurityRowCheck {
   return { id: "x", name: "X", group: "posture", risk: "high", score: 5, detail: "", ...over };
 }
 function row(over: Partial<SecurityRegisterRow> = {}): SecurityRegisterRow {
-  return { name: "r", fullName: `acme/${over.name ?? "r"}`, score: 50, gateReason: null, rules: null, checks: [], issues: [], summary: "", ...over };
+  return { name: "r", fullName: `acme/${over.name ?? "r"}`, score: 50, measured: true, gateReason: null, rules: null, checks: [], issues: [], summary: "", ...over };
 }
 
 describe("gradeTone — chip color by 0..10 grade", () => {

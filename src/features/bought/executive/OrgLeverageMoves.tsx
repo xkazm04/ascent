@@ -1,83 +1,87 @@
-// The widest shared gaps across the fleet — companion voice: somewhere to look next, never an order.
-// The top card names the single most-shared gap with its engine-true projected maturity gain, why it
-// matters for AI-driven development (rationale), and a question to explore; the ranked follow-ons list
-// the next-widest gaps. Extracted from app/org/[slug]/executive/page.tsx to keep that page under the
-// 300-LOC component limit. Server component; the caller passes a non-empty list.
+// The widest gaps the fleet shares — drawn, not narrated.
+//
+// This panel used to open with the sentence that described its own ranking ("ranked by reach × impact
+// × dimension weight, with the engine-true maturity each repo stands to gain … Somewhere to look
+// next, not an order"), then rendered a numbered list with a highlighted "Explore first" pill. Both
+// halves are gone: the ranking is the bar (LeverageBars, on one shared scale), the basis is a
+// WhyChip, and the restraint is the absence of rank numerals and CTA styling rather than a promise
+// that the list is not an order. Server component; the caller passes a non-empty list.
 
 import Link from "next/link";
 import { SectionHeader } from "@/components/org/shared/ui";
-import { dimShort, IMPACT_CLASS } from "@/lib/ui";
+import { Legend, WhyChip } from "@/components/org/viz";
 import type { OrgRec } from "@/lib/db";
+import { LeverageBars } from "./LeverageBars";
+import {
+  LEVERAGE_BASIS_HINT,
+  LEVERAGE_ORDER_HINT,
+  LEVERAGE_RUNG_HINT,
+  leverageBars,
+  leverageStates,
+} from "./leverageMoves";
 
-/** Engine-true projected-gain phrase for the headline gap, or null when no affected repo had
- *  persisted dimension rows (so we never invent a number). */
-function gainPhrase(rec: OrgRec): string | null {
-  if (rec.projectedPoints == null) return null;
-  const each = `≈ +${rec.projectedPoints} maturity pts on each of ${rec.repoCount} repo${rec.repoCount > 1 ? "s" : ""} if closed`;
-  return rec.liftsRepos > 0 ? `${each} · would advance ${rec.liftsRepos} to the next level` : each;
-}
-
-function reach(rec: OrgRec): string {
-  return `shared by ${rec.repoCount} repo${rec.repoCount > 1 ? "s" : ""}: ${rec.repos.slice(0, 6).join(", ")}${rec.repos.length > 6 ? ` +${rec.repos.length - 6}` : ""}`;
-}
+/** The rung tick at swatch scale — the legend paints the mark the chart draws, not an approximation. */
+const RUNG_SWATCH = (
+  <svg viewBox="0 0 10 10" width={10} height={10} aria-hidden className="shrink-0">
+    <rect x={0} y={3} width={10} height={4} fill="var(--color-accent)" fillOpacity={0.7} />
+    <line x1={6} y1={1} x2={6} y2={9} stroke="var(--color-accent)" strokeWidth={2} />
+  </svg>
+);
 
 export function OrgLeverageMoves({ recs, slug }: { recs: OrgRec[]; slug: string }) {
-  const [top, ...rest] = recs;
+  const bars = leverageBars(recs);
+  const [top] = recs;
   return (
     <div>
       <SectionHeader
-        title="The widest gap to explore across the fleet"
-        description="The gap the most repositories share: ranked by reach × impact × dimension weight, with the engine-true maturity each repo stands to gain if the gap closes. Somewhere to look next, not an order."
-        right={<span className="type-mono-sm uppercase tracking-widest text-slate-600">current state · not period-scoped</span>}
+        title={
+          <span className="inline-flex items-center gap-2">
+            Widest shared gaps
+            <WhyChip hint={LEVERAGE_BASIS_HINT} label="ranking basis" />
+          </span>
+        }
+        right={
+          <span className="inline-flex items-center gap-2 type-mono-sm uppercase tracking-widest text-slate-600">
+            current state · not period-scoped
+            <WhyChip hint={LEVERAGE_ORDER_HINT} label="how to read this list" align="end" />
+          </span>
+        }
       />
-      {top && (
-        <div className="mt-3 rounded-xl border border-accent/40 bg-accent/5 p-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-accent/20 px-2 py-0.5 type-label tracking-widest text-accent">Explore first</span>
-            <span className="font-semibold text-white">{top.title}</span>
-            <span className="rounded border border-slate-700 px-1.5 py-0.5 type-mono-sm text-slate-400">
-              {dimShort(top.dimId)}
-            </span>
-          </div>
-          {gainPhrase(top) && <div className="mt-1.5 type-body-sm font-medium text-emerald-300">{gainPhrase(top)}</div>}
-          {top.rationale && <p className="mt-1.5 type-body-sm text-slate-400">{top.rationale}</p>}
+
+      <LeverageBars bars={bars} className="mt-3" />
+
+      <Legend
+        className="mt-2"
+        states={leverageStates(bars)}
+        extra={
+          bars.some((b) => b.liftsRepos > 0)
+            ? [{ id: "rung", label: "Crosses a level", swatch: RUNG_SWATCH, hint: LEVERAGE_RUNG_HINT }]
+            : []
+        }
+      />
+
+      {/* The companion voice that is genuinely CONTENT rather than chrome: why the widest gap matters,
+          and a question to explore it with. Kept for the top gap only — the bars above already say
+          which one that is, so this needs no pill, no numeral and no "Explore first" badge. */}
+      {top && (top.rationale || top.explore[0]) && (
+        <div className="mt-4 space-y-1.5 border-l border-divider pl-3">
+          <div className="type-mono-sm uppercase tracking-widest text-slate-600">{top.title}</div>
+          {top.rationale && <p className="type-body-sm text-slate-400">{top.rationale}</p>}
           {top.explore[0] && (
-            <p className="mt-1.5 flex gap-2 type-body-sm text-slate-300">
-              <span className="select-none text-accent" aria-hidden>?</span>
+            <p className="flex gap-2 type-body-sm text-slate-300">
+              <span className="select-none text-accent" aria-hidden>
+                ?
+              </span>
               <span>{top.explore[0]}</span>
             </p>
           )}
-          <div className="mt-1.5 type-mono-sm text-slate-500">{reach(top)}</div>
         </div>
       )}
-      {rest.length > 0 && (
-        <div className="mt-3 space-y-2">
-          {rest.map((rec, i) => (
-            <div key={`${rec.dimId}-${rec.title}`} className="flex items-start gap-3 rounded-xl border border-slate-800 bg-slate-900/40 p-4">
-              <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-700 font-mono type-body text-slate-300">{i + 2}</span>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium text-white">{rec.title}</span>
-                  <span className="rounded border border-slate-700 px-1.5 py-0.5 type-mono-sm text-slate-400">
-                    {dimShort(rec.dimId)}
-                  </span>
-                  <span className={`rounded border px-1.5 py-0.5 type-mono-sm ${IMPACT_CLASS[rec.impact] ?? "border-slate-700 text-slate-400"}`}>
-                    {rec.impact} impact
-                  </span>
-                </div>
-                <div className="mt-1.5 type-mono-sm text-slate-500">
-                  {rec.projectedPoints != null ? `≈ +${rec.projectedPoints} pts · ` : ""}
-                  {reach(rec)}
-                </div>
-              </div>
-              <span className="shrink-0 type-mono-sm text-slate-500" title="leverage = repos × impact × dimension weight">
-                ⚡{rec.leverage}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-      <Link href={`/org/${slug}/repositories`} className="mt-3 inline-block type-mono-sm uppercase tracking-widest text-accent hover:text-white">
+
+      <Link
+        href={`/org/${slug}/repositories`}
+        className="mt-3 inline-block type-mono-sm uppercase tracking-widest text-accent hover:text-white"
+      >
         Browse all repositories →
       </Link>
     </div>

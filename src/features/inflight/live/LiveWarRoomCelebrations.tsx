@@ -7,17 +7,17 @@ export function Celebrations({ celebrations }: { celebrations: Celebration[] }) 
       {celebrations.map((c) => (
         <div
           key={c.id}
-          className="animate-burst relative overflow-hidden rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 shadow-lg shadow-emerald-500/10 backdrop-blur"
+          className="animate-burst relative overflow-hidden rounded-xl border border-success/40 bg-success/10 px-4 py-3 shadow-lg shadow-success/10 backdrop-blur"
         >
-          <span aria-hidden className="burst-ring absolute -left-2 top-1/2 h-10 w-10 -translate-y-1/2 rounded-full bg-emerald-400/40" />
+          <span aria-hidden className="burst-ring absolute -left-2 top-1/2 h-10 w-10 -translate-y-1/2 rounded-full bg-success/40" />
           <div className="relative flex items-center gap-3">
             <span className="type-title" aria-hidden>
               🎉
             </span>
             <div>
-              <div className="type-mono-sm uppercase tracking-widest text-emerald-300">Crossed into AI-Native</div>
+              <div className="type-mono-sm uppercase tracking-widest text-success-soft">Crossed into AI-Native</div>
               <div className="type-body font-semibold text-white">
-                {c.name} {c.overall != null && <span className="font-mono text-emerald-300">· {c.overall}</span>}
+                {c.name} {c.overall != null && <span className="font-mono text-success-soft">· {c.overall}</span>}
               </div>
             </div>
           </div>

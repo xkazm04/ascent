@@ -18,11 +18,18 @@ export interface AdoptionChampion {
 export interface AdoptionTeam {
   slug: string; // "@org/team"
   name: string;
-  aiCommitShare: number; // 0..100, commit-weighted across the team's repos
+  /** 0..100, commit-weighted across the team's repos — NULL when the team has no commit population
+   *  to take a share of, carried straight through from `TeamRollup.aiCommitShare`. The Adoption tab
+   *  hatches such a team (`adoptionTeamMatrix.teamState`) instead of painting a red 0%. */
+  aiCommitShare: number | null;
   contributors: number;
   aiContributors: number;
   repoCount: number;
 }
+
+/** A team whose AI share is a real reading — the only kind a mentor→learner pairing can be built
+ *  from, so the pairing shape narrows the nullable field once here rather than at each renderer. */
+export type MeasuredAdoptionTeam = AdoptionTeam & { aiCommitShare: number };
 
 /**
  * Someone to INVITE to the next enablement session: an active contributor whose recent work carries no
@@ -74,8 +81,10 @@ export interface AdoptionOverview {
   tools: { name: string; count: number }[];
   /** Per-team adoption, highest AI commit share first. Empty when no CODEOWNERS attribution. */
   teams: AdoptionTeam[];
-  /** The single highest-leverage mentor→learner team pairing on AI share (gap ≥ PAIRING_MIN_GAP). */
-  teamPairing: { leader: AdoptionTeam; learner: AdoptionTeam; gap: number } | null;
+  /** The single highest-leverage mentor→learner team pairing on AI share (gap ≥ PAIRING_MIN_GAP).
+   *  Both sides are `MeasuredAdoptionTeam`: a team with no AI-share reading cannot be a mentor or a
+   *  learner, because the gap between them would be a subtraction from an absence. */
+  teamPairing: { leader: MeasuredAdoptionTeam; learner: MeasuredAdoptionTeam; gap: number } | null;
   /** Who to INVITE to enablement next: active contributors with no AI-attributed commits yet. */
   enablement: EnablementTarget[];
 }
@@ -221,13 +230,19 @@ export async function buildAdoptionOverview(
       aiContributors: t.aiContributors,
       repoCount: t.repoCount,
     }))
-    .sort((a, b) => b.aiCommitShare - a.aiCommitShare);
+    // Highest share first, with the UNMEASURED teams last rather than sorted as if they were 0% —
+    // a team with no commit population is not "the least AI-native team", it is a team we have no
+    // reading for, and sorting it into the bottom of a ranked strip asserts the reading.
+    .sort((a, b) => (b.aiCommitShare ?? -1) - (a.aiCommitShare ?? -1));
 
-  // Mentor→learner pairing on AI share: top team vs the lowest team that has people to enable.
+  // Mentor→learner pairing on AI share: top team vs the lowest team that has people to enable. Both
+  // ends must be MEASURED — an unmeasured team at the bottom of the list used to arrive as a 0% and
+  // could be nominated "learner" on a 60-point gap that was never observed.
   let teamPairing: AdoptionOverview["teamPairing"] = null;
-  if (adoptionTeams.length >= 2) {
-    const leader = adoptionTeams[0]!;
-    const learner = [...adoptionTeams].reverse().find((t) => t !== leader && t.contributors > 0);
+  const measured = adoptionTeams.filter((t): t is MeasuredAdoptionTeam => t.aiCommitShare !== null);
+  if (measured.length >= 2) {
+    const leader = measured[0]!;
+    const learner = [...measured].reverse().find((t) => t !== leader && t.contributors > 0);
     if (learner) {
       const gap = leader.aiCommitShare - learner.aiCommitShare;
       if (gap >= PAIRING_MIN_GAP) teamPairing = { leader, learner, gap };
@@ -286,7 +301,11 @@ export function adoptionMarkdown(a: AdoptionOverview): string {
     out.push("");
     out.push("## Team adoption (CODEOWNERS)");
     for (const t of a.teams) {
-      out.push(`- ${t.name}: ${t.aiCommitShare}% AI commit share · ${t.aiContributors}/${t.contributors} contributors AI-active · ${t.repoCount} repos`);
+      // An LLM reading "0% AI commit share" will report it as a finding, so the brief says what the
+      // producer says: no commit population, therefore no share. (The org-intelligence Known gap
+      // named this brief as the second surface still printing the sentinel as a measurement.)
+      const share = t.aiCommitShare === null ? "AI commit share not measured (no commit history)" : `${t.aiCommitShare}% AI commit share`;
+      out.push(`- ${t.name}: ${share} · ${t.aiContributors}/${t.contributors} contributors AI-active · ${t.repoCount} repos`);
     }
     if (a.teamPairing) {
       out.push(

@@ -88,7 +88,7 @@ export function ShipLoopBand({
           </span>
         )}
       </header>
-      {loop.error && <p className="border-b border-divider px-4 py-2 type-mono-sm text-orange-300">{loop.error}</p>}
+      {loop.error && <p className="border-b border-divider px-4 py-2 type-mono-sm text-danger-soft">{loop.error}</p>}
       <ShipLoopPipeline {...view} />
     </div>
   );

@@ -28,12 +28,16 @@ export function SkillTracePanel({ slug, skill }: { slug: string; skill: string }
 
   return (
     <details className="group mt-2" onToggle={open}>
-      <summary className="flex cursor-pointer list-none items-center gap-1.5 type-mono-sm text-slate-500 transition hover:text-slate-300 [&::-webkit-details-marker]:hidden">
+      {/* The description that used to sit beside the word rides on the affordance itself: a
+          disclosure names what it opens, it does not need a subtitle to be legible. */}
+      <summary
+        title="Every version of this skill in the registry, and the lessons each run recorded against it"
+        className="flex cursor-pointer list-none items-center gap-1.5 type-mono-sm text-slate-500 transition hover:text-slate-300 [&::-webkit-details-marker]:hidden"
+      >
         <span aria-hidden className="text-slate-600 transition-transform group-open:rotate-90">
           ›
         </span>
         Trace
-        <span className="text-slate-700">· versions and what each run taught</span>
       </summary>
 
       <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/40 p-3">

@@ -14,7 +14,8 @@ import type { GovernanceOverview } from "@/lib/org/governance";
 export function GovernanceFailReasonsCard({ g }: { g: GovernanceOverview }) {
   return (
     <Card>
-      <SectionHeader size="sm" title="Where the fleet fails" description="Repos failing each gate condition (counted once per repo)." />
+      {/* Unit only (§2.3): the meters below say what they measure; this states how they count. */}
+      <SectionHeader size="sm" title="Where the fleet fails" description="counted once per repo" />
       {/* "failing === 0" is NOT "everything is fine": a repo that scored nothing is neither a pass
           nor a failure, so a fleet of unscorable repos would otherwise print the all-clear. Name the
           unjudged bucket instead — the whole point of the third bucket is that it stays visible. */}

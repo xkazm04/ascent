@@ -40,6 +40,11 @@ function tile(label: string): HTMLElement {
   return node as HTMLElement;
 }
 
+/** The receipt table itself, told apart from the sr-only equivalents the two graphics carry. */
+function receipt(): HTMLElement {
+  return screen.getByRole("table", { name: /Merged improvement PRs/i });
+}
+
 describe("ImpactLedger", () => {
   it("renders an empty state that points at the loop, not a wall of zeroes", () => {
     draw([]);
@@ -56,12 +61,22 @@ describe("ImpactLedger", () => {
     expect(within(tile("Points bought")).getByText(/nothing re-scanned yet/i)).toBeTruthy();
   });
 
-  // RULE 1: a merge without a rescan is named in the field notes, not silently dropped.
-  it("states how many merges are still awaiting a rescan", () => {
+  // RULE 1: a merge without a rescan is COUNTED on the legend beside the chart it is missing from,
+  // not silently dropped. (Was a sentence in a field-notes paragraph; the count is now a legend row
+  // whose hint carries the sentence on hover.)
+  it("counts the merges still awaiting a rescan beside the chart", () => {
     draw([pr(), pr({ prNumber: 2, verifiedScanId: null, impactDim: null })]);
-    expect(screen.getByText(/1 merged PR is still awaiting a rescan/i)).toBeTruthy();
+    expect(screen.getByText("1 awaiting rescan")).toBeTruthy();
     expect(within(tile("Points bought")).getByText("+6")).toBeTruthy(); // only the verified row
     expect(screen.getByText("awaiting rescan")).toBeTruthy(); // the row's own status cell
+  });
+
+  // The funnel is the panel's first sight: merged → re-scanned → repos moved, drawn before it is
+  // tabulated, with an unmeasured stage drawn as a break rather than as a zero.
+  it("opens on a graphic, not on a paragraph", () => {
+    draw([pr()]);
+    const flow = screen.getByRole("img", { name: /Improvement merges/i });
+    expect(flow.tagName.toLowerCase()).toBe("svg");
   });
 
   // RULE 3 (UAT DANA-L1-010): a regression keeps its sign and gets its own tile.
@@ -78,15 +93,24 @@ describe("ImpactLedger", () => {
   });
 
   // A verified row with no baseline is disclosed as a limit, not counted as a zero contribution.
-  it("discloses re-scanned merges that have no baseline to compare against", () => {
+  it("counts re-scanned merges that have no baseline to compare against", () => {
     draw([pr({ impactDim: null, impactOverall: null })]);
-    expect(screen.getByText(/no baseline scan to compare against/i)).toBeTruthy();
+    const row = screen.getByText("1 with no baseline").closest("li");
+    expect(row?.getAttribute("title")).toMatch(/no baseline scan when the PR opened/i);
     expect(within(tile("Points bought")).getByText("—")).toBeTruthy();
   });
 
-  it("never sums per-repo overall movement, and says so", () => {
+  // Nothing verified ⇒ the movement chart is a VOID. A chart of zero-length bars would be a legible
+  // claim ("the period bought nothing") the ledger does not have the measurement to make.
+  it("draws a void instead of a zeroed movement chart when nothing is re-scanned", () => {
+    draw([pr({ verifiedScanId: null, impactDim: null, impactOverall: null })]);
+    expect(screen.getByRole("img", { name: /nothing re-scanned yet, so there is no movement to draw/i })).toBeTruthy();
+  });
+
+  it("never sums per-repo overall movement, and discloses the rule on the column it governs", () => {
     draw([pr({ repoFullName: "acme/web", impactOverall: 3 }), pr({ repoFullName: "acme/api", prNumber: 2, impactOverall: 4 })]);
-    expect(screen.getByText(/never summed/i)).toBeTruthy();
+    const th = screen.getByRole("columnheader", { name: "Repo overall" });
+    expect(th.getAttribute("title")).toMatch(/never summed/i);
     // 7 would be the forbidden cross-repo total; the per-row values stand on their own.
     expect(screen.queryByText("+7")).toBeNull();
   });
@@ -107,10 +131,13 @@ describe("ImpactLedger", () => {
 describe("ImpactLedger — every row fills every column it declares", () => {
   it("emits one cell per header, with the badge under Status and the surface under Source", () => {
     draw([pr({ source: "practice-pr" })]);
-    const headers = screen.getAllByRole("columnheader").map((h) => h.textContent?.trim());
+    // Scoped to the receipt itself: the two graphics above it carry their own sr-only tables (the
+    // accessible equivalents the redesign requires), so an unscoped role query now sees three.
+    const ledger = receipt();
+    const headers = within(ledger).getAllByRole("columnheader").map((h) => h.textContent?.trim());
     expect(headers).toEqual(["Repository", "Bought", "Dim delta", "Repo overall", "Source", "Status"]);
 
-    const row = screen.getAllByRole("row")[1]!;
+    const row = within(ledger).getAllByRole("row")[1]!;
     const cells = within(row).getAllByRole("cell");
     expect(cells.length).toBe(headers.length);
     expect(cells[4]!.textContent).toContain("practice");
@@ -119,7 +146,7 @@ describe("ImpactLedger — every row fills every column it declares", () => {
 
   it("names a loop lane's row as a loop lane, and an unverified row as awaiting rescan", () => {
     draw([pr({ source: "loop", loopLaneId: "lane_1", verifiedScanId: null })]);
-    const row = screen.getAllByRole("row")[1]!;
+    const row = within(receipt()).getAllByRole("row")[1]!;
     const cells = within(row).getAllByRole("cell");
     expect(cells[4]!.textContent).toContain("loop lane");
     expect(cells[5]!.textContent).toContain("awaiting rescan");

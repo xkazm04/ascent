@@ -139,11 +139,16 @@ const mockRecordAlertEvent = vi.mocked(recordAlertEvent);
 const SECRET = "digest-secret-xyz";
 
 // A non-empty rollup so the route proceeds past the `scannedCount === 0` short-circuit and builds.
+// All THREE averages, because a real rollup carries them together or not at all — they share one
+// population (`realScoredCount`). The route's `hasFleetGrade` gate reads all three, so a fixture that
+// claims a graded fleet has to look like one.
 const rollupWith = () =>
   ({
     repoCount: 4,
     scannedCount: 4,
     avgOverall: 72,
+    avgAdoption: 68,
+    avgRigor: 76,
     deltas: { overall: 1 },
     forecast: null,
   }) as unknown as Awaited<ReturnType<typeof getOrgRollup>>;
@@ -784,10 +789,10 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     expect(built.regressers.map((r) => r.name)).toEqual(["real"]);
   });
 
-  it("does not dispatch when the org has a sink but nothing to report (scannedCount === 0)", async () => {
+  it("does not dispatch when the org has a sink but nothing GRADED to report", async () => {
     mockListOrgs.mockResolvedValue(["orgA"]);
     mockOrgWebhook.mockResolvedValue("https://hooks.example.com/A");
-    mockRollup.mockResolvedValue({ repoCount: 2, scannedCount: 0 } as unknown as Awaited<
+    mockRollup.mockResolvedValue({ repoCount: 2, scannedCount: 0, avgOverall: null, avgAdoption: null, avgRigor: null } as unknown as Awaited<
       ReturnType<typeof getOrgRollup>
     >);
 
@@ -795,6 +800,20 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     const body = await bodyOf(res);
     expect(body).toMatchObject({ orgs: 1, sent: 0, skippedNoSink: 0 });
     expect(mockBuild).not.toHaveBeenCalled();
+    expect(mockDispatch).not.toHaveBeenCalled();
+  });
+
+  it("does not dispatch for a fleet that IS scanned but carries no grade (all mock)", async () => {
+    // The guard was `scannedCount === 0`, which this fleet passes — and the push then read
+    // "avg 0 · L1", a grade nobody measured. It reads the averages themselves now.
+    mockListOrgs.mockResolvedValue(["orgA"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/A");
+    mockRollup.mockResolvedValue({ repoCount: 4, scannedCount: 4, avgOverall: null, avgAdoption: null, avgRigor: null } as unknown as Awaited<
+      ReturnType<typeof getOrgRollup>
+    >);
+
+    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
+    expect(await bodyOf(res)).toMatchObject({ orgs: 1, sent: 0, skippedNoSink: 0 });
     expect(mockDispatch).not.toHaveBeenCalled();
   });
 

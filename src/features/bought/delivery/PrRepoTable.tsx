@@ -6,12 +6,27 @@
 
 import Link from "next/link";
 import { OrgTable, fmtHours } from "@/components/org/shared/ui";
+import { STATE_HINT } from "@/components/org/viz";
 import { scoreHex } from "@/lib/ui";
 import type { PrRepoRow } from "@/lib/db";
 import type { FleetRateId } from "@/lib/db/org-signals";
 import { repoBasisMark, repoBasisTitle } from "./prBasis";
 
 const VISIBLE_ROWS = 12;
+
+/**
+ * The dash a rate renders when nothing measured it. It carries the kit's ONE canonical sentence for
+ * `missing` ("an absence, never a zero") plus this cell's own reason, and `data-state="missing"`
+ * gives the encoding a stable hook — the same vocabulary the graphic above the table paints with, so
+ * a reader who learns the void in the strip reads the dash the same way here (§2.4).
+ */
+function Void({ reason, basis }: { reason?: string; basis: string }) {
+  return (
+    <span data-state="missing" className="text-slate-600" title={[reason, STATE_HINT.missing, basis].filter(Boolean).join(" ")}>
+      —
+    </span>
+  );
+}
 
 /**
  * The denominator mark a cell carries beside its percentage. `analyzed` sits in its own column, but
@@ -39,13 +54,7 @@ function Rate({
   r: PrRepoRow;
 }) {
   const title = repoBasisTitle(id, r.population[id]);
-  if (value == null) {
-    return (
-      <span className="text-slate-600" title={dashTitle ? `${dashTitle}. ${title}` : title}>
-        —
-      </span>
-    );
-  }
+  if (value == null) return <Void reason={dashTitle ? `${dashTitle}.` : undefined} basis={title} />;
   return (
     <span className="whitespace-nowrap" title={title}>
       <span className="font-mono tabular-nums" style={{ color: scoreHex(value) }}>
@@ -59,13 +68,7 @@ function Rate({
 /** The uncolored figures (AI share / trailers / pre-review / reverts) with the same basis mark. */
 function PlainRate({ value, dashTitle, id, r }: { value: number | null; dashTitle?: string; id: FleetRateId; r: PrRepoRow }) {
   const title = repoBasisTitle(id, r.population[id]);
-  if (value == null) {
-    return (
-      <span className="text-slate-600" title={dashTitle ? `${dashTitle}. ${title}` : title}>
-        —
-      </span>
-    );
-  }
+  if (value == null) return <Void reason={dashTitle ? `${dashTitle}.` : undefined} basis={title} />;
   return (
     <span className="whitespace-nowrap" title={title}>
       {value}%

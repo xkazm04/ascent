@@ -11,12 +11,17 @@
 // a button that says "done".
 
 import { Kicker, chipButtonClass } from "@/components/ui";
+import { WhyChip } from "@/components/org/viz";
 import type { KnowledgeView, RegistryDispatchRow, RegistryDispatchStage } from "@/lib/org/knowledge-shape";
 import { KnowledgeComposerContexts } from "./KnowledgeComposerContexts";
 import { StageChip } from "./KnowledgeShared";
 import { STAGE_ACTION, fmtCost, indexCells, sweepAge } from "./knowledgeModel";
 import type { KnowledgeActionsApi } from "./useKnowledgeActions";
 import type { KnowledgeSelectionApi } from "./useKnowledgeSelection";
+
+/** (D) The demoted precondition line for the local door — disclosed on the chip, not printed. */
+const RUN_LOCAL_HINT =
+  "Run here needs a self-hosted deployment with ASCENT_AUTOPILOT enabled and a paired working copy of this repository. A hosted deployment composes the brief instead and you hand it to any agent session.";
 
 const STATUS_TONE: Record<RegistryDispatchRow["status"], string> = {
   handed_off: "text-slate-400",
@@ -141,7 +146,12 @@ export function KnowledgeComposer({
                 {busy("local") ? "Dispatching…" : "Run here"}
               </button>
             ) : (
-              <span className="type-caption text-slate-600">Run here needs a self-hosted deployment with ASCENT_AUTOPILOT and a paired repo.</span>
+              // (D) The three preconditions were permanent chrome on every hosted deployment, where
+              // the door can never open. The state is named; the reason is one keystroke away.
+              <span className="inline-flex items-center gap-1.5 type-caption text-slate-600">
+                Run here unavailable
+                <WhyChip hint={RUN_LOCAL_HINT} label="Run here unavailable" align="end" />
+              </span>
             )}
           </div>
           {state.brief ? (

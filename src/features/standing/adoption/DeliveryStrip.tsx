@@ -6,8 +6,10 @@ import Link from "next/link";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { Surface, Kicker } from "@/components/ui";
 import { fmtHours } from "@/components/org/shared/ui";
+import { WhyChip } from "@/components/org/viz";
 import type { AdoptionOverview } from "@/lib/org/adoption";
 import { scoreHex } from "@/lib/ui";
+import { DELIVERY_HINT } from "./adoptionHints";
 
 function Reading({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
@@ -28,10 +30,12 @@ export function DeliveryStrip({ delivery, slug }: { delivery: NonNullable<Adopti
           delivery-health half so the two surfaces never repeat a number. */}
       <div className="flex flex-wrap items-stretch divide-x divide-divider">
         <div className="flex w-72 min-w-56 flex-col justify-center px-5 py-4">
-          <Kicker tone="muted">Delivery · context</Kicker>
-          <p className="mt-1 type-body-sm text-slate-500">
-            {d.prs} PRs across the fleet, shown beside adoption, not a causal claim.
-          </p>
+          <span className="flex items-center gap-2">
+            <Kicker tone="muted">Delivery · context</Kicker>
+            {/* (D) "shown beside adoption, not a causal claim" — the reading constraint, on demand. */}
+            <WhyChip hint={DELIVERY_HINT} label="delivery beside adoption" />
+          </span>
+          <p className="mt-1 type-mono-sm text-slate-500">{d.prs.toLocaleString()} PRs across the fleet</p>
           <Link href={orgTabHref(slug, "delivery")} className="mt-1 type-label tracking-widest text-slate-500 transition hover:text-accent">
             Delivery detail →
           </Link>

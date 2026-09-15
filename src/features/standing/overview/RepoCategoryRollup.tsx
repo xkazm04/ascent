@@ -79,7 +79,7 @@ export function RepoCategoryRollup({
       <SectionHeader
         size="sm"
         title="Fleet"
-        description={`Every repository grouped by ${mode}: where each cohort stands and how it's moving · ${periodTitle}`}
+        description={`${filtered.length} repos · ${periodTitle}`}
         right={
           <div className="flex items-center gap-1" role="group" aria-label="Group by">
             <span className="mr-1 type-label tracking-widest text-slate-500">Group</span>

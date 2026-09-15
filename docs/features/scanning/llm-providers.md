@@ -327,6 +327,30 @@ anything that must distinguish an unresolvable active config uses `resolveByomSt
 
 ### Settings UI
 
+- `src/features/admin/settings/ProviderBoundaryCard.tsx` (+ the pure
+  `providerBoundaryViz.ts`): the **provider comparison**, and the tab's first element. The
+  boundary/billing/plan distinction used to be a paragraph in each of the two BYOM card
+  headers, which a reader had to hold in their head and diff; it is a `MatrixGrid` from the
+  shared `@/components/org/viz` kit now (`docs/ORG-UX-REDESIGN.md` §2). Three rows, four
+  columns, and — the part prose cannot enforce — **three different kinds of "no" in the
+  Boundary column**:
+
+  | | Boundary | Billing | Plan | Active |
+  | --- | --- | --- | --- | --- |
+  | **Ascent** (platform default) | hatched — *not judged* | void | measured | measured, or **superseded** once a BYOM takes the slot |
+  | **Bedrock** | **measured** — your AWS account, your region | measured — your AWS account | measured iff `planAllowsByom` | see the slot ladder below |
+  | **OpenRouter** | **void** — routes to a third-party upstream | measured — your OpenRouter account | measured iff `planAllowsByom` | see the slot ladder below |
+
+  The OpenRouter Boundary cell is `missing`, so `isVoid` is true and `rendersValue` is
+  false: it can never acquire a mark or a number that would let it read like Bedrock's. The
+  Ascent row is `not-judged` rather than a void on purpose — what the platform default runs
+  on is the *deployment's* own `LLM_PROVIDER` (on a self-hosted install, plausibly an Ollama
+  on the operator's own hardware), and an org-scoped page does not observe it, so it must
+  claim neither answer. **Active** is the org's single provider slot, in ladder order: not
+  this provider → void · `enabled` → `decided` (accent ring) · credential stored and
+  validated → `declared` · credential stored, never test-connected → `not-judged` · nothing
+  stored → void. Each column's full definition rides on a `WhyChip` beside it.
+
 - `src/features/admin/settings/LlmProviderSettings.tsx`: the Bedrock BYOM card. Owner-
   only, write-only credential fields (cleared after save, shown as "configured ••••"),
   save → test → enable flow via `/api/org/llm-provider` and `/api/org/llm-provider/test`,
@@ -335,8 +359,13 @@ anything that must distinguish an unresolvable active config uses `resolveByomSt
   break every scan via the fail-closed guard above).
 - `src/features/admin/settings/OpenRouterByomSettings.tsx`: the structural twin for
   OpenRouter: model slug + API key, same save/test/enable/disable flow, same one-active-
-  provider replacement semantics, explicitly labelled as the cost/flexibility path (not
-  in-boundary).
+  provider replacement semantics. It is the **cost/flexibility** path, *not* an in-boundary
+  guarantee — and that sentence is **kept in the UI** as a marked caution on the form
+  itself, immediately above the API-key field, rather than demoted into the matrix alone.
+  The redesign's §2.1 lets a sentence stay where demoting it would make it quieter, and
+  this is the one sentence on the tab that should change whether an owner pastes a key at
+  all. `ProviderBoundaryCard.dom.test.tsx` fails if it stops being rendered, stops naming
+  "not in-boundary" / "third-party upstream", or drifts below the key field.
 
 ## Implementations
 
@@ -659,8 +688,42 @@ workflow described in full in [llm-model-matrix.md](llm-model-matrix.md):
   the `OPENAI_MAX_TOKENS`/`OPENROUTER_MAX_TOKENS` default) rather than a real model
   verdict, so the scorecard doesn't discredit a model for an adapter limit.
   `isMatrixStale()` flags a baked run older than `MATRIX_STALE_AFTER_DAYS` (45).
-  `src/features/admin/settings/ModelScorecard.tsx` renders this as a read-only, ranked
-  table in org LLM settings so an operator picks a BYOM/platform model on evidence.
+  `src/features/admin/settings/ModelScorecard.tsx` renders this in org LLM settings so an
+  operator picks a BYOM/platform model on evidence — see below for the shape.
+
+#### The scorecard surface
+
+`ModelScorecard.tsx` opens on a `MatrixGrid` (models × the three **judged** axes, each
+0–100), with `ModelScorecardRows.tsx` as the ranked index beneath it and the pure view model
+in `modelScorecardViz.ts`.
+
+| Column | What it is | Source |
+| --- | --- | --- |
+| **Quality** | An LLM judge's overall rating of the assessment the model wrote for the repo-maturity op, the only LLM call a scan makes. | `quality` × 10 |
+| **Calib.** | How close the model lands to the labeled benchmark's own maturity level. 100 is exact agreement; each whole level of mean error costs ~30 points. The guard against fluent output at the wrong level. | `calibrationScore(mae)` × 10 |
+| **Reliab.** | Share of benchmark repos where the model returned a usable assessment at all, rather than erroring or covering less than half the rubric. | `reliability` × 100 |
+
+**Speed is deliberately not a column.** It is a *duration*, and `MatrixGrid` paints a printed
+score on the red→green maturity ramp (`scoreHex`); milliseconds on that ramp would report a
+fast model as a failing one. `p50Ms` stays a printed duration in the ranked index, on its own
+units.
+
+**Never-benchmarked is not a zero.** `ModelScore` has no nullable field, so a model the
+harness never got a verdict out of still arrives carrying `quality: 0, within1: 0, mae: 0,
+reliability: 0` — and a `mae` of 0 fed to `calibrationScore()` yields a *perfect* 10 out of
+zero measurements. An `isAdapterArtifact()` row is therefore `not-judged` on **all three**
+axes: hatched, and `rendersValue("not-judged")` is false, so the cell structurally cannot
+print any of it. (The prior table already refused to print those scores, but an omitted
+number is an *unmarked* absence — the reader could not tell "the harness truncated every
+attempt" from "we did not measure this one" from a genuinely bad model.)
+`ModelScorecard.test.tsx` pins the hatch and the absence of `[data-score]` per axis.
+
+**The picker link.** The ranked index carries each model's **full** OpenRouter slug
+(the matrix gutter truncates at 13 characters; the slug never does) and a `Use ↑` link that
+copies the slug and jumps to `#byom-openrouter`, the anchor `SettingsTab` puts around the
+OpenRouter card. That replaces the old trailing sentence "use it to pick the model to connect
+above", which named a control the reader then had to go find. An artifact row gets no link:
+there is no verdict to act on.
 - **`eval-log.ts`**: when `ASCENT_EVAL_LOG_DIR` is set, every `assess()` outcome is
   appended as one JSONL record (`captureAssessment()`): prompt (`system`/`user`, secrets
   redacted via `redactSecrets()`, OpenAI-style keys, GitHub tokens, AWS access key ids,

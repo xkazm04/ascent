@@ -4,15 +4,25 @@
 // the pack is the EVIDENCE THAT THOSE CONTROLS OPERATED, and a reader who has just set a review
 // requirement is exactly the reader who needs to file proof of it.
 //
-// The card's job is to set expectations honestly BEFORE the download, not to sell it. An examiner who
-// discovers a caveat after relying on a figure will not trust the next artifact, so the population's
-// lower-bound nature and the pseudonymous default are stated on the card itself — the same words the
-// manifest opens with.
+// The card's job is to set expectations honestly BEFORE the download, not to sell it. Org UX
+// redesign §2: the three-clause standfirst is now the `FlowRibbon` (population → sampled →
+// reviewed), drawn over the SAME window and the SAME seed the export would use — so the headline
+// and the artifact cannot disagree. The lower-bound limitation deliberately STAYS in visible text:
+// this repo's own rule for a disclaimer that protects a reader from over-claiming is that a
+// screenshot crops tooltips and keeps text (see ControlStateCell.tsx).
 //
-// Server-safe — no hooks, no handlers; the three actions are plain download links.
+// Server-safe — no hooks, no handlers; the three actions are plain download links. It owns one read
+// (the period's AI-change population, the same one /api/org/conformance-pack performs) because a
+// ribbon with three voids in it would be honest and useless.
 
 import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { FlowRibbon, WhyChip } from "@/components/org/viz";
+import { getAiChangePopulation } from "@/lib/db/ai-changes";
+import { resolveOrgWindow } from "@/lib/org/period";
 import { DEFAULT_SAMPLE_SIZE } from "@/lib/conformance/sample";
+import { evidenceFlow, periodBound } from "./evidenceFlow";
+
+type SearchParams = { [key: string]: string | string[] | undefined };
 
 function href(slug: string, file: string, named: boolean): string {
   const p = new URLSearchParams({ org: slug, file });
@@ -23,35 +33,54 @@ function href(slug: string, file: string, named: boolean): string {
 const linkClass =
   "focus-ring rounded-md border border-divider px-3 py-1.5 type-body-sm text-slate-300 transition hover:border-accent hover:text-white";
 
-export function EvidencePackCard({ slug, canExportNamed }: { slug: string; canExportNamed: boolean }) {
+/** The demoted sampling rationale (D) — the seeded draw, reachable beside the ribbon it explains. */
+const SAMPLE_HINT =
+  `The sample is drawn by a seeded shuffle over the period's changes, so re-running this export reproduces the ` +
+  `same rows; the seed is printed in the manifest. The default draw is ${DEFAULT_SAMPLE_SIZE} items, while the ` +
+  `findings file lists every merged-without-approval change in the FULL population, not only the sampled ones.`;
+
+export async function EvidencePackCard({
+  slug,
+  canExportNamed,
+  sp,
+}: {
+  slug: string;
+  canExportNamed: boolean;
+  sp: SearchParams;
+}) {
+  // The window every org tab resolves the same way, so the picture covers the period the dashboard
+  // shows and the download link produces the same rows. Never fatal: an unreadable population draws
+  // three voids and says so, rather than withholding the actions that are the point of the card.
+  const period = await resolveOrgWindow(sp);
+  const pop = await getAiChangePopulation(slug, { start: period.start, end: period.end }).catch(() => null);
+  const flow = evidenceFlow(pop, slug, periodBound(period.start), periodBound(period.end));
+
   return (
     <Card>
-      <SectionHeader
-        size="sm"
-        title="Change-management evidence pack"
-        description="The artifact an examiner asks for: the population of AI-attributed changes in the period, a reproducible sample drawn from it, and per-item evidence of whether a human approving review happened before merge."
-      />
+      <SectionHeader size="sm" title="Change-management evidence pack" description={period.title} />
 
-      <div className="mt-4 space-y-3 type-body-sm text-slate-400">
-        <p>
-          Evidence <strong className="font-medium text-slate-200">for</strong> an internal change-management control:
-          the criterion a SOC 2 Type II examination tests, and an input to an ISO/IEC 42001 Statement of Applicability.
-          It is not a certification and makes no claim under the EU AI Act. Ascent certifies nothing; the examiner
-          decides.
-        </p>
-        <p>
-          The sample is drawn by a seeded shuffle over the period&apos;s changes, so re-running this export reproduces
-          the same rows. The seed is printed in the manifest. Default draw is {DEFAULT_SAMPLE_SIZE} items; the{" "}
-          <strong className="font-medium text-slate-200">findings</strong> file lists every merged-without-approval
-          change in the <em>full</em> population, not only the sampled ones.
-        </p>
-        <p className="rounded-lg border border-dashed border-divider bg-surface/40 px-3 py-2">
-          <span className="font-mono type-micro uppercase tracking-[0.22em] text-slate-500">Before you file it</span> The
-          population is a <strong className="font-medium text-slate-200">lower bound</strong>: a change is recorded
-          only when it falls inside a repository&apos;s scanned pull-request window, and AI assistance left unmarked is
-          not detected at all. Identities are pseudonymous unless an owner exports named evidence. Every limitation is
-          restated at the top of the manifest.
-        </p>
+      {/* §2.2 — the funnel is the first thing under the header. */}
+      <div className="mt-4 flex flex-wrap items-start gap-x-4 gap-y-2">
+        <div className="max-w-sm flex-1">
+          <FlowRibbon stages={flow.stages} title="Evidence chain" />
+        </div>
+        <div className="flex flex-col gap-2 pt-2">
+          <span className="inline-flex items-center gap-1.5">
+            <WhyChip label="how the sample is drawn" hint={SAMPLE_HINT} />
+            <span className="type-body-sm text-slate-500">reproducible draw</span>
+          </span>
+          {flow.notApplicable > 0 && (
+            <span className="type-body-sm text-slate-500">
+              {flow.notApplicable} sampled change{flow.notApplicable === 1 ? "" : "s"} never merged — the pre-merge
+              control was not due to operate
+            </span>
+          )}
+          {flow.unmeasured && (
+            <span className="type-body-sm text-slate-500">
+              The population could not be read for this period. Nothing here is a zero.
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
@@ -64,6 +93,16 @@ export function EvidencePackCard({ slug, canExportNamed }: { slug: string; canEx
         <a href={href(slug, "findings", false)} className={linkClass}>
           <span aria-hidden>↓</span> Findings (.csv)
         </a>
+      </div>
+
+      <div className="mt-4 space-y-3 type-body-sm text-slate-400">
+        <p className="rounded-lg border border-dashed border-divider bg-surface/40 px-3 py-2">
+          <span className="font-mono type-micro uppercase tracking-[0.22em] text-slate-500">Before you file it</span> The
+          population is a <strong className="font-medium text-slate-200">lower bound</strong>: a change is recorded
+          only when it falls inside a repository&apos;s scanned pull-request window, and AI assistance left unmarked is
+          not detected at all. Identities are pseudonymous unless an owner exports named evidence. Ascent certifies
+          nothing; the examiner decides. Every limitation is restated at the top of the manifest.
+        </p>
       </div>
 
       {canExportNamed && (

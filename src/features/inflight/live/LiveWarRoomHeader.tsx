@@ -71,11 +71,14 @@ export function WarRoomHeader({
             <span className={`inline-block h-2 w-2 rounded-full ${running ? "live-dot bg-red-500" : "bg-slate-600"}`} aria-hidden />
             {running ? "Live" : "Fleet Command"}
           </div>
+          {/* A2/A3: the lede that used to sit here ("tiles climb, the leaderboard reshuffles, and
+              every repo that crosses into AI-Native lights up the wall") narrated the animation the
+              wall performs one element below it. It is documentation of the surface, not chrome for
+              it — docs/features/org-planning/live.md § "The wall's chrome, converged on the /org
+              state vocabulary" — and the LIVE dot, the h2 and the scope line below already say what
+              this is. What stays is unit and window. */}
           <h2 className="mt-1 type-heading font-bold text-white sm:type-display">Transformation war-room</h2>
-          <p className="mt-1 max-w-xl type-body text-slate-400">
-            The whole org&apos;s scan, live: tiles climb, the leaderboard reshuffles, and every repo that crosses into
-            AI-Native lights up the wall.
-          </p>
+          <p className="mt-1 type-mono-sm text-slate-500">org-wide scan · overall score per repo</p>
         </div>
         <div className="flex flex-col items-end gap-2">
           <div className="flex items-center gap-2">
@@ -150,7 +153,7 @@ export function WarRoomHeader({
               Sound
             </label>
           )}
-          {share.error && <p className="type-mono-sm text-orange-300">{share.error}</p>}
+          {share.error && <p className="type-mono-sm text-danger-soft">{share.error}</p>}
           {share.manualUrl && (
             <div className="flex flex-col items-end gap-1">
               <span className="type-mono-sm text-amber-300">Couldn&apos;t auto-copy, copy this link:</span>
@@ -160,7 +163,7 @@ export function WarRoomHeader({
                 value={share.manualUrl}
                 aria-label="TV share link"
                 onFocus={(e) => e.currentTarget.select()}
-                className="w-64 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 type-mono-sm text-slate-200"
+                className="w-64 rounded-lg border border-slate-700 bg-surface px-2 py-1 type-mono-sm text-slate-200"
               />
             </div>
           )}

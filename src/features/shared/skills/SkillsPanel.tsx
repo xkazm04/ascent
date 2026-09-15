@@ -13,6 +13,7 @@ import { Card, SectionHeader } from "@/components/org/shared/ui";
 import { SkillsFilterBar } from "@/features/shared/skills/SkillsFilterBar";
 import { SkillsAuthorForm } from "@/features/shared/skills/SkillsAuthorForm";
 import { SkillsLibraryTable } from "@/features/shared/skills/SkillsLibraryTable";
+import { SkillsLifecycle } from "@/features/shared/skills/SkillsLifecycle";
 import { useSkillsLibrary } from "@/features/shared/skills/useSkillsLibrary";
 import type { SkillUsage } from "@/lib/org/skill-usage";
 import type { SkillOutcome } from "@/lib/org/skill-outcomes";
@@ -54,8 +55,13 @@ export function SkillsPanel({
       <SectionHeader
         size="sm"
         title="Skills Library"
-        description="Your org's reusable Claude/LLM skills: author once, the whole team discovers and reuses them. Copy a skill into Claude Code, or download it as a SKILL.md."
+        // Scope, not meaning. The definition is the graphic below it, the value claim moved to the
+        // empty state, and the two CTA instructions live on the CTAs (see SkillCard).
+        description={`${s.skills.length} skills · ${repoOptions.length} repos`}
       />
+
+      {/* First sight below the header is a shape, not a filter bar. */}
+      <SkillsLifecycle skills={s.skills} usage={usage} fleetSize={repoOptions.length} />
 
       <SkillsFilterBar
         search={s.search}

@@ -23,7 +23,7 @@ export function CareRepoGaps({ repos }: { repos: DeveloperView["myRepos"] }) {
     <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
       {repos.map((r) => (
         <div key={r.fullName} className="rounded-xl border border-divider bg-ink p-4">
-          <div className="flex items-baseline justify-between gap-3">
+          <div className="flex items-center justify-between gap-3">
             <a className="focus-ring min-w-0 truncate font-mono type-body text-accent hover:text-white" href={reportPermalink(r.fullName)} title={r.fullName}>
               {r.fullName}
             </a>

@@ -32,8 +32,13 @@ export type StandingSource = Pick<
 >;
 
 /** What a score badge shows when the set it averages over is EMPTY of live-scored repos. Never a 0:
- *  `roundedMean([])` is a division guard, and a 0 in `scoreHex(0)` alarm-red reads as a catastrophic
- *  fleet grade rather than "nothing here was measured". Same rendering the cohort card lands on. */
+ *  a 0 in `scoreHex(0)` alarm-red reads as a catastrophic fleet grade rather than "nothing here was
+ *  measured". Same rendering the cohort card lands on.
+ *
+ *  This used to be reached by re-deriving "was anything measured?" from `realScoredCount === 0` — a
+ *  DIFFERENT field than the one being drawn — because `roundedMean([])` returned a 0 the badge could
+ *  not tell apart from a grade. It returns null now, so each badge branches on its own value and the
+ *  re-derivation is gone. `realScoredCount` still writes the basis LINE (a denominator is a count). */
 const NO_SCORE = "—";
 
 /**
@@ -66,22 +71,21 @@ function basisTitle(r: StandingSource): string {
  * Empty for "All time", which also has no baseline, so no arrow renders there anyway.
  */
 export function buildScoreBadges(r: StandingSource, comparisonLabel?: string): ScoreBadge[] {
-  const measured = r.realScoredCount > 0;
   const title = basisTitle(r);
-  const level = levelForScore(r.avgOverall);
+  const level = r.avgOverall === null ? null : levelForScore(r.avgOverall);
   // One chip, on the headline badge only — the same words the cohort card uses. Repeating it under
   // all three averages would be three copies of one fact.
   const note = r.mockCount > 0 ? `${r.mockCount} mock (excluded from avg)` : undefined;
 
-  const score = (label: string, value: number, delta: number | undefined): ScoreBadge =>
-    measured
+  const score = (label: string, value: number | null, delta: number | undefined): ScoreBadge =>
+    value !== null
       ? { label, value, color: scoreHex(value), delta, deltaLabel: comparisonLabel || undefined, title }
       : // No live-scored repo in this set: there is no average to state, and no movement to state
         // either — a delta over an empty cohort is not a measurement of anything.
         { label, value: NO_SCORE, title };
 
   return [
-    { ...score("Org maturity", r.avgOverall, r.deltas?.overall), sub: measured ? `${level.id} · ${level.name}` : undefined, note },
+    { ...score("Org maturity", r.avgOverall, r.deltas?.overall), sub: level ? `${level.id} · ${level.name}` : undefined, note },
     score("AI Adoption", r.avgAdoption, r.deltas?.adoption),
     score("Engineering Rigor", r.avgRigor, r.deltas?.rigor),
     { label: "Repos scanned", value: `${r.scannedCount}/${r.repoCount}` },

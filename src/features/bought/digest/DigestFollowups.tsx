@@ -1,20 +1,36 @@
-// What the week did to the follow-up ledger: what closed, and what opened.
+// What the week did to the follow-up ledger: the drawing first, the named rows under it as evidence.
 //
 // The two columns are NOT symmetric, and the asymmetry is the honest part. "Closed" is an event —
 // a RecommendationEvent status change inside the window — so every closed row can name when and how
 // (a rescan resolved it, or a person did). "Opened" has no creation event to read: it is a derived
-// identity diff between the pre-window scan and the latest one, so a repo with no earlier scan cannot
-// contribute to it at all. When NO repo has a pre-window scan the whole column is unmeasurable, and
-// it says so in a sentence rather than printing a 0 that would read as "a calm week".
+// identity diff between the pre-window scan and the latest one, so a repo with no earlier scan
+// cannot contribute to it at all.
 //
-// Dismissals are counted BESIDE the closes, never folded in: a dismissed follow-up is a decision not
-// to do the work, and a leadership update that adds it to "closed" is claiming credit for it.
+// Both of those used to be sentences above the panel. `DigestLedgerBars` draws them: the dismissed
+// segment sits beside the closes across a visible gap, and an unmeasurable "opened" is a void that
+// structurally cannot print a 0. What is left here is the frame, the legend rows that carry the
+// counts those marks deliberately do not print, and the row-level evidence.
 
 import Link from "next/link";
 import { Card, InlineEmpty, SectionHeader } from "@/components/org/shared/ui";
 import { Kicker } from "@/components/ui";
+import { Legend, StateSwatch, type LegendExtra } from "@/components/org/viz";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import type { DigestFollowupRow, WeeklyDigest } from "@/lib/org/digest-types";
+import { DigestLedgerBars } from "./DigestLedgerBars";
+import { ledgerView } from "./digestViz";
+
+const DISMISSED_HINT =
+  "Counted beside the closes and never folded into them: a dismissal is a decision not to do the work, " +
+  "and an update that adds it to the closes is claiming credit for it.";
+const NOT_COMPARED_HINT =
+  "These repositories had no scan from before the window, so the opened-gap diff could not speak for them. " +
+  "They are excluded from the opened count rather than counted as having opened nothing.";
+const NO_DIFF_HINT =
+  "No repository has a scan from before this week, so there is nothing to diff the latest gaps against. " +
+  "This is a history gap, not a quiet week.";
+
+const repos = (n: number): string => `${n} ${n === 1 ? "repository" : "repositories"}`;
 
 function Row({ row }: { row: DigestFollowupRow }) {
   return (
@@ -42,48 +58,70 @@ function MoreLink({ slug, count, shown }: { slug: string; count: number; shown: 
 }
 
 export function DigestFollowups({ slug, followups }: { slug: string; followups: WeeklyDigest["followups"] }) {
+  if (!followups) {
+    return (
+      <Card>
+        <SectionHeader size="sm" title="Follow-ups this week" />
+        <InlineEmpty>Follow-up activity could not be read this week.</InlineEmpty>
+      </Card>
+    );
+  }
+
+  const view = ledgerView(followups);
+  const extra: LegendExtra[] = [
+    {
+      id: "dismissed",
+      label: `${followups.dismissed} dismissed`,
+      swatch: <StateSwatch state="decided" baseColor="var(--color-divider)" />,
+      hint: DISMISSED_HINT,
+    },
+  ];
+  if (!view.openedMeasurable) {
+    extra.push({ id: "no-diff", label: "opened: no measurement", swatch: <StateSwatch state="missing" />, hint: NO_DIFF_HINT });
+  } else if (view.unmeasuredRepos > 0) {
+    extra.push({
+      id: "not-compared",
+      label: `${repos(view.unmeasuredRepos)} not compared`,
+      swatch: <StateSwatch state="not-judged" />,
+      hint: NOT_COMPARED_HINT,
+    });
+  }
+
   return (
     <Card>
-      <SectionHeader
-        size="sm"
-        title="Follow-ups this week"
-        description="What the ledger closed, and what the latest scans opened. Dismissals are counted beside the closes, never folded into them."
-      />
-      {!followups ? (
-        <InlineEmpty>Follow-up activity could not be read this week.</InlineEmpty>
-      ) : (
-        <div className="mt-3 grid gap-6 lg:grid-cols-2">
-          <div className="space-y-1.5">
-            <Kicker tone="muted">Closed · {followups.closed}</Kicker>
-            {followups.closedRows.map((r) => (
-              <Row key={`${r.repo}:${r.dimId}:${r.title}`} row={r} />
-            ))}
-            <p className="type-caption text-slate-500">{followups.dismissed} dismissed, not counted as closed</p>
-            <MoreLink slug={slug} count={followups.closed} shown={followups.closedRows.length} />
-          </div>
-          <div className="space-y-1.5">
-            <Kicker tone="muted">Opened · {followups.opened}</Kicker>
-            {followups.openedMeasurable ? (
-              <>
-                {followups.openedRows.map((r) => (
-                  <Row key={`${r.repo}:${r.dimId}:${r.title}`} row={r} />
-                ))}
-                {followups.unmeasuredRepos > 0 && (
-                  <p className="type-caption text-slate-500">
-                    ({followups.unmeasuredRepos} {followups.unmeasuredRepos === 1 ? "repository" : "repositories"} had no earlier scan and are not counted)
-                  </p>
-                )}
-                <MoreLink slug={slug} count={followups.opened} shown={followups.openedRows.length} />
-              </>
-            ) : (
-              <p className="type-body-sm text-slate-500">
-                Not measurable this week: no repository had a scan before the window opened, so there is nothing to
-                diff the latest gaps against.
-              </p>
-            )}
-          </div>
+      <SectionHeader size="sm" title="Follow-ups this week" />
+      <div className="mt-3">
+        <DigestLedgerBars view={view} />
+      </div>
+      <Legend className="mt-3" states={["measured"]} extra={extra} />
+
+      <div className="mt-4 grid gap-6 lg:grid-cols-2">
+        <div className="space-y-1.5">
+          <Kicker tone="muted">Closed · {followups.closed}</Kicker>
+          {followups.closedRows.map((r) => (
+            <Row key={`${r.repo}:${r.dimId}:${r.title}`} row={r} />
+          ))}
+          <MoreLink slug={slug} count={followups.closed} shown={followups.closedRows.length} />
         </div>
-      )}
+        <div className="space-y-1.5">
+          <Kicker tone="muted">Opened{view.openedMeasurable ? ` · ${followups.opened}` : ""}</Kicker>
+          {view.openedMeasurable ? (
+            <>
+              {followups.openedRows.map((r) => (
+                <Row key={`${r.repo}:${r.dimId}:${r.title}`} row={r} />
+              ))}
+              <MoreLink slug={slug} count={followups.opened} shown={followups.openedRows.length} />
+            </>
+          ) : (
+            // (O) The column's own zero state — where the reader has no marks to read and genuinely
+            // needs the reason. The same sentence rides the pasted markdown, which has no legend.
+            <p className="type-body-sm text-slate-500">
+              Not measurable this week: no repository had a scan before the window opened, so there is nothing to
+              diff the latest gaps against.
+            </p>
+          )}
+        </div>
+      </div>
     </Card>
   );
 }

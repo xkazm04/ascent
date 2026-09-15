@@ -11,10 +11,12 @@
 // re-exported here, so this module stays the one import site for the whole perimeter.
 
 import { Kicker } from "@/components/ui";
+import { StateSwatch, WhyChip, stateTitle } from "@/components/org/viz";
 import { LEVEL_HEX, scoreHex, reportPermalink } from "@/lib/ui";
 import type { LevelId, AutonomyTierId } from "@/lib/types";
 import type { RepoStanceCompliance } from "@/lib/org/stance";
 import { AckMark, TIER_HEX, TIER_META } from "./stanceShared";
+import { bandState } from "./perimeterLadder";
 import { AckButton } from "./AckButton";
 
 export { CheckpointStrip } from "./CheckpointStrip";
@@ -95,12 +97,18 @@ export function PerimeterBand({
   const hex = TIER_HEX[tier];
   const meta = TIER_META[tier];
   const findings = repos.reduce((a, r) => a + r.findings.filter((f) => !f.advisory).length, 0);
+  // The SAME state the ladder above paints this band with, so the headline and the detail cannot
+  // disagree about whether a tier is declared, measured, or not judged at all.
+  const state = bandState(review != null, repos.length);
   return (
     <div style={{ marginLeft: `${tierIndex * 1.25}rem` }}>
       <div className="relative overflow-hidden rounded-2xl border border-divider bg-surface/40">
         <div aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ backgroundColor: hex }} />
         <div className="relative p-5 pl-6">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <span className="self-center" title={stateTitle(state, `${tier} · ${meta.name}`)}>
+              <StateSwatch state={state} baseColor={hex} size={12} />
+            </span>
             <span className="type-figure" style={{ color: hex }}>
               {tier}
             </span>
@@ -144,11 +152,16 @@ export function UnassessedRepos({
   if (repos.length === 0) return null;
   return (
     <div className="rounded-2xl border border-dashed border-divider bg-surface/20 p-5">
-      <Kicker tone="muted">Tier not assessed</Kicker>
-      <p className="mt-2 max-w-3xl type-body-sm text-slate-400">
-        These repos have no readiness passport on their latest scan, so no autonomy band can honestly be assigned.
-        Re-scan to place them.
-      </p>
+      {/* The `missing` void, made pointable: the swatch IS "no band could honestly be assigned", and
+          the sentence that said so rides on it (§2.4 · D). */}
+      <div className="flex items-center gap-2">
+        <StateSwatch state="missing" size={12} />
+        <Kicker tone="muted">Tier not assessed · {repos.length}</Kicker>
+        <WhyChip
+          label="tier not assessed"
+          hint="These repos have no readiness passport on their latest scan, so no autonomy band can honestly be assigned. Re-scan to place them."
+        />
+      </div>
       <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {repos.map((r) => (
           <RepoNode key={r.fullName} repo={r} org={org} version={version} canAck={canAck} />

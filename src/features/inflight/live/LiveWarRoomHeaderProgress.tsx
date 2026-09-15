@@ -25,7 +25,7 @@ export function HeaderProgress({
       {running && (
         <div className="mt-4">
           <div
-            className="h-1.5 overflow-hidden rounded-full bg-slate-800"
+            className="h-1.5 overflow-hidden rounded-full bg-divider"
             role="progressbar"
             aria-label="Scan progress"
             aria-valuenow={safePct}

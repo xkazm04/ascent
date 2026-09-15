@@ -22,10 +22,17 @@ export interface OpsView {
   onVerify: (fullNames: string[]) => void;
 }
 
-/** Cumulative outcome of the landed column — the "what has the loop achieved?" takeaway. */
+/**
+ * Cumulative outcome of the landed column — the "what has the loop achieved?" takeaway.
+ *
+ * `netOverall` is NULL, not 0, when nothing has been verified yet. Summing an empty set gives 0, and
+ * a 0 in the loop's headline asserts "the loop shipped no measurable movement" — a verdict — when the
+ * truth is "nothing has been rescanned, so there is no measurement to report". Same defect as the mean
+ * of nothing: the absence has to survive the reduce, and only the render decides how to draw it.
+ */
 export function opsImpact(landed: OpsPrItem[]) {
   const verified = landed.filter((l) => l.verified);
-  const netOverall = verified.reduce((s, l) => s + (l.impactOverall ?? 0), 0);
+  const netOverall = verified.length ? verified.reduce((s, l) => s + (l.impactOverall ?? 0), 0) : null;
   const dimsLifted = verified.filter((l) => (l.impactDim ?? 0) > 0).length;
   const awaiting = landed.filter((l) => l.state === "merged" && !l.verified).length;
   const merged = landed.filter((l) => l.state === "merged").length;
@@ -96,7 +103,7 @@ export function TriageDetail({
           onClick={onAccept}
           disabled={Boolean(busy)}
           title={`Open a draft PR seeding "${item.practiceLabel}" into ${item.repoFullName}`}
-          className="focus-ring rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 type-mono-sm text-emerald-300 transition hover:bg-emerald-500/20 disabled:opacity-50"
+          className="focus-ring rounded-md border border-success/40 bg-success/10 px-2.5 py-1 type-mono-sm text-success-soft transition hover:bg-success/20 disabled:opacity-50"
         >
           {busy === "accept" ? "Opening…" : "✓ Open PR"}
         </button>
@@ -154,7 +161,7 @@ export function LandedRowDetail({ item, onVerify }: { item: OpsPrItem; onVerify?
         title={`${item.repoFullName}: PR #${item.prNumber} (${item.practiceLabel}), ${item.state}${item.mergedAt ? " " + freshness(item.mergedAt) : ""}`}
       >
         {item.repoName}
-        <span aria-hidden className={`ml-1.5 ${item.state === "merged" ? "text-emerald-400" : "text-slate-600"}`}>
+        <span aria-hidden className={`ml-1.5 ${item.state === "merged" ? "text-success-soft" : "text-slate-600"}`}>
           {item.state === "merged" ? "⇂ merged" : "✕"}
         </span>
       </a>

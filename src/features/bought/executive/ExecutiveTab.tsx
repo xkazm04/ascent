@@ -100,11 +100,11 @@ export async function ExecutiveTab({ slug, sp }: { slug: string; sp: SearchParam
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <SectionHeader
-          descriptionClassName="max-w-3xl"
-          title="Executive briefing"
-          description={`Board-ready standing for ${slug}: maturity, benchmark, trajectory, movement and goals over ${period.title.toLowerCase()}. Copy it as a markdown brief to drop into Claude Code for next actions.`}
-        />
+        {/* A header is a noun phrase (docs/ORG-UX-REDESIGN.md §2.3). What the briefing contains is
+            what the reader can see below it; the window is the only thing the tiles cannot state, so
+            the window is all that survives. "Copy it as a markdown brief to drop into Claude Code"
+            was already the copy button's own tooltip (CopyForLlm's default `title`). */}
+        <SectionHeader title="Executive briefing" description={period.title} />
         <ExecutiveTabActions
           slug={slug}
           period={period}
@@ -150,7 +150,9 @@ export async function ExecutiveTab({ slug, sp }: { slug: string; sp: SearchParam
       {impact && <ImpactLedger slug={slug} ledger={impact} periodTitle={period.title} />}
 
       {/* The programme control (start / re-target / pause / end) — the only place it can be changed. */}
-      <ProgramPanel slug={slug} initial={program} />
+      {/* `now` is the far end of the movement the programme's baseline axis draws — the same fleet
+          overall the tiles above print, so the drawing and the headline cannot disagree. */}
+      <ProgramPanel slug={slug} initial={program} now={briefing.realScoredCount > 0 ? maturity.overall : null} />
 
       {/* GB: fleet signals as ONE wrap-row strip instead of three stacked <p> lines. */}
       <ExecutiveSignalsStrip briefing={briefing} />
@@ -159,7 +161,11 @@ export async function ExecutiveTab({ slug, sp }: { slug: string; sp: SearchParam
 
       {briefing.priorPeriod && (
         <Card>
-          <SectionHeader size="sm" title="vs previous period" description="This period's end state against the equal-length window before it." />
+          {/* The description said "This period's end state against the equal-length window before
+              it." That framing is now the mark itself: PriorPeriodGrid draws a hollow origin dot at
+              the prior window's end and a filled dot at now, on one 0-100 track, and the sentence is
+              the generated <title> on every one of them (PeriodDumbbell). */}
+          <SectionHeader size="sm" title="vs previous period" />
           <PriorPeriodGrid prior={briefing.priorPeriod} now={maturity} showDimensions />
         </Card>
       )}

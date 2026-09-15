@@ -46,4 +46,59 @@ describe("SkillDormancyBadge", () => {
     );
     expect(screen.getByText("new")).toHaveAttribute("title", expect.stringContaining("never used"));
   });
+
+  // ── The three dormant states, which the badge used to render as one amber adjective ────────────
+  // `abandoned` (tried, then silence), `unused` (never used, pathway works) and `unmeasured` (this
+  // org has never emitted a skill event at all) call for three different actions, and only the first
+  // is a prune candidate. A badge that says "dormant" for all three is a recommendation to delete a
+  // skill on the strength of an instrument nobody switched on.
+
+  it("says 'never used' rather than 'dormant' where the pathway works and nobody reached for it", () => {
+    render(
+      <SkillDormancyBadge
+        usage={usage({ verdict: "dormant", state: "unused", lastUsedAt: null, lastUsedType: null, daysSinceUse: null })}
+      />,
+    );
+    expect(screen.getByText("never used")).toBeInTheDocument();
+    expect(screen.queryByText("dormant")).toBeNull();
+  });
+
+  it("an unmeasured skill is 'not measured' and its tooltip never claims it went unused", () => {
+    render(
+      <SkillDormancyBadge
+        usage={usage({
+          verdict: "dormant",
+          state: "unmeasured",
+          lastUsedAt: null,
+          lastUsedType: null,
+          daysSinceUse: null,
+          ageDays: 200,
+        })}
+      />,
+    );
+    const badge = screen.getByText("not measured");
+    expect(badge).toHaveAttribute("title", expect.stringContaining("no skill events recorded in this org"));
+    expect(badge.getAttribute("title")).not.toMatch(/never used/);
+  });
+
+  it("carries the state as the mark, so the badge and the tab's charts paint one vocabulary", () => {
+    const { container, rerender } = render(
+      <SkillDormancyBadge usage={usage({ verdict: "dormant", state: "unmeasured", lastUsedAt: null, daysSinceUse: null })} />,
+    );
+    // not-judged is the hatch: the swatch paints from the shared pattern, never a re-typed one.
+    expect(container.querySelector("[data-swatch]")?.getAttribute("fill")).toMatch(/url\(#/);
+    rerender(<SkillDormancyBadge usage={usage({ verdict: "active", state: "active" })} />);
+    expect(container.querySelector("[data-swatch]")?.getAttribute("fill")).not.toMatch(/url\(#/);
+  });
+
+  it("reserves the amber warning for a skill the fleet really tried and dropped", () => {
+    const { container: dropped } = render(
+      <SkillDormancyBadge usage={usage({ verdict: "dormant", state: "abandoned", daysSinceUse: 90 })} />,
+    );
+    const { container: silent } = render(
+      <SkillDormancyBadge usage={usage({ verdict: "dormant", state: "unmeasured", lastUsedAt: null, daysSinceUse: null })} />,
+    );
+    expect(dropped.firstElementChild?.className).toMatch(/amber/);
+    expect(silent.firstElementChild?.className).not.toMatch(/amber/);
+  });
 });

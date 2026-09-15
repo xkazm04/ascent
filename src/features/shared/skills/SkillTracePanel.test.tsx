@@ -46,14 +46,16 @@ function openDetails(container: HTMLElement) {
 describe("SkillTraceTimeline", () => {
   it("renders an unresolved version as an em dash, never as the neighbour's", () => {
     render(<SkillTraceTimeline entries={[entry("c2", "2.1.0", "25"), entry("c1", null, "10")]} lessons={[]} truncated={false} />);
-    expect(screen.getByText("v2.1.0")).toBeTruthy();
+    // The version now names both a lane in the track and its group below it, so the assertion is on
+    // presence, not on a single node.
+    expect(screen.getAllByText("v2.1.0").length).toBeGreaterThan(0);
     expect(screen.getByText("—")).toBeTruthy();
-    expect(screen.getByText("version not resolved")).toBeTruthy();
+    expect(screen.getAllByText("version not resolved").length).toBeGreaterThan(0);
   });
 
   it("labels a lesson whose version matches no commit instead of filing it under the newest", () => {
     render(<SkillTraceTimeline entries={[entry("c2", "2.1.0")]} lessons={[lesson("l1", "1.0.0")]} truncated={false} />);
-    expect(screen.getByText(/version not in the last 30 commits/)).toBeTruthy();
+    expect(screen.getAllByText(/version not in the last 30 commits/).length).toBeGreaterThan(0);
   });
 
   it("hangs a matching lesson under its own version", () => {
@@ -62,9 +64,30 @@ describe("SkillTraceTimeline", () => {
     expect(screen.queryByText(/version not in the last/)).toBeNull();
   });
 
-  it("discloses a truncated history rather than presenting it as the whole one", () => {
-    render(<SkillTraceTimeline entries={[entry("c1", "1.0.0")]} lessons={[]} truncated />);
-    expect(screen.getByText(/older commits exist beyond the read budget/)).toBeTruthy();
+  it("discloses a truncated history as a VOID at the left edge, not as the whole history", () => {
+    const { container } = render(<SkillTraceTimeline entries={[entry("c1", "1.0.0")]} lessons={[]} truncated />);
+    // The sentence is demoted onto the mark: `missing` draws nothing, and the track's sr-only table
+    // is where the caveat reaches a reader. A void that said nothing anywhere would be a silent lie.
+    expect(screen.getAllByText(/older commits exist beyond the read budget/).length).toBeGreaterThan(0);
+    const drawn = [...container.querySelectorAll("[data-segment]")].map((n) => n.getAttribute("data-segment"));
+    expect(drawn).not.toContain("missing");
+    expect(drawn).toContain("measured");
+  });
+
+  it("hatches a version it could not resolve instead of drawing it like a known one", () => {
+    const { container } = render(
+      <SkillTraceTimeline entries={[entry("c2", "2.1.0", "25"), entry("c1", null, "10")]} lessons={[]} truncated={false} />,
+    );
+    const drawn = [...container.querySelectorAll("[data-segment]")].map((n) => n.getAttribute("data-segment"));
+    expect(drawn).toEqual(expect.arrayContaining(["measured", "not-judged"]));
+  });
+
+  it("draws a lesson that matches no resolved commit as a claim, not as history", () => {
+    const { container } = render(
+      <SkillTraceTimeline entries={[entry("c2", "2.1.0")]} lessons={[lesson("l1", "1.0.0")]} truncated={false} />,
+    );
+    const drawn = [...container.querySelectorAll("[data-segment]")].map((n) => n.getAttribute("data-segment"));
+    expect(drawn).toContain("declared");
   });
 });
 

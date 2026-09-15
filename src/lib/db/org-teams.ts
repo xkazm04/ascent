@@ -93,11 +93,21 @@ export interface TeamRollup {
   // Institutional AI knowledge — from the team's repos' contributor snapshots (humans only).
   contributors: number;
   aiContributors: number; // humans with ≥1 AI-attributed commit
-  aiCommitShare: number; // 0..100, commit-weighted across the team's repos
+  /** 0..100, commit-weighted across the team's repos — or **NULL when there is no commit population
+   *  to take a share OF** (every owned repo scanned without contributor history, so `totCommits` is
+   *  0). Null, never 0, for the same reason `OrgRollup.avgOverall` is null on an all-mock fleet: a 0
+   *  here renders `scoreHex(0)` alarm-red and reads as "we looked and nobody used AI", which is a
+   *  measurement this team does not have. Four surfaces re-derived that distinction from
+   *  `contributors === 0` and three of them got it wrong; it is the producer's answer now.
+   *  (org-intelligence.md § "One rule, four places it was not applied".) */
+  aiCommitShare: number | null;
   /** Top humans by AI commits — the culture carriers. EMPTY below CHAMPION_MIN_POP contributors:
    *  the privacy floor is applied by the producer, so no surface can name a two-person team. */
   champions: TeamChampion[];
-  knowledgeScore: number; // 0..100 blend of aiCommitShare + avgAdoption ("most AI knowledge")
+  /** 0..100 blend of aiCommitShare + avgAdoption ("most AI knowledge") — NULL when `aiCommitShare`
+   *  is, because half of a two-input blend cannot be substituted with a zero without inventing the
+   *  half that was never measured. Ranking-only; no surface prints it. */
+  knowledgeScore: number | null;
   // Movers: per-repo overall delta, aggregated. PERIOD-SCOPED when the caller threads an OrgWindow
   // through getOrgTeamRollup (baseline = latest scan strictly before the window start — the same
   // half-open semantics as getOrgMovers, so the Teams tab agrees with every sibling tab on the
@@ -308,7 +318,13 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
   }
 
   const teams: TeamRollup[] = [...acc.values()]
-    .map((a) => {
+    // flatMap, not map+filter: the "only teams with a live-scored repo are emitted" rule used to run
+    // as a `.filter(t => t.realScoredCount > 0)` AFTER the row was built, which meant the row had to
+    // be constructible for a team the rule then threw away — and `roundedMean` had to invent a 0 to
+    // make it constructible. The rule is now the guard that NARROWS the three averages: a team whose
+    // live-scored set is empty returns no row at all, so `TeamRollup.avgOverall` stays a plain
+    // `number` and no consumer of it can ever meet a fabricated grade. Same teams in, same teams out.
+    .flatMap((a): TeamRollup[] => {
       const teamRepos = [...a.repos].sort((x, y) => y.overall - x.overall);
       // Averages measured over the LIVE-SCORED subset only (see `realScoredCount`); the repo LIST
       // stays whole, because a count of the team's scanned repos is a count.
@@ -316,6 +332,10 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
       const avgOverall = avg(realRepos.map((r) => r.overall));
       const avgAdoption = avg(realRepos.map((r) => r.adoption));
       const avgRigor = avg(realRepos.map((r) => r.rigor));
+      // `realRepos` empty ⇔ all three means are null ⇔ the old `realScoredCount > 0` filter dropped
+      // this team. Written as the null check so the emptiness is proven to the type system, not
+      // asserted in a comment 30 lines away from the code that relied on it.
+      if (avgOverall === null || avgAdoption === null || avgRigor === null) return [];
       const dimAverages: TeamDimAvg[] = a.dim
         .entries()
         .map(([dimId, avg]) => ({
@@ -330,7 +350,11 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
       const totCommits = people.reduce((s, p) => s + p.commits, 0);
       const totAi = people.reduce((s, p) => s + p.aiCommits, 0);
       const aiContributors = people.filter((p) => p.aiCommits > 0).length;
-      const aiCommitShare = totCommits ? Math.round((totAi / totCommits) * 100) : 0;
+      // NULL, not 0, when there is nothing to take a share of (see `TeamRollup.aiCommitShare`). The
+      // team is still emitted — a team with a live-scored repo has an honest maturity grade — but its
+      // AI share is an absence, and every consumer now reads that absence from the type instead of
+      // re-deriving it from `contributors === 0`.
+      const aiCommitShare = totCommits ? Math.round((totAi / totCommits) * 100) : null;
       // TWO floors, both enforced HERE in the producer rather than at each call site (G4-01):
       //  • population — CHAMPION_MIN_POP humans on the team before anyone is named at all. On a 1–2
       //    person team, "champion" identifies a specific individual and the card reads as a ranking
@@ -353,9 +377,9 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
           }));
       // Blend "how much of the team's recent work is AI-attributed" with "how AI-native its repos'
       // tooling is" — two equal, explainable inputs, not an opaque score.
-      const knowledgeScore = Math.round(aiCommitShare * 0.5 + avgAdoption * 0.5);
+      const knowledgeScore = aiCommitShare === null ? null : Math.round(aiCommitShare * 0.5 + avgAdoption * 0.5);
 
-      return {
+      return [{
         slug: a.slug,
         name: teamDisplayName(a.slug),
         repoCount: teamRepos.length,
@@ -381,12 +405,8 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
         declining: a.deltas.filter((d) => d < 0).length,
         avgDelta: a.deltas.length ? Math.round(a.deltas.reduce((s, d) => s + d, 0) / a.deltas.length) : 0,
         onboardedRepos: a.onboarded,
-      };
+      }];
     })
-    // Only teams with a LIVE-SCORED repo carry meaningful metrics. A team whose every scanned repo
-    // sits on the mock floor is omitted rather than emitted with a 0 avgOverall — that 0 would render
-    // as a grade on the standings table, which is exactly what the exclusion exists to prevent.
-    .filter((t) => t.realScoredCount > 0)
     .sort((a, b) => b.repoCount - a.repoCount || b.avgOverall - a.avgOverall || a.slug.localeCompare(b.slug));
 
   // Knowledge leader: the team carrying the most institutional AI knowledge. Requires real AI
@@ -394,9 +414,19 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
   // as the champions above: a "@acme/x is the org's AI knowledge leader" headline on a one-person
   // team names that person by proxy across the Teams tile, the Adoption spectrum and the Copy-for-LLM
   // brief. Withheld at the producer, so none of those three can re-surface it.
+  //
+  // The predicate also NARROWS the two nullable fields: a team with no commit population has no AI
+  // share and no knowledge score, so it is not a candidate at all — which is why `knowledgeLeader`
+  // can keep publishing plain numbers without any consumer coalescing a null into a 0.
   const knowledgeLeader =
     [...teams]
-      .filter((t) => t.aiContributors > 0 && canNameIndividuals(t.contributors))
+      .filter(
+        (t): t is TeamRollup & { aiCommitShare: number; knowledgeScore: number } =>
+          t.aiCommitShare !== null &&
+          t.knowledgeScore !== null &&
+          t.aiContributors > 0 &&
+          canNameIndividuals(t.contributors),
+      )
       .sort((a, b) => b.knowledgeScore - a.knowledgeScore || b.aiCommitShare - a.aiCommitShare)[0] ?? null;
 
   // Pairings: the biggest learnable gaps, one per shared dimension — a strong team next to a weak

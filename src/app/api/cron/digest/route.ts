@@ -35,6 +35,7 @@ import {
 // @/lib/db barrel. They collapse the digest's old check-then-act idempotency guard into one conditional
 // write (fleet-alerts-digests #3).
 import { claimOrgAuditOnce, releaseAuditClaim } from "@/lib/db/scans-audit";
+import { hasFleetGrade } from "@/lib/db/org-shared";
 import { requireCronAuth } from "@/lib/cron-auth";
 import { buildFleetDigestMessage, creditsAlertThreshold, digestHasSignal, dispatchAlert, isAlertConfigured, sinkKindForOrg } from "@/lib/alerts";
 import { controlLabel } from "@/lib/controls/catalog";
@@ -158,9 +159,11 @@ export async function GET(request: Request) {
       errors.push(...extra.errors);
 
       const rollup = await getOrgRollup(org, win);
-      if (!rollup || rollup.scannedCount === 0) {
-        // Nothing to report on yet (no rollup, or zero scanned repos) — counted so `orgs.length`
+      if (!rollup || !hasFleetGrade(rollup)) {
+        // Nothing to report on yet (no rollup, or no LIVE-scored repo) — counted so `orgs.length`
         // reconciles against the sum of all counters instead of these orgs silently vanishing.
+        // Tightened from `scannedCount === 0`: an all-mock fleet passed that and pushed a Slack
+        // digest reading "avg 0" with an L1 badge, which is a grade nobody measured.
         skippedNoData += 1;
         return;
       }

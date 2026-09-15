@@ -202,7 +202,10 @@ export function OrgHeader({
   actions,
 }: {
   slug: string;
-  levelId: string;
+  /** The maturity level `score` falls in — null exactly when `score` is. The two travel as a pair
+   *  because a level derived from an absent score is a classification of nothing (see the posture
+   *  note in `src/lib/db/segments.ts`). */
+  levelId: string | null;
   /** The fleet's live-scored average; null when NO repo is live-scored (an all-mock or unscanned
    *  fleet has no average, and a 0 there would read as a grade). */
   score: number | null;
@@ -227,7 +230,7 @@ export function OrgHeader({
             style={score === null ? undefined : { color: scoreHex(score) }}
             title={score === null ? "Fleet maturity: no live-scored repository yet" : "Fleet maturity: level · index score"}
           >
-            {score === null ? "—" : `${levelId} · ${score}`}
+            {score === null || levelId === null ? "—" : `${levelId} · ${score}`}
           </span>
           {role && (
             <span

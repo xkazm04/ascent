@@ -8,30 +8,42 @@
 // exponential per-kind decay × a capped DELIVERY bonus, then packing whole items greedily into the
 // budget. Not "usefulness": see the recall.ts header for why that word is not available to us.
 //
-// That core (src/lib/memory/recall.ts) was deterministic, tested, and called by NOTHING in the product.
-// This panel is pure surfacing: it changes no half-life, no budget default, and no packing rule.
-//
 // TWO THINGS IT REFUSES TO DO:
-//  1. Show only the winners. Every omission is listed with the REASON — budget-bound (raise the budget)
-//     versus not recallable (superseded/archived/expired; no budget fixes those). A ranking you cannot
-//     see the losers of is not auditable.
+//  1. Show only the winners. Every omission is DRAWN, grouped by reason, in `BudgetPack` — solid for
+//     the ones a bigger budget admits, struck/hatched for the ones no budget ever will. That used to
+//     be a 330-character paragraph describing a packing bar; it is now the packing bar.
 //  2. Recompute score/ageDays in the browser. They are rendered verbatim from the response, so the
-//     number shown is the number that ranked the row.
+//     number shown is the number that ranked the row. `RecallContribution` draws the three FACTORS
+//     and never multiplies them back into a score.
 //
 // Reads are UNGATED (any org member), matching the route.
 
 import { useEffect, useRef, useState } from "react";
 import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { BudgetPack, Legend, WhyChip } from "@/components/org/viz";
 import { IneligibleRow, OmissionGroup, ScoredRow } from "@/features/shared/memory/MemoryRecallRows";
+import { DEFAULT_BUDGET, MemoryRecallControls } from "@/features/shared/memory/MemoryRecallControls";
 import { runRecall, type RecallResponse } from "@/features/shared/memory/memoryRecall";
-import { memoryKindLabel } from "@/lib/org/memory-kinds";
+import {
+  BUDGET_GROUP_HINT,
+  BUDGET_STATE,
+  INELIGIBLE_GROUP_HINT,
+  OMISSION_HINT,
+  PACKED_HINT,
+  omissionStates,
+  recallOmissions,
+} from "@/features/shared/memory/recallOmissions";
 
-const DEFAULT_BUDGET = 6000;
-const MIN_BUDGET = 200;
-const MAX_BUDGET = 60_000;
-
-const selectClass =
-  "rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-mono-sm text-slate-200";
+/** (O) The argument, where a reader has nothing to look at and a reason to press the button. */
+function RecallIntro() {
+  return (
+    <p className="mt-3 type-body-sm text-slate-500">
+      Ask for the org&apos;s most valuable knowledge inside a character budget: items are packed
+      whole, never truncated mid-memory, and everything that did not fit is drawn beside what did.
+      A ranking you cannot see the losers of is not auditable.
+    </p>
+  );
+}
 
 export function MemoryRecallPanel({
   slug,
@@ -85,78 +97,65 @@ export function MemoryRecallPanel({
     }
   }
 
-  const fill = result ? Math.min(100, Math.round((result.usedChars / result.charBudget) * 100)) : 0;
+  const omissions = result ? recallOmissions(result) : [];
 
   return (
     <Card>
       <SectionHeader
         size="sm"
         title="Recall: what an agent would be handed"
-        description="Ask for the org's most valuable knowledge within a character budget. Ranking is confidence × per-kind decay × how often it has been delivered (capped), and items are packed whole, never truncated mid-memory. Everything that did not make it is listed below with the reason. Packed memories have their recall count incremented, because they reached a reader — which is a record of delivery, not evidence that it helped."
+        description="chars per pack · scored at the server clock"
       />
 
-      <div className="mt-3 flex flex-wrap items-end gap-2">
-        <label className="flex flex-col gap-1">
-          <span className="type-label tracking-widest text-slate-500">budget (chars)</span>
-          <input
-            type="number"
-            min={MIN_BUDGET}
-            max={MAX_BUDGET}
-            step={500}
-            value={charBudget}
-            onChange={(e) => setCharBudget(Number(e.target.value))}
-            className={`${selectClass} w-32 tabular-nums`}
+      {/* FIRST SIGHT: the packing bar and its losers. Before a run there is no measurement, so the
+          argument (O) stands in its place rather than a bar drawn at zero. */}
+      {result ? (
+        <>
+          <BudgetPack
+            className="mt-3"
+            label="Recall budget"
+            used={result.usedChars}
+            budget={result.charBudget}
+            unit=" chars"
+            omissions={omissions}
           />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="type-label tracking-widest text-slate-500">namespace</span>
-          <select value={namespace} onChange={(e) => setNamespace(e.target.value)} className={selectClass}>
-            <option value="">all</option>
-            {namespaces.map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="type-label tracking-widest text-slate-500">kind</span>
-          <select value={kind} onChange={(e) => setKind(e.target.value)} className={selectClass}>
-            <option value="">all</option>
-            {kinds.map((k) => (
-              <option key={k} value={k}>
-                {memoryKindLabel(k)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button
-          onClick={recall}
-          disabled={running}
-          className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50"
-        >
-          {running ? "Recalling…" : "Recall"}
-        </button>
-      </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Legend states={omissionStates(omissions)} />
+            <WhyChip hint={OMISSION_HINT} label="omission groups" />
+            <WhyChip hint={PACKED_HINT} label="what packing costs" />
+          </div>
+          <p className="mt-2 type-caption tabular-nums text-slate-500">
+            packed {result.memories.length} of {result.consideredCount} eligible
+          </p>
+        </>
+      ) : (
+        <RecallIntro />
+      )}
+
+      <MemoryRecallControls
+        charBudget={charBudget}
+        setCharBudget={setCharBudget}
+        namespace={namespace}
+        setNamespace={setNamespace}
+        kind={kind}
+        setKind={setKind}
+        namespaces={namespaces}
+        kinds={kinds}
+        running={running}
+        onRecall={recall}
+      />
 
       {result && (
         <div className="mt-4">
-          <p className="type-caption tabular-nums text-slate-500">
-            packed {result.memories.length} of {result.consideredCount} eligible · {result.usedChars}/
-            {result.charBudget} chars ({fill}%)
-          </p>
-          <div className="mt-1 h-1 w-full overflow-hidden rounded bg-divider">
-            <div className="h-full bg-accent" style={{ width: `${fill}%` }} />
-          </div>
-
           {result.memories.length === 0 ? (
-            <p className="mt-3 type-body-sm text-slate-500">
-              Nothing was packed. {result.omittedCount > 0
-                ? "Everything eligible was larger than the budget. Raise it below."
+            <p className="type-body-sm text-slate-500">
+              Nothing was packed.{" "}
+              {result.omittedCount > 0
+                ? "Everything eligible was larger than the budget. Raise it above."
                 : "There is no recallable memory in this scope yet."}
             </p>
           ) : (
-            <ul className="mt-2 divide-y divide-divider">
+            <ul className="divide-y divide-divider">
               {result.memories.map((m) => (
                 <ScoredRow key={m.id} item={m} />
               ))}
@@ -165,7 +164,8 @@ export function MemoryRecallPanel({
 
           <OmissionGroup
             title="ranked but left out: budget"
-            hint="These are recallable and were scored; they simply did not fit. Packing is whole-item and greedy, so an oversized memory is skipped rather than ending the pass; a smaller, lower-ranked one can still land. Raise the budget to admit them."
+            hint={BUDGET_GROUP_HINT}
+            state={BUDGET_STATE}
             count={result.omitted.length}
           >
             {result.omitted.map((m) => (
@@ -175,7 +175,8 @@ export function MemoryRecallPanel({
 
           <OmissionGroup
             title="not recallable"
-            hint="These exist in the store but can never reach an agent's context, whatever the budget."
+            hint={INELIGIBLE_GROUP_HINT}
+            state="superseded"
             count={result.ineligible.length}
           >
             {result.ineligible.map((m) => (

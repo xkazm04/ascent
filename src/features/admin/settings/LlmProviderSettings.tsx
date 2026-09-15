@@ -8,6 +8,12 @@
 //
 // JSX only — state/effects/handlers live in useLlmProviderSettings.ts (extracted to keep this file
 // under the 200-LOC cap; docs/ORG-TABS-REFACTOR.md).
+//
+// The lede that used to sit here ("inference stays in your AWS account and region, billed to your AWS
+// account") is now DRAWN, one row above, by ProviderBoundaryCard: solid in the Boundary column and
+// solid in Billing, beside an OpenRouter row that is void in Boundary. The header keeps 30 characters
+// of scope (§2.3). Everything below the header is instructional copy on a form that writes a
+// credential, and §4 of docs/ORG-UX-REDESIGN.md deliberately leaves those alone.
 
 import { Card, SectionHeader } from "@/components/org/shared/ui";
 import type { OrgLlmConfigPublic } from "@/lib/db";
@@ -32,7 +38,7 @@ export function LlmProviderSettings({
       <SectionHeader
         size="sm"
         title="Bring your own model (Bedrock)"
-        description="Run scans on your org's own Amazon Bedrock: inference stays in your AWS account and region, billed to your AWS account. Custom plan."
+        description="Custom plan · your AWS account"
       />
 
       {!planAllowed ? (

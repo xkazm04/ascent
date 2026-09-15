@@ -10,7 +10,8 @@ import type { GovernanceOverview } from "@/lib/org/governance";
 export function GovernanceFailingReposCard({ slug, g }: { slug: string; g: GovernanceOverview }) {
   return (
     <Card>
-      <SectionHeader size="sm" title="Failing repos" description="Worst first: the specific conditions each repo misses." />
+      {/* Ordering is a unit statement; the conditions are in the list itself (§2.3). */}
+      <SectionHeader size="sm" title="Failing repos" description="worst first" />
       {g.failures.length === 0 ? (
         <InlineEmpty>No repos fail the gate. 🎉</InlineEmpty>
       ) : (

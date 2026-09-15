@@ -7,50 +7,39 @@
 // hues at this lightness, and two of the metrics aren't even in the same unit as the other four
 // (hours vs percent), which would have forced a dual y-axis — the single worst chart mistake there
 // is. One panel per metric: identity is carried by the panel's own title, so no legend is needed and
-// no reader has to tell two hues apart. Every panel therefore uses the same brand accent.
+// no reader has to tell two hues apart. Every panel therefore uses the shared brand accent token
+// (`DEFAULT_BASE`) rather than a hand-picked hex — BRAND.md, and §2.5 of the /org redesign.
 //
-// A `null` day is a GAP in the line, never a 0 — "nobody measured review coverage that day" is not
-// "review coverage was 0%", and bridging through zero would draw a crash-and-recover that never
-// happened. Mock-engine days are drawn HOLLOW, matching DimLine: a deterministic, model-free scan is
-// not comparable to a live-scored one and a solid dot would assert that it is.
+// A `null` day is a GAP in the line, never a 0 (`trendPath`) — "nobody measured review coverage that
+// day" is not "review coverage was 0%". That is the kit's `missing` state, and the panel now says so
+// with the kit's own vocabulary: the no-sample placeholder is a `StateSwatch state="missing"` under
+// `STATE_LABEL.missing`, and the footer counts the void days. Mock-engine days are drawn HOLLOW,
+// matching DimLine: a deterministic, model-free scan is not comparable to a live-scored one.
+//
+// The metric's definition used to sit under the title as a permanent sentence. It is now a `WhyChip`
+// beside the title (§2.1 D — Disclosed): present on hover/focus, absent at first sight, so the
+// topmost thing under the panel's own header is the reading and then the shape.
 
 import { CHART_INK, linScale, xScale } from "@/components/report/chartScale";
 import { ChartTooltip, useChartHover } from "@/components/report/chartHover";
-import { deltaHex, fmtDelta } from "@/components/ui";
+import { DEFAULT_BASE, STATE_LABEL, StateSwatch, WhyChip, stateTitle } from "@/components/org/viz";
+import { DeliveryTrendPanelFoot } from "./DeliveryTrendPanelFoot";
+import {
+  TREND_H,
+  TREND_PAD_BOTTOM,
+  TREND_PAD_TOP,
+  TREND_W,
+  dayLabel,
+  niceMax,
+  trendPath,
+  voidDays,
+  type TrendPanelPoint,
+} from "./deliveryTrendPanelMath";
 
-const ACCENT = "#3b9eff";
+export type { TrendPanelPoint } from "./deliveryTrendPanelMath";
 
-// A point's `date` is a canonical-zone DAY KEY ("2026-07-14"), not an instant. `shortDateSafe` would
-// parse it as UTC midnight and format it in the VIEWER's zone — printing "Jul 13" west of Greenwich
-// and, worse, disagreeing between the server prerender and the client hydration. Pin the formatter to
-// UTC and en-US so the label is exactly the day key it came from, everywhere.
-const fmtDayKey = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
-function dayLabel(key: string): string {
-  const d = new Date(`${key}T00:00:00Z`);
-  return Number.isNaN(d.getTime()) ? key : fmtDayKey.format(d);
-}
-
-/** One day of one metric, plus the sample size behind it (disclosed in the tooltip). */
-export interface TrendPanelPoint {
-  date: string;
-  value: number | null;
-  mock: boolean;
-  scans: number;
-  repos: number;
-}
-
-const W = 320;
-const H = 84;
-const PAD_TOP = 8;
-const PAD_BOTTOM = 8;
-
-/** Snap a raw max up to a "nice" 1/2/5×10^k so the hours axis lands on a readable ceiling. */
-function niceMax(raw: number): number {
-  if (!(raw > 0)) return 1;
-  const pow = 10 ** Math.floor(Math.log10(raw));
-  for (const m of [1, 2, 5, 10]) if (m * pow >= raw) return m * pow;
-  return 10 * pow;
-}
+const W = TREND_W;
+const H = TREND_H;
 
 export function DeliveryTrendPanel({
   label,
@@ -60,17 +49,19 @@ export function DeliveryTrendPanel({
   higherIsBetter = true,
 }: {
   label: string;
-  /** One line under the title saying exactly what is measured — no metric without a definition. */
+  /** The metric's definition — disclosed through the WhyChip, never printed as standing prose. */
   help: string;
   unit: "%" | "h";
   points: TrendPanelPoint[];
   /** False for duration metrics (time-to-merge), where a FALLING line is the good news. */
   higherIsBetter?: boolean;
 }) {
-  const present = points.map((p, i) => ({ ...p, i })).filter((p): p is TrendPanelPoint & { value: number; i: number } => p.value !== null);
+  const present = points
+    .map((p, i) => ({ ...p, i }))
+    .filter((p): p is TrendPanelPoint & { value: number; i: number } => p.value !== null);
   const x = xScale(points.length, 4, W - 8);
   const domainMax = unit === "%" ? 100 : niceMax(Math.max(...present.map((p) => p.value), 1));
-  const y = linScale(domainMax, H - PAD_BOTTOM, -(H - PAD_TOP - PAD_BOTTOM));
+  const y = linScale(domainMax, H - TREND_PAD_BOTTOM, -(H - TREND_PAD_TOP - TREND_PAD_BOTTOM));
 
   const hover = useChartHover(present.map((p) => x(p.i)), W);
   const act = hover.active !== null ? present[hover.active] : undefined;
@@ -83,37 +74,27 @@ export function DeliveryTrendPanel({
   const toneValue = delta === null ? 0 : higherIsBetter ? delta : -delta;
 
   const fmt = (v: number) => (unit === "%" ? `${Math.round(v)}%` : `${v}h`);
-
-  // Break the path wherever a day has no measurement.
-  let path = "";
-  let pen = false;
-  for (let i = 0; i < points.length; i++) {
-    const v = points[i]?.value;
-    if (v == null) {
-      pen = false;
-      continue;
-    }
-    path += `${pen ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)} `;
-    pen = true;
-  }
+  const voids = voidDays(points);
+  const path = trendPath(points, x, y);
 
   return (
     <div className="rounded-xl border border-divider bg-surface/40 p-4">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="type-mono-sm uppercase tracking-widest text-slate-400">{label}</span>
-        {last && (
-          <span className="font-mono type-lede font-bold tabular-nums text-white">{fmt(last.value)}</span>
-        )}
+        <span className="flex items-center gap-1.5">
+          <span className="type-mono-sm uppercase tracking-widest text-slate-400">{label}</span>
+          <WhyChip hint={help} label={label} className="translate-y-0.5" />
+        </span>
+        {last && <span className="font-mono type-lede font-bold tabular-nums text-white">{fmt(last.value)}</span>}
       </div>
-      <p className="mt-1 type-body-sm text-slate-500">{help}</p>
 
       {present.length === 0 ? (
         <div
-          className="mt-3 flex aspect-[320/84] w-full items-center justify-center rounded-lg border border-dashed border-divider type-body-sm text-slate-500"
+          className="mt-3 flex aspect-[320/84] w-full items-center justify-center gap-2 rounded-lg border border-dashed border-divider type-body-sm text-slate-500"
           role="img"
-          aria-label={`${label}: no measurements in this period`}
+          aria-label={stateTitle("missing", label)}
         >
-          no sample in this period
+          <StateSwatch state="missing" />
+          {STATE_LABEL.missing.toLowerCase()} in this period
         </div>
       ) : (
         <div className="relative mt-3">
@@ -121,12 +102,16 @@ export function DeliveryTrendPanel({
             viewBox={`0 0 ${W} ${H}`}
             className="h-auto w-full"
             role="img"
-            aria-label={`${label} over time, ${present.length} day${present.length === 1 ? "" : "s"} measured`}
+            aria-label={
+              `${label} over time, ${present.length} day${present.length === 1 ? "" : "s"} measured` +
+              (voids > 0 ? `, ${voids} with no measurement drawn as gaps rather than zeroes` : "")
+            }
             style={{ touchAction: "none" }}
             onPointerMove={hover.onPointerMove}
             onPointerDown={hover.onPointerMove}
             onPointerLeave={hover.onPointerLeave}
           >
+            <title>{stateTitle(voids > 0 ? "missing" : "measured", label)}</title>
             {/* Recessive frame: a baseline and a mid reference so the line reads as quantitative. */}
             <line x1={0} x2={W} y1={y(0)} y2={y(0)} stroke={CHART_INK.grid} strokeWidth={1} />
             <line x1={0} x2={W} y1={y(domainMax / 2)} y2={y(domainMax / 2)} stroke={CHART_INK.grid} strokeWidth={1} strokeDasharray="2 4" />
@@ -134,15 +119,15 @@ export function DeliveryTrendPanel({
               {fmt(domainMax / 2)}
             </text>
             {act && <line x1={x(act.i)} x2={x(act.i)} y1={0} y2={H} stroke={CHART_INK.crosshair} strokeWidth={1} strokeDasharray="3 3" />}
-            {present.length > 1 && <path d={path.trim()} fill="none" stroke={ACCENT} strokeWidth={2} />}
+            {present.length > 1 && <path data-line d={path} fill="none" stroke={DEFAULT_BASE} strokeWidth={2} />}
             {present.map((p) =>
               p.mock ? (
-                <circle key={p.i} data-mock cx={x(p.i)} cy={y(p.value)} r={3} fill="var(--color-surface-strong)" stroke={ACCENT} strokeWidth={1.75} />
+                <circle key={p.i} data-mock cx={x(p.i)} cy={y(p.value)} r={3} fill="var(--color-surface-strong)" stroke={DEFAULT_BASE} strokeWidth={1.75} />
               ) : (
-                <circle key={p.i} cx={x(p.i)} cy={y(p.value)} r={2.5} fill={ACCENT} />
+                <circle key={p.i} cx={x(p.i)} cy={y(p.value)} r={2.5} fill={DEFAULT_BASE} />
               ),
             )}
-            {act && <circle cx={x(act.i)} cy={y(act.value)} r={5} fill="none" stroke={ACCENT} strokeWidth={1.75} />}
+            {act && <circle cx={x(act.i)} cy={y(act.value)} r={5} fill="none" stroke={DEFAULT_BASE} strokeWidth={1.75} />}
             <rect x={0} y={0} width={W} height={H} fill="transparent" />
           </svg>
 
@@ -162,29 +147,7 @@ export function DeliveryTrendPanel({
         </div>
       )}
 
-      <div className="mt-2 flex flex-wrap items-baseline justify-between gap-x-3 type-mono-sm">
-        {delta === null ? (
-          <span className="text-slate-500">one measured day: no change to read</span>
-        ) : (
-          <span style={{ color: deltaHex(toneValue) }}>
-            {fmtDelta(delta)}
-            {unit === "%" ? "pts" : "h"} across the period
-          </span>
-        )}
-        <span className="text-slate-600">
-          {present.length} day{present.length === 1 ? "" : "s"} measured
-        </span>
-      </div>
-
-      {/* Every value reachable without a pointer (and for assistive tech / print). */}
-      <ul className="sr-only">
-        {present.map((p) => (
-          <li key={p.i}>
-            {label} {fmt(p.value)} on {dayLabel(p.date)} from {p.scans} scan{p.scans === 1 ? "" : "s"}
-            {p.mock ? " (demo scans only: deterministic rubric, no model)" : ""}
-          </li>
-        ))}
-      </ul>
+      <DeliveryTrendPanelFoot label={label} fmt={fmt} present={present} delta={delta} toneValue={toneValue} unit={unit} voids={voids} />
     </div>
   );
 }

@@ -454,8 +454,15 @@ describe("buildExecBriefing — null / empty fleet", () => {
     // No empty/garbage briefing is fabricated — the page/PDF/LLM brief get a clean "no data".
   });
 
-  it("returns null when the rollup exists but scannedCount is 0", async () => {
-    mockRollup.mockResolvedValue(rollup({ scannedCount: 0 }));
+  it("returns null when the rollup exists but nothing in it is graded", async () => {
+    // The three averages are what an ungraded rollup ACTUALLY carries now: null, not a 0 the briefing
+    // would print as a board-facing headline. The guard reads them rather than `scannedCount`.
+    mockRollup.mockResolvedValue(rollup({ scannedCount: 0, realScoredCount: 0, avgOverall: null, avgAdoption: null, avgRigor: null }));
+    expect(await buildExecBriefing("acme")).toBeNull();
+  });
+
+  it("returns null for a fleet that IS scanned but entirely mock-floored — scanned is not graded", async () => {
+    mockRollup.mockResolvedValue(rollup({ scannedCount: 8, realScoredCount: 0, mockCount: 8, avgOverall: null, avgAdoption: null, avgRigor: null }));
     expect(await buildExecBriefing("acme")).toBeNull();
   });
 });
@@ -517,7 +524,7 @@ describe("buildExecBriefing — the rollup's denominator travels onto the briefi
     // A delta against a division guard is a fabricated +70, not a comparison.
     mockRollup
       .mockResolvedValueOnce(rollup())
-      .mockResolvedValueOnce(rollup({ scannedCount: 4, realScoredCount: 0, mockCount: 4, avgOverall: 0 }));
+      .mockResolvedValueOnce(rollup({ scannedCount: 4, realScoredCount: 0, mockCount: 4, avgOverall: null, avgAdoption: null, avgRigor: null }));
     const b = (await buildExecBriefing("acme", { start: new Date("2026-05-01"), endExclusive: new Date("2026-06-01") }))!;
     expect(b.priorPeriod).toBeNull();
   });
@@ -661,7 +668,9 @@ describe("buildExecBriefing — priorPeriod (vs previous equal-length window)", 
 
   it("is null when the prior window had no scans (prior rollup empty)", async () => {
     const window: OrgWindow = { start: new Date("2026-06-01"), end: new Date("2026-06-15") };
-    mockRollup.mockResolvedValueOnce(rollup()).mockResolvedValueOnce(rollup({ scannedCount: 0 }));
+    mockRollup
+      .mockResolvedValueOnce(rollup())
+      .mockResolvedValueOnce(rollup({ scannedCount: 0, realScoredCount: 0, avgOverall: null, avgAdoption: null, avgRigor: null }));
     expect((await buildExecBriefing("acme", window))!.priorPeriod).toBeNull();
   });
 });

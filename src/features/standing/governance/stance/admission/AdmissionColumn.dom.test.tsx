@@ -15,6 +15,9 @@ import { describe, expect, it, beforeEach, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import type { RepoAdmissionRow } from "@/lib/org/admission";
 
+// The column opens on a BandLadder from the shared viz kit, which reaches `window.matchMedia` via
+// `usePrefersReducedMotion`. jsdom implements none; `vitest.setup.dom.js` installs the shared stub.
+
 const { AdmissionColumn } = await import("./AdmissionColumn");
 
 const derived = (repoFullName: string, derivedTier: "T2" | null): RepoAdmissionRow => ({

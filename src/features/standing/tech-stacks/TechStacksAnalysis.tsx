@@ -8,6 +8,7 @@
 // pure). Client component; the page passes the server-fetched summaries in.
 
 import { useState } from "react";
+import { WhyChip } from "@/components/org/viz";
 import { StackProfiles } from "@/features/standing/tech-stacks/StackProfiles";
 import { StackInsights } from "@/features/standing/tech-stacks/StackInsights";
 import { STACK_SCOPE } from "@/features/standing/tech-stacks/analysisScope";
@@ -51,11 +52,17 @@ export function TechStacksAnalysis({ org, stacks, fleet, dims }: {
         onHover={setHovered}
       />
       <div>
-        <p className="type-body-sm text-slate-500">
-          Dimension analysis of the{" "}
-          <span className="font-medium text-slate-300">{activeStacks.length}</span> selected{" "}
-          {activeStacks.length === 1 ? "stack" : "stacks"}. Toggle stacks above to focus the diagnosis and playbooks.
-        </p>
+        {/* The scope readout is data (how much of the fleet the verdicts below rest on); the
+            instruction that used to follow it — "toggle stacks above to focus the diagnosis and
+            playbooks" — is the coupling between two panels, so it moved into the WhyChip beside it. */}
+        <div className="flex items-center gap-1.5 type-mono-sm text-slate-500">
+          <span className="tabular-nums text-slate-300">{activeStacks.length}</span>
+          <span>of {stacks.length} stacks in scope</span>
+          <WhyChip
+            label="analysis scope"
+            hint="Toggling a stack in the rail above rescopes every diagnosis, verdict and playbook below it — the selection drives both panels."
+          />
+        </div>
         <StackInsights org={org} stacks={activeStacks} fleet={fleet} dims={dims} scope={STACK_SCOPE} />
       </div>
     </div>

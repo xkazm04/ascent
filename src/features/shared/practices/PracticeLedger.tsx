@@ -6,6 +6,7 @@
 // replacement for the old stack of full-height cards — the entire library fits on one screen.
 
 import { OrgTable, Meter, deltaHex, fmtDelta } from "@/components/org/shared/ui";
+import { StateSwatch } from "@/components/org/viz";
 import { scoreHex } from "@/lib/ui";
 import { categoryLabel, type PracticeRow } from "./practiceRows";
 
@@ -35,7 +36,11 @@ export function PracticeLedger({ rows, onOpen }: { rows: PracticeRow[]; onOpen: 
           // never an authored playbook's uuid. See usePracticeHash.
           id={r.source === "mined" ? `practice-${r.id}` : undefined}
           onClick={() => onOpen(r)}
-          className="cursor-pointer align-middle"
+          // The affordance, not a sentence above the table telling the reader rows open: the whole
+          // row lifts on hover and its "View →" takes the accent with it, and the row names its own
+          // destination for anyone who hovers or reads it aloud.
+          title={`Open ${r.label} — exemplar, gap repos and apply actions`}
+          className="group cursor-pointer align-middle"
         >
           <td className="px-4 py-3">
             <div className="font-medium text-white">{r.label}</div>
@@ -46,16 +51,7 @@ export function PracticeLedger({ rows, onOpen }: { rows: PracticeRow[]; onOpen: 
             <SourcePill source={r.source} />
           </td>
           <td className="px-4 py-3">
-            <div className="flex items-center gap-2">
-              {r.adoptionPct != null ? (
-                <>
-                  <Meter className="w-20" size="sm" value={r.adoptionPct} color={scoreHex(r.adoptionPct)} />
-                  <span className="type-mono-sm tabular-nums text-slate-300">{r.adoptionLabel}</span>
-                </>
-              ) : (
-                <span className="type-mono-sm text-slate-600">{r.adoptionLabel}</span>
-              )}
-            </div>
+            <AdoptionCell row={r} />
             {r.reachLabel && <div className="mt-1 type-caption text-slate-500">{r.reachLabel}</div>}
           </td>
           <td className="px-4 py-3">
@@ -67,7 +63,7 @@ export function PracticeLedger({ rows, onOpen }: { rows: PracticeRow[]; onOpen: 
                 e.stopPropagation();
                 onOpen(r);
               }}
-              className="focus-ring whitespace-nowrap rounded-md border border-slate-700 px-2.5 py-1 type-mono-sm text-slate-300 transition hover:border-accent hover:text-white"
+              className="focus-ring whitespace-nowrap rounded-md border border-slate-700 px-2.5 py-1 type-mono-sm text-slate-300 transition group-hover:border-accent group-hover:text-white hover:border-accent hover:text-white"
             >
               View →
             </button>
@@ -75,6 +71,49 @@ export function PracticeLedger({ rows, onOpen }: { rows: PracticeRow[]; onOpen: 
         </tr>
       ))}
     </OrgTable>
+  );
+}
+
+/**
+ * Adoption, with the KIND of adoption on the mark rather than only its size.
+ *
+ * The column used to render three different facts through one grey mono readout: a measured share, a
+ * declared count, and — the damaging one — a mined practice NO repository has been assessed for,
+ * which arrived as the same em dash a zero would. `getOrgPractices` builds `total` only from repos
+ * whose latest scan carries dimensions, so an unscanned fleet reaches this cell as `0/0`. That is now
+ * `not-judged`: the hatch the kit reserves for evidence we do not have, and the state whose
+ * `rendersValue` is false everywhere a number could otherwise be printed.
+ */
+function AdoptionCell({ row }: { row: PracticeRow }) {
+  if (row.source === "mined" && (row.mined?.total ?? 0) === 0) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <StateSwatch state="not-judged" />
+        <span className="type-mono-sm text-slate-500">not assessed</span>
+      </div>
+    );
+  }
+  // An authored playbook's adoption is a RECORDED APPLICATION, not an observation of the repo — the
+  // dashed swatch says so beside every one of them, the way the rollout matrix's Assessed column does.
+  const state = row.source === "authored" ? "declared" : "measured";
+  return (
+    <div className="flex items-center gap-2">
+      <StateSwatch state={state} />
+      {row.adoptionPct != null ? (
+        <>
+          <Meter
+            className="w-16"
+            size="sm"
+            value={row.adoptionPct}
+            color={scoreHex(row.adoptionPct)}
+            ariaLabel={`${row.label} adoption`}
+          />
+          <span className="type-mono-sm tabular-nums text-slate-300">{row.adoptionLabel}</span>
+        </>
+      ) : (
+        <span className="type-mono-sm text-slate-500">{row.adoptionLabel}</span>
+      )}
+    </div>
   );
 }
 

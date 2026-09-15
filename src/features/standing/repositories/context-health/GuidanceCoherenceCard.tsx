@@ -20,7 +20,9 @@
 import Link from "next/link";
 import { Kicker, Surface } from "@/components/ui";
 import { SectionHeader, Tile, TILE_LEDGER, InlineEmpty } from "@/components/org/shared/ui";
+import { Distribution, Legend, StateSwatch, WhyChip } from "@/components/org/viz";
 import { scoreHex } from "@/lib/ui";
+import { coherenceSpread } from "./coherenceSpread";
 import {
   BASIS_LABEL,
   coherenceFleetSummary,
@@ -50,7 +52,9 @@ function FormatChip({ chip }: { chip: ProjectionChip }) {
 }
 
 function CoherenceRow({ r }: { r: RepoCoherenceRow }) {
-  const hex = r.coherence != null ? scoreHex(r.coherence) : "#334155";
+  // No paint for an unmeasured row: the ramp is for scores, and this row has none. It carries the
+  // kit's hatch instead, which is the same mark the fleet spread counts it under.
+  const hex = r.coherence != null ? scoreHex(r.coherence) : undefined;
   return (
     <div className={`bg-ink px-5 py-4 ${r.assessed ? "" : "opacity-70"}`}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
@@ -58,7 +62,8 @@ function CoherenceRow({ r }: { r: RepoCoherenceRow }) {
           {r.fullName}
         </Link>
         <div className="flex items-baseline gap-2">
-          <span className="type-lede font-mono tabular-nums" style={{ color: hex }}>
+          {r.coherence == null && <StateSwatch state="not-judged" />}
+          <span className="type-lede font-mono tabular-nums" style={hex ? { color: hex } : undefined}>
             {r.coherence != null ? r.coherence : "—"}
           </span>
           <span className="type-label tracking-[0.18em] text-slate-600">coherence</span>
@@ -114,16 +119,58 @@ function CoherenceRow({ r }: { r: RepoCoherenceRow }) {
   );
 }
 
+const SPREAD_HINT =
+  "Coherence is 0–100 for whether a repo's guidance documents agree with each other: which one is the authority, which are in-sync projections of it, and where they tell an agent different things. A repo with no guidance document — or one scanned before the arbiter existed — is hatched here and is in no quartile.";
+
 export function GuidanceCoherenceCard({ rows }: { rows: RepoCoherenceRow[] }) {
   const s = coherenceFleetSummary(rows);
+  const spread = coherenceSpread(rows);
   const ordered = orderByIncoherence(rows).filter((r) => r.assessed);
   return (
     <Surface className="p-6">
       <SectionHeader
         title="Guidance coherence"
-        description="Every vendor format read against the others: which document is the authority, which are in-sync projections of it, and where they tell an agent different things."
-        right={<Kicker>{`r11 · ${s.measured} assessed`}</Kicker>}
+        description={`${s.measured} assessed · 0–100 agreement`}
+        right={<Kicker>r11</Kicker>}
       />
+
+      {/* First sight is the spread, not the mean (§2.2): a fleet split between clean repos and a few
+          contradicting ones and a uniformly-middling fleet share the same average. */}
+      <div className="mt-4 rounded-2xl border border-divider bg-surface/40 p-4">
+        <div className="flex items-center justify-between gap-3">
+          <Kicker tone="muted">fleet coherence</Kicker>
+          <WhyChip hint={SPREAD_HINT} label="what coherence measures" align="end" />
+        </div>
+        {spread.five ? (
+          <Distribution
+            className="mt-2 max-w-md"
+            min={spread.five.min}
+            q1={spread.five.q1}
+            median={spread.five.median}
+            q3={spread.five.q3}
+            max={spread.five.max}
+            n={spread.five.n}
+            digits={0}
+            label="Guidance coherence"
+          />
+        ) : (
+          <p className="mt-2 flex items-center gap-2 type-body-sm text-slate-500">
+            <StateSwatch state="not-judged" />
+            {spread.measured === 1
+              ? "One assessed repository — a spread needs at least two."
+              : "Nothing assessed yet, so there is no spread to draw."}
+          </p>
+        )}
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+          <Legend states={spread.states} />
+          {spread.unmeasured > 0 && (
+            <Kicker tone="muted" as="span">
+              <span className="tabular-nums">{spread.unmeasured}</span> not assessed
+            </Kicker>
+          )}
+        </div>
+      </div>
+
       <div className={`mt-5 ${TILE_LEDGER}`}>
         <Tile
           label="Mean coherence"

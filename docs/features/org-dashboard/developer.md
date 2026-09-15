@@ -52,18 +52,86 @@ in the initial client bundle.
 
 One render, the Companion direction: a private notebook a calm colleague keeps for you.
 
-- **Your activity here** — the git-side slice: commits, AI-attributed commits, your AI share, champion
-  status. Read out of this workspace's contributor snapshot, **unfloored**, because the floors exist to
-  stop the org reading a person, not to stop a person reading themself.
-- **Profile card** (self-stated on your machine) · **why this lives here and not only on your laptop**
-  (every line counted off the view model, so an empty workspace shows honest zeros).
+- **Your activity here** — the git-side slice, led by `CareShareBar`: your AI-attributed share as a
+  proportion of the commits it is a share *of*, then commits / AI-attributed / last active / champion
+  as tiles. Read out of this workspace's contributor snapshot, **unfloored**, because the floors exist
+  to stop the org reading a person, not to stop a person reading themself — the sentence that used to
+  say so is now the section's `WhyChip`.
+- **Profile card** (self-stated on your machine) · **what your laptop cannot see** — a `MatrixGrid`
+  over two columns, *Mentor* and *Here*, whose voids are the argument: the mentor cannot hold your
+  repo map, fleet evidence, the registry bridge, cross-machine memory or an anonymous baseline, and
+  *Here* cannot hold your transcripts. The six counts below it are still read off the view model, so
+  an empty workspace shows honest zeros; each one's rationale is in its `WhyChip`.
 - **Moves board** — proposed / trying / kept / dropped, each with the journal evidence, the fleet
-  evidence and an expected saving; "promote to registry" on kept moves.
-- **Session shape (30 days)** — only the counts you chose to share, with an optional anonymous org band.
-- **The repos you commit to** — and their open recommendations, so a move can be grounded in more than
-  the one working copy the local mentor can read.
-- **Journal** · **Setup + the privacy ledger** — what is and is not allowed to leave the machine, stated
-  in the negative and permanently.
+  evidence and an expected saving; "promote to registry" on kept moves. A move with no fleet evidence
+  carries the `missing` void, not a weak-looking blank.
+- **Session shape (30 days)** — one `Distribution` per shared count, with **your own value marked**
+  against the org's p25→p75. See the four outcomes below; they are all visually distinct.
+- **The repos you commit to** — and their open recommendations. A repo with no scan shows the `missing`
+  void ("no scan"), never a "—" that could read as a floor score.
+- **Journal** · **Setup + the privacy ledger** — see below. The ledger is now a picture.
+
+### The privacy guarantee is drawn, not promised
+
+The page used to carry the guarantee as copy: *"The mentor runs on your machine. This is what it is
+allowed to send"*, *"Transcripts, prompts and diffs never leave your machine"*. A promise is the wrong
+shape for a privacy claim — the reader has to trust it, and prose cannot enforce it. (It was not even
+enforcing itself: "locked" was decided by `/never/i` over each row's *note*, which silently classified
+`Per-person rows in org mode` — note "unrepresentable in the org view model" — as a switch the
+developer had merely left off.)
+
+`CarePrivacyLedger` is now a `MatrixGrid` on two axes:
+
+| | **Sent** | **Switch** |
+| --- | --- | --- |
+| a count you share | measured (solid) | decided (ring) — your control |
+| a count you left off | **void** | decided (ring) |
+| transcripts · prompts, diffs · per-person rows | **void** | **void** — there is no control |
+
+The bottom row is the invariant: nothing is sent **and** no switch exists that could send it, which is
+the demoted sentence *"never leaves your machine — not a setting"* made checkable by a reader who does
+not trust the copy. The locked rows are decided by `careNeverSent` (`src/lib/org/developer-view.ts`),
+a named **set** of fields with the note match kept only as a second way in — not by a regex over
+English. Two tests guard it and both **seed the violation**: `careLedgerRows.test.ts` and
+`CarePrivacyLedger.dom.test.tsx` feed a ledger claiming transcripts *are* shared and assert the cells
+stay empty (`data-mark` absent), while a switchable row does light up — so the guard is proving a
+guard, not an empty render.
+
+One consent sentence deliberately **stayed visible**: *"Proposed by your local mentor from your own
+journal. Nothing here is assigned to you."* It is a use-constraint on a list of suggestions, no visual
+encoding carries it, and the reader must meet it at the same moment as the content — so it sits on the
+moves board itself, never in a hover. The UI holds up the other half: no checkboxes, no completion
+affordance, no ordinal numbering, and the only verbs are the developer's own (keep, drop). This is the
+same call Wave 1 made for *"not a to-do list for anyone"* on Contributors.
+
+### Four absences that used to look alike
+
+Every one of these is about the viewer themself, which is why the page cares more than any other tab.
+
+| Situation | `activityState` | Encoding |
+| --- | --- | --- |
+| Your rows exist and the snapshot **suppressed** them (population `< CHAMPION_MIN_POP`) | `withheld` | hatch — *not judged*, plus "your commits exist" |
+| The snapshot was read and you are genuinely not in it | `absent` | the `missing` void |
+| The snapshot could not be read | `unreadable` | hatch |
+| Nobody is signed in | `signed-out` | the void + an invitation |
+
+`activity: null` carried all four and the page narrated them with one paragraph, so a **suppression**
+read exactly like "you have never committed here". `DeveloperView.activityState` now names which, set
+in `getDeveloperView` from `ContributorInsights.namingAllowed` — the same typed-state discipline as
+`RepoConcentration.topLoginState` ("withheld" vs "unknown").
+
+The session-shape strip carries the same discipline on four outcomes:
+
+| Situation | Encoding |
+| --- | --- |
+| never shared | the `missing` void, and **no numeral at all** — so it can never be misread as a zero |
+| shared, comparison off | the `decided` ring — your decision, not a shortage of data |
+| shared, comparison on, no band for this field | the hatch — not judged |
+| shared, band exists | the quartile strip, with your value marked |
+
+And `CareShareBar` separates *no commits for a share to be a share of* (the void) from a **measured
+0%** (an empty track beside a real zero) — the org-side `AiBar` fix from Wave 1, on the surface where
+it is most personal.
 
 ## Relation to Contributors (§5.2)
 
@@ -91,7 +159,9 @@ The line between them is enforced in two directions:
 | Legacy redirect | `src/app/org/[slug]/developer/page.tsx` |
 | Client root (preview state) | `src/features/developer/DeveloperHome.tsx` |
 | The render | `src/features/developer/DeveloperCompanion.tsx` |
-| Sub-components | `.../DeveloperActivityStrip.tsx`, `CareBits`, `CareCopyAction`, `CarePreviewBanner`, `CareProfileCard`, `CareMovesBoard`, `CareSessionShape`, `CareRepoGaps`, `CareJournal`, `CarePrivacyLedger`, `CareWhyStrip`. Each renders exactly one layout since 2026-09-05; the Climb/Cockpit prototype branches are gone. |
+| Sub-components | `.../DeveloperActivityStrip.tsx`, `CareBits`, `CareCopyAction`, `CarePreviewBanner`, `CareProfileCard`, `CareMovesBoard`, `CareSessionShape`, `CareShapeRow`, `CareShareBar`, `CareRepoGaps`, `CareJournal`, `CarePrivacyLedger`, `CareWhyStrip`. Each renders exactly one layout since 2026-09-05; the Climb/Cockpit prototype branches are gone. |
+| Privacy-ledger row model (pure) | `src/features/developer/careLedgerRows.ts` |
+| Shared viz kit | `@/components/org/viz` — `MatrixGrid`, `Distribution`, `StateSwatch`, `Legend`, `WhyChip`. No state encoding, hatch, dash or legend is re-implemented in this directory. |
 | Shared org shell | `src/components/org/shell/OrgShell.tsx` (+ `src/lib/org/orgShellGate.ts`) |
 | Contributors relation | `src/features/bought/contributors/ContributorsYouPointer.tsx`, `ContributorsCareSection.tsx`, `CareOrgAggregate.tsx` |
 
@@ -113,6 +183,12 @@ the same client/server boundary split as `skill-usage-load.ts`.
   render as selectable code.
 - **The `/mentor` skill does not exist yet** (C2) — nothing can share to this page until it ships in the
   `npx ascent` distributable.
+- (Closed 2026-09-08.) ~~Every absence on this page is narrated in one paragraph.~~ The four reasons
+  `activity` is null are now a typed `activityState` and four distinct marks, the session-shape strip
+  tells "not shared" / "comparison off" / "no band yet" apart, `CareShareBar` tells a missing
+  denominator from a measured 0%, and the privacy ledger is a matrix with a void column guarded by two
+  seeded-violation tests. `SectionHeader description=` in `src/features/developer`: **7 → 1**, and the
+  survivor is a window/order (`"N entries · newest first"`).
 - (Closed 2026-09-05.) ~~`myRepos` levels/scores are not populated.~~ The loader now reads
   `getRepoStates` (one query, in parallel with the backlog read, best-effort) for each repo's latest
   level and score; "—" appears only when a repo has no scan. A repo card with no open

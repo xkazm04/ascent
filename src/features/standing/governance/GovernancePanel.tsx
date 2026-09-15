@@ -97,7 +97,7 @@ export async function GovernancePanel({ slug, sp }: { slug: string; sp: SearchPa
       {/* W2 — the evidence pack sits with the stance and the gate policy on purpose: this is where an
           org declares its review controls, so it is where it should be able to file proof they
           operated. `canEdit` is the owner check the panel already made; named evidence is owner-only. */}
-      <EvidencePackCard slug={slug} canExportNamed={canEdit} />
+      <EvidencePackCard slug={slug} canExportNamed={canEdit} sp={sp} />
 
       {/* MOONSHOT #1 — the observation timeline sits directly BELOW the evidence pack, because it is
           the source the pack's per-item "as of merge" environment is read from: a reader who has just

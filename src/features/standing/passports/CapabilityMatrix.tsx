@@ -12,8 +12,10 @@
 
 import { OrgTable, Tile, TILE_LEDGER, MeterRow } from "@/components/org/shared/ui";
 import { Kicker, SectionHeading } from "@/components/ui";
+import { Legend, MatrixGrid } from "@/components/org/viz";
 import { scoreHex } from "@/lib/ui";
 import { buildCapabilityMatrix, verifiedRatio, type CapabilityMatrixInput } from "./capabilityAgg";
+import { CAPABILITY_AXES, capabilityVizRows, capabilityVizStates } from "./capabilityViz";
 import { CapabilityMatrixLegend } from "./CapabilityMatrixLegend";
 import { CapabilityMatrixRowView } from "./CapabilityMatrixRowView";
 import type { FoundationRolloutRow } from "@/lib/db/org-foundation";
@@ -21,6 +23,7 @@ import type { FoundationRolloutRow } from "@/lib/db/org-foundation";
 export function CapabilityMatrix({ repos, rollout = [] }: { repos: CapabilityMatrixInput[]; rollout?: FoundationRolloutRow[] }) {
   const matrix = buildCapabilityMatrix(repos);
   const ratio = verifiedRatio(matrix);
+  const vizRows = capabilityVizRows(matrix);
   // Spec #35 handoff 2's promised column. Keyed lower-case because the audit-derived rollout rows and
   // the rollup's `fullName` come from two different writes of the same name.
   const rolloutByRepo = new Map(rollout.map((r) => [r.repo.toLowerCase(), r]));
@@ -29,11 +32,23 @@ export function CapabilityMatrix({ repos, rollout = [] }: { repos: CapabilityMat
     <section className="space-y-6">
       <div>
         <Kicker>declared vs proven</Kicker>
-        <SectionHeading
-          title="Capabilities"
-          intro="Every repository against its OWN .ai/manifest.yaml: what it declares it can do, what its doctor has proven, and where each control is enforced."
-        />
+        <SectionHeading title="Capabilities" intro={`${matrix.rows.length} assessed · ${matrix.unassessed.length} not assessed`} />
       </div>
+
+      {/* First sight is the three axes the deleted sentence used to name: declared × proven ×
+          enforced, one row per capability, over the ASSESSED repos only. A capability no doctor has
+          judged is hatched and prints no percentage — the encoding, not a caption, is what stops an
+          unrun capability reading as a passing one. */}
+      {matrix.rows.length > 0 && (
+        <div className="rounded-2xl border border-divider bg-surface/40 p-4">
+          <MatrixGrid
+            axes={[...CAPABILITY_AXES]}
+            rows={vizRows}
+            title={`Capabilities across ${matrix.rows.length} assessed ${matrix.rows.length === 1 ? "repository" : "repositories"}`}
+          />
+          <Legend states={capabilityVizStates(vizRows)} className="mt-3" />
+        </div>
+      )}
 
       <div className={`${TILE_LEDGER} sm:grid-cols-3`}>
         <Tile label="Repos assessed" value={matrix.totals.repos} sub={`${matrix.unassessed.length} not assessed`} />
@@ -86,7 +101,7 @@ export function CapabilityMatrix({ repos, rollout = [] }: { repos: CapabilityMat
         </OrgTable>
       )}
 
-      <CapabilityMatrixLegend unassessed={matrix.unassessed.length} />
+      <CapabilityMatrixLegend />
 
       {matrix.unassessed.length > 0 && (
         <div className="rounded-2xl border border-dashed border-divider p-5">

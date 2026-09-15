@@ -2,7 +2,8 @@
 
 **Status: CURRENT** (rebuilt 2026-09-05, spark `knowledge-base-rebuild`; the Loom direction won the
 prototype round over Atlas and Board. Context rows and churn added 2026-09-06, spark
-`knowledge-context-matrix`).
+`knowledge-context-matrix`. Aligned to the shared /org visual kit 2026-09-08, Wave 3 of
+[ORG-UX-REDESIGN](../../ORG-UX-REDESIGN.md).)
 
 Org dashboard tab `?tab=knowledge`, last in the **Shared** group. It shows the org's registry
 knowledge lane **as the registry structures it** — bundle (domain) → category → subcategory →
@@ -27,6 +28,10 @@ its `.ai/registry-map.json`, and Ascent's sweep reads them. This tab is a mirror
 | --- | --- |
 | `src/features/shared/knowledge/KnowledgeTab.tsx` | server tab; reads `?domain=` and `?subject=`; unmapped / error / empty notices; the dev-only preview shell |
 | `KnowledgeLoom.tsx` (+ `KnowledgeLoomGrid.tsx`) | the client orchestrator and the matrix |
+| `KnowledgeCoverage.tsx` | **first sight**: the bundle coverage matrix (Mirrored × Routable × Judged, one row per bundle) |
+| `KnowledgeStateLegend.tsx` | the legend — each row is the kit's `StateSwatch` under the domain glyph |
+| `KnowledgeImpactBars.tsx` | the subject reader's blast-radius bars, one per mapped repo |
+| `knowledgeViz.ts` | the epistemic derivations: `bundleCoverage`, `subjectVizState`, `subjectImpact` |
 | `KnowledgeRepoBadges.tsx` | the column-header churn badges (`N orphaned`, `M new`, `map behind`), rendered only when non-zero / true |
 | `KnowledgeComposer.tsx` | the dispatch composer + the hand-off ledger |
 | `KnowledgeComposerContexts.tsx` | under the picked-subject chips: each subject's revision header and its context rows in the picked repo; the map-behind line with its map-stage brief |
@@ -68,6 +73,49 @@ A judged cell is `stale` when the pair's `evaluatedAgainst` is not the subject's
 absence is never an empty square. Tones sit off the score ramp: a deviation is a decision someone
 recorded, not a failure to reach a number.
 
+### Two axes, one canonical — `CELL_VIZ_STATE`
+
+The eleven states above are the **domain axis**: *which* classification the registry gave this pair.
+The dashboard-wide `VizState` (`@/components/org/viz`, the [redesign](../../ORG-UX-REDESIGN.md) §2.4
+vocabulary) is the **epistemic axis**: did we *measure* it, was it merely *declared*, did nothing
+*judge* it, is there no measurement at all. `knowledgeVocabulary.ts` maps the first onto the second,
+and **the kit is canonical** — every hatch, dash, void, opacity, swatch and caveat sentence on this
+tab comes from the kit through that map. Nothing in this feature directory defines one.
+
+| Cell states | `VizState` | Why |
+| --- | --- | --- |
+| `conformant`, `deviation` | `measured` | a verdict `/conform` wrote against evidence |
+| `not-applicable`, `accepted`, `deferred`, `declined` | `decided` | a person ruled on it (accent ring) |
+| `unknown`, `candidate` | `not-judged` | hatched; never counted as passing, and prints no value |
+| `out-of-scope`, `out-of-domain` | `declared` | dashed outline: the manifest declares the boundary |
+| `no-map` | `missing` | a void — nothing can be known, and a void is never a zero |
+
+Repo stages map too (`STAGE_VIZ_STATE`): `populate` → `missing` (no context map, so nothing about the
+repo has been measured), `map` / `conform` → `not-judged`, `current` → `measured`. The stage chip, the
+churn badges (`KnowledgeRepoBadges`) and the sweep strip all paint from it; each badge's own reason
+sentence (`REASON`) rides in its `title` beside the kit's `STATE_HINT`.
+
+`knowledgeVocabulary.CELL_REASON` holds the eleven "why this state" sentences. They are **disclosed,
+never printed** — a cell's `title`, a legend row's tooltip — so the wire contract's "absence is never
+zero" rule is reachable by a reader of the UI, not only by a reader of the source.
+
+### Bundle coverage — what the tab opens on
+
+The Knowledge base has **no per-repo adoption state** (which is why `ORG_NAV_GROUPS` puts it last in
+Shared), so it draws no fleet posture. What it draws is structure — `KnowledgeCoverage`, a
+`MatrixGrid` with one row per bundle:
+
+| Axis | Measures | The absence |
+| --- | --- | --- |
+| **Mirrored** | subjects held as rows ÷ subjects the bundle publishes | `declared` (dashed, no numeral) when the bundle publishes subjects and no index pass resolved one; `missing` when the bundle publishes none |
+| **Routable** | techniques carrying a `use_when` trigger ÷ all techniques | `missing` when the bundle has no techniques |
+| **Judged** | pairs with a current verdict ÷ pairs that exist | `not-judged` (hatched) when no repo carries a registry map; `missing` when the fleet was **never swept** |
+
+Each subject row of the loom carries its own **provenance** mark beside the label
+(`subjectVizState`): `measured` when we hold the subject's digest *and* a revision, `declared` when
+the registry declares it and no index pass resolved either, `missing` when its bundle is absent from
+the view. The mark sits outside the row's button so the control's accessible name stays the slug.
+
 ## Context rows — what a cell folds
 
 A judged cell is a worst-wins fold of the repo's contexts that subscribe to the subject
@@ -75,8 +123,9 @@ A judged cell is a worst-wins fold of the repo's contexts that subscribe to the 
 `contexts === contextRows.length`, `[]` for every absence). Three surfaces unfold it:
 
 - **The cell** renders `<glyph> <n>` — the count of subscribed contexts sits beside the glyph in a
-  muted `tabular-nums`. Absences stay glyph-only: nothing is folded there. The stale dotted underline,
-  the legend and the `title` (still prefixed `<repo> · <subject> — <state label>`) are unchanged.
+  muted `tabular-nums`. Absences stay glyph-only: nothing is folded there. The stale dotted underline
+  is unchanged, and the `title` is still prefixed `<repo> · <subject> — <state label>`, now with the
+  kit's `STATE_HINT` and this state's `CELL_REASON` appended on their own line.
 - **The composer** (`KnowledgeComposerContexts`) unfolds each picked subject under its chip: a header
   `<slug> · r<revision> · <changedAt>` (`r? · unversioned` when the index predates revisions), then one
   row per context — `<glyph> <name> — <state> · <how it was judged>`. The judged reading is one of:
@@ -92,10 +141,17 @@ A judged cell is a worst-wins fold of the repo's contexts that subscribe to the 
 
   A picked subject no context subscribes to says so, and the brief asks for a direction.
 - **The subject reader** (`KnowledgeSubjectImpact`) opens with
-  `r<rev> · <changedAt> · <N> contexts across <M> repos · <S> stale`, then lists the subscribed
-  contexts **by name** per repo, each with its state glyph (stale names dotted), folded past six
-  with a `+k more` toggle. A count names nothing actionable; the context name is where the golden
-  path is read next.
+  `r<rev> · <changedAt> · <N> contexts across <M> repos · <S> stale`, then **draws** the magnitude —
+  one bar per mapped repo, length = subscribed contexts, painted from that cell's `VizState`
+  (`KnowledgeImpactBars`) — then lists the subscribed contexts **by name** per repo, each with its
+  state glyph (stale names dotted), folded past six with a `+k more` toggle. A count names nothing
+  actionable; the context name is where the golden path is read next.
+
+  **An unmeasured impact prints no number.** `subjectImpact` returns `null` counts — never `0` — when
+  the fleet was never swept or no repo carries a registry map, and the panel renders the kit's void
+  or hatch with `impact not measured` and a `WhyChip`. The panel used to print
+  `0 contexts across 0 repos · 0 stale` in both of those situations *and* for a subject nothing
+  genuinely subscribes to, which read as three identical zeros for three different facts.
 
 ## Churn — what moved between sweeps
 
@@ -210,8 +266,10 @@ after every registry re-index and after a local dispatch; see the
 ## Capabilities
 
 `view.capabilities`: `canSweep` (the registry write gate), `canBrief` (admin), `canRunLocal`
-(owner + `selfHosted()` + `autopilotEnabled()`). A control renders only when its flag is true; the
-composer says which role or flag is missing otherwise.
+(owner + `selfHosted()` + `autopilotEnabled()`). A control renders only when its flag is true. In its
+place the composer names the state — `Briefs need the admin role.`, `Run here unavailable` — and the
+three preconditions behind the local door are disclosed on a `WhyChip` rather than printed as
+permanent chrome on every hosted deployment, where that door can never open.
 
 ## Empty and degraded states
 
@@ -229,6 +287,16 @@ composer says which role or flag is missing otherwise.
 nullable, the foundation columns), `RepoConformance`, `RegistrySignal`, `RegistryDispatch` — see
 [data-model.md](../data/data-model.md#org-knowledge--skills) and
 [retention.md](../data/retention.md).
+
+## Tests
+
+| File | Pins |
+| --- | --- |
+| `KnowledgeLoom.dom.test.tsx` | the loom end to end; every legend row is the kit's swatch under the domain glyph; the subject provenance mark sits outside the row's button |
+| `KnowledgeLoom.contexts.dom.test.tsx` | the context rows behind a folded cell; churn badges; the map-stage brief |
+| `KnowledgeCoverage.dom.test.tsx` | a declared-but-unresolved bundle draws no numeral; the judged axis voids (never swept) and hatches (no map) |
+| `KnowledgeSubjectImpact.dom.test.tsx` | one bar per mapped repo; **no number anywhere** when the impact is unmeasured |
+| `knowledgeViz.test.ts` | `CELL_VIZ_STATE` is total over `KNOWLEDGE_CELL_STATES`; every `null`-not-zero path |
 
 ## Known gaps
 
