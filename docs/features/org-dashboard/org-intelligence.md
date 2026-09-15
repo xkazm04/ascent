@@ -1732,7 +1732,7 @@ fell from **8 to 2**, and both survivors are unit/window only.
 | Org resilience | Two paragraphs describing bus-factor and the exposure blend | `Distribution` of the top contributor's commit share **per repo** over the whole fleet (not the top-8 list), then the tiles, then the risk table |
 | AI champions | A ranked grid headed by the ranking rule | `ChampionScatter` — x is commit volume, y is AI share, dot radius is breadth, and the shaded band is the ≥50% "high adoption" bucket the producer already defines — with the ★ cards below as named evidence |
 | Who to enable next | A paragraph stating the 90-day recency horizon | `BudgetPack`: the zero-AI pool is the budget, the list is what was packed, and the remainder is an omission block whose label carries the horizon |
-| Care in this workspace | Five header paragraphs incl. two privacy promises | `CarePrivacyLedger` (a `MatrixGrid`) whose "Per-person row" axis is **void in every row**, and session shape as quartile strips |
+| Care in this workspace | Five header paragraphs incl. two privacy promises | `CarePrivacyLedger` (a `MatrixGrid`) whose "Per-person row" axis is **void in every row**, and session shape as quartile strips (2026-09-15: a band needs 5 people who shared that field, else the field is named as withheld; see developer.md) |
 
 Two things this fixed that were not cosmetic:
 

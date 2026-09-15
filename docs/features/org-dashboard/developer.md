@@ -156,6 +156,14 @@ The line between them is enforced in two directions:
   anonymized asks, shape bands and outcomes — all under `CHAMPION_MIN_POP`, suppressed rather than
   thinned below it. The guarantee is structural: `CareOrgView` has **no field that could hold a
   person**, and nothing per-person crosses from this page except through an explicit `share`.
+- **Shape bands have their own floor, on sharers** (2026-09-15). `careBandFromSharers` computes a
+  field's p25/p50/p75 only when at least `CARE_BAND_MIN_SHARERS` (5) people **shared that field**; the
+  population floor was the wrong key. With 3 sharers [10, 40, 90] the population floor showed
+  {25, 40, 65}, and a sharer who knows their own 10 can solve for 40 and 90 exactly (test T6 in
+  `developer-view.test.ts`). Below the floor `CareOrgView.bandGaps` carries `below-sharer-floor` and
+  `CareOrgBands` names the withheld fields in a line instead of drawing a thin band. At exactly 5 the
+  quartiles equal the 2nd, 3rd and 4th values; the extremes are never shown, so the set cannot be
+  rebuilt. No producer fills `shapeBands` yet (C4).
 
 ## Files
 
