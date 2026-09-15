@@ -1,6 +1,6 @@
 // The state mark for an HTML-laid-out matrix cell. Server-safe.
 //
-// The HTML variants of MatrixGrid (Ledger, Strata) lay the grid out in CSS so type can be set in the
+// MatrixGrid lays the grid out in CSS so type can be set in the
 // semantic `type-*` scale instead of viewBox units — but the epistemic encoding must stay the SVG
 // one from `states.ts`: the ONE hatch, the one dash array, the accent ring. So each cell is an HTML
 // box with this SVG overlay inside it, painted by `stateFill`/`stateStroke` exactly as the baseline

@@ -13,28 +13,25 @@
 // still draws its reach — that IS measured — and the points column draws a void with no numeral,
 // because `rendersValue("missing")` is false. Before, an unprojected move and a low-value one were
 // indistinguishable: both simply omitted the phrase.
+//
+// Layout is an HTML grid in the `type-*` scale (the Ledger direction): the move title is a real
+// column that wraps rather than being cut at 21 characters, and only the reach bar, the lift rung
+// and the void are SVG — no viewBox, percentages of the cell — so nothing scales with the panel.
 
-import {
-  VOID_DASH,
-  isNum,
-  r2,
-  rendersValue,
-  stateFill,
-  stateTitle,
-} from "@/components/org/viz";
+import { isNum, r2, rendersValue, stateFill, stateTitle } from "@/components/org/viz";
+import { COLUMN_HEAD, MarkSvg, VoidRule, pctLen } from "../barRowMarks";
 import type { ActionBar } from "./digestViz";
 
-const LABEL_W = 124;
-const BAR_X = LABEL_W;
-const BAR_W = 108;
-const PTS_X = BAR_X + BAR_W + 8;
-const W = PTS_X + 52;
-const ROW_H = 22;
-const HEAD_H = 12;
+/** move · reach bar (with its count) · per-repo points — one template for the head and every row. */
+const TEMPLATE = "minmax(7rem, 1.2fr) minmax(5rem, 1fr) 6.5rem";
+const GRID = "grid gap-x-3";
+/** Bar geometry inside the 14px track, in CSS pixels (no viewBox, so they cannot stretch). */
+const BAR_Y = 2;
 const BAR_H = 10;
+const TRACK_H = 14;
+/** The shortest reach bar, as a share of the track. */
+const MIN_BAR_PCT = 1.85;
 
-/** Titles are catalog strings of unbounded length; the row is a bar, not a paragraph. */
-const short = (s: string) => (s.length > 21 ? `${s.slice(0, 20)}…` : s);
 const ptsLabel = (n: number) => `≈+${n} pts`;
 
 function rowSentence(b: ActionBar): string {
@@ -45,68 +42,77 @@ function rowSentence(b: ActionBar): string {
 }
 
 export function DigestReachBars({ bars, maxRepos }: { bars: ActionBar[]; maxRepos: number }) {
-  const H = HEAD_H + bars.length * ROW_H;
   const ariaLabel = `Reach of the three ranked moves. ${bars.map(rowSentence).join("; ")}.`;
 
   return (
     <div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label={ariaLabel}>
-        <title>{ariaLabel}</title>
+      <div role="img" aria-label={ariaLabel}>
+        <div aria-hidden className={`${GRID} items-end border-b border-divider pb-1.5`} style={{ gridTemplateColumns: TEMPLATE }}>
+          <span />
+          <span className={COLUMN_HEAD}>repos reached</span>
+          <span className={COLUMN_HEAD}>per repo</span>
+        </div>
 
-        <text x={BAR_X} y={HEAD_H - 4} fontSize={7} className="fill-slate-500 font-mono uppercase tracking-[0.18em]">
-          repos reached
-        </text>
-        <text x={PTS_X} y={HEAD_H - 4} fontSize={7} className="fill-slate-500 font-mono uppercase tracking-[0.18em]">
-          per repo
-        </text>
-
-        {bars.map((b, i) => {
-          const mid = HEAD_H + i * ROW_H + ROW_H / 2;
-          const w = r2(Math.max(2, (b.repoCount / maxRepos) * BAR_W));
-          const liftW = r2((b.lifts / maxRepos) * BAR_W);
+        {bars.map((b) => {
+          const w = Math.max(MIN_BAR_PCT, r2((b.repoCount / maxRepos) * 100));
+          const liftW = r2((b.lifts / maxRepos) * 100);
           return (
-            <g key={b.rank} data-rank={b.rank} data-points-state={b.pointsState}>
-              <text x={0} y={mid + 3} fontSize={8.5} className="fill-slate-300 font-mono">
-                {b.rank}. {short(b.title)}
-              </text>
+            <div
+              key={b.rank}
+              data-rank={b.rank}
+              data-points-state={b.pointsState}
+              title={rendersValue(b.pointsState) ? rowSentence(b) : `${rowSentence(b)}. ${stateTitle("missing", "Projected points")}`}
+              className={`${GRID} min-h-8 items-center border-b border-divider/50 py-1 last:border-b-0`}
+              style={{ gridTemplateColumns: TEMPLATE }}
+            >
+              <span className="type-caption leading-tight text-slate-300 [overflow-wrap:anywhere]">
+                {b.rank}. {b.title}
+              </span>
 
-              <rect
-                data-reach
-                x={BAR_X}
-                y={mid - BAR_H / 2}
-                width={w}
-                height={BAR_H}
-                rx={2}
-                fill={stateFill("measured")}
-                fillOpacity={0.3}
-              />
-              {b.lifts > 0 && (
-                <>
-                  {/* the subset that crosses a level edge — a different fact from the reach */}
-                  <rect data-lifts x={BAR_X} y={mid - BAR_H / 2} width={liftW} height={BAR_H} rx={2} fill={stateFill("measured")} fillOpacity={0.85} />
-                  <line x1={r2(BAR_X + liftW)} y1={mid - BAR_H / 2 - 2} x2={r2(BAR_X + liftW)} y2={mid + BAR_H / 2 + 2} stroke="var(--color-accent)" strokeWidth={1} />
-                </>
-              )}
-              <text x={r2(BAR_X + w + 4)} y={mid + 3} fontSize={8} className="fill-slate-400 font-mono tabular-nums">
-                {b.repoCount}
-              </text>
+              {/* The right padding is the room the count needs when the bar fills its track. */}
+              <div className="pr-8">
+                <div className="relative h-3.5">
+                  <MarkSvg className="h-full">
+                    <rect
+                      data-reach
+                      x={0}
+                      y={BAR_Y}
+                      width={pctLen(w)}
+                      height={BAR_H}
+                      rx={2}
+                      fill={stateFill("measured")}
+                      fillOpacity={0.3}
+                    />
+                    {b.lifts > 0 && (
+                      <>
+                        {/* the subset that crosses a level edge — a different fact from the reach */}
+                        <rect data-lifts x={0} y={BAR_Y} width={pctLen(liftW)} height={BAR_H} rx={2} fill={stateFill("measured")} fillOpacity={0.85} />
+                        <line x1={pctLen(liftW)} y1={0} x2={pctLen(liftW)} y2={TRACK_H} stroke="var(--color-accent)" strokeWidth={1} />
+                      </>
+                    )}
+                  </MarkSvg>
+                  <span
+                    className="type-caption absolute top-1/2 -translate-y-1/2 pl-1 tabular-nums text-slate-400"
+                    style={{ left: pctLen(w) }}
+                  >
+                    {b.repoCount}
+                  </span>
+                </div>
+              </div>
 
               {rendersValue(b.pointsState) && isNum(b.perRepo) ? (
-                <text data-pts x={PTS_X} y={mid + 3} fontSize={8.5} className="fill-slate-300 font-mono tabular-nums">
+                <span data-pts className="type-caption tabular-nums text-slate-300">
                   {ptsLabel(b.perRepo)}
-                </text>
+                </span>
               ) : (
-                <line data-void x1={PTS_X} y1={mid} x2={W - 6} y2={mid} stroke="var(--color-divider)" strokeWidth={1} strokeDasharray={VOID_DASH} />
+                <MarkSvg className="h-2">
+                  <VoidRule to={90} />
+                </MarkSvg>
               )}
-              <title>
-                {rendersValue(b.pointsState)
-                  ? rowSentence(b)
-                  : `${rowSentence(b)}. ${stateTitle("missing", "Projected points")}`}
-              </title>
-            </g>
+            </div>
           );
         })}
-      </svg>
+      </div>
 
       <table className="sr-only">
         <caption>Reach of the three ranked moves</caption>

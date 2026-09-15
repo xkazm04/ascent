@@ -45,7 +45,7 @@ export function ErasePreviewPanel({ counts }: { counts: ErasePreview }) {
         <WhyChip hint={ERASE_MATRIX_HINT} label="what is erased and what is kept" />
       </div>
 
-      <div className="mt-2 max-w-[15rem]">
+      <div className="mt-2">
         <MatrixGrid axes={[...ERASE_AXES]} rows={rows} title="What this erasure destroys and what it leaves" />
       </div>
       <Legend states={erasePreviewStates(rows)} className="mt-2" />

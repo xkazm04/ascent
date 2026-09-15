@@ -32,8 +32,9 @@ export const ROLLOUT_AXES = ["Assessed", "Adopted", "Landed", "Verified"] as con
 /** Rows drawn at once. The matrix is a reading, not the index — the ledger below is the index. */
 export const ROLLOUT_LIMIT = 8;
 
-/** Row labels are drawn into a 104-unit gutter at 10px; longer names would run into the first cell. */
-export const LABEL_MAX = 18;
+/** A safety bound, not a layout budget: MatrixGrid's subject track wraps a label to two lines in
+ *  CSS (2026-09-15). The old 18 fitted a 104-unit SVG gutter and clipped most practice names. */
+export const LABEL_MAX = 56;
 
 /**
  * The (D) Disclosed destinations for the strip's demoted captions — one sentence per column, carried

@@ -18,8 +18,8 @@ import { type BundleCoverage, bundleCoverageRows } from "./knowledgeViz";
 
 export const COVERAGE_AXES = ["Mirrored", "Routable", "Judged"] as const;
 
-/** Row labels are drawn into a 104-unit gutter at 10px; longer names would run into the first cell. */
-const LABEL_MAX = 18;
+/** A safety bound only — MatrixGrid wraps the subject to two lines in CSS (the 18-char SVG gutter is gone). */
+const LABEL_MAX = 56;
 const truncate = (s: string) => (s.length <= LABEL_MAX ? s : `${s.slice(0, LABEL_MAX - 1).trimEnd()}…`);
 
 /**
@@ -61,7 +61,7 @@ export function KnowledgeCoverage({ view, className = "" }: { view: KnowledgeVie
         </span>
       </div>
 
-      <div className="max-w-lg">
+      <div>
         <MatrixGrid axes={[...COVERAGE_AXES]} rows={rows} title={`Coverage of ${coverage.length} knowledge bundle${coverage.length === 1 ? "" : "s"}`} />
       </div>
 

@@ -59,7 +59,6 @@ export function CareWhyStrip({ personal }: { personal: DeveloperView }) {
   return (
     <div className="mt-3">
       <MatrixGrid
-        className="max-w-xs"
         title="What each side can hold"
         axes={["Mentor", "Here"]}
         rows={REACH}

@@ -25,7 +25,7 @@ export function FoundationRolloutGrid({ viz }: { viz: FoundationViz }) {
         <WhyChip hint={DRAFT_HINT} label="what an opened PR proves" align="end" />
       </div>
       <MatrixGrid
-        className="mt-2 max-w-lg"
+        className="mt-2"
         axes={[...FOUNDATION_AXES]}
         rows={viz.rows}
         title="Foundation rollout by repository"

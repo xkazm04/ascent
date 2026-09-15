@@ -88,8 +88,31 @@ describe("StateTrack draws the void as a void", () => {
 
   it("renders the caller's pre-formatted axis ticks", () => {
     const { container } = render(<StateTrack rows={ROWS} start={START} end={END} ticks={[{ at: 0, label: "Jun" }, { at: 100, label: "Sep" }]} />);
-    const labels = Array.from(container.querySelectorAll("svg text")).map((t) => t.textContent);
+    const labels = Array.from(container.querySelectorAll("[data-tick]")).map((t) => t.textContent);
     expect(labels).toContain("Jun");
     expect(labels).toContain("Sep");
+  });
+});
+
+describe("StateTrack sets its type in HTML, not in viewBox units", () => {
+  it("draws no SVG text — labels and ticks are HTML in the type scale", () => {
+    const { container } = render(<StateTrack rows={ROWS} start={START} end={END} ticks={[{ at: 0, label: "Jun" }, { at: 50, label: "Jul" }]} />);
+    expect(container.querySelectorAll("svg text")).toHaveLength(0);
+    expect(container.querySelector("svg[viewBox]")).toBeNull();
+    expect(container.querySelector('[data-lane="protection"]')!.textContent).toContain("Branch protection");
+  });
+
+  it("positions marks and ticks in percent of the lane, so strokes never scale", () => {
+    const { container } = render(<StateTrack rows={ROWS} start={START} end={END} ticks={[{ at: 50, label: "Jul" }]} />);
+    const declared = container.querySelector('[data-segment="declared"]')!;
+    expect(declared.getAttribute("x")).toBe("60%");
+    expect(declared.getAttribute("width")).toBe("40%");
+    expect((container.querySelector("[data-tick]") as HTMLElement).style.left).toBe("50%");
+  });
+
+  it("keeps the sr-only table outside the role=img element", () => {
+    render(<StateTrack rows={ROWS} start={START} end={END} title="Control ledger" />);
+    const img = screen.getByRole("img", { name: /Control ledger/i });
+    expect(img.querySelector("table")).toBeNull();
   });
 });

@@ -82,9 +82,9 @@ describe("PracticeRolloutStrip", () => {
     const { container } = render(
       <PracticeRolloutStrip rollout={EMPTY} rows={[minedRow()]} fleetSize={20} />,
     );
-    const svg = container.querySelector("svg[role='img']");
-    expect(svg).not.toBeNull();
-    expect(svg!.querySelector("title")!.textContent).toContain("Practice rollout across 20 repositories");
+    const matrix = container.querySelector("[role='img'][aria-label^='Practice rollout']");
+    expect(matrix).not.toBeNull();
+    expect(matrix!.getAttribute("aria-label")).toContain("Practice rollout across 20 repositories");
   });
 
   it("hatches a never-assessed practice and prints NO number in either cell", () => {

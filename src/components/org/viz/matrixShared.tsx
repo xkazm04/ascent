@@ -1,9 +1,9 @@
 // What every MatrixGrid renderer shares: the row/cell contract, the void padding rule, and the
 // accessible equivalents (the aria sentence and the sr-only table).
 //
-// Hoisted out of MatrixGrid.tsx for the /prototype round so the baseline and its directional
-// variants paint AND announce from one source — a variant cannot drift from the contract it is
-// being judged against. Server-safe: no hooks, no client boundary.
+// Kept apart from MatrixGrid.tsx so the renderer and its accessible equivalents paint AND
+// announce from one source (hoisted during the 2026-09-15 /prototype round).
+// Server-safe: no hooks, no client boundary.
 
 import { fmtNum, isNum } from "@/components/org/viz/vizNum";
 import { STATE_LABEL, rendersValue, type VizState } from "@/components/org/viz/states";

@@ -116,12 +116,12 @@ describe("provider boundary — the single provider slot", () => {
 });
 
 describe("provider boundary — the kit contract", () => {
-  it("keeps every axis label inside MatrixGrid's column width", () => {
+  it("keeps every axis label short enough for MatrixGrid's axis track (5.5rem) to hold on one line", () => {
     for (const axis of PROVIDER_AXES) expect(axis.length).toBeLessThanOrEqual(8);
   });
 
-  it("keeps every row label inside MatrixGrid's 104-unit gutter", () => {
-    for (const r of rows()) expect(r.label.length).toBeLessThanOrEqual(13);
+  it("keeps every row label inside MatrixGrid's two-line subject track", () => {
+    for (const r of rows()) expect(r.label.length).toBeLessThanOrEqual(40);
   });
 
   it("gives every column a one-sentence disclosure — the (D) destination of the demoted ledes", () => {

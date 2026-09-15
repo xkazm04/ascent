@@ -73,8 +73,8 @@ describe("erase preview matrix — what survives is drawn as a void, not promise
 });
 
 describe("erase preview matrix — the kit contract", () => {
-  it("keeps every row label inside MatrixGrid's 104-unit gutter", () => {
-    for (const r of erasePreviewRows("redact")) expect(r.label.length).toBeLessThanOrEqual(13);
+  it("keeps every row label inside MatrixGrid's two-line subject track", () => {
+    for (const r of erasePreviewRows("redact")) expect(r.label.length).toBeLessThanOrEqual(40);
   });
 
   it("legends only the two states it draws", () => {

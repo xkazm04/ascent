@@ -8,11 +8,16 @@
 // on top of it. So an unobserved stretch is a VISIBLE GAP with no mark in it, a `not-judged` stretch
 // hatches, and a `declared` stretch is a dashed outline — three different things that a dash in a
 // table cannot tell apart. Change markers sit at every transition.
+//
+// Layout follows MatrixGrid's Ledger: every glyph is HTML in the semantic `type-*` scale, so a label
+// reads at the size it was designed at whatever width the panel is. Each lane is one grid row — a
+// real label column (it takes the width its longest subject needs, capped so it never eats the
+// lane) and a lane SVG with NO viewBox, drawn in percentage x, so strokes and dashes never distort.
+// The tick row is HTML positioned by `left %` under the lane column.
 
 import { useMounted, usePrefersReducedMotion } from "@/components/report/chartMotion";
 import { isNum, r2 } from "@/components/org/viz/vizNum";
 import {
-  KICKER_SVG_CLASS,
   STATE_LABEL,
   VOID_DASH,
   VizDefs,
@@ -27,11 +32,15 @@ import {
   type VizState,
 } from "@/components/org/viz/states";
 
-const W = 320;
-const LABEL_W = 96;
-const ROW_H = 22;
+/** Lane height in CSS px — the SVG has no viewBox, so these are real pixels, not scaled units. */
+const ROW_H = 28;
+const CY = ROW_H / 2;
 const SEG_H = 10;
-const AXIS_H = 16;
+/** Floor on a painted interval's width, in % of the lane (the old 2-of-224-unit floor), so a brief
+ *  observation stays visible rather than collapsing to nothing. */
+const MIN_SEG_PCT = 0.9;
+/** The label column takes what its longest subject needs, never more than this share of the width. */
+const TEMPLATE = "fit-content(40%) minmax(0, 1fr)";
 
 export type TrackSegment = {
   /** Start of the interval, in the same numeric space as `start`/`end` (epoch ms is typical). */
@@ -49,6 +58,13 @@ export type TrackRow = {
   label: string;
   segments: TrackSegment[];
 };
+
+/** A tick at the window's edge anchors inward so its label stays inside the lane. */
+function tickShift(p: number): string {
+  if (p <= 0) return "translate-x-0";
+  if (p >= 100) return "-translate-x-full";
+  return "-translate-x-1/2";
+}
 
 export function StateTrack({
   rows,
@@ -79,9 +95,9 @@ export function StateTrack({
     );
   }
 
-  const trackW = W - LABEL_W;
-  const x = (v: number) => r2(LABEL_W + ((Math.max(start, Math.min(end, isNum(v) ? v : start)) - start) / (end - start)) * trackW);
-  const H = rows.length * ROW_H + AXIS_H;
+  /** Position along the lane, 0..100 %, clamped into the window. */
+  const pos = (v: number) => r2(((Math.max(start, Math.min(end, isNum(v) ? v : start)) - start) / (end - start)) * 100);
+  const pc = (v: number) => `${v}%`;
 
   // Segments are sanitised once: non-finite bounds are dropped entirely rather than clamped into a
   // zero-width mark, and `missing` never draws (it is the gap).
@@ -103,26 +119,28 @@ export function StateTrack({
       .join("; ") +
     ". A gap in a lane is an unobserved interval, not a zero.";
 
+  const shownTicks = ticks.filter((t) => isNum(t.at));
+
   return (
     <div className={className}>
-      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label={ariaLabel}>
-        <title>{ariaLabel}</title>
-        <VizDefs />
+      <div role="img" aria-label={ariaLabel} title={ariaLabel} className="relative grid" style={{ gridTemplateColumns: TEMPLATE }}>
+        <svg aria-hidden className="absolute h-0 w-0" focusable="false">
+          <VizDefs />
+        </svg>
 
-        {lanes.map((lane, ri) => {
-          const cy = ri * ROW_H + ROW_H / 2;
-          return (
-            <g key={lane.id} data-lane={lane.id}>
-              <text x={0} y={cy + 3} fontSize={10} className={KICKER_SVG_CLASS}>
-                {lane.label}
-              </text>
+        {lanes.map((lane, ri) => (
+          <div key={lane.id} data-lane={lane.id} className="col-span-2 grid grid-cols-subgrid items-center">
+            <div title={lane.label} className="type-label min-w-[6rem] truncate pr-3 tracking-[0.1em] text-slate-400">
+              {lane.label}
+            </div>
+            <svg width="100%" height={ROW_H} className="block overflow-visible" focusable="false">
               {/* the unobserved ground: a dotted rule the observed intervals are painted onto */}
               <line
                 data-ground
-                x1={LABEL_W}
-                x2={W}
-                y1={cy}
-                y2={cy}
+                x1={0}
+                x2="100%"
+                y1={CY}
+                y2={CY}
                 stroke="var(--color-divider)"
                 strokeWidth={1}
                 strokeDasharray={VOID_DASH}
@@ -134,9 +152,8 @@ export function StateTrack({
                 }}
               >
                 {lane.drawn.map((s, si) => {
-                  const x1 = x(s.from);
-                  const x2 = x(s.to);
-                  const w = Math.max(2, x2 - x1);
+                  const x1 = pos(s.from);
+                  const w = r2(Math.max(MIN_SEG_PCT, pos(s.to) - x1));
                   const marker =
                     // A change marker at every transition BUT the window's own opening edge — the
                     // first segment starting at `start` is where the record begins, not a change.
@@ -144,10 +161,10 @@ export function StateTrack({
                       <line
                         key={`m-${si}`}
                         data-change
-                        x1={x1}
-                        x2={x1}
-                        y1={cy - SEG_H / 2 - 3}
-                        y2={cy + SEG_H / 2 + 3}
+                        x1={pc(x1)}
+                        x2={pc(x1)}
+                        y1={CY - SEG_H / 2 - 3}
+                        y2={CY + SEG_H / 2 + 3}
                         stroke="var(--color-accent)"
                         strokeWidth={1}
                       />
@@ -158,9 +175,9 @@ export function StateTrack({
                     <g key={`s-${si}`}>
                       <rect
                         data-segment={s.state}
-                        x={x1}
-                        y={cy - SEG_H / 2}
-                        width={w}
+                        x={pc(x1)}
+                        y={CY - SEG_H / 2}
+                        width={pc(w)}
                         height={SEG_H}
                         rx={2}
                         fill={stateFill(s.state, s.color)}
@@ -172,25 +189,38 @@ export function StateTrack({
                         <title>{stateTitle(s.state, s.label ?? lane.label)}</title>
                       </rect>
                       {isStruck(s.state) && (
-                        <line data-strike x1={x1} x2={x1 + w} y1={cy} y2={cy} stroke="var(--color-divider)" strokeWidth={1.5} />
+                        <line data-strike x1={pc(x1)} x2={pc(r2(x1 + w))} y1={CY} y2={CY} stroke="var(--color-divider)" strokeWidth={1.5} />
                       )}
                       {marker}
                     </g>
                   );
                 })}
               </g>
-            </g>
-          );
-        })}
+            </svg>
+          </div>
+        ))}
 
-        {ticks
-          .filter((t) => isNum(t.at))
-          .map((t) => (
-            <text key={`${t.at}-${t.label}`} x={x(t.at)} y={H - 4} textAnchor="middle" fontSize={9} className={KICKER_SVG_CLASS}>
-              {t.label}
-            </text>
-          ))}
-      </svg>
+        {shownTicks.length > 0 && (
+          <div className="col-span-2 grid grid-cols-subgrid">
+            <div />
+            <div className="relative mt-1 h-5">
+              {shownTicks.map((t) => {
+                const p = pos(t.at);
+                return (
+                  <span
+                    key={`${t.at}-${t.label}`}
+                    data-tick
+                    className={`absolute top-0 whitespace-nowrap font-mono type-micro uppercase tabular-nums tracking-[0.12em] text-slate-500 ${tickShift(p)}`}
+                    style={{ left: pc(p) }}
+                  >
+                    {t.label}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
 
       <table className="sr-only">
         <caption>{`${title} — observed intervals by subject`}</caption>

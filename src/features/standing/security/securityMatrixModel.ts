@@ -26,8 +26,9 @@ export interface SecurityMatrixInput {
   measured: boolean;
 }
 
-/** Row labels are drawn at a fixed 104px gutter — truncate rather than let a long name run under the grid. */
-const LABEL_MAX = 16;
+/** A safety bound only: MatrixGrid's subject track wraps a repo name to two lines in CSS. (Was 16,
+ *  sized for the retired fixed 104-unit SVG gutter.) */
+const LABEL_MAX = 56;
 export function shortLabel(name: string): string {
   return name.length <= LABEL_MAX ? name : `${name.slice(0, LABEL_MAX - 1)}…`;
 }

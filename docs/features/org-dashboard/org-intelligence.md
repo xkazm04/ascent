@@ -1665,7 +1665,7 @@ ever printing a numeral, which is the part prose could not enforce. `VizDefs` re
 | `BudgetPack` | used-vs-budget fill plus omission blocks grouped by reason | memory recall (it shows the losers) |
 | `FlowRibbon` | 3-stage proportional ribbon; an absent stage breaks the ribbon | delivery unit economics |
 | `StateTrack` | state-over-time lanes, change markers, unobserved intervals as voids | governance control ledger, adoption |
-| `MatrixGrid` | declared × observed × enforced heat matrix | passports, practices, settings |
+| `MatrixGrid` | declared × observed × enforced heat matrix, set as an HTML ledger (see below) | passports, practices, settings |
 | `ConcentrationCurve` | Lorenz curve, gini area, marked bus-factor knee | contributors, teams |
 
 Every component: `role="img"` with an `aria-label` and a `<title>` **generated from the same props
@@ -1676,6 +1676,46 @@ non-finite guard on every geometry input, so a NaN degrades to a labelled placeh
 silently broken path. Props are plain data — no fetching, no db imports, and no function props (the
 charts are client components, so the caller passes pre-formatted tick labels rather than a
 formatter). Colour comes from `LEVEL_HEX`/`scoreHex` and the CSS tokens; never a hand-picked hex.
+
+#### Text is HTML, marks are SVG (MatrixGrid prototype round, 2026-09-15)
+
+The kit's first charts drew their labels as SVG `<text>` inside a `viewBox`. Because an SVG scales
+to its container, that type scaled too: 9–11 units read as tiny in a narrow column and huge in a wide
+one. Every subject label also had to fit a fixed gutter, which is why consumers pre-truncated names
+to 13–18 characters and wrapped each matrix in a `max-w-*` cap. A `/prototype` round on
+`MatrixGrid` compared the SVG renderer with two HTML directions, and **Ledger** won:
+
+- **Every glyph is HTML.** The layout is CSS grid, set in the semantic `type-*` scale
+  (`type-label` heads and subjects, `type-mono-sm tabular-nums` values), so type stays at its
+  designed size at any panel width.
+- **Marks stay SVG.** The one hatch, the dash array and the accent ring come from `matrixMark.tsx`:
+  a percent-sized overlay inside each HTML cell, painted by `stateFill`/`stateStroke`.
+  `rendersValue` still gates the numeral structurally.
+- **The subject track is `minmax(12rem, 22rem)` and wraps to two lines** (`line-clamp-2`, full
+  label in `title`) before it clips. Axis tracks are `minmax(3.5rem, 5.5rem)`. Every track has a
+  maximum, so the grid sizes itself, and the thirteen consumer `max-w-*` wrappers were removed.
+- **The label caps are relaxed to safety bounds.** They were sized for the retired 104-unit gutter:
+  practices / knowledge / security / memory from 16–18 to 56 characters, and the model scorecard
+  from 13 to 40.
+- **Accessibility is unchanged in substance.** The drawing is a `role="img"` wrapper named by
+  `matrixAriaLabel`, and the `sr-only` table sits outside it (`matrixShared.tsx`).
+
+The SVG baseline, the Strata variant, the switcher and `matrixAxis.ts` (SVG header wrapping) were
+deleted.
+
+The same pass applied the rule to five more charts that drew their labels as `viewBox` text:
+- **`StateTrack`:** the subject labels sit in a `fit-content(40%)` column and each lane is a subgrid
+  row. Lanes are percent-x SVGs, and ticks are HTML placed at `left %`, with the endpoints aligned
+  inward.
+- **`AdoptionCurve`:** the share axis and the threshold/count labels are HTML, and the plot is a
+  percent-coordinate SVG. The "any" and "≥1% AI" labels, which used to overlap, no longer collide.
+- **Executive `LeverageBars` and the digest's `DigestDimChart` / `DigestReachBars`:** each row is a
+  grid with the title set whole (the 21- and 44-character `short()` cuts are gone). Bars, voids,
+  noise band and rung ticks are percent-x SVGs, built on the server-safe
+  `src/features/bought/barRowMarks.tsx`.
+
+In every one the `role="img"` name moved to an HTML wrapper, with the `sr-only` table outside it,
+and each test file now pins "no `svg text`".
 
 ### Contributors, redesigned: the distribution is plotted (Wave 1, 2026-09-08)
 

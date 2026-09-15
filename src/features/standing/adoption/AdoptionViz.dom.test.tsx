@@ -46,6 +46,20 @@ describe("AdoptionCurve", () => {
     expect((table.textContent ?? "").replace(/\s+/g, " ")).toContain("18");
   });
 
+  it("sets every glyph in HTML — the plot SVG draws marks only, in percent, with no viewBox", () => {
+    const { container } = render(<AdoptionCurve model={buildAdoptionCurve({ high: 6, some: 12, none: 22 }, 40, 32)} />);
+    expect(container.querySelectorAll("svg text")).toHaveLength(0);
+    expect(container.querySelector("svg[viewBox]")).toBeNull();
+    const labels = Array.from(container.querySelectorAll("[data-mark-label]")).map((n) => n.textContent);
+    expect(labels).toEqual(["any40", "≥1% AI18", "≥50% AI6"]);
+    expect(container.querySelector('[data-mark="50"] circle')!.getAttribute("cx")).toBe("50%");
+  });
+
+  it("keeps the sr-only table outside the role=img element", () => {
+    render(<AdoptionCurve model={buildAdoptionCurve({ high: 6, some: 12, none: 22 }, 40)} />);
+    expect(screen.getByRole("img", { name: /Adoption curve/ }).querySelector("table")).toBeNull();
+  });
+
   it("degrades to a labelled placeholder rather than plotting a NaN geometry", () => {
     const { container } = render(<AdoptionCurve model={buildAdoptionCurve({ high: 0, some: 0, none: 0 }, 0)} />);
     expect(container.querySelector("svg")).toBeNull();

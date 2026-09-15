@@ -34,6 +34,13 @@ describe("DigestDimensions — 'an em dash is a missing measurement, not a zero'
     expect(row.textContent).not.toMatch(/[+\-−]\d/);
   });
 
+  it("sets its type in HTML, not in viewBox units that scale with the panel", () => {
+    const { container } = render(<DigestDimensions dims={digestFixture().dims} />);
+    expect(container.querySelector("svg text")).toBeNull();
+    // the sr-only table stays outside the role=img element, which hides its subtree
+    expect(container.querySelector('[role="img"] table')).toBeNull();
+  });
+
   it("draws the noise band once, so a within-noise hold is legible without the words", () => {
     const { container } = render(<DigestDimensions dims={digestFixture().dims} />);
     expect(container.querySelectorAll("[data-noise-band]")).toHaveLength(1);
@@ -86,6 +93,13 @@ describe("DigestActions — reach is drawn, and the ranking basis is disclosed r
     expect(third.querySelector("[data-void]")).not.toBeNull();
     // reach is still measured and still drawn: the absence is only in the projection
     expect(third.querySelector("[data-reach]")).not.toBeNull();
+  });
+
+  it("prints whole move titles in HTML, never cut to fit an SVG gutter", () => {
+    const { container } = render(<DigestActions actions={digestFixture().actions} />);
+    expect(container.querySelector("svg text")).toBeNull();
+    // 24 characters: the old 21-character cut would have printed "Write the deploy run…"
+    expect(container.querySelector('[data-rank="2"]')?.textContent).toContain("Write the deploy runbook");
   });
 
   it("carries the real ranking rule on the header, not the one the old description claimed", () => {

@@ -72,6 +72,20 @@ describe("MatrixGrid cell encodings", () => {
     expect(container.querySelector('[data-cell="c:Enforced"]')!.getAttribute("data-state")).toBe("missing");
   });
 
+  it("prints no viewBox-scaled text: every glyph is HTML in the type-* scale", () => {
+    const { container } = render(<MatrixGrid axes={AXES} rows={ROWS} />);
+    expect(container.querySelector("svg text")).toBeNull();
+    expect(container.querySelectorAll(".type-label, .type-mono-sm, .type-micro").length).toBeGreaterThan(0);
+  });
+
+  it("gives the subject its full label — wrapped by CSS, never cut to a character budget", () => {
+    const long = "Agent guidance (CLAUDE.md / AGENTS.md) across the platform fleet";
+    const { container } = render(<MatrixGrid axes={AXES} rows={[{ id: "l", label: long, cells: [] }]} />);
+    const label = container.querySelector('[data-row="l"] > div')!;
+    expect(label.textContent).toBe(long);
+    expect(label.getAttribute("title")).toBe(long);
+  });
+
   it("degrades to a labelled placeholder with no rows or no axes", () => {
     const { container } = render(<MatrixGrid axes={[]} rows={ROWS} title="Practice rollout" />);
     expect(screen.getByRole("img", { name: /no matrix data/i })).toBeInTheDocument();

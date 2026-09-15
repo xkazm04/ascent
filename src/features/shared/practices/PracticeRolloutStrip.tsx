@@ -56,7 +56,7 @@ export function PracticeRolloutStrip({
         <span className="type-mono-sm text-slate-500">{rolloutScopeLine(vizRows.length, rows.length, fleetSize)}</span>
       </div>
 
-      <div className="max-w-lg">
+      <div>
         <MatrixGrid
           axes={[...ROLLOUT_AXES]}
           rows={vizRows}
