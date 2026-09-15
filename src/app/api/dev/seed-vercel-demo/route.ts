@@ -125,7 +125,7 @@ export async function POST(req: NextRequest) {
       dashboard: `/org/${slug}`,
       segments: orgTabHref(slug, "segments"),
       skills: orgTabHref(slug, "skills"),
-      followups: orgTabHref(slug, "followups"),
+      followups: orgTabHref(slug, "proposals"),
       members: orgTabHref(slug, "members"),
     },
   });

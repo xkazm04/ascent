@@ -46,7 +46,7 @@ describe("deriveFixFirst — triage order, cap, and link contracts", () => {
     // behind-pace goal used to point at the Plan tab; that tab retired 2026-08-17 and the goal's
     // work now lives in the Follow-ups ledger.)
     expect(items[1]!.href).toBe("/org/acme?tab=security");
-    expect(items[2]!.href).toBe("/org/acme?tab=followups");
+    expect(items[2]!.href).toBe("/org/acme?tab=proposals");
   });
 
   it("picks the busiest findings module and pluralizes the title", () => {
@@ -113,6 +113,6 @@ describe("deriveFixFirst — triage order, cap, and link contracts", () => {
     const items = deriveFixFirst("acme", FULL, "stack=react");
     expect(items[0]!.href).toBe("/report/acme/api");
     expect(items[1]!.href).toBe("/org/acme?tab=security&stack=react");
-    expect(items[2]!.href).toBe("/org/acme?tab=followups&stack=react");
+    expect(items[2]!.href).toBe("/org/acme?tab=proposals&stack=react");
   });
 });

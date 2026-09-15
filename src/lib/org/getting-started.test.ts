@@ -218,10 +218,10 @@ describe("navigation targets", () => {
     const m = buildGettingStartedModel(facts(), null);
     expect(m.steps.map((s) => [s.id, s.tab, s.anchor])).toEqual([
       ["first-scan", "overview", GETTING_STARTED_ANCHORS["first-scan"]],
-      ["gap-engaged", "followups", GETTING_STARTED_ANCHORS["gap-engaged"]],
+      ["gap-engaged", "proposals", GETTING_STARTED_ANCHORS["gap-engaged"]],
       ["registry", "skills", GETTING_STARTED_ANCHORS.registry],
-      ["foundation", "repositories", GETTING_STARTED_ANCHORS.foundation],
-      ["conformance", "repositories", GETTING_STARTED_ANCHORS.conformance],
+      ["foundation", "practices", GETTING_STARTED_ANCHORS.foundation],
+      ["conformance", "practices", GETTING_STARTED_ANCHORS.conformance],
       ["loop", "repositories", GETTING_STARTED_ANCHORS.loop],
       ["team", "members", GETTING_STARTED_ANCHORS.team],
       ["program", "executive", GETTING_STARTED_ANCHORS.program],

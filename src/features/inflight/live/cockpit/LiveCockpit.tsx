@@ -28,7 +28,6 @@ import { CockpitField } from "./CockpitField";
 import { CockpitHeader } from "./CockpitHeader";
 import { CockpitRail } from "./CockpitRail";
 import { PriceListPanel } from "./PriceListPanel";
-import { CockpitLessons } from "./CockpitLessons";
 import { useCockpit } from "./useCockpit";
 import type { LoopRunDetail, LoopRunRecord, LoopRunSummary } from "./loopTypes";
 
@@ -134,8 +133,8 @@ export function LiveCockpit(props: LiveCockpitProps) {
       {/* What a verified maturity point has cost, per model, per dimension — the standing summary
           the strip's individual runs add up to. */}
       <PriceListPanel slug={slug} />
-      {/* Lesson candidates from the loop's agents — a review queue, not a reading. */}
-      <CockpitLessons slug={slug} />
+      {/* Lesson candidates left the cockpit on 2026-09-15: they are a review queue, and review queues
+          live in the In flight group's own ledgers (Lessons, Proposals). */}
     </section>
   );
 }

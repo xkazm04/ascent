@@ -43,14 +43,14 @@ const RAW: Array<Omit<LoopStep, "n" | "href">> = [
     title: "Decide",
     detail:
       "The org-wide gaps — open in half the fleet — are practices to fix once; the ledger marks them so a batch is the right shape.",
-    module: "Standing",
-    tab: "followups",
+    module: "In flight",
+    tab: "proposals",
   },
   {
     title: "Apply",
     detail: "Tick a batch, get one fix prompt for your local agent, hand it off; the next scan closes what landed.",
-    module: "Standing",
-    tab: "followups",
+    module: "In flight",
+    tab: "proposals",
   },
 ];
 

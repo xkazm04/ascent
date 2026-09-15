@@ -846,6 +846,16 @@ drive outranks everything**, because while it pulls, "is debt falling and how mu
 the only question and its own runs come and go underneath it. `LiveCockpit.tsx` is layout only; the
 state machine is `useCockpit.ts`, which composes `useLoopRun` + `useDrive` and owns the mode.
 
+**The cockpit's decision queues are their own tabs (2026-09-15).** Two rail items now sit under
+Live in In flight, both drawn by the shared `DecisionTable`:
+- **Proposals** (`src/features/inflight/proposals/`) lists the outcome sheet's pending `proposed`
+  rows beside the scan follow-ups, decidable in bulk. The sheet keeps its per-cell ✓/✕ and links
+  there with its pending count.
+- **Lessons** (`src/features/inflight/lessons/`) replaced the `CockpitLessons` list that sat under
+  the price list.
+
+The cockpit itself no longer renders lessons.
+
 ### The Observatory (sky chart)
 
 `src/features/inflight/live/observatory/`. Every scanned repo is a body at (adoption, rigor) in a
@@ -1711,8 +1721,12 @@ verified close is not evidence.
 **Lessons are candidates, never memory.** `report.lessons` become `OrgMemoryCandidate` rows with
 `status: "pending"`, `source: "loop-lesson"`. **The loop never writes `OrgMemory`** — the companion,
 the brief above and every consolidation pass read memory as truth, so an unattended process editing
-it would let one bad session teach the whole organization something nobody agreed to. The cockpit's
-lesson inbox says so in as many words, and `keep` promotes through the same `createOrgMemory` door a
+it would let one bad session teach the whole organization something nobody agreed to. The inbox says
+so in as many words. Since 2026-09-15 it is In flight → **Lessons** (`?tab=lessons`,
+`LessonsTab` → `LessonsWorklist`, previously the cockpit's `CockpitLessons`): a ledger over every
+candidate (`listLoopLessons(slug, undefined, 200)`) with namespace/kind filters, a settled archive,
+per-row Keep/Discard and bulk Keep N / Discard N (one POST per candidate; a refusal leaves its row
+queued and says why). `keep` promotes through the same `createOrgMemory` door a
 person's own write uses (which is where the duplicate check lives). `discard` is **soft**: a proposal
 that was rejected is worth as much on the record as one that was kept.
 

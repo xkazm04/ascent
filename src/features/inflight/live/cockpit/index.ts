@@ -13,7 +13,6 @@ export { CockpitField } from "./CockpitField";
 export { CockpitDrivePanel, DriveVerdict } from "./CockpitDrivePanel";
 export { CockpitDriveResume } from "./CockpitDriveResume";
 export { PriceListPanel } from "./PriceListPanel";
-export { CockpitLessons } from "./CockpitLessons";
 export { CockpitVerdicts } from "./CockpitVerdicts";
 export { BriefStrip } from "./BriefStrip";
 export { LanePrAction, canOpenLanePr } from "./LanePrAction";

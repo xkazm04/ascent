@@ -28,8 +28,13 @@ export function PracticesView({
   adoption,
   dimOptions,
   repoOptions,
+  rolloutSlot,
 }: {
   slug: string;
+  /** Server-rendered panels that belong with the rollout matrix — the fleet foundation rollout and
+   *  the guidance-coherence measure. Rendered directly under it so the shared checklist and its
+   *  measurement read as ONE section (2026-09-15: moved here from the Repositories tab). */
+  rolloutSlot?: React.ReactNode;
   initialPlaybooks: PlaybookRow[];
   practices: OrgPractice[];
   adoption: Record<string, PlaybookAdoption>;
@@ -95,6 +100,7 @@ export function PracticesView({
       {/* G7-20: what the library has actually put in motion, and what it moved — folded from the
           rows below, so it costs no extra query and can never disagree with them. */}
       <PracticeRolloutStrip rollout={rollout} rows={rows} fleetSize={repoOptions.length} />
+      {rolloutSlot}
 
       {rows.length === 0 ? (
         <SectionEmpty>

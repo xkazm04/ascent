@@ -11,8 +11,6 @@ import Link from "next/link";
 import { OrgEmpty, SectionHeader, postureLabel, POSTURE_ORDER } from "@/components/org/shared/ui";
 import { POSTURE_HEX } from "@/components/org/shared/liveWarRoomShared";
 import { RepoLeaderboard } from "./RepoLeaderboard";
-import { FleetScoreShape } from "./FleetScoreShape";
-import { fleetScoreShape } from "./fleetShape";
 import { MissingReposPanel } from "./MissingReposPanel";
 import { TechStackSelector } from "@/components/org/shared/TechStackSelector";
 import { getOrgRollupShared, listMissingRepos, listSegments } from "@/lib/db";
@@ -85,8 +83,7 @@ export async function RepositoriesLeaderboardPanel({ slug, sp }: { slug: string;
       <div>
         <SectionHeader
           title="Repositories"
-          // §2.3 — scope and unit only. What the columns MEAN is now the shape above them and each
-          // column header's own title.
+          // §2.3 — scope and unit only. What the columns MEAN is each column header's own title.
           description={
             posture
               ? `${visible.length}/${rollup.repoCount} repos · ${postureLabel(posture)} posture`
@@ -107,9 +104,6 @@ export async function RepositoriesLeaderboardPanel({ slug, sp }: { slug: string;
             </div>
           }
         />
-        {/* First sight is the fleet's SHAPE, not row 1 (§2.2). The box is drawn over the SCOPED set
-            the table shows, so the two can never describe different fleets. */}
-        <FleetScoreShape className="mt-3" shape={fleetScoreShape(visible)} />
         {/* Posture filter chips — the on-page surface for the ?posture= scope (also deep-linked from
             the Overview's posture bar). Full-fleet counts; "All" clears; active chip highlighted. */}
         <div className="mt-3 flex flex-wrap items-center gap-1.5">

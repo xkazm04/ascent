@@ -114,7 +114,7 @@ export function deriveFixFirst(slug: string, inp: FixFirstInputs, scopeQuery?: s
       key: "goal",
       title: `Rescue “${behind.label}”`,
       detail: "behind the pace its deadline needs",
-      href: withScope(orgTabHref(slug, "followups"), scopeQuery),
+      href: withScope(orgTabHref(slug, "proposals"), scopeQuery),
       cta: "work the follow-ups →",
       impact: goalImpact(behind),
     });

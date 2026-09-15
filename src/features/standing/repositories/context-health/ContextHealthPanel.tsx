@@ -17,8 +17,6 @@ import { resolveStackScope } from "@/lib/org/scope";
 import { SectionEmpty } from "@/components/org/shared/ui";
 import { buildContextRows } from "./contextHealthModel";
 import { ContextHalfLife } from "./ContextHalfLife";
-import { buildCoherenceRows } from "./guidanceCoherenceModel";
-import { GuidanceCoherenceCard } from "./GuidanceCoherenceCard";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
@@ -29,12 +27,7 @@ export async function ContextHealthPanel({ slug, sp }: { slug: string; sp: Searc
     return <SectionEmpty>No repositories to read a context layer from yet.</SectionEmpty>;
   }
   const rows = buildContextRows(rollup.repos);
-  return (
-    <div className="space-y-8">
-      <ContextHalfLife slug={slug} rows={rows} />
-      {/* #15 — half-life answers "when did this stop being true?"; coherence answers "is it true in
-          more than one place at once?". Same context layer, same fetch, two orthogonal questions. */}
-      <GuidanceCoherenceCard rows={buildCoherenceRows(rollup.repos)} />
-    </div>
-  );
+  // Guidance coherence (#15) moved to Shared → Practices (2026-09-15), beside the foundation rollout:
+  // the shared checklist and its measurement are read in one place.
+  return <ContextHalfLife slug={slug} rows={rows} />;
 }

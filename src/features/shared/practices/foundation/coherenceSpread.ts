@@ -12,7 +12,7 @@
 // Pure: no React, no fetch.
 
 import type { VizState } from "@/components/org/viz";
-import { quantiles, type FiveNumber } from "../fleetShape";
+import { quantiles, type FiveNumber } from "@/features/standing/repositories/fleetShape";
 import type { RepoCoherenceRow } from "./guidanceCoherenceModel";
 
 export interface CoherenceSpread {

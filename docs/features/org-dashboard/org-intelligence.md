@@ -53,9 +53,15 @@ transformation owner is asked in a leadership meeting, plus an admin tail:
 
 | Section | Answers | Tabs |
 | --- | --- | --- |
-| **Standing** | Where are we, honestly? | Overview · Follow-ups · Repositories · Tech Stacks · Passports · Security · Adoption · Governance |
+| **Standing** | Where are we, honestly? | Overview · Repositories · Tech Stacks · Passports · Security · Adoption · Governance |
 | **Shared** | What do we publish once and every repo consumes? | Registry · Practices · Skills · Memory · Knowledge base · UI surfaces |
-| **In flight** | What is moving right now? | Live |
+| **In flight** | What is moving right now? | Live · Proposals · Lessons |
+
+**2026-09-15:** Follow-ups left Standing and became In flight → **Proposals**. That tab is one
+decision ledger over the scan follow-ups and the loop's pending proposals. `?tab=followups`
+redirects there. **Lessons** was split out of the Live cockpit as its own ledger. Both are drawn by
+the shared `DecisionTable`. See [org-followups/README.md](../org-followups/README.md) and
+[org-planning/live.md](../org-planning/live.md).
 | **Bought** | What did the last period buy us? | Briefing · Delivery · Contributors · Teams |
 | **Admin** | The boring rows, deliberately not hidden. | Members · Integrations · Audit · Settings |
 
@@ -180,13 +186,14 @@ under the Supabase wall `getSession()` is null and this collapses to the viewer,
 
 | Group | Tab | Route | Main source dir | What it shows |
 | --- | --- | --- | --- | --- |
-| Standing | Overview | `org/[slug]?tab=overview` | `src/features/standing/overview/` | The **Fix first** band (up to 3 triage-ordered next moves: worst regresser, busiest unresolved findings queue, behind-pace goal; own Suspense boundary, `OverviewFixFirstPanel`), then four sections, top to bottom, **all off one `getOrgRollup` read**: the standing strip (maturity + level band, adoption, rigor, repos scanned, each with its cohort-matched period delta (`OrgRollup.movement` carries that delta **with** its matched-cohort size and the excluded composition change — `deltas` is the deprecated bare triple), plus the maturity trend as an inline sparkline) · posture distribution + the **dimension ledger** (per-dimension averages grouped by SDLC phase, each row a status word, a reading and two named affordances — see *The Overview ledger* below) · the Fleet category rollup (repos grouped by Type/Stack/Level; **Level groups are ordered L1→L5**, Type/Stack strongest-first) · the repo × dimension heatmap, whose cells open the per-dimension drill-in (`RepoDimensionModal`, on the brand `Modal` portal, `reading` width; summary rendered as markdown-lite via `MarkdownLite`, gaps as a list; "Next steps" says *nothing owed* for a green-band dimension and *not on record, re-scan* for a below-green one). The whole region is one client component, `OverviewLedger`, fed serialised data by the server `OverviewFleetPanel`. |
-| Standing | Repositories | `org/[slug]/repositories` | `src/app/org/[slug]/repositories/page.tsx` | The repo **leaderboard** first (level/overall/adoption/rigor/posture/last scan + repo × dimension heatmap), then the **Context half-life** panel (W4, see below). Also renders **Segments** as its `?tab=segments` view (see below); there is no separate rail item or route for Segments anymore. |
+| Standing | Overview | `org/[slug]?tab=overview` | `src/features/standing/overview/` | The **Fix first** band (up to 3 triage-ordered next moves: worst regresser, busiest unresolved findings queue, behind-pace goal; own Suspense boundary, `OverviewFixFirstPanel`), then four sections, top to bottom, **all off one `getOrgRollup` read**: the standing strip (maturity + level band, adoption, rigor, repos scanned, each with its cohort-matched period delta (`OrgRollup.movement` carries that delta **with** its matched-cohort size and the excluded composition change — `deltas` is the deprecated bare triple), plus the maturity trend as an inline sparkline) · the repo × dimension heatmap (**above** the posture card since 2026-09-15) · posture distribution + the **dimension ledger** (per-dimension averages grouped by SDLC phase, each row a status word, a reading and two named affordances — see *The Overview ledger* below) · the Fleet category rollup (repos grouped by Type/Stack/Level; **Level groups are ordered L1→L5**, Type/Stack strongest-first). The heatmap's cells open the per-dimension drill-in (`RepoDimensionModal`, on the brand `Modal` portal, `reading` width; summary rendered as markdown-lite via `MarkdownLite`, gaps as a list; "Next steps" says *nothing owed* for a green-band dimension and *not on record, re-scan* for a below-green one). The whole region is one client component, `OverviewLedger`, fed serialised data by the server `OverviewFleetPanel`. |
+| Standing | Repositories | `org/[slug]/repositories` | `src/app/org/[slug]/repositories/page.tsx` | The repo **leaderboard** first (level/overall/adoption/rigor/posture/last scan), then the **Context half-life** panel (W4, see below). **2026-09-15:** the fleet-score `Distribution` above the leaderboard was removed. The **Foundation rollout** and **Guidance coherence** panels moved to Shared → Practices, so the shared checklist and its measurement live in one place. Also renders **Segments** as its `?tab=segments` view (see below); there is no separate rail item or route for Segments anymore. |
 | Standing | Tech Stacks | `org/[slug]/tech-stacks` | `src/app/org/[slug]/tech-stacks/` | Tech-stack breakdown across the fleet: per-stack maturity profiles and the **dimension analysis** board (see below). |
 | Standing | Passports | `org/[slug]/passports` | `src/features/standing/passports/` | **2026-09-05:** the tab's autonomy tier, blocking conditions and progress all come from the one persisted resolver (`deriveAutonomyForStored`); the prototype five-gate ladder is presentation only, so a T2 repo can no longer list gates T2 never consulted. The context gate reads real `contextHealthJson` freshness and an unmeasured freshness costs nothing (the mock staleness penalty is gone). Passport blocker decisions key on `findings[].id`, with a read-side alias for decisions stored under the old prose key until 2027-03-01, so a blocker whose text changes keeps its decision. Repo passports, as three switcher views: **Baseline** (the automation × production portfolio), **Clearance** (the passport as a per-repo security clearance), and **Capabilities** (the declared-vs-proven capability matrix), and **Controls** (the per-check doctor findings each repo's own CI reported back) — both below. |
 | Standing | Security | `org/[slug]/security` | `src/features/standing/security/` | Security posture across the fleet, in three stacked pieces: the summary-tile ledger (avg D9 · branch protection · repos at risk · gate), whose bottom edge **is** the D9 band spectrum (`SecurityBandSpectrum`, a `col-span-full` ledger cell — see below); the **D9 check battery** (`SecurityRiskRegister`; renamed from "Control matrix" 2026-08-31, MC-B10); and **Findings to decide** (`SecurityFindings`, see below). |
 | Standing | Adoption | `org/[slug]/adoption` | `src/features/standing/adoption/` | Adoption signals: AI-share tiles, the contributor spread bar, tool footprint, champions, per-team adoption and the delivery strip. **Rates, bands and teams — no named per-person roster**; the "Who to enable next" table moved to Contributors (2026-08-19) and the spread bar's "none" follow-up deep-links across to it. **2026-09-05:** the \"Org AI commit share\" tile carries its commit denominator (withheld, not zeroed, below the naming floor); the enablement cohort requires activity within 90 days of the fleet's latest observed activity as well as three commits, and the Contributors tab states that horizon. |
-| Standing | Follow-ups | `org/[slug]?tab=followups` | `src/components/org/followups/` | Every open gap across the fleet in one ledger — tick a batch, one fix prompt for a local agent, hand off, and the next default-branch scan closes what landed. Replaced the **Plan** and **Backlog** tabs (retired 2026-08-17). See [org-followups/README.md](../org-followups/README.md). |
+| In flight | Proposals | `org/[slug]?tab=proposals` | `src/features/inflight/proposals/` | Every proposed change awaiting a decision, in one ledger: the scans' open follow-ups (tick a batch, one fix prompt for a local agent, hand off; the next default-branch scan closes what landed) **and** the loop's pending proposals (approve / dismiss). Was Standing → Follow-ups until 2026-09-15; `?tab=followups` redirects here. Follow-ups itself replaced the **Plan** and **Backlog** tabs (retired 2026-08-17). See [org-followups/README.md](../org-followups/README.md). |
+| In flight | Lessons | `org/[slug]?tab=lessons` | `src/features/inflight/lessons/` | The loop agents' lesson candidates as a decision ledger: filter by namespace/kind, Keep N / Discard N in bulk or per row, and a settled archive. A candidate is not in Org Memory until kept. Split out of the Live cockpit 2026-09-15. See [org-planning/live.md](../org-planning/live.md). |
 | Shared | Practices | `org/[slug]/practices` | `src/app/org/[slug]/practices/page.tsx` | The Practice Library (see [../practices.md](./practices.md)). |
 | Shared | Skills | `org/[slug]/skills` | `src/app/org/[slug]/skills/` | Skill drift/dormancy views. |
 | Shared | Memory | `org/[slug]/memory` | `src/app/org/[slug]/memory/` | Shared Org Memory browser. |
@@ -297,7 +304,11 @@ and its `contextHealthMock` synthesis are deleted; every number now comes from t
   never a fabricated band; and a repo whose latest scan **predates W4** renders as
   *"Not assessed by this scan — re-scan to measure context health"*, never as absent context.
 
-### Guidance coherence (the second card on Context Health, #15, 2026-08-30)
+### Guidance coherence (#15, 2026-08-30; on Shared → Practices since 2026-09-15)
+
+It was the second card on Context Health. On 2026-09-15 it moved to the Practices tab, beside the
+foundation rollout (`src/features/shared/practices/foundation/GuidanceCoherenceCard.tsx`). It reads
+the same request-cached, stack-scoped rollup.
 
 Half-life asks *"when did this guidance stop being true?"*. Coherence asks the orthogonal question:
 **"is it true in more than one place at once?"** A repo that adopted agents from several vendors
@@ -1874,7 +1885,12 @@ opened on a table header row. Wave 2 applied `docs/ORG-UX-REDESIGN.md` §2 to it
 opens on a shape, and each demoted sentence landed in an encoding, a disclosure, an empty state or
 this document.
 
-**The leaderboard is a distribution first.** `RepositoriesLeaderboardPanel` renders a fleet
+**2026-09-15 update:** the fleet-score distribution described next was removed from the tab
+(`FleetScoreShape.tsx` deleted; `fleetShape.ts` stays for `quantiles`, which the coherence spread
+uses). The Foundation rollout and Guidance coherence panels described below now render on Shared →
+Practices, from `src/features/shared/practices/foundation/`.
+
+**The leaderboard was a distribution first.** `RepositoriesLeaderboardPanel` rendered a fleet
 `Distribution` (kit, `@/components/org/viz`) above the sorted table — the min/q1/median/q3/max of the
 overall scores in the ACTIVE posture/stack scope, so the box and the rows can never describe
 different fleets. The table is unchanged and is the drill-down evidence. Repos with no scan are
@@ -2398,7 +2414,9 @@ survivor is a unit line: that one, `4 open · 9 settled`, and
 | `src/features/standing/overview/Trajectory.tsx` | Forecast "GPS" card. Mounted by `/trends` (`TrajectoryPanel`), the personal overview and, since 2026-09-05, the org Overview ledger (`OverviewTrajectoryCard`, beside the standing strip, behind the same presentability gate the personal tier uses; renders nothing below it). |
 | `src/components/org/shared/OrgScanButton.tsx` | Scan-all-watched button (SSE progress). |
 | `src/features/admin/audit/AuditLogViewer.tsx` | Audit trail viewer. |
-| `src/components/org/followups/` | The Follow-ups ledger (replaced the Backlog panel 2026-08-17): `FollowupsWorklist` (ranked table, bulk bar), `FollowupsPromptModal` (fix prompt + hand-off), `FollowupHistory` (per-row timeline), `followupsModel.ts` (filters, selection, org-wide spread, `patchStatuses` bulk runner). |
+| `src/features/inflight/proposals/` · `src/components/org/followups/` | The Proposals ledger (Follow-ups until 2026-09-15; replaced the Backlog panel 2026-08-17): `ProposalsWorklist` (scan + loop rows, source-aware bulk bar), `FollowupsPromptModal` (fix prompt + hand-off), `FollowupHistory` (per-row timeline), `followupsModel.ts` (filters, selection, org-wide spread, `patchStatuses` bulk runner), `proposalsModel.ts` (the loop fold). |
+| `src/features/inflight/lessons/` | The Lessons ledger (split out of the Live cockpit 2026-09-15). |
+| `src/components/org/shared/DecisionTable.tsx` | The shared decision-ledger shape behind Proposals and Lessons: selection, in-place expander, a sticky bulk bar whose actions declare which rows they apply to. |
 | `src/components/org/backlog/BacklogGroups.tsx` | The grouped Cards + rows + the three empty states (filter-empty is distinct from backlog-empty). |
 | `src/components/org/shared/ui.tsx` | Shared org-UI primitives. |
 | `src/app/api/org/*` | Active org, repos, import, scan, watch, schedule, segments, **backlog** (`GET ?org=` → `OrgBacklog`) (+ goals/initiatives/simulate; see [plan.md](../org-planning/plan.md)). |

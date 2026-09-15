@@ -84,6 +84,20 @@ describe("org tab catalog", () => {
     expect(Math.min(...sizes)).toBe(inflight?.items.length);
   });
 
+  // 2026-09-15: the cockpit's two decision queues are rail items of their own, right under Live, and
+  // the Follow-ups ledger they absorbed left Standing. `followups` survives only as a not-in-nav alias
+  // (the org page redirects it), so links already in inboxes keep landing on the ledger.
+  it("splits Proposals and Lessons out of the cockpit, and keeps followups as an alias", () => {
+    const inflight = ORG_NAV_GROUPS.find((g) => g.key === "inflight");
+    expect(inflight?.items.map((i) => i.id)).toEqual(["live", "proposals", "lessons"]);
+    expect(inflight?.items.find((i) => i.id === "proposals")?.countKey).toBe("followups");
+    expect(ORG_NAV_GROUPS.find((g) => g.key === "standing")?.items.map((i) => i.id)).not.toContain("followups");
+    expect(ORG_TABS_NOT_IN_NAV.has("followups")).toBe(true);
+    expect(orgTabLabel("followups")).toBe("Proposals");
+    expect(orgTabHref("acme", "proposals")).toBe("/org/acme?tab=proposals");
+    expect(orgTabHref("acme", "lessons")).toBe("/org/acme?tab=lessons");
+  });
+
   // The weekly digest is the Briefing's fixed-window sibling: same audience, same group, read over a
   // trailing week instead of the selected period. Its position is the product claim — a reader who
   // opens Bought sees the standing briefing first and the week's update immediately under it.
@@ -120,6 +134,7 @@ describe("org tab catalog", () => {
       "knowledge",
       "memory",
       "overview",
+      "proposals",
       "registry",
       "security",
       "skills",

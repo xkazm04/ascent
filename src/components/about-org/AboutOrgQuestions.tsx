@@ -41,8 +41,8 @@ const QUESTIONS: OrgQuestion[] = [
   },
   {
     ask: "Where is the one fix that moves twenty repos instead of two?",
-    tab: "followups",
-    view: "Follow-ups",
+    tab: "proposals",
+    view: "Proposals",
   },
   {
     ask: "Who already knows how to do this, and which teams are sitting at zero?",

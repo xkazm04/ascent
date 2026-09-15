@@ -49,7 +49,7 @@ function MoreLink({ slug, count, shown }: { slug: string; count: number; shown: 
   if (count <= shown) return null;
   return (
     <Link
-      href={orgTabHref(slug, "followups")}
+      href={orgTabHref(slug, "proposals")}
       className="focus-ring type-body-sm text-slate-400 transition hover:text-accent"
     >
       +{count - shown} more

@@ -11,14 +11,12 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { isPersonalOrg } from "@/lib/db";
-import { getFoundationRollout } from "@/lib/db/org-foundation";
 import { orgTabHref, DEFAULT_ORG_TAB } from "@/lib/org/orgTabs";
 import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
 import { FleetTabs } from "./FleetTabs";
 import { SegmentsSection } from "./SegmentsSection";
 import { RepositoriesLeaderboardPanel } from "./RepositoriesLeaderboardPanel";
 import { ContextHealthPanel } from "./context-health/ContextHealthPanel";
-import { FoundationRolloutPanel } from "./FoundationRolloutPanel";
 import { QueueDepthLine } from "./QueueDepthLine";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
@@ -64,8 +62,8 @@ export async function RepositoriesTab({
       <Suspense fallback={<OrgTabGap minH="min-h-[40rem]" />}>
         <RepositoriesLeaderboardPanel slug={slug} sp={sp} />
       </Suspense>
-      {/* Foundation rollout (moonshot #35): install `.ai/` across the fleet and provision report-back. */}
-      <FoundationRolloutPanel slug={slug} rows={await getFoundationRollout(slug)} />
+      {/* Foundation rollout moved to Shared → Practices (2026-09-15): the shared checklist and its
+          measurement live in one place, beside the practice rollout matrix. */}
       {/* Context Health (W4 — real): the quality-over-presence lens on the fleet's agent-context
           layer. Fed by each scan's persisted contextHealthJson. Takes `sp` so it resolves the SAME
           ?stack= scope the leaderboard above does — and so both panels share one rollup read. */}

@@ -148,6 +148,26 @@ to the PR, labelled "Existing draft PR" when reused), or **Roll out to the fleet
 Errors surface inline. (Rewritten 2026-09-05; the previous text described the pre-tab card
 page.)
 
+### The shared checklist and its measurement, in one place (2026-09-15)
+
+Right under the rollout matrix, `PracticesView` renders a `rolloutSlot` the server tab fills with
+two panels. Both came from Standing → Repositories:
+
+- **Foundation rollout** (`foundation/FoundationRolloutPanel.tsx`, moonshot #35). This is the
+  repos × (PR · Report-back · Conformance) matrix with the bulk "Install the foundation" action and
+  per-repo report-back provisioning. The view model is `foundationViz.ts`, which draws a draft PR as
+  `declared`, never "installed".
+- **Guidance coherence** (`foundation/GuidanceCoherenceCard.tsx`, #15). It shows the fleet spread
+  of whether each repo's guidance documents agree.
+
+The practice matrix answers which practices rolled out. The foundation matrix answers which repos
+carry the `.ai/` layer and report back. Coherence answers whether that guidance is consistent.
+Before the move the three sat on two tabs. `PracticesTab` adds two reads for them:
+`getFoundationRollout(slug)`, and `getOrgRollupShared` at the tab's stack scope (request-cached,
+and degrading to no coherence card). The `#foundation-rollout` anchor and the getting-started
+`foundation` / `conformance` steps point at `?tab=practices`, and Passports → Doctor checks' empty
+state links there.
+
 ### The rollout matrix (`/org` UX redesign wave 2, 2026-09-08)
 
 The library's headline reading is a **`MatrixGrid`** from the shared `/org` viz kit
@@ -250,6 +270,7 @@ straight at the CI-gates practice and its exemplars.
 | `src/features/shared/practices/PlaybookApplyBatch.tsx` | Playbook fleet-rollout UI (select, confirm, per-repo results). |
 | `src/features/shared/practices/promotePractice.ts` | Mined practice → playbook draft mapping (pure, bounded). |
 | `src/features/shared/practices/PracticeRolloutStrip.tsx` | The rollout panel: `MatrixGrid` first, totals below, zero state instead of zeros. |
+| `src/features/shared/practices/foundation/` | Moved from Repositories 2026-09-15: `FoundationRolloutPanel` (+ grid, row view, secrets dialog, `foundationViz.ts`) and `GuidanceCoherenceCard` (+ `coherenceSpread.ts`, `guidanceCoherenceModel.ts`). |
 | `src/features/shared/practices/practiceRolloutViz.ts` | Pure view model: practice × (assessed, adopted, landed, verified) → kit states. Tested. |
 | `src/features/shared/practices/PracticeRolloutTotals.tsx` | The four fleet figures; an unmeasured lift renders the `not-judged` mark, not an em dash. |
 | `src/features/shared/practices/housePatternViz.ts` | Pure view model: the Read × Travels privacy matrix (contents = a void in both). Tested. |

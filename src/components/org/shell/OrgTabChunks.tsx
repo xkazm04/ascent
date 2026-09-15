@@ -39,7 +39,8 @@ import { TeamsTab } from "@/features/bought/teams/TeamsTab";
 import { ContributorsTab } from "@/features/bought/contributors/ContributorsTab";
 import { AdoptionTab } from "@/features/standing/adoption/AdoptionTab";
 import { DeliveryTab } from "@/features/bought/delivery/DeliveryTab";
-import { FollowupsTab } from "../followups/FollowupsTab";
+import { ProposalsTab } from "@/features/inflight/proposals/ProposalsTab";
+import { LessonsTab } from "@/features/inflight/lessons/LessonsTab";
 import { PracticesTab } from "@/features/shared/practices/PracticesTab";
 import { OrgTabErrorBoundary } from "./OrgTabErrorBoundary";
 import { OrgTabGap } from "./OrgTabGap";
@@ -211,11 +212,19 @@ export function OrgTabChunks({ slug, tab, sp }: { slug: string; tab: OrgTabId; s
           </Suspense>
         ) : null}
 
-        {/* The follow-ups ledger (Standing): one scoped backlog read. Replaced the Plan and Backlog
-            tabs (retired 2026-08-17). */}
-        {tab === "followups" ? (
+        {/* In flight → Proposals: the former Follow-ups ledger (one scoped backlog read) merged with
+            the loop's pending proposals (2026-09-15). `?tab=followups` is redirected here by the org
+            page, so this branch never sees that id. */}
+        {tab === "proposals" ? (
           <Suspense fallback={<OrgTabGap minH="min-h-[32rem]" />}>
-            <FollowupsTab slug={slug} sp={sp} />
+            <ProposalsTab slug={slug} sp={sp} />
+          </Suspense>
+        ) : null}
+
+        {/* In flight → Lessons: the loop agents' lesson candidates, split out of the Live cockpit. */}
+        {tab === "lessons" ? (
+          <Suspense fallback={<OrgTabGap minH="min-h-[24rem]" />}>
+            <LessonsTab slug={slug} />
           </Suspense>
         ) : null}
 

@@ -20,7 +20,7 @@ import { TourChecklist } from "./TourChecklist";
 
 const TAB: Record<GettingStartedStepId, GettingStartedStep["tab"]> = {
   "first-scan": "overview",
-  "gap-engaged": "followups",
+  "gap-engaged": "proposals",
   registry: "skills",
   loop: "repositories",
   team: "members",
@@ -164,7 +164,7 @@ describe("TourChecklist — the task list", () => {
     render(<TourChecklist slug="acme" />);
     await waitFor(() => expect(screen.getByRole("button", { name: "Show me" })).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Show me" }));
-    expect(nav.push).toHaveBeenCalledWith("/org/acme?tab=followups");
+    expect(nav.push).toHaveBeenCalledWith("/org/acme?tab=proposals");
     expect(screen.getByRole("button", { name: "Got it" })).toBeTruthy();
   });
 });

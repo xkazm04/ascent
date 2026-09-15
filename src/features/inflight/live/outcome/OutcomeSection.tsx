@@ -9,7 +9,10 @@
 // the run's detail is refetched so the ruling renders from the store, not from a client guess.
 
 import { useCallback, useMemo, useState } from "react";
+import Link from "next/link";
 import { Kicker } from "@/components/ui";
+import { orgTabHref } from "@/lib/org/orgTabs";
+import { pendingLoopProposals } from "@/features/inflight/proposals/proposalsModel";
 import { DriveVerdict } from "../cockpit/CockpitDrivePanel";
 import { CockpitVerdicts } from "../cockpit/CockpitVerdicts";
 import type { DriveStatus } from "../cockpit/driveTypes";
@@ -52,10 +55,14 @@ export function OutcomeSection(p: OutcomeSectionProps) {
     },
     [slug],
   );
-  const matrix = useMemo(
-    () => buildOutcomeMatrix(mergeRunDetails(p.runDetails, p.openedDetail, p.liveDetail, ...Object.values(reviewed))),
+  const merged = useMemo(
+    () => mergeRunDetails(p.runDetails, p.openedDetail, p.liveDetail, ...Object.values(reviewed)),
     [p.runDetails, p.openedDetail, p.liveDetail, reviewed],
   );
+  const matrix = useMemo(() => buildOutcomeMatrix(merged), [merged]);
+  // The same pending set the Proposals tab lists — the sheet stays a reading, the ledger is where a
+  // batch of them is decided (2026-09-15).
+  const pending = useMemo(() => pendingLoopProposals(merged).length, [merged]);
   // The agent's per-item account for the run on screen — shown only when the run recorded one, so an
   // empty panel never sits under a full sheet.
   const itemOutcomes = (p.openedDetail ?? p.liveDetail)?.itemOutcomes ?? [];
@@ -76,6 +83,11 @@ export function OutcomeSection(p: OutcomeSectionProps) {
           </span>
         )}
       </div>
+      {pending > 0 && (
+        <Link href={orgTabHref(slug, "proposals")} className="focus-ring inline-block rounded type-caption text-accent hover:text-white">
+          <span className="tabular-nums">{pending}</span> {pending === 1 ? "proposal awaits" : "proposals await"} review — decide them in Proposals →
+        </Link>
+      )}
       {reviewError && <p className="type-caption text-danger">{reviewError}</p>}
       {p.driveOutcome && <DriveVerdict drive={p.driveOutcome} onBack={p.onDismissDrive} />}
       {matrix.columns.length === 0 ? (
