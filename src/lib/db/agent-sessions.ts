@@ -81,22 +81,49 @@ export async function recordAgentSessions(orgSlug: string, sessions: AgentSessio
   return written;
 }
 
-/** Per-repo attempt aggregates over a window. */
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// THE ROLLUP IS KEYED BY REPO × SOURCE (2026-09-15).
+//
+// `linesAdded` and `tokens` are PRODUCER-DEFINED units. Claude Code reports its own lines metric; a
+// tool that re-serialises the whole file after each edit counts the unchanged body again, and a
+// ranged-replace tool under-counts; tokenisers differ per vendor. 100 lines from one provider plus 100
+// from another is not 200 of anything, and publishing that sum is the precise-looking heuristic D32
+// forbids. So a row never spans sources, and totals carry only what IS one unit across producers:
+// attempts (sessions), sessions that produced code, and cost in cents (one currency).
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Attempt aggregates for one repo from ONE source over a window. */
 export interface RepoAttempts {
   repoFullName: string;
+  /** The emitter ("claude-code", ...). Part of the key: lines and tokens below are in its units only. */
+  source: string;
   sessions: number;
   /** Sessions that produced at least one commit or pull request. */
   producedCode: number;
   costCents: number;
+  /** In this source's tokeniser. Never add across sources. */
   tokens: number;
+  /** By this source's counting method. Never add across sources. */
   linesAdded: number;
   /** Distinct users who ran a session here. */
   people: number;
 }
 
+/**
+ * Cross-source totals: only figures in a unit every producer shares. There is deliberately no
+ * `tokens` or `linesAdded` here; a caller that wants one must pick a source.
+ */
+export interface AttemptTotals {
+  sessions: number;
+  producedCode: number;
+  costCents: number;
+  /** Distinct (source, userKey) pairs: user keys are not comparable across exporters, so an upper bound. */
+  people: number;
+}
+
 export interface AttemptRollup {
   repos: RepoAttempts[];
-  totals: { sessions: number; producedCode: number; costCents: number; tokens: number; people: number };
+  totals: AttemptTotals;
   /** Earliest / latest session observed — the window actually covered. */
   from: string | null;
   to: string | null;
@@ -105,6 +132,7 @@ export interface AttemptRollup {
 /** Pure fold over session rows. Exported for tests. */
 export function buildAttemptRollup(
   rows: {
+    source: string;
     repoFullName: string;
     userKey: string | null;
     startedAt: Date;
@@ -115,7 +143,7 @@ export function buildAttemptRollup(
     linesAdded: number;
   }[],
 ): AttemptRollup {
-  const byRepo = new Map<string, RepoAttempts & { userSet: Set<string> }>();
+  const byKey = new Map<string, RepoAttempts & { userSet: Set<string> }>();
   const allUsers = new Set<string>();
   let from: number | null = null;
   let to: number | null = null;
@@ -124,10 +152,13 @@ export function buildAttemptRollup(
     const t = r.startedAt.getTime();
     from = from == null ? t : Math.min(from, t);
     to = to == null ? t : Math.max(to, t);
+    // NUL cannot occur in a repo name or a source id, so the key cannot collide.
+    const key = `${r.repoFullName}\u0000${r.source}`;
     const e =
-      byRepo.get(r.repoFullName) ??
+      byKey.get(key) ??
       ({
         repoFullName: r.repoFullName,
+        source: r.source,
         sessions: 0,
         producedCode: 0,
         costCents: 0,
@@ -143,14 +174,17 @@ export function buildAttemptRollup(
     e.linesAdded += r.linesAdded;
     if (r.userKey) {
       e.userSet.add(r.userKey);
-      allUsers.add(r.userKey);
+      allUsers.add(`${r.source}\u0000${r.userKey}`);
     }
-    byRepo.set(r.repoFullName, e);
+    byKey.set(key, e);
   }
 
-  const repos = [...byRepo.values()]
+  const repos = [...byKey.values()]
     .map(({ userSet, ...rest }) => ({ ...rest, people: userSet.size }))
-    .sort((a, b) => b.costCents - a.costCents || a.repoFullName.localeCompare(b.repoFullName));
+    .sort(
+      (a, b) =>
+        b.costCents - a.costCents || a.repoFullName.localeCompare(b.repoFullName) || a.source.localeCompare(b.source),
+    );
 
   return {
     repos,
@@ -158,7 +192,6 @@ export function buildAttemptRollup(
       sessions: repos.reduce((n, r) => n + r.sessions, 0),
       producedCode: repos.reduce((n, r) => n + r.producedCode, 0),
       costCents: repos.reduce((n, r) => n + r.costCents, 0),
-      tokens: repos.reduce((n, r) => n + r.tokens, 0),
       people: allUsers.size,
     },
     from: from == null ? null : new Date(from).toISOString(),
@@ -182,6 +215,7 @@ export async function getAgentAttempts(
   const rows = await getPrisma().agentSession.findMany({
     where: { orgId: org.id, ...(startedAt.gte || startedAt.lte ? { startedAt } : {}) },
     select: {
+      source: true, // part of the rollup key: lines and tokens are only comparable within one source
       repoFullName: true,
       userKey: true,
       startedAt: true,
@@ -230,17 +264,32 @@ export interface UnitEconomics {
  * `mergedByRepo` keys must be lower-cased full names, matching `AgentSession.repoFullName`'s folding.
  */
 export function buildUnitEconomics(rollup: AttemptRollup, mergedByRepo: Map<string, number>): UnitEconomics[] {
-  return rollup.repos.map((r) => {
-    const merged = mergedByRepo.get(r.repoFullName) ?? 0;
-    return {
-      repoFullName: r.repoFullName,
-      sessions: r.sessions,
-      producedCode: r.producedCode,
-      costCents: r.costCents,
-      producedRate: r.sessions > 0 ? Math.round((r.producedCode / r.sessions) * 100) : null,
-      costPerProducingSession: r.producedCode > 0 ? Math.round(r.costCents / r.producedCode) : null,
-      costPerMergedAiChange: merged > 0 ? Math.round(r.costCents / merged) : null,
-      mergedAiChanges: merged,
-    };
-  });
+  // The rollup is repo × source; the join is repo × period. Fold back to one row per repo so the
+  // denominator is applied ONCE (per source it would count each merged change once per provider).
+  // Only sessions, producedCode and cents are summed — the units every source shares.
+  const byRepo = new Map<string, { sources: string[]; sessions: number; producedCode: number; costCents: number }>();
+  for (const r of rollup.repos) {
+    const e = byRepo.get(r.repoFullName) ?? { sources: [], sessions: 0, producedCode: 0, costCents: 0 };
+    e.sources.push(r.source);
+    e.sessions += r.sessions;
+    e.producedCode += r.producedCode;
+    e.costCents += r.costCents;
+    byRepo.set(r.repoFullName, e);
+  }
+  return [...byRepo.entries()]
+    .map(([repoFullName, r]) => {
+      const merged = mergedByRepo.get(repoFullName) ?? 0;
+      return {
+        repoFullName,
+        sources: [...r.sources].sort(),
+        sessions: r.sessions,
+        producedCode: r.producedCode,
+        costCents: r.costCents,
+        producedRate: r.sessions > 0 ? Math.round((r.producedCode / r.sessions) * 100) : null,
+        costPerProducingSession: r.producedCode > 0 ? Math.round(r.costCents / r.producedCode) : null,
+        costPerMergedAiChange: merged > 0 ? Math.round(r.costCents / merged) : null,
+        mergedAiChanges: merged,
+      };
+    })
+    .sort((a, b) => b.costCents - a.costCents || a.repoFullName.localeCompare(b.repoFullName));
 }
