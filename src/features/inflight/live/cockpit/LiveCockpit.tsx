@@ -97,6 +97,7 @@ export function LiveCockpit(props: LiveCockpitProps) {
             slug={slug}
             mode={railMode}
             setup={c.setup}
+            setupMessage={c.setupMessage}
             liveDrive={drive.live ? drive.drive : null}
             interruptedDrive={c.interruptedDrive}
             runDetail={loop.detail}
@@ -104,7 +105,7 @@ export function LiveCockpit(props: LiveCockpitProps) {
             selected={c.selected}
             paired={c.paired}
             propose={loop.propose}
-            canRun={isOwner && loop.enabled}
+            canRun={c.canRun}
             prAvailable={loop.prAvailable}
             busy={loop.busy || drive.busy}
             loopError={loop.error}

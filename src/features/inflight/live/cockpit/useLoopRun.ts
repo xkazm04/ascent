@@ -24,7 +24,14 @@ import {
   stopLoop,
   type StartLoopInput,
 } from "./loopClient";
-import { isRunLive, type LoopProposal, type LoopRunDetail, type LoopRunRecord, type LoopRunSummary } from "./loopTypes";
+import {
+  isRunLive,
+  type HostedDispatchFact,
+  type LoopProposal,
+  type LoopRunDetail,
+  type LoopRunRecord,
+  type LoopRunSummary,
+} from "./loopTypes";
 import { useIsVisible } from "../useIsVisible";
 
 const POLL_MS = 3_000;
@@ -44,6 +51,12 @@ export function useLoopRun({ slug, initialActive, initialRuns, initialEnabled, o
   // tick: an absent field on the payload means "not answered", and disabling a mode the deployment
   // may well support would be the worse guess of the two — the route refuses it either way.
   const [prAvailable, setPrAvailable] = useState(true);
+  // ADR-0001 §3 — whether THIS ORG can dispatch a run Ascent Cloud gets worked. Defaults to `null`
+  // (not answered) rather than to a boolean, and the difference matters: `prAvailable` defaults to
+  // TRUE because guessing "can open a PR" wrong only disables a courtesy, while guessing "can
+  // dispatch" wrong would open a Run button on a deployment that would never work the lane. Until
+  // the first tick lands, the gate behaves exactly as it did before this field existed.
+  const [hosted, setHosted] = useState<HostedDispatchFact | null>(null);
   // A STOP THAT HAS BEEN ASKED FOR AND HAS NOT LANDED YET. Server state, not the button's own fetch:
   // the loop's stop is cooperative, so this stays true for as long as the in-flight session takes
   // (PRIYA-L2-C6 measured 19m43s). `busy` is the fetch and settles in milliseconds; conflating the two
@@ -74,6 +87,7 @@ export function useLoopRun({ slug, initialActive, initialRuns, initialEnabled, o
       const status = await fetchLoopStatus(slug);
       setEnabled(status.enabled);
       setPrAvailable(status.prAvailable !== false);
+      setHosted(status.hosted ?? null);
       setStopRequested(status.stopping === true);
       setStopHorizonMs(status.stopHorizonMs ?? null);
       setActive(status.active);
@@ -166,6 +180,7 @@ export function useLoopRun({ slug, initialActive, initialRuns, initialEnabled, o
   return {
     enabled,
     prAvailable,
+    hosted,
     active,
     activeId,
     live,

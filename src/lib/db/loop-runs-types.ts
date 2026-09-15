@@ -372,11 +372,23 @@ export interface LoopLaneRecord {
 
 /** Who runs a lane's work. A remote lane deliberately carries NO cost envelope: #27's figures come
  *  from a `claude -p` session Ascent spawned, and there is no such session here. `costMicros` stays
- *  null on one — unknown, never zero. */
-export type LoopLaneExecutor = "local" | "remote-agent";
+ *  null on one — unknown, never zero.
+ *
+ *  `hosted-worker` (ADR-0001) is a THIRD value rather than a flavour of `remote-agent`, and the
+ *  distinction is load-bearing in both directions: Ascent's own dispatcher must never hand a lane to
+ *  a worker when the customer armed that lane for their own harness, and a customer's agent must not
+ *  find Ascent's hosted lanes when it claims. Both are `remote` in the sense that matters to the
+ *  liveness sweep — no process here drives either — and both carry a null cost envelope until the
+ *  metering ADR-0001 calls a precondition exists. */
+export type LoopLaneExecutor = "local" | "remote-agent" | "hosted-worker";
 
 export const asLaneExecutor = (v: string | null | undefined): LoopLaneExecutor =>
-  v === "remote-agent" ? "remote-agent" : "local";
+  v === "remote-agent" ? "remote-agent" : v === "hosted-worker" ? "hosted-worker" : "local";
+
+/** True for every executor whose work happens outside this process. The liveness sweep, the lane-kind
+ *  tag and the claim path all mean THIS rather than `=== "remote-agent"`, and each said the latter
+ *  before `hosted-worker` existed. */
+export const isExternalExecutor = (e: LoopLaneExecutor): boolean => e !== "local";
 
 export interface LoopRunSummary {
   id: string;
