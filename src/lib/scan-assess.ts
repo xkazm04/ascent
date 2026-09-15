@@ -35,8 +35,20 @@ function llmTotalBudgetMs(providerName: string): number {
   const raw = process.env.LLM_TOTAL_BUDGET_MS;
   const override = raw ? Number(raw) : NaN;
   if (Number.isFinite(override) && override > 0) return override;
-  return providerName === "claude-cli" || providerName === "codex-cli" ? 15 * 60_000 : 90_000;
+  return providerName === "claude-cli" || providerName === "codex-cli" || providerName === "gateway"
+    ? 15 * 60_000
+    : 90_000;
 }
+
+/**
+ * The LightTrack gateway (src/lib/llm/gateway.ts) owns what this file otherwise does around a call:
+ * it already tried every target on the route (primary, then the other seat on a usage limit), and it
+ * records every attempt in LightTrack itself. So for that provider the plan below is the single
+ * primary step — an app-side retry would double every exhausted-seat attempt, an LLM_FALLBACK_PROVIDER
+ * step would run an unmeasured engine after a measured route gave up — and trackLlmCall is skipped,
+ * because two rows per call is a double count. The mock degrade after a failure is unchanged.
+ */
+const gatewayServed = (p: LLMProvider): boolean => p.name === "gateway";
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // AWS SDK (Bedrock) exception NAMES that mean the SAME provider cannot succeed on a re-call: bad/absent
@@ -213,8 +225,8 @@ export async function runAssessmentPhase(input: AssessPhaseInput): Promise<Asses
         );
       }
       // Mirror the successful real LLM call to LightTrack (fire-and-forget; a no-op unless configured).
-      // Mock carries no real provider traffic/cost, so it's never tracked.
-      if (p.name !== "mock") {
+      // Mock carries no real provider traffic/cost, so it's never tracked; the gateway tracks itself.
+      if (p.name !== "mock" && !gatewayServed(p)) {
         trackLlmCall({
           provider: p.name,
           model: p.model,
@@ -236,7 +248,7 @@ export async function runAssessmentPhase(input: AssessPhaseInput): Promise<Asses
       // Track failed real attempts too — the tokens may have been spent at the provider (an
       // unusable-but-answered response) and the error/latency is the signal that drives the
       // retry/failover. Skip only a CLIENT disconnect (the scan is abandoned, not a provider fault).
-      if (p.name !== "mock" && !signal?.aborted) {
+      if (p.name !== "mock" && !gatewayServed(p) && !signal?.aborted) {
         trackLlmCall({
           provider: p.name,
           model: p.model,
@@ -283,13 +295,15 @@ export async function runAssessmentPhase(input: AssessPhaseInput): Promise<Asses
     // BYOM scans never fall over to the PLATFORM provider (that would send the org's data to Ascent's
     // account, defeating the privacy guarantee) — they retry the org's Bedrock, then degrade to mock.
     const fallback =
-      intendedProvider === "mock" || byomScan ? null : providerByName(process.env.LLM_FALLBACK_PROVIDER);
+      intendedProvider === "mock" || byomScan || gatewayServed(provider)
+        ? null
+        : providerByName(process.env.LLM_FALLBACK_PROVIDER);
     // Steps are tagged by kind so the loop can skip the SAME-provider retry when it can't help (a HARD
     // error) or can't afford to run (budget needed for the failover) — see shouldRetrySameProvider.
     const plan: { p: LLMProvider; kind: "primary" | "retry" | "fallback"; note?: string }[] = [
       { p: provider, kind: "primary" },
     ];
-    if (intendedProvider !== "mock")
+    if (intendedProvider !== "mock" && !gatewayServed(provider))
       plan.push({ p: provider, kind: "retry", note: `Retrying ${intendedProvider}…` });
     if (fallback && fallback.name !== intendedProvider)
       plan.push({ p: fallback, kind: "fallback", note: `Falling over to ${fallback.name}…` });

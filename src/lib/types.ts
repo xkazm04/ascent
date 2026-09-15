@@ -18,7 +18,8 @@ export type ProviderName =
   | "nebius"
   | "mock"
   | "claude-cli"
-  | "codex-cli";
+  | "codex-cli"
+  | "gateway";
 /** Token usage reported by an LLM provider for one assess() call — the metered cost basis. */
 export interface TokenUsage {
   inputTokens?: number;

@@ -233,6 +233,34 @@ describe("codex-cli — first-class explicit provider on the SAME CLI gate as cl
   });
 });
 
+describe("gateway — the LightTrack gateway as an explicit, keyless provider", () => {
+  // The gateway is a loopback endpoint carrying a MEASURED route for `assess` (gateway.toml,
+  // docs/LLM_ROUTES.md). Like the CLI providers it is explicit-only: the auto ladder must never pick
+  // an endpoint that may not be running. Unlike them it has no env prerequisite, so it is always
+  // "available" — a dead gateway fails loudly inside assess() instead of being pre-degraded to mock.
+  it("resolveProviderChoice accepts LLM_PROVIDER=gateway", () => {
+    vi.stubEnv("LLM_PROVIDER", "gateway");
+    expect(resolveProviderChoice()).toBe("gateway");
+  });
+
+  it("getProvider returns the gateway provider whose model is the ROUTE name", () => {
+    vi.stubEnv("LLM_PROVIDER", "gateway");
+    const p = getProvider();
+    expect(p.name).toBe("gateway");
+    expect(p.model).toBe("assess");
+  });
+
+  it("the auto ladder never selects the gateway", () => {
+    vi.stubEnv("LLM_PROVIDER", "auto");
+    expect(getProvider().name).toBe("mock");
+  });
+
+  it("is available with no env at all (a loopback endpoint has no key to sniff)", () => {
+    expect(providerAvailable("gateway")).toBe(true);
+    expect(providerByName("gateway")?.name).toBe("gateway");
+  });
+});
+
 describe("providerByName('bedrock') — failover skip stays env-gated (#1)", () => {
   it("returns null with no AWS signal (skip the doomed failover attempt)", () => {
     expect(providerByName("bedrock")).toBeNull();

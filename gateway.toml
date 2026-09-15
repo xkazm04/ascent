@@ -1,0 +1,19 @@
+# lt-gateway routes for Ascent — committable, no secrets. Start the gateway from this directory:
+#   LIGHTTRACK_GATEWAY_BIND=127.0.0.1:8793 LIGHTTRACK_URL=... LIGHTTRACK_PROJECT=ascent lt-gateway
+# and select it in the app with LLM_PROVIDER=gateway (src/lib/llm/gateway.ts). Evidence for every
+# line below, with run ids and the caveats that matter, is in docs/LLM_ROUTES.md.
+
+# Seconds a seat is skipped after it reports a usage limit and names no retry-after.
+cooldown_secs = 300
+
+# `assess` — repo-maturity assessment (LLMProvider.assess). Measured 2026-09-15 on 21 graded cases
+# (7 easy / 7 medium / 7 hard), rubric threshold 0.85, judge openrouter/google/gemini-2.5-flash,
+# benchmark 044161af-97ee-489d-9a46-98b5421fd7f6. The app sends ONE user turn with the system text
+# folded in (the Codex CLI caps a system message at 16000 chars; the assessment prefix is ~22400).
+[routes.assess]
+primary  = "codex/gpt-5.5@low"        # hard 0.987, easy 1.0, medium 1.0, 21/21 pass, 0 errors, p50 84s (run b18e1052)
+fallback = ["anthropic/sonnet@low"]   # DID NOT clear the bar in the runner: hard 0.743 (run 08657165) — every miss was
+                                      # JSON shape, which the runner could not schema-enforce; calibration 0.95. Through
+                                      # THIS gateway (--json-schema) a 9-case replay was 7/9 clean, 2 CLI exits, p50 178s,
+                                      # ~$0.37/call. Kept as a Codex-limit stand-in only; the app's validateAssessment +
+                                      # isAssessmentUsable + mock degrade still guard it. Delete this line to run without.
