@@ -61,7 +61,7 @@ export function PracticeCascade() {
             type="button"
             onClick={() => setPick(i)}
             aria-pressed={i === pick}
-            className={`focus-ring rounded-md px-2.5 py-1 font-mono text-xs uppercase tracking-wider transition ${
+            className={`focus-ring rounded-md px-2.5 py-1 type-label tracking-wider transition ${
               i === pick ? "bg-accent/15 text-accent" : "text-slate-500 hover:text-white"
             }`}
           >
@@ -74,10 +74,10 @@ export function PracticeCascade() {
 
       {/* the authored artifact */}
       <div className="mx-auto flex max-w-[16rem] items-center gap-2 rounded-lg border border-accent/50 bg-accent/10 px-3 py-2">
-        <span aria-hidden className="font-mono text-xs text-accent">
+        <span aria-hidden className="type-caption text-accent">
           ◆
         </span>
-        <span className="truncate font-mono text-xs uppercase tracking-wider text-accent">{label.split(" (")[0]}</span>
+        <span className="truncate type-label tracking-wider text-accent">{label.split(" (")[0]}</span>
       </div>
 
       {/* the fan: one hairline from the artifact down to each targeted repo cell */}
@@ -122,7 +122,7 @@ export function PracticeCascade() {
         })}
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 font-mono text-xs">
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 type-caption">
         <span className="text-slate-300">
           <span className="text-accent">{applied.length}</span> repos in one run
           {targets.length > applied.length && (

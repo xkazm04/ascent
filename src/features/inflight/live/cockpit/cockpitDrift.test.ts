@@ -3,7 +3,8 @@
 // and that a repo the run did not touch is byte-identical on both sides (it must not move).
 
 import { describe, expect, it } from "vitest";
-import { driftFor, runLift, scanningRepos } from "./cockpitDrift";
+import { driftFor, laneAttribution, runAttribution, runLift, scanningRepos } from "./cockpitDrift";
+import { MOCK_ENGINE } from "@/lib/maturity/attribution";
 import type { ObservatorySeed } from "../observatory";
 import type { LoopLaneOutcome, LoopLaneRecord, LoopRunDetail } from "./loopTypes";
 
@@ -17,7 +18,9 @@ const seed = (fullName: string, adoption: number, rigor: number): ObservatorySee
   posture: "manual",
 });
 
-const end = (overall: number, adoption: number, rigor: number) => ({
+/** A scan end. The engine defaults to a REAL one: the attribution rule refuses a pair with a mock end,
+ *  so a fixture that quietly used `mock` would make every lift in this file unmeasurable. */
+const end = (overall: number, adoption: number, rigor: number, engine: Partial<{ engineProvider: string; engineDegraded: boolean }> = {}) => ({
   id: `s-${overall}`,
   scannedAt: "2026-08-22T10:00:00.000Z",
   overallScore: overall,
@@ -28,10 +31,13 @@ const end = (overall: number, adoption: number, rigor: number) => ({
   archetype: "org" as const,
   posture: "manual",
   confidence: 0.8,
-  engineProvider: "mock",
+  engineProvider: "anthropic",
+  engineModel: "claude",
+  engineDegraded: false,
   headSha: null,
   dimensions: [],
   recommendations: [],
+  ...engine,
 });
 
 const lane = (repo: string, o: Partial<LoopLaneRecord> = {}): LoopLaneRecord => ({
@@ -129,5 +135,35 @@ describe("runLift", () => {
   it("sums only the lanes that have both ends, and is null when none do", () => {
     expect(runLift(detail([worked, { ...worked, lane: lane("acme/two"), before: null }]))).toBe(22);
     expect(runLift(detail([{ ...worked, after: null }]))).toBeNull();
+  });
+});
+
+// The headline number is the loop's central claim, so what it EXCLUDES is as load-bearing as what it
+// sums. A run of four one-point movements is not "+4" — it is four re-runs of the same measurement.
+describe("runAttribution — what the headline lift is allowed to contain", () => {
+  const mockEnd = (overall: number) => end(overall, 30, 50, { engineProvider: MOCK_ENGINE });
+
+  it("holds a MOCK-ended lane out of the sum entirely and counts it apart", () => {
+    const mocked: LoopLaneOutcome = { ...worked, lane: lane("acme/two"), before: mockEnd(10), after: mockEnd(90) };
+    const a = runAttribution(detail([worked, mocked]));
+    expect(a.lift).toBe(22); // the 80-point mock movement contributes nothing
+    expect(a).toMatchObject({ attributable: 1, mock: 1, withinNoise: 0, unmeasured: 0 });
+  });
+
+  it("holds a within-noise lane out too, and reports lift null when EVERY lane is noise", () => {
+    const noise: LoopLaneOutcome = { ...worked, lane: lane("acme/two"), before: end(60, 30, 50), after: end(61, 31, 51) };
+    const a = runAttribution(detail([noise, { ...noise, lane: lane("acme/three") }]));
+    expect(a.lift).toBeNull(); // NOT 2 — two one-point movements are not a two-point lift
+    expect(a).toMatchObject({ attributable: 0, withinNoise: 2 });
+  });
+
+  it("counts an unmeasured lane as its own category, not as a mock one", () => {
+    const a = runAttribution(detail([{ ...worked, before: null }]));
+    expect(a).toMatchObject({ lift: null, unmeasured: 1, mock: 0, withinNoise: 0 });
+  });
+
+  it("laneAttribution is the per-row verdict the ledger prints", () => {
+    expect(laneAttribution(worked).kind).toBe("attributable");
+    expect(laneAttribution({ ...worked, before: mockEnd(10) }).kind).toBe("mock-scan");
   });
 });

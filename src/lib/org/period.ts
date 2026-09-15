@@ -34,6 +34,20 @@ export async function resolveOrgWindow(
  * shape to pass instead (`upperBound()` in `src/lib/db/org-shared.ts` prefers `endExclusive`), and
  * the named migration target `ResolvedWindow.end`'s deprecation points at. A caller that genuinely
  * cannot express `lt` calls `inclusiveEnd()` at its own edge rather than carrying both bounds.
+ *
+ * WHAT THE WINDOW MEANS DEPENDS ON THE READER — the bounds are one convention, the ENDPOINT is not,
+ * and the difference is by design (each reader's own header states its rule; pinned by
+ * `src/lib/org/period.dialect.test.ts`):
+ *   - `getOrgRollup` — "current" is each repo's latest scan AT-OR-BEFORE the upper bound, with NO
+ *     lower bound. A repo last scanned before `start` still counts in the fleet average, because the
+ *     rollup answers "where does the fleet stand as of the end of this period", not "what happened
+ *     during it". Only its trend/baseline queries use `start`.
+ *   - `getOrgMovers` / `getOrgTeamRollup` — "now" is the latest scan INSIDE `[start, endExclusive)`,
+ *     compared against the latest scan strictly before `start`. Both ends are measurements, so a repo
+ *     with no scan during the period simply has no move to report.
+ *   - `getOrgRepoHistories` — EVERY scan in `[start, endExclusive)`, not an endpoint at all.
+ * The visible consequence: a repo not scanned during the period is in the rollup average and absent
+ * from movers. That is not a bug and the counts are not expected to reconcile.
  */
 export function orgWindowBounds(w: ResolvedWindow): { start: Date | null; endExclusive: Date | null } {
   return { start: w.start, endExclusive: w.endExclusive };

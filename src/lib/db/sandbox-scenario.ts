@@ -11,6 +11,7 @@
 // gates on requireOrgAccess before calling in. Same policy as org-decisions.ts.
 
 import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
+import { recordOutcomeForScanPair, scenarioBookends, scenarioIdentityKey } from "@/lib/db/outcomes";
 import { canonicalRepoFullName, resolveOrgId } from "@/lib/db/scans-shared";
 import type { DimensionId } from "@/lib/types";
 
@@ -176,8 +177,44 @@ export async function getSandboxScenario(
     const actual = await actualSince(orgId, repoFullName, row.baselineScanAt, row.baselineScore).catch(
       () => null,
     );
+    // A resolved `actual` IS a measured before/after pair — the fourth loop feeding the intervention
+    // outcome ledger (moonshot #9). Mirrored as `kind: "scenario"` with a NULL dimId, because a
+    // scenario models the whole scan rather than one dimension, and a null there is the honest
+    // "whole-scan outcome", never "dimension 0". Fire-and-forget on purpose: this is a read path, the
+    // write is an upsert on the pair identity so re-reads add nothing, and the ledger must never be
+    // able to fail the report tab. `actualSince` is untouched — the ledger resolves the two scan IDS
+    // itself, since it additionally needs the instrument both sides were scored under.
+    if (actual) {
+      void mirrorScenarioOutcome(orgId, repoFullName, row.baselineScanAt, row.itemKeysJson, row.updatedAt);
+    }
     return toRecord(row, actual);
   }, null);
+}
+
+/** Resolve the scenario's bookends and record the outcome. Never throws into the read above. */
+async function mirrorScenarioOutcome(
+  orgId: string,
+  repoFullName: string,
+  baselineScanAt: Date,
+  itemKeysJson: string,
+  updatedAt: Date,
+): Promise<void> {
+  try {
+    const pair = await scenarioBookends(orgId, repoFullName, baselineScanAt);
+    if (!pair) return;
+    await recordOutcomeForScanPair({
+      orgId,
+      repoFullName,
+      kind: "scenario",
+      identityKey: scenarioIdentityKey(itemKeysJson),
+      dimId: null,
+      beforeScanId: pair.beforeScanId,
+      afterScanId: pair.afterScanId,
+      interventionAt: updatedAt,
+    });
+  } catch {
+    // A ledger mirror is never a reason for the sandbox to lose its scenario.
+  }
 }
 
 /**

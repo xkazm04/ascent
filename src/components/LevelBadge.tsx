@@ -14,7 +14,7 @@ export function LevelBadge({ id, name, className = "" }: { id: LevelId; name: st
   const glyph = LEVEL_GLYPH[id] ?? LEVEL_GLYPH.L1;
   return (
     <span
-      className={`inline-flex w-fit items-center gap-2 rounded-full border ${lc.border} ${lc.bg} px-3 py-1 text-base font-semibold ${lc.text} ${className}`}
+      className={`inline-flex w-fit items-center gap-2 rounded-full border ${lc.border} ${lc.bg} px-3 py-1 type-body font-semibold ${lc.text} ${className}`}
     >
       <span aria-hidden>{glyph}</span>
       {id} · {name}
@@ -49,7 +49,7 @@ export function ScorePill({ level, overall, className = "" }: { level: LevelId; 
 export function PrivateRepoBadge({ className = "" }: { className?: string }) {
   return (
     <span
-      className={`rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 font-mono text-sm uppercase tracking-widest text-accent ${className}`}
+      className={`rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 type-mono-sm uppercase tracking-widest text-accent ${className}`}
     >
       private
     </span>

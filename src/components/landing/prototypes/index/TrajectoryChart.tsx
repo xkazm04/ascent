@@ -1,13 +1,22 @@
 "use client";
 
 // The flight-path levels chart. A Recharts line of the climb (level band-midpoint as altitude):
-// angular path, ramp-gradient stroke, square waypoint markers, and a dashed AI-Native threshold line.
+// angular path, ramp-gradient stroke, square waypoint markers, and a dashed level-boundary line.
 // Mounted-gated; animation off under reduced-motion.
+//
+// THE DASHED LINE. It used to be drawn at `POSTURE_THRESHOLD` (50) and labelled "AI-NATIVE", which was
+// wrong on both axes at once. POSTURE_THRESHOLD is the cut on the ADOPTION and RIGOR axes — a repo is
+// AI-Native when BOTH clear 50 (model.ts:504-512) — and this chart's Y axis is neither of those, it is
+// the 0–100 weighted index. Worse, 50 on the index sits INSIDE L3 (band 45–64), so a reader who
+// crossed the line as the copy invited them to had gone precisely nowhere: same level, same tagline.
+// The line now draws a boundary that exists on the axis it is drawn on — the floor of L4, where agents
+// enter the loop — read from LEVELS so the number is never typed here. Derivation + rationale live in
+// ../shared/levelRamp.ts (AGENT_BAND), where they are unit-testable without recharts.
 
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { LEVELS, LEVEL_BY_ID, POSTURE_THRESHOLD } from "@/lib/maturity/model";
+import { LEVELS, LEVEL_BY_ID } from "@/lib/maturity/model";
 import { LEVEL_HEX } from "@/lib/ui";
-import { RAMP_STOPS, bandMid } from "../shared/levelRamp";
+import { AGENT_BAND, RAMP_STOPS, bandMid } from "../shared/levelRamp";
 import { TrajectoryPlaceholder } from "./TrajectoryPlaceholder";
 import { usePrefersReducedMotion, useReplayOnView } from "@/components/report/chartMotion";
 import type { LevelId } from "@/lib/types";
@@ -62,11 +71,11 @@ function ChartTip({ active, payload }: { active?: boolean; payload?: Array<{ pay
   return (
     <div className="rounded-md border border-accent/40 bg-ink/95 px-3 py-2 font-mono shadow-xl">
       <div className="flex items-center gap-2">
-        <span className="text-sm font-bold" style={{ color: LEVEL_HEX[p.level as LevelId] }}>[{p.level}]</span>
-        <span className="text-sm font-semibold text-white">{p.name}</span>
+        <span className="type-body-sm font-bold" style={{ color: LEVEL_HEX[p.level as LevelId] }}>[{p.level}]</span>
+        <span className="type-body-sm font-semibold text-white">{p.name}</span>
       </div>
-      <div className="mt-0.5 text-xs text-slate-400">ALT {p.low}–{p.high} · band</div>
-      <div className="mt-1 max-w-[15rem] font-sans text-sm text-slate-400">{p.tagline}</div>
+      <div className="mt-0.5 type-note text-slate-400">ALT {p.low}–{p.high} · band</div>
+      <div className="mt-1 max-w-[15rem] font-sans type-body-sm text-slate-400">{p.tagline}</div>
     </div>
   );
 }
@@ -101,11 +110,11 @@ export function TrajectoryChart() {
             tick={{ fill: "#475569", fontSize: 11, fontFamily: "var(--font-mono)" }}
           />
           <ReferenceLine
-            y={POSTURE_THRESHOLD}
+            y={AGENT_BAND.floor}
             stroke="var(--color-accent)"
             strokeDasharray="5 4"
             strokeOpacity={0.6}
-            label={{ value: "AI-NATIVE", position: "right", fill: "var(--color-accent-soft)", fontSize: 10, fontFamily: "var(--font-mono)" }}
+            label={{ value: AGENT_BAND.label, position: "right", fill: "var(--color-accent-soft)", fontSize: 10, fontFamily: "var(--font-mono)" }}
           />
           <Tooltip content={<ChartTip />} cursor={{ stroke: "var(--color-accent)", strokeDasharray: "3 3" }} />
           <Line

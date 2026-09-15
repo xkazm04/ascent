@@ -16,6 +16,7 @@ import { GovernanceFailReasonsCard } from "./GovernanceFailReasonsCard";
 import { GovernanceFailingReposCard } from "./GovernanceFailingReposCard";
 import { GovernanceCiCard } from "./GovernanceCiCard";
 import { EvidencePackCard } from "./EvidencePackCard";
+import { ControlTimelineCard } from "./ControlTimelineCard";
 // W3: the AI-stance prototype switcher is retired — the Perimeter is a real section below the gate
 // cards, fed by the persisted OrgAiStance + per-repo compliance from existing scan data.
 import { StanceSection } from "./stance/StanceSection";
@@ -89,14 +90,19 @@ export async function GovernancePanel({ slug, sp }: { slug: string; sp: SearchPa
       <GovernanceFailingReposCard slug={slug} g={g} />
       {/* "Cheapest path to green" (GovernanceClosestToGreenCard) sat here and was deleted 2026-08-19.
           It re-listed the failing repos the card above already lists, re-sorted. `GovernanceOverview.
-          closestToGreen` (and the greenPath walk that builds it in src/lib/org/governance.ts) is now
-          UI-less — still computed, still unit-tested, read by nothing. */}
+          closestToGreen` and the greenPath walk that built it went with the card — see the note at
+          the top of src/lib/org/governance.ts; nothing computes it any more. */}
       <GovernanceCiCard gateQuery={g.gateQuery} snippet={snippet} />
 
       {/* W2 — the evidence pack sits with the stance and the gate policy on purpose: this is where an
           org declares its review controls, so it is where it should be able to file proof they
           operated. `canEdit` is the owner check the panel already made; named evidence is owner-only. */}
-      <EvidencePackCard slug={slug} canExportNamed={canEdit} />
+      <EvidencePackCard slug={slug} canExportNamed={canEdit} sp={sp} />
+
+      {/* MOONSHOT #1 — the observation timeline sits directly BELOW the evidence pack, because it is
+          the source the pack's per-item "as of merge" environment is read from: a reader who has just
+          exported a pack and wants to see where a row's environment came from should find it here. */}
+      <ControlTimelineCard slug={slug} />
 
       <StanceSection slug={slug} canEdit={canEdit} />
     </div>

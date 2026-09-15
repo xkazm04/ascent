@@ -140,14 +140,14 @@ export function IdentityMenu({
               role="menuitem"
               tabIndex={-1} // roving focus: arrows/Home/End move focus, Tab exits the menu
               onClick={() => setOpen(false)}
-              className="block px-3 py-2 text-left text-base text-slate-300 transition hover:bg-slate-800/70 hover:text-white focus:bg-slate-800/70 focus:text-white focus:outline-none"
+              className="block px-3 py-2 text-left type-body text-slate-300 transition hover:bg-slate-800/70 hover:text-white focus:bg-slate-800/70 focus:text-white focus:outline-none"
             >
               <span className="block normal-case tracking-normal">{item.label}</span>
-              {item.hint && <span className="block text-sm text-slate-500">{item.hint}</span>}
+              {item.hint && <span className="block type-body-sm text-slate-500">{item.hint}</span>}
             </Link>
           ))}
           {signOut && (
-            <div className="mt-1 border-t border-slate-800 px-3 py-2 text-base text-slate-300">{signOut}</div>
+            <div className="mt-1 border-t border-slate-800 px-3 py-2 type-body text-slate-300">{signOut}</div>
           )}
         </div>
       )}

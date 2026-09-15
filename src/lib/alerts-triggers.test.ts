@@ -110,7 +110,21 @@ describe("buildSpendAnomalyMessage", () => {
     });
     expect(msg.text).toContain("scan spend spiked in acme");
     expect(msg.text).toContain("48 metered scans this period vs a 20 trailing average (2.4×)");
-    expect(msg.text).toContain("Estimated inference cost this period: $13.50.");
+    // MC-B32: the figure is the ALL-LANE total and the message says which lanes it covers — the
+    // digest was the last reader of the scan-lane-only number the /usage tile stopped showing.
+    expect(msg.text).toContain("Estimated inference cost this period, all lanes: $13.50.");
+  });
+
+  it("discloses the floor when calls in the period could not be priced", () => {
+    const msg = buildSpendAnomalyMessage({
+      org: "acme",
+      periodScans: 48,
+      baseline: 20,
+      ratio: 2.4,
+      estimatedCostUsd: 13.5,
+      unpricedCalls: 45,
+    });
+    expect(msg.text).toContain("all lanes: $13.50 (a floor: 45 calls could not be priced).");
   });
 
   it("says 'no prior activity' rather than dividing by zero, and omits an unpriceable cost line", () => {

@@ -55,6 +55,7 @@ vi.mock("@/lib/authz", () => ({ requireOrgRole: h.requireOrgRole }));
 
 import { POST } from "./route";
 import { AppApiError } from "@/lib/github/app"; // the mocked class — for constructing the 409 case
+import { PASSPORT_SCHEMA_URL, PASSPORT_VERSION } from "@/lib/analyze/passport";
 
 const post = (body: unknown) => new Request("http://t/api/report/passport/pr", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } });
 const passport = { passport: "app-passport", automationReadiness: { level: "L4" }, productionReadiness: { band: "beta" } };
@@ -149,7 +150,10 @@ describe("POST /api/report/passport/pr — commit", () => {
     expect((await res.json()).number).toBe(7);
     const arg = h.openDraftPr.mock.calls[0][0];
     expect(arg).toMatchObject({ owner: "acme", repo: "web", path: ".ai/passport.json" });
-    expect(arg.content).toContain("app-passport-0.2.json"); // $schema pointer
+    // The $schema pointer is DERIVED from PASSPORT_VERSION, never a literal: this test used to pin
+    // "app-passport-0.2.json" while the body said 0.4.0, which is exactly the drift it should catch.
+    expect(JSON.parse(arg.content).$schema).toBe(PASSPORT_SCHEMA_URL);
+    expect(arg.content).toContain(`app-passport-${PASSPORT_VERSION.split(".").slice(0, 2).join(".")}.json`);
     expect(arg.content).toContain('"app-passport"');
     expect(h.recordOrgAudit.mock.calls[0][0]).toBe("passport.pr_opened");
   });

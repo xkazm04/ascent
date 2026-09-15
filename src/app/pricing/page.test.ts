@@ -10,7 +10,7 @@
 // ASCENT_CONTACT_EMAIL was set and a "Learn more" → /about link when it wasn't.
 
 import { describe, it, expect } from "vitest";
-import { ctaFor } from "./page";
+import { ctaFor } from "./pricingCta";
 import { PLAN_FEATURES } from "@/lib/plans";
 
 describe("pricing CTA — plan-tier checkout reachability (G1-01)", () => {

@@ -52,16 +52,72 @@ LLM/mock cache → resolve the policy → `evaluateGate(report, policy)` → ret
 
 ```jsonc
 { "repo", "ref", "pass", "degraded", "level", "overallScore", "posture", "archetype",
-  "policy": { … }, "failures": [ … ], "engine", "confidence", "warnings" }
+  "policy": { … }, "failures": [ … ], "skipped": [ … ], "caveats": [ … ],
+  "engine", "confidence", "warnings" }
 ```
 
-### Policy precedence: params TIGHTEN, never weaken
+**A skipped criterion is announced, everywhere (2026-09-05).** Four bars can only be judged when
+their input was read: `require_protection` needs branch governance, `min_ai_governed` and
+`no_ungoverned_ai` need PR stats, `requireChecks` needs the control ledger. When the input is
+missing, `evaluateNormalized` records `skipped: [{ code, why }]` instead of silently passing, and
+the skip is rendered on every surface: the check-run summary and the sticky PR comment ("Not
+measured on this run"), the API body, the Action's `skipped` step output and its printed summary
+(on the pass path too), and the `[gate:verdict]` telemetry as per-code counts. The `policy` echo
+stays complete, with each untested bar marked "(not measured)". Two consequences worth knowing:
+on **this public endpoint** the scan runs without a token, so `require_protection`,
+`min_ai_governed` and `no_ungoverned_ai` are always skipped here and only the App-mode check run
+can enforce them; and a non-finite score is still a **failure**, never a skip. A scan whose
+governance or pull-request **sensor read failed** (today's `sensorFailures`) skips the same bars
+with "read failed" as the reason; failures of score-feeding sensors become `caveats` rather than
+skips, because a security floor on an understated D9 must still bite. `caveats[]` (the report's own
+coverage/truncation warnings, a confidence below `GATE_CONFIDENCE_FLOOR`, a partial PR slice) renders
+as "Read this verdict with caveats" above the failures on both GitHub surfaces. An incomplete scan's
+headline no longer prints a level or a score. `policySource` in telemetry now keys on an explicit
+policy parameter being present, not on any query string at all (older logs over-report "params").
 
-This endpoint is **unauthenticated by design** (CI calls it with plain `curl`), so a query
-param must never be able to relax a bar an org configured:
+**Org state resolves by tenancy (2026-09-05).** The org gate policy and the admission overlay are
+looked up through `orgSlugForRepo` (`src/lib/db/org-tenancy.ts`): the owner-login match is the fast
+path, else the `Repository` tenancy row; the shared public org and personal workspaces are never
+chosen, and when more than one real tenant tracks the repo the resolver refuses to guess and falls
+back to the owner login. A failed resolve is treated like a failed policy read (503 here, neutral
+check in App mode). The endpoint **writes nothing** but its own scan caches: the admission read is
+the non-seeding `readRepoAdmission`; the seeding reader stays with the authenticated propose /
+ruleset routes and the MCP admission tools.
+
+### Policy precedence: ONE ordered fold, every layer TIGHTENS
+
+This endpoint is **unauthenticated by design** (CI calls it with plain `curl`), so no layer may
+relax a bar an org configured. Per [`docs/resolutions/gate-as-code.md`](../../resolutions/gate-as-code.md),
+every source of gate policy produces a `GatePolicy` **and nothing else**, and the gate resolves them
+as one strictest-wins fold:
+
+```
+effective = tighten( tighten( tighten( org ?? archetype, admission ), manifest ), params )
+```
+
+The `manifest` slot is deck item #5's and is not built yet; the fold's shape reserves it so that item
+lands as a fourth layer rather than as a second precedence rule. Nothing in the chain can weaken what
+precedes it, which is the whole safety argument for reading org-scoped state on an anonymous request.
+
+**Adding a bar is four edits and never a fifth resolution path** (and, since 2026-09-05, a skip path:
+`gate-policy-sources.test.ts` holds the `GateSkip["code"]` table structurally, so a skippable criterion
+without one is a compile error): (1) the `GatePolicy` field, (2) a
+`sanitizeGatePolicy` clause, (3) a `tightenGatePolicy` rule, (4) a `describeGatePolicy` row — plus
+either an absolute input on `NormalizedGate` or an honest-null skip there.
+`src/lib/scoring/gate-policy-sources.test.ts` holds that as a table-driven structural guard typed over
+`Required<GatePolicy>`, so a field added without its four places is a compile error.
+
+The layers:
 
 - The org's **persisted** gate policy (`getOrgGatePolicy`, the same bar the App-mode Check
   Run and the governance fleet view enforce) is the baseline whenever it exists.
+- The repo's **admission** decision (moonshot #8) folds next, via `resolveAdmissionLayer`
+  (`src/lib/scoring/gate-admission.ts`) — the one IO seam, called by **both** gate surfaces so the
+  public endpoint and the merge-blocking Check Run cannot enforce different bars. Tier → floors added:
+  `T0` → `requireProtectedBranch` + `minAiGovernedRate: 100` + `forbidPostures: ["ungoverned"]`;
+  `T1` → `requireProtectedBranch` + `minAiGovernedRate: 100`; `T2` → `minAiGovernedRate: 90`;
+  `T3` and an **unassessed** tier → nothing. `mode: "blocked"` adds `forbidAiAuthorship`. A **read
+  failure** is a `503` with no verdict, exactly like the org-policy read.
 - Explicit params then merge **on top as a tighten-only overlay** (`tightenGatePolicy`):
   strictest field wins. `explicitPolicyFromParams` deliberately contributes *only* the
   fields the query names; padding the rest with archetype defaults would drag a
@@ -72,6 +128,15 @@ param must never be able to relax a bar an org configured:
 Without this, any single param (`?min_dimension=1`) replaced the whole persisted policy and
 handed an anonymous caller, or a PR author editing the workflow URL, a green verdict the
 org never configured.
+
+**The copied snippet is therefore a SNAPSHOT, and the Governance card now says so** (2026-08-31, UAT
+`PRIYA-L1-06`). `governance.ts` bakes the org's current policy into `gateQuery` / `ciWith`, and
+because the params are tighten-only, the propagation is one-directional: *raising* the org bar reaches
+every already-pasted workflow immediately, while *lowering* it never does — the pasted params keep
+enforcing the stricter number. The security reasoning is right and was never the defect; the missing
+disclosure was. The "Enforce in CI" card carries one sentence under the snippet naming the asymmetry
+and the two ways out: re-copy after relaxing the bar, or drop the parameters and let the workflow
+follow the server policy alone.
 
 A **failed read** is not "no policy configured". `getOrgGatePolicy` returns `null` *without
 throwing* for every legitimate unset case (no DB, unknown org, unset or unparseable column),
@@ -211,6 +276,33 @@ this bar. It lands where the data lives: the App-mode Check Run and the fleet go
 threads them into `evaluateGateLite`. Without that, an org setting the bar would see repos marked
 passing on the dashboard that CI blocks: the exact drift the shared evaluator exists to prevent.
 
+## Two more criteria under the same fold (moonshot #8 / #16, 2026-08-30)
+
+**`forbidAiAuthorship`** — failure code `admission`. No AI-attributed change may land at all; the
+policy fragment a repo admitted in `mode: "blocked"` compiles to. Distinct from
+`minAiGovernedRate: 100` ("AI work must be approved"): this says AI work must not be here. It shares
+the provenance criterion's fail-**open** exception and for the same reason — `aiInvolvedRate` is null
+with no token and under the PR-sample floor, and a repo with no observable AI activity must not be
+blocked by an AI policy. `evaluateGateLite` (whose rollup row carries no PR stats) skips it always
+rather than letting the fleet view condemn what the CI gate would clear. It has **no query param and
+no Action input**: admission is a decision an org records, never something a caller requests.
+
+**`requireChecks: string[]`** — failure code `control`. Doctor check ids that must not be reported
+FAILING by the repository's own conformance run. **Union**-merged, exactly like `forbidPostures`, so
+a layer can add a required control and never drop one. Three honest-null skips, all meaning "the
+measurement was never due": no ledger at all, a check the latest report did not name (`unchecked` is
+a *result*, not a pass and not a failure), or a report that named it `unchecked`. Only an explicit
+`fail` fails the gate. The ledger is read (`loadCheckStates`) **only when the effective policy names
+a check**, so an ordinary gate call pays no extra query; a ledger read failure returns null (a skip),
+because `requireChecks` fails a repo for its *own* reported failure and an unreadable ledger cannot
+name one.
+
+The verdict body gains `admission: { mode, tier, source }` when a row applied — **omitted entirely**
+(not nulled) when none did, so a repo with no admission decision produces a byte-identical response to
+the one this endpoint returned before the layer existed. `logGateVerdict` records the same triple as
+its own field: `policySource` says which *layer* set the bar, `admission` says why *this* repository
+got that layer's stricter form.
+
 ## Verdict telemetry
 
 Every produced verdict, from both the API endpoint and the App Check Run, emits one queryable
@@ -266,6 +358,44 @@ Non-D9 floors render into `policyText` and the PR-comment footer but carry **no*
 persisted policy as its baseline on every call, so the CI snippet does not need to restate
 them and a param could not weaken them anyway.
 
+### The form replaces only what it renders
+
+The Governance editor **round-trips every `GatePolicy` field it does not show**. `buildPolicy()`
+starts from `passthroughPolicyFields(stored)` — the stored policy minus `EDITED_POLICY_FIELDS` — and
+overwrites only the six bars the form actually renders, so `requireChecks`, `minAiGovernedRate` and
+`forbidAiAuthorship` survive a save byte-identical. The carried copy is re-seeded from the server's
+**echo** on every save, never from the request, so it cannot drift from what is stored.
+
+This was live-proven broken (UAT 2026-08-30, `NADIA-L1-07` / `PRIYA-L1-01`): an owner set two
+required controls, changed **Min overall 50 → 55**, and the controls were gone. The payload was
+assembled field by field and the POST replaces wholesale, so every unrendered bar was collateral on
+every save — of a *merge-blocking* control that the Active-policy summary was printing read-only six
+rows above the form.
+
+The fix is round-trip and deliberately **not** a merging POST: a POST that merged the submitted
+subset could never *clear* a field, so unchecking "Require a protected default branch" would silently
+stop working. The form owns exactly what it shows. **When a field gains a control, add it to
+`EDITED_POLICY_FIELDS` in the same change** — otherwise the editor would show it *and* stash a stale
+copy, and the stash would win. Pinned by `GatePolicyEditor.roundtrip.test.tsx`.
+
+### A write that drops a bar says so
+
+`diffGatePolicy` (`src/lib/scoring/gate-diff.ts`) compares the stored policy before and after every
+write, field by field, in `describeGatePolicy`'s own wording, and:
+
+- appends the losses to the audit row's human-readable `status`
+  (`min L3 · min overall 55 — dropped required controls (Reported controls must not be failing: …)`),
+  with the structured list under `changes`;
+- returns the removals to the caller as `dropped`, which the editor surfaces as
+  *"Policy saved — but this save also REMOVED …"*.
+
+Both halves exist because the editor's own reconciliation (`droppedFields`) compares its **request**
+against the echo and is therefore structurally blind to a field it never sent. Only the server holds
+both policies. Before this, the save that deleted two required controls wrote an audit row naming
+them **only** under `previousPolicy` — a field nobody diffs — while `status` read clean. The form is
+no longer a writer that can lose a bar, but it is not the only writer (the admission overlay, the
+API, a future editor), and a control that can vanish without the log saying so is not a control.
+
 ### The audit row
 
 Every save writes an `org.gate_policy` audit row carrying **the bar itself**, not just that it
@@ -302,10 +432,13 @@ all, so the new bar simply applies on each PR's next push or CI run.
 | --- | --- |
 | `src/app/api/gate/[owner]/[repo]/route.ts` | Gate endpoint: score → resolve policy → 200/422/503. |
 | `src/lib/scoring/gate.ts` | `evaluateGate()`, `explicitPolicyFromParams()`, `policyFromParams()`, `tightenGatePolicy()`, `describeGatePolicy()`, `sanitizeGatePolicy()`. |
+| `src/lib/scoring/gate-admission.ts` | `resolveAdmissionLayer()` / `loadCheckStates()`: the one IO seam both gate surfaces read the admission row and the conformance ledger through. |
+| `src/lib/org/admission.ts` | `compileStance()` / `admissionGateOverlay()`: the pure tier → tighten-only fragment. |
 | `src/lib/scoring/gate-comment.ts` | `buildGateComment()`: check title/summary + PR comment markdown. |
 | `src/lib/github/pr-gate.ts` | `runPrGate()`: the shared Check Run + sticky comment writer. |
 | `src/lib/github/checks.ts` | `createCheckRun()`, `upsertStickyComment()`. |
-| `src/app/api/org/gate-policy/route.ts` | Persist the org bar (owner-gated) + sweep open PRs. |
+| `src/app/api/org/gate-policy/route.ts` | Persist the org bar (owner-gated) + sweep open PRs; diff the write and name what it dropped. |
+| `src/lib/scoring/gate-diff.ts` | Field-level diff of a policy write, in `describeGatePolicy`'s wording — the audit `status` clause and the editor's removal warning. |
 | `src/features/standing/governance/GatePolicyEditor.tsx` | The owner's policy form, incl. when the bar applies. |
 | `src/features/standing/governance/DimensionFloorRows.tsx` | Per-dimension floors (D1–D8) in that form. |
 | `src/app/badge/gate-snippets.ts` | The public `/badge` curl + workflow snippets, from one policy. |
@@ -316,9 +449,28 @@ all, so the new bar simply applies on each PR's next push or CI run.
 
 ## Known gaps
 
+- (Closed 2026-08-30, moonshot #8.) ~~`policyFromParams` drops `minAiGovernedRate` on the
+  no-org-policy path.~~ It hand-listed six fields and omitted the seventh, so `?min_ai_governed=90`
+  parsed correctly and was then discarded — the strictest bar in the product, silently inert on every
+  deployment with no persisted org bar (self-hosted, DB-less, and every org that never set one). It is
+  now written as an explicit-wins spread over the whole object so the next field cannot repeat it, and
+  `gate-policy-sources.test.ts` asserts every field `explicitPolicyFromParams` can parse survives.
+- **`requireChecks` has no editor CONTROL yet.** It is a real `GatePolicy` field with all four places
+  and is enforced whenever it appears in a persisted org policy — but the Governance form offers no
+  input for it, so today it can only be *set* by writing `Organization.gatePolicy` directly (or by
+  `POST /api/org/gate-policy`). The evaluator half is what #16 needed; the input is not built.
+  Scoped: the *destructive* half of this gap closed 2026-08-31 — a stored `requireChecks` is rendered
+  read-only in the Active-policy summary, round-trips untouched through every save, and any write that
+  does drop it is named in the audit row and in the editor's own message (see "The form replaces only
+  what it renders" and "A write that drops a bar says so").
 - The gate API scores via **mock** by default; pass `?mock=0` / `live: true` for an
   LLM-scored verdict (slower, needs a key, and a provider outage then surfaces as a `503`
-  rather than a silent floor score).
+  rather than a silent floor score). **That inference is not debited** (there is no org to
+  charge on an anonymous endpoint; the only cost control is the shared scan rate limit). It is
+  measured, though: the scan persists under the shared public org, so it is visible and priceable as
+  that org's scan lane on `/usage`. Deliberately free, documented rather than built (2026-09-05).
+- `action.yml` declares no `skipped` output yet, although the CLI now emits one; a consumer
+  reading it from `$GITHUB_OUTPUT` works today, a typed `outputs:` entry is owed.
 - The policy-change sweep is a **courtesy**, not a guarantee: PRs past the 25-repo / 20-PR
   cap pick the new bar up on their next push or a manual "Re-run".
 - Sticky-comment lookup scans forward with a 50-page (5000-comment) safety ceiling; the

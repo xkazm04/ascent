@@ -355,3 +355,104 @@ describe("App inventory — additive only, never lowers a score", () => {
     );
   });
 });
+
+describe("computeSecurityChecks — worktree mode (the loop's rescan)", () => {
+  const wf = [{ path: ".github/workflows/ci.yml", content: "on: [push]\npermissions:\n  contents: read\n" }];
+
+  it("CARRIED GitHub inputs reproduce the observed reading and say where it came from", () => {
+    const observed = computeSecurityChecks(snap(wf), gov(), { advisoryCount: 0, advisoryCapped: false, orgSecurityPolicy: true }, null, inv("github-code-scanning"));
+    const carried = computeSecurityChecks(snap(wf), gov(), { advisoryCount: 0, advisoryCapped: false, orgSecurityPolicy: true }, null, inv("github-code-scanning"), {
+      platformUnobservable: true,
+      provenance: "GitHub-side reading carried from scan scan_1",
+    });
+    expect(carried.d9).toBe(observed.d9);
+    for (const c of observed.checks) expect(get(carried, c.id).score).toBe(c.score);
+    expect(get(carried, "sast").evidence).toContain("carried from scan scan_1");
+    expect(get(carried, "security-policy").evidence).toContain("carried from scan scan_1");
+    // A purely file-scored check is not decorated: nothing GitHub-side went into it.
+    expect(get(carried, "token-permissions").evidence).not.toContain("carried");
+  });
+
+  it("with NOTHING to carry, a 0 that only GitHub could refute is EXCLUDED, not scored", () => {
+    const blind = computeSecurityChecks(snap(wf), null, null, null, null, { platformUnobservable: true });
+    expect(get(blind, "sast").score).toBeNull();
+    expect(get(blind, "dependency-updates").score).toBeNull();
+    expect(get(blind, "security-policy").score).toBeNull();
+    expect(get(blind, "sast").evidence).toContain("not measurable from a worktree");
+    // File-observable checks still score — the workflow IS on disk.
+    expect(get(blind, "token-permissions").score).toBe(10);
+    // The same snapshot on an ordinary anonymous scan keeps its zeros: absence of a token is not a worktree.
+    const anon = computeSecurityChecks(snap(wf), null, null, null, null);
+    expect(get(anon, "sast").score).toBe(0);
+  });
+
+  it("a file-evidenced control keeps its score in worktree mode — only a refutable 0 is excluded", () => {
+    const files = [...wf, { path: ".github/dependabot.yml", content: "version: 2" }, { path: "SECURITY.md", content: "report" }];
+    const blind = computeSecurityChecks(snap(files), null, null, null, null, { platformUnobservable: true });
+    expect(get(blind, "dependency-updates").score).toBe(10);
+    expect(get(blind, "security-policy").score).toBe(10);
+  });
+});
+
+describe("computeSecurityChecks — a FAILED sensor read is unknown, never zero", () => {
+  const wf = [{ path: ".github/workflows/ci.yml", content: "on: [push]\npermissions:\n  contents: read\n" }];
+
+  it("a failed securityPosture read EXCLUDES the security-policy check instead of publishing 'no SECURITY.md'", () => {
+    // The bug: the posture read throws, ingest degrades it to null, and securityPolicy() reports
+    // `score: 0 — No security policy (SECURITY.md) found` with a remediation, for an org whose
+    // .github/SECURITY.md the read would have found (the score-8 branch).
+    const failed = computeSecurityChecks(snap(wf), gov(), null, null, null, { failedSensors: ["securityPosture"] });
+    const check = get(failed, "security-policy");
+    expect(check.score).toBeNull();
+    expect(check.evidence).toContain("not observable: securityPosture read failed");
+    expect(check.remediation).toBeUndefined();
+    // Excluded from the blend, not folded in as a zero.
+    expect(failed.checks.filter((c) => c.group === "posture" && c.score !== null)).not.toContainEqual(
+      expect.objectContaining({ id: "security-policy" }),
+    );
+  });
+
+  it("a failed appInventory read EXCLUDES sast + dependency-updates (the inventory's own null contract)", () => {
+    const failed = computeSecurityChecks(snap(wf), gov(), null, null, null, { failedSensors: ["appInventory"] });
+    expect(get(failed, "sast").score).toBeNull();
+    expect(get(failed, "dependency-updates").score).toBeNull();
+    expect(get(failed, "sast").evidence).toContain("not observable: appInventory read failed");
+    // Not a blanket blind-out: the file-scored checks are untouched.
+    expect(get(failed, "token-permissions").score).toBe(10);
+    expect(get(failed, "security-policy").score).toBe(0);
+  });
+
+  it("a sensor that RAN and found nothing scores exactly as today", () => {
+    const ran = computeSecurityChecks(snap(wf), gov(), null, null, null);
+    const alsoRan = computeSecurityChecks(snap(wf), gov(), null, null, null, { failedSensors: [] });
+    expect(alsoRan.d9).toBe(ran.d9);
+    for (const c of ran.checks) expect(get(alsoRan, c.id).score).toBe(c.score);
+    expect(get(ran, "sast").score).toBe(0);
+  });
+
+  it("real file evidence survives a failed sensor — only an unrefuted 0 is excluded", () => {
+    const files = [...wf, { path: ".github/dependabot.yml", content: "version: 2" }, { path: "SECURITY.md", content: "report" }];
+    const failed = computeSecurityChecks(snap(files), gov(), null, null, null, {
+      failedSensors: ["appInventory", "securityPosture"],
+    });
+    expect(get(failed, "dependency-updates").score).toBe(10);
+    expect(get(failed, "security-policy").score).toBe(10);
+  });
+
+  it("excluding a check RAISES the posture mean rather than dragging it — the whole point", () => {
+    const asAbsence = computeSecurityChecks(snap(wf), gov(), null, null, null);
+    const asUnknown = computeSecurityChecks(snap(wf), gov(), null, null, null, {
+      failedSensors: ["appInventory", "securityPosture"],
+    });
+    expect(asUnknown.posture).toBeGreaterThan(asAbsence.posture);
+  });
+
+  it("worktree mode still wins its own wording when both claims apply", () => {
+    const blind = computeSecurityChecks(snap(wf), null, null, null, null, {
+      platformUnobservable: true,
+      failedSensors: ["appInventory"],
+    });
+    expect(get(blind, "sast").score).toBeNull();
+    expect(get(blind, "sast").evidence).toContain("not measurable from a worktree");
+  });
+});

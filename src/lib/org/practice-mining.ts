@@ -22,7 +22,8 @@
 // suggestion an engineer cannot audit is a suggestion they are entitled to ignore.
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 
-import { PRACTICES } from "@/lib/practices";
+import { ALL_PRACTICES } from "@/lib/practices";
+import { contentDigest } from "@/lib/registry/parse";
 import type { RepoPracticeShape } from "@/lib/analyze/practice-shape";
 
 /** A repo's shape plus the score that decides whether it is an exemplar for a given dimension. */
@@ -108,7 +109,11 @@ function agreed(perRepo: Map<string, string[]>, min: number): MinedLine[] {
  * — the honest answer when an org has one strong repo, since one repo's document is not a standard.
  */
 export function minePracticeShapes(sources: ShapeSource[]): MinedPractice[] {
-  return PRACTICES.map((p) => {
+  // The FULL catalog: mining answers "what could this org offer here", and a practice a surface may
+  // offer but the miner never returns is one the house pattern can never reach. Every consumer looks
+  // its practice up by id or filters on `offerable`, so a catalog entry no repo carries a shape for
+  // simply mines an empty, non-offerable row — the same honest answer a young org already gets.
+  return ALL_PRACTICES.map((p) => {
     const withShape = sources.filter((s) => s.shape.entries.some((e) => e.practiceId === p.id));
     const exemplars = withShape.filter((s) => (s.dims[p.dimId] ?? 0) >= EXEMPLAR_FLOOR);
     const gapRepos = sources
@@ -158,4 +163,20 @@ export function minedStarter(m: MinedPractice): string[] | null {
   const paths = m.layout.map((l) => l.text);
   const out = [...lines, ...paths];
   return out.length ? out : null;
+}
+
+/**
+ * MOONSHOT #33 — the CHANGE KEY for a mined house pattern. Pure.
+ *
+ * `HousePatternVersion` is versioned rather than overwritten because an adoption row cites the version
+ * it was measured against: re-mining must not retroactively turn every previously-conformant repo into
+ * a drifted one. This hash decides whether a re-mine is a NEW version at all — an identical mine writes
+ * no row, so a nightly rescan of an unchanged fleet cannot manufacture v2, v3, v4…
+ *
+ * Taken over the JSON array rather than a joined string, so a line containing the separator cannot
+ * collide with two lines that do not. Order is significant on purpose: `minedStarter` emits
+ * most-agreed-first, and a reordered pattern IS a different document to put in front of an engineer.
+ */
+export function patternHash(lines: string[]): string {
+  return contentDigest(JSON.stringify(lines));
 }

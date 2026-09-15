@@ -51,11 +51,10 @@ export function RepoSegmentsPanel({
       {/* Titled "Create & tag", not "Segments": this card now leads the Segments view, where the
           rollup strip below it owns the plain "Segment maturity" heading. Two sections both called
           "Segments" on one screen said nothing about which one does what. */}
-      <SectionHeader
-        size="sm"
-        title="Create & tag"
-        description="Group repos into named slices (platform, mobile, legacy…). Tags scope the Overview filter and power segment-vs-segment comparison."
-      />
+      {/* §2.3 — a header is a noun phrase. What a segment IS and what tagging buys is the argument a
+          reader needs when they have none, so it lives in the view's empty state (SegmentsSection)
+          rather than permanently above a populated manager. */}
+      <SectionHeader size="sm" title="Create & tag" />
 
       {/* Existing segments + create */}
       <SegmentChips segments={p.segments} startEdit={p.startEdit} onDeleteRequest={p.setPendingDeleteId} />
@@ -103,7 +102,7 @@ export function RepoSegmentsPanel({
       )}
 
       <CreateSegmentRow color={p.color} setColor={p.setColor} name={p.name} setName={p.setName} createSegment={p.createSegment} busy={p.busy} />
-      {p.error && <p role="alert" aria-live="polite" className="mt-2 text-sm text-orange-300">{p.error}</p>}
+      {p.error && <p role="alert" aria-live="polite" className="mt-2 type-body-sm text-orange-300">{p.error}</p>}
 
       {/* Per-repo tagging */}
       {p.segments.length > 0 && (

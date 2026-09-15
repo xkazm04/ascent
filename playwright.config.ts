@@ -18,6 +18,11 @@ const BASE = REMOTE || `http://localhost:${PORT}`;
 
 export default defineConfig({
   testDir: "./e2e",
+  // e2e/loop is the LOCAL-MODE loop suite and has its own config (playwright.loop.config.ts): it
+  // needs a reachable database, a declared ASCENT_LOCAL_ORG and ASCENT_AUTOPILOT — all three of which
+  // this config deliberately does not provide. Left in ./e2e so `e2e/` stays the one home for
+  // browser tests; ignored here so `npx playwright test` keeps meaning "the public-funnel suite".
+  testIgnore: ["loop/**"],
   timeout: 120_000,
   expect: { timeout: 15_000 },
   fullyParallel: false,

@@ -89,7 +89,7 @@ export function BriefingShareButton({
         <span aria-hidden>↗</span> {state === "copied" ? "Link copied" : state === "working" ? "Creating…" : "Share read-only link"}
       </button>
       {msg && (
-        <span className={`font-mono text-sm ${state === "error" ? "text-orange-300" : state === "manual" ? "text-amber-300" : "text-emerald-300"}`}>
+        <span className={`type-mono-sm ${state === "error" ? "text-orange-300" : state === "manual" ? "text-amber-300" : "text-emerald-300"}`}>
           {msg}
         </span>
       )}
@@ -99,7 +99,7 @@ export function BriefingShareButton({
           value={shareUrl}
           aria-label="Read-only briefing link, copy manually"
           onFocus={(e) => e.currentTarget.select()}
-          className="w-72 max-w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-sm text-slate-200"
+          className="w-72 max-w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1 type-mono-sm text-slate-200"
         />
       )}
     </span>

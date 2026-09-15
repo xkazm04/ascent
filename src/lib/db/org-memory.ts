@@ -69,6 +69,12 @@ export interface MemoryInput {
 export interface MemoryListOpts {
   namespace?: string;
   kind?: string;
+  /** Exact PROVENANCE filter (moonshot #14): "" / undefined = every source. The Memory tab's Source
+   *  select binds to this so a reader can separate what a colleague claimed from what the pipeline
+   *  observed from what a repo's own agents wrote — the anti-poisoning control made browsable. Exact,
+   *  not a search: `source` is a stamped constant, and a `contains` would let "repo-memory" match a
+   *  human's free-text source line. */
+  source?: string;
   search?: string;
   sort?: MemorySort;
   /** Include rows a correction replaced. Off by default (design doc §7.4). */
@@ -205,6 +211,10 @@ export async function listOrgMemories(
   if (isMemoryKind(opts.kind)) where.kind = opts.kind;
   const ns = opts.namespace?.trim();
   if (ns) where.namespace = ns;
+  const src = opts.source?.trim();
+  // AND-ed into the same `where` as everything else, so it composes with visibilityScope rather than
+  // widening it — a source filter must never surface another author's private scratch.
+  if (src) where.source = src;
 
   const rows = await prisma.orgMemory.findMany({
     where,
@@ -218,8 +228,17 @@ export async function listOrgMemories(
  * The distinct namespaces an org has used, for the filter dropdown. Cheap (indexed on
  * [orgId, namespace]) and scoped to non-archived, current rows so a dropdown never offers a value
  * that matches nothing. [] when off / unknown org.
+ *
+ * VIEWER-SCOPED, like every other read here. Without `visibilityScope` this returned namespaces used
+ * ONLY by other authors' private memories: the rows stayed protected, but the namespace — a name
+ * somebody chose, and often the most revealing part of a private note — was offered to every member
+ * in the filter dropdown. It also offered a filter that then matched nothing for them, because
+ * `listOrgMemories` (which the same page calls in the same Promise.all) IS scoped.
  */
-export async function listOrgMemoryNamespaces(orgSlug: string): Promise<string[]> {
+export async function listOrgMemoryNamespaces(
+  orgSlug: string,
+  viewerLogin?: string | null,
+): Promise<string[]> {
   if (!isDbConfigured()) return [];
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({
@@ -228,7 +247,13 @@ export async function listOrgMemoryNamespaces(orgSlug: string): Promise<string[]
   });
   if (!org) return [];
   const rows = await prisma.orgMemory.findMany({
-    where: { orgId: org.id, archived: false, supersededBy: null, namespace: { not: null } },
+    where: {
+      orgId: org.id,
+      archived: false,
+      supersededBy: null,
+      namespace: { not: null },
+      AND: [visibilityScope(viewerLogin)],
+    },
     select: { namespace: true },
     distinct: ["namespace"],
   });

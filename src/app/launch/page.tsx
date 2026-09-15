@@ -30,8 +30,8 @@ export default async function LaunchPage({
 }) {
   const { next: nextParam } = await searchParams;
   // Re-validate the carried-along destination (defense in depth — the value rode in on a
-  // query param) and default to the connect dashboard.
-  const next = safeNext(nextParam, "/connect");
+  // query param) and default to the onboarding page.
+  const next = safeNext(nextParam, "/onboarding");
   // This page was UNREACHABLE in production. It read the dormant custom-OAuth session, which is never
   // minted under the Supabase wall, so `!session` was always true — and the guard inside it then read
   // `if (!isAuthConfigured()) redirect("/connect")`, which is also always true. Every visitor, signed in
@@ -46,8 +46,8 @@ export default async function LaunchPage({
             "Skip to content" link no-ops on this sign-in prompt — a WCAG 2.4.1 bypass-blocks failure.
             (The signed-in view's landmark lives on FleetMap's own <main>.) */}
         <main id="main" className="mx-auto w-full max-w-3xl px-5 py-10">
-          <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">Mission Control</div>
-          <h1 className="mt-1 text-2xl font-bold text-white">Your engineering fleet awaits</h1>
+          <div className="type-mono-sm uppercase tracking-[0.3em] text-accent">Mission Control</div>
+          <h1 className="mt-1 type-heading font-bold text-white">Your engineering fleet awaits</h1>
           <p className="mt-2 max-w-xl text-slate-400">
             Sign in to chart your orgs and repositories as a living star-map of engineering maturity.
           </p>
@@ -62,7 +62,7 @@ export default async function LaunchPage({
   // Signed in (or auth-off) but nothing installed: this entrance has nothing to map, so send the visitor
   // where they can install the App. Same intent as the original redirect — it just now depends on the
   // actual fleet rather than on a session object that production never creates.
-  if (!installations.length) redirect("/connect");
+  if (!installations.length) redirect("/onboarding");
 
   const viewerName = await viewerDisplayName();
 

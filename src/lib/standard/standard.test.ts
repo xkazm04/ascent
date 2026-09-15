@@ -16,6 +16,8 @@ import {
   buildMaintain,
   buildFoundation,
 } from "./index";
+import { readManifestYaml } from "./read";
+import { isKnownCheckId, isValidCheckId, slugSubject } from "./check-ids";
 import { buildOnboardingSkill } from "@/lib/onboarding/skill";
 import type { GeneratedFile } from "./types";
 import { levelForScore } from "@/lib/maturity/model";
@@ -84,6 +86,87 @@ describe("ai-manifest", () => {
     expect(d.paths.guardrails).toBe(".ai/guardrails.yaml");
     expect(d.paths.evals).toBeUndefined();
     expect(serializeManifestYaml(d)).not.toMatch(/^\s+evals:/m);
+  });
+
+  // The extended language families (Ruby, PHP, the JVM three, Swift, Dart, Elixir) all carry
+  // `ci: "generic"` so the exhaustive `Record<LangCommands["ci"], …>` maps keep compiling — which
+  // silently collapsed every one of them onto the generic row of BOTH maps in manifest.ts. Measured
+  // before the fix: 6 of 10 sampled languages emitted a placeholder provenance and a prePush control
+  // no capability could ever back. Both halves are pinned here because both were invisible: the
+  // manifest still serialized, the doctor still ran, and every existing assertion stayed green.
+  describe("extended language families are not collapsed onto the generic row", () => {
+    const REAL_SOURCE_FILE: [string, string][] = [
+      ["Ruby", "Gemfile"], ["PHP", "composer.json"], ["Java", "pom.xml"],
+      ["Kotlin", "build.gradle"], ["Scala", "build.sbt"], ["Swift", "Package.swift"],
+      ["Dart", "pubspec.yaml"], ["Elixir", "mix.exs"],
+    ];
+
+    it("records the family's REAL build manifest as provenance, not a <placeholder>", () => {
+      for (const [lang, file] of REAL_SOURCE_FILE) {
+        const d = buildManifestData(makeReport(lang));
+        expect(d.generatedFrom, lang).toEqual([file]);
+        expect(d.generatedFrom[0], lang).not.toMatch(/<.*>/);
+      }
+    });
+
+    it("keeps the placeholder ONLY where the build manifest is genuinely unknowable", () => {
+      // C#'s project file is repo-specific (*.sln / *.csproj) and an unrecognized language has none.
+      for (const lang of ["C#", "Brainfuck"]) {
+        expect(buildManifestData(makeReport(lang)).generatedFrom, lang).toEqual(["<your build manifest>"]);
+      }
+    });
+
+    it("never declares a prePush control this language has no way to back", () => {
+      for (const lang of ["TypeScript", "Python", "Go", "Rust", ...REAL_SOURCE_FILE.map(([l]) => l), "C#"]) {
+        const d = buildManifestData(makeReport(lang));
+        const unbacked = d.controls.prePush.filter((c) => !(c in d.capabilities));
+        // scan-secrets is the ONE intentional gap: no capability backs it, and an onboarding track
+        // closes it by adding the hook. typecheck must never join it — no track can supply one.
+        expect(unbacked, lang).toEqual(["scan-secrets"]);
+      }
+    });
+
+    it("still lists typecheck pre-push for every family that HAS one", () => {
+      for (const lang of ["TypeScript", "Python", "Go", "Rust"]) {
+        expect(buildManifestData(makeReport(lang)).controls.prePush, lang).toEqual([
+          "lint", "typecheck", "scan-secrets",
+        ]);
+      }
+      expect(buildManifestData(makeReport("Ruby")).controls.prePush).toEqual(["lint", "scan-secrets"]);
+    });
+  });
+
+  // The manifest promises "an arbitrary tool must be able to read it", so the serialized form has to
+  // survive a real YAML parser — not only the doctor's regex reader, which treats every value as text
+  // and therefore could never have caught this. GitHub allows a repository to be named `on`, `No`,
+  // `true` or `1.0`; emitted bare, a YAML 1.1 parser reads those as a boolean or a number.
+  describe("YAML-ambiguous scalars are quoted", () => {
+    const AMBIGUOUS = ["on", "No", "yes", "n", "true", "FALSE", "off", "null", "~", "123", "1.0", "0x1f"];
+
+    it("quotes a repo name a YAML parser would not read as a string", () => {
+      for (const name of AMBIGUOUS) {
+        const r = makeReport();
+        r.repo.name = name;
+        const yaml = serializeManifestYaml(buildManifestData(r));
+        expect(yaml, name).toContain(`  name: ${JSON.stringify(name)}`);
+        expect(yaml, name).not.toContain(`  name: ${name}\n`);
+      }
+    });
+
+    it("leaves ordinary tokens bare, so the common manifest is unchanged and diff-friendly", () => {
+      const yaml = serializeManifestYaml(buildManifestData(makeReport()));
+      expect(yaml).toContain("  name: api");
+      expect(yaml).toContain("spec: .ai/SPEC.md");
+      expect(yaml).toContain("  memory: .ai/memory/");
+      expect(yaml).toContain("prePush: [lint, typecheck, scan-secrets]");
+    });
+
+    it("the doctor reads a quoted value back as the original string", () => {
+      const r = makeReport();
+      r.repo.name = "on";
+      const yaml = serializeManifestYaml(buildManifestData(r));
+      expect(loadDoctorParsers().sub(yaml, "name")).toBe("on");
+    });
   });
 
   it("points `spec` at the copy that SHIPS with the foundation, not a path inside Ascent's repo", () => {
@@ -178,7 +261,6 @@ function loadDoctorWired(): (hookText: string, alias: string) => boolean {
   const start = body.indexOf("function wired(");
   const end = body.indexOf("\nfunction kv(", start);
   if (start < 0 || end < 0) throw new Error("doctor wired() helper not found in emitted source");
-  // eslint-disable-next-line @typescript-eslint/no-implied-eval
   return new Function(body.slice(start, end) + "\nreturn wired;")() as (h: string, a: string) => boolean;
 }
 
@@ -277,7 +359,6 @@ function loadPushLineParser(): (stdin: string) => { localSha: string; remoteSha:
   const start = body.indexOf("function parsePushLines(");
   const end = body.indexOf("\nfunction rangeFor(", start);
   if (start < 0 || end < 0) throw new Error("maintain parsePushLines() not found in emitted source");
-  // eslint-disable-next-line @typescript-eslint/no-implied-eval
   return new Function(body.slice(start, end) + "\nreturn parsePushLines;")();
 }
 
@@ -388,7 +469,6 @@ function loadDoctorParsers(): {
   const body = buildDoctor().body;
   const src = FN_ORDER.map((n) => extractFn(body, n)).join("\n\n");
   // The four parsers reference only each other / built-ins, so they are self-contained.
-  // eslint-disable-next-line @typescript-eslint/no-implied-eval
   const factory = new Function(src + "\nreturn { kv, sub, flow, capabilities };");
   return factory();
 }
@@ -528,6 +608,117 @@ describe("manifest <-> doctor round-trip", () => {
     const yaml = serializeManifestYaml(data);
     const repoBlock = (yaml.split(/\nrepo:\n/)[1] || "").split(/\n[a-z]/i)[0];
     expect(parsers.sub(repoBlock, "purpose")).toBe("Billing: API, v2 (prod)");
+  });
+});
+
+// #13 — REGENERATION over a repo that already declares a contract. The whole point is that running
+// the generator a second time is never a downgrade: the maintainer's corrected commands, the doctor's
+// proven flags, and the answers they wrote into the TODO seeds all survive. Without this, "re-run the
+// onboarding skill" silently reverted a repo's contract to Ascent's guesses.
+// #16 — the doctor's findings are the fleet's control telemetry, so their IDS are a contract. The
+// template embeds the vocabulary as literals (it can neither import nor be imported), which is
+// exactly the shape that drifts silently; these assertions are what makes that impossible.
+describe("doctor check ids (the vocabulary the ledger keys on)", () => {
+  const body = buildDoctor().body;
+
+  it("every add()/check() call site carries an id — no two-argument add survives", () => {
+    // A two-arg `add('warn', '…')` means a finding with no id, which lands in the ledger as an
+    // unkeyable row. Before this change EVERY call site had that shape, so this assertion is the
+    // proof the conversion is complete rather than partial.
+    const twoArg = body.match(/\badd\('(pass|warn|fail|unchecked)'/g) ?? [];
+    expect(twoArg).toEqual([]);
+    // …and the definitions themselves take the id first.
+    expect(body).toContain("const add = (check, level, msg) =>");
+    expect(body).toContain("const check = (checkId, ok, label, miss) =>");
+  });
+
+  it("every literal id in the template is in the shared vocabulary", () => {
+    const ids = [...body.matchAll(/\b(?:add|check)\('([a-z][a-z0-9.-]*)'/g)].map((m) => m[1]!);
+    expect(ids.length).toBeGreaterThan(15);
+    for (const id of ids) {
+      // A templated id appears in the source as its PREFIX (`'capability.' + slug(n)`), so complete
+      // it with a stand-in subject before checking the wire shape.
+      const full = id.endsWith(".") ? id + "x" : id;
+      expect(isValidCheckId(full)).toBe(true);
+      expect(isKnownCheckId(full)).toBe(true);
+    }
+  });
+
+  it("the doctor's own slug() agrees with the shared slugSubject()", () => {
+    const m = /const slug = \((.*?)\) => (.*?);\n/.exec(body);
+    expect(m).toBeTruthy();
+    const slug = new Function("return (" + m![0].replace(/^const slug = /, "").replace(/;\n$/, "") + ")")() as (s: string) => string;
+    for (const sample of ["test", "Next.js Build", "src/generated/CONTEXT.md", "<your build manifest>", "scan-secrets", "a".repeat(150)])
+      expect(slug(sample)).toBe(slugSubject(sample));
+  });
+
+  it("the template still contains NO backtick and NO ${ — it must embed verbatim", () => {
+    expect(body).not.toContain("`");
+    expect(body).not.toContain("${");
+  });
+});
+
+describe("buildManifestData(report, { observed }) — the repo's own contract wins", () => {
+  /** A manifest a maintainer has tuned and a `--run` doctor has proven, read back. */
+  const tuned = () =>
+    readManifestYaml(
+      serializeManifestYaml({
+        ...buildManifestData(makeReport("TypeScript")),
+        repo: { ...buildManifestData(makeReport("TypeScript")).repo, purpose: "Ledger service for billing" },
+        capabilities: {
+          test: { command: "pnpm vitest run --project unit", verified: true },
+          lint: { command: "pnpm lint", verified: false },
+          build: { command: "pnpm build", verified: false },
+          typecheck: { command: "pnpm tsc -b", verified: true },
+          fuzz: { command: "pnpm fuzz", verified: false },
+        },
+        boundaries: { neverTouch: ["src/generated/"], secretsFrom: "1Password: engineering vault" },
+        agents: [{ id: "primary", kind: "cli", entrypoint: "make agent" }],
+        controls: { prePush: ["lint", "typecheck"], ciHardPass: ["test", "fuzz"] },
+      }),
+    );
+
+  it("with NO observed readout, the output is byte-identical to today's generator", () => {
+    const report = makeReport("Python");
+    expect(serializeManifestYaml(buildManifestData(report, { observed: null }))).toBe(
+      serializeManifestYaml(buildManifestData(report)),
+    );
+    // An unreadable readout carries no intent, so it must degrade to the same first-install output.
+    expect(serializeManifestYaml(buildManifestData(report, { observed: readManifestYaml("garbage") }))).toBe(
+      serializeManifestYaml(buildManifestData(report)),
+    );
+  });
+
+  it("the maintainer's commands beat the language guess, and a PROVEN verified flag survives", () => {
+    const d = buildManifestData(makeReport("TypeScript"), { observed: tuned() });
+    expect(d.capabilities.test!.command).toBe("pnpm vitest run --project unit");
+    expect(d.capabilities.test!.verified).toBe(true);
+    expect(d.capabilities.typecheck!.verified).toBe(true);
+    expect(d.capabilities.lint!.verified).toBe(false);
+    // A capability the repo invented is carried, not deleted — the map is open by contract.
+    expect(d.capabilities.fuzz!.command).toBe("pnpm fuzz");
+  });
+
+  it("hand-edited TODO seeds (purpose, secretsFrom, neverTouch, agents) are NOT regressed", () => {
+    const d = buildManifestData(makeReport("TypeScript"), { observed: tuned() });
+    expect(d.repo.purpose).toBe("Ledger service for billing");
+    expect(d.boundaries.secretsFrom).toBe("1Password: engineering vault");
+    expect(d.boundaries.neverTouch).toEqual(["src/generated/"]);
+    expect(d.agents).toEqual([{ id: "primary", kind: "cli", entrypoint: "make agent" }]);
+    // …and a TUNED control split is a decision, so it replaces the recommendation wholesale.
+    expect(d.controls).toEqual({ prePush: ["lint", "typecheck"], ciHardPass: ["test", "fuzz"] });
+  });
+
+  it("regeneration is a fixed point: read(serialize(build(observed))) equals what was observed", () => {
+    const first = tuned();
+    const again = readManifestYaml(serializeManifestYaml(buildManifestData(makeReport("TypeScript"), { observed: first })));
+    // Key ORDER is the generator's (build/test/lint/typecheck, then the repo's own), so the fixed
+    // point is over the set, not the sequence — a re-ordered map is the same contract.
+    const byName = (r: typeof first) => [...r.capabilities].sort((a, b) => a.name.localeCompare(b.name));
+    expect(byName(again)).toEqual(byName(first));
+    expect(again.controls).toEqual(first.controls);
+    expect(again.boundaries).toEqual(first.boundaries);
+    expect(again.purpose).toBe(first.purpose);
   });
 });
 
@@ -768,6 +959,44 @@ describe("doctor execution gate (score + exit code against fixture repos)", () =
     expect(runDoctor(tmp).json.findings.some((f) => f.level === "pass" && /declared path evals/.test(f.msg))).toBe(true);
   });
 
+  // Check 5 is drift detection, and it used to `continue` past any generatedFrom entry that wasn't on
+  // disk. Two very different situations landed in that silence: an unfilled `<placeholder>` (the field
+  // was never populated, so drift detection is not merely uncheckable — it does not exist), and a
+  // named file the repo does not have (the provenance is wrong). Both looked identical to a manifest
+  // whose provenance was checked and fresh. The capability check already treats the same `<...>`
+  // marker as a warn; this brings the sibling field in line.
+  it("an UNFILLED <placeholder> provenance warns instead of being skipped in silence", () => {
+    writeFreshInstall(tmp);
+    const manifestPath = join(tmp, ".ai", "manifest.yaml");
+    const before = runDoctor(tmp).json;
+    expect(before.findings.some((f) => /generatedFrom/.test(f.msg))).toBe(false);
+
+    const withPlaceholder = readFileSync(manifestPath, "utf8").replace(
+      /^generatedFrom: .*$/m,
+      'generatedFrom: ["<your build manifest>"]',
+    );
+    expect(withPlaceholder).toContain("<your build manifest>"); // the edit actually applied
+    writeFileSync(manifestPath, withPlaceholder, "utf8");
+
+    const json = runDoctor(tmp).json;
+    expect(json.findings.some((f) => f.level === "warn" && /generatedFrom is still a placeholder/.test(f.msg))).toBe(true);
+  });
+
+  it("a NAMED provenance file that is merely absent stays silent (a monorepo keeps it in a subdir)", () => {
+    // The counterpart to the case above, pinned so the placeholder warn is never widened into one
+    // that fires on fresh installs. The generator emits a repo-ROOT name; a repo whose build manifest
+    // lives one directory down is not misconfigured, and a warn it cannot act on is the exact noise
+    // the evals pointer and the <run tests> placeholders were removed for.
+    writeFreshInstall(tmp);
+    const manifestPath = join(tmp, ".ai", "manifest.yaml");
+    writeFileSync(
+      manifestPath,
+      readFileSync(manifestPath, "utf8").replace(/^generatedFrom: .*$/m, "generatedFrom: [Gemfile]"),
+      "utf8",
+    );
+    expect(runDoctor(tmp).json.findings.some((f) => /Gemfile/.test(f.msg))).toBe(false);
+  });
+
   it("--run writes the verify outcome back into manifest.yaml: pass → verified: true, fail → verified: false", () => {
     // The contract three docs promise (doctor banner, manifest comment, Capability type): `verified`
     // is a claim the doctor's --run flips to the ACTUAL run outcome. Before this write-back existed,
@@ -807,7 +1036,7 @@ describe("doctor execution gate (score + exit code against fixture repos)", () =
     // ignores. Anything else appearing here is contract drift.
     writeConformantRepo(tmp);
     const { json } = runDoctor(tmp);
-    expect(Object.keys(json).sort()).toEqual(["fails", "findings", "reportSkipped", "score", "scored", "unchecked", "warns"]);
+    expect(Object.keys(json).sort()).toEqual(["fails", "findings", "reportSkipped", "runShape", "score", "scored", "specVersion", "unchecked", "warns"]);
     expect(typeof json.score).toBe("number");
     expect(typeof json.fails).toBe("number");
     expect(typeof json.warns).toBe("number");
@@ -819,6 +1048,10 @@ describe("doctor execution gate (score + exit code against fixture repos)", () =
     for (const f of json.findings) {
       expect(["pass", "warn", "fail", "unchecked"]).toContain(f.level);
       expect(typeof f.msg).toBe("string");
+      // #16 — every finding also carries a STABLE id, so a receiver can follow one clause across
+      // runs and rewordings instead of keying on the rendered sentence.
+      expect(typeof f.check).toBe("string");
+      expect(isValidCheckId(f.check)).toBe(true);
     }
     // The reported counts agree with the findings array (the numbers the route trusts are derived,
     // not free-floating).
@@ -1053,7 +1286,6 @@ function loadMaintainNoteLogic(): {
   expect(body).toContain("String((ids.length ? Math.max(...ids) : 0) + 1).padStart(4, '0')");
   expect(body).toContain("text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'note'");
 
-  // eslint-disable-next-line @typescript-eslint/no-implied-eval
   const factory = new Function(
     "return {\n" +
       "  nextId: (files) => { const ids = " + idMapFilter + "; return " + idNext + "; },\n" +

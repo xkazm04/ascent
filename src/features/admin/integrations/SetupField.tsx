@@ -20,7 +20,7 @@ export function CopyButton({ text }: { text: string }) {
           /* clipboard blocked — no-op */
         }
       }}
-      className="focus-ring shrink-0 rounded border border-divider px-2 py-1 font-mono text-xs text-slate-400 transition hover:border-accent hover:text-white"
+      className="focus-ring shrink-0 rounded border border-divider px-2 py-1 type-caption text-slate-400 transition hover:border-accent hover:text-white"
     >
       {/* aria-live so the Copy→Copied transition is announced to screen-reader users. */}
       <span aria-live="polite">{done ? "Copied" : "Copy"}</span>
@@ -48,9 +48,9 @@ export function Field({
 }) {
   return (
     <div>
-      <div className="font-mono text-xs uppercase tracking-widest text-slate-500">{label}</div>
+      <div className="type-label tracking-widest text-slate-500">{label}</div>
       <div className="mt-1 flex items-center gap-2 rounded-lg border border-divider bg-surface-strong/60 px-2.5 py-1.5">
-        <code className={`flex-1 truncate text-slate-200 ${mono ? "font-mono text-xs" : "text-sm"}`}>{value}</code>
+        <code className={`flex-1 truncate text-slate-200 ${mono ? "type-caption" : "type-body-sm"}`}>{value}</code>
         {children}
         <CopyButton text={copyText ?? value} />
       </div>

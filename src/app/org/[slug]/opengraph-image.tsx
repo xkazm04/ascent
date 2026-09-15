@@ -48,7 +48,11 @@ export default async function Image({ params }: { params: Promise<{ slug: string
     }
   })();
 
-  if (summary && summary.repoCount > 0) {
+  // `avgOverall !== null`, not `repoCount > 0`: the average excludes mock placeholders (mirroring the
+  // Overview badge), so an all-mock fleet has NO average and gets the fallback card, never a 0/100.
+  // Read off the average itself rather than `realScoredCount`, its denominator, now that it can be
+  // absent — and the check narrows it for the two `levelForScore` calls in the card below.
+  if (summary && summary.repoCount > 0 && summary.avgOverall !== null) {
     const levelId = levelForScore(summary.avgOverall).id as LevelId;
     const accent = LEVEL_HEX[levelId] ?? BRAND_ACCENT;
     const maxPosture = Math.max(1, ...POSTURES.map((p) => summary.postureCounts[p.id] ?? 0));

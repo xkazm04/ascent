@@ -4,7 +4,13 @@
 // blobs are artifacts, and how do we read one without letting a 40MB "skill" or a 20k-file repo
 // blow the request budget. That makes it directly testable from a fixture tree.
 
-import { parseFullName, REGISTRY_DIRS, REGISTRY_PRACTICE_FILE, REGISTRY_SKILL_FILE } from "./layout";
+import {
+  parseFullName,
+  REGISTRY_DIRS,
+  REGISTRY_KNOWLEDGE_DIR,
+  REGISTRY_PRACTICE_FILE,
+  REGISTRY_SKILL_FILE,
+} from "./layout";
 import {
   MAX_FILE_BYTES,
   MAX_INDEXED_FILES,
@@ -13,11 +19,18 @@ import {
   type RegistryTree,
   type RegistryTreeEntry,
 } from "./read";
+import { isBundleTaxonomy } from "./taxonomy";
 
 /** The two GitHub reads the indexer needs, injectable so tests never touch the network. */
 export interface RegistrySource {
   readTree(branch: string): Promise<RegistryTree>;
   readBlob(entry: RegistryTreeEntry): Promise<string | null>;
+  /**
+   * The installation token the source reads with, when it has one. A successful index pass chains
+   * the fleet's conformance sweep through it (the fleet repos sit under the same installation as
+   * the registry). A source without one — every test fixture — indexes and does not sweep.
+   */
+  token?: string;
 }
 
 /** The default source: the installation-token GitHub read layer in ./read. */
@@ -27,6 +40,7 @@ export function githubSource(token: string, fullName: string): RegistrySource {
   return {
     readTree: (branch) => readRegistryTree(token, ref.owner, ref.repo, branch),
     readBlob: (entry) => readBlob(token, ref.owner, ref.repo, entry.sha),
+    token,
   };
 }
 
@@ -71,7 +85,20 @@ export const isUsageFile = (path: string): boolean => {
  */
 export const isBundleIndex = (path: string): boolean => {
   const parts = path.split("/");
-  return parts.length === 3 && parts[0] === "knowledge" && parts[2] === "index.json";
+  return parts.length === 3 && parts[0] === REGISTRY_KNOWLEDGE_DIR && parts[2] === "index.json";
+};
+
+/**
+ * `signals/<contributor>.json` — one file per contributing installation, exactly like `usage/`.
+ *
+ * Same shape rule for the same reason: one level deep and `.json` only, so a README or a nested
+ * stray in the lane is never mistaken for a contribution. What the file may CONTAIN is the lane's
+ * own contract (counts, never a repo name or a `file:line`) and is enforced where it is written and
+ * where it is parsed — this only decides what to fetch.
+ */
+export const isSignalsFile = (path: string): boolean => {
+  const parts = path.split("/");
+  return parts.length === 2 && parts[0] === REGISTRY_DIRS.signals && parts[1]!.endsWith(".json");
 };
 
 /** Lesson entries are `## <version> - <date> - <project>` headings; the count is the lane's depth. */
@@ -87,6 +114,10 @@ export interface SelectedArtifacts {
   usage: RegistryTreeEntry[];
   /** One generated index per knowledge bundle — see `isBundleIndex`. */
   bundles: RegistryTreeEntry[];
+  /** One `taxonomy.json` per bundle — the category tree with titles. See `isBundleTaxonomy`. */
+  taxonomies: RegistryTreeEntry[];
+  /** Contributed corpus signals — see `isSignalsFile`. Empty until someone contributes. */
+  signals: RegistryTreeEntry[];
 }
 
 /**
@@ -112,7 +143,9 @@ export function selectArtifacts(tree: RegistryTree, warnings: string[]): Selecte
     practices: take((p) => isArtifact(p, REGISTRY_DIRS.practices, REGISTRY_PRACTICE_FILE), "practices"),
     memory: take(isMemoryNote, "memory"),
     usage: take(isUsageFile, "usage"),
-    bundles: take(isBundleIndex, "knowledge"),
+    bundles: take(isBundleIndex, REGISTRY_KNOWLEDGE_DIR),
+    taxonomies: take(isBundleTaxonomy, `${REGISTRY_KNOWLEDGE_DIR}/taxonomy`),
+    signals: take(isSignalsFile, REGISTRY_DIRS.signals),
   };
 }
 

@@ -29,9 +29,19 @@ import { getIngestTokenEpoch } from "@/lib/db/integrations";
  */
 export const MAX_BODY = 1_000_000;
 
+/**
+ * Absent → the derived default (a supported posture, silent). Present-but-unparseable → refuse at
+ * module load, naming the variable and value: a mistyped ceiling that silently reverts to the
+ * default un-tunes a limit the operator believes they set, and nothing on the surface ever says so.
+ */
 function envInt(name: string, fallback: number): number {
-  const n = Number(process.env[name]);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+  const raw = process.env[name]?.trim();
+  if (!raw) return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) {
+    throw new Error(`[ingest-guard] ${name} is set but not a positive integer (got ${JSON.stringify(raw)}); fix or unset it.`);
+  }
+  return Math.floor(n);
 }
 
 /**

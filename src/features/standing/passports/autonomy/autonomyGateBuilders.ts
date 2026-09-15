@@ -7,6 +7,10 @@ import type { AppPassport } from "@/lib/types";
 
 import { CI_RANK, SEC_RANK, TEST_RANK, hashUnit, statusOf, type AutonomyGate } from "./autonomyGates";
 
+// The context gate lives in its own file (200-LOC cap under src/features/**) and is re-exported here
+// so `deriveAutonomy` keeps one import surface for all five gates.
+export { contextGate } from "./autonomyContextGate";
+
 export function testsGate(pp: AppPassport): AutonomyGate {
   const t = pp.productionReadiness.tests;
   const sv = pp.automationReadiness.selfVerify;
@@ -105,39 +109,6 @@ export function sandboxGate(pp: AppPassport): AutonomyGate {
         : "Give the agent a disposable environment it can break without consequence.",
     source: "derived",
     gatesTier: 2,
-  };
-}
-
-/** ⚠️ PART SCAN, PART MOCK. Presence of AGENTS.md/CLAUDE.md, the context graph, the manifest and
- *  memory/skills grades ARE observed. FRESHNESS (the research's sharpest finding — quality over
- *  presence) is NOT: the scan records no "last edited vs repo change rate" for context files. */
-export function contextGate(pp: AppPassport, conformance: number | null, key: string): AutonomyGate {
-  const a = pp.automationReadiness.artifacts;
-  const files = a.agentInstructions.length;
-  const graph = a.contextGraph === "full" ? 25 : a.contextGraph === "partial" ? 12 : 0;
-  const grade = (g: string) => (g === "governed" ? 12 : g === "curated" ? 8 : g === "adhoc" ? 4 : 0);
-  const observed = Math.min(100, Math.min(30, files * 15) + graph + (a.manifest ? 10 : 0) + grade(a.memory) + grade(a.skills) + (conformance != null ? Math.round(conformance * 0.11) : 0));
-  // MOCK: staleness penalty. Replace with a real freshness signal (see DATA_MODEL_GAPS).
-  const staleDays = Math.round(hashUnit(key + ":ctx") * 210);
-  const stalePenalty = files === 0 ? 0 : Math.min(25, Math.floor(staleDays / 12));
-  const score = Math.round(Math.max(0, observed - stalePenalty));
-  return {
-    id: "context",
-    label: "Context contract",
-    short: "AGENTS",
-    status: statusOf(score),
-    score,
-    evidence: `${files ? a.agentInstructions.join(", ") : "no AGENTS.md / CLAUDE.md"} · ${a.contextGraph} context graph${
-      a.manifest ? " · .ai manifest" : ""
-    } · last touched ~${staleDays}d ago (mock)`,
-    action:
-      files === 0
-        ? "Write a human-curated AGENTS.md. LLM-generated context files measurably hurt."
-        : stalePenalty > 12
-          ? "Refresh the context file; it has drifted behind the repo's change rate."
-          : "Deepen the context graph so an unattended run starts oriented.",
-    source: files === 0 ? "scan" : "mock",
-    gatesTier: 3,
   };
 }
 

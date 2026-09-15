@@ -38,7 +38,7 @@ export function BillingReturnNotice({
       // Payment-outcome feedback must be announced: status (polite) for the reassuring pending case,
       // alert for the failed checkout.
       role={pending ? "status" : "alert"}
-      className={`flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm ${
+      className={`flex items-start justify-between gap-3 rounded-xl border px-4 py-3 type-body-sm ${
         pending
           ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
           : "border-danger/40 bg-danger/10 text-danger-soft"
@@ -61,7 +61,7 @@ export function BillingReturnNotice({
         type="button"
         onClick={dismiss}
         aria-label="Dismiss billing notice"
-        className={`focus-ring shrink-0 rounded-md border px-2 py-0.5 text-xs transition ${
+        className={`focus-ring shrink-0 rounded-md border px-2 py-0.5 type-note transition ${
           pending
             ? "border-emerald-500/40 hover:border-emerald-300 hover:text-white"
             : "border-danger/40 hover:border-danger hover:text-white"

@@ -37,7 +37,7 @@ export function TriageControls({
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Find a repo…"
         aria-label="Filter repositories by name"
-        className="w-40 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 text-sm text-slate-200 placeholder:text-slate-600"
+        className="w-40 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 type-body-sm text-slate-200 placeholder:text-slate-600"
       />
       <div className="flex items-center gap-1">
         {LEVEL_BANDS.map((b) => {
@@ -52,7 +52,7 @@ export function TriageControls({
               // reader announces only the punctuation. Give it a real accessible name (the glyph
               // stays decorative); L1–L5 already read fine but labelling them is harmless.
               aria-label={b === "unscanned" ? "unscanned" : b}
-              className={`rounded-md border px-2 py-0.5 font-mono text-sm transition ${
+              className={`rounded-md border px-2 py-0.5 type-mono-sm transition ${
                 on ? "border-accent bg-accent/15 text-white" : "border-slate-700 text-slate-400 hover:text-white"
               }`}
             >
@@ -61,16 +61,16 @@ export function TriageControls({
           );
         })}
       </div>
-      <label className="flex items-center gap-1.5 font-mono text-sm text-slate-400">
+      <label className="flex items-center gap-1.5 type-mono-sm text-slate-400">
         <input type="checkbox" checked={watchedOnly} onChange={(e) => setWatchedOnly(e.target.checked)} className="accent-accent" />
         watched only
       </label>
-      <label className="ml-auto flex items-center gap-1.5 font-mono text-sm text-slate-500">
+      <label className="ml-auto flex items-center gap-1.5 type-mono-sm text-slate-500">
         sort
         <select
           value={sortKey}
           onChange={(e) => setSortKey(e.target.value as SortKey)}
-          className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-sm text-slate-200"
+          className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 type-mono-sm text-slate-200"
         >
           {SORTS.map((s) => (
             <option key={s.key} value={s.key}>
@@ -89,7 +89,7 @@ export function TriageControls({
           <span
             role="status"
             aria-live="polite"
-            className={`font-mono text-sm tabular-nums ${
+            className={`type-mono-sm tabular-nums ${
               matchCount.matched === 0 ? "text-amber-400/80" : "text-slate-400"
             }`}
           >
@@ -100,7 +100,7 @@ export function TriageControls({
           <button
             type="button"
             onClick={onClear}
-            className="font-mono text-sm text-slate-500 hover:text-white"
+            className="type-mono-sm text-slate-500 hover:text-white"
           >
             clear
           </button>

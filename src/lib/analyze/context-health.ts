@@ -20,8 +20,28 @@ export const CONTEXT_HEALTH_VERSION = "1";
 // The agent-instruction files the D1 detector already recognizes as primary guidance (mirrors
 // pickFilesToFetch step 0 in src/lib/github/source.ts, minus the multi-file .cursor/rules/ dir —
 // freshness lookups are budgeted per FILE, so only single-file guidance artifacts qualify).
-const GUIDANCE_PATH_RE =
+export const GUIDANCE_PATH_RE =
   /((^|\/)(claude\.md|agents?\.md|agent\.md|\.cursorrules|\.windsurfrules)|^\.github\/copilot-instructions\.md)$/i;
+
+/** Multi-file rules DIRECTORIES, which the single-file regex above deliberately excludes (freshness
+ *  lookups are budgeted per file). The guidance arbiter reads them; the freshness read does not. */
+const GUIDANCE_DIR_RE = /^(\.cursor\/rules\/.+\.mdc?|\.windsurf\/rules\/.+\.mdc?|\.github\/instructions\/.+\.md)$/i;
+
+/**
+ * Every path this build treats as an agent INSTRUCTION DOCUMENT.
+ *
+ * Lives here, beside the regex it extends, rather than in `guidance-graph.ts` — that module reaches
+ * `node:crypto` (through the projection header) and `scoring/engine.ts`, which needs this predicate,
+ * is imported by client components. A pure path question must not drag a Node built-in across the
+ * client boundary; `tsc` and the unit suite both stay green when it does, and only `next build`
+ * catches it. Keeping the predicate crypto-free is what makes that impossible to reintroduce.
+ *
+ * A tool CONFIG (`.aider.conf.yml`, an MCP server list) is deliberately not one: it is not a
+ * competing copy of the same document.
+ */
+export function isGuidancePath(path: string): boolean {
+  return GUIDANCE_PATH_RE.test(path) || GUIDANCE_DIR_RE.test(path);
+}
 
 /** How many guidance files the health read covers (== the freshness-lookup budget in source.ts). */
 export const MAX_GUIDANCE_FILES = 3;

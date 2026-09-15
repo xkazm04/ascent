@@ -72,9 +72,15 @@
         "src/lib/github/**",
         "src/lib/viewer-installations.ts",
         "src/app/api/app/**",
-        "src/app/connect/**",
-        "src/components/connect/**",
-        "src/lib/db/installations.ts"
+        "src/lib/db/installations.ts",
+        "src/lib/github/admission-write.ts"
+      ]
+    },
+    {
+      "area": "github",
+      "doc": "docs/features/github/forges.md",
+      "sourceGlobs": [
+        "src/lib/forge/**"
       ]
     },
     {
@@ -85,7 +91,8 @@
         "src/app/onboarding/**",
         "src/lib/onboarding/**",
         "src/app/launch/**",
-        "src/components/launch/**"
+        "src/components/launch/**",
+        "src/app/api/report/foundation/**"
       ]
     },
     {
@@ -94,7 +101,8 @@
       "sourceGlobs": [
         "src/lib/standard/**",
         "src/app/api/report/skill/**",
-        "src/app/api/report/foundation/**"
+        "src/app/api/report/foundation/**",
+        "src/app/api/report/conformance/**"
       ]
     },
     {
@@ -107,7 +115,8 @@
         "src/app/api/org/alerts/**",
         "src/app/api/cron/digest/**",
         "src/lib/email/**",
-        "src/app/api/email/**"
+        "src/app/api/email/**",
+        "src/lib/db/alert-events.ts"
       ]
     },
     {
@@ -121,7 +130,11 @@
         "src/lib/db/org-watch.ts",
         "src/app/api/org/import/**",
         "src/app/api/org/repos/**",
-        "src/app/api/org/scan/**"
+        "src/app/api/org/scan/**",
+        "src/lib/scan-probe*.ts",
+        "src/lib/scan-queue-worker.ts",
+        "src/lib/db/scan-jobs.ts",
+        "src/app/api/cron/probe/**"
       ]
     },
     {
@@ -129,7 +142,8 @@
       "doc": "docs/features/data/retention.md",
       "sourceGlobs": [
         "src/app/api/cron/purge/**",
-        "src/lib/db/retention.ts"
+        "src/lib/db/retention.ts",
+        "src/lib/db/scan-digest*.ts"
       ]
     },
     {
@@ -143,7 +157,9 @@
         "src/features/shared/practices/**",
         "src/lib/org/governance.ts",
         "src/lib/org/adoption.ts",
-        "src/lib/org/playbook-apply.ts"
+        "src/lib/org/playbook-apply.ts",
+        "src/lib/db/practice-adoption.ts",
+        "src/lib/db/house-pattern-versions.ts"
       ]
     },
     {
@@ -157,6 +173,11 @@
         "src/features/standing/security/**",
         "src/features/admin/integrations/**",
         "src/features/bought/delivery/**",
+        "src/features/bought/contributors/**",
+        "src/features/bought/teams/**",
+        "src/features/standing/adoption/**",
+        "src/features/admin/members/**",
+        "src/features/admin/settings/**",
         "src/features/standing/tech-stacks/**",
         "src/lib/org/**",
         "src/lib/db/org-rollup.ts",
@@ -168,7 +189,14 @@
         "src/app/api/org/invites/**",
         "src/app/api/org/ai-stance/**",
         "src/features/standing/governance/stance/**",
-        "src/features/standing/governance/GovernancePanel.tsx"
+        "src/features/standing/governance/GovernancePanel.tsx",
+        "src/lib/controls/**",
+        "src/lib/conformance/**",
+        "src/app/api/org/conformance-pack/**",
+        "src/app/api/org/controls/**",
+        "src/features/standing/governance/**",
+        "src/lib/org/admission*.ts",
+        "src/app/api/org/admission/**"
       ]
     },
     {
@@ -178,7 +206,10 @@
         "src/lib/org/followups.ts",
         "src/components/org/followups/**",
         "src/app/api/org/followups/**",
-        "src/app/api/org/backlog/**"
+        "src/app/api/org/backlog/**",
+        "src/lib/db/followup-claims.ts",
+        "src/lib/mcp/work-tools.ts",
+        "scripts/ascent-work.mjs"
       ]
     },
     {
@@ -216,11 +247,17 @@
         "src/lib/live-share.ts",
         "src/lib/briefing-share.ts",
         "src/features/bought/executive/**",
+        "src/features/bought/digest/**",
+        "src/lib/org/digest*.ts",
+        "src/lib/db/org-followups-week.ts",
         "src/app/api/org/goals/**",
         "src/app/api/org/playbooks/**",
         "src/app/api/org/briefing/**",
         "src/app/api/org/ops/**",
-        "src/app/api/org/live-share/**"
+        "src/app/api/org/live-share/**",
+        "src/lib/db/improvement-events.ts",
+        "src/lib/db/org-impact.ts",
+        "src/lib/db/org-program.ts"
       ]
     },
     {
@@ -234,7 +271,15 @@
         "src/lib/local/loop-worktree.ts",
         "src/lib/db/loop-runs*.ts",
         "src/lib/db/loop-tenancy.ts",
-        "src/lib/scan-stage.ts"
+        "src/lib/scan-stage.ts",
+        "src/lib/local/agent.ts",
+        "src/lib/local/agent-envelope.ts",
+        "src/lib/local/lane-*.ts",
+        "src/lib/local/loop-pr.ts",
+        "src/lib/local/drive.ts",
+        "src/lib/org/lane-brief.ts",
+        "src/lib/db/lane-*.ts",
+        "src/lib/db/loop-*.ts"
       ]
     },
     {
@@ -245,9 +290,10 @@
         "src/lib/db/org-memory.ts",
         "src/lib/db/org-memory-lifecycle.ts",
         "src/lib/org/memory-kinds.ts",
-        "src/features/shared/memory/Memory*.tsx",
-        "src/features/shared/memory/memoryCheck.ts",
-        "src/app/api/org/memory/**"
+        "src/features/shared/memory/**",
+        "src/app/api/org/memory/**",
+        "src/lib/db/repo-memory.ts",
+        "src/lib/memory/repo-memory-mirror.ts"
       ]
     },
     {
@@ -262,7 +308,9 @@
         "src/app/api/org/skills/**",
         "src/app/api/org/tokens/**",
         "src/lib/mcp/**",
-        "src/app/api/mcp/**"
+        "src/app/api/mcp/**",
+        "src/lib/db/org-skill-usage-samples.ts",
+        "src/lib/db/org-memory-citations.ts"
       ]
     },
     {
@@ -293,7 +341,10 @@
         "src/app/api/report/**",
         "src/app/api/history/**",
         "src/lib/register/**",
-        "src/app/scorecard/**"
+        "src/app/scorecard/**",
+        "src/lib/outcomes/**",
+        "src/lib/db/outcomes.ts",
+        "src/lib/corpus/**"
       ]
     },
     {
@@ -319,26 +370,14 @@
       "area": "billing",
       "doc": "docs/features/billing/usage.md",
       "sourceGlobs": [
-        "src/lib/db/usage.ts",
         "src/app/api/usage/**",
         "src/app/usage/**",
         "src/components/usage/**",
         "src/lib/rate-limit*.ts",
         "src/lib/public-scan-quota.ts",
-        "src/components/QuotaMeter.tsx"
-      ]
-    },
-    {
-      "area": "billing",
-      "doc": "docs/features/billing/badge.md",
-      "sourceGlobs": [
-        "src/app/api/badge/**",
-        "src/app/badge/**",
-        "src/components/badge/**",
-        "src/lib/badge.ts",
-        "src/lib/db/badge-analytics.ts",
-        "src/lib/badge-svg.ts",
-        "src/app/api/scorecard/**"
+        "src/components/QuotaMeter.tsx",
+        "src/lib/db/usage*.ts",
+        "src/lib/llm/meter.ts"
       ]
     },
     {
@@ -383,6 +422,29 @@
         "src/components/org/followups/LocalRescanButton.tsx",
         "src/features/inflight/live/AutopilotBand.tsx",
         "src/features/inflight/live/AutopilotBandParts.tsx"
+      ]
+    },
+    {
+      "area": "org-knowledge",
+      "doc": "docs/features/org-knowledge/knowledge-base.md",
+      "sourceGlobs": [
+        "src/features/shared/knowledge/**",
+        "src/lib/org/knowledge-*.ts",
+        "src/lib/registry/absence.ts",
+        "src/lib/registry/conformance-fold.ts",
+        "src/lib/registry/conformance-foundation.ts",
+        "src/lib/registry/taxonomy.ts",
+        "src/lib/registry/dispatch-*.ts",
+        "src/lib/db/org-registry-dispatch.ts",
+        "src/app/api/org/[slug]/registry/dispatch/**"
+      ]
+    },
+    {
+      "area": "org-knowledge",
+      "doc": "docs/features/org-knowledge/surfaces.md",
+      "sourceGlobs": [
+        "src/features/shared/surfaces/**",
+        "src/lib/org/surface-*.ts"
       ]
     }
   ]

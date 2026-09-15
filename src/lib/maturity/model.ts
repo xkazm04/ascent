@@ -93,8 +93,113 @@ import type {
 // r10 (2026-08-26): the assessment prompt gained CRAFT ENTRIES — one `kind: "craft"` roadmap entry
 // per dimension at/above the follow-up floor with no gap, so a strong score still gets told what
 // would make it exemplary. No weight, band, blend or detector moved; the bump is for the changed
-// model input (the r6 precedent). Craft entries never feed a score, a follow-up batch or debt.
-export const SCORING_RUBRIC_VERSION = "r10";
+// model input (the r6 precedent). Craft entries never feed a score or debt — and, UNDER r10 ONLY,
+// never a follow-up batch either. That last clause was superseded by r12; see below.
+// r11 (2026-08-30): D1 stopped counting FORMATS and started scoring COHERENCE (moonshot #15). The
+// five instruction-document formats used to sum on presence alone (CLAUDE.md 22 + AGENTS.md 16 +
+// Cursor 14 + Copilot 14 + Windsurf 10 = 76), so a repo with four MUTUALLY CONTRADICTING copies
+// outscored a repo with one document that is actually true — the rubric rewarded the worse repo.
+// They now collapse into one 22-point award plus round(18 × coherence/100), where coherence is the
+// guidance arbiter's deterministic, itemized read across every format (analyze/guidance-graph.ts),
+// and content quality is graded on the CANONICAL document rather than on whichever file matched
+// first. D1 also JOINED CLAIM_SCORED_DIMENSIONS, which removes its guardband blend entirely: the
+// model's D1 number is recorded and ignored, and its judgment reaches the score only through
+// citations the verifier confirms against guidance files the arbiter actually found. D1 is therefore
+// fully reproducible. Scores move on every repo with more than one guidance format; a repo with one
+// document is unchanged at the floor (22, the same the old rule paid for one file). Separately, the
+// +4 "Manifest declares capabilities + control placement" award became REACHABLE in wave 1 when the
+// fetch list started requesting `.ai/manifest.yaml` — a second, independent reason r10 numbers are
+// not comparable with r11 ones. No weight, band or blend constant moved.
+// r12 (2026-08-30): THE CRAFT LADDER — craft entries became DISPATCHABLE WORK, and r10's sentence
+// "craft entries never feed a follow-up batch" is corrected above rather than deleted, because it was
+// true of r10 and the history is the point of this log. What r10 shipped was a dead end: the model
+// was asked for a craft entry, the parser accepted it, the column stored it, and then nothing could
+// ever read it — so the moment a repository's last gap closed, `openBatch` returned nothing, no lane
+// could arm, and a team that had done everything the rubric asks was handed silence. Improvement has
+// no ceiling; the loop had one.
+//   • `openBatch` now falls back to the craft ladder when a repo has NO open gap follow-up. Gaps
+//     always outrank craft, so a repo with a single open gap gets a byte-identical batch to r11's.
+//   • Craft entries carry a `craftAxis` (architecture | performance | robustness | design |
+//     security-depth | dx — src/lib/scoring/craft.ts), the loop's craft lane ranks by the axis with
+//     the fewest BUILT rungs, and the prompt renders a per-repo CRAFT ALREADY BUILT block so each
+//     entry is the next RUNG rather than the same suggestion again.
+//   • A per-repo craft LEDGER (`getCraftLedger`) counts completed rungs by axis. It only ever
+//     increases — the honest metric for work with no completion state.
+// WHAT DID NOT MOVE, AND MUST NOT: no weight, band, blend, guardband, detector or dimension score
+// changed, and craft touches NONE of them. A craft row is excluded BY CONSTRUCTION from every debt
+// and finding query (getOrgBacklog, getOrgRecommendations, org-nav-counts, personal-backlog,
+// improvement triage — each says so at its `where`), from alerts, and from the gate. The ledger feeds
+// the prompt and the lane's ranking and nothing else; `craft-ledger.score.test.ts` asserts a
+// completed rung leaves the score untouched. The bump is for the CHANGED MODEL INPUT — the sharpened
+// craft instruction, the axis requirement and the ladder block — which is the r6/r10 precedent: a
+// cached r11 scan's roadmap would not agree with what a fresh one produces.
+// r13 (2026-08-31): THE WORKFLOW RESERVE — D4's claim-scored half stopped being a lottery. The
+// diagnosis first, because the fix is small and the fix is not the point:
+//   A 21-run campaign on two repos that BOTH have real agentic review (review workflows wired into
+//   `check:ci`, merge-blocking rules, dispatch workflows) never converged. `kp` oscillated 10/20 and
+//   `systedo-case` 50/65/85, with signalScore 10 on all 34 readings. The artifacts
+//   (docs/harness/campaign/run-*.json) name the cause exactly: across every reading the model cited
+//   eight distinct paths — CLAUDE.md, AGENTS.md, .claude/CLAUDE.md, package.json, ruff.toml,
+//   .github/dependabot.yml, .github/CODEOWNERS, commits — and NOT ONE was a workflow file. Four of
+//   D4's seven facets (automated_review, review_teeth, autofix, agent_dispatch) have nowhere else in
+//   a normal repo to be cited from.
+//   The reason was not the facet contract and not the platform fold. `pickFilesToFetch` gives
+//   `.github/workflows/*` a reserved FETCH quota and then ranks them last for the PROMPT; the prompt
+//   window holds ~10 excerpts and workflows sort past position 40, so the model was shown zero
+//   workflow files while being told (by the prompt's own claims example) to cite
+//   `.github/workflows/review.yml`. The Node repo reached 65 by quoting its `package.json` scripts;
+//   the Python repo, same machinery, no package.json to describe it, sat at 10-20 and once evidenced
+//   `autofix` by quoting a COMMENT IN `ruff.toml` that mentions `autofix.yml`. Whether a
+//   front-ranked file happened to describe the automation was the coin flip; `observed`'s
+//   `requiresAny` then doubled each swing by dropping 15 more points whenever the mechanism missed.
+//   • `buildFileExcerptBlock` (scoring/prompt.ts) now holds 3 × PER_FILE of the window for CI
+//     workflows before filling the rest in fetch-rank order. Admission is reordered; EMISSION is not,
+//     so a scan that was not already dropping files produces a byte-identical prompt.
+//   • Cross-dimension claim rejections (`not-this-dimension`) are no longer rendered as evidence:
+//     since D1 joined the claim-scored set in r11, each dimension rejected the other's claims and
+//     printed them on its card as verification failures. Display only; no score moved.
+// WHAT MOVED: D4 on any repo whose automation is evidenced in a workflow file rather than in a
+// front-ranked manifest — upward, and toward the same number on every run. Nothing else: no weight,
+// band, blend, guardband, threshold, facet, point value or detector changed, and the rubric-surface
+// hash is unchanged because the SYSTEM prompt is unchanged (this is the USER prompt's file window,
+// the same class as a detector table — see the note above, which requires a bump for those too).
+// WHAT DELIBERATELY DID NOT HAPPEN: D4 was NOT excluded and renormalised the way the D9 battery
+// excludes a check it cannot refute. That hatch is for a dimension a reading genuinely cannot
+// measure; D4's base is a file scan of `.github/workflows/*`, which a worktree reads as well as
+// GitHub does. Only the ADDITIVE platform fold (installed AI-review Apps, r7) is unobservable
+// locally, and that is a withheld bonus, not a floor presented as a measurement —
+// `scoreIntegrity.unmeasuredDims` already discloses it. Excluding a measurable dimension would
+// inflate every local score, which is the opposite failure.
+// r14 (2026-08-31, MC-B8a): the prompt's roadmap contract gained the optional `firstStep` field —
+// one concrete first move per row, additive beside the invitational voice. No weight, band, blend
+// or guardband moved; the bump exists because the model is now ASKED a different question, so a
+// cached r13 answer and a fresh r14 answer are not the same reading.
+// r15 (2026-08-31, RC2-N1): r14 declared the field only as an empty key in the JSON skeleton and
+// the model returned it on 0 of 9 items on the first live scan — the mandate now ASKS for it, in
+// the ROADMAP COVERAGE block, still invitational (stated as what the move IS, never an order).
+// r16 (2026-09-01): A SEVENTH CRAFT AXIS — `code-health` (src/lib/scoring/craft.ts), and the craft
+// rules now REQUIRE at least one rung filed under it whenever a dimension sits at or above
+// GREEN_MIN_SCORE. The evidence is a 33-run reflection (docs/harness/reflection-2026-09-01.md): of 30
+// closed or hardened deliverables across two campaigns, zero were a refactor, a de-duplication or a
+// performance repair — because craft is proposed per dimension, all nine dimensions are PROCESS
+// dimensions, and each of the other six axes is phrased as a gate ABOUT the code. There was nowhere
+// to file "this module is duplicated three ways", so it was never proposed.
+// NOTHING PRICED. No weight, band, blend, guardband, threshold, facet or point value moved, and an
+// axis is still never summed, never a bonus and never a follow-up the team owes (the r12 invariant,
+// pinned end-to-end by src/lib/scoring/craft.score.test.ts). The bump exists for the r6/r10/r14
+// reason and only that one: the SYSTEM prompt now asks the model a DIFFERENT question, so a cached
+// r15 roadmap and a fresh r16 roadmap are not the same reading.
+// r17 (2026-09-05): THE INGESTED FILE SET IS A PURE FUNCTION OF THE TREE. fetchSnapshot used to spend
+// MAX_TOTAL_BYTES inside the 8-wide fetch pool with an optimistic per-file claim reconciled after each
+// await, so which picks were displaced depended on network timing: a measured fixture admitted 34-41
+// files across runs (4-6 distinct sets). The budget is now a plan computed from the tree's listed blob
+// sizes before any fetch (planFetchBudget, src/lib/github/source.ts), admitting picks in fetchRank
+// order while planned + min(size, cap) <= MAX_TOTAL_BYTES: 44-46 files, one set. NOTHING PRICED and no
+// constant moved, but a budget-bound repo now shows the deterministic detectors ~15% more manifest and
+// workflow content than the concurrent path actually did, so scores on existing corpora can move on
+// rescan - toward the volume the rubric was calibrated against, but a move. The bump keeps r16 rows
+// labelled as the instrument that produced them and lets the caches re-derive.
+export const SCORING_RUBRIC_VERSION = "r17";
 
 /** Blend factor: how much the LLM judgment counts vs. deterministic signals. */
 export const SCORE_BLEND = 0.6;
@@ -107,7 +212,7 @@ export const SCORE_BLEND = 0.6;
  * WAS 25, WHICH WAS THE VERDICT AND NOT A NUANCE BUDGET. The published levels below are 25, 20, 20,
  * 20 and 16 points wide, so a band of 25 let model influence ALONE carry a repository across a level
  * boundary — and a dimension whose band is doubled by a `discrepancies` entry (see
- * scoring/discrepancy-policy.ts) could cross two. The level is the number that reaches badges, gates
+ * scoring/discrepancy-policy.ts) could cross two. The level is the number that reaches gates
  * and executive briefings, so at ±25 the level was model-controlled and every upstream protection
  * (the prompt boundary, the discrepancy budget) was decoration. The size of a guardband is settled
  * against the width of the tiers it feeds, not against how far the model usually wants to move.
@@ -210,7 +315,7 @@ export const DIMENSIONS: DimensionDef[] = [
     description:
       "Is AI development operationalized with shared, machine-readable guidance?",
     criteria:
-      "Presence AND content-quality of agent guidance / AI tooling config: CLAUDE.md, AGENTS.md, .cursorrules, copilot-instructions.md, MCP config, .claude/, prompt libraries, etc. Crucially, judge the CONTENT when CLAUDE.md/AGENTS.md is provided: does it document build/test/run commands, an architecture map, test-after-change discipline, explicit constraints ('never/always'), and advanced techniques (subagents, MCP servers, hooks, slash commands, skills, tool-permission policy, @-file references)? A token stub scores low; deep, technique-rich guidance an agent can actually follow scores high.",
+      "COHERENCE of agent guidance, not the number of vendor formats. The instruction documents (CLAUDE.md, AGENTS.md, .cursorrules / .cursor/rules, .github/copilot-instructions.md, .windsurfrules) are read as ONE contract: having a document at all earns a fixed award, and the rest is bought by whether the documents agree — one nominated canonical source, the others generated projections of it that are still in sync, no two files stating a different build/test command or opposite 'never/always' rules. Four contradicting copies score BELOW one document that is true, because an agent that reads the wrong file gets the wrong answer. Then judge the CONTENT of the canonical document: does it give build/test/run commands, an architecture map, test-after-change discipline, explicit constraints, and advanced techniques (subagents, MCP servers, hooks, slash commands, skills, tool-permission policy, @-file references)? Tool/config presence (MCP config, .claude/, prompt libraries, Aider/Continue, devcontainer) still counts separately — those are different capabilities, not competing copies of the same document. A contradiction is reported as evidence and withholds points; it is never a penalty and never fails a gate.",
   },
   {
     id: "D2",

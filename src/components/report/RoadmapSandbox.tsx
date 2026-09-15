@@ -119,8 +119,8 @@ export function RoadmapSandbox({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <Kicker tone="accent">Plan</Kicker>
-          <h2 className="mt-1 text-xl font-bold text-white">Roadmap sandbox</h2>
-          <p className="mt-1 max-w-prose text-base leading-relaxed text-slate-400">
+          <h2 className="mt-1 type-title font-bold text-white">Roadmap sandbox</h2>
+          <p className="mt-1 max-w-prose type-body leading-relaxed text-slate-400">
             What if Testing hit 80? Drag any dimension and watch your score, radar, posture, and
             next-level path recompute instantly. No re-scan.
           </p>
@@ -130,7 +130,7 @@ export function RoadmapSandbox({
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
           aria-controls={panelId}
-          className="shrink-0 rounded-xl border border-slate-700 px-4 py-2 text-base font-medium text-slate-300 transition hover:border-accent hover:text-white"
+          className="shrink-0 rounded-xl border border-slate-700 px-4 py-2 type-body font-medium text-slate-300 transition hover:border-accent hover:text-white"
         >
           {open ? "Close sandbox" : "Open sandbox →"}
         </button>
@@ -160,7 +160,7 @@ export function RoadmapSandbox({
                   <button
                     type="button"
                     onClick={closeAllGaps}
-                    className="rounded-lg border border-slate-700 px-2.5 py-1 text-sm text-slate-300 transition hover:border-accent hover:text-white"
+                    className="rounded-lg border border-slate-700 px-2.5 py-1 type-body-sm text-slate-300 transition hover:border-accent hover:text-white"
                   >
                     Close all gaps
                   </button>
@@ -168,7 +168,7 @@ export function RoadmapSandbox({
                     type="button"
                     onClick={resetAll}
                     disabled={!anyChanged}
-                    className="rounded-lg border border-slate-700 px-2.5 py-1 text-sm text-slate-300 transition hover:border-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                    className="rounded-lg border border-slate-700 px-2.5 py-1 type-body-sm text-slate-300 transition hover:border-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     Reset
                   </button>
@@ -196,7 +196,7 @@ export function RoadmapSandbox({
             <div className="flex flex-col rounded-xl border border-divider bg-slate-950/30 p-4">
               <div className="mb-2 flex items-center justify-between">
                 <Kicker tone="muted">Posture</Kicker>
-                <span className="text-base font-semibold" style={{ color: scoreHex(proj.adoptionScore) }}>
+                <span className="type-body font-semibold" style={{ color: scoreHex(proj.adoptionScore) }}>
                   {proj.posture.label}
                 </span>
               </div>

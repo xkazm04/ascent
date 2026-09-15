@@ -6,6 +6,7 @@
 // data fetch that never leaks a tenant it was handed.
 
 import { getOrgBenchmark, getOrgRollup } from "@/lib/db";
+import { hasFleetGrade } from "@/lib/db/org-shared";
 import { levelForScore } from "@/lib/maturity/model";
 import { humanizeDays } from "@/lib/maturity/forecast";
 
@@ -80,7 +81,11 @@ export async function buildPortfolio(orgSlugs: string[]): Promise<Portfolio> {
         getOrgRollup(org).catch(() => null),
         getOrgBenchmark(org).catch(() => null),
       ]);
-      if (!rollup || rollup.scannedCount === 0) return null;
+      // Was `scannedCount === 0`. That let an all-MOCK fleet through — scanned, but not graded — and
+      // `levelForScore(0)` then published it to the portfolio as a real L1 at 0/100, ranked below every
+      // measured org. `hasFleetGrade` is the same drop rule against the population the averages are
+      // actually over, and it narrows all three for the row below.
+      if (!rollup || !hasFleetGrade(rollup)) return null;
       const level = levelForScore(rollup.avgOverall);
       const f = rollup.forecast;
       return {

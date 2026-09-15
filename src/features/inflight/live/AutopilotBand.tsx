@@ -40,8 +40,13 @@ export function AutopilotBand({ org, pairedRepos, enabled }: { org: string; pair
     }
   }, [org]);
 
+  // Catch a run started in another tab / before this mount. Scheduled on a zero-delay timer (with
+  // cleanup) instead of called in the effect body so `poll`'s setState runs as an async callback,
+  // not synchronously in the effect (react-hooks/set-state-in-effect); poll is an idempotent GET,
+  // so a cancel/reschedule (StrictMode, org change) costs nothing.
   useEffect(() => {
-    void poll(); // catch a run started in another tab / before this mount
+    const t = setTimeout(() => void poll(), 0);
+    return () => clearTimeout(t);
   }, [poll]);
 
   useEffect(() => {
@@ -80,9 +85,9 @@ export function AutopilotBand({ org, pairedRepos, enabled }: { org: string; pair
     <section aria-label="Local autopilot" className="rounded-xl border border-divider bg-surface/40 p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <span className="font-mono text-xs uppercase tracking-[0.25em] text-accent">Autopilot · local</span>
-          <p className="mt-1 text-sm text-slate-400">
-            Dispatch a local agent at a paired repo's follow-ups — it works an isolated branch, and a from-disk rescan
+          <span className="type-label tracking-[0.25em] text-accent">Autopilot · local</span>
+          <p className="mt-1 type-body-sm text-slate-400">
+            Dispatch a local agent at a paired repo&apos;s follow-ups — it works an isolated branch, and a from-disk rescan
             closes what its trailers resolved. Nothing is ever pushed; you review and merge the branch.
           </p>
         </div>
@@ -95,7 +100,7 @@ export function AutopilotBand({ org, pairedRepos, enabled }: { org: string; pair
           onStop={() => void act({ action: "stop" })}
         />
       </div>
-      {error && <p className="mt-2 text-sm text-danger">{error}</p>}
+      {error && <p className="mt-2 type-body-sm text-danger">{error}</p>}
       {job && <AutopilotLog job={job} />}
     </section>
   );

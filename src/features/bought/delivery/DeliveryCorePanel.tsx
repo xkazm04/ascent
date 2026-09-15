@@ -6,7 +6,9 @@
 
 import { Card, ExportCsvLink, SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
 import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
+import { SnapshotScopeNotice } from "@/components/org/shared/SnapshotScopeNotice";
 import { Defer } from "@/components/ui/Defer";
+import { WhyChip } from "@/components/org/viz";
 import { DeliveryPriorities } from "./DeliveryPriorities";
 import { DeliveryPrSection } from "./DeliveryPrSection";
 import { DeliveryGovernanceSection } from "./DeliveryGovernanceSection";
@@ -15,8 +17,23 @@ import { buildAiDeliveryModel } from "./ai/aiDeliveryModel";
 import { getOrgActivity, getOrgGovernance, getOrgPrSignals, getOrgUsageRollup } from "@/lib/db";
 import { deliveryEmptyMessage, settle } from "./deliveryLoad";
 import type { OrgScope } from "@/lib/org/scope";
+import type { ResolvedWindow } from "@/lib/window";
 
-export async function DeliveryCorePanel({ slug, scope }: { slug: string; scope: Promise<OrgScope> }) {
+export async function DeliveryCorePanel({
+  slug,
+  scope,
+  // Passed down from DeliveryTab (which already resolved it for the trend) rather than re-resolved
+  // here: this panel has no `sp`, so a local resolve would silently drop an explicit `?range=` and
+  // name the cookie's period on a shared link. Used ONLY to name the window in the notice below —
+  // DeliveryTab's header has documented since G7-09 that the trend is the tab's one windowed read
+  // while everything in this panel comes off each repo's LATEST scan, and nothing on screen said so,
+  // under a period control sitting right above.
+  period,
+}: {
+  slug: string;
+  scope: Promise<OrgScope>;
+  period: ResolvedWindow;
+}) {
   const { barProps, segmentId, techGroupId, activeStack } = await scope;
 
   // G4-10: Promise.all rejects on the FIRST failing query, which discarded all four panels — a
@@ -88,6 +105,22 @@ export async function DeliveryCorePanel({ slug, scope }: { slug: string; scope: 
     <div className="space-y-6">
       {segmentBar}
 
+      <SnapshotScopeNotice
+        period={period}
+        subject="delivery"
+        scope="partial"
+        detail={
+          <>
+            The <span className="text-slate-200">trend</span>, unit economics and outcomes are period-scoped.
+            Everything below this line is a <span className="text-slate-200">scan-time snapshot</span>.{" "}
+            <WhyChip
+              hint="Pull request signals, branch governance and commit activity are read off each repo's most recent scan. Scan.prStats is a pre-computed aggregate with no dated PR population to re-cut, so no range can re-scope it — read these as 'the fleet as of its most recent scans'."
+              label="why this half is not period-scoped"
+            />
+          </>
+        }
+      />
+
       {/* Fix first — the derived punch list; every priority links to the evidence below. */}
       {(pr || gov) && <DeliveryPriorities pr={pr} gov={gov} />}
 
@@ -132,15 +165,21 @@ export async function DeliveryCorePanel({ slug, scope }: { slug: string; scope: 
       {activity && (
         <Defer strategy="visible" placeholder={<div className="reveal-quiet min-h-[16rem]" aria-hidden />}>
           <Card>
+            {/* §2.3 — unit and window only; the "real, from GitHub" provenance is the WhyChip. */}
             <SectionHeader
               size="sm"
-              title="Commit activity"
-              description={
-                <>
-                  Weekly commits across the fleet (real, from GitHub): {activity.total.toLocaleString()} commits over {activity.weeks} week{activity.weeks === 1 ? "" : "s"}{" "}
-                  <span className="font-mono text-sm text-slate-600">· {activity.repos} repo{activity.repos > 1 ? "s" : ""} reporting</span>
-                </>
+              title={
+                <span className="inline-flex items-center gap-2">
+                  Commit activity
+                  <WhyChip
+                    hint="Weekly commit counts read from GitHub itself, not derived from a scan's aggregates — only the repositories that reported activity in the window contribute."
+                    label="where commit activity comes from"
+                  />
+                </span>
               }
+              description={`${activity.total.toLocaleString()} commits · ${activity.weeks} week${
+                activity.weeks === 1 ? "" : "s"
+              } · ${activity.repos} repo${activity.repos === 1 ? "" : "s"}`}
             />
             <div className="mt-4">
               <DeliveryActivityChartChunk series={activity.series} endWeekStartMs={activity.endWeekStartMs} />

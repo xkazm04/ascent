@@ -10,10 +10,8 @@
 // (same approach as security-document.test.tsx) — no @react-pdf binary render needed.
 
 import { describe, it, expect, vi } from "vitest";
-import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { BriefingDocument } from "./briefing-document";
-import type { ExecBriefing } from "@/lib/org/briefing";
 
 // The `renderToBuffer` cases below drive the REAL @react-pdf pipeline (font registration, layout,
 // PDF serialization) rather than inspecting an element tree, so they are genuinely slow — they pass
@@ -22,104 +20,7 @@ import type { ExecBriefing } from "@/lib/org/briefing";
 vi.setConfig({ testTimeout: 30_000 });
 
 
-/** Flatten every string in a React element tree (children + string props like Document's subject). */
-function collectText(node: ReactNode, out: string[] = []): string[] {
-  if (typeof node === "string" || typeof node === "number") {
-    out.push(String(node));
-    return out;
-  }
-  if (Array.isArray(node)) {
-    node.forEach((n) => collectText(n, out));
-    return out;
-  }
-  if (isValidElement(node)) {
-    const props = node.props as Record<string, unknown>;
-    for (const v of Object.values(props)) {
-      if (typeof v === "string") out.push(v);
-      else collectText(v as ReactNode, out);
-    }
-  }
-  return out;
-}
-
-// Call the component function directly (like security-document.test.tsx) so the returned element
-// tree is walkable — wrapping it in JSX would leave it un-rendered.
-const text = (b: ExecBriefing) => collectText(BriefingDocument({ briefing: b })).join(" ");
-
-// ── Element-tree walker (for prop-level assertions — G5-06's wrap/minPresenceAhead orphan guards
-// aren't visible to collectText, which only gathers strings) ───────────────────────────────────────
-type El = ReactElement<{ style?: unknown; children?: ReactNode; wrap?: boolean; minPresenceAhead?: number }>;
-
-/** Walks the tree ONCE, resolving function components (DimLine, MoveLine, SectionHeading,
- *  ColumnHeading) inline — they aren't rendered by React in this direct-call test harness, so
- *  without this an unexpanded `<DimLine .../>` element (no `children` prop) hides its wrap/
- *  minPresenceAhead-carrying View entirely. Also records each host element's parent, resolved
- *  THROUGH any function-component wrappers (a heading's parent is the layout View around the
- *  <SectionHeading> call site, not something inside SectionHeading's own render). Built in one
- *  pass so every element is a stable reference — re-invoking a function component on a second walk
- *  would produce a structurally-identical but referentially-different subtree. */
-function walkTree(b: ExecBriefing): { nodes: El[]; parentOf: Map<El, El | null> } {
-  const nodes: El[] = [];
-  const parentOf = new Map<El, El | null>();
-  function walk(node: ReactNode, parent: El | null) {
-    if (Array.isArray(node)) {
-      for (const n of node) walk(n, parent);
-      return;
-    }
-    if (!isValidElement(node)) return;
-    const el = node as El;
-    if (typeof el.type === "function") {
-      walk((el.type as (props: unknown) => ReactNode)(el.props), parent);
-      return;
-    }
-    nodes.push(el);
-    parentOf.set(el, parent);
-    walk(el.props?.children, el);
-  }
-  walk(BriefingDocument({ briefing: b }), null);
-  return { nodes, parentOf };
-}
-
-function textOf(node: ReactNode): string {
-  if (node == null || node === false || node === true) return "";
-  if (typeof node === "string" || typeof node === "number") return String(node);
-  if (Array.isArray(node)) return node.map(textOf).join("");
-  if (isValidElement(node)) {
-    const el = node as El;
-    if (typeof el.type === "function") return textOf((el.type as (props: unknown) => ReactNode)(el.props));
-    return textOf(el.props?.children);
-  }
-  return "";
-}
-
-const tree = (b: ExecBriefing) => walkTree(b).nodes;
-
-function briefing(over: Partial<ExecBriefing> = {}): ExecBriefing {
-  return {
-    org: "acme",
-    periodTitle: "last 90 days",
-    generatedOn: "2026-07-16",
-    maturity: { overall: 62, levelId: "L3", levelName: "Managed", adoption: 58, rigor: 66 },
-    coverage: { scanned: 8, total: 12 },
-    periodDelta: 4,
-    priorPeriod: null,
-    forecastHeadline: null,
-    forecastConfidence: null,
-    engineMix: [],
-    adoptionRate: 58,
-    movement: { up: 5, down: 2, compared: 8 },
-    valueRealized: { recsEngaged: 5, recsActioned: 3, pointsMoved: 4, reposPromoted: 2 },
-    benchmark: null,
-    strengths: [{ dimId: "D2", label: "Testing", avg: 80 }],
-    risks: [{ dimId: "D9", label: "Security", avg: 41 }],
-    security: { dimId: "D9", label: "Security", avg: 41 },
-    topGainers: [{ name: "api", dOverall: 9, levelFrom: "L2", levelTo: "L3" }],
-    topRegressions: [{ name: "legacy", dOverall: -5, levelFrom: "L3", levelTo: "L3" }],
-    goals: [],
-    regressionCount: 1,
-    ...over,
-  };
-}
+import { text, tree, textOf, walkTree, briefing } from "./briefing-document.test-helpers";
 
 describe("BriefingDocument — carries the value / adoption / movement-scale lines the other surfaces show", () => {
   const t = text(briefing());
@@ -128,7 +29,7 @@ describe("BriefingDocument — carries the value / adoption / movement-scale lin
     expect(t).toMatch(/Value this period\s*:/);
     // UAT DANA-L1-012 — the fleet delta names the set it is averaged over, so it can be reconciled
     // with the comparable-only movement line on the same page.
-    expect(t).toContain("3 recommendations completed · fleet +4 pts across 8 scanned repos · 2 repos leveled up");
+    expect(t).toContain("3 recommendations completed · fleet +4 pts across 8 live-scored repos · 2 repos leveled up");
   });
 
   // UAT DANA-L1-010 — the live board PDF printed "Value this period: … fleet -6 pts". The heading
@@ -137,7 +38,7 @@ describe("BriefingDocument — carries the value / adoption / movement-scale lin
     const down = text(briefing({ valueRealized: { recsEngaged: 0, recsActioned: 1, pointsMoved: -6, reposPromoted: 0 } }));
     expect(down).toMatch(/Activity this period\s*:/);
     expect(down).not.toContain("Value this period");
-    expect(down).toContain("-6 pts across 8 scanned repos");
+    expect(down).toContain("-6 pts across 8 live-scored repos");
   });
 
   // UAT DANA-L1-011 — "PERCENTILE — vs 1 repos" in a headline tile.
@@ -157,7 +58,7 @@ describe("BriefingDocument — carries the value / adoption / movement-scale lin
     // built-in Helvetica has no ▲/▼ glyphs).
     // UAT DANA-L1-012 — the comparable set is named as a subset of the scanned set.
     expect(t).toMatch(/7\s+of\s+8\s+repos with a comparable prior scan moved/);
-    expect(t).toMatch(/of\s+8\s+scanned/);
+    expect(t).toMatch(/of\s+8\s+live-scored/);
     expect(t).toMatch(/5\s+up \/\s+2\s+down/);
   });
 
@@ -258,6 +159,7 @@ describe("BriefingDocument — page-break orphan protection (G5-06)", () => {
           dOverall: 4,
           dAdoption: 2,
           dRigor: 1,
+          realScoredCount: 8,
           dims: [],
         },
         goals: [{ label: "Reach L4", current: 60, target: 80, pct: 75, pace: "on track", etaDays: 30 }],
@@ -286,6 +188,7 @@ describe("BriefingDocument — page-break orphan protection (G5-06)", () => {
             dOverall: 4,
             dAdoption: 2,
             dRigor: 1,
+            realScoredCount: 8,
             dims: [{ dimId: "D2", label: "Testing", prior: 70, now: 80, delta: 10 }],
           },
           goals: [{ label: "Reach L4", current: 60, target: 80, pct: 75, pace: "on track", etaDays: 30 }],
@@ -293,5 +196,62 @@ describe("BriefingDocument — page-break orphan protection (G5-06)", () => {
       }) as unknown as ReactElement,
     );
     expect(buf.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Direction 1 (M1 — Dana's journey re-run for every figure this changed). The PDF is the artifact
+// most likely to leave the building unedited, and it was the one printing `Stat label="Overall"
+// value="0"` with `sub="L1 Ad hoc"` for a fleet whose every score was a mock placeholder.
+// ---------------------------------------------------------------------------
+describe("BriefingDocument — the score's denominator", () => {
+  const mixed = briefing({ realScoredCount: 6, mockCount: 2 });
+  const unscored = briefing({
+    maturity: { overall: 0, levelId: "L1", levelName: "Ad hoc", adoption: 0, rigor: 0 },
+    realScoredCount: 0,
+    mockCount: 8,
+    periodDelta: null,
+    adoptionRate: null,
+    movement: { up: 0, down: 0, compared: 0 },
+    valueRealized: { recsEngaged: 0, recsActioned: 0, pointsMoved: null, reposPromoted: 0 },
+    strengths: [],
+    risks: [],
+    security: null,
+    topGainers: [],
+    topRegressions: [],
+  });
+
+  it("states COVERAGE and the SCORE BASIS as two separate denominators", () => {
+    const t = text(mixed);
+    expect(t).toContain("Coverage: 8/12 repositories scanned");
+    expect(t).toContain("averaged over 6 live-scored repositories");
+  });
+
+  it("carries the mock disclosure in the BODY, beside the engine-mix provenance (G9)", () => {
+    expect(text(mixed)).toContain("2 mock placeholders excluded from every average");
+    // A clean fleet gets no line at all — never "0 excluded".
+    expect(text(briefing({ realScoredCount: 8, mockCount: 0 }))).not.toContain("excluded from every average");
+  });
+
+  it("prints an em dash and a REASON for a fleet with no live-scored repository — never 0, never L1", () => {
+    const stats = tree(unscored).filter((e) => textOf(e).includes("Overall"));
+    expect(stats.length).toBeGreaterThan(0);
+    const t = text(unscored);
+    // The three headline Stats carry "—", and the level caption is gone.
+    expect(t).not.toContain("L1 Ad hoc");
+    expect(t).toContain("No live-scored repositories in this period");
+    expect(t).toContain("8 mock placeholders excluded from every average");
+    // No basis line either: there is nothing to have averaged.
+    expect(t).not.toContain("averaged over");
+    // …and coverage is still stated in full: the fleet WAS looked at (G1 — never quieter).
+    expect(t).toContain("Coverage: 8/12 repositories scanned");
+  });
+
+  it("the Overall Stat's value is the em dash, not the string '0'", () => {
+    const overallStat = tree(unscored).find((e) => textOf(e) === "OVERALL" || textOf(e) === "Overall");
+    expect(overallStat).toBeDefined();
+    // Structural: the rendered document contains no bare "0" headline value where a grade would be.
+    const t = text(unscored);
+    expect(t).toMatch(/Overall\s+—/);
   });
 });

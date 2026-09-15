@@ -78,16 +78,16 @@ export function ObservatoryList({ bodies, selected, onSelect, onOpen, className 
                   on ? "bg-accent/10" : "hover:bg-surface/60"
                 }`}
               >
-                <span aria-hidden className="w-3 shrink-0 font-mono text-xs" style={{ color: b.fill }}>
+                <span aria-hidden className="w-3 shrink-0 type-caption" style={{ color: b.fill }}>
                   {glyphFor(b)}
                 </span>
-                <span className="min-w-0 flex-1 truncate font-mono text-sm text-slate-200" title={b.fullName}>
+                <span className="min-w-0 flex-1 truncate type-mono-sm text-slate-200" title={b.fullName}>
                   {b.label}
                 </span>
-                <span className="shrink-0 font-mono text-xs uppercase tracking-[0.22em] text-slate-500">
+                <span className="shrink-0 type-label tracking-[0.22em] text-slate-500">
                   {b.neverScanned ? "Never scanned" : QUADRANT_LABEL[b.quadrant!]}
                 </span>
-                <span className="w-8 shrink-0 text-right font-mono text-sm tabular-nums text-slate-300">
+                <span className="w-8 shrink-0 text-right type-mono-sm tabular-nums text-slate-300">
                   {b.overall ?? "—"}
                 </span>
               </button>
@@ -95,7 +95,7 @@ export function ObservatoryList({ bodies, selected, onSelect, onOpen, className 
           );
         })}
       </ul>
-      {bodies.length === 0 && <p className="mt-3 font-mono text-sm text-slate-500">No repos in this scope yet.</p>}
+      {bodies.length === 0 && <p className="mt-3 type-mono-sm text-slate-500">No repos in this scope yet.</p>}
     </div>
   );
 }

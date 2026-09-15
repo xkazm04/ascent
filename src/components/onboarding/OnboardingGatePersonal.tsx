@@ -45,7 +45,7 @@ export function PersonalHandoff({ org, selectedRepos }: { org: string; selectedR
   return (
     <Surface radius="xl" className="mt-4 p-5">
       <Kicker>Personal workspace</Kicker>
-      <p className="mt-2 text-base text-slate-300">
+      <p className="mt-2 type-body text-slate-300">
         <span className="font-mono text-white">{org}</span> is your personal workspace, not a fleet.
         Personal workspaces don&apos;t run their own org scans: they <em>track</em> public
         repositories and read the scores from the shared public history, so one repo keeps one
@@ -53,7 +53,7 @@ export function PersonalHandoff({ org, selectedRepos }: { org: string; selectedR
       </p>
 
       {eligible.length > 0 && tracked === null && (
-        <p className="mt-3 text-base text-slate-400">
+        <p className="mt-3 type-body text-slate-400">
           We can carry your picks over: add{" "}
           <span className="font-mono tabular-nums text-slate-200">{eligible.length}</span>{" "}
           {eligible.length === 1 ? "repository" : "repositories"} to your personal watchlist now.
@@ -69,7 +69,7 @@ export function PersonalHandoff({ org, selectedRepos }: { org: string; selectedR
       )}
 
       {tracked !== null && (
-        <div role="status" aria-live="polite" className="mt-3 text-base">
+        <div role="status" aria-live="polite" className="mt-3 type-body">
           {tracked.length > 0 && (
             <p className="text-success-soft">
               Now tracking{" "}
@@ -78,7 +78,7 @@ export function PersonalHandoff({ org, selectedRepos }: { org: string; selectedR
             </p>
           )}
           {refused.length > 0 && (
-            <ul className="mt-1 space-y-0.5 text-sm text-amber-300">
+            <ul className="mt-1 space-y-0.5 type-body-sm text-amber-300">
               {refused.map((r) => (
                 <li key={r.repo}>
                   <span className="font-mono">{r.repo}</span>: {r.reason}
@@ -96,14 +96,14 @@ export function PersonalHandoff({ org, selectedRepos }: { org: string; selectedR
             onClick={track}
             disabled={busy}
             aria-busy={busy}
-            className="focus-ring rounded-lg border border-accent/50 bg-accent/10 px-4 py-2.5 text-base font-medium text-white transition hover:bg-accent/20 disabled:opacity-50"
+            className="focus-ring rounded-lg border border-accent/50 bg-accent/10 px-4 py-2.5 type-body font-medium text-white transition hover:bg-accent/20 disabled:opacity-50"
           >
             {busy ? "Adding…" : `Track ${eligible.length} ${eligible.length === 1 ? "repository" : "repositories"}`}
           </button>
         )}
         <Link
           href="/me"
-          className="focus-ring rounded-lg bg-accent px-5 py-2.5 text-base font-semibold text-on-accent transition hover:bg-accent-soft"
+          className="focus-ring rounded-lg bg-accent px-5 py-2.5 type-body font-semibold text-on-accent transition hover:bg-accent-soft"
         >
           Open your workspace →
         </Link>

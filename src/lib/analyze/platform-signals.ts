@@ -18,7 +18,8 @@
 //
 import { appsOf, type AppInventory, type AppSuite } from "@/lib/github/check-suites";
 import type { CiHealth } from "@/lib/github/actions-health";
-import type { DimensionSignals, Signal } from "@/lib/types";
+import type { DimensionSignals, PlatformFoldDim, PlatformSignalRecord, Signal } from "@/lib/types";
+import { PLATFORM_FOLD_DIMS } from "@/lib/analyze/platform-carry";
 import { facetPoints } from "@/lib/scoring/claims";
 
 /** Local 0..100 clamp — the same shape applyPrSignals uses, kept module-local so the fold has no
@@ -179,4 +180,55 @@ export function applyCiHealthSignals(
       signals: [...s.signals, { label, detail }],
     };
   });
+}
+
+// ── the fold, as a record something else can carry ───────────────────────────────────────────────
+//
+// The two folds above are the ONLY place a dimension score is moved by something a file scan cannot
+// see, which makes them the only part of a score a worktree rescan structurally cannot reproduce.
+// `applyPlatformSignals` runs both and DIFFS the result against its own input, so the fold's effect
+// becomes a value: the points it added per dimension and the evidence it added them on. That record
+// is what a later local scan replays (analyze/platform-carry.ts) and what tells the green verdict
+// whether D2/D3/D4 were measurable at all.
+//
+// It is derived from the folds rather than declared alongside them on purpose: a hand-maintained
+// second description of what the fold does is a description that stops being true.
+
+/** The evidence `after` carries that `before` did not, in order. */
+function addedSignals(before: DimensionSignals | undefined, after: DimensionSignals): Signal[] {
+  const seen = before?.signals.length ?? 0;
+  return after.signals.slice(seen);
+}
+
+/**
+ * Run both platform folds and record what they did.
+ *
+ * `source` is decided by observability, not by the outcome: a scan that HELD a token and found no
+ * Apps observed a real zero, and must not be confused with one that could not look. `null` for both
+ * enrichments means the caller could not look — the local/worktree case, and also an anonymous scan.
+ */
+export function applyPlatformSignals(
+  signals: DimensionSignals[],
+  inventory: AppInventory | null | undefined,
+  ciHealth: CiHealth | null | undefined,
+  opts: { observedAt: string },
+): { signals: DimensionSignals[]; record: PlatformSignalRecord | null } {
+  // Neither enrichment was READ. There is nothing to record here — whether that means "unavailable"
+  // or "a carried fold applies" is the caller's decision, and platform-carry.ts owns it.
+  if (inventory == null && ciHealth == null) return { signals, record: null };
+
+  const folded = applyCiHealthSignals(applyAppInventorySignals(signals, inventory), ciHealth);
+  const byId = new Map(signals.map((s) => [s.id, s]));
+  const dims: PlatformFoldDim[] = [];
+  for (const after of folded) {
+    if (!(PLATFORM_FOLD_DIMS as readonly string[]).includes(after.id)) continue;
+    const before = byId.get(after.id);
+    const added = addedSignals(before, after);
+    const points = after.signalScore - (before?.signalScore ?? after.signalScore);
+    // A dimension the fold neither scored nor evidenced is not part of the record: an empty entry
+    // would later replay as a claim that something was observed about it.
+    if (points === 0 && added.length === 0) continue;
+    dims.push({ dimId: after.id, points, signals: added });
+  }
+  return { signals: folded, record: { source: "observed", observedAt: opts.observedAt, dims } };
 }

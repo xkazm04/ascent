@@ -1,5 +1,12 @@
 // The heavy-hitter /org capabilities featured on /about — the money-savers, in narrative order. Each
 // is paired with a live animated diagram (by id) in AboutLanding, not a decorative image.
+//
+// NUMBERS ARE IMPORTED, NEVER TYPED. The dimension count read "nine" as a word in two of these
+// strings, which is a count that survives a rubric change silently — the landing hero and
+// DimensionMatrix have read `DIMENSIONS` from the model since they were written, and this file was
+// the one place on the same deck that didn't.
+
+import { DIMENSIONS } from "@/lib/maturity/model";
 
 export type AboutFeatureId = "xray" | "roi" | "adoption" | "risk";
 
@@ -18,9 +25,9 @@ export const ABOUT_FEATURES: AboutFeatureData[] = [
     id: "xray",
     kicker: "See the whole fleet",
     title: "Every repo's AI-readiness, on one index",
-    body: "Ascent scores each repository 0–100 across nine dimensions, then rolls your whole org into one picture: by segment, by team, by posture. Know exactly where you stand before you spend a dollar moving.",
+    body: `Ascent scores each repository 0–100 across ${DIMENSIONS.length} dimensions, then rolls your whole org into one picture: by segment, by team, by posture. Know exactly where you stand before you spend a dollar moving.`,
     points: [
-      "Nine scored dimensions distilled to one comparable index",
+      `${DIMENSIONS.length} scored dimensions distilled to one comparable index`,
       "Slice the fleet by segment (platform, mobile, legacy) and compare side by side",
       "A posture map that separates “fast & ungoverned” from “solid but manual”",
     ],
@@ -32,9 +39,15 @@ export const ABOUT_FEATURES: AboutFeatureData[] = [
     title: "See the payoff before you commit the budget",
     // Copy contract with the paired RoiSimulator diagram: the bullets promise only what the demo
     // beside them substantiates (live promotions / avg gain / scope); the richer /org-only
-    // capabilities (leverage ranking, goal ETAs) live in `body`, explicitly attributed to the full
-    // simulator inside /org so the demo never undercuts the claim next to it.
-    body: "The what-if simulator recomputes the entire fleet under a hypothetical fix (raise testing, CI/CD, and conventions across these repos) and shows how many repos level up. The full simulator inside /org goes further: it ranks the highest-leverage moves by how many repos they touch and projects which goals each move unlocks, and when.",
+    // capabilities (leverage ranking, goal pace + ETA) live in `body`, explicitly attributed to the
+    // full simulator inside /org so the demo never undercuts the claim next to it.
+    //
+    // "projects which goals each move unlocks, and when" was one claim too far. What a move carries
+    // is `projectedGain` — "+N pts · unlocks LX" (src/lib/db/org-insights.ts:666), a LEVEL, with no
+    // date attached and no join to a goal. The dated projection is real but lives on the goal, not
+    // on the move: src/lib/db/plan.ts:262-267 (etaDays / etaDate / requiredPerWeek), fitted by
+    // src/lib/maturity/forecast.ts. The sentence now says which of the two it means.
+    body: "The what-if simulator recomputes the entire fleet under a hypothetical fix (raise testing, CI/CD, and conventions across these repos) and shows how many repos level up. The full simulator inside /org goes further: it ranks the highest-leverage moves by how many repos they touch and the level each one unlocks, and every goal you set carries its own fitted pace and projected date.",
     points: [
       "Drag a target and watch promotions, average gain, and scope recompute live",
       "In /org, leverage ranking surfaces fix-once, apply-fleet-wide moves",

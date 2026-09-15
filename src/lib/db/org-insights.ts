@@ -1,9 +1,18 @@
 // Org insight aggregates over the fleet's latest scans: movers (F1), org-level recommendations (F2),
 // the assignable backlog, calibration discrepancies, the practice library (P2), cross-repo gap
 // analysis, and the corpus benchmark (F6). All guarded by DATABASE_URL.
+//
+// WHAT THE WINDOW MEANS HERE — getOrgMovers takes the same half-open `[start, endExclusive)` bounds
+// as every other org reader, but its "now" is the latest scan INSIDE the window (compared against the
+// latest scan strictly before `start`). A mover is a before/after MEASUREMENT, so both endpoints must
+// be real scans; a repo with no scan during the period simply has no move to report. This is NOT
+// getOrgRollup's rule, which takes each repo's latest scan at-or-before the upper bound with no lower
+// bound at all — so a repo can be inside the rollup average and absent from movers. By design; see
+// org-rollup.ts' header for the full per-reader table. (Pinned by src/lib/org/period.dialect.test.ts.)
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
-import { DIMENSION_BY_ID, SCORING_RUBRIC_VERSION, weightsFor } from "@/lib/maturity/model";
+import { DIMENSION_BY_ID, weightsFor } from "@/lib/maturity/model";
+import { BENCHMARK_ELIGIBLE, COHORT_MIN, CORPUS_BASIS, CORPUS_MIN } from "@/lib/corpus/eligibility";
 import { PRACTICES } from "@/lib/practices";
 import { projectedGain } from "@/lib/scoring/engine";
 import type { DimensionId } from "@/lib/types";
@@ -12,7 +21,9 @@ import { retentionCutoff } from "@/lib/plans";
 // The canonical noise band — the same primitive alerts/digest/format already share, so a movers tile
 // and a digest line can never disagree about whether a delta was real.
 import { classifyDelta } from "@/lib/maturity/noise";
-import type { OrgWindow } from "@/lib/db/org-rollup";
+// The ONE mock-floor predicate, from the producer that defines it (org-rollup.ts). A movers pair is a
+// before/after MEASUREMENT, so an endpoint the scanner never scored cannot be one of its ends.
+import { isMockScore, type OrgWindow } from "@/lib/db/org-rollup";
 // The single canonical parser for stored `string[]` columns (the explore questions live in one) — reuse
 // it here rather than forking a second parser, exactly as scans-read/scans-recommendations do.
 import { parseStringArray } from "@/lib/db/scans-shared";
@@ -72,6 +83,19 @@ interface ScanLite {
   level: string;
   posture: string;
   scannedAt: Date;
+  /** The engine that produced this scan — "mock" is the deterministic floor, never a measurement. */
+  engineProvider: string;
+}
+
+/**
+ * Is this before/after pair a comparison of two real MEASUREMENTS? A mock endpoint on either side
+ * makes the difference an engine transition, not repo movement — a mock→live re-scan otherwise
+ * reports as the fleet's top gainer in Fix-first, the weekly digest and the Executive Briefing, while
+ * `getOrgRollup`'s cohort delta and the cohort card's `avgRealMove` both refuse exactly that pair.
+ * Applied at the MOVE BUILDER so every branch (windowed and since-last-scan) inherits it.
+ */
+function isRealPair(now: ScanLite, prev: ScanLite): boolean {
+  return !isMockScore(now.engineProvider) && !isMockScore(prev.engineProvider);
 }
 
 /** Construct a RepoMove from a baseline (`prev`) and current (`now`) scan of one repo. `baselineKind`
@@ -136,6 +160,8 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
         level: true,
         posture: true,
         scannedAt: true,
+        // The provenance the mock guard reads (isRealPair) — one column, no extra round trip.
+        engineProvider: true,
         repo: { select: { fullName: true, name: true } },
       },
       orderBy: { scannedAt: "desc" },
@@ -153,6 +179,8 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
         level: true,
         posture: true,
         scannedAt: true,
+        // The provenance the mock guard reads (isRealPair) — one column, no extra round trip.
+        engineProvider: true,
         repo: { select: { fullName: true, name: true } },
       },
       orderBy: { scannedAt: "desc" },
@@ -182,6 +210,7 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
       const realBaseline = baselineByRepo.get(repoId);
       const prev = realBaseline ?? arr[arr.length - 1];
       if (!now || !prev || prev === now) continue; // no baseline, or nothing moved within the window
+      if (!isRealPair(now, prev)) continue; // an engine transition is not repo movement
       moves.push(buildMove(now.repo.fullName, now.repo.name, now, prev, realBaseline ? "period" : "onboarded"));
     }
   } else {
@@ -193,13 +222,14 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
         scans: {
           orderBy: { scannedAt: "desc" },
           take: 2,
-          select: { overallScore: true, adoptionScore: true, rigorScore: true, level: true, posture: true, scannedAt: true },
+          select: { overallScore: true, adoptionScore: true, rigorScore: true, level: true, posture: true, scannedAt: true, engineProvider: true },
         },
       },
     });
     for (const r of repos) {
       if (r.scans.length < 2) continue;
       const [now, prev] = r.scans as [ScanLite, ScanLite]; // safe: length >= 2 checked above
+      if (!isRealPair(now, prev)) continue; // an engine transition is not repo movement
       moves.push(buildMove(r.fullName, r.name, now, prev));
     }
   }
@@ -251,8 +281,24 @@ export interface OrgRec {
   liftsRepos: number;
 }
 
-/** Aggregate open recommendations across the fleet's latest scans → highest-leverage moves. */
-export async function getOrgRecommendations(orgSlug: string, limit = 8, segmentId?: string | null, techGroupId?: string | null): Promise<OrgRec[] | null> {
+/**
+ * Aggregate open recommendations across the fleet's latest scans → highest-leverage moves.
+ *
+ * `repoFullName` narrows the result to the moves that affect ONE repository, and it exists because
+ * filtering after the call cannot work: the ranking is fleet-wide and the cap is applied here, so a
+ * caller that sliced to the top 10 and then filtered by repo could get an empty list for a repository
+ * with plenty of open gaps — its own top items simply were not the fleet's. The filter is applied to
+ * the SORTED list before the cap, so the ordering and the leverage arithmetic are untouched (they are
+ * deliberately still fleet-wide: how many repositories share a gap is what makes a move leverage, and
+ * recomputing it over one repo would answer a different question). Absent → behaviour is unchanged.
+ */
+export async function getOrgRecommendations(
+  orgSlug: string,
+  limit = 8,
+  segmentId?: string | null,
+  techGroupId?: string | null,
+  repoFullName?: string | null,
+): Promise<OrgRec[] | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const org = await getOrgBySlug(orgSlug);
@@ -262,6 +308,10 @@ export async function getOrgRecommendations(orgSlug: string, limit = 8, segmentI
     where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
     select: {
       name: true,
+      // Read only so `repoFullName` can be matched precisely. `OrgRec.repos` keeps carrying the BARE
+      // name it always has — every other consumer renders that string, and widening it here would be
+      // a change to the shape rather than to the filter.
+      fullName: true,
       scans: {
         orderBy: { scannedAt: "desc" },
         take: 1,
@@ -289,7 +339,10 @@ export async function getOrgRecommendations(orgSlug: string, limit = 8, segmentI
   // rationale + explore are captured from the FIRST rec seen in a group: dedup keys on `dimId::title`,
   // and identical gaps share the same catalog-derived rationale/questions, so the first is representative.
   const groups = new Map<string, { title: string; dimId: string; impact: string; rationale: string; explore: string[]; repos: Set<string> }>();
+  /** bare name → "owner/name", for the `repoFullName` filter below. */
+  const fullNames = new Map<string, string>();
   for (const r of repos) {
+    if (r.fullName) fullNames.set(r.name, r.fullName);
     const scan = r.scans[0];
     if (scan) repoDims.set(r.name, { archetype: scan.archetype, dims: (scan.dimensions ?? []).map((d) => ({ id: d.dimId, score: d.score })) });
     const recs = scan?.recommendations ?? [];
@@ -333,7 +386,21 @@ export async function getOrgRecommendations(orgSlug: string, limit = 8, segmentI
     };
   });
   recs.sort((a, b) => b.leverage - a.leverage || b.repoCount - a.repoCount);
-  return recs.slice(0, limit);
+  const wanted = repoFullName?.trim().toLowerCase();
+  // Matched on "owner/name", because that is what every caller of this filter holds. THE BARE-NAME
+  // FALLBACK IS NOT A CONVENIENCE: `repos` carries bare names, so the MCP door's own
+  // `r.repos.includes("acme/api")` filter never matched anything and answered `count: 0` for every
+  // repository it was asked about. Falling back keeps a row whose `fullName` was not read matchable.
+  const wantedTail = wanted?.includes("/") ? wanted.slice(wanted.lastIndexOf("/") + 1) : wanted;
+  const scoped = wanted
+    ? recs.filter((r) =>
+        r.repos.some((name) => {
+          const full = fullNames.get(name);
+          return full ? full.toLowerCase() === wanted : name.toLowerCase() === wantedTail;
+        }),
+      )
+    : recs;
+  return scoped.slice(0, limit);
 }
 
 // ── Recommendation backlog — owners, due dates, and a trackable roadmap ─────────
@@ -424,6 +491,13 @@ export interface BacklogItem {
   /** Invitational questions to explore the gap — the same `explore[]` the repo report surfaces (parsed
    *  from stored JSON via the shared parseStringArray). Empty for legacy scans. */
   explore: string[];
+  /** MOONSHOT #3 — who holds this row's work claim (e.g. "agent:ci-bot"), null when unclaimed. */
+  claimActor: string | null;
+  claimExecutor: string | null;
+  /** ISO; a lease past now is treated as expired by the UI. */
+  leaseUntil: string | null;
+  /** An agent reported it cannot finish this without a person. */
+  needsHuman: boolean;
 }
 
 /** Status tallies shared by the overall summary and each owner group. */
@@ -562,7 +636,13 @@ export async function getOrgBacklog(
           select: { scanId: true, dimId: true, score: true },
         }),
         prisma.recommendation.findMany({
-          where: { scanId: { in: scanIds } },
+          // `kind: "gap"` ONLY, and this is the load-bearing one: the backlog is THE debt surface —
+          // its counts feed the overdue tile, the fleet debt figure, the drive's stop condition and
+          // (through `openBatch`) which lanes arm. A craft entry is what would make an ALREADY-GREEN
+          // dimension exemplary; it is not a shortfall, so counting it as debt would mean a repo that
+          // finished its gaps could never read as finished. Craft is dispatchable since r12, but only
+          // through the separate `org-insights-craft.ts` read — never through this query.
+          where: { scanId: { in: scanIds }, kind: "gap" },
           orderBy: { createdAt: "asc" },
           select: {
             id: true,
@@ -578,6 +658,11 @@ export async function getOrgBacklog(
             assigneeLogin: true,
             targetDate: true,
             createdAt: true,
+            // MOONSHOT #3 (W4-N request): the claim line + needs-human chip read these defensively.
+            claimActor: true,
+            claimExecutor: true,
+            leaseUntil: true,
+            needsHuman: true,
           },
         }),
       ])
@@ -655,6 +740,10 @@ export async function getOrgBacklog(
         effort: r.effort,
         status: r.status,
         assigneeLogin: r.assigneeLogin,
+        claimActor: r.claimActor ?? null,
+        claimExecutor: r.claimExecutor ?? null,
+        leaseUntil: r.leaseUntil ? r.leaseUntil.toISOString() : null,
+        needsHuman: r.needsHuman ?? false,
         targetDate: r.targetDate ? r.targetDate.toISOString().slice(0, 10) : null,
         dueBucket: dueBucketFor(r.targetDate, now, tz),
         dueInDays,
@@ -775,46 +864,26 @@ export interface OrgBenchmark {
   } | null;
 }
 
-/**
- * Which scans may enter a percentile comparison.
- *
- * A percentile is a claim that two numbers were produced the same way. Two things break that, and both
- * were silently in the corpus before this filter existed:
- *
- * 1. **Engine.** A `mock` scan is the deterministic rubric with NO model nuance — the keyless/demo floor
- *    (`docs/features/scanning/llm-providers.md`). Seeded demo orgs and keyless deploys both produce them
- *    in bulk, so the corpus was partly a different scoring function, ranked as if it were a peer.
- * 2. **Rubric version.** Weights and detectors change; `SCORING_RUBRIC_VERSION` is stamped on each scan
- *    precisely so a pre-bump score is identifiable. Nothing re-bases persisted scans, so an old-rubric
- *    row is a number from a retired instrument. `null` (legacy, pre-stamping) is excluded for the same
- *    reason — unknown provenance is not evidence of comparability.
- *
- * Applied to BOTH sides: filtering only the corpus would rank this org's mock-scored repos against a
- * live-scored corpus, which is the same error mirrored.
- */
-const BENCHMARK_ELIGIBLE = {
-  engineProvider: { not: "mock" },
-  rubricVersion: SCORING_RUBRIC_VERSION,
-} as const;
+// W2-#9 (moonshot #34): the eligibility filter and the population floors moved to
+// `@/lib/corpus/eligibility` — with their full rationale — so the exemplar diff reuses the SAME
+// instrument instead of a second copy that drifts on the next rubric bump. Re-exported here so
+// every existing import path keeps working.
+export { BENCHMARK_ELIGIBLE, COHORT_MIN, CORPUS_BASIS, CORPUS_MIN };
 
-/** The rendered form of BENCHMARK_ELIGIBLE, returned with every benchmark so a percentile always
- *  travels with the basis it was computed on. */
-const CORPUS_BASIS = { rubric: SCORING_RUBRIC_VERSION, excludesMockEngine: true } as const;
-
-/** Minimum same-language peer ORGS before a cohort percentile is statistically worth showing. */
-const COHORT_MIN = 5;
 /** Upper bound on the cross-tenant corpus materialized into Node for a benchmark (fleet-rollups-insights
  *  #5). The corpus is a percentile SAMPLE, not an exact population, so a bounded recent slice is enough —
  *  and it caps the cross-org read so one tenant's benchmark can't pull the entire fleet into memory. */
 const BENCHMARK_CORPUS_CAP = 5000;
-/** Minimum peer-org count before the headline percentile is worth showing — same discipline as
- *  COHORT_MIN: a 1–4 org corpus yields a confidently-wrong "you beat 100% of orgs". (Percentiles
- *  now rank org-mean vs other-org-means, so the floor counts ORGS, not repos.) */
-const CORPUS_MIN = 5;
 
 /** Share of `xs` at-or-below `v`, as 0..100 — null below `min` samples, because a 1-repo corpus
- *  ranks everyone a hard 0th or 100th percentile (no-sample is not a rank). Pure, for unit tests. */
-export function percentileOf(xs: readonly number[], v: number, min = 1): number | null {
+ *  ranks everyone a hard 0th or 100th percentile (no-sample is not a rank). Pure, for unit tests.
+ *
+ *  `v` is nullable for the mirror-image reason: an org with no eligible scan has no mean, and a rank
+ *  needs something TO rank. Coalescing that absence to 0 would place the org at a real 0th percentile
+ *  — "worse than every peer" — which is a measurement it does not have. Both no-population cases
+ *  return the same null the type already carried for the too-few-samples case. */
+export function percentileOf(xs: readonly number[], v: number | null, min = 1): number | null {
+  if (v === null) return null;
   if (xs.length < Math.max(1, min)) return null;
   return Math.round((xs.filter((x) => x <= v).length / xs.length) * 100);
 }
@@ -864,7 +933,14 @@ export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | n
     const s = r.scans[0];
     if (s) corpus.push({ orgId: r.orgId, lang: r.primaryLanguage, overall: s.overallScore, adoption: s.adoptionScore, rigor: s.rigorScore });
   }
-  if (corpus.length === 0) {
+  const corpusAvgOverall = roundedMean(corpus.map((c) => c.overall));
+  const corpusAvgAdoption = roundedMean(corpus.map((c) => c.adoption));
+  const corpusAvgRigor = roundedMean(corpus.map((c) => c.rigor));
+  // `corpus.length === 0` ⇔ all three corpus means are null. Written as the null check because it is
+  // the SAME guard, and writing it this way narrows the three means for the return below instead of
+  // leaving a `!` (or a second `?? 0`) at the point of use. The zeros here are not means: they ride
+  // out beside `corpusRepos: 0`, which is the field that says there was no corpus at all.
+  if (corpusAvgOverall === null || corpusAvgAdoption === null || corpusAvgRigor === null) {
     return { corpusRepos: 0, corpusBasis: CORPUS_BASIS, overallPercentile: null, corpusAvgOverall: 0, corpusAvgAdoption: 0, corpusAvgRigor: 0, cohort: null };
   }
 
@@ -917,7 +993,11 @@ export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | n
   let cohort: OrgBenchmark["cohort"] = null;
   if (domLang) {
     const peers = corpus.filter((c) => c.lang === domLang);
-    if (peers.length > 0) {
+    const peerAvgOverall = avg(peers.map((p) => p.overall));
+    // `peers.length > 0` ⇔ `peerAvgOverall !== null` — the same guard, written as the null check so
+    // the cohort's `avgOverall` is narrowed by it. No same-language peer means no cohort, which is
+    // what `cohort: null` already said.
+    if (peerAvgOverall !== null) {
       // Rank this org's mean against peer ORG means within the language (not peer repos).
       const peerOrgOverall = orgMeans(peers, (p) => p.overall);
       const peerOrgAdoption = orgMeans(peers, (p) => p.adoption);
@@ -926,7 +1006,7 @@ export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | n
         repos: peers.length,
         overallPercentile: percentileOf(peerOrgOverall, myAvgOverall, COHORT_MIN),
         adoptionPercentile: percentileOf(peerOrgAdoption, myAvgAdoption, COHORT_MIN),
-        avgOverall: avg(peers.map((p) => p.overall)),
+        avgOverall: peerAvgOverall,
       };
     }
   }
@@ -936,9 +1016,9 @@ export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | n
     corpusBasis: CORPUS_BASIS,
     // Org mean vs other orgs' means (CORPUS_MIN is now a floor on the number of peer ORGS, not repos).
     overallPercentile: percentileOf(orgMeans(corpus, (c) => c.overall), myAvgOverall, CORPUS_MIN),
-    corpusAvgOverall: avg(corpus.map((c) => c.overall)),
-    corpusAvgAdoption: avg(corpus.map((c) => c.adoption)),
-    corpusAvgRigor: avg(corpus.map((c) => c.rigor)),
+    corpusAvgOverall,
+    corpusAvgAdoption,
+    corpusAvgRigor,
     cohort,
   };
 }

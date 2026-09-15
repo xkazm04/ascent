@@ -25,8 +25,17 @@
 // nav-counts.ts and getting-started.ts, so every rule above is unit-testable without a database.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
-import { getOrgBySlug } from "@/lib/db/org-shared";
+import { getOrgBySlug, upperBound } from "@/lib/db/org-shared";
+import type { OrgWindow } from "@/lib/db/org-rollup";
 import { PRACTICES } from "@/lib/practices";
+import {
+  foldImprovementEvents,
+  inReviewLanes as countInReviewLanes,
+  inReviewPoints as sumInReviewPoints,
+  type ImprovementBasis,
+  type ImprovementSource,
+  type LaneImpactInput,
+} from "@/lib/db/improvement-events";
 
 /** One merged loop PR, as the ledger sees it. */
 export interface ImpactRow {
@@ -44,6 +53,16 @@ export interface ImpactRow {
   impactOverall: number | null;
   /** The post-merge rescan has landed. Only these contribute to the totals. */
   verified: boolean;
+
+  // ── MOONSHOT #26 — the union. Every existing row reads `practice-pr` / `merged`, which is exactly
+  // what it always was, so no consumer has to special-case the old population.
+  /** Which surface produced this improvement. */
+  source: ImprovementSource;
+  /** Where it was MEASURED. `merged` = on the default branch; `branch` = on a loop lane's own branch,
+   *  which is real verified movement and is NOT bought. */
+  basis: ImprovementBasis;
+  /** The loop lane behind the row, when there is one. */
+  laneId: string | null;
 }
 
 /** Per-dimension roll-up of verified movement. */
@@ -74,6 +93,14 @@ export interface ImpactLedger {
   byDim: ImpactByDim[];
   /** Newest merge first. */
   rows: ImpactRow[];
+
+  // ── MOONSHOT #26. Branch-basis movement is reported BESIDE the bought number, never inside it:
+  // counting work that sits on an unreviewed branch as bought would tell a buyer they own something
+  // they do not. Once a lane's PR merges, its points move into `dimPoints` with no re-measurement.
+  /** Verified dimension points on lane branches that have not merged. NULL — never 0 — when none. */
+  inReviewPoints: number | null;
+  /** Lanes behind that number. */
+  inReviewLanes: number;
 }
 
 const PRACTICE_LABEL = new Map(PRACTICES.map((p) => [p.id, p.label]));
@@ -89,6 +116,9 @@ export interface ImpactPrInput {
   impactDim: number | null;
   impactOverall: number | null;
   verifiedScanId: string | null;
+  /** MOONSHOT #26: set when this PR came from a loop lane. Null on every practice PR — the column
+   *  defaults that way, so the shape is additive for every existing caller. */
+  loopLaneId?: string | null;
 }
 
 /**
@@ -98,7 +128,12 @@ export interface ImpactPrInput {
  * and still carry a null `impactDim` (no baseline), which is why `unmeasurable` exists: it is neither
  * a contribution nor an omission, it is a disclosed limit.
  */
-export function buildImpactLedger(prs: ImpactPrInput[]): ImpactLedger {
+export function buildImpactLedger(prs: ImpactPrInput[], lanes: readonly LaneImpactInput[] = []): ImpactLedger {
+  // THE UNION, folded once. The lanes are folded through `foldImprovementEvents` rather than counted
+  // here so that the dedupe rule (a merged loop PR retires its own lane's branch row) lives in ONE
+  // place; a second copy here is how the ledger and the briefing would eventually disagree about how
+  // much the org improved.
+  const laneEvents = foldImprovementEvents([], lanes);
   const rows: ImpactRow[] = prs
     .filter((p) => p.mergedAt != null)
     .sort((a, b) => (b.mergedAt as Date).getTime() - (a.mergedAt as Date).getTime())
@@ -114,6 +149,11 @@ export function buildImpactLedger(prs: ImpactPrInput[]): ImpactLedger {
       impactDim: p.impactDim,
       impactOverall: p.impactOverall,
       verified: p.verifiedScanId != null,
+      // A row that came from a loop lane still measured on the DEFAULT BRANCH, so its basis is
+      // `merged` — the basis says where the measurement was taken, not who authored the change.
+      source: p.loopLaneId ? "loop" : "practice-pr",
+      basis: "merged",
+      laneId: p.loopLaneId ?? null,
     }));
 
   const verified = rows.filter((r) => r.verified);
@@ -139,30 +179,50 @@ export function buildImpactLedger(prs: ImpactPrInput[]): ImpactLedger {
     regressions: measured.filter((r) => (r.impactDim as number) < 0).length,
     byDim: [...byDimMap.values()].sort((a, b) => b.points - a.points || a.dimId.localeCompare(b.dimId)),
     rows,
+    // Beside the bought number, never inside it. A merged loop PR's lane is already retired by the
+    // fold, so points cannot appear in both places at once.
+    inReviewPoints: sumInReviewPoints(retireMergedLanes(laneEvents, rows)),
+    inReviewLanes: countInReviewLanes(retireMergedLanes(laneEvents, rows)),
   };
+}
+
+/** Drop lane events whose work already merged. The merged rows are the authority; a lane whose PR
+ *  landed is bought, not in review, and counting it twice would inflate the org's improvement. */
+function retireMergedLanes(
+  laneEvents: ReturnType<typeof foldImprovementEvents>,
+  rows: readonly ImpactRow[],
+): ReturnType<typeof foldImprovementEvents> {
+  const merged = new Set(rows.map((r) => r.laneId).filter((x): x is string => x != null));
+  return merged.size === 0 ? laneEvents : laneEvents.filter((e) => !e.laneId || !merged.has(e.laneId));
 }
 
 /**
  * The ledger for `orgSlug` over an optional merge window (the shared org period selector's bounds;
  * both null = all time). Reads only merged rows — an open PR is in flight, not bought.
+ *
+ * Takes the family's `OrgWindow`, so the half-open `{ start, endExclusive }` the Executive tab hands
+ * every other reader reaches this one too, and the upper bound goes through the SHARED `upperBound`
+ * helper rather than a local `lte`. Row-identical at millisecond resolution (`end` is
+ * `endExclusive − 1ms`); the point is that the ledger and the briefing beside it close the period the
+ * same way. See src/lib/org/period.ts.
  */
 export async function getOrgImpactLedger(
   orgSlug: string,
-  window?: { start: Date | null; end: Date | null },
+  window?: OrgWindow,
 ): Promise<ImpactLedger | null> {
   if (!isDbConfigured()) return null;
   const org = await getOrgBySlug(orgSlug);
   if (!org) return null;
 
-  const mergedAt: { gte?: Date; lte?: Date } = {};
-  if (window?.start) mergedAt.gte = window.start;
-  if (window?.end) mergedAt.lte = window.end;
+  const upper = upperBound(window);
+  const mergedAt: { gte?: Date; lte?: Date; lt?: Date } = { ...(window?.start ? { gte: window.start } : {}), ...(upper ?? {}) };
+  const bounded = Object.keys(mergedAt).length > 0;
 
   const prs = await getPrisma().improvementPr.findMany({
     where: {
       orgId: org.id,
       state: "merged",
-      ...(mergedAt.gte || mergedAt.lte ? { mergedAt } : { mergedAt: { not: null } }),
+      ...(bounded ? { mergedAt } : { mergedAt: { not: null } }),
     },
     orderBy: { mergedAt: "desc" },
     select: {
@@ -175,8 +235,14 @@ export async function getOrgImpactLedger(
       impactDim: true,
       impactOverall: true,
       verifiedScanId: true,
+      loopLaneId: true,
     },
   });
 
-  return buildImpactLedger(prs);
+  // The lane half. Empty by construction on managed cloud (no loop runs exist there), so this reader
+  // degrades to exactly its previous behaviour rather than to a branch somebody has to remember.
+  const { listLaneImpactInputs } = await import("@/lib/db/loop-runs-read");
+  const lanes = await listLaneImpactInputs(orgSlug, window ?? { start: null, endExclusive: null }).catch(() => []);
+
+  return buildImpactLedger(prs, lanes);
 }

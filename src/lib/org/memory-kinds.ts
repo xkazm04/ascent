@@ -60,6 +60,22 @@ export const SCAN_PIPELINE_SOURCE = "scan-pipeline";
 export const isScanPipelineSource = (source: string | null | undefined): boolean =>
   (source ?? "").trim() === SCAN_PIPELINE_SOURCE;
 
+/**
+ * The `source` stamped on memories MIRRORED out of a repo's own `.ai/memory/` (moonshot #14). Same
+ * placement rationale as SCAN_PIPELINE_SOURCE: the mirror is a server module and the card that renders
+ * its badge is a client one, so the constant lives with the taxonomy rather than with either.
+ *
+ * Provenance carries real weight here and the two auto sources must NOT be conflated. A scan-pipeline
+ * row is something the platform OBSERVED (confidence 1.0). A repo-memory row is something an agent
+ * CLAIMED in a file (confidence 0.6, the "probable, unverified" band) — untrusted prose from a
+ * customer repository, mirrored so it can be found, not because it was verified.
+ */
+export const REPO_MEMORY_SOURCE = "repo-memory";
+
+/** Was this memory mirrored out of a repo's `.ai/memory/` rather than observed or authored? */
+export const isRepoMemorySource = (source: string | null | undefined): boolean =>
+  (source ?? "").trim() === REPO_MEMORY_SOURCE;
+
 // ── Visibility ────────────────────────────────────────────────────────────────────────────────
 
 /** `shared` = readable by every org member. `private` = readable only by its author (agent scratch). */

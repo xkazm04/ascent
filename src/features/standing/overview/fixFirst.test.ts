@@ -31,6 +31,14 @@ describe("deriveFixFirst — triage order, cap, and link contracts", () => {
     expect(items).toHaveLength(3);
   });
 
+  it("names the regression's endpoints rather than saying a bare 'this period'", () => {
+    // Two cells on the Overview are both about "this period" and measure different subtractions:
+    // this one is latest-in-window vs the last scan BEFORE the window; the cohort card's row delta
+    // is first-to-last WITHIN it. Each has to say which.
+    const items = deriveFixFirst("acme", FULL);
+    expect(items[0]!.detail).toBe("regressed 9 pts vs its last scan before this period");
+  });
+
   it("links each item to its evidence surface", () => {
     const items = deriveFixFirst("acme", FULL);
     expect(items[0]!.href).toBe("/report/acme/api");
@@ -66,6 +74,28 @@ describe("deriveFixFirst — triage order, cap, and link contracts", () => {
       ],
     });
     expect(items[0]!.href).toBe("/org/acme?tab=security");
+  });
+
+  // MOONSHOT #33 — the tie-break list gained a fifth member; `practices` sorts LAST, so adding it
+  // cannot have quietly demoted a security finding out of the slot.
+  it("keeps practices last in the FINDING_MODULES tie-break", () => {
+    const items = deriveFixFirst("acme", {
+      ...EMPTY,
+      findings: [
+        { module: "practices", repo: "acme/a", title: "p" },
+        { module: "contributors", repo: "acme/b", title: "c" },
+      ],
+    });
+    expect(items[0]!.href).toBe("/org/acme?tab=contributors");
+  });
+
+  it("routes a practice-adoption finding to the practices tab", () => {
+    const items = deriveFixFirst("acme", {
+      ...EMPTY,
+      findings: [{ module: "practices", repo: "acme/a", title: "p" }],
+    });
+    expect(items[0]!.title).toBe("Decide 1 practice-adoption finding");
+    expect(items[0]!.href).toBe("/org/acme?tab=practices");
   });
 
   it("ignores non-active or on-pace goals", () => {

@@ -5,8 +5,10 @@
 // codebase was the local `claude` CLI, so every non-scan LLM surface (the memory write-gate, reflect)
 // resolved to null in production and was structurally dead there.
 
-import { describe, it, expect, afterEach, vi } from "vitest";
-import { resolveTextRunner } from "@/lib/llm/text";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
+import { resolveTextRunner, textRunnerFrom } from "@/lib/llm/text";
+import { setMeterSink, type UsageEventInput } from "@/lib/llm/meter";
+import type { ResolvedLegRunner } from "@/lib/llm/leg";
 
 // `legKind` is a REQUIRED option — there is no default — so every call here names the surface it is
 // standing in for. These tests stand in for Shared Org Memory's passes.
@@ -163,5 +165,56 @@ describe("resolveTextRunner — every call is metered", () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ choices: [{ message: { content: "hi" } }] })));
     const runner = await resolveTextRunner(MEMORY);
     await expect(runner!.run("prompt")).resolves.toBe("hi");
+  });
+});
+
+// The DURABLE half of the same seam (#11): one UsageEvent per single-shot call. tracklight is an
+// optional local mirror; this ledger is what /usage reads, so it has to fire on the same edges.
+describe("resolveTextRunner — every call posts exactly one ledger event", () => {
+  const posted: UsageEventInput[] = [];
+  beforeEach(() => {
+    posted.length = 0;
+    setMeterSink(async (e) => void posted.push(e));
+  });
+  afterEach(() => setMeterSink(null));
+
+  const METERED = { ...MEMORY, meter: { orgSlug: "acme" } } as const;
+
+  it("posts ONE priced event for a successful call, under the leg kind's lane", async () => {
+    setEnv({ LLM_PROVIDER: "openai", OPENAI_API_KEY: "k" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({ choices: [{ message: { content: "hi" } }], usage: { prompt_tokens: 11, completion_tokens: 4 } }),
+      ),
+    );
+    const runner = await resolveTextRunner(METERED);
+    await runner!.run("prompt");
+    expect(posted).toHaveLength(1);
+    expect(posted[0]).toMatchObject({ orgSlug: "acme", lane: "memory", legKind: "memory", status: "success", inputTokens: 11, outputTokens: 4 });
+  });
+
+  it("posts a token-less event for a FAILED call — a lane that keeps erroring must be visible", async () => {
+    setEnv({ LLM_PROVIDER: "openai", OPENAI_API_KEY: "k" });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("upstream exploded", { status: 500 })));
+    const runner = await resolveTextRunner(METERED);
+    await expect(runner!.run("prompt")).rejects.toThrow(/OpenAI request failed/);
+    expect(posted).toHaveLength(1);
+    expect(posted[0]).toMatchObject({ status: "error", inputTokens: null, outputTokens: null, costMicros: null });
+  });
+
+  it("meters the claude-cli (ownsTimeout) path with HONEST NULLS rather than skipping it", async () => {
+    // That transport reports no usage at all, so its cost is not knowable from here. The call still
+    // happened: a null cost is the honest record, a missing row would read as a lane that never ran.
+    const leg: ResolvedLegRunner = {
+      engine: "claude-cli",
+      model: "sonnet",
+      ownsTimeout: true,
+      call: async () => ({ text: "hi" }),
+    };
+    const runner = textRunnerFrom(leg, 1_000, METERED);
+    await expect(runner.run("prompt")).resolves.toBe("hi");
+    expect(posted).toHaveLength(1);
+    expect(posted[0]).toMatchObject({ provider: "claude-cli", inputTokens: null, costMicros: null, status: "success" });
   });
 });

@@ -9,7 +9,8 @@
 
 import { analyzeSignals, classifyArchetype, offPlatformReview } from "@/lib/analyze";
 import { applyGovernanceSignals, applyPrSignals } from "@/lib/analyze/pulls";
-import { applyAppInventorySignals, applyCiHealthSignals } from "@/lib/analyze/platform-signals";
+import { applyPlatformSignals } from "@/lib/analyze/platform-signals";
+import { carriedSecurityInputs, carryPlatformFold, platformSignalsUnavailable } from "@/lib/analyze/platform-carry";
 import type { AppInventory } from "@/lib/github/check-suites";
 import type { CiHealth } from "@/lib/github/actions-health";
 import { detectStackFit, type StackFit } from "@/lib/analyze/stack-fit";
@@ -17,13 +18,16 @@ import { extractTechStack } from "@/lib/analyze/tech-extract";
 import { computeSecurityChecks } from "@/lib/security/checks";
 import { techStackPromptEnabled } from "@/lib/llm/config";
 import { decisionsForRepo } from "@/lib/db";
+import { getCraftBuilt } from "@/lib/db/org-insights-craft";
 import type { LlmScoreInput } from "@/lib/llm/provider";
 import type {
   DimensionSignals,
+  PlatformSignalRecord,
   Governance,
   PrStats,
   RepoArchetype,
   RepoSnapshot,
+  ScanSensorId,
   SecurityExposure,
   SecurityPosture,
   TechStack,
@@ -39,6 +43,10 @@ export interface ScoreInputPhaseInput {
   appInventory?: AppInventory | null;
   /** Deepening pass: default-branch Actions run health; null = not observable. */
   ciHealth?: CiHealth | null;
+  /** The ingest sensors whose read THREW (src/lib/scan-ingest.ts). Threaded into the D9 battery so a
+   *  check whose 0 only a failed sensor could have refuted is EXCLUDED rather than scored as absence.
+   *  Empty/omitted ⇒ nothing is known to have failed and every check scores exactly as before. */
+  sensorFailures?: readonly ScanSensorId[];
   /** The scan timestamp, resolved once by the caller so D7's recency bonus is deterministic. */
   now: string;
   /**
@@ -46,6 +54,16 @@ export interface ScoreInputPhaseInput {
    * empty ⇒ no decisions are read at all.
    */
   decisionSlug?: string;
+  /**
+   * This scan structurally CANNOT observe the GitHub-side signals — a worktree/local scan. Set by the
+   * caller, because only it knows: `appInventory == null` on its own is equally what a failed read
+   * looks like on a scan that could have succeeded, and the difference decides whether D2/D3/D4 are
+   * EXCLUDED from the green verdict or merely left uncredited.
+   */
+  platformSignalsUnobservable?: boolean;
+  /** The last OBSERVED platform fold for this repo, to replay when this scan cannot observe one.
+   *  Ignored when the enrichments are present: a live reading always wins over a borrowed one. */
+  carriedPlatformSignals?: { record: PlatformSignalRecord; scanId: string } | null;
 }
 
 export interface ScoreInputPhaseResult {
@@ -58,6 +76,10 @@ export interface ScoreInputPhaseResult {
   scoreInput: LlmScoreInput;
   /** Caveats raised by the signal detectors themselves — the seed of the report's warnings. */
   detectorWarnings: string[];
+  /** What this scan could see of the GitHub-side signals — observed, carried from an earlier scan, or
+   *  unavailable. Undefined when the question does not arise (a scan that could have observed them,
+   *  read nothing, and was not declared local): that is UNKNOWN, not "unavailable". */
+  platformSignals?: PlatformSignalRecord;
 }
 
 /** Build the model's input from the ingested snapshot + GitHub enrichments. */
@@ -69,25 +91,60 @@ export async function buildScanScoreInput(input: ScoreInputPhaseInput): Promise<
   const detectorWarnings: string[] = [];
   // Deepening pass: the platform-observed folds (installed Apps, CI health) run AFTER PR + governance
   // so their "only when the file scan found none" guards see the full evidence list.
-  const baseSignals = applyCiHealthSignals(
-    applyAppInventorySignals(
-      applyGovernanceSignals(
-        applyPrSignals(analyzeSignals(snapshot, now, detectorWarnings), prStats, {
-          // Suppress the misleading GitHub reviewedRate when review runs off-platform (Gerrit/bors) — the
-          // gate is credited positively in the D6 detector from the same commit trailers.
-          offPlatformReview: offPlatformReview(snapshot.commits) != null,
-        }),
-        governance,
-      ),
-      appInventory,
-    ),
-    ciHealth,
+  const preFold = applyGovernanceSignals(
+    applyPrSignals(analyzeSignals(snapshot, now, detectorWarnings), prStats, {
+      // Suppress the misleading GitHub reviewedRate when review runs off-platform (Gerrit/bors) — the
+      // gate is credited positively in the D6 detector from the same commit trailers.
+      offPlatformReview: offPlatformReview(snapshot.commits) != null,
+    }),
+    governance,
   );
+  // Three readings of the same question — "what can this scan see of GitHub?" — and they are kept
+  // apart because they are three different claims about the score that comes out.
+  const observedFold = applyPlatformSignals(preFold, appInventory, ciHealth, { observedAt: now });
+  // An observed record also carries the D9 battery's GitHub-side INPUTS, so a later worktree rescan
+  // can re-run the battery over its own files with this reading (CarriedSecurityInputs).
+  const observed = observedFold.record
+    ? { ...observedFold, record: { ...observedFold.record, securityInputs: { governance, posture: securityPosture, apps: appInventory } } }
+    : observedFold;
+  const carry = input.carriedPlatformSignals;
+  const carried = observed.record == null && carry ? carryPlatformFold(preFold, carry, new Date(now)) : null;
+  const baseSignals = carried?.signals ?? observed.signals;
+  const platformSignals =
+    observed.record ??
+    carried?.record ??
+    // Declared local with nothing to carry: D2/D3/D4 were not measurable on this reading, and saying
+    // so is what stops the green predicate demanding an L5 the scan had no way to produce.
+    (input.platformSignalsUnobservable ? platformSignalsUnavailable() : undefined);
   // Security (D9) is scored by the DETERMINISTIC check battery (OpenSSF-Scorecard-style: graded,
   // risk-weighted, auditable) rather than the file-grep detector + LLM blend. It reads the full
   // workflow set + governance + posture + exposure, and its result REPLACES the D9 signal, flagged
   // `deterministic` so the engine takes the number as-is (the LLM only narrates D9, per the framework).
-  const securityAssessment = computeSecurityChecks(snapshot, governance, securityPosture, securityExposure, appInventory);
+  //
+  // THE D9 CARRY. A worktree rescan cannot read branch protection, the installed-App inventory or the
+  // org policy; with a carried record it hands the battery the LAST OBSERVED reading of them (and
+  // says so on every check that used one), so the after-scan's D9 is on the same ruler as the
+  // before-scan's. With nothing to carry the battery runs blind and EXCLUDES the checks whose 0 only
+  // GitHub could refute — and attribution.ts reads the record to refuse the D9 pair as unmeasured.
+  const carriedSecurity = carried ? carriedSecurityInputs(carried.record) : null;
+  const securityAssessment = computeSecurityChecks(
+    snapshot,
+    governance ?? carriedSecurity?.governance ?? null,
+    securityPosture ?? carriedSecurity?.posture ?? null,
+    securityExposure,
+    appInventory ?? carriedSecurity?.apps ?? null,
+    {
+      platformUnobservable: input.platformSignalsUnobservable === true && observed.record == null,
+      provenance: carriedSecurity && carry ? `GitHub-side reading carried from scan ${carry.scanId}` : null,
+      // A sensor that CARRIED a reading is not unread — drop it, so a carried posture/App inventory
+      // still scores its check instead of being excluded for a failure the carry already repaired.
+      failedSensors: (input.sensorFailures ?? []).filter(
+        (id) =>
+          !(id === "securityPosture" && (securityPosture ?? carriedSecurity?.posture) != null) &&
+          !(id === "appInventory" && (appInventory ?? carriedSecurity?.apps) != null),
+      ),
+    },
+  );
   const signals = baseSignals.map((s) =>
     s.id === "D9"
       ? { ...s, signalScore: securityAssessment.d9, deterministic: true, gaps: securityAssessment.gaps, signals: securityAssessment.evidence.map((label) => ({ label })) }
@@ -110,9 +167,21 @@ export async function buildScanScoreInput(input: ScoreInputPhaseInput): Promise<
   // dismissing a finding becomes context the next assessment reads instead of re-raising the gap.
   // decisionSlug (individual tier) points the read at the TRIGGERING viewer's personal org on the
   // public funnel; org scans keep reading their own org via the orgSlug fallback.
-  const orgDecisions = decisionSlug
-    ? await decisionsForRepo(decisionSlug, `${snapshot.meta.owner}/${snapshot.meta.name}`).catch(() => [])
-    : [];
+  //
+  // CRAFT ALREADY BUILT — the rungs this repository has completed, so the assessment proposes the NEXT
+  // one instead of re-proposing what is already there. Same read shape, same slug and the same
+  // best-effort posture as the decisions: this is the second half of the same loop (what the org
+  // decided; what the repo then built), and an unreachable store must never fail a scan.
+  //
+  // The two are INDEPENDENT reads of the same store for the same repo, and were awaited one after the
+  // other for no reason but the order they were written in. One `Promise.all` costs the slower of the
+  // two instead of their sum; each keeps its OWN `.catch`, so one unreachable read still degrades to
+  // an empty list rather than failing its sibling.
+  const repoFullName = `${snapshot.meta.owner}/${snapshot.meta.name}`;
+  const [orgDecisions, craftBuilt] = await Promise.all([
+    decisionSlug ? decisionsForRepo(decisionSlug, repoFullName).catch(() => []) : Promise.resolve([]),
+    decisionSlug ? getCraftBuilt(decisionSlug, repoFullName).catch(() => []) : Promise.resolve([]),
+  ]);
 
   const scoreInput: LlmScoreInput = {
     repo: snapshot.meta,
@@ -121,6 +190,9 @@ export async function buildScanScoreInput(input: ScoreInputPhaseInput): Promise<
     commitSample: snapshot.commits.map((c) => c.message).slice(0, 15),
     archetype,
     ...(orgDecisions.length > 0 ? { orgDecisions } : {}),
+    // Omitted entirely when the ladder is empty, so a first scan's prompt is byte-identical to what
+    // it was before r12 — the same discipline `orgDecisions` keeps for the provider cache.
+    ...(craftBuilt.length > 0 ? { craftBuilt } : {}),
     // Already fetched above and folded into the deterministic D3/D6/D7/D8 scores — also hand them to
     // the LLM auditor so it reasons about review/governance with the real evidence (MAT-1).
     prStats,
@@ -135,5 +207,13 @@ export async function buildScanScoreInput(input: ScoreInputPhaseInput): Promise<
     ...(techStackPromptEnabled() ? { techStack } : {}),
   };
 
-  return { signals, archetype, stackFit, techStack, scoreInput, detectorWarnings };
+  return {
+    signals,
+    archetype,
+    stackFit,
+    techStack,
+    scoreInput,
+    detectorWarnings,
+    ...(platformSignals ? { platformSignals } : {}),
+  };
 }

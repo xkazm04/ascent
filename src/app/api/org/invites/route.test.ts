@@ -27,7 +27,7 @@ vi.mock("@/lib/db", () => ({
   })),
   listPendingInvites: vi.fn(async () => []),
   recordOrgAudit: vi.fn(async () => {}),
-  revokeInvite: vi.fn(async () => true),
+  revokeInvite: vi.fn(async () => ({ revoked: true, target: "invitee@example.test" })),
 }));
 
 vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn(async () => null) }));
@@ -35,8 +35,8 @@ vi.mock("@/lib/auth", () => ({ requireSameOrigin: vi.fn(() => null) }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: vi.fn(async () => "octocat") }));
 vi.mock("@/lib/email/invite", () => ({ dispatchInviteEmail: vi.fn(async () => ({ ok: true, skipped: false })) }));
 
-import { POST } from "./route";
-import { createInvite, recordOrgAudit } from "@/lib/db";
+import { DELETE, POST } from "./route";
+import { createInvite, recordOrgAudit, revokeInvite } from "@/lib/db";
 import { requireOrgRole } from "@/lib/authz";
 import { dispatchInviteEmail } from "@/lib/email/invite";
 
@@ -44,6 +44,7 @@ const mockCreate = vi.mocked(createInvite);
 const mockAudit = vi.mocked(recordOrgAudit);
 const mockRole = vi.mocked(requireOrgRole);
 const mockSend = vi.mocked(dispatchInviteEmail);
+const mockRevoke = vi.mocked(revokeInvite);
 
 function post(body: unknown) {
   return new Request("http://localhost/api/org/invites", {
@@ -59,6 +60,7 @@ beforeEach(() => {
   process.env.ASCENT_PUBLIC_URL = "https://ascent.test";
   mockRole.mockResolvedValue(null as never);
   mockSend.mockResolvedValue({ ok: true, skipped: false });
+  mockRevoke.mockResolvedValue({ revoked: true, target: "invitee@example.test" } as never);
   // clearAllMocks clears CALLS, not implementations — restate the default invite each test.
   mockCreate.mockResolvedValue({
     id: "inv_1",
@@ -168,11 +170,55 @@ describe("delivery never costs the owner the invite", () => {
     );
   });
 
+  it("canonicalizes the org before the gate, the mutation AND the audit line", async () => {
+    // The sibling /api/org/members canonicalizes with a comment recording that case-divergence between
+    // these three was a real IDOR/audit risk. This route never did: requireOrgRole normalizes
+    // internally so the GATE was safe, but the raw casing reached createInvite and — the part nothing
+    // downstream corrects — the audit row's own `meta.org`, so one tenant's privilege trail was filed
+    // under two spellings depending on what the caller typed.
+    await POST(post({ org: "  AcMe ", role: "member", email: "invitee@example.test" }));
+
+    expect(mockRole).toHaveBeenCalledWith("acme", "owner");
+    expect(mockCreate.mock.calls[0]![0]).toBe("acme");
+    expect(mockAudit).toHaveBeenCalledWith(
+      "org.member.invited",
+      "acme",
+      expect.objectContaining({ org: "acme" }),
+      "octocat",
+    );
+  });
+
   it("omits the link (rather than emitting a broken one) when no public URL is configured", async () => {
     delete process.env.ASCENT_PUBLIC_URL;
     delete process.env.NEXT_PUBLIC_APP_URL;
     delete process.env.VERCEL_PROJECT_PRODUCTION_URL;
     await POST(post({ org: "acme", role: "member", email: "invitee@example.test" }));
     expect(mockSend.mock.calls[0]![1]).toMatchObject({ url: null });
+  });
+});
+
+// Revoking is the one member-lifecycle act that took a granted capability BACK and recorded nothing.
+// org.member.invited / .invite_accepted / .role / .removed are all audited; the trail simply stopped
+// at the withdrawal, so "this invite was cancelled, by whom, and when" was unanswerable from the log.
+describe("revoking an invite is on the record", () => {
+  const del = (qs: string) =>
+    new Request(`http://localhost/api/org/invites?${qs}`, { method: "DELETE" });
+
+  it("records org.member.invite_revoked, naming the target and the actor", async () => {
+    const res = await DELETE(del("org=acme&id=inv_1"));
+    expect(res.status).toBe(200);
+    expect(mockAudit).toHaveBeenCalledTimes(1);
+    const [action, org, meta, actor] = mockAudit.mock.calls[0]!;
+    expect(action).toBe("org.member.invite_revoked");
+    expect(org).toBe("acme");
+    expect(meta).toMatchObject({ inviteId: "inv_1", target: "invitee@example.test" });
+    expect(actor).toBe("octocat");
+  });
+
+  it("records nothing when there was no pending invite to revoke", async () => {
+    mockRevoke.mockResolvedValue({ revoked: false, target: null } as never);
+    const res = await DELETE(del("org=acme&id=nope"));
+    expect(res.status).toBe(404);
+    expect(mockAudit).not.toHaveBeenCalled();
   });
 });

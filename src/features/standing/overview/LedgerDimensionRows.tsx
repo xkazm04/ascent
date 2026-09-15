@@ -22,6 +22,7 @@ import { Kicker } from "@/components/ui";
 import { Meter } from "@/components/org/shared/ui";
 import { buildUrl, clearedTabScopedParams, orgTabHref } from "@/lib/org/orgTabs";
 import { deltaHex } from "@/components/ui/format";
+import { StateSwatch, stateTitle } from "@/components/org/viz";
 import { scoreHex } from "@/lib/ui";
 import { groupByPhase, type DimensionReading } from "./dimensionReading";
 
@@ -47,10 +48,10 @@ export function LedgerDimensionRows({
             <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 bg-surface/60 px-4 py-2">
               <div className="flex items-baseline gap-3">
                 <Kicker tone="accent">{g.phase.label}</Kicker>
-                <span className="text-sm text-slate-500">{g.phase.question}</span>
+                <span className="type-body-sm text-slate-500">{g.phase.question}</span>
               </div>
               {g.avg !== null && (
-                <span className="font-mono text-sm tabular-nums text-slate-400">
+                <span className="type-mono-sm tabular-nums text-slate-400">
                   phase avg{" "}
                   <span className="font-semibold" style={{ color: scoreHex(g.avg) }}>
                     {g.avg}
@@ -72,45 +73,64 @@ function LedgerRow({ r, slug, search }: { r: DimensionReading; slug: string; sea
   const color = scoreHex(r.avg);
   const heatHref = `${buildUrl(slug, { ...clearedTabScopedParams(), dim: r.dimId }, search)}#heatmap`;
   return (
-    <div className={`grid ${ROW_COLS} items-center gap-x-4 border-t border-divider px-4 py-2 text-sm first:border-t-0 hover:bg-surface/40`}>
+    <div className={`grid ${ROW_COLS} items-center gap-x-4 border-t border-divider px-4 py-2 type-body-sm first:border-t-0 hover:bg-surface/40`}>
       {/* name + status word */}
       <div className="min-w-0">
         <div className="truncate font-medium text-slate-100">{r.short}</div>
-        <div className="font-mono text-xs uppercase tracking-widest" style={{ color }}>
+        <div className="type-label tracking-widest" style={{ color }}>
           {r.status}
         </div>
       </div>
       <Meter value={r.avg} color={color} />
-      <span className="text-right font-mono text-base font-semibold tabular-nums" style={{ color }}>
+      <span className="text-right font-mono type-body font-semibold tabular-nums" style={{ color }}>
         {r.avg}
       </span>
-      <span
-        className="text-right font-mono text-xs tabular-nums"
-        style={{ color: r.delta === null ? "var(--color-divider)" : r.delta === 0 ? undefined : deltaHex(r.delta) }}
-        title={r.delta === null ? "No baseline in this window" : undefined}
-      >
-        {r.delta === null ? "—" : r.delta === 0 ? "·" : `${r.delta > 0 ? "▲" : "▼"}${Math.abs(r.delta)}`}
-      </span>
+      {/* No baseline in this window is a MISSING measurement, and it used to render as an em dash in
+          a column of numbers — the one glyph a reader reliably reads as "nothing changed". It carries
+          the kit's void mark now, with the shared caveat on hover/focus. */}
+      {r.delta === null ? (
+        <span
+          role="img"
+          aria-label={`${r.short}: no movement measurement in this window`}
+          title={stateTitle("missing", `${r.short} movement`)}
+          className="flex justify-end"
+        >
+          <StateSwatch state="missing" size={11} />
+        </span>
+      ) : (
+        <span className="text-right type-caption tabular-nums" style={{ color: r.delta === 0 ? undefined : deltaHex(r.delta) }}>
+          {r.delta === 0 ? "·" : `${r.delta > 0 ? "▲" : "▼"}${Math.abs(r.delta)}`}
+        </span>
+      )}
       {/* the reading */}
-      <span className="min-w-0 truncate text-slate-400" title={r.note}>
-        {r.note || <span className="text-slate-600">no repos scored on this dimension</span>}
-      </span>
+      {r.note ? (
+        <span className="min-w-0 truncate text-slate-400" title={r.note}>
+          {r.note}
+        </span>
+      ) : (
+        // An average with no scored repository behind it is NOT JUDGED — hatched, and the hatch is
+        // the statement. The words beside it name the state; they no longer have to carry it alone.
+        <span className="flex min-w-0 items-center gap-1.5 text-slate-600" title={stateTitle("not-judged", r.short)}>
+          <StateSwatch state="not-judged" size={11} />
+          <span className="truncate">not judged · no repo scored this dimension</span>
+        </span>
+      )}
       {/* named affordances — a reader knows what a click does BEFORE clicking. Fixed-width cells;
           the practice label truncates inside its cell rather than pushing the row. */}
       {r.practice ? (
         <Link
           href={`${orgTabHref(slug, "practices")}#practice-${r.practice.id}`}
-          className="focus-ring min-w-0 truncate rounded font-mono text-xs text-slate-400 transition hover:text-accent"
+          className="focus-ring min-w-0 truncate rounded type-caption text-slate-400 transition hover:text-accent"
           title={`Open the practice that lifts ${r.short}: ${r.practice.label}`}
         >
           Practice → <span className="text-slate-200">{shortLabel(r.practice.label)}</span>
         </Link>
       ) : (
-        <span className="font-mono text-xs text-slate-600">no practice yet</span>
+        <span className="type-caption text-slate-600">no practice yet</span>
       )}
       <Link
         href={heatHref}
-        className="focus-ring justify-self-end whitespace-nowrap rounded font-mono text-xs text-slate-400 transition hover:text-accent"
+        className="focus-ring justify-self-end whitespace-nowrap rounded type-caption text-slate-400 transition hover:text-accent"
         title={`Jump to the heatmap sorted weakest-first on ${r.short}`}
       >
         ▦ {r.belowGreen.of} repo{r.belowGreen.of === 1 ? "" : "s"}

@@ -165,17 +165,17 @@ export function PointTooltip({
   commitLinked?: boolean;
 }) {
   return (
-    <div className="text-sm">
+    <div className="type-body-sm">
       <div className="flex items-baseline gap-1.5">
         {label && <span className="text-slate-400">{label}</span>}
-        <span className="font-mono text-base font-bold tabular-nums" style={{ color: scoreHex(score) }}>
+        <span className="font-mono type-body font-bold tabular-nums" style={{ color: scoreHex(score) }}>
           {score}
         </span>
       </div>
-      {at && <div className="mt-0.5 text-sm text-slate-300">{shortDateTime(at)}</div>}
-      {engine && <div className="text-sm text-slate-500">engine: {engine}</div>}
-      {sha && <div className="font-mono text-sm text-slate-500">commit {sha}</div>}
-      <div className="mt-0.5 text-sm">
+      {at && <div className="mt-0.5 type-body-sm text-slate-300">{shortDateTime(at)}</div>}
+      {engine && <div className="type-body-sm text-slate-500">engine: {engine}</div>}
+      {sha && <div className="type-mono-sm text-slate-500">commit {sha}</div>}
+      <div className="mt-0.5 type-body-sm">
         {delta == null ? (
           <span className="text-slate-500">first scan</span>
         ) : delta === 0 ? (
@@ -187,8 +187,8 @@ export function PointTooltip({
           </span>
         )}
       </div>
-      {linked && <div className="mt-0.5 text-sm text-accent">click to open this scan&apos;s report →</div>}
-      {commitLinked && <div className="text-sm text-slate-500">shift-click for the GitHub commit ↗</div>}
+      {linked && <div className="mt-0.5 type-body-sm text-accent">click to open this scan&apos;s report →</div>}
+      {commitLinked && <div className="type-body-sm text-slate-500">shift-click for the GitHub commit ↗</div>}
     </div>
   );
 }

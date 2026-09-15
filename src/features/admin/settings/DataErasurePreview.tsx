@@ -22,6 +22,8 @@
 //     stale count beside a changed request.
 
 import { useEffect, useState } from "react";
+import { type AuditDisposition } from "./eraseTotals";
+import { ErasePreviewPanel } from "./ErasePreviewPanel";
 
 /** The preview body POST /api/org/erase returns for `preview: true` (EraseResult with `dryRun: true`). */
 export interface ErasePreview {
@@ -29,7 +31,7 @@ export interface ErasePreview {
   scansDeleted: number;
   auditDeleted: number;
   auditRedacted: number;
-  auditDisposition: "keep" | "redact" | "delete";
+  auditDisposition: AuditDisposition;
   /** False when the preview's own wall-clock budget stopped the count early — the totals are a FLOOR. */
   complete: boolean;
   dryRun: boolean;
@@ -112,29 +114,17 @@ export function useErasePreview({
   return entry?.key === key ? entry.state : LOADING;
 }
 
-const num = (n: number) => n.toLocaleString("en-US");
-
-function Row({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-3 border-b border-divider py-1">
-      <dt className="text-slate-500">
-        {label}
-        {hint && <span className="ml-1 text-slate-600">{hint}</span>}
-      </dt>
-      <dd className="text-slate-200">{value}</dd>
-    </div>
-  );
-}
-
 /** The counts panel rendered beside the confirm field. Presentational: every state it can show is
- *  decided by the caller's `state`, and the failure state shows UNKNOWN rather than a fabricated 0. */
+ *  decided by the caller's `state`, and the failure state shows UNKNOWN rather than a fabricated 0.
+ *  The ready panel (picture + counts) lives in ErasePreviewPanel — this file keeps the hook and the
+ *  gate that decides whether there is anything honest to draw at all. */
 export function DataErasurePreview({ state }: { state: ErasePreviewState }) {
   if (state.status !== "ready") {
     const failed = state.status === "error";
     return (
       <div
         role={failed ? "alert" : "status"}
-        className={`rounded-lg border px-3 py-2 font-mono text-xs ${
+        className={`rounded-lg border px-3 py-2 type-caption ${
           failed ? "border-orange-500/40 bg-orange-500/5 text-orange-200" : "border-divider bg-surface/40 text-slate-400"
         }`}
       >
@@ -150,32 +140,5 @@ export function DataErasurePreview({ state }: { state: ErasePreviewState }) {
     );
   }
 
-  const { counts } = state;
-  // A preview stopped by its own time budget has counted a PREFIX of the org, so its totals are a
-  // floor, not a total. Saying "412" when the truth is "at least 412" is the same unearned
-  // reassurance an unreceived zero would be.
-  const floor = counts.complete ? "" : "at least ";
-  const auditAffected = counts.auditDeleted + counts.auditRedacted;
-  const auditHint =
-    counts.auditDisposition === "keep"
-      ? "(trail kept)"
-      : counts.auditDisposition === "delete"
-        ? "(destroyed)"
-        : "(redacted to identifier-only)";
-
-  return (
-    <div className="rounded-lg border border-danger/30 bg-danger/5 px-3 py-2">
-      <p className="font-mono text-xs uppercase tracking-widest text-danger">Would be erased now</p>
-      <dl className="mt-1.5 space-y-0 font-mono text-sm">
-        <Row label="Scans" value={`${floor}${num(counts.scansDeleted)}`} />
-        <Row label="Repositories" value={`${floor}${num(counts.reposProcessed)}`} />
-        <Row label="Audit rows" hint={auditHint} value={num(auditAffected)} />
-      </dl>
-      <p className="mt-1.5 text-xs text-slate-500">
-        {counts.complete
-          ? "Counted by the same query the erase runs; nothing has been touched."
-          : "This organization is large enough that the count stopped at a safe boundary — the real totals are higher."}
-      </p>
-    </div>
-  );
+  return <ErasePreviewPanel counts={state.counts} />;
 }

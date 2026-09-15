@@ -1,19 +1,21 @@
 // Route test for the unattended autoscan cron (GET /api/cron/rescan). This is the only fully
-// unattended scan path — no human watching an SSE stream — and every guard here is "fail-closed"
-// or "claim-before-spend", precisely the logic that looks fine in review but only a FAILURE-path
-// test catches when it silently flips. We pin three money/token invariants:
+// unattended scan path — no human watching an SSE stream — so its gate and its orchestration are
+// pinned here from every side:
 //   (1) AUTH GATE — a missing CRON_SECRET fails closed (503) and a wrong bearer/key is rejected
-//       (401); in neither case does any scan/claim/listDue run (the gate already regressed to
-//       fail-open once, so we pin it shut from both sides).
-//   (2) CLAIM-BEFORE-SCAN — a repo is claimed (CAS) before scanRepository runs; an already-claimed
-//       repo (claimRescan→false) is skipped and never scanned, so two cron passes can't double-bill.
-//   (3) REFUND — when a claimed+charged scan throws, the reserved credit is refunded exactly once;
-//       a successful real scan is NOT refunded.
-// The db / github-app / scan / alert boundaries are mocked so we can assert exactly which spend
-// primitives fire. The real mapPool is used (it's the fan-out under every fleet scan).
+//       (401); in neither case does anything reap, seed or drain (the gate already regressed to
+//       fail-open once, so it is pinned shut from both sides).
+//   (2) ORDER — reap, then seed, then drain. Reaping first is what makes a process-killed pass
+//       self-heal instead of stranding claimed rows; seeding before draining is what lets a single
+//       pass pick up work it just enqueued.
+//   (3) HONEST REMAINDER — the response reports the queue's own depth, read AFTER the drain, rather
+//       than a count this invocation guessed at.
+//
+// WHAT MOVED (moonshot #10), so nothing here is silently lost: claim-before-spend, reserve-before-
+// inference, the refund boundary, the cadence settle and the BYOM/public exemptions are now
+// `src/lib/scan-queue-worker.ts`, shared with /api/org/scan and /api/org/import, and tested in
+// `src/lib/scan-queue-worker.test.ts`. The claim itself is a `ScanJob` row, not `nextScanAt`.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { DueRescan } from "@/lib/db";
 
 vi.mock("next/server", () => ({
   NextResponse: class {
@@ -22,415 +24,164 @@ vi.mock("next/server", () => ({
     }
   },
 }));
-
-vi.mock("@/lib/scan", () => ({ scanRepository: vi.fn() }));
-vi.mock("@/lib/scan-alerts", () => ({
-  checkAndAlertRegression: vi.fn(),
-  maybeAlertLowCredits: vi.fn(),
+vi.mock("@/lib/db", () => ({ isDbConfigured: vi.fn(() => true) }));
+vi.mock("@/lib/db/scan-jobs", () => ({
+  enqueueDueRescans: vi.fn(async () => 0),
+  queueDepth: vi.fn(async () => ({ rescore: { queued: 0, oldestAgeMs: null }, probe: { queued: 0, oldestAgeMs: null } })),
+  reapExpiredLeases: vi.fn(async () => 0),
 }));
-vi.mock("@/lib/github/app", () => ({
-  getInstallationToken: vi.fn(),
-  isAppConfigured: vi.fn(() => true),
-}));
-vi.mock("@/lib/db", () => ({
-  CREDIT_REASON: { SCAN: "scan", GRANT: "grant", ADJUSTMENT: "adjustment", REFUND: "refund", POLAR_REFUND: "polar-refund" },
-  isDbConfigured: vi.fn(() => true),
-  listDueRescans: vi.fn(),
-  claimRescan: vi.fn(),
-  consumeScanCredit: vi.fn(),
-  grantCredits: vi.fn(),
-  advanceScheduleAfterFailure: vi.fn(),
-  advanceToFullCadence: vi.fn(),
-  recordScanOutcome: vi.fn(),
-  persistScanReport: vi.fn(),
-  getScanReportByCommit: vi.fn(),
-  getInstallationIdForOwner: vi.fn(),
-  getOrgId: vi.fn(),
-  isByomActive: vi.fn(async () => false),
-}));
+vi.mock("@/lib/github/app", () => ({ isAppConfigured: vi.fn(() => true) }));
+vi.mock("@/lib/scan-queue-worker", () => ({ drainLane: vi.fn() }));
 
-import { GET } from "./route";
-import { scanRepository } from "@/lib/scan";
-import {
-  isDbConfigured,
-  listDueRescans,
-  claimRescan,
-  consumeScanCredit,
-  grantCredits,
-  advanceScheduleAfterFailure,
-  advanceToFullCadence,
-  recordScanOutcome,
-  persistScanReport,
-  getScanReportByCommit,
-  getInstallationIdForOwner,
-  getOrgId,
-  isByomActive,
-} from "@/lib/db";
-import { isAppConfigured, getInstallationToken } from "@/lib/github/app";
-import { checkAndAlertRegression, maybeAlertLowCredits } from "@/lib/scan-alerts";
+import { GET, maxDuration } from "./route";
+import { enqueueDueRescans, queueDepth, reapExpiredLeases } from "@/lib/db/scan-jobs";
+import { drainLane } from "@/lib/scan-queue-worker";
+import { isAppConfigured } from "@/lib/github/app";
+import { SCAN_CONCURRENCY } from "@/lib/pool";
 
-const mockScan = vi.mocked(scanRepository);
-const mockIsDb = vi.mocked(isDbConfigured);
-const mockListDue = vi.mocked(listDueRescans);
-const mockClaim = vi.mocked(claimRescan);
-const mockConsume = vi.mocked(consumeScanCredit);
-const mockGrant = vi.mocked(grantCredits);
-const mockAdvanceFail = vi.mocked(advanceScheduleAfterFailure);
-const mockAdvanceCadence = vi.mocked(advanceToFullCadence);
-const mockRecord = vi.mocked(recordScanOutcome);
-const mockPersist = vi.mocked(persistScanReport);
-const mockPrevReport = vi.mocked(getScanReportByCommit);
-const mockInstallId = vi.mocked(getInstallationIdForOwner);
-const mockOrgId = vi.mocked(getOrgId);
-const mockByom = vi.mocked(isByomActive);
-const mockIsApp = vi.mocked(isAppConfigured);
-const mockToken = vi.mocked(getInstallationToken);
+const mockSeed = vi.mocked(enqueueDueRescans);
+const mockReap = vi.mocked(reapExpiredLeases);
+const mockDepth = vi.mocked(queueDepth);
+const mockDrain = vi.mocked(drainLane);
+const mockAppConfigured = vi.mocked(isAppConfigured);
 
 const SECRET = "cron-secret-xyz";
 
-const dueRepo = (over: Partial<DueRescan> = {}): DueRescan => ({
-  orgSlug: "acme",
-  fullName: "acme/repo",
-  repoId: "repo-1",
-  scanSchedule: "daily",
+const summary = (over: Record<string, unknown> = {}) => ({
+  claimed: 0,
+  done: 0,
+  failed: 0,
+  skipped: 0,
+  skippedForCredits: 0,
+  skippedNoToken: 0,
+  truncated: false,
+  errors: [],
   ...over,
 });
 
-// A real (non-mock, non-deduped) scan report so the success path bills and does NOT refund.
-const realReport = () =>
-  ({ engine: { provider: "gemini", model: "m" }, warnings: [] }) as unknown as Awaited<
-    ReturnType<typeof scanRepository>
-  >;
-
 function req(opts: { auth?: string; key?: string } = {}) {
   const url = opts.key ? `http://localhost/api/cron/rescan?key=${opts.key}` : "http://localhost/api/cron/rescan";
-  return new Request(url, {
-    method: "GET",
-    headers: opts.auth ? { authorization: opts.auth } : {},
-  });
+  return new Request(url, opts.auth ? { headers: { authorization: opts.auth } } : undefined);
 }
 
-async function bodyOf(res: Response): Promise<Record<string, unknown>> {
+async function body(res: Response) {
   return (await res.json()) as Record<string, unknown>;
 }
 
-describe("GET /api/cron/rescan — auth gate, claim-before-scan, refund", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    process.env.CRON_SECRET = SECRET;
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+  process.env.CRON_SECRET = SECRET;
+  delete process.env.CRON_ALLOW_QUERY_KEY;
+  mockAppConfigured.mockReturnValue(true);
+  mockDrain.mockResolvedValue(summary());
+  mockSeed.mockResolvedValue(0);
+  mockReap.mockResolvedValue(0);
+  mockDepth.mockResolvedValue({ rescore: { queued: 0, oldestAgeMs: null }, probe: { queued: 0, oldestAgeMs: null } });
+});
+afterEach(() => {
+  delete process.env.CRON_SECRET;
+  delete process.env.CRON_ALLOW_QUERY_KEY;
+});
 
-    // Sane "everything configured, one org, public-ish token path" defaults; individual tests override.
-    mockIsApp.mockReturnValue(true);
-    mockIsDb.mockReturnValue(true);
-    mockListDue.mockResolvedValue([dueRepo()]);
-    mockInstallId.mockResolvedValue(null); // no install → tokenless public path, never "broken"
-    mockToken.mockResolvedValue(undefined);
-    mockClaim.mockResolvedValue(true);
-    mockConsume.mockResolvedValue({ ok: true, unlimited: false, balance: 4, charged: true } as never);
-    mockScan.mockResolvedValue(realReport());
-    mockPersist.mockResolvedValue({ scanId: "s1", deduped: false } as never);
-    mockPrevReport.mockResolvedValue(null as never);
-    mockOrgId.mockResolvedValue("org-1" as never);
-    mockByom.mockResolvedValue(false); // metered org by default; BYOM tests override
-    mockGrant.mockResolvedValue(undefined as never);
-    mockRecord.mockResolvedValue(undefined as never);
-    mockAdvanceFail.mockResolvedValue(undefined as never);
-    mockAdvanceCadence.mockResolvedValue(undefined as never);
-    vi.mocked(maybeAlertLowCredits).mockResolvedValue(undefined as never);
-    vi.mocked(checkAndAlertRegression).mockResolvedValue(undefined as never);
-  });
+describe("GET /api/cron/rescan — the auth gate stays shut", () => {
+  const nothingRan = () => {
+    expect(mockReap).not.toHaveBeenCalled();
+    expect(mockSeed).not.toHaveBeenCalled();
+    expect(mockDrain).not.toHaveBeenCalled();
+  };
 
-  afterEach(() => {
+  it("fails CLOSED with 503 when CRON_SECRET is unset — and reaps/seeds/drains nothing", async () => {
     delete process.env.CRON_SECRET;
+    expect((await GET(req({ auth: `Bearer ${SECRET}` }))).status).toBe(503);
+    nothingRan();
   });
 
-  // ---- (1) AUTH GATE ------------------------------------------------------
-
-  it("fails CLOSED with 503 when CRON_SECRET is unset — and runs no scan/claim/listDue", async () => {
-    delete process.env.CRON_SECRET;
-    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
-    expect(res.status).toBe(503);
-    expect(mockListDue).not.toHaveBeenCalled();
-    expect(mockClaim).not.toHaveBeenCalled();
-    expect(mockScan).not.toHaveBeenCalled();
-    expect(mockConsume).not.toHaveBeenCalled();
+  it("rejects a wrong bearer with 401", async () => {
+    expect((await GET(req({ auth: "Bearer nope" }))).status).toBe(401);
+    nothingRan();
   });
 
-  it("rejects a wrong bearer with 401 — and runs no scan/claim/listDue", async () => {
-    const res = await GET(req({ auth: "Bearer wrong-secret" }));
-    expect(res.status).toBe(401);
-    expect(mockListDue).not.toHaveBeenCalled();
-    expect(mockClaim).not.toHaveBeenCalled();
-    expect(mockScan).not.toHaveBeenCalled();
-    expect(mockConsume).not.toHaveBeenCalled();
+  it("rejects a request with NO credential at all", async () => {
+    expect((await GET(req())).status).toBe(401);
+    nothingRan();
   });
 
-  it("rejects a wrong ?key= with 401 — and runs no scan/claim/listDue", async () => {
-    const res = await GET(req({ key: "nope" }));
-    expect(res.status).toBe(401);
-    expect(mockListDue).not.toHaveBeenCalled();
-    expect(mockClaim).not.toHaveBeenCalled();
-    expect(mockScan).not.toHaveBeenCalled();
-  });
-
-  it("rejects a request with NO credential at all with 401", async () => {
-    const res = await GET(req());
-    expect(res.status).toBe(401);
-    expect(mockListDue).not.toHaveBeenCalled();
-    expect(mockScan).not.toHaveBeenCalled();
-  });
-
-  it("accepts a correct Bearer secret and proceeds to scan", async () => {
-    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
-    expect(res.status ?? 200).toBe(200);
-    expect(mockListDue).toHaveBeenCalledTimes(1);
-    expect(mockScan).toHaveBeenCalledTimes(1);
-  });
-
-  // G8-48: `?key=` is no longer a credential channel by default — a secret in a query string lands in
-  // access/CDN/proxy logs, browser history and Referer headers, and this route mints EVERY org's
-  // installation token and spends LLM budget. Vercel Cron sends the bearer (vercel.json declares paths
-  // only), so nothing scheduled relied on it.
-  it("REFUSES a correct ?key= secret by default (401) — and runs no scan/claim/listDue", async () => {
-    const res = await GET(req({ key: SECRET }));
-    expect(res.status).toBe(401);
-    expect(mockListDue).not.toHaveBeenCalled();
-    expect(mockClaim).not.toHaveBeenCalled();
-    expect(mockScan).not.toHaveBeenCalled();
+  it("REFUSES a correct ?key= secret by default — a query string is a logged channel", async () => {
+    expect((await GET(req({ key: SECRET }))).status).toBe(401);
+    nothingRan();
   });
 
   it("accepts a correct ?key= only behind the CRON_ALLOW_QUERY_KEY deprecation flag", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     process.env.CRON_ALLOW_QUERY_KEY = "1";
-    try {
-      const res = await GET(req({ key: SECRET }));
-      const body = await bodyOf(res);
-      expect(mockScan).toHaveBeenCalledTimes(1);
-      expect(body.scanned).toBe(1);
-    } finally {
-      delete process.env.CRON_ALLOW_QUERY_KEY;
-      warn.mockRestore();
-    }
+    expect((await GET(req({ key: SECRET }))).status).toBe(200);
+    expect(mockDrain).toHaveBeenCalled();
   });
 
-  // ---- (2) CLAIM-BEFORE-SCAN ---------------------------------------------
+  it("skips (200, no work) when the GitHub App isn't configured", async () => {
+    mockAppConfigured.mockReturnValue(false);
+    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
+    expect((await body(res)).skipped).toBeTruthy();
+    nothingRan();
+  });
+});
 
-  it("claims the repo BEFORE scanning it (CAS gate precedes the spend)", async () => {
-    const order: string[] = [];
-    mockClaim.mockImplementation(async () => {
-      order.push("claim");
-      return true;
-    });
-    mockScan.mockImplementation(async () => {
-      order.push("scan");
-      return realReport();
-    });
+describe("GET /api/cron/rescan — reap, seed, drain", () => {
+  it("runs the three phases IN ORDER: a stranded claim is reaped before anything is seeded or drained", async () => {
     await GET(req({ auth: `Bearer ${SECRET}` }));
-    expect(order).toEqual(["claim", "scan"]);
-    // and the claim is keyed to the specific due repo + its schedule
-    expect(mockClaim).toHaveBeenCalledWith("repo-1", "daily");
+
+    expect(mockReap.mock.invocationCallOrder[0]!).toBeLessThan(mockSeed.mock.invocationCallOrder[0]!);
+    expect(mockSeed.mock.invocationCallOrder[0]!).toBeLessThan(mockDrain.mock.invocationCallOrder[0]!);
   });
 
-  it("skips an already-claimed repo: claimRescan=false → no scan, no charge, counted as skippedAlreadyClaimed", async () => {
-    mockClaim.mockResolvedValue(false);
-    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
-    const body = await bodyOf(res);
-    expect(mockScan).not.toHaveBeenCalled();
-    expect(mockConsume).not.toHaveBeenCalled();
-    expect(body.scanned).toBe(0);
-    expect(body.skippedAlreadyClaimed).toBe(1);
-  });
-
-  it("with two overlapping due entries for the same repo, only the claimed one scans (no double-scan)", async () => {
-    mockListDue.mockResolvedValue([dueRepo(), dueRepo()]);
-    // First claim wins, second loses the CAS.
-    mockClaim.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
-    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
-    const body = await bodyOf(res);
-    expect(mockClaim).toHaveBeenCalledTimes(2);
-    expect(mockScan).toHaveBeenCalledTimes(1); // claimed once → scanned once
-    expect(mockConsume).toHaveBeenCalledTimes(1);
-    expect(body.skippedAlreadyClaimed).toBe(1);
-  });
-
-  // ---- (3) REFUND ---------------------------------------------------------
-
-  it("refunds the reserved credit exactly once when a charged scan THROWS", async () => {
-    mockScan.mockRejectedValue(new Error("boom"));
-    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
-    const body = await bodyOf(res);
-    expect(mockGrant).toHaveBeenCalledTimes(1);
-    expect(mockGrant).toHaveBeenCalledWith(
-      "acme",
-      1,
-      expect.objectContaining({ reason: "refund" }),
-    );
-    expect(mockAdvanceFail).toHaveBeenCalledWith("repo-1"); // failure backoff applied
-    expect(body.scanned).toBe(0);
-    expect(Array.isArray(body.errors) && (body.errors as unknown[]).length).toBe(1);
-  });
-
-  it("does NOT refund a successful real (non-mock, non-deduped) scan", async () => {
-    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
-    const body = await bodyOf(res);
-    expect(mockGrant).not.toHaveBeenCalled();
-    expect(body.scanned).toBe(1);
-  });
-
-  // ---- (3a) POST-INFERENCE PERSIST FAILURE — the inference was already paid for (G1-06) ----
-  // The whole refund premise is "the scan threw, so nothing was billed". That premise dies the
-  // instant scanRepository RETURNS: a DB serialization conflict inside persistScanReport then
-  // refunds a credit for inference that genuinely ran, and the next pass re-runs and re-bills it.
-
-  it("does NOT refund when persistScanReport throws AFTER a real scan completed", async () => {
-    mockPersist.mockRejectedValue(new Error("could not serialize access"));
-    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
-    const body = await bodyOf(res);
-    expect(mockScan).toHaveBeenCalledTimes(1); // inference really ran (and really cost money)
-    expect(mockGrant).not.toHaveBeenCalled(); // ...so the credit STAYS spent
-    // The failure is still handled as a failure everywhere else: backoff, outcome, error line.
-    expect(mockAdvanceFail).toHaveBeenCalledWith("repo-1");
-    expect(body.scanned).toBe(0);
-    // Unattended: the JSON body is the only place this can admit the org was charged for nothing.
-    expect((body.errors as string[])[0]).toContain("credit kept");
-  });
-
-  it("DOES refund when the scan throws BEFORE inference (pre-inference failure still refunds)", async () => {
-    mockScan.mockRejectedValue(new Error("github 502"));
-    const body = await bodyOf(await GET(req({ auth: `Bearer ${SECRET}` })));
-    expect(mockPersist).not.toHaveBeenCalled();
-    expect(mockGrant).toHaveBeenCalledTimes(1);
-    expect(body.scanned).toBe(0);
-    expect((body.errors as string[])[0]).not.toContain("credit kept");
-  });
-
-  it("DOES refund a MOCK scan whose persist throws — a mock run bills no inference", async () => {
-    mockScan.mockResolvedValue({ engine: { provider: "mock", model: "m" }, warnings: [] } as never);
-    mockPersist.mockRejectedValue(new Error("write failed"));
-    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
-    const body = await bodyOf(res);
-    expect(mockGrant).toHaveBeenCalledTimes(1); // refunded — no metered inference was spent
-    expect((body.errors as string[])[0]).not.toContain("credit kept");
-  });
-
-  it("BYOM org: a post-inference persist failure neither refunds nor charges (no platform credit)", async () => {
-    mockByom.mockResolvedValue(true);
-    mockPersist.mockRejectedValue(new Error("write failed"));
-    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
-    const body = await bodyOf(res);
-    expect(mockConsume).not.toHaveBeenCalled(); // never charged a platform credit
-    expect(mockGrant).not.toHaveBeenCalled(); // so a refund would MINT a credit — must not happen
-    // ...and the "credit kept" note is only for runs that actually kept a charge.
-    expect((body.errors as string[])[0]).not.toContain("credit kept");
-  });
-
-  // ---- (3b) LEASE-THEN-SETTLE — a successful scan advances to the FULL cadence ----
-
-  it("settles a successful scan to the full cadence (claim only LEASES; success advances)", async () => {
-    // claimRescan now leases the repo for a short window so a timed-out run re-qualifies soon; a
-    // successful scan must then advance it to its real cadence (and NOT take the failure backoff).
-    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
-    const body = await bodyOf(res);
-    expect(body.scanned).toBe(1);
-    expect(mockAdvanceCadence).toHaveBeenCalledWith("repo-1", "daily");
-    expect(mockAdvanceFail).not.toHaveBeenCalled();
-  });
-
-  it("does NOT advance to the full cadence when the scan THROWS (the short lease + 6h backoff stand)", async () => {
-    mockScan.mockRejectedValue(new Error("boom"));
+  it("seeds EVERYTHING due — no 100-per-pass cap, because the queue now holds the backlog", async () => {
     await GET(req({ auth: `Bearer ${SECRET}` }));
-    expect(mockAdvanceCadence).not.toHaveBeenCalled();
-    expect(mockAdvanceFail).toHaveBeenCalledWith("repo-1");
+    // A limit argument would reintroduce the cap this change exists to remove.
+    expect(mockSeed).toHaveBeenCalledWith();
   });
 
-  it("a failed token mint gets the 6h failure backoff, NOT a full-cadence skip (ambiguity-ui #2)", async () => {
-    // The org HAS an install id but the mint failed — which can be a GitHub blip / 5xx / rate limit,
-    // not only a revoked install. Settling to the full cadence turned one transient bad minute into
-    // a silent month-long skip for a monthly fleet; the failure backoff self-heals next pass while a
-    // genuinely-revoked org still sits off the front of the queue.
-    mockInstallId.mockResolvedValue("inst-1" as never);
-    mockToken.mockResolvedValue(undefined); // mint failed
-    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
-    const body = await bodyOf(res);
-    expect(body.skippedNoToken).toBe(1);
-    expect(mockScan).not.toHaveBeenCalled();
-    expect(mockConsume).not.toHaveBeenCalled(); // no credit reserved for a scan that can't run
-    expect(mockAdvanceFail).toHaveBeenCalledWith("repo-1"); // transient-friendly 6h backoff
-    expect(mockAdvanceCadence).not.toHaveBeenCalled(); // NOT a whole-cadence settle
-    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/repo", { ok: false, error: "installation token unavailable" });
+  it("drains the RESCORE lane at the scan concurrency, inside the invocation's own budget", async () => {
+    await GET(req({ auth: `Bearer ${SECRET}` }));
+    const opts = mockDrain.mock.calls[0]![1];
+    expect(mockDrain.mock.calls[0]![0]).toBe("rescore");
+    expect(opts.concurrency).toBe(SCAN_CONCURRENCY);
+    // The deadline reserves finalize headroom inside the platform ceiling, so the route can still
+    // RETURN a body instead of being process-killed mid-scan.
+    expect(opts.deadlineAt).toBeLessThan(Date.now() + maxDuration * 1000);
   });
 
-  it("does NOT refund when the scan was never charged (no reservation → no scan, no refund)", async () => {
-    mockConsume.mockResolvedValue({ ok: false, unlimited: false, balance: 0 } as never);
-    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
-    const body = await bodyOf(res);
-    expect(mockScan).not.toHaveBeenCalled();
-    expect(mockGrant).not.toHaveBeenCalled();
-    expect(body.skippedForCredits).toBe(1);
+  it("reports the queue's own depth, read AFTER the drain — not a guess by this invocation", async () => {
+    mockDrain.mockResolvedValue(summary({ done: 4, claimed: 4, truncated: true }));
+    mockDepth.mockResolvedValue({ rescore: { queued: 96, oldestAgeMs: 900 }, probe: { queued: 0, oldestAgeMs: null } });
+
+    const out = await body(await GET(req({ auth: `Bearer ${SECRET}` })));
+
+    expect(mockDepth.mock.invocationCallOrder[0]!).toBeGreaterThan(mockDrain.mock.invocationCallOrder[0]!);
+    expect(out).toMatchObject({ scanned: 4, truncated: true, queueDepth: { queued: 96, oldestAgeMs: 900 } });
   });
 
-  // ---- (4) UNMETERED PATHS (BYOM / public) — mirror the manual scan route's gate ----------
+  it("reports the worker's own outcome buckets — a skip is never counted as a scan", async () => {
+    mockDrain.mockResolvedValue(summary({ done: 2, failed: 1, skipped: 3, skippedForCredits: 1, skippedNoToken: 2, errors: ["acme/x: boom"] }));
 
-  it("does NOT charge a BYOM org (own Bedrock) — the autoscan still runs, free", async () => {
-    mockByom.mockResolvedValue(true);
-    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
-    const body = await bodyOf(res);
-    // reserveScanCredit (→ consumeScanCredit) is skipped entirely for a BYOM org, so no platform
-    // credit is debited; the scan still happens and there's nothing to refund.
-    expect(mockConsume).not.toHaveBeenCalled();
-    expect(mockGrant).not.toHaveBeenCalled();
-    expect(mockScan).toHaveBeenCalledTimes(1);
-    expect(body.scanned).toBe(1);
-    expect(body.skippedForCredits).toBe(0);
+    const out = await body(await GET(req({ auth: `Bearer ${SECRET}` })));
+
+    expect(out).toMatchObject({
+      scanned: 2,
+      failed: 1,
+      skippedAlreadyClaimed: 3,
+      skippedForCredits: 1,
+      skippedNoToken: 2,
+      errors: ["acme/x: boom"],
+    });
   });
 
-  it("does NOT charge the shared public org — the autoscan still runs, free", async () => {
-    mockListDue.mockResolvedValue([dueRepo({ orgSlug: "public", repoId: "pub-1" })]);
-    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
-    const body = await bodyOf(res);
-    expect(mockConsume).not.toHaveBeenCalled();
-    expect(mockScan).toHaveBeenCalledTimes(1);
-    expect(body.scanned).toBe(1);
-    expect(body.skippedForCredits).toBe(0);
-  });
+  it("a truncated pass is NOT a loss: it reports what is still queued for the next one", async () => {
+    mockDrain.mockResolvedValue(summary({ done: 1, truncated: true }));
+    mockDepth.mockResolvedValue({ rescore: { queued: 12, oldestAgeMs: 60_000 }, probe: { queued: 0, oldestAgeMs: null } });
 
-  // ---- (5) TIME BUDGET — the cron shares the 300s ceiling with /api/org/scan ----------------
-  // Unattended, so the ONLY record of a pass is this JSON body. A run killed at the ceiling wrote
-  // nothing at all; a run that stops itself must say how much of the due queue it never reached,
-  // and must leave those repos genuinely untouched (unclaimed ⇒ still due ⇒ next pass takes them).
+    const out = await body(await GET(req({ auth: `Bearer ${SECRET}` })));
 
-  it("stops issuing new repos at the budget and reports the untouched remainder honestly", async () => {
-    let clock = 0;
-    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => clock);
-    try {
-      const due = ["r1", "r2", "r3", "r4", "r5", "r6"].map((id) => dueRepo({ repoId: id, fullName: `acme/${id}` }));
-      mockListDue.mockResolvedValue(due);
-      mockScan.mockImplementation(async () => {
-        clock += 100_000; // 100s per repo — the first completion projects past the 300s ceiling
-        return realReport();
-      });
-
-      const body = await bodyOf(await GET(req({ auth: `Bearer ${SECRET}` })));
-
-      expect(body.due).toBe(6);
-      expect(body.truncated).toBe(true);
-      expect(body.scanned).toBe(4); // the four lanes that were already in flight
-      expect(body.remaining).toBe(2);
-      // The unreached repos were never CLAIMED — so nextScanAt is untouched, they stay due for the
-      // next pass, and they are neither counted as failures nor pushed into the 6h backoff.
-      expect(mockClaim).toHaveBeenCalledTimes(4);
-      expect(mockAdvanceFail).not.toHaveBeenCalled();
-      expect(body.errors).toEqual([]);
-    } finally {
-      nowSpy.mockRestore();
-    }
-  });
-
-  it("reports truncated:false for a pass that drained the whole due queue", async () => {
-    mockListDue.mockResolvedValue([dueRepo(), dueRepo({ repoId: "repo-2", fullName: "acme/two" })]);
-    const body = await bodyOf(await GET(req({ auth: `Bearer ${SECRET}` })));
-    expect(body.truncated).toBe(false);
-    expect(body.remaining).toBe(0);
-    expect(body.scanned).toBe(2);
+    expect(out.truncated).toBe(true);
+    expect((out.queueDepth as { queued: number }).queued).toBe(12);
   });
 });

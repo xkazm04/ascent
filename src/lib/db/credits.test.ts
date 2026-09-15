@@ -317,7 +317,8 @@ describe("grantCredits idempotency (webhook redelivery anti-double-grant)", () =
  * which resolves the org id via `organization.findUnique`, then pulls rows via `creditLedger.findMany`.
  * We hand findMany a fixed, crafted set of rows so the classifier (positive-delta refund-vs-grant split,
  * negative-delta debited bucket) and the date window are exercised in isolation. Each row carries a real
- * `Date` createdAt so the `e.createdAt.getTime() >= cutoff` window filter runs for real.
+ * `Date` createdAt so the HALF-OPEN `[since, before)` window filter runs for real — both bounds, since
+ * the caller now supplies the same UTC-day-anchored window the scan figures beside it are counted over.
  */
 function fakePrismaForReconciliation(rows: Array<{ delta: number; reason: string; createdAt: Date }>) {
   let lastFindManyArgs: unknown = null;
@@ -328,11 +329,15 @@ function fakePrismaForReconciliation(rows: Array<{ delta: number; reason: string
     creditLedger: {
       findMany: vi.fn(async (args: unknown) => {
         lastFindManyArgs = args;
-        // Model the DB doing the windowing: getCreditReconciliation now passes
-        // `where: { createdAt: { gte: cutoff } }` (full-window aggregate, no 200-row cap), so honor
-        // that filter here instead of returning every row and relying on JS-side trimming.
-        const gte = (args as { where?: { createdAt?: { gte?: Date } } } | undefined)?.where?.createdAt?.gte;
-        const windowed = gte ? rows.filter((r) => r.createdAt.getTime() >= gte.getTime()) : rows;
+        // Model the DB doing the windowing: getCreditReconciliation passes the caller's half-open
+        // `where: { createdAt: { gte: since, lt: before } }` (full-window aggregate, no 200-row cap),
+        // so honor BOTH bounds here instead of returning every row and relying on JS-side trimming.
+        const at = (args as { where?: { createdAt?: { gte?: Date; lt?: Date } } } | undefined)?.where?.createdAt;
+        const windowed = rows.filter(
+          (r) =>
+            (!at?.gte || r.createdAt.getTime() >= at.gte.getTime()) &&
+            (!at?.lt || r.createdAt.getTime() < at.lt.getTime()),
+        );
         return windowed.map((r, i) => ({
           id: `cl_${i}`,
           delta: r.delta,
@@ -349,7 +354,8 @@ function fakePrismaForReconciliation(rows: Array<{ delta: number; reason: string
   return { prisma, getArgs: () => lastFindManyArgs };
 }
 
-import { getCreditReconciliation, CREDIT_REASON, isRefundReason } from "./credits";
+import { getCreditLedger, getCreditReconciliation, CREDIT_REASON, isRefundReason } from "./credits";
+import { usageWindow } from "./usage";
 
 /**
  * Fake prisma for consumeScanCredit's plan-resolution + casing contract. Unlike `fakePrisma` (which
@@ -488,6 +494,9 @@ describe("consumeScanCredit plan-resolution + casing contract", () => {
 describe("getCreditReconciliation refund-vs-grant classification", () => {
   const now = Date.now();
   const daysAgo = (d: number) => new Date(now - d * 86_400_000);
+  /** The window the /usage page hands in — the SAME UTC-day-anchored half-open one the scan figures
+   *  on that page are counted over, instead of the rolling wall-clock cutoff this used to derive. */
+  const lastDays = (d: number) => usageWindow(d);
 
   it("classifies a refund as refunded (NOT granted) and a grant as granted — over a mixed ledger", async () => {
     // A 30-day window: one scan debit (-1), one refund (+1), one top-up grant (+50).
@@ -498,7 +507,7 @@ describe("getCreditReconciliation refund-vs-grant classification", () => {
     ]);
     mockGetPrisma.mockReturnValue(prisma);
 
-    const rec = await getCreditReconciliation("acme", 30);
+    const rec = await getCreditReconciliation("acme", lastDays(30));
 
     // THE refund-vs-grant boundary: a +1/"refund" lands in `refunded`, the +50/"grant" in `granted`.
     // If a misclassification double-counted the refund as a fresh grant, granted would be 51 (and
@@ -528,7 +537,7 @@ describe("getCreditReconciliation refund-vs-grant classification", () => {
     ]);
     mockGetPrisma.mockReturnValue(prisma);
 
-    const rec = await getCreditReconciliation("acme", 30);
+    const rec = await getCreditReconciliation("acme", lastDays(30));
 
     expect(rec!.refunded).toBe(5); // 2 + 3, the canonical-refund positives only
     expect(rec!.granted).toBe(125); // 100 + 25, the non-refund positives only
@@ -552,7 +561,7 @@ describe("getCreditReconciliation refund-vs-grant classification", () => {
     ]);
     mockGetPrisma.mockReturnValue(prisma);
 
-    const rec = await getCreditReconciliation("acme", 30);
+    const rec = await getCreditReconciliation("acme", lastDays(30));
     expect(rec!.refunded).toBe(4);
     expect(rec!.granted).toBe(7);
   });
@@ -564,7 +573,7 @@ describe("getCreditReconciliation refund-vs-grant classification", () => {
     ]);
     mockGetPrisma.mockReturnValue(prisma);
 
-    const rec = await getCreditReconciliation("acme", 30);
+    const rec = await getCreditReconciliation("acme", lastDays(30));
 
     expect(rec!.debited).toBe(6); // |−5| + |−1|
     expect(rec!.refunded).toBe(0);
@@ -580,18 +589,57 @@ describe("getCreditReconciliation refund-vs-grant classification", () => {
     ]);
     mockGetPrisma.mockReturnValue(prisma);
 
-    const rec = await getCreditReconciliation("acme", 7);
+    const rec = await getCreditReconciliation("acme", lastDays(7));
 
     expect(rec!.entries).toBe(1); // only the in-window row survived the filter
     expect(rec!.granted).toBe(10);
     expect(rec!.net).toBe(10);
   });
 
+  // Direction 9(a). The reconciliation and the scan figures it is compared against sit in one panel
+  // on /usage under one "last {days}d" label. This function used to cut at `Date.now() - days*86.4e6`
+  // — a rolling wall-clock instant — while the scans were counted over a UTC-day-anchored half-open
+  // window, so the two could differ by up to a full day's traffic and the panel blamed it on "rows
+  // straddling the window edge". The window is now an ARGUMENT, which is what makes this assertable.
+  it("queries the caller's half-open window verbatim — both bounds, no re-derived cutoff", async () => {
+    const { prisma, getArgs } = fakePrismaForReconciliation([]);
+    mockGetPrisma.mockReturnValue(prisma);
+    const win = usageWindow(30);
+
+    await getCreditReconciliation("acme", win);
+
+    const where = (getArgs() as { where: { createdAt: { gte: Date; lt: Date } } }).where;
+    expect(where.createdAt.gte).toEqual(win.since);
+    expect(where.createdAt.lt).toEqual(win.before);
+    // …and that window is the UTC-day-anchored one, not a rolling instant: both bounds are midnights.
+    expect(where.createdAt.gte.getTime() % 86_400_000).toBe(0);
+    expect(where.createdAt.lt.getTime() % 86_400_000).toBe(0);
+  });
+
+  it("counts a ledger row on today's UTC day, which a rolling `now - days` cutoff also kept, AND one from the oldest UTC day, which it dropped", async () => {
+    const win = usageWindow(7);
+    // The oldest UTC day in the window, one hour after its midnight: inside `[since, before)`, but
+    // OUTSIDE the old `Date.now() - 7*86_400_000` cutoff whenever the process clock is past 01:00Z.
+    const oldestDay = new Date(win.since.getTime() + 3_600_000);
+    const { prisma } = fakePrismaForReconciliation([
+      { delta: 12, reason: "grant", createdAt: oldestDay },
+      { delta: -3, reason: CREDIT_REASON.SCAN, createdAt: new Date(win.before.getTime() - 1) },
+      { delta: 99, reason: "grant", createdAt: new Date(win.since.getTime() - 1) }, // the day before: out
+    ]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const rec = await getCreditReconciliation("acme", win);
+
+    expect(rec!.entries).toBe(2);
+    expect(rec!.granted).toBe(12);
+    expect(rec!.debited).toBe(3);
+  });
+
   it("an empty ledger yields all zeroes and never NaN", async () => {
     const { prisma } = fakePrismaForReconciliation([]);
     mockGetPrisma.mockReturnValue(prisma);
 
-    const rec = await getCreditReconciliation("acme", 30);
+    const rec = await getCreditReconciliation("acme", lastDays(30));
 
     expect(rec).toEqual({ debited: 0, refunded: 0, granted: 0, net: 0, entries: 0 });
     for (const v of Object.values(rec!)) expect(Number.isNaN(v)).toBe(false);
@@ -599,7 +647,7 @@ describe("getCreditReconciliation refund-vs-grant classification", () => {
 
   it("returns null when persistence is off (no DB)", async () => {
     mockIsDbConfigured.mockReturnValue(false);
-    const rec = await getCreditReconciliation("acme", 30);
+    const rec = await getCreditReconciliation("acme", lastDays(30));
     expect(rec).toBeNull();
   });
 });
@@ -815,5 +863,173 @@ describe("clawbackOrderRefund (Polar refund-abuse defense)", () => {
     mockIsDbConfigured.mockReturnValue(false);
     const balance = await clawbackOrderRefund("acme", "ord1", 40, { eventKey: "400" });
     expect(balance).toBeNull();
+  });
+});
+
+// ── SPEND ATTRIBUTION ────────────────────────────────────────────────────────────────────────────
+//
+// Every `reason:"scan"` row used to land with scanId and actor NULL, and every `reason:"refund"` row
+// with no repo at all — `grantCredits`'s opts were `{ reason, actor, externalId }`, so a refund could
+// not be joined to the debit it reversed and per-repo spend could not be netted out. Two consequences
+// these tests pin: the join now exists, and `consumeScanCredit`'s natural-key idempotency branch
+// (`scan:<scanId>`, unreachable while no caller ever passed a scanId) actually works when one does.
+
+/** Fake prisma that keeps the WHOLE ledger row, and can pretend a given externalId already exists. */
+function attributionPrisma(
+  balance: number,
+  opts: { outerBalance?: number; existingExternalIds?: string[] } = {},
+) {
+  const row = { id: "org_1", scanCredits: balance, plan: "free" };
+  const rows: Array<Record<string, unknown>> = [];
+  const existing = new Set(opts.existingExternalIds ?? []);
+  const creditLedger = {
+    create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+      rows.push(data);
+      return data;
+    }),
+    findUnique: vi.fn(async ({ where }: { where: { externalId: string } }) =>
+      existing.has(where.externalId) ? { id: "led_1" } : null,
+    ),
+  };
+  const tx = {
+    organization: {
+      findUnique: vi.fn(async () => ({ id: row.id, scanCredits: row.scanCredits, plan: row.plan })),
+      findUniqueOrThrow: vi.fn(async () => ({ scanCredits: row.scanCredits })),
+      updateMany: vi.fn(async () => {
+        if (row.scanCredits <= 0) return { count: 0 };
+        row.scanCredits -= 1;
+        return { count: 1 };
+      }),
+      update: vi.fn(async ({ data }: { data: { scanCredits: { increment: number } } }) => {
+        row.scanCredits += data.scanCredits.increment;
+        return { scanCredits: row.scanCredits };
+      }),
+    },
+    creditLedger,
+  };
+  return {
+    prisma: {
+      // The allowance gate's pre-tx read. `outerBalance` lets it show a STALE positive balance while
+      // the live row is already empty — the exact shape of an acked-lost commit being retried.
+      organization: {
+        findUnique: vi.fn(async () => ({
+          id: row.id,
+          scanCredits: opts.outerBalance ?? row.scanCredits,
+          plan: row.plan,
+        })),
+      },
+      scan: { count: vi.fn(async () => 9999) }, // well past any tier allowance → the overflow (debit) path
+      creditLedger,
+      $transaction: (fn: (t: typeof tx) => unknown) => fn(tx),
+    },
+    row,
+    rows,
+  };
+}
+
+describe("CreditLedger spend attribution (debit ↔ refund join)", () => {
+  it("stamps repoFullName + actor on the debit AND on the refund that reverses it", async () => {
+    const { prisma, rows } = attributionPrisma(10);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await consumeScanCredit("acme", { repoFullName: "acme/api", actor: "mkdol" });
+    await grantCredits("acme", 1, { reason: "refund", actor: "mkdol", repoFullName: "acme/api" });
+
+    const [debit, refund] = rows;
+    expect(debit).toMatchObject({ delta: -1, reason: "scan", repoFullName: "acme/api", actor: "mkdol" });
+    expect(refund).toMatchObject({ delta: 1, reason: "refund", repoFullName: "acme/api", actor: "mkdol" });
+    // The join the whole direction exists for: the reversal names the same repo as the charge.
+    expect(refund!.repoFullName).toBe(debit!.repoFullName);
+  });
+
+  it("leaves repoFullName/scanId null on a genuine grant — a top-up pays for no particular repo", async () => {
+    const { prisma, rows } = attributionPrisma(0);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await grantCredits("acme", 50, { reason: "polar", actor: "polar", externalId: "polar:ord_1" });
+
+    expect(rows[0]).toMatchObject({ delta: 50, reason: "polar", repoFullName: null, scanId: null });
+  });
+
+  it("carries scanId onto both rows when the caller knows it, and joins them by it", async () => {
+    const { prisma, rows } = attributionPrisma(10);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await consumeScanCredit("acme", { repoFullName: "acme/api", scanId: "scan_7", actor: "mkdol" });
+    await grantCredits("acme", 1, { reason: "refund", actor: "mkdol", repoFullName: "acme/api", scanId: "scan_7" });
+
+    expect(rows.map((r) => r.scanId)).toEqual(["scan_7", "scan_7"]);
+    // A known scanId also upgrades the debit's idempotency key from a per-invocation uuid to the
+    // NATURAL key — the property the next test leans on.
+    expect(rows[0]!.externalId).toBe("scan:scan_7");
+  });
+
+  it("exercises the natural-key idempotency branch: a re-run of a debit that already committed", async () => {
+    // The live row is empty (a prior attempt of THIS invocation debited and committed, then the commit
+    // ack was lost), while the allowance gate's pre-tx read still sees the stale 1. Without the natural
+    // key the conditional decrement's `count: 0` would report a PAID scan as denied — and it would
+    // later be charged a second time. `scan:<scanId>` is what tells the two cases apart, and it was
+    // unreachable until a caller passed a scanId.
+    const { prisma, rows } = attributionPrisma(0, { outerBalance: 1, existingExternalIds: ["scan:scan_7"] });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await consumeScanCredit("acme", { repoFullName: "acme/api", scanId: "scan_7" });
+
+    expect(res).toEqual({ ok: true, balance: 0, unlimited: false, charged: true });
+    expect(rows).toHaveLength(0); // no SECOND debit row was appended — the ledger stays append-once
+  });
+
+  it("still denies a genuine out-of-credits debit that carries a scanId (no free pass from the key)", async () => {
+    const { prisma, rows } = attributionPrisma(0, { outerBalance: 1 });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await consumeScanCredit("acme", { repoFullName: "acme/api", scanId: "scan_9" });
+
+    expect(res).toMatchObject({ ok: false, charged: false });
+    expect(rows).toHaveLength(0);
+  });
+});
+
+// ── The org-facing ledger read carries no per-person attribution ─────────────────────────────────
+//
+// `GET /api/org/credits` ships `getCreditLedger`'s rows verbatim as `ledger`, to EVERY member who can
+// read the org. `actor` was in that select although the client type omits it and nothing renders it,
+// so a money surface was shipping "who ran this scan" to every reader for no product reason — the
+// same per-person attribution docs/features/billing/usage.md's privacy note rules out for the usage
+// ledger beside it. The column still exists and is still written (see the attribution tests above);
+// it is simply not in the ORG-facing projection.
+describe("getCreditLedger — the org-facing projection", () => {
+  function ledgerPrisma() {
+    let selected: Record<string, unknown> | null = null;
+    const prisma = {
+      organization: { findUnique: vi.fn(async () => ({ id: "org_1", slug: "acme" })) },
+      creditLedger: {
+        findMany: vi.fn(async (args: { select: Record<string, unknown> }) => {
+          selected = args.select;
+          // Model the driver: a column that was not selected is not on the row.
+          return [
+            Object.fromEntries(
+              Object.keys(args.select).map((k) => [k, k === "createdAt" ? new Date(0) : null]),
+            ),
+          ];
+        }),
+      },
+    };
+    return { prisma, select: () => selected };
+  }
+
+  it("does not select `actor`, so the endpoint body cannot carry it", async () => {
+    mockIsDbConfigured.mockReturnValue(true);
+    const { prisma, select } = ledgerPrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const rows = await getCreditLedger("acme", 50);
+
+    expect(select()).toBeTruthy();
+    expect(select()).not.toHaveProperty("actor");
+    // The projection the route serializes: no `actor` key at all, not an `actor: null`.
+    expect(rows[0]).not.toHaveProperty("actor");
+    // …and the fields the chip actually renders are still there.
+    expect(select()).toMatchObject({ delta: true, balanceAfter: true, reason: true, repoFullName: true });
   });
 });

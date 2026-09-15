@@ -66,13 +66,36 @@ export function selfHostedExplicit(): boolean {
   return raw === "1" || raw === "true";
 }
 
+/** Warn-once latch for the production fall-through below. Module-scoped so the log fires once per
+ *  process, not once per gate check — `selfHosted()` is consulted on nearly every plan decision. */
+let inferredSelfHostWarned = false;
+
 export function selfHosted(): boolean {
   const raw = process.env.ASCENT_SELF_HOSTED?.trim().toLowerCase();
   // Deliberately NOT envBool: this flag needs a third state. `envBool` cannot distinguish "unset"
   // (fall through to the billing sniff) from an explicit "0" (the operator says: enforce plans).
   if (raw === "1" || raw === "true") return true;
   if (raw === "0" || raw === "false") return false;
-  return !billingConfigured();
+  const inferred = !billingConfigured();
+  // The inference is right for a fresh clone and wrong for a managed deployment that has LOST its
+  // Polar token: every plan gate opens, scans stop metering, and nothing says so. The mode is still
+  // inferred (changing that would break existing self-hosts that never set the flag) — but in
+  // production it no longer happens silently. Server-side only: `@/lib/plans` is imported by client
+  // components for its DATA constants, and this must not log in a browser console.
+  if (inferred && !inferredSelfHostWarned && typeof window === "undefined" && process.env.NODE_ENV === "production") {
+    inferredSelfHostWarned = true;
+    console.warn(
+      "[env] ASCENT_SELF_HOSTED is unset and POLAR_ACCESS_TOKEN is absent — this production deployment " +
+        "is running SELF-HOSTED: every plan gate is open, scans are unmetered, retention is unbounded. " +
+        "Set ASCENT_SELF_HOSTED=1 to declare that deliberate, or ASCENT_SELF_HOSTED=0 to enforce plans.",
+    );
+  }
+  return inferred;
+}
+
+/** Test seam: reset the warn-once latch. Not used in production code. */
+export function __resetSelfHostWarning(): void {
+  inferredSelfHostWarned = false;
 }
 
 // ── Auth-gate env predicates ─────────────────────────────────────────────────
@@ -109,7 +132,7 @@ export function creditGrantsEnabled(): boolean {
  *
  * UAT TOMAS-L1-01 (blocker). The public funnel used to inherit the general sign-in wall, so in
  * production `POST /api/scan` on a public repo answered
- * `401 {"code":"auth_required"}` — while everything READ-ONLY stayed open (saved report 200, badge
+ * `401 {"code":"auth_required"}` — while everything READ-ONLY stayed open (saved report 200, gate
  * 200, gate 422). The one walled action was the only one that converts a buyer, under a landing CTA
  * reading "Scan a repository" and a README section headed "Free & public — no signup: everything
  * here works anonymously". The scan route's own comment two hundred lines above the wall already
@@ -137,6 +160,68 @@ export function publicScanSignInRequired(): boolean {
  */
 export function authGateEnabled(): boolean {
   return supabaseAuthConfigured() && !authBypassEnabled();
+}
+
+// ── Proxy-trust predicate ────────────────────────────────────────────────────
+
+/** Warn-once latch for the unwitnessed proxy-trust default below. Module-scoped so the log fires
+ *  once per process, not once per request — `trustedProxyHops()` is on the limiter's hot path. */
+let unwitnessedProxyTrustWarned = false;
+
+/**
+ * TRUST MODEL (quotas-rate-limiting 07-16 #1): how many proxies between the client and this app are
+ * trusted to append honest forwarding headers, from `ASCENT_TRUSTED_PROXY_HOPS`. Consumed by
+ * `clientIp` (src/lib/rate-limit.ts), which is the ONLY reader — the raw env var is never read at a
+ * call site, so the default and its warning cannot be lost by someone re-deriving the value.
+ *
+ *   - `0` — NO proxy is trusted (e.g. a self-hosted node behind a proxy that forwards client headers
+ *     VERBATIM, or with the app port reachable directly, where an attacker can mint a fresh
+ *     `x-real-ip` per request and bypass every per-IP limit AND the 30-day quota). All forwarding
+ *     headers are ignored; every anonymous caller shares one burst bucket (fail closed) and the
+ *     monthly quota treats the caller as unidentifiable (fail open — see public-scan-quota's
+ *     bucketContext) instead of trusting spoofable input.
+ *   - `1` (default) — platform mode: `x-real-ip` first, then the RIGHT-most XFF hop.
+ *   - `N >= 2` — an N-hop trusted chain (e.g. CDN → LB → app): the client is the Nth-from-the-right
+ *     XFF entry (the right-most N−1 are the trusted proxies' own addresses — bucketing on those would
+ *     collapse thousands of real users into a handful of edge IPs and lock the whole anonymous funnel
+ *     out of the 30-day quota). `x-real-ip` is NOT trusted here: it was set by an intermediate hop and
+ *     names the wrong peer. A chain shorter than N yields "unknown" (fail closed / unidentifiable).
+ *
+ * Anything else (unset, non-integer, negative) → 1.
+ *
+ * THE FAIL-OPEN, MADE LOUD. The default of 1 means an UNCONFIGURED deployment trusts `x-real-ip`
+ * verbatim, with no platform signal and no peer check behind it. That default is still right — every
+ * managed platform sets that header, and flipping the default to 0 would drop every self-hosted
+ * deployment behind an honest proxy into one shared fail-closed bucket, breaking the anonymous funnel
+ * for real users to defend against a shape the operator may not have. So, like `selfHosted()`'s
+ * production inference, the fall-through is not forbidden — it is made LOUD: when the operator has
+ * neither set the var NOR is running somewhere that witnesses the proxy (Vercel), say so once.
+ */
+export function trustedProxyHops(): number {
+  const raw = process.env.ASCENT_TRUSTED_PROXY_HOPS?.trim();
+  if (!raw) {
+    // No declaration. A platform whose edge OWNS the forwarding headers is a witness that trusting
+    // one hop is correct; without one, the value is an assumption nobody has confirmed.
+    const witnessed = Boolean(process.env.VERCEL);
+    if (!witnessed && !unwitnessedProxyTrustWarned && typeof window === "undefined") {
+      unwitnessedProxyTrustWarned = true;
+      console.warn(
+        "[env] ASCENT_TRUSTED_PROXY_HOPS is unset and no platform proxy witness was found — " +
+          "`x-real-ip` is trusted without a witness, so if this app is reachable without a trusted " +
+          "proxy a caller can mint a fresh rate-limit bucket AND a fresh monthly-quota bucket per " +
+          "request by setting that header. Set ASCENT_TRUSTED_PROXY_HOPS=0 if the app is reachable " +
+          "without a trusted proxy, or 1/N to declare the proxy chain.",
+      );
+    }
+    return 1;
+  }
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 ? n : 1;
+}
+
+/** Test seam: reset the unwitnessed-proxy-trust warn-once latch. Not used in production code. */
+export function __resetTrustedProxyWarning(): void {
+  unwitnessedProxyTrustWarned = false;
 }
 
 /**

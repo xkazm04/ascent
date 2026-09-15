@@ -4,16 +4,26 @@
 // tune). No hooks → server-safe, but freely imported by the client variants.
 
 import type { ReactNode } from "react";
-import { scoreHex } from "@/lib/ui";
+import { LEVEL_HEX, scoreHex } from "@/lib/ui";
 import { coverageOf, type DimClass, type DimInsight } from "@/features/standing/tech-stacks/fleetAnalysis";
 import type { ChangeType } from "@/features/standing/tech-stacks/transferPlaybook";
 
+/**
+ * The diagnosis classes, painted from the SHARED level ramp rather than four hand-picked hexes. Each
+ * class already meant a rung of that ramp — a gap is L2 territory, a shared strength is L5 — so the
+ * literals here were the ramp retyped, free to drift from it. `consistent` is the one class that is
+ * not a level (it is "no outlier", a non-verdict), so it takes the neutral direction tone.
+ */
 export const CLASS_META: Record<DimClass, { color: string; icon: string; label: string }> = {
-  divergent: { color: "#eab308", icon: "⇄", label: "Divergent" },
-  gap: { color: "#f97316", icon: "▼", label: "Gap" },
-  strength: { color: "#22c55e", icon: "▲", label: "Strength" },
-  consistent: { color: "#64748b", icon: "≈", label: "Consistent" },
+  divergent: { color: LEVEL_HEX.L3, icon: "⇄", label: "Divergent" },
+  gap: { color: LEVEL_HEX.L2, icon: "▼", label: "Gap" },
+  strength: { color: LEVEL_HEX.L5, icon: "▲", label: "Strength" },
+  consistent: { color: "var(--color-tone-flat)", icon: "≈", label: "Consistent" },
 };
+
+/** A class colour at low alpha for a pill ground. `color-mix` so a CSS token works alongside a hex —
+ *  the old `${color}1f` string concat silently produced garbage for anything but a 6-digit literal. */
+const tint = (color: string) => `color-mix(in srgb, ${color} 12%, transparent)`;
 
 const clampPct = (v: number) => Math.max(0, Math.min(100, v));
 
@@ -28,8 +38,8 @@ export function ClassPill({ klass, muted }: { klass: DimClass; muted?: boolean }
   const color = muted ? MUTED : m.color;
   return (
     <span
-      className="inline-flex w-fit items-center gap-1 rounded px-1.5 py-0.5 font-mono text-xs"
-      style={{ backgroundColor: `${color}1f`, color }}
+      className="inline-flex w-fit items-center gap-1 rounded px-1.5 py-0.5 type-caption"
+      style={{ backgroundColor: tint(color), color }}
     >
       <span aria-hidden>{m.icon}</span>
       {m.label}
@@ -48,7 +58,7 @@ export function CoverageChip({ d, nounPlural = "stacks" }: { d: DimInsight; noun
   const low = c.level === "low";
   return (
     <span
-      className={`font-mono text-xs tabular-nums ${low ? "text-warn" : "text-slate-500"}`}
+      className={`type-caption tabular-nums ${low ? "text-warn" : "text-slate-500"}`}
       title={`This verdict is drawn from ${c.count} of the ${c.of} scored ${nounPlural} that could carry this dimension.`}
     >
       {c.count}/{c.of} {nounPlural}
@@ -59,7 +69,7 @@ export function CoverageChip({ d, nounPlural = "stacks" }: { d: DimInsight; noun
 
 export function ChangeTag({ type }: { type: ChangeType }) {
   return (
-    <span className="rounded border border-divider bg-surface/60 px-1.5 py-0.5 font-mono text-xs uppercase tracking-wide text-slate-400">
+    <span className="rounded border border-divider bg-surface/60 px-1.5 py-0.5 type-label tracking-wide text-slate-400">
       {type}
     </span>
   );
@@ -117,7 +127,7 @@ export function RangeBar({ d, compact }: { d: DimInsight; compact?: boolean }) {
       ))}
       <div
         className="absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full"
-        style={{ left: `${d.min}%`, width: `${Math.max(0, d.spread)}%`, backgroundColor: `${m.color}40` }}
+        style={{ left: `${d.min}%`, width: `${Math.max(0, d.spread)}%`, backgroundColor: `color-mix(in srgb, ${m.color} 25%, transparent)` }}
       />
       {d.fleet != null && (
         <div className="absolute inset-y-0 w-px bg-slate-400/70" style={{ left: `${clampPct(d.fleet)}%` }} title={`Whole-fleet baseline: ${d.fleet}`} />
@@ -139,7 +149,7 @@ export function RangeBar({ d, compact }: { d: DimInsight; compact?: boolean }) {
 /** The leader/laggard readout used in the diagnosis row's right column. */
 export function LeaderLaggard({ d }: { d: DimInsight }) {
   return (
-    <div className="font-mono text-sm">
+    <div className="type-mono-sm">
       <div className="flex items-baseline justify-between gap-2">
         <span className="truncate text-slate-300" title={d.leader.name}>{d.leader.name}</span>
         <span className="tabular-nums" style={{ color: scoreHex(d.leader.value) }}>{d.leader.value}</span>
@@ -165,7 +175,7 @@ export function ConsensusRow({ d, action, nounPlural, children }: { d: DimInsigh
         </div>
         <div>
           <RangeBar d={d} />
-          <p className="mt-1 text-sm text-slate-400">{noteFor(d)}</p>
+          <p className="mt-1 type-body-sm text-slate-400">{noteFor(d)}</p>
         </div>
         <div className="min-w-0">
           <LeaderLaggard d={d} />

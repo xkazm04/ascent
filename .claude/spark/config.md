@@ -1,7 +1,7 @@
 ---
 product: "ascent"
 stack: "Next 16 (canary/preview) · React 19 · TS · Tailwind v4 hand-rolled primitives · Prisma 6 + Postgres/Aurora DSQL · Supabase auth · vitest + playwright · no i18n"
-vault: ["C:/Users/kazda/Documents/Obsidian/ascent"]
+vault: ["C:/Users/kazda/Documents/Obsidian/ascent", "C:/Users/mkdol/Documents/Obsidian/ascent"]
 vault_subdir: Spark
 context_map: context-map.json
 base_branch: master
@@ -17,7 +17,8 @@ Moved here from `$VAULT/Spark/config.md` on 2026-08-25 (the repo overlay is the 
 ## Gates
 
 always:
-- `npx tsc --noEmit`
+- `npx eslint <touched paths>` — 0 errors (React Compiler rules are errors; lint is in the pre-push master gate)
+- `npx tsc --noEmit` — output EMPTY (a syntax error anywhere, e.g. a truncated `.next/dev/types/validator.ts`, silences every semantic check)
 - `npx vitest run` (scope with a path arg while iterating; **full run before merge**)
 
 when a client/server boundary may have moved:
@@ -110,6 +111,73 @@ Pasted verbatim into every builder brief:
 
 ## Skill improvement log
 
+- 2026-09-06 (ui-surfaces-showcase): **`npm run lint` is part of the pre-push master gate (`npm run verify`)
+  and the React Compiler rules (`react-hooks/refs|purity|set-state-in-effect|immutability`) are ERRORS** —
+  the overlay's `## Gates` never listed lint, so 15 builders shipped 37 lint errors past tsc + vitest and the
+  push to master was refused by the hook. Add `npx eslint <paths>` to every builder brief and to `always:`.
+  Also: `git push . <branch>:master` runs that hook (lint, typecheck, coverage tests, build, ~10 min); run
+  `npm run verify` once yourself BEFORE the push so a red gate is diagnosed with full output, not a 2-line tail.
+- 2026-09-06 (ui-surfaces-showcase): `src/lib/scan-ingest.test.ts` "overlaps the siblings instead of trailing
+  them" fails under `test:coverage` full-run load only (4/4 green alone, with and without coverage) — a
+  timing test; verify against the file alone before treating it as yours.
+- 2026-09-06 (ui-surfaces-showcase): **`npx tsc --noEmit` is HOLLOW while `.next/dev/types/validator.ts` is
+  syntactically corrupt** — tsc skips all semantic diagnostics when any syntactic error exists, so "only the
+  validator error" means nothing was checked. Sixteen builders and the Director passed this gate all session;
+  ~200 `noUncheckedIndexedAccess` errors surfaced only after the dev server regenerated the file. The
+  2026-09-05 line said "delete it, it regenerates" — make that the FIRST step of every tsc gate, and treat a tsc
+  output that is not empty as red even when every line is in `.next/`.
+- 2026-09-06 (ui-surfaces-showcase): **a parallel session committed 16 of its commits onto this spark's branch**
+  because the main checkout sat on it. Working on a branch in the main checkout (the 2026-09-05 default) is
+  only safe while no other session commits here; when one does, its commits ride to master with yours —
+  say so in the merge. A worktree costs the node_modules junction problem; the branch costs this.
+- 2026-09-06 (ui-surfaces-showcase): **the catalog bijection test imported all scene bodies in one 15s case**
+  and timed out under full-suite load only; `it.each` per record keeps the budget per import and names the
+  failing subject.
+- 2026-09-06 (ui-surfaces-showcase): a builder misread AGENTS.md's "Nothing in a feature group may be imported
+  from here" (about `org/shared/`, which features MAY import) as forbidding the import, and another imported
+  a palette from a sibling feature GROUP (forbidden). State both directions explicitly in builder briefs; no
+  lint catches the cross-group import today.
+- 2026-09-05 (knowledge-base-rebuild): **the prototype round blocked on an unonboarded device.** The
+  operator answered the pick gate with "onboard ascent on this device first". Before the go-gate,
+  verify the operator can OBSERVE the surface: a dev server they can reach, an org with data, and the
+  flags the switcher gates on (here `ASCENT_REGISTRY_PREVIEW`, which `next dev` does NOT hot-reload —
+  a restart is required). The registry's `onboarding` skill + `npm run doctor` is the 10-minute path.
+- 2026-09-05 (knowledge-base-rebuild): **curl is the wrong instrument for a client-rendered Suspense
+  boundary** — the strip was in the RSC payload but not in the HTML, and grep said "not rendered".
+  Verify UI in headless Chromium (`playwright` is a dev dep; `npx playwright install chromium`; run the
+  script from the repo root so the package resolves).
+- 2026-09-05 (knowledge-base-rebuild): **`scripts/seed-org.mjs` skips read as successes** until this
+  run fixed it; a repo answers `skipped: in_progress` while another run's ScanJob claim (15-minute
+  lease) is live — including claims a killed dev server left behind. `scripts/seed-fleet.mjs <org>`
+  (synthetic, in-server, no GitHub) is the reliable way to get a populated org for UI work.
+- 2026-09-05 (knowledge-base-rebuild): a **session-limit 429 killed the WP1 builder mid-package**;
+  resuming from its in-place edits was safe precisely because builders never touch the index — keep
+  that law, and re-run the scoped suites before trusting a builder's last message as its final state.
+- 2026-09-05 (knowledge-base-rebuild): the operator's `next dev` (a cmd-launched process) had to be
+  killed to load a new env file; a killed Turbopack server can leave `.next/dev/types/validator.ts`
+  corrupted, which fails `tsc` on a file that is not ours — delete it, it regenerates.
+- 2026-09-05 (knowledge-base-rebuild): worked on a branch in the main checkout instead of a worktree
+  (clean tree, operator's dev server here, junction build lesson). No collision; keep it as the
+  prototype-round default and use a worktree only when the tree is dirty.
+
+- 2026-09-01 (weekly-digest, eval run): **the node_modules junction blocks `npm run build`** (the
+  2026-08-22 line below, confirmed again): Turbopack fails with "Symlink [project]/node_modules is
+  invalid". In a worktree you may not `npm install` into (a junction into another checkout), the
+  build gate is blocked by construction — say so, run `next build --webpack` as the fallback, and
+  lean on tsc + a jsdom render of the new server panel for the boundary evidence.
+- 2026-09-01 (weekly-digest): **commit the wire types AND compilable stubs with final signatures
+  before the fan-out.** WP1 (model) and WP2 (panel) then ran fully parallel with zero shared files;
+  the stub bodies (`null` / `""`) let WP2's tsc pass against a module WP1 was still writing.
+- 2026-09-01 (weekly-digest): **`Recommendation.createdAt` is the SCAN's date, not the gap's** —
+  rows are recreated per scan with status carried by `(dimId,title)`. Any "opened since" read must
+  be an identity diff against the last pre-window scan, with "no pre-window scan" reported as
+  unmeasurable, never as 0. A creation event is the follow-up idea `followup-opened-event`.
+- 2026-09-01 (weekly-digest): a Map of per-repo baselines built lazily from rows collapses "baseline
+  empty" into "baseline absent"; seed it per measurable repo first. WP1's own test caught it.
+- 2026-09-01 (weekly-digest): when a WP2-owned doc file needs a WP1 section, have WP2 leave a
+  `<!-- WP1 doc section merges here -->` placeholder and WP1 write to scratch; the Director's merge
+  is then one string replacement.
+
 - 2026-08-25 (operator-companion): **partition DOC surfaces as explicitly as source
   directories.** Six code territories were carved carefully, then two parallel builders were
   handed the same feature doc and the same feature-doc-map. Caught mid-flight; the fix that
@@ -155,3 +223,17 @@ Pasted verbatim into every builder brief:
 - 2026-08-22: ascent overlay scaffolded (the personas vault's gates don't apply here).
 - 2026-08-25: overlay moved from the vault to `.claude/spark/config.md`; gates gained the
   `next build` boundary case, the prisma-generate/dev-restart case, and the structure caps.
+
+- 2026-09-06 (knowledge-context-matrix): **the main checkout may be on ANOTHER session's branch** with
+  dirty files (it was on `spark-ui-surfaces-showcase`, editing this very config). Merge from the spark
+  worktree instead: `git checkout master && git merge --ff-only <branch>` there, then switch back — a
+  branch can be checked out in only one worktree, and master was free. Rebase onto master first.
+- 2026-09-06 (knowledge-context-matrix): **a fresh worktree checks out CRLF while the main checkout is
+  LF**, and three master-green tests fail on it: `src/lib/scoring/gate-cli.test.ts` (SyntaxError),
+  `src/features/bought/teams/TeamsHonesty.dom.test.tsx` (source-regex), `src/lib/local/pairing.test.ts`
+  (timeout under full-run load only). The 2026-08-25 line-ending-guard class, two more instances; verify
+  a full-run failure against the main checkout before treating it as yours.
+- 2026-09-06 (knowledge-context-matrix): the overlay's `vault:` names the Wolf path only; on Fox the
+  Obsidian root is `C:/Users/mkdol/Documents/Obsidian/ascent` (memory `fox-device-perfect-vault`) and
+  `Spark/` was scaffolded there this run — the two vaults are not synced. Add the Fox path as a second
+  candidate when this file is next committed cleanly (it was dirty under another session this run).

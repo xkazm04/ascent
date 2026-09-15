@@ -20,7 +20,7 @@ vi.mock("@/lib/db/client", () => ({
 }));
 
 import { getAuditLog, claimOrgAuditOnce, releaseAuditClaim } from "./scans-audit";
-import { withAuditSignature } from "./audit-integrity";
+import { withAuditSignature, verifyAudit } from "./audit-integrity";
 
 /**
  * Fake prisma capturing the audit query. `organization.findUnique` resolves a slug→id map (so
@@ -361,63 +361,178 @@ describe("getAuditLog integrity verdict wiring (G2-33)", () => {
 // winner — so two overlapping runs can't both send the same weekly digest (fleet-alerts-digests #3).
 // getOrgId (real) resolves the slug→id via the mocked prisma's organization.findUnique.
 describe("claimOrgAuditOnce / releaseAuditClaim — atomic once-per-window claim (fleet #3)", () => {
-  function claimPrisma(opts: { orgId: string | null; existing?: { id: string } | null }) {
-    const tx = {
-      auditLog: {
-        findFirst: vi.fn(async () => opts.existing ?? null),
-        create: vi.fn(async () => ({ id: "audit_new" })),
-      },
+  interface StoredRow {
+    id: string;
+    action: string;
+    orgId: string | null;
+    actorId: string | null;
+    at: Date;
+    meta: string;
+  }
+
+  /**
+   * A STATEFUL fake AuditLog table. The claim/release pair is now a two-row protocol (a claim marker and,
+   * on failure, a `claim.released` row that cancels it) rather than an insert and a delete, so a stub
+   * returning a fixed `existing` can no longer express the behaviour under test: the claim → release →
+   * re-claim sequence only means anything against a store that remembers what was written.
+   */
+  function claimStore(opts: { orgId: string | null; seed?: StoredRow[] }) {
+    const rows: StoredRow[] = [...(opts.seed ?? [])];
+    let seq = 0;
+    const matches = (r: StoredRow, where: Record<string, unknown>) => {
+      if (where.action !== undefined && r.action !== where.action) return false;
+      if (where.orgId !== undefined && r.orgId !== where.orgId) return false;
+      const at = where.at as { gte?: Date } | undefined;
+      if (at?.gte && r.at.getTime() < at.gte.getTime()) return false;
+      return true;
     };
-    const del = vi.fn(async () => ({}));
+    const auditLog = {
+      findMany: vi.fn(async ({ where }: { where: Record<string, unknown> }) => rows.filter((r) => matches(r, where))),
+      findUnique: vi.fn(async ({ where }: { where: { id: string } }) => rows.find((r) => r.id === where.id) ?? null),
+      create: vi.fn(async ({ data }: { data: Omit<StoredRow, "id"> }) => {
+        const row: StoredRow = { id: `audit_${++seq}`, ...data };
+        rows.push(row);
+        return row;
+      }),
+      // Present so a regression back to the delete-based release is caught by an assertion rather than
+      // by a TypeError: the ledger is append-only and NOTHING in this module may call it.
+      delete: vi.fn(async () => {
+        throw new Error("auditLog.delete must never be called — the audit trail is append-only");
+      }),
+    };
     const prisma = {
       organization: { findUnique: vi.fn(async () => (opts.orgId ? { id: opts.orgId } : null)) },
-      auditLog: { delete: del },
-      $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
+      auditLog,
+      $transaction: vi.fn(async (fn: (t: { auditLog: typeof auditLog }) => unknown) => fn({ auditLog })),
     };
-    return { prisma, tx, del };
+    return { prisma, auditLog, rows };
   }
 
   it("CLAIMS the window when no marker exists in-window: inserts and returns claimed:true + id", async () => {
-    const { prisma, tx } = claimPrisma({ orgId: "org_1", existing: null });
+    const { prisma, auditLog } = claimStore({ orgId: "org_1" });
     mockGetPrisma.mockReturnValue(prisma);
 
     const since = new Date("2026-01-01T00:00:00.000Z");
     const res = await claimOrgAuditOnce("org.digest.sent", "claim-a", since, { weekStart: "x" });
 
-    expect(res).toEqual({ claimed: true, id: "audit_new" });
+    expect(res).toEqual({ claimed: true, id: "audit_1" });
     // The conditional check is scoped to (action, orgId, at >= since), then the insert runs.
-    expect(tx.auditLog.findFirst).toHaveBeenCalledWith(
+    expect(auditLog.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { action: "org.digest.sent", orgId: "org_1", at: { gte: since } } }),
     );
-    expect(tx.auditLog.create).toHaveBeenCalledTimes(1);
+    expect(auditLog.create).toHaveBeenCalledTimes(1);
   });
 
-  it("does NOT claim when a marker already exists in-window: claimed:false, inserts nothing (loser skips)", async () => {
-    const { prisma, tx } = claimPrisma({ orgId: "org_1", existing: { id: "already_sent" } });
+  it("does NOT claim when a live marker already exists in-window: claimed:false, inserts nothing (loser skips)", async () => {
+    const { prisma, auditLog } = claimStore({
+      orgId: "org_1",
+      seed: [
+        {
+          id: "already_sent",
+          action: "org.digest.sent",
+          orgId: "org_1",
+          actorId: null,
+          at: new Date("2026-01-02T00:00:00.000Z"),
+          meta: "{}",
+        },
+      ],
+    });
     mockGetPrisma.mockReturnValue(prisma);
 
     const res = await claimOrgAuditOnce("org.digest.sent", "claim-b", new Date(0), {});
     expect(res).toEqual({ claimed: false, id: null });
-    expect(tx.auditLog.create).not.toHaveBeenCalled();
+    expect(auditLog.create).not.toHaveBeenCalled();
   });
 
   it("fails CLOSED (claimed:false) when the org can't be resolved — never sends without a durable claim", async () => {
-    const { prisma, tx } = claimPrisma({ orgId: null });
+    const { prisma, auditLog } = claimStore({ orgId: null });
     mockGetPrisma.mockReturnValue(prisma);
     const res = await claimOrgAuditOnce("org.digest.sent", "claim-ghost", new Date(0), {});
     expect(res).toEqual({ claimed: false, id: null });
-    expect(tx.auditLog.create).not.toHaveBeenCalled();
+    expect(auditLog.create).not.toHaveBeenCalled();
   });
 
-  it("releaseAuditClaim deletes the marker by id, and is a no-op for a null id", async () => {
-    const { prisma, del } = claimPrisma({ orgId: "org_1" });
+  it("releaseAuditClaim is a no-op for a null id, and for an id that resolves to no row", async () => {
+    const { prisma, auditLog } = claimStore({ orgId: "org_1" });
     mockGetPrisma.mockReturnValue(prisma);
 
-    await releaseAuditClaim("audit_1");
-    expect(del).toHaveBeenCalledWith({ where: { id: "audit_1" } });
-
-    del.mockClear();
     await releaseAuditClaim(null);
-    expect(del).not.toHaveBeenCalled();
+    expect(mockGetPrisma).not.toHaveBeenCalled();
+
+    await releaseAuditClaim("gone");
+    expect(auditLog.create).not.toHaveBeenCalled();
+  });
+
+  // Direction 6 — the ledger's delete door is closed. A release used to hard-DELETE the claim row: the
+  // only delete on AuditLog outside retention, and one that erased the evidence that a dispatch had been
+  // attempted and failed. It now APPENDS a `claim.released` record referencing the claim.
+  describe("release appends a correction record instead of deleting (append-only ledger)", () => {
+    beforeEach(() => {
+      process.env.AUDIT_SIGNING_SECRET = "test-secret";
+    });
+    afterEach(() => {
+      delete process.env.AUDIT_SIGNING_SECRET;
+    });
+
+    it("claim → release → re-claim succeeds, and the released claim is STILL READABLE", async () => {
+      const { prisma, auditLog, rows } = claimStore({ orgId: "org_1" });
+      mockGetPrisma.mockReturnValue(prisma);
+      const since = new Date("2026-01-01T00:00:00.000Z");
+
+      const first = await claimOrgAuditOnce("org.digest.sent", "acme", since, { weekStart: "w1" });
+      expect(first.claimed).toBe(true);
+
+      // A second claim in the SAME window is refused while the marker is live.
+      expect((await claimOrgAuditOnce("org.digest.sent", "acme", since, {})).claimed).toBe(false);
+
+      // The guarded side effect failed → release, then the next run must be able to retry.
+      await releaseAuditClaim(first.id);
+      const retry = await claimOrgAuditOnce("org.digest.sent", "acme", since, { weekStart: "w1" });
+      expect(retry.claimed).toBe(true);
+      expect(retry.id).not.toBe(first.id);
+
+      // Nothing was deleted: the original claim row, its release record and the retry all survive.
+      expect(auditLog.delete).not.toHaveBeenCalled();
+      expect(rows.find((r) => r.id === first.id)).toBeDefined();
+      const release = rows.find((r) => r.action === "claim.released");
+      expect(release).toBeDefined();
+      expect(release!.orgId).toBe("org_1"); // same tenant trail as the claim it cancels
+      const releaseMeta = JSON.parse(release!.meta) as Record<string, unknown>;
+      expect(releaseMeta.releasedClaimId).toBe(first.id);
+      expect(releaseMeta.releasedAction).toBe("org.digest.sent");
+    });
+
+    it("a release marker cancels only ITS OWN claim — an unreleased live claim still blocks", async () => {
+      const { prisma } = claimStore({ orgId: "org_1" });
+      mockGetPrisma.mockReturnValue(prisma);
+      const since = new Date("2026-01-01T00:00:00.000Z");
+
+      const a = await claimOrgAuditOnce("org.digest.sent", "acme", since, {});
+      await releaseAuditClaim(a.id);
+      const b = await claimOrgAuditOnce("org.digest.sent", "acme", since, {}); // live again
+      expect(b.claimed).toBe(true);
+      // b was NOT released, so the window stays closed.
+      expect((await claimOrgAuditOnce("org.digest.sent", "acme", since, {})).claimed).toBe(false);
+    });
+
+    it("the release record verifies as `ok` — it is signed like every other audit row", async () => {
+      const { prisma, rows } = claimStore({ orgId: "org_1" });
+      mockGetPrisma.mockReturnValue(prisma);
+
+      const claim = await claimOrgAuditOnce("org.digest.sent", "acme", new Date(0), {});
+      await releaseAuditClaim(claim.id);
+
+      const release = rows.find((r) => r.action === "claim.released")!;
+      const meta = JSON.parse(release.meta) as Record<string, unknown>;
+      expect(
+        verifyAudit({
+          action: release.action,
+          orgId: release.orgId,
+          actorId: release.actorId,
+          createdAt: release.at.toISOString(),
+          meta,
+        }),
+      ).toBe("ok");
+    });
   });
 });

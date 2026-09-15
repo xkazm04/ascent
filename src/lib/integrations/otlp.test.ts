@@ -118,8 +118,14 @@ describe("resolveGitRepo — non-GitHub remotes are reported, never silently dro
     expect(resolveGitRepo("vercel/next.js")).toEqual({ repo: "vercel/next.js" });
   });
 
-  it("names the unsupported host for a GitLab / Bitbucket / self-hosted remote", () => {
-    expect(resolveGitRepo("https://gitlab.com/group/proj.git")).toEqual({ reason: "unsupported-host", host: "gitlab.com" });
+  it("RESOLVES a GitLab remote now that Ascent reads GitLab (moonshot #4)", () => {
+    // The identity is the forge-prefixed one the persist layer writes, so the spend actually joins
+    // the repo row instead of being reported as an unattributable host.
+    expect(resolveGitRepo("https://gitlab.com/group/proj.git")).toEqual({ repo: "gitlab:group/proj" });
+    expect(resolveGitRepo("https://gitlab.com/group/sub/proj")).toEqual({ repo: "gitlab:group/sub/proj" });
+  });
+
+  it("names the unsupported host for a forge Ascent still cannot read", () => {
     expect(resolveGitRepo("git@bitbucket.org:team/repo.git")).toEqual({ reason: "unsupported-host", host: "bitbucket.org" });
     expect(resolveGitRepo("ssh://git@git.internal.acme.dev:2222/platform/api.git")).toMatchObject({
       reason: "unsupported-host",
@@ -178,7 +184,7 @@ describe("parseOtlpMetrics — skip reporting", () => {
     expect(r.records).toEqual([]);
   });
 
-  it("counts a non-GitHub remote as unsupported-host and NAMES the host", () => {
+  it("stores a GitLab remote and still names a host it genuinely cannot read", () => {
     const r = parseOtlpMetrics(
       {
         resourceMetrics: [
@@ -190,9 +196,9 @@ describe("parseOtlpMetrics — skip reporting", () => {
       FALLBACK,
     );
     expect(r.received).toBe(7);
-    expect(r.skipped["unsupported-host"]).toBe(5);
-    expect(r.unsupportedHosts.sort()).toEqual(["bitbucket.org", "gitlab.com"]);
-    expect(r.records).toHaveLength(1); // the GitHub one still lands
+    expect(r.skipped["unsupported-host"]).toBe(1); // bitbucket only — GitLab now lands
+    expect(r.unsupportedHosts).toEqual(["bitbucket.org"]);
+    expect(r.records.map((x) => x.scopeKey).sort()).toEqual(["gitlab:group/proj", "vercel/next.js"]);
   });
 
   it("received always equals stored-capable + skipped datapoints (no datapoint goes uncounted)", () => {
@@ -200,7 +206,7 @@ describe("parseOtlpMetrics — skip reporting", () => {
       {
         resourceMetrics: [
           resource(null, [{ name: "claude_code.token.usage", count: 3 }]),
-          resource("https://gitlab.com/g/p.git", [{ name: "claude_code.token.usage", count: 2 }]),
+          resource("git@bitbucket.org:g/p.git", [{ name: "claude_code.token.usage", count: 2 }]),
           resource("vercel/next.js", [
             { name: "claude_code.token.usage", count: 4 },
             { name: "claude_code.unknown", count: 1 },

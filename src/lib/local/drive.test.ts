@@ -39,4 +39,12 @@ describe("nextDriveStep — three honest ways to stop, no fourth", () => {
   it("has a hard cap on the rope", () => {
     expect(DRIVE_MAX_RUNS_CAP).toBeLessThanOrEqual(8);
   });
+
+  it("keeps its four-argument signature — the model choice sits BESIDE it, not inside it", () => {
+    // MOONSHOT #27 deliberately did not widen this function. It is a pure three-branch termination
+    // policy; a model choice is not a termination reason, and threading prices through here would
+    // churn every guard above for no gain. `pickDriveModel` (lane-economics.ts) is called next to it
+    // in `drive()` and is tested on its own.
+    expect(nextDriveStep).toHaveLength(4);
+  });
 });

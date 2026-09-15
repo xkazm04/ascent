@@ -21,8 +21,9 @@ vi.mock("@/lib/db/client", () => ({
   getPrisma: mockGetPrisma,
 }));
 
-import { updateRecommendation, getRecommendationEvents } from "./scans-recommendations";
+import { updateRecommendation, getRecommendationEvents, handoffRecommendations, REC_EVENTS_LIMIT } from "./scans-recommendations";
 import { toPersistedRec } from "./scans-shared";
+import { verifyAudit } from "./audit-integrity";
 
 /** A minimal Recommendation row that satisfies toPersistedRec's field reads. */
 function recRow(overrides: Partial<Record<string, unknown>> = {}) {
@@ -332,6 +333,31 @@ describe("getRecommendationEvents — newest-first timeline order + ISO mapping"
     expect(await getRecommendationEvents("rec_1")).toBeNull();
     expect(findMany).not.toHaveBeenCalled();
   });
+
+  // D11: the read is BOUNDED. RecommendationEvent is append-only and grows with every status flip,
+  // behind a route any org reader can call, so an unbounded findMany let a caller grow the page by
+  // toggling a status. The bound is on the query, and the order stays newest-first so what is dropped
+  // is the oldest history, never the current state.
+  it("bounds the read at REC_EVENTS_LIMIT, newest-first", async () => {
+    const { prisma, findMany } = fakePrismaForEvents([]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await getRecommendationEvents("rec_1");
+
+    const args = findMany.mock.calls[0][0] as { take: number; orderBy: unknown };
+    expect(args.take).toBe(REC_EVENTS_LIMIT);
+    expect(REC_EVENTS_LIMIT).toBe(200);
+    expect(args.orderBy).toEqual([{ createdAt: "desc" }, { id: "desc" }]);
+  });
+
+  it("honours an explicit smaller bound", async () => {
+    const { prisma, findMany } = fakePrismaForEvents([]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await getRecommendationEvents("rec_1", 5);
+
+    expect((findMany.mock.calls[0][0] as { take: number }).take).toBe(5);
+  });
 });
 
 // ── toPersistedRec — the corrupt-data firewall on every recommendation read ──────────────────
@@ -504,5 +530,263 @@ describe("toPersistedRec — corrupt-data firewall", () => {
     expect(out!.explore).toEqual(["__proto__", "constructor", "prototype", "keep"]);
     expect(out!.explore.every((x) => typeof x === "string")).toBe(true);
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+});
+
+// ── handoffRecommendations — batch hand-off: one membership read, CAS writes ─────────────────────
+// Pins the Wave-3 item-8 shape (docs/specs/2026-08-30-followups-handoff-batch.md): ownership +
+// status answered by ONE batched findMany; the writes are per-row conditional updates whose WHERE
+// carries `status: "open"` + the org scope; events + audit land on the SAME tx as the updates; and
+// a CAS that returns count:0 (row moved between read and write) is reported skipped — the
+// reopen-race the old read-then-unguarded-write allowed.
+
+describe("handoffRecommendations — membership-scoped batch read + CAS-guarded transactional writes", () => {
+  /** Rows keyed by id: { status, slug, orgId } describe what the batch read returns; ids absent
+   *  from the map are unknown. `casLosers` lists ids whose CAS update returns count:0, with the
+   *  status the in-tx re-read then reports. */
+  function fakeHandoffPrisma(
+    rowsById: Record<string, { status: string; slug?: string; orgId?: string | null }>,
+    casLosers: Record<string, string> = {},
+  ) {
+    const findMany = vi.fn(async ({ where }: { where: { id: { in: string[] } } }) =>
+      where.id.in
+        .filter((id) => rowsById[id])
+        .map((id) => ({
+          id,
+          status: rowsById[id]!.status,
+          scan: {
+            repo: {
+              orgId: rowsById[id]!.orgId === undefined ? "org_42" : rowsById[id]!.orgId,
+              org: { slug: rowsById[id]!.slug ?? "acme" },
+            },
+          },
+        })),
+    );
+    const tx = {
+      recommendation: {
+        updateMany: vi.fn(async ({ where }: { where: { id: string } }) => ({
+          count: where.id in casLosers ? 0 : 1,
+        })),
+        findUnique: vi.fn(async ({ where }: { where: { id: string } }) => ({
+          status: casLosers[where.id] ?? rowsById[where.id]?.status ?? "unknown",
+        })),
+      },
+      recommendationEvent: { createMany: vi.fn(async () => ({ count: 0 })) },
+      auditLog: { createMany: vi.fn(async () => ({ count: 0 })) },
+    };
+    const prisma = {
+      recommendation: { findMany },
+      $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
+    };
+    return { prisma, tx, findMany };
+  }
+
+  it("marks open rows via per-row CAS (status + org scope in the WHERE) with events + audit on the SAME tx", async () => {
+    const { prisma, tx, findMany } = fakeHandoffPrisma({
+      a: { status: "open" },
+      b: { status: "open" },
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const out = await handoffRecommendations("Acme", ["a", "b"], { actor: "alice", note: "handed off" });
+
+    expect(out).toEqual({ ok: true, marked: ["a", "b"], skipped: [] });
+    // ONE membership-scoped batch read — not a per-id ownership loop.
+    expect(findMany).toHaveBeenCalledTimes(1);
+    // The CAS predicate carries the expected state AND the owning org.
+    expect(tx.recommendation.updateMany).toHaveBeenCalledWith({
+      where: { id: "a", status: "open", scan: { repo: { orgId: "org_42" } } },
+      data: { status: "in_progress" },
+    });
+    // Timeline events + audit rows commit atomically with the updates (same tx object).
+    expect(tx.recommendationEvent.createMany).toHaveBeenCalledTimes(1);
+    const events = tx.recommendationEvent.createMany.mock.calls[0][0].data;
+    expect(events).toEqual([
+      { recommendationId: "a", actor: "alice", kind: "status", fromValue: "open", toValue: "in_progress", note: "handed off" },
+      { recommendationId: "b", actor: "alice", kind: "status", fromValue: "open", toValue: "in_progress", note: "handed off" },
+    ]);
+    const audits = tx.auditLog.createMany.mock.calls[0][0].data;
+    expect(audits).toHaveLength(2);
+    expect(audits[0]).toMatchObject({ action: "recommendation.updated", orgId: "org_42", actorId: null });
+    expect(JSON.parse(audits[0].meta)).toEqual({
+      id: "a",
+      actor: "alice",
+      changes: [{ kind: "status", from: "open", to: "in_progress" }],
+    });
+  });
+
+  it("refuses the WHOLE request for an unknown id — and opens no transaction", async () => {
+    const { prisma, tx } = fakeHandoffPrisma({ a: { status: "open" } });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const out = await handoffRecommendations("acme", ["a", "ghost"]);
+
+    expect(out).toEqual({ ok: false });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.recommendation.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses the WHOLE request for a foreign id (same refusal as unknown — no existence oracle)", async () => {
+    const { prisma } = fakeHandoffPrisma({
+      a: { status: "open" },
+      z: { status: "open", slug: "other-org" },
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    expect(await handoffRecommendations("acme", ["a", "z"])).toEqual({ ok: false });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("skips non-open rows without touching them, and writes nothing when no row is open", async () => {
+    const { prisma, tx } = fakeHandoffPrisma({
+      d: { status: "done" },
+      p: { status: "in_progress" },
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const out = await handoffRecommendations("acme", ["d", "p"]);
+
+    expect(out).toEqual({
+      ok: true,
+      marked: [],
+      skipped: [
+        { id: "d", status: "done" },
+        { id: "p", status: "in_progress" },
+      ],
+    });
+    // No candidates → no transaction, no writes at all.
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.recommendationEvent.createMany).not.toHaveBeenCalled();
+  });
+
+  it("reports a CAS loser (row moved between read and write) as skipped with its current status — never reopened, no event", async () => {
+    const { prisma, tx } = fakeHandoffPrisma(
+      { a: { status: "open" }, b: { status: "open" } },
+      { b: "done" }, // b's CAS returns count:0; the in-tx re-read says it's now done
+    );
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const out = await handoffRecommendations("acme", ["a", "b"], { actor: "alice" });
+
+    expect(out).toEqual({ ok: true, marked: ["a"], skipped: [{ id: "b", status: "done" }] });
+    // Only the winner gets a timeline event and an audit row.
+    expect(tx.recommendationEvent.createMany.mock.calls[0][0].data).toHaveLength(1);
+    expect(tx.recommendationEvent.createMany.mock.calls[0][0].data[0].recommendationId).toBe("a");
+    expect(tx.auditLog.createMany.mock.calls[0][0].data).toHaveLength(1);
+  });
+
+  it("returns null when the DB is unconfigured", async () => {
+    mockIsDbConfigured.mockReturnValue(false);
+    expect(await handoffRecommendations("acme", ["a"])).toBeNull();
+  });
+
+  it("SIGNS every batch audit row, each over the shared instant it stores", async () => {
+    // The batch path was a third unsigned site the earlier audit missed: it wrote unsigned rows for
+    // the SAME action the per-item path next to it signed. One `at` is shared by the batch (they
+    // commit in one transaction, so one instant is the truthful timestamp) and each row is signed
+    // over that same instant.
+    process.env.AUDIT_SIGNING_SECRET = "test-secret";
+    try {
+      const { prisma, tx } = fakeHandoffPrisma({ a: { status: "open" }, b: { status: "open" } });
+      mockGetPrisma.mockReturnValue(prisma);
+
+      await handoffRecommendations("acme", ["a", "b"], { actor: "alice" });
+
+      const rows = tx.auditLog.createMany.mock.calls[0][0].data as Array<{
+        action: string;
+        at: Date;
+        orgId: string | null;
+        actorId: string | null;
+        meta: string;
+      }>;
+      expect(rows).toHaveLength(2);
+      expect(rows[0]!.at.getTime()).toBe(rows[1]!.at.getTime()); // one shared instant for the batch
+      for (const row of rows) {
+        const meta = JSON.parse(row.meta) as Record<string, unknown>;
+        expect(typeof meta._sig).toBe("string");
+        expect(
+          verifyAudit({
+            action: row.action,
+            orgId: row.orgId,
+            actorId: row.actorId,
+            createdAt: row.at.toISOString(),
+            meta,
+          }),
+        ).toBe("ok");
+      }
+      // Each row still signs its OWN id, so swapping two rows' meta is detectable.
+      expect(JSON.parse(rows[0]!.meta).id).toBe("a");
+      expect(JSON.parse(rows[1]!.meta).id).toBe("b");
+    } finally {
+      delete process.env.AUDIT_SIGNING_SECRET;
+    }
+  });
+});
+
+// ── Audit tamper-evidence: both recommendation.updated writers are SIGNED ────────────────────────
+//
+// `recommendation.updated` is the product's most-edited record, and BOTH of its in-transaction
+// writers (the per-item updateRecommendation create, and the handoffRecommendations createMany)
+// used to JSON.stringify their meta directly — bypassing withAuditSignature — so every backlog
+// mutation landed with no `_sig` and read as "unsigned" in the audit viewer's Integrity column.
+// The signature covers `createdAt`, so `at` must be stamped explicitly and match what was signed;
+// a DB-defaulted timestamp would sign a different instant than the row stores and verify as
+// `tampered` forever. Exemplar: recordConformance in src/lib/db/org-watch.ts.
+describe("recommendation.updated audit rows are signed", () => {
+  it("updateRecommendation SIGNS its row over the timestamp it stores (verifies ok)", async () => {
+    process.env.AUDIT_SIGNING_SECRET = "test-secret";
+    try {
+      const { prisma, tx } = fakePrisma(recRow({ status: "open" }), { orgId: "org_42" });
+      mockGetPrisma.mockReturnValue(prisma);
+
+      await updateRecommendation("rec_1", { status: "done" }, { actor: "bob" });
+
+      const { data } = tx.auditLog.create.mock.calls[0][0] as {
+        data: { action: string; at: Date; orgId: string | null; actorId: string | null; meta: string };
+      };
+      const meta = JSON.parse(data.meta) as Record<string, unknown>;
+      expect(data.at).toBeInstanceOf(Date); // stamped explicitly — never DB-defaulted
+      expect(typeof meta._sig).toBe("string"); // signed at all — the regression this pins
+      // Signing leaves the payload the viewer's Details column reads untouched.
+      expect(meta).toMatchObject({ id: "rec_1", actor: "bob", changes: [{ kind: "status", from: "open", to: "done" }] });
+
+      expect(
+        verifyAudit({
+          action: data.action,
+          orgId: data.orgId,
+          actorId: data.actorId,
+          createdAt: data.at.toISOString(),
+          meta,
+        }),
+      ).toBe("ok");
+    } finally {
+      delete process.env.AUDIT_SIGNING_SECRET;
+    }
+  });
+
+  it("an edited meta field no longer verifies (the tamper-evidence is real, not decorative)", async () => {
+    process.env.AUDIT_SIGNING_SECRET = "test-secret";
+    try {
+      const { prisma, tx } = fakePrisma(recRow({ status: "open" }), { orgId: "org_42" });
+      mockGetPrisma.mockReturnValue(prisma);
+
+      await updateRecommendation("rec_1", { status: "done" }, { actor: "bob" });
+
+      const { data } = tx.auditLog.create.mock.calls[0][0] as {
+        data: { action: string; at: Date; orgId: string | null; actorId: string | null; meta: string };
+      };
+      const meta = JSON.parse(data.meta) as Record<string, unknown>;
+      expect(
+        verifyAudit({
+          action: data.action,
+          orgId: data.orgId,
+          actorId: data.actorId,
+          createdAt: data.at.toISOString(),
+          meta: { ...meta, actor: "mallory" }, // someone rewrites who did it, at rest
+        }),
+      ).toBe("tampered");
+    } finally {
+      delete process.env.AUDIT_SIGNING_SECRET;
+    }
   });
 });

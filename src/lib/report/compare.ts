@@ -153,6 +153,12 @@ export interface ScanDiff {
    * ties a score change to the specific evidence that drove it, not just a trend.
    */
   movements: string[];
+  /**
+   * The raw evidence lines behind each `movements` entry, per dimension: every signal that appeared,
+   * then every one that disappeared as `removed <line>`. The expanded/report views print these; the
+   * headline above prints names only.
+   */
+  movementDetail?: Partial<Record<DimensionId, string[]>>;
   /** True when nothing measurable moved — lets the UI say so plainly instead of an empty panel. */
   unchanged: boolean;
 }
@@ -161,6 +167,35 @@ export interface ScanDiff {
  *  Embedded counts/values are preserved, so "Found 6 test files" → "Found 18 test files"
  *  correctly reads as one signal disappearing and another appearing (the movement we want). */
 const norm = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
+
+/** Set difference over normalized evidence/gap strings. */
+export interface StringSetDiff {
+  /** Entries of `a` whose normalized form is absent from `b`. Original casing/spacing preserved. */
+  onlyInA: string[];
+  /** Entries of `b` whose normalized form is absent from `a`. */
+  onlyInB: string[];
+  /** Entries of `a` whose normalized form IS present in `b` — same source side, same order. */
+  shared: string[];
+}
+
+/**
+ * The one set-diff over evidence/gap strings, shared by the time diff (`diffScans`) and the exemplar
+ * diff (`src/lib/report/exemplar.ts`). `norm()` stays the single normalizer and stays unexported —
+ * it is applied to the LOOKUP only, so every returned string keeps its original phrasing for display.
+ *
+ * DUPLICATES ON A SIDE ARE PRESERVED: one repeated string is one entry per occurrence. That is the
+ * exact semantics `diffScans` has always had (it filtered the source array against a Set of the other
+ * side), and deduping here would silently change the appeared/disappeared counts on the compare page.
+ */
+export function diffStringSets(a: readonly string[], b: readonly string[]): StringSetDiff {
+  const aKeys = new Set(a.map(norm));
+  const bKeys = new Set(b.map(norm));
+  return {
+    onlyInA: a.filter((s) => !bKeys.has(norm(s))),
+    onlyInB: b.filter((s) => !aKeys.has(norm(s))),
+    shared: a.filter((s) => bKeys.has(norm(s))),
+  };
+}
 
 /** A recommendation's cross-scan identity inputs: its dimension + free-form title. */
 export interface RecIdentity {
@@ -307,11 +342,84 @@ export function findOrphanedTracked(
   });
 }
 
-/** Signed integer for an attribution line ("+12" / "-7"). */
-const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`);
+/** Signed integer for an attribution line ("+12" / "−7" — a real minus sign, as the deltas render). */
+const signed = (n: number) => (n > 0 ? `+${n}` : n < 0 ? `−${Math.abs(n)}` : "0");
+
+/** How many signal names a movement line carries before it folds the rest into `(+n)`. */
+export const MOVEMENT_NAME_CAP = 3;
+const MOVEMENT_NAME_CHARS = 40;
 
 /**
- * Build the one-line movement attribution for a dimension, citing concrete evidence.
+ * The NAME of a detector signal, from its evidence string. The D9 battery writes
+ * `Name [group/risk]: score/10 — detail` (security/checks.ts) and the name is the part before the
+ * bracket; every other detector writes a free clause, and the clause before the first `:`, ` — ` or
+ * `(` is the name-shaped part of it. Bounded, because a movement line is a headline, not the evidence.
+ */
+export function signalName(evidence: string): string {
+  const battery = /^(.+?)\s*\[[^\]]+\]\s*:/.exec(evidence);
+  let name = (battery ? battery[1]! : evidence.split(/\s—\s|:\s|\s\(|\(/)[0] ?? evidence).trim().replace(/[.;,]+$/, "");
+  if (name.length > MOVEMENT_NAME_CHARS) {
+    const cut = name.slice(0, MOVEMENT_NAME_CHARS - 1);
+    const sp = cut.lastIndexOf(" ");
+    name = `${(sp > 12 ? cut.slice(0, sp) : cut).trimEnd()}…`;
+  }
+  // "token permissions", but "SAST" and "CI" stay: an acronym is not a sentence start.
+  const first = name.split(" ")[0] ?? "";
+  return /^[A-Z][a-z]/.test(first) ? name[0]!.toLowerCase() + name.slice(1) : name;
+}
+
+/**
+ * Identity for the changed/gained/lost split: the name with its embedded counts blanked, so
+ * "found 18 test files" and "found 6 test files" are one signal whose number moved.
+ *
+ * Exported because it is the SEMANTIC level at which two detector lines are the same signal, and the
+ * exemplar diff needs exactly that (it was written here first and matched on raw normalized strings
+ * instead — UAT `SAM-L1-10`). `norm()` above compares two phrasings of one string; this compares two
+ * readings of one signal. They are different questions and this module owns both answers.
+ */
+export const signalNameKey = (s: string) =>
+  signalName(s)
+    .toLowerCase()
+    .replace(/\d+([./]\d+)?/g, "#")
+    // Collapse whitespace like `norm()` does: this key must be at least as forgiving as the string
+    // one it replaces, or a re-spaced phrasing the old comparison matched would start reporting a
+    // difference that is not one.
+    .replace(/\s+/g, " ")
+    .trim();
+
+const nameKey = signalNameKey;
+
+/**
+ * Set difference at the SIGNAL level, not the string level — same shape and same duplicate semantics
+ * as `diffStringSets`, but two lines are the same entry when they name the same signal with a
+ * different count or a differently-worded detail. Every returned string is the ORIGINAL, so a caller
+ * can key on the signal and still display the evidence the detector actually wrote.
+ *
+ * This is the right level for a CROSS-REPO comparison. Two repos never phrase a detector line
+ * identically — the counts inside them differ by construction — so exact normalized equality reports
+ * "the exemplar has a test framework and you do not" about a repo that has one, and lands the same
+ * count-bearing line in both directions of a two-directional diff at once.
+ *
+ * It is NOT the right level for the time diff of one repo against itself, where a moved count is the
+ * finding: `diffStringSets` stays what `diffScans` uses.
+ */
+export function diffSignalSets(a: readonly string[], b: readonly string[]): StringSetDiff {
+  const aKeys = new Set(a.map(signalNameKey));
+  const bKeys = new Set(b.map(signalNameKey));
+  return {
+    onlyInA: a.filter((s) => !bKeys.has(signalNameKey(s))),
+    onlyInB: b.filter((s) => !aKeys.has(signalNameKey(s))),
+    shared: a.filter((s) => bKeys.has(signalNameKey(s))),
+  };
+}
+
+/**
+ * Build the one-line movement attribution for a dimension, citing the NAMES of the signals behind it:
+ * `D9 −42 · lost token permissions, SAST, dependency updates (+1)`. A signal that appears on one side
+ * and disappears on the other under the same name (the count inside it moved: "3/3 workflows" →
+ * "0/1 workflows") is one `changed` signal, not a gain and a loss. Verbs are ordered by the sign of
+ * the movement — a `changed` signal (its count moved) leads, then a regression leads with what was lost. The raw evidence lines this summarises are
+ * kept beside it on `ScanDiff.movementDetail` for the expanded views.
  * Returns null when nothing measurable moved (no score change and no signal change).
  */
 function buildAttribution(
@@ -324,21 +432,39 @@ function buildAttribution(
   const moved = delta !== null && delta !== 0;
   const signalsChanged = appeared.length > 0 || disappeared.length > 0;
   if (!moved && !signalsChanged) return null;
-
-  const parts: string[] = [...appeared, ...disappeared.map((s) => `removed ${s}`)];
+  const head = delta !== null ? `${id} ${signed(delta)}` : id;
 
   // Score moved but the deterministic evidence didn't: attribute it to the LLM judgment
   // rather than implying new signals appeared.
-  if (parts.length === 0 && moved) {
-    parts.push(
+  if (!signalsChanged) {
+    return `${head} · ${
       signalDelta && signalDelta !== 0
         ? `signal score ${signed(signalDelta)} with no change in named evidence`
-        : "assessment shifted (no change in detected signals)",
-    );
+        : "assessment shifted (no change in detected signals)"
+    }`;
   }
 
-  const head = delta !== null ? `${id} ${signed(delta)}` : id;
-  return `${head}: ${parts.join("; ")}`;
+  const lostKeys = new Set(disappeared.map(nameKey));
+  const uniq = (list: string[]) => [...new Map(list.map((s) => [nameKey(s), signalName(s)])).values()];
+  const changed = uniq(appeared.filter((s) => lostKeys.has(nameKey(s))));
+  const changedKeys = new Set(appeared.filter((s) => lostKeys.has(nameKey(s))).map(nameKey));
+  const gained = uniq(appeared.filter((s) => !changedKeys.has(nameKey(s))));
+  const lost = uniq(disappeared.filter((s) => !changedKeys.has(nameKey(s))));
+
+  const groups: [string, string[]][] = (delta ?? 0) < 0
+    ? [["changed", changed], ["lost", lost], ["gained", gained]]
+    : [["changed", changed], ["gained", gained], ["lost", lost]];
+  let budget = MOVEMENT_NAME_CAP;
+  let overflow = 0;
+  const parts: string[] = [];
+  for (const [verb, names] of groups) {
+    if (names.length === 0) continue;
+    const take = names.slice(0, budget);
+    overflow += names.length - take.length;
+    budget -= take.length;
+    if (take.length > 0) parts.push(`${verb} ${take.join(", ")}`);
+  }
+  return `${head} · ${parts.join("; ")}${overflow > 0 ? ` (+${overflow})` : ""}`;
 }
 
 /**
@@ -378,15 +504,13 @@ export function diffScans(before: ComparableScan, after: ComparableScan): ScanDi
     let disappearedSignals: string[] = [];
     if (b && a) {
       // Compare only when both scans scored the dimension — otherwise movement is noise.
-      const beforeGaps = new Set(b.gaps.map(norm));
-      const afterGaps = new Set(a.gaps.map(norm));
-      closedGaps = b.gaps.filter((g) => !afterGaps.has(norm(g)));
-      openedGaps = a.gaps.filter((g) => !beforeGaps.has(norm(g)));
+      const gapDiff = diffStringSets(b.gaps, a.gaps);
+      closedGaps = gapDiff.onlyInA;
+      openedGaps = gapDiff.onlyInB;
 
-      const beforeEvidence = new Set(b.evidence.map(norm));
-      const afterEvidence = new Set(a.evidence.map(norm));
-      appearedSignals = a.evidence.filter((e) => !beforeEvidence.has(norm(e)));
-      disappearedSignals = b.evidence.filter((e) => !afterEvidence.has(norm(e)));
+      const evidenceDiff = diffStringSets(b.evidence, a.evidence);
+      disappearedSignals = evidenceDiff.onlyInA;
+      appearedSignals = evidenceDiff.onlyInB;
     }
     closedGapCount += closedGaps.length;
     openedGapCount += openedGaps.length;
@@ -420,10 +544,15 @@ export function diffScans(before: ComparableScan, after: ComparableScan): ScanDi
 
   // The "explained movement" headline: every dimension that moved, biggest swing first,
   // each tied to the concrete evidence behind it.
-  const movements = dimensions
+  const movedDims = dimensions
     .filter((d) => d.attribution !== null)
-    .sort((x, y) => Math.abs(y.delta ?? 0) - Math.abs(x.delta ?? 0))
-    .map((d) => d.attribution as string);
+    .sort((x, y) => Math.abs(y.delta ?? 0) - Math.abs(x.delta ?? 0));
+  const movements = movedDims.map((d) => d.attribution as string);
+  const movementDetail: Partial<Record<DimensionId, string[]>> = {};
+  for (const d of movedDims) {
+    const lines = [...d.appearedSignals, ...d.disappearedSignals.map((s) => `removed ${s}`)];
+    if (lines.length > 0) movementDetail[d.id] = lines;
+  }
 
   // Recommendations that moved to done: done in `after`, and NOT already done in `before` —
   // matched by the same tiered identity carry-forward uses, so a rephrased title still pairs
@@ -501,6 +630,7 @@ export function diffScans(before: ComparableScan, after: ComparableScan): ScanDi
     appearedSignalCount,
     disappearedSignalCount,
     movements,
+    movementDetail,
     unchanged,
   };
 }

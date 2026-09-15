@@ -41,7 +41,7 @@ export function AnalysisPlaybookBoard({ org, dims, scope }: { org: string; dims:
                   type="button"
                   onClick={() => toggle(d.dimId)}
                   aria-expanded={isOpen}
-                  className="focus-ring font-mono text-xs text-accent transition hover:text-white"
+                  className="focus-ring type-caption text-accent transition hover:text-white"
                 >
                   {isOpen ? "hide plan ▾" : "view plan ▸"}
                 </button>

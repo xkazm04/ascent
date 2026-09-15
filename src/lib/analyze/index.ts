@@ -16,6 +16,8 @@ import type {
 import { clamp } from "@/lib/maturity/model";
 import { facetPoints } from "@/lib/scoring/claims";
 import { AI_TRAILER_SOURCE } from "./ai-tools";
+import { readManifestYaml } from "@/lib/standard/read";
+import { gradedGuidanceNode, guidanceGraphFor } from "@/lib/analyze/guidance-graph";
 
 // ---------------------------------------------------------------------------
 // Analysis context — precomputed views over the snapshot for cheap querying.
@@ -26,6 +28,9 @@ class RepoIndex {
   readonly lowerPaths: string[];
   readonly contentByLowerPath: Map<string, string>;
   readonly workflowText: string;
+  /** The same workflow bodies `workflowText` concatenates, kept PER FILE so a signal fired by a
+   *  workflow's body can name the workflow it came from. See `workflowMatch`. */
+  readonly workflowFiles: { path: string; text: string }[];
   readonly manifestText: string;
   private _pathText?: string;
   private _allText?: string;
@@ -38,11 +43,10 @@ class RepoIndex {
       snap.files.map((f) => [f.path.toLowerCase(), f.content]),
     );
 
-    this.workflowText = snap.files
+    this.workflowFiles = snap.files
       .filter((f) => /^\.github\/workflows\/.+\.ya?ml$/i.test(f.path))
-      .map((f) => f.content)
-      .join("\n")
-      .toLowerCase();
+      .map((f) => ({ path: f.path, text: f.content.toLowerCase() }));
+    this.workflowText = this.workflowFiles.map((f) => f.text).join("\n");
 
     this.manifestText = snap.files
       .filter((f) =>
@@ -70,6 +74,46 @@ class RepoIndex {
   /** Does any path match the regex? */
   has(re: RegExp): boolean {
     return this.lowerPaths.some((p) => re.test(p));
+  }
+
+  /**
+   * The FIRST path matching any of `res`, or undefined when none does — the source behind a presence
+   * signal, which `has()` computes and then discards.
+   *
+   * UAT `SAM-L1-01` (2026-08-10): "evidence lines are unsourced labels", named as an
+   * instant-trust-failure. A reader shown "Found MCP server config" has no way to check it without
+   * re-deriving the detector's regex by hand, even though the detector walked the exact path that
+   * matched. Returns undefined deliberately when the signal was satisfied by something OTHER than a
+   * path (a manifest-text or workflow-text branch): the caller then attaches no detail rather than
+   * naming a file that did not trigger it.
+   */
+  first(...res: RegExp[]): string | undefined {
+    for (const re of res) {
+      const hit = this.lowerPaths.find((p) => re.test(p));
+      if (hit) return hit;
+    }
+    return undefined;
+  }
+
+  /**
+   * The workflow FILE whose body matches `re`, or undefined when none does — the path-recovery
+   * `first()` performs for path-triggered signals, done for the ones triggered by workflow TEXT.
+   *
+   * UAT `SAM-L1-01` (2026-08-30, recurrence 2): "a paragraph that cites its sources and a list
+   * labelled EVIDENCE that doesn't." The LLM narrative above the evidence list already names
+   * `.github/workflows/main.yml`; the deterministic detectors matched inside that very file and then
+   * threw the name away, because `workflowText` flattens every workflow into one blob. Keeping the
+   * bodies per file makes the citation exact rather than plausible — this names the file the matching
+   * line was actually read from, never a guess. Undefined stays undefined: a signal that fired off the
+   * MANIFEST (or nothing at all) attaches no detail, same rule as `first()`.
+   */
+  workflowMatch(re: RegExp): string | undefined {
+    return this.workflowFiles.find((f) => re.test(f.text))?.path;
+  }
+
+  /** Every fetched workflow file's path, in tree order. */
+  get workflowPaths(): string[] {
+    return this.workflowFiles.map((f) => f.path);
   }
 
   /** How many paths match the regex? */
@@ -148,29 +192,45 @@ export function guidanceQuality(text: string): { points: number; label: string }
  * contract) and D8 (the executable harness + memory).
  */
 function aiStandard(idx: RepoIndex): {
-  d1: { points: number; label: string }[];
-  d8: { points: number; label: string }[];
+  d1: { points: number; label: string; detail?: string }[];
+  d8: { points: number; label: string; detail?: string }[];
 } {
-  const d1: { points: number; label: string }[] = [];
-  const d8: { points: number; label: string }[] = [];
-  if (idx.has(/^\.ai\/manifest\.ya?ml$/)) {
-    d1.push({ points: 2, label: "Found .ai/manifest.yaml (agent-facing contract)" });
-    const m = idx.content(".ai/manifest.yaml") || "";
-    if (/schema:\s*ai-manifest/.test(m) && /\ncapabilities:/.test(m) && /\ncontrols:/.test(m))
-      d1.push({ points: 4, label: "Manifest declares capabilities + control placement" });
+  const d1: { points: number; label: string; detail?: string }[] = [];
+  const d8: { points: number; label: string; detail?: string }[] = [];
+  // Every award below is triggered by a file the index walked, so each carries that file (SAM-L1-01 —
+  // these were the last D1/D8 awards whose detail was dropped even though the source was in hand).
+  const manifestPath = idx.first(/^\.ai\/manifest\.ya?ml$/);
+  if (manifestPath) {
+    d1.push({ points: 2, label: "Found .ai/manifest.yaml (agent-facing contract)", detail: manifestPath });
+    // #13 — sourced through the shared reader instead of three inline regexes, so the ONE place that
+    // decides what a manifest says is the same one the readout, the skill and the fleet matrix use.
+    // Points and label text are unchanged and pinned byte-for-byte by signals.test.ts: this lane
+    // moves no number. What it does change is REACHABILITY — this +4 was dead code for as long as
+    // `pickFilesToFetch` never requested the file (idx.content only sees fetched files), so the award
+    // starts firing on repos it never fired on before. That is disclosed, not hidden: see the
+    // score-movement rule in docs/specs/moonshot/13-manifest-as-scan-input.md.
+    const readout = readManifestYaml(idx.content(".ai/manifest.yaml") ?? idx.content(".ai/manifest.yml"));
+    const placed = readout.controls.prePush.length > 0 || readout.controls.ciHardPass.length > 0;
+    if (readout.status === "ok" && readout.capabilities.length > 0 && placed)
+      d1.push({ points: 4, label: "Manifest declares capabilities + control placement", detail: manifestPath });
   }
-  if (idx.has(/^\.ai\/doctor\.mjs$/)) {
+  const doctorPath = idx.first(/^\.ai\/doctor\.mjs$/);
+  if (doctorPath) {
     const lefthook = (idx.content("lefthook.yml") || idx.content("lefthook.yaml") || "").toLowerCase();
-    const wired = /doctor\.mjs/.test(idx.workflowText) || /doctor\.mjs/.test(lefthook);
+    // The wiring claim's evidence is the file that DOES the wiring, so name it — a workflow by path
+    // (the point of `workflowMatch`), or the local hook config by name.
+    const wiredIn = idx.workflowMatch(/doctor\.mjs/) ?? (/doctor\.mjs/.test(lefthook) ? "lefthook.yml" : undefined);
     d8.push(
-      wired
-        ? { points: 8, label: "Executable conformance (.ai/doctor.mjs) wired into CI/hook" }
-        : { points: 2, label: ".ai/doctor.mjs present (not yet wired into CI/hook)" },
+      wiredIn
+        ? { points: 8, label: "Executable conformance (.ai/doctor.mjs) wired into CI/hook", detail: `${doctorPath} ← ${wiredIn}` }
+        : { points: 2, label: ".ai/doctor.mjs present (not yet wired into CI/hook)", detail: doctorPath },
     );
   }
-  const mem = idx.count(/^\.ai\/memory\/\d{4}-.*\.md$/);
-  if (mem >= 2) d8.push({ points: 6, label: `Structured memory in use (.ai/memory, ${mem} entries)` });
-  else if (mem === 1) d8.push({ points: 1, label: ".ai/memory seeded (not yet used)" });
+  const MEMORY_PATH = /^\.ai\/memory\/\d{4}-.*\.md$/;
+  const memPaths = idx.lowerPaths.filter((p) => MEMORY_PATH.test(p));
+  const mem = memPaths.length;
+  if (mem >= 2) d8.push({ points: 6, label: `Structured memory in use (.ai/memory, ${mem} entries)`, detail: namedList(memPaths) });
+  else if (mem === 1) d8.push({ points: 1, label: ".ai/memory seeded (not yet used)", detail: memPaths[0] });
   return { d1, d8 };
 }
 
@@ -189,32 +249,103 @@ function aiStandardCached(idx: RepoIndex): ReturnType<typeof aiStandard> {
   return r;
 }
 
-const d1: Detector = (idx) => {
-  const s = new Scorer();
-  // Presence (reduced caps so guidance *quality* can contribute meaningfully).
-  if (idx.has(/(^|\/)claude\.md$/)) s.add(22, "Found CLAUDE.md (Claude Code guidance)");
-  if (idx.has(/(^|\/)agents?\.md$/)) s.add(16, "Found AGENTS.md (agent guidance)");
-  if (idx.has(/(^|\/)\.cursorrules$/) || idx.has(/^\.cursor\/rules\//)) s.add(14, "Found Cursor rules");
-  if (idx.has(/^\.github\/copilot-instructions\.md$/)) s.add(14, "Found Copilot instructions");
-  if (idx.has(/(^|\/)(ai[-_]policy|ai[-_]tools|ai[-_]contributing|using[-_]ai)\.mdx?$/)) s.add(8, "Found an AI-usage policy/guide");
-  if (idx.has(/(^|\/)\.aider\.conf\.ya?ml$/)) s.add(10, "Found Aider config");
-  if (idx.has(/(^|\/)\.windsurfrules$/) || idx.has(/^\.windsurf\//)) s.add(10, "Found Windsurf rules");
-  if (idx.has(/(^|\/)\.?mcp\.json$/) || idx.has(/(^|\/)mcp\.config\./)) s.add(10, "Found MCP server config");
-  if (idx.has(/^\.claude\//)) s.add(8, "Found .claude/ directory");
-  if (idx.has(/^(prompts|\.prompts)\//)) s.add(8, "Found a prompts/ library");
-  if (idx.has(/(^|\/)\.continue\//) || idx.has(/(^|\/)\.clinerules/)) s.add(8, "Found Continue/Cline config");
-  if (idx.has(/^\.devcontainer\//)) s.add(4, "Found devcontainer");
+/** ONE award for having an instruction document at all, whichever vendor's format it is. */
+export const GUIDANCE_DOC_POINTS = 22;
+/** The band coherence buys. 18 for a single canonical source; 18 for four in-sync projections; near
+ *  0 for four drifting copies. Never negative — see the note in the detector. */
+export const GUIDANCE_COHERENCE_POINTS = 18;
 
-  // Content quality — substantive guidance with advanced patterns beats a token stub.
-  const guidance = idx.content("claude.md") || idx.content("agents.md") || idx.content("agent.md");
-  if (guidance) for (const g of guidanceQuality(guidance)) s.add(g.points, g.label);
+const d1: Detector = (idx, snap) => {
+  const s = new Scorer();
+  const facets = new Set<string>();
+  /** Award a facet once, at its table price (scoring/claims.ts) — the D4 pattern. A facet the
+   *  detector evidences is later CONFIRMED by a model claim rather than awarded twice. */
+  const award = (facet: string, label: string, detail?: string) => {
+    if (facets.has(facet)) return s.note(label, detail);
+    facets.add(facet);
+    s.add(facetPoints(facet), label, detail);
+  };
+
+  // ---- rubric r11: the five instruction-document formats stop scoring independently -------------
+  //
+  // They used to sum: CLAUDE.md 22 + AGENTS.md 16 + Cursor 14 + Copilot 14 + Windsurf 10 = 76 on
+  // presence alone, so a repo with four MUTUALLY CONTRADICTING copies scored far above a repo with
+  // one document that is actually true. An agent reading the contradicting repo gets a different
+  // answer depending on which file it opened; that is worse, and the rubric now says so.
+  //
+  // In its place: ONE award for having a document, plus a band bought by COHERENCE — the arbiter's
+  // deterministic, itemized read across every format (analyze/guidance-graph.ts). The bonus is
+  // withheld, never subtracted (G4/G5): the floor of this rule is the same 22 the old rule paid for
+  // one file, so no repo scores lower here for having MORE guidance, only for disagreeing with itself.
+  const graph = guidanceGraphFor(snap);
+  if (graph.nodes.length > 0) {
+    s.add(
+      GUIDANCE_DOC_POINTS,
+      `Agent guidance present (${graph.nodes.length} document${graph.nodes.length === 1 ? "" : "s"})`,
+      graph.nodes.map((n) => n.path).join(", "),
+    );
+  }
+  if (graph.coherence != null) {
+    const bonus = Math.round((GUIDANCE_COHERENCE_POINTS * graph.coherence) / 100);
+    const basis = graph.canonical
+      ? `canonical: ${graph.canonical} (${graph.canonicalBasis})`
+      : "no canonical source nominated";
+    s.add(bonus, `Guidance coherence ${graph.coherence}/100`, basis);
+    // Every deduction is rendered with the paths it was read from — the score has to be re-traceable
+    // to its evidence or it cannot be trusted, and this is the dimension SAM-L1-01 was written about.
+    for (const p of graph.penalties) s.note(`Coherence −${p.points}: ${p.reason}`, p.paths.join(" ↔ "));
+  }
+
+  // Deterministic D1 facets (scoring/claims.ts). Awarded at their table price exactly like D4's, so
+  // what the parser can see is priced the same as what only the model can — and a model claim on one
+  // of these lands as CONFIRMATION rather than a second award.
+  if (graph.canonicalBasis === "manifest" || graph.canonicalBasis === "pointer")
+    award("canonical_declared", "A guidance file or the manifest names the canonical source", graph.canonical ?? undefined);
+  const projections = graph.edges.filter((e) => e.kind === "projects-from");
+  if (projections.length)
+    award("projection_declared", `${projections.length} generated-from projection(s) declared`, projections.map((e) => e.from).join(", "));
+  const divergentKeys = new Set(graph.contradictions.filter((c) => c.kind === "command").map((c) => c.subject));
+  // Agreement counts only between INDEPENDENTLY WRITTEN documents. A byte-identical copy (or a
+  // generated projection) agreeing with its source is a tautology, and paying for it would be
+  // presence-summing wearing a different label — the exact thing r11 removed. Copies are dropped
+  // here; the copy relationship is already priced by coherence and by `projection_declared`.
+  const copies = new Set(graph.edges.filter((e) => e.kind === "duplicates").map((e) => e.to));
+  const independent = graph.nodes.filter((n) => !copies.has(n.path));
+  const agreed = [...new Set(independent.flatMap((n) => n.commands.map((c) => c.key)))].filter(
+    (key) => !divergentKeys.has(key) && independent.filter((n) => n.commands.some((c) => c.key === key)).length >= 2,
+  );
+  if (agreed.length) award("commands_agree", `Guidance files agree on: ${agreed.join(", ")}`);
+  if (graph.contradictions.length)
+    award("contradiction", `${graph.contradictions.length} contradiction(s) between guidance files (evidence, scores 0)`);
+
+  // ---- tool/config presence: unchanged, because these are NOT competing copies of one document ---
+  // An Aider config, an MCP server list and a prompts/ library each say something different about the
+  // repo's setup; two CLAUDE.md-shaped documents say the same thing twice.
+  const found = (points: number, label: string, ...res: RegExp[]) => {
+    const path = idx.first(...res);
+    if (path) s.add(points, label, path);
+  };
+  found(8, "Found an AI-usage policy/guide", /(^|\/)(ai[-_]policy|ai[-_]tools|ai[-_]contributing|using[-_]ai)\.mdx?$/);
+  found(10, "Found Aider config", /(^|\/)\.aider\.conf\.ya?ml$/);
+  found(10, "Found MCP server config", /(^|\/)\.?mcp\.json$/, /(^|\/)mcp\.config\./);
+  found(8, "Found .claude/ directory", /^\.claude\//);
+  found(8, "Found a prompts/ library", /^(prompts|\.prompts)\//);
+  found(8, "Found Continue/Cline config", /(^|\/)\.continue\//, /(^|\/)\.clinerules/);
+  found(4, "Found devcontainer", /^\.devcontainer\//);
+
+  // Content quality — graded on the CANONICAL document, not on whichever file the old first-match
+  // list happened to reach. This repo is its own counter-example: its `CLAUDE.md` is the single line
+  // `@AGENTS.md`, and the old detector awarded 22 for the file and then graded that one line.
+  const node = gradedGuidanceNode(graph);
+  const guidance = node ? idx.content(node.path.toLowerCase()) : undefined;
+  if (guidance) for (const g of guidanceQuality(guidance)) s.add(g.points, g.label, node?.path);
 
   // The `.ai/` standard's agent-facing contract is high-signal machine-readable guidance.
-  for (const g of aiStandardCached(idx).d1) s.add(g.points, g.label);
+  for (const g of aiStandardCached(idx).d1) s.add(g.points, g.label, g.detail);
 
   if (s.signals.length === 0)
     s.note("No machine-readable AI/agent guidance detected", "e.g. CLAUDE.md, AGENTS.md, .cursorrules");
-  return s.result("D1");
+  return { ...s.result("D1"), facets: [...facets] };
 };
 
 // ---------------------------------------------------------------------------
@@ -268,12 +399,14 @@ const d2: Detector = (idx) => {
     ) ||
     idx.has(/(^|\/)(vitest\.config|jest\.config|pytest\.ini|conftest\.py)/)
   )
-    s.add(15, "Test framework configured");
+    // Each of these three can fire from a CONFIG FILE or from the manifest/workflow text. The detail
+    // names the file when a file is what fired it, and is absent otherwise — never a guess.
+    s.add(15, "Test framework configured", idx.first(/(^|\/)(vitest\.config|jest\.config|pytest\.ini|conftest\.py)/));
   if (/playwright|cypress|selenium|puppeteer/.test(frameworks) ||
     idx.has(/(^|\/)(playwright\.config|cypress\.config)/))
-    s.add(15, "End-to-end tests configured");
+    s.add(15, "End-to-end tests configured", idx.first(/(^|\/)(playwright\.config|cypress\.config)/));
   if (idx.has(/(^|\/)(codecov\.ya?ml|\.coveragerc)$/) || /--cov|nyc|coverage/.test(frameworks))
-    s.add(10, "Coverage tracking configured");
+    s.add(10, "Coverage tracking configured", idx.first(/(^|\/)(codecov\.ya?ml|\.coveragerc)$/));
 
   if (sourceFiles.length > 0 && n > 0) {
     const ratio = n / sourceFiles.length;
@@ -348,12 +481,23 @@ const d2: Detector = (idx) => {
 // ---------------------------------------------------------------------------
 // D3 — CI/CD & Automation
 // ---------------------------------------------------------------------------
+// Hoisted so the presence CHECK and the path-citation beside it can never test different things —
+// the failure mode the `found()` helper (D1) exists to prevent, applied to the CI paths.
+const GHA_WORKFLOW_PATH = /^\.github\/workflows\/.+\.ya?ml$/;
+const OTHER_CI_PATH =
+  /(^|\/)(\.gitlab-ci\.yml|\.circleci\/|azure-pipelines\.yml|jenkinsfile|\.travis\.yml|bitbucket-pipelines\.yml)/i;
+
+/** Render up to `cap` cited paths as one evidence detail, with an honest "+N more" tail. */
+function namedList(paths: string[], cap = 4): string | undefined {
+  if (paths.length === 0) return undefined;
+  const shown = paths.slice(0, cap).join(", ");
+  return paths.length > cap ? `${shown} +${paths.length - cap} more` : shown;
+}
+
 const d3: Detector = (idx, snap) => {
   const s = new Scorer();
-  const hasGha = idx.has(/^\.github\/workflows\/.+\.ya?ml$/);
-  const otherCi = idx.has(
-    /(^|\/)(\.gitlab-ci\.yml|\.circleci\/|azure-pipelines\.yml|jenkinsfile|\.travis\.yml|bitbucket-pipelines\.yml)/i,
-  );
+  const hasGha = idx.has(GHA_WORKFLOW_PATH);
+  const otherCi = idx.has(OTHER_CI_PATH);
   // Off-GitHub CI / merge-queue evidence. World-class Go/Rust/systems repos gate on CI + code review
   // OUTSIDE GitHub Actions (Gerrit, bors/homu, Buildkite, LUCI), so a `.github/workflows`-only detector
   // scored them a false 0 ("No CI pipeline detected"). Read committed markers + commit-message trailers
@@ -365,15 +509,17 @@ const d3: Detector = (idx, snap) => {
   const genericCi = idx.has(/^\.ci\//) || idx.has(/(^|\/)(cloudbuild\.ya?ml|\.teamcity\/)/i);
   const offGhSystem = gerritCi ? "Gerrit" : borsCi ? "bors/merge-queue" : buildkiteCi ? "Buildkite" : genericCi ? "external CI" : null;
 
-  if (hasGha) s.add(35, "GitHub Actions CI present");
-  else if (otherCi) s.add(35, "CI pipeline present");
+  if (hasGha) s.add(35, "GitHub Actions CI present", idx.first(GHA_WORKFLOW_PATH));
+  else if (otherCi) s.add(35, "CI pipeline present", idx.first(OTHER_CI_PATH));
   else if (offGhSystem) s.add(35, `Off-GitHub CI detected (${offGhSystem})`, "review/build gate runs outside GitHub Actions");
   else s.note("No CI pipeline detected");
 
-  const wfCount = idx.count(/^\.github\/workflows\/.+\.ya?ml$/);
-  if (wfCount >= 2) s.add(10, `Multiple CI workflows (${wfCount})`);
+  const wfCount = idx.count(GHA_WORKFLOW_PATH);
+  // Name the workflows rather than only counting them (SAM-L1-01): "Multiple CI workflows (4)" is a
+  // number a reader cannot re-derive, and the tree carries every path. Capped so a repo with dozens
+  // of workflows doesn't render an evidence line the width of the page.
+  if (wfCount >= 2) s.add(10, `Multiple CI workflows (${wfCount})`, namedList(idx.lowerPaths.filter((p) => GHA_WORKFLOW_PATH.test(p))));
 
-  const wf = idx.workflowText;
   // For off-GitHub CI there is no workflow YAML, so the test/lint/build sub-signals below would read
   // empty and score 0. Fall back to the build tooling the gate invokes (Makefile/justfile/Taskfile) —
   // an off-GitHub gate with a `test`/`lint` target almost always runs it. Only consulted when GHA is
@@ -381,30 +527,34 @@ const d3: Detector = (idx, snap) => {
   const buildScripts = offGhSystem
     ? ((idx.content("makefile") || "") + "\n" + (idx.content("justfile") || "") + "\n" + (idx.content("taskfile.yml") || idx.content("taskfile.yaml") || "")).toLowerCase()
     : "";
-  if (/(npm|pnpm|yarn|bun) (run )?test|pytest|go test|cargo test|gradle test|jest|vitest/.test(wf))
-    s.add(15, "CI runs tests");
+  // Each sub-signal is now resolved to the workflow FILE whose body matched, not merely to the
+  // concatenated blob (SAM-L1-01): "CI runs tests" is a claim about a specific job in a specific
+  // workflow, and the reader has to be able to open it. The off-GitHub fallbacks below have no
+  // workflow to name and say so in words instead.
+  const testsWf = idx.workflowMatch(/(npm|pnpm|yarn|bun) (run )?test|pytest|go test|cargo test|gradle test|jest|vitest/);
+  if (testsWf) s.add(15, "CI runs tests", testsWf);
   else if (offGhSystem && /go test|cargo test|pytest|npm test|make test|\btest:/.test(buildScripts))
     s.add(15, "CI runs tests", "inferred from build tooling invoked by the off-GitHub gate");
-  if (/lint|eslint|ruff|flake8|golangci|prettier --check|biome/.test(wf))
-    s.add(10, "CI runs linting");
+  const lintWf = idx.workflowMatch(/lint|eslint|ruff|flake8|golangci|prettier --check|biome/);
+  if (lintWf) s.add(10, "CI runs linting", lintWf);
   else if (offGhSystem && /golangci|clippy|go vet|ruff|eslint|\blint:/.test(buildScripts))
     s.add(10, "CI runs linting", "inferred from build tooling invoked by the off-GitHub gate");
-  if (/(npm|pnpm|yarn|bun) (run )?build|go build|cargo build|gradle build|docker build/.test(wf))
-    s.add(5, "CI runs a build");
+  const buildWf = idx.workflowMatch(/(npm|pnpm|yarn|bun) (run )?build|go build|cargo build|gradle build|docker build/);
+  if (buildWf) s.add(5, "CI runs a build", buildWf);
   else if (offGhSystem && /go build|cargo build|make build|\bbuild:/.test(buildScripts))
     s.add(5, "CI runs a build", "inferred from build tooling invoked by the off-GitHub gate");
 
-  if (
-    idx.has(/(^|\/)(release-please|\.changeset\/|\.releaserc)/) ||
-    /semantic-release|release-please|changesets|softprops\/action-gh-release/.test(
-      wf + idx.manifestText,
-    )
-  )
-    s.add(15, "Automated release tooling");
-  if (/vercel|netlify|deploy|kubectl|aws |gcloud|fly deploy/.test(wf))
-    s.add(15, "Automated deploy step");
-  if (idx.has(/\.(tf|tf\.json)$/) || idx.has(/(^|\/)(cdk\.json|pulumi\.ya?ml|serverless\.yml)$/))
-    s.add(10, "Infrastructure-as-Code present");
+  // Release tooling can fire from a config PATH, from a workflow body, or from the manifest. Cite the
+  // first two; a manifest-only hit stays unsourced rather than naming a file that did not fire it.
+  const releaseText = /semantic-release|release-please|changesets|softprops\/action-gh-release/;
+  const releasePath = idx.first(/(^|\/)(release-please|\.changeset\/|\.releaserc)/);
+  const releaseWf = idx.workflowMatch(releaseText);
+  if (releasePath || releaseWf || releaseText.test(idx.manifestText))
+    s.add(15, "Automated release tooling", releasePath ?? releaseWf);
+  const deployWf = idx.workflowMatch(/vercel|netlify|deploy|kubectl|aws |gcloud|fly deploy/);
+  if (deployWf) s.add(15, "Automated deploy step", deployWf);
+  const iac = idx.first(/\.(tf|tf\.json)$/, /(^|\/)(cdk\.json|pulumi\.ya?ml|serverless\.yml)$/);
+  if (iac) s.add(10, "Infrastructure-as-Code present", iac);
 
   // Delivery-as-code: a declarative, auditable, reversible path to production — what lets
   // autonomy compound (the L4→L5 jump). Scope to CORE paths (exclude examples/benches/fixtures/docs/
@@ -413,21 +563,33 @@ const d3: Detector = (idx, snap) => {
   // "migrate"/"feature-flag"/"policy" — the reference-scan audit's D3 false-positive cluster (P1-3).
   const corePaths = idx.lowerPaths.filter((p) => !NONCORE.test(p) && !VENDOR.test(p));
   const deliver = corePaths.join(" ") + " " + idx.workflowText;
-  if (corePaths.some((p) => /\.rego$/.test(p)) || /conftest|open-policy-agent|policy-as-code/.test(deliver))
-    s.add(8, "Policy-as-code (OPA/conftest)");
+  // Where a delivery-as-code signal actually fired: the core path that matched, else the workflow file
+  // whose body did. Undefined when the hit came only from the joined `deliver` haystack (a path
+  // FRAGMENT, or a cross-file match) — there is no single file to name, so nothing is named.
+  const deliveryCite = (pathRe: RegExp, textRe: RegExp): string | undefined =>
+    corePaths.find((p) => pathRe.test(p)) ?? idx.workflowMatch(textRe);
+
+  const POLICY_TEXT = /conftest|open-policy-agent|policy-as-code/;
+  if (corePaths.some((p) => /\.rego$/.test(p)) || POLICY_TEXT.test(deliver))
+    s.add(8, "Policy-as-code (OPA/conftest)", deliveryCite(/\.rego$/, POLICY_TEXT));
+  const GITOPS_PATH = /(^|\/)(\.argocd|argocd|flux-system|clusters)\//;
+  const GITOPS_TEXT = /argoproj\.io|kind:\s*application\b|fluxcd|toolkit\.fluxcd\.io|kustomization\.ya?ml/;
+  if (corePaths.some((p) => GITOPS_PATH.test(p)) || GITOPS_TEXT.test(deliver))
+    s.add(8, "GitOps delivery (ArgoCD/Flux)", deliveryCite(GITOPS_PATH, GITOPS_TEXT));
+  const FLAGS_TEXT = /argo-rollouts|kind:\s*rollout\b|flagger|launchdarkly|unleash|flagsmith|openfeature|split\.io/;
+  if (FLAGS_TEXT.test(deliver)) s.add(8, "Progressive delivery / feature flags", idx.workflowMatch(FLAGS_TEXT));
+  const MIGRATION_PATH = /(^|\/)(migrations?|migrate)\/.+\.(sql|rb|py|ts|js|go)$/;
+  const MIGRATION_TEXT = /flyway|liquibase|alembic|prisma migrate|knex.*migrat|db:migrate|sequelize.*migrat/;
   if (
-    corePaths.some((p) => /(^|\/)(\.argocd|argocd|flux-system|clusters)\//.test(p)) ||
-    /argoproj\.io|kind:\s*application\b|fluxcd|toolkit\.fluxcd\.io|kustomization\.ya?ml/.test(deliver)
-  )
-    s.add(8, "GitOps delivery (ArgoCD/Flux)");
-  if (/argo-rollouts|kind:\s*rollout\b|flagger|launchdarkly|unleash|flagsmith|openfeature|split\.io/.test(deliver))
-    s.add(8, "Progressive delivery / feature flags");
-  if (
-    corePaths.some((p) => /(^|\/)(migrations?|migrate)\/.+\.(sql|rb|py|ts|js|go)$/.test(p)) ||
+    corePaths.some((p) => MIGRATION_PATH.test(p)) ||
     idx.has(/(^|\/)(alembic\.ini|liquibase\.properties)$/) ||
-    /flyway|liquibase|alembic|prisma migrate|knex.*migrat|db:migrate|sequelize.*migrat/.test(deliver)
+    MIGRATION_TEXT.test(deliver)
   )
-    s.add(8, "Versioned DB migrations");
+    s.add(
+      8,
+      "Versioned DB migrations",
+      deliveryCite(MIGRATION_PATH, MIGRATION_TEXT) ?? idx.first(/(^|\/)(alembic\.ini|liquibase\.properties)$/),
+    );
 
   return s.result("D3");
 };
@@ -545,16 +707,20 @@ const d5: Detector = (idx) => {
     s.note("No README detected");
   }
 
+  // Every one of these is a pure presence claim over the file tree, so each cites the path that
+  // triggered it (SAM-L1-01: an evidence line a reader cannot check is a label, not evidence).
   if (idx.count(/^docs?\/.*\.(md|mdx|rst)$/) >= 2 || idx.count(/(^|\/)apps\/docs\//) >= 1)
-    s.add(20, "Dedicated /docs with multiple pages");
-  if (idx.has(/(^|\/)llms(-full)?\.(txt|md)$/)) s.add(5, "LLM-readable docs (llms.txt)");
+    s.add(20, "Dedicated /docs with multiple pages", idx.first(/^docs?\/.*\.(md|mdx|rst)$/, /(^|\/)apps\/docs\//));
+  if (idx.has(/(^|\/)llms(-full)?\.(txt|md)$/))
+    s.add(5, "LLM-readable docs (llms.txt)", idx.first(/(^|\/)llms(-full)?\.(txt|md)$/));
   if (idx.has(ADR_PATH) || idx.has(ADR_HINT))
-    s.add(15, "Architecture Decision Records");
-  if (idx.has(/(^|\/)contributing\.md$/)) s.add(10, "CONTRIBUTING.md");
-  if (idx.has(/(^|\/)changelog\.md$/) || idx.has(/^\.changeset\//)) s.add(10, "Changelog");
+    s.add(15, "Architecture Decision Records", idx.first(ADR_PATH, ADR_HINT));
+  if (idx.has(/(^|\/)contributing\.md$/)) s.add(10, "CONTRIBUTING.md", idx.first(/(^|\/)contributing\.md$/));
+  if (idx.has(/(^|\/)changelog\.md$/) || idx.has(/^\.changeset\//))
+    s.add(10, "Changelog", idx.first(/(^|\/)changelog\.md$/, /^\.changeset\//));
   if (idx.has(/(^|\/)(openapi|swagger)\.(ya?ml|json)$/) || idx.has(/typedoc\.json$/))
-    s.add(10, "API documentation");
-  if (idx.has(/^examples?\//)) s.add(5, "Examples directory");
+    s.add(10, "API documentation", idx.first(/(^|\/)(openapi|swagger)\.(ya?ml|json)$/, /typedoc\.json$/));
+  if (idx.has(/^examples?\//)) s.add(5, "Examples directory", idx.first(/^examples?\//));
   return s.result("D5");
 };
 
@@ -574,46 +740,94 @@ export function offPlatformReview(commits: { message: string }[]): string | null
   return null;
 }
 
+/**
+ * The `scripts` map from package.json, lowercased, as `{name, body}` pairs.
+ *
+ * PARSED, not regexed out of `idx.manifestText`: that blob is the whole manifest, so a word like
+ * "budget" or "ratchet" appearing in a DEPENDENCY name would read as a gate. A script entry is the
+ * one part of a manifest that is runnable by construction, which is exactly the distinction the
+ * enforcement signals below turn on. Unparseable or absent → no scripts, never a guess.
+ */
+function packageScripts(idx: RepoIndex): { name: string; body: string }[] {
+  const raw = idx.content("package.json");
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as { scripts?: Record<string, string> };
+    if (!parsed || typeof parsed.scripts !== "object" || parsed.scripts === null) return [];
+    return Object.entries(parsed.scripts).map(([name, body]) => ({
+      name: String(name).toLowerCase(),
+      body: String(body ?? "").toLowerCase(),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * A RATCHET: a check that fails when a counted debt GROWS — a suppression ceiling, an ignore budget,
+ * a lint/type baseline, a `no-new-<x>` guard. Named tools (betterer, knip, type-coverage) count
+ * because their whole contract is a monotonic floor.
+ *
+ * Why this is its own signal rather than folded into "Linter configured": a ratchet is the artifact
+ * that makes a linter OPERATE rather than merely exist. A repo can carry an `.eslintrc` for years
+ * while the warning count climbs; a ceiling that fails `check:ci` cannot.
+ */
+const RATCHET_TERMS =
+  /ratchet|ceiling|(^|[^a-z])budget([^a-z]|$)|no-new-|suppressions?|type-coverage|betterer|\bknip\b|(lint|type|eslint|ruff|mypy|tsc|clippy)[-_.]?baseline/;
+
+/** A lint/type gate configured to FAIL rather than warn — the difference between a linter that runs
+ *  and one that stops a merge. Cheap to state and impossible to fake with a config file alone. */
+const ZERO_WARNING_GATE = /--max-warnings[= ]*0|-d[= ]+warnings|--deny[= ]+warnings|-w[ ]+error|--strict-warnings|fail[-_]on[-_]warnings|--exit-non-zero-on-fix|--error-on-warnings/;
+
 const d6: Detector = (idx, snap) => {
   const s = new Scorer();
-  const linterConfigured =
-    idx.has(/(^|\/)(\.eslintrc|eslint\.config)\.[a-z]+$/) ||
-    idx.has(/(^|\/)(ruff\.toml|biome\.json|\.golangci\.ya?ml|\.rubocop\.yml)$/) ||
-    /eslint|ruff|biome|golangci|rubocop|flake8/.test(idx.manifestText);
-  if (linterConfigured) s.add(20, "Linter configured");
+  // Cite the config file that fired it (SAM-L1-01). A manifest-DEPENDENCY hit names nothing: there is
+  // no standalone config to open, and pointing at package.json would misdescribe what matched.
+  const linterConfig = idx.first(
+    /(^|\/)(\.eslintrc|eslint\.config)\.[a-z]+$/,
+    /(^|\/)(ruff\.toml|biome\.json|\.golangci\.ya?ml|\.rubocop\.yml)$/,
+  );
+  const linterConfigured = Boolean(linterConfig) || /eslint|ruff|biome|golangci|rubocop|flake8/.test(idx.manifestText);
+  if (linterConfigured) s.add(20, "Linter configured", linterConfig);
 
-  if (
-    idx.has(/(^|\/)\.prettierrc/) ||
-    idx.has(/(^|\/)(\.editorconfig)$/) ||
-    /prettier|black|gofmt|rustfmt/.test(idx.manifestText)
-  )
-    s.add(10, "Formatter configured");
+  const formatterConfig = idx.first(/(^|\/)\.prettierrc/, /(^|\/)(\.editorconfig)$/);
+  if (formatterConfig || /prettier|black|gofmt|rustfmt/.test(idx.manifestText))
+    s.add(10, "Formatter configured", formatterConfig);
 
   // Guardrails enforced INLINE in CI — the Rust/Go norm (e.g. `cargo clippy -D warnings`, `go vet`,
   // `ruff check`, `tsc --noEmit` run in a workflow) with no standalone config file. Detected #1 gap in
   // the reference-scan audit: D6 used to read only config files + manifests, so it scored 0 and even
   // contradicted D3's own "CI runs linting" on the same repo. Credit the full 20 when no standalone
   // linter config was found (the gap this closes), else a small top-up (both config + CI enforcement).
-  const ciGuardrail =
-    /cargo clippy|cargo fmt|rustfmt|go vet|staticcheck|golangci-lint|ruff (check|format)|\bmypy\b|pyright|\bty check\b|eslint|biome (check|ci|lint)|prettier --check|tsc\b[^\n]*--noemit|--no-?emit|npm run (lint|typecheck|check)|(pnpm|yarn) (lint|typecheck|check)|make (lint|fmt|format|check)|task (lint|check)|taplo|spotless|treefmt/.test(
-      idx.workflowText,
+  // Resolved to the workflow FILE the gate runs in, not the blob — "enforced in CI" is a claim about
+  // one job in one workflow, and that is the file a reader has to open to check it (SAM-L1-01).
+  const ciGuardrail = idx.workflowMatch(
+    /cargo clippy|cargo fmt|rustfmt|go vet|staticcheck|golangci-lint|ruff (check|format)|\bmypy\b|pyright|\bty check\b|eslint|biome (check|ci|lint)|prettier --check|tsc\b[^\n]*--noemit|--no-?emit|npm run (lint|typecheck|check)|(pnpm|yarn) (lint|typecheck|check)|make (lint|fmt|format|check)|task (lint|check)|taplo|spotless|treefmt/,
+  );
+  if (ciGuardrail)
+    s.add(
+      linterConfigured ? 5 : 20,
+      linterConfigured ? "Guardrails also enforced in CI" : "Lint/format/type-check enforced in CI",
+      ciGuardrail,
     );
-  if (ciGuardrail) s.add(linterConfigured ? 5 : 20, linterConfigured ? "Guardrails also enforced in CI" : "Lint/format/type-check enforced in CI");
 
+  const tsconfigPath = idx.first(/(^|\/)tsconfig\.json$/);
   const tsconfig = idx.content("tsconfig.json") || "";
-  if (/"strict"\s*:\s*true/.test(tsconfig)) s.add(20, "TypeScript strict mode");
-  else if (tsconfig) s.add(10, "TypeScript configured");
+  if (/"strict"\s*:\s*true/.test(tsconfig)) s.add(20, "TypeScript strict mode", tsconfigPath);
+  else if (tsconfig) s.add(10, "TypeScript configured", tsconfigPath);
   else if (idx.has(/(^|\/)(mypy\.ini|\.mypy\.ini)$/) || /mypy|pyright/.test(idx.manifestText))
-    s.add(15, "Static type checking (mypy/pyright)");
+    // Undefined detail when the MANIFEST text triggered this rather than a config file: naming a file
+    // that did not fire the signal would be worse than an unsourced label.
+    s.add(15, "Static type checking (mypy/pyright)", idx.first(/(^|\/)(mypy\.ini|\.mypy\.ini)$/));
 
   if (
     idx.has(/(^|\/)\.pre-commit-config\.ya?ml$/) ||
     idx.has(/^\.husky\//) ||
     /lint-staged|husky|pre-commit/.test(idx.manifestText)
   )
-    s.add(15, "Pre-commit hooks");
+    s.add(15, "Pre-commit hooks", idx.first(/(^|\/)\.pre-commit-config\.ya?ml$/, /^\.husky\//));
 
-  if (idx.has(/(^|\/)codeowners$/)) s.add(15, "CODEOWNERS");
+  if (idx.has(/(^|\/)codeowners$/)) s.add(15, "CODEOWNERS", idx.first(/(^|\/)codeowners$/));
   // Off-platform review gate (Gerrit / bors) — real review discipline GitHub's PR API can't see.
   const offReview = offPlatformReview(snap.commits);
   if (offReview) s.add(15, `Code review via off-platform gate (${offReview})`, "commit trailers show mandatory pre-merge review");
@@ -621,6 +835,35 @@ const d6: Detector = (idx, snap) => {
     s.add(10, "Commit linting / conventions");
   if (idx.has(/(^|\/)(pull_request_template|\.github\/pull_request_template)/i))
     s.add(5, "PR template (review process)");
+
+  // ENFORCEMENT vs PRESENCE — the "installed vs operating" distinction the assessment prompt already
+  // insists on for the model, applied to the deterministic layer. Measured gap (21-run campaign,
+  // 2026-08): two repos gained ESLint import-boundary rules, a blocking ruff ignore-ceiling ratchet, a
+  // blocking TypeScript suppression ratchet and several gates wired into `check:ci`, and D6 moved
+  // 66 → 68 and 81 → 81. Every artifact they added mapped onto a presence signal ALREADY awarded (a
+  // linter config the repo already had), and the ratchets — the part that actually blocks a build —
+  // mapped onto no signal at all. Both signals below are ADDITIVE: no existing award moved.
+  const scripts = packageScripts(idx);
+  const ratchetScript = scripts.find((sc) => RATCHET_TERMS.test(sc.name) || RATCHET_TERMS.test(sc.body));
+  const ratchetPath = idx.first(
+    /(^|\/)[^/]*(ratchet|ceiling)[^/]*\.[a-z]+$/,
+    /(^|\/)\.betterer\./,
+    /(^|\/)[^/]*(lint|type|eslint|ruff|mypy|tsc|clippy)[-_.]?baseline\.(json|txt|ya?ml|toml)$/,
+    /(^|\/)knip\.(json|jsonc|ts|js)$/,
+  );
+  const ratchetCi = RATCHET_TERMS.test(idx.workflowText);
+  if (ratchetScript || ratchetPath || ratchetCi)
+    s.add(
+      15,
+      "Quality ratchet / debt ceiling enforced",
+      ratchetScript ? `package.json script "${ratchetScript.name}"` : (ratchetPath ?? "enforced in CI workflow"),
+    );
+
+  // A linter that gates is not a linter that runs. `--max-warnings 0` / `-D warnings` is the cheapest
+  // evidence that a warning fails the build rather than scrolling past in a log.
+  const zeroWarnings =
+    ZERO_WARNING_GATE.test(idx.workflowText) || scripts.some((sc) => ZERO_WARNING_GATE.test(sc.body));
+  if (zeroWarnings) s.add(5, "Lint/type gate fails on warnings (zero-warning policy)");
 
   // (Supply-chain security — SAST/SCA/secret/container scanning, SBOM, signing — is scored
   // under D9, not here, so a security-heavy repo isn't double-counted.)
@@ -722,52 +965,53 @@ const d8: Detector = (idx) => {
   const s = new Scorer();
   const blob = idx.allText;
 
-  // Evals / golden tests for AI/LLM output.
+  // Evals / golden tests for AI/LLM output. The path branches cite the directory/config that fired
+  // them (SAM-L1-01 — D8 was the last dimension rendering as bare labels); a hit that came only from
+  // the text blob names nothing, because there is no one file it can honestly point at.
+  const evalPath = idx.first(/(^|\/)(evals?|\.?promptfoo|golden)\//, /(^|\/)promptfoo\.(ya?ml|json)$/);
   if (
-    idx.has(/(^|\/)(evals?|\.?promptfoo|golden)\//) ||
-    idx.has(/(^|\/)promptfoo\.(ya?ml|json)$/) ||
+    evalPath ||
     // Anchor to real eval EVIDENCE (maturity-model-scoring-engine #2): a dedicated evals//golden/ dir or
     // promptfoo config (checked above), or a SPECIFIC eval-tool token. The bare `\bevals?\b` was DROPPED
     // — against all tree paths it credited a plain `src/eval.ts` (or a `json-eval` dep) a 30-point lift
     // from a filename: the single biggest false signal on the keyless/mock demo path.
     /promptfoo|llm[\s-]?eval|golden[\s-]?test/.test(blob)
   )
-    s.add(30, "AI-output eval / golden-test harness");
+    s.add(30, "AI-output eval / golden-test harness", evalPath);
 
   // Structured prompt / agent / skill library. A committed `.claude/skills/` (or `.agents/skills/`)
   // is a mandatory, named skill library — the same high-signal harness as a prompts/ dir (P1-4).
-  if (
-    idx.has(/^(prompts|\.prompts)\//) ||
-    idx.count(/^\.claude\/agents\//) >= 1 ||
-    idx.count(/^\.(claude|agents)\/skills?\//) >= 1 ||
-    idx.count(/(^|\/)agents?\//) >= 2
-  )
-    s.add(25, "Structured prompt / agent / skill library");
+  const libraryPath = idx.first(
+    /^(prompts|\.prompts)\//,
+    /^\.claude\/agents\//,
+    /^\.(claude|agents)\/skills?\//,
+    ...(idx.count(/(^|\/)agents?\//) >= 2 ? [/(^|\/)agents?\//] : []),
+  );
+  if (libraryPath) s.add(25, "Structured prompt / agent / skill library", libraryPath);
 
   // Agent-readable operational docs / runbooks / ADRs.
-  if (
-    idx.has(/(^|\/)(runbooks?|docs\/agents?|docs\/runbooks?)\//) ||
-    idx.has(ADR_PATH) ||
-    idx.has(ADR_HINT)
-  )
-    s.add(20, "Agent-readable runbooks / ADRs");
+  const runbookPath = idx.first(/(^|\/)(runbooks?|docs\/agents?|docs\/runbooks?)\//, ADR_PATH, ADR_HINT);
+  if (runbookPath) s.add(20, "Agent-readable runbooks / ADRs", runbookPath);
 
-  // AI contribution process (review gate / DoD).
+  // AI contribution process (review gate / DoD). CONTRIBUTING.md's prose is a third trigger; when it
+  // is the one that fired, the file it was read from IS the citation.
+  const contributingPath = idx.first(/(^|\/)contributing\.md$/);
   const contributing = (idx.content("contributing.md") || "").toLowerCase();
-  if (
-    idx.has(/(^|\/)(pull_request_template|\.github\/pull_request_template)/) ||
-    idx.has(/(^|\/)(ai[-_]policy|ai[-_]tools|ai[-_]contributing)\.mdx?$/) ||
-    /definition of done|ai[- ]generated|co-?authored|agent/.test(contributing)
-  )
-    s.add(15, "AI contribution process (PR template / DoD / AI policy)");
+  const processPath = idx.first(
+    /(^|\/)(pull_request_template|\.github\/pull_request_template)/,
+    /(^|\/)(ai[-_]policy|ai[-_]tools|ai[-_]contributing)\.mdx?$/,
+  );
+  const contributingFired = /definition of done|ai[- ]generated|co-?authored|agent/.test(contributing);
+  if (processPath || contributingFired)
+    s.add(15, "AI contribution process (PR template / DoD / AI policy)", processPath ?? contributingPath);
 
   // Structured tickets (Plan & Design): issue templates with acceptance criteria / DoD give an
   // agent a well-formed task to work from, not a one-line prompt.
-  if (idx.has(/^\.github\/issue_template(\/|\.)/) || idx.has(/^\.github\/issue_template$/))
-    s.add(10, "Structured issue templates");
+  const issueTemplatePath = idx.first(/^\.github\/issue_template(\/|\.)/, /^\.github\/issue_template$/);
+  if (issueTemplatePath) s.add(10, "Structured issue templates", issueTemplatePath);
 
   // The `.ai/` standard's executable conformance + structured memory — scored by evidence of use.
-  for (const g of aiStandardCached(idx).d8) s.add(g.points, g.label);
+  for (const g of aiStandardCached(idx).d8) s.add(g.points, g.label, g.detail);
 
   if (s.signals.length === 0)
     s.note("No dedicated AI process/harness detected", "e.g. evals, prompt library, agent runbooks");
@@ -788,7 +1032,13 @@ const d9: Detector = (idx) => {
     idx.has(/(^|\/)(sonar-project\.properties|\.semgrep\.ya?ml)$/) ||
     /codeql|github\/codeql-action|semgrep|sonarqube|sonarcloud|sonarsource|snyk code/.test(blob)
   )
-    s.add(25, "Static analysis (SAST) in the pipeline");
+    // A workflow/config FILE names itself; a hit in the combined text blob does not, so the detail is
+    // present only in the first case (SAM-L1-01 — cite what fired it, or cite nothing).
+    s.add(
+      25,
+      "Static analysis (SAST) in the pipeline",
+      idx.first(/^\.github\/workflows\/.*codeql/i, /(^|\/)(sonar-project\.properties|\.semgrep\.ya?ml)$/),
+    );
 
   // Dependency / SCA scanning + license compliance. Renovate has several config locations
   // (renovate.json[5], .renovaterc[.json], .github/renovate.json) and tools may sit as a
@@ -801,7 +1051,15 @@ const d9: Detector = (idx) => {
       blob,
     )
   )
-    s.add(20, "Dependency/SCA & license scanning");
+    s.add(
+      20,
+      "Dependency/SCA & license scanning",
+      idx.first(
+        /(^|\/)\.github\/dependabot\.yml$/,
+        /(^|\/)(\.?renovaterc(\.json)?|renovate\.json5?)$/,
+        /(^|\/)(\.snyk|osv-scanner\.toml)$/,
+      ),
+    );
 
   // Secret scanning.
   if (/gitleaks|trufflehog|detect-secrets|ggshield|gitguardian|secretlint/.test(blob))
@@ -820,9 +1078,9 @@ const d9: Detector = (idx) => {
     s.add(12, "Artifact signing / SLSA provenance");
 
   // Security policy + threat modeling (Plan & Design security requirements).
-  if (idx.has(/(^|\/)security\.md$/)) s.add(6, "SECURITY.md policy");
+  if (idx.has(/(^|\/)security\.md$/)) s.add(6, "SECURITY.md policy", idx.first(/(^|\/)security\.md$/));
   if (idx.has(/threat[-_ ]?model/) || /threat model|stride|attack tree|trust boundary/.test(blob))
-    s.add(8, "Threat-model documentation");
+    s.add(8, "Threat-model documentation", idx.first(/threat[-_ ]?model/));
 
   if (s.signals.length === 0)
     s.note("No supply-chain security tooling detected", "e.g. CodeQL/Semgrep, Dependabot/Snyk, gitleaks, SBOM, cosign");

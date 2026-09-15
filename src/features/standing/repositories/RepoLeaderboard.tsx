@@ -84,7 +84,7 @@ export function RepoLeaderboard({
           onClear={clearSelected}
         />
       )}
-      {done && <p className="mt-2 font-mono text-sm text-emerald-300">{done}</p>}
+      {done && <p className="mt-2 type-mono-sm text-emerald-300">{done}</p>}
     </>
   );
 }

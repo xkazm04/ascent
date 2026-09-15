@@ -10,11 +10,16 @@ import {
   creditsAlertThreshold,
   dispatchAlert,
   digestHasSignal,
+  buildControlAlertMessage,
+  controlAlertSeverity,
+  controlCooldownKey,
+  type ControlAlertItem,
   isAlertConfigured,
   isLowCreditsCrossing,
   ordinal,
   regressionCooldownMs,
   resolveAlertWebhook,
+  sinkKindForOrg,
   validateAlertWebhookUrl,
   __resetRegressionCooldowns,
   DEFAULT_THRESHOLDS,
@@ -366,6 +371,36 @@ describe("resolveAlertWebhook / isAlertConfigured (per-org routing)", () => {
   });
 });
 
+describe("sinkKindForOrg — the history row names the channel the message LEFT BY", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("classifies the org's own sink", () => {
+    vi.stubEnv("ALERT_WEBHOOK_URL", "");
+    expect(sinkKindForOrg("https://hooks.example/acme")).toBe("webhook");
+    expect(sinkKindForOrg("mailto:lead@acme.test")).toBe("email");
+  });
+
+  it("RESOLVES before classifying: a tenant on a global mailto: sink is recorded as email", () => {
+    // The digest classified the org's field, which is null for every tenant riding the fallback — so a
+    // deployment whose global sink is an address recorded `webhook` on a row whose message went out as
+    // mail. The row is the only durable account of where an alert went; it must not name the wrong one.
+    vi.stubEnv("ALERT_WEBHOOK_URL", "mailto:ops@example.test");
+    expect(sinkKindForOrg(null)).toBe("email");
+  });
+
+  it("RESOLVES before classifying: a tenant on a global webhook is recorded as webhook", () => {
+    vi.stubEnv("ALERT_WEBHOOK_URL", "https://hooks.example/global");
+    expect(sinkKindForOrg(null)).toBe("webhook");
+  });
+
+  it("is NULL when nothing resolves — not the default 'webhook'", () => {
+    vi.stubEnv("ALERT_WEBHOOK_URL", "");
+    expect(sinkKindForOrg(null)).toBeNull();
+    expect(sinkKindForOrg(undefined)).toBeNull();
+    expect(sinkKindForOrg("   ")).toBeNull();
+  });
+});
+
 describe("validateAlertWebhookUrl", () => {
   it("accepts a normal https webhook", () => {
     const v = validateAlertWebhookUrl("https://hooks.slack.com/services/T0/B0/xyz");
@@ -521,5 +556,158 @@ describe("digestHasSignal — the weekly-digest movement-gate", () => {
 
   it("always fires when credits are low — a depleting balance is worth the push even on a flat week", () => {
     expect(digestHasSignal({ ...flat, creditLow: true })).toBe(true);
+  });
+});
+
+// ── MOONSHOT #1 — the control alert kind and the digest's Controls block ─────────────────────────
+
+describe("buildControlAlertMessage", () => {
+  const item = (over: Partial<ControlAlertItem> = {}): ControlAlertItem => ({
+    repo: "acme/api",
+    controlId: "required-approvals",
+    label: "Required approvals",
+    code: "control-failed",
+    from: "pass",
+    to: "fail",
+    fromValue: "2",
+    toValue: "0",
+    source: "probe",
+    ...over,
+  });
+
+  it("names the control, the values either side and how it was observed", () => {
+    const m = buildControlAlertMessage({ org: "acme", items: [item()] });
+    expect(m.text).toContain("acme/api — Required approvals failed (2 → 0)");
+    expect(m.text).toContain("observed via probe");
+  });
+
+  it("names an actor ONLY when one was observed", () => {
+    expect(buildControlAlertMessage({ org: "acme", items: [item()] }).text).not.toContain(" by ");
+    expect(
+      buildControlAlertMessage({ org: "acme", items: [item({ source: "webhook", actorLogin: "octocat" })] }).text,
+    ).toContain(" by octocat");
+  });
+
+  it("omits the value pair when it adds nothing over the states", () => {
+    const m = buildControlAlertMessage({
+      org: "acme",
+      items: [item({ controlId: "branch-protection", label: "Branch protection", fromValue: "true", toValue: "true" })],
+    });
+    expect(m.text).not.toContain("→");
+  });
+
+  it("a restoration reads as a restoration, not as a failure", () => {
+    const m = buildControlAlertMessage({
+      org: "acme",
+      items: [item({ code: "control-restored", from: "fail", to: "pass", fromValue: "0", toValue: "2" })],
+    });
+    expect(m.text).toContain("was restored");
+    expect(m.text).toContain("a control was restored in acme");
+  });
+
+  it("an unreadable control is never headlined as a failure", () => {
+    const m = buildControlAlertMessage({
+      org: "acme",
+      items: [item({ code: "control-unmeasurable", from: "pass", to: "unmeasurable", toValue: null })],
+    });
+    expect(m.text).toContain("became unreadable");
+    expect(m.text).not.toContain("stopped operating");
+  });
+
+  it("one failure in a mixed batch makes the whole batch critical", () => {
+    expect(controlAlertSeverity([item({ code: "control-restored" }), item()])).toBe("critical");
+    expect(controlAlertSeverity([item({ code: "control-restored" })])).toBe("celebration");
+    expect(controlAlertSeverity([item({ code: "control-unmeasurable" })])).toBe("info");
+  });
+
+  it("cools down per (repo, control) so two controls on one repo both get through", () => {
+    expect(controlCooldownKey("acme/api", "branch-protection")).toBe("acme/api#control:branch-protection");
+    expect(controlCooldownKey("acme/api", "signed-commits")).not.toBe(controlCooldownKey("acme/api", "branch-protection"));
+  });
+});
+
+describe("digestHasSignal — a failed control is always signal", () => {
+  const flat = { overallDelta: 0, levelChanges: 0, regressions: 0, gainersBeyondNoise: 0, creditLow: false };
+
+  it("sends a week whose ONLY news is a control failure", () => {
+    expect(digestHasSignal(flat)).toBe(false);
+    expect(digestHasSignal({ ...flat, controlsFailed: 1 })).toBe(true);
+  });
+
+  it("an absent count is not a zero — every existing caller keeps its exact behaviour", () => {
+    expect(digestHasSignal({ ...flat, controlsFailed: 0 })).toBe(false);
+    expect(digestHasSignal(flat)).toBe(false);
+  });
+});
+
+describe("the digest's Controls block", () => {
+  const base = {
+    org: "acme",
+    repoCount: 10,
+    scannedCount: 10,
+    avgOverall: 70,
+    level: "L3 · Defined",
+    overallDelta: 0,
+    gainers: [],
+    regressers: [],
+    topRecommendation: null,
+  };
+
+  it("is omitted entirely when the caller passes nothing — silence, not a '0 controls failed' claim", () => {
+    expect(buildFleetDigestMessage(base).text).not.toContain("Controls");
+  });
+
+  it("states the positive when the caller looked and found none", () => {
+    expect(buildFleetDigestMessage({ ...base, controlsFailed: [] }).text).toContain("Controls: none failed this week.");
+  });
+
+  it("lists failures ABOVE the movers", () => {
+    const m = buildFleetDigestMessage({
+      ...base,
+      gainers: [{ name: "acme/web", delta: 6 }],
+      controlsFailed: [{ repo: "acme/api", control: "Branch protection", detail: "pass → fail" }],
+    });
+    expect(m.text).toContain("Controls that failed this week (1):");
+    expect(m.text.indexOf("Controls that failed")).toBeLessThan(m.text.indexOf("Top gainers"));
+  });
+
+  // The coverage law (control-observations.ts): a control state asserted over a period travels with
+  // its N, or it is not an assurance statement. UAT `DANA-L1-015` — the digest is the surface that law
+  // was written for, because it is read INSTEAD of the page that would otherwise correct it.
+  describe("control coverage travels with the block", () => {
+    const cov = { pairs: 6, observations: 42, maxGapDays: 3.2, truncated: false };
+
+    it("qualifies the all-clear with the evidence behind it", () => {
+      const m = buildFleetDigestMessage({ ...base, controlsFailed: [], controlCoverage: cov });
+      expect(m.text).toContain("Controls: none failed this week.");
+      expect(m.text).toContain("Coverage: 42 observations across 6 repo/control pairs, largest gap 3.2d.");
+    });
+
+    it("says an empty window is not evidence, rather than reporting a clean one", () => {
+      const m = buildFleetDigestMessage({
+        ...base,
+        controlsFailed: [],
+        controlCoverage: { pairs: 0, observations: 0, maxGapDays: null, truncated: false },
+      });
+      expect(m.text).toContain("no control was observed in this window — the all-clear above is not evidence.");
+    });
+
+    it("marks a truncated read as a FLOOR, and names an unmeasurable gap as one", () => {
+      const m = buildFleetDigestMessage({
+        ...base,
+        controlsFailed: [],
+        controlCoverage: { pairs: 1, observations: 2000, maxGapDays: null, truncated: true },
+      });
+      expect(m.text).toContain("2000+ observations");
+      expect(m.text).toContain("no gap measurable");
+    });
+
+    it("is absent when the caller could not compute it — never rendered as zero coverage", () => {
+      expect(buildFleetDigestMessage({ ...base, controlsFailed: [] }).text).not.toContain("Coverage:");
+    });
+
+    it("never appears without the block it qualifies", () => {
+      expect(buildFleetDigestMessage({ ...base, controlCoverage: cov }).text).not.toContain("Coverage:");
+    });
   });
 });

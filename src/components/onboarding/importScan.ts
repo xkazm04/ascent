@@ -60,8 +60,14 @@ export interface ImportScanCallbacks {
     error?: string;
     skipped?: string;
   }) => void;
-  /** The stream finished successfully (terminal `result` event). */
-  onResult: () => void;
+  /** The stream finished successfully (terminal `result` event). Carries the server's `runId` (the
+   *  same handle the opening `queued` frame announced) for a client that joined late. */
+  onResult: (data?: { runId?: string }) => void;
+  /** The opening `queued` frame: this run's IDENTITY plus its size, emitted before any repo is
+   *  scanned. Optional so existing callers needn't handle it. The wizard stores the runId in its
+   *  resume snapshot, so a refresh mid-scan can re-attach to the run through
+   *  GET /api/org/scan/queue rather than abandoning it (the server keeps scanning either way). */
+  onQueued?: (data: { runId: string; queued: number; total: number }) => void;
   /** The stream reported an error event. */
   onError: (message: string) => void;
   /** A non-fatal `notice` (e.g. a credit shortfall capped the batch) — optional so existing callers
@@ -152,8 +158,16 @@ export async function runImportScan(
             scanning: typeof data.scanning === "number" ? data.scanning : 0,
             skipped: typeof data.skipped === "number" ? data.skipped : 0,
           });
+        } else if (event === "queued") {
+          if (typeof data.runId === "string") {
+            cb.onQueued?.({
+              runId: data.runId,
+              queued: typeof data.queued === "number" ? data.queued : 0,
+              total: typeof data.total === "number" ? data.total : 0,
+            });
+          }
         } else if (event === "result") {
-          cb.onResult();
+          cb.onResult({ runId: typeof data.runId === "string" ? data.runId : undefined });
         } else if (event === "error") {
           cb.onError(String(data.error ?? "Scan failed."));
         }

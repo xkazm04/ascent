@@ -5,6 +5,7 @@
 // individual sees the same honest card the repo's own org would.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import { getOrgBySlug } from "@/lib/db/org-shared";
 import { PUBLIC_ORG } from "@/lib/org-constants";
 import { applyPassportOverrides, parsePassportJson, parsePassportOverrides, upgradePassport } from "@/lib/analyze/passport";
 import type { AppPassport } from "@/lib/types";
@@ -21,10 +22,7 @@ export interface PersonalPassport {
 export async function getPersonalPassports(personalSlug: string): Promise<PersonalPassport[] | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({
-    where: { slug: personalSlug.trim().toLowerCase() },
-    select: { id: true },
-  });
+  const org = await getOrgBySlug(personalSlug);
   if (!org) return null;
 
   const watched = await prisma.repository.findMany({
@@ -33,7 +31,7 @@ export async function getPersonalPassports(personalSlug: string): Promise<Person
   });
   if (watched.length === 0) return [];
 
-  const pub = await prisma.organization.findUnique({ where: { slug: PUBLIC_ORG }, select: { id: true } });
+  const pub = await getOrgBySlug(PUBLIC_ORG);
   if (!pub) return [];
 
   const repos = await prisma.repository.findMany({

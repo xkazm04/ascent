@@ -10,7 +10,7 @@ no working sign-in.
 | Custom GitHub OAuth | **Dormant** (kept, unconfigured in production) | `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`, `AUTH_SECRET` | `src/lib/auth.ts`, `src/app/api/auth/*` |
 
 Auth is **optional** in either case. With neither stack configured the whole app
-works anonymously: public scans, badges, gate, even DB-backed reads of public
+works anonymously: public scans, the gate, even DB-backed reads of public
 orgs. No GitHub access token is ever persisted to the client.
 
 Supabase dashboard setup is a one-time manual prerequisite: Authentication →
@@ -27,6 +27,14 @@ Three pure predicates, shared by the server gate and the proxy so they can't dri
 | `supabaseAuthConfigured()` | Both `NEXT_PUBLIC_SUPABASE_*` vars are set. |
 | `authBypassEnabled()` | `ASCENT_AUTH_BYPASS` is on **and** `NODE_ENV !== "production"`. Hard-disabled in production, so a stray env var can never drop the wall on a real deployment. |
 | `authGateEnabled()` | `supabaseAuthConfigured() && !authBypassEnabled()`: whether the wall is actually enforced right now. |
+| `publicScanSignInRequired()` | `ASCENT_REQUIRE_SIGNIN_FOR_PUBLIC_SCAN` is on. Opt-in, **default off**: the anonymous public-scan funnel is exempt from the wall unless an operator deliberately re-walls it. |
+
+A fourth predicate composes the last two and lives with the gate it belongs to:
+`publicScanWallEnabled()` (`src/lib/scan-gates.ts`) = `authGateEnabled() && publicScanSignInRequired()`
+— whether an **anonymous public scan** is walled. Any UI that decides whether to show a sign-in wall
+over a scan must read that one, not `authGateEnabled()`: the landing hero's dialog approximated it
+with the coarser predicate and painted a "Scanning is for signed-in members" panel over a scan the
+endpoint was answering `200`. See [the scan doors table](../scanning/scan.md#the-anonymous-public-scan-is-exempt-from-the-sign-in-wall).
 
 ## The active stack (`src/lib/access.ts`)
 
@@ -190,12 +198,12 @@ What each stack gets differs, and the difference is intrinsic:
   revocation-version stamping, and the `resync=1` round-trip. Linking in particular
   **cannot** simply be ported: it needs an App-client token, which Supabase's
   `provider_token` is not.
-- **Discovered org suggestions aren't surfaced under the wall.** `connect/page.tsx`
+- **Discovered org suggestions aren't surfaced under the wall.** `onboarding/page.tsx`
   reads `seededOrg`/`suggestedOrgs` off the dormant session cookie, so a production
   viewer gets the seeding but never sees the "you might want to install on…" list.
   Needs a render-side change to read discovery from somewhere the live stack has.
 - **The "sign out everywhere else" button is unreachable in production.**
-  `/api/auth/revoke-sessions` now works on both stacks, but `connect/page.tsx` renders
+  `/api/auth/revoke-sessions` now works on both stacks, but `SessionControls` (on `/onboarding`) renders
   its form only inside a `{session && …}` block (the dormant cookie), so a Supabase
   viewer cannot click it.
 - **Read scope only**: the dormant stack requests `read:user read:org`; repo writes

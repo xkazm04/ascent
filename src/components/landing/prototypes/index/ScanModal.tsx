@@ -4,8 +4,10 @@
 // carries the expected-output rundown ("what you'll get"), and then one of two action surfaces:
 //  • open deployments (or signed-in members) get the live repo input (ScanForm) plus a consent-gated
 //    GitHub connect for the private-repo / saved-history path;
-//  • gated deployments with no signed-in viewer get a "sign in to scan" panel instead — the wall is
-//    enforced before any scan can run (first sign in, then scan).
+//  • deployments that have re-walled the anonymous public scan, with no signed-in viewer, get a
+//    "sign in to scan" panel instead — the wall is enforced before any scan can run.
+// `gated` is the SERVER'S predicate for the scan this dialog starts (publicScanWallEnabled), never a
+// local approximation of it: the panel below is only honest while the endpoint would return 401.
 // Replaces the inline hero input so the masthead stays clean and the promise is front-and-centre on open.
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
@@ -13,6 +15,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ScanForm } from "@/components/ScanForm";
 import { QuotaMeter } from "@/components/QuotaMeter";
 import { Kicker } from "@/components/ui";
+import { scanDurationClaim } from "@/components/report/scanEstimate";
 import { AuthCta, SignInButton, type AuthMode } from "./ScanModal.AuthCta";
 import { OutputsCard } from "./ScanModal.OutputsCard";
 import { ScanTriggerFallback } from "./ScanModal.TriggerFallback";
@@ -21,11 +24,18 @@ import { ScanTriggerFallback } from "./ScanModal.TriggerFallback";
  *  modal renders the matching CTA (or a get-started link when auth isn't configured at all). */
 export type { AuthMode };
 
+/** Module-scope: the estimate is a constant expression over constants, not a per-render decision. */
+const SCAN_DURATION = scanDurationClaim();
+
 interface ScanModalProps {
   examples?: string[];
   auth: AuthMode;
-  /** Whether the login wall is enforced on this deployment. When true, a scan requires a signed-in
-   *  viewer — the dialog locks the scan form behind sign-in until one is present. */
+  /** Whether the sign-in wall is enforced for the ANONYMOUS PUBLIC scan this dialog starts. Computed
+   *  server-side by `publicScanWallEnabled()` (src/lib/scan-gates.ts) — the same predicate
+   *  `scanAuthGate` applies on its `publicScan: true` branch — so the dialog can never wall a scan the
+   *  endpoint would have run. Default `false`: on a deployment that has not opted back in
+   *  (`ASCENT_REQUIRE_SIGNIN_FOR_PUBLIC_SCAN`), the form, the QuotaMeter and the duration sentence are
+   *  all reachable signed-out. When true, a scan requires a signed-in viewer and the form is locked. */
   gated?: boolean;
 }
 
@@ -148,7 +158,7 @@ function ScanModalInner({ examples, auth, gated = false }: ScanModalProps) {
         type="button"
         onClick={() => setManualOpen(true)}
         aria-haspopup="dialog"
-        className="focus-ring inline-flex items-center gap-2 rounded-xl bg-accent px-6 py-3 text-base font-semibold text-on-accent shadow-2xl shadow-black/40 transition hover:bg-accent-soft"
+        className="focus-ring inline-flex items-center gap-2 rounded-xl bg-accent px-6 py-3 type-body font-semibold text-on-accent shadow-2xl shadow-black/40 transition hover:bg-accent-soft"
       >
         Scan a repository <span aria-hidden>→</span>
       </button>
@@ -179,7 +189,7 @@ function ScanModalInner({ examples, auth, gated = false }: ScanModalProps) {
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <Kicker>Start a scan</Kicker>
-                  <h2 id="scan-modal-title" className="mt-1.5 text-2xl font-bold tracking-tight text-white">
+                  <h2 id="scan-modal-title" className="mt-1.5 type-heading font-bold tracking-tight text-white">
                     Scan a repository
                   </h2>
                 </div>
@@ -195,10 +205,15 @@ function ScanModalInner({ examples, auth, gated = false }: ScanModalProps) {
                 </button>
               </div>
 
-              <p className="mt-4 text-base leading-relaxed text-slate-300">
+              {/* The duration is DERIVED from scanEstimate.ts — the same constants the live-scan
+                  progress bar and its abort backstop run on. This sentence used to promise "about a
+                  minute", which was true of no provider the scanner has ever run on: ~100s hosted,
+                  a measured ~6 min median on a local CLI. ColdScanGate had already retired the same
+                  claim in its own copy while the hero went on printing it. */}
+              <p className="mt-4 type-body leading-relaxed text-slate-300">
                 {locked || pending
-                  ? "Paste any GitHub repo and Ascent reads it in about a minute. Here's what comes back:"
-                  : "Paste any public GitHub repo. In about a minute, Ascent reads it and returns:"}
+                  ? `Paste any GitHub repo and a live model reads it — ${SCAN_DURATION}. Here's what comes back:`
+                  : `Paste any public GitHub repo. A live model reads it — ${SCAN_DURATION} — and returns:`}
               </p>
 
               <div className="mt-4">
@@ -216,7 +231,7 @@ function ScanModalInner({ examples, auth, gated = false }: ScanModalProps) {
                 // Gate is live and no viewer — sign-in is the only path to a scan (first sign in, then scan).
                 <div className="mt-6 rounded-xl border border-accent/30 bg-accent/5 p-5">
                   <Kicker>Sign in to scan</Kicker>
-                  <p className="mt-2 text-base leading-relaxed text-slate-300">
+                  <p className="mt-2 type-body leading-relaxed text-slate-300">
                     Scanning is for signed-in members on this deployment. Sign in with GitHub to run your
                     scan. Public repositories are free, and you&apos;ll also unlock private repos and saved
                     history.
@@ -245,9 +260,15 @@ function ScanModalInner({ examples, auth, gated = false }: ScanModalProps) {
                       onChange={(e) => setConsent(e.target.checked)}
                       className="mt-1 h-4 w-4 shrink-0 accent-accent"
                     />
-                    <span className="text-sm leading-relaxed text-slate-400">
-                      Authorize Ascent to read your repositories through the GitHub App (needed only for
-                      private repos and saved scan history). Public scans never need an account.
+                    {/* "Public scans never need an account" was a claim about EVERY deployment made
+                        by a component that only renders on deployments where it happens to hold —
+                        a gated deploy shows the sign-in panel above instead, so the sentence was
+                        both unfalsifiable here and false next door. What is true everywhere is the
+                        scope of THIS authorization, which is all a consent checkbox should assert. */}
+                    <span className="type-body-sm leading-relaxed text-slate-400">
+                      Authorize Ascent to read your repositories through the GitHub App. This is needed
+                      only for private repos and saved scan history — scanning a public repo never uses
+                      it, and public scans are free (rate-limited, with a monthly cap).
                     </span>
                   </label>
 

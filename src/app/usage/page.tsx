@@ -2,9 +2,9 @@ import { SignInNotice } from "@/components/SignInNotice";
 import { EmptyState } from "@/components/EmptyState";
 import { Shell, Notice } from "./usageShell";
 import { UsageDashboard } from "./usageDashboard";
-import { countMeteredScansThisMonth, getBadgeReach, getCreditReconciliation, getCreditState, getQuotaEventTotals, getUsageSummary, isDbConfigured, type BadgeReach, type CreditReconciliation, type CreditState, type QuotaEventTotals, type UsageSummary } from "@/lib/db";
+import { countMeteredScansThisMonth, getCreditReconciliation, getCreditState, getQuotaEventTotals, getUsageSummary, isDbConfigured, type CreditReconciliation, type CreditState, type QuotaEventTotals, type UsageSummary } from "@/lib/db";
 import { creditNotice } from "./creditNotice";
-import { boundUsageDays } from "@/lib/db/usage";
+import { boundUsageDays, usageWindow } from "@/lib/db/usage";
 import { getActiveOrg, PUBLIC_ORG } from "@/lib/auth";
 import { resolveSignInState } from "@/lib/signin-gate";
 import { canReadOrg } from "@/lib/authz";
@@ -54,6 +54,16 @@ export default async function UsagePage({
   // helper FLOORS a fractional ?days= so `since`, the day axis, and the counts share one integer window
   // (an un-floored 1.5 stepped the axis by half-days and silently dropped today from the chart/CSV).
   const days = boundUsageDays(daysParam, org.toLowerCase() === PUBLIC_ORG);
+  // ONE window for both reads on this page. The reconciliation panel sits beside the billable-scan
+  // tile under a single "last {days}d" label, and used to be measured over a rolling wall-clock
+  // cutoff while the scans were counted over the UTC-day-anchored half-open window — up to a day of
+  // traffic apart, explained away in the panel's own copy as rows "straddling the window edge".
+  // Resolving the window HERE, once, and handing the same object to both makes them comparable.
+  const win = usageWindow(days);
+  // The picker's ceiling, asked OF `boundUsageDays` rather than restated beside it: the control and
+  // the bound that would clamp its links cannot drift, and the public funnel's tighter 90-day cap
+  // needs no second expression of itself here.
+  const maxDays = boundUsageDays("365", org.toLowerCase() === PUBLIC_ORG);
 
   // Cross-tenant IDOR guard — the canonical read-side tenant gate (the same canReadOrg the sibling
   // /api/usage route and the other org-scoped pages use). It opens PUBLIC_ORG to everyone, requires
@@ -87,8 +97,6 @@ export default async function UsagePage({
   // layout's header chip), and best-effort: a credit-read blip hides the panel, not the page.
   let usage: UsageSummary | null;
   let credit: CreditState | null = null;
-  // Badge reach rides the same round-trip, best-effort — a tally read blip hides the panel, not the page.
-  let badgeReach: BadgeReach | null = null;
   // Credit reconciliation for the panel (USE-4) — non-public orgs only; best-effort.
   let recon: CreditReconciliation | null = null;
   // Public-funnel abuse counters (QUOTA-6) — only meaningful on the shared public view; best-effort.
@@ -98,13 +106,12 @@ export default async function UsagePage({
   // whatever the balance is. Same round-trip, same best-effort posture as the credit read.
   let meteredThisMonth: number | null = null;
   try {
-    [usage, credit, badgeReach, recon, quotaEvents, meteredThisMonth] = await Promise.all([
-      getUsageSummary(org, days),
+    [usage, credit, recon, quotaEvents, meteredThisMonth] = await Promise.all([
+      getUsageSummary(org, days, win),
       org.toLowerCase() === PUBLIC_ORG
         ? Promise.resolve(null)
         : getCreditState(org).catch(() => null),
-      getBadgeReach(org).catch(() => null),
-      org.toLowerCase() === PUBLIC_ORG ? Promise.resolve(null) : getCreditReconciliation(org, days).catch(() => null),
+      org.toLowerCase() === PUBLIC_ORG ? Promise.resolve(null) : getCreditReconciliation(org, win).catch(() => null),
       org.toLowerCase() === PUBLIC_ORG ? getQuotaEventTotals().catch(() => null) : Promise.resolve(null),
       org.toLowerCase() === PUBLIC_ORG ? Promise.resolve(null) : countMeteredScansThisMonth(org).catch(() => null),
     ]);
@@ -166,12 +173,12 @@ export default async function UsagePage({
         org={org}
         usage={usage}
         credit={credit}
-        badgeReach={badgeReach}
         recon={recon}
         quotaEvents={quotaEvents}
         billable={billable}
         runwayDays={runwayDays}
         notice={notice}
+        maxDays={maxDays}
       />
     </Shell>
   );

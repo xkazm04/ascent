@@ -35,7 +35,7 @@ playbooks, passports, a CI gate). Docs from the hackathon period live in
 | 4c | [DEPLOY.md](./DEPLOY.md) | **Ascent Cloud on Vercel**: production requirements, deploy & rollback, required prod env |
 | 5 | [VISION-TRANSITION.md](./VISION-TRANSITION.md) | Where the product is heading, with dated delivery markers |
 | 6 | [features/README.md](./features/README.md) | Feature overview + feature-by-feature reference with file pointers |
-| 7 | [API.md](./API.md) | The HTTP API as a curl tour (scan, stream, gate, badge, persistence endpoints) |
+| 7 | [API.md](./API.md) | The HTTP API as a curl tour (scan, stream, gate, persistence endpoints) |
 | 8 | [ROADMAP.md](./ROADMAP.md) | Shipped / next status snapshot |
 
 **Also here:** [VALUE-CASE.md](./VALUE-CASE.md) (open decisions D28–D32),
@@ -70,7 +70,7 @@ structure, configuration, tests, CI/CD, docs, and commit signals, and produces a
 objective **AI-Native Maturity Score** (Level 1–5) across 9 weighted dimensions,
 with evidence, benchmarks, and a prioritized roadmap of next steps.
 
-- **Free / B2C:** scan any public repo → score, report, shareable badge.
+- **Free / B2C:** scan any public repo → score, report, shareable permalink.
 - **Pro / Team:** private repos, PDF export, re-scans, history, org rollups.
 - **Enterprise:** GitHub App for org-wide private repos, privacy-preserving
   inference via AWS Bedrock or your own model (BYOM), audit logs, white-label.

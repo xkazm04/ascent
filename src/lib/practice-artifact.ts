@@ -8,7 +8,7 @@
 // fills in — it never invents architecture it can't know. Language-aware where it helps
 // (commands, CI matrix).
 
-import { PRACTICES, type PracticeDef } from "@/lib/practices";
+import { ALL_PRACTICES, type PracticeDef } from "@/lib/practices";
 import { publicBaseUrl } from "@/lib/site";
 import { reportPermalink } from "@/lib/ui";
 
@@ -61,6 +61,18 @@ export interface LangCommands {
    * Never set for the original five — their setup id is derived from `ci`.
    */
   ciSetup?: string;
+  /**
+   * The repo's language manifest — the file these commands are derived FROM (Gemfile, composer.json,
+   * pom.xml, …). Additive and optional for the same reason as `ciSetup`: the extended families all
+   * carry `ci: "generic"`, so anything keyed on `ci` collapses them onto the generic row. Without
+   * this, `standard/manifest.ts` wrote `generatedFrom: ["<your build manifest>"]` — a placeholder
+   * provenance — for every Ruby/PHP/JVM/Swift/Dart/Elixir repo, which is the same guaranteed-noise
+   * failure the extended families were added to remove from `test`/`lint`/`build`.
+   *
+   * Never set for the original five (their file is derived from `ci`) or for the final fallback,
+   * whose build manifest genuinely is unknown.
+   */
+  sourceFile?: string;
 }
 
 /** Map a repo's primary language to its canonical install/test/lint/build commands + CI setup id.
@@ -93,6 +105,7 @@ export function commandsFor(language?: string | null): LangCommands {
         build: "bundle exec rake build",
         ci: "generic",
         ciSetup: "ruby/setup-ruby",
+        sourceFile: "Gemfile",
       };
     case "php":
       return {
@@ -102,6 +115,7 @@ export function commandsFor(language?: string | null): LangCommands {
         build: "composer dump-autoload -o",
         ci: "generic",
         ciSetup: "shivammathur/setup-php",
+        sourceFile: "composer.json",
       };
     case "java":
       return {
@@ -111,6 +125,7 @@ export function commandsFor(language?: string | null): LangCommands {
         build: "mvn -B package",
         ci: "generic",
         ciSetup: "actions/setup-java",
+        sourceFile: "pom.xml",
       };
     case "kotlin":
       return {
@@ -120,6 +135,7 @@ export function commandsFor(language?: string | null): LangCommands {
         build: "./gradlew build",
         ci: "generic",
         ciSetup: "actions/setup-java",
+        sourceFile: "build.gradle",
       };
     case "scala":
       return {
@@ -129,6 +145,7 @@ export function commandsFor(language?: string | null): LangCommands {
         build: "sbt package",
         ci: "generic",
         ciSetup: "actions/setup-java",
+        sourceFile: "build.sbt",
       };
     case "c#":
     case "csharp":
@@ -148,6 +165,7 @@ export function commandsFor(language?: string | null): LangCommands {
         build: "swift build -c release",
         ci: "generic",
         ciSetup: "swift-actions/setup-swift",
+        sourceFile: "Package.swift",
       };
     case "dart":
       return {
@@ -157,6 +175,7 @@ export function commandsFor(language?: string | null): LangCommands {
         build: "dart compile exe",
         ci: "generic",
         ciSetup: "dart-lang/setup-dart",
+        sourceFile: "pubspec.yaml",
       };
     case "elixir":
       return {
@@ -166,6 +185,7 @@ export function commandsFor(language?: string | null): LangCommands {
         build: "mix compile --warnings-as-errors",
         ci: "generic",
         ciSetup: "erlef/setup-beam",
+        sourceFile: "mix.exs",
       };
     default:
       return { install: "<install deps>", test: "<run tests>", lint: "<run linter>", build: "<build>", ci: "generic" };
@@ -224,13 +244,23 @@ function ciSetupStep(action: string): string {
   return `      - uses: ${action}@${spec.ref}\n${inputs ? `        with:\n${inputs}` : ""}`;
 }
 
+/**
+ * The Node major every workflow Ascent GENERATES pins, and the one this repo runs itself.
+ *
+ * They were different: ascent pinned 24 in its own CI, `.nvmrc` and `package.json` engines while
+ * shipping `node-version: 20` into every adopting repo — a runtime whose maintenance window closed in
+ * April 2026. Nobody noticed because the generated file runs in someone else's CI, so this repo's own
+ * green build says nothing about it. One constant, asserted against `package.json` in the tests.
+ */
+export const CI_NODE_VERSION = "24";
+
 function ciWorkflow(ctx: RepoContext, cmd: LangCommands): string {
   // The extended families carry `ciSetup` (and keep `ci: "generic"`), so the ciSetup branch must be
   // consulted BEFORE the generic fallback — otherwise a Ruby/Java/… repo gets real commands under a
   // "# TODO: add the language setup step" placeholder, i.e. a workflow that cannot run.
   const setup =
     cmd.ci === "node"
-      ? "      - uses: actions/setup-node@v4\n        with:\n          node-version: 20\n"
+      ? `      - uses: actions/setup-node@v4\n        with:\n          node-version: ${CI_NODE_VERSION}\n`
       : cmd.ci === "python"
         ? "      - uses: actions/setup-python@v5\n        with:\n          python-version: '3.12'\n"
         : cmd.ci === "go"
@@ -260,7 +290,12 @@ ${setup}      - run: ${cmd.install}
 
 /** Build the concrete artifact for a practice + target repo, or null for an unknown practice id. */
 export function buildArtifact(practiceId: string, ctx: RepoContext): ArtifactSpec | null {
-  const p = PRACTICES.find((x) => x.id === practiceId);
+  // The FULL catalog, not the one-per-dimension spine: a surface that OFFERS a practice must be able
+  // to generate it, and resolving against `PRACTICES` here is what made the tenth practice
+  // (`consolidate-guidance`) answer `unknown-practice` from /api/practices/generate and /apply while
+  // the Practice Library happily listed it. The by-dimension lookups elsewhere keep reading the
+  // spine; see the note on EXTRA_PRACTICES in src/lib/practices.ts for why the two lists differ.
+  const p = ALL_PRACTICES.find((x) => x.id === practiceId);
   if (!p) return null;
   const cmd = commandsFor(ctx.primaryLanguage);
   // Escape every repo-supplied field before it lands in the committed file (practices #7). The TODO
@@ -447,6 +482,68 @@ ${shape(p)}
 
 ## Notes
 ${TODO}: link the CI workflows that enforce the above (SAST, dependency/secret scanning, signing).
+`;
+      break;
+
+    // The tenth practice (#15's EXTRA_PRACTICES). Its path is DECLARED on the catalog entry rather
+    // than written as a literal here, so the adoption ledger's key — (org, repo, practice, path) —
+    // has exactly one definition. The body is the arbiter's verdict turned into work: an inventory of
+    // every vendor format that can hold guidance, a reconciliation step BEFORE any generation (a
+    // contradiction copied into five files is still a contradiction), then the canonical/projection
+    // declaration the doctor can hold. It never guesses which file is canonical — that is the one
+    // decision only the team can make, and the arbiter's basis is evidence for it, not a substitute.
+    case "consolidate-guidance":
+      path = p.artifactPath ?? "docs/AGENT-GUIDANCE.md";
+      body = `# ${name}: canonical agent guidance
+
+> ONE document agents believe, with every other format generated from it. Replace the
+> ${"`<...>`"} / TODO placeholders with this repo's specifics.
+
+${desc}
+
+## The problem this file exists to end
+When ${"`CLAUDE.md`"}, ${"`AGENTS.md`"}, ${"`.cursorrules`"}, ${"`.github/copilot-instructions.md`"} and
+${"`.windsurfrules`"} each say something slightly different, the answer an agent gets depends on which
+file it happened to open. More copies is not more guidance — it is less.
+
+## Step 1 — inventory
+Tick every guidance file this repository actually carries. These are the paths an agent (and Ascent's
+guidance arbiter) will read:
+
+- [ ] ${"`CLAUDE.md`"}
+- [ ] ${"`AGENTS.md`"} / ${"`AGENT.md`"}
+- [ ] ${"`.cursorrules`"} and ${"`.cursor/rules/*.mdc`"}
+- [ ] ${"`.github/copilot-instructions.md`"} and ${"`.github/instructions/*.md`"}
+- [ ] ${"`.windsurfrules`"} and ${"`.windsurf/rules/*.md`"}
+- [ ] ${TODO} any nested per-package copy of the above
+
+## Step 2 — reconcile before you generate
+${TODO}: for each pair that disagrees, record which one is true. Generating projections from an
+unreconciled source only propagates the contradiction faster.
+
+| Topic | File A says | File B says | Which is true |
+| --- | --- | --- | --- |
+| Build / test command | ${"`<...>`"} | ${"`<...>`"} | ${"`<...>`"} |
+| ${"`<...>`"} | ${"`<...>`"} | ${"`<...>`"} | ${"`<...>`"} |
+
+## Step 3 — declare the canonical source and its projections
+${shape(p)}
+
+\`\`\`yaml
+# .ai/manifest.yaml
+guidance:
+  canonical: <...>          # the ONE document above that is authoritative
+  projections:              # generated from it; never hand-edited
+    - <...>
+\`\`\`
+
+## Step 4 — let the doctor hold the line
+A projection carries a generated-from header naming its source and both hashes. A hand-edited
+projection fails; a stale one warns. Both name the file to fix, so the canonical document stays the
+only place anyone writes guidance.
+
+## Notes
+${TODO}: link the CI job that runs the doctor, so this cannot regress silently.
 `;
       break;
 

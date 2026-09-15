@@ -66,6 +66,7 @@ vi.mock("@/lib/cache", () => ({
 }));
 
 import { persistScanReport } from "./scans-persist";
+import { verifyAudit } from "./audit-integrity";
 
 // ── Fixtures ────────────────────────────────────────────────────────────────────────────────────
 
@@ -160,6 +161,10 @@ function makeReport(over: {
   scannedAt?: string;
   roadmap?: Array<{ dimension: string; title: string }>;
   engineProvider?: string;
+  /** The mock floor FIRED (a model was requested and never answered) — the provenance flag. */
+  engineDegraded?: boolean;
+  /** The ScoreIntegrity record the engine computed for this scan. */
+  scoreIntegrity?: ScanReport["scoreIntegrity"];
   /** Follow-up ids the commit sample declared resolved (Ascent-Resolves trailers). */
   resolvedFollowUpIds?: string[];
   /** Dimension scores on THIS scan — the after-side of the movement witness (2026-08-26). */
@@ -191,7 +196,12 @@ function makeReport(over: {
     rigorScore: 80,
     posture: { id: "balanced" },
     confidence: 0.9,
-    engine: { provider: over.engineProvider ?? "anthropic", model: "claude" },
+    engine: {
+      provider: over.engineProvider ?? "anthropic",
+      model: "claude",
+      ...(over.engineDegraded === undefined ? {} : { degraded: over.engineDegraded }),
+    },
+    ...(over.scoreIntegrity ? { scoreIntegrity: over.scoreIntegrity } : {}),
     headline: "ok",
     strengths: [],
     risks: [],
@@ -434,6 +444,56 @@ describe("persistScanReport — contextHealthJson (W4)", () => {
     expect(createdScans[0]!.contextHealthJson).toBeNull();
     const upsertArgs = prisma.repository.upsert.mock.calls[0]![0] as { update: Record<string, unknown> };
     expect(upsertArgs.update).not.toHaveProperty("contextHealthJson"); // never wipes the cached latest
+  });
+});
+
+// #13 — the manifest readout follows the exact same sidecar contract. The second case is the one
+// that matters for honesty: a report with NO readout must leave the cached latest alone, so a
+// reconstructed persist cannot turn "we read this repo's contract last week" into silence.
+describe("persistScanReport — manifestJson (#13)", () => {
+  const manifest = {
+    status: "ok" as const,
+    readAt: "2026-06-10T00:00:00.000Z",
+    generatedAt: "2026-06-01",
+    schemaVersion: "0.3.0",
+    schemaAhead: false,
+    capabilities: [{ name: "test", command: "npm test", verified: true, placeholder: false, wiredAt: [] }],
+    controls: { prePush: ["lint"], ciHardPass: ["test"] },
+    paths: { memory: ".ai/memory/" },
+    agents: [],
+    placeholders: [],
+    unbacked: ["lint"],
+    notes: [],
+  };
+
+  it("stamps the per-scan blob AND caches the latest on the Repository when the report carries one", async () => {
+    const { prisma, createdScans } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    const report = makeReport({ headSha: "sha_mf" });
+    (report as { manifest?: unknown }).manifest = manifest;
+    await persistScanReport(report);
+
+    expect(createdScans[0]!.manifestJson).toBe(JSON.stringify(manifest));
+    const upsertArgs = prisma.repository.upsert.mock.calls[0]![0] as {
+      update: Record<string, unknown>;
+      create: Record<string, unknown>;
+    };
+    expect(upsertArgs.update.manifestJson).toBe(JSON.stringify(manifest));
+    expect(upsertArgs.create.manifestJson).toBe(JSON.stringify(manifest));
+  });
+
+  it("a report WITHOUT a readout writes null on the scan and leaves the Repository cache untouched", async () => {
+    const { prisma, createdScans } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(makeReport({ headSha: "sha_nomf" }));
+
+    expect(createdScans[0]!.manifestJson).toBeNull();
+    const upsertArgs = prisma.repository.upsert.mock.calls[0]![0] as { update: Record<string, unknown> };
+    expect(upsertArgs.update).not.toHaveProperty("manifestJson"); // never wipes the cached latest
   });
 });
 
@@ -1089,5 +1149,149 @@ describe("persistScanReport — follow-up feedback on in-progress rows", () => {
     const recs = (createdScans[0] as { recommendations: { create: Array<Record<string, unknown>> } }).recommendations.create;
     expect(recs[0]).toMatchObject({ status: "open", assigneeLogin: "hubot" }); // lone-in-dimension pairing kept
     expect(createdResolved).toHaveLength(0);
+  });
+});
+
+// ── PROVENANCE: which engine produced the score, and what moved it ───────────────────────────────
+//
+// Both columns exist for ONE consumer — the loop's attribution rule, which refuses to call a delta a
+// lift when it cannot prove both ends came from a real engine. A flag that is computed and then
+// dropped at the persist boundary is exactly the failure `scoreIntegrity` already had (UAT SAM-L1-02:
+// "computed, typed, persisted and rendered by nothing" — it was not even persisted), so the round
+// trip is asserted here rather than assumed.
+
+describe("persistScanReport — engine provenance is written, not dropped", () => {
+  it("a DEGRADED scan (mock floor fired) persists engineDegraded:true alongside the mock provider", async () => {
+    const { prisma, createdScans } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(makeReport({ headSha: "sha_deg", engineProvider: "mock", engineDegraded: true }));
+
+    expect(createdScans[0]).toMatchObject({ engineProvider: "mock", engineDegraded: true });
+  });
+
+  it("a KEYLESS mock scan is mock but NOT degraded — the two are different facts", async () => {
+    const { prisma, createdScans } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(makeReport({ headSha: "sha_keyless", engineProvider: "mock", engineDegraded: false }));
+
+    expect(createdScans[0]).toMatchObject({ engineProvider: "mock", engineDegraded: false });
+  });
+
+  it("a report that never set the flag persists NULL — unknown, which is not 'not degraded'", async () => {
+    const { prisma, createdScans } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(makeReport({ headSha: "sha_legacy" }));
+
+    expect(createdScans[0]!.engineDegraded).toBeNull();
+  });
+
+  it("scoreIntegrity round-trips as JSON on the row (it reached no column at all before)", async () => {
+    const { prisma, createdScans } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(
+      makeReport({
+        headSha: "sha_int",
+        scoreIntegrity: { d9Unmeasurable: true, widenedDims: ["D1", "D2"], effectiveBlend: 0.54 },
+      }),
+    );
+
+    expect(JSON.parse(String(createdScans[0]!.scoreIntegrityJson))).toEqual({
+      d9Unmeasurable: true,
+      widenedDims: ["D1", "D2"],
+      effectiveBlend: 0.54,
+    });
+  });
+
+  it("a report with no scoreIntegrity persists NULL rather than an invented empty record", async () => {
+    const { prisma, createdScans } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(makeReport({ headSha: "sha_noint" }));
+
+    expect(createdScans[0]!.scoreIntegrityJson).toBeNull();
+  });
+});
+
+// ── Audit tamper-evidence: the in-transaction scan.created row is SIGNED ─────────────────────────
+//
+// `scan.created` is the highest-volume action in the product, and this in-tx write used to
+// JSON.stringify its meta directly — bypassing withAuditSignature — so every row landed with no
+// `_sig` and the audit viewer's Integrity column read "unsigned" for rows written today. The
+// signature covers `createdAt`, so `at` must be stamped explicitly and match what was signed:
+// letting the DB default the timestamp would sign a different instant than the row stores and
+// verify as `tampered` forever. Exemplar + sibling regression test: recordConformance in
+// src/lib/db/org-watch.ts and its test at src/lib/db/org-watch.test.ts.
+describe("persistScanReport — the in-transaction audit row is signed", () => {
+  /** The stored row, reconstructed exactly as the read path (getAuditLog) rebuilds it. */
+  function writtenAudit(tx: { auditLog: { create: { mock: { calls: unknown[][] } } } }) {
+    const call = tx.auditLog.create.mock.calls[0]![0] as {
+      data: { action: string; at: Date; orgId: string | null; actorId: string | null; meta: string };
+    };
+    return { data: call.data, meta: JSON.parse(call.data.meta) as Record<string, unknown> };
+  }
+
+  it("SIGNS scan.created over the timestamp it actually stores (verifies ok on the read path)", async () => {
+    process.env.AUDIT_SIGNING_SECRET = "test-secret";
+    try {
+      const { prisma, tx } = fakePrisma({ previousRecs: null });
+      mockGetPrisma.mockReturnValue(prisma);
+      mockFindScanByCommit.mockResolvedValue(null);
+
+      await persistScanReport(makeReport({ headSha: "sha_sig" }), { actorId: "user_1" });
+
+      const { data, meta } = writtenAudit(tx);
+      expect(data.action).toBe("scan.created");
+      expect(data.at).toBeInstanceOf(Date); // stamped explicitly — never DB-defaulted
+      expect(typeof meta._sig).toBe("string"); // signed at all — the regression this pins
+      // The meta the Details column reads is untouched by signing.
+      expect(meta).toMatchObject({ repo: "acme/widget", scanId: "scan_new", headSha: "sha_sig", level: "L3", score: 70 });
+
+      expect(
+        verifyAudit({
+          action: data.action,
+          orgId: data.orgId,
+          actorId: data.actorId,
+          createdAt: data.at.toISOString(),
+          meta,
+        }),
+      ).toBe("ok");
+      // The signed identity is the one written to the row.
+      expect(data.actorId).toBe("user_1");
+    } finally {
+      delete process.env.AUDIT_SIGNING_SECRET;
+    }
+  });
+
+  it("an edited meta field no longer verifies (the tamper-evidence is real, not decorative)", async () => {
+    process.env.AUDIT_SIGNING_SECRET = "test-secret";
+    try {
+      const { prisma, tx } = fakePrisma({ previousRecs: null });
+      mockGetPrisma.mockReturnValue(prisma);
+      mockFindScanByCommit.mockResolvedValue(null);
+
+      await persistScanReport(makeReport({ headSha: "sha_tamper" }));
+
+      const { data, meta } = writtenAudit(tx);
+      expect(
+        verifyAudit({
+          action: data.action,
+          orgId: data.orgId,
+          actorId: data.actorId,
+          createdAt: data.at.toISOString(),
+          meta: { ...meta, score: 100 }, // someone edits the score at rest
+        }),
+      ).toBe("tampered");
+    } finally {
+      delete process.env.AUDIT_SIGNING_SECRET;
+    }
   });
 });

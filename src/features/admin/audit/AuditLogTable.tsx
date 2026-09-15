@@ -32,8 +32,8 @@ export function AuditLogTable({
   return (
     <>
       {tamperedCount > 0 && (
-        <div role="alert" className="mb-3 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 text-base text-red-300">
-          <span className="font-mono text-sm uppercase tracking-widest">Integrity failure</span>:{" "}
+        <div role="alert" className="mb-3 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 type-body text-red-300">
+          <span className="type-mono-sm uppercase tracking-widest">Integrity failure</span>:{" "}
           {tamperedCount} {tamperedCount === 1 ? "entry does" : "entries do"} not match the signature recorded
           when {tamperedCount === 1 ? "it was" : "they were"} written. {tamperedCount === 1 ? "That row" : "Those rows"}{" "}
           may have been altered directly in the database; do not file {tamperedCount === 1 ? "it" : "them"} as evidence.
@@ -41,7 +41,7 @@ export function AuditLogTable({
       )}
 
       {error && (
-        <div role="alert" className="mb-3 rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-2 text-base text-red-300">
+        <div role="alert" className="mb-3 rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-2 type-body text-red-300">
           {error}
         </div>
       )}
@@ -58,7 +58,7 @@ export function AuditLogTable({
             <span
               role="status"
               aria-live="polite"
-              className="mt-4 rounded-full border border-slate-700 bg-slate-900/90 px-3 py-1 font-mono text-sm text-slate-300 shadow-lg"
+              className="mt-4 rounded-full border border-slate-700 bg-slate-900/90 px-3 py-1 type-mono-sm text-slate-300 shadow-lg"
             >
               Loading…
             </span>
@@ -73,8 +73,8 @@ export function AuditLogTable({
           />
         ) : (
           <div className="overflow-x-auto rounded-2xl border border-slate-800">
-            <table className="w-full min-w-[640px] text-base">
-              <thead className="bg-slate-900/60 font-mono text-sm uppercase tracking-widest text-slate-500">
+            <table className="w-full min-w-[640px] type-body">
+              <thead className="bg-slate-900/60 type-mono-sm uppercase tracking-widest text-slate-500">
                 <tr>
                   <th className="px-4 py-2 text-left">When</th>
                   <th className="px-3 py-2 text-left">Action</th>
@@ -86,7 +86,7 @@ export function AuditLogTable({
               <tbody className="divide-y divide-slate-800">
                 {entries.map((e) => (
                   <tr key={e.id} className="align-top text-slate-300">
-                    <td className="whitespace-nowrap px-4 py-2 text-sm text-slate-400" title={e.at}>
+                    <td className="whitespace-nowrap px-4 py-2 type-body-sm text-slate-400" title={e.at}>
                       {timeAgo(e.at)}
                     </td>
                     <td className="px-3 py-2">
@@ -94,7 +94,7 @@ export function AuditLogTable({
                     </td>
                     <td className="px-3 py-2">
                       <div
-                        className="max-w-[12rem] truncate font-mono text-sm text-slate-400"
+                        className="max-w-[12rem] truncate type-mono-sm text-slate-400"
                         title={e.actorId ?? undefined}
                       >
                         {e.actorId ?? "—"}
@@ -121,7 +121,7 @@ export function AuditLogTable({
           <button
             onClick={onLoadMore}
             disabled={loading}
-            className="focus-ring rounded-lg border border-slate-700 px-4 py-2 text-base text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50"
+            className="focus-ring rounded-lg border border-slate-700 px-4 py-2 type-body text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50"
           >
             {loading ? "Loading…" : "Load more"}
           </button>

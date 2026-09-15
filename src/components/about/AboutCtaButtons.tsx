@@ -27,7 +27,7 @@ export function AboutCtaButtons({
   return (
     <div className={`flex flex-wrap gap-3 ${className}`}>
       <Link
-        href="/connect"
+        href="/onboarding"
         className={`focus-ring rounded-xl bg-accent ${pad} font-semibold text-on-accent transition hover:bg-accent-soft`}
       >
         Scan your org

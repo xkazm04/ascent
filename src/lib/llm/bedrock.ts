@@ -28,8 +28,10 @@ import {
   withLlmTimeout,
 } from "@/lib/llm/config";
 
-export const DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-sonnet-4-6";
-export const DEFAULT_BEDROCK_REGION = "us-east-1";
+// Single-sourced in a PURE sibling so the `"use client"` org-settings card can import the same two
+// values without pulling this module's server-side dependency tree into the client bundle.
+export { DEFAULT_BEDROCK_MODEL, DEFAULT_BEDROCK_REGION } from "@/lib/llm/bedrock-defaults";
+import { DEFAULT_BEDROCK_MODEL, DEFAULT_BEDROCK_REGION } from "@/lib/llm/bedrock-defaults";
 
 /** Static AWS credentials for the BYOM path (Feature 1). Omitted = the default AWS credential chain
  *  (env / role / metadata), i.e. the platform's own Bedrock account. */

@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og";
 import { Brand, SHELL, OG_SIZE, OG_CONTENT_TYPE, BRAND_ACCENT, BRAND_WHITE, BRAND_MUTED } from "@/lib/og/og-brand";
-import { DIMENSION_COUNT, LEVEL_COUNT, SITE_TAGLINE, SITE_TAGLINE_TITLE } from "@/lib/site";
+import { siteDescriptionCard, SITE_TAGLINE, SITE_TAGLINE_TITLE } from "@/lib/site";
 import { LEVELS } from "@/lib/maturity/model";
 
 // Default social card for the site (homepage + any route without its own opengraph-image). Pages
@@ -23,7 +23,7 @@ export default function OpengraphImage() {
             {SITE_TAGLINE_TITLE}
           </div>
           <div style={{ fontSize: 30, lineHeight: 1.35, color: BRAND_MUTED }}>
-            {`Score any GitHub repo on a ${LEVEL_COUNT}-level ladder across ${DIMENSION_COUNT} dimensions, with evidence and a route to the next level.`}
+            {siteDescriptionCard()}
           </div>
         </div>
 

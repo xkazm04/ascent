@@ -11,13 +11,26 @@ const { mockIsDbConfigured, mockReadDsqlConfig, mockRecordQuotaEvent } = vi.hois
   mockRecordQuotaEvent: vi.fn(async () => {}),
 }));
 
-vi.mock("@/lib/db", () => ({
-  isDbConfigured: mockIsDbConfigured,
-  // Pass-throughs: invoke the operation against whatever client/tx the test injects via $transaction.
+vi.mock("@/lib/db", async () => {
+  // The consume/refund read-decide-write now goes through the data layer's transactPublicScanQuota
+  // (src/lib/db/scan-quota.ts). Use the REAL implementation — it picks up the mocked
+  // @/lib/db/client below, so it runs against the injected in-memory `currentDb` — keeping these
+  // suites end-to-end across the new seam (window math + tx + isolation selection together).
+  const { transactPublicScanQuota } = await vi.importActual<typeof import("./db/scan-quota")>("./db/scan-quota");
+  return {
+    isDbConfigured: mockIsDbConfigured,
+    transactPublicScanQuota,
+    // Pass-throughs: invoke the operation against whatever client/tx the test injects via $transaction.
+    withDb: (op: (db: unknown) => unknown) => op(currentDb),
+    withRetry: (fn: () => unknown) => fn(),
+  };
+});
+vi.mock("@/lib/db/client", () => ({
+  readDsqlConfig: mockReadDsqlConfig,
+  // scan-quota (the real module, imported above) reaches the store through these:
   withDb: (op: (db: unknown) => unknown) => op(currentDb),
   withRetry: (fn: () => unknown) => fn(),
 }));
-vi.mock("@/lib/db/client", () => ({ readDsqlConfig: mockReadDsqlConfig }));
 vi.mock("@/lib/db/quota-events", () => ({ recordQuotaEvent: mockRecordQuotaEvent }));
 vi.mock("@/lib/rate-limit", () => ({
   clientIp: () => "203.0.113.99",
@@ -38,12 +51,14 @@ import {
   parseHits,
   hashIp,
   hashKey,
+  publicScanAllowance,
   publicScanMonthlyLimit,
   type QuotaResult,
   refundPublicScanQuota,
   removeHit,
   signedInScanMonthlyLimit,
 } from "./public-scan-quota";
+import { PLAN_FEATURES } from "./plans";
 
 // Captured per-test: the fake `db` withDb hands to the operation, plus the isolation options the
 // code threads into $transaction (so the isolation-selection suite can assert the branch fired).
@@ -220,6 +235,38 @@ describe("publicScanMonthlyLimit", () => {
   });
 });
 
+// MC-B38: MC-B5 made the number derived and left the sentences around it written for a constant, so
+// an operator setting 1 read "1 free public scans / month". The PHRASE is composed here, once, and
+// the copy consumes it — so a call site can no longer append its own "s".
+describe("publicScanAllowance (the phrase, not the digit)", () => {
+  function withLimit<T>(value: string | undefined, fn: () => T): T {
+    const prev = process.env.PUBLIC_SCAN_MONTHLY_LIMIT;
+    if (value === undefined) delete process.env.PUBLIC_SCAN_MONTHLY_LIMIT;
+    else process.env.PUBLIC_SCAN_MONTHLY_LIMIT = value;
+    try {
+      return fn();
+    } finally {
+      if (prev === undefined) delete process.env.PUBLIC_SCAN_MONTHLY_LIMIT;
+      else process.env.PUBLIC_SCAN_MONTHLY_LIMIT = prev;
+    }
+  }
+
+  it("is singular at a limit of 1", () => {
+    withLimit("1", () => {
+      expect(publicScanAllowance()).toEqual({ limit: 1, label: "1 free public scan", plural: false });
+    });
+  });
+
+  it("is plural at the default and at any other limit", () => {
+    withLimit(undefined, () => {
+      expect(publicScanAllowance()).toEqual({ limit: 5, label: "5 free public scans", plural: true });
+    });
+    withLimit("20", () => {
+      expect(publicScanAllowance().label).toBe("20 free public scans");
+    });
+  });
+});
+
 // The 429 copy must state the ACTUAL allowance, not a hardcoded "5" — the old literal lied under any
 // PUBLIC_SCAN_MONTHLY_LIMIT / *_SIGNED_IN override or the elevated signed-in tier (a user-facing untruth
 // on the upgrade prompt). The number is derived from the scope that tripped, matching what consume charged.
@@ -290,6 +337,19 @@ describe("monthlyQuotaExceeded — derives the limit from the tripped scope", ()
       const { body } = await errorOf(denied(false));
       expect(body.error).toContain("your 1 free scan this month");
       expect(body.error).not.toContain("free scans");
+    });
+  });
+
+  // MC-B5 / id-vs-label. The upsold tier is STORED as `pro` and SHOWN as "Starter" everywhere a buyer
+  // can look; this copy hardcoded "Upgrade to Pro" and so named a plan that appears nowhere on
+  // /pricing — on the one screen whose whole job is to be believed. The name comes from the plan
+  // model now, so a relabel reaches it too.
+  it("names the upsell tier by its customer-facing LABEL, never the stored id", async () => {
+    await withEnv({}, async () => {
+      const { body } = await errorOf(denied(false));
+      expect(body.error).toContain(`Upgrade to ${PLAN_FEATURES.pro.label}`);
+      expect(PLAN_FEATURES.pro.id).toBe("pro"); // the id did not move; only the name a buyer reads
+      expect(body.error).not.toMatch(/Upgrade to Pro\b/);
     });
   });
 });

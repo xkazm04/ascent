@@ -48,13 +48,13 @@ export function InvitePanel({ inviteOrg, onInvited }: { inviteOrg: string; onInv
 
   return (
     <div className="mt-6 rounded-xl border border-slate-800 bg-slate-950/40 p-4">
-      <h2 className="text-base font-semibold text-white">Invite your team</h2>
-      <p className="mt-1 text-sm text-slate-400">
+      <h2 className="type-body font-semibold text-white">Invite your team</h2>
+      <p className="mt-1 type-body-sm text-slate-400">
         Add teammates as viewers on <span className="font-mono text-slate-300">{inviteOrg}</span> so they can see the
         dashboard. They&apos;ll need a GitHub login (no App install required).
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <span className="font-mono text-sm text-slate-600">@</span>
+        <span className="type-mono-sm text-slate-600">@</span>
         <input
           ref={inviteInputRef}
           value={handle}
@@ -64,23 +64,23 @@ export function InvitePanel({ inviteOrg, onInvited }: { inviteOrg: string; onInv
           aria-label="Teammate's GitHub handle"
           aria-invalid={inviteErr ? true : undefined}
           aria-describedby={inviteErr ? "invite-error" : undefined}
-          className="focus-ring w-48 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200 placeholder:text-slate-600"
+          className="focus-ring w-48 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-body-sm text-slate-200 placeholder:text-slate-600"
         />
         <button
           onClick={invite}
           disabled={inviteBusy || !handle.trim()}
-          className="focus-ring rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
+          className="focus-ring rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
         >
           {inviteBusy ? "Adding…" : "Invite"}
         </button>
       </div>
       {invited.length > 0 && (
-        <p className="mt-2 font-mono text-sm text-emerald-300">
+        <p className="mt-2 type-mono-sm text-emerald-300">
           Added as viewer: {invited.map((l) => `@${l}`).join(", ")}
         </p>
       )}
       {inviteErr && (
-        <p id="invite-error" role="alert" className="mt-2 font-mono text-sm text-danger-soft">
+        <p id="invite-error" role="alert" className="mt-2 type-mono-sm text-danger-soft">
           {inviteErr}
         </p>
       )}

@@ -67,7 +67,11 @@ Two operating modes, chosen per org at onboarding:
 
 Telemetry has two sinks for the same reason: the SaaS events API (default, token) or, for orgs that
 forbid the SaaS sink, `ascent skills report --to-registry` commits rolling counts-only JSONL under
-`telemetry/<repo>/<yyyy-mm>.jsonl` in the registry repo, which the indexer reads on scan.
+`usage/<contributor>.json` in the registry repo (counts only, NEVER repo names — the lane spec
+and its checker forbid a repo dimension in a possibly-public repo), which the indexer reads on
+scan. The repo dimension exists only on the token-gated tenant events API. _(Amended 2026-08-30:
+the shipped lane superseded the original `telemetry/<repo>/<yyyy-mm>.jsonl` sketch — moonshot #19
+pinned this two-sink contract.)_
 
 **In the app:** a new `Registry` tab under the *Chosen* group owns onboarding (create / map / stay hosted),
 migration of Skills · Practices · Memory into the registry, and tracking; the three existing tabs become

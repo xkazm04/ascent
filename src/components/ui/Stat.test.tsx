@@ -33,7 +33,7 @@ function textOf(node: ReactNode): string {
 /** The bold value block — the div carrying the tabular-nums headline class. */
 function valueText(props: Parameters<typeof Stat>[0]): string {
   const els = flatten(Stat(props));
-  const valueDiv = els.find((el) => (el.props.className ?? "").includes("text-2xl"));
+  const valueDiv = els.find((el) => (el.props.className ?? "").includes("type-figure"));
   expect(valueDiv).toBeDefined();
   return textOf(valueDiv!);
 }

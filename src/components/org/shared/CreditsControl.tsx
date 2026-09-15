@@ -101,7 +101,7 @@ export function CreditsControl({
         // discover and open the popover. Add a text/glyph marker AND an explicit aria-label so the status
         // survives without color; the amber styling stays as reinforcement, not the sole signal.
         aria-label={paused ? `${balance} credits: out of credits, private scanning paused` : undefined}
-        className={`focus-ring inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 font-mono text-sm transition ${
+        className={`focus-ring inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 type-mono-sm transition ${
           paused
             ? "border-amber-500/50 bg-amber-500/10 text-amber-300 hover:border-amber-400"
             : "border-slate-700 text-slate-300 hover:border-accent hover:text-white"
@@ -128,18 +128,18 @@ export function CreditsControl({
           tabIndex={-1}
           className="focus-ring absolute right-0 z-40 mt-2 w-72 rounded-xl border border-slate-800 bg-slate-950 p-4 shadow-2xl"
         >
-          <div className="font-mono text-sm uppercase tracking-widest text-accent">Scan credits</div>
+          <div className="type-mono-sm uppercase tracking-widest text-accent">Scan credits</div>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-3xl font-bold text-white">{balance}</span>
-            <span className="text-sm text-slate-400">private scans remaining</span>
+            <span className="type-display font-bold text-white">{balance}</span>
+            <span className="type-body-sm text-slate-400">private scans remaining</span>
           </div>
           {paused && (
-            <p className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 text-sm text-amber-300">
+            <p className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 type-body-sm text-amber-300">
               Out of credits. Private scans are paused until you top up.
             </p>
           )}
           {coveredByAllowance && (
-            <p className="mt-2 rounded-md border border-slate-700 bg-slate-800/40 px-2.5 py-1.5 text-sm text-slate-300">
+            <p className="mt-2 rounded-md border border-slate-700 bg-slate-800/40 px-2.5 py-1.5 type-body-sm text-slate-300">
               {freeScansLeft} free {freeScansLeft === 1 ? "scan" : "scans"} left this month (resets on
               the 1st, UTC). Scans keep running on your monthly allowance.
             </p>
@@ -154,7 +154,7 @@ export function CreditsControl({
           {grantsEnabled && <GrantSection buyEnabled={buyEnabled} busy={busy} grant={grant} />}
 
           {!buyEnabled && !grantsEnabled && (
-            <p className="mt-3 text-sm text-slate-400">
+            <p className="mt-3 type-body-sm text-slate-400">
               Top-ups are handled by billing.{" "}
               <a href="/pricing" className="text-accent hover:text-white">
                 See plans →
@@ -164,7 +164,7 @@ export function CreditsControl({
           {/* aria-live so a failed top-up is ANNOUNCED, matching the ledger states' live regions — a
               screen-reader user who presses +50 must not get silence on a payment-adjacent failure. */}
           {error && (
-            <p className="mt-2 text-sm text-danger" aria-live="polite">
+            <p className="mt-2 type-body-sm text-danger" aria-live="polite">
               {error}
             </p>
           )}

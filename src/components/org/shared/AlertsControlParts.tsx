@@ -49,12 +49,12 @@ export function ThresholdFields({
           noise band, a deliberate split documented in the digest route — without this line an
           admin reasonably concludes the fields tune the digest too, changes them, and watches
           "nothing happen". (ambiguity-ui 2026-07-16 #2) */}
-      <div className="mt-3 text-sm text-slate-400">
+      <div className="mt-3 type-body-sm text-slate-400">
         Regression sensitivity (points): applies to per-repo regression alerts; blank inherits the default.
         The weekly digest keeps its own fleet-wide noise band.
       </div>
       <div className="mt-1.5 flex flex-wrap gap-3">
-        <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500">
+        <label className="flex items-center gap-1.5 type-mono-sm text-slate-500">
           overall drop
           <input
             type="number"
@@ -63,10 +63,10 @@ export function ThresholdFields({
             value={overallDrop}
             onChange={(e) => setOverallDrop(e.target.value)}
             placeholder="5"
-            className="w-16 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent"
+            className="w-16 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 type-body-sm text-slate-200 outline-none focus:border-accent"
           />
         </label>
-        <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500">
+        <label className="flex items-center gap-1.5 type-mono-sm text-slate-500">
           dimension drop
           <input
             type="number"
@@ -75,7 +75,7 @@ export function ThresholdFields({
             value={dimensionDrop}
             onChange={(e) => setDimensionDrop(e.target.value)}
             placeholder="15"
-            className="w-16 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent"
+            className="w-16 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 type-body-sm text-slate-200 outline-none focus:border-accent"
           />
         </label>
       </div>

@@ -2,6 +2,23 @@ import type { Constellation, RepoStar } from "./fleetMapStars";
 
 export type SortKey = "name" | "maturity" | "repos" | "movement";
 
+/**
+ * How far a repo's 30-day `dOverall` must travel to count as MOVED.
+ *
+ * One definition for all four surfaces that render or rank movement: the header's `movers · 30d`
+ * tally (fleetStats), the per-star directional ring and its tooltip (ConstellationField), and the
+ * `movement` org sort (orderConstellations). The sort had no threshold at all — it summed raw
+ * `|dOverall|` — so an org whose repos each drifted 0.4 outranked one carrying a real +9 mover while
+ * the header read `0 movers` for the first and the map drew no ring on any of its stars. The sort
+ * said one thing and every other surface said the opposite about the same fleet.
+ */
+export const MOVER_THRESHOLD = 1;
+
+/** Did this repo move enough to count, and in which direction? `0` when it did not move. */
+export function moverDelta(dOverall: number | null | undefined): number {
+  return dOverall != null && Math.abs(dOverall) >= MOVER_THRESHOLD ? dOverall : 0;
+}
+
 export interface FleetStats {
   orgs: number;
   /** Orgs that reached `done` (contribute repos/scores). */
@@ -38,11 +55,24 @@ export function sumScoredOverall(repos: readonly RepoStar[]): { sum: number; cou
   return { sum, count };
 }
 
-/** Round a `sumScoredOverall` tally to a displayable mean, or null when nothing is scored (never
- *  NaN/0). Rounding lives here — separated from `sumScoredOverall` — because orderConstellations'
- *  maturity sort key needs the UNROUNDED mean (rounding two close-but-distinct means to the same
- *  integer would flip their sort order depending on float noise; a sort key must stay precise even
- *  though the same number gets rounded for display elsewhere). */
+/**
+ * Round a `sumScoredOverall` tally to a displayable mean, or null when nothing is scored (never
+ * NaN/0). Rounding lives here — separated from `sumScoredOverall` — because orderConstellations'
+ * maturity sort key needs the UNROUNDED mean (rounding two close-but-distinct means to the same
+ * integer would flip their sort order depending on float noise; a sort key must stay precise even
+ * though the same number gets rounded for display elsewhere).
+ *
+ * NAMESAKE, NOW AGREEING: `roundedMean(xs: number[])` in `src/lib/db/org-shared.ts` is a second
+ * function with this name. It used to return **0** for an empty population while this one returned
+ * null — two functions, one name, opposite contracts, and the /org tabs inherited the wrong one on
+ * eight surfaces. It returns null too as of 2026-09-08; this contract is the one that won.
+ *
+ * They are deliberately NOT merged, and merging them would be a bug: `org-shared.ts` imports
+ * `getPrisma`, and this module is client-side (the launch star map), so a shared import would drag
+ * the Prisma client into the browser bundle — a break `tsc` and the unit suite both pass and only
+ * `next build` catches. The shapes also differ for a stated reason (streaming tally vs materialized
+ * array, so the unrounded sort key survives). Same contract, two call shapes, one boundary between them.
+ */
 export function roundedMean(sum: number, count: number): number | null {
   return count > 0 ? Math.round(sum / count) : null;
 }
@@ -78,8 +108,9 @@ export function fleetStats(constellations: Constellation[]): FleetStats {
       scanned += scored.count;
       sum += scored.sum;
       for (const r of c.repos) {
-        if (r.dOverall != null && r.dOverall >= 1) risers += 1;
-        else if (r.dOverall != null && r.dOverall <= -1) fallers += 1;
+        const moved = moverDelta(r.dOverall);
+        if (moved > 0) risers += 1;
+        else if (moved < 0) fallers += 1;
       }
     }
   }
@@ -176,7 +207,9 @@ export function orderConstellations(constellations: Constellation[], sortKey: So
   const metric = (c: Constellation): number => {
     if (c.status !== "done") return -1;
     if (sortKey === "repos") return c.repos.length;
-    if (sortKey === "movement") return c.repos.reduce((s, r) => s + Math.abs(r.dOverall ?? 0), 0);
+    // Same MOVER_THRESHOLD every other surface uses: a sub-threshold drift is not movement, so it
+    // must not rank an org above one the header and the map both show as the real mover.
+    if (sortKey === "movement") return c.repos.reduce((s, r) => s + Math.abs(moverDelta(r.dOverall)), 0);
     if (sortKey === "maturity") {
       // Same sumScoredOverall tally as fleetStats/ConstellationField, deliberately left UNROUNDED here:
       // this is a sort key, not a displayed number, and rounding it could flip the order of two orgs

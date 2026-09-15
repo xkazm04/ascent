@@ -20,12 +20,15 @@ vi.mock("next/server", () => ({
   },
 }));
 
-const gates = { selfHosted: true, autopilot: true, access: null as unknown, role: null as unknown };
+const gates = { selfHosted: true, autopilot: true, githubApp: true, access: null as unknown, role: null as unknown };
 
 vi.mock("@/lib/api/self-host", () => ({
   selfHostGuard: () => (gates.selfHosted ? null : new Response(JSON.stringify({ error: "Not found." }), { status: 404 })),
 }));
 vi.mock("@/lib/api/orgPlan", () => ({ dbGuard: () => null }));
+// The GitHub App seam, mocked rather than env-driven: `delivery:"pr"` must be refused honestly on a
+// deployment without one, and that refusal is a property of the route, not of this machine's env.
+vi.mock("@/lib/github/app", () => ({ isAppConfigured: () => gates.githubApp }));
 vi.mock("@/lib/local/agent", () => ({ autopilotEnabled: () => gates.autopilot }));
 vi.mock("@/lib/authz", () => ({
   requireOrgAccess: vi.fn(async () => gates.access),
@@ -39,12 +42,18 @@ vi.mock("@/lib/db/loop-runs", () => ({
   getActiveLoopRun: vi.fn(async () => null),
   listLoopRuns: vi.fn(async () => []),
   markStaleRunsStopped: vi.fn(async () => 0),
+  getOrgPriceList: vi.fn(async () => ({ rows: [], unproductiveMicros: 0, unpricedLanes: 0, generatedAt: "2026-08-30T00:00:00.000Z" })),
   getLoopRun: vi.fn(async (id: string) => (id === "run-acme" ? { id, orgId: "org-acme", endedAt: null } : id === "run-other" ? { id, orgId: "org-other" } : null)),
   getLane: vi.fn(async (id: string) => (id === "lane-acme" ? { id, runId: "run-acme" } : id === "lane-other" ? { id, runId: "run-other" } : null)),
+  reviewDeliverable: vi.fn(async (_laneId: string, cover: string, verdict: string) => [
+    { headline: "Added a coverage gate to CI", dimId: "D2", kind: "closed", covers: [cover], evidence: null, review: verdict },
+  ]),
   getLoopRunDetail: vi.fn(async (id: string) => (id === "run-acme" ? { run: { id, orgId: "org-acme" }, lanes: [], outcomes: [] } : null)),
 }));
 vi.mock("@/lib/local/loop-engine", () => ({
   startLoopRun: vi.fn(async () => ({ id: "run-new", phase: "running", repos: ["acme/web"] })),
+  // #3 — the hosted half. A remote run is armed in `curating` and driven by nobody here.
+  startRemoteRun: vi.fn(async () => ({ id: "run-remote", phase: "curating", repos: ["acme/web"] })),
   stopLoopRun: vi.fn(async () => true),
   retryLane: vi.fn(async () => true),
   isLoopRunLive: vi.fn((id: string) => id === "run-live"),
@@ -52,7 +61,7 @@ vi.mock("@/lib/local/loop-engine", () => ({
 
 import { GET, POST } from "./route";
 import { GET as DETAIL } from "./[id]/route";
-import { startLoopRun } from "@/lib/local/loop-engine";
+import { startLoopRun, startRemoteRun } from "@/lib/local/loop-engine";
 
 const post = (body: unknown) =>
   POST(new Request("http://localhost/api/org/loop", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
@@ -63,16 +72,37 @@ beforeEach(() => {
   vi.clearAllMocks();
   gates.selfHosted = true;
   gates.autopilot = true;
+  gates.githubApp = true;
   gates.access = null;
   gates.role = null;
 });
 
-describe("the self-host guard runs first", () => {
-  it("404s the GET, the POST and the detail route on managed cloud", async () => {
+describe("the self-host guard runs first — for the executor that needs it", () => {
+  it("404s a LOCAL start on managed cloud — but serves the detail read (MC-B26: a cloud org's own remote run must stay pollable)", async () => {
     gates.selfHosted = false;
-    expect((await get("org=acme")).status).toBe(404);
     expect((await post({ action: "start", org: "acme", repos: ["acme/web"] })).status).toBe(404);
-    expect((await detail("run-acme", "org=acme")).status).toBe(404);
+    expect((await detail("run-acme", "org=acme")).status).not.toBe(404);
+  });
+
+  // MOONSHOT #3. The read is no longer self-hosted-only, because a cloud org can now arm a
+  // `remote-agent` run and 404ing its own runs would hide the operator's rows from them. `enabled`
+  // stays the honest answer to the question it always asked — can this deployment run a LOCAL loop.
+  it("still serves the GET on managed cloud, saying the local loop is not enabled", async () => {
+    gates.selfHosted = false;
+    gates.autopilot = false;
+    const res = await get("org=acme");
+    expect(res.status).toBe(200);
+    expect((await res.json()) as { enabled: boolean }).toMatchObject({ enabled: false });
+  });
+
+  it("accepts a remote-agent start with no self-hosted flag and no autopilot", async () => {
+    gates.selfHosted = false;
+    gates.autopilot = false;
+    const res = await post({ action: "start", org: "acme", repos: ["acme/web"], executor: "remote-agent" });
+    expect(res.status).toBe(200);
+    expect(startRemoteRun).toHaveBeenCalledWith(expect.objectContaining({ org: "acme", repos: ["acme/web"] }));
+    // And it NEVER reaches the local engine, which would spawn a process.
+    expect(startLoopRun).not.toHaveBeenCalled();
   });
 });
 
@@ -87,9 +117,25 @@ describe("GET /api/org/loop", () => {
     expect((await get("org=acme")).status).toBe(403);
   });
 
-  it("answers { enabled, active, runs }", async () => {
+  it("answers { enabled, active, runs, prices, prAvailable, stopping, stopHorizonMs }", async () => {
     const body = (await (await get("org=acme")).json()) as Record<string, unknown>;
-    expect(body).toEqual({ enabled: true, active: null, runs: [] });
+    // The price list rides on the STATUS read rather than a route of its own: it is derived at read
+    // time from the org's own lanes and stores nothing, so it has no id to gate. `prAvailable` rides
+    // along for the same reason: it is a fact about the deployment, not a resource with an id.
+    expect(body).toEqual({
+      enabled: true,
+      active: null,
+      runs: [],
+      prices: { rows: [], unproductiveMicros: 0, unpricedLanes: 0, generatedAt: "2026-08-30T00:00:00.000Z" },
+      prAvailable: true,
+      // THE WIND-DOWN, on the status read (PRIYA-L2-C6). `stopping` is the cooperative stop flag the
+      // engine holds for the run this process is driving; `stopHorizonMs` is the bound on how long
+      // honouring it can take, RESOLVED server-side because the deployment's own
+      // `ASCENT_AUTOPILOT_TIMEOUT_MS` is not a fact a browser can know. Both are null/false with no
+      // active run — there is nothing to wind down.
+      stopping: false,
+      stopHorizonMs: null,
+    });
   });
 
   it("reconciles stale runs WITH the engine's liveness — a run this process drives is not stale", async () => {
@@ -140,6 +186,44 @@ describe("POST { action: 'start' }", () => {
     expect((await post({ action: "start", org: "acme", repos: ["a/b"], concurrency: 9 })).status).toBe(400);
   });
 
+  it("REFUSES an out-of-band throughput dial rather than quietly picking a plausible one", async () => {
+    // The normalizers never guess (`run-limits.ts`): a request for a batch of 40 is a request the
+    // caller got wrong, and running 12 instead would be a run nobody asked for.
+    for (const body of [
+      { batchSize: 40 },
+      { batchSize: 0 },
+      { batchSize: 5.5 },
+      { batchSize: "5" },
+      { agentTimeoutMs: 0 },
+      { agentTimeoutMs: 24 * 60 * 60_000 },
+      { verifyMode: "yes" },
+      { verifyTimeoutMs: 1 },
+    ]) {
+      const res = await post({ action: "start", org: "acme", repos: ["a/b"], ...body });
+      expect(res.status, `accepted ${JSON.stringify(body)}`).toBe(400);
+    }
+  });
+
+  it("passes the dials through when they are in band, and NULL when the caller named none", async () => {
+    vi.mocked(startLoopRun).mockClear();
+    await post({ action: "start", org: "acme", repos: ["acme/web"], batchSize: 10, agentTimeoutMs: 2_700_000, verifyMode: "off" });
+    expect(vi.mocked(startLoopRun).mock.calls.at(-1)![0]).toMatchObject({
+      batchSize: 10,
+      agentTimeoutMs: 2_700_000,
+      verifyMode: "off",
+    });
+
+    // Omitting them is how a caller says "use the deployment default", and that path records null —
+    // which is byte-identical to every run armed before these dials existed.
+    await post({ action: "start", org: "acme", repos: ["acme/web"] });
+    expect(vi.mocked(startLoopRun).mock.calls.at(-1)![0]).toMatchObject({
+      batchSize: null,
+      agentTimeoutMs: null,
+      verifyMode: null,
+      verifyTimeoutMs: null,
+    });
+  });
+
   it("passes the curated batches and the actor through, and answers { run }", async () => {
     const res = await post({
       action: "start",
@@ -161,6 +245,36 @@ describe("POST { action: 'start' }", () => {
     });
   });
 
+  it("threads a valid A/B policy through as two arms", async () => {
+    const res = await post({ action: "start", org: "acme", repos: ["acme/web"], modelPolicy: "ab", models: ["sonnet", "opus"] });
+    expect(res.status).toBe(200);
+    expect(vi.mocked(startLoopRun).mock.calls.at(-1)![0]).toMatchObject({ modelPolicy: "ab", models: ["sonnet", "opus"] });
+  });
+
+  it("400s an A/B run that does not name exactly two distinct models", async () => {
+    // A malformed A/B request must not degrade to a single-model run: the operator would believe they
+    // ran a comparison they did not.
+    for (const models of [["sonnet"], ["sonnet", "sonnet"], ["a", "b", "c"], undefined]) {
+      const res = await post({ action: "start", org: "acme", repos: ["acme/web"], modelPolicy: "ab", models });
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toMatch(/two distinct models/);
+    }
+  });
+
+  it("400s an arm that is not a plain token, and never reaches the spawn seam", async () => {
+    // `shell: true` re-parses argv on Windows, so an unvalidated model name is argument injection.
+    const before = vi.mocked(startLoopRun).mock.calls.length;
+    const res = await post({ action: "start", org: "acme", repos: ["acme/web"], modelPolicy: "ab", models: ["sonnet", "opus; rm -rf /"] });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/Invalid model/);
+    expect(vi.mocked(startLoopRun).mock.calls.length).toBe(before);
+  });
+
+  it("leaves a single-model run with no policy fields at all", async () => {
+    await post({ action: "start", org: "acme", repos: ["acme/web"] });
+    expect(vi.mocked(startLoopRun).mock.calls.at(-1)![0]).not.toHaveProperty("modelPolicy");
+  });
+
   it("turns an engine refusal into a 409 carrying its reason", async () => {
     vi.mocked(startLoopRun).mockRejectedValueOnce(new Error("acme/web is not paired with a local path"));
     const res = await post({ action: "start", org: "acme", repos: ["acme/web"] });
@@ -177,6 +291,22 @@ describe("tenancy — an id from another org is a 404, not an action", () => {
     expect((await post({ action: "stop", org: "acme", id: "run-acme" })).status).toBe(200);
   });
 
+  it("review refuses a lane whose run belongs to another org, validates its verdict, and skips the autopilot gate", async () => {
+    expect((await post({ action: "review", org: "acme", laneId: "lane-other", cover: "rec-1", verdict: "approved" })).status).toBe(404);
+    expect((await post({ action: "review", org: "acme", laneId: "lane-acme", cover: "rec-1", verdict: "detonated" })).status).toBe(400);
+    expect((await post({ action: "review", org: "acme", laneId: "lane-acme", verdict: "approved" })).status).toBe(400);
+    // Ruling on a past run's rows must work even when the loop itself is switched off.
+    gates.autopilot = false;
+    const res = await post({ action: "review", org: "acme", laneId: "lane-acme", cover: "rec-1", verdict: "dismissed" });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; deliverables: { review?: string }[] };
+    expect(body.ok).toBe(true);
+    expect(body.deliverables[0]!.review).toBe("dismissed");
+    // ...and it is owner-gated like every other write.
+    gates.role = new Response(JSON.stringify({ error: "Owner only." }), { status: 403 });
+    expect((await post({ action: "review", org: "acme", laneId: "lane-acme", cover: "rec-1", verdict: "approved" })).status).toBe(403);
+  });
+
   it("retry refuses a lane whose run belongs to another org", async () => {
     expect((await post({ action: "retry", org: "acme", laneId: "lane-other" })).status).toBe(404);
     expect((await post({ action: "retry", org: "acme", laneId: "nope" })).status).toBe(404);
@@ -189,5 +319,63 @@ describe("tenancy — an id from another org is a 404, not an action", () => {
     expect((await detail("run-acme", "org=other")).status).toBe(404);
     expect((await detail("missing", "org=acme")).status).toBe(404);
     expect((await detail("run-acme", "org=acme")).status).toBe(200);
+  });
+});
+
+// ── DELIVERY (how a lane's work reaches the operator) ───────────────────────────────────────────
+//
+// `branch` is the default and is what every run before this column did; `land` and `pr` are opt-ins,
+// and `pr` is the one that can be genuinely unavailable. The rule under test is that an unavailable
+// `pr` is REFUSED — a run armed for pull requests that quietly left branches behind would leave the
+// operator believing their work was in review.
+
+describe("delivery", () => {
+  const started = () => (startLoopRun as unknown as { mock: { calls: [{ delivery?: unknown }][] } }).mock.calls[0]![0];
+
+  it("defaults to null — recorded as `branch`, exactly what a run without the dial always did", async () => {
+    expect((await post({ action: "start", org: "acme", repos: ["acme/web"] })).status).toBe(200);
+    expect(started().delivery).toBeNull();
+  });
+
+  it("passes the two working-copy modes through once they are named", async () => {
+    await post({ action: "start", org: "acme", repos: ["acme/web"], delivery: "land" });
+    expect(started().delivery).toBe("land");
+    vi.clearAllMocks();
+    await post({ action: "start", org: "acme", repos: ["acme/web"], delivery: "pr" });
+    expect(started().delivery).toBe("pr");
+  });
+
+  it("normalizes an unknown value to null — never a guess at a mode that writes to a checkout", async () => {
+    for (const bad of ["merge", "LAND", "", 3, true, null]) {
+      vi.clearAllMocks();
+      expect((await post({ action: "start", org: "acme", repos: ["acme/web"], delivery: bad })).status).toBe(200);
+      expect(started().delivery).toBeNull();
+    }
+  });
+
+  it("REFUSES `pr` when the deployment has no GitHub App, rather than falling back to a branch", async () => {
+    gates.githubApp = false;
+    const res = await post({ action: "start", org: "acme", repos: ["acme/web"], delivery: "pr" });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toContain("no GitHub App");
+    expect(startLoopRun).not.toHaveBeenCalled();
+  });
+
+  it("still allows branch and land without a GitHub App — landing is purely local", async () => {
+    gates.githubApp = false;
+    expect((await post({ action: "start", org: "acme", repos: ["acme/web"], delivery: "land" })).status).toBe(200);
+    expect(started().delivery).toBe("land");
+  });
+
+  it("reports whether a PR is possible at all, so the dial can disable the mode honestly", async () => {
+    expect(((await (await get("org=acme")).json()) as { prAvailable: boolean }).prAvailable).toBe(true);
+    gates.githubApp = false;
+    expect(((await (await get("org=acme")).json()) as { prAvailable: boolean }).prAvailable).toBe(false);
+  });
+
+  it("keeps delivery an OWNER decision, like every other write on this route", async () => {
+    gates.role = new Response(JSON.stringify({ error: "Owner only." }), { status: 403 });
+    expect((await post({ action: "start", org: "acme", repos: ["acme/web"], delivery: "land" })).status).toBe(403);
+    expect(startLoopRun).not.toHaveBeenCalled();
   });
 });

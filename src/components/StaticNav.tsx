@@ -26,7 +26,7 @@ export function Logo({ className = "", size = 24 }: { className?: string; size?:
         priority
         style={{ width: size, height: size }}
       />
-      <span className="font-mono text-base font-semibold uppercase tracking-[0.22em] text-white">
+      <span className="font-mono type-body font-semibold uppercase tracking-[0.22em] text-white">
         Ascent
       </span>
     </span>
@@ -44,7 +44,7 @@ export const HEADER_INNER = "mx-auto flex max-w-6xl items-center justify-between
 
 /** The marketing header's <nav> element classes. */
 export const HEADER_NAV =
-  "flex items-center gap-3 font-mono text-sm uppercase tracking-widest text-slate-400 sm:gap-6";
+  "flex items-center gap-3 type-mono-sm uppercase tracking-widest text-slate-400 sm:gap-6";
 
 /** The static (session-free) marketing nav items, in render order. */
 export const MARKETING_NAV: ReadonlyArray<{ href: string; label: string }> = [

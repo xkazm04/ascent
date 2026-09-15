@@ -103,3 +103,29 @@ describe("PassportsTab — 0.4.0 fields reach the row", () => {
     expect(detail.autoBlockers).toEqual(["No agent memory."]);
   });
 });
+
+// Round 10 taught the fleet AVERAGES that a deterministic mock score is a placeholder floor. The
+// portfolio did not follow: the engine reached `deriveAutonomy` and stopped there, so on the default
+// Baseline view a never-graded passport rendered exactly like a live one. The row is the only place
+// that can carry it — anything the tab does not copy does not exist for the table, the scatter or the
+// blocker docket below it.
+describe("PassportsTab — the scan's engine reaches the row", () => {
+  const rows = async (engine: string | undefined) => {
+    getOrgRollup.mockResolvedValue({
+      repos: [{ fullName: "acme/web", name: "web", passport: passport(), latest: engine ? { engine } : undefined }],
+    });
+    return findRows(await PassportsTab({ slug: "acme", sp: {} }))!;
+  };
+
+  it("flags a mock-engine scan as a placeholder", async () => {
+    expect((await rows("mock"))[0]).toMatchObject({ placeholder: true });
+  });
+
+  it("does not flag a live-engine scan", async () => {
+    expect((await rows("claude-cli"))[0]).toMatchObject({ placeholder: false });
+  });
+
+  it("does not fabricate a placeholder claim for a repo with no scan row", async () => {
+    expect((await rows(undefined))[0]).toMatchObject({ placeholder: false });
+  });
+});

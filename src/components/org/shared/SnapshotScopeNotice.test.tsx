@@ -76,3 +76,50 @@ describe("SnapshotScopeNotice", () => {
     expect(link).toHaveAttribute("href", "/org/acme?tab=delivery");
   });
 });
+
+// Delivery is the MIXED case: its trend (and the W3a/W4 panels) are period-scoped while PR signals,
+// governance and activity are latest-scan snapshots. Saying "not applied" there would be its own
+// false claim, so the notice grew a `partial` scope — and a struck-through chip must not follow it.
+describe("SnapshotScopeNotice — partial scope (Delivery)", () => {
+  const renderPartial = () =>
+    render(
+      <SnapshotScopeNotice
+        period={win("30d")}
+        subject="delivery"
+        scope="partial"
+        detail={<>Trend is period-scoped; PR signals are a scan-time snapshot.</>}
+      />,
+    );
+
+  it("says the period is PARTLY applied rather than not applied", () => {
+    const { container } = renderPartial();
+    expect(container.textContent).toContain("Period · partly applied");
+    expect(container.textContent).not.toContain("not applied");
+  });
+
+  it("leaves the chip live-looking: the range genuinely is applied elsewhere on the tab", () => {
+    renderPartial();
+    const chip = screen.getByText("30 days");
+    expect(chip.className).not.toContain("line-through");
+    expect(chip).not.toHaveAttribute("aria-disabled");
+  });
+
+  it("is announced as covering only part of the tab", () => {
+    renderPartial();
+    expect(screen.getByRole("note")).toHaveAttribute(
+      "aria-label",
+      "Selected period 30 days is applied to only part of this tab",
+    );
+  });
+
+  it("renders the caller's detail instead of the generic snapshot sentence", () => {
+    const { container } = renderPartial();
+    expect(container.textContent).toContain("Trend is period-scoped");
+    expect(container.textContent).not.toContain("Contributor commit totals");
+  });
+
+  it("omits the cross-tab link entirely when no scoped tab is named", () => {
+    renderPartial();
+    expect(screen.queryByRole("link")).toBeNull();
+  });
+});

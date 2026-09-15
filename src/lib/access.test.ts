@@ -153,7 +153,7 @@ describe("requireViewer — navigation vs. XHR discrimination (G6-12)", () => {
     mockCreateSupabaseServerClient.mockResolvedValue(fakeSupabase(null));
   });
 
-  it("a top-level navigation (Sec-Fetch-Mode: navigate) gets a 303 redirect to /connect, not JSON", async () => {
+  it("a top-level navigation (Sec-Fetch-Mode: navigate) gets a 303 redirect to /onboarding, not JSON", async () => {
     mockRequestHeaders({ "sec-fetch-mode": "navigate", host: "app.example.com", "x-forwarded-proto": "https" });
     const requireViewer = await freshRequireViewer();
 
@@ -161,7 +161,7 @@ describe("requireViewer — navigation vs. XHR discrimination (G6-12)", () => {
 
     expect(res).not.toBeNull();
     expect(res!.status).toBe(303);
-    expect(res!.headers.get("location")).toBe("https://app.example.com/connect");
+    expect(res!.headers.get("location")).toBe("https://app.example.com/onboarding");
   });
 
   it("a same-origin fetch (Sec-Fetch-Mode: cors) still gets the bare 401 JSON, never a redirect", async () => {
@@ -201,6 +201,6 @@ describe("requireViewer — navigation vs. XHR discrimination (G6-12)", () => {
     const res = await requireViewer();
     // The malformed forwarded host is rejected; falls back to the trusted `host` header.
     expect(res!.status).toBe(303);
-    expect(res!.headers.get("location")).toBe("https://app.example.com/connect");
+    expect(res!.headers.get("location")).toBe("https://app.example.com/onboarding");
   });
 });

@@ -9,8 +9,12 @@ and its "apply" buttons.
 
 ## Catalog (`src/lib/practices.ts`)
 
-`PRACTICES: PracticeDef[]` defines nine practices, each with `{ id, label, dimId, what,
-starter[] }`. `dimId` ties the practice to the dimension it strengthens, so the org gap
+`PRACTICES: PracticeDef[]` defines nine spine practices (one per dimension), each with `{ id, label,
+dimId, what, starter[] }`, and `EXTRA_PRACTICES` adds a tenth, `consolidate-guidance`
+(`artifactPath: docs/AGENT-GUIDANCE.md`); `ALL_PRACTICES` is the union. Since 2026-09-05 the artifact
+builder, practice mining, generate/apply/apply-batch/rollout and the #33 census all read the union,
+so the tenth practice is generatable and appliable like the nine (the by-dimension lookups still read
+the spine, so the D1 dimension keeps one answer). `dimId` ties the practice to the dimension it strengthens, so the org gap
 analysis can link a weak dimension to its practice.
 
 | ID | Practice | Dim |
@@ -45,6 +49,24 @@ degrades to placeholders when context is sparse.
 `POST /api/practices/generate` accepts `{ repo, practiceId }`, fetches read-only repo
 context from GitHub, calls `buildArtifact`, and returns the spec for **preview** (no
 writes).
+
+A GitHub failure is answered with the status its *condition* means, via the single
+`githubErrorStatus` mapping in `src/lib/api/github-status.ts` — shared with `/api/scan`,
+which previously disagreed with this route on the same error:
+
+| Condition | Status | Body |
+| --- | --- | --- |
+| Unparseable repo URL | `400` | `{ error, code: "INVALID_URL" }` |
+| Repo missing or private | `404` | `{ error, code: "NOT_FOUND" }` |
+| Repo has no files | `422` | `{ error, code: "EMPTY" }` |
+| GitHub throttling | `429` + `retry-after` | `{ error, code: "RATE_LIMITED" }` |
+| Any other GitHub failure | `502` | `{ error, code: "UPSTREAM" }` |
+
+Until 2026-08-28 this route mapped these by GitHub's *own* status (`err.status ?? 502`),
+which is set at only some throw sites — so an empty repo and an invalid URL both read as
+`502`, and a **secondary** rate limit surfaced GitHub's raw `403`, telling callers to fix
+their credentials when the correct signal was to back off. The response now also carries
+`code` and `retry-after`, which this route previously dropped.
 
 ## Apply flow (`POST /api/practices/apply` → `src/lib/github/write.ts`)
 
@@ -82,7 +104,21 @@ three behaviors below apply to either. Its inner write (openDraftPr + the unifor
 AI-stance module reuses to open its `AI_POLICY.md` PR (`/api/org/ai-stance/apply`, see
 [org-intelligence.md](./org-intelligence.md)) instead of forking the customer-repo write path.
 
-- **Content-drift guard.** The caller may pass the `expectedFingerprint` it previewed.
+- **Generation is factored out (2026-08-28).** `buildPracticeArtifact()`
+  (`src/lib/practices/artifact.ts`) owns the house-pattern lookup + `buildArtifact` call
+  that `applyPracticeToRepo` kept private. It exists because there is now a **second
+  door**: the local improvement loop's `practice` lane writes the same starter straight
+  into its worktree instead of opening a PR (local mode only — see
+  [live.md § Lane kinds](../org-planning/live.md#lane-kinds-foundation-and-practice-lanes-2026-08-28)).
+  Only delivery differs; the bytes come from one generator, so the loop can never install
+  a body different from the one the PR would have opened. The cloud path is unchanged.
+  **The loop proposes each practice at most once per repo** (2026-08-30): its starter-detection
+  rule is no longer the artifact's file path alone — a starter an agent later removed or
+  consolidated away is a standing decision, so the loop reads its own dispatch history and
+  falls through to a backlog lane instead of reinstalling. The PR doors are unaffected; a
+  human may still apply the same practice as often as they like.
+- **Content-drift guard.** The caller may pass the `previewFingerprint` it previewed (the wire
+  field; `PracticeApply` sends it and `apply/route.ts` reads it).
   If `artifactFingerprint(artifact.body)` no longer matches, apply returns
   `{ kind: "content-drift" }` and **opens no PR**, so a template or repo-context
   change between preview and apply can't silently land unreviewed content.
@@ -98,13 +134,57 @@ to `MAX_BATCH = 25`, fanned out with `mapPool` at `SCAN_CONCURRENCY`, with per-r
 error isolation so one failure doesn't sink the batch. Driven by
 `PracticeApplyBatch.tsx` / `PracticeApplyBatchResults.tsx`.
 
-## UI (`src/app/org/[slug]/practices/page.tsx`, `src/features/shared/practices/PracticeApply.tsx`)
+## UI (`src/features/shared/practices/`, mounted by the Practices tab)
 
-The practices page renders one card per practice (label, "what", adoption meter, exemplar
-link, gap repos, the reusable-shape checklist) with an embedded `PracticeApply`. That
-client component lets the user pick a target gap repo, **Preview** (→ `/generate`, shows
-the artifact body in a collapsible block), and **Open draft PR** (→ `/apply`, shows a link
-to the PR, labeled "Existing draft PR" when reused). Errors surface inline.
+`src/app/org/[slug]/practices/page.tsx` is a permanent redirect into the tab shell; the real
+mount is `PracticesTab` (`OrgTabChunks.tsx`). The tab renders the registry strip, the house
+pattern, four tiles (Practices, Fleet adoption with its `strong/measured` basis, Could adopt, PRs
+in flight), the drift strip and a dense **ledger table** (`PracticesView` → `PracticeLedger`),
+one row per practice. Opening a row shows a layer-2 modal (`PracticeDetailModal` →
+`MinedPracticeDetail`) with the embedded `PracticeApply`: pick a target gap repo, **Preview**
+(→ `/generate`, the artifact body in a collapsible block), **Open draft PR** (→ `/apply`, a link
+to the PR, labelled "Existing draft PR" when reused), or **Roll out to the fleet**
+(`PracticeApplyBatch` → `/apply-batch`, confirm dialog, neediest-first, `skipped` surfaced).
+Errors surface inline. (Rewritten 2026-09-05; the previous text described the pre-tab card
+page.)
+
+### The rollout matrix (`/org` UX redesign wave 2, 2026-09-08)
+
+The library's headline reading is a **`MatrixGrid`** from the shared `/org` viz kit
+(`src/components/org/viz`), one row per practice against four stages, drawn before any table.
+The view model is pure and separately tested (`practiceRolloutViz.ts` /
+`practiceRolloutViz.test.ts`); `PracticeRolloutStrip.tsx` only paints it.
+
+| Axis | `measured` (solid) | `declared` (dashed) | `not-judged` (hatched) | `missing` (void) |
+| --- | --- | --- | --- | --- |
+| **Assessed** | share of the fleet scored on this dimension | — | no repo has ever been scored on it | — |
+| **Adopted** | share of the *assessed* repos embodying it | an authored playbook's recorded applications | never assessed | — |
+| **Landed** | a starter PR has merged | PRs in flight, none landed | — | never applied here |
+| **Verified** | a post-merge scan stamped the lift | — | landed, no rescan yet | nothing landed |
+
+Only **Assessed** and **Adopted** carry a number. `Landed` and `Verified` count pull requests,
+not maturity, and `MatrixGrid` paints a printed score on the red→green ramp — putting a PR count
+there would report a young rollout as a failing one, the misreading `PracticesTab`'s own
+`READING_HUE` constant already guards the tiles against.
+
+Two things are now structural rather than promised. A `not-judged` cell **cannot** print a
+number (`rendersValue` is false for that state), so "never assessed" can never render as a
+score; and a `missing` cell draws nothing at all, so "never applied" can never render as a zero.
+The four column captions the strip used to carry are `WhyChip`s beside the matrix, and the two
+unmeasured lifts show the `not-judged` swatch in place of their value instead of an em dash.
+
+### Never assessed is not "not adopted" (bug fixed 2026-09-08)
+
+`getOrgPractices` builds each practice's `total` from repos whose **latest scan carries
+dimensions**; a repo that has never been scanned leaves the denominator entirely. The old
+surfaces could not show that: a practice measured on 2 of 41 repos rendered the same full-width
+adoption meter as one measured on 41 of 41, and a practice with `total === 0` arrived in the
+ledger's adoption column as the same grey em dash a genuine zero would.
+
+Both are fixed. The matrix's **Assessed** column draws fleet coverage as its own reading, and
+`PracticeLedger`'s adoption cell now carries the state on the mark: `not-judged` + "not assessed"
+where no repo has been scored, `declared` beside an authored playbook's count (a recorded
+application, not an observation of the repo), `measured` beside a scan-derived share.
 
 ## Playbooks: the org's OWN standards (authored, not mined)
 
@@ -138,8 +218,12 @@ halves:
   aggregate. Playbook lift is **sample-weighted** by `adoption.measured` so a one-repo
   playbook can't outvote a twelve-repo one, and it is reported SEPARATELY from practice-PR
   lift because the two are measured on different bases (adoption mark vs. a specific merged
-  PR). A null lift means "not measured yet" and never drags an average toward zero; the
-  strip renders nothing at all until something has actually been rolled out.
+  PR). A null lift means "not measured yet" and never drags an average toward zero — since
+  2026-09-08 it renders as the kit's `not-judged` mark rather than an em dash, so it cannot be
+  read as a zero. The FIGURES still render only once something has actually been rolled out;
+  before that the panel shows the matrix plus its zero state ("applying opens a draft PR the
+  target repo's own reviewers approve; the lift is measured only once a scan lands on the far
+  side of the merge"), never a row of confident zeros.
 
 ## Relationship to recommendations
 
@@ -155,6 +239,7 @@ straight at the CI-gates practice and its exemplars.
 | --- | --- |
 | `src/lib/practices.ts` | `PRACTICES[]` catalog + `PracticeDef`. |
 | `src/lib/practice-artifact.ts` | `buildArtifact()`: deterministic, language-aware artifact builder. |
+| `src/lib/practices/artifact.ts` | `buildPracticeArtifact()` / `resolveHousePattern()`: the generation step, shared by the PR path and the loop's practice lane. |
 | `src/lib/practice-artifact.test.ts` | Verifies tailored AGENTS.md, language-appropriate CI, non-null for every practice, null for unknown, placeholder degradation. |
 | `src/app/api/practices/generate/route.ts` | Preview endpoint (no writes). |
 | `src/app/api/practices/apply/route.ts` | Apply endpoint: gates + `openDraftPr` + audit. |
@@ -164,7 +249,18 @@ straight at the CI-gates practice and its exemplars.
 | `src/lib/org/playbook-apply.ts` | The shared single-repo playbook write sequence (PR + adoption mark + audit). |
 | `src/features/shared/practices/PlaybookApplyBatch.tsx` | Playbook fleet-rollout UI (select, confirm, per-repo results). |
 | `src/features/shared/practices/promotePractice.ts` | Mined practice → playbook draft mapping (pure, bounded). |
-| `src/features/shared/practices/PracticeRolloutStrip.tsx` | Fleet "applied → landed → lift" rollup strip. |
+| `src/features/shared/practices/PracticeRolloutStrip.tsx` | The rollout panel: `MatrixGrid` first, totals below, zero state instead of zeros. |
+| `src/features/shared/practices/practiceRolloutViz.ts` | Pure view model: practice × (assessed, adopted, landed, verified) → kit states. Tested. |
+| `src/features/shared/practices/PracticeRolloutTotals.tsx` | The four fleet figures; an unmeasured lift renders the `not-judged` mark, not an em dash. |
+| `src/features/shared/practices/housePatternViz.ts` | Pure view model: the Read × Travels privacy matrix (contents = a void in both). Tested. |
+| `src/features/shared/practices/HousePatternPrivacy.tsx` | Draws it, with the provenance/privacy caveats on `WhyChip`s. |
+| `src/lib/practices/reconcile.ts` | **#33** — census × ledger → transitions. Pure; the whole drift table lives here. |
+| `src/lib/practices/registry-artifact.ts` | **#33** — a registry `PRACTICE.md` → a committable `ArtifactSpec`. Pure. |
+| `src/lib/db/practice-adoption.ts` | **#33** — the ledger: stamp on apply, reconcile at scan, summary + target sets. |
+| `src/lib/db/house-pattern-versions.ts` | **#33** — immutable mined-pattern versions, appended only when `patternHash` moves. |
+| `src/app/api/practices/rollout/route.ts` | **#33** — `GET` target sets (member) · `POST` capped re-converge (admin). |
+| `src/features/shared/practices/PracticeDriftStrip.tsx` | **#33** — adopted / behind / drifted tiles + the Roll out action. |
+| `src/features/shared/practices/RegistryPracticeApply.tsx` | **#33** — the Copy-into-a-repo action on a registry practice. |
 
 ## Your house pattern — mined from the org's own repos (W6, 2026-08-14)
 
@@ -200,6 +296,16 @@ script inside a fence never reaches the shape.
 
 Mined shapes are **strictly org-internal**. `getOrgPracticeShapes` is org-scoped, there is no
 cross-org variant, and nothing derived from it appears on a public report or in the shared corpus.
+
+**The panel now shows this rather than promising it** (2026-09-08). `HousePatternPrivacy` opens
+the card with a two-column `MatrixGrid` — Read × Travels — over three rows: *Headings* and *Path
+layout* are `measured` in both columns, and *File contents* is a **void in both**. The void is
+the accurate encoding, not a stylistic one: the body is not extracted, so there is nothing to
+paint, in exactly the way the kit's `missing` state means "no measurement here, and never a
+zero". A reader who counts the empty cells has verified the guarantee instead of being told it.
+`housePatternViz.test.ts` pins the two voids, so giving the contents row a mark fails the suite.
+The panel's provenance ("your own repos, never a template") is a `measured` swatch plus a
+`WhyChip` carrying the `MIN_AGREEMENT` floor, taken as an argument rather than re-typed.
 
 ### The house pattern is AGREEMENT, not the best repo's copy
 
@@ -242,23 +348,99 @@ last-index time and counts), and a **"From your registry"** section
 (`src/features/shared/practices/RegistryPractices.tsx`) lists the `practices/<slug>/PRACTICE.md`
 entries the indexer read out of that repo, above ascent's generic catalog.
 
-Those rows carry the dimension, the `applies-when` line and an **Open in registry** link — and
-deliberately **no Apply button**. They are files under the customer's own review process; ascent
-indexes them so the whole fleet can see what the org already agreed on, but applying one is a write
-into someone else's repo through a PR flow that does not exist yet (see Known gaps). The section
-renders nothing when there are no registry-origin shapes, so an org that never mapped a registry sees
-no empty scaffolding.
+Those rows carry the dimension, the `applies-when` line, an **Open in registry** link and — since
+#33 — a **Copy into a repo** action (`RegistryPracticeApply.tsx`). Nothing here writes *back* to the
+registry: the file stays under the customer's own review process and "Open in registry" is still how
+you change the practice itself. What the action does is DISTRIBUTION — a draft PR copying the org's
+own agreed practice into a repo that lacks it, at `docs/practices/<slug>.md`, through the same
+`applyPracticeToRepo` writer, admin gate, audit row and adoption row as every other apply. The
+committed file says it is a copy and names the registry path it came from
+(`src/lib/practices/registry-artifact.ts`). An archived row or an empty body builds nothing, so a
+withdrawn practice is never redistributed. The section renders nothing when there are no
+registry-origin shapes, so an org that never mapped a registry sees no empty scaffolding.
+
+**Read-only is encoded, not asserted** (2026-09-08). The header sentence that said these are
+"changed by pull request, not here" is gone; the state it described is now a `declared` swatch
+(outline only, dashed — a claim this surface has not observed and cannot change) carrying the
+sentence as its `WhyChip` hint, and — decisively — the **absence of any edit affordance** on the
+rows. Nothing here offers an edit that then refuses: a row's two actions are *Open in registry*
+(which leaves for the file's own review process) and *Copy into a repo* (a draft PR into a
+different repo, never a write back).
+
+## Adoption ledger — is it still there? (#33, 2026-08-30)
+
+`ImprovementPr` answers "did this PR land and what did it buy". It cannot answer the question that
+only appears months later: **is the artifact still there, is it still the shape we agreed on, and who
+is behind now that our own pattern has moved.** The `PracticeAdoption` table is that projection —
+one row per `(org, repo, practiceId, artifactPath)`, moving `proposed → adopted → drifted | removed`
+and self-healing back.
+
+**How it is measured.** `extractPracticeShape` (v2) now emits a body-free **artifact census** beside
+the outline/layout shape: for every practice-artifact blob in the tree, its path plus
+`contentDigest` of the body and of the heading outline (cap 40). Digests and paths only — the leak
+boundary is unchanged. `reconcilePracticeAdoption`, called best-effort from `scan-finalize.ts` after
+a scan persists, hands the census and the repo's ledger rows to the pure reconciler
+(`src/lib/practices/reconcile.ts`).
+
+Four rules make the verdicts honest, and each has a test:
+
+| Situation | Verdict |
+| --- | --- |
+| Path absent, tree **complete** | `removed` |
+| Path absent, tree **truncated**; or the body was not fetched (`bodyHash: null`) | **no verdict** — unknown is not a finding |
+| `proposed`, its `ImprovementPr` merged, body present | `adopted`, stamping `adoptedHash` **from what landed** |
+| Body changed but the heading outline did not | still `adopted` — a cosmetic edit is not drift |
+| Body **and** outline both changed | `drifted` |
+
+**The baseline is the file as it LANDED, never the body ascent proposed.** A reviewer rewriting the
+PR before merge is the normal case and must not read as drift. Merge detection is read-only:
+`ImprovementPr` is queried, never written (it belongs to the improvement ledger).
+
+**House patterns are versioned.** `HousePatternVersion` stores each mined pattern immutably;
+`syncHousePatternVersions` appends a version only when `patternHash(lines)` moves, so a nightly
+rescan of an unchanged fleet writes nothing. An adoption cites the version it came from, so re-mining
+cannot retroactively make every conformant repo drifted. An org that mines nothing gets **no row** —
+absence, not a v0 — and `patternVersion` is `null` for generic/registry/playbook adoptions, meaning
+*not version-tracked*, never *behind*.
+
+**Drift is a finding to decide, never an auto-reapply.** `practiceFindings()` (a fifth
+`FINDING_MODULES` member, `practices`) emits one `Finding` per drifted/removed row keyed
+`repo:practiceId:artifactPath` — stable ids, never wording — so a recorded `OrgDecision` survives the
+next scan and the Follow-ups badge stops re-counting it. Nothing in the pipeline re-opens a PR on its
+own; "we changed it on purpose" is the likeliest explanation for a diverged artifact.
+
+**Re-converging is an explicit, capped action.** `PracticeDriftStrip` (beneath the lift strip, three
+`Tile`s on the neutral `BAND.some` accent — a library behind on one version is a baseline, not a red
+maturity reading; renders nothing on an empty ledger) offers a **Roll out** on the *behind* bucket
+only. `GET /api/practices/rollout?org=&practiceId=` returns the target sets (member gate, read-only);
+`POST /api/practices/rollout` opens the PRs (**admin** gate — it writes into customer repos), capped
+at 25 with the excess reported as `skipped`, typed-confirm on the client listing the exact repos, a
+foreign coordinate failing the whole call rather than partially applying, and every write through
+`applyPracticeToRepo`. Audit: `practice.rollout_opened` / `practice.registry_applied`. Drift itself
+gets **no** rollout button: a one-click answer to a divergence somebody may have made deliberately
+would be the product arguing with its user.
+
+### The lane brief is a consumer (handoff from #25)
+
+The org lane brief (`briefJson`, W2-G) carries a `housePattern` block so an agent working in a repo is
+told which version of the org's own pattern that repo is measured against, rather than inferring it
+from a document. `briefJson.housePattern.version` is **reserved for `HousePatternVersion.version`**
+and is left `null` by the brief builder itself — a null there means *this org has no mined pattern for
+that practice*, which is the same absence-not-v0 rule the ledger holds everywhere else. A consumer
+must never render a null as "v0" or as "behind", and must not fill it from anything but
+`getLatestHousePattern`.
+
+Playbook applies stamp the same ledger under `playbook:<uuid>` beside the existing
+`PlaybookApplication` mark (playbook PRs bypass `ImprovementPr` entirely, so the file's presence in
+the default branch is the merge evidence). Adoption rows and pattern versions are strictly
+org-internal: no public report, leaderboard, shared corpus or cross-org read.
 
 ## Known gaps
 
-- **Adoption is tracked at the PR, not the repo**: `recordPracticePr()` persists each
-  opened PR as an `ImprovementPr` (so merge detection and post-merge impact work), but
-  there is no separate "practice X is adopted by repo Y" projection; adoption is
-  derived from scan signals rather than from the apply event.
-- **Reuse doesn't update**: an already-open PR is returned as-is; a re-apply won't push a
-  refreshed template.
-- **Overwrites existing files**: `PUT` updates a file already at the path; there's no
-  "create-only" safety check.
+- (Closed; the entry was wrong, corrected 2026-09-05.) ~~Overwrites existing files~~: `openDraftPr`
+  (`src/lib/github/write.ts`, `existingFileSha`) reads the path on the **base** branch and refuses
+  with a 409 rather than overwrite it with a starter artifact; it checks base, not the branch, so a
+  re-seed of the draft branch stays idempotent. The 25-repo fan-out is the reason the guard exists.
 - **Batch apply is capped**: both `POST /api/practices/apply-batch` and
   `POST /api/org/playbooks/[id]/apply-batch` are bounded to **25 repos per call** (a
   deliberate bound, not a limitation to remove: one click must never become hundreds of
@@ -272,5 +454,10 @@ no empty scaffolding.
   applied, so "never tried" can't read as "tried and nothing landed".
 - **Catalog is global**: ascent's own practice catalog can't be customized per org — but an org can now
   declare its own in its registry repo, and those are read and shown (see Registry-backed state).
-- **Registry practices are read-only**: a `practices/<slug>/PRACTICE.md` from the registry can be opened
-  in git but not applied from ascent; the "apply a registry practice to N repos" PR flow is not built.
+- (Closed 2026-08-30, #33.) ~~Adoption is tracked at the PR, not the repo.~~ `PracticeAdoption` is a
+  per-repo projection reconciled against each scan's artifact census — see *Adoption ledger* above.
+- (Closed 2026-08-30, #33.) ~~Reuse doesn't update.~~ Versioned house patterns plus the capped
+  `POST /api/practices/rollout` re-converge the repos still on an older pattern.
+- (Closed 2026-08-30, #33.) ~~Registry practices are read-only.~~ A registry `PRACTICE.md` now applies
+  through the same writer as every other practice (`buildRegistryArtifact` → `applyPracticeToRepo`).
+  Still read-only in the direction that matters: ascent never writes back to the registry repo.

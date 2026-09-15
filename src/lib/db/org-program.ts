@@ -79,6 +79,10 @@ export interface ProgramNow {
   inFlightPrs: number;
   /** Verified dimension points bought since the programme started — NULL when nothing is verified. */
   pointsBought: number | null;
+  /** MOONSHOT #26 — verified points sitting on loop-lane branches that have NOT merged. Reported
+   *  beside `pointsBought`, never folded into it: work on an unreviewed branch is not bought, and a
+   *  strip that said otherwise would be selling something the org does not yet own. NULL, not 0. */
+  pointsInReview: number | null;
 }
 
 export interface ProgramStatusView {
@@ -99,6 +103,9 @@ export interface ProgramStatusView {
    * "bought" claim once the Impact Ledger has something real to back it.
    */
   pointsBought: number | null;
+  /** Verified points on lane branches, not merged. Rendered beside the bought number and labelled
+   *  as such — see the note on `ProgramNow.pointsInReview`. */
+  pointsInReview: number | null;
   /** Days until the next review, from the cadence. Null when the programme is not active. */
   daysToReview: number | null;
   /** Days remaining to `targetDate`; negative = overdue. Null when open-ended. */
@@ -176,6 +183,7 @@ export function buildProgramStatus(program: TransitionProgramRow, live: ProgramN
     scannedCount: live.scannedCount,
     inFlightPrs: live.inFlightPrs,
     pointsBought: live.pointsBought,
+    pointsInReview: live.pointsInReview,
     daysToReview,
     daysToTarget,
   };
@@ -248,6 +256,9 @@ export const getOrgProgramStatus = cache(async (orgSlug: string, now: Date = new
       inFlightPrs,
       // Already null-not-zero at the source (org-impact.ts rule 2) — carried through untouched.
       pointsBought: ledger?.dimPoints ?? null,
+      // Same window, same union read — so the two numbers on the strip can never come from two
+      // different readings of the same work.
+      pointsInReview: ledger?.inReviewPoints ?? null,
     },
     now,
   );

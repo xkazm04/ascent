@@ -30,7 +30,18 @@ export interface SecurityRowCheck {
 export interface SecurityRegisterRow {
   name: string;
   fullName: string;
-  score: number; // D9 score 0..100
+  score: number; // D9 score 0..100 — ONLY a reading when `measured` is true (see below)
+  /**
+   * Whether the repo's latest scan actually carried a D9 dimension row.
+   *
+   * FALSE means there is NO measurement. `score` is then the fail-closed `0` this module substitutes
+   * (deliberate — a D9-less scan bands as critical rather than silently strong, and that behaviour is
+   * pinned by a test), NOT an observed number. This flag exists so no SURFACE prints the substitute as
+   * a reading: the register renders such a repo's D9 cell as a void and its battery as absent, because
+   * on a security view "we never measured this" rendered as a hard 0 is a fabricated finding — the
+   * mirror image of the fabricated pass this file's `degraded` handling already guards against.
+   */
+  measured: boolean;
   /** Why the repo fails the security gate, or null when it passes. */
   gateReason: string | null;
   /** Default-branch rule detail from the latest scan, or null when governance wasn't readable. */
@@ -106,13 +117,18 @@ export async function buildSecurityOverview(
   // All scanned repos with their Security (D9) score, posture, and branch-protection state.
   const repos = rollup.repos
     .filter((r) => r.latest)
-    .map((r) => ({
-      name: r.name,
-      fullName: r.fullName,
-      score: r.latest!.dims.find((d) => d.dimId === "D9")?.score ?? 0, // safe: filtered to r.latest above
-      posture: r.latest!.posture, // safe: filtered to r.latest above
-      protected: govByRepo.get(r.fullName)?.protected ?? false,
-    }))
+    .map((r) => {
+      const d9 = r.latest!.dims.find((d) => d.dimId === "D9"); // safe: filtered to r.latest above
+      return {
+        name: r.name,
+        fullName: r.fullName,
+        // Fail-closed substitute when the scan carried no D9 row; `measured` says it is a substitute.
+        score: d9?.score ?? 0,
+        measured: d9 != null,
+        posture: r.latest!.posture, // safe: filtered to r.latest above
+        protected: govByRepo.get(r.fullName)?.protected ?? false,
+      };
+    })
     .sort((a, b) => a.score - b.score);
 
   const band = { critical: 0, weak: 0, ok: 0, strong: 0 };
@@ -135,8 +151,16 @@ export async function buildSecurityOverview(
         name: r.name,
         fullName: r.fullName,
         score: r.score,
-        gateReason:
-          r.score < minSecurity ? `Security ${r.score} < ${minSecurity}` : r.posture === "ungoverned" ? "ungoverned posture" : null,
+        measured: r.measured,
+        // An unmeasured repo still FAILS (fail-closed, unchanged), but the reason no longer states a
+        // score it never had: "Security 0 < 50" read as an observed floor-scraping measurement.
+        gateReason: !r.measured
+          ? "D9 not measured"
+          : r.score < minSecurity
+            ? `Security ${r.score} < ${minSecurity}`
+            : r.posture === "ungoverned"
+              ? "ungoverned posture"
+              : null,
         rules: g ? { protected: g.protected, review: g.requiredApprovals >= 1, checks: g.requiresStatusChecks, signed: g.requiresSignatures } : null,
         checks: parseSecurityChecks(detail?.evidence ?? []),
         issues: detail?.gaps ?? [],
@@ -234,7 +258,9 @@ export function securityMarkdown(o: SecurityOverview, supply?: OrgSupplyChain | 
     const gate = r.gateReason ? `FAIL: ${r.gateReason}` : "pass";
     const a = advByRepo?.get(r.fullName);
     const adv = advByRepo ? (a ? (a.total > 0 ? `${a.critical} critical / ${a.high} high / ${a.total} total` : "0") : "—") : null;
-    out.push(`| ${r.name} | ${r.score}/100 | ${gate} | ${rules} |${adv != null ? ` ${adv} |` : ""}`);
+    // Never hand the model the fail-closed substitute as a reading — it would reason about a 0 it can
+    // "fix", and recommend remediation for a repo that simply has no D9 row yet.
+    out.push(`| ${r.name} | ${r.measured ? `${r.score}/100` : "not measured"} | ${gate} | ${rules} |${adv != null ? ` ${adv} |` : ""}`);
   }
   if (o.register.length > REGISTER_CAP) out.push(`…and ${o.register.length - REGISTER_CAP} more repos (see the dashboard's risk register).`);
   if (o.unprotected.length) {

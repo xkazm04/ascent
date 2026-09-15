@@ -19,6 +19,11 @@
 //
 // Best-effort throughout, on the same contract as the other counters in src/lib/db: no-op when
 // persistence is off, and every write swallows its own errors so observability never breaks a scan.
+//
+// Because none of them can reject, every one is safe to FIRE AND FORGET, and scan.ts does exactly
+// that (`void recordScanStarted()` / `void recordScanFailure(err)` / `void recordScanDegraded(…)`).
+// Awaiting a counter only ever bought a database round-trip on the scan's critical path — one before
+// any work began, and one before the caller received an error it was going to receive anyway.
 
 import { recordQuotaEvent } from "@/lib/db/quota-events";
 import { GitHubError } from "@/lib/github/source";

@@ -13,11 +13,15 @@ import {
   type Progress,
 } from "@/components/report/ReportClientStatus";
 import { formatDuration } from "@/components/report/scanEstimate";
+import { RescanAlert } from "@/components/report/ReportRescanAlert";
+import type { ScanErrorClass } from "@/components/report/useReportScan";
 
 export function RescanBanner({
   repo,
   progress,
   error,
+  errorClass = {},
+  signInNext,
   onRetry,
   onDismiss,
 }: {
@@ -25,6 +29,11 @@ export function RescanBanner({
   progress: Progress;
   /** Non-null once the re-scan failed: the report below stays, this row becomes a retry/dismiss alert. */
   error: string | null;
+  /** How it failed. An empty class is the transient failure — the only one Retry can clear; the rest
+   *  (sign-in wall, monthly quota, credits, unreadable repo) get their own CTA in RescanAlert. */
+  errorClass?: ScanErrorClass;
+  /** Where to return after a sign-in round-trip, when the re-scan hit the auth wall. */
+  signInNext: string;
   onRetry: () => void;
   onDismiss: () => void;
 }) {
@@ -33,27 +42,14 @@ export function RescanBanner({
 
   if (error) {
     return (
-      <div
-        role="alert"
-        className="animate-fade-up sticky top-16 z-10 mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-base text-danger-soft backdrop-blur"
-      >
-        <span aria-hidden>⚠</span>
-        <span className="flex-1">Re-scan failed. Your existing report is unchanged. {error}</span>
-        <button
-          type="button"
-          onClick={onRetry}
-          className="focus-ring rounded-md border border-danger/40 px-3 py-1 text-sm font-medium transition hover:bg-danger/10"
-        >
-          Retry
-        </button>
-        <button
-          type="button"
-          onClick={onDismiss}
-          className="focus-ring rounded-md border border-slate-700 px-3 py-1 text-sm text-slate-300 transition hover:border-slate-500 hover:text-white"
-        >
-          Dismiss
-        </button>
-      </div>
+      <RescanAlert
+        repo={repo}
+        error={error}
+        errorClass={errorClass}
+        signInNext={signInNext}
+        onRetry={onRetry}
+        onDismiss={onDismiss}
+      />
     );
   }
 
@@ -64,7 +60,7 @@ export function RescanBanner({
       aria-live="polite"
       className="animate-fade-up sticky top-16 z-10 mb-6 rounded-xl border border-accent/30 bg-slate-950/80 px-4 py-3 backdrop-blur"
     >
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-base">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 type-body">
         {/* Spinner when motion is allowed; the elapsed clock carries the signal under reduced motion. */}
         <svg
           aria-hidden
@@ -76,10 +72,10 @@ export function RescanBanner({
           <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
         </svg>
         <span className="font-medium text-white">Re-scanning</span>
-        <span className="font-mono text-sm text-slate-400">{repo}</span>
+        <span className="type-mono-sm text-slate-400">{repo}</span>
         <span aria-hidden className="text-slate-600">·</span>
         <span className="text-slate-300">{progressHeadline(progress)}</span>
-        <span className="ml-auto font-mono text-sm tabular-nums text-slate-500">
+        <span className="ml-auto type-mono-sm tabular-nums text-slate-500">
           {formatDuration(elapsedMs)} · {displayPct}%
         </span>
       </div>
@@ -96,7 +92,7 @@ export function RescanBanner({
           style={{ width: `${Math.max(4, displayPct)}%` }}
         />
       </div>
-      <p className="mt-1.5 text-sm text-slate-500">
+      <p className="mt-1.5 type-body-sm text-slate-500">
         Your current report stays up. It’ll refresh when the re-scan finishes. This usually takes a
         few minutes.
       </p>

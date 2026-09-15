@@ -6,7 +6,11 @@
 // are persisted under that owner's org (private => billable in usage metering).
 
 import { NextResponse } from "next/server";
-import { GitHubError, parseRepoUrl, type ParsedRepo } from "@/lib/github/source";
+import { GitHubError, type ParsedRepo } from "@/lib/github/source";
+import { forgeFullName, parseForgeUrl } from "@/lib/forge/registry";
+import type { ForgeId } from "@/lib/forge/types";
+import { githubErrorHeaders, githubErrorStatus } from "@/lib/api/github-status";
+import { respondError } from "@/lib/api/respond";
 import { resolveScanAuth, scanRepository } from "@/lib/scan";
 import { coalesceScan } from "@/lib/cache";
 import {
@@ -18,13 +22,12 @@ import {
 } from "@/lib/scan-cache";
 import { isScopedScan, scopeWarning } from "@/lib/scan-scope";
 import { resolveScanScope, UNSCOPED, type ResolvedScanScope } from "@/lib/scan-scope-server";
-import { consumeScanCredit, CREDIT_REASON, getScanReportByCommit, grantCredits, recordQuotaEvent } from "@/lib/db";
+import { getScanReportByCommit, recordQuotaEvent } from "@/lib/db";
 import { rateLimitRequest, tooManyRequests, PEEK_RATE_LIMIT } from "@/lib/rate-limit";
-import { scanAuthGate, scanRateLimitGate } from "@/lib/scan-gates";
+import { scanAuthGate, scanCreditGate, scanRateLimitGate } from "@/lib/scan-gates";
 import type { QuotaScope } from "@/lib/public-scan-quota";
 import { cacheAndPersistScan, classifyScanResult, consumeScanQuota } from "@/lib/scan-finalize";
-import { checkScanEntitlement, isMeteredScan, paymentRequired } from "@/lib/entitlement";
-import { maybeAlertLowCredits } from "@/lib/scan-alerts";
+import { paymentRequired } from "@/lib/entitlement";
 import { authGateEnabled, getViewer } from "@/lib/access";
 
 export const runtime = "nodejs";
@@ -33,13 +36,9 @@ export const dynamic = "force-dynamic";
 // inside one function invocation. The client backstop (SCAN_CLIENT_TIMEOUT_MS) sits above this.
 export const maxDuration = 300;
 
-const STATUS: Record<GitHubError["code"], number> = {
-  INVALID_URL: 400,
-  NOT_FOUND: 404,
-  RATE_LIMITED: 429,
-  EMPTY: 422,
-  UPSTREAM: 502,
-};
+// The STATUS record that used to live here moved to @/lib/api/github-status, unchanged in every
+// value — practices/generate mapped the SAME error class by `err.status ?? 502` and disagreed with
+// this route on EMPTY, INVALID_URL and RATE_LIMITED. One mapping now, this one.
 
 /**
  * "Serve the latest persisted PUBLIC report" — the any-commit salvage read, single-sourced across its
@@ -48,7 +47,7 @@ const STATUS: Record<GitHubError["code"], number> = {
  * blip yields null).
  *
  * SECURITY — the reason this is ONE function: both callers serve out of the SHARED anonymous store, so
- * a PRIVATE snapshot must never leave here (defense-in-depth, the same gate as the badge), and the read
+ * a PRIVATE snapshot must never leave here (defense-in-depth, the same gate as the CI gate), and the read
  * is confined to the anonymous public funnel (`parsed && !token`; token scans are per-tenant and never
  * share this store). Two copies of that guard meant one could silently drift open.
  */
@@ -76,7 +75,27 @@ async function runScan(
     subPath?: string;
   },
 ) {
-  const parsed = parseRepoUrl(url);
+  // FORGE COORDINATE (moonshot #4). `parseForgeUrl` tries GitHub FIRST and `githubForge.parseUrl` IS
+  // `parseRepoUrl`, so for every input that parsed before, `parsed` here is the same object it always
+  // was — byte-identical behaviour on the whole GitHub funnel.
+  const routed = parseForgeUrl(url);
+  const forgeId: ForgeId = routed?.forge ?? "github";
+  const parsed: ParsedRepo | null = routed
+    ? {
+        owner: routed.owner,
+        repo: routed.repo,
+        ...(routed.ref !== undefined ? { ref: routed.ref } : {}),
+        ...(routed.prNumber !== undefined ? { prNumber: routed.prNumber } : {}),
+      }
+    : null;
+  // Every GitHub-native side path below — installation-token auth, the conditional head lookup, the
+  // scan cache, ref/sub-path resolution — is keyed on a GitHub coordinate and only makes sense for one.
+  // Gating them on this (rather than teaching each one about forges) is what keeps this route's change
+  // to COORDINATE PARSING, per ruling W4-#2: a non-GitHub scan simply takes the token-less path it
+  // would take for an unauthenticated GitHub repo, and gets the same honest degrade.
+  const ghParsed = forgeId === "github" ? parsed : null;
+  /** The persisted identity — `owner/name` for GitHub, `gitlab:group/project` elsewhere. */
+  const repoIdentity = parsed ? forgeFullName(forgeId, parsed.owner, parsed.repo) : url;
 
   // GitHub App installation token takes precedence over any explicit body token.
   let token = opts.token;
@@ -85,10 +104,13 @@ async function runScan(
   // operator PAT would leak the private repo the mint gate just denied. Token-less ⇒ private repos 404.
   let noAmbientToken = false;
   if (!token) {
-    const resolved = await resolveScanAuth(parsed, opts.installationId);
+    const resolved = await resolveScanAuth(ghParsed, opts.installationId);
     token = resolved.token;
     orgSlug = resolved.orgSlug;
-    noAmbientToken = resolved.noAmbientToken ?? false;
+    // A non-GitHub coordinate must NEVER reach the ambient GITHUB_TOKEN: it would be a GitHub
+    // credential sent to another forge's host. `resolveScanAuth` already answers null for a null
+    // coordinate; this makes the no-ambient decision explicit rather than incidental.
+    noAmbientToken = (resolved.noAmbientToken ?? false) || forgeId !== "github";
   }
 
   // Supabase login wall — private/org scans only. A non-public orgSlug means an installation token
@@ -135,8 +157,8 @@ async function runScan(
   // slot). `noAmbientToken` is honored so a ref resolve can't confirm a private repo's branches through
   // the operator PAT. See scan-scope-server.ts for the collision/trust reasoning.
   const scopeToken = token ?? (noAmbientToken ? undefined : process.env.GITHUB_TOKEN);
-  const scoping: ResolvedScanScope = parsed
-    ? await resolveScanScope(parsed, { ref: opts.ref, subPath: opts.subPath }, { token: scopeToken })
+  const scoping: ResolvedScanScope = ghParsed
+    ? await resolveScanScope(ghParsed, { ref: opts.ref, subPath: opts.subPath }, { token: scopeToken })
     : UNSCOPED;
   if (scoping.error) {
     return NextResponse.json({ error: scoping.error.message, code: scoping.error.code }, { status: scoping.error.status });
@@ -147,20 +169,20 @@ async function runScan(
   // against, so `?ref=main` stays an ordinary, fully-cached, persisted scan.
   let defaultHeadSha: string | null = null;
   const subPathScope = Boolean(scoping.scope.subPath);
-  if (parsed && !token && subPathScope) {
+  if (ghParsed && !token && subPathScope) {
     // Always scoped — skip the whole-repo lookup (its cached report answers a different question) and
     // resolve the head with the cheap conditional hint purely to pin the scoped key to a commit.
-    defaultHeadSha = await resolveHeadWithHint(parsed, scopeToken);
-  } else if (parsed && !token) {
-    lookup = await lookupCachedScan({ parsed, useLLM: !opts.mock, orgSlug: "public", fresh: opts.fresh });
+    defaultHeadSha = await resolveHeadWithHint(ghParsed, scopeToken);
+  } else if (ghParsed && !token) {
+    lookup = await lookupCachedScan({ parsed: ghParsed, useLLM: !opts.mock, orgSlug: "public", fresh: opts.fresh });
     defaultHeadSha = lookup.headSha;
   }
   const scoped = scoping.requested && isScopedScan(scoping.scope, token ? null : defaultHeadSha);
   if (scoped) {
     lookup =
-      parsed && !token
+      ghParsed && !token
         ? lookupScopedScan({
-            parsed,
+            parsed: ghParsed,
             useLLM: !opts.mock,
             refSha: scoping.pinSha ?? defaultHeadSha,
             subPath: scoping.scope.subPath,
@@ -202,10 +224,10 @@ async function runScan(
     //   • latest (peek=1&latest=1, the quota-blocked salvage): serve the most recent report at ANY
     //     age, so a quota wall shows the last reading rather than a dead end.
     // Both: anonymous public funnel only (token scans are per-tenant), never a private snapshot
-    // (defense-in-depth on the shared store, same gate as the badge). x-ascent-stale flags that the
+    // (defense-in-depth on the shared store, same gate as the CI gate). x-ascent-stale flags that the
     // served report isn't head-fresh, so the report UI's "Re-test" still forces a re-score.
     if (opts.recent || opts.latest) {
-      const last = await latestPublicReport(parsed, token);
+      const last = await latestPublicReport(ghParsed, token);
       if (last) {
         const recentHit = opts.recent && isPersistedScanFresh(last.scannedAt);
         if (recentHit || opts.latest) {
@@ -226,7 +248,7 @@ async function runScan(
   // cheap 204 contract. (G3-18)
   if (!parsed) {
     return NextResponse.json(
-      { error: "Enter a valid GitHub repository URL, e.g. https://github.com/owner/repo.", code: "INVALID_URL" },
+      { error: "Enter a valid repository URL, e.g. https://github.com/owner/repo or https://gitlab.com/group/project.", code: "INVALID_URL" },
       { status: 400 },
     );
   }
@@ -254,7 +276,7 @@ async function runScan(
   }
 
   // Public sign-in wall — placed AFTER the cache-hit (above) and the peek / latest-salvage returns,
-  // so viewing a SAVED report, a permalink, or the badge stays free; only a REAL new scan (which
+  // so viewing a SAVED report or a permalink stays free; only a REAL new scan (which
   // spends GitHub + LLM) requires sign-in. In production authGateEnabled() is true; no-op in dev/bypass.
   // Shared with /api/scan/stream via scanAuthGate (which owns the authGateEnabled short-circuit, so a
   // disabled gate still resolves no viewer); this route renders the rejection as JSON.
@@ -288,42 +310,23 @@ async function runScan(
     refundQuota = quota.refund;
   }
 
-  // Entitlement gate: a private (installation-token) scan draws on the org's prepaid credits. Public
-  // and mock scans are free and skip this.
-  const metered = isMeteredScan(orgSlug, opts.mock);
-  let creditsRemaining: number | null = null;
-  let creditReserved = false;
-  if (metered) {
-    const ent = await checkScanEntitlement(orgSlug);
-    if (!ent.allowed) return paymentRequired(ent.balance);
-    if (!ent.unlimited) {
-      // RESERVE one credit BEFORE running paid inference (mirrors /api/org/scan and /api/cron/rescan).
-      // checkScanEntitlement is a point-in-time read two concurrent scans both pass, so the old
-      // "scan first, debit after" ordering let the loser run real LLM inference and then fail to debit
-      // — a paid scan served free (the `unbilled` branch). consumeScanCredit's atomic conditional
-      // decrement makes the reservation the real gate; refunded below on degrade-to-mock / dedup / throw.
-      const res = await consumeScanCredit(orgSlug, {
-        repoFullName: parsed ? `${parsed.owner}/${parsed.repo}` : undefined,
-      }).catch(() => null);
-      if (!res || (!res.unlimited && !res.ok)) return paymentRequired(res?.balance ?? ent.balance);
-      // `charged` is true ONLY on an overflow credit debit — within-allowance scans are free and must
-      // NOT be refunded later (that would mint a credit), so the reservation flag tracks charged, not ok.
-      creditReserved = res.charged;
-      creditsRemaining = res.balance;
-      // The `charged` path debited exactly one credit, so the pre-debit balance is balance + 1 —
-      // the range-based crossing predicate needs both sides of the debit.
-      if (creditReserved) await maybeAlertLowCredits(orgSlug, res.balance + 1, res.balance);
-    }
-  }
-  // Refund the reservation when nothing billable was produced (degrade-to-mock / dedup / throw). Updates
-  // the post-refund balance so the response header stays accurate. Idempotent via the `creditReserved` flag.
-  const refundCredit = async () => {
-    if (creditReserved) {
-      creditReserved = false;
-      const bal = await grantCredits(orgSlug, 1, { reason: CREDIT_REASON.REFUND, actor: "system" }).catch(() => null);
-      if (typeof bal === "number") creditsRemaining = bal;
-    }
-  };
+  // Entitlement gate + credit RESERVATION: a private (installation-token) scan draws on the org's
+  // prepaid credits. Public and mock scans are free and skip it. Shared with /api/scan/stream via
+  // scanCreditGate — this block used to live inline HERE ONLY, which is how the stream route (the one
+  // the report UI actually drives) came to run paid inference with no meter at all. The reserve is
+  // sequenced LAST, after the quota consume above, on both routes; see scan-gates.ts for why.
+  const credit = await scanCreditGate(orgSlug, {
+    mock: opts.mock,
+    repoFullName: repoIdentity,
+    // Attribution for the ledger row. A metered scan is a PRIVATE/org scan, which the sign-in wall
+    // above already required a viewer for, so this is a real login in practice; the thunk keeps the
+    // resolve off the public funnel, and getViewer is request-cached so it costs nothing here.
+    resolveActor: async () => (await getViewer())?.login ?? null,
+  });
+  if (!credit.ok) return paymentRequired(credit.balance);
+  // Refund the reservation when nothing billable was produced (degrade-to-mock / dedup / throw). It
+  // updates its own `remaining`, so the response header below stays accurate, and it is idempotent.
+  const hold = credit.hold;
 
   // Individual tier (decision 5): a signed-in viewer's public-funnel scan reads THEIR personal-org
   // standing decisions into the prompt; org/private scans (orgSlug !== "public") keep org scoping.
@@ -369,7 +372,7 @@ async function runScan(
     // abort. Refund both the monthly slot AND any reserved credit before handleError maps the failure:
     // a typo or a mid-scan refresh must not burn a free slot or a prepaid credit.
     await refundQuota();
-    await refundCredit();
+    await hold.refund();
     // Error fallback: when a live scan FAILS (transient upstream/LLM/rate-limit) but we've scored this
     // repo before, serve the most recent persisted report instead of a hard error — the same any-commit
     // salvage the quota wall uses (peek&latest). Anonymous public, parseable repos only (token scans are
@@ -379,7 +382,7 @@ async function runScan(
     // reading, which is not what this request asked for — silently answering with it would present a
     // main-branch score as the branch/package the user typed.
     if (!(err instanceof Error && err.name === "AbortError") && !scoped) {
-      const last = await latestPublicReport(parsed, token);
+      const last = await latestPublicReport(ghParsed, token);
       if (last) {
         return NextResponse.json(last, {
           headers: { "x-ascent-cache": "miss", "x-ascent-stale": "true", "x-ascent-fallback": "error" },
@@ -414,7 +417,7 @@ async function runScan(
   // run is free"). The quota headers below may overstate usage by this one refunded slot (soft gate).
   if (degradedToMock) {
     await refundQuota();
-    await refundCredit();
+    await hold.refund();
   }
   // Cache + persist behind the shared guards: skip BOTH the in-memory cache and the durable store on a
   // degraded/low-coverage report (lookupCachedScan's DB tier would otherwise re-serve the floor cross-
@@ -423,7 +426,7 @@ async function runScan(
   // Pass the whole guard object so a new poisoning vector (e.g. partialPrSlice) can't be dropped here.
   const { deduped, persistedOk } = await cacheAndPersistScan(report, resultClass, {
     tag: "scan",
-    repo: parsed ? `${parsed.owner}/${parsed.repo}` : url,
+    repo: repoIdentity,
     orgSlug,
     lookup,
     // A scoped (ref / sub-path) report is about a different subject than "this repository" — keep it
@@ -435,7 +438,7 @@ async function runScan(
   // The credit was RESERVED before inference (above). Refund it when this commit was already scored
   // (`deduped` — no new scored row), mirroring /api/org/scan and cron rescan ("a dedup run is free").
   // degrade-to-mock and throw already refunded above. A real, newly-scored metered scan keeps its charge.
-  if (deduped) await refundCredit();
+  if (deduped) await hold.refund();
 
   // x-ascent-dedup: "hit" means this commit was already scored, so no new row was written and the
   // reserved credit was refunded (the report reflects the existing snapshot).
@@ -446,7 +449,7 @@ async function runScan(
     "x-ascent-dedup": deduped ? "hit" : "miss",
   };
   if (!persistedOk) headers["x-ascent-persisted"] = "false";
-  if (creditsRemaining !== null) headers["x-ascent-credits-remaining"] = String(creditsRemaining);
+  if (hold.remaining !== null) headers["x-ascent-credits-remaining"] = String(hold.remaining);
   // Free public scans left in this bucket's rolling 30-day window (after this scan), so the UI can
   // warn before the gate trips. Only present when the monthly gate actually enforced (public funnel).
   if (quotaRemaining !== null) headers["x-ascent-quota-remaining"] = String(quotaRemaining);
@@ -459,11 +462,12 @@ function handleError(err: unknown) {
   if (err instanceof GitHubError) {
     // Surface GitHub's Retry-After on a (secondary) rate limit so the client can back off instead of
     // hammering — paired with the secondary-limit classification in ghJson (github-repo-data-access #2).
-    const headers = err.retryAfterSec ? { "retry-after": String(err.retryAfterSec) } : undefined;
-    return NextResponse.json(
-      { error: err.message, code: err.code },
-      { status: STATUS[err.code] ?? 500, headers },
-    );
+    // A GitHubError is a KNOWN upstream outcome, not a defect, so it is answered without a `cause`:
+    // reporting every rate limit would be exactly the noise that trains people to ignore Sentry.
+    return respondError(githubErrorStatus(err), err.message, {
+      code: err.code,
+      headers: githubErrorHeaders(err),
+    });
   }
   // Client disconnected mid-scan — the scan aborted as intended (no work wasted), and no one is
   // waiting on this response. Don't log it as an unexpected failure. (499 = client closed request.)
@@ -471,10 +475,9 @@ function handleError(err: unknown) {
     return new NextResponse(null, { status: 499 });
   }
   console.error("[scan] unexpected error", err);
-  return NextResponse.json(
-    { error: "Unexpected error while scanning the repository." },
-    { status: 500 },
-  );
+  // Passing `cause` is what closes the inversion: this path caught the error, so onRequestError will
+  // never see it, and until now the most expensive route in the app failed silently in production.
+  return respondError(500, "Unexpected error while scanning the repository.", { cause: err });
 }
 
 export async function POST(request: Request) {

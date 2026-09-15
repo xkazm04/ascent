@@ -33,12 +33,12 @@ export function AutoAddRow({
 }) {
   return (
     <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/30 p-3">
-      <span className="font-mono text-sm uppercase tracking-widest text-slate-500">Auto-add</span>
+      <span className="type-mono-sm uppercase tracking-widest text-slate-500">Auto-add</span>
       <select
         value={autoLang}
         onChange={(e) => setAutoLang(e.target.value)}
         aria-label="Auto-add language"
-        className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
+        className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-mono-sm text-slate-200"
       >
         <option value="">language…</option>
         {languages.map(([lang, n]) => (
@@ -47,12 +47,12 @@ export function AutoAddRow({
           </option>
         ))}
       </select>
-      <span className="font-mono text-sm text-slate-500">→</span>
+      <span className="type-mono-sm text-slate-500">→</span>
       <select
         value={autoSeg}
         onChange={(e) => setAutoSeg(e.target.value)}
         aria-label="Auto-add target segment"
-        className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
+        className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-mono-sm text-slate-200"
       >
         <option value="">segment…</option>
         {segments.map((s) => (
@@ -64,7 +64,7 @@ export function AutoAddRow({
       <button
         onClick={autoAdd}
         disabled={autoBusy || !autoLang || !autoSeg}
-        className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-200 hover:border-accent hover:text-white disabled:opacity-50"
+        className="rounded-lg border border-slate-700 px-3 py-1.5 type-body-sm text-slate-200 hover:border-accent hover:text-white disabled:opacity-50"
       >
         {autoBusy ? "Adding…" : "Add all"}
       </button>
@@ -108,12 +108,12 @@ export function CreateSegmentRow({
         onKeyDown={(e) => e.key === "Enter" && createSegment()}
         maxLength={NAME_MAX}
         placeholder="New segment name"
-        className="min-w-[10rem] flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200 placeholder:text-slate-600"
+        className="min-w-[10rem] flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-body-sm text-slate-200 placeholder:text-slate-600"
       />
       <button
         onClick={createSegment}
         disabled={busy || !name.trim()}
-        className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
+        className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
       >
         {busy ? "Adding…" : "Add segment"}
       </button>

@@ -7,7 +7,7 @@
 
 import { randomBytes } from "node:crypto";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
-import { getMembershipRole, isOrgRole, roleAtLeast, setMembershipRole, type OrgRole } from "@/lib/db/members";
+import { coerceStoredRole, getMembershipRole, roleAtLeast, setMembershipRole, type OrgRole } from "@/lib/db/members";
 import { getOrgId } from "@/lib/db/org-rollup";
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -92,7 +92,7 @@ export async function peekInvite(token: string): Promise<InvitePeek> {
   return {
     ok: true,
     org: invite.org.slug,
-    role: isOrgRole(invite.role) ? invite.role : "member",
+    role: coerceStoredRole(invite.role, "peekInvite"),
     pinnedLogin: invite.githubLogin,
     // Surface an email-pinned binding so the accept page can hint "needs the invited email" up front,
     // not only via the GitHub-login `pinnedLogin` mismatch. A login-pinned invite has no email pin.
@@ -100,16 +100,29 @@ export async function peekInvite(token: string): Promise<InvitePeek> {
   };
 }
 
-/** Revoke a pending invite (owner action). Scoped to the org so an id from another tenant can't be hit. */
-export async function revokeInvite(orgSlug: string, id: string): Promise<boolean> {
-  if (!isDbConfigured()) return false;
+/**
+ * Revoke a pending invite (owner action). Scoped to the org so an id from another tenant can't be hit.
+ *
+ * Returns the TARGET as well as the outcome so the route can write an audit row a human can read: an
+ * `org.member.invite_revoked` entry carrying only an opaque invite id says that something was
+ * withdrawn without saying from whom. The target is read before the conditional update, which remains
+ * the authority — `revoked` is still `count > 0`, so a racing revoke loses exactly as before and the
+ * only cost of the race is a null target on the row that did the work.
+ */
+export async function revokeInvite(orgSlug: string, id: string): Promise<{ revoked: boolean; target: string | null }> {
+  if (!isDbConfigured()) return { revoked: false, target: null };
   const orgId = await getOrgId(orgSlug);
-  if (!orgId) return false;
-  const res = await getPrisma().invite.updateMany({
+  if (!orgId) return { revoked: false, target: null };
+  const prisma = getPrisma();
+  const row = await prisma.invite.findFirst({
+    where: { id, orgId, status: "pending" },
+    select: { githubLogin: true, email: true },
+  });
+  const res = await prisma.invite.updateMany({
     where: { id, orgId, status: "pending" },
     data: { status: "revoked" },
   });
-  return res.count > 0;
+  return { revoked: res.count > 0, target: row?.githubLogin ?? row?.email ?? null };
 }
 
 export type AcceptResult =
@@ -160,7 +173,10 @@ export async function acceptInvite(token: string, identity: AcceptIdentity): Pro
     if (!viewerEmail || invite.email.trim().toLowerCase() !== viewerEmail) return { ok: false, reason: "wrong_email" };
   }
 
-  const role: OrgRole = isOrgRole(invite.role) ? invite.role : "member";
+  // The GRANT path: an unreadable stored role must not be able to hand out `member`. coerceStoredRole
+  // resolves it to the floor and says so — a corrupt invite row still grants something (the invite was
+  // real and the owner meant to grant SOMETHING), but the least thing the vocabulary can express.
+  const role: OrgRole = coerceStoredRole(invite.role, "acceptInvite");
   // NEVER DOWNGRADE (members-access-control 07-16 #2): an unpinned invite link dropped in a channel
   // can be opened by someone who is ALREADY an admin/owner of the org. setMembershipRole UPSERTS
   // unconditionally (correct for the owner-driven admin route), so accepting used to rewrite their
@@ -219,7 +235,7 @@ function toPending(r: {
     id: r.id,
     email: r.email,
     githubLogin: r.githubLogin,
-    role: isOrgRole(r.role) ? r.role : "member",
+    role: coerceStoredRole(r.role, "toPending"),
     token: r.token,
     invitedBy: r.invitedBy,
     createdAt: r.createdAt.toISOString(),

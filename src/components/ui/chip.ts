@@ -11,7 +11,7 @@
 export type ChipState = "idle" | "success" | "danger";
 
 const CHIP_BASE =
-  "focus-ring inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition";
+  "focus-ring inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 type-body-sm font-medium transition";
 
 const CHIP_STATE: Record<ChipState, string> = {
   idle: "border-slate-700 text-slate-300 hover:border-accent hover:text-white",

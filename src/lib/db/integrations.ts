@@ -120,6 +120,13 @@ export interface ProviderIngestStatus {
   repos: number;
   costCents: number;
   tokens: number;
+  /** Peak seat level seen in the window. A LEVEL, not a sum — the same rule getOrgUsageRollup uses.
+   *  Carried so a seats-only provider (Copilot) has something true to render where a cost figure
+   *  would otherwise be shown; 0 cost from that connector means "not reported", never "$0 spent". */
+  seats: number;
+  /** Peak per-bucket `sessions` seen in the window. For Copilot this is ENGAGED USERS (a count of
+   *  humans), which is why the UI must name it per provider rather than calling it "sessions". */
+  sessions: number;
   /** True when at least one row is exact-repo attribution rather than a distributed org total. */
   measured: boolean;
 }
@@ -142,12 +149,16 @@ export async function getProviderIngestStatus(orgSlug: string, windowDays = 35):
   for (const r of rows) {
     const e =
       bySource.get(r.source) ??
-      ({ source: r.source, lastReceived: r.updatedAt, repos: 0, costCents: 0, tokens: 0, measured: false, repoKeys: new Set<string>() } as ProviderIngestStatus & {
+      ({ source: r.source, lastReceived: r.updatedAt, repos: 0, costCents: 0, tokens: 0, seats: 0, sessions: 0, measured: false, repoKeys: new Set<string>() } as ProviderIngestStatus & {
         repoKeys: Set<string>;
       });
     if (r.updatedAt > e.lastReceived) e.lastReceived = r.updatedAt;
     e.costCents += r.costCents;
     e.tokens += r.tokens;
+    // Levels, not sums: seats and engaged-user counts are restated on every day bucket, so adding
+    // them across a 35-day window would report a fictional multiple of the org's real headcount.
+    e.seats = Math.max(e.seats, r.seats);
+    e.sessions = Math.max(e.sessions, r.sessions);
     if (r.scope === "repo") {
       e.repoKeys.add(r.scopeKey.toLowerCase());
       if (r.fidelity === "measured") e.measured = true;

@@ -37,7 +37,7 @@ export async function DeliveryTab({ slug, sp }: { slug: string; sp: SearchParams
       </Suspense>
 
       <Suspense fallback={<OrgTabGap minH="min-h-[40rem]" />}>
-        <DeliveryCorePanel slug={slug} scope={scope} />
+        <DeliveryCorePanel slug={slug} scope={scope} period={period} />
       </Suspense>
 
       {/* W3a — unit economics. Its OWN boundary: AgentSession + AiChange are a genuinely independent

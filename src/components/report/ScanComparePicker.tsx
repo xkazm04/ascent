@@ -8,6 +8,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import type { HistoryPoint } from "@/lib/db/scans";
+import type { ExemplarOption } from "@/lib/report/exemplar";
 import { Kicker, Surface } from "@/components/ui";
 import { scanOptionCaptions } from "@/components/report/WhatChangedParts";
 
@@ -20,16 +21,37 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+/**
+ * The optgroup order — concrete repos before the aggregate options, so the concrete answer is first.
+ * "Public corpus" / "Corpus best" are the same two slots for a viewer the org gate resolved to the
+ * shared public namespace: same options, honestly named (`exemplarGroups`, UAT `SAM-L1-13`).
+ */
+const AGAINST_GROUPS: ExemplarOption["group"][] = [
+  "Your repos",
+  "Public corpus",
+  "Org best",
+  "Corpus best",
+  "Cohort",
+];
+
 export function ScanComparePicker({
   repo,
   scans,
   beforeId,
   afterId,
+  exemplarOptions = [],
+  against = null,
 }: {
   repo: string;
   scans: HistoryPoint[];
   beforeId: string;
   afterId: string;
+  /** Exemplars this viewer may compare against (moonshot #34). Empty hides the field entirely —
+   *  an org with no second eligible repo and no qualifying cohort has nothing to offer, and an
+   *  empty dropdown would advertise a comparison that cannot be made. */
+  exemplarOptions?: ExemplarOption[];
+  /** The canonical `?against=` token currently in the URL, or null. */
+  against?: string | null;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -50,16 +72,25 @@ export function ScanComparePicker({
   // Navigate to a new (after, before) pair — shareable URL, server re-renders the diff. Use push (not
   // replace) so each selection is its own history entry and Back steps through the prior selections,
   // matching this component's documented "the back button works" contract.
-  const go = (after: string, before: string) => {
+  // `against` rides along on every navigation: changing the baseline must not silently drop the
+  // exemplar the reader chose, and selecting "None" must not reset the scan pair.
+  const go = (after: string, before: string, exemplar: string | null = against) => {
     const params = new URLSearchParams({ repo, a: after, b: before });
+    if (exemplar) params.set("against", exemplar);
     router.push(`${pathname}?${params.toString()}`);
   };
 
   const selectClass =
-    "w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-base text-slate-200 outline-none focus:border-accent";
+    "w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 type-body text-slate-200 outline-none focus:border-accent";
+
+  // A repo with ONE stored scan has no time comparison to offer — but it still has an exemplar
+  // comparison, which needs no second scan. The time controls are hidden rather than rendered
+  // inert, so the exemplar field is reachable on the first scan a repo ever gets (UAT `SAM-L1-13`).
+  const timeComparable = scans.length >= 2;
 
   return (
     <Surface radius="2xl" className="p-4">
+      {timeComparable && (
       <div className="grid items-end gap-3 sm:grid-cols-[1fr_auto_1fr]">
         <Field label="Baseline (before)">
           <select
@@ -86,7 +117,7 @@ export function ScanComparePicker({
             onClick={() => go(beforeId, afterId)}
             aria-label="Swap baseline and compared scans"
             title="Swap"
-            className="rounded-md border border-slate-700 px-3 py-2 text-base text-slate-300 transition hover:border-accent hover:text-white"
+            className="rounded-md border border-slate-700 px-3 py-2 type-body text-slate-300 transition hover:border-accent hover:text-white"
           >
             ⇄
           </button>
@@ -107,8 +138,36 @@ export function ScanComparePicker({
           </select>
         </Field>
       </div>
+      )}
+      {exemplarOptions.length > 0 && (
+        <div className={timeComparable ? "mt-3 border-t border-slate-800 pt-3" : ""}>
+          <Field label="Against (exemplar)">
+            <select
+              value={against ?? ""}
+              onChange={(e) => go(afterId, beforeId, e.target.value || null)}
+              className={selectClass}
+              aria-label="Exemplar to compare against"
+            >
+              <option value="">None</option>
+              {AGAINST_GROUPS.map((group) => {
+                const inGroup = exemplarOptions.filter((o) => o.group === group);
+                if (inGroup.length === 0) return null;
+                return (
+                  <optgroup key={group} label={group}>
+                    {inGroup.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                );
+              })}
+            </select>
+          </Field>
+        </div>
+      )}
       {isInverted && (
-        <p className="mt-3 font-mono text-sm text-warn">
+        <p className="mt-3 type-mono-sm text-warn">
           ⚠ Baseline is newer than the compared scan, so this diff looks backward in time and may read as a
           regression that&apos;s actually a prior improvement. Swap to compare chronologically.
         </p>

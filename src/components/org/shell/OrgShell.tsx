@@ -94,11 +94,11 @@ export async function OrgShell({
   // can't even distinguish "exists with data" from "no data yet".
   if (!(await canReadOrg(slug))) {
     const body = isAuthConfigured()
-      ? "This organization's dashboard is private to members who've installed the Ascent GitHub App on it. If you just installed it, re-sync your GitHub access on Connect."
+      ? "This organization's dashboard is private to members who've installed the Ascent GitHub App on it. If you just installed it, re-sync your GitHub access on the onboarding page."
       : "Per-organization dashboards require the GitHub App and authentication to be configured on this deployment. Only the shared public dashboard is available here.";
     return (
       <Frame>
-        <OrgEmpty title={`No access to ${slug}`} body={body} href="/connect" cta="Go to Connect" />
+        <OrgEmpty title={`No access to ${slug}`} body={body} href="/onboarding" cta="Go to onboarding" />
       </Frame>
     );
   }
@@ -178,7 +178,7 @@ export async function OrgShell({
   if (shellState === "wall" || !summary) {
     return (
       <Frame>
-        <OrgEmpty title={`No data for ${slug}`} body="Watch some repositories on /connect and run a scan, then this dashboard fills in." href="/connect" cta="Go to Connect" />
+        <OrgEmpty title={`No data for ${slug}`} body="Import some repositories on /onboarding and run a scan, then this dashboard fills in." href="/onboarding" cta="Go to onboarding" />
       </Frame>
     );
   }
@@ -196,7 +196,11 @@ export async function OrgShell({
     await ensureOwnerMembership(slug, bypassViewer.login, bypassViewer.name).catch(() => {});
   }
 
-  const level = levelForScore(summary.avgOverall);
+  // The header chip mirrors the Overview badge: the average excludes mock placeholders, so a fleet
+  // with no live-scored repo shows a dash rather than a 0 that reads as a grade. The producer says
+  // that now (`avgOverall: number | null`), so this no longer re-derives it from `realScoredCount`.
+  const headerScore = summary.avgOverall;
+  const level = headerScore === null ? null : levelForScore(headerScore);
 
   // W1c — the transition programme's one-line strip. Resolved AFTER the empty-state gates so a
   // walled/first-scan org never pays for it, and null-safe: no programme (the common case today, and
@@ -219,7 +223,7 @@ export async function OrgShell({
 
   return (
     <>
-      <OrgHeader slug={slug} levelId={level.id} score={summary.avgOverall} role={myRole} actions={actions} />
+      <OrgHeader slug={slug} levelId={level?.id ?? null} score={headerScore} role={myRole} actions={actions} />
       <ProgramStrip slug={slug} status={programStatus} />
       {/* tabIndex={-1} makes <main> a programmatic focus target: it is already the skip-link
           destination, and OrgTabNav moves focus here on a real tab switch so an AT user isn't left

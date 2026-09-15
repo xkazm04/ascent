@@ -9,17 +9,25 @@
 // lib/site constants only.
 
 import Link from "next/link";
-import { SITE_TAGLINE_TITLE } from "@/lib/site";
+import { FEEDBACK_URL, SITE_TAGLINE_TITLE } from "@/lib/site";
 
 /** The canonical footer nav, in render order — the default link set (SiteFooter renders it as-is).
- *  Feedback is the public issue tracker (this repo's GitHub issues) — the one always-available
+ *  Feedback is the deployment's own issue tracker (FEEDBACK_URL, derived from SOURCE_REPO_URL in
+ *  lib/site so a fork points at ITS repository rather than upstream's) — the one always-available
  *  feedback channel; Privacy/Terms are the legal pages every public surface must link. */
 export const FOOTER_LINKS: ReadonlyArray<{ href: string; label: string }> = [
+  // The four MARKETING_NAV destinations lead, because below `sm` the header nav hides ALL of them
+  // (`hidden ... sm:inline` in StaticNav) with no menu behind it — so on a phone the footer is the
+  // only global chrome that can reach them. Leaderboard was already here; Pricing, For orgs and
+  // About were not, which left three of the four marketing pages unreachable from any persistent
+  // chrome on a phone. SiteFooterCore.test.ts pins the coupling to MARKETING_NAV.
   { href: "/leaderboard", label: "Leaderboard" },
-  { href: "/badge", label: "Badge" },
-  { href: "/connect", label: "Connect" },
+  { href: "/pricing", label: "Pricing" },
+  { href: "/about-org", label: "For orgs" },
+  { href: "/about", label: "About" },
+  { href: "/onboarding", label: "Get started" },
   { href: "/usage", label: "Usage" },
-  { href: "https://github.com/xkazm04/ascent/issues", label: "Feedback" },
+  { href: FEEDBACK_URL, label: "Feedback" },
   { href: "/privacy", label: "Privacy" },
   { href: "/terms", label: "Terms" },
 ];
@@ -43,15 +51,15 @@ export function SiteFooterCore({
   return (
     <>
       {brand}
-      <p className="mt-3 font-mono text-sm uppercase tracking-widest text-slate-400">{SITE_TAGLINE_TITLE}</p>
-      <div className="mt-3 flex flex-wrap justify-center gap-x-5 gap-y-2 font-mono text-sm uppercase tracking-widest text-slate-400">
+      <p className="mt-3 type-mono-sm uppercase tracking-widest text-slate-400">{SITE_TAGLINE_TITLE}</p>
+      <div className="mt-3 flex flex-wrap justify-center gap-x-5 gap-y-2 type-mono-sm uppercase tracking-widest text-slate-400">
         {links.map((l) => (
           <Link key={l.href} href={l.href} className="focus-ring rounded-sm hover:text-accent">
             {l.label}
           </Link>
         ))}
       </div>
-      <p className="mt-3 text-sm text-slate-500">{FOOTER_ATTRIBUTION}</p>
+      <p className="mt-3 type-body-sm text-slate-500">{FOOTER_ATTRIBUTION}</p>
     </>
   );
 }

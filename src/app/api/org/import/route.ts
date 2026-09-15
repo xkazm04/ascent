@@ -17,6 +17,7 @@
 // Needs DATABASE_URL. A GITHUB_TOKEN (env) is strongly recommended to avoid rate limits.
 
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { scanRepository } from "@/lib/scan";
 import {
   getInstallationIdForOwner,
@@ -30,12 +31,15 @@ import {
   setRepoSchedule,
   setRepoWatch,
 } from "@/lib/db";
-// Imported from the sub-module (not the "@/lib/db" barrel) so it is a process-local advisory claim,
-// NOT the cron's DB `nextScanAt` lease — see claimRepoScan's rationale in org-watch.ts. Import repos may
-// have no Repository row yet (created mid-scan), so a DB-row claim is impossible on this path.
-import { claimRepoScan, releaseRepoScan } from "@/lib/db/org-watch";
+// Deep path, not the "@/lib/db" barrel: db/index.ts is Director-owned and its queue re-export lands at
+// merge. This is the DB-serialized claim (moonshot #10) that replaced the process-local advisory Map —
+// the queue keys on the repo's FULL NAME precisely because an import's repos may have no Repository
+// row yet (they are created mid-scan), which is what made a row-based claim impossible before.
+import { claimRepoWork, settleJob } from "@/lib/db/scan-jobs";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { isValidHandle, isValidRepoName, listOrgRepos } from "@/lib/github/list";
+import { forgeFullName, parseForgeUrl } from "@/lib/forge/registry";
+import { gitlabForge } from "@/lib/forge/gitlab/source";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, getViewer } from "@/lib/access";
 import { canMintInstallationToken, requireFleetOrg, requireOrgAccess } from "@/lib/authz";
@@ -51,7 +55,7 @@ import { refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/sca
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 import { rateLimitRequestShared, tooManyRequests, ORG_IMPORT_RATE_LIMIT } from "@/lib/rate-limit";
 import { SSE_HEADERS, makeSseSend } from "@/lib/sse-server";
-import { SCHEDULES as SCAN_SCHEDULES } from "@/components/connect/installationRepoTypes";
+import { SCHEDULES as SCAN_SCHEDULES } from "@/lib/org/repo-schedule";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -150,7 +154,7 @@ export async function POST(request: Request) {
     }
   }
 
-  // Public surfaces are token-less by construction (the README-badge convention,
+  // Public surfaces are token-less by construction (the public-surface convention,
   // ScanOptions.noAmbientToken): the ambient GITHUB_TOKEN is an operator PAT that commonly
   // carries private `repo` scope, and this route is a deliberately anonymous funnel that accepts
   // an explicit `repos[]` list — scanning with the PAT would let an anonymous caller name
@@ -200,6 +204,11 @@ export async function POST(request: Request) {
   if (metered && authGateEnabled() && !(await getViewer())) {
     return NextResponse.json({ error: "Sign in to import a private organization." }, { status: 401 });
   }
+  // Ledger attribution for every credit this import moves. Resolved HERE, in the route body, for the
+  // same reason `publicQuotaIdentity` below is: a cookie-scoped read inside the SSE `start()` returns
+  // null, which would stamp every debit "system" and lose the person who actually ran the import. The
+  // metered path already required a viewer at the wall above, so this is a real login in practice.
+  const importActor = metered ? ((await getViewer().catch(() => null))?.login ?? "system") : undefined;
   let unlimited = true;
   // Scan capacity for a non-unlimited org = monthly FREE allowance left + prepaid credits. Capping on
   // credits alone wrongly skipped an org's INCLUDED free scans (a Free org with its 10 monthly scans
@@ -230,18 +239,35 @@ export async function POST(request: Request) {
       const send = makeSseSend(controller);
       try {
         // 1. Resolve the repo list.
-        let fullNames: { owner: string; name: string; fullName: string; url: string }[];
+        let fullNames: { owner: string; name: string; fullName: string; url: string; forge?: "github" | "gitlab" }[];
         if (body.repos?.length) {
+          // FORGE COORDINATES (moonshot #4). An entry may carry an explicit `<forge>:` prefix
+          // (`gitlab:group/sub/project`) or a gitlab.com URL; anything else is a GitHub `owner/name`,
+          // parsed exactly as before. The forge-prefixed `fullName` here is the SAME identity the
+          // persist layer writes, so an imported GitLab project lands on one row, not two.
           fullNames = body.repos.map((fn) => {
+            const routed = parseForgeUrl(fn);
+            if (routed && routed.forge === "gitlab") {
+              return {
+                owner: routed.owner,
+                name: routed.repo,
+                fullName: forgeFullName("gitlab", routed.owner, routed.repo),
+                url: gitlabForge.permalink({ owner: routed.owner, repo: routed.repo }),
+                forge: "gitlab" as const,
+              };
+            }
             const [owner = "", name = ""] = fn.includes("/") ? fn.split("/") : [org, fn];
-            return { owner, name, fullName: `${owner}/${name}`, url: `https://github.com/${owner}/${name}` };
+            return { owner, name, fullName: `${owner}/${name}`, url: `https://github.com/${owner}/${name}`, forge: "github" as const };
           });
           // Validate the UNTRUSTED repos[] coordinates before any value is interpolated into a
           // github.com / raw.githubusercontent.com URL. listOrgRepos validates the `org` handle, but
           // this client-supplied path bypassed it — a crafted "../../enterprises/x" or control-char
           // entry reached the GitHub helpers raw (a path-injection / SSRF-shaped surface on the
           // anonymous-capable mock funnel). Reject the whole batch on the first bad coordinate.
-          const bad = fullNames.find((r) => !isValidHandle(r.owner) || !isValidRepoName(r.name));
+          // GitLab coordinates were already validated by the forge parser (per-segment charset +
+          // traversal guard); the GitHub validators are GitHub name rules and would reject a legal
+          // subgroup path, so they apply to the GitHub entries only.
+          const bad = fullNames.find((r) => r.forge === "github" && (!isValidHandle(r.owner) || !isValidRepoName(r.name)));
           if (bad) {
             send("error", { error: `Invalid repository "${bad.fullName}". Use owner/name with valid GitHub names.` });
             return;
@@ -308,7 +334,18 @@ export async function POST(request: Request) {
           });
           return;
         }
+        // One id for this import, used as the queue's idempotency bucket so each import gets its own
+        // claim row per repo — a second import of the same repo is new work, not a collision with the
+        // settled row the first one left behind.
+        const importRunId = randomUUID();
         send("progress", { stage: "found", total: fullNames.length, mock, watch, schedule });
+        // The run's IDENTITY, on the wire, before any work starts. It was minted purely as an internal
+        // claim bucket and never told to the client, so a browser that lost this stream (a refresh, an
+        // auth bounce) had no way to find the run again — while the server kept scanning and spending,
+        // because `mapPool` below is not tied to the request signal. Same frame shape as the sibling
+        // /api/org/scan's `queued`, so one client-side reader handles both: the wizard stores it in its
+        // resume snapshot and re-attaches through GET /api/org/scan/queue instead of re-running.
+        send("queued", { runId: importRunId, queued: fullNames.length, total: fullNames.length });
 
         // 2. Scan + persist each, with bounded concurrency (each lane emits its own per-repo events
         // as it resolves; the SSE consumer keys off each message's repo, not arrival order). A
@@ -324,13 +361,17 @@ export async function POST(request: Request) {
         let scanned = 0;
         let skippedInProgress = 0;
         await mapPool(fullNames, SCAN_CONCURRENCY, async (r) => {
-          // CLAIM this repo BEFORE reserving a credit or scanning — the run-level dedup guard the import
-          // path was missing. If another in-flight run (a second import tab, another member, or an
-          // overlapping /api/org/scan) already holds a live claim for (org, repo), skip: reserving +
-          // scanning here would debit a second credit and burn a second real-LLM ingest for the SAME
-          // repo (reserveScanCredit bounds TOTAL spend, not per-repo duplication). Released in the
-          // finally below on EVERY exit path — including a hard TTL self-heal if this process is killed.
-          const claim = claimRepoScan(org, r.fullName);
+          // CLAIM this repo BEFORE reserving a credit or scanning — the run-level dedup guard. If
+          // another in-flight run (a second import tab, another member, or an overlapping
+          // /api/org/scan) already holds a live claim for (org, repo), skip: reserving + scanning here
+          // would debit a second credit and burn a second real-LLM ingest for the SAME repo
+          // (reserveScanCredit bounds TOTAL spend, not per-repo duplication).
+          //
+          // Since moonshot #10 the claim is a `ScanJob` ROW, not a module-global Map entry — so it
+          // holds ACROSS instances, which is where the old guard silently did nothing on a
+          // horizontally-scaled deploy. Settled in the finally below on EVERY exit path; a hard
+          // process kill self-heals through the lease reaper instead of the old TTL.
+          const claim = await claimRepoWork(org, r.fullName, "import", { bucket: importRunId, runId: importRunId });
           if (claim === null) {
             send("repo", { repo: r.fullName, skipped: "in_progress" });
             skippedInProgress += 1;
@@ -346,7 +387,7 @@ export async function POST(request: Request) {
             // mock or throws.
             let reserved = false;
             if (metered && !unlimited) {
-              const reservation = await reserveScanCredit(org, r.fullName);
+              const reservation = await reserveScanCredit(org, r.fullName, { actor: importActor });
               if (reservation.skip) {
                 skippedForCredits += 1;
                 processed += 1;
@@ -381,7 +422,9 @@ export async function POST(request: Request) {
             // produced" must give it back. A caller that remembered only credits would silently burn a
             // free public slot on a deduped or degraded scan.
             const refundCredit = async () => {
-              await refundScanCredit(org, reserved);
+              // Stamped with the SAME repo and actor as the debit above, so the reversal is joinable to
+              // the row it reverses instead of landing as an anonymous +1.
+              await refundScanCredit(org, reserved, { actor: importActor, repoFullName: r.fullName });
               await refundQuota();
             };
             send("progress", { stage: "scan", repo: r.fullName, index: processed, total: fullNames.length });
@@ -438,17 +481,21 @@ export async function POST(request: Request) {
             processed += 1;
             send("progress", { stage: "scan", repo: r.fullName, index: processed, total: fullNames.length });
           } finally {
-            // Release on EVERY exit — normal completion, the insufficient-credits early return, or a
-            // throw from reserveScanCredit (which mapPool rethrows). A leaked claim would bar this repo
-            // from re-import for the whole TTL; only a hard process kill relies on the TTL self-heal.
-            releaseRepoScan(org, r.fullName, claim);
+            // SETTLE on EVERY exit — normal completion, the insufficient-credits early return, or a
+            // throw from reserveScanCredit (which mapPool rethrows). A claim left unsettled would bar
+            // this repo from re-import until its lease expires; only a hard process kill relies on the
+            // reaper. Best-effort by design: the settle is bookkeeping, and a failure here must not
+            // take down an import whose scans already landed.
+            await settleJob(claim.id, { state: "done" }).catch(() => {});
           }
         });
         // Capture the team-standings decomposition as a durable output of this full org import
         // (best-effort — every repo is persisted by now, so the rollup is fresh; a failure here must
         // never break the scan or the SSE result).
         await persistTeamStandings(org).catch(() => {});
-        send("result", { org, scanned, total: fullNames.length, skippedForCredits, skippedForQuota, skippedInProgress, dashboard: `/org/${org}` });
+        // `runId` again on the terminal frame (mirroring the sibling route), so a client that joined late
+        // or missed the opening frame still learns the handle it would need to re-attach.
+        send("result", { org, runId: importRunId, scanned, total: fullNames.length, skippedForCredits, skippedForQuota, skippedInProgress, dashboard: `/org/${org}` });
       } catch (err) {
         send("error", { error: err instanceof Error ? err.message : "Org import failed." });
       } finally {

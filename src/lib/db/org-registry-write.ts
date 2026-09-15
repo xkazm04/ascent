@@ -15,6 +15,10 @@ export interface IndexResultInput {
   usage?: { invokes30d: number; contributors: number };
   /** The knowledge/ lane's bundles, when the pass read them. */
   bundles?: unknown[];
+  /** Subjects mirrored from the knowledge/ lane, when the pass read it (#18). */
+  subjectCount?: number;
+  /** Installations contributing to the signals/ lane, when the pass read it (#18). */
+  signalContributors?: number;
 }
 
 /**
@@ -63,6 +67,10 @@ export async function recordIndexResult(id: string, result: IndexResultInput): P
       // Same rule as usage: omitted when the pass did not read the lane, so
       // "not measured" never overwrites a good reading with an empty one.
       ...(result.bundles ? { bundlesJson: JSON.stringify(result.bundles) } : {}),
+      // Same rule again for the two #18 lanes: a truncated tree omits both rather than stamping a
+      // zero that would read as "the corpus is empty" / "nobody contributes".
+      ...(result.subjectCount !== undefined ? { subjectCount: result.subjectCount } : {}),
+      ...(result.signalContributors !== undefined ? { signalContributors: result.signalContributors } : {}),
     },
   });
 }

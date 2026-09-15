@@ -95,7 +95,7 @@ export function PracticeApply({
 
   return (
     <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/40 p-4">
-      <div className="font-mono text-sm uppercase tracking-widest text-accent">Apply to a repo</div>
+      <div className="type-mono-sm uppercase tracking-widest text-accent">Apply to a repo</div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <select
           value={repo}
@@ -112,7 +112,7 @@ export function PracticeApply({
             setPr(null);
             setError(null);
           }}
-          className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200 disabled:opacity-50"
+          className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-mono-sm text-slate-200 disabled:opacity-50"
         >
           {gapRepos.map((r) => (
             <option key={r.fullName} value={r.fullName}>
@@ -123,7 +123,7 @@ export function PracticeApply({
         {/* A live starter PR for this repo → link it instead of offering a duplicate apply. The
             practice's branch is per-repo unique, so a second apply only re-surfaces this same PR. */}
         {livePr ? (
-          <span className="font-mono text-sm text-slate-400">
+          <span className="type-mono-sm text-slate-400">
             PR already open:{" "}
             <a href={livePr.prUrl} target="_blank" rel="noreferrer" className="text-accent underline hover:text-white">
               #{livePr.prNumber}
@@ -134,7 +134,7 @@ export function PracticeApply({
             <button
               onClick={preview}
               disabled={busy !== null || batchBusy}
-              className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white disabled:opacity-50"
+              className="rounded-lg border border-slate-700 px-3 py-1.5 type-body-sm text-slate-300 hover:border-accent hover:text-white disabled:opacity-50"
             >
               {busy === "preview" ? "Generating…" : "Preview starter"}
             </button>
@@ -142,7 +142,7 @@ export function PracticeApply({
               <button
                 onClick={apply}
                 disabled={busy !== null || batchBusy}
-                className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
+                className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
               >
                 {busy === "apply" ? "Opening PR…" : "Open draft PR →"}
               </button>
@@ -151,9 +151,9 @@ export function PracticeApply({
         )}
       </div>
 
-      {error && <p className="mt-2 text-sm text-orange-300">{error}</p>}
+      {error && <p className="mt-2 type-body-sm text-orange-300">{error}</p>}
       {pr && (
-        <p className="mt-2 text-sm text-emerald-300">
+        <p className="mt-2 type-body-sm text-emerald-300">
           {pr.reused ? "Existing draft PR: " : "Draft PR opened: "}
           <a href={pr.url} target="_blank" rel="noreferrer" className="underline hover:text-white">
             {pr.url}
@@ -163,11 +163,11 @@ export function PracticeApply({
 
       {artifact && (
         <div className="mt-3">
-          <button onClick={() => setOpen((o) => !o)} aria-expanded={open} className="font-mono text-sm text-slate-400 hover:text-white">
+          <button onClick={() => setOpen((o) => !o)} aria-expanded={open} className="type-mono-sm text-slate-400 hover:text-white">
             {open ? "▾" : "▸"} {artifact.path}
           </button>
           {open && (
-            <pre className="mt-2 max-h-72 overflow-auto rounded-lg border border-slate-800 bg-black/40 p-3 font-mono text-sm leading-relaxed text-slate-300">
+            <pre className="mt-2 max-h-72 overflow-auto rounded-lg border border-slate-800 bg-black/40 p-3 type-mono-sm leading-relaxed text-slate-300">
               {artifact.body}
             </pre>
           )}

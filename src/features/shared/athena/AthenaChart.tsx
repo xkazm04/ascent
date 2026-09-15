@@ -55,7 +55,7 @@ export function AthenaChart({ block }: { block: AthenaChartBlock }) {
   return (
     <div className="relative px-4">
       {block.title && (
-        <div className="pb-1 font-mono text-xs uppercase tracking-widest text-slate-500">{block.title}</div>
+        <div className="pb-1 type-label tracking-widest text-slate-500">{block.title}</div>
       )}
       <svg
         viewBox={`0 0 ${VB_W} ${VB_H}`}
@@ -128,7 +128,7 @@ export function AthenaChart({ block }: { block: AthenaChartBlock }) {
 
       {active !== null && (
         <ChartTooltip xFrac={(xs[active] ?? 0) / VB_W} yFrac={0.1}>
-          <div className="text-xs">
+          <div className="type-note">
             <div className="font-mono uppercase tracking-widest text-slate-500">{labels[active]}</div>
             {series.map((s, si) => (
               <div key={si} className="mt-0.5 flex items-baseline gap-1.5">
@@ -145,7 +145,7 @@ export function AthenaChart({ block }: { block: AthenaChartBlock }) {
       {series.length > 1 && (
         <div className="flex flex-wrap gap-3 pt-1">
           {series.map((s, si) => (
-            <span key={si} className="flex items-center gap-1.5 font-mono text-xs text-slate-500">
+            <span key={si} className="flex items-center gap-1.5 type-caption text-slate-500">
               <span aria-hidden className="h-2 w-2 rounded-sm" style={{ background: SERIES_INK[si % SERIES_INK.length] }} />
               {s.name}
             </span>

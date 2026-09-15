@@ -23,7 +23,7 @@ export function FleetTabs({ slug, active }: { slug: string; active: "repositorie
             role="tab"
             aria-selected={isActive}
             aria-current={isActive ? "page" : undefined}
-            className={`focus-ring rounded-full border px-3 py-1 font-mono text-sm transition ${
+            className={`focus-ring rounded-full border px-3 py-1 type-mono-sm transition ${
               isActive ? "border-accent/60 text-white" : "border-divider text-slate-400 hover:border-accent hover:text-white"
             }`}
           >

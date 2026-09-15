@@ -13,8 +13,12 @@ export {
   advanceScheduleAfterFailure,
   advanceToFullCadence,
   claimRescan,
-  claimRepoScan,
-  releaseRepoScan,
+  // claimRepoScan / releaseRepoScan are GONE (moonshot #10): the process-local advisory Map they
+  // implemented was replaced by the `ScanJob` row claim in @/lib/db/scan-jobs, which serializes
+  // across instances. Nothing re-exports them because nothing may resurrect them.
+  getRepoSchedule,
+  setRepoMissing,
+  listDueRescanCandidates,
   recordScanOutcome,
   recordConformance,
   listWatchedRepos,
@@ -131,3 +135,7 @@ export {
   type OrgTeamRollup,
   type TeamRollupRepoInput,
 } from "@/lib/db/org-teams";
+// MOONSHOT #16 (W1-A): the conformance ledger reads/writes.
+export { listConformanceReports, loadControlMatrix, writeConformanceReport, type ConformanceReportRow, type ControlMatrixRow } from "@/lib/db/org-conformance";
+// MOONSHOT #8 (W4-O): the admission ledger.
+export * from "@/lib/db/org-admission";

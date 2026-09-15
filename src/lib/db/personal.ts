@@ -7,7 +7,9 @@
 // the org rollup uses so the personal dashboard renders real trajectories without duplicating a
 // single scan row.
 
+import { cache } from "react";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import { getOrgBySlug } from "@/lib/db/org-shared";
 import { PUBLIC_ORG } from "@/lib/org-constants";
 import { planAllowsMemory, planAllowsSkillsLibrary, retentionCutoff } from "@/lib/plans";
 import { forecastTrajectory, type Forecast } from "@/lib/maturity/forecast";
@@ -42,15 +44,21 @@ export interface PersonalRepo {
   forecast: Forecast | null;
 }
 
-/** Is `slug` a personal workspace? False for real orgs, unknown slugs, or DB-off. */
-export async function isPersonalOrg(slug: string): Promise<boolean> {
+/**
+ * Is `slug` a personal workspace? False for real orgs, unknown slugs, or DB-off.
+ *
+ * Resolved through the request-memoized {@link getOrgBySlug} (src/lib/db/org-shared.ts) rather than its
+ * own `findUnique`: nine call sites across the tabs ask this question — the shell, the Followups /
+ * Repositories / Security / Memory tabs, authz — and each used to buy its own round-trip for a row the
+ * rest of the render had already fetched. The extra `cache()` here memoizes the predicate itself so the
+ * repeat asks don't even re-enter the resolver. Both memos are per-SERVER-REQUEST (React `cache()`), so
+ * a workspace that becomes personal mid-session is still seen on the next request.
+ */
+export const isPersonalOrg = cache(async (slug: string): Promise<boolean> => {
   if (!isDbConfigured()) return false;
-  const org = await getPrisma().organization.findUnique({
-    where: { slug: slug.trim().toLowerCase() },
-    select: { kind: true },
-  });
+  const org = await getOrgBySlug(slug);
   return org?.kind === "personal";
-}
+});
 
 /**
  * May this workspace WRITE memory? Team+ plans always may (the org entitlement); a PERSONAL org may
@@ -69,21 +77,19 @@ export async function workspaceAllowsSkills(slug: string, plan: string | null | 
 /** Is the free personal MEMORY cap reached? False for orgs whose plan already allows memory (no cap). */
 export async function personalMemoryCapReached(slug: string, plan: string | null | undefined): Promise<boolean> {
   if (planAllowsMemory(plan) || !isDbConfigured()) return false;
-  const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: slug.trim().toLowerCase() }, select: { id: true } });
+  const org = await getOrgBySlug(slug);
   if (!org) return false;
   // Live rows only — archived/superseded memories don't count against the cap (corrections stay free).
-  const n = await prisma.orgMemory.count({ where: { orgId: org.id, archived: false, supersededBy: null } });
+  const n = await getPrisma().orgMemory.count({ where: { orgId: org.id, archived: false, supersededBy: null } });
   return n >= PERSONAL_MEMORY_LIMIT;
 }
 
 /** Is the free personal SKILL cap reached? False for orgs whose plan already allows the library. */
 export async function personalSkillCapReached(slug: string, plan: string | null | undefined): Promise<boolean> {
   if (planAllowsSkillsLibrary(plan) || !isDbConfigured()) return false;
-  const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: slug.trim().toLowerCase() }, select: { id: true } });
+  const org = await getOrgBySlug(slug);
   if (!org) return false;
-  const n = await prisma.orgSkill.count({ where: { orgId: org.id, archived: false } });
+  const n = await getPrisma().orgSkill.count({ where: { orgId: org.id, archived: false } });
   return n >= PERSONAL_SKILL_LIMIT;
 }
 
@@ -108,10 +114,7 @@ export interface PersonalUsage {
 export async function getPersonalUsage(slug: string): Promise<PersonalUsage | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({
-    where: { slug: slug.trim().toLowerCase() },
-    select: { id: true },
-  });
+  const org = await getOrgBySlug(slug);
   if (!org) return null;
   const [watched, memories, skills] = await Promise.all([
     prisma.repository.count({ where: { orgId: org.id, watched: true } }),
@@ -128,13 +131,9 @@ export async function getPersonalUsage(slug: string): Promise<PersonalUsage | nu
 /** Watched-pointer count for the watch API's PERSONAL_WATCH_LIMIT gate. 0 when the org doesn't exist yet. */
 export async function countPersonalWatched(slug: string): Promise<number> {
   if (!isDbConfigured()) return 0;
-  const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({
-    where: { slug: slug.trim().toLowerCase() },
-    select: { id: true },
-  });
+  const org = await getOrgBySlug(slug);
   if (!org) return 0;
-  return prisma.repository.count({ where: { orgId: org.id, watched: true } });
+  return getPrisma().repository.count({ where: { orgId: org.id, watched: true } });
 }
 
 /**
@@ -145,10 +144,7 @@ export async function countPersonalWatched(slug: string): Promise<number> {
 export async function getPersonalWatchlist(personalSlug: string, nowMs: number = Date.now()): Promise<PersonalRepo[] | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({
-    where: { slug: personalSlug.trim().toLowerCase() },
-    select: { id: true, plan: true },
-  });
+  const org = await getOrgBySlug(personalSlug);
   if (!org) return null;
 
   const watched = await prisma.repository.findMany({
@@ -160,7 +156,7 @@ export async function getPersonalWatchlist(personalSlug: string, nowMs: number =
 
   // The series lives under the shared public org — the lens. A missing public org (virgin DB) just
   // means every watched repo shows as unscanned.
-  const pub = await prisma.organization.findUnique({ where: { slug: PUBLIC_ORG }, select: { id: true } });
+  const pub = await getOrgBySlug(PUBLIC_ORG);
   const cutoff = retentionCutoff(org.plan, nowMs);
   const scans = pub
     ? await prisma.scan.findMany({

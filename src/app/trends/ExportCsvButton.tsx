@@ -80,7 +80,7 @@ export function ExportCsvButton({ repo }: { repo: string }) {
         {state === "working" ? "Exporting…" : "Export CSV ↓"}
       </button>
       {state === "expired" && (
-        <span role="alert" className="font-mono text-sm text-amber-300">
+        <span role="alert" className="type-mono-sm text-amber-300">
           Session expired.{" "}
           <button type="button" onClick={() => window.location.reload()} className="underline">
             Sign in again
@@ -88,7 +88,7 @@ export function ExportCsvButton({ repo }: { repo: string }) {
         </span>
       )}
       {state === "error" && (
-        <span role="alert" className="font-mono text-sm text-rose-300">
+        <span role="alert" className="type-mono-sm text-rose-300">
           Export failed. Try again.
         </span>
       )}

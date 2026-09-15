@@ -11,6 +11,7 @@ import { computeReportSeries } from "@/components/report/reportSeries";
 import { ReportHeader } from "@/components/report/ReportHeader";
 import { PassportHero } from "@/components/report/PassportHero";
 import { ReportPanels } from "@/components/report/ReportPanels";
+import type { RoadmapLifts } from "@/components/report/roadmapPriority";
 import { ReportConversionCta } from "@/components/report/ReportConversionCta";
 import { ReportWarnings, ReportDiscrepancies } from "@/components/report/ReportNotices";
 import { SideNav, type SideNavGroup } from "@/components/ui";
@@ -38,6 +39,7 @@ export function ReportView({
   serverPassport,
   serverHistory,
   serverRecs,
+  serverLifts,
   installFoundation,
 }: {
   report: ScanReport;
@@ -56,6 +58,11 @@ export function ReportView({
   serverPassport?: AppPassport | null;
   serverHistory?: RepositoryHistory | null;
   serverRecs?: PersistedRecommendation[] | null;
+  /** The org's measured lift map (`getOrgExpectedLifts`), read on the same server pass as `serverRecs`
+   *  and passed straight through to the panels. Server-only data: it is threaded as a prop rather than
+   *  fetched here, because the aggregate reaches the ledger through the db layer. Absent on the
+   *  live-scan path, where each row instead carries its own `expectedLift` clause from the API. */
+  serverLifts?: RoadmapLifts;
   /** Viewer is an org member of this non-public repo (the permalink path resolves it server-side) —
    *  forwarded to the header so the .ai/ foundation install-PR button can render. */
   installFoundation?: boolean;
@@ -243,6 +250,7 @@ export function ReportView({
             isMock={isMock}
             showActivity={showActivity}
             recs={recs}
+            lifts={serverLifts}
             overallDelta={overallDelta}
             trendPoints={trendPoints}
             histError={histError}
@@ -254,7 +262,7 @@ export function ReportView({
         </div>
       </div>
 
-      <ReportDiscrepancies discrepancies={report.discrepancies} />
+      <ReportDiscrepancies discrepancies={report.discrepancies} integrity={report.scoreIntegrity} />
 
       {/* Activation nudge: the report is the peak-engagement moment — pull a first-timer toward the
           org rollup + an account (or a signed-in viewer toward the fleet view) instead of dead-ending. */}
@@ -263,7 +271,7 @@ export function ReportView({
       <div className="flex justify-center pt-2">
         <Link
           href="/?scan=1"
-          className="rounded-xl border border-slate-700 px-5 py-2.5 text-base text-slate-300 transition hover:border-accent hover:text-white"
+          className="rounded-xl border border-slate-700 px-5 py-2.5 type-body text-slate-300 transition hover:border-accent hover:text-white"
         >
           ← Scan another repo
         </Link>

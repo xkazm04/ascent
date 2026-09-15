@@ -12,10 +12,28 @@ import { formatResetAt, type QuotaScope } from "@/components/report/QuotaNotice"
 /** A report salvaged from the last persisted scan because the monthly quota blocked a fresh one. */
 type Stale = { resetAt: number | null; scope: QuotaScope };
 
+/**
+ * How a scan failed, in the vocabulary the error surfaces branch on. Carried by BOTH the page-level
+ * error state and the in-place re-scan banner, so a re-test that hits the sign-in wall, the monthly
+ * quota or the credit gate offers the same actionable CTA a first scan does instead of a Retry that
+ * cannot succeed. An all-empty class is the generic/transient failure (timeout, network, upstream) —
+ * the only class a plain retry can clear.
+ */
+export type ScanErrorClass = {
+  /** Monthly public-scan quota exhausted (429 `monthly_quota`) — attribution scope + reset time. */
+  blocked?: { scope: QuotaScope; resetAt: number | null };
+  /** Production sign-in wall (401 `auth_required`). */
+  authRequired?: boolean;
+  /** The repo couldn't be read (SSE `error` with code NOT_FOUND) — typo, or private + not connected. */
+  notFound?: boolean;
+  /** Credit gate refused before the stream opened (402 `INSUFFICIENT_CREDITS`); balance at refusal. */
+  credits?: { balance: number };
+};
+
 export type ScanState =
   | { status: "idle" }
   | { status: "loading" }
-  | { status: "error"; message: string; blocked?: { scope: QuotaScope }; authRequired?: boolean; notFound?: boolean }
+  | ({ status: "error"; message: string } & ScanErrorClass)
   | { status: "done"; report: ScanReport; stale?: Stale };
 
 /** Free monthly public-scan allowance surfaced from the x-ascent-quota-* response headers. */
@@ -26,8 +44,10 @@ export interface ReportScan {
   progress: Progress;
   quota: Quota | null;
   /** In-place re-scan status: `active` while a re-test runs with the report still mounted; `error`
-   *  once it fails (the prior report stays — the banner offers retry/dismiss). */
-  rescan: { active: boolean; error: string | null };
+   *  once it fails (the prior report stays — the banner offers retry/dismiss). `errorClass` is the
+   *  SAME classification the page-level error state carries, so a re-test that hits the sign-in wall,
+   *  the monthly quota or the credit gate offers the CTA that can clear it instead of a dead Retry. */
+  rescan: { active: boolean; error: string | null; errorClass: ScanErrorClass };
   /** Bumps once per re-test — used as the re-scan banner's `key` so its elapsed clock resets. */
   attempt: number;
   retest: () => void;
@@ -67,7 +87,7 @@ export function useReportScan(
   const [quota, setQuota] = useState<Quota | null>(null);
   // Bumped by "Re-test" to re-run the scan in place; > 0 also implies fresh.
   const [retestNonce, setRetestNonce] = useState(0);
-  const [rescan, setRescan] = useState<{ active: boolean; error: string | null }>({ active: false, error: null });
+  const [rescan, setRescan] = useState<ReportScan["rescan"]>({ active: false, error: null, errorClass: {} });
   // The report currently on screen, read at scan-start to decide whether a re-test can keep it mounted.
   const reportRef = useRef<ScanReport | null>(null);
   // `fresh` (a "Re-test" link, or a re-test below) forces a re-score that bypasses the report cache.
@@ -120,21 +140,20 @@ export function useReportScan(
     const settleDone = (report: ScanReport, stale?: Stale) => {
       if (cancelled) return;
       setState({ status: "done", report, stale });
-      setRescan({ active: false, error: null });
+      setRescan({ active: false, error: null, errorClass: {} });
     };
-    const settleError = (
-      message: string,
-      blocked?: { scope: QuotaScope },
-      authRequired?: boolean,
-      notFound?: boolean,
-    ) => {
+    // The class travels as ONE bag rather than a growing positional tail: every caller below names
+    // the branch it is in, and adding a class (credits) can't silently shift another's argument.
+    const settleError = (message: string, cls: ScanErrorClass = {}) => {
       if (cancelled) return;
-      if (rescanMode) setRescan({ active: false, error: message });
-      else setState({ status: "error", message, blocked, authRequired, notFound });
+      // The class rides along: the banner picks the CTA off it (sign in / credits / quota reset),
+      // and only an unclassified failure keeps Retry — which is the only class Retry can clear.
+      if (rescanMode) setRescan({ active: false, error: message, errorClass: cls });
+      else setState({ status: "error", message, ...cls });
     };
 
     (async () => {
-      if (rescanMode) setRescan({ active: true, error: null });
+      if (rescanMode) setRescan({ active: true, error: null, errorClass: {} });
       else setState({ status: "loading" });
       setProgress({ message: "Starting…", pct: 0 });
       setQuota(null);
@@ -192,13 +211,26 @@ export function useReportScan(
         if (cancelled) return;
         if (!res.ok || !res.body) {
           const data = (await res.json().catch(() => null)) as
-            | { error?: string; code?: string; resetAt?: number; scope?: QuotaScope }
+            | { error?: string; code?: string; resetAt?: number; scope?: QuotaScope; balance?: number }
             | null;
           if (cancelled) return;
           // Production sign-in wall (see /api/scan/stream): a 401 can't be retried with the same
           // request — surface the sign-in CTA instead of a generic "scan failed" error.
           if (res.status === 401 || data?.code === "auth_required") {
-            settleError(data?.error ?? "Sign in to run a scan.", undefined, true);
+            settleError(data?.error ?? "Sign in to run a scan.", { authRequired: true });
+            return;
+          }
+          // Credit gate refused a METERED scan (private / installed-org repo) before the stream
+          // opened — a plain JSON 402, never an SSE frame (see /api/scan/stream). Like the 401 this
+          // can't be retried with the same request: only credits clear it, so classify it and let
+          // the credits notice render the reason and the top-up path. Mirrors RepoRescanButton's
+          // `code === "INSUFFICIENT_CREDITS"` → distinct `credits` outcome.
+          if (res.status === 402 || data?.code === "INSUFFICIENT_CREDITS") {
+            const balance = typeof data?.balance === "number" && Number.isFinite(data.balance) ? data.balance : 0;
+            settleError(
+              data?.error ?? "This organization is out of private-scan credits. Add credits to continue.",
+              { credits: { balance } },
+            );
             return;
           }
           // Monthly public-scan gate tripped — an immediate retry can't succeed. Before showing a
@@ -230,7 +262,7 @@ export function useReportScan(
             settleError(
               data.error ??
                 `You've used all your free public scans for this month. The limit resets ${formatResetAt(resetAt)}.`,
-              { scope },
+              { blocked: { scope, resetAt } },
             );
           } else {
             settleError(data?.error ?? `Scan failed (${res.status}).`);
@@ -289,7 +321,7 @@ export function useReportScan(
             // scan route — forward it so the error surface can offer a "connect a private repo" path
             // instead of a retry that can't succeed with the same input.
             const d = (data ?? {}) as { error?: string; code?: string };
-            settleError(d.error ?? "Scan failed.", undefined, undefined, d.code === "NOT_FOUND");
+            settleError(d.error ?? "Scan failed.", { notFound: d.code === "NOT_FOUND" });
           }
         };
 
@@ -351,6 +383,6 @@ export function useReportScan(
     rescan,
     attempt: retestNonce,
     retest: () => setRetestNonce((n) => n + 1),
-    dismissRescan: () => setRescan({ active: false, error: null }),
+    dismissRescan: () => setRescan({ active: false, error: null, errorClass: {} }),
   };
 }

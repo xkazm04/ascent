@@ -22,22 +22,22 @@ export function DeliveryActivityMomentum({
   return (
     <div className="flex flex-wrap gap-x-8 gap-y-2">
       <div>
-        <div className="font-mono text-xs uppercase tracking-[0.2em] text-slate-500">Weekly avg</div>
-        <div className="mt-0.5 font-mono text-lg font-bold text-white">{weeklyAvg.toLocaleString()}</div>
+        <div className="type-label tracking-[0.2em] text-slate-500">Weekly avg</div>
+        <div className="mt-0.5 font-mono type-lede font-bold text-white">{weeklyAvg.toLocaleString()}</div>
       </div>
       <div>
-        <div className="font-mono text-xs uppercase tracking-[0.2em] text-slate-500">Peak week</div>
-        <div className="mt-0.5 font-mono text-lg font-bold text-white">
+        <div className="type-label tracking-[0.2em] text-slate-500">Peak week</div>
+        <div className="mt-0.5 font-mono type-lede font-bold text-white">
           {peakVal.toLocaleString()}
-          <span className="ml-2 text-sm font-normal text-slate-500">{fmtWeek.format(peakWeekMs)}</span>
+          <span className="ml-2 type-body-sm font-normal text-slate-500">{fmtWeek.format(peakWeekMs)}</span>
         </div>
       </div>
       <div>
-        <div className="font-mono text-xs uppercase tracking-[0.2em] text-slate-500">Last 4 weeks</div>
-        <div className="mt-0.5 font-mono text-lg font-bold text-white">
+        <div className="type-label tracking-[0.2em] text-slate-500">Last 4 weeks</div>
+        <div className="mt-0.5 font-mono type-lede font-bold text-white">
           {last4.toLocaleString()}
           {momentum != null && (
-            <span className="ml-2 text-sm font-normal" style={{ color: deltaHex(momentum) }}>
+            <span className="ml-2 type-body-sm font-normal" style={{ color: deltaHex(momentum) }}>
               {momentum > 0 ? "▲" : momentum < 0 ? "▼" : "→"}
               {momentum > 0 ? "+" : ""}
               {momentum}% vs prior 4

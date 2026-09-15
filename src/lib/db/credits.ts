@@ -55,7 +55,6 @@ export interface CreditLedgerEntry {
   reason: string;
   repoFullName: string | null;
   scanId: string | null;
-  actor: string | null;
   createdAt: Date;
 }
 
@@ -106,6 +105,10 @@ function isDuplicateExternalId(err: unknown): boolean {
  * owner-gated grant endpoint and the Polar top-up webhook (src/app/api/billing/webhook). The stored
  * balance is clamped at zero so an over-large negative adjustment can't drive it negative.
  *
+ * `opts.repoFullName` / `opts.scanId` stamp the row for SPEND ATTRIBUTION. They are what makes a
+ * per-scan refund joinable to the debit it reverses (the refund writers pass the debit's own repo);
+ * a true grant leaves them null, because a top-up pays for no particular repo.
+ *
  * `opts.externalId` makes the grant IDEMPOTENT: pass a stable id (a Polar order id) and a redelivery
  * is a no-op — a ledger row already carrying it short-circuits, and a concurrent duplicate that slips
  * past that check is caught by the unique constraint (the whole grant rolls back) and reported as the
@@ -114,7 +117,7 @@ function isDuplicateExternalId(err: unknown): boolean {
 export async function grantCredits(
   orgSlug: string,
   amount: number,
-  opts: { reason?: string; actor?: string; externalId?: string } = {},
+  opts: { reason?: string; actor?: string; externalId?: string; repoFullName?: string; scanId?: string } = {},
 ): Promise<number | null> {
   if (!isDbConfigured()) return null;
   const slug = orgSlug.toLowerCase(); // canonical-casing contract (see getCreditState)
@@ -167,6 +170,13 @@ export async function grantCredits(
             balanceAfter,
             reason: opts.reason ?? (delta > 0 ? CREDIT_REASON.GRANT : CREDIT_REASON.ADJUSTMENT),
             actor: opts.actor ?? null,
+            // SPEND ATTRIBUTION. A per-scan REFUND is a grant, so it used to be written with no repo
+            // and no scan on it at all — leaving every `reason:"refund"` row unjoinable to the
+            // `reason:"scan"` debit it reverses, and per-repo spend impossible to net out. Both are
+            // optional and null for a genuine grant (a Polar top-up or an owner adjustment pays for no
+            // single repo), so nothing about the grant path changes.
+            repoFullName: opts.repoFullName ?? null,
+            scanId: opts.scanId ?? null,
             externalId,
           },
         });
@@ -432,7 +442,18 @@ export async function setOrgPlan(orgSlug: string, plan: string): Promise<boolean
   return res.count > 0;
 }
 
-/** Recent ledger rows for an org (newest first). */
+/**
+ * Recent ledger rows for an org (newest first) — the ORG-FACING read, behind `GET /api/org/credits`.
+ *
+ * `actor` is deliberately NOT selected. The column is still written on every debit, refund and grant
+ * (`consumeScanCredit`, `grantCredits`) and is still there for the audit / reconciliation paths that
+ * need to answer "who did this" — it is simply not shipped to every reader of an org's credits chip,
+ * which never rendered it (`CreditsControl.sections.tsx`'s own row type omits it) and must not: the
+ * ledger is a money surface, and per-person attribution on a money surface is the thing
+ * docs/features/billing/usage.md's privacy note rules out for the usage ledger beside it. A field
+ * that crosses the wire to everyone who can read an org is shipped, whether or not a component draws
+ * it. This is the only caller of this function.
+ */
 export async function getCreditLedger(orgSlug: string, limit = 50): Promise<CreditLedgerEntry[]> {
   if (!isDbConfigured()) return [];
   const prisma = getPrisma();
@@ -449,7 +470,6 @@ export async function getCreditLedger(orgSlug: string, limit = 50): Promise<Cred
       reason: true,
       repoFullName: true,
       scanId: true,
-      actor: true,
       createdAt: true,
     },
   });
@@ -479,12 +499,26 @@ export async function sumRefundClawback(orgSlug: string, orderId: string): Promi
 }
 
 /**
- * Reconcile the credit ledger over the last `days` (USE-4): credits debited (scan spends), refunded
+ * Reconcile the credit ledger over a window (USE-4): credits debited (scan spends), refunded
  * (failed/deduped scans return their credit — a positive delta whose reason says so), granted (other
  * positives), and the net. Windows the recent ledger rows by date here (server-side) so the /usage
  * page stays a pure render. Null when persistence is off.
+ *
+ * The window is passed IN — the caller's `[since, before)`, not a `days` count re-derived here.
+ * This function used to take `days` and cut at `Date.now() - days * 86_400_000`, a rolling
+ * wall-clock instant, while the scan figures it is reconciled against on the same screen were
+ * counted over a UTC-day-anchored half-open window (`usageWindow` in ./usage.ts). Both were labelled
+ * "last {days}d", and when the two totals disagreed the panel offered "rows straddling the window
+ * edge" as the explanation — an incidental-sounding phrase for a window that was, up to 24 hours
+ * wide, structurally a different period. Two numbers presented as comparable must be measured over
+ * ONE window; taking it as an argument is what makes that checkable instead of coincidental.
+ *
+ * `before` is EXCLUSIVE, matching the scan side's upper bound exactly.
  */
-export async function getCreditReconciliation(orgSlug: string, days: number): Promise<CreditReconciliation | null> {
+export async function getCreditReconciliation(
+  orgSlug: string,
+  window: { since: Date; before: Date },
+): Promise<CreditReconciliation | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const orgId = await getOrgId(orgSlug);
@@ -494,9 +528,8 @@ export async function getCreditReconciliation(orgSlug: string, days: number): Pr
   // (daily autoscans write 20-40 ledger rows/day) silently lost every row beyond the most-recent 200
   // in a 30-day window, understating debited/refunded/granted/net on the money-facing /usage page.
   // Select only the two fields the reconciliation needs, for all rows inside the window.
-  const cutoff = new Date(Date.now() - Math.max(1, days) * 86_400_000);
   const rows = await prisma.creditLedger.findMany({
-    where: { orgId, createdAt: { gte: cutoff } },
+    where: { orgId, createdAt: { gte: window.since, lt: window.before } },
     select: { delta: true, reason: true },
   });
   const sum = (pred: (e: { delta: number; reason: string }) => boolean, abs = false) =>

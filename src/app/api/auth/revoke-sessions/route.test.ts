@@ -1,6 +1,6 @@
 // "Sign out everywhere else" across BOTH auth stacks. The route used to read ONLY the dormant
 // custom-OAuth cookie, so under the ACTIVE Supabase wall — where `ascent_session` is never minted —
-// it found no session and bounced to /connect having revoked nothing: the user's self-serve kill
+// it found no session and bounced to /onboarding having revoked nothing: the user's self-serve kill
 // switch for a lost or shared machine did not exist on the stack that IS production.
 //
 // The load-bearing assertions: the Supabase branch calls signOut with scope "others" (NOT global —
@@ -80,7 +80,7 @@ describe("POST /api/auth/revoke-sessions — the ACTIVE Supabase wall", () => {
     const res = await post();
 
     expect(mockSignOut).not.toHaveBeenCalled();
-    expect(location(res)).toContain("/connect");
+    expect(location(res)).toContain("/onboarding");
     expect(location(res)).not.toContain("revoked=");
   });
 });
@@ -93,6 +93,6 @@ describe("POST /api/auth/revoke-sessions — the dormant custom-OAuth stack is u
     const res = await post();
 
     expect(mockSignOut).not.toHaveBeenCalled();
-    expect(location(res)).toContain("/connect");
+    expect(location(res)).toContain("/onboarding");
   });
 });

@@ -139,8 +139,16 @@ export function useFleetData(
   useEffect(() => {
     if (installations.length === 0) return;
     let cancelled = false;
+    // When the last refresh that actually PROCEEDED began. The interval paces itself, but the
+    // visibilitychange listener does not: alt-tabbing back and forth fired a full fleet fan-out on
+    // every focus, so ten quick switches cost ten complete rounds of one `/api/app/repos` call per org
+    // — the very cost POLL_ORG_CAP and the per-org backoff exist to bound, bypassed by frequency
+    // rather than by concurrency. A refresh that returned early (hidden tab, live scan) never stamps
+    // this, so a genuinely backgrounded tab still re-pulls the instant it comes back.
+    let lastStartedAt = 0;
     async function refreshAll() {
       if (document.visibilityState !== "visible" || scanCtrl.current) return;
+      lastStartedAt = Date.now();
       // Snapshot the scan generation BEFORE the network round-trip. The guard above only catches a scan
       // already in flight; a scan that starts (and the fetch resolves) after this point would otherwise
       // commit pre-scan rows (often overall:null) over the live scores the SSE stream just painted.
@@ -205,7 +213,12 @@ export function useFleetData(
     // Control doesn't stare at scores up to ~90s stale before the next tick (the interval no-ops while
     // hidden). refreshAll's own visibility/scan guards keep this safe.
     const onVisible = () => {
-      if (document.visibilityState === "visible") void refreshAll();
+      if (document.visibilityState !== "visible") return;
+      // Only worth a pull if the data could plausibly have moved since the last one. Inside one poll
+      // interval the stars are as fresh as the next tick would make them anyway, so a rapid
+      // focus/blur/focus costs nothing.
+      if (Date.now() - lastStartedAt < POLL_INTERVAL_MS) return;
+      void refreshAll();
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => {

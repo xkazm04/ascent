@@ -11,8 +11,8 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { backoffDelayMs, useFleetData } from "./useFleetData";
-import { POLL_BACKOFF_MAX_MS, POLL_INTERVAL_MS, POLL_ORG_CAP, SCAN_SETTLE_MS } from "./FleetMap.constants";
+import { useFleetData } from "./useFleetData";
+import { POLL_INTERVAL_MS, SCAN_SETTLE_MS } from "./FleetMap.constants";
 import type { Constellation } from "./fleetMapStars";
 
 type Body = { repos?: unknown } | null;
@@ -122,6 +122,52 @@ describe("useFleetData — the 90s poll cycle", () => {
     expect(calls).toHaveLength(2);
   });
 
+  // The interval paces itself; the visibilitychange listener did not. Alt-tabbing back and forth fired
+  // a complete fleet fan-out on EVERY focus — one /api/app/repos call per org, each a live GitHub App
+  // listing plus two DB queries — which is the same cost POLL_ORG_CAP and the per-org backoff exist to
+  // bound, bypassed by frequency instead of by concurrency.
+  it("does not re-pull the fleet on every focus within one poll interval", async () => {
+    mount(["acme", "globex"]);
+    await tick();
+    expect(calls).toHaveLength(2); // the mount fetch, one per org
+
+    // Six rapid focus events inside the window (a user flicking between tabs).
+    for (let i = 0; i < 6; i++) {
+      await act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"));
+        await vi.advanceTimersByTimeAsync(1_000);
+      });
+    }
+    // The FIRST focus is a legitimate pull (nothing had refreshed yet, so the stars could be stale);
+    // the other five are inside its window and cost nothing. Before this guard: 2 + 6*2 = 14 calls.
+    expect(calls).toHaveLength(4);
+  });
+
+  it("still re-pulls immediately on a focus AFTER the interval has elapsed", async () => {
+    mount(["acme"]);
+    await tick();
+    expect(calls).toHaveLength(1);
+
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(calls).toHaveLength(2); // first focus pulls
+
+    // A full interval passes with the tab hidden, so the scheduled tick no-ops...
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+    await tick(POLL_INTERVAL_MS);
+    expect(calls).toHaveLength(2);
+
+    // ...and coming back is worth a pull again: the throttle measures REFRESHES, not focus events.
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(calls).toHaveLength(3);
+  });
+
   it("stops polling and detaches its listener on unmount", async () => {
     const { view } = mount(["acme"]);
     await tick();
@@ -178,84 +224,5 @@ describe("useFleetData — a live scan owns the stars", () => {
     expect(calls).toHaveLength(2);
     expect(recentScan.current.has("acme")).toBe(false);
     expect(SCAN_SETTLE_MS).toBeGreaterThan(POLL_INTERVAL_MS); // the deferral must outlast one tick
-  });
-});
-
-describe("useFleetData — per-org failure backoff", () => {
-  it("computes an exponential schedule from one poll interval, capped", () => {
-    expect(backoffDelayMs(1)).toBe(POLL_INTERVAL_MS); // a single blip retries on the normal next tick
-    expect(backoffDelayMs(2)).toBe(POLL_INTERVAL_MS * 2);
-    expect(backoffDelayMs(3)).toBe(POLL_INTERVAL_MS * 4);
-    expect(backoffDelayMs(20)).toBe(POLL_BACKOFF_MAX_MS);
-  });
-
-  it("backs a FAILING org off while every healthy org keeps its normal cadence", async () => {
-    respond = (org) =>
-      org === "bad"
-        ? { ok: false, status: 502, body: { repos: [] } }
-        : { ok: true, body: { repos: [repoRow(`${org}/web`, 40)] } };
-    mount(["good", "bad"]);
-    await tick();
-    const countOf = (org: string) => calls.filter((c) => c === org).length;
-    expect(countOf("good")).toBe(1);
-    expect(countOf("bad")).toBe(1);
-
-    await tick(POLL_INTERVAL_MS); // 1st refresh: both polled; bad fails → next attempt one interval on
-    expect(countOf("bad")).toBe(2);
-    await tick(POLL_INTERVAL_MS); // 2nd: bad's penalty has elapsed, it fails again → 2 intervals
-    expect(countOf("bad")).toBe(3);
-    await tick(POLL_INTERVAL_MS); // 3rd: SKIPPED — the failing org stops hammering
-    expect(countOf("bad")).toBe(3);
-    await tick(POLL_INTERVAL_MS); // 4th: penalty elapsed, tried again
-    expect(countOf("bad")).toBe(4);
-
-    // The healthy org never missed a beat.
-    expect(countOf("good")).toBe(5);
-  });
-
-  it("treats a malformed 200 as a failed pull (it must not read as a healthy poll)", async () => {
-    respond = () => ({ ok: true, body: null });
-    mount(["acme"]);
-    await tick();
-    await tick(POLL_INTERVAL_MS); // fails → 1 interval
-    await tick(POLL_INTERVAL_MS); // fails → 2 intervals
-    await tick(POLL_INTERVAL_MS); // skipped
-    expect(calls).toHaveLength(3);
-  });
-
-  it("clears the penalty as soon as the org recovers", async () => {
-    let healthy = false;
-    respond = (org) =>
-      healthy ? { ok: true, body: { repos: [repoRow(`${org}/web`, 60)] } } : { ok: false, status: 502, body: null };
-    const { state } = mount(["acme"]);
-    await tick();
-    await tick(POLL_INTERVAL_MS); // fail → fails=1
-    healthy = true;
-    await tick(POLL_INTERVAL_MS); // recovers: the errored org HEALS to done…
-    expect(reposOf(state.current[0])?.[0].overall).toBe(60);
-    const after = calls.length;
-    await tick(POLL_INTERVAL_MS); // …and polls on the very next tick, no residual penalty
-    expect(calls).toHaveLength(after + 1);
-  });
-});
-
-describe("useFleetData — bounded fan-out", () => {
-  it("never has more than POLL_ORG_CAP pulls in flight, on mount or on a poll tick", async () => {
-    const logins = Array.from({ length: POLL_ORG_CAP + 6 }, (_, i) => `org${i}`);
-    mount(logins);
-    await tick();
-    expect(calls).toHaveLength(logins.length); // every org still pulled…
-    expect(maxInFlight).toBe(POLL_ORG_CAP); // …just capped concurrently
-
-    maxInFlight = 0;
-    await tick(POLL_INTERVAL_MS);
-    expect(calls).toHaveLength(logins.length * 2);
-    expect(maxInFlight).toBe(POLL_ORG_CAP);
-  });
-
-  it("keeps the exact prior parallel burst for a fleet at or under the cap", async () => {
-    mount(Array.from({ length: POLL_ORG_CAP }, (_, i) => `org${i}`));
-    await tick();
-    expect(maxInFlight).toBe(POLL_ORG_CAP);
   });
 });

@@ -11,10 +11,14 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 import { useOnboardingFlow } from "./useOnboardingFlow";
 import { ScanRowView } from "./OnboardingScanRow";
 import { retryRowMessage } from "./retryRepo";
+import { resetAutoWatchOptIn, setAutoWatchOptIn } from "./OnboardingSelectStep.watchOptIn";
+import { resetPreviewFirst, setPreviewFirst } from "./OnboardingSelectStep.previewFirst";
 
 afterEach(() => {
   vi.restoreAllMocks();
   sessionStorage.clear();
+  resetAutoWatchOptIn();
+  resetPreviewFirst();
 });
 
 /** An SSE body that emits one successful `repo` event for `repo`, then the terminal `result`. */
@@ -165,5 +169,113 @@ describe("retryRowMessage", () => {
     expect(retryRowMessage({ aborted: false, stalled: false, status: 500, message: "Import failed (500)." }, "acme")).toBe(
       "Import failed (500).",
     );
+  });
+});
+
+// Direction 6 — the retry POST carries the consent the SELECT step obtained.
+//
+// The body used to be { org, repos, installationId, mock } and nothing else. `watch` omitted means
+// runImportScan defaults it to Boolean(installationId) — true on the App path — and the server then
+// falls through to the weekly schedule: ONE Retry click re-subscribed that repo to the recurring
+// billable autoscan the user declined on the select step. `publicFunnel` omitted means a public-handle
+// retry is credit-metered server-side, so it hits the 401/402 wall right after the select step
+// promised "No prepaid credits are used". These pin the full body on both paths.
+describe("runRepoRetry — the request body honours the select step's consent", () => {
+  /** Capture every /api/org/import body; the import POST fails right after, since the assertion is
+   *  about what was SENT (and a failed retry leaves a terminal row rather than hanging). */
+  function stubFetch(bodies: Record<string, unknown>[], repos: { fullName: string }[]) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/api/app/repos") || url.includes("/api/org/repos"))
+          return {
+            ok: true,
+            json: async () => ({
+              repos: repos.map((r) => ({ ...r, private: false, language: null, stars: 1, pushedAt: null })),
+            }),
+          };
+        if (url.includes("/api/org/credits"))
+          return { ok: true, json: async () => ({ balance: 10, unlimited: false, allowanceRemaining: 0 }) };
+        if (url.includes("/api/org/import")) {
+          bodies.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+          return { ok: false, status: 500, body: null, json: async () => ({ error: "stub" }) };
+        }
+        return { ok: true, json: async () => ({}) };
+      }),
+    );
+  }
+
+  it("App path, autoscan NOT opted into: watch travels as an explicit false", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    stubFetch(bodies, [{ fullName: "acme/api" }]);
+    // The direct (non-upgrade) App wire — "fast preview first" has its own plan, pinned below.
+    setPreviewFirst(false);
+    resetAutoWatchOptIn();
+
+    const { result } = renderHook(() => useOnboardingFlow());
+    await act(async () => {
+      await result.current.loadInstallationRepos("acme", "42");
+    });
+    await waitFor(() => expect(result.current.repos).toHaveLength(1));
+    act(() => {
+      result.current.setRows({ "acme/api": { repo: "acme/api", error: "Scan failed." } });
+      result.current.setPhase("done");
+    });
+    await act(async () => {
+      await result.current.retryRepo("acme/api");
+    });
+
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).toMatchObject({
+      org: "acme",
+      repos: ["acme/api"],
+      installationId: "42",
+      mock: false,
+      watch: false,
+    });
+    // No cadence is sent when nothing is being watched — the weekly default must not ride along.
+    expect(bodies[0].schedule).toBeUndefined();
+  });
+
+  it("App path, autoscan opted into: watch:true rides with the weekly cadence", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    stubFetch(bodies, [{ fullName: "acme/api" }]);
+    setPreviewFirst(false);
+    setAutoWatchOptIn(true);
+
+    const { result } = renderHook(() => useOnboardingFlow());
+    await act(async () => {
+      await result.current.loadInstallationRepos("acme", "42");
+    });
+    await waitFor(() => expect(result.current.repos).toHaveLength(1));
+    act(() => {
+      result.current.setRows({ "acme/api": { repo: "acme/api", error: "Scan failed." } });
+    });
+    await act(async () => {
+      await result.current.retryRepo("acme/api");
+    });
+
+    expect(bodies[0]).toMatchObject({ watch: true, schedule: "weekly" });
+  });
+
+  it("public path: publicFunnel:true, no installation, no watch", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    stubFetch(bodies, [{ fullName: "acme/web" }]);
+
+    const { result } = renderHook(() => useOnboardingFlow());
+    await act(async () => {
+      await result.current.loadRepos(undefined, "acme");
+    });
+    await waitFor(() => expect(result.current.repos).toHaveLength(1));
+    act(() => {
+      result.current.setRows({ "acme/web": { repo: "acme/web", error: "Scan failed." } });
+    });
+    await act(async () => {
+      await result.current.retryRepo("acme/web");
+    });
+
+    expect(bodies[0]).toMatchObject({ org: "acme", repos: ["acme/web"], publicFunnel: true, watch: false, mock: false });
+    expect(bodies[0].installationId).toBeUndefined();
   });
 });

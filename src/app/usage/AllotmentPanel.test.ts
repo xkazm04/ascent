@@ -6,7 +6,7 @@
 // The behaviour under test is the normalization and the fit thresholds, not any particular allowance.
 
 import { describe, it, expect } from "vitest";
-import { allotmentRead } from "./AllotmentPanel";
+import { ALLOTMENT_CURRENCIES_NOTE, allotmentRead } from "./AllotmentPanel";
 import { PLAN_FEATURES, scanAllowance } from "@/lib/plans";
 
 const TEAM = scanAllowance("team")!;
@@ -52,5 +52,20 @@ describe("allotmentRead — burn-vs-allotment right-sizing", () => {
   it("is 'ok' in the comfortable middle, and never 'under' at zero burn (nothing to right-size yet)", () => {
     expect(allotmentRead("team", burnFor(TEAM, 50, 30), 30)!.fit).toBe("ok");
     expect(allotmentRead("team", 0, 30)!.fit).toBe("ok"); // 0 burn → not an idle-downgrade signal
+  });
+});
+
+// MC-B21 (VICTOR-L1-01): "Unused credits roll over. They never expire" sat under a header reading
+// "Monthly allotment · N credits / mo". Both clauses were true, of two different currencies — and the
+// one the meter above them measures is the one that does NOT roll over.
+describe("the allotment note names both currencies", () => {
+  it("says the monthly allotment resets and only prepaid credits roll over", () => {
+    expect(ALLOTMENT_CURRENCIES_NOTE).toMatch(/monthly allotment resets/i);
+    expect(ALLOTMENT_CURRENCIES_NOTE).toMatch(/prepaid credits[^.]*roll over/i);
+  });
+
+  it("never says roll-over without naming which currency rolls over", () => {
+    // The regression shape: an unqualified "credits roll over" under a meter of the allotment.
+    expect(ALLOTMENT_CURRENCIES_NOTE).not.toMatch(/(?<!prepaid )credits (roll over|never expire)/i);
   });
 });

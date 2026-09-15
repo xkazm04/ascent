@@ -56,7 +56,7 @@ export function OverlayStatusSelect({ item, status }: { item: OverlayKey; status
         onChange={(e) => change(e.target.value)}
         disabled={busy}
         aria-label={`Status of "${item.title}" on ${item.repo}`}
-        className="focus-ring rounded-md border border-slate-700 bg-ink px-2 py-1 font-mono text-sm text-slate-300 disabled:opacity-50"
+        className="focus-ring rounded-md border border-slate-700 bg-ink px-2 py-1 type-mono-sm text-slate-300 disabled:opacity-50"
       >
         {REC_STATUSES.map((s) => (
           <option key={s} value={s}>
@@ -65,7 +65,7 @@ export function OverlayStatusSelect({ item, status }: { item: OverlayKey; status
         ))}
       </select>
       {error && (
-        <span role="alert" className="text-sm text-rose-400">
+        <span role="alert" className="type-body-sm text-rose-400">
           {error}
         </span>
       )}
@@ -93,7 +93,7 @@ export function OverlayDueDate({ item, targetDate }: { item: OverlayKey; targetD
       onChange={(e) => change(e.target.value)}
       disabled={busy}
       aria-label={`Personal due date for "${item.title}" on ${item.repo}`}
-      className="focus-ring rounded-md border border-slate-700 bg-ink px-2 py-1 font-mono text-sm text-slate-400 disabled:opacity-50"
+      className="focus-ring rounded-md border border-slate-700 bg-ink px-2 py-1 type-mono-sm text-slate-400 disabled:opacity-50"
     />
   );
 }

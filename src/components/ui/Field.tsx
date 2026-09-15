@@ -24,7 +24,7 @@ import { Kicker } from "./Kicker";
  * doesn't fit the wrappers below still lands on the same tokens instead of inventing a fifth variant.
  */
 export const CONTROL_CLASS =
-  "focus-ring w-full rounded-lg border border-divider bg-surface/60 px-3 py-2 text-base text-white transition placeholder:text-slate-600 hover:border-slate-600 focus:border-accent disabled:cursor-not-allowed disabled:opacity-60";
+  "focus-ring w-full rounded-lg border border-divider bg-surface/60 px-3 py-2 type-body text-white transition placeholder:text-slate-600 hover:border-slate-600 focus:border-accent disabled:cursor-not-allowed disabled:opacity-60";
 
 /**
  * A labelled form row: mono eyebrow, an optional hint, the control, then an error when there is one.
@@ -61,13 +61,13 @@ export function Field({
       <Kicker as={as === "fieldset" ? "legend" : "span"} tone="muted">
         {label}
       </Kicker>
-      {hint && <p className="mt-1 text-xs leading-relaxed text-slate-500">{hint}</p>}
+      {hint && <p className="mt-1 type-note leading-relaxed text-slate-500">{hint}</p>}
       <div className="mt-1.5">{children}</div>
       {/* Deliberately NOT a live region. A form that marks the offending field AND announces the same
           failure from its footer would fire two announcements for one error; the footer (or whatever
           summary the caller owns) is the single announcement, and this is the visual marker that says
           WHICH control it was about. */}
-      {error && <p className="mt-1.5 text-xs leading-relaxed text-danger">{error}</p>}
+      {error && <p className="mt-1.5 type-note leading-relaxed text-danger">{error}</p>}
     </Wrap>
   );
 }
@@ -122,15 +122,15 @@ export function CheckCard({
       <input type="checkbox" name={name} checked={checked} onChange={onChange} disabled={disabled} className="peer sr-only" />
       <span
         aria-hidden="true"
-        className={`mt-0.5 grid h-[18px] w-[18px] shrink-0 place-items-center rounded border text-[11px] font-bold leading-none transition peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-ink ${
+        className={`mt-0.5 grid h-[18px] w-[18px] shrink-0 place-items-center rounded border type-micro font-bold leading-none transition peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-ink ${
           checked ? "border-accent bg-accent text-on-accent" : "border-slate-600"
         }`}
       >
         {checked ? "✓" : ""}
       </span>
       <span className="min-w-0">
-        <span className="block text-sm font-medium text-slate-100">{label}</span>
-        {hint && <span className="mt-0.5 block text-xs leading-relaxed text-slate-500">{hint}</span>}
+        <span className="block type-body-sm font-medium text-slate-100">{label}</span>
+        {hint && <span className="mt-0.5 block type-note leading-relaxed text-slate-500">{hint}</span>}
       </span>
     </label>
   );

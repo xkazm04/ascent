@@ -32,6 +32,9 @@ export interface BlockedRepo {
 export interface BlockerAggRow {
   name: string;
   fullName: string;
+  /** The repo's latest scan came from the deterministic MOCK engine, so its blockers are a
+   *  placeholder floor rather than a model's finding. Counted, never excluded — see `scopeCounts`. */
+  placeholder?: boolean;
   detail: {
     autoBlockers: string[];
     prodBlockers: string[];
@@ -115,3 +118,21 @@ export const AXIS_TONE: Record<Agg["axis"], { label: string; color: string }> = 
   automation: { label: "auto", color: "#3b9eff" },
   production: { label: "prod", color: "#d97706" },
 };
+
+/** What the docket's counts are actually OVER — the predicate a Pareto has to state out loud.
+ *
+ * The buckets deliberately do not exclude a placeholder-scanned repo (excluding it would silently
+ * shrink a fleet problem, the same defect declines already caused above), so the honest disclosure is
+ * arithmetic beside the ranking: N repos in view, of which M were never graded by a model. A reader
+ * who knows M can discount the ranking; a reader who does not, cannot.
+ */
+export interface ScopeCounts {
+  /** Repos the docket ranked over. */
+  repos: number;
+  /** How many of those carry a deterministic placeholder scan. Always <= `repos`. */
+  placeholderRepos: number;
+}
+
+export function scopeCounts(rows: BlockerAggRow[]): ScopeCounts {
+  return { repos: rows.length, placeholderRepos: rows.filter((r) => r.placeholder === true).length };
+}

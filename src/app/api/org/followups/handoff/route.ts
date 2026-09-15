@@ -13,14 +13,18 @@
 // Idempotent on re-send: an item already in progress is left alone (no duplicate event); done /
 // dismissed items are NOT reopened — a batch that includes a closed item is a stale selection, and
 // the response says which ids were skipped so the ledger can refresh.
+//
+// The data work — one membership-scoped batch read, then CAS-guarded writes with the timeline +
+// audit rows in the same transaction — lives in handoffRecommendations (the data layer owns the
+// boundary); this route keeps only transport concerns. Spec:
+// docs/specs/2026-08-30-followups-handoff-batch.md.
 
 import { NextResponse } from "next/server";
 import { PUBLIC_ORG } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
 import { requireOrgAccess } from "@/lib/authz";
 import { dbGuard } from "@/lib/api/orgPlan";
-import { getRecommendationOrgSlug, updateRecommendation } from "@/lib/db";
-import { getPrisma } from "@/lib/db/client";
+import { handoffRecommendations } from "@/lib/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,28 +47,15 @@ export async function POST(request: Request) {
   const denied = await requireOrgAccess(org);
   if (denied) return denied;
 
-  // Every id must belong to THIS org. Resolved one by one through the same helper the per-item route
-  // uses, so the ownership rule has one implementation.
-  for (const id of ids) {
-    const owner = await getRecommendationOrgSlug(id);
-    if (!owner || owner.trim().toLowerCase() !== org) {
-      return NextResponse.json({ error: "One or more items do not belong to this organization." }, { status: 403 });
-    }
-  }
-
   const actor = await resolveViewerLogin();
-  const rows = await getPrisma().recommendation.findMany({ where: { id: { in: ids } }, select: { id: true, status: true } });
-  const statusOf = new Map(rows.map((r) => [r.id, r.status]));
-  const marked: string[] = [];
-  const skipped: { id: string; status: string }[] = [];
-  for (const id of ids) {
-    const status = statusOf.get(id);
-    if (status === "open") {
-      await updateRecommendation(id, { status: "in_progress" }, { actor, note: "Handed off: fix prompt generated from the Follow-ups ledger" });
-      marked.push(id);
-    } else if (status) {
-      skipped.push({ id, status });
-    }
+  const outcome = await handoffRecommendations(org, ids, {
+    actor,
+    note: "Handed off: fix prompt generated from the Follow-ups ledger",
+  });
+  if (!outcome) return NextResponse.json({ error: "Follow-up tracking requires a database." }, { status: 503 });
+  if (!outcome.ok) {
+    // Unknown and foreign ids get the SAME whole-request refusal — no existence oracle.
+    return NextResponse.json({ error: "One or more items do not belong to this organization." }, { status: 403 });
   }
-  return NextResponse.json({ marked, skipped });
+  return NextResponse.json({ marked: outcome.marked, skipped: outcome.skipped });
 }

@@ -31,12 +31,12 @@ export function DimensionFloorRows({
   return (
     <div className="mt-3 border-t border-slate-800 pt-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <span className="font-mono text-sm uppercase tracking-widest text-slate-500">Other dimension floors</span>
-        <span className="text-sm text-slate-500">Enforced by the gate; not exposed as a CI input.</span>
+        <span className="type-mono-sm uppercase tracking-widest text-slate-500">Other dimension floors</span>
+        <span className="type-body-sm text-slate-500">Enforced by the gate; not exposed as a CI input.</span>
       </div>
 
       {configured.length === 0 ? (
-        <p className="mt-2 text-sm text-slate-500">
+        <p className="mt-2 type-body-sm text-slate-500">
           No per-dimension floors beyond Security. Add one to hold every repo to a minimum on a specific
           dimension.
         </p>
@@ -44,7 +44,7 @@ export function DimensionFloorRows({
         <ul className="mt-2 space-y-2">
           {configured.map((d) => (
             <li key={d.id} className="flex items-center gap-2">
-              <label className="flex flex-1 items-center justify-between gap-2 text-sm text-slate-400">
+              <label className="flex flex-1 items-center justify-between gap-2 type-body-sm text-slate-400">
                 <span>
                   <span className="font-mono text-slate-500">{d.id}</span> {d.name} ≥
                 </span>
@@ -57,14 +57,14 @@ export function DimensionFloorRows({
                   max={100}
                   value={floors[d.id] ?? ""}
                   onChange={(e) => onChange(d.id, e.target.value)}
-                  className="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent"
+                  className="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 type-body-sm text-slate-200 outline-none focus:border-accent"
                 />
               </label>
               <button
                 type="button"
                 onClick={() => onChange(d.id, null)}
                 aria-label={`Remove the ${d.id} ${d.name} floor`}
-                className="rounded-md border border-slate-700 px-2 py-1 font-mono text-sm text-slate-500 transition hover:border-orange-400 hover:text-orange-300"
+                className="rounded-md border border-slate-700 px-2 py-1 type-mono-sm text-slate-500 transition hover:border-orange-400 hover:text-orange-300"
               >
                 ✕
               </button>
@@ -74,7 +74,7 @@ export function DimensionFloorRows({
       )}
 
       {available.length > 0 && (
-        <label className="mt-2 flex items-center gap-2 text-sm text-slate-400">
+        <label className="mt-2 flex items-center gap-2 type-body-sm text-slate-400">
           Add a floor
           <select
             // A controlled select pinned to "" — picking a dimension ADDS a row (seeded at 50, the same
@@ -82,7 +82,7 @@ export function DimensionFloorRows({
             // a stale selection that isn't part of the policy.
             value=""
             onChange={(e) => e.target.value && onChange(e.target.value, "50")}
-            className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-sm text-slate-200 outline-none focus:border-accent"
+            className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 type-mono-sm text-slate-200 outline-none focus:border-accent"
           >
             <option value="">select a dimension…</option>
             {available.map((d) => (

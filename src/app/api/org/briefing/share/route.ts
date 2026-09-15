@@ -72,7 +72,11 @@ export async function POST(request: Request) {
   const snapshot = fingerprintable
     ? await buildExecBriefing(
         orgKey,
-        { start: win.winStart ? new Date(win.winStart) : null, end: new Date(win.winEnd) },
+        // Direction 3 — the half-open bound, matching every other org call site (`orgWindowBounds`).
+        // `freezeShareWindow` now freezes `endExclusive`, so this is the bound the token carries and
+        // the bound the shared page will re-render with: the fingerprint below is taken over exactly
+        // the window the recipient gets, which is the whole point of taking it here.
+        { start: win.winStart ? new Date(win.winStart) : null, endExclusive: new Date(win.winEndX) },
         undefined,
         body.segment ?? null,
         techGroupId,
@@ -88,6 +92,7 @@ export async function POST(request: Request) {
     to: body.to,
     winStart: win.winStart ?? undefined,
     winEnd: win.winEnd,
+    winEndX: win.winEndX,
     segment: body.segment,
     stack: body.stack,
     mintedBy,

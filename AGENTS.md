@@ -73,6 +73,75 @@ pragma and mock setup.
 
 ---
 
+## Git policy (harness-enforced)
+
+**Commit on the current branch; never push.** The owner pushes after reading the log. Do not push, force-push, or open a pull request unless this session's prompt asks for it. This line exists because the harness's own default for an unattended session is to push and open a draft PR when the file says nothing (measured 2026-09-08: without such a line the agent pushed; with it the agent stopped at the commit). The gate bypass is denied to agents at the permission layer (`.claude/settings.json` `permissions.deny`: `--no-verify`, force-push, `ASCENT_SKIP_GATE=1`) - do not work around it; if a gate is red, fix the tree.
+
+# Safety conventions the codebase already holds
+
+These are not aspirations. Each is a pattern the code follows today, written down because losing it
+costs more than following it. Two are enforced by a structural test; the third is a rule for you.
+
+## A dangerous env flag is hard-disabled inside its OWN definition
+
+An escape-hatch flag — one that drops the login wall, opens a credit mint, or exposes a preview
+surface — reads its production floor **in the function that defines it**, never at the call site:
+
+```ts
+export function authBypassEnabled(): boolean {
+  if (process.env.NODE_ENV === "production") return false;   // floor FIRST
+  return envBool("ASCENT_AUTH_BYPASS");
+}
+```
+
+`src/lib/env.ts` applies this to `authBypassEnabled()`, `creditGrantsEnabled()` and
+`registryPreviewEnabled()`, and each comments the reason: a stray or leaked env var on a real
+deployment must be **inert**, not merely unused-by-convention. (Grep the names. This paragraph
+used to carry line numbers; the functions moved and the citations did not, which is the failure
+mode of citing a line in a file that grows — a name is the stable address.)
+
+Why the placement is the whole point: a flag whose floor lives at the call site is one careless
+`process.env.X === "1"` away from being lost, and the person who writes that line will not know the
+floor existed. Putting it in the definition means there is no way to read the flag without the floor.
+
+**When you add an escape hatch:** put the `NODE_ENV === "production"` check inside its definition,
+before reading the variable, and never read the raw `process.env` value anywhere else.
+
+Note the deliberate exception: `selfHosted()` in the same file has a *three-state* read and no
+production floor, because self-hosting in production is a legitimate mode. It instead warns once when
+production falls through to inference — a fail-open it makes **loud** rather than forbidden.
+
+## An `[id]` route authorizes against the row's org
+
+Enforced by `src/app/api/org/id-routes-gated.test.ts`. Two mechanisms, both correct:
+
+- **resolve-then-gate** — derive the owning org from the row, gate that (`getGoalOrgSlug(id)` →
+  `requireOrgRole`). Never trust a caller-supplied org *alongside* a caller-supplied id.
+- **gate-then-constrain** — gate the caller-supplied org, then pass it into the query beside the id so
+  a mismatched row is simply not found (`setRepoSegment(body.org, id, …)` → 404).
+
+The guard checks a gate is present; it cannot check the id is org-constrained. That part is review.
+
+It matches **code**, not the comments that describe it (2026-09-04). Every route here explains which
+gate it calls — house style — and the guard read raw file text, so the words satisfying it were the
+prose, not the call. Deleting the import and both call sites from `goals/[id]/route.ts` while leaving
+the three comment lines that name them kept the suite green. It now strips comments and string
+literals first, and a seeded prose-only violation is pinned so it cannot quietly stop biting. **If you
+write another source-scanning gate in this repo, strip comments before matching and seed a violation
+to prove it still fails** — a matcher that stops matching reports a clean codebase in a voice
+indistinguishable from success.
+
+## A db type that crosses to a client never declares a `Date`
+
+Enforced by `src/lib/db/wire-safe-dates.test.ts` (a compile-time assertion, so `tsc` catches it).
+
+Prisma returns `Date`; `NextResponse.json` sends an ISO **string**. A wire type declaring `Date` lets
+`row.createdAt.getTime()` type-check and then throw at runtime. Every client-facing row type declares
+timestamps as `string` and the `toRow()` mappers `.toISOString()` server-side — so the mistake is not
+available to make. Add a new client-imported db type to that guard's list.
+
+---
+
 # Documentation Sync: one surface, same-session enforcement
 
 Ascent has one docs surface for implemented product: **`docs/features/<area>/`**,

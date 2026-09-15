@@ -27,8 +27,8 @@ function Cell({ view, artifact, slug }: { view: RegistryView; artifact: Registry
         color={total === 0 ? undefined : scoreHex(pct)}
       />
       <div className="mt-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <span className="font-mono text-xs text-slate-600">{ARTIFACT_DIR[artifact]}</span>
-        <span className="font-mono text-xs uppercase tracking-[0.16em] text-slate-500">{MIGRATION_LABEL[step.state]}</span>
+        <span className="type-caption text-slate-600">{ARTIFACT_DIR[artifact]}</span>
+        <span className="type-label tracking-[0.16em] text-slate-500">{MIGRATION_LABEL[step.state]}</span>
       </div>
       <div className="mt-1">
         <RegistryMigrateAction view={view} artifact={artifact} step={step} slug={slug} />
@@ -55,7 +55,7 @@ export function RegistryArtifactLedger({
         ))}
       </div>
       {view.counts.lessons > 0 ? (
-        <p className="font-mono text-xs text-slate-500">
+        <p className="type-caption text-slate-500">
           <span className="tabular-nums text-slate-300">{view.counts.lessons}</span> LESSONS.md entries appended by developers —
           reflection lane 2, append-only, never overwritten by ascent.
         </p>

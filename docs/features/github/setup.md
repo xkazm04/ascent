@@ -29,6 +29,7 @@ maturity gate, push-driven re-scan, and "open a practice starter PR") need a lit
 | **Pull requests** | Read & write | PR maturity-gate sticky comment; open starter PRs |
 | **Checks** | Read & write | post the PR maturity-gate Check Run (the merge status); Read also lets the scan see the **installed-App inventory** (check suites on the scored commit) on private repos |
 | **Actions** | Read (optional) | default-branch **CI health** (recent workflow runs) on private repos; without it that enrichment is simply not observed |
+| **Secrets** | Read & write (optional) | let Ascent provision **conformance report-back** — the two Actions secrets (`ASCENT_CONFORMANCE_URL`, `ASCENT_CONFORMANCE_TOKEN`) the `.ai/` foundation's CI job needs to post its doctor score back. Owner-gated and typed-confirmed per repo, and fully reversible from the Repositories tab. Without it, set the two secrets by hand; nothing else degrades |
 
 Grant only what you use: read-only Contents + Metadata is enough for pure scanning.
 
@@ -66,17 +67,17 @@ Requires `DATABASE_URL` too (installations are stored on `Organization.githubIns
 
 ## 3. Install & scan
 
-1. Visit **`/connect`** → **Install on GitHub** (uses `GITHUB_APP_SLUG`).
+1. Visit **`/onboarding`**, pick an org you are not yet a member of, and follow **Install the GitHub App** on the access gate (uses `GITHUB_APP_SLUG`) — or open the App's public install page directly.
 2. Pick the repositories to grant access to.
 3. GitHub redirects to `/api/app/setup?installation_id=…`, which stores the installation
-   and bounces you to `/connect?org=<login>` with your repo list.
+   and bounces you to `/onboarding?org=<login>` with the wizard opened on that org.
 4. Click **Scan** on any repo: the scan route resolves the installation token by owner,
    reads the repo via the authenticated Contents API, and persists the result under your
    org (private → billable).
 
 ## 4. Enable sign-in (GitHub OAuth)
 
-Sign-in gates `/connect`, `/usage`, and `/trends`, and scopes `/connect` to the
+Sign-in gates `/usage` and `/trends`, and scopes the wizard's App path to the
 **signed-in user's own installations**. It reuses the **same GitHub App** as its OAuth
 provider, so a user's token can list their installations.
 

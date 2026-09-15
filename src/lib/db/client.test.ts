@@ -195,15 +195,15 @@ describe("buildDsqlUrl", () => {
     expect(decodeURIComponent(url.password)).toBe(token);
   });
 
-  // database-client-schema #2: the serverless connection budget is an OPTIONAL, env-gated knob —
-  // a NO-OP by default (so the cron is never accidentally serialized) and applied only when set.
+  // database-client-schema #2 [A1]: the serverless connection budget now DEFAULTS to a real cap
+  // (10) — env-tunable, with DB_CONNECTION_LIMIT=0 the explicit opt-out to Prisma's pool default.
   describe("DB_CONNECTION_LIMIT budget knob", () => {
     afterEach(() => vi.unstubAllEnvs());
 
-    it("adds no connection_limit when DB_CONNECTION_LIMIT is unset (unchanged default)", () => {
+    it("defaults connection_limit to the built-in cap when DB_CONNECTION_LIMIT is unset", () => {
       vi.stubEnv("DB_CONNECTION_LIMIT", "");
       const url = new URL(buildDsqlUrl(cfg, "tok"));
-      expect(url.searchParams.has("connection_limit")).toBe(false);
+      expect(url.searchParams.get("connection_limit")).toBe("10");
       expect(url.searchParams.has("pool_timeout")).toBe(false);
     });
 
@@ -217,9 +217,9 @@ describe("buildDsqlUrl", () => {
       expect(url.searchParams.get("sslmode")).toBe("require");
     });
 
-    it("ignores a non-numeric / non-positive limit (no param added)", () => {
+    it("warns on a malformed limit and falls back to the default cap; 0 opts out entirely", () => {
       vi.stubEnv("DB_CONNECTION_LIMIT", "lots");
-      expect(new URL(buildDsqlUrl(cfg, "tok")).searchParams.has("connection_limit")).toBe(false);
+      expect(new URL(buildDsqlUrl(cfg, "tok")).searchParams.get("connection_limit")).toBe("10");
       vi.stubEnv("DB_CONNECTION_LIMIT", "0");
       expect(new URL(buildDsqlUrl(cfg, "tok")).searchParams.has("connection_limit")).toBe(false);
     });
@@ -486,9 +486,12 @@ describe("withDb — proactive refresh is best-effort while a client is cached",
     delete process.env.DATABASE_URL;
     // The mint failure's message depends on the machine: where @aws-sdk/dsql-signer isn't installed
     // the import itself rejects ("dsql-signer"); where it IS resolvable (e.g. hoisted by another
-    // workspace) the signer runs and rejects at the AWS credential chain instead. Either way the
+    // workspace) the signer runs and rejects at the AWS credential chain instead — and a machine with a
+    // stale AWS SSO login rejects with "Your session has expired. Please reauthenticate". Either way the
     // guarantee under test is the same: with no cached client, withDb REJECTS rather than proceeding.
-    await expect(withDb(async () => "unreachable")).rejects.toThrow(/dsql-signer|credential/i);
+    await expect(withDb(async () => "unreachable")).rejects.toThrow(
+      /dsql-signer|credential|session has expired|reauthenticate/i,
+    );
   });
 });
 
@@ -679,7 +682,8 @@ describe("getPrisma / dbHealthCheck / reconnectDb — cold-start + self-heal (mo
     process.env.DATABASE_URL = "postgresql://localhost:5432/app";
     const client = getPrisma();
     expect(constructed).toHaveLength(1);
-    expect((client as unknown as FakeClient).datasourceUrl).toBe("postgresql://localhost:5432/app");
+    // [A1] The default connection cap now applies to the static URL too.
+    expect((client as unknown as FakeClient).datasourceUrl).toBe("postgresql://localhost:5432/app?connection_limit=10");
     // Static mode caches with a never-expiring sentinel.
     expect(g.__ascentPrisma?.expiresAt).toBe(Infinity);
   });

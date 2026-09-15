@@ -4,6 +4,7 @@
 
 import Link from "next/link";
 import { Meter } from "@/components/org/shared/ui";
+import { orgTabHref } from "@/lib/org/orgTabs";
 import { useOrgScanButton } from "./useOrgScanButton";
 
 export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount: number }) {
@@ -18,7 +19,7 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
           aria-disabled={inert || undefined}
           title={noWatched ? "Watch repositories on Connect to enable scanning" : undefined}
           aria-describedby={noWatched ? hintId : undefined}
-          className={`rounded-lg bg-accent px-4 py-2 text-base font-semibold text-on-accent transition ${
+          className={`rounded-lg bg-accent px-4 py-2 type-body font-semibold text-on-accent transition ${
             inert ? "cursor-not-allowed opacity-50" : "hover:bg-accent-soft"
           }`}
         >
@@ -35,7 +36,7 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
             aria-disabled={inert || undefined}
             title="Rescan only repos not scanned in the last 14 days: saves token budget"
             aria-describedby={noWatched ? hintId : undefined}
-            className={`rounded-lg border border-slate-700 px-3 py-2 text-base text-slate-300 transition ${
+            className={`rounded-lg border border-slate-700 px-3 py-2 type-body text-slate-300 transition ${
               inert ? "cursor-not-allowed opacity-50" : "hover:border-accent hover:text-white"
             }`}
           >
@@ -58,52 +59,50 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
             <div aria-hidden="true">
               <Meter value={Math.max(4, pct)} size="sm" />
             </div>
-            <p className="mt-1 truncate font-mono text-sm text-slate-500">
+            <p className="mt-1 truncate type-mono-sm text-slate-500">
               {p.total ? `Scanning ${p.done} of ${p.total}` : "Scanning"}
               {p.current ? ` · ${p.current}` : "…"}
             </p>
           </div>
         )}
         {!p.running && p.failed > 0 && !p.error && (
-          <p className="text-sm text-warn">
+          <p className="type-body-sm text-warn">
             {p.failed} {p.failed === 1 ? "repo" : "repos"} failed to scan. See the Repositories tab.
           </p>
         )}
         {!p.running && p.skipped > 0 && !p.error && (
-          <p className="text-sm text-warn">
+          <p className="type-body-sm text-warn">
             {p.skipped} {p.skipped === 1 ? "repo" : "repos"} skipped (out of scan credits).
           </p>
         )}
-        {/* Time-budget stop — distinct from the network-error state below. The run succeeded for the
-            repos it reached (they are persisted); the remainder was never started, so continuing costs
-            nothing for work already done. The button carries the exact remainder, so a continue walks
-            only what's left. */}
-        {!p.running && p.truncated && !p.error && p.truncated.repos.length > 0 && (
-          <div className="flex flex-col items-end gap-1">
-            <p className="text-sm text-warn">
-              Time budget reached:{" "}
-              <span className="font-mono tabular-nums">
-                {p.truncated.scanned} of {p.truncated.total}
-              </span>{" "}
-              scanned.
-            </p>
-            <button
-              type="button"
-              onClick={() => run({ repos: p.truncated?.repos })}
-              className="focus-ring rounded-lg border border-divider px-3 py-1.5 text-sm text-slate-300 transition hover:border-accent hover:text-white"
-            >
-              Continue ({p.truncated.repos.length} left)
-            </button>
-          </div>
+        {/* A DIFFERENT failure with a different fix: the org's installation token could not be
+            minted. Its own line rather than a shared "skipped" count, because "buy credits" and
+            "reconnect the GitHub App" are not the same instruction — and because a fleet where every
+            repo skips this way used to settle as a clean, empty success. */}
+        {!p.running && p.skippedNoToken > 0 && !p.error && (
+          <p className="type-body-sm text-warn">
+            {p.skippedNoToken} {p.skippedNoToken === 1 ? "repo" : "repos"} skipped — GitHub App access
+            unavailable. Reconnect the installation on Connect.
+          </p>
         )}
-        {p.error && <p className="text-sm text-danger">{p.error}</p>}
+        {/* Time-budget stop — distinct from the network-error state below, and no longer an ASK.
+            The repos this run reached are persisted; the remainder is a queued job the background
+            worker finishes, so the surface is a count that ticks down on its own (polled in
+            useOrgScanButton) rather than a "Continue" button handing the user back work the server
+            dropped. It sits inside the same live region, so a screen-reader user hears it too. */}
+        {!p.running && p.queued && !p.error && p.queued.pending > 0 && (
+          <p className="type-body-sm text-warn">
+            <span className="font-mono tabular-nums">{p.queued.pending}</span> queued — finishing in the background.
+          </p>
+        )}
+        {p.error && <p className="type-body-sm text-danger">{p.error}</p>}
       </div>
       {!p.running && watchedCount === 0 && (
         <Link
-          href="/connect"
-          className="focus-ring font-mono text-sm text-slate-500 transition hover:text-accent"
+          href={orgTabHref(org, "repositories")}
+          className="focus-ring type-mono-sm text-slate-500 transition hover:text-accent"
         >
-          Watch repos on Connect →
+          Watch repos in Repositories →
         </Link>
       )}
     </div>

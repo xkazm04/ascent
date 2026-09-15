@@ -21,7 +21,7 @@ import { selfHostGuard } from "@/lib/api/self-host";
 import { verifyLocalPath } from "@/lib/local/pairing";
 import { LocalFsSource, isWorkingCopyDirty } from "@/lib/local/source";
 import { scanRepository } from "@/lib/scan";
-import { getRepoLocalPath, persistScanReport, recordScanOutcome } from "@/lib/db";
+import { getLatestPlatformSignals, getRepoLocalPath, persistScanReport, recordScanOutcome } from "@/lib/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -52,6 +52,12 @@ export async function POST(request: Request) {
   }
 
   const dirty = await isWorkingCopyDirty(path);
+  // The GitHub-side folds (installed review/CI/coverage Apps, default-branch Actions health) are
+  // invisible from disk, so the last scan that DID observe them is replayed here with its provenance
+  // and age — the same carry the loop's rescans perform (src/lib/analyze/platform-carry.ts). Without
+  // it a manual local rescan silently retires the fold from the repo's latest reading, and D2/D3/D4
+  // drop to their file-scan floor for a reason that has nothing to do with the repository.
+  const carriedPlatformSignals = await getLatestPlatformSignals(org, fullName).catch(() => null);
   try {
     const report = await scanRepository(fullName, {
       orgSlug: org,
@@ -65,6 +71,10 @@ export async function POST(request: Request) {
       // Never send a paired working copy's contents through GitHub-token'd enrichment lookups keyed
       // by a name that may not even exist publicly.
       noAmbientToken: true,
+      // Declared, not inferred: only the caller knows this scan read a filesystem. It is what makes
+      // an absent fold render as "D2/D3/D4 not measurable locally" instead of as a measured shortfall.
+      platformSignalsUnobservable: true,
+      carriedPlatformSignals,
     });
     const persisted = await persistScanReport(report, { orgSlug: org });
     await recordScanOutcome(org, fullName, { ok: true }).catch(() => {});

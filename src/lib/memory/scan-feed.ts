@@ -27,7 +27,7 @@
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { levelForScore } from "@/lib/maturity/model";
 import { overlapScore } from "@/lib/memory/consolidation";
-import { SCAN_PIPELINE_SOURCE } from "@/lib/org/memory-kinds";
+import { SCAN_PIPELINE_SOURCE, normalizeConfidence, type MemoryKind } from "@/lib/org/memory-kinds";
 import type { RegressionVerdict } from "@/lib/alerts";
 import type { MaturityLevel, ScanReport } from "@/lib/types";
 
@@ -53,29 +53,42 @@ const DEDUP_WINDOW = 25;
 const isoDate = (at: Date) => at.toISOString().slice(0, 10);
 
 /**
- * The single write path. Returns the new row's id, `null` when it was deduped, persistence is off, or
- * anything at all went wrong. Warn-only by contract — see the header.
+ * THE ONE INGEST DOOR into OrgMemory for machine-written memory (moonshot conflict W1-#4).
+ *
+ * This is `writeScanMemory`'s body with kind/source/confidence/tags parameterized. It exists because a
+ * second producer arrived (the `.ai/memory` mirror, #14; skill lessons next, #36) and the alternative
+ * was a second dedup implementation writing into the same store. Two dedup implementations in one
+ * memory store is the failure to avoid: they disagree at the margin, and the margin is exactly where a
+ * duplicate memory does its damage.
+ *
+ * The two contracts in this file's header are the door's contracts:
+ *   NEVER THROWS   — a memory write decorates a call that already succeeded; a failure logs and
+ *                    returns null.
+ *   IDEMPOTENT     — exact-content match, plus the token-overlap prefilter, scoped to
+ *                    (orgId, namespace, SOURCE). Scoping to source is deliberate: a human's note about
+ *                    the same fact must not suppress the machine record, or vice versa — different
+ *                    provenance, both deserve to exist.
+ *
+ * Returns the new row's id, or `null` when it was deduped, persistence is off, or anything went wrong.
+ * A null is therefore "no NEW row", never "failed" — callers that need to tell those apart must not
+ * use this door.
  */
-async function writeScanMemory(
-  orgId: string,
-  repo: string,
-  event: ScanMemoryEvent,
-  content: string,
-): Promise<{ id: string } | null> {
-  if (!isDbConfigured() || !orgId || !repo || !content.trim()) return null;
+export async function writeMemoryCandidate(input: {
+  orgId: string;
+  namespace: string;
+  content: string;
+  kind: MemoryKind;
+  source: string;
+  confidence: number;
+  tags: string[];
+}): Promise<{ id: string } | null> {
+  const { orgId, namespace, content, kind, source, confidence, tags } = input;
+  if (!isDbConfigured() || !orgId || !namespace || !source || !content.trim()) return null;
   try {
     const prisma = getPrisma();
-    // Dedup candidates: this org, this repo's namespace, our own writes only, still live. Scoping to
-    // `source` keeps a human's note about the same regression from suppressing the machine record (and
-    // vice versa) — they are different provenance and both deserve to exist.
+    // Dedup candidates: this org, this namespace, THIS source's own writes only, still live.
     const recent = await prisma.orgMemory.findMany({
-      where: {
-        orgId,
-        namespace: repo,
-        source: SCAN_PIPELINE_SOURCE,
-        archived: false,
-        supersededBy: null,
-      },
+      where: { orgId, namespace, source, archived: false, supersededBy: null },
       orderBy: { createdAt: "desc" },
       take: DEDUP_WINDOW,
       select: { id: true, content: true },
@@ -88,25 +101,50 @@ async function writeScanMemory(
     return await prisma.orgMemory.create({
       data: {
         orgId,
-        namespace: repo,
+        namespace,
         content,
-        kind: "episodic",
+        kind,
         visibility: "shared",
-        source: SCAN_PIPELINE_SOURCE,
-        confidence: 1.0,
-        tags: JSON.stringify([repo, event]),
+        source,
+        confidence: normalizeConfidence(confidence),
+        tags: JSON.stringify(tags),
         createdBy: null,
       },
       select: { id: true },
     });
   } catch (err) {
     console.warn(
-      `[memory/scan-feed] ${event} memory write failed (caller unaffected)`,
+      `[memory/scan-feed] ${source} memory write failed (caller unaffected)`,
       err instanceof Error ? err.message : err,
     );
     return null;
   }
 }
+
+/**
+ * Alias kept for THIS module's own three callers (and any observation-shaped producer that wants the
+ * scan-pipeline defaults spelled out at the call site). Byte-identical behaviour to what
+ * `writeScanMemory` did before the extraction — which `scan-feed.test.ts`, unchanged, is the proof of.
+ */
+export const ingestObservedMemory = (
+  orgId: string,
+  namespace: string,
+  source: string,
+  content: string,
+  tags: string[],
+  kind: MemoryKind = "episodic",
+  confidence = 1.0,
+): Promise<{ id: string } | null> =>
+  writeMemoryCandidate({ orgId, namespace, content, kind, source, confidence, tags });
+
+/** The scan pipeline's own three writers go through the door with the pipeline's fixed stamp. */
+const writeScanMemory = (
+  orgId: string,
+  repo: string,
+  event: ScanMemoryEvent,
+  content: string,
+): Promise<{ id: string } | null> =>
+  ingestObservedMemory(orgId, repo, SCAN_PIPELINE_SOURCE, content, [repo, event]);
 
 // ── Regression ───────────────────────────────────────────────────────────────────────────────
 

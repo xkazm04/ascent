@@ -37,7 +37,7 @@ export function NavBadge({ count, className = "" }: { count: number; className?:
   return (
     <span
       aria-hidden
-      className={`inline-flex min-w-[1.125rem] shrink-0 items-center justify-center rounded-full bg-accent px-1 font-mono text-[10px] font-semibold leading-[1.125rem] tabular-nums text-on-accent ${className}`}
+      className={`inline-flex min-w-[1.125rem] shrink-0 items-center justify-center rounded-full bg-accent px-1 font-mono type-micro font-semibold leading-[1.125rem] tabular-nums text-on-accent ${className}`}
     >
       {count > 99 ? "99+" : count}
     </span>
@@ -47,7 +47,7 @@ export function NavBadge({ count, className = "" }: { count: number; className?:
 export function navItemClass(active: boolean): string {
   return (
     "focus-ring relative flex items-center justify-between gap-2 whitespace-nowrap rounded-md px-3 py-1.5 " +
-    "text-base font-medium transition " +
+    "type-body font-medium transition " +
     (active
       ? // mobile: an accent-tinted pill; lg: a left accent bar (the rail marker) over a faint wash
         "bg-accent/10 text-white lg:before:absolute lg:before:inset-y-1 lg:before:left-0 lg:before:w-0.5 lg:before:rounded-full lg:before:bg-accent"
@@ -66,7 +66,7 @@ function ItemBody({ item }: { item: SideNavItem }) {
           <span className="sr-only">, {count} awaiting a decision</span>
         </>
       ) : (
-        item.hint != null && <span className="font-mono text-xs text-slate-500">{item.hint}</span>
+        item.hint != null && <span className="type-caption text-slate-500">{item.hint}</span>
       )}
     </>
   );

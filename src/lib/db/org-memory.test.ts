@@ -18,6 +18,7 @@ import {
   candidateOrgMemories,
   createOrgMemory,
   listOrgMemories,
+  listOrgMemoryNamespaces,
   recordMemoryRecall,
 } from "@/lib/db/org-memory";
 
@@ -126,6 +127,26 @@ describe("listOrgMemories — the read rules", () => {
     expect(andOf(calls.findMany[0]!.where)[1]).toEqual({ visibility: "shared" });
   });
 
+  // Provenance filter (moonshot #14) — EXACT, and it must compose with the visibility scope rather
+  // than replacing it. A filter that widened the read would turn a browsing control into a leak.
+  it("narrows to one exact source and still AND-composes visibilityScope", async () => {
+    const { prisma, calls } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    await listOrgMemories("acme", { source: "repo-memory" }, "alice");
+    const w = calls.findMany[0]!.where;
+    expect(w.source).toBe("repo-memory");
+    expect(andOf(w)[1]).toEqual({
+      OR: [{ visibility: "shared" }, { visibility: "private", createdBy: "alice" }],
+    });
+  });
+
+  it("treats a blank source as 'every source', not as an empty-string match", async () => {
+    const { prisma, calls } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    await listOrgMemories("acme", { source: "   " });
+    expect(calls.findMany[0]!.where.source).toBeUndefined();
+  });
+
   it("adds a case-insensitive content/source/namespace OR for a search term", async () => {
     const { prisma, calls } = fakePrisma();
     mockGetPrisma.mockReturnValue(prisma);
@@ -165,6 +186,28 @@ describe("listOrgMemories — the read rules", () => {
     mockGetPrisma.mockReturnValue(prisma);
     expect(await listOrgMemories("ghost")).toEqual([]);
     expect(calls.findMany).toHaveLength(0);
+  });
+});
+
+describe("listOrgMemoryNamespaces — the filter dropdown is viewer-scoped too", () => {
+  // REGRESSION (explorer, 2026-08-29): this read had no visibility filter, so a namespace used ONLY by
+  // another author's private memories was offered to every member in the dropdown. The rows stayed
+  // protected; the NAME — often the most revealing part of a private note — did not, and the filter it
+  // offered then matched nothing, because the list beside it in the same Promise.all IS scoped.
+  it("shows a viewer shared namespaces plus their OWN private ones", async () => {
+    const { prisma, calls } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    await listOrgMemoryNamespaces("acme", "alice");
+    expect(andOf(calls.findMany[0]!.where)[0]).toEqual({
+      OR: [{ visibility: "shared" }, { visibility: "private", createdBy: "alice" }],
+    });
+  });
+
+  it("shows an anonymous reader shared namespaces only", async () => {
+    const { prisma, calls } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    await listOrgMemoryNamespaces("acme");
+    expect(andOf(calls.findMany[0]!.where)[0]).toEqual({ visibility: "shared" });
   });
 });
 

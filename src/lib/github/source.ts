@@ -11,7 +11,7 @@ import type {
   RepoFile,
   RepoMeta,
   RepoSnapshot,
-  ScanProgress,
+
 } from "@/lib/types";
 import {
   encodePathSegments,
@@ -21,32 +21,18 @@ import {
   githubApiBase,
   githubRawBase,
 } from "@/lib/github/host";
+import { mapPool } from "@/lib/pool";
 
-export type ProgressFn = (p: ScanProgress) => void;
-export interface FetchOptions {
-  token?: string;
-  onProgress?: ProgressFn;
-  /** Aborts all in-flight ingestion fetches when the client disconnects. */
-  signal?: AbortSignal;
-  /**
-   * Git ref to ingest — a branch name, tag, or commit SHA. Defaults to the repo's default
-   * branch. Set this to a PR's head SHA to score what a pull request *changes* (its tree, files,
-   * and commits) rather than the default branch. `meta.defaultBranch` still reports the true
-   * default; only the tree/content/commit reads are pinned to this ref.
-   */
-  ref?: string;
-  /**
-   * Monorepo sub-tree to aim the CONTENT budget at (e.g. `packages/api`), normalized and validated
-   * upstream by `normalizeSubPath` (src/lib/scan-scope.ts). The file TREE is still read whole — repo
-   * structure is a repo-wide fact — but {@link pickFilesToFetch} spends its per-file slots on this
-   * sub-tree's manifests/source/tests instead of sampling the whole monorepo, while repo-wide
-   * governance files (root README/manifests, CODEOWNERS, SECURITY.md, CI workflows) are still read so
-   * the deterministic batteries that depend on them (notably D9's workflow battery) don't go blind.
-   *
-   * Unset ⇒ ingestion is byte-for-byte what it was before sub-path support existed.
-   */
-  subPath?: string;
-}
+// FORGE EXTRACTION (moonshot #4). `ProgressFn` / `FetchOptions` / `ParsedRepo` / `GitHubError` /
+// `RepoSource` are DECLARED in `@/lib/forge/types` now — not a character of them changed, only the
+// file they live in — and re-exported from here so every existing importer of `@/lib/github/source`
+// (all ~16 `parseRepoUrl` call sites, `src/lib/local/source.ts`, `scan-ingest.ts`) compiles
+// untouched. The declarations had to leave this module because the GitLab adapter needs them and
+// `src/lib/github/**` must not become a dependency of another forge.
+export type { FetchOptions, ParsedRepo, ProgressFn, RepoSource } from "@/lib/forge/types";
+export { GitHubError } from "@/lib/forge/types";
+import type { FetchOptions, ParsedRepo, RepoSource } from "@/lib/forge/types";
+import { GitHubError } from "@/lib/forge/types";
 
 const API = githubApiBase();
 const RAW = githubRawBase();
@@ -72,6 +58,15 @@ const MAX_CODEOWNERS_BYTES = 60_000;
 // CODEOWNERS_PATH_RE and the exact names pickFilesToFetch requests, matched case-insensitively.
 const CODEOWNERS_PATH_RE = /^(?:\.github\/|docs\/)?codeowners$/i;
 const MAX_TOTAL_BYTES = 280_000; // total content budget across all files (raised for full workflow ingest)
+// ── `.ai/memory` mirror (moonshot #14) ───────────────────────────────────────────────────────────
+// Repo-authored memory entries are fetched so the org can INDEX them (src/lib/memory/repo-memory-mirror.ts),
+// never so a scorer can read them. Two constants, exported because the pick guard and the quarantine
+// partition below are the two halves of one contract and a test has to be able to name it.
+/** Newest N numbered `.ai/memory/NNNN-*.md` entries fetched per scan. */
+export const MAX_MEMORY_FILES = 12;
+/** A NUMBERED memory entry. README.md and unnumbered files are deliberately excluded: the number is
+ *  the append-only ordering the format promises, and an unnumbered file is prose, not an entry. */
+export const MEMORY_ENTRY_RE = /^\.ai\/memory\/(\d{4})-[^/]+\.md$/i;
 const COMMIT_COUNT = 30;
 // These budgets now cover the response BODY as well as the headers (see host.ts fetchWithTimeout),
 // so each was raised: the recursive tree read on a large monorepo is multi-megabyte, and the old
@@ -80,43 +75,6 @@ const TIMEOUT_API_MS = 30_000; // GitHub REST (metadata/tree/commits) — tree r
 const TIMEOUT_FILE_MS = 15_000; // per-file content fetch (capped at MAX_FILE_BYTES, so far smaller)
 const FILE_CONCURRENCY = 8; // cap parallel file fetches (avoid secondary rate limits)
 
-export interface ParsedRepo {
-  owner: string;
-  repo: string;
-  /** Deep-link ref extracted from a pasted `/tree/<ref>` or `/commit/<sha>` URL (github-repo-data-access
-   *  07-16 #4). parseRepoUrl historically DISCARDED everything past owner/repo, so a pasted branch/commit
-   *  link silently scanned the default branch. The intent is now surfaced here so callers can pin
-   *  `FetchOptions.ref`; callers that ignore it keep the lenient owner/repo-only behavior. Unset when the
-   *  URL carried no ref or the ref is ambiguous (multi-segment `/tree/a/b` — a branch containing `/` is
-   *  indistinguishable from a subdirectory — and `/blob/<ref>/<path>` for the same reason). */
-  ref?: string;
-  /** PR number from a pasted `/pull/<n>` URL — same rationale as `ref`: a user pasting a PR link is NOT
-   *  asking for a default-branch scan, so the intent is preserved for callers to honor or surface. */
-  prNumber?: number;
-}
-
-export class GitHubError extends Error {
-  constructor(
-    public readonly code:
-      | "INVALID_URL"
-      | "NOT_FOUND"
-      | "RATE_LIMITED"
-      | "UPSTREAM"
-      | "EMPTY",
-    message: string,
-    public readonly status?: number,
-    /** Seconds to wait before retrying — set from a GitHub Retry-After on a (secondary) rate limit so
-     *  callers can back off instead of hammering. Undefined when the response carried no Retry-After. */
-    public readonly retryAfterSec?: number,
-  ) {
-    super(message);
-    this.name = "GitHubError";
-  }
-}
-
-export interface RepoSource {
-  fetchSnapshot(repo: ParsedRepo, opts?: FetchOptions): Promise<RepoSnapshot>;
-}
 
 /**
  * Accepts full URLs, `github.com/owner/repo`, or bare `owner/repo`.
@@ -347,34 +305,23 @@ export async function fetchRepoContext(parsed: ParsedRepo, token?: string): Prom
   };
 }
 
-/** Run `worker` over `items` with bounded concurrency. */
-async function pool<T, R>(
-  items: T[],
-  limit: number,
-  worker: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let cursor = 0;
-  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (cursor < items.length) {
-      const i = cursor++;
-      results[i] = await worker(items[i]!, i); // safe: `i < items.length` guards the loop
-    }
-  });
-  await Promise.all(runners);
-  return results;
-}
-
 async function ghJson<T>(url: string, token?: string, signal?: AbortSignal): Promise<T> {
   let res: Response;
   try {
     res = await ghFetch(url, { token, signal, timeoutMs: TIMEOUT_API_MS, cache: "no-store" });
   } catch (e) {
-    const msg =
-      (e as Error)?.name === "AbortError"
-        ? "GitHub request timed out. Try again."
-        : `Network error reaching GitHub: ${String(e)}`;
-    throw new GitHubError("UPSTREAM", msg);
+    if ((e as Error)?.name === "AbortError") {
+      throw new GitHubError("UPSTREAM", "GitHub request timed out. Try again.");
+    }
+    // The thrown value NEVER crosses back to the browser. Both scan routes relay a GitHubError's
+    // message verbatim and the report client renders it as text, so interpolating `e` published
+    // whatever the fetch layer put in it — on a GHES deploy with a malformed GITHUB_API_URL that is
+    // `TypeError: Failed to parse URL from https://<internal-host>/…`, i.e. the internal API host.
+    // Nothing from upstream crosses the boundary except a sentence from our own vocabulary (the
+    // AbortError branch above is the same shape); the raw error goes to the server log, where the
+    // operator who can act on it is.
+    console.warn("[github] network error reaching GitHub", e instanceof Error ? `${e.name}: ${e.message}` : e);
+    throw new GitHubError("UPSTREAM", "Couldn't reach GitHub. Please try again.");
   }
   if (res.status === 404) {
     throw new GitHubError("NOT_FOUND", "Repository not found or is private.", 404);
@@ -607,50 +554,36 @@ export class GitHubPublicSource implements RepoSource {
     // per-file budget at one package of a monorepo; unset (the default) leaves the pick byte-for-byte
     // as it was.
     const picks = pickFilesToFetch(blobs, opts.subPath);
-    emit({ stage: "files", message: `Reading ${picks.length} key files…`, pct: 45 });
+    // THE BYTE PLAN IS COMPUTED BEFORE ANY FETCH (see planFetchBudget). The set of files we read is a
+    // pure function of (tree, picks, budget) — never of how many of the 8 lanes happened to have
+    // reconciled their claim when task N ran. A `?fresh=1` re-scan of the same commit therefore reads
+    // the same files and produces the same score.
+    const listedSize = new Map<string, number>();
+    for (const b of blobs) if (typeof b.size === "number") listedSize.set(b.path, b.size);
+    const { admitted, displaced } = planFetchBudget(picks, (p) => listedSize.get(p));
+    emit({ stage: "files", message: `Reading ${admitted.length} key files…`, pct: 45 });
     const files: FetchedFile[] = [];
-    let totalBytes = 0;
-    await pool(picks, FILE_CONCURRENCY, async (path) => {
-      // Client disconnected mid-ingest — stop claiming budget and firing fetches for files
-      // nobody will read (an already-aborted signal also makes each fetch reject immediately).
+    await mapPool(admitted, FILE_CONCURRENCY, async (path) => {
+      // Client disconnected mid-ingest — don't fire fetches for files nobody will read (an
+      // already-aborted signal also makes each fetch reject immediately).
       if (signal?.aborted) return;
-      // RESERVE the worst-case slice synchronously, before any await. The guard + reservation
-      // run in one uninterrupted tick, so concurrent workers can't all pass a stale check and
-      // overshoot the cap by ~FILE_CONCURRENCY × MAX_FILE_BYTES (the check-then-act race the
-      // old code had, where the check straddled the fetch await). Reconcile to the real size
-      // after the fetch resolves.
-      if (totalBytes >= MAX_TOTAL_BYTES) return;
-      totalBytes += MAX_FILE_BYTES; // optimistic claim
-      let claimed = true;
-      const releaseClaim = () => {
-        if (claimed) {
-          totalBytes -= MAX_FILE_BYTES;
-          claimed = false;
-        }
-      };
       try {
         // With a token (e.g. a GitHub App installation), use the authenticated Contents
         // API so private repos work. Without one, the raw host avoids API rate limits.
         const content = token
           ? await fetchContents(owner, repo, ref, path, token, signal)
           : await fetchRaw(owner, repo, ref, path, signal);
-        if (content == null) {
-          releaseClaim(); // release the unused claim
-          return;
-        }
-        // CODEOWNERS is parsed exactly (not just fed to the prompt), so it gets a larger cap than
-        // the flat LLM budget. The optimistic claim was MAX_FILE_BYTES; the reconcile below uses the
-        // ACTUAL kept length, so the total-byte accounting stays correct regardless of the per-file cap.
-        const cap = CODEOWNERS_PATH_RE.test(path) ? MAX_CODEOWNERS_BYTES : MAX_FILE_BYTES;
-        const truncated = content.slice(0, cap);
-        totalBytes += truncated.length - MAX_FILE_BYTES; // reconcile claim → actual
-        claimed = false; // reconciled — no longer holding the flat optimistic claim
+        if (content == null) return;
+        // CODEOWNERS is parsed exactly (not just fed to the prompt), so it gets a larger cap than the
+        // flat LLM budget — the same cap the plan charged this path. A body that turns out LARGER
+        // than the tree listed it still truncates here exactly as before; the plan is the admission
+        // decision, this is the per-file cut.
+        const truncated = content.slice(0, capForPath(path));
         files.push({ path, content: truncated, bytes: content.length });
       } catch {
         // One pathological file (bad encoding, an unexpected Contents-API shape, a non-string
-        // body) must not reject the worker and, via Promise.all, abort the entire scan. Release
-        // the optimistic claim and skip the file — degrade coverage, mirroring the null path.
-        releaseClaim();
+        // body) must not reject the worker and, via Promise.all, abort the entire scan. Skip the
+        // file — degrade coverage, mirroring the null path.
       }
     });
     // Order by FETCH PRIORITY (pickFilesToFetch rank), not alphabetically. The assessment prompt
@@ -666,15 +599,32 @@ export class GitHubPublicSource implements RepoSource {
         (fetchRank.get(b.path) ?? Number.MAX_SAFE_INTEGER),
     );
 
-    const coverage = estimateCoverage(blobs.length, files.length, picks.length, treeRes.truncated);
+    // THE QUARANTINE (moonshot #14) — the last thing that happens before the snapshot exists. Memory
+    // bodies leave `files` here, so no scorer, prompt builder or analyzer downstream can reach them
+    // even by accident: they are only ever addressable as `snapshot.memoryFiles`.
+    // ATTEMPTED follows the PLAN: the denominator of the fetch-success rate is the set the plan
+    // admitted, so that ratio now measures only what it claims to (raw-host success), not "success
+    // rate × whatever the byte budget happened to leave". The picks the plan DISPLACED are not
+    // silently dropped from the arithmetic — they go in as their own term below.
+    const { files: promptFiles, memoryFiles, nonMemoryAttempted } = quarantineMemoryFiles(files, admitted);
+    const displacedNonMemory = displaced.filter((p) => !MEMORY_ENTRY_RE.test(p)).length;
+
+    const coverage = estimateCoverage(
+      blobs.length,
+      promptFiles.length,
+      nonMemoryAttempted,
+      treeRes.truncated,
+      displacedNonMemory,
+    );
 
     return {
       meta: repoMeta,
       tree,
-      files,
+      files: promptFiles,
       commits,
       truncated: treeRes.truncated,
       coverage,
+      memoryFiles,
     };
   }
 }
@@ -767,7 +717,11 @@ export function pickFilesToFetch(blobs: RepoFile[], subPath?: string): string[] 
       /^\.cursor\/rules\//i.test(p),
     ),
   )
-    .slice(0, 4)
+    // 6, not 4 (moonshot #15, landed here because W1-B owns this function — conflict W1-#6): the
+    // guidance graph samples these nodes and an unfetched node degrades to `contentSampled: false`.
+    // A repo with a root CLAUDE.md, a root AGENTS.md, copilot-instructions and two nested guides
+    // already exceeded 4, so the two most specific nested files were the ones being dropped.
+    .slice(0, 6)
     .forEach(add);
 
   // 1. Exact high-signal filenames (root or nested).
@@ -812,6 +766,16 @@ export function pickFilesToFetch(blobs: RepoFile[], subPath?: string): string[] 
     "openapi.yaml",
     "openapi.json",
     "vercel.json",
+    // The `.ai/` standard's two declaration files (moonshot #13, landed here on W1-A's behalf —
+    // conflict W1-#6). `aiStandard()` has read `idx.content(".ai/manifest.yaml")` for its
+    // "declares capabilities + control placement" award since it shipped, but the manifest was in
+    // NO fetch step, so the content was always "" and the award was dead code. Fetching it makes an
+    // existing deterministic award start firing on repos that already qualify — a score movement
+    // with no rubric change, recorded in the r11 note (00-INDEX X-#5).
+    ".ai/manifest.yaml",
+    ".ai/manifest.yml",
+    ".ai/guardrails.yaml",
+    ".ai/guardrails.yml",
   ];
   const lowerMap = new Map(paths.map((p) => [p.toLowerCase(), p]));
   // 1a. The SUB-TREE's own copies of those high-signal names, FIRST. On a `packages/api` scan the
@@ -882,10 +846,121 @@ export function pickFilesToFetch(blobs: RepoFile[], subPath?: string): string[] 
     .slice(0, MAX_WORKFLOW_FILES)
     .forEach((p) => picked.add(p)); // reserved quota — deliberately NOT gated by MAX_FILES
 
+  // 8. `.ai/memory/NNNN-*.md` — the repo's own agent-written memory entries (moonshot #14). LAST, and
+  //    a RESERVED quota like workflows: these must never displace a manifest or a source sample from
+  //    the prompt budget, and they must not silently vanish on a repo whose 50 slots are already full.
+  //    Newest first by the numeric prefix, capped at MAX_MEMORY_FILES.
+  //
+  //    THE LOAD-BEARING PART: everything picked here is REMOVED from `RepoSnapshot.files` by the
+  //    quarantine in fetchSnapshot (and its local-source twin) before any scorer sees the snapshot.
+  //    These bodies are untrusted prose from a customer repo; the pick list is an INGEST list, not a
+  //    prompt list. Adding a memory path anywhere else in this function would put it in the prompt.
+  memoryPicks(paths).forEach((p) => picked.add(p));
+
   return [...picked];
 }
 
-export function estimateCoverage(totalBlobs: number, fetched: number, attempted: number, truncated: boolean): number {
+/**
+ * The `.ai/memory` entries a scan ingests, newest first — the ordering used by the pick step above and
+ * asserted directly by `source-memory-pick.test.ts`. Pure and repo-wide on purpose: a sub-path scan of
+ * a monorepo still mirrors the repo's memory, because `.ai/` is a repo-level declaration.
+ */
+export function memoryPicks(paths: string[]): string[] {
+  const numbered = paths
+    .map((p) => ({ p, n: Number(MEMORY_ENTRY_RE.exec(p)?.[1] ?? NaN) }))
+    .filter((x) => Number.isFinite(x.n));
+  // Newest (highest prefix) first; ties broken by path so the pick stays deterministic for cache keys.
+  numbered.sort((a, b) => b.n - a.n || a.p.localeCompare(b.p));
+  return numbered.slice(0, MAX_MEMORY_FILES).map((x) => x.p);
+}
+
+/** The per-file truncation cap this path is charged (and cut to): CODEOWNERS is parsed exactly, not
+ *  fed to a prompt, so it carries the larger cap. One function so the PLAN and the CUT cannot drift. */
+function capForPath(path: string): number {
+  return CODEOWNERS_PATH_RE.test(path) ? MAX_CODEOWNERS_BYTES : MAX_FILE_BYTES;
+}
+
+/** What the byte budget admitted, and what it pushed out. */
+export interface FetchPlan {
+  /** The files that WILL be fetched, in pick (= fetchRank) order. */
+  admitted: string[];
+  /** Picks the budget pushed out, in pick order. Never silent: they are a term in estimateCoverage. */
+  displaced: string[];
+}
+
+/**
+ * Decide WHICH picks the MAX_TOTAL_BYTES budget pays for, BEFORE a single byte is fetched.
+ *
+ * THE EXACT RULE: walk `picks` in pick order (which is `fetchRank` order — the same order the prompt
+ * window reads them in, so the budget spends on the highest-signal files first, and the reserved
+ * workflow / `.ai/memory` tails still sit exactly where step 7/8 of pickFilesToFetch put them). Charge
+ * each path `min(listed size, its per-file cap)` — the most bytes it can possibly contribute after
+ * truncation. Admit it WHILE `planned + cost <= MAX_TOTAL_BYTES`; at the FIRST path that does not fit,
+ * admission closes and every remaining pick is displaced. Closing (rather than skipping ahead to the
+ * next file that happens to fit) is deliberate: it reproduces what the previous sequential-order case
+ * did — the old worker `return`ed once the running total reached the cap, ending its lane — so the
+ * admitted set stays as close as it can to the volume the rubric was calibrated on.
+ *
+ * A pick with NO listed size (the tree omitted it) is charged its full cap: the plan is never allowed
+ * to be optimistic about a file it cannot measure. The listed size is BYTES and the cut is by UTF-16
+ * code units, so on multibyte content the charge is an over-estimate — conservative in the same
+ * direction, and never a reason to re-open a closed plan.
+ *
+ * Pure, exported and total: the set is a function of (tree sizes, picks, budget) alone, which is the
+ * whole point — reproducibility of the scored file set across re-scans of the same commit.
+ */
+export function planFetchBudget(
+  picks: readonly string[],
+  sizeOf: (path: string) => number | undefined,
+): FetchPlan {
+  const admitted: string[] = [];
+  let planned = 0;
+  for (let i = 0; i < picks.length; i++) {
+    const path = picks[i]!;
+    const cap = capForPath(path);
+    const listed = sizeOf(path);
+    const cost = Math.min(typeof listed === "number" && listed >= 0 ? listed : cap, cap);
+    if (planned + cost > MAX_TOTAL_BYTES) return { admitted, displaced: picks.slice(i) };
+    planned += cost;
+    admitted.push(path);
+  }
+  return { admitted, displaced: [] };
+}
+
+/**
+ * THE QUARANTINE (moonshot #14). Split fetched contents into the prompt-visible `files` and the
+ * mirror-only `memoryFiles`, and report how many of the ATTEMPTED picks were non-memory so
+ * `estimateCoverage` is computed over the same population it always was — the mirror must not be able
+ * to move a repo's coverage number (and through it, the cache-pinning threshold).
+ *
+ * Exported and shared by both RepoSource implementations so the two ingestion paths cannot drift, and
+ * so the wave-4 GitHub-adapter extraction (#4) has one symbol to carry across rather than a code block
+ * to remember.
+ */
+export function quarantineMemoryFiles(
+  fetched: FetchedFile[],
+  picks: string[],
+): { files: FetchedFile[]; memoryFiles: FetchedFile[]; nonMemoryAttempted: number } {
+  const files: FetchedFile[] = [];
+  const memoryFiles: FetchedFile[] = [];
+  for (const f of fetched) {
+    if (MEMORY_ENTRY_RE.test(f.path)) memoryFiles.push(f);
+    else files.push(f);
+  }
+  return {
+    files,
+    memoryFiles,
+    nonMemoryAttempted: picks.filter((p) => !MEMORY_ENTRY_RE.test(p)).length,
+  };
+}
+
+export function estimateCoverage(
+  totalBlobs: number,
+  fetched: number,
+  attempted: number,
+  truncated: boolean,
+  displaced = 0,
+): number {
   // Heuristic: how confident are we that we've seen the signal-bearing files?
   // Small repos -> high coverage; truncated giant repos -> lower.
   // Factor in the fetch SUCCESS RATE of the files we actually tried to read: a small repo used to pin
@@ -901,8 +976,17 @@ export function estimateCoverage(totalBlobs: number, fetched: number, attempted:
   // large-repo confidence on the SUCCESS RATE of the signal-bearing picks (fetched/attempted) too, capped
   // a notch below the small-repo ceiling to reflect the larger unseen tail — so a fully-successful ingest
   // of a big repo no longer reads as degraded, while a genuine blip (many picks failing) still does.
+  //
+  // `attempted` is now the set the BYTE PLAN admitted, so `fetched/attempted` measures fetch success
+  // and nothing else. The picks the plan DISPLACED are disclosed as their own multiplicative term
+  // rather than being folded into that ratio or dropped: a displaced file lowers confidence by exactly
+  // the same proportion it did when it sat in the old `attempted` denominator, so a repo whose picks
+  // all fit scores its coverage unchanged — the number just stopped depending on network timing.
+  // `displaced` defaults to 0 for the ingestion paths that cannot displace (a sequential reader).
   const fetchRate = attempted > 0 ? fetched / attempted : 1;
-  let c = totalBlobs <= MAX_FILES ? 0.95 * fetchRate : Math.min(0.9, 0.85 * fetchRate);
+  const admitRate = attempted + displaced > 0 ? attempted / (attempted + displaced) : 1;
+  const rate = fetchRate * admitRate;
+  let c = totalBlobs <= MAX_FILES ? 0.95 * rate : Math.min(0.9, 0.85 * rate);
   if (truncated) c = Math.min(c, 0.6);
   return Math.round(c * 100) / 100;
 }

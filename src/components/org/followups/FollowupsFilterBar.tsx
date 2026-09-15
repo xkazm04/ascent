@@ -54,7 +54,7 @@ export function FollowupsFilterBar({
         onChange={(e) => onChange({ ...filters, query: e.target.value })}
         placeholder="Search gaps…"
         aria-label="Search follow-ups"
-        className="focus-ring w-44 rounded-lg border border-divider bg-ink px-2.5 py-1.5 font-mono text-xs text-slate-200 placeholder:text-slate-600 focus:border-accent"
+        className="focus-ring w-44 rounded-lg border border-divider bg-ink px-2.5 py-1.5 type-caption text-slate-200 placeholder:text-slate-600 focus:border-accent"
       />
       {/* The archive switch is a status shortcut, not a separate mode: it sets statuses to the two
           closed states, so the readout and the table cannot disagree about what is shown. */}
@@ -62,7 +62,7 @@ export function FollowupsFilterBar({
         type="button"
         onClick={() => onChange({ ...filters, statuses: archive ? new Set() : new Set(["done", "dismissed"]) })}
         aria-pressed={archive}
-        className={`focus-ring rounded-full border px-2.5 py-1 font-mono text-xs transition ${archive ? "border-emerald-500/50 text-emerald-400" : "border-divider text-slate-400 hover:border-accent hover:text-white"}`}
+        className={`focus-ring rounded-full border px-2.5 py-1 type-caption transition ${archive ? "border-emerald-500/50 text-emerald-400" : "border-divider text-slate-400 hover:border-accent hover:text-white"}`}
       >
         {archive ? "◂ working set" : "resolved archive"}
       </button>
@@ -72,12 +72,12 @@ export function FollowupsFilterBar({
           onClick={() => onChange({ ...filters, orgWide: !filters.orgWide })}
           aria-pressed={filters.orgWide}
           title="Only dimensions with an open follow-up in at least half the fleet — org problems, to fix once as a practice"
-          className={`focus-ring rounded-full border px-2.5 py-1 font-mono text-xs transition ${filters.orgWide ? "border-amber-400/50 text-amber-300" : "border-divider text-slate-400 hover:border-accent hover:text-white"}`}
+          className={`focus-ring rounded-full border px-2.5 py-1 type-caption transition ${filters.orgWide ? "border-amber-400/50 text-amber-300" : "border-divider text-slate-400 hover:border-accent hover:text-white"}`}
         >
           org-wide · {orgWideDims}
         </button>
       )}
-      <span className="ml-auto font-mono text-xs text-slate-500">
+      <span className="ml-auto type-caption text-slate-500">
         {shown} of {rows.length}
         {active && (
           <>

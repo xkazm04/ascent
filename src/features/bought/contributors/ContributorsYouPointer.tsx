@@ -9,6 +9,8 @@
 //
 // Server-safe (no hooks, no handlers) — both pieces render inside the tab's server components.
 
+import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
+import { StateSwatch } from "@/components/org/viz";
 import { orgTabHref } from "@/lib/org/orgTabs";
 
 /** The inline mark on the viewer's own row/card. Nothing else about the row changes. */
@@ -16,7 +18,7 @@ export function YouMark({ slug }: { slug: string }) {
   return (
     <a
       href={orgTabHref(slug, "developer")}
-      className="focus-ring rounded-full border border-accent/40 px-2 py-0.5 font-mono text-xs uppercase tracking-widest text-accent transition-colors hover:bg-accent/10"
+      className="focus-ring rounded-full border border-accent/40 px-2 py-0.5 type-label tracking-widest text-accent transition-colors hover:bg-accent/10"
     >
       you → developer
     </a>
@@ -31,12 +33,45 @@ export function isViewer(login: string, viewerLogin: string | null | undefined):
 /**
  * The quiet strip for a viewer who is NOT in the roster. Deliberately understated: absence from this
  * table is normal (an EM, a new joiner, anyone under the floor) and must not read as a deficiency.
+ *
+ * Two DIFFERENT absences share this strip and must not share copy. Below the naming floor the
+ * producer empties `insights.contributors` entirely (getContributorInsights), so the roster test
+ * fails for EVERYONE — including the org's top committer. Printing "no commits attributed to you"
+ * there states an absence the data never established: the rows were withheld, not empty. When
+ * `namingAllowed` is false the strip says the attribution is suppressed and that the viewer's
+ * commits are still inside the totals above.
  */
-export function ContributorsYouStrip({ slug, viewerLogin }: { slug: string; viewerLogin: string | null }) {
+export function ContributorsYouStrip({
+  slug,
+  viewerLogin,
+  namingAllowed = true,
+}: {
+  slug: string;
+  viewerLogin: string | null;
+  /** From the insights payload. False ⇒ per-person rows were withheld, not absent. */
+  namingAllowed?: boolean;
+}) {
   return (
     <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900/20 px-4 py-3">
-      <p className="text-sm text-slate-400">
-        {viewerLogin ? (
+      {/* §2.4 — the withheld branch leads with the void mark, so the SUPPRESSION is encoded and not
+          only asserted. The other branch is a genuine "we looked and you are not here", which is a
+          measurement, and carries no mark. */}
+      {!namingAllowed && <StateSwatch state="missing" />}
+      <p className="type-body-sm text-slate-400">
+        {!namingAllowed ? (
+          <>
+            Individual attribution is withheld below {CHAMPION_MIN_POP} contributors
+            {viewerLogin ? (
+              <>
+                {" "}
+                — <span className="font-mono text-slate-300">{viewerLogin}</span>&apos;s commits still count in the
+                totals above.
+              </>
+            ) : (
+              <> — every contributor&apos;s commits still count in the totals above.</>
+            )}
+          </>
+        ) : viewerLogin ? (
           <>
             No commits attributed to <span className="font-mono text-slate-300">{viewerLogin}</span> in this
             workspace&apos;s scanned repositories — your own activity, gaps and care loop still have a home.
@@ -47,7 +82,7 @@ export function ContributorsYouStrip({ slug, viewerLogin }: { slug: string; view
       </p>
       <a
         href={orgTabHref(slug, "developer")}
-        className="focus-ring shrink-0 rounded-md px-2.5 py-1.5 font-mono text-sm uppercase tracking-widest text-accent transition-colors hover:bg-accent/10"
+        className="focus-ring shrink-0 rounded-md px-2.5 py-1.5 type-mono-sm uppercase tracking-widest text-accent transition-colors hover:bg-accent/10"
       >
         See your own activity →
       </a>

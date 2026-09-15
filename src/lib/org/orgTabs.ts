@@ -17,6 +17,8 @@ export const ORG_TAB_IDS = [
   // The follow-ups ledger: every open gap across the fleet, pick a batch, hand it to a local agent.
   "followups",
   "executive",
+  // The weekly digest — trailing 7 days, fixed window, a leadership-update page.
+  "digest",
   // Fleet
   "repositories",
   // Segments is a SUB-VIEW of the Repositories tab (the two Fleet views were merged), reached from
@@ -47,6 +49,10 @@ export const ORG_TAB_IDS = [
   // is redirected by /org/[slug]/page.tsx to `/org/<slug>/<id>` — a route this tab never had, so
   // leaving it out 404s the rail link and blanks `?tab=knowledge`.
   "knowledge",
+  // The registry's ui-surfaces subjects as composed, interactive scenes (spark ui-surfaces-showcase,
+  // 2026-09-06). Repo-shipped showcases in a typed catalog, joined at render to the org's index
+  // mirror for a digest-freshness badge. Reads `?subject=` and `?technique=` (both tab-scoped).
+  "surfaces",
   // UC3 "individual care". A first-class id (label / a11y / href contract), but NEITHER a `?tab=`
   // panel NOR a rail item: it is the personalized route `/org/developer`, which every signed-in
   // developer sees their OWN slice of, so it can't be an org-scoped panel — and its one entry point is
@@ -171,6 +177,9 @@ export const ORG_NAV_GROUPS: readonly OrgNavGroup[] = [
       // `knowledge/<domain>/`. LAST in the group because it is the only one with no per-repo
       // adoption state — reference, not fleet posture.
       { id: "knowledge", label: "Knowledge base" },
+      // The Knowledge base's ui-surfaces subjects rendered as live scenes. Last: it is reference
+      // about reference — a showcase of what the registry publishes, with no fleet state at all.
+      { id: "surfaces", label: "UI surfaces" },
     ],
   },
   {
@@ -185,6 +194,9 @@ export const ORG_NAV_GROUPS: readonly OrgNavGroup[] = [
     label: "Bought",
     items: [
       { id: "executive", label: "Briefing" },
+      // Sits right under the Briefing: the same fleet, read over a FIXED trailing week rather than the
+      // selected period — the artifact a lead pastes into a weekly leadership update.
+      { id: "digest", label: "Weekly digest" },
       { id: "delivery", label: "Delivery" },
       { id: "contributors", label: "Contributors", countKey: "contributors" },
       { id: "teams", label: "Teams", countKey: "teams" },
@@ -235,6 +247,8 @@ export const PERSONAL_TAB_IDS: ReadonlySet<OrgTabId> = new Set<OrgTabId>([
   // Reference published by the registry is the same for a personal workspace as for an org — it
   // carries no per-repo adoption state, which is what keeps the fleet surfaces org-only.
   "knowledge",
+  // Same reasoning as `knowledge`: the showcases are repo-shipped reference, no fleet state.
+  "surfaces",
   // The developer's own home — in a personal workspace this surface is the point of the product. It
   // is in the personal SET (so `PERSONAL_TAB_IDS.has("developer")` stays true for any gate that asks)
   // but no longer renders as a rail item: it is not in ORG_NAV_GROUPS, and the header identity menu
@@ -284,6 +298,13 @@ export const TAB_SCOPED_PARAM_KEYS = [
   // Comparison pickers (teams / contributors A-vs-B)
   "a",
   "b",
+  // Knowledge base: which bundle is open and which subject's reader — a tab switch must not carry
+  // a subject into Practices.
+  "domain",
+  "subject",
+  // UI surfaces: which technique's mechanism drawer is open (`subject` above is shared with the
+  // Knowledge base — the same slug means the same subject on both tabs, but neither may inherit it).
+  "technique",
   // Search + list filters
   "q",
   "search",
@@ -430,6 +451,12 @@ export const MIGRATED_ORG_TAB_IDS: ReadonlySet<OrgTabId> = new Set<OrgTabId>([
   // Omitting it here sent the rail to /org/<slug>/pairing, a page that has never existed.
   "pairing",
   "knowledge",
+  // Born migrated (2026-09-01): the weekly digest never had a legacy route — it exists ONLY as a
+  // `?tab=` panel, so omitting it here would send the rail to /org/<slug>/digest, a page that has
+  // never existed (the exact bug `pairing` and `knowledge` each shipped once).
+  "digest",
+  // Born migrated (2026-09-06): a `?tab=` panel only, same as knowledge/digest.
+  "surfaces",
 ]);
 
 export function isMigratedOrgTab(id: OrgTabId): boolean {

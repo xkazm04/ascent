@@ -5,17 +5,26 @@
 // (docs/ORG-TABS-REFACTOR.md).
 
 import { scoreGlyph } from "@/lib/ui";
+import { DIRECTION_TONE, deltaHex, signedDelta, toneFor } from "@/components/ui";
+import { stateTitle } from "@/components/org/viz";
 import { HEADLINE_SCALE, type WallScale } from "./warRoomScale";
 import { useTween } from "./useLiveWarRoomStat";
 
-/** Signed campaign movement beside a headline value — direction-colored, period named for SRs. */
+/**
+ * Signed campaign movement beside a headline value — direction-coloured, period named for SRs.
+ *
+ * Painted by the brand's ONE direction triad (DIRECTION_TONE/deltaHex), not by a local emerald/orange
+ * copy of it. The copy this replaces was a second dialect in two ways: emerald rather than the fleet's
+ * lime, and — the one that mattered — no noise band, so a +1 that is scan-to-scan wobble wore the same
+ * confident ▲ as a +9 on the projected wall. `toneFor` mutes that case to the flat tone and its "→".
+ * The arrow stays `aria-hidden` beside the signed number: SRs read "▲" inconsistently (the reason
+ * warRoomAnnounce speaks in words), so the glyph is reinforcement, never the channel.
+ */
 export function DeltaChip({ delta, size }: { delta: number; size: string }) {
-  const color = delta > 0 ? "text-emerald-300" : delta < 0 ? "text-orange-300" : "text-slate-500";
   return (
     <span className={`font-mono ${size} text-slate-500`}>
-      <span className={color}>
-        <span aria-hidden>{delta > 0 ? "▲" : delta < 0 ? "▼" : "＝"}</span> {delta > 0 ? "+" : ""}
-        {delta}
+      <span style={{ color: deltaHex(delta) }}>
+        <span aria-hidden>{DIRECTION_TONE[toneFor(delta)].arrow}</span> {signedDelta(delta)}
       </span>{" "}
       since kickoff
     </span>
@@ -44,10 +53,12 @@ export function Sparkline({ points, box }: { points: number[]; box: { w: number;
       viewBox={`0 0 ${W} ${H}`}
       role="img"
       aria-label={`Fleet average over the last ${points.length} scan days: ${first} to ${last}`}
-      className="mt-1.5"
+      className="mt-1.5 text-slate-500"
     >
-      <path d={d} fill="none" stroke="#64748b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx={x(points.length - 1)} cy={y(last)} r="4" fill="var(--color-accent)" stroke="#0b1322" strokeWidth="2" />
+      {/* No hand-picked hexes: the de-emphasis stroke rides `currentColor` off the muted text class
+          above, and the end-dot's separating ring is the page ink token, not a near-match of it. */}
+      <path d={d} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={x(points.length - 1)} cy={y(last)} r="4" fill="var(--color-accent)" stroke="var(--color-ink)" strokeWidth="2" />
     </svg>
   );
 }
@@ -99,8 +110,16 @@ export function StatCell({
           </span>
         )}
         {/* tabular-nums is deliberate: the value tweens every landed result, and proportional digits
-            would make the strip's layout jitter frame-by-frame on a projected wall. */}
-        <span className={`font-mono ${t.value} font-bold tabular-nums`} style={{ color: value == null ? "#fff" : color ?? "#fff" }}>
+            would make the strip's layout jitter frame-by-frame on a projected wall.
+            An absent value keeps the em dash rather than the kit's void mark — this numeral is read
+            from 4m and a 12px broken rule is not — but it carries the kit's caveat verbatim, so the
+            "an em dash is a missing measurement, not a zero" sentence is disclosed rather than
+            asserted, and the `sub` line names the empty state in visible text beneath it. */}
+        <span
+          className={`font-mono ${t.value} font-bold tabular-nums text-white`}
+          style={color && value != null ? { color } : undefined}
+          title={value == null ? stateTitle("missing", label) : undefined}
+        >
           {shown}
         </span>
         {value != null && delta != null && <DeltaChip delta={delta} size={t.delta} />}

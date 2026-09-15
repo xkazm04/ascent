@@ -19,12 +19,13 @@ import { DownloadButton } from "@/components/report/DownloadButton";
 import { TechStackSelector } from "@/components/org/shared/TechStackSelector";
 import { SecurityBandSpectrum } from "./SecurityBandSpectrum";
 import { SecurityRiskRegister } from "./SecurityRiskRegister";
+import { CHECK_AXES } from "./securityMatrixModel";
 import { SecurityFindings } from "@/components/org/SecurityFindings";
 import { PersonalSecurity } from "@/components/org/PersonalSecurity";
 import { isPersonalOrg } from "@/lib/db";
 import { decisionMap } from "@/lib/org/decision-map";
 import { resolveStackScope } from "@/lib/org/scope";
-import { resolveOrgWindow } from "@/lib/org/period";
+import { orgWindowBounds, resolveOrgWindow } from "@/lib/org/period";
 import { scoreHex } from "@/lib/ui";
 import { chipButtonClass } from "@/components/ui";
 
@@ -39,7 +40,7 @@ export async function SecurityTab({ slug, sp }: { slug: string; sp: SearchParams
   // Optional tech-stack scope (Feature 3b): "Frontend security vs Backend" — scope the whole overview.
   const { techGroups, activeStack, techGroupId } = await resolveStackScope(slug, sp);
   const [sec, supply, decisions] = await Promise.all([
-    buildSecurityOverview(slug, { start: period.start, end: period.end }, period.title, techGroupId),
+    buildSecurityOverview(slug, orgWindowBounds(period), period.title, techGroupId),
     getOrgSupplyChain(slug, techGroupId),
     decisionMap(slug, "security"),
   ]);
@@ -114,23 +115,33 @@ export async function SecurityTab({ slug, sp }: { slug: string; sp: SearchParams
       </div>
 
       <Card>
-        {/* The caption is rendered as a sibling, NOT through SectionHeader's `description`. That slot
-            is a lede — capped at max-w-2xl, which is right for prose but wrapped this one into four
-            short lines against a card that is three times as wide. Passing `descriptionClassName` a
-            competing max-width would be a cascade coin-flip (two utilities of equal specificity, order
-            decided by Tailwind's emission, not by the class list), so the caption owns its own <p>
-            below the header row and runs the full width of the card. */}
-        <SectionHeader size="sm" title="Control matrix" right={<CopyForLlm text={gateSnippet} label="Copy CI gate snippet" />} />
-        <p className="mb-3 mt-2 text-base text-slate-400">
-          All {sec.scanned} scanned repos against the security gate (D9 ≥ {gate.minSecurity}, not &ldquo;ungoverned&rdquo;), each
-          graded 0–10 across the deterministic control battery + current vuln exposure. Failing repos first; ┃ divides
-          posture from exposure.
-        </p>
+        {/* MC-B10 — "Control matrix" until 2026-08-31. Passports carried a "Controls" tab and
+            Governance a "Control observations" card, so the same word named three unrelated
+            catalogues on one dashboard. This one is the D9 battery.
+
+            The four-sentence caption that stood here until 2026-09-08 is gone, per §2 of
+            docs/ORG-UX-REDESIGN.md. It stated the grading scale and the gate policy (now the ≤60-char
+            unit line below), described the ┃ posture/exposure divider and the "failing first" order
+            (now drawn — the matrix's own legend and WhyChip carry the split, and the order IS the
+            sort), and disambiguated this catalogue from Passports › Doctor checks and Governance ›
+            Governance control ledger (that belongs in the feature doc, not permanently above the
+            panel it describes). */}
+        <SectionHeader
+          size="sm"
+          title="D9 check battery"
+          description={`${sec.scanned} repos × ${CHECK_AXES.length} controls · gate D9 ≥ ${gate.minSecurity}`}
+          right={<CopyForLlm text={gateSnippet} label="Copy CI gate snippet" />}
+        />
         {supplyDegraded && (
-          <p role="status" className="mb-3 rounded-lg border border-warn/30 bg-warn/5 px-3 py-2 text-sm text-warn">
-            Vulnerability advisories couldn&apos;t be fetched for this org, so the exposure columns below are
-            blank. That is <strong>not</strong> a clean bill of health. Re-check the GitHub App installation
-            and its security-advisory access, then reload.
+          // DELIBERATELY NOT DEMOTED. Every other sentence on this tab moved into a state, a legend or
+          // the doc; this one stays in body text at full size because a hover tooltip is invisible in a
+          // screenshot, in a PDF export and to anyone skimming — and the failure it describes ("we
+          // could not look") is the single reading on this page that must never be mistaken for a pass.
+          <p role="status" className="mb-3 mt-3 rounded-lg border border-warn/30 bg-warn/5 px-3 py-2 type-body-sm text-warn">
+            Vulnerability advisories couldn&apos;t be fetched for this org, so the <strong>Advisories</strong>{" "}
+            column below is not shown at all — a column you have to notice is missing. That is{" "}
+            <strong>not</strong> a clean bill of health. Re-check the GitHub App installation and its
+            security-advisory access, then reload.
           </p>
         )}
         <SecurityRiskRegister

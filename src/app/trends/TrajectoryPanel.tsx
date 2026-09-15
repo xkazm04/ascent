@@ -21,7 +21,7 @@ import { forecastInsufficiency, type Forecast } from "@/lib/maturity/forecast";
 function FitBasis({ scanCount, forecast }: { scanCount: number; forecast: Forecast | null }) {
   const span = forecast ? `${forecast.points} distinct scan ${forecast.points === 1 ? "day" : "days"} across ${forecast.spanDays} ${forecast.spanDays === 1 ? "day" : "days"}` : null;
   return (
-    <p className="mt-2 text-sm text-slate-500">
+    <p className="mt-2 type-body-sm text-slate-500">
       Fit over this repository&rsquo;s full recorded history: all {scanCount}{" "}
       {scanCount === 1 ? "scan" : "scans"}
       {span ? ` (${span})` : ""}. It does not follow the 5d / 30d / 90d range toggle below.
@@ -43,12 +43,12 @@ export function TrajectoryPanel({
   if (insufficient || !forecast) {
     return (
       <section aria-labelledby="trajectory-heading">
-        <h2 id="trajectory-heading" className="font-mono text-sm uppercase tracking-[0.2em] text-slate-500">
+        <h2 id="trajectory-heading" className="type-mono-sm uppercase tracking-[0.2em] text-slate-500">
           All-time trajectory
         </h2>
         <Card className="mt-2">
-          <p className="text-base text-slate-300">{insufficient}</p>
-          <p className="mt-2 text-sm text-slate-500">
+          <p className="type-body text-slate-300">{insufficient}</p>
+          <p className="mt-2 type-body-sm text-slate-500">
             Scan again over the coming weeks. The projection appears once there is enough spread to
             read a trend rather than noise.
           </p>
@@ -59,7 +59,7 @@ export function TrajectoryPanel({
 
   return (
     <section aria-labelledby="trajectory-heading">
-      <h2 id="trajectory-heading" className="font-mono text-sm uppercase tracking-[0.2em] text-slate-500">
+      <h2 id="trajectory-heading" className="type-mono-sm uppercase tracking-[0.2em] text-slate-500">
         All-time trajectory
       </h2>
       <div className="mt-2">

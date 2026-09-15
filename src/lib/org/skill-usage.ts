@@ -1,16 +1,25 @@
 // Skill dormancy (ported from the Personas skill-drift loop) — the other half of the Org Skills sync
 // story: the CLI knows whether a skill's BODY drifted, this knows whether the skill is still USED. For
-// each org skill we fold OrgSkillEvent (download | sync) + OrgSkillAdoption into a `lastUsedAt` and one
-// of three badge verdicts: new | active | dormant — over five STATES, because `dormant` covers three
-// different facts with three different remedies (see SkillUsageState below).
+// each org skill we fold OrgSkillEvent (invoke | download | sync), the registry's `usage/` samples and
+// OrgSkillAdoption into a `lastUsedAt` and one of three badge verdicts: new | active | dormant — over
+// five STATES, because `dormant` covers three different facts with three different remedies (see
+// SkillUsageState below).
 //
 // ONE SIGNAL (2026-07-29): the card's "N uses" counter and this badge used to measure disjoint activity —
 // "uses" came from OrgSkillDownload (bumped by the web Copy/Download path) while the badge folded only
 // OrgSkillEvent, which that path never wrote. A skill copied 40 times read "40 uses · dormant". The fix
 // lives at the write end (recordSkillDownload now emits a `download` OrgSkillEvent in the same
 // transaction as the tally bump), so both numbers are derived from the same writes and cannot disagree.
-// The `invoke` event type was retired in the same change: it ranked highest here but had NO producer
-// anywhere, so `active` was unreachable for every skill in production.
+//
+// `invoke` IS BACK (2026-08-29, moonshot #19). The same change retired it for having no producer, which
+// was right THEN: a type nothing emits cannot be a signal, and pretending otherwise made `active`
+// unreachable for every skill in production. It has producers now — the `Skill` PreToolUse hook the CLI
+// installs (drained by `ascent-skills report`), the MCP tool path, and the registry's own
+// `usage/<contributor>.json` lane folded in as samples. So an invocation is a real use again, and it
+// OUTRANKS a download on an exact tie: running a skill is stronger evidence than copying its text.
+// It does NOT outrank a later download — recency decides which event was the last use and the rank only
+// breaks the tie, because a badge reporting "last used: invoked, 3 weeks ago" while someone downloaded
+// it this morning is simply wrong about what happened.
 //
 // The age guard is the point: a library that just judged "no uses in 30 days ⇒ dead" would brand every
 // freshly authored/adopted skill dormant on day one and teach the org to ignore the badge. A skill that
@@ -21,6 +30,8 @@
 // Types only: this module is imported by client components, so it must never pull a runtime `@/lib/db`
 // symbol into the browser bundle. The reads live in skill-usage-load.ts.
 import type { SkillEventStat, SkillUsageRows } from "@/lib/db";
+// Pure module, safe for the client bundle — see its header.
+import { sampleEventStats } from "@/lib/registry/usage-samples";
 
 /** `new` = arrived recently, never invoked. `active` = used inside the window. `dormant` = past the
  *  window with no use since. The COARSE badge vocabulary — see {@link SkillUsageState} for the state
@@ -108,14 +119,20 @@ export interface SkillUsage {
   /** The full state (D24). `dormant` splits into abandoned | unused | unmeasured; only `abandoned` is
    *  a prune candidate ({@link isPruneCandidate}). */
   state: SkillUsageState;
-  /** Latest use: the newest `download` when there is one, else the newest `sync`. Null = never used. */
+  /** Latest use: the newest REAL use (`invoke` or `download`) when there is one, else the newest
+   *  `sync`. Null = never used. */
   lastUsedAt: string | null;
-  /** Which event kind `lastUsedAt` came from — a `download` is a real use, a `sync` is only a pull. */
-  lastUsedType: "download" | "sync" | null;
+  /** Which event kind `lastUsedAt` came from. `invoke` and `download` are real uses; a `sync` is only
+   *  a background pull and can never make a skill `active`. */
+  lastUsedType: "invoke" | "download" | "sync" | null;
   /** Whole days since `lastUsedAt` (null when never used). */
   daysSinceUse: number | null;
-  /** Real uses (download/copy events, web UI and CLI alike) — the same writes behind the "N uses" tally. */
+  /** Real uses — invocations plus downloads/copies, web UI and CLI alike; the same writes behind the
+   *  "N uses" tally. */
   useCount: number;
+  /** Invocations only. The half of `useCount` that means the skill RAN, kept separate because a card
+   *  showing "12 uses" otherwise cannot say how many of those were someone reading the text. */
+  invokes: number;
   /** Every recorded event, of any type. */
   eventCount: number;
   /** The "arrival" moment the age guard measures: the later of creation and the most recent adoption —
@@ -144,6 +161,13 @@ function laterOf(a: string, b: string | null | undefined): string {
   return tb > Date.parse(a) ? b : a;
 }
 
+/** Later of two instants either of which may be genuinely unknown. Null only when BOTH are — an
+ *  unknown recency never displaces a known one, and never invents one. */
+function laterOfNullable(a: string | null, b: string | null): string | null {
+  if (!a) return b ?? null;
+  return laterOf(a, b);
+}
+
 export interface SkillUsageInput {
   skillId: string;
   /** When the skill was authored. */
@@ -165,8 +189,9 @@ export interface SkillUsageInput {
 }
 
 /**
- * The verdict for one skill. `lastUsedAt` ranks download > sync, but only a REAL use (`download` — a
- * human copy or download, from the web UI or a CLI) can make a skill `active`: `sync` is a background
+ * The verdict for one skill. `lastUsedAt` is the most RECENT real use (`invoke` or `download`, with
+ * `invoke` winning an exact tie) and falls back to `sync` only when there is no real use at all. Only a
+ * real use can make a skill `active`: `sync` is a background
  * pull the CLI emits on every run (including its drift report), so counting it would make every skill in
  * a repo with a scheduled sync look alive forever — exactly the false "everything is fine" the dormancy
  * view exists to break. Rules in order:
@@ -182,37 +207,47 @@ export interface SkillUsageInput {
  * stops a skill from being simultaneously "new" (young) and "dormant" (silent).
  */
 export function skillUsage(input: SkillUsageInput, now: Date = new Date()): SkillUsage {
-  const byType = new Map<string, { lastAt: string; count: number }>();
+  const byType = new Map<string, { lastAt: string | null; count: number }>();
   for (const e of input.events) {
     const prev = byType.get(e.type);
     // Defensive fold: the DB rollup is already one row per (skill,type), but a caller-built list may not be.
-    byType.set(e.type, { lastAt: laterOf(prev?.lastAt ?? e.lastAt, e.lastAt), count: (prev?.count ?? 0) + e.count });
+    byType.set(e.type, {
+      lastAt: laterOfNullable(prev?.lastAt ?? null, e.lastAt),
+      count: (prev?.count ?? 0) + e.count,
+    });
   }
+  const invoke = byType.get("invoke");
   const download = byType.get("download");
   const sync = byType.get("sync");
-  const picked: [SkillUsage["lastUsedType"], { lastAt: string; count: number } | undefined] = download
-    ? ["download", download]
-    : sync
-      ? ["sync", sync]
-      : [null, undefined];
+  // Recency decides; the rank only breaks an exact tie. Sorted rather than branched so adding a third
+  // real-use type later cannot silently reorder the other two.
+  // A real use with an UNKNOWN instant is evidence that it happened, not evidence of when — so it is
+  // excluded from the recency ranking while still counting toward `useCount` below. This is what keeps
+  // a registry sample that reports `invokes` without a `lastUsed` from claiming the skill is `active`.
+  const real: [SkillUsage["lastUsedType"], { lastAt: string; count: number }][] = [];
+  if (invoke?.lastAt) real.push(["invoke", { lastAt: invoke.lastAt, count: invoke.count }]);
+  if (download?.lastAt) real.push(["download", { lastAt: download.lastAt, count: download.count }]);
+  const realUse = real.sort((a, b) => Date.parse(b[1].lastAt) - Date.parse(a[1].lastAt))[0];
+  const picked: [SkillUsage["lastUsedType"], { lastAt: string | null; count: number } | undefined] =
+    realUse ?? (sync?.lastAt ? ["sync", sync] : [null, undefined]);
   const lastUsedAt = picked[1]?.lastAt ?? null;
   const daysSinceUse = lastUsedAt ? daysBetween(lastUsedAt, now) : null;
   // The activity clock ignores `sync` (see the doc comment): a pull is not a use.
-  const daysSinceRealUse = download ? daysBetween(download.lastAt, now) : null;
+  const daysSinceRealUse = realUse ? daysBetween(realUse[1].lastAt, now) : null;
 
   let anchorAt = input.createdAt;
   for (const a of input.adoptedAt ?? []) anchorAt = laterOf(anchorAt, a);
   const ageDays = daysBetween(anchorAt, now);
 
-  const useCount = download?.count ?? 0;
+  const useCount = (invoke?.count ?? 0) + (download?.count ?? 0);
   const windowDays = dormancyWindowFor({ cadenceDays: input.cadenceDays, ageDays, useCount });
 
   const state: SkillUsageState =
     daysSinceRealUse !== null && daysSinceRealUse <= windowDays
       ? "active"
-      : !download && ageDays < windowDays
+      : !realUse && ageDays < windowDays
         ? "new"
-        : download
+        : realUse
           ? "abandoned"
           : // `unmeasured` needs silence at BOTH levels: this skill emitted nothing of any type (a `sync`
             // proves the pathway reaches it, even though a pull is not a use) and neither did the org.
@@ -228,6 +263,7 @@ export function skillUsage(input: SkillUsageInput, now: Date = new Date()): Skil
     lastUsedType: picked[0],
     daysSinceUse,
     useCount,
+    invokes: invoke?.count ?? 0,
     eventCount: Array.from(byType.values()).reduce((n, v) => n + v.count, 0),
     anchorAt,
     ageDays,
@@ -235,10 +271,28 @@ export function skillUsage(input: SkillUsageInput, now: Date = new Date()): Skil
   };
 }
 
-/** Fold a whole org's fetched rows into a verdict per skill id. Pure — the DB read is the caller's. */
+/**
+ * Fold a whole org's fetched rows into a verdict per skill id. Pure — the DB read is the caller's.
+ *
+ * The registry `usage/` samples (sink B) are folded HERE, at read time, rather than written back as
+ * `OrgSkillEvent` rows. The samples are a SNAPSHOT re-read on every index pass: materializing them as
+ * ledger rows would double-count the second time the same head was indexed, and no de-duplication key
+ * exists on the registry side to prevent it. Read-time folding is idempotent by construction.
+ */
 export function skillUsageMap(rows: SkillUsageRows, now: Date = new Date()): Record<string, SkillUsage> {
+  const sampleStats = sampleEventStats(
+    (rows.samples ?? []).map((s) => ({
+      contributor: s.contributor,
+      skillName: s.skillName,
+      invokes: s.invokes,
+      windowDays: s.windowDays,
+      lastUsed: s.lastUsedAt,
+      generatedAt: s.generatedAt,
+    })),
+    rows.skills,
+  );
   const events = new Map<string, SkillEventStat[]>();
-  for (const e of rows.events) {
+  for (const e of [...rows.events, ...sampleStats]) {
     const list = events.get(e.skillId) ?? [];
     list.push(e);
     events.set(e.skillId, list);
@@ -252,7 +306,10 @@ export function skillUsageMap(rows: SkillUsageRows, now: Date = new Date()): Rec
   // The org-wide instrumentation fact behind `unmeasured` (D24): if not one event of any type exists
   // for the whole library, the pathway is silent and NOTHING is known about any skill's use. One row
   // anywhere proves the pathway works, so a zero-event skill in that org is genuinely `unused`.
-  const orgHasTelemetry = rows.events.length > 0;
+  // A contributed sample proves the pathway reaches this org just as an event does — it is a report
+  // from an installation that ran something. Counting only `rows.events` would leave a registry-only
+  // fleet permanently `unmeasured` while its own usage lane was full.
+  const orgHasTelemetry = rows.events.length > 0 || sampleStats.length > 0;
   const out: Record<string, SkillUsage> = {};
   for (const s of rows.skills) {
     out[s.id] = skillUsage(

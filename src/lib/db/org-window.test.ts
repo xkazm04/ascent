@@ -124,8 +124,12 @@ function fakePrisma() {
   const prisma = {
     organization: { findUnique: vi.fn(async () => ({ id: "org_1", plan: "enterprise", slug: "acme" })) },
     repository: {
-      findMany: vi.fn(async (args: { include?: { scans?: Record<string, unknown> } } = {}) => {
-        if (args.include?.scans) repoIncludes.push(args.include.scans);
+      findMany: vi.fn(async (args: { include?: { scans?: Record<string, unknown> }; select?: { scans?: Record<string, unknown> } } = {}) => {
+        // getOrgRollup names its columns explicitly (`select`) rather than shipping every scalar of
+        // every row; a reader using `include` is equivalent for this suite. Either way the scans
+        // sub-query is what carries the window bound these tests pin.
+        const scans = args.select?.scans ?? args.include?.scans;
+        if (scans) repoIncludes.push(scans);
         return [];
       }),
     },

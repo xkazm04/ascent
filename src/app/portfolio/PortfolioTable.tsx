@@ -20,7 +20,7 @@ function Trajectory({ c }: { c: PortfolioCompany }) {
         {c.etaLabel ? <span className="text-slate-400"> · {c.etaLabel}</span> : null}
       </span>
       {c.confidence != null && (
-        <span className="font-mono text-xs text-slate-500">
+        <span className="type-caption text-slate-500">
           conf {c.confidence}%{noisy ? " · noisy" : ""}
         </span>
       )}
@@ -65,7 +65,7 @@ export function PortfolioTable({ portfolio }: { portfolio: Portfolio }) {
                 <span className="font-mono font-bold tabular-nums" style={{ color: scoreHex(c.avgOverall) }}>
                   {c.avgOverall}
                 </span>{" "}
-                <span className="font-mono text-sm text-slate-400">
+                <span className="type-mono-sm text-slate-400">
                   {c.levelId} · {c.levelName}
                 </span>
               </td>

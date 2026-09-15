@@ -75,7 +75,7 @@ export function SupabaseSignInButton({
       {error && (
         <span
           role="alert"
-          className="absolute right-0 top-full z-10 mt-1 whitespace-nowrap rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1 text-sm text-red-300 shadow-lg"
+          className="absolute right-0 top-full z-10 mt-1 whitespace-nowrap rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1 type-body-sm text-red-300 shadow-lg"
         >
           {error}
         </span>
@@ -134,7 +134,7 @@ export function SignOutButton({ className = "" }: { className?: string }) {
       {error && (
         <span
           role="alert"
-          className="absolute right-0 top-full z-10 mt-1 whitespace-nowrap rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1 text-sm text-red-300 shadow-lg"
+          className="absolute right-0 top-full z-10 mt-1 whitespace-nowrap rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1 type-body-sm text-red-300 shadow-lg"
         >
           {error}
         </span>

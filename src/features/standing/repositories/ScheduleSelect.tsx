@@ -8,7 +8,11 @@
 
 import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
-import { SCHEDULES as OPTIONS, type Schedule } from "@/components/connect/installationRepoTypes";
+// `scheduleLabel` travels with SCHEDULES for a reason: it is the ONE user-facing name for a cadence
+// id, and "off" is the id, not the label. The connect page's two selects render through it ("no
+// autoscan"); this one shipped later and rendered the raw id, so the same setting read as two
+// different words depending on which surface you were standing on.
+import { SCHEDULES as OPTIONS, scheduleLabel, type Schedule } from "@/lib/org/repo-schedule";
 
 function normalize(s: string): Schedule {
   return (OPTIONS as readonly string[]).includes(s) ? (s as Schedule) : "off";
@@ -78,13 +82,13 @@ export function ScheduleSelect({
         onChange={(e) => onChange(normalize(e.target.value))}
         aria-label={`Autoscan cadence for ${fullName}`}
         aria-describedby={disabled && disabledHint ? hintId : undefined}
-        className={`rounded-md border border-slate-700 bg-slate-900/60 px-2 py-1 font-mono text-sm text-slate-300 transition focus:border-accent focus:outline-none ${
+        className={`rounded-md border border-slate-700 bg-slate-900/60 px-2 py-1 type-mono-sm text-slate-300 transition focus:border-accent focus:outline-none ${
           inert ? "cursor-not-allowed opacity-50" : "hover:border-accent"
         }`}
       >
         {OPTIONS.map((o) => (
           <option key={o} value={o}>
-            {o}
+            {scheduleLabel(o)}
           </option>
         ))}
       </select>
@@ -95,7 +99,7 @@ export function ScheduleSelect({
       )}
       {/* Announced rollback error, on the semantic danger token (was silent text-red-400). */}
       {error && (
-        <span role="alert" className="font-mono text-sm text-danger">
+        <span role="alert" className="type-mono-sm text-danger">
           {error}
         </span>
       )}

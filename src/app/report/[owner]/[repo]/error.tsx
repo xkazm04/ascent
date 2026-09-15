@@ -25,7 +25,7 @@ export default function ReportError({
         <div className="mx-auto flex max-w-6xl items-center px-5 py-3.5">
           <Link
             href="/"
-            className="focus-ring rounded-sm font-mono text-base font-semibold uppercase tracking-[0.22em] text-white"
+            className="focus-ring rounded-sm font-mono type-body font-semibold uppercase tracking-[0.22em] text-white"
           >
             Ascent
           </Link>
@@ -35,14 +35,14 @@ export default function ReportError({
         id="main"
         className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center justify-center px-5 py-24 text-center"
       >
-        <p className="font-mono text-sm uppercase tracking-[0.3em] text-danger">Error</p>
-        <h1 className="mt-4 text-2xl font-semibold text-white">Couldn&apos;t load this report</h1>
-        <p className="mt-3 max-w-md text-base text-slate-400">
+        <p className="type-mono-sm uppercase tracking-[0.3em] text-danger">Error</p>
+        <h1 className="mt-4 type-heading font-semibold text-white">Couldn&apos;t load this report</h1>
+        <p className="mt-3 max-w-md type-body text-slate-400">
           Something went wrong rendering this repository&apos;s maturity report. It may be a transient
           scan or data issue. Try again, or scan the repo fresh.
         </p>
         {error.digest && (
-          <p className="mt-2 font-mono text-sm text-slate-500">Reference: {error.digest}</p>
+          <p className="mt-2 type-mono-sm text-slate-500">Reference: {error.digest}</p>
         )}
         <div className="mt-8 flex flex-wrap justify-center gap-3">
           <button
@@ -59,7 +59,7 @@ export default function ReportError({
           </Link>
         </div>
       </main>
-      <footer className="mt-auto border-t border-slate-800/70 py-8 text-center text-sm text-slate-500">
+      <footer className="mt-auto border-t border-slate-800/70 py-8 text-center type-body-sm text-slate-500">
         Scored by Ascent
       </footer>
     </>

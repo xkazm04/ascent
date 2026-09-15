@@ -15,4 +15,9 @@ export interface LandingData {
   /** Whether the login wall is enforced on this deployment — the hero's scan dialog locks scanning
    *  behind sign-in when true (first sign in, then scan). False on open/dev/DB-less deploys. */
   gated?: boolean;
+  /** Self-hosted deployment (`selfHosted()`, resolved server-side): the deck stops selling "run it
+   *  yourself" to someone already running it, and the org CTAs lead to setup rather than sign-in. */
+  selfHosted?: boolean;
+  /** Self-hosted only: has any tenant been set up? `unset` promotes the `/onboarding` skill guide. */
+  setup?: "ready" | "unset";
 }

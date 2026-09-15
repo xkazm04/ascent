@@ -7,6 +7,12 @@
 // then does anything hit GitHub — one POST /api/org/issue per selected repo, sequential, with
 // per-repo status (link on success, message on failure). Issues are filed by the org's Ascent App
 // installation and stamped + audit-logged with the signed-in user (see the route).
+//
+// IDEMPOTENCE (Direction 7). A draft carrying a `findingId` is deduped server-side against a hidden
+// marker in the issue body, so re-opening this dialog after a refresh and filing again RELINKS the
+// issue already filed instead of stacking a duplicate in the customer's repo. The row says so —
+// "already filed" beside the link — because a silent no-op that looks identical to a fresh write
+// would teach the user the button did nothing.
 
 import { useEffect, useState } from "react";
 import { Field, Kicker, Modal, ModalHeader, ModalBody, ModalFooter, TextArea, TextInput } from "@/components/ui";
@@ -22,12 +28,23 @@ export interface IssueDraft {
   title: string;
   body: string;
   labels?: string[];
+  /** Stable id of the finding behind this draft (e.g. `auto.self-verify-gaps`). When present the
+   *  route dedupes: a repo that already carries an open issue for this finding is relinked, not
+   *  re-filed. Absent ⇒ every click files a new issue (the pre-0.4.x behaviour). */
+  findingId?: string;
   /** Short mono context line under the dialog title, e.g. "production blocker · 9 repos in view". */
   context?: string;
   targets: IssueTarget[];
 }
 
-type TargetStatus = { state: "idle" | "creating" | "done" | "error"; url?: string; number?: number; error?: string };
+type TargetStatus = {
+  state: "idle" | "creating" | "done" | "error";
+  url?: string;
+  number?: number;
+  /** The route found an existing open issue for this finding and wrote nothing. */
+  reused?: boolean;
+  error?: string;
+};
 
 export function CreateIssueModal({ draft, onClose }: { draft: IssueDraft | null; onClose: () => void }) {
   const [title, setTitle] = useState("");
@@ -75,13 +92,16 @@ export function CreateIssueModal({ draft, onClose }: { draft: IssueDraft | null;
             title: title.trim(),
             body: t.footer ? `${body}\n\n${t.footer}` : body,
             labels: draft?.labels,
+            findingId: draft?.findingId,
           }),
         });
-        const data = (await res.json().catch(() => null)) as { url?: string; number?: number; error?: string } | null;
+        const data = (await res.json().catch(() => null)) as
+          | { url?: string; number?: number; reused?: boolean; error?: string }
+          | null;
         setStatus((s) => ({
           ...s,
           [t.fullName]: res.ok
-            ? { state: "done", url: data?.url, number: data?.number }
+            ? { state: "done", url: data?.url, number: data?.number, reused: data?.reused === true }
             : { state: "error", error: data?.error ?? `Failed (${res.status}).` },
         }));
       } catch {
@@ -107,7 +127,7 @@ export function CreateIssueModal({ draft, onClose }: { draft: IssueDraft | null;
             onChange={(e) => setBody(e.target.value)}
             disabled={running || done}
             rows={6}
-            className="font-mono text-sm text-slate-200"
+            className="type-mono-sm text-slate-200"
           />
         </Field>
 
@@ -119,7 +139,7 @@ export function CreateIssueModal({ draft, onClose }: { draft: IssueDraft | null;
             {targets.map((t) => {
               const st = status[t.fullName];
               return (
-                <li key={t.fullName} className="flex items-center gap-3 text-sm">
+                <li key={t.fullName} className="flex items-center gap-3 type-body-sm">
                   <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
                     <input
                       type="checkbox"
@@ -130,14 +150,17 @@ export function CreateIssueModal({ draft, onClose }: { draft: IssueDraft | null;
                     />
                     <span className="truncate font-mono text-slate-300">{t.name}</span>
                   </label>
-                  {st?.state === "creating" && <span className="shrink-0 font-mono text-xs text-slate-500">filing…</span>}
+                  {st?.state === "creating" && <span className="shrink-0 type-caption text-slate-500">filing…</span>}
                   {st?.state === "done" && (
-                    <a href={st.url} target="_blank" rel="noreferrer" className="focus-ring shrink-0 font-mono text-xs text-accent hover:text-white">
-                      #{st.number} ↗
-                    </a>
+                    <span className="flex shrink-0 items-center gap-2">
+                      {st.reused && <span className="type-caption text-slate-500">already filed</span>}
+                      <a href={st.url} target="_blank" rel="noreferrer" className="focus-ring type-caption text-accent hover:text-white">
+                        #{st.number} ↗
+                      </a>
+                    </span>
                   )}
                   {st?.state === "error" && (
-                    <span className="min-w-0 shrink truncate text-xs text-danger" title={st.error}>
+                    <span className="min-w-0 shrink truncate type-note text-danger" title={st.error}>
                       {st.error}
                     </span>
                   )}
@@ -148,14 +171,14 @@ export function CreateIssueModal({ draft, onClose }: { draft: IssueDraft | null;
         </div>
       </ModalBody>
       <ModalFooter>
-        <span className="text-xs text-slate-500">
+        <span className="type-note text-slate-500">
           Filed by the Ascent App on this org&apos;s installation, attributed to your login and audit-logged.
         </span>
         {done && !running ? (
           <button
             type="button"
             onClick={onClose}
-            className="focus-ring rounded-lg border border-slate-700 px-4 py-2 font-mono text-sm text-slate-200 transition hover:border-accent hover:text-white"
+            className="focus-ring rounded-lg border border-slate-700 px-4 py-2 type-mono-sm text-slate-200 transition hover:border-accent hover:text-white"
           >
             Close
           </button>
@@ -164,7 +187,7 @@ export function CreateIssueModal({ draft, onClose }: { draft: IssueDraft | null;
             type="button"
             onClick={fileIssues}
             disabled={!canFile}
-            className="focus-ring rounded-lg bg-accent px-4 py-2 font-mono text-sm font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
+            className="focus-ring rounded-lg bg-accent px-4 py-2 type-mono-sm font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
           >
             {running ? "Filing…" : `File ${picked.length} issue${picked.length === 1 ? "" : "s"}`}
           </button>

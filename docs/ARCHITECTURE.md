@@ -28,7 +28,6 @@ flowchart LR
   ING -->|REST: repo, git tree, contents, commits| GH[(GitHub API)]
   LLM -->|generateContent JSON| GEM[(Gemini gemini-3-flash-preview)]
   RPT --> U
-  U --> BADGE[GET /api/badge/:owner/:repo .svg]
 ```
 
 **Request flow**
@@ -58,7 +57,7 @@ src/
     scan/[owner]/[repo]/page.tsx # report view (client renders JSON)
     api/
       scan/route.ts              # POST: orchestrates a scan
-      badge/[owner]/[repo]/route.ts # GET: SVG maturity badge
+      gate/[owner]/[repo]/route.ts  # GET: CI maturity gate (200 pass / 422 fail)
   lib/
     maturity/model.ts            # levels, dimensions, weights, criteria (the rubric)
     github/source.ts             # RepoSource interface + GitHubPublicSource
@@ -261,7 +260,7 @@ Migrations: DSQL now supports **Prisma, Flyway, and Tortoise**, so we'll use Pri
    maturity level, and the two posture axes. A failed/unusable LLM auto-falls back to mock.
 4. **Report**: score ring, level ladder, posture quadrant, dimension radar with inline
    evidence + provenance, contributors, PR signals, and a prioritized roadmap, streamed
-   live over Server-Sent Events, plus a shareable SVG badge.
+   live over Server-Sent Events.
 
 Deep dive: [`features/scanning/scan.md`](./features/scanning/scan.md).
 
@@ -275,7 +274,7 @@ src/
     org/[slug]/…                      org intelligence dashboards (7 tabs)
     api/
       scan · scan/stream              run a scan (blocking + SSE)
-      badge · gate                    SVG badge · CI maturity gate
+      gate                            CI maturity gate
       app/* · auth/*                  GitHub App webhook/setup · OAuth
       org/* · history · recommendations · usage · audit · cron/*
       mcp                             read-only MCP server for coding agents

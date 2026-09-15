@@ -55,21 +55,21 @@ export function AddRepoForm({ remaining }: { remaining: number }) {
           placeholder="owner/repo"
           aria-label="Repository to track (owner/repo or GitHub URL)"
           disabled={busy || full}
-          className="focus-ring w-52 rounded-lg border border-slate-700 bg-transparent px-3 py-1.5 text-base text-slate-200 placeholder:text-slate-600 disabled:opacity-50"
+          className="focus-ring w-52 rounded-lg border border-slate-700 bg-transparent px-3 py-1.5 type-body text-slate-200 placeholder:text-slate-600 disabled:opacity-50"
         />
         <button
           type="submit"
           disabled={busy || full || value.trim().length === 0}
-          className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 text-base text-slate-300 transition hover:border-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+          className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 type-body text-slate-300 transition hover:border-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
         >
           {busy ? "Adding…" : "Track repo"}
         </button>
       </div>
       {full && (
-        <p className="font-mono text-sm text-slate-500">Watchlist full. Untrack a repository to add another.</p>
+        <p className="type-mono-sm text-slate-500">Watchlist full. Untrack a repository to add another.</p>
       )}
       {error && (
-        <p role="alert" className="text-sm text-rose-400">
+        <p role="alert" className="type-body-sm text-rose-400">
           {error}
         </p>
       )}
@@ -102,12 +102,12 @@ export function UntrackButton({ fullName }: { fullName: string }) {
         onClick={untrack}
         disabled={busy}
         title={`Stop tracking ${fullName} (its shared scan history is untouched)`}
-        className="focus-ring rounded-md px-2 py-1 font-mono text-sm text-slate-500 transition hover:text-rose-400 disabled:opacity-50"
+        className="focus-ring rounded-md px-2 py-1 type-mono-sm text-slate-500 transition hover:text-rose-400 disabled:opacity-50"
       >
         {busy ? "…" : "Untrack"}
       </button>
       {error && (
-        <span role="alert" className="text-sm text-rose-400">
+        <span role="alert" className="type-body-sm text-rose-400">
           {error}
         </span>
       )}

@@ -33,9 +33,15 @@ export interface CopilotMetricsDay {
   total_engaged_users?: number;
 }
 
+/** Why a GitHub read yielded no data — typed, so the route answers from fact, not a scope guess. */
+export type GhFailureReason = "denied" | "absent" | "unreachable";
+
 export interface CopilotSyncInput {
   seats: CopilotSeatsResponse | null;
   metrics: CopilotMetricsDay[];
+  /** Set when the corresponding fetch produced no data; null on success. */
+  seatsFailure: GhFailureReason | null;
+  metricsFailure: GhFailureReason | null;
 }
 
 /** UTC day-bucket start for an ISO `YYYY-MM-DD`, or null when unparseable. */
@@ -95,8 +101,9 @@ export function summarizeCopilotSync(records: UsageRecordInput[]): CopilotSyncRe
 
 const GH = "https://api.github.com";
 
-/** One authenticated GitHub GET. Returns null on any non-2xx — the caller degrades, never throws. */
-async function ghJson<T>(path: string, token: string): Promise<T | null> {
+/** One authenticated GitHub GET. Never throws — a failure comes back TYPED (denied / absent /
+ *  unreachable) so callers degrade with the reason in hand instead of guessing from emptiness. */
+async function ghJson<T>(path: string, token: string): Promise<{ data: T | null; failure: GhFailureReason | null }> {
   try {
     const res = await fetch(`${GH}${path}`, {
       headers: {
@@ -106,10 +113,14 @@ async function ghJson<T>(path: string, token: string): Promise<T | null> {
       },
       cache: "no-store",
     });
-    if (!res.ok) return null;
-    return (await res.json()) as T;
+    if (!res.ok) {
+      const failure: GhFailureReason =
+        res.status === 401 || res.status === 403 ? "denied" : res.status === 404 ? "absent" : "unreachable";
+      return { data: null, failure };
+    }
+    return { data: (await res.json()) as T, failure: null };
   } catch {
-    return null;
+    return { data: null, failure: "unreachable" };
   }
 }
 
@@ -127,5 +138,10 @@ export async function fetchCopilot(orgLogin: string, token: string): Promise<Cop
     ghJson<CopilotSeatsResponse>(`/orgs/${org}/copilot/billing/seats`, token),
     ghJson<CopilotMetricsDay[]>(`/orgs/${org}/copilot/metrics`, token),
   ]);
-  return { seats, metrics: Array.isArray(metrics) ? metrics : [] };
+  return {
+    seats: seats.data,
+    metrics: Array.isArray(metrics.data) ? metrics.data : [],
+    seatsFailure: seats.failure,
+    metricsFailure: metrics.failure,
+  };
 }

@@ -33,9 +33,20 @@ import { buildTestAlertMessage, dispatchAlert, validateAlertWebhookUrl } from "@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Parse a threshold field: a positive integer (1..100), or null when blank/null. `false` = invalid. */
-function parseThreshold(v: unknown): number | null | false {
-  if (v == null || v === "") return null;
+/**
+ * Parse a threshold field: a positive integer (1..100), or null when explicitly blank/null (which
+ * CLEARS the override back to DEFAULT_THRESHOLDS). `false` = invalid, `undefined` = the key was not
+ * present in the body at all.
+ *
+ * The absent case is NOT the same as the blank case, and conflating them was a silent data loss: the
+ * route advertises both threshold fields as optional and gates on `"overallDrop" in body || ...`, so
+ * `POST { org, overallDrop: 7 }` is a documented one-sided update — and it used to reset the caller's
+ * dimensionDrop to the default on its way through, because `undefined` parsed to the same `null` a
+ * deliberate clear does. Only the popover, which always sends both fields, hid it.
+ */
+function parseThreshold(v: unknown): number | null | false | undefined {
+  if (v === undefined) return undefined; // key absent — leave the stored value alone
+  if (v === null || v === "") return null; // explicit clear — back to the default
   const n = Number(v);
   if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1 || n > 100) return false;
   return n;
@@ -151,7 +162,10 @@ export async function POST(request: Request) {
     } else {
       testUrl = await getOrgAlertWebhook(body.org);
     }
-    const delivered = await dispatchAlert(buildTestAlertMessage(body.org), { webhookUrl: testUrl });
+    // `org` is not decoration on this call. For a `mailto:` sink it is what mints the unsubscribe
+    // link and names the tenant in the "why am I receiving this" line (see email/alert-sink.ts);
+    // without it the ONE mail an admin sends to verify their email sink is the one mail with neither.
+    const delivered = await dispatchAlert(buildTestAlertMessage(body.org), { webhookUrl: testUrl, org: body.org });
     return NextResponse.json({
       ok: true,
       delivered,
@@ -200,11 +214,17 @@ export async function POST(request: Request) {
 
   // Regression thresholds: null clears a field back to DEFAULT_THRESHOLDS; a positive int 1..100 sets it.
   if (hasThresholds) {
-    const overallDrop = parseThreshold(body.overallDrop);
-    const dimensionDrop = parseThreshold(body.dimensionDrop);
-    if (overallDrop === false || dimensionDrop === false) {
+    const parsedOverall = parseThreshold(body.overallDrop);
+    const parsedDimension = parseThreshold(body.dimensionDrop);
+    if (parsedOverall === false || parsedDimension === false) {
       return NextResponse.json({ error: "overallDrop/dimensionDrop must be an integer 1..100 or null." }, { status: 400 });
     }
+    // A field the caller did not send keeps whatever is stored — read it back rather than writing a
+    // null over it. Both present (the popover's only shape) skips the read entirely.
+    const current =
+      parsedOverall === undefined || parsedDimension === undefined ? await getOrgAlertThresholds(body.org) : null;
+    const overallDrop = parsedOverall === undefined ? (current?.overallDrop ?? null) : parsedOverall;
+    const dimensionDrop = parsedDimension === undefined ? (current?.dimensionDrop ?? null) : parsedDimension;
     const stored = await setOrgAlertThresholds(body.org, { overallDrop, dimensionDrop });
     if (stored === undefined) return NextResponse.json({ error: "Unknown organization." }, { status: 404 });
     result.overallDrop = stored.overallDrop;

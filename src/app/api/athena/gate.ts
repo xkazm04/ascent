@@ -15,6 +15,7 @@ import {
   getCreditState,
   getOrgId,
   workspaceAllowsMemory,
+  workspaceAllowsSkills,
   type MemoryRow,
 } from "@/lib/db";
 import {
@@ -172,9 +173,16 @@ async function recallForMessage(org: string, message: string, viewer: string | n
  *
  * So the DECISION is made here, where it can be, and the booleans are what travel into the stream.
  */
-export async function resolveAthenaGates(org: string): Promise<{ canRead: boolean; memoryAllowed: boolean }> {
+export async function resolveAthenaGates(
+  org: string,
+): Promise<{ canRead: boolean; memoryAllowed: boolean; skillsAllowed: boolean }> {
   const [canRead, credit] = await Promise.all([canReadOrg(org), getCreditState(org).catch(() => null)]);
-  return { canRead, memoryAllowed: await workspaceAllowsMemory(org, credit?.plan).catch(() => false) };
+  const [memoryAllowed, skillsAllowed] = await Promise.all([
+    workspaceAllowsMemory(org, credit?.plan).catch(() => false),
+    // #17 (W2-K): the four registry tools are fail-closed until this predicate says otherwise.
+    workspaceAllowsSkills(org, credit?.plan).catch(() => false),
+  ]);
+  return { canRead, memoryAllowed, skillsAllowed };
 }
 
 /**
@@ -191,9 +199,15 @@ export async function resolveAthenaGates(org: string): Promise<{ canRead: boolea
  * remembered to gate.
  */
 export function buildAthenaTurnDeps(
-  ctx: AthenaOrgContext & { threadId: string; viewer: string | null; canRead: boolean; memoryAllowed: boolean },
+  ctx: AthenaOrgContext & {
+    threadId: string;
+    viewer: string | null;
+    canRead: boolean;
+    memoryAllowed: boolean;
+    skillsAllowed?: boolean;
+  },
 ): AthenaTurnDeps {
-  const { org, orgId, threadId, viewer, canRead, memoryAllowed } = ctx;
+  const { org, orgId, threadId, viewer, canRead, memoryAllowed, skillsAllowed = false } = ctx;
   return {
     recall: (message) => recallForMessage(org, message, viewer),
     identity: async () => {
@@ -210,6 +224,7 @@ export function buildAthenaTurnDeps(
       createAthenaGrounding(org, {
         canReadOrg: async () => canRead,
         memoryAllowed: async () => memoryAllowed,
+        skillsAllowed: async () => skillsAllowed,
         runTool,
       }),
     runLoop: (req) =>

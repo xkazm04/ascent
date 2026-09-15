@@ -40,7 +40,7 @@ export function RegistryMapPanel({
       <RegistryRepoPicker options={options} value={fullName} onPick={setFullName} />
 
       <div className="space-y-2">
-        <label className="block font-mono text-xs uppercase tracking-[0.16em] text-slate-500" htmlFor="registry-full-name">
+        <label className="block type-label tracking-[0.16em] text-slate-500" htmlFor="registry-full-name">
           owner / repo
         </label>
         <div className="flex flex-wrap items-center gap-2">
@@ -62,7 +62,7 @@ export function RegistryMapPanel({
             {pending === "map" ? "Mapping…" : "Map repository"}
           </RegistryButton>
         </div>
-        <p className="text-xs text-slate-500">
+        <p className="type-note text-slate-500">
           {valid
             ? "Ascent maps it, then opens one PR adding the v1 layout — unless the repo is already a registry, in which case it is mapped as-is."
             : `Enter it as owner/repo — for example ${EXAMPLE_REGISTRY}.`}

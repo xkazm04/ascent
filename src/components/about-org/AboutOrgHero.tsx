@@ -50,11 +50,11 @@ export function AboutOrgHero() {
           {/* Two steps below the landing masthead (`--h1-*`). This headline is two full clauses and the
               second one carries the thesis, so it has to hold three lines at every desktop width; the
               landing's single clause can afford the larger point size. */}
-          <h1 className="deck-h1 mt-4 text-4xl font-bold leading-[1.05] text-white [--h1-ceil:4rem] [--h1-floor:2.75rem] sm:text-5xl">
+          <h1 className="deck-h1 mt-4 type-display-lg font-bold leading-[1.05] text-white [--h1-ceil:4rem] [--h1-floor:2.75rem] sm:text-5xl">
             Every repository is a data point.{" "}
             <span className="text-accent">The organization is the answer.</span>
           </h1>
-          <p className="deck-lede mt-5 max-w-xl text-lg leading-relaxed text-slate-300 2xl:max-w-2xl">{INTRO}</p>
+          <p className="deck-lede mt-5 max-w-xl type-lede leading-relaxed text-slate-300 2xl:max-w-2xl">{INTRO}</p>
 
           <AboutCtaButtons className="mt-8" />
 
@@ -75,7 +75,7 @@ export function AboutOrgHero() {
               glow="radial-gradient(70% 65% at 50% 0%, rgba(59,158,255,0.12), transparent 72%)"
             >
               <OrgIndexInstrument size={260} className="max-w-full" />
-              <div className="mt-2 text-center font-mono text-xs uppercase tracking-[0.22em] text-slate-600">
+              <div className="mt-2 text-center type-label tracking-[0.22em] text-slate-600">
                 Illustrative fleet · 48 repos
               </div>
             </GlowBackdrop>

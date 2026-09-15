@@ -26,18 +26,46 @@ export const BUCKET_THRESHOLD_DAYS = 120;
  * the chunk's first date. Sums are preserved exactly; the CSV/JSON exports stay per-day (the escape
  * hatch for exact figures). Exported for tests.
  */
-export function bucketUsageDays(daily: UsageDay[]): { series: UsageDay[]; bucketed: boolean } {
-  if (daily.length <= BUCKET_THRESHOLD_DAYS) return { series: daily, bucketed: false };
+export function bucketUsageDays(daily: UsageDay[]): {
+  series: UsageDay[];
+  bucketed: boolean;
+  /** UTC days covered by the LAST bucket: 1 per-day, 1-7 when bucketed. See {@link partialNote}. */
+  trailingDays: number;
+} {
+  if (daily.length <= BUCKET_THRESHOLD_DAYS) return { series: daily, bucketed: false, trailingDays: 1 };
   const series: UsageDay[] = [];
+  let trailingDays = 0;
   for (let i = 0; i < daily.length; i += 7) {
     const chunk = daily.slice(i, i + 7);
+    trailingDays = chunk.length;
     series.push({
       date: chunk[0]!.date,
       billable: chunk.reduce((a, d) => a + d.billable, 0),
       free: chunk.reduce((a, d) => a + d.free, 0),
     });
   }
-  return { series, bucketed: true };
+  return { series, bucketed: true, trailingDays };
+}
+
+/**
+ * What the NEWEST bucket is short of, in words. It is always short of something, and both reasons
+ * were previously drawn as if complete:
+ *
+ *  - Per-day, the last bar is TODAY's UTC day, which is still accruing — a bar that will be taller in
+ *    six hours, drawn at the same weight as thirty finished ones, reads as a collapse in volume.
+ *  - Bucketed, a 365-day window is 52 weeks and a day, so the last chunk can hold as little as ONE
+ *    day while being drawn the same width as a full week beside it.
+ *
+ * Chunking stays FORWARD (oldest-first) rather than backward-from-today, so the partial bucket is the
+ * newest one. Backward chunking would move the partial to the oldest bucket, but every bucket is
+ * keyed and labelled by its FIRST date: the boundaries would then be pinned to *today* and slide by
+ * one day on every page load, so "the week of Mar 3" would cover different days each morning and no
+ * two readings of the chart could be compared. Forward chunking anchors the boundaries to the window
+ * start, and the cost — one short bucket at the end — is a label, which is what this is.
+ */
+export function partialNote(bucketed: boolean, trailingDays: number): string {
+  if (!bucketed) return "today, partial";
+  return trailingDays < 7 ? `partial: ${trailingDays} of 7 days` : "partial: week to date";
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -50,8 +78,24 @@ function axisLabel(date: string, bucketed: boolean): string {
   return `${MONTHS[Number(m) - 1] ?? m} '${y.slice(2)}`;
 }
 
-export function UsageTrend({ daily, org, days }: { daily: UsageDay[]; org: string; days: number }) {
-  const { series, bucketed } = bucketUsageDays(daily);
+export function UsageTrend({
+  daily,
+  org,
+  days,
+  shortened = false,
+}: {
+  daily: UsageDay[];
+  org: string;
+  /** The REQUESTED window (`?days=`). Drives the export links; the caption reports what the series
+   *  actually covers, which is shorter when the window was clamped at the org's first scan. */
+  days: number;
+  /** True when the zero-fill was clamped at the org's first scan — say so rather than letting the
+   *  reader assume `days - daily.length` days of measured zeros were dropped for some other reason. */
+  shortened?: boolean;
+}) {
+  const { series, bucketed, trailingDays } = bucketUsageDays(daily);
+  const partial = partialNote(bucketed, trailingDays);
+  const lastIndex = series.length - 1;
   const max = Math.max(1, ...series.map((d) => d.billable + d.free));
   const totalBillable = daily.reduce((a, d) => a + d.billable, 0);
   const totalFree = daily.reduce((a, d) => a + d.free, 0);
@@ -64,12 +108,19 @@ export function UsageTrend({ daily, org, days }: { daily: UsageDay[]; org: strin
     <div className="rounded-2xl border border-divider bg-surface/40 p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold text-white">
+          <h2 className="type-body font-semibold text-white">
             Computed scans per {bucketed ? "week" : "day"}
           </h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Last {days} days · <span style={{ color: BILLABLE }}>{totalBillable} billable</span> ·{" "}
+          <p className="mt-1 type-body-sm text-slate-500">
+            {/* UTC, said out loud: every bucket on this axis is a UTC calendar day (date_trunc in
+                SQL, toISOString in the fallback). A reader whose local "yesterday" straddles two of
+                these buckets was previously given a bare MM-DD and left to guess whose midnight. */}
+            Last {daily.length} days (UTC) ·{" "}
+            <span style={{ color: BILLABLE }}>{totalBillable} billable</span> ·{" "}
             <span style={{ color: FREE }}>{totalFree} free</span>
+            {/* The window was clamped at the org's first scan: the missing days are not zeros we
+                measured, they are days there was nothing to measure. */}
+            {shortened && <> · window shortened to first scan</>}
             {/* Long windows are bucketed for readability — say so, and point at the escape hatch. */}
             {bucketed && <> · showing weekly totals (per-day figures in the CSV/JSON export)</>}
           </p>
@@ -77,23 +128,36 @@ export function UsageTrend({ daily, org, days }: { daily: UsageDay[]; org: strin
         <div className="flex items-center gap-2">
           <a
             href={`${exportBase}&format=csv`}
-            className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 font-mono text-sm uppercase tracking-widest text-slate-200 transition hover:border-accent hover:text-white"
+            className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 type-mono-sm uppercase tracking-widest text-slate-200 transition hover:border-accent hover:text-white"
             download
           >
             Export CSV
           </a>
           <a
             href={`${exportBase}&format=json`}
-            className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 font-mono text-sm uppercase tracking-widest text-slate-200 transition hover:border-accent hover:text-white"
+            className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 type-mono-sm uppercase tracking-widest text-slate-200 transition hover:border-accent hover:text-white"
             download
           >
             Export JSON
+          </a>
+          {/* The SHOWBACK export (UAT VICTOR-L1-02): one row per inference lane and one per code-owning
+              team — the allocation artifact a finance reader needs, which the route has served
+              correctly since it shipped and which nothing on the product linked to. "Built, correct and
+              unlinked" was the finding; a third button is the whole fix. It is a different PROJECTION
+              of the same window (not a different window), so it rides the same exportBase. */}
+          <a
+            href={`${exportBase}&view=showback`}
+            className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 type-mono-sm uppercase tracking-widest text-slate-200 transition hover:border-accent hover:text-white"
+            title="Cost allocation by inference lane and code-owning team (CSV)"
+            download
+          >
+            Showback CSV
           </a>
         </div>
       </div>
 
       {/* Legend */}
-      <div className="mt-3 flex items-center gap-4 text-sm text-slate-400">
+      <div className="mt-3 flex items-center gap-4 type-body-sm text-slate-400">
         <span className="inline-flex items-center gap-1.5">
           <span className="inline-block h-2 w-2 rounded-sm" style={{ backgroundColor: BILLABLE }} />
           Billable (private)
@@ -105,7 +169,7 @@ export function UsageTrend({ daily, org, days }: { daily: UsageDay[]; org: strin
       </div>
 
       {totalBillable + totalFree === 0 ? (
-        <p className="mt-6 text-base text-slate-500">No scans recorded in this period.</p>
+        <p className="mt-6 type-body text-slate-500">No scans recorded in this period.</p>
       ) : (
         <>
           {/* The hover-only tooltips never fire for keyboard/touch/AT users, so the billing data —
@@ -114,17 +178,21 @@ export function UsageTrend({ daily, org, days }: { daily: UsageDay[]; org: strin
           <div
             className="mt-4 flex h-40 items-end gap-px"
             role="img"
-            aria-label={`${bucketed ? "Weekly" : "Daily"} computed scans, last ${days} days: ${totalBillable} billable, ${totalFree} free. Full figures in the table that follows, or via Export CSV.`}
+            aria-label={`${bucketed ? "Weekly" : "Daily"} computed scans over ${daily.length} UTC days: ${totalBillable} billable, ${totalFree} free. The newest ${bucketed ? "bucket" : "day"} is incomplete (${partial}). Full figures in the table that follows, or via Export CSV.`}
           >
-            {series.map((d) => {
+            {series.map((d, i) => {
               const total = d.billable + d.free;
               const freeH = (d.free / max) * 100;
               const billH = (d.billable / max) * 100;
+              // The newest bucket is ALWAYS incomplete — the window's upper bound is midnight UTC of
+              // tomorrow, so its last day is today. Dimmed and dashed rather than drawn at full
+              // weight beside finished buckets, where a half-filled day reads as a drop in volume.
+              const isPartial = i === lastIndex;
               return (
                 <div
                   key={d.date}
-                  className="group relative flex flex-1 cursor-help flex-col justify-end"
-                  title={`${bucketed ? `Week of ${d.date}` : d.date}: ${d.billable} billable, ${d.free} free`}
+                  className={`group relative flex flex-1 cursor-help flex-col justify-end ${isPartial ? "opacity-60" : ""}`}
+                  title={`${bucketed ? `Week of ${d.date}` : d.date}: ${d.billable} billable, ${d.free} free${isPartial ? ` — ${partial}` : ""}`}
                 >
                   {d.billable > 0 && (
                     <div style={{ height: `${billH}%`, backgroundColor: BILLABLE }} className="rounded-t-sm transition group-hover:brightness-125" />
@@ -139,6 +207,7 @@ export function UsageTrend({ daily, org, days }: { daily: UsageDay[]; org: strin
                     />
                   )}
                   {total === 0 && <div className="h-px bg-slate-800" />}
+                  {isPartial && <div className="mt-px border-t border-dashed border-slate-600" aria-hidden="true" />}
                 </div>
               );
             })}
@@ -146,21 +215,27 @@ export function UsageTrend({ daily, org, days }: { daily: UsageDay[]; org: strin
           {/* One flex-1 slot per day, mirroring the bar grid above, so each shown label stays under
               its own bar. (A justify-between over only the filtered labels spread them evenly across
               the full width, detaching them from the fixed per-day bar positions.) */}
-          <div className="mt-2 flex gap-px font-mono text-sm text-slate-600" aria-hidden="true">
+          <div className="mt-2 flex gap-px type-mono-sm text-slate-600" aria-hidden="true">
             {series.map((d, i) => {
-              const show = i % labelEvery === 0 || i === series.length - 1;
+              const show = i % labelEvery === 0 || i === lastIndex;
               return (
                 <span key={d.date} className="flex-1 text-center">
-                  {show ? axisLabel(d.date, bucketed) : " "}
+                  {show ? `${axisLabel(d.date, bucketed)}${i === lastIndex ? "*" : ""}` : " "}
                 </span>
               );
             })}
           </div>
+          {/* The asterisk the axis just drew, spelled out. Visible copy, not a tooltip: the fact that
+              the newest bar is not comparable to the ones beside it is the single most misreadable
+              thing on this chart, and hover text does not exist for touch or keyboard readers. */}
+          <p className="mt-2 type-body-sm text-slate-500">
+            * Newest {bucketed ? "bucket" : "day"} — {partial}. Days are UTC.
+          </p>
           {/* Text alternative for the bar strip: every day the hover tooltips carry, reachable by AT. */}
           <table className="sr-only">
             <caption>
-              Computed scans per {bucketed ? "week (weekly totals; per-day figures via the CSV export)" : "day"}:
-              billable (private) and free (public)
+              Computed scans per {bucketed ? "week (weekly totals; per-day figures via the CSV export)" : "UTC day"}:
+              billable (private) and free (public). The newest row is incomplete ({partial}).
             </caption>
             <thead>
               <tr>
@@ -170,9 +245,12 @@ export function UsageTrend({ daily, org, days }: { daily: UsageDay[]; org: strin
               </tr>
             </thead>
             <tbody>
-              {series.map((d) => (
+              {series.map((d, i) => (
                 <tr key={d.date}>
-                  <th scope="row">{d.date}</th>
+                  <th scope="row">
+                    {d.date}
+                    {i === lastIndex ? ` (${partial})` : ""}
+                  </th>
                   <td>{d.billable}</td>
                   <td>{d.free}</td>
                 </tr>

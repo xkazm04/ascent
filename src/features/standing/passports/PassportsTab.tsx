@@ -17,8 +17,10 @@ import { ExportCsvLink, SectionEmpty, SectionHeader } from "@/components/org/sha
 import { SegmentSelector } from "@/components/org/shared/SegmentSelector";
 import { PassportsSwitcher } from "./PassportsSwitcher";
 import { deriveAutonomy, type RepoAutonomy } from "./autonomy/autonomyModel";
+import { isPlaceholderEngine } from "./PlaceholderMark";
 import type { PassportRow } from "./PassportTable";
 import { getOrgRollup } from "@/lib/db";
+import { getFoundationRollout } from "@/lib/db/org-foundation";
 import { decisionMap } from "@/lib/org/decision-map";
 import { passportStackChips } from "@/lib/org/passport-display";
 import { resolveOrgScope } from "@/lib/org/scope";
@@ -27,9 +29,14 @@ type SearchParams = { [key: string]: string | string[] | undefined };
 
 export async function PassportsTab({ slug, sp }: { slug: string; sp: SearchParams }) {
   const { segments, segmentId, techGroupId } = await resolveOrgScope(slug, sp);
-  const [rollup, decisions] = await Promise.all([
+  const [rollup, decisions, rollout] = await Promise.all([
     getOrgRollup(slug, undefined, segmentId, techGroupId),
     decisionMap(slug, "passports"),
+    // Spec #35 handoff 2's promised report-back column (UAT `PRIYA-L1-05`). `getFoundationRollout`
+    // had exactly one consumer, on the Repositories tab, so a lead's one fleet-adoption question —
+    // "where is the standard in and not in?" — was answered across three tabs with no cross-link and
+    // the join living in her head. Read in the same parallel batch; it adds no round-trip depth.
+    getFoundationRollout(slug),
   ]);
 
   const withPassport = (rollup?.repos ?? []).filter((r) => r.passport);
@@ -50,6 +57,16 @@ export async function PassportsTab({ slug, sp }: { slug: string; sp: SearchParam
       tests: prod.tests.level,
       security: prod.security.level,
       observability: prod.observability.level,
+      // Round 10 taught the fleet AVERAGES that a mock score is a deterministic floor, not a grade.
+      // The portfolio never followed: on the default Baseline view a placeholder passport rendered
+      // identically to a live one and its blockers were folded into the fleet Pareto unmarked. The
+      // engine was already threaded into `deriveAutonomy` below — it just never reached the rows.
+      // Labelled, never excluded: the row, the point and the docket's predicate all say so.
+      placeholder: isPlaceholderEngine(r.latest?.engine),
+      // P4 provenance: WHICH identity fields this repo owner asserted. The rollup used to apply the
+      // overrides and drop the blob, so an asserted "GA, mission-critical" was indistinguishable from
+      // an observed one on every surface below it. Null for a repo with no overrides.
+      ownerSet: r.passportOwnerSet ?? null,
       detail: {
         purpose: pp.identity.purpose,
         autoBlockers: auto.blockers,
@@ -77,9 +94,11 @@ export async function PassportsTab({ slug, sp }: { slug: string; sp: SearchParam
     };
   });
 
-  // PROTOTYPE (P1 — Autonomy Passport): the tier verdict is derived server-side from the same cached
-  // passports the rows come from, so no extra query. See autonomy/autonomyModel.ts — several gates
-  // are proxies/placeholders until the scan grows the signals listed in DATA_MODEL_GAPS.
+  // Autonomy Passport (P1): the tier verdict is derived server-side from the same cached passports the
+  // rows come from, so no extra query. Direction 8 — the tier, its blocking conditions and the
+  // progress meter all come from `deriveAutonomyForStored`, the shared resolver the admission seed
+  // uses, and `contextHealth` (already on the rollup row, parsed off Repository.contextHealthJson) is
+  // threaded in so the context gate measures staleness instead of hashing the repo's name for it.
   const autonomy: RepoAutonomy[] = withPassport.map((r) =>
     deriveAutonomy({
       fullName: r.fullName,
@@ -89,8 +108,15 @@ export async function PassportsTab({ slug, sp }: { slug: string; sp: SearchParam
       aiConformance: r.aiConformance,
       lastScanAt: r.lastScanAt,
       engine: r.latest?.engine ?? null,
+      manifest: r.manifest ?? null,
+      contextHealth: r.contextHealth ?? null,
     }),
   );
+
+  // #13 — the capability matrix is built over EVERY repo in scope, not just the ones with a passport:
+  // a repo whose scan read no manifest has to appear in the "not assessed" band, and filtering it out
+  // here would silently shrink the fleet to the subset that happens to look good.
+  const capabilities = (rollup?.repos ?? []).map((r) => ({ fullName: r.fullName, name: r.name, manifest: r.manifest }));
 
   return (
     <div className="space-y-6">
@@ -107,7 +133,7 @@ export async function PassportsTab({ slug, sp }: { slug: string; sp: SearchParam
           No passports yet for this view. Passports are produced by scans, so scan some of this org&apos;s repositories (or widen the segment filter), and each scan adds its repo here.
         </SectionEmpty>
       ) : (
-        <PassportsSwitcher rows={rows} autonomy={autonomy} org={slug} decisions={decisions} />
+        <PassportsSwitcher rows={rows} autonomy={autonomy} capabilities={capabilities} rollout={rollout} org={slug} decisions={decisions} />
       )}
     </div>
   );

@@ -332,8 +332,12 @@ function stackDeliverable(dimId: DimensionId, stack: StackContext): { path: stri
   const cmd = stack.commands;
   const fwBuild = frameworkBuildHint(stack);
   const steps = [ciSetupHint(stack), cmd.install, cmd.lint, cmd.test, ...(fwBuild ? [fwBuild] : [])].join(" → ");
+  // #13 — when the commands are the repo's OWN declared ones, name the source. The reader is being
+  // handed their own contract back; presenting it as our inference is both less persuasive and less
+  // true, and it hides the one action that keeps it accurate (edit the manifest, not this recipe).
+  const from = stack.source === "manifest" ? ", from this repo's .ai/manifest.yaml" : "";
   return {
-    path: `.github/workflows/ci.yml (${steps}) gated on merge + the same checks pre-push`,
+    path: `.github/workflows/ci.yml (${steps}${from}) gated on merge + the same checks pre-push`,
     summary: CONTROL.D3.deliverable.summary,
   };
 }

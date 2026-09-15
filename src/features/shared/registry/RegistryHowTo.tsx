@@ -11,8 +11,8 @@ import type { RegistryView } from "@/lib/org/registry-view";
 function Line({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-1.5">
-      <span className="w-28 shrink-0 font-mono text-xs uppercase tracking-[0.18em] text-slate-500">{label}</span>
-      <code className="rounded bg-slate-800/70 px-2 py-0.5 font-mono text-sm text-slate-200">{value}</code>
+      <span className="w-28 shrink-0 type-label tracking-[0.18em] text-slate-500">{label}</span>
+      <code className="rounded bg-slate-800/70 px-2 py-0.5 type-mono-sm text-slate-200">{value}</code>
     </div>
   );
 }
@@ -23,7 +23,7 @@ export function RegistryHowTo({ view, dense = false }: { view: RegistryView; den
     <div className={dense ? "" : "space-y-2"}>
       <Kicker tone="muted">Developer how-to</Kicker>
       {!dense && (
-        <p className="max-w-2xl text-sm text-slate-400">
+        <p className="max-w-2xl type-body-sm text-slate-400">
           Git is the interface. A developer clones the registry, edits a <code className="font-mono text-slate-300">SKILL.md</code>,
           bumps its version, appends <code className="font-mono text-slate-300">LESSONS.md</code> and opens a PR. Nothing here needs
           an ascent session.
@@ -35,7 +35,7 @@ export function RegistryHowTo({ view, dense = false }: { view: RegistryView; den
         <Line label="pointer" value={pointer} />
       </div>
       {!dense && (
-        <p className="text-xs text-slate-500">
+        <p className="type-note text-slate-500">
           The pointer lives in each repo&apos;s <code className="font-mono">.ai/manifest.yaml</code>. A repo with no pointer falls back
           to your canonical registry.
         </p>

@@ -123,11 +123,49 @@ export class OpenAiProvider implements LLMProvider {
         throw new Error(`${this.label} request failed (${res.status}): ${body.slice(0, 200)}`);
       }
       const data = (await res.json()) as {
-        choices?: { message?: { content?: string } }[];
+        choices?: {
+          finish_reason?: string;
+          // Several hosted reasoning models (Nebius' GLM / Nemotron families, measured 2026-09-05)
+          // stream their chain of thought into a sibling field. We never READ it as an answer — it is
+          // a scratchpad, not a result — but its size is the evidence that distinguishes "the model
+          // said nothing" from "the model thought until it ran out of room".
+          message?: { content?: string; reasoning_content?: string };
+        }[];
         usage?: { prompt_tokens?: number; completion_tokens?: number };
       };
-      const text = data.choices?.[0]?.message?.content;
-      if (!text) throw new Error(`Empty response from ${this.label}.`);
+      const choice = data.choices?.[0];
+      const text = choice?.message?.content;
+      if (!text) {
+        // `Empty response` used to be this branch's only message, and it was actively misleading:
+        // the overwhelmingly common cause is the COMPLETION CAP, not an unresponsive endpoint. A
+        // reasoning model spends the same budget thinking that it needs for answering, so at a cap
+        // it emits a full scratchpad and zero content — measured on GLM-5.3-Flash against this exact
+        // prompt: finish_reason "length", 16,000 completion tokens, 0 characters of content, 66,708
+        // characters of reasoning. Reported as "empty" that reads as a broken model; reported as a
+        // cap it reads as a knob to turn, which is what it is.
+        const reasoned = choice?.message?.reasoning_content?.length ?? 0;
+        if (choice?.finish_reason === "length") {
+          throw new Error(
+            `${this.label} hit the completion cap (max_tokens=${llmMaxTokens("OPENAI_MAX_TOKENS")}) ` +
+              `before emitting any answer` +
+              (reasoned ? `, after ${reasoned} characters of reasoning` : "") +
+              `. Raise OPENAI_MAX_TOKENS for this model, or use a model that reasons less for this prompt.`,
+          );
+        }
+        throw new Error(
+          `Empty response from ${this.label}.` +
+            (reasoned ? ` The model returned ${reasoned} characters of reasoning and no content.` : ""),
+        );
+      }
+      // Truncated-but-non-empty is the same defect wearing the other face: the JSON is cut off
+      // mid-object, `parseJsonLoose` salvages a fragment, and the shape guard below reports "not an
+      // assessment object" — which blames the model's output for a budget we set. Say what happened.
+      if (choice?.finish_reason === "length") {
+        throw new Error(
+          `${this.label} hit the completion cap (max_tokens=${llmMaxTokens("OPENAI_MAX_TOKENS")}) ` +
+            `mid-answer, so the response is truncated and cannot be parsed. Raise OPENAI_MAX_TOKENS.`,
+        );
+      }
       opts.onUsage?.({ inputTokens: data.usage?.prompt_tokens, outputTokens: data.usage?.completion_tokens });
 
       // The json_object FALLBACK path guarantees VALID JSON, not the assessment SHAPE, and even under

@@ -35,6 +35,45 @@ describe("the tool catalog", () => {
   it("requires mcp:read on every tool — the door scope is never optional", () => {
     for (const t of MCP_TOOLS) expect(t.scopes).toContain("mcp:read");
   });
+
+  // A `planGate` the route cannot resolve would silently never open. The catalog and the resolver
+  // must agree on the family names, and there are exactly two.
+  it("names only plan gates the door knows how to resolve", () => {
+    for (const t of MCP_TOOLS) {
+      if (t.planGate) expect(["memory", "skills"]).toContain(t.planGate);
+    }
+  });
+
+  // Every tool over a plan-gated resource must DECLARE the gate. A skills tool that forgot to would
+  // serve the org's curated library on a plan that does not include it — the hole #17 closed.
+  it("plan-gates every tool that reads a plan-gated resource", () => {
+    for (const t of MCP_TOOLS) {
+      if (t.scopes.includes("memory:read")) expect(t.planGate).toBe("memory");
+      if (t.scopes.includes("skills:read")) expect(t.planGate).toBe("skills");
+    }
+  });
+
+  it("marks exactly the tools that write, and gives each one telemetry:write", () => {
+    const writes = MCP_TOOLS.filter((t) => t.mutates).map((t) => t.name);
+    expect(writes).toEqual(["cite_memory", "claim_followups", "report_attempt", "report_skill_invoke"]);
+    for (const t of MCP_TOOLS) expect(t.scopes.includes("telemetry:write")).toBe(Boolean(t.mutates));
+  });
+
+  // MOONSHOT #3. `get_fix_brief` is scoped with the write tools and marked with the reads, and the
+  // combination is deliberate rather than an oversight: it MUTATES NOTHING (so no marker, no
+  // telemetry:write, no policy row — the write gate's own structural equivalence would break) but it
+  // is only ever answerable for rows the caller HOLDS, and only a token that can claim can hold one.
+  it("keeps get_fix_brief a read, gated by the scope that lets a token hold a row", () => {
+    const brief = MCP_TOOLS.find((t) => t.name === "get_fix_brief")!;
+    expect(brief.mutates).toBeUndefined();
+    expect(brief.scopes).toEqual(["mcp:read", "followups:write"]);
+  });
+
+  it("does not plan-gate the work queue — every scanned org has a Follow-ups ledger", () => {
+    for (const name of ["claim_followups", "get_fix_brief", "report_attempt"]) {
+      expect(MCP_TOOLS.find((t) => t.name === name)!.planGate).toBeUndefined();
+    }
+  });
 });
 
 describe("toolsForScopes", () => {
@@ -54,6 +93,22 @@ describe("toolsForScopes", () => {
 
   it("grants memory recall once the memory scope is present too", () => {
     expect(toolsForScopes(["mcp:read", "memory:read"]).map((t) => t.name)).toContain("recall_org_memory");
+  });
+
+  it("withholds the skills tools from a token holding only the door", () => {
+    const names = toolsForScopes(door).map((t) => t.name);
+    expect(names).not.toContain("find_skills");
+    expect(names).not.toContain("get_governing_subject");
+  });
+
+  it("withholds every write tool from a token with no telemetry:write", () => {
+    const names = toolsForScopes(["mcp:read", "memory:read", "skills:read"]).map((t) => t.name);
+    expect(names).not.toContain("cite_memory");
+    expect(names).not.toContain("report_skill_invoke");
+    // …and grants them once the write scope is present too.
+    const withWrite = toolsForScopes(["mcp:read", "memory:read", "telemetry:write"]).map((t) => t.name);
+    expect(withWrite).toContain("cite_memory");
+    expect(withWrite).not.toContain("report_skill_invoke"); // needs skills:read, not memory:read
   });
 
   it("gives a memory-only token NOTHING — holding a resource scope is not holding the door", () => {

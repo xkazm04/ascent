@@ -15,6 +15,10 @@ import { buildMemorySeed } from "./memory";
 import { buildContextScaffold } from "./context";
 
 export { buildManifestData, serializeManifestYaml } from "./manifest";
+// The READ-BACK half (#13): what the scan sees in a repo's own declared contract. Display-only.
+export { readManifestYaml, readGuardrailsYaml, redactCommand } from "./read";
+export { buildManifestReadout, parseManifestReadoutJson, verifiedCapabilities, MANIFEST_PATH } from "./readout";
+export type { ManifestReadout, CapabilityReadout, ControlPlacement, ReadoutStatus } from "./readout";
 export { buildSpec, SPEC_MD, SPEC_PATH } from "./spec";
 export { buildDoctor } from "./doctor";
 export { buildGuardrails, NEVER_COMMIT } from "./guardrails";

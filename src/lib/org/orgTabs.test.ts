@@ -59,10 +59,13 @@ describe("org tab catalog", () => {
 
   // `shared` holds what the org publishes once and every repo consumes — the registry repo and the
   // three libraries it distributes. Governance (a reading of the fleet's controls) moved to Standing
-  // and Developer left the nav entirely, so a stray id drifting back in fails here.
+  // and Developer left the nav entirely, so a stray id drifting back in fails here. `surfaces` is
+  // LAST on purpose (spark ui-surfaces-showcase): the Knowledge base's ui-surfaces subjects as
+  // live scenes — reference about reference, the one item with no fleet state at all.
   it("scopes the Shared group to the registry and what it distributes", () => {
     const shared = ORG_NAV_GROUPS.find((g) => g.key === "shared");
-    expect(shared?.items.map((i) => i.id)).toEqual(["registry", "practices", "skills", "memory", "knowledge"]);
+    expect(shared?.items.map((i) => i.id)).toEqual(["registry", "practices", "skills", "memory", "knowledge", "surfaces"]);
+    expect(orgTabLabel("surfaces")).toBe("UI surfaces");
   });
 
   // Governance is an audit of where the fleet stands, not something the org distributes: it is the
@@ -80,6 +83,16 @@ describe("org tab catalog", () => {
     expect(inflight?.items[0]?.id).toBe("live");
     const sizes = ORG_NAV_GROUPS.map((g) => g.items.length);
     expect(Math.min(...sizes)).toBe(inflight?.items.length);
+  });
+
+  // The weekly digest is the Briefing's fixed-window sibling: same audience, same group, read over a
+  // trailing week instead of the selected period. Its position is the product claim — a reader who
+  // opens Bought sees the standing briefing first and the week's update immediately under it.
+  it("puts the Weekly digest right after the Briefing in Bought", () => {
+    const bought = ORG_NAV_GROUPS.find((g) => g.key === "bought");
+    const ids = bought?.items.map((i) => i.id) ?? [];
+    expect(ids.indexOf("digest")).toBe(ids.indexOf("executive") + 1);
+    expect(orgTabLabel("digest")).toBe("Weekly digest");
   });
 
   // A personal workspace filters the SAME catalog (OrgTabNav drops empty groups). Pinned because a
@@ -111,6 +124,8 @@ describe("org tab catalog", () => {
       "registry",
       "security",
       "skills",
+      // Repo-shipped showcases of the registry's ui-surfaces subjects — reference, like `knowledge`.
+      "surfaces",
     ]);
   });
 
@@ -249,6 +264,10 @@ describe("TAB_SCOPED_PARAM_KEYS", () => {
       "edit",
       "a",
       "b",
+      "domain",
+      "subject",
+      // UI surfaces: the open mechanism drawer. A tab switch must not carry a technique anywhere.
+      "technique",
       "q",
       "search",
       "posture",
@@ -287,6 +306,12 @@ describe("orgTabHref", () => {
   // MIGRATED_ORG_TAB_IDS sent the rail to /org/<slug>/pairing, a page that has never existed.
   it("points pairing at the ?tab= shell (it never had a legacy route)", () => {
     expect(orgTabHref("acme", "pairing")).toBe("/org/acme?tab=pairing");
+  });
+
+  // Same regression pin as `pairing`: the digest was born inside the shell and has NO legacy route,
+  // so leaving it out of MIGRATED_ORG_TAB_IDS would point the rail at /org/<slug>/digest — a 404.
+  it("points the weekly digest at the ?tab= shell (it never had a legacy route)", () => {
+    expect(orgTabHref("acme", "digest")).toBe("/org/acme?tab=digest");
   });
 
   // W1b: Overview is an explicit destination. The bare /org/acme is the LANDING url, and a link

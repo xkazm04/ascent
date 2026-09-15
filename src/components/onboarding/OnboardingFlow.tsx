@@ -20,6 +20,7 @@ export function OnboardingFlow({
   seededOrg,
   auth = null,
   personalOrg = null,
+  installUrl = null,
 }: {
   hasInstallation?: boolean;
   installations?: Installation[];
@@ -31,6 +32,9 @@ export function OnboardingFlow({
   personalOrg?: string | null;
   /** Orgs auto-discovered at login that aren't installed yet — one-click "scan this org" nudges. */
   suggestedOrgs?: string[];
+  /** The GitHub App's public install URL (null when GITHUB_APP_SLUG is unset) — the access gate's
+   *  "install the App" CTA; the retired /connect page used to host that link. */
+  installUrl?: string | null;
   /** Most-active org whose watchlist was pre-seeded at login; surfaced as a "dashboard ready" CTA. */
   seededOrg?: string;
 }) {
@@ -51,10 +55,12 @@ export function OnboardingFlow({
     announce,
     credit,
     previewScan,
+    modeResolved,
     previewCause,
     upgradePlanned,
     setInvitedCount,
-    creditSkipped,
+    notices,
+    reattach,
     listTruncated,
     gate,
     setGate,
@@ -99,6 +105,7 @@ export function OnboardingFlow({
         <GateStep
           gate={gate}
           auth={auth}
+          installUrl={installUrl}
           selectedCount={selected.size}
           selectedRepos={repos.filter((r) => selected.has(r.fullName))}
           onBack={() => setGate(null)}
@@ -160,10 +167,18 @@ export function OnboardingFlow({
         error={error}
         announce={announce}
         preview={previewScan}
+        modeResolved={modeResolved}
         previewCause={previewCause}
         upgradePlanned={upgradePlanned}
-        creditSkipped={creditSkipped}
+        notices={notices}
+        // A scanning step restored from a snapshot follows the live server-side run instead of
+        // pretending nothing was happening (or re-running it, which double-scans and double-charges).
+        reattach={reattach}
         inviteOrg={sourceInstallId ? sourceLabel : null}
+        // Same gate as the invite panel: an installation id means a real org with an installation
+        // token behind it, which is exactly what the batch route needs. The scanned repo list is
+        // derived inside ScanStep from `rows`, so there is one source of "which repos are installable".
+        foundationOrg={sourceInstallId ? sourceLabel : null}
         onInvited={() => setInvitedCount((c) => c + 1)}
         onCancel={cancelScan}
         // Per-repo recovery on the done screen: re-runs ONE errored repo (money gate re-checked, other
@@ -171,7 +186,7 @@ export function OnboardingFlow({
         onRetryRepo={retryRepo}
         onViewDashboard={() => router.push(`/org/${encodeURIComponent(sourceLabel)}`)}
         // resetRun clears the FULL per-run state — including the pre-scan credit snapshot, the
-        // creditReady promise, preview flags, invite count, and creditSkipped — so a second run
+        // creditReady promise, preview flags, invite count, and the stream notices — so a second run
         // can't quote stale money numbers or arrive with "Invite your team" pre-ticked.
         onScanAnother={resetRun}
       />

@@ -39,19 +39,52 @@ vi.mock("@/lib/db", () => ({
   getScanReportByCommit: vi.fn(),
   isDbConfigured: () => true,
   isRepoWatched: vi.fn(),
+  listWatchedRepos: vi.fn(async () => []),
   persistScanReport: vi.fn(),
+  recordScanOutcome: vi.fn(async () => {}),
   reconcileWatchedRepos: vi.fn(async () => 0),
   removeInstallation: vi.fn(),
   suspendInstallation: vi.fn(),
   resumeInstallation: vi.fn(),
   reportPermalink: vi.fn(() => "/report/x"),
+  // Present so `vi.importOriginal` on @/lib/scan-credit (below — its `shouldRefundScan` is used for
+  // real) can load: the real module imports these three off this barrel. Nothing here calls them —
+  // the two ledger verbs are stubbed at the scan-credit seam.
+  consumeScanCredit: vi.fn(),
+  grantCredits: vi.fn(),
+  CREDIT_REASON: { REFUND: "refund" },
   upsertInstallation: vi.fn(),
 }));
+vi.mock("@/lib/db/scan-jobs", () => ({ enqueueProbeJob: vi.fn(async () => ({ id: "job_1", created: true })) }));
 vi.mock("@/lib/scan", () => ({ scanRepository: vi.fn() }));
-vi.mock("@/lib/scoring/gate", () => ({ evaluateGate: vi.fn() }));
+// `defaultGatePolicy` / `tightenGatePolicy` are the REAL implementations: runPrGate folds the org
+// bar with the admission overlay through them, and stubbing the merge would let this suite pass
+// while the Check Run enforced a bar nobody folded.
+vi.mock("@/lib/scoring/gate", async (orig) => ({
+  ...(await orig<typeof import("@/lib/scoring/gate")>()),
+  evaluateGate: vi.fn(),
+}));
+// moonshot #8/#16 — the org-scoped reads runPrGate now makes. Mocked at the seam both gate surfaces
+// share, so nothing here reaches a database.
+vi.mock("@/lib/scoring/gate-admission", () => ({
+  resolveAdmissionLayer: vi.fn(async () => ({ overlay: {}, admission: null })),
+  loadCheckStates: vi.fn(async () => null),
+}));
 vi.mock("@/lib/scoring/gate-comment", () => ({ buildGateComment: vi.fn(), GATE_COMMENT_MARKER: "<!-- gate -->" }));
 vi.mock("@/lib/github/checks", () => ({ createCheckRun: vi.fn(), upsertStickyComment: vi.fn() }));
-vi.mock("@/lib/scan-alerts", () => ({ checkAndAlertRegression: vi.fn() }));
+vi.mock("@/lib/scan-alerts", () => ({ checkAndAlertRegression: vi.fn(), maybeAlertLowCredits: vi.fn() }));
+// MONEY. The push rescan reserves a prepaid credit before inference (mirroring the queue worker), so
+// both credit seams are stubbed at module level the way the sibling route tests do. Defaults are the
+// happy path — metered org, reservation granted, an overflow credit actually charged — so every
+// pre-existing push test keeps exercising the scan path unchanged.
+vi.mock("@/lib/scan-credit", async (orig) => ({
+  // `shouldRefundScan` is the REAL policy function: stubbing it would let this suite pass while the
+  // route refunded on the wrong condition.
+  ...(await orig<typeof import("@/lib/scan-credit")>()),
+  reserveScanCredit: vi.fn(async () => ({ skip: false, reserved: true, balance: 4 })),
+  refundScanCredit: vi.fn(async () => 5),
+}));
+vi.mock("@/lib/entitlement", () => ({ isMeteredScan: vi.fn(() => true) }));
 vi.mock("@/lib/scoring/engine", () => ({ diffReports: vi.fn() }));
 
 import { POST } from "./route";
@@ -64,7 +97,9 @@ import {
   getOrgId,
   getScanReportByCommit,
   isRepoWatched,
+  listWatchedRepos,
   persistScanReport,
+  recordScanOutcome,
   reconcileWatchedRepos,
   releaseWebhookDelivery,
   removeInstallation,
@@ -72,11 +107,14 @@ import {
   suspendInstallation,
   upsertInstallation,
 } from "@/lib/db";
+import { enqueueProbeJob } from "@/lib/db/scan-jobs";
 import { scanRepository } from "@/lib/scan";
 import { evaluateGate } from "@/lib/scoring/gate";
 import { buildGateComment } from "@/lib/scoring/gate-comment";
 import { createCheckRun, upsertStickyComment } from "@/lib/github/checks";
 import { checkAndAlertRegression } from "@/lib/scan-alerts";
+import { refundScanCredit, reserveScanCredit } from "@/lib/scan-credit";
+import { isMeteredScan } from "@/lib/entitlement";
 import { diffReports } from "@/lib/scoring/engine";
 
 const mockGetInstallation = vi.mocked(getInstallation);
@@ -111,6 +149,12 @@ const mockGetOrgId = vi.mocked(getOrgId);
 const mockDiffReports = vi.mocked(diffReports);
 const mockRelease = vi.mocked(releaseWebhookDelivery);
 const mockClaim = vi.mocked(claimWebhookDelivery);
+const mockEnqueueProbe = vi.mocked(enqueueProbeJob);
+const mockListWatched = vi.mocked(listWatchedRepos);
+const mockReserve = vi.mocked(reserveScanCredit);
+const mockRefund = vi.mocked(refundScanCredit);
+const mockIsMetered = vi.mocked(isMeteredScan);
+const mockRecordOutcome = vi.mocked(recordScanOutcome);
 
 /** Run the work the route deferred via after() — the test stands in for the post-response phase. */
 async function runDeferred(): Promise<void> {
@@ -1171,5 +1215,232 @@ describe("POST /api/app/webhook — a degraded push rescan is not persisted or a
     await runDeferred();
 
     expect(mockPersist).toHaveBeenCalled();
+  });
+});
+
+// ── Control-probe fan-in (moonshot #10) ──────────────────────────────────────────────────────────
+// Five events that move a repo's GOVERNANCE without moving its code. The guard that matters most:
+// THE PAYLOAD IS NOT TRUSTED FOR CONTROL STATE. A `branch_protection_rule.deleted` delivery must
+// enqueue a re-read and write NO observation of its own — otherwise a replayed or misrouted (but
+// validly-signed) delivery could write a false governance record that outlives it.
+describe("POST /api/app/webhook — control-probe fan-in", () => {
+  let d = 0;
+  const delivery = () => `d-probe-${d++}`;
+  const repoPayload = (over: Record<string, unknown> = {}) => ({
+    installation: { id: 42 },
+    repository: { full_name: "acme/api", name: "api", owner: { login: "acme" } },
+    ...over,
+  });
+
+  beforeEach(() => {
+    mockIdForOwner.mockResolvedValue("42");
+    mockEnqueueProbe.mockResolvedValue({ id: "job_1", created: true });
+  });
+
+  for (const event of ["branch_protection_rule", "repository_ruleset", "repository"]) {
+    it(`${event} enqueues ONE free probe of that repo, and nothing else`, async () => {
+      await post(event, delivery(), repoPayload({ action: "deleted" }));
+      await runDeferred();
+
+      expect(mockEnqueueProbe).toHaveBeenCalledTimes(1);
+      expect(mockEnqueueProbe.mock.calls[0]!.slice(0, 3)).toEqual(["acme", "acme/api", `webhook:${event}`]);
+      // Enqueue-only: no scan, no credit, no persisted report.
+      expect(mockScan).not.toHaveBeenCalled();
+      expect(mockPersist).not.toHaveBeenCalled();
+    });
+  }
+
+  it("passes the DELIVERY ID as the idempotency bucket, so a redelivery enqueues nothing new", async () => {
+    await post("branch_protection_rule", "d-probe-fixed", repoPayload({ action: "created" }));
+    await runDeferred();
+    expect(mockEnqueueProbe.mock.calls[0]![3]).toBe("d-probe-fixed");
+  });
+
+  it("writes NO control observation itself — only the probe's own re-read may do that", async () => {
+    await post("branch_protection_rule", delivery(), repoPayload({ action: "deleted" }));
+    await runDeferred();
+    // The route never imports the ledger; the assertion here is behavioural — the only durable effect
+    // of this delivery is one queued job.
+    expect(mockEnqueueProbe).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses an installation that does not own the payload's org, and releases the delivery", async () => {
+    mockIdForOwner.mockResolvedValue("999"); // stored mapping disagrees with the payload
+    await post("repository", delivery(), repoPayload({ action: "archived" }));
+    await runDeferred();
+    expect(mockEnqueueProbe).not.toHaveBeenCalled();
+  });
+
+  it("member/team fan out over the org's WATCHED repos, capped, and write no membership row", async () => {
+    mockListWatched.mockResolvedValue([{ fullName: "acme/api" }, { fullName: "acme/web" }] as Awaited<
+      ReturnType<typeof listWatchedRepos>
+    >);
+    await post("member", delivery(), { installation: { id: 42 }, organization: { login: "acme" }, action: "added" });
+    await runDeferred();
+
+    expect(mockEnqueueProbe).toHaveBeenCalledTimes(2);
+    expect(mockEnqueueProbe.mock.calls.map((c) => c[1])).toEqual(["acme/api", "acme/web"]);
+  });
+
+  it("a repo-scoped member event probes just that repo rather than the whole fleet", async () => {
+    await post("member", delivery(), { ...repoPayload({ action: "added" }), organization: { login: "acme" } });
+    await runDeferred();
+    expect(mockListWatched).not.toHaveBeenCalled();
+    expect(mockEnqueueProbe).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── MONEY: the push rescan pays for itself (Direction 2) ─────────────────────────────────────────
+// `runPushRescan` runs real LLM inference on a private org repo. Until this landed it reserved NO
+// credit — the file header and the degrade comment both narrated a charge that was never made, so a
+// watched org at balance zero kept scanning free forever and the 15-minute throttle was the only cost
+// ceiling. These pin the worker-shaped money loop: reserve before inference, SKIP (never scan free)
+// when the balance is exhausted, refund whenever nothing billable was produced.
+describe("POST /api/app/webhook — push rescan credit metering", () => {
+  let n = 0;
+  const pushPayload = () => ({
+    installation: { id: 88 },
+    repository: { name: "paid-repo", default_branch: "main", owner: { login: "acme" } },
+    ref: "refs/heads/main",
+    after: "cafe000000000000000000000000000000000000",
+    deleted: false,
+  });
+  const report = (provider: string) =>
+    ({ repo: { headSha: "cafe" }, scannedAt: new Date().toISOString(), engine: { provider, model: "m" } }) as unknown as Awaited<
+      ReturnType<typeof scanRepository>
+    >;
+  /** A baseline far outside the throttle window, so the throttle never masks what these assert. */
+  const staleBaseline = () =>
+    ({ repo: { headSha: "old" }, scannedAt: new Date(Date.now() - 3 * 60 * 60_000).toISOString() }) as unknown as Awaited<
+      ReturnType<typeof getScanReportByCommit>
+    >;
+
+  beforeEach(() => {
+    mockIdForOwner.mockResolvedValue("88");
+    mockIsRepoWatched.mockResolvedValue(true);
+    mockGetToken.mockResolvedValue("ghs_tok");
+    mockGetOrgId.mockResolvedValue("org-1" as Awaited<ReturnType<typeof getOrgId>>);
+    mockGetReportByCommit.mockResolvedValue(staleBaseline());
+    mockPersist.mockResolvedValue({ deduped: false } as Awaited<ReturnType<typeof persistScanReport>>);
+    mockScan.mockResolvedValue(report("gemini"));
+    mockIsMetered.mockReturnValue(true);
+    mockReserve.mockResolvedValue({ skip: false, reserved: true, balance: 4 });
+  });
+
+  it("reserves ONE credit for the org+repo BEFORE inference", async () => {
+    await post("push", "credit-reserve-" + n++, pushPayload());
+    await runDeferred();
+
+    expect(mockReserve).toHaveBeenCalledWith("acme", "acme/paid-repo", { actor: "webhook:push" });
+    expect(mockScan).toHaveBeenCalledTimes(1);
+    // Ordering is the whole point: a reservation made after the scan would serve the inference free.
+    expect(mockReserve.mock.invocationCallOrder[0]).toBeLessThan(mockScan.mock.invocationCallOrder[0]);
+  });
+
+  it("SKIPS the rescan of a balance-zero org — no token, no scan, no persist — and records why", async () => {
+    mockReserve.mockResolvedValue({ skip: true, reserved: false, balance: 0 });
+
+    await post("push", "credit-skip-" + n++, pushPayload());
+    await runDeferred();
+
+    expect(mockGetToken).not.toHaveBeenCalled();
+    expect(mockScan).not.toHaveBeenCalled();
+    expect(mockPersist).not.toHaveBeenCalled();
+    expect(mockCheckRegression).not.toHaveBeenCalled();
+    // A webhook cannot 402 anybody, so the skip is recorded the way the throttle records its coalesce:
+    // a log line carrying a STABLE reason string.
+    const warned = vi.mocked(console.warn).mock.calls.map((c) => String(c[0])).join("\n");
+    expect(warned).toContain("insufficient_credits");
+    expect(warned).toContain("acme/paid-repo");
+    // DURABLE trace, not just the log line: the owner sees WHY the watched repo went stale on the
+    // Repositories tab (Repository.lastScanStatus/lastScanError), without reading server logs.
+    expect(mockRecordOutcome).toHaveBeenCalledWith("acme", "acme/paid-repo", {
+      ok: false,
+      error: "insufficient credits",
+    });
+    // Nothing was reserved, so nothing may be refunded — a refund here would MINT a credit.
+    expect(mockRefund).not.toHaveBeenCalled();
+    // And the delivery stays claimed: an empty wallet is not a transient failure, and releasing it
+    // would turn a depleted balance into a redelivery storm.
+    expect(mockRelease).not.toHaveBeenCalled();
+  });
+
+  it("a credits-skipped push does NOT consume the throttle — the next push scans immediately", async () => {
+    mockReserve.mockResolvedValueOnce({ skip: true, reserved: false, balance: 0 });
+    await post("push", "credit-skip-throttle-a-" + n++, pushPayload());
+    await runDeferred();
+    expect(mockScan).not.toHaveBeenCalled();
+    // The throttle's state IS the prior persisted scan's `scannedAt`, and the skip persisted nothing,
+    // so the window the org would otherwise wait out was never opened.
+    expect(mockPersist).not.toHaveBeenCalled();
+
+    // Topped up: the very next push scans, rather than waiting 15 minutes for a scan that never ran.
+    await post("push", "credit-skip-throttle-b-" + n++, pushPayload());
+    await runDeferred();
+    expect(mockScan).toHaveBeenCalledTimes(1);
+    expect(mockPersist).toHaveBeenCalledTimes(1);
+  });
+
+  it("REFUNDS a charged scan that degraded to the deterministic floor", async () => {
+    mockScan.mockResolvedValue(report("mock"));
+
+    await post("push", "credit-degrade-" + n++, pushPayload());
+    await runDeferred();
+
+    expect(mockPersist).not.toHaveBeenCalled(); // the data judgment is unchanged
+    expect(mockRefund).toHaveBeenCalledWith("acme", true, { actor: "webhook:push", repoFullName: "acme/paid-repo" });
+  });
+
+  it("REFUNDS a deduped persist — an unchanged head scored no new row, so the run was free", async () => {
+    mockPersist.mockResolvedValue({ deduped: true } as Awaited<ReturnType<typeof persistScanReport>>);
+
+    await post("push", "credit-dedup-" + n++, pushPayload());
+    await runDeferred();
+
+    expect(mockRefund).toHaveBeenCalledWith("acme", true, { actor: "webhook:push", repoFullName: "acme/paid-repo" });
+    expect(mockCheckRegression).not.toHaveBeenCalled();
+  });
+
+  it("KEEPS the credit for a real, newly-persisted scan", async () => {
+    await post("push", "credit-keep-" + n++, pushPayload());
+    await runDeferred();
+
+    expect(mockPersist).toHaveBeenCalledTimes(1);
+    expect(mockRefund).not.toHaveBeenCalled();
+    // The outcome row is written ONLY on the credits skip: a normal rescan must not start stamping
+    // scan status on the repo, or the throttle/dedup paths would begin reporting outcomes they never
+    // reported before.
+    expect(mockRecordOutcome).not.toHaveBeenCalled();
+  });
+
+  it("does NOT reserve on a deployment where the scan is not metered (self-hosted / no DB / public)", async () => {
+    mockIsMetered.mockReturnValue(false);
+
+    await post("push", "credit-unmetered-" + n++, pushPayload());
+    await runDeferred();
+
+    expect(mockReserve).not.toHaveBeenCalled();
+    expect(mockRefund).not.toHaveBeenCalled();
+    expect(mockScan).toHaveBeenCalledTimes(1); // still scans — metering is not an authorization gate
+  });
+
+  it("REFUNDS when the scan throws BEFORE inference, because the redelivery will reserve again", async () => {
+    mockGetToken.mockRejectedValue(new Error("token mint 500"));
+
+    await post("push", "credit-throw-pre-" + n++, pushPayload());
+    await runDeferred();
+
+    expect(mockRefund).toHaveBeenCalledWith("acme", true, { actor: "webhook:push", repoFullName: "acme/paid-repo" });
+    expect(mockRelease).toHaveBeenCalled(); // and the delivery is released so the retry happens
+  });
+
+  it("KEEPS the credit when the failure lands AFTER a real report — the inference was genuinely spent", async () => {
+    mockPersist.mockRejectedValue(new Error("db down"));
+
+    await post("push", "credit-throw-post-" + n++, pushPayload());
+    await runDeferred();
+
+    expect(mockRefund).not.toHaveBeenCalled();
+    expect(mockRelease).toHaveBeenCalled();
   });
 });

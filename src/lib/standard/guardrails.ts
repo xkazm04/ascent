@@ -11,6 +11,10 @@
 
 import type { GeneratedFile } from "./types";
 import { GUARDRAILS_SCHEMA_VERSION } from "./types";
+// One quoting rule for both generated YAML files. This inlined its own copy of the character-class
+// test, so a pattern that a YAML parser reads as a boolean or a number would have gone out bare here
+// even after the manifest's copy was fixed.
+import { yamlScalar } from "./manifest";
 
 /**
  * Conservative, cross-stack never-commit patterns. Deliberately EXCLUDES near-miss globs that match
@@ -38,7 +42,7 @@ secrets:
   # DOCTOR-ENFORCED: if git tracks a file matching any of these, the conformance gate HARD FAILS.
   # Add repo-specific patterns; keep them precise (a pattern that matches a legitimate committed
   # file, e.g. .env.example, turns the gate into noise).
-  neverCommit: [${NEVER_COMMIT.map((p) => (/^[\w./@-]+$/.test(p) ? p : JSON.stringify(p))).join(", ")}]
+  neverCommit: [${NEVER_COMMIT.map(yamlScalar).join(", ")}]
   # Where secrets legitimately come from: a vault/keyring NAME, never a secret.
   from: "TODO: the vault/keyring this repo reads secrets from"
 

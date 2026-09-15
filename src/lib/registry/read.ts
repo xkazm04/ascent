@@ -9,6 +9,7 @@
 // caps are surfaced as warnings by the indexer rather than silently truncating the index.
 
 import { githubAppFetch } from "@/lib/github/app";
+import type { PathCommit } from "./trace";
 import { encodePathSegments } from "@/lib/github/host";
 
 /** Hard ceiling on indexed files per artifact type. Beyond this the pass reports a warning. */
@@ -95,4 +96,74 @@ export async function readBlob(token: string, owner: string, repo: string, sha: 
   if (!b.content) return null;
   if (b.encoding && b.encoding !== "base64") return null;
   return Buffer.from(b.content, "base64").toString("utf8");
+}
+
+/**
+ * Commits touching one path, newest first (#36).
+ *
+ * CAPPED, and the cap is disclosed rather than hidden: `perPage` bounds one request and this
+ * deliberately does not paginate. A skill file with a thousand commits would otherwise turn one
+ * panel open into thirty API calls, and this timeline's value is at its recent end. One extra row is
+ * requested purely so `truncated` can be true — a silently short history is indistinguishable from a
+ * short one.
+ *
+ * `authorLogin` is null when GitHub cannot attribute the commit to an account. It is never filled in
+ * from the git author NAME, which is an unverified string a committer types.
+ */
+export async function listPathCommits(
+  token: string,
+  owner: string,
+  repo: string,
+  path: string,
+  ref: string,
+  perPage: number,
+): Promise<{ commits: PathCommit[]; truncated: boolean }> {
+  const capped = Math.min(100, Math.max(1, perPage));
+  const probe = Math.min(100, capped + 1);
+  const raw = await githubAppFetch<
+    {
+      sha: string;
+      commit?: { message?: string; author?: { date?: string } };
+      author?: { login?: string } | null;
+    }[]
+  >(
+    `/repos/${owner}/${repo}/commits?path=${encodeURIComponent(path)}&sha=${encodeURIComponent(ref)}&per_page=${probe}`,
+    token,
+  );
+  const commits = (raw ?? []).slice(0, capped).map((c) => ({
+    sha: c.sha,
+    authoredAt: c.commit?.author?.date ?? new Date(0).toISOString(),
+    authorLogin: c.author?.login ?? null,
+    message: c.commit?.message ?? "",
+  }));
+  return { commits, truncated: (raw ?? []).length > capped };
+}
+
+/**
+ * One file's content AT A GIVEN REF (a commit sha, tag or branch) — the Trace's version resolver.
+ *
+ * `readBlob` above is keyed on a blob sha from the tree walk, which is the right shape for indexing
+ * HEAD and the wrong one here: the whole point is to read the same PATH at several past commits,
+ * whose blob shas nobody has. Null for absent/unreadable/oversized, so a commit that predates the
+ * file resolves to "no version" rather than failing the timeline.
+ */
+export async function readFileAtRef(
+  token: string,
+  owner: string,
+  repo: string,
+  path: string,
+  ref: string,
+): Promise<string | null> {
+  try {
+    const file = await githubAppFetch<{ content?: string; encoding?: string; size?: number; type?: string }>(
+      `/repos/${owner}/${repo}/contents/${encodePathSegments(path)}?ref=${encodeURIComponent(ref)}`,
+      token,
+    );
+    if (file.type !== "file" || !file.content) return null;
+    if ((file.size ?? 0) > MAX_FILE_BYTES) return null;
+    if (file.encoding && file.encoding !== "base64") return null;
+    return Buffer.from(file.content, "base64").toString("utf8");
+  } catch {
+    return null;
+  }
 }

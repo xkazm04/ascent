@@ -120,9 +120,9 @@ export function SecurityFindingsTable({ org, rows }: { org: string; rows: Securi
           onChange={(e) => withReset(setQuery)(e.target.value)}
           placeholder="Search findings…"
           aria-label="Search security findings"
-          className="focus-ring w-44 rounded-lg border border-divider bg-ink px-2.5 py-1.5 font-mono text-xs text-slate-200 placeholder:text-slate-600 focus:border-accent"
+          className="focus-ring w-44 rounded-lg border border-divider bg-ink px-2.5 py-1.5 type-caption text-slate-200 placeholder:text-slate-600 focus:border-accent"
         />
-        <span className="ml-auto font-mono text-xs text-slate-500">
+        <span className="ml-auto type-caption text-slate-500">
           {shown.length} of {rows.length}
           {active && (
             <>
@@ -165,7 +165,7 @@ export function SecurityFindingsTable({ org, rows }: { org: string; rows: Securi
             <button
               type="button"
               onClick={() => setLimit((n) => n + PAGE)}
-              className="focus-ring w-full rounded-lg border border-divider py-2 font-mono text-xs text-slate-400 transition hover:border-accent hover:text-white"
+              className="focus-ring w-full rounded-lg border border-divider py-2 type-caption text-slate-400 transition hover:border-accent hover:text-white"
             >
               show {Math.min(PAGE, shown.length - visible.length)} more · {shown.length - visible.length} remaining
             </button>
@@ -192,17 +192,17 @@ function FindingRow({
     <>
       <tr className={settled ? "opacity-60" : ""}>
         <td className="px-3 py-1.5 align-top">
-          <span className="whitespace-nowrap font-mono text-xs text-slate-400" title={f.repo}>
+          <span className="whitespace-nowrap type-caption text-slate-400" title={f.repo}>
             {f.repo}
           </span>
         </td>
         <td className="px-3 py-1.5 align-top">
-          <button type="button" onClick={onExpand} aria-expanded={isOpen} className="focus-ring text-left text-sm text-slate-100 hover:text-white">
+          <button type="button" onClick={onExpand} aria-expanded={isOpen} className="focus-ring text-left type-body-sm text-slate-100 hover:text-white">
             {f.subject}
           </button>
         </td>
         <td className="px-3 py-1.5 align-top">
-          <span className={`inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 font-mono text-xs ${STATUS_TONE[f.status]}`}>
+          <span className={`inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 type-caption ${STATUS_TONE[f.status]}`}>
             {STATUS_LABEL[f.status]}
           </span>
         </td>
@@ -224,7 +224,7 @@ function FindingRow({
         <tr className="!bg-surface/30">
           <td />
           <td colSpan={3} className="px-3 pb-3 pt-1">
-            <p className="max-w-3xl text-sm text-slate-300">{f.detail}</p>
+            <p className="max-w-3xl type-body-sm text-slate-300">{f.detail}</p>
           </td>
         </tr>
       )}

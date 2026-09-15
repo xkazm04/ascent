@@ -27,6 +27,7 @@ import { OpenAiProvider } from "@/lib/llm/openai";
 import { OpenRouterProvider } from "@/lib/llm/openrouter";
 import { MockProvider } from "@/lib/llm/mock";
 import { LocalProvider, localLlmConfigured } from "@/lib/llm/local";
+import { NebiusProvider, nebiusConfigured } from "@/lib/llm/nebius";
 import { cliProviderAllowed } from "@/lib/llm/config";
 
 // Re-exported from its leaf home in config.ts so `@/lib/llm` stays the one import surface callers use.
@@ -99,7 +100,7 @@ export function hasLlmKey(): boolean {
   return Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
 }
 
-const PROVIDER_CHOICES = ["auto", "gemini", "bedrock", "openai", "openrouter", "local", "mock", "claude-cli", "codex-cli"] as const;
+const PROVIDER_CHOICES = ["auto", "gemini", "bedrock", "openai", "openrouter", "local", "nebius", "mock", "claude-cli", "codex-cli"] as const;
 
 export function resolveProviderChoice(): ProviderChoice {
   const raw = (process.env.LLM_PROVIDER ?? "").trim();
@@ -183,6 +184,9 @@ export function providerAvailable(name: ProviderName): boolean {
       // BOTH knobs, matching LocalProvider's own guard: an endpoint with no model (or the reverse)
       // cannot complete a call, and reporting it available would put a doomed step in the failover.
       return localLlmConfigured();
+    case "nebius":
+      // Same rule, same reason: NebiusProvider refuses without both, so availability must agree.
+      return nebiusConfigured();
     case "claude-cli":
     case "codex-cli":
       // Mirror the lazy CLI providers' assess() exactly — same predicate, so availability and the
@@ -206,6 +210,7 @@ export function getProvider(opts: { forceMock?: boolean } = {}): LLMProvider {
     case "openai":
     case "openrouter":
     case "local":
+    case "nebius":
     case "claude-cli":
     case "codex-cli":
       // Trust the operator's EXPLICIT LLM_PROVIDER selection. Pre-degrading a selected-but-unavailable
@@ -219,6 +224,7 @@ export function getProvider(opts: { forceMock?: boolean } = {}): LLMProvider {
       if (choice === "openai") return new OpenAiProvider();
       if (choice === "openrouter") return new OpenRouterProvider();
       if (choice === "local") return new LocalProvider();
+      if (choice === "nebius") return new NebiusProvider();
       if (choice === "codex-cli") return new LazyCodexCliProvider();
       return new LazyClaudeCliProvider();
     case "gemini":

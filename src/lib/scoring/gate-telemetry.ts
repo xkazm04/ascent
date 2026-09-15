@@ -43,6 +43,21 @@ export interface GateVerdictEvent {
   degraded?: boolean;
   /** False for the App fallback verdict, which scored the default branch rather than the PR head. */
   scoredHead?: boolean;
+  /**
+   * #8 — the admission layer of the fold, when one applied. Recorded as its own field rather than
+   * folded into `policySource` because the two answer different questions: `policySource` says which
+   * LAYER set the bar, and this says WHY this repository was held to that layer's stricter form. A
+   * CI log that only says "org" cannot explain why two repos under one org got different verdicts.
+   * Absent = no admission row (or none applied), which is the byte-identical no-op case.
+   */
+  admission?: { mode: string; tier: string | null; source: string } | null;
+}
+
+/** Skips folded to `{ code: count }` — a shape a log drain can sum without parsing a list. */
+function countByCode(skipped: GateResult["skipped"]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const s of skipped ?? []) out[s.code] = (out[s.code] ?? 0) + 1;
+  return out;
 }
 
 /**
@@ -68,7 +83,15 @@ export function logGateVerdict(report: ScanReport, gate: GateResult, e: GateVerd
         // Which conditions bite, deduped — the fleet view can rank these across stored scans, but only
         // this can rank them across the PRs teams are actually pushing.
         codes: [...new Set(gate.failures.map((f) => f.code))],
+        // WHICH CONDITIONS COULD NOT BE TESTED, counted per criterion. This is the aggregation the
+        // skip channel exists for: "a condition skipped for most of the population has become advisory
+        // by data starvation" is only knowable by counting skips over traffic, and a pass rate cannot
+        // show it — an untested bar is indistinguishable from a satisfied one in `pass`/`codes`. The
+        // public endpoint scans token-less, so `governance` and the two PR-derived criteria are
+        // expected to dominate here; that number is the finding, not a bug in the log.
+        skipped: countByCode(gate.skipped),
         policySource: e.policySource,
+        admission: e.admission ?? null,
         level: report.level?.id ?? null,
         overall: report.overallScore ?? null,
         posture: report.posture?.id ?? null,

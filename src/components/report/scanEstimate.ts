@@ -80,6 +80,32 @@ export function timeProgressPct(elapsedMs: number, estimateMs: number = scanEsti
   return 95 * (1 - Math.exp(-elapsedMs / tau));
 }
 
+/**
+ * Round a scan estimate to a phrase a marketing surface can print. Deliberately coarse and
+ * conservative — the constants above are a measured p50, not a promise, so the copy rounds AWAY from
+ * the flattering number ("under 2 minutes" for the ~100s hosted case, never "about 90 seconds").
+ */
+export function approxScanDuration(ms: number): string {
+  const minutes = ms / 60_000;
+  if (minutes < 2) return "under 2 minutes";
+  return `about ${Math.round(minutes)} minutes`;
+}
+
+/**
+ * The honest, DERIVED answer to "how long does a scan take?", for any surface that has to state it
+ * before a scan starts (the hero dialog, the cold-permalink gate).
+ *
+ * The landing said "in about a minute" for a year. It was never true of a live scan on either
+ * provider class — see the CALIBRATION block above — and `ColdScanGate` had already retired the same
+ * sentence in its own copy while the hero kept printing it. Both halves come from the same constants
+ * the progress bar runs on, so the promise and the bar can't disagree.
+ */
+export function scanDurationClaim(): string {
+  return `${approxScanDuration(HOSTED_ESTIMATE_MS)} on hosted inference, ${approxScanDuration(
+    CLAUDE_CLI_ESTIMATE_MS,
+  )} when it runs against a local CLI`;
+}
+
 /** "m:ss" for an elapsed/remaining duration (clamped at 0). */
 export function formatDuration(ms: number): string {
   const total = Math.max(0, Math.round(ms / 1000));

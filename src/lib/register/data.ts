@@ -16,6 +16,22 @@
 //     section. Mirrors the badge's `· demo` qualifier and the share card's refusal to draw a number
 //     for an incomplete scan.
 //
+//     The SAME sentence applies to the rubric. `model.ts` states in writing that an r10 number is not
+//     comparable with an r11 one ("D1 stopped counting FORMATS and started scoring COHERENCE"), and
+//     `rubricVersion` is load-bearing everywhere else in the codebase: the corpus benchmark filters on
+//     it, the outcome ledger REFUSES to pair two scans across a bump, the digest keys include it. The
+//     register carried every other provenance qualifier and not this one (UAT `TOMAS-L1-11`), while a
+//     rubric bump invalidates the cache WITHOUT re-scanning — so a repo nobody re-scanned keeps its old
+//     row and is ranked today against fresh ones.
+//
+//     A stale-rubric row is therefore QUALIFIED — `currentRubric: false`, a `rubric rNN` chip, and a
+//     note under the board — and deliberately NOT de-ranked the way a mock row is. The two cases are
+//     not the same claim: a mock score had no model in it at all and is not a rating, whereas a stale
+//     score is a real rating taken with an earlier instrument. Dropping every pre-bump row would empty
+//     the board on the day of every bump (r13→r14→r15 inside 48 hours) and publish a register that is
+//     less true, not more. An UNKNOWN rubric (a legacy row with a null column) is not current either —
+//     unknown is never "the same", exactly as the outcome ledger reads it.
+//
 // No new columns, no new indexes: `Scan.engineProvider` and `Repository.isPrivate` already exist, and
 // ranking happens over a BOUNDED candidate window in memory (the same shape `getPublicScanGallery`
 // uses) so nothing here needs a migration.
@@ -23,7 +39,7 @@
 import { Prisma } from "@prisma/client";
 import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { DEFAULT_ORG_SLUG, resolveOrgId } from "@/lib/db/scans-shared";
-import { isDimensionId, levelForScore } from "@/lib/maturity/model";
+import { SCORING_RUBRIC_VERSION, isDimensionId, levelForScore } from "@/lib/maturity/model";
 import { reportPermalink } from "@/lib/ui";
 import type { DimensionId } from "@/lib/types";
 
@@ -60,6 +76,11 @@ export interface RegisterEntry {
    *  tried against real rows and rejected: total-PR counts and merged counts both misclassify
    *  (a staging mirror showed 6 merged PRs), so the register labels only what it measured. */
   hasProcessSignals: boolean;
+  /** The rubric this score was computed under ("r15"), or null on a row scored before the column. */
+  rubricVersion: string | null;
+  /** True only when the score was taken with the rubric in force NOW. A null version is UNKNOWN and
+   *  therefore NOT current — the same reading `db/outcomes.ts` gives it when refusing to pair. */
+  currentRubric: boolean;
 }
 
 export interface PublicRegister {
@@ -76,6 +97,11 @@ export interface PublicRegister {
   totalPages: number;
   /** True when the corpus is larger than the candidate window, so the ranking is "top N", not global. */
   windowed: boolean;
+  /** The rubric in force now — what a `currentRubric: true` row was scored under. */
+  rubricVersion: string;
+  /** Ranked entries ON THIS PAGE scored under an earlier (or unrecorded) rubric. Zero means the page
+   *  is on one ruler and needs no disclosure. */
+  staleRubricOnPage: number;
 }
 
 /** The public scorecard for one GitHub owner, aggregated from its PUBLIC repos only. */
@@ -98,6 +124,13 @@ export interface PublicOrgScorecard {
   scannedAt: string | null;
   /** The counted repos, ranked — model-scored first. */
   repos: RegisterEntry[];
+  /** The rubric in force now. */
+  rubricVersion: string;
+  /** …of the `verifiedCount` repos feeding the averages, how many were scored under an earlier (or
+   *  unrecorded) rubric. Non-zero means this owner's average mixes instruments, and the page says so.
+   *  Counted rather than excluded: dropping them would publish an average over a smaller, arbitrary
+   *  slice of the owner's repos, which is a worse claim than a disclosed mixed one. */
+  staleRubricCount: number;
 }
 
 // Upper bound on the repos any one register/scorecard read materializes. The board shows a page at a
@@ -136,6 +169,7 @@ const REGISTER_REPO_SELECT = Prisma.validator<Prisma.RepositorySelect>()({
       rigorScore: true,
       engineProvider: true,
       confidence: true,
+      rubricVersion: true,
       prStats: true,
       scannedAt: true,
       dimensions: { select: { dimId: true, score: true } },
@@ -178,6 +212,9 @@ export function registerEntryFrom(r: RegisterRepoRow): RegisterEntry | null {
     verified: s.engineProvider !== "mock",
     confidence: s.confidence,
     hasProcessSignals: hasProcessSignalsFrom(s.prStats),
+    rubricVersion: s.rubricVersion,
+    // Never `!= current`: a null column is unknown, and unknown is not current.
+    currentRubric: s.rubricVersion === SCORING_RUBRIC_VERSION,
   };
 }
 
@@ -270,8 +307,9 @@ export async function getPublicRegister(
     const totalPages = Math.max(1, Math.ceil(verified.length / perPage));
     const clamped = Math.min(page, totalPages);
     const start = (clamped - 1) * perPage;
+    const entries = verified.slice(start, start + perPage);
     return {
-      entries: verified.slice(start, start + perPage),
+      entries,
       // The unranked tail belongs on page 1 only — it is context for the board, not a second board.
       unverified: clamped === 1 ? unverified : [],
       totalVerified: verified.length,
@@ -280,6 +318,8 @@ export async function getPublicRegister(
       perPage,
       totalPages,
       windowed: totalRepos > candidates.length,
+      rubricVersion: SCORING_RUBRIC_VERSION,
+      staleRubricOnPage: entries.filter((e) => !e.currentRubric).length,
     };
   }, null);
 }
@@ -340,6 +380,8 @@ export async function getPublicOrgScorecard(owner: string): Promise<PublicOrgSco
       verifiedCount: scored.length,
       scannedAt,
       repos,
+      rubricVersion: SCORING_RUBRIC_VERSION,
+      staleRubricCount: scored.filter((e) => !e.currentRubric).length,
     };
   }, null);
 }

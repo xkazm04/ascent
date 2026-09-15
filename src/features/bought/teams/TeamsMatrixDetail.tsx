@@ -27,7 +27,7 @@ export function TeamsMatrixDetail({
     // sticky left + capped width keep the detail inside the visible scrollport — the row's cell spans
     // the full (horizontally scrollable) table width, which can be wider than the viewport.
     <div className="sticky left-4 max-w-3xl space-y-3">
-      <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-sm text-slate-500">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 type-mono-sm text-slate-500">
         <span className="text-slate-400">{postureLabel(team.posture)}</span>
         <span>
           {team.repoCount} scanned / {team.totalOwned} owned
@@ -57,12 +57,12 @@ export function TeamsMatrixDetail({
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-sm font-medium text-slate-400">Repos</span>
+        <span className="type-body-sm font-medium text-slate-400">Repos</span>
         {team.repos.slice(0, OWNED_REPO_CAP).map((r) => (
           <Link
             key={r.fullName}
             href={`/report/${r.fullName}`}
-            className="focus-ring rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm text-slate-400 transition hover:border-accent hover:text-white"
+            className="focus-ring rounded border border-slate-700 px-1.5 py-0.5 type-mono-sm text-slate-400 transition hover:border-accent hover:text-white"
             title={`${r.fullName} · overall ${r.overall}${r.isDefaultOwner ? " · primary owner" : ""} · open report`}
           >
             {r.isDefaultOwner && <span className="mr-1 text-slate-600">★</span>}
@@ -71,7 +71,7 @@ export function TeamsMatrixDetail({
           </Link>
         ))}
         {team.repos.length > OWNED_REPO_CAP && (
-          <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm text-slate-500">
+          <span className="rounded border border-slate-700 px-1.5 py-0.5 type-mono-sm text-slate-500">
             +{team.repos.length - OWNED_REPO_CAP} more
           </span>
         )}
@@ -79,11 +79,11 @@ export function TeamsMatrixDetail({
 
       {team.contributors >= CHAMPION_MIN_POP && team.champions.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-sm font-medium text-slate-400">AI champions</span>
+          <span className="type-body-sm font-medium text-slate-400">AI champions</span>
           {team.champions.map((c) => (
             <span
               key={c.login}
-              className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm text-accent"
+              className="rounded border border-slate-700 px-1.5 py-0.5 type-mono-sm text-accent"
               title={`${c.aiCommits} AI commits · ${c.aiShare}% of their commits AI-attributed`}
             >
               {c.login} · {c.aiShare}%

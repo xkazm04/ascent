@@ -1,18 +1,23 @@
-// POST /api/org/issue  { repo: "owner/name", title, body, labels? }  ->  { url, number }
+// POST /api/org/issue  { repo: "owner/name", title, body, labels?, findingId? }  ->  { url, number, reused }
 // File a GitHub issue in a fleet repo — the action behind "make this blocker actionable". The write
 // runs on the org's GitHub App installation token (the same trust model as /api/practices/apply: the
-// codebase deliberately never persists user OAuth tokens), gated on a signed-in session that OWNS the
-// org; the requesting user is stamped into the issue body and the audit trail, so authorship is
-// attributable even though the App bot is the technical author.
+// codebase deliberately never persists user OAuth tokens), gated at ADMIN in the org; the requesting
+// user is stamped into the issue body and the audit trail, so authorship is attributable even though
+// the App bot is the technical author.
+//
+// The write is IDEMPOTENT on an optional `findingId`: the route mints a hidden marker from it and
+// createRepoIssue reuses the repo's existing OPEN issue carrying that marker instead of filing a
+// second one ({ reused: true }). Re-opening the blocker docket after a refresh therefore relinks the
+// issue it already filed rather than duplicating it.
 
 import { NextResponse } from "next/server";
 import { parseRepoUrl } from "@/lib/github/source";
-import { createRepoIssue } from "@/lib/github/issues";
+import { createRepoIssue, passportBlockerMarker } from "@/lib/github/issues";
 import { AppApiError, getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { getInstallationIdForOwner, getOrgId, isDbConfigured, recordAudit } from "@/lib/db";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
-import { requireOrgAccess } from "@/lib/authz";
+import { requireOrgRole } from "@/lib/authz";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,6 +25,10 @@ export const maxDuration = 30;
 
 const MAX_TITLE = 256;
 const MAX_BODY = 20_000;
+// A findingId is a minted passport id (`auto.self-verify-gaps`). It becomes a hidden HTML comment in
+// the issue body, so it is validated to an inert alphabet here rather than trusted from the client —
+// nothing a caller sends can close the comment or inject markup.
+const FINDING_ID = /^[A-Za-z0-9._:-]{1,120}$/;
 
 export async function POST(request: Request) {
   if (!isAppConfigured()) {
@@ -43,6 +52,7 @@ export async function POST(request: Request) {
     title?: string;
     body?: string;
     labels?: string[];
+    findingId?: string;
   };
   const parsed = parseRepoUrl(body.repo ?? "");
   const title = (body.title ?? "").trim();
@@ -56,9 +66,12 @@ export async function POST(request: Request) {
   // same value (same normalization as practices/apply).
   parsed.owner = parsed.owner.toLowerCase();
 
-  // Tenant gate: this writes into a repo using the org's installation token, so require the caller
-  // to OWN that org — not merely be signed in (cross-tenant write IDOR guard).
-  const denied = await requireOrgAccess(parsed.owner);
+  // Tenant gate: this writes into a CUSTOMER repo using the org's installation token, so it requires
+  // ADMIN in that org — not merely membership (cross-tenant write IDOR guard, and the same bar the
+  // other customer-repo writers hold: /api/report/passport/pr and the foundation PR writer). Resolve
+  // the org first, gate it, and pass the SAME normalized owner into the installation lookup and the
+  // write below, so a mismatched repo coordinate cannot be written through another org's token.
+  const denied = await requireOrgRole(parsed.owner, "admin");
   if (denied) return denied;
 
   const installId = isDbConfigured() ? await getInstallationIdForOwner(parsed.owner).catch(() => null) : null;
@@ -69,6 +82,11 @@ export async function POST(request: Request) {
     );
   }
 
+  // Idempotency key. Absent or malformed ⇒ no marker ⇒ the create-every-time behaviour, which is
+  // still correct for a caller that has no stable id to dedupe on.
+  const rawFindingId = (body.findingId ?? "").trim();
+  const marker = rawFindingId && FINDING_ID.test(rawFindingId) ? passportBlockerMarker(rawFindingId) : undefined;
+
   // Attribution: the App bot is the technical author, so stamp the requesting user into the body.
   const attribution = actorLogin ? `\n\n---\n_Filed via Ascent by @${actorLogin}._` : "";
 
@@ -78,13 +96,18 @@ export async function POST(request: Request) {
       title,
       body: `${body.body ?? ""}${attribution}`,
       labels: body.labels,
+      marker,
     });
-    const orgId = (await getOrgId(parsed.owner).catch(() => null)) ?? undefined;
-    await recordAudit(
-      "issue.create",
-      { repo: `${parsed.owner}/${parsed.repo}`, number: issue.number, title },
-      { orgId, actorId: actorLogin ?? undefined },
-    );
+    // A reuse wrote NOTHING to the customer repo, so it is not an `issue.create` in the audit trail —
+    // recording one would make the log claim a write that never happened.
+    if (!issue.reused) {
+      const orgId = (await getOrgId(parsed.owner).catch(() => null)) ?? undefined;
+      await recordAudit(
+        "issue.create",
+        { repo: `${parsed.owner}/${parsed.repo}`, number: issue.number, title },
+        { orgId, actorId: actorLogin ?? undefined },
+      );
+    }
     return NextResponse.json(issue);
   } catch (err) {
     if (err instanceof AppApiError) {

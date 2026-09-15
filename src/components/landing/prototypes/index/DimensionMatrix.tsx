@@ -35,7 +35,7 @@ function CellBar({ w }: { w: number }) {
           transition={reduced ? { duration: 0 } : { duration: 0.7, ease: "easeOut" }}
         />
       </div>
-      <span className="w-9 shrink-0 text-right font-mono text-xs font-bold tabular-nums text-slate-300">{pct(w)}</span>
+      <span className="w-9 shrink-0 text-right type-caption font-bold tabular-nums text-slate-300">{pct(w)}</span>
     </div>
   );
 }
@@ -62,9 +62,9 @@ export function DimensionMatrix() {
           <caption className="sr-only">Per-dimension weighting across the Solo, Team, and Org archetype lenses.</caption>
           <thead>
             <tr className="border-b border-slate-700">
-              <th scope="col" className="pb-3 pr-4 font-mono text-xs uppercase tracking-widest text-slate-500">Dimension</th>
+              <th scope="col" className="pb-3 pr-4 type-label tracking-widest text-slate-500">Dimension</th>
               {ARCHETYPE_COLUMNS.map((c) => (
-                <th key={c.key} scope="col" className="px-3 pb-3 font-mono text-xs uppercase tracking-widest text-slate-400">
+                <th key={c.key} scope="col" className="px-3 pb-3 type-label tracking-widest text-slate-400">
                   {c.label} <span className="text-slate-600">· {c.sub}</span>
                 </th>
               ))}
@@ -76,12 +76,12 @@ export function DimensionMatrix() {
                 <th scope="row" className="py-3.5 pr-4 align-top">
                   <span className="flex items-center gap-2">
                     <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${r.axis === "adoption" ? "bg-accent" : "bg-slate-500"}`} title={AXIS_LABEL[r.axis]} />
-                    <span className="font-mono text-xs text-slate-600">{r.id}</span>
-                    <span className="text-sm font-semibold text-white">{r.name}</span>
+                    <span className="type-caption text-slate-600">{r.id}</span>
+                    <span className="type-body-sm font-semibold text-white">{r.name}</span>
                   </span>
                   {/* Render the dimension description as visible text (it was previously reachable only via
                       the native `title` hover on the data cells — invisible to touch/keyboard/SR users). */}
-                  <span className="mt-1 block max-w-xs pl-4 text-xs font-normal leading-snug text-slate-500 2xl:max-w-sm 2xl:text-sm">
+                  <span className="mt-1 block max-w-xs pl-4 type-note font-normal leading-snug text-slate-500 2xl:max-w-sm 2xl:type-body-sm">
                     {r.description}
                   </span>
                 </th>
@@ -96,7 +96,7 @@ export function DimensionMatrix() {
         </table>
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 font-mono text-xs uppercase tracking-widest text-slate-500">
+      <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 type-label tracking-widest text-slate-500">
         <span className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-accent" /> Adoption axis</span>
         <span className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-slate-500" /> Rigor axis</span>
       </div>

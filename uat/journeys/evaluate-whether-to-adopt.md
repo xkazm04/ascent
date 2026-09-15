@@ -22,10 +22,10 @@ Leadership signed a big org-wide AI-coding-tool contract last quarter and is now
 - Anything behind auth — `/org/[slug]` dashboards, trends, usage, org rollups. He is the buyer, not the daily dashboard user; he won't sign in during this first look. (Don't flag authed org features as "missing" — they're simply not part of this journey.)
 - Actually purchasing scan credits / completing a Polar checkout. He's deciding whether to evaluate, not buying yet.
 - The depth/correctness of the org-intelligence product itself — this journey judges the *public funnel and one public scan*, the surface a buyer sees before committing.
-- The PR CI gate mechanics in a real pipeline (he may notice `/badge` and the gate exist as proof points, but he won't wire one up).
+- The PR CI gate mechanics in a real pipeline (he may notice the gate exists as a proof point, but he won't wire one up).
 
 ## Discovery hints
-Entry point(s): `/` (landing). Do NOT script the steps — the Character finds his own path; getting lost is itself a finding. Natural surfaces he may reach on his own: `/about` (what is this / who's it for), `/pricing` (what does it cost — watch for any contact-wall), the landing ScanForm and a resulting `/report` (his own self-serve proof), `/launch` (the fleet-map experience), `/badge` (a credibility/proof point). The two highest-signal questions: can he find **numeric pricing without a wall**, and is the **public-scan report senior-grade or toy**.
+Entry point(s): `/` (landing). Do NOT script the steps — the Character finds his own path; getting lost is itself a finding. Natural surfaces he may reach on his own: `/about` (what is this / who's it for), `/pricing` (what does it cost — watch for any contact-wall), the landing ScanForm and a resulting `/report` (his own self-serve proof), `/launch` (the fleet-map experience), `/leaderboard` (a credibility/proof point). The two highest-signal questions: can he find **numeric pricing without a wall**, and is the **public-scan report senior-grade or toy**.
 
 ## Frozen happy path  (filled in only on `promote`)
 <!-- empty until this journey graduates to an acceptance gate via `/uat promote evaluate-whether-to-adopt` -->

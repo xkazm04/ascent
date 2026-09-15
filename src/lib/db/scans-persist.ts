@@ -8,7 +8,7 @@ import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
 import { getPrisma, isDbConfigured, withDb, withRetry } from "@/lib/db/client";
 import { cacheDelete, makeCacheKey } from "@/lib/cache";
 import { matchRecommendations } from "@/lib/report/compare";
-import { decideInProgress, isRestated, keepNote, resolutionNote } from "@/lib/org/followups";
+import { decideInProgress, isRestated, keepNote, resolutionNote, type MovementEngines } from "@/lib/org/followups";
 import {
   canonicalRepoFullName,
   DEFAULT_ORG_SLUG,
@@ -25,6 +25,13 @@ import {
   scanDedupKey,
 } from "@/lib/db/scans-read";
 import { syncTechStackGroups } from "@/lib/db/tech-groups";
+import { withAuditSignature } from "@/lib/db/audit-integrity";
+// MOONSHOT #1 — the control ledger. `governanceToSamples`/`diffSamples` are W3-L's PURE mappers and
+// `recordObservations` its writer; this path is a second SOURCE into the same ledger, not a second
+// implementation of it.
+import { latestObservations, recordObservations } from "@/lib/db/control-observations";
+import { forgeFromWebUrl, prefixForge } from "@/lib/forge/registry";
+import { HEARTBEAT_AFTER_MS, diffSamples, governanceToSamples } from "@/lib/scan-probe-controls";
 
 /** Outcome of persisting a scan report — surfaces dedup and partial-write failures. */
 export interface PersistResult {
@@ -37,6 +44,17 @@ export interface PersistResult {
   upgraded?: boolean;
   /** The commit SHA the returned scan is pinned to (null when the source had none). */
   headSha: string | null;
+  /** The in-progress rows THIS persist actually CLOSED — the ids `decideInProgress` ruled `done`,
+   *  after the movement witness, the engine-attribution check and the restatement read.
+   *
+   *  NOT the trailer set. `report.resolvedFollowUpIds` is what commit messages CLAIMED; this is what
+   *  the rescan ADJUDICATED, and the two are different sets whenever a claim was refused (still
+   *  restated, dimension flat, one end on the mock floor). The autopilot lane writes its "closed"
+   *  count from this field precisely so the loop cannot certify its own homework — before it existed
+   *  the lane read the claim set and the cockpit printed it as the verdict (UAT `PRIYA-L1-702`).
+   *
+   *  Empty on a dedup: no rows were adjudicated, so nothing was closed. */
+  closedFollowUpIds: string[];
   // NOTE (scan-persistence-history 07-16 #3): the former `failures: { audit, contributors }` field is
   // GONE. Persistence is atomic — the scan graph, contributor upserts, and the audit entry commit in
   // one transaction — so a returned result means everything was written and a partial failure THROWS
@@ -82,8 +100,14 @@ export async function persistScanReport(
   const prisma = getPrisma();
   const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
   const headSha = report.repo.headSha ?? null;
+  // Which forge this report came from (moonshot #4), inferred from the repo's own web url — see
+  // `forgeFromWebUrl` for why that inference is safe and what replaces it.
+  const forge = forgeFromWebUrl(report.repo.url);
   // Canonical (lowercased) key so reads and writes agree regardless of the casing a caller typed.
-  const fullName = canonicalRepoFullName(report.repo.owner, report.repo.name);
+  // For GitHub this is BYTE-IDENTICAL to what it always was, so not one existing row moves and the
+  // live `@@unique([orgId, fullName])` needs no migration; a non-GitHub repo is namespaced in the
+  // VALUE (`gitlab:group/sub/project`), which no GitHub coordinate can collide with.
+  const fullName = prefixForge(forge, canonicalRepoFullName(report.repo.owner, report.repo.name));
 
   // Defense-in-depth against the cross-tenant disclosure: a PRIVATE repo's report must never be
   // persisted under the shared public org — the report page + history read the public org for ANY
@@ -125,6 +149,11 @@ export async function persistScanReport(
   // Same for Context Health (W4) — cache the latest only when this report carries one, so a
   // reconstructed snapshot leaves the existing cache untouched.
   if (report.contextHealth) repoUpdate.contextHealthJson = JSON.stringify(report.contextHealth);
+  // #13 — same rule for the manifest readout: cache the latest only when this report carries one.
+  if (report.manifest) repoUpdate.manifestJson = JSON.stringify(report.manifest);
+  // #15 — same rule for the guidance graph (rubric r11). The fleet count reads this cache, so a
+  // reconstructed snapshot must leave the previous verdict standing rather than blank it.
+  if (report.guidanceGraph) repoUpdate.guidanceGraphJson = JSON.stringify(report.guidanceGraph);
   const repo = await withRetry(
     () =>
       upsertRacing(
@@ -135,6 +164,10 @@ export async function persistScanReport(
             // First-ever scan: seed the head pointer on create (nothing newer can exist yet).
             create: {
               orgId,
+              // #4 — which forge this row lives on. Defaulted to "github" in the schema, so every
+              // pre-existing row is already correct; writing it here is what makes a NEW GitLab row
+              // identifiable without re-parsing its url on every read.
+              forge,
               owner: report.repo.owner,
               name: report.repo.name,
               fullName,
@@ -144,6 +177,8 @@ export async function persistScanReport(
               techStackJson: report.techStack ? JSON.stringify(report.techStack) : null,
               passportJson: report.passport ? JSON.stringify(report.passport) : null,
               contextHealthJson: report.contextHealth ? JSON.stringify(report.contextHealth) : null,
+              manifestJson: report.manifest ? JSON.stringify(report.manifest) : null,
+              guidanceGraphJson: report.guidanceGraph ? JSON.stringify(report.guidanceGraph) : null,
               stars: report.repo.stars,
               lastScanAt: scannedAtDate,
               headSha,
@@ -215,7 +250,7 @@ export async function persistScanReport(
           // A real scan for this commit already exists → refresh the head/lastScanAt freshness (safe: no
           // phantom head), but never insert a duplicate metered row.
           await advanceHead();
-          return { scanId: existing.id, deduped: true, headSha };
+          return { scanId: existing.id, deduped: true, headSha, closedFollowUpIds: [] };
         }
       }
     } else {
@@ -255,7 +290,7 @@ export async function persistScanReport(
           upgradeOldScanId = existing.id;
         } else if (existing.contentKey === contentKey) {
           await advanceHead(); // the SAME report is already persisted → freshness refresh, no duplicate
-          return { scanId: existing.id, deduped: true, headSha: null };
+          return { scanId: existing.id, deduped: true, headSha: null, closedFollowUpIds: [] };
         }
         // else: same millisecond, different result — fall through and persist it as its own scan.
       }
@@ -283,11 +318,16 @@ export async function persistScanReport(
       // createdAt then id break the tie to the genuinely-latest row.
       orderBy: [{ scannedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
       select: {
-        recommendations: { select: { id: true, dimId: true, title: true, status: true, assigneeLogin: true, targetDate: true, impact: true, effort: true, rationale: true, explore: true, levelUnlock: true, kind: true } },
+        recommendations: { select: { id: true, dimId: true, title: true, status: true, assigneeLogin: true, targetDate: true, impact: true, effort: true, rationale: true, firstStep: true, explore: true, levelUnlock: true, kind: true, craftAxis: true } },
         // The previous scan's dimension scores — the independent witness for an in-progress row's
         // fate (decideInProgress's `movement`). A gap that vanished while its number stood still is
         // rephrasing, not repair.
         dimensions: { select: { dimId: true, score: true } },
+        // The previous scan's ENGINE — the other half of the witness. A movement measured across a
+        // mock/real boundary is a change of ruler, not of repository, and must not close a claimed
+        // row however far the number travelled (src/lib/maturity/attribution.ts).
+        engineProvider: true,
+        engineDegraded: true,
       },
     });
     const prevRecs = previous?.recommendations ?? [];
@@ -298,6 +338,15 @@ export async function persistScanReport(
       const after = nextDimScore.get(dimId);
       return before == null || after == null ? null : { before, after };
     };
+    // The engines behind that movement. Null when there is no previous scan — no pair, nothing to
+    // attribute — which leaves decideInProgress on its pre-attribution strict-movement rule rather
+    // than letting it judge from a fabricated end.
+    const movementEngines: MovementEngines | null = previous
+      ? {
+          before: { engineProvider: previous.engineProvider, engineDegraded: previous.engineDegraded },
+          after: { engineProvider: report.engine.provider, engineDegraded: report.engine.degraded },
+        }
+      : null;
     const carryMatch = matchRecommendations(
       prevRecs.map((r) => ({ dim: r.dimId, title: r.title })),
       report.roadmap.map((r) => ({ dim: r.dimension, title: r.title })),
@@ -326,14 +375,25 @@ export async function persistScanReport(
       if (r.status !== "in_progress") return;
       const restated = isRestated({ dim: r.dimId, title: r.title }, nextIds);
       const movement = movementOf(r.dimId);
-      const decision = decideInProgress({ id: r.id }, restated, resolvedIds, movement);
+      // The row's KIND decides which resolve rule applies. A craft rung closes on its trailer alone —
+      // it raises a ceiling the rubric cannot record, so the movement witness a gap needs is not
+      // available for it (see decideInProgress's craft rule).
+      const decision = decideInProgress(
+        { id: r.id, kind: r.kind === "craft" ? "craft" : "gap" },
+        restated,
+        resolvedIds,
+        movement,
+        movementEngines,
+      );
       if (decision.kind === "done") {
         resolvedRows.push({ row: r, note: resolutionNote(decision, scanRef) });
         // Un-pair any next item carry-forward matched to this row: it is not the same gap.
         carryMatch.forEach((m, j) => {
           if (m === i) carryMatch[j] = null;
         });
-      } else if (decision.reason === "no-movement") {
+      } else if (decision.reason === "no-movement" || decision.reason === "craft-unclaimed") {
+        // Both are UNPAIRED keeps: the new assessment did not restate the row, so nothing in the new
+        // roadmap matched it and it would vanish from the ledger without an explicit carry-forward.
         keptRows.push({ row: r, note: keepNote(decision, scanRef, movement), paired: false });
       } else {
         const note = keepNote(decision, scanRef, movement);
@@ -391,6 +451,21 @@ export async function persistScanReport(
             // reloaded report's privacy chip keeps making the SAME claim the fresh scan made. `?? null`
             // keeps a report that never set it (a hand-built or legacy in-memory report) as UNKNOWN.
             engineByom: report.engine.byom ?? null,
+            // Whether the mock floor FIRED (a model was asked for and never answered) rather than being
+            // chosen. `engineProvider` cannot carry this: it reads "mock" for a keyless deploy and an
+            // explicit demo too, and neither is a failure. The loop's attribution rule needs the
+            // difference to refuse a lift measured across a mock/real boundary. `?? null` keeps a
+            // hand-built or legacy report UNKNOWN — which is not the same claim as "not degraded".
+            engineDegraded: report.engine.degraded ?? null,
+            // The ScoreIntegrity record — the levers that move a headline on an UNCHANGED commit.
+            // Persisted so a reconstructed report and a run-over-run comparison can attribute a delta
+            // to them instead of reporting it as repository change. Null = the row predates the column.
+            scoreIntegrityJson: report.scoreIntegrity ? JSON.stringify(report.scoreIntegrity) : null,
+            // What this scan could see of the GITHUB-side folds (observed / carried / unavailable).
+            // A worktree rescan cannot observe them, so without this the loop's own scans recorded a
+            // floor on D2/D3/D4 that read exactly like a measured shortfall. Null = the question was
+            // never asked, which is UNKNOWN and not "unavailable" — see PlatformSignalRecord.
+            platformSignalsJson: report.platformSignals ? JSON.stringify(report.platformSignals) : null,
             headline: report.headline,
             strengths: JSON.stringify(report.strengths),
             risks: JSON.stringify(report.risks),
@@ -404,6 +479,15 @@ export async function persistScanReport(
             // Repository.contextHealthJson above. Display-only (never scored). Null on a
             // reconstructed snapshot, which must read as "not assessed", never as absent context.
             contextHealthJson: report.contextHealth ? JSON.stringify(report.contextHealth) : null,
+            // #13 — what this scan read in the repo's own .ai/manifest.yaml. Per-scan history; the
+            // latest is cached on Repository.manifestJson above. Display-only (never scored, G5).
+            // Null on a reconstructed snapshot, which reads as "not assessed by this scan" — never
+            // as a repo that declares no contract.
+            manifestJson: report.manifest ? JSON.stringify(report.manifest) : null,
+            // #15 — the guidance arbiter's verdict for this scan. Per-scan history; the latest is
+            // cached on Repository.guidanceGraphJson above. Null on a reconstructed snapshot AND on
+            // every pre-r11 row, both of which read as "not assessed" — never as coherence 0.
+            guidanceGraphJson: report.guidanceGraph ? JSON.stringify(report.guidanceGraph) : null,
             // W6 — practice shape. Per-scan like contextHealth; the org miner reads each repo's
             // LATEST. Null on a reconstructed snapshot, which reads as "not extracted", never as
             // "this repo has no structure".
@@ -446,9 +530,13 @@ export async function persistScanReport(
                   impact: r.impact,
                   effort: r.effort,
                   rationale: r.rationale,
+                  firstStep: r.firstStep ?? "",
                   explore: JSON.stringify(r.explore ?? []),
                   levelUnlock: r.levelUnlock ?? null,
                   kind: r.kind ?? "gap",
+                  // The axis rides only on a craft entry; a gap row's axis is NULL by construction so
+                  // no coverage read can ever count a gap as a craft rung (scoring/craft.ts).
+                  craftAxis: r.kind === "craft" ? (r.craftAxis ?? null) : null,
                   status: carried?.status ?? "open",
                   assigneeLogin: carried?.assigneeLogin ?? null,
                   targetDate: carried?.targetDate ?? null,
@@ -472,9 +560,11 @@ export async function persistScanReport(
               impact: row.impact,
               effort: row.effort,
               rationale: row.rationale,
+              firstStep: row.firstStep,
               explore: row.explore,
               levelUnlock: row.levelUnlock,
               kind: row.kind,
+              craftAxis: row.craftAxis,
               status: "done",
               assigneeLogin: row.assigneeLogin,
               targetDate: row.targetDate,
@@ -505,9 +595,11 @@ export async function persistScanReport(
                   impact: row.impact,
                   effort: row.effort,
                   rationale: row.rationale,
+                  firstStep: row.firstStep,
                   explore: row.explore,
                   levelUnlock: row.levelUnlock,
                   kind: row.kind,
+                  craftAxis: row.craftAxis,
                   status: "in_progress",
                   assigneeLogin: row.assigneeLogin,
                   targetDate: row.targetDate,
@@ -637,18 +729,35 @@ export async function persistScanReport(
 
         // Audit entry through the same tx, so a scan is never persisted unaudited (the compliance
         // gap the old best-effort write could leave). Mirrors recordAudit's "scan.created" shape.
+        // SIGNED like every other audit write (exemplar: recordConformance in org-watch.ts). This
+        // path used to JSON.stringify the meta directly, so the highest-volume action in the product
+        // landed with no `_sig` and verified as "unsigned" on every read — in the one table whose
+        // whole purpose is tamper-evidence. `at` is stamped explicitly because canonical() signs
+        // createdAt: letting the DB default the timestamp would sign a different instant than the row
+        // stores, and the row would verify as `tampered` forever.
+        const auditActorId = opts.actorId ?? null;
+        const auditAt = new Date();
         await tx.auditLog.create({
           data: {
             action: "scan.created",
-            meta: JSON.stringify({
-              repo: fullName,
-              scanId: scan.id,
-              headSha,
-              level: report.level.id,
-              score: report.overallScore,
-            }),
+            at: auditAt,
+            meta: JSON.stringify(
+              withAuditSignature({
+                action: "scan.created",
+                orgId,
+                actorId: auditActorId,
+                createdAt: auditAt.toISOString(),
+                meta: {
+                  repo: fullName,
+                  scanId: scan.id,
+                  headSha,
+                  level: report.level.id,
+                  score: report.overallScore,
+                },
+              }),
+            ),
             orgId,
-            actorId: opts.actorId ?? null,
+            actorId: auditActorId,
           },
         });
 
@@ -702,6 +811,22 @@ export async function persistScanReport(
     // Reconcile this repo's auto-derived tech-stack group memberships (Feature 3b) from the detected
     // stack. Best-effort — grouping is display metadata and must never break a scan persist; a
     // transient failure self-corrects on the next scan (sync is idempotent).
+    // MOONSHOT #1 — feed the control ledger from the scan's own governance read.
+    //
+    // A scan already fetches branch governance and persists the blob on the Scan row, but that blob
+    // is only ever read POINT-IN-TIME (the latest scan's). Appending it as observations is what turns
+    // "the settings at the newest scan" into "the settings AT THE MOMENT a change merged" — the
+    // as-of-merge read the conformance pack needs.
+    //
+    // Deliberately outside the transaction and best-effort: an unwritable observation must never roll
+    // back a persisted scan, and the probe writes the same controls anyway. `diffSamples` against the
+    // repo's current posture keeps this from appending thirteen identical rows on every rescan;
+    // `occurredAt` is the SCAN's time, not now, so a re-persist of an older scan lands in the right
+    // place on the timeline rather than at the head of it.
+    await appendScanObservations(orgSlug, repo.id, fullName, scanId, report).catch((err) => {
+      console.warn(`[scans-persist] control observations failed for ${fullName}:`, err);
+    });
+
     await syncTechStackGroups(orgId, repo.id, report.techStack).catch((err) => {
       // Best-effort — grouping is display metadata and must never break a scan persist. But swallowing
       // it SILENTLY hid a persistent misconfiguration (a broken group rule, a systematically failing
@@ -710,7 +835,42 @@ export async function persistScanReport(
       console.warn(`[scans-persist] tech-stack group sync failed for repo ${repo.id} (org ${orgId}):`, err);
     });
 
-    return { scanId, deduped: dedupedByRace, upgraded: Boolean(upgradeOldScanId), headSha };
+    return { scanId, deduped: dedupedByRace, upgraded: Boolean(upgradeOldScanId), headSha, closedFollowUpIds: dedupedByRace ? [] : resolvedRows.map((r) => r.row.id) };
   }, { label: "persistScanReport:scan" }));
   });
+}
+
+/**
+ * MOONSHOT #1 — append this scan's governance read to the control ledger.
+ *
+ * ONLY the governance-derived controls. A scan has no `SecurityPosture` on its report and does not
+ * read repository metadata, so it says nothing about `advisories`, `repo-present` or `repo-visibility`
+ * — and writes nothing about them. Emitting `unmeasurable` rows for controls this source never looks
+ * at would put "we tried and failed" in the ledger for a read that was never attempted, and the
+ * coverage report would then understate the probe's real coverage on those controls.
+ *
+ * A scan whose governance blob is null or unreadable DOES write the governance set as `unmeasurable`
+ * (that is `governanceToSamples`'s contract) — that read WAS attempted and came back denied, which is
+ * a genuine observation and the thing that lets a later successful read register as a transition.
+ */
+async function appendScanObservations(
+  orgSlug: string,
+  repoId: string,
+  fullName: string,
+  scanId: string,
+  report: ScanReport,
+): Promise<void> {
+  const samples = governanceToSamples(report.governance ?? null);
+  const prev = await latestObservations(repoId);
+  // The SCAN's own time, not the wall clock: a re-persisted or replayed older scan must land where
+  // it belongs on the timeline, not at the head of it. The heartbeat arithmetic uses the same instant
+  // so a backfilled scan does not look "due" against today's clock.
+  const scannedAt = new Date(report.scannedAt);
+  const at = Number.isNaN(scannedAt.getTime()) ? Date.now() : scannedAt.getTime();
+  const due = diffSamples(prev, samples, HEARTBEAT_AFTER_MS, at).map((s) => ({
+    ...s,
+    occurredAt: new Date(at).toISOString(),
+  }));
+  if (due.length === 0) return;
+  await recordObservations(orgSlug, repoId, due, { repoFullName: fullName, source: "scan", scanId });
 }

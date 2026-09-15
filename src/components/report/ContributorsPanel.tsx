@@ -40,18 +40,18 @@ export function ContributorsPanel({ report }: { report: ScanReport }) {
       {contributors.length > 0 && (
         <Surface radius="2xl" className="p-6">
           <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-            <h2 className="text-lg font-semibold text-white">Recent contributors</h2>
-            <span className="font-mono text-sm tabular-nums text-slate-500">
+            <h2 className="type-lede font-semibold text-white">Recent contributors</h2>
+            <span className="type-mono-sm tabular-nums text-slate-500">
               {visible.length}/{contributors.length} shown
             </span>
           </div>
-          <p className="mt-1 text-base text-slate-400">
+          <p className="mt-1 type-body text-slate-400">
             From sampled commit history. The bar shows the share that&apos;s AI-attributed.
           </p>
           {/* Orientation, in the same voice as the roadmap's "these aren't orders": say what the bar
               is FOR (a conversation about how the work gets done) and hand over a question, never a
               target. A high share is not a win and a low one is not a failing. */}
-          <p className="mt-1 text-base text-slate-500">
+          <p className="mt-1 type-body text-slate-500">
             Not a leaderboard, and no share is the &ldquo;right&rdquo; one. It&apos;s something to explore: does the spread
             match how your team believes it works?
           </p>
@@ -75,7 +75,7 @@ export function ContributorsPanel({ report }: { report: ScanReport }) {
               type="button"
               onClick={() => setShowAll((s) => !s)}
               aria-expanded={showAll}
-              className="focus-ring mt-3 rounded-md border border-slate-700 px-3 py-1.5 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white"
+              className="focus-ring mt-3 rounded-md border border-slate-700 px-3 py-1.5 type-mono-sm text-slate-300 transition hover:border-accent hover:text-white"
             >
               {showAll ? `Show top ${VISIBLE_DEFAULT}` : `Show ${hidden} more`}
             </button>
@@ -83,7 +83,7 @@ export function ContributorsPanel({ report }: { report: ScanReport }) {
 
           {/* Honest about the edge of the data: this list is the sampled commit window, and a stored
               scan keeps only its most active 50 — so "everyone" here is not everyone in the repo. */}
-          <p className="mt-3 border-t border-divider pt-3 text-sm text-slate-500">
+          <p className="mt-3 border-t border-divider pt-3 type-body-sm text-slate-500">
             Authors of the commits this scan sampled, not the repo&apos;s full contributor list.
             {atStoredCap && ` A saved scan keeps the ${STORED_CAP} most active, so longer tails are cut here.`}
           </p>
@@ -108,7 +108,7 @@ function ContributorRow({
   const linkable = GITHUB_LOGIN.test(c.login);
   return (
     <div
-      className={`flex items-center gap-3 text-base${entering ? " animate-fade-up" : ""}`}
+      className={`flex items-center gap-3 type-body${entering ? " animate-fade-up" : ""}`}
       style={entering ? { animationDelay: `${delayMs}ms` } : undefined}
     >
       <span className="w-40 shrink-0 truncate" title={c.name && c.name !== c.login ? c.name : undefined}>
@@ -135,7 +135,7 @@ function ContributorRow({
       >
         <div className="h-full rounded-full bg-accent" style={{ width: `${pctAI}%` }} />
       </div>
-      <span className="w-32 shrink-0 text-right font-mono text-sm tabular-nums text-slate-500">
+      <span className="w-32 shrink-0 text-right type-mono-sm tabular-nums text-slate-500">
         {c.aiCommits}/{c.commits} AI · {pctAI}%
       </span>
     </div>

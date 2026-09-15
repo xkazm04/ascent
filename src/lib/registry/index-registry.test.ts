@@ -13,6 +13,8 @@ const upsertMemory = vi.fn(async () => "memory-id");
 const archive = vi.fn(async () => ({ skills: 0, practices: 0, memory: 0 }));
 const recordResult = vi.fn(async () => {});
 const recordError = vi.fn(async () => {});
+const replaceLessons = vi.fn(async () => ({ written: 0, removed: 0 }));
+const purgeLessons = vi.fn(async () => 0);
 
 vi.mock("@/lib/db/org-registry-mirror", () => ({
   upsertRegistrySkill: (...a: unknown[]) => upsertSkill(...(a as [])),
@@ -24,6 +26,16 @@ vi.mock("@/lib/db/org-registry-write", () => ({
   recordIndexResult: (...a: unknown[]) => recordResult(...(a as [])),
   recordIndexError: (...a: unknown[]) => recordError(...(a as [])),
 }));
+
+vi.mock("@/lib/db/org-skill-lessons", () => ({
+  replaceSkillLessons: (...a: unknown[]) => replaceLessons(...(a as [])),
+  purgeSkillLessons: (...a: unknown[]) => purgeLessons(...(a as [])),
+}));
+
+// The fleet sweep chained after a successful pass (knowledge base rebuild). Mocked at the module
+// boundary like the writers: what is under test here is WHEN it runs and how its failure lands.
+const sweep = vi.fn(async () => ({ scanned: 2, withMap: 1, withoutMap: 1, pairs: 3, warnings: ["acme/web: GitHub App API 502"] }));
+vi.mock("./conformance-sweep", () => ({ sweepConformance: (...a: unknown[]) => sweep(...(a as [])) }));
 
 import { indexRegistry, type RegistrySource } from "./index-registry";
 import { FIXTURE_TREE, type FixtureBlob } from "./__fixtures__/registry-tree";
@@ -52,7 +64,41 @@ function sourceFor(blobs: FixtureBlob[], opts: { truncated?: boolean } = {}): Re
 const names = (m: typeof upsertSkill) => m.mock.calls.map((c) => (c[2] as { path: string }).path);
 
 beforeEach(() => {
-  for (const m of [upsertSkill, upsertPractice, upsertMemory, archive, recordResult, recordError]) m.mockClear();
+  for (const m of [upsertSkill, upsertPractice, upsertMemory, archive, recordResult, recordError, replaceLessons, purgeLessons, sweep]) m.mockClear();
+});
+
+describe("index → sweep chaining", () => {
+  it("does not sweep from a source without a token — a fixture can index but cannot reach the fleet", async () => {
+    const result = await indexRegistry(REGISTRY, sourceFor(FIXTURE_TREE));
+    expect(result.kind).toBe("ok");
+    expect(sweep).not.toHaveBeenCalled();
+    expect(result.sweep).toBeUndefined();
+  });
+
+  it("sweeps the registry's org with the source's token after a successful pass, and carries its warnings", async () => {
+    const result = await indexRegistry(REGISTRY, { ...sourceFor(FIXTURE_TREE), token: "ghs_x" });
+    expect(sweep).toHaveBeenCalledWith({ orgId: "org-1" }, "ghs_x");
+    expect(result.sweep).toMatchObject({ scanned: 2, withMap: 1 });
+    expect(result.warnings).toContain("sweep: acme/web: GitHub App API 502");
+    // The pass is stamped AFTER the sweep, so the row's warnings carry the sweep's.
+    const stamped = recordResult.mock.calls[0]![1] as unknown as { warnings: string[] };
+    expect(stamped.warnings).toContain("sweep: acme/web: GitHub App API 502");
+  });
+
+  it("turns a sweep failure into a warning, never an index failure", async () => {
+    sweep.mockRejectedValueOnce(new Error("token expired"));
+    const result = await indexRegistry(REGISTRY, { ...sourceFor(FIXTURE_TREE), token: "ghs_x" });
+    expect(result.kind).toBe("ok");
+    expect(result.sweep).toBeUndefined();
+    expect(result.warnings!.some((w) => w.startsWith("sweep:") && w.includes("token expired"))).toBe(true);
+    expect(recordError).not.toHaveBeenCalled();
+  });
+
+  it("does not sweep when the tree could not be read — there is no successful pass to chain from", async () => {
+    const source: RegistrySource = { readTree: async () => { throw new Error("404"); }, readBlob: async () => null, token: "ghs_x" };
+    expect((await indexRegistry(REGISTRY, source)).kind).toBe("error");
+    expect(sweep).not.toHaveBeenCalled();
+  });
 });
 
 describe("indexRegistry over the reference layout", () => {
@@ -194,5 +240,50 @@ describe("indexRegistry failure modes", () => {
     expect(id).toBe("reg-1");
     expect(payload.headSha).toBe("4f1c9ae3d7b21c05f8a9");
     expect(payload.counts).toEqual({ skills: 5, practices: 2, memory: 4, lessons: 3 });
+  });
+});
+
+describe("lesson rows (#36)", () => {
+  it("writes one row per `## ` heading, and the row count equals counts.lessons", async () => {
+    // FAIL-BEFORE: the pass counted headings and wrote no lesson row at all.
+    const result = await indexRegistry(REGISTRY, sourceFor(FIXTURE_TREE));
+    expect(replaceLessons).toHaveBeenCalledTimes(1);
+    const [registryId, orgId, skillName, path, entries] = replaceLessons.mock.calls[0] as unknown as [
+      string,
+      string,
+      string,
+      string,
+      { versionUsed: string; project: string; entryHash: string }[],
+    ];
+    expect({ registryId, orgId, skillName, path }).toEqual({
+      registryId: "reg-1",
+      orgId: "org-1",
+      skillName: "test-before-commit",
+      path: "skills/test-before-commit/LESSONS.md",
+    });
+    expect(entries.map((e) => e.versionUsed)).toEqual(["2.0.0", "2.0.0", "2.1.0"]);
+    expect(entries.map((e) => e.project)).toEqual(["checkout-service", "internal-tooling-cli", "reporting-api"]);
+    // The invariant: the ledger and the dashboard number are one scan of one file.
+    expect(entries).toHaveLength(result.counts!.lessons);
+  });
+
+  it("purges the rows of a LESSONS.md that vanished, keyed on what this pass saw", async () => {
+    await indexRegistry(REGISTRY, sourceFor(FIXTURE_TREE));
+    expect(purgeLessons).toHaveBeenCalledWith("reg-1", ["skills/test-before-commit/LESSONS.md"]);
+  });
+
+  it("does NOT purge on a truncated tree — absence from a partial pass is not deletion", async () => {
+    await indexRegistry(REGISTRY, sourceFor(FIXTURE_TREE, { truncated: true }));
+    expect(purgeLessons).not.toHaveBeenCalled();
+  });
+
+  it("re-running the same head asks for the same entry hashes, so the upsert is a no-op", async () => {
+    type Call = [string, string, string, string, { entryHash: string }[]];
+    await indexRegistry(REGISTRY, sourceFor(FIXTURE_TREE));
+    const first = (replaceLessons.mock.calls[0] as unknown as Call)[4];
+    replaceLessons.mockClear();
+    await indexRegistry(REGISTRY, sourceFor(FIXTURE_TREE));
+    const second = (replaceLessons.mock.calls[0] as unknown as Call)[4];
+    expect(second.map((e) => e.entryHash)).toEqual(first.map((e) => e.entryHash));
   });
 });

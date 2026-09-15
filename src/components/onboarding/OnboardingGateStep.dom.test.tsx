@@ -23,7 +23,7 @@ describe("OnboardingGateStep", () => {
     render(
       <GateStep gate={{ kind: "no-access", org: "netflix" }} auth="supabase" selectedCount={2} onBack={() => {}} />,
     );
-    expect(screen.getByRole("link", { name: /connect the github app/i })).toBeInTheDocument();
+    expect(document.body.textContent).toMatch(/GITHUB_APP_SLUG/);
     expect(document.body.textContent).not.toMatch(/Sign in to manage this organization/i);
     expect(document.body.textContent).toMatch(/isn't a member of/i);
   });

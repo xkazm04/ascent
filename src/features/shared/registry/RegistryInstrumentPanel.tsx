@@ -16,14 +16,20 @@ function Readout({ label, value, tone = "plain" }: { label: string; value: strin
     tone === "ok" ? "text-accent" : tone === "warn" ? "text-warn" : tone === "off" ? "text-slate-600" : "text-slate-200";
   return (
     <div className="flex items-baseline justify-between gap-3 py-1.5">
-      <span className="font-mono text-xs uppercase tracking-[0.16em] text-slate-500">{label}</span>
-      <span className={`font-mono text-sm tabular-nums ${color}`}>{value}</span>
+      <span className="type-label tracking-[0.16em] text-slate-500">{label}</span>
+      <span className={`type-mono-sm tabular-nums ${color}`}>{value}</span>
     </div>
   );
 }
 
 export function RegistryInstrumentPanel({ view }: { view: RegistryView }) {
   const r = view.registry;
+  // The lane's counts only mean anything once a pass has READ it. Before that they are column
+  // defaults, and "0 invokes" would be a claim about the fleet that nobody has measured — so the
+  // readout is `—`, in the `off` tone this panel already uses for a fact that does not exist yet.
+  const laneRead = Boolean(r?.lastIndexedAt);
+  const reporting = view.telemetry.reposReporting;
+  const direct = view.telemetry.invokesDirect30d;
   return (
     <div className="space-y-2">
       <Kicker tone="muted">Readouts</Kicker>
@@ -41,11 +47,26 @@ export function RegistryInstrumentPanel({ view }: { view: RegistryView }) {
         <Readout label="catalog sha" value={shortSha(r?.catalogSha)} tone={r?.catalogSha ? "ok" : "off"} />
         <Readout label="webhook" value={r ? (r.webhookHealthy ? "healthy" : "unconfirmed") : "—"} tone={r?.webhookHealthy ? "ok" : "warn"} />
         <Readout label="telemetry sink" value={SINK_LABEL[view.telemetry.sink]} tone={view.telemetry.sink === "off" ? "off" : "ok"} />
-        <Readout label="invokes 30d" value={view.telemetry.invokes30d.toLocaleString()} tone={view.telemetry.invokes30d > 0 ? "plain" : "off"} />
+        {/* The two sinks, never summed: an installation may report to both. */}
+        <Readout
+          label="reporting"
+          value={laneRead ? String(reporting) : "—"}
+          tone={laneRead && reporting > 0 ? "ok" : "off"}
+        />
+        <Readout
+          label="invokes 30d · registry"
+          value={laneRead ? view.telemetry.invokes30d.toLocaleString() : "—"}
+          tone={laneRead && view.telemetry.invokes30d > 0 ? "plain" : "off"}
+        />
+        <Readout
+          label="invokes 30d · direct"
+          value={typeof direct === "number" ? direct.toLocaleString() : "—"}
+          tone={typeof direct === "number" && direct > 0 ? "plain" : "off"}
+        />
         <Readout label="lessons" value={String(view.counts.lessons)} tone={view.counts.lessons > 0 ? "plain" : "off"} />
       </Surface>
       {view.error ? (
-        <p className="rounded-xl border border-warn/40 bg-warn/5 px-3 py-2 font-mono text-xs text-warn">
+        <p className="rounded-xl border border-warn/40 bg-warn/5 px-3 py-2 type-caption text-warn">
           index fault {timeAgo(view.error.at)} — {view.error.message}
         </p>
       ) : null}

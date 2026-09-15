@@ -9,6 +9,8 @@
 import { detectAiUsage } from "@/lib/analyze";
 import { buildPassport } from "@/lib/analyze/passport";
 import { deriveContextHealth } from "@/lib/analyze/context-health";
+import { guidanceGraphFor, withGuidanceFreshness } from "@/lib/analyze/guidance-graph";
+import { buildManifestReadout } from "@/lib/standard/readout";
 import { outputBudgetWarning, type OutputBudget } from "@/lib/llm/output-budget";
 import { extractPracticeShape } from "@/lib/analyze/practice-shape";
 import type { StackFit } from "@/lib/analyze/stack-fit";
@@ -24,10 +26,12 @@ import type {
   Governance,
   GuidanceFreshness,
   LlmAssessment,
+  PlatformSignalRecord,
   PrStats,
   RepoArchetype,
   RepoSnapshot,
   ScanReport,
+  ScanSensorId,
   TechStack,
   TokenUsage,
 } from "@/lib/types";
@@ -52,6 +56,10 @@ export interface ComposePhaseInput {
   /** Still-in-flight per-guidance-file freshness lookups (W4 Context Health), awaited here. */
   guidanceFreshnessPromise: Promise<GuidanceFreshness[]>;
   techStack: TechStack;
+  /** What this scan could SEE of the GitHub-side folds — observed, carried, or nothing at all. The
+   *  report's own `platformSignals` is stamped by scanRepository; assembleReport reads this one to
+   *  decide which dimensions are owed no follow-up because nothing was measured on them. */
+  platformSignals?: PlatformSignalRecord | null;
   /** Token usage of the winning attempt + the LLM stage latency — the metering basis. */
   usage: TokenUsage;
   llmLatencyMs: number;
@@ -61,7 +69,7 @@ export interface ComposePhaseInput {
 export async function composeScanReport(input: ComposePhaseInput): Promise<ScanReport> {
   const { snapshot, signals, assessment, provider, now, archetype, byomScan, prStats, governance, techStack } = input;
 
-  const report = assembleReport(snapshot, signals, assessment, provider, now, archetype);
+  const report = assembleReport(snapshot, signals, assessment, provider, now, archetype, undefined, input.platformSignals);
   // WHOSE account the inference ran in. The report header claims "in-account … never leaves the AWS
   // boundary" for every Bedrock scan, but that read as "YOUR account" on Ascent's PLATFORM Bedrock
   // too. byomScan is already computed for the no-platform-failover rule; carrying it onto the report
@@ -95,16 +103,28 @@ export async function composeScanReport(input: ComposePhaseInput): Promise<ScanR
   // like passport/techStack: computed AFTER scoring, never in the LLM prompt, no rubric bump (pinned
   // by the "stays display-only" test in context-health.test.ts). Degraded inputs (keyless, unknown
   // freshness) narrow the result honestly instead of failing the scan.
+  const freshness = await input.guidanceFreshnessPromise;
   report.contextHealth = deriveContextHealth({
     snapshot,
-    freshness: await input.guidanceFreshnessPromise,
+    freshness,
     commitActivity: report.commitActivity ?? null,
     now,
   });
+  // #15 — the guidance arbiter's verdict. Read from the SAME memoized graph the D1 detector scored
+  // (guidanceGraphFor is keyed on the snapshot), so the coherence number on the card and the one
+  // inside the score can never be two different reads. The freshness dates only resolve here, so they
+  // are stamped on afterwards; they are display metadata and move no part of the score.
+  report.guidanceGraph = withGuidanceFreshness(guidanceGraphFor(snapshot), freshness);
+  // #13 — the repo's OWN declared contract, read back. Display/persist-only exactly like
+  // contextHealth above: never scored, never in the prompt. `absent` (not an empty readout) whenever
+  // `.ai/manifest.yaml` is not among the fetched files, which is the honest state until the fetch
+  // list carries it — a null readout must never render as "0/0 verified".
+  report.manifest = buildManifestReadout(snapshot, now);
   // W6 — the repo's practice SHAPE, from the same snapshot. Display/reuse-only like contextHealth
   // above: never scored, never in the prompt. Structure only (heading outlines, path layouts); no
   // artifact body is read, which is what makes an org's own pattern safe to move between its repos.
-  report.practiceShape = extractPracticeShape(snapshot.tree, snapshot.files);
+  // #33 (W2-J2 seam): GitHub's own truncation flag is the input to the census's honest-null rule.
+  report.practiceShape = extractPracticeShape(snapshot.tree, snapshot.files, { truncated: snapshot.truncated });
   // Token usage (from the provider that scored) + LLM-stage latency — the cost/usage metering basis,
   // persisted on the Scan row. A mock/keyless scan carries no tokens (cost 0), just the latency.
   report.usage = { ...input.usage, latencyMs: input.llmLatencyMs };
@@ -161,6 +181,16 @@ export interface ScanWarningsInput {
   snapshotCoverage: number;
   stackFit: StackFit | null;
   prPartial: boolean;
+  /** A token was present but PR ingestion threw — the PR sensor FAILED (vs. the keyless skip). */
+  prFetchFailed: boolean;
+  /**
+   * The OTHER enrichment sensors whose read threw (governance, security posture/exposure, App
+   * inventory, CI health, deployments — see `IngestPhaseResult.sensorFailures`). One warning names
+   * them all: each of these degrades to the same `null`/`[]` a successful-but-empty read produces,
+   * and the score treats that as absence, so without this line a broken read is published as a
+   * finding about the repository. `pullRequests` never appears here — it has `prFetchFailed` above.
+   */
+  sensorFailures?: readonly ScanSensorId[];
   /**
    * Prose caveat for a SCOPED scan (a non-default ref and/or a monorepo sub-path — see
    * `scopeWarning` in src/lib/scan-scope.ts), or null for an ordinary whole-repo default-branch scan.
@@ -180,6 +210,17 @@ export interface ScanWarningsInput {
   outputBudget?: OutputBudget | null;
 }
 
+/** Reader-facing name for each sensor, so the caveat names the READ rather than the code path. */
+const SENSOR_LABEL: Record<ScanSensorId, string> = {
+  pullRequests: "pull requests",
+  governance: "branch governance",
+  securityPosture: "security posture (advisories, org policy)",
+  securityExposure: "dependency exposure",
+  appInventory: "installed-App inventory",
+  ciHealth: "CI health",
+  deployments: "deployments",
+};
+
 /**
  * Surface non-fatal reliability caveats so the score is interpreted in context. Pure: same facts in,
  * same ordered list out. The caller merges the result into `report.warnings` (and stamps
@@ -194,6 +235,21 @@ export function buildScanWarnings(input: ScanWarningsInput): string[] {
   if (!input.hasToken) {
     warnings.push(
       "Pull-request signals were skipped: they need a GitHub token (GraphQL has no anonymous access).",
+    );
+  } else if (input.prFetchFailed) {
+    // Failure is not empty success: a failed PR sensor must persist as a broken sensor, never read
+    // as "this repository has no pull requests" (which deflates Review/Velocity/Delivery silently).
+    warnings.push(
+      "Pull-request ingestion FAILED during this scan, so PR-derived signals (Review, Velocity, Delivery) are missing — this reflects a failed read, not a repository without pull requests.",
+    );
+  }
+  // Every OTHER failed sensor, in one line. Mirrors the prFetchFailed caveat above deliberately: the
+  // failure mode is identical (a read that threw collapses to the value an empty read produces, and
+  // the score reads that as absence), so the honesty channel is the same shape.
+  const failed = (input.sensorFailures ?? []).filter((id) => id !== "pullRequests");
+  if (failed.length) {
+    warnings.push(
+      `GitHub signal reads FAILED during this scan (${failed.map((id) => SENSOR_LABEL[id]).join(", ")}), so the signals they feed are missing — this reflects failed reads, not controls the repository lacks. Checks that only those reads could have credited were excluded from the score rather than scored zero.`,
     );
   }
   if (input.llmFailed) {

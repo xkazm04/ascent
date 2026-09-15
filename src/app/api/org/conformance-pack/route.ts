@@ -23,6 +23,8 @@ import { getAiChangePopulation } from "@/lib/db/ai-changes";
 import { buildConformancePack } from "@/lib/conformance/pack";
 import { packFiles } from "@/lib/conformance/csv";
 import { resolveSampleSize } from "@/lib/conformance/sample";
+// MC-B14: the seal root covering the period travels IN the filed artifact.
+import { verifySeals } from "@/lib/db/control-observations";
 import { sha256Hex } from "@/lib/db/audit-integrity";
 import { getOrgId, isDbConfigured, recordAudit } from "@/lib/db";
 import { hasOrgRole, requireOrgRead } from "@/lib/authz";
@@ -80,7 +82,28 @@ export async function GET(request: Request) {
   const population = await getAiChangePopulation(org, { start: period.start, end: period.end });
   if (!population) return NextResponse.json({ error: "Organization not found." }, { status: 404 });
 
+  // The seal chain over the SAME window the pack covers. Best-effort and never fatal: a pack whose
+  // integrity section says "no root" is honest; a pack withheld because the chain read failed is a
+  // filed artifact nobody has.
+  const periodFrom = period.start ? period.start.toISOString().slice(0, 10) : null;
+  const periodTo = period.end ? period.end.toISOString().slice(0, 10) : null;
+  const chain = await verifySeals(org, { from: periodFrom, to: periodTo }).catch(() => null);
+  const verifiedChecks = chain?.checks.filter((c) => c.verdict === "ok") ?? [];
+  const ledgerSeal = chain
+    ? {
+        // The NEWEST cleanly-recomputing day in the window. A root quoted off a day that did not
+        // verify would be a root that proves the opposite of what quoting it implies.
+        throughDay: verifiedChecks.length ? verifiedChecks[verifiedChecks.length - 1]!.day : null,
+        root: verifiedChecks.length ? verifiedChecks[verifiedChecks.length - 1]!.root : null,
+        daysSealed: chain.checks.length,
+        daysVerified: verifiedChecks.length,
+        chainOk: chain.chainOk,
+        unsealedDays: chain.unsealedDays.length,
+      }
+    : null;
+
   const pack = buildConformancePack(population, {
+    ledgerSeal,
     org,
     period: {
       // An open-ended window is stated as such rather than back-filled with a fabricated boundary —
@@ -108,6 +131,17 @@ export async function GET(request: Request) {
       seed: pack.sample.seed,
       identityMode: pack.provenance.identityMode,
       file: file ?? "json",
+      // MOONSHOT #1 — the EVIDENCE GRADE of what left the building. Two packs over the same period
+      // can differ materially in how much of them is as-of-merge observation versus latest-scan
+      // substitution, and the audit row is the only place that difference is recoverable after the
+      // file is filed. Without it, "which version did we send them" has no answer.
+      asOfLedgerRows: pack.environmentCoverage.fromLedger,
+      asOfFallbackRows: pack.environmentCoverage.fromLatestScan,
+      mergedRows: pack.environmentCoverage.mergedRows,
+      // MC-B14 — which root the filed copy quoted. "Which version did we send them" now has an
+      // answer that includes what it was checkable against.
+      ledgerSealRoot: pack.ledgerSeal?.root ?? null,
+      ledgerSealThrough: pack.ledgerSeal?.throughDay ?? null,
     },
     { orgId: orgId ?? undefined },
   );

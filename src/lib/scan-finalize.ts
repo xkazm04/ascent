@@ -17,6 +17,7 @@ import {
 import { getViewer } from "@/lib/access";
 import { checkAndAlertRegression } from "@/lib/scan-alerts";
 import { recordScanMemories } from "@/lib/memory/scan-feed";
+import { reconcilePracticeAdoption } from "@/lib/db/practice-adoption";
 import type { ScanReport } from "@/lib/types";
 import type { ScanCacheLookup } from "@/lib/scan-cache";
 
@@ -188,6 +189,22 @@ export async function cacheAndPersistScan(
     if (newRowWritten) {
       try {
         const orgId = (await getOrgId(opts.orgSlug).catch(() => null)) ?? undefined;
+        // MOONSHOT #33 — reconcile the repo's practice ADOPTION ledger against the census this scan
+        // took (conflict ruling W2-#1: the hook lives here, not in scans-persist.ts). It runs after
+        // the row is written and outside the persist try, so a projection failure can neither fail nor
+        // roll back a scan that has already landed; `reconcilePracticeAdoption` swallows its own errors
+        // and returns null. A pre-census (v1) shape reconciles to nothing rather than asserting that
+        // every tracked artifact vanished.
+        if (orgId) {
+          await reconcilePracticeAdoption(
+            orgId,
+            `${report.repo.owner}/${report.repo.name}`,
+            // The scan row's id is not returned by persistScanReport; the commit sha is the stable
+            // identity of what was observed, which is what `lastScanId` is read as ("as of what").
+            report.repo.headSha ?? "",
+            report.practiceShape,
+          );
+        }
         const outcome = await checkAndAlertRegression(prev, report, { orgId, orgSlug: opts.orgSlug });
         // Auto-feed Shared Org Memory from what this scan OBSERVED (regression / maturity band change).
         // Piggybacks on the baseline + verdict already computed above, so it costs no extra scan work

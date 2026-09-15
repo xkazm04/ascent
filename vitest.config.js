@@ -36,11 +36,19 @@ const config = {
     // Floors are tuned for v8-instrumented runs (slightly slower; same line/branch counts).
     coverage: {
       provider: "v8",
-      include: [
-        "src/components/onboarding/**/*.{ts,tsx}",
-        "src/lib/db/**/*.{ts,tsx}",
-        "src/components/launch/**/*.{ts,tsx}",
-      ],
+      // Two include sets, two consumers. This one is the REPORT's population and it
+      // is derived from the tree, not hand-listed: `all` instruments every src file
+      // whether or not a test imported it, so an untested module reads as 0% instead
+      // of being absent from the denominator. Measured 2026-09-01 over the full suite
+      // (782 files): the previous hand-scoped list reported 175 files, the whole tree
+      // reports 1529 at 68.98% lines, of which 490 sit at 0% — those 490 were invisible
+      // to this report, not visibly untested. The
+      // GATE is unaffected: every floor below is already per-glob, so widening the
+      // report cannot move a threshold. That separation is also what lets the ratchet
+      // mean something — a floor can only ratchet over a directory somebody added to
+      // it, so the whole-tree number is the only place a NEW untested directory shows up.
+      all: true,
+      include: ["src/**/*.{ts,tsx}"],
       exclude: ["**/*.test.{ts,tsx}", "**/*.d.ts"],
       reporter: ["text-summary", "text", "json-summary"],
       thresholds: {
@@ -53,7 +61,17 @@ const config = {
     },
   },
   resolve: {
-    alias: [{ find: /^@\//, replacement: resolve(process.cwd(), "src") + "/" }],
+    alias: [
+      { find: /^@\//, replacement: resolve(process.cwd(), "src") + "/" },
+      // `server-only` is a BUILD-time marker, not a runtime module: its default export throws on
+      // import so that a client bundle referencing it fails `next build` (that is the whole point —
+      // see Architect ADR 2026-08-28-server-only-boundary). Next resolves the package's `react-server`
+      // condition to a no-op on the server; vitest has no such condition, so every unit test that
+      // imports a guarded module (auth, access, authz, db) would throw. Point it at the package's own
+      // empty.js — the same file Next uses — rather than setting a global `react-server` condition,
+      // which would also change how react itself resolves.
+      { find: /^server-only$/, replacement: resolve(process.cwd(), "node_modules/server-only/empty.js") },
+    ],
   },
 };
 

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { SiteHeader } from "@/components/Brand";
 import { AboutOrgLanding } from "@/components/about-org/AboutOrgLanding";
 import { MODULE_COUNT, VIEW_COUNT } from "@/components/about-org/orgModules";
-import { publicBaseUrl } from "@/lib/site";
+import { jsonLdScript, publicBaseUrl } from "@/lib/site";
 
 const TITLE = "Ascent for organizations, the AI-native index for your whole engineering fleet";
 const DESCRIPTION = `Score every repository in your GitHub organization and roll it into one governed operating picture: ${MODULE_COUNT} modules and ${VIEW_COUNT} views, from the executive briefing to the audit trail.`;
@@ -53,7 +53,9 @@ function faqLd() {
         name: "Does Ascent clone or store our source code?",
         acceptedAnswer: {
           "@type": "Answer",
-          text: "No. Ascent reads repositories through the GitHub API at scan time. It never clones a repository and does not store its source.",
+          // Same correction as the landing's FAQ (src/app/page.tsx): a flat "does not store its
+          // source" is contradicted by the evidence quotes rubric r9 records (src/lib/scoring/claims.ts).
+          text: "Ascent never clones a repository and never keeps a copy of your source — it reads through the GitHub API at scan time. The report does keep the evidence a score rests on: short verbatim quotes with the file path each came from, so a score can be checked instead of trusted. Reports live inside your plan's retention window.",
         },
       },
       {
@@ -71,8 +73,9 @@ function faqLd() {
 export default function AboutOrgPage() {
   return (
     <>
-      {/* Static, page-derived strings — safe to inline. */}
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqLd()) }} />
+      {/* Page-derived strings, inlined through the shared jsonLdScript escaper (lib/site) so this
+          stays safe if a dynamic field is ever added. */}
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(faqLd()) }} />
       <SiteHeader />
       <AboutOrgLanding />
     </>

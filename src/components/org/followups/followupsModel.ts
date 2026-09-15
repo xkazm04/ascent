@@ -18,6 +18,35 @@ export interface FollowUpRow extends FollowUpItem {
   /** The level closing this gap crosses into, or null. */
   unlocks: string | null;
   assigneeLogin: string | null;
+
+  // ── MOONSHOT #3 — the WORK CLAIM, deliberately separate from `assigneeLogin` above.
+  //
+  // `assigneeLogin` is the human planning layer: who is ACCOUNTABLE for a gap, over a sprint. A claim
+  // is who is HOLDING it, for the next forty minutes. Collapsing the two would mean a lease expiry
+  // silently un-assigned a person, which is why the schema keeps four columns rather than reusing one.
+  //
+  // Every field is OPTIONAL, and their absence is the honest state today: the backlog read
+  // (`src/lib/db/org-insights.ts`, this lane's `MUST NOT TOUCH` list) does not yet project the claim
+  // columns, so these arrive undefined and the chips below simply do not render. The seam is here so
+  // that projection is a one-line change rather than a UI rewrite — see the handoff's requested lines.
+  claimActor?: string | null;
+  claimExecutor?: "local" | "remote-agent" | "human" | null;
+  /** ISO. `null`/absent on an in-progress row means A HUMAN TOOK IT — never "expired". */
+  leaseUntil?: string | null;
+  /** An agent tried and stopped deliberately. An escalation flag, not a status. */
+  needsHuman?: boolean;
+}
+
+/** What the ledger row says about who holds this, in one line. `null` = nobody holds it, which is
+ *  the ordinary state of an open row and needs no words. */
+export function claimLine(r: Pick<FollowUpRow, "claimActor" | "leaseUntil" | "status">, now: Date = new Date()): string | null {
+  if (r.status !== "in_progress" || !r.claimActor) return null;
+  if (!r.leaseUntil) return `claimed by ${r.claimActor}`;
+  const ms = Date.parse(r.leaseUntil) - now.getTime();
+  if (!Number.isFinite(ms)) return `claimed by ${r.claimActor}`;
+  if (ms <= 0) return `${r.claimActor}'s lease has expired — releasing`;
+  const mins = Math.floor(ms / 60_000);
+  return `claimed by ${r.claimActor}, lease expires in ${mins < 60 ? `${Math.max(1, mins)}m` : `${Math.floor(mins / 60)}h ${mins % 60}m`}`;
 }
 
 /** Flatten the backlog's owner groups into one row per recommendation. Pure. Every item appears in
@@ -45,10 +74,31 @@ function toRow(it: BacklogItem): FollowUpRow {
     lastActivityAt: it.lastActivityAt,
     unlocks: it.unlocks,
     assigneeLogin: it.assigneeLogin,
+    // Read defensively rather than declared on `BacklogItem`: the projection is not this lane's to
+    // add (see the field comments above). Present → rendered; absent → the row reads exactly as it
+    // always has, which is the correct behaviour and not a degraded one.
+    ...claimFieldsOf(it),
+  };
+}
+
+/** The claim columns off a backlog item, when the read projects them. Structural, not a cast to a
+ *  type that would then lie about what `BacklogItem` guarantees. */
+function claimFieldsOf(it: BacklogItem): Partial<FollowUpRow> {
+  const c = it as BacklogItem & Partial<Pick<FollowUpRow, "claimActor" | "claimExecutor" | "leaseUntil" | "needsHuman">>;
+  return {
+    ...(c.claimActor !== undefined ? { claimActor: c.claimActor } : {}),
+    ...(c.claimExecutor !== undefined ? { claimExecutor: c.claimExecutor } : {}),
+    ...(c.leaseUntil !== undefined ? { leaseUntil: c.leaseUntil } : {}),
+    ...(c.needsHuman !== undefined ? { needsHuman: c.needsHuman } : {}),
   };
 }
 
 const IMPACT_RANK: Record<string, number> = { high: 0, medium: 1, low: 2 };
+
+/** Effort ranks the OPPOSITE way to impact: `low` is the desirable end. Ranking effort through
+ *  IMPACT_RANK — which both this sort and buildFixPrompt did — put the most EXPENSIVE item first,
+ *  the reverse of the "cheapest first" the tie-break has always claimed. Two scales, two maps. */
+export const EFFORT_RANK: Record<string, number> = { low: 0, medium: 1, high: 2 };
 
 /** Biggest projected gain first; ties by impact, then effort (cheapest first), then title. */
 export function sortByValue(rows: FollowUpRow[]): FollowUpRow[] {
@@ -56,7 +106,7 @@ export function sortByValue(rows: FollowUpRow[]): FollowUpRow[] {
     (a, b) =>
       (b.projectedPoints ?? -1) - (a.projectedPoints ?? -1) ||
       (IMPACT_RANK[a.impact] ?? 9) - (IMPACT_RANK[b.impact] ?? 9) ||
-      (IMPACT_RANK[a.effort] ?? 9) - (IMPACT_RANK[b.effort] ?? 9) ||
+      (EFFORT_RANK[a.effort] ?? 9) - (EFFORT_RANK[b.effort] ?? 9) ||
       a.title.localeCompare(b.title),
   );
 }
@@ -75,6 +125,16 @@ export interface FollowUpFilters {
 export const emptyFilters = (): FollowUpFilters => ({ repos: new Set(), dims: new Set(), impacts: new Set(), statuses: new Set(), query: "", orgWide: false });
 
 export const ACTIVE_STATUSES: ReadonlySet<string> = new Set(["open", "in_progress"]);
+
+/** Whether a row may enter a BATCH (hand-off / bulk resolve / bulk dismiss). A closed row cannot: the
+ *  three batch actions have nothing to do to it — the hand-off route skips a non-`open` id, and a bulk
+ *  resolve/dismiss of an already-closed row is a wasted PATCH. Single-sourced because the rule was
+ *  stated twice and the two statements disagreed: the row checkbox disabled a closed row while the
+ *  header's select-all added every SHOWN row, so in the resolved archive "select all" filled the bulk
+ *  bar with rows the user could not then untick one by one. */
+export function isSelectable(r: Pick<FollowUpRow, "status">): boolean {
+  return ACTIVE_STATUSES.has(r.status);
+}
 
 export function applyFilters(rows: FollowUpRow[], f: FollowUpFilters, spread?: Map<string, DimensionSpread>): FollowUpRow[] {
   const q = f.query.trim().toLowerCase();

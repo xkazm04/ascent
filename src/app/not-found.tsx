@@ -42,9 +42,9 @@ export default function NotFound() {
         id="main"
         className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center justify-center px-5 py-24 text-center"
       >
-        <p className="font-mono text-sm uppercase tracking-[0.3em] text-accent">404</p>
-        <h1 className="mt-4 text-3xl font-semibold text-white">This page drifted off the map</h1>
-        <p className="mt-3 max-w-md text-base text-slate-400">
+        <p className="type-mono-sm uppercase tracking-[0.3em] text-accent">404</p>
+        <h1 className="mt-4 type-display font-semibold text-white">This page drifted off the map</h1>
+        <p className="mt-3 max-w-md type-body text-slate-400">
           The page you&apos;re looking for doesn&apos;t exist or has moved. Scan a repository to see
           its AI-native maturity report, or head back to the start.
         </p>

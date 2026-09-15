@@ -55,7 +55,7 @@ export async function FollowupsTab({ slug, sp }: { slug: string; sp: SearchParam
         title="Follow-ups"
         description="Every gap the scans left open, in one ledger."
         right={
-          <span className="font-mono text-sm text-slate-400">
+          <span className="type-mono-sm text-slate-400">
             <span className="tabular-nums text-slate-100">{active.length}</span> open · <span className="tabular-nums text-accent">{handedOff}</span> handed off ·{" "}
             <span className="tabular-nums text-white">+{points}</span> pts on the table
           </span>

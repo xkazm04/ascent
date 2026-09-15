@@ -13,6 +13,7 @@ export function CopyForLlm({
   text,
   label = "Copy for LLM",
   ariaLabel,
+  title = "Copy a markdown briefing to paste into Claude Code or another LLM",
   className = "",
   onCopied,
 }: {
@@ -20,6 +21,9 @@ export function CopyForLlm({
   label?: string;
   /** Distinct accessible name when the visible label is generic (e.g. several "Copy" chips on one page). Defaults to label. */
   ariaLabel?: string;
+  /** Hover tooltip. Defaults to the LLM-briefing wording; override when the payload is something else
+   *  (a permalink, a markdown snippet) so the tooltip doesn't describe the wrong thing. */
+  title?: string;
   className?: string;
   /** Fired once when a copy succeeds — e.g. to count a "use" (Org Skills Library, §8.7). Best-effort. */
   onCopied?: () => void;
@@ -85,7 +89,7 @@ export function CopyForLlm({
       <button
         type="button"
         onClick={copy}
-        title="Copy a markdown briefing to paste into Claude Code or another LLM"
+        title={title}
         aria-label={ariaLabel ?? label}
         className={chipButtonClass(copied ? "success" : failed ? "danger" : "idle", className)}
       >
@@ -107,14 +111,14 @@ export function CopyForLlm({
       {fallbackOpen && (
         <div className="mt-2 w-full max-w-xl rounded-lg border border-slate-700 bg-slate-950/80 p-3">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-sm text-slate-400">
+            <p className="type-body-sm text-slate-400">
               Automatic copy is blocked here. The text is selected below: press <kbd className="rounded border border-slate-700 px-1 font-mono">Ctrl</kbd>+<kbd className="rounded border border-slate-700 px-1 font-mono">C</kbd> (⌘C on Mac).
             </p>
             <button
               type="button"
               onClick={() => setFallbackOpen(false)}
               aria-label="Close manual copy panel"
-              className="focus-ring rounded-md border border-slate-700 px-2 py-0.5 text-sm text-slate-300 transition hover:border-accent hover:text-white"
+              className="focus-ring rounded-md border border-slate-700 px-2 py-0.5 type-body-sm text-slate-300 transition hover:border-accent hover:text-white"
             >
               Close
             </button>
@@ -126,7 +130,7 @@ export function CopyForLlm({
             rows={6}
             aria-label="Markdown briefing to copy manually"
             onFocus={(e) => e.currentTarget.select()}
-            className="focus-ring mt-2 w-full resize-y rounded-md border border-slate-700 bg-slate-900 p-2 font-mono text-sm text-slate-200"
+            className="focus-ring mt-2 w-full resize-y rounded-md border border-slate-700 bg-slate-900 p-2 type-mono-sm text-slate-200"
           />
         </div>
       )}

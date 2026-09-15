@@ -40,9 +40,34 @@ export const DIMENSION_COUNT = DIMENSIONS.length;
  */
 export const BRAND_INK = "#080d1a";
 
-/** The canonical search/share description — count-derived so the snippet can never contradict the model. */
+/**
+ * The product description, in the three voices the shell needs. ONE sentence shape, count-derived, so
+ * the search snippet, the PWA install card and the social card cannot contradict each other or the
+ * model — this file's header has claimed that single-sourcing since the counts were centralized, but
+ * only the counts were: layout read `siteDescription()` while manifest.ts and the root OG route each
+ * re-typed the sentence, in three different wordings, for the same slot.
+ *
+ * They differ only where the surface forces it, and each says why:
+ *   - `siteDescription()`      meta description + JSON-LD. The full sentence; search snippets truncate
+ *                              around 160 chars and this is written to survive that.
+ *   - `siteDescriptionShort()` Web App Manifest. Shown in install prompts and app listings with a much
+ *                              tighter budget, so it drops the trailing clause.
+ *   - `siteDescriptionCard()`  the OG card body, which addresses the reader in the second person
+ *                              ("any GitHub repo") because a social card is an invitation, not a
+ *                              catalogue entry.
+ */
 export function siteDescription(): string {
   return `Score how AI-native your engineering org is from a GitHub repo: a ${LEVEL_COUNT}-level maturity ladder across ${DIMENSION_COUNT} dimensions, with evidence and a roadmap to the next level.`;
+}
+
+/** Install-prompt copy (manifest). The full sentence minus its trailing clause. */
+export function siteDescriptionShort(): string {
+  return `Score how AI-native your engineering org is from a GitHub repo. A ${LEVEL_COUNT}-level maturity ladder across ${DIMENSION_COUNT} dimensions, with evidence and a roadmap.`;
+}
+
+/** Social-card body (the root OG route). Second person — a card is an invitation. */
+export function siteDescriptionCard(): string {
+  return `Score any GitHub repo on a ${LEVEL_COUNT}-level ladder across ${DIMENSION_COUNT} dimensions, with evidence and a route to the next level.`;
 }
 
 // ── Curated demo org ─────────────────────────────────────────────────────────
@@ -92,3 +117,77 @@ export function sourceRepoHref(path = ""): string | null {
   const clean = path.replace(/^\/+/, "");
   return clean ? `${SOURCE_REPO_URL}/blob/HEAD/${clean}` : SOURCE_REPO_URL;
 }
+
+/**
+ * Where a visitor reports a problem or asks a question — the public issue tracker of the repository
+ * this deployment runs.
+ *
+ * Derived from {@link SOURCE_REPO_URL} so an operator who has named their own fork gets THEIR tracker,
+ * on the footer of every page and — more importantly — in the "contact us" fallback of the privacy
+ * policy and the terms, where the link is the operator's own contact channel and pointing it at a
+ * stranger's repository is simply wrong. Those three surfaces each hardcoded the upstream URL, so a
+ * fork's users filed the operator's privacy requests against upstream.
+ *
+ * Unlike SOURCE_REPO_URL this DOES fall back to upstream rather than to nothing, and the difference is
+ * deliberate: a wrong "view the source" link makes a licence claim the deployment cannot honour, while
+ * a feedback link to upstream is merely the second-best address — and no feedback channel at all is
+ * worse than a slightly wrong one. An operator who cares sets NEXT_PUBLIC_SOURCE_REPO_URL.
+ */
+const UPSTREAM_REPO_URL = "https://github.com/xkazm04/ascent";
+const UPSTREAM_ISSUES_URL = `${UPSTREAM_REPO_URL}/issues`;
+export const FEEDBACK_URL: string = SOURCE_REPO_URL ? `${SOURCE_REPO_URL}/issues` : UPSTREAM_ISSUES_URL;
+
+/**
+ * A link to one of the project's DOCUMENTS — this deployment's own copy when it names a repository,
+ * the upstream project's otherwise. Always a real destination.
+ *
+ * The asymmetry with {@link sourceRepoHref} is the same one {@link FEEDBACK_URL} makes, for the same
+ * reason. "View the source" is a LICENCE claim about THIS deployment: pointing it at a stranger's
+ * repository would be wrong, so it has no default. A doc link is a reading reference — upstream's
+ * self-hosting guide is the second-best address, and a printed file path is no address at all.
+ *
+ * UAT MC-B22 (TOMAS-L1-10): `NEXT_PUBLIC_SOURCE_REPO_URL` is set in no committed env file, so every
+ * consumer degraded at once and a raw-HTML sweep of `/` and `/pricing` found exactly ONE github.com
+ * URL on each — the footer's issue tracker. A visitor told three times on one page that the product is
+ * AGPL and self-hostable could reach the code only by noticing that link had a parent directory. The
+ * variable is inlined at BUILD time (`NEXT_PUBLIC_*`), so an operator must set it in the build
+ * environment, not merely at runtime — see .env.example.
+ */
+export function docHref(path: string): string {
+  const clean = path.replace(/^\/+/, "");
+  return `${SOURCE_REPO_URL ?? UPSTREAM_REPO_URL}/blob/HEAD/${clean}`;
+}
+
+/** Whether {@link docHref} is pointing at the upstream project rather than at this deployment's own
+ *  repository — surfaces say so rather than implying the doc is theirs. */
+export const DOCS_ARE_UPSTREAM: boolean = SOURCE_REPO_URL == null;
+
+/** The self-hosting guide, the one doc the marketing surface sends a reader to. */
+export const SELF_HOST_GUIDE_PATH = "docs/SELF-HOSTING.md";
+export function selfHostGuideHref(): string {
+  return docHref(SELF_HOST_GUIDE_PATH);
+}
+
+/**
+ * Serialize a JSON-LD payload for inlining into a `<script type="application/ld+json">`.
+ *
+ * `JSON.stringify` alone is NOT safe inside an HTML script element: the HTML parser terminates the
+ * block at the first literal `</script`, wherever it appears — including inside a JSON string — so a
+ * value carrying that sequence closes the tag and everything after it is parsed as markup. Escaping
+ * `<` as `<` keeps the JSON semantically identical (JSON.parse decodes the escape) while making
+ * the sequence unrepresentable in the output. U+2028/U+2029 are escaped for the same reason: legal in
+ * JSON, but line terminators to a JavaScript parser.
+ *
+ * The three call sites (the root layout's Organization+SoftwareApplication graph, the landing FAQ,
+ * the /about-org FAQ) each carried a comment asserting their payload was static and therefore safe.
+ * Two were; the root layout's interpolates `publicBaseUrl()` — an env-derived value — so the claim was
+ * already false there, and the next contributor to add a dynamic field to any of them would have read
+ * "safe to inline" and had no reason to check. One escaping door instead of three re-derived proofs.
+ */
+export function jsonLdScript(data: unknown): string {
+  return JSON.stringify(data)
+    .replace(/</g, "\\u003c")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
+

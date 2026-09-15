@@ -49,8 +49,8 @@ export function AthenaProposalCard({ proposal }: { proposal: AthenaProposalRecor
   return (
     <div className="rounded-xl border border-accent/40 bg-accent/[0.06] px-3.5 py-2.5">
       <Kicker>Awaiting a decision</Kicker>
-      <p className="mt-1 text-sm font-semibold text-white">{proposalTitle(proposal.kind)}</p>
-      {summary && <p className="mt-1 text-xs leading-relaxed text-slate-300">{summary}</p>}
+      <p className="mt-1 type-body-sm font-semibold text-white">{proposalTitle(proposal.kind)}</p>
+      {summary && <p className="mt-1 type-note leading-relaxed text-slate-300">{summary}</p>}
     </div>
   );
 }

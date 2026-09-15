@@ -4,7 +4,7 @@
 // pattern) — no mocks needed.
 //
 // The contract these tests LOCK so a merge/refactor can't silently break it:
-//  - robots ALWAYS disallows the machine API + the private per-user funnels (/api/, /connect,
+//  - robots ALWAYS disallows the machine API + the private per-user funnels (/api/,
 //    /launch). Dropping any entry = an indexable private route = a test failure here. /onboarding
 //    left the disallow list deliberately (it is the public guided entry funnel, now in the sitemap).
 //  - robots allows the public marketing/report surface at "/".
@@ -15,6 +15,9 @@
 //    indexable routes — no /api/, no per-tenant /org/ path ever leaks in.
 //  - robots' local baseUrl() and lib/site publicBaseUrl() resolve identically for the same env (they
 //    duplicate the trailing-slash-strip logic and would otherwise drift).
+
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import robots from "./robots";
@@ -39,7 +42,7 @@ afterEach(() => {
 // The exact set the disallow list must always cover. Pinned so removing an entry fails the suite.
 // /onboarding was deliberately removed from this set: it is the public guided entry funnel and is
 // enumerated in the sitemap instead (the disjointness test below would fail if it were re-added here).
-const REQUIRED_DISALLOW = ["/api/", "/connect", "/launch"];
+const REQUIRED_DISALLOW = ["/api/", "/launch"];
 
 describe("robots.ts — private/funnel routes stay out of the index", () => {
   it("disallows the machine API + every private funnel route (exact pinned set)", () => {
@@ -170,8 +173,8 @@ describe("SEO #1: the sitemap and robots-disallow contracts are disjoint", () =>
     const sitemapPaths = sitemap().map((e) => new URL(e.url).pathname);
     for (const p of sitemapPaths) {
       for (const d of blocked) {
-        // robots prefixes match a path if it equals the rule or starts with it (e.g. "/connect" blocks
-        // "/connect" and "/connect/x"). "/api/" (trailing slash) only matches under that prefix.
+        // robots prefixes match a path if it equals the rule or starts with it (e.g. "/launch" blocks
+        // "/launch" and "/launch/x"). "/api/" (trailing slash) only matches under that prefix.
         const matches = p === d || p.startsWith(d.endsWith("/") ? d : `${d}/`);
         expect(matches, `sitemap path "${p}" must not be blocked by robots disallow "${d}"`).toBe(false);
       }
@@ -181,10 +184,49 @@ describe("SEO #1: the sitemap and robots-disallow contracts are disjoint", () =>
   it("the private funnels stay out of the sitemap; /onboarding moved to the indexable side", () => {
     process.env.ASCENT_PUBLIC_URL = "https://ascent.dev";
     const paths = sitemap().map((e) => new URL(e.url).pathname);
-    expect(paths).not.toContain("/connect");
+    expect(paths).not.toContain("/launch");
     expect(paths).not.toContain("/launch");
     // /onboarding is no longer robots-blocked, so it belongs in the sitemap (both sides moved together
     // by design — the disjointness test above would catch a one-sided move).
     expect(paths).toContain("/onboarding");
   });
 });
+
+// Both route lists are hand-maintained, and nothing tied either to the app tree. A route renamed or
+// deleted leaves sitemap.xml advertising a URL that 404s (Search Console files it as a crawl error)
+// or robots.txt guarding a path that no longer exists, with this suite fully green either way. The
+// only prior verification was a HUMAN one: docs/harness/bug-ui-scan-2026-07-09 recorded "All 7
+// sitemap-advertised routes resolve to real pages". There are 12 now — five were added after that
+// check and nothing re-ran it. Derive the assertion from the tree instead.
+describe("the SEO route lists are pinned to the real app tree", () => {
+  /** `/about-org` -> `src/app/about-org/page.tsx`; `/` -> `src/app/page.tsx`. */
+  const routeFileFor = (path: string) => {
+    const segments = path.split("/").filter(Boolean);
+    return resolve(process.cwd(), "src/app", ...segments, "page.tsx");
+  };
+
+  it("every sitemap entry resolves to a real page route", () => {
+    process.env.ASCENT_PUBLIC_URL = "https://ascent.dev";
+    const paths = sitemap().map((e) => new URL(e.url).pathname);
+    expect(paths.length).toBeGreaterThan(0);
+    const missing = paths.filter((p) => !existsSync(routeFileFor(p)));
+    expect(missing).toEqual([]);
+  });
+
+  it("every robots-disallowed path is a real route (or the /api prefix), not a stale guard", () => {
+    const rules = robots().rules;
+    const single = Array.isArray(rules) ? rules[0] : rules;
+    const disallow = single.disallow;
+    const blocked = (Array.isArray(disallow) ? disallow : [disallow]).filter(
+      (d): d is string => typeof d === "string",
+    );
+    // "/api/" guards a whole directory of route handlers rather than a page — assert the directory.
+    const missing = blocked.filter((d) =>
+      d === "/api/"
+        ? !existsSync(resolve(process.cwd(), "src/app/api"))
+        : !existsSync(routeFileFor(d)),
+    );
+    expect(missing).toEqual([]);
+  });
+});
+

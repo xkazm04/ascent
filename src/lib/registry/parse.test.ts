@@ -79,3 +79,28 @@ describe("contentDigest — one pinned span across every parser", () => {
     expect(a.ok && b.ok && a.value.hash).not.toBe(b.ok ? b.value.hash : "");
   });
 });
+
+describe("parseRegistryMemory · supersedes (#36)", () => {
+  const note = (fm: string) => `---\n${fm}\n---\n\nThe note body.\n`;
+
+  it("reads `supersedes` as a list of repo-relative PATHS", () => {
+    // Paths, never uuids: the registry is a tenant-free artifact and a uuid means nothing to the
+    // person reviewing the pull request that adds the note.
+    const r = parseRegistryMemory(
+      "memory/decision/why-postgres.md",
+      note("kind: decision\nsupersedes: memory/decision/old-a.md, memory/decision/old-b.md"),
+    );
+    expect(r.ok).toBe(true);
+    expect(r.ok && r.value.supersedes).toEqual(["memory/decision/old-a.md", "memory/decision/old-b.md"]);
+  });
+
+  it("leaves a note that replaces nothing with an empty list, not undefined behaviour", () => {
+    const r = parseRegistryMemory("memory/decision/x.md", note("kind: decision"));
+    expect(r.ok && r.value.supersedes).toEqual([]);
+  });
+
+  it("changes nothing else about a note that carries no supersedes", () => {
+    const r = parseRegistryMemory("memory/decision/x.md", note("kind: decision\nconfidence: 0.5"));
+    expect(r.ok && r.value).toMatchObject({ confidence: 0.5, content: "The note body.", supersedes: [] });
+  });
+});

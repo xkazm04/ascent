@@ -11,6 +11,13 @@
 //   • Per-repo derivations: delta = latest − previous (null under 2 scans), forecast null until two
 //     distinct scan days, an unscanned watched repo still appears (latest null) so the UI can offer
 //     its first scan.
+//
+//   • Every org resolution goes through the request-cached getOrgBySlug (src/lib/db/org-shared.ts),
+//     not a private organization.findUnique. The prisma stub below therefore serves BOTH paths — the
+//     mock is on @/lib/db/client, which org-shared reads too — and the shared resolver takes no
+//     `select`, which is what the last case here pins. React `cache()` is a no-op outside a server
+//     request (no dispatcher), so these tests exercise the uncached body; the dedupe is a per-request
+//     property, not one a unit test can observe.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
@@ -166,6 +173,23 @@ describe("countPersonalWatched / isPersonalOrg", () => {
     mockGetPrisma.mockReturnValue(prisma);
     expect(await countPersonalWatched("alice")).toBe(1);
     expect(await countPersonalWatched("nobody")).toBe(0);
+  });
+
+  it("resolves the org through the shared request-cached resolver, which normalizes the slug", async () => {
+    const { prisma } = prismaStub({ watched: [REPO] });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    // A mixed-case slug still finds the canonically lower-cased row — the normalization lives in
+    // getOrgBySlug, so this passing is evidence the reader routes through it.
+    expect(await isPersonalOrg("Alice")).toBe(true);
+    expect(await countPersonalWatched("ALICE ")).toBe(1);
+
+    for (const [args] of prisma.organization.findUnique.mock.calls) {
+      expect(args.where.slug).toBe("alice");
+      // The shared resolver reads the whole row (callers need id/plan/kind); a per-reader `select`
+      // would mean someone re-introduced a private findUnique that the request memo can't dedupe.
+      expect(args).not.toHaveProperty("select");
+    }
   });
 
   it("isPersonalOrg keys strictly on kind === 'personal'", async () => {

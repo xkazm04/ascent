@@ -2,12 +2,14 @@
 // (Phase 2) Bedrock share identical instructions and output contract.
 
 import type { DecisionNote } from "@/lib/db/org-decisions";
-import type { LlmScoreInput } from "@/lib/llm/provider";
+import type { CraftBuiltEntry, LlmScoreInput } from "@/lib/llm/provider";
 import type { Governance, PrStats, SecurityAssessment } from "@/lib/types";
 import { formatSignal } from "@/lib/types";
 import { DIMENSIONS, FOLLOW_UP_BELOW, LEVELS } from "@/lib/maturity/model";
+import { GREEN_MIN_SCORE } from "@/lib/maturity/green";
 import { MAX_FLAGGED_DIMENSIONS } from "@/lib/scoring/discrepancy-policy";
-import { facetContract } from "@/lib/scoring/claims";
+import { allFacetContracts } from "@/lib/scoring/claims";
+import { CRAFT_AXES, CRAFT_AXIS_BRIEF } from "@/lib/scoring/craft";
 import { PROSE_STYLE_RULE } from "@/lib/llm/prose";
 import {
   neutralize,
@@ -99,6 +101,104 @@ function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n) + "\n…[truncated]" : s;
 }
 
+// ---- the file-excerpt window ------------------------------------------------------------------
+
+/** Per-file excerpt cap inside the prompt window. */
+export const PROMPT_PER_FILE_CHARS = 2200;
+/** The whole file-excerpt window. Sized for provider input limits and cost, NOT for the detectors —
+ *  ingestion deliberately fetches more per file than this (see the note in buildAssessmentPrompt). */
+export const PROMPT_FILE_WINDOW_CHARS = 22000;
+/**
+ * Of PROMPT_FILE_WINDOW_CHARS, the share held for CI workflows — three excerpts' worth.
+ *
+ * WHY THIS EXISTS (r13). `pickFilesToFetch` gives `.github/workflows/*` a RESERVED fetch quota "on
+ * top of MAX_FILES" and then ranks them LAST for the prompt, on the stated reasoning that the sort
+ * "keeps README/manifests/source front-loaded". Both halves were deliberate; together they were a
+ * hole. The window holds roughly ten excerpts and workflows sort past position forty, so the model
+ * was shown ZERO workflow files on essentially every scan — while the prompt's own claims example
+ * tells it to cite `.github/workflows/review.yml`, and four of D4's seven facets (automated_review,
+ * review_teeth, autofix, agent_dispatch) have nowhere else in a normal repo to be cited FROM.
+ *
+ * The measured cost: across a 21-run campaign on two repos that both HAVE agentic review, the model
+ * cited exactly eight distinct paths and not one of them was a workflow. The Node repo reached D4 65
+ * by quoting its `package.json` scripts (`"review:agent:gate": "node scripts/agent-review.mjs"`);
+ * the Python repo, with the same machinery and no package.json to describe it, sat at 10-20 and once
+ * evidenced `autofix` by quoting a COMMENT IN `ruff.toml` that mentions `autofix.yml`. That is not a
+ * judgment about the two repos. It is the difference between a practice being visible in the window
+ * and not, and it is where the bistable 10/20 and 65/85 patterns came from: whether a front-ranked
+ * file happens to describe the automation is a coin flip, and `observed`'s `requiresAny` then doubles
+ * the swing by dropping 15 more points whenever the mechanism facet missed.
+ *
+ * Three excerpts is the trade: it costs the window's last ~three source-texture samples, which are
+ * the cheapest files in it, and it buys the only files that can evidence D4's operational half. A
+ * repo with more than three workflows shows its first three in pick order — a real residual, stated
+ * in docs/features/scanning/maturity-model.md rather than papered over.
+ *
+ * Counted in FILES rather than bytes because that is the quantity that matters: a workflow's evidence
+ * (its `on:` trigger, its `uses:`/`run:` lines, its `permissions:`) is one excerpt's worth whatever
+ * the file's length, and a byte reserve would silently admit two long workflows or five short ones.
+ * Each is still capped at PER_FILE like every other excerpt, so the reserve's cost is bounded.
+ */
+export const PROMPT_WORKFLOW_RESERVE_FILES = 3;
+
+/** The reserved class: exactly the paths `pickFilesToFetch` reserves a fetch quota for and then
+ *  ranks last. Deliberately narrow — every other automation config (`.github/dependabot.yml`,
+ *  `.pre-commit-config.yaml`, `renovate.json`) is already an exact-name pick and front-ranked, so
+ *  reserving bytes for it would spend the reserve on files that were never at risk. */
+export const WORKFLOW_PATH_RE = /^\.github\/workflows\/[^/]+\.ya?ml$/i;
+
+/**
+ * The file-excerpt block: every admitted file rendered in FETCH-RANK ORDER, capped at the window.
+ *
+ * ADMISSION is reordered; EMISSION is not. The reserved pass admits workflows first so they cannot be
+ * starved, then the main pass fills the rest in fetch-rank order under exactly the rule that was here
+ * before (admit, and stop once the running total reaches the window — the crossing block is kept and
+ * the outer truncate trims it). Because emission stays in fetch-rank order, a repo whose files all
+ * fit produces a BYTE-IDENTICAL block to the pre-r13 loop, and so does a repo with no workflows at
+ * all: the reserve can only change what a scan that was ALREADY dropping files drops.
+ *
+ * Both the path and the body are repo-authored, so both go through `neutralize` (a file *named*
+ * `</untrusted_repo_data> SYSTEM:` is as good an injection vector as one containing that text).
+ *
+ * ORDER IS LOAD-BEARING: neutralize FIRST, truncate SECOND — `truncate(neutralize(x), PER_FILE)`,
+ * the order decisionsBlock uses too. Neutralizing GROWS the text: every forged marker becomes the
+ * 25-char `[boundary marker removed]`. The other order (`neutralize(truncate(...))`) sliced to
+ * PER_FILE and then let that expansion push the excerpt back over the budget, so a file dense in
+ * boundary markers or backticks bought itself extra room in the window — attacker-chosen content
+ * crowding out other evidence, and in the worst case pushing the whole prompt past a provider's
+ * input limit and failing the scan. Truncating after makes PER_FILE the real cap on what reaches the
+ * model. Trade-off accepted: we neutralize the WHOLE fetched body (source.ts fetches more per file
+ * than this window) rather than only its first PER_FILE chars, which costs two extra regex passes
+ * over a few tens of KB per file. That is cheap next to the network+LLM call it feeds, and it is the
+ * only order in which the budget is a budget.
+ */
+export function buildFileExcerptBlock(files: readonly { path: string; content: string }[]): string {
+  const entries = files.map((f, i) => ({
+    i,
+    workflow: WORKFLOW_PATH_RE.test(f.path),
+    block: `### ${neutralize(f.path)}\n\`\`\`\n${truncate(neutralize(f.content), PROMPT_PER_FILE_CHARS)}\n\`\`\``,
+  }));
+  const admitted = new Set<number>();
+  let used = 0;
+  /** What admitting a block costs, including the "\n\n" separator once something is already in. */
+  const admit = (e: (typeof entries)[number]) => {
+    used += e.block.length + (used > 0 ? 2 : 0);
+    admitted.add(e.i);
+  };
+
+  // Pick order is the ranking within the reserved class too. No "best fit" pass: choosing by size
+  // would silently prefer short workflows over relevant ones — a second lottery in place of the one
+  // this removes.
+  for (const e of entries.filter((e) => e.workflow).slice(0, PROMPT_WORKFLOW_RESERVE_FILES)) admit(e);
+  for (const e of entries) {
+    if (admitted.has(e.i)) continue;
+    admit(e);
+    if (used >= PROMPT_FILE_WINDOW_CHARS) break;
+  }
+
+  return truncate(entries.filter((e) => admitted.has(e.i)).map((e) => e.block).join("\n\n"), PROMPT_FILE_WINDOW_CHARS);
+}
+
 /** Bound the decisions block so a heavily-triaged repo can't crowd its own code out of the window. */
 const DECISION_RATIONALE_CHARS = 240;
 
@@ -133,6 +233,45 @@ function decisionsBlock(decisions: DecisionNote[]): string {
   return `\nSTANDING DECISIONS (this org already judged these findings on this repo — treat each as context you were missing, not as a reason to raise the score; do NOT re-raise a dismissed finding in the roadmap unless new evidence contradicts its stated reason):\n${lines.join("\n")}\n`;
 }
 
+/** Bound the craft-ladder block the same way decisions are bounded — a long ladder must not crowd
+ *  the repository's own code out of the window. Titles are short by contract; this is the backstop. */
+const CRAFT_TITLE_CHARS = 160;
+
+/** How many rungs of the ladder the model is shown. Newest first, so a long-running repository sees
+ *  the top of its own ladder rather than its oldest history. */
+const CRAFT_BUILT_MAX = 12;
+
+/**
+ * CRAFT ALREADY BUILT — the rungs this repository has already climbed, so the next craft entry is the
+ * NEXT rung and not the same one again.
+ *
+ * THE FAILURE THIS FIXES. A craft entry is a question with no floor ("what would make this
+ * exemplary?"), and a model asked it every scan from the same evidence answers it the same way. Left
+ * alone the loop proposes "add a smoke test" forever and the ladder is a treadmill. The completed
+ * rungs are the one piece of context the evidence cannot contain — the work happened, and the code it
+ * left behind is not always legible as "this was a craft rung" from a file listing.
+ *
+ * Rendered into the per-repo USER message, never the SYSTEM prefix — SYSTEM is byte-identical across
+ * every scan so providers can cache it, and a per-repo ladder would shatter that cache. Same
+ * placement, same reason, same treatment as `decisionsBlock`.
+ *
+ * EVERY field is neutralized, for the same threat model: a craft title originates as MODEL output
+ * about repo-authored evidence and is then persisted, so a title carrying a forged
+ * `<untrusted_repo_data>` marker could open a second block and restructure a later scan's message.
+ * Neutralize BEFORE truncating so the marker→placeholder expansion cannot push a title back over the
+ * cap — the ordering the file's other blocks already use, for the reason documented there.
+ */
+function craftBuiltBlock(built: readonly CraftBuiltEntry[]): string {
+  const lines = built
+    .slice(0, CRAFT_BUILT_MAX)
+    .map(
+      (c) =>
+        `- [${c.axis ? neutralize(c.axis) : "no axis recorded"} · ${neutralize(c.dimId)}] ` +
+        truncate(neutralize(c.title.trim()), CRAFT_TITLE_CHARS),
+    );
+  return `\nCRAFT ALREADY BUILT (craft rungs this repository has COMPLETED, newest first — this is the ladder so far, not a list of gaps): every craft entry you write must be the NEXT RUNG relative to these, and you must NOT re-propose anything listed or a smaller version of it. Climb, do not repeat: if a k6 smoke baseline exists, the next rung is a budget that fails CI, not another smoke test; if retries exist, the next rung is a drill that removes the dependency, not another retry. Prefer an axis this list barely touches over one it already covers.\n${lines.join("\n")}\n`;
+}
+
 // TASK + output contract — stable instructions with NO per-repo data. Lives in the SYSTEM prompt (not
 // the user message) so it forms part of the cacheable prefix every provider can reuse across scans. The
 // evidence it judges arrives separately in the user message, so it says "the provided evidence", not
@@ -155,6 +294,11 @@ worth exploring, and a reader who opens it and finds nothing concludes it is fin
 ${FOLLOW_UP_BELOW} or above may have an entry when there is a real gap. Order the roadmap by
 impact. Keep each entry tight; more entries, not longer ones.
 
+Give every roadmap entry a "firstStep": the single most concrete move a developer could make
+today, one sentence, stated as what the move IS rather than as an order (e.g. "A vitest config
+with one passing test would give CI something to run" — the invitational voice still holds).
+Omit "firstStep" only when no single concrete move exists.
+
 CRAFT ENTRIES. A strong score is not the end of the conversation. For every dimension at or
 above ${FOLLOW_UP_BELOW} that has no gap entry, add ONE roadmap entry with "kind":"craft": what
 would make this dimension EXEMPLARY — the practice the strongest teams of this kind run that
@@ -162,6 +306,40 @@ this repository does not yet, or the place its current practice would break firs
 AI-authored change. A craft entry is an observation in the same invitational voice, never a
 gap and never a fault; it does not lower the score and it is not a follow-up the team owes.
 Gap entries omit "kind" or set it to "gap".
+
+EVERY craft entry MUST carry "craftAxis" — the face of the craft it raises, exactly one of:
+${CRAFT_AXES.map((a) => `  - ${a}: ${CRAFT_AXIS_BRIEF[a]}`).join("\n")}
+Spread the axes across the craft entries you write; do not file every one under the same axis.
+
+CRAFT IS A LADDER, NOT A SUGGESTION REPEATED. Each craft entry names ONE rung that is reachable
+from where this repository already stands, and names the ARTEFACT it would leave behind — a file,
+a check, a budget, a drill, a documented decision — so a reader can tell whether it was built.
+Never propose something the evidence shows is already there, and never propose a rung two steps
+up when the one below it is missing.
+
+RAISING THE CEILING (dimension at or above ${GREEN_MIN_SCORE}). At the top of the band the useful
+voice is no longer "adopt the practice" — the practice is there. It is "raise the ceiling": a
+performance BUDGET that fails rather than another measurement; a robustness or chaos DRILL rather
+than another retry; an architecture-decay CHECK that runs rather than another diagram; a
+dependency-freshness SLO rather than another audit; design/API ergonomics judged by how obvious
+the right call is to the next reader. Stay evidence-grounded and invitational — a craft entry at
+${GREEN_MIN_SCORE}+ is an invitation to go further, never a fault found.
+
+THE CODE ITSELF IS CRAFT (axis "code-health"). Craft is not only gates ABOUT the code. Whenever any
+dimension sits at or above ${GREEN_MIN_SCORE}, AT LEAST ONE craft entry in this roadmap must carry
+"craftAxis":"code-health" and must name something in the SOURCE, not a check around it:
+  - a module duplicated two or three ways, where one of them is the one everything should call;
+  - a hot path that allocates, re-reads or re-parses on every request;
+  - a file that has become a dumping ground — many unrelated responsibilities in one place;
+  - a dependency whose whole use in this repository would fit in a small function;
+  - code no caller reaches any more.
+Ground it in the SAME concrete file evidence every other entry carries: name the paths and say what
+in them you read. State it as an OBSERVATION, never an order — "\`a.ts\` and \`b.ts\` each derive the
+same delta, and callers pick one at random", not "deduplicate the delta helpers". The artefact such a
+rung leaves behind is SMALLER CODE — fewer lines, fewer files, one path where there were two. A rung
+whose only artefact is another gate, budget, drill or document is NOT a code-health rung; file that
+one under the axis it really belongs to. If nothing in the sampled evidence supports such an
+observation, say nothing rather than invent one — a fabricated duplication is worse than a missing rung.
 
 IMPORTANT — Ascent is a transition COMPANION, not a boss. The roadmap surfaces *gaps in the
 level of trust* (how much the team can trust AI in its workflow) as things to EXPLORE, never as
@@ -174,7 +352,7 @@ invitational throughout — provide inputs to explore, not directives to follow.
 The "title" must state the gap ACCURATELY and must not contradict its own "rationale" (e.g. do not
 title an item "tests run in CI but don't gate" when the rationale notes CI never runs the tests at all).
 
-${facetContract()}
+${allFacetContracts()}
 
 Finally, act as an AUDITOR: list any "discrepancies" — dimensions where you believe the
 deterministic signalScore is WRONG based on the sampled file evidence (e.g. tests clearly
@@ -194,9 +372,9 @@ Respond with JSON only in exactly this shape:
   "headline": "",
   "strengths": [""],
   "risks": [""],
-  "roadmap": [{"title":"","dimension":"D3","impact":"high","effort":"low","rationale":"","explore":["",""],"levelUnlock":"L2->L3"}],
+  "roadmap": [{"title":"","dimension":"D3","impact":"high","effort":"low","rationale":"","firstStep":"","explore":["",""],"levelUnlock":"L2->L3"},{"title":"","dimension":"D2","impact":"medium","effort":"medium","rationale":"","explore":["",""],"kind":"craft","craftAxis":"performance"}],
   "discrepancies": [{"dimension":"D2","claim":"A test.js file is present but D2 detected 0 tests."}],
-  "claims": [{"dimension":"D4","facet":"automated_review","path":".github/workflows/review.yml","quote":"on:\\n  pull_request:","note":"A review job runs on every PR and calls the model."}]
+  "claims": [{"dimension":"D4","facet":"automated_review","path":".github/workflows/review.yml","quote":"on:\\n  pull_request:","note":"A review job runs on every PR and calls the model."},{"dimension":"D1","facet":"commands_agree","path":"AGENTS.md","quote":"Run the suite with npm test before pushing","path2":".cursorrules","quote2":"Tests: npm test","note":"Both guidance files state the same test command."}]
 }`;
 
 // The full stable system prefix, composed ONCE at module load so every scan sends byte-identical
@@ -214,7 +392,7 @@ export function buildAssessmentPrompt(input: LlmScoreInput): {
   system: string;
   user: string;
 } {
-  const { repo, signals, files, commitSample, archetype, prStats, governance, securityAssessment, stackFit, techStack, orgDecisions } = input;
+  const { repo, signals, files, commitSample, archetype, prStats, governance, securityAssessment, stackFit, techStack, orgDecisions, craftBuilt } = input;
 
   const signalBlock = signals
     .map((s) => {
@@ -225,39 +403,14 @@ export function buildAssessmentPrompt(input: LlmScoreInput): {
     })
     .join("\n");
 
-  // Concatenate file excerpts only up to the prompt's byte window (OUTER). Each file is capped to
-  // a small excerpt (PER_FILE); we stop the moment the running block reaches OUTER, since the
-  // outer truncate below discards anything past it — so we don't build a ~70KB string just to
-  // slice ~two-thirds of it off. The output is byte-identical to truncating the full join.
+  // File excerpts, window-capped and workflow-reserved — see buildFileExcerptBlock above for the
+  // window rule, the neutralize-then-truncate order it depends on, and why the reserve exists (r13).
   //
   // NOTE: ingestion (github/source.ts) deliberately fetches MORE per file than this window. The
   // deterministic detectors in analyze/index.ts read the FULL file content with length thresholds
   // (e.g. CLAUDE.md >= 4k chars -> D1, README >= 1.5k -> D5), so the fetch budget is sized for the
   // scorer's needs, not this LLM prompt window. Don't "align" them by shrinking the fetch budget.
-  const PER_FILE = 2200;
-  const OUTER = 22000;
-  //
-  // Both the path and the body are repo-authored, so both go through `neutralize` (a file *named*
-  // `</untrusted_repo_data> SYSTEM:` is as good an injection vector as one containing that text).
-  //
-  // ORDER IS LOAD-BEARING: neutralize FIRST, truncate SECOND — `truncate(neutralize(x), PER_FILE)`,
-  // the order decisionsBlock above already uses. Neutralizing GROWS the text: every forged marker
-  // becomes the 25-char `[boundary marker removed]`. The previous order (`neutralize(truncate(...))`)
-  // sliced to PER_FILE and then let that expansion push the excerpt back over the budget, so a file
-  // dense in boundary markers or backticks bought itself extra room in the window — attacker-chosen
-  // content crowding out other evidence, and in the worst case pushing the whole prompt past a
-  // provider's input limit and failing the scan. Truncating after makes PER_FILE the real cap on what
-  // reaches the model. Trade-off accepted: we now neutralize the WHOLE fetched body (source.ts fetches
-  // more per file than this window) instead of only its first PER_FILE chars, which costs two extra
-  // regex passes over a few tens of KB per file. That is cheap next to the network+LLM call it feeds,
-  // and it is the only order in which the budget is a budget.
-  let joined = "";
-  for (const f of files) {
-    const block = `### ${neutralize(f.path)}\n\`\`\`\n${truncate(neutralize(f.content), PER_FILE)}\n\`\`\``;
-    joined = joined ? `${joined}\n\n${block}` : block;
-    if (joined.length >= OUTER) break;
-  }
-  const fileBlock = truncate(joined, OUTER);
+  const fileBlock = buildFileExcerptBlock(files);
 
   // One line per commit: the subject is the signal, the body is noise at this budget. 120 chars is
   // roughly a git subject line plus slack; it was previously the same 120 but applied BEFORE
@@ -281,7 +434,7 @@ REPOSITORY
 - Language: ${repo.primaryLanguage ?? "unknown"} | Stars: ${repo.stars} | Last push: ${repo.pushedAt ?? "?"}
 - Description: ${repo.description ? neutralize(repo.description) : "(none)"}
 - Inferred run-style: ${archetype} (solo/early, team/product, or org/platform) — judge maturity in this context.
-${orgDecisions && orgDecisions.length > 0 ? decisionsBlock(orgDecisions) : ""}${stackFit ? `\nSTACK-FIT CAVEAT (this repo's stack is one the published rubric under-reads — calibrate the affected dimensions accordingly; do NOT penalize for conventions this stack legitimately doesn't use, and let the roadmap/discrepancies reflect the stack):\n${stackFit.caveat}\n` : ""}${techStack ? `\nDETECTED TECH STACK (parsed from manifests — sanity-check the evidence against it; flag in discrepancies any stack-vs-evidence mismatch, e.g. a claimed backend with no tests/CI, or a frontend with no build pipeline):\n- Languages: ${techStack.languages.join(", ") || "unknown"}\n- Frameworks: ${techStack.frameworks.join(", ") || "none detected"}\n- Roles: ${techStack.roles.join(", ")}${techStack.backendLanguage ? ` (backend: ${techStack.backendLanguage})` : ""}\n` : ""}
+${orgDecisions && orgDecisions.length > 0 ? decisionsBlock(orgDecisions) : ""}${craftBuilt && craftBuilt.length > 0 ? craftBuiltBlock(craftBuilt) : ""}${stackFit ? `\nSTACK-FIT CAVEAT (this repo's stack is one the published rubric under-reads — calibrate the affected dimensions accordingly; do NOT penalize for conventions this stack legitimately doesn't use, and let the roadmap/discrepancies reflect the stack):\n${stackFit.caveat}\n` : ""}${techStack ? `\nDETECTED TECH STACK (parsed from manifests — sanity-check the evidence against it; flag in discrepancies any stack-vs-evidence mismatch, e.g. a claimed backend with no tests/CI, or a frontend with no build pipeline):\n- Languages: ${techStack.languages.join(", ") || "unknown"}\n- Frameworks: ${techStack.frameworks.join(", ") || "none detected"}\n- Roles: ${techStack.roles.join(", ")}${techStack.backendLanguage ? ` (backend: ${techStack.backendLanguage})` : ""}\n` : ""}
 DETERMINISTIC SIGNALS (computed from the repo; treat as ground truth and calibrate to these):
 ${signalBlock}
 

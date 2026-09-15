@@ -131,6 +131,16 @@ export type ScanCharge = "unlimited" | "allowance" | "credit" | "denied";
    (`Organization.scanCredits`); one credit is debited.
 4. **`denied`**: allowance spent and no credits left → the 402 / upgrade moment.
 
+**Two currencies, and copy must name which one it means.** Step 2 and step 3 are different money:
+the plan **allotment** is a monthly grant compared against `usageThisMonth`, so it restarts on the 1st
+and an unused month is simply gone; **prepaid credits** are a balance on `Organization.scanCredits`
+that nothing resets. `/usage`'s allotment panel used to print *"Unused credits roll over. They never
+expire, so a quiet month is not lost"* directly under a header reading *"Monthly allotment · 150
+credits / mo"* — both clauses true, of different currencies, under a meter of the one that does NOT
+roll over, which made an idle month look free when it burns the whole allotment (UAT MC-B21). The
+sentence now names both, and `ALLOTMENT_CURRENCIES_NOTE` (`src/app/usage/AllotmentPanel.tsx`) is
+exported and asserted so it cannot quietly regress; `/pricing`'s footnote already drew the same line.
+
 `resolveScanCharge` is the single wiring point read by **both** the read gate (`checkScanEntitlement`,
 which reports `allowed`/`withinAllowance`/`allowanceRemaining` for UI and bulk-batch sizing) and the write
 gate (`consumeScanCredit` in `src/lib/db/credits.ts`), so the two paths can't drift. `consumeScanCredit`'s
@@ -140,7 +150,15 @@ usage count and all classify "allowance"); the credit **debit** itself is the ha
 entitlement **before** paid inference and debits/records **after**, so a cache/dedup hit or a
 degrade-to-mock run is never charged.
 
-- **Public scans**: always free and unmetered, forever; never touch allowance or credits.
+- **Public scans**: never touch the plan allowance or credits — they cost the visitor nothing. They
+  are separately capped at a free monthly allowance (`publicScanMonthlyLimit()`,
+  `src/lib/public-scan-limit.ts`; default **5** per rolling 30-day window, per anonymous IP or
+  per signed-in user), enforced by `src/lib/public-scan-quota.ts` and shown live by the scan
+  dialog's `QuotaMeter`. **Never describe them as "unlimited" or "unmetered"** — a meter is
+  rendered on the same screen. Every surface that states the number derives it from that one
+  function: the Free card and blurb (`PLAN_SPECS.free`), `/pricing`'s metadata and footnote, the
+  landing FAQ's JSON-LD, and the 429 body. `plans.test.ts` fails any plan copy that re-claims
+  "unlimited"/"unmetered" public scans.
 - **Custom**: `unlimited: true`; never debited regardless of usage.
 
 ## Credit packs vs. plan products (Polar catalogs)
@@ -176,6 +194,41 @@ The Free CTA is a scan link. The **Custom** tier's CTA is not a link at all; see
 the literal `enterprise` id, and returns `null`; the card then renders `PlanEnquiryCta`. A Polar product
 mapped to the tier does **not** turn it into a checkout link: a negotiated price is an operator's manual
 fulfilment path, not something a visitor may buy from the page.
+
+### Linking the source and the self-hosting guide (`NEXT_PUBLIC_SOURCE_REPO_URL`)
+
+Two links on the pricing/landing surface come from `src/lib/site.ts`, and they follow **deliberately
+different** rules:
+
+| Link | Unset behaviour | Why |
+| --- | --- | --- |
+| "View the source" (`sourceRepoHref`) | renders nothing | It is an AGPL §13 claim about **this** deployment; pointing it at a stranger's repository would be wrong, and a dead link damages the claim more than its absence. |
+| The self-hosting guide (`selfHostGuideHref` / `docHref`) | links **upstream's** copy, labelled *(upstream)* | A doc link is a reading reference, not a licence claim — the same second-best-address rule `FEEDBACK_URL` already takes. |
+
+UAT MC-B22 measured the unset case: `NEXT_PUBLIC_SOURCE_REPO_URL` is set in no committed env file, so
+all four consumers degraded at once and a raw-HTML sweep of `/` and `/pricing` found exactly **one**
+github.com URL on each — the footer's issue tracker — on pages that make the open-source claim three
+times. The guide is now always a link; the source link still needs the variable. It is a
+`NEXT_PUBLIC_*` var, so it is **inlined at build time**: it must be present in the environment that
+runs `next build`, not merely in the running container (see `.env.example`).
+
+### The self-hosted page shows only "Free forever" (2026-08-29)
+
+When `selfHosted()` is true, `/pricing` renders **none** of the above — no tier cards, no
+`CreditMatrixLedger`, no allowance footer, no checkout CTAs — because nothing on it can be bought and
+the previous page was a SaaS layout with a free-forever band bolted above it. `generateMetadata()`
+swaps the title/description too. The page renders `SelfHostPricingBlueprint`
+(`src/components/pricing/SelfHostPricingBlueprint.tsx`), the "Blueprint" direction chosen from a
+`/prototype` round over an editorial "Ledger" alternative (deleted): an instrument panel with (a) a
+real `<table>` capability matrix — gated capabilities with their tier tag, then the limits the tiers
+carry — and (b) the `/onboarding` skill as a checklist of numbered stations, each with the probe it
+runs. (`SelfHostBand` is unchanged and still the band the **cloud** page carries above its cards.)
+
+Both facts come from one pure module, `selfHostPricingData.ts`: `CAPABILITY_DIFF` is **derived from
+`PLAN_CAPABILITIES` / `PLAN_FEATURES`** (a capability that moves tiers moves on the page; the
+metering, seats, retention, model and operation rows are stated beside them), and `ONBOARDING_STEPS`
+is the skill's own step shape at "what happens" altitude. `SelfHostSetupPanel` on `/onboarding`
+renders the same `ONBOARDING_STEPS`, so the two surfaces cannot describe two different skills.
 
 ### The page itself (redesigned 2026-08-14)
 
@@ -370,6 +423,16 @@ balance-driven.**
 - `Organization.scanCredits` is the balance; `CreditLedger` is the append-only audit trail (`delta`,
   `balanceAfter`, `reason`, `repoFullName`, `scanId`, `actor`, `externalId`). Canonical `reason` values:
   `CREDIT_REASON.{SCAN, GRANT, ADJUSTMENT, REFUND, POLAR_REFUND}`.
+- **Every movement is attributed at write time (2026-09-05).** A `scan` debit carries `repoFullName`
+  and `actor`; its `refund` carries the same two, so a reversal nets against the debit it reverses
+  and per-repo spend can be summed from the ledger alone. Actor vocabulary: the GitHub login for an
+  interactive scan or import, `queue:<reason>` (`cadence` / `manual` / `webhook`) for a drained queue
+  job, `system` as the floor when no human or job is behind the movement. A genuine grant (Polar
+  top-up, owner adjustment) leaves `repoFullName`/`scanId` null: it pays for no particular repo.
+  `scanId` stays **null by design** on scan debits and refunds: every path reserves *before*
+  inference, so no `Scan` row exists at debit time, and the ledger is written once, never back-filled.
+  Callers that know the row up front may pass it, which also upgrades the idempotency key to the
+  natural `scan:<id>`.
 - `grantCredits` / `consumeScanCredit` / `clawbackOrderRefund` all run inside a transaction with
   `withRetry` and a stable `externalId` (caller-supplied for webhook events, else synthesized
   per-invocation), so a commit-ambiguity retry or an at-least-once webhook redelivery can never
@@ -436,6 +499,43 @@ into a $ estimate on `/usage`, useful for calibrating pack/plan prices against r
   | Segments + comparisons: Team | `src/lib/db/segments.ts` has no plan check. |
   | Playbooks + planning: Team | No plan check. |
   | Buy extra scan credits: matrix says Starter and up | Checkout and `CreditsControl` have no tier gate; a Free org can buy credits. (Arguably the right behaviour, since the *matrix* is what's wrong.) |
+
+  **Marked, not dropped (2026-08-28).** Every row in that table now carries
+  `MatrixRow.planned` and renders a quiet **Planned** chip beside its label, with a
+  footnote under the table saying plainly that these boundaries are not enforced yet
+  and every plan can use them today. Ticking them unmarked was the page asserting a
+  restriction the product does not apply — the same defect as promising a capability
+  that doesn't exist, pointed the other way. `creditMatrixData.test.ts` pins the join
+  in both directions: every claim listed above is flagged, nothing else is, and a row
+  derived from `PLAN_CAPABILITIES` may never be flagged (those cells *are* the gate).
+  Retention is deliberately unflagged — `PlanFeature.retentionDays` is really read.
+  Closing a row for real means deleting its flag in the same change as the predicate.
+
+  **Public scans were being advertised as metered (fixed 2026-08-28).** The credit
+  matrix's Scanning group opened with "Every scan, public or private, draws on one
+  monthly allowance", three lines under a file header saying the opposite and directly
+  above a table showing the opposite. `PlanFeature.includedCredits`' own doc comment,
+  `src/lib/db/credits.ts:3` and `/pricing`'s page header all agree: an anonymous public
+  scan is never metered — it is rate-limited (`src/lib/rate-limit.ts`) and monthly-capped
+  (`src/lib/public-scan-quota.ts`) instead. Public and private scans are now separate
+  rows, tagged `free` and `credit` respectively, and `CREDIT_RULE` names the private
+  scan explicitly. Three tests pin it.
+
+  **…and then advertised as unlimited (fixed 2026-08-31, UAT `MC-B5`).** The correction
+  above fixed the matrix and overshot the copy: the Free card carried
+  "Unlimited free public scans" and `/pricing` + the landing FAQ said public scans were
+  "always free and unmetered", while `/api/quota` reported `limit: 5` and the scan
+  dialog rendered a countdown meter in the same visit. Free and unmetered are different
+  claims; only the first was ever true. The allowance now has ONE source
+  (`src/lib/public-scan-limit.ts`, split out of `public-scan-quota.ts` precisely so
+  client-importable `plans.ts` can read it without pulling in `node:crypto` and Prisma),
+  and every surface that states it derives it. Two further edges went with it: the 429
+  body said "Upgrade to **Pro**" for the tier the UI calls **Starter** — it now reads
+  `PLAN_FEATURES.pro.label`, the id-vs-label split this file's tier note describes — and
+  `/pricing`'s "resets on the 1st of each month (UTC)" footnote now says that of the
+  *private* allowance only, naming the public funnel's rolling 30-day window separately.
+  `.env.example` documented the gate as `PUBLIC_SCAN_WEEKLY_LIMIT` (7 days, default 3);
+  no such variable is read anywhere — the names now match the code.
 
   Two claims were **corrected rather than logged**, because they asserted capabilities that don't exist at
   all: the matrix's "SSO · RBAC · audit logs ✓" (roles and the audit trail ship; **SAML/OIDC sign-in does

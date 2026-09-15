@@ -24,13 +24,13 @@ const ARTIFACT_NOUN: Record<"skills" | "practices" | "memory", string> = {
   memory: "Memory",
 };
 
-const LINK = "font-mono text-xs text-accent transition hover:text-white";
+const LINK = "type-caption text-accent transition hover:text-white";
 
 /** The counts line — what the last index pass actually read out of the repo. */
 function CountsLine({ sync }: { sync: RegistrySync }) {
   const c = sync.counts;
   return (
-    <span className="font-mono text-xs text-slate-500">
+    <span className="type-caption text-slate-500">
       <span className="tabular-nums text-slate-300">{c.skills}</span> skills ·{" "}
       <span className="tabular-nums text-slate-300">{c.practices}</span> practices ·{" "}
       <span className="tabular-nums text-slate-300">{c.memory}</span> memory notes
@@ -59,7 +59,7 @@ export function RegistrySyncStrip({
   if (!sync.mapped) {
     return (
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 rounded-xl border border-divider bg-surface/40 px-4 py-3">
-        <p className="text-sm text-slate-400">
+        <p className="type-body-sm text-slate-400">
           Nothing is backed by a registry yet — {ARTIFACT_NOUN[artifact]}, and everything beside it, lives only in ascent.
         </p>
         <Link href={registryHref} className={LINK}>
@@ -72,12 +72,12 @@ export function RegistrySyncStrip({
   const indexed = sync.lastIndexedAt ? `indexed ${timeAgo(sync.lastIndexedAt)}` : "mapped, not indexed yet";
   return (
     <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 rounded-xl border border-divider bg-surface/40 px-4 py-3">
-      <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm text-slate-400">
+      <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1 type-body-sm text-slate-400">
         <span>Backed by</span>
-        <a href={sync.url ?? "#"} className="font-mono text-sm text-slate-200 transition hover:text-white" target="_blank" rel="noreferrer">
+        <a href={sync.url ?? "#"} className="type-mono-sm text-slate-200 transition hover:text-white" target="_blank" rel="noreferrer">
           {sync.fullName}
         </a>
-        <span className="font-mono text-xs text-slate-500">· {indexed} ·</span>
+        <span className="type-caption text-slate-500">· {indexed} ·</span>
         <CountsLine sync={sync} />
       </p>
       <Link href={registryHref} className={LINK}>

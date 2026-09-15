@@ -4,6 +4,7 @@
 // file lists, so ordinary development in the repo never breaks them.
 
 import { describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
 import { LocalFsSource, parseGitLog } from "@/lib/local/source";
 import { MAX_FILES } from "@/lib/github/source";
 
@@ -44,6 +45,21 @@ describe("LocalFsSource against this repository", () => {
     for (const f of snap.files) expect(f.content.length).toBeLessThanOrEqual(60_000);
 
     // Commits carry real messages — the field the follow-up trailer close reads.
+    //
+    // THIS NEEDS HISTORY, AND A SHALLOW CHECKOUT HAS NONE. `actions/checkout` defaults to
+    // `fetch-depth: 1`, so this assertion read ONE commit on CI and failed there while passing on
+    // every developer machine. The workflow now asks for depth 50; this guard names the requirement at
+    // the point of failure, so the next shallow runner reports its own cause instead of an
+    // "expected 1 to be greater than 5" that points at the product.
+    // ASSERT THE REQUIREMENT, NOT A PROXY FOR IT. The first version of this guard asked
+    // `--is-shallow-repository`, which is true for ANY bounded fetch-depth — including the depth 50 the
+    // workflow asks for — so it failed a checkout that was perfectly adequate. What this suite actually
+    // needs is enough commits to be reachable, so that is what it checks.
+    const reachable = Number(execFileSync("git", ["rev-list", "--count", "HEAD"], { encoding: "utf8" }).trim());
+    expect(
+      reachable,
+      "this suite reads the repository's own commit history; check out with fetch-depth >= 50 (see .github/workflows/ci.yml)",
+    ).toBeGreaterThan(5);
     expect(snap.commits.length).toBeGreaterThan(5);
     expect(snap.commits[0]!.message.length).toBeGreaterThan(0);
 

@@ -132,6 +132,40 @@ describe("readSSE — stream drain", () => {
     expect(out).toEqual([{ event: "keep", data: { k: 1 } }]);
   });
 
+  // A frame ends at a BLANK LINE, which on the wire may be LF or CRLF. The old `indexOf("\n\n")`
+  // could not see a CRLF boundary at all — "\r\n\r\n" contains no "\n\n" substring — so against a
+  // proxy that normalises to CRLF the buffer grew forever and NOT ONE frame was delivered: the stream
+  // simply appeared to hang. parseSSE already tolerated CRLF *within* a frame, so the two halves of
+  // the parser disagreed about which line endings the wire may use.
+  it("splits frames on a CRLF blank line", async () => {
+    const out = await drain([
+      'event: a\r\ndata: {"n":1}\r\n\r\n',
+      'event: b\r\ndata: {"n":2}\r\n\r\n',
+    ]);
+    expect(out).toEqual([
+      { event: "a", data: { n: 1 } },
+      { event: "b", data: { n: 2 } },
+    ]);
+  });
+
+  it("splits frames when LF and CRLF boundaries are mixed in one stream", async () => {
+    const out = await drain([
+      "event: a\ndata: 1\n\n",
+      "event: b\r\ndata: 2\r\n\r\n",
+      "event: c\ndata: 3\n\n",
+    ]);
+    expect(out).toEqual([
+      { event: "a", data: 1 },
+      { event: "b", data: 2 },
+      { event: "c", data: 3 },
+    ]);
+  });
+
+  it("still splits a CRLF frame arriving across chunk boundaries", async () => {
+    const out = await drain(['event: split\r\nda', 'ta: {"v":7}', "\r\n\r\n"]);
+    expect(out).toEqual([{ event: "split", data: { v: 7 } }]);
+  });
+
   it("skips empty keepalive frames (no event, no data)", async () => {
     const out = await drain([": comment\n\n", "\n\n", 'event: real\ndata: 9\n\n']);
     expect(out).toEqual([{ event: "real", data: 9 }]);

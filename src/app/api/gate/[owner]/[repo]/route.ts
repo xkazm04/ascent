@@ -1,6 +1,6 @@
 // GET /api/gate/:owner/:repo  ->  JSON gate result, with an HTTP status CI can branch on:
 //   200 when the repo passes the maturity gate, 422 when it fails (so `curl --fail` exits non-zero).
-// Honors the same policy query params as the gate badge:
+// Policy query params:
 //   ?min_level=L3&min_overall=60&min_dimension=40&no_ungoverned=1
 // Runs a fast deterministic (mock) scan by default; pass ?mock=0 to score with the configured LLM.
 
@@ -8,11 +8,14 @@ import { NextResponse } from "next/server";
 import type { ScanReport } from "@/lib/types";
 import { scanRepository } from "@/lib/scan";
 import { GitHubError } from "@/lib/github/source";
+import { forgeFullName, resolveForge } from "@/lib/forge/registry";
 import { lookupPersistedScanByCommit, resolveHeadWithHint } from "@/lib/scan-cache";
 import { cacheGet, cacheSet, makeCacheKey, normalizeRepoName } from "@/lib/cache";
-import { evaluateGate, explicitPolicyFromParams, policyFromParams, tightenGatePolicy, type GatePolicy } from "@/lib/scoring/gate";
+import { defaultGatePolicy, evaluateGate, explicitPolicyFromParams, policyFromParams, tightenGatePolicy, type GatePolicy } from "@/lib/scoring/gate";
 import { logGateVerdict } from "@/lib/scoring/gate-telemetry";
 import { getOrgGatePolicy } from "@/lib/db/org-gate";
+import { orgSlugForRepo } from "@/lib/db/org-tenancy";
+import { loadCheckStates, resolveAdmissionLayer } from "@/lib/scoring/gate-admission";
 import { rateLimitRequest, rateLimitRequestShared, tooManyRequests, SCAN_RATE_LIMIT, GATE_RATE_LIMIT } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
@@ -30,17 +33,37 @@ export async function GET(
   //   /api/gate/owner/repo?ref=<pr-head-sha>. A ref-scoped scan reflects what the PR changes,
   //   not the default branch — so a PR that adds tests/CI/agent-guidance can clear the gate.
   const ref = searchParams.get("ref") || undefined;
-  // Normalize so the gate shares one cache-key scheme with the scan flow and the badge —
+  // Normalize so the gate shares one cache-key scheme with the scan flow —
   // casing/percent-encoding variants of the same repo must not fragment into separate entries.
   const ownerN = normalizeRepoName(owner);
   const repoN = normalizeRepoName(repo);
+  // FORGE (moonshot #4). The PATH stays two segments — CI callers, the check-run path and every doc
+  // use `/api/gate/:owner/:repo`, and adding a segment would churn a public contract for no gain — so
+  // the forge arrives as a query param. This is the ONLY thing this lane touches in this route
+  // (ruling W4-#2: the gate EVALUATOR is W4-O's, and `gate.ts` is untouched here).
+  //
+  // Unset or unrecognized ⇒ `github`, so every existing caller's request is byte-identical: `forgeId`
+  // is "github", `coordinate` is `owner/repo`, and nothing below can tell this parameter exists.
+  const forgeId = resolveForge(searchParams.get("forge")).id;
+  /** What the scanner is asked to read, and what the persisted row is keyed by. */
+  const coordinate = forgeFullName(forgeId, ownerN, repoN);
+  // Cache/persistence keys take the forge-prefixed OWNER so one scheme covers both forges without a
+  // second key format: `makeCacheKey("gitlab:group", "project", …)`.
+  const ownerKey = forgeId === "github" ? ownerN : `${forgeId}:${ownerN}`;
   // SECURITY (ci-gate-status-checks #1): this endpoint is unauthenticated by design — CI calls it with
   // plain curl. Every ingest below therefore passes noAmbientToken, so a scan can never run against the
   // ambient GITHUB_TOKEN (an operator PAT that commonly has broad read access). Without it, any
   // anonymous caller could enumerate PRIVATE repos' full gate verdicts through the operator's
   // credentials. Token-less ingestion of a private repo 404s, which we surface honestly below.
   // Private repos are gated through the authenticated GitHub App check-run path (/api/app/webhook),
-  // not this endpoint. Same construction as the public badge route.
+  // not this endpoint. Same construction as the public scan routes.
+  //
+  // AND IT WRITES NOTHING. The org-scoped state this route reads — the gate policy, the admission
+  // overlay, the conformance ledger — is read through non-seeding readers (`readRepoAdmission`, not
+  // the lazy-seeding `getRepoAdmission`). Before that, an anonymous CI call INSERTED a `RepoAdmission`
+  // row on a read miss: a governance record manufactured by a stranger's curl, on a surface whose
+  // only promised effect is a verdict. The single write this route still performs is to its own scan
+  // caches.
   // Rate-limiting strategy (denial-of-wallet defense that still lets real CI through):
   //  - The real-LLM path (?mock=0) is always throttled up-front with the strict SCAN_RATE_LIMIT — it
   //    spends both LLM budget and a full GitHub ingest.
@@ -87,7 +110,7 @@ export async function GET(
       // cost the GitHub round-trip this fast path exists to avoid.
       const refSha = /^[0-9a-f]{40}$/i.test(ref) ? ref.toLowerCase() : null;
       const persisted = refSha
-        ? await lookupPersistedScanByCommit({ owner: ownerN, repo: repoN, headSha: refSha, useLLM: !mock })
+        ? await lookupPersistedScanByCommit({ owner: ownerKey, repo: repoN, headSha: refSha, useLLM: !mock })
         : null;
       if (persisted) {
         // Warm hit — no ingest, no LLM spend, so no rate-limit charge (see the strategy note above).
@@ -101,23 +124,26 @@ export async function GET(
           // "your pipeline is too chatty" when it isn't.
           if (!rl.ok) return tooManyRequests(rl);
         }
-        report = await scanRepository(`${ownerN}/${repoN}`, { mock, ref, noAmbientToken: true });
+        report = await scanRepository(coordinate, { mock, ref, noAmbientToken: true });
       }
     } else {
       // Resolve the current head commit so the gate keys the same per-commit entry as the scan
-      // flow and badge — a push misses the cache and re-evaluates against fresh signals instead
+      // flow — a push misses the cache and re-evaluates against fresh signals instead
       // of returning a stale pass/fail (CI would otherwise gate on the pre-push score). CONDITIONAL
       // via the shared head-hint store (free 304 on an unchanged repo). Null on failure → a
       // SHA-less key (best-effort).
       // Token-less by construction (see the noAmbientToken note above): resolving a head sha with the
       // operator PAT would confirm a private repo's existence and current commit to an anonymous caller.
-      const sha = await resolveHeadWithHint({ owner: ownerN, repo: repoN }, undefined);
+      // GitHub-only: this is a GitHub REST head lookup. On another forge it resolves to null, which
+      // this branch already handles — a SHA-less key, no persisted probe, a fresh scan. The honest
+      // degrade, not a special case.
+      const sha = forgeId === "github" ? await resolveHeadWithHint({ owner: ownerN, repo: repoN }, undefined) : null;
       // Probe ONLY the mode that was requested. The old `cacheGet(llmKey) ?? cacheGet(mockKey)` read the
       // LLM entry first regardless of mode, so a default (mock=true) CI gate could return a STOCHASTIC
       // LLM verdict — a PR flipping pass↔fail between runs with identical code, purely from which scan
       // populated the cache first. Read and write the same key (useLLM = !mock) so the default gate is
       // deterministic and reproducible, matching the verdict's stated provider.
-      const key = makeCacheKey(ownerN, repoN, !mock, sha);
+      const key = makeCacheKey(ownerKey, repoN, !mock, sha);
       // Tier 1: this instance's warm memory — always in front, it is the fastest possible answer.
       report = cacheGet(key);
       if (!report && sha) {
@@ -129,7 +155,7 @@ export async function GET(
         // tier 1 for the next reader on this instance. Skipped when the head resolve failed (a
         // SHA-less key has no commit to pin a persisted row to).
         const persisted = await lookupPersistedScanByCommit({
-          owner: ownerN,
+          owner: ownerKey,
           repo: repoN,
           headSha: sha,
           useLLM: !mock,
@@ -147,7 +173,7 @@ export async function GET(
           // Whole result — same reasoning as the ref-scoped ingest gate above.
           if (!rl.ok) return tooManyRequests(rl);
         }
-        report = await scanRepository(`${ownerN}/${repoN}`, { mock, noAmbientToken: true });
+        report = await scanRepository(coordinate, { mock, noAmbientToken: true });
         // CACHE-POISONING GUARD: every OTHER cache writer in the codebase (scan-finalize.ts's
         // `authoritative` check) refuses to store a report that degraded to mock; this route was the
         // one writer without it. The key here is the ::llm key on the ?mock=0 path, so a single
@@ -179,14 +205,23 @@ export async function GET(
     // the duration of the outage. `getOrgGatePolicy` returns null WITHOUT throwing when there is no DB
     // and when the org/column is unset, so a throw here means only one thing: we could not determine the
     // bar. Say that (503) rather than enforce a weaker one.
+    // TENANCY, not the owner login (the same defect `repoUnderOrg` was fixed for). The org whose bar
+    // applies is the org that TRACKS this repository; resolving by owner namespace found nothing for
+    // an org named for its team, and "nothing" is indistinguishable from "no bar configured" — so the
+    // gate went green on the archetype default while the owner's dashboard displayed a bar it believed
+    // was enforced. `orgSlugForRepo` keeps the owner-login match as its fast path, so a deployment
+    // whose slugs are owner namespaces is byte-identical. Resolved INSIDE this try: failing to
+    // determine the tenant is failing to read the bar, and both must produce the same honest 503.
     let orgPolicy: GatePolicy | null;
+    let orgSlug = ownerN;
     try {
-      orgPolicy = await getOrgGatePolicy(ownerN);
+      orgSlug = await orgSlugForRepo(ownerN, coordinate);
+      orgPolicy = await getOrgGatePolicy(orgSlug);
     } catch (err) {
       console.error("[gate] org policy read failed — refusing to gate on the archetype default", err);
       return NextResponse.json(
         {
-          repo: `${ownerN}/${repoN}`,
+          repo: coordinate,
           ref: ref ?? null,
           error:
             "The organization's gate policy could not be read, so this gate would have fallen back to a weaker default bar. No verdict was produced. Retry the gate.",
@@ -194,16 +229,70 @@ export async function GET(
         { status: 503 },
       );
     }
+    // THE ADMISSION LAYER (#8), folded BETWEEN the org bar and the query params — the ordered fold
+    // docs/resolutions/gate-as-code.md fixes:
+    //
+    //   tighten(tighten(tighten(org ?? archetype, admission), manifest-later), params)
+    //
+    // It is passed through `tightenGatePolicy` exactly like a query param, and that is the entire
+    // safety argument on an endpoint with no authentication: an admission row can only ever RAISE a
+    // bar. A T3 repo is not held to a LOOSER bar than its org's — it simply receives no extra floor.
+    // (The `manifest` slot is #5's and is deliberately absent; the fold's shape reserves it so that
+    // item does not have to invent a second precedence rule to land.)
+    //
+    // FAIL CLOSED on a read error, identically to the org-policy read above and for the same reason:
+    // `getRepoAdmission` returns null without throwing for every legitimate absence, so a throw means
+    // only that the bar could not be determined. Say that; never enforce a weaker one.
+    let admissionLayer;
+    try {
+      admissionLayer = await resolveAdmissionLayer(orgSlug, coordinate);
+    } catch (err) {
+      console.error("[gate] admission read failed — refusing to gate on a bar we could not read", err);
+      return NextResponse.json(
+        {
+          repo: coordinate,
+          ref: ref ?? null,
+          error:
+            "This repository's admission decision could not be read, so this gate would have fallen back to a weaker bar. No verdict was produced. Retry the gate.",
+        },
+        { status: 503 },
+      );
+    }
+    const base = orgPolicy ?? defaultGatePolicy(report.archetype);
+    const withAdmission = tightenGatePolicy(base, admissionLayer.overlay);
+    // With NO persisted org policy the params keep their historical archetype-padding behaviour
+    // (policyFromParams), so a repo with no admission row and no org bar produces a BYTE-IDENTICAL
+    // response to today's — the done-criterion this whole layer is held to.
     const policy = orgPolicy
-      ? tightenGatePolicy(orgPolicy, explicitPolicyFromParams(searchParams))
-      : policyFromParams(searchParams, report.archetype);
-    const gate = evaluateGate(report, policy);
+      ? tightenGatePolicy(withAdmission, explicitPolicyFromParams(searchParams))
+      : tightenGatePolicy(policyFromParams(searchParams, report.archetype), admissionLayer.overlay);
+    // #16 — `requireChecks` is judged against the repo's OWN latest conformance report. Read only
+    // when the effective policy actually names a check, so the common gate call pays no extra query;
+    // null (no ledger, no report, a summary-only report) SKIPS every named check rather than failing
+    // a repo for a measurement that was never due.
+    const checkStates = policy.requireChecks?.length ? await loadCheckStates(orgSlug, coordinate) : null;
+    // THE SCAN'S OWN HONESTY FLAGS, threaded explicitly at the seam rather than left implicit: this
+    // surface reads `sensorFailures` + `confidence` off the report it just produced, so a scan whose
+    // governance or security sensor THREW cannot answer with a full-confidence green verdict. (The
+    // evaluator defaults to exactly these; naming them here is what makes the read visible where the
+    // verdict is produced.)
+    const gate = evaluateGate(report, policy, {
+      checkStates,
+      sensorFailures: report.sensorFailures ?? [],
+      confidence: report.confidence,
+    });
     logGateVerdict(report, gate, {
       surface: "api",
-      repo: `${ownerN}/${repoN}`,
+      repo: coordinate,
       ref,
-      policySource: orgPolicy ? "org" : searchParams.size > 0 ? "params" : "archetype",
+      // "params" must mean A POLICY PARAM WAS SUPPLIED, not "the URL had a query string". `searchParams.size`
+      // counted `?ref=<sha>` and `?mock=0` — which every CI call carries — so almost every archetype-default
+      // verdict logged as "params", and the field's stated purpose (telling "nobody is gated" apart from
+      // "nobody fails") was defeated by its own most common caller. Keyed on the parsed policy instead, which
+      // is the same function the fold uses, so the log cannot disagree with the bar.
+      policySource: orgPolicy ? "org" : Object.keys(explicitPolicyFromParams(searchParams)).length > 0 ? "params" : "archetype",
       degraded: degradedToMock(report),
+      admission: admissionLayer.admission,
     });
 
     // HONESTY GUARD (ci-gate-status-checks #2): the machine-readable verdict must never present a
@@ -230,7 +319,7 @@ export async function GET(
     const status = degraded ? 503 : gate.pass ? 200 : 422;
     return NextResponse.json(
       {
-        repo: `${ownerN}/${repoN}`,
+        repo: coordinate,
         ref: ref ?? null,
         pass: gate.pass,
         degraded,
@@ -240,6 +329,24 @@ export async function GET(
         archetype: report.archetype,
         policy: gate.policy,
         failures: gate.failures,
+        // WHAT THIS RUN COULD NOT TEST. `policy` echoes every configured bar and cannot say which of
+        // them were actually evaluated — and on THIS endpoint that gap is the norm, not the exception:
+        // the scan is token-less by construction (see the security note above), so branch governance and
+        // PR statistics are never read here and `requireProtectedBranch` / `minAiGovernedRate` /
+        // `forbidAiAuthorship` are inert on every call. A CI consumer reading `pass: true` beside
+        // `policy.requireProtectedBranch: true` was entitled to believe the branch was checked. This is
+        // the correction, and it is machine-readable so a workflow can fail on an empty measurement.
+        skipped: gate.skipped,
+        // The gate's own reading of this scan's reliability — a failed sensor, coverage under the
+        // scan's declared floor, a truncated PR page. `warnings` below is the scan's raw prose; this
+        // is the subset that qualifies THIS VERDICT, in the gate's voice, and it is what the check-run
+        // summary and the PR comment render.
+        caveats: gate.caveats,
+        // #8 — WHY this repository was held to this bar. A CI log that only carries the effective
+        // policy cannot explain why two repos under one org got different verdicts; the triple can.
+        // Omitted entirely (not nulled) when no admission row applied, so a repo without one produces
+        // a byte-identical body to the one this endpoint returned before this layer existed.
+        ...(admissionLayer.admission ? { admission: admissionLayer.admission } : {}),
         // Degradation signals a CI consumer needs to trust — or distrust — the verdict:
         //   engine      — which grader actually produced it ("mock" = deterministic floor, not the AI grade);
         //   confidence  — 0..1 repo coverage (how much of the tree we could inspect);

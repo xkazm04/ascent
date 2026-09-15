@@ -15,7 +15,13 @@ import { useRouter } from "next/navigation";
 import type { GatePolicy } from "@/lib/scoring/gate";
 import { clampToDisplayRange } from "@/lib/scoring/gate-numeric";
 import type { DimensionId, LevelId } from "@/lib/types";
-import { appliesWhen, droppedFields, floorsExceptD9, type SweepPlan } from "./gatePolicyReconcile";
+import {
+  appliesWhen,
+  droppedFields,
+  floorsExceptD9,
+  passthroughPolicyFields,
+  type SweepPlan,
+} from "./gatePolicyReconcile";
 
 export { appliesWhen } from "./gatePolicyReconcile";
 export type { SweepPlan } from "./gatePolicyReconcile";
@@ -41,13 +47,20 @@ export function useGatePolicyEditor(org: string, initial: GatePolicy | null) {
   const [otherFloors, setOtherFloors] = useState<Record<string, string>>(() => floorsExceptD9(initial));
   const [noUngoverned, setNoUngoverned] = useState<boolean>(Boolean(initial?.forbidPostures?.includes("ungoverned")));
   const [requireProtection, setRequireProtection] = useState<boolean>(Boolean(initial?.requireProtectedBranch));
+  // Bars this form does NOT render, carried through every save untouched (NADIA-L1-07 / PRIYA-L1-01).
+  // `requireChecks` is the live case: enforced by the gate, printed read-only in the Active-policy
+  // summary six rows above, and — because buildPolicy assembled the payload field by field and the
+  // POST replaces wholesale — silently DELETED by any unrelated edit. Held in state rather than read
+  // off `initial` so it stays in step with the server echo across successive saves in one session.
+  const [passthrough, setPassthrough] = useState<GatePolicy>(() => passthroughPolicyFields(initial));
   const [busy, setBusy] = useState<"save" | "reset" | null>(null);
   const [msg, setMsg] = useState<{ kind: "note" | "error"; text: string } | null>(null);
   // When the saved bar takes effect, from the server's sweep plan (never assumed).
   const [applies, setApplies] = useState<string | null>(null);
 
   function buildPolicy(): GatePolicy {
-    const p: GatePolicy = {};
+    // Start from the bars this form does not model, so a save replaces only what it actually shows.
+    const p: GatePolicy = { ...passthrough };
     if (minLevel) p.minLevel = minLevel as LevelId;
     if (minOverall.trim()) p.minOverall = Number(minOverall);
     if (minDimension.trim()) p.minDimension = Number(minDimension);
@@ -77,6 +90,7 @@ export function useGatePolicyEditor(org: string, initial: GatePolicy | null) {
     setOtherFloors(floorsExceptD9(p));
     setNoUngoverned(Boolean(p?.forbidPostures?.includes("ungoverned")));
     setRequireProtection(Boolean(p?.requireProtectedBranch));
+    setPassthrough(passthroughPolicyFields(p));
   }
 
   async function post(policy: GatePolicy | null, kind: "save" | "reset") {
@@ -92,6 +106,8 @@ export function useGatePolicyEditor(org: string, initial: GatePolicy | null) {
       const d = (await res.json().catch(() => ({}))) as {
         error?: string;
         policy?: GatePolicy | null;
+        /** Bars the write REMOVED, as only the server can see them (it holds the previous policy). */
+        dropped?: { label: string; was: string | null }[];
         sweep?: SweepPlan;
       };
       if (!res.ok) throw new Error(d.error ?? "Failed to save policy.");
@@ -107,6 +123,12 @@ export function useGatePolicyEditor(org: string, initial: GatePolicy | null) {
       const stored = d.policy ?? null;
       syncForm(stored);
       const dropped = kind === "save" && policy ? droppedFields(policy, stored) : [];
+      // The request-vs-echo check above is structurally BLIND to a bar the form never sent — it can
+      // only notice a field it asked for going missing. So the server, the one party holding both the
+      // previous and the stored policy, reports removals too, and they are named here rather than
+      // being discoverable only by diffing `previousPolicy` in the audit log (NADIA-L1-07). A reset
+      // removes everything by definition, so its list is not a warning.
+      const removed = kind === "save" ? (d.dropped ?? []) : [];
       setMsg(
         kind === "reset" || stored == null
           ? { kind: "note", text: "Reset to the archetype default: no custom bar is enforced." }
@@ -115,7 +137,14 @@ export function useGatePolicyEditor(org: string, initial: GatePolicy | null) {
                 kind: "error",
                 text: `Saved, but NOT enforced: ${dropped.join(", ")}. 0 (or an out-of-range value) is not a valid bar, so the server cleared ${dropped.length > 1 ? "those fields" : "that field"}. The form now shows the stored policy.`,
               }
-            : { kind: "note", text: "Policy saved. The gate now enforces it." },
+            : removed.length > 0
+              ? {
+                  kind: "error",
+                  text: `Policy saved — but this save also REMOVED ${removed
+                    .map((r) => `${r.label}${r.was ? ` (${r.was})` : ""}`)
+                    .join("; ")}. The gate no longer enforces ${removed.length > 1 ? "those bars" : "that bar"}.`,
+                }
+              : { kind: "note", text: "Policy saved. The gate now enforces it." },
       );
       router.refresh();
     } catch (e) {

@@ -95,12 +95,13 @@ export function readDsqlConfig(env: NodeJS.ProcessEnv = process.env): DsqlConfig
  * BUG (database-client-schema #2): each serverless instance builds a PrismaClient with Prisma's
  * default internal pool (num_physical_cpus*2+1). Under fan-out (a fleet scan's mapPool, a cron
  * rescan batch, many concurrent viewers) N instances × that default can exceed DSQL's per-cluster
- * connection ceiling and start refusing connections. A correct cap depends on the pooler +
- * max_connections + SCAN_CONCURRENCY (a deployment decision), so this is a SAFE, env-gated knob that
- * is a NO-OP unless DB_CONNECTION_LIMIT is set — default behavior is byte-for-byte unchanged, and the
- * cron is never accidentally serialized by a hardcoded limit. Set DB_CONNECTION_LIMIT (and optionally
- * DB_POOL_TIMEOUT seconds) per the cluster ceiling / expected concurrency. Existing params are not
- * overwritten (a URL that already carries connection_limit wins).
+ * connection ceiling and start refusing connections. The knob is env-tunable, but it now DEFAULTS to
+ * a real cap (DEFAULT_CONNECTION_LIMIT below) instead of none — a file that documents the fan-out ×
+ * pool failure and then defaults to the failing configuration leaves the guard disarmed for exactly
+ * the deployments that never read it. Set DB_CONNECTION_LIMIT to tune (and optionally
+ * DB_POOL_TIMEOUT seconds) per the cluster ceiling / expected concurrency, or DB_CONNECTION_LIMIT=0
+ * to restore Prisma's CPU-derived default. Existing params are not overwritten (a URL that already
+ * carries connection_limit wins).
  *
  * TRUE PEAK — size for TWO live clients per instance (database-client-schema 07-16 #1): in DSQL mode
  * the token rotates roughly every ttl − margin (~13 min at defaults), and each rotation keeps the OLD
@@ -111,14 +112,36 @@ export function readDsqlConfig(env: NodeJS.ProcessEnv = process.env): DsqlConfig
  * (cluster ceiling ÷ instances) therefore still trips connection refusals under fan-out, precisely
  * during rotations. Rule of thumb: DB_CONNECTION_LIMIT ≤ cluster ceiling ÷ (instances × 2).
  */
+/** Default per-instance pool cap when DB_CONNECTION_LIMIT is unset. Covers SCAN_CONCURRENCY (4)
+ *  plus concurrent request handlers with headroom, and — per the rule of thumb above (ceiling ÷
+ *  instances × 2, with DSQL's ~10k connection ceiling) — stays safe for hundreds of instances,
+ *  where Prisma's CPU-derived default is unbounded by design. */
+const DEFAULT_CONNECTION_LIMIT = 10;
+
+// Warn-once latch: applyConnectionBudget runs on every DSQL URL rebuild (each token rotation).
+let warnedBadConnectionLimit = false;
+
 function applyConnectionBudget(url: URL): URL {
-  const limit = process.env.DB_CONNECTION_LIMIT?.trim();
-  if (limit && /^\d+$/.test(limit) && Number(limit) > 0 && !url.searchParams.has("connection_limit")) {
-    url.searchParams.set("connection_limit", limit);
-    const poolTimeout = process.env.DB_POOL_TIMEOUT?.trim();
-    if (poolTimeout && /^\d+$/.test(poolTimeout) && !url.searchParams.has("pool_timeout")) {
-      url.searchParams.set("pool_timeout", poolTimeout);
+  if (url.searchParams.has("connection_limit")) return url;
+  const raw = process.env.DB_CONNECTION_LIMIT?.trim();
+  let limit = DEFAULT_CONNECTION_LIMIT;
+  if (raw) {
+    if (/^\d+$/.test(raw)) {
+      limit = Number(raw);
+    } else if (!warnedBadConnectionLimit) {
+      // Present-but-malformed must be loud, not a silent revert to the default (absent-guard-is-loud).
+      warnedBadConnectionLimit = true;
+      console.warn(
+        `[db] DB_CONNECTION_LIMIT is set but not a non-negative integer (got ${JSON.stringify(raw)}); ` +
+          `using the default cap of ${DEFAULT_CONNECTION_LIMIT}.`,
+      );
     }
+  }
+  if (limit === 0) return url; // explicit opt-out: Prisma's own CPU-derived pool default
+  url.searchParams.set("connection_limit", String(limit));
+  const poolTimeout = process.env.DB_POOL_TIMEOUT?.trim();
+  if (poolTimeout && /^\d+$/.test(poolTimeout) && !url.searchParams.has("pool_timeout")) {
+    url.searchParams.set("pool_timeout", poolTimeout);
   }
   return url;
 }
@@ -457,12 +480,12 @@ export function pgliteBootError(): string | null {
 }
 
 /**
- * Apply the env-gated connection budget (database-client-schema #2) to a static DATABASE_URL string.
- * No-op unless DB_CONNECTION_LIMIT is set, and silently passes a non-URL through unchanged (Prisma
- * accepts forms WHATWG URL can't parse — don't let the budget knob break an otherwise-valid URL).
+ * Apply the connection budget (database-client-schema #2) to a static DATABASE_URL string —
+ * DEFAULT_CONNECTION_LIMIT unless DB_CONNECTION_LIMIT overrides (0 = opt out). Silently passes a
+ * non-URL through unchanged (Prisma accepts forms WHATWG URL can't parse — don't let the budget
+ * knob break an otherwise-valid URL).
  */
 function withConnectionBudget(url: string): string {
-  if (!process.env.DB_CONNECTION_LIMIT?.trim()) return url; // common path: byte-for-byte unchanged
   try {
     return applyConnectionBudget(new URL(url)).toString();
   } catch {

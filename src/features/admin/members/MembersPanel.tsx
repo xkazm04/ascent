@@ -43,7 +43,7 @@ export function MembersPanel({
           reads the same across MembersPanel / MemberInvites / OrgSwitcher; orange stays reserved for
           genuine warnings like the self-demotion confirm below. (ambiguity-ui 2026-07-16 #5) */}
       {p.error && (
-        <p role="alert" className="mb-3 text-sm text-danger-soft">
+        <p role="alert" className="mb-3 type-body-sm text-danger-soft">
           {p.error}
         </p>
       )}
@@ -65,9 +65,14 @@ export function MembersPanel({
         onConfirmRemove={(login) => p.remove(login)}
         onCancelRemove={() => p.setConfirmRemove(null)}
       />
-      <p className="mt-3 font-mono text-sm text-slate-500">
-        Roles: owner → admin → member → viewer. Installation owners are seeded as owner automatically;
-        the last owner can&apos;t be removed.
+      {/* This said "Installation owners are seeded as owner automatically", which stopped being true
+          when the custom-OAuth stack was retired: holding the GitHub App installation confers nothing,
+          and the only automatic claim left is identity-bound and only on an org that has no owner yet.
+          An owner reading the old line would wait for a teammate to appear by installing the App. */}
+      <p className="mt-3 type-mono-sm text-slate-500">
+        Roles: owner → admin → member → viewer. Everyone else joins by invite or by an owner granting
+        them a role here — installing the GitHub App does not grant one. The last owner can&apos;t be
+        removed.
       </p>
 
       <MemberInvites slug={slug} initialInvites={initialInvites} />

@@ -12,7 +12,7 @@ import { buildPlaybook } from "@/features/standing/tech-stacks/transferPlaybook"
 
 function Handoff({ href, children }: { href: string; children: React.ReactNode }) {
   return (
-    <Link href={href} className="font-mono text-xs text-accent transition hover:text-white">
+    <Link href={href} className="type-caption text-accent transition hover:text-white">
       {children}
     </Link>
   );
@@ -28,9 +28,9 @@ export function PlaybookDetail({ org, d, scope }: { org: string; d: DimInsight; 
           {p.changeTypes.map((t) => (
             <ChangeTag key={t} type={t} />
           ))}
-          <span className="text-sm text-slate-400">{p.summary}.</span>
+          <span className="type-body-sm text-slate-400">{p.summary}.</span>
         </div>
-        <span className="flex shrink-0 items-center gap-3 font-mono text-xs text-slate-500">
+        <span className="flex shrink-0 items-center gap-3 type-caption text-slate-500">
           <CoverageChip d={d} nounPlural={scope.nounPlural} />
           <span>
             target{" "}
@@ -44,17 +44,17 @@ export function PlaybookDetail({ org, d, scope }: { org: string; d: DimInsight; 
         // The recommendation still stands and is still actionable — the reader just gets to weigh it
         // against how much of the fleet it was inferred from, instead of reading a minority pattern
         // as a fleet-wide one.
-        <p className="text-sm text-warn">
+        <p className="type-body-sm text-warn">
           Weigh this plan accordingly: it is inferred from {cov.count} of {cov.of} scored {scope.nounPlural}, not the whole fleet.
         </p>
       )}
 
       <div>
-        <div className="font-mono text-xs uppercase tracking-widest text-slate-500">Moves</div>
+        <div className="type-label tracking-widest text-slate-500">Moves</div>
         <ol className="mt-1.5 space-y-1.5">
           {p.steps.map((s, i) => (
-            <li key={i} className="flex gap-2.5 text-sm text-slate-300">
-              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-divider font-mono text-xs text-slate-500">
+            <li key={i} className="flex gap-2.5 type-body-sm text-slate-300">
+              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-divider type-caption text-slate-500">
                 {i + 1}
               </span>
               <span>{s}</span>
@@ -65,21 +65,21 @@ export function PlaybookDetail({ org, d, scope }: { org: string; d: DimInsight; 
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="rounded-xl border border-divider bg-surface/40 p-3">
-          <div className="font-mono text-xs uppercase tracking-widest text-slate-500">Proposed artifact</div>
-          <p className="mt-1 text-sm text-slate-200">
+          <div className="type-label tracking-widest text-slate-500">Proposed artifact</div>
+          <p className="mt-1 type-body-sm text-slate-200">
             {p.artifact.name} <span className="text-slate-500">· {p.artifact.kind}</span>
           </p>
-          <p className="mt-1 text-sm text-slate-500">Generate a ready-to-adopt draft in Practices, scoped to {d.laggard.name}.</p>
+          <p className="mt-1 type-body-sm text-slate-500">Generate a ready-to-adopt draft in Practices, scoped to {d.laggard.name}.</p>
           <div className="mt-2">
             <Handoff href={`/org/${org}/practices${scope.scopeQ(d.laggard.id)}`}>generate in Practices →</Handoff>
           </div>
         </div>
 
         <div className="rounded-xl border border-divider bg-surface/40 p-3">
-          <div className="font-mono text-xs uppercase tracking-widest text-slate-500">Adoption checklist</div>
+          <div className="type-label tracking-widest text-slate-500">Adoption checklist</div>
           <ul className="mt-1.5 space-y-1">
             {p.checklist.map((c, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm text-slate-300">
+              <li key={i} className="flex items-start gap-2 type-body-sm text-slate-300">
                 <span aria-hidden className="mt-1.5 h-3 w-3 shrink-0 rounded-[3px] border border-slate-600" />
                 <span>{c}</span>
               </li>

@@ -8,6 +8,7 @@
 
 import { useState } from "react";
 import { Kicker, deltaHex, fmtDelta } from "@/components/ui";
+import { stateTitle } from "@/components/org/viz";
 import { FlightRowDetail, LandedRowDetail, TriageDetail, opsImpact, type OpsView } from "@/features/inflight/live/liveWarRoomOpsShared";
 
 type Stage = "triage" | "inFlight" | "landed";
@@ -38,15 +39,15 @@ function StageNode({
         active ? "border-accent/50 bg-accent/10" : "border-divider bg-surface-strong/30 hover:border-slate-600"
       }`}
     >
-      <span className={`shrink-0 text-lg ${glyphClass}`} aria-hidden>
+      <span className={`shrink-0 type-lede ${glyphClass}`} aria-hidden>
         {glyph}
       </span>
       <span className="min-w-0">
-        <span className="block font-mono text-2xl font-bold leading-none tabular-nums text-white">{count}</span>
+        <span className="block type-figure font-bold leading-none text-white">{count}</span>
         <Kicker tone="muted" className="mt-1">
           {label}
         </Kicker>
-        <span className="mt-0.5 block truncate text-sm text-slate-500">{caption}</span>
+        <span className="mt-0.5 block truncate type-body-sm text-slate-500">{caption}</span>
       </span>
     </button>
   );
@@ -89,7 +90,7 @@ export function ShipLoopPipeline({ state, busy, accept, reject, onVerify }: OpsV
         <Arrow />
         <StageNode
           glyph="⇂"
-          glyphClass={imp.merged > 0 ? "text-emerald-400" : "text-slate-600"}
+          glyphClass={imp.merged > 0 ? "text-success-soft" : "text-slate-600"}
           count={state.counts.landed}
           label="Landed"
           caption={imp.awaiting > 0 ? `${imp.awaiting} awaiting rescan` : "merged & measured"}
@@ -99,17 +100,23 @@ export function ShipLoopPipeline({ state, busy, accept, reject, onVerify }: OpsV
         <Arrow />
         {/* Terminal readout: the loop's cumulative achievement — not a drill-in, a takeaway. */}
         <div className="flex min-w-0 flex-1 items-center gap-3 rounded-xl border border-divider bg-surface-strong/30 px-3 py-2.5">
-          <span className="shrink-0 text-lg text-slate-500" aria-hidden>
+          <span className="shrink-0 type-lede text-slate-500" aria-hidden>
             Σ
           </span>
           <span className="min-w-0">
-            <span className="block font-mono text-2xl font-bold leading-none tabular-nums" style={{ color: deltaHex(imp.netOverall) }}>
-              {fmtDelta(imp.netOverall)}
+            {/* Nothing rescanned yet is an ABSENCE, not a net zero — the tile prints the void and
+                carries the kit's caveat, rather than reporting "→0" as the loop's achievement. */}
+            <span
+              className="block type-figure font-bold leading-none"
+              style={imp.netOverall == null ? undefined : { color: deltaHex(imp.netOverall) }}
+              title={imp.netOverall == null ? stateTitle("missing", "Net impact") : undefined}
+            >
+              {imp.netOverall == null ? "—" : fmtDelta(imp.netOverall)}
             </span>
             <Kicker tone="muted" className="mt-1">
               Net impact
             </Kicker>
-            <span className="mt-0.5 block truncate text-sm text-slate-500">
+            <span className="mt-0.5 block truncate type-body-sm text-slate-500">
               {imp.verified} verified · {imp.dimsLifted} dims lifted
             </span>
           </span>
@@ -122,7 +129,7 @@ export function ShipLoopPipeline({ state, busy, accept, reject, onVerify }: OpsV
           <>
             <Kicker className="mb-2.5">Triage · {state.counts.triage} directions</Kicker>
             {state.triage.length === 0 ? (
-              <p className="text-base text-slate-500">Radar clear, no open directions to triage.</p>
+              <p className="type-body text-slate-500">Radar clear, no open directions to triage.</p>
             ) : (
               <div className="grid max-h-[24rem] grid-cols-1 gap-2.5 overflow-y-auto xl:grid-cols-2">
                 {state.triage.map((t) => (
@@ -142,7 +149,7 @@ export function ShipLoopPipeline({ state, busy, accept, reject, onVerify }: OpsV
           <>
             <Kicker className="mb-2.5">In flight · {state.counts.inFlight} PRs</Kicker>
             {state.inFlight.length === 0 ? (
-              <p className="text-base text-slate-500">No PRs in flight. Accept a direction to open one.</p>
+              <p className="type-body text-slate-500">No PRs in flight. Accept a direction to open one.</p>
             ) : (
               <div className="max-h-[24rem] space-y-2 overflow-y-auto">
                 {state.inFlight.map((p) => (
@@ -156,7 +163,7 @@ export function ShipLoopPipeline({ state, busy, accept, reject, onVerify }: OpsV
           <>
             <Kicker className="mb-2.5">Landed · {state.counts.landed} PRs</Kicker>
             {state.landed.length === 0 ? (
-              <p className="text-base text-slate-500">Merged PRs land here with their measured score impact.</p>
+              <p className="type-body text-slate-500">Merged PRs land here with their measured score impact.</p>
             ) : (
               <div className="max-h-[24rem] space-y-2 overflow-y-auto">
                 {state.landed.map((p) => (

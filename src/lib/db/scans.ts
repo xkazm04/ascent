@@ -22,6 +22,10 @@ export {
   getRepoPassport,
   getPublicScanGallery,
   getLatestRecommendations,
+  getLatestPlatformSignals,
+  getLatestUnmeasurableDims,
+  getStandingRegressions,
+  PLATFORM_FOLD_LOOKBACK,
   reportPermalink,
   type HistoryPoint,
   type RepositoryHistory,
@@ -31,6 +35,7 @@ export {
   type ScanComparison,
   type PublicRepoCard,
   type PublicScanGallery,
+  type RepoStandingConcern,
 } from "@/lib/db/scans-read";
 
 export {
@@ -38,9 +43,11 @@ export {
   getRecommendationEvents,
   getRecommendationOrgSlug,
   getOrphanedTrackedRecommendations,
+  handoffRecommendations,
   type RecommendationPatch,
   type RecommendationActor,
   type OrphanedTrackedRec,
+  type HandoffOutcome,
 } from "@/lib/db/scans-recommendations";
 
 export {

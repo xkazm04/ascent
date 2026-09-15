@@ -47,7 +47,7 @@ export function SelectStep({
       {/* ONB a11y #1: focus target for the step transition (focus moves here on phase change).
           h2, not h1: the page-level h1 lives in onboarding/page.tsx; a step-level h1 made two h1s
           coexist in the document (ambiguity-ui #4). Visual size is explicit, so nothing changes. */}
-      <h2 data-step-heading tabIndex={-1} className="text-2xl font-bold text-white focus:outline-none">
+      <h2 data-step-heading tabIndex={-1} className="type-heading font-bold text-white focus:outline-none">
         Choose repositories
       </h2>
       {/* Order, stated honestly. The two paths really do differ: the public listing (/api/org/repos)
@@ -66,7 +66,7 @@ export function SelectStep({
           route has always reported that as `truncated`; saying it here is the difference between "these
           are the recent ones" and silently presenting a slice as the whole account. */}
       {listTruncated && !listing && repos.length > 0 && (
-        <p className="mt-1 font-mono text-xs text-slate-500">
+        <p className="mt-1 type-caption text-slate-500">
           Showing the {repos.length} most recently pushed. {sourceLabel || "this account"} has more than this
           listing reaches. Scan these now; add the rest from the dashboard.
         </p>
@@ -80,7 +80,7 @@ export function SelectStep({
             type="button"
             onClick={onSelectTop}
             disabled={listing}
-            className="rounded-md border border-slate-700 px-3 py-1.5 text-sm text-slate-200 transition hover:border-accent hover:text-white disabled:opacity-50"
+            className="rounded-md border border-slate-700 px-3 py-1.5 type-body-sm text-slate-200 transition hover:border-accent hover:text-white disabled:opacity-50"
           >
             Select top {maxSelect}
           </button>
@@ -88,7 +88,7 @@ export function SelectStep({
             type="button"
             onClick={onClear}
             disabled={listing || selected.size === 0}
-            className="rounded-md border border-slate-700 px-3 py-1.5 text-sm text-slate-300 transition hover:border-slate-600 disabled:opacity-50"
+            className="rounded-md border border-slate-700 px-3 py-1.5 type-body-sm text-slate-300 transition hover:border-slate-600 disabled:opacity-50"
           >
             Clear
           </button>
@@ -125,13 +125,13 @@ export function SelectStep({
                 <span className={`flex h-5 w-5 items-center justify-center rounded border ${checked ? "border-accent bg-accent text-on-accent" : "border-slate-600"}`}>
                   {checked && "✓"}
                 </span>
-                <span className="flex-1 truncate font-mono text-base text-white">{r.fullName}</span>
+                <span className="flex-1 truncate font-mono type-body text-white">{r.fullName}</span>
                 {r.private && <PrivateRepoBadge />}
                 {capped && (
-                  <span className="font-mono text-sm uppercase tracking-widest text-slate-500">limit reached</span>
+                  <span className="type-mono-sm uppercase tracking-widest text-slate-500">limit reached</span>
                 )}
-                {r.language && <span className="text-sm text-slate-500">{r.language}</span>}
-                <span className="text-sm text-slate-500">★ {r.stars.toLocaleString()}</span>
+                {r.language && <span className="type-body-sm text-slate-500">{r.language}</span>}
+                <span className="type-body-sm text-slate-500">★ {r.stars.toLocaleString()}</span>
               </button>
             );
           })
@@ -149,18 +149,18 @@ export function SelectStep({
               // AND an aria-describedby → the visible hint below, so mouse, keyboard, and SR users all get it.
               title={selected.size === 0 ? "Select at least one repository above to scan" : undefined}
               aria-describedby={selected.size === 0 ? "scan-disabled-reason" : undefined}
-              className="focus-ring rounded-lg bg-accent px-5 py-2.5 text-base font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
+              className="focus-ring rounded-lg bg-accent px-5 py-2.5 type-body font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
             >
               Scan {selected.size} {selected.size === 1 ? "repo" : "repos"}
             </button>
             <button
               onClick={onBack}
-              className="focus-ring rounded-lg border border-slate-700 px-4 py-2.5 text-base text-slate-300 hover:border-slate-600"
+              className="focus-ring rounded-lg border border-slate-700 px-4 py-2.5 type-body text-slate-300 hover:border-slate-600"
             >
               Back
             </button>
             {selected.size === 0 && (
-              <span id="scan-disabled-reason" className="text-sm text-slate-500">
+              <span id="scan-disabled-reason" className="type-body-sm text-slate-500">
                 Select at least one repository above to scan.
               </span>
             )}
@@ -186,7 +186,7 @@ export function CapPill({ count, max }: { count: number; max: number }) {
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="font-mono text-sm tabular-nums text-slate-300">
+      <span className="type-mono-sm tabular-nums text-slate-300">
         {count}/{max} selected
       </span>
     </div>

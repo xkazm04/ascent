@@ -8,7 +8,6 @@
 import { NextResponse } from "next/server";
 import { PUBLIC_ORG } from "@/lib/auth";
 import { requireOrgAccess } from "@/lib/authz";
-import { selfHostGuard } from "@/lib/api/self-host";
 import { getLoopRunDetail } from "@/lib/db/loop-runs";
 import { orgIdForSlug } from "@/lib/db/loop-tenancy";
 
@@ -16,8 +15,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request, ctx: { params: Promise<{ id: string }> }) {
-  const guard = selfHostGuard();
-  if (guard) return guard;
   const { id } = await ctx.params;
   const org = new URL(request.url).searchParams.get("org")?.trim().toLowerCase() ?? "";
   if (!org || org === PUBLIC_ORG) return NextResponse.json({ error: "Missing 'org'." }, { status: 400 });

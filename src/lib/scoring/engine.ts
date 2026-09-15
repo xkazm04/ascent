@@ -16,6 +16,7 @@ import type {
   LlmAssessment,
   PrStats,
   RepoArchetype,
+  PlatformSignalRecord,
   RepoSnapshot,
   SandboxProjection,
   ScanReport,
@@ -38,7 +39,30 @@ import {
   weightsFor,
 } from "@/lib/maturity/model";
 import { applyDiscrepancyBudget, MAX_FLAGGED_DIMENSIONS } from "@/lib/scoring/discrepancy-policy";
-import { CLAIM_SCORED_DIMENSIONS, applyVerifiedClaims, verifyClaims } from "@/lib/scoring/claims";
+// Dependency-free by contract (see its header), so importing the observability rule here does not
+// drag anything server-side into the client bundle this module is part of.
+import { unmeasurablePlatformDims } from "@/lib/analyze/platform-carry";
+import { CLAIM_SCORED_DIMENSIONS, applyVerifiedClaims, verifyClaims, type VerifiedClaim } from "@/lib/scoring/claims";
+// The PATH predicate only — deliberately not the graph module, which reaches `node:crypto` and would
+// therefore break the client bundle the moment this file is imported by a client component (it is:
+// RoadmapSandbox and ScoreWaterfall both import from here). `tsc` and the unit suite stay green on
+// that mistake; only `next build` catches it, so the import is kept narrow on purpose.
+import { isGuidancePath } from "@/lib/analyze/context-health";
+
+/**
+ * One evidence line for a verified claim.
+ *
+ * A ZERO-point facet (D1's `contradiction`) is rendered as EVIDENCE, not as a score line: "(+0)"
+ * beside a finding reads like a scoring event that failed, when the design is that this finding was
+ * never a scoring event. Both of its citations are shown, because a claim whose whole content is a
+ * relationship between two files is unreadable with one of them.
+ */
+function renderClaim(v: VerifiedClaim): string {
+  const second = v.path2 && v.quote2 ? ` · ${v.path2}: "${v.quote2}"` : "";
+  return v.points === 0
+    ? `Model reported ${v.facet} (evidence only, scores 0) — ${v.path}: "${v.quote}"${second}`
+    : `Model cited ${v.facet} (+${v.points}) — ${v.path}: "${v.quote}"${second}`;
+}
 import { buildDimensionFollowUps, buildFallbackRoadmap } from "@/lib/scoring/recommendations";
 import { parseResolvedIds } from "@/lib/org/followups";
 import { diffScans, type ScanDiff } from "@/lib/report/compare";
@@ -89,6 +113,12 @@ export function assembleReport(
   // rather than a bot-fraction-only value that the pipeline then has to overwrite. Absent (tokenless /
   // reconstructed snapshots) degrades to the commit-side signal exactly as before.
   prStats?: PrStats | null,
+  // What this scan could SEE of the GitHub-side folds. Read for one purpose only: a dimension this
+  // reading could not observe at all is owed no manufactured follow-up (see buildDimensionFollowUps)
+  // and is disclosed on `scoreIntegrity.unmeasuredDims`. It moves NO score — the fold's points were
+  // already applied (or not) upstream in buildScanScoreInput. Omitted (legacy callers, the sandbox
+  // projection) means unknown, which is never read as blind.
+  platformSignals?: PlatformSignalRecord | null,
 ): ScanReport {
   const llmById = new Map(assessment.dimensions.map((d) => [d.id, d]));
   // Dimensions the LLM's self-audit flagged as a detector discrepancy — a MISSED signal (a visibility
@@ -214,19 +244,36 @@ export function assembleReport(
     // verifier confirms — and then by exactly that facet's points. A facet the detector already
     // evidenced is confirmation, not a second award. The citation is the bound: drift is limited to
     // what is actually in the repository, which is the property the ±6 band was approximating.
+    // D1's citations are bounded further: only the guidance documents the arbiter actually found are
+    // citable, so the model cannot present a design doc as this repo's agent guidance. An empty graph
+    // means an empty allowlist, which correctly rejects every D1 claim rather than opening the door.
     const claimed = CLAIM_SCORED_DIMENSIONS.includes(s.id)
-      ? verifyClaims(assessment.claims ?? [], snap, s.id)
+      ? verifyClaims(assessment.claims ?? [], snap, s.id, {
+          ...(s.id === "D1"
+            ? { allowedPaths: new Set(snap.files.filter((f) => isGuidancePath(f.path)).map((f) => f.path)) }
+            : {}),
+        })
       : null;
     let claimPoints = 0;
     const claimEvidence: string[] = [];
     if (claimed) {
-      const applied = applyVerifiedClaims(claimed.verified, s.facets ?? []);
+      const applied = applyVerifiedClaims(claimed.verified, s.facets ?? [], s.id);
       claimPoints = applied.points;
-      for (const v of applied.awarded) claimEvidence.push(`Model cited ${v.facet} (+${v.points}) — ${v.path}: "${v.quote}"`);
+      for (const v of applied.awarded) claimEvidence.push(renderClaim(v));
       for (const v of applied.confirmed) claimEvidence.push(`Model confirmed ${v.facet} — ${v.path}: "${v.quote}"`);
       // Every rejection is rendered: a claim that failed verification is the most useful sentence on
       // the card, and the rate of them is the reliability signal SCORING-VALIDITY asks for.
+      //
+      // EXCEPT `not-this-dimension` (r13). Every claim-scored dimension verifies the WHOLE claim list
+      // and rejects the ones addressed elsewhere, so a healthy D1 claim was rendered on D4's card as
+      // "Unverified claim (not-this-dimension) — canonical_declared, AGENTS.md" and vice versa. That
+      // is a routing fact about this loop, not a verification failure of anything, and it was the
+      // most common line on the D4 card in the campaign artifacts (34 of 34 readings, up to three
+      // lines each) — three sentences telling a reader that D4's evidence is unreliable, about claims
+      // that were VERIFIED and SCORED one dimension over. The rejection is still returned by
+      // `verifyClaims`; only the evidence line is suppressed.
       for (const r of [...applied.unsupported, ...claimed.rejected]) {
+        if (r.reason === "not-this-dimension") continue;
         claimEvidence.push(`Unverified claim (${r.reason}) — ${r.facet}, ${r.path}`);
       }
     }
@@ -338,6 +385,13 @@ export function assembleReport(
     // not the raw signal scores — otherwise the roadmap's "biggest gap" can contradict the card
     // the reader is looking at.
     : buildFallbackRoadmap(signals, overallScore, archetype, dimensions.map((d) => ({ id: d.id, score: d.score })));
+  // The dimensions this reading could not observe AT ALL and that still reached the blend. The
+  // guarantee below owes them nothing (unmeasured is not a gap), and the same list is disclosed on
+  // scoreIntegrity so a reader can tell "not measured" from "fine". Intersected with the scored set
+  // for the same reason widenedDims is: naming a dimension that never reached the report would
+  // overstate what this scan withheld judgment on.
+  const scoredIds = new Set(dimensions.map((d) => d.id));
+  const unmeasuredDims = unmeasurablePlatformDims(platformSignals).filter((id) => scoredIds.has(id));
   // The follow-up guarantee: every dimension still below the green band carries a next step, grounded
   // in its own gaps. Runs on BOTH branches — the fallback roadmap is top-3-by-upside and can leave a
   // below-green dimension uncovered just as the model can. See buildDimensionFollowUps.
@@ -345,6 +399,7 @@ export function assembleReport(
     modelRoadmap,
     dimensions.map((d) => ({ id: d.id, score: d.score, gaps: d.gaps })),
     overallScore,
+    unmeasuredDims,
   );
   const resolvedFollowUpIds = [...parseResolvedIds(snap.commits.map((c) => c.message))];
 
@@ -378,6 +433,10 @@ export function assembleReport(
       // the D9 hatch was suppressed. Recorded as data because "the audit was distrusted" is exactly the
       // kind of run-over-run difference a consumer anchoring a number has to be able to attribute.
       ...(widenBudget.capped ? { widenCapped: true as const } : {}),
+      // Omitted, never an empty array, on a scan that observed everything: an absent field keeps a
+      // fully-observed report byte-identical to the ones written before this existed, and keeps the
+      // integrity chip silent when there is nothing to disclose.
+      ...(unmeasuredDims.length ? { unmeasuredDims } : {}),
       effectiveBlend,
     },
     ...(incomplete ? { incomplete: true as const } : {}),
@@ -638,7 +697,13 @@ function reportToComparable(report: ScanReport): ComparableScan {
     rigorScore: report.rigorScore,
     posture: report.posture.id,
     confidence: report.confidence,
+    // The full provenance, so a comparison built from a LIVE report reaches the same attribution
+    // verdict as one built from two persisted rows. Dropping it here would make an in-memory diff
+    // silently more permissive than the loop's — the same rule reading different evidence.
     engineProvider: report.engine.provider,
+    engineModel: report.engine.model,
+    ...(report.engine.degraded === undefined ? {} : { engineDegraded: report.engine.degraded }),
+    ...(report.scoreIntegrity ? { scoreIntegrity: report.scoreIntegrity } : {}),
     headSha: report.repo.headSha ?? null,
     dimensions: report.dimensions.map((d) => ({
       dimId: d.id,

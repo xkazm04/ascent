@@ -226,6 +226,8 @@ export async function runAssessmentPhase(input: AssessPhaseInput): Promise<Asses
           degraded: false,
           repo: repoFullName,
           org: input.orgSlug,
+          // The one site with no legKind to derive this from (see .ai/use-cases.json).
+          name: "scan.calibrate",
         });
       }
       capturedUsage = attemptUsage; // commit only on success
@@ -247,6 +249,7 @@ export async function runAssessmentPhase(input: AssessPhaseInput): Promise<Asses
           degraded: !moreAttemptsAfter(err),
           repo: repoFullName,
           org: input.orgSlug,
+          name: "scan.calibrate",
         });
       }
       throw err;

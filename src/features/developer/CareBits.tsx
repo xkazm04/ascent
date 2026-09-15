@@ -1,9 +1,15 @@
 "use client";
 
-// Small shared pieces every Care variant needs. Hoisted here the moment the second variant wanted
-// them (prototype rule: shared structure moves out immediately, not at refactor time).
+// The small pieces the Developer page's sections share: the unwired action buttons, the move chips,
+// the saving/level readouts and the preview stamp.
+//
+// `CarePrivacyNote` used to live here — one sentence ("Transcripts, prompts and diffs never leave
+// your machine") rendered wherever shared data was shown. It is gone because the guarantee is now
+// DRAWN: `CarePrivacyLedger` gives those rows a void in both columns, and a test fails if any of
+// them ever acquires a mark. A promise a reader has to take on trust was the weaker artifact.
 
-import { chipButtonClass, Kicker } from "@/components/ui";
+import { chipButtonClass } from "@/components/ui";
+import { StateSwatch } from "@/components/org/viz";
 import { LEVEL_HEX, scoreHex } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
 import {
@@ -11,6 +17,10 @@ import {
   type CareMoveCategory,
   type CareMoveState,
 } from "@/lib/org/developer-view";
+
+// Extracted to keep this file inside the 200-LOC `src/features/**` cap (AGENTS.md); re-exported here
+// so `./CareBits` stays the one import site for the small shared Care pieces.
+export { CareCommand, CareCopyAction } from "./CareCopyAction";
 
 /**
  * The one action button for the prototype. Every Care action (Share, Promote, Mark kept/dropped,
@@ -46,7 +56,7 @@ export function CareLinkAction({ label, intent, payload }: { label: string; inte
   return (
     <button
       type="button"
-      className="focus-ring rounded text-sm text-accent underline decoration-dotted underline-offset-4 transition-colors hover:text-white"
+      className="focus-ring rounded type-body-sm text-accent underline decoration-dotted underline-offset-4 transition-colors hover:text-white"
       onClick={() => console.info(`[care] ${intent}`, payload ?? {})}
     >
       {label}
@@ -71,7 +81,7 @@ export const CARE_STATE_LABEL: Record<CareMoveState, string> = {
 
 export function CareStateChip({ state }: { state: CareMoveState }) {
   return (
-    <span className={`rounded-full border px-2 py-0.5 font-mono text-xs uppercase tracking-widest ${STATE_CLASS[state]}`}>
+    <span className={`rounded-full border px-2 py-0.5 type-label tracking-widest ${STATE_CLASS[state]}`}>
       {CARE_STATE_LABEL[state]}
     </span>
   );
@@ -79,7 +89,7 @@ export function CareStateChip({ state }: { state: CareMoveState }) {
 
 export function CareCategoryChip({ category }: { category: CareMoveCategory }) {
   return (
-    <span className="rounded-full border border-divider px-2 py-0.5 font-mono text-xs uppercase tracking-widest text-slate-500">
+    <span className="rounded-full border border-divider px-2 py-0.5 type-label tracking-widest text-slate-500">
       {CARE_CATEGORY_LABEL[category]}
     </span>
   );
@@ -87,35 +97,36 @@ export function CareCategoryChip({ category }: { category: CareMoveCategory }) {
 
 /** Minutes/week rendered as the mentor's own unit — honest em-dash when nothing was quantified. */
 export function CareSaving({ minutes, className = "" }: { minutes: number | null | undefined; className?: string }) {
-  if (minutes == null) return <span className={`font-mono text-sm text-slate-600 ${className}`}>unquantified</span>;
+  if (minutes == null) return <span className={`type-mono-sm text-slate-600 ${className}`}>unquantified</span>;
   const h = minutes / 60;
   return (
-    <span className={`font-mono text-sm tabular-nums text-slate-300 ${className}`}>
+    <span className={`type-mono-sm tabular-nums text-slate-300 ${className}`}>
       {h >= 1 ? `${h.toFixed(1)} h/wk` : `${minutes} min/wk`}
     </span>
   );
 }
 
-/** A repo's level as its ramp colour — the one place level colour is allowed (BRAND principle 3). */
+/**
+ * A repo's level as its ramp colour — the one place level colour is allowed (BRAND principle 3).
+ *
+ * A repo with no scan has no standing to print, and a bare "—" was indistinguishable from a score we
+ * had simply not rendered. It now draws the `missing` void, whose title says which absence it is.
+ */
 export function CareLevelMark({ level, score }: { level: string | null; score: number | null }) {
+  if (level == null && score == null) {
+    return (
+      <span className="flex shrink-0 items-center gap-1.5" title="Never scanned — no level and no score exist for this repo yet. Not a zero.">
+        <StateSwatch state="missing" size={12} />
+        <span className="type-label tracking-widest text-slate-600">no scan</span>
+      </span>
+    );
+  }
   const hex = level && level in LEVEL_HEX ? LEVEL_HEX[level as LevelId] : score != null ? scoreHex(score) : undefined;
   return (
-    <span className="font-mono text-sm tabular-nums" style={hex ? { color: hex } : undefined}>
+    <span className="type-mono-sm tabular-nums" style={hex ? { color: hex } : undefined}>
       {level ?? "—"}
       {score != null ? <span className="text-slate-500"> · {score}</span> : null}
     </span>
-  );
-}
-
-/**
- * The standing promise, rendered wherever shared data is shown. Not decoration: the whole UC3 design
- * rests on the developer believing it, so it is stated in the surface rather than in a docs page.
- */
-export function CarePrivacyNote({ children }: { children?: React.ReactNode }) {
-  return (
-    <p className="text-sm text-slate-500">
-      {children ?? "Only what you chose to share is here. Transcripts, prompts and diffs never leave your machine."}
-    </p>
   );
 }
 
@@ -123,18 +134,8 @@ export function CarePrivacyNote({ children }: { children?: React.ReactNode }) {
 export function CareFixtureChip({ demo }: { demo?: string }) {
   if (!demo) return null;
   return (
-    <span className="rounded-full border border-warn/40 px-2 py-0.5 font-mono text-xs uppercase tracking-widest text-warn">
+    <span className="rounded-full border border-warn/40 px-2 py-0.5 type-label tracking-widest text-warn">
       preview · {demo}
     </span>
-  );
-}
-
-/** A labelled section eyebrow used inside the variants' own chrome. */
-export function CareEyebrow({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
-  return (
-    <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-      <Kicker>{children}</Kicker>
-      {right}
-    </div>
   );
 }

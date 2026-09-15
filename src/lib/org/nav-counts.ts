@@ -42,10 +42,12 @@ import { buildSecurityOverview } from "@/lib/org/security";
 import {
   contributorFindings,
   passportFindings,
+  practiceFindings,
   securityFindings,
   teamsFindings,
   type Finding,
 } from "@/lib/org/findings";
+import { listPracticeAdoptions } from "@/lib/db/practice-adoption";
 
 /** Findings move only on a scan, so a minute of staleness on a badge is invisible and cheap. */
 const FINDINGS_TTL_SECONDS = 60;
@@ -56,7 +58,12 @@ export type NavCounts = OrgNavCounts & {
   teams: number;
   passports: number;
   contributors: number;
+  /** MOONSHOT #33 — drifted / removed practice adoptions awaiting a decision. */
+  practices: number;
 };
+
+/** Zeroed derived counts. One literal, so a new finding module cannot be half-added. */
+const NO_DERIVED = { security: 0, teams: 0, passports: 0, contributors: 0, practices: 0 };
 
 /**
  * Every decidable finding across the promoted modules. Each source is independently `.catch`ed to
@@ -64,7 +71,7 @@ export type NavCounts = OrgNavCounts & {
  * 500 the shell).
  */
 async function deriveFindings(orgSlug: string): Promise<Finding[]> {
-  const [security, passportRepos, teams, contributors] = await Promise.all([
+  const [security, passportRepos, teams, contributors, adoptions] = await Promise.all([
     buildSecurityOverview(orgSlug).catch(() => null),
     // NOT getOrgRollup. This badge reads exactly one thing — each repo's readiness blockers — and the
     // full rollup was being bought to supply it: every repo's latest scan with its dimension rows,
@@ -75,10 +82,14 @@ async function deriveFindings(orgSlug: string): Promise<Finding[]> {
     getOrgPassportBlockers(orgSlug).catch(() => []),
     getOrgTeamRollup(orgSlug).catch(() => null),
     getContributorInsights(orgSlug).catch(() => null),
+    // MOONSHOT #33 — the adoption ledger. A narrow indexed read (one table, org-scoped), so it costs
+    // nothing like the rollups above; `.catch` to empty for the same reason as its siblings.
+    listPracticeAdoptions(orgSlug).catch(() => []),
   ]);
 
   return [
     ...securityFindings(security?.register ?? []),
+    ...practiceFindings(adoptions),
     ...teamsFindings(teams?.unowned ?? []),
     ...passportFindings(passportRepos),
     ...contributorFindings(
@@ -110,7 +121,7 @@ export const getOrgFindingCounts = cache(async (orgSlug: string) => {
     getOrgFindings(orgSlug),
     resolvedKeys(orgSlug).catch(() => new Map<string, Set<string>>()),
   ]);
-  const counts = { security: 0, teams: 0, passports: 0, contributors: 0 };
+  const counts = { ...NO_DERIVED };
   for (const f of findings) {
     if (resolved.get(f.module)?.has(f.itemKey)) continue;
     counts[f.module] += 1;
@@ -122,7 +133,7 @@ export const getOrgFindingCounts = cache(async (orgSlug: string) => {
 export async function getNavCounts(orgSlug: string): Promise<NavCounts | null> {
   const [stateful, derived] = await Promise.all([
     getOrgNavCounts(orgSlug),
-    getOrgFindingCounts(orgSlug).catch(() => ({ security: 0, teams: 0, passports: 0, contributors: 0 })),
+    getOrgFindingCounts(orgSlug).catch(() => ({ ...NO_DERIVED })),
   ]);
   if (!stateful) return null;
   return { ...stateful, ...derived };

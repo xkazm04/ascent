@@ -5,12 +5,23 @@
 // demand. The grid itself is still fed by the lean rollup projection ({dimId, score} per cell) — the
 // rich per-dimension metadata is loaded only when a cell is clicked. Table markup mirrors the prior
 // server render; only the cell-as-button + modal state are new.
+//
+// ABSENT MEASUREMENTS (fixed 2026-09-08, /org UX redesign wave 2). Every cell used to read
+// `byId[d] ?? 0`: a repo whose latest scan never scored a dimension — a legacy scan predating the
+// dimension, an engine that returned a short dim list — was painted as a RED ZERO, with the aria
+// label "score 0" and a click target that opened a detail modal for a measurement that does not
+// exist. That is a fabricated finding, and it was contradicted two rows down by `columnAverages`,
+// which has always EXCLUDED those repos from the fleet mean rather than dragging it toward zero.
+// An absent cell is now the kit's `missing` void: framed, empty, non-interactive, carrying the
+// shared caveat. It is not a zero, and it can no longer be read as one.
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Surface } from "@/components/ui";
 import { SectionHeader } from "@/components/org/shared/ui";
 import { DIMENSION_SHORT, heatCell, scoreHex } from "@/lib/ui";
+import { Legend } from "@/components/org/viz";
+import { HeatVoid } from "./HeatVoid";
 import { RepoDimensionModal, type HeatTarget } from "@/components/org/shared/RepoDimensionModal";
 
 export interface HeatRow {
@@ -60,17 +71,18 @@ export function RepoDimensionHeatmap({
   const cycleSort = (d: string) =>
     setSort((s) => (s?.dim !== d ? { dim: d, dir: 1 } : s.dir === 1 ? { dim: d, dir: -1 } : null));
   const avgs = columnAverages(rows, dims);
+  const hasMissing = rows.some((r) => dims.some((d) => dimScore(r, d) == null)) || dims.some((d) => avgs[d] == null);
   return (
     <Surface className="p-5">
       <SectionHeader
         size="sm"
         title="Dimension heatmap"
-        description={`Where each repo is strong or weak across all ${dims.length} dimensions. Click a column to sort, a cell for its score, evaluation, and next steps.`}
+        description={`${rows.length} repos × ${dims.length} dimensions`}
       />
       <div className="mt-4 overflow-x-auto">
         <table className="min-w-[640px]">
           <thead>
-            <tr className="font-mono text-sm uppercase tracking-widest text-slate-500">
+            <tr className="type-mono-sm uppercase tracking-widest text-slate-500">
               <th className="px-2 py-1 text-left" />
               {dims.map((d) => {
                 const active = sort?.dim === d;
@@ -100,7 +112,7 @@ export function RepoDimensionHeatmap({
               const byId = Object.fromEntries(r.dims.map((d) => [d.dimId, d.score]));
               return (
                 <tr key={r.fullName}>
-                  <th scope="row" className="px-2 py-1 text-left font-mono text-sm font-normal">
+                  <th scope="row" className="px-2 py-1 text-left type-mono-sm font-normal">
                     {/* GA: the row label opens the repo's stored report (cells stay the dim drill-in). */}
                     <Link
                       href={`/report/${r.fullName}`}
@@ -111,14 +123,22 @@ export function RepoDimensionHeatmap({
                     </Link>
                   </th>
                   {dims.map((d) => {
-                    const v = byId[d] ?? 0;
+                    const v = byId[d];
+                    // The void. Not a button: there is no per-dimension detail to open for a
+                    // measurement that was never taken, and an enabled control here would promise one.
+                    if (v == null)
+                      return (
+                        <td key={d} className="px-1 py-1">
+                          <HeatVoid subject={`${r.name} · ${d}`} label={`${r.name} ${d}: no measurement`} />
+                        </td>
+                      );
                     const cell = heatCell(v, 0.25 + (v / 100) * 0.75);
                     return (
                       <td key={d} className="px-1 py-1">
                         <button
                           type="button"
                           onClick={() => setTarget({ fullName: r.fullName, name: r.name, dimId: d })}
-                          className="focus-ring mx-auto flex h-7 w-9 items-center justify-center rounded font-mono text-sm transition hover:ring-2 hover:ring-accent/60"
+                          className="focus-ring mx-auto flex h-7 w-9 items-center justify-center rounded type-mono-sm transition hover:ring-2 hover:ring-accent/60"
                           style={{ backgroundColor: cell.fill, color: cell.text }}
                           title={`${r.name} · ${d}: ${v} (click for detail)`}
                           aria-label={`${r.name} ${d} score ${v}, open detail`}
@@ -136,7 +156,7 @@ export function RepoDimensionHeatmap({
               scanning every row. Numbers-only (colored by score), visually set off by a top rule. */}
           <tfoot>
             <tr className="border-t border-slate-800">
-              <th scope="row" className="px-2 pt-2 text-left font-mono text-xs uppercase tracking-widest text-slate-500">
+              <th scope="row" className="px-2 pt-2 text-left type-label tracking-widest text-slate-500">
                 Fleet avg
               </th>
               {dims.map((d) => {
@@ -144,9 +164,11 @@ export function RepoDimensionHeatmap({
                 return (
                   <td key={d} className="px-1 pt-2 text-center">
                     {v == null ? (
-                      <span className="font-mono text-sm text-slate-700">—</span>
+                      // No repo in view carries this dimension — the same void the body cells draw,
+                      // never the em dash a reader mistakes for a floor of zero.
+                      <HeatVoid subject={`Fleet average · ${d}`} label={`No fleet average for ${d}`} boxed={false} />
                     ) : (
-                      <span className="font-mono text-sm font-semibold tabular-nums" style={{ color: scoreHex(v) }} title={`Fleet average for ${d}: ${v}`}>
+                      <span className="type-mono-sm font-semibold tabular-nums" style={{ color: scoreHex(v) }} title={`Fleet average for ${d}: ${v}`}>
                         {v}
                       </span>
                     )}
@@ -157,6 +179,8 @@ export function RepoDimensionHeatmap({
           </tfoot>
         </table>
       </div>
+      {/* Only what the grid actually contains: a fleet with every dimension scored gets no legend. */}
+      <Legend states={hasMissing ? ["measured", "missing"] : []} className="mt-3" />
       <RepoDimensionModal org={org} target={target} onClose={() => setTarget(null)} />
     </Surface>
   );

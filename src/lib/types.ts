@@ -2,6 +2,8 @@
 // See docs/features/scanning/maturity-model.md for the conceptual model behind these types.
 
 import type { PrRateBook } from "@/lib/analyze/pr-thresholds";
+import type { CraftAxis } from "@/lib/scoring/craft";
+import type { ManifestReadout } from "@/lib/standard/readout";
 
 export type LevelId = "L1" | "L2" | "L3" | "L4" | "L5";
 export type DimensionId = "D1" | "D2" | "D3" | "D4" | "D5" | "D6" | "D7" | "D8" | "D9";
@@ -13,6 +15,7 @@ export type ProviderName =
   | "openai"
   | "openrouter"
   | "local"
+  | "nebius"
   | "mock"
   | "claude-cli"
   | "codex-cli";
@@ -44,9 +47,9 @@ export const GOAL_STATUSES: GoalStatus[] = ["active", "achieved"];
 /** What a RecommendationEvent records: a status change, a (re)assignment, a due-date change, or a
  *  standalone note (a comment that arrived with a patch that changed no field — notes are never
  *  silently dropped; see roadmap-recommendation-tracking #1). */
-export type RecEventKind = "status" | "assignee" | "target_date" | "note";
+export type RecEventKind = "status" | "assignee" | "target_date" | "note" | "attempt";
 
-export const REC_EVENT_KINDS: RecEventKind[] = ["status", "assignee", "target_date", "note"];
+export const REC_EVENT_KINDS: RecEventKind[] = ["status", "assignee", "target_date", "note", "attempt"];
 
 /** Max length of a recommendation-patch note. Longer notes are REJECTED with a 400 (never silently
  *  truncated — a lost tail is data loss the caller can't see). */
@@ -60,6 +63,8 @@ export interface PersistedRecommendation {
   impact: Impact;
   effort: Effort;
   rationale: string;
+  /** The single concrete first move, when the scan recorded one (MC-B8a). */
+  firstStep?: string;
   /** Invitational questions to explore the gap — inputs, not directives. */
   explore: string[];
   levelUnlock?: string;
@@ -74,6 +79,14 @@ export interface PersistedRecommendation {
   projectedPoints?: number | null;
   /** The maturity level closing this gap crosses into (e.g. "L3"), or null/absent when in band. */
   unlocks?: string | null;
+  /** The org's measured basis for closing this gap, as ONE ready-to-render clause carrying its own
+   * median, sample count and instrument (`expectedLiftClause`) — or `null` when nothing publishable
+   * has been measured. NEVER a number: a client handed `0` would render "we measured this and it does
+   * nothing", which is the opposite of "nobody has measured this" (G4). Attached by
+   * `GET /api/recommendations` and read by the tracker on the client-fetch (live-scan) path; the
+   * server-rendered permalink threads the distribution MAP down instead, because ordering by measured
+   * evidence needs the numbers a rendered sentence cannot carry. */
+  expectedLift?: string | null;
 }
 
 /** One entry in a recommendation's activity timeline — who changed what, from → to, when. */
@@ -121,6 +134,8 @@ export interface RepoMeta {
   owner: string;
   name: string;
   url: string;
+  /** Which forge this repo was read from (moonshot #4). Absent ⇒ github. */
+  forge?: "github" | "gitlab" | "local";
   description?: string;
   stars: number;
   forks: number;
@@ -328,12 +343,37 @@ export interface DeclinedByChoice {
   findingId?: string;
   /** 0.4.0: YYYY-MM-DD the choice was made, carried through so the reader can age it. */
   at?: string;
+  /** The login that made the decision, recorded server-side. A decline is a decision record, and one
+   *  with no author is an assertion nobody owns. Absent on declines recorded before this field —
+   *  rendered as "unknown", never a fabricated author. */
+  by?: string;
   /** 0.4.0: set when the accepted gap has CHANGED since it was accepted (the finding hardened, its
    *  kind changed, or the decision aged past the re-confirmation window). The blocker then STAYS in
    *  the blocker list — an accepted risk about a different repo is not an accepted risk. */
   needsReconfirm?: boolean;
   /** The sentence telling the owner what changed and why they are being asked again. */
   reconfirmReason?: string;
+}
+
+/** 0.4.0 - PROVENANCE for a score an OWNER moved. `rollback` is an owner-asserted fact a scan cannot
+ *  observe, and asserting it re-derives productionReadiness.score/band - worth up to +15 weighted
+ *  points. Without this block the exported passport, the hero and the CSV showed an owner-lifted score
+ *  in exactly the same form as a measured one, while the decline path in the same overlay is explicit
+ *  that a decline never moves a score. The override's EFFECT stands (the owner knows something the scan
+ *  doesn't); what changes is that it is now visible, with the measured figure readable beside it. */
+export interface ScoreOverride {
+  /** Which owner-asserted field moved the score. Only `rollback` today. */
+  reason: "rollback";
+  /** score - measuredScore. Signed: an owner who corrects a false positive moves it DOWN. */
+  delta: number;
+  /** The scan-derived score/band before the override - the honest measurement, kept readable. */
+  measuredScore: number;
+  measuredBand: ProductionBand;
+  /** The login that set the override, and the day (YYYY-MM-DD) they set it. Both recorded server-side
+   *  from the session; absent on overrides stored before this field existed - which reads as UNKNOWN
+   *  AUTHOR, never a fabricated one. */
+  by?: string;
+  at?: string;
 }
 
 export interface AppPassport {
@@ -418,6 +458,9 @@ export interface AppPassport {
     blockers: string[];
     /** 0.4.0: the same blockers WITH minted ids — see PassportFinding. */
     findings?: PassportFinding[];
+    /** Set by the read-time override overlay when an owner assertion MOVED this score. Absent means
+     *  the score is purely measured. */
+    overridden?: ScoreOverride;
   };
   links: { report?: string; contextMap?: string; manifest?: string };
   /** `confidence` is the WHOLE-ARTIFACT figure (how much of the app could be inspected at all).
@@ -516,6 +559,10 @@ export interface RepoSnapshot {
   truncated: boolean;
   /** 0..1 estimate of how much of the repo we could inspect. */
   coverage: number;
+  /** QUARANTINED repo-authored `.ai/memory/` entries (moonshot #14). Deliberately NOT part of `files`:
+   *  these bodies are agent-written prose from a customer repository and must never reach the
+   *  assessment prompt or any scorer. Only `src/lib/memory/repo-memory-mirror.ts` reads them. */
+  memoryFiles?: FetchedFile[];
 }
 
 // ---------------------------------------------------------------------------
@@ -576,13 +623,21 @@ export interface LlmRoadmapItem {
   impact: Impact;
   effort: Effort;
   rationale: string;
+  /** The single concrete first move (one sentence) — rendered above the rationale so the reader's
+   *  next action leaves the prose (MC-B8a). Optional: absent on pre-field scans, never fabricated. */
+  firstStep?: string;
   /** Invitational questions to explore the gap — inputs, not directives. */
   explore?: string[];
   /** e.g. "L3->L4" — the level transition this unlocks. */
   levelUnlock?: string;
   /** `gap` (default): a shortfall below the band — a follow-up the loop may work. `craft`: what would
-   *  make an already-strong dimension exemplary; never a follow-up, never debt, never auto-closed. */
+   *  make an already-strong dimension exemplary. Since r12 a craft entry IS dispatchable (the loop's
+   *  craft lane works it) but is still never debt, never a badge, never an alert and never a score. */
   kind?: "gap" | "craft";
+  /** Which face of the craft this raises — see `src/lib/scoring/craft.ts` CRAFT_AXES. Set only on a
+   *  `craft` entry; absent on every gap and on craft entries from a model that omitted it. A coverage
+   *  key for the ladder, never a weight. */
+  craftAxis?: CraftAxis;
 }
 
 /** The LLM acting as auditor: a signal it believes the deterministic detector got wrong. */
@@ -600,6 +655,10 @@ export interface LlmClaim {
   facet: string;
   path: string;
   quote: string;
+  /** Second citation, for a facet whose `citations` is 2 (a claim ABOUT two files — "these two agree",
+   *  "these two contradict" — is unverifiable from one of them). Absent for single-citation facets. */
+  path2?: string;
+  quote2?: string;
   note?: string;
 }
 
@@ -842,10 +901,85 @@ export interface ScoreIntegrity {
    *  visibility hatch was suppressed — the run is pinned to the deterministic signals. Absent on a
    *  normal run; `widenedDims` is empty whenever this is true. */
   widenCapped?: true;
+  /** Dimensions this scan could not OBSERVE at all — the platform fold was unavailable and there was
+   *  nothing to carry from an earlier GitHub scan (dimensionObservability, analyze/platform-carry.ts).
+   *  Their scores are whatever the file evidence produced and are NOT adjusted here; what changes is
+   *  that they are owed no manufactured follow-up, and that a reader can tell "not measured" from
+   *  "measured and fine". Absent — never an empty array — on a fully-observed scan and on any row
+   *  written before the field. */
+  unmeasuredDims?: DimensionId[];
   /** The REALIZED blend weight actually applied (SCORE_BLEND × coverage), not the configured constant.
    *  A truncated or rate-limited ingest lowers this and shifts the score toward the deterministic
    *  signal with zero repo change — the third way an unchanged commit can score differently. */
   effectiveBlend: number;
+}
+
+// ---------------------------------------------------------------------------
+// Platform-signal provenance — what a scan could see of GitHub, and from when
+// ---------------------------------------------------------------------------
+
+/**
+ * The GitHub-side folds (`src/lib/analyze/platform-signals.ts`) credit D2/D3/D4 for tooling that is
+ * installed rather than committed: review/CI/coverage Apps posting check suites, and default-branch
+ * Actions health. A scan run from a WORKTREE cannot observe any of it — the loop's own rescans set
+ * `noAmbientToken` and read the filesystem — so the same commit scores lower from inside the loop
+ * than a GitHub scan of it would. Left alone that is not a caveat but a ceiling: `green` demands L5
+ * on every dimension, so a fleet could be un-greenable from inside the loop for a reason nothing
+ * rendered.
+ *
+ * This record is the fix's evidence. Every scan says which of the three states it was in, so a
+ * consumer can carry a fold forward, disclose its age, or refuse to demand a number the scan had no
+ * way to earn.
+ */
+export type PlatformFoldSource =
+  /** This scan read the platform signals itself (an ambient/installation token was in hand). */
+  | "observed"
+  /** The signals were folded in from an earlier `observed` scan of the same repo. */
+  | "carried"
+  /** The scan could not observe them and had no earlier snapshot to carry — D2/D3/D4 are NOT
+   *  measurable on this reading, which is a different claim from "this repo has no CI". */
+  | "unavailable";
+
+/** One dimension's share of a platform fold: the points it added and the evidence it added them on. */
+export interface PlatformFoldDim {
+  dimId: DimensionId;
+  /** Points added to the deterministic signal score. 0 when the fold only CORROBORATED evidence the
+   *  file scan had already found — that is a real outcome, not an absent one. */
+  points: number;
+  /** The evidence lines the fold appended, verbatim, so a carry reproduces the observed reading. */
+  signals: Signal[];
+}
+
+/**
+ * The GitHub-only INPUTS of the D9 security battery (`src/lib/security/checks.ts`), recorded on an
+ * observed scan so a worktree rescan can replay them. D9 cannot be carried as points the way D2/D3/D4
+ * are: the battery REPLACES the D9 signal after the fold, so the only faithful carry is to re-run the
+ * battery over the new files with the old GitHub reading — branch protection, the installed-App
+ * inventory (default-setup CodeQL, Socket, Snyk…), and the org-level security policy/advisories.
+ * Structural copies of `Governance` / `SecurityPosture` / `AppInventory` (check-suites.ts owns the
+ * latter; this module must not import it).
+ */
+export interface CarriedSecurityInputs {
+  governance: Governance | null;
+  posture: SecurityPosture | null;
+  apps: { sha: string; apps: { slug: string; name: string; conclusion: string | null }[]; total: number; truncated: boolean } | null;
+}
+
+export interface PlatformSignalRecord {
+  source: PlatformFoldSource;
+  /** When the signals were OBSERVED on GitHub (not when this scan ran). Null on `unavailable`. */
+  observedAt: string | null;
+  /** The scan the fold was carried from — the provenance a surface prints. `carried` only. */
+  fromScanId?: string | null;
+  /** The carried observation is older than PLATFORM_FOLD_STALE_DAYS: still the best evidence there
+   *  is, and no longer evidence about today. `carried` only. */
+  stale?: boolean;
+  /** Per-dimension folds, empty on `unavailable`. */
+  dims: PlatformFoldDim[];
+  /** The D9 battery's GitHub-side inputs as observed (or carried). Absent on a row written before the
+   *  carry existed, and on `unavailable` — an absence the D9 comparability rule reads as "this end's
+   *  D9 could not see GitHub", never as "the inputs were empty". */
+  securityInputs?: CarriedSecurityInputs;
 }
 
 // ---------------------------------------------------------------------------
@@ -908,6 +1042,92 @@ export interface ContextHealth {
   score: number;
 }
 
+// ---------------------------------------------------------------------------
+// Guidance graph (moonshot #15) — the multi-vendor arbiter
+// ---------------------------------------------------------------------------
+
+/** Which vendor's instruction-document format a guidance node is. `other` = a guidance file whose
+ *  format this build does not recognise; it still participates in coherence. */
+export type GuidanceAgent = "claude" | "agents" | "cursor" | "copilot" | "windsurf" | "aider" | "other";
+
+/** One guidance document in the repo, parsed into the facts the arbiter compares across vendors. */
+export interface GuidanceNode {
+  path: string;
+  agent: GuidanceAgent;
+  bytes: number | null;
+  /** false when the scan's fetch budget never reached this file: presence is known, content is not.
+   *  An unsampled node contributes presence only and can NEVER create a penalty. */
+  contentSampled: boolean;
+  /** Normalized capability key ("test", "build", …) → the literal command the document states. */
+  commands: { key: string; command: string }[];
+  rules: { subject: string; polarity: "never" | "always"; quote: string }[];
+  /** `@ref` and markdown-link targets that resolve to a real path in the tree. */
+  pointers: string[];
+  /** The body is nothing but pointers (this repo's one-line `CLAUDE.md` → `@AGENTS.md`). */
+  pointerOnly: boolean;
+  /** ISO string — NEVER a Date (this type crosses to a client; see db/wire-safe.ts). */
+  lastCommitAt: string | null;
+}
+
+export interface GuidanceEdge {
+  from: string;
+  to: string;
+  kind: "points-to" | "projects-from" | "duplicates" | "diverges";
+  detail: string;
+}
+
+/** Two guidance files telling agents different things. Scores NOTHING on its own — the deterministic
+ *  penalties move the number; a model-cited one is `possible` evidence at zero points (G4/G5). */
+export interface GuidanceContradiction {
+  kind: "command" | "rule";
+  subject: string;
+  a: { path: string; quote: string };
+  b: { path: string; quote: string };
+  confidence: "deterministic" | "possible";
+}
+
+/**
+ * The arbiter's verdict over every vendor guidance format in one repo: which document is canonical,
+ * how the others relate to it, and where they contradict each other.
+ *
+ * `coherence` is `null` — never 0 — when the repo has no guidance document at all: 0 would be a
+ * fabricated verdict about a repo nobody could assess. Persisted on `Scan.guidanceGraphJson` and
+ * cached on `Repository.guidanceGraphJson`; a pre-r11 row parses to `null` = "not assessed".
+ */
+export interface GuidanceGraph {
+  version: "1";
+  nodes: GuidanceNode[];
+  edges: GuidanceEdge[];
+  /** null = ≥2 documents and no source could be nominated (honest null, never a guess). */
+  canonical: string | null;
+  canonicalBasis: "manifest" | "pointer" | "projection-header" | "rank" | null;
+  contradictions: GuidanceContradiction[];
+  /** 0..100, or null when there are no guidance documents. */
+  coherence: number | null;
+  /** Every deduction, naming the paths it was read from — so the number is always re-traceable. */
+  penalties: { reason: string; points: number; paths: string[] }[];
+}
+
+/**
+ * One token-gated enrichment read the ingest phase performs — a SENSOR.
+ *
+ * Named so a read that FAILED can be reported as such. Every one of these enrichments degrades to
+ * `null` / `[]` on error, which is byte-identical to the value a scan that legitimately found nothing
+ * produces — and downstream, that value is scored as absence (a missing SECURITY.md, no SAST, no
+ * governance). The sensor id is the thing that makes "did not run" sayable.
+ *
+ * `pullRequests` is listed for completeness but is carried by its own older flag (`prFetchFailed`),
+ * not by `ScanReport.sensorFailures`; see that field.
+ */
+export type ScanSensorId =
+  | "pullRequests"
+  | "governance"
+  | "securityPosture"
+  | "securityExposure"
+  | "appInventory"
+  | "ciHealth"
+  | "deployments";
+
 export interface ScanReport {
   repo: RepoMeta;
   overallScore: number;
@@ -964,11 +1184,20 @@ export interface ScanReport {
   /** Context Health (W4) — guidance-file freshness/quality/drift. Display/persist-only (never scored,
    *  never in the LLM prompt); undefined on reconstructed snapshots that never ran ingestion. */
   contextHealth?: ContextHealth | null;
+  /** The multi-vendor guidance arbiter's verdict (#15, rubric r11) — canonical source, projections,
+   *  contradictions and the deterministic coherence number D1 reads. Undefined on reconstructed
+   *  snapshots; `coherence: null` inside it means "no guidance document", never 0. */
+  guidanceGraph?: GuidanceGraph | null;
+  /** What this scan READ in the repo's own `.ai/manifest.yaml` (#13) — declared capabilities, their
+   *  proven `verified` flags, and where each control is placed. Display/persist-only (never scored,
+   *  never in the LLM prompt); `absent` when the repo has no manifest, undefined on reconstructed
+   *  snapshots that never ran ingestion. See lib/standard/readout. */
+  manifest?: ManifestReadout | null;
   /** Non-fatal caveats about this scan's reliability (low coverage, LLM fallback, …). */
   warnings?: string[];
   /** NOTHING could be scored: every detector failed or returned no data, so `dimensions` is empty and
    *  `overallScore`/`level` are the renormalized floor (0 / L1) — NOT a genuine "Manual" verdict.
-   *  Numeric consumers (badge, CI gate, fleet rollup) read the numbers, not `warnings`, so they must
+   *  Numeric consumers (CI gate, fleet rollup) read the numbers, not `warnings`, so they must
    *  read this flag and refuse to present or enforce the result. Absent on a normal scan; a
    *  reconstructed report may predate it, so consumers should treat an empty `dimensions` array as
    *  incomplete too (see `isIncompleteReport` in scoring/gate.ts). */
@@ -978,6 +1207,11 @@ export interface ScanReport {
    *  (a briefing, a percentile, a signed export, a diligence verdict) must be able to read them.
    *  Undefined on reconstructed snapshots that predate the field. */
   scoreIntegrity?: ScoreIntegrity;
+  /** What this scan could see of the GITHUB-side signals, and from when — see PlatformSignalRecord.
+   *  Undefined on a legacy row and on any reconstructed snapshot, which is UNKNOWN: a consumer must
+   *  not read it as "the platform signals were unavailable", because that is the one reading that
+   *  removes dimensions from the green verdict. */
+  platformSignals?: PlatformSignalRecord;
   /** Follow-up ids named by `Ascent-Resolves:` trailers in the scanned commit sample (src/lib/org/
    *  followups.ts). Evidence, not score: persistence uses it to close in-progress follow-ups the
    *  fix commits declared resolved. Empty/absent when no commit carries a trailer. */
@@ -987,6 +1221,22 @@ export interface ScanReport {
    *  report must not be cached or persisted as authoritative. `graphql.ts` computes this and `pulls.ts`
    *  propagates it; before this existed the flag was computed, documented, and read by nobody. */
   prPartial?: boolean;
+  /**
+   * The GitHub-side sensors whose read THREW during this scan (never "returned nothing").
+   *
+   * A failed sensor and an absent finding are indistinguishable once both have collapsed to `null`,
+   * and null is scored as ABSENCE almost everywhere downstream. This is the typed half of the honesty
+   * channel — the prose half is the matching `buildScanWarnings` caveat in `warnings`, which is what
+   * actually persists (`warningsJson`). Empty/absent = no sensor is KNOWN to have failed; on a report
+   * reconstructed from the DB it is simply unknown, which is why it is optional rather than defaulted.
+   *
+   * It is what makes `platformSignals` readable: an absent record plus `appInventory`/`ciHealth` here
+   * means UNMEASURED (the read failed), while an absent record with no entry here means the scan
+   * looked and measured nothing (an anonymous scan, or a repo with no platform signals at all).
+   * `pullRequests` is deliberately NOT listed — it has its own typed flag and its own dedicated
+   * caveat (`prFetchFailed`), which pre-date this field.
+   */
+  sensorFailures?: ScanSensorId[];
   scannedAt: string;
   /** The scoring identity that produced this report. `rubricVersion` (SCORING_RUBRIC_VERSION) is
    *  populated on a DB-reconstructed report so the cross-instance cache tier can detect a rubric bump
@@ -995,8 +1245,15 @@ export interface ScanReport {
    *  (BYOM), false = Ascent's platform account. Optional and additive — undefined on a legacy
    *  persisted row (scored before the flag existed), which must read as "not proven to be the
    *  customer's own account", never as true. The report header's privacy chip is the consumer:
-   *  "in-account" is only an honest claim when this is true. */
-  engine: { provider: ProviderName; model: string; rubricVersion?: string; byom?: boolean };
+   *  "in-account" is only an honest claim when this is true.
+   *
+   *  `degraded` records that an LLM WAS requested for this scan and every real attempt failed, so
+   *  `provider` is the deterministic mock FLOOR rather than a chosen engine. It is the difference
+   *  between "no model was asked for" (a keyless deploy or an explicit demo — provider is `mock`,
+   *  degraded false) and "a model was asked for and never answered", which `provider` alone cannot
+   *  tell apart. Undefined on a legacy row and on any report built before the flag existed: unknown,
+   *  which must never be read as "not degraded" when the provider is already `mock`. */
+  engine: { provider: ProviderName; model: string; rubricVersion?: string; byom?: boolean; degraded?: boolean };
   /** LLM token usage + wall-clock latency for THIS scan's model call — the cost/usage metering basis.
    *  Absent on a mock/keyless scan, or when the provider didn't report usage. */
   usage?: { inputTokens?: number; outputTokens?: number; latencyMs?: number };

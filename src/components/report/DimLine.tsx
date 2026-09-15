@@ -121,7 +121,7 @@ export function DimLine({
   if (drawnCount === 0) {
     return (
       <div
-        className="mt-2 flex aspect-[320/90] w-full items-center justify-center rounded-lg border border-dashed border-divider text-sm text-slate-500"
+        className="mt-2 flex aspect-[320/90] w-full items-center justify-center rounded-lg border border-dashed border-divider type-body-sm text-slate-500"
         role="img"
         aria-label={name ? `${name}: no trend data` : "No trend data"}
       >

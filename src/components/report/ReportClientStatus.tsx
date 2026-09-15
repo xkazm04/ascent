@@ -34,22 +34,36 @@ const SCAN_STEPS: { stage: ScanProgress["stage"]; label: string }[] = [
   { stage: "compose", label: "Composing your report" },
 ];
 
-/** Provider-specific copy for the score step — sets honest expectations for the slower paths. */
+/**
+ * Provider-specific copy for the score step — sets honest expectations for the slower paths.
+ *
+ * A total Record over `ProviderName` (Bedrock excepted: its label needs the region), NOT a `switch`
+ * with a `default`. UAT `SAM-L1-08` recurred and WIDENED (4-of-6 uncovered-by-2 → 5-of-8
+ * uncovered-by-3) for exactly the reason a default clause exists: two providers were added to the
+ * union and only one of them got a branch, silently. As a Record, adding a member to `ProviderName`
+ * is a compile error here — the gap cannot widen again without someone deciding it should.
+ */
+const SCORE_STEP_LABEL: Record<Exclude<ProviderName, "bedrock">, string> = {
+  gemini: "Asking Gemini",
+  openai: "Asking OpenAI",
+  openrouter: "Asking the model via OpenRouter",
+  // The self-hosted path, and typically the longest wait in the product — say so, so the operator
+  // reads a slow step as work rather than a hung spinner.
+  local: "Asking your local model — the self-hosted path, usually the slowest step",
+  mock: "Running deterministic rubric",
+  "claude-cli": "Asking Claude",
+  "codex-cli": "Asking Codex",
+  nebius: "Asking the model on Nebius",
+};
+
+/** The generic copy, used only when NO provider has been reported yet (or an unknown one arrives over
+ *  the wire — the value crosses an SSE boundary, so it is not type-safe at runtime). */
+const GENERIC_SCORE_LABEL = "Scoring against the rubric";
+
 function scoreLabel(provider?: ProviderName, region?: string): string {
-  switch (provider) {
-    case "gemini":
-      return "Asking Gemini";
-    case "claude-cli":
-      return "Asking Claude";
-    case "codex-cli":
-      return "Asking Codex";
-    case "bedrock":
-      return `Querying Bedrock in ${region ?? "us-east-1"}`;
-    case "mock":
-      return "Running deterministic rubric";
-    default:
-      return "Scoring against the rubric";
-  }
+  if (!provider) return GENERIC_SCORE_LABEL;
+  if (provider === "bedrock") return `Querying Bedrock in ${region ?? "us-east-1"}`;
+  return SCORE_STEP_LABEL[provider] ?? GENERIC_SCORE_LABEL;
 }
 
 /** Label for a scan step — provider-aware (and fallback-aware) on the score step. */
@@ -149,9 +163,9 @@ export function Loading({ repo, progress }: { repo: string; progress: Progress }
       className="mx-auto flex w-full max-w-md flex-col items-center py-20 text-center"
       data-testid="scan-loading"
     >
-      <p className="font-mono text-base text-slate-400">{repo}</p>
+      <p className="font-mono type-body text-slate-400">{repo}</p>
       {/* Polite live region so screen readers hear each phase change ("Asking Gemini…", "Done"). */}
-      <p className="mt-2 min-h-[1.75rem] text-lg font-medium text-white" role="status" aria-live="polite">
+      <p className="mt-2 min-h-[1.75rem] type-lede font-medium text-white" role="status" aria-live="polite">
         {headline}
       </p>
 
@@ -170,7 +184,7 @@ export function Loading({ repo, progress }: { repo: string; progress: Progress }
       </div>
       {/* Elapsed clock · percentage. The clock is the honest signal during the multi-minute score
           stage; the percentage is time-smoothed so it advances rather than freezing. */}
-      <p className="mt-1.5 flex items-center justify-center gap-2 font-mono text-sm tabular-nums text-slate-600">
+      <p className="mt-1.5 flex items-center justify-center gap-2 type-mono-sm tabular-nums text-slate-600">
         <span aria-label="Time elapsed">{formatDuration(elapsedMs)}</span>
         <span className="text-slate-700" aria-hidden>·</span>
         <span>{displayPct}%</span>
@@ -181,7 +195,7 @@ export function Loading({ repo, progress }: { repo: string; progress: Progress }
         {SCAN_STEPS.map((step, i) => {
           const state = done || i < activeIdx ? "done" : i === activeIdx ? "active" : "pending";
           return (
-            <li key={step.stage} className="flex items-center gap-3 font-mono text-sm">
+            <li key={step.stage} className="flex items-center gap-3 type-mono-sm">
               <StepIcon state={state} />
               <span
                 className={
@@ -200,14 +214,14 @@ export function Loading({ repo, progress }: { repo: string; progress: Progress }
           front and owns it when a large repo runs long. Hidden once the model bailed (the fallback
           note below takes over). */}
       {!done && !progress.fallback && (
-        <p className="mt-5 max-w-sm text-sm text-slate-500" role="status" aria-live="polite">
+        <p className="mt-5 max-w-sm type-body-sm text-slate-500" role="status" aria-live="polite">
           {expectationCopy(elapsedMs, scanEstimateMs(progress.provider))}
         </p>
       )}
 
       {/* Calm fallback note: the model took too long, deterministic scores are on the way. */}
       {progress.fallback && (
-        <p className="animate-fade-up mt-5 flex items-center gap-2 text-base text-amber-300/90" role="status">
+        <p className="animate-fade-up mt-5 flex items-center gap-2 type-body text-amber-300/90" role="status">
           <svg aria-hidden viewBox="0 0 16 16" className="h-3.5 w-3.5 shrink-0" fill="none">
             <path
               d="M8 4v4l2.5 1.5M14 8A6 6 0 11 2 8a6 6 0 0112 0z"
@@ -248,14 +262,24 @@ export function Empty({
             // `connect` doc above), so the one action that can actually resolve it leads, and the
             // retry loop is replaced by a "different repo" path (repo-report-shell-tabs #4).
             [
-              { label: "Private repo? Connect GitHub", href: "/connect", primary: true },
+              { label: "Private repo? Connect GitHub", href: "/onboarding", primary: true },
               { label: "Scan a different repo", href: "/?scan=1" },
               { label: "← Back home", href: "/" },
             ]
           : // Transient failure (timeout / interrupted / network): retry is the right primary.
             [
+              // `fresh=1` is what makes this button ACTUALLY try again. On /report the plain
+              // `?repo=` href is the URL the user is already on, so the search params — and with
+              // them useReportScan's effect deps — never change and nothing re-runs. `fresh=1` both
+              // changes the URL and forces a re-score that bypasses the report cache.
               ...(repo
-                ? [{ label: "Try again", href: `/report?repo=${encodeURIComponent(repo)}`, primary: true }]
+                ? [
+                    {
+                      label: "Try again",
+                      href: `/report?repo=${encodeURIComponent(repo)}&fresh=1`,
+                      primary: true,
+                    },
+                  ]
                 : []),
               { label: "← Back home", href: "/" },
             ]

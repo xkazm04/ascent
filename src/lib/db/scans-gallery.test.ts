@@ -4,6 +4,7 @@
 // landing page renders its static examples, while a genuine live-DB query error still propagates (a real
 // bug must not be masked as "no data"). These pin both directions through the public seam.
 
+import { readFileSync } from "node:fs";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 const { mockIsDbConfigured, mockResolveOrgId } = vi.hoisted(() => ({
@@ -50,7 +51,8 @@ vi.mock("@/lib/db/scans-shared", () => ({
   resolveOrgId: mockResolveOrgId,
 }));
 
-import { getPublicScanGallery } from "./scans-read";
+import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
+import { galleryCardFrom, getPublicScanGallery } from "./scans-read";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -80,5 +82,73 @@ describe("getPublicScanGallery — DB-down degrades to the static fallback", () 
     mockIsDbConfigured.mockReturnValue(false);
     await expect(getPublicScanGallery()).resolves.toBeNull();
     expect(mockResolveOrgId).not.toHaveBeenCalled();
+  });
+});
+
+// The register has exactly ONE empty-corpus behaviour: this loader returns null and IndexVariant drops
+// the section. IndexGallery therefore carries no worded empty state (UAT `RC2-N3` — it had one, and it
+// was unreachable). Structural pin, because the branch it guards is a deletion: if the zero-card return
+// goes, the component starts rendering a heading and column labels around nothing and needs its empty
+// state back.
+describe("loadPublicGalleryCards — zero cards is null, so the register has no empty state to render", () => {
+  it("returns null the moment it has no cards, rather than an empty board", () => {
+    const src = readFileSync("src/lib/db/scans-read.ts", "utf8");
+    expect(src).toMatch(/if \(cards\.length === 0\) return null;/);
+  });
+
+  it("keeps IndexGallery free of a worded empty state", () => {
+    const gallerySrc = readFileSync("src/components/landing/prototypes/index/IndexGallery.tsx", "utf8");
+    expect(gallerySrc).not.toMatch(/No public scans yet/);
+  });
+});
+
+// MC-B42 / UAT `TOMAS-L1-11`. The landing register is the SECOND public ranking over the same corpus
+// that MC-B18 qualified on /leaderboard, and its cards carried every provenance fact except the ruler.
+// The derivation must match `registerEntryFrom`'s exactly: an unstamped scan is UNKNOWN, and unknown is
+// never "the same rubric" — the reading `db/outcomes.ts` gives it when refusing to pair across a bump.
+describe("galleryCardFrom — the rubric is a provenance qualifier here too", () => {
+  const repoRow = (rubricVersion: string | null) =>
+    ({
+      id: "r1",
+      owner: "acme",
+      name: "web",
+      fullName: "acme/web",
+      primaryLanguage: "TypeScript",
+      stars: 3,
+      scans: [
+        {
+          headSha: null,
+          overallScore: 71,
+          level: "L3",
+          levelName: "Managed",
+          adoptionScore: 68,
+          rigorScore: 74,
+          posture: "ai-native",
+          scannedAt: new Date("2026-08-30T00:00:00.000Z"),
+          rubricVersion,
+          dimensions: [],
+        },
+      ],
+    }) as never;
+
+  it("carries the rubric the scan was taken under", () => {
+    expect(galleryCardFrom(repoRow("r10"))?.rubricVersion).toBe("r10");
+  });
+
+  it("marks a scan taken under the CURRENT rubric as current", () => {
+    expect(galleryCardFrom(repoRow(SCORING_RUBRIC_VERSION))?.currentRubric).toBe(true);
+  });
+
+  it("marks an earlier rubric as NOT current, while still returning a rankable card", () => {
+    const card = galleryCardFrom(repoRow("r10"));
+    expect(card?.currentRubric).toBe(false);
+    // Qualified, not dropped: a stale score is a real rating on an earlier instrument.
+    expect(card?.overall).toBe(71);
+  });
+
+  it("treats a MISSING rubric as unknown, and unknown is not current", () => {
+    const card = galleryCardFrom(repoRow(null));
+    expect(card?.rubricVersion).toBeNull();
+    expect(card?.currentRubric).toBe(false);
   });
 });

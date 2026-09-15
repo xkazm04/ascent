@@ -1,7 +1,7 @@
 ---
 name: Sam (Staff Engineer)
 role: Staff / Senior Software Engineer — de-facto tech lead on a couple of repos
-maps_to: / (scan form) · /report/[owner]/[repo] (score ring · level ladder · posture quadrant · dimension radar w/ inline evidence + provenance track) · recommendation tracker · onboarding SKILL.md (/api/report/skill) · /badge · /report/compare · /trends
+maps_to: / (scan form) · /report/[owner]/[repo] (score ring · level ladder · posture quadrant · dimension radar w/ inline evidence + provenance track) · recommendation tracker · onboarding SKILL.md (/api/report/skill) · /report/compare · /trends
 tech_level: power-user
 promotion: discovery
 references:

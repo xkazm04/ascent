@@ -19,6 +19,9 @@
 
 import type { ScanDiff } from "@/lib/report/compare";
 import { isWithinNoise, postureTransition } from "@/lib/maturity/noise";
+// The mock sentinel comes from the attribution module rather than being restated here: a `mock` end is
+// a different ruler on BOTH surfaces, and two copies of that name would eventually disagree.
+import { MOCK_ENGINE } from "@/lib/maturity/attribution";
 import { isPrivateOrInternalHost } from "@/lib/net/ssrf";
 
 /**
@@ -70,8 +73,24 @@ export function digestHasSignal(s: {
   regressions: number;
   gainersBeyondNoise: number;
   creditLow: boolean;
+  /** MOONSHOT #1 — controls observed flipping to `fail` in the period. Optional so every existing
+   *  caller keeps compiling and keeps its exact behaviour; absent means "not counted", not zero. */
+  controlsFailed?: number;
+  /** Dimensions holding materially below an earlier reading (`detectStandingRegressions`). Optional
+   *  on the same terms as `controlsFailed`: absent means "not computed", not zero. */
+  standingConcerns?: number;
 }): boolean {
   if (s.creditLow) return true;
+  // A STANDING CONCERN IS ALWAYS SIGNAL, AND KEEPS BEING SIGNAL. Every other condition here is a
+  // MOVEMENT, so a decline that has stopped moving stops being news — which is precisely how a repo
+  // sat twenty-one points down for eighteen scans with nothing said. A shortfall that persists is
+  // re-stated every period it persists, on the same reasoning as `creditLow` above: the reader needs
+  // to know it is STILL true, not only that it once happened.
+  if ((s.standingConcerns ?? 0) > 0) return true;
+  // A FAILED CONTROL IS ALWAYS SIGNAL. A week in which branch protection came off a repo and the
+  // scores happened not to move is precisely the week the digest exists for — filtering it out on a
+  // flat score would be the digest silently withholding its most consequential fact.
+  if ((s.controlsFailed ?? 0) > 0) return true;
   if (s.levelChanges > 0 || s.regressions > 0 || s.gainersBeyondNoise > 0) return true;
   return s.overallDelta != null && !isWithinNoise(s.overallDelta);
 }
@@ -183,6 +202,168 @@ export function detectPromotion(diff: ScanDiff): PromotionVerdict {
       },
     ],
   };
+}
+
+// --- Standing regressions: the decline nobody was told about ---------------------------------------
+//
+// WHY THIS EXISTS. In a 21-run campaign, `kp`'s D9 (Supply Chain & Security) went 93 → 96 → 75 at run
+// 3 and sat at 75 for eighteen further runs. Twenty-one points, permanent, and every surface stayed
+// quiet. The likeliest cause is mechanical: that run added two large new workflows, and D9's checks
+// are RATIOS ("N/M workflows set an explicit permissions: scope"), so adding surface diluted them.
+//
+// Two independent silences produced that outcome, and this detector answers both:
+//
+//   1. EVERY EXISTING SIGNAL IS AN EVENT, NOT A STATE. `detectRegression` compares ONE adjacent pair,
+//      and `getOrgMovers` compares a period's ends. Both were right to say nothing on runs 4–21: the
+//      adjacent delta was zero every time. But "nothing changed this week" and "this repo has been
+//      twenty-one points down for a month" are different facts, and only the first was reachable.
+//   2. ATTRIBUTION REFUSES WHAT IT CANNOT EXPLAIN. `src/lib/maturity/attribution.ts` declines to CLAIM
+//      a delta across a mock floor, inside the noise band, on an uncommitted lane or across a
+//      platform-fold mismatch. That is correct, and it is the guard that stops the loop inventing
+//      lifts — but the same guard silences a true decline. A guard against false CLAIMS must not
+//      become a guard against true REGRESSIONS, so nothing below consults it: this detector makes no
+//      claim about cause, only about the readings.
+//
+// It is computed from PERSISTED SCANS ALONE. A regression caused by a human commit deserves the same
+// alarm as one caused by a lane, so the loop is not an input.
+
+/**
+ * How far below an earlier reading a dimension must sit before the shortfall is worth standing up.
+ * Deliberately several times `SCORE_NOISE_BAND` (2, the measured overall model wobble — see
+ * attribution.ts, which also records that the band is CONSERVATIVE per-dimension because a single
+ * dimension's guardband is wider). 10 keeps this clear of that widened per-dimension wobble while
+ * staying well below the per-scan `dimensionDrop` alarm (15) — a standing concern is allowed to be
+ * quieter than a page, because it is earned by persistence rather than by size.
+ */
+export const STANDING_REGRESSION_DROP = 10;
+
+/**
+ * How many CONSECUTIVE scans the shortfall must hold before it is a standing concern. One scan below
+ * the line is the event `detectRegression` already owns, and a single-scan dip that recovers is
+ * exactly the flap the cooldown exists to mute — so a concern is only raised once the repo has been
+ * re-measured at the depressed level three times over.
+ */
+export const STANDING_REGRESSION_SCANS = 3;
+
+/** How far back a standing-regression read walks per repo. Bounds the query; a shortfall older than
+ *  this many scans is still reported, just measured against the oldest reading in reach. */
+export const STANDING_REGRESSION_LOOKBACK = 20;
+
+/** One persisted scan, reduced to what the standing detector reads. `HistoryPoint` satisfies it
+ *  structurally, and so does a raw `{ scannedAt, engineProvider, dimensions }` row select. */
+export interface StandingScanPoint {
+  /** Scan id, when the caller has one — carried through so a surface can link the two readings. */
+  id?: string;
+  /** ISO timestamp. */
+  scannedAt: string;
+  /** Engine that produced this reading. A `mock` end is a DIFFERENT RULER (attribution.ts's first
+   *  refusal) and is dropped from the series rather than compared against — including it would
+   *  manufacture concerns out of an engine swap. Undefined = unknown, which is treated as real. */
+  engineProvider?: string;
+  dimensions: { dimId: string; score: number }[];
+}
+
+/**
+ * A dimension that has held materially below an earlier reading. Every field is an OBSERVATION: two
+ * readings, their dates, and how long the shortfall has persisted. Nothing here asserts a cause.
+ */
+export interface StandingConcern {
+  dimId: string;
+  /** The most recent reading. */
+  current: number;
+  currentAt: string;
+  currentScanId?: string;
+  /** The reading the shortfall is measured against — the most recent scan that sat `drop` or more
+   *  ABOVE every scan since. */
+  baseline: number;
+  baselineAt: string;
+  baselineScanId?: string;
+  /** `baseline - current`, always ≥ `STANDING_REGRESSION_DROP` at the time it is raised. */
+  drop: number;
+  /** How many scans have been taken at the depressed level (≥ `STANDING_REGRESSION_SCANS`). */
+  scansHeld: number;
+  /** ISO timestamp of the FIRST scan at the depressed level — when the shortfall began. */
+  since: string;
+  /** Signals that appeared/disappeared between the two named scans, when the caller supplied the
+   *  evidence to derive them (see `getOrgStandingConcerns`). Never a cause claim — a list. */
+  evidence?: string[];
+  /** The one-line, cause-free rendering. */
+  observation: string;
+}
+
+/** `2026-08-14T09:02:00.000Z` → `2026-08-14`. Dates, not timestamps: a standing concern is measured
+ *  in scans and days, and a wall-clock time implies a precision the observation does not have. */
+function dayOf(iso: string): string {
+  return iso.slice(0, 10);
+}
+
+/**
+ * Every dimension of `points[0]` that has held ≥ `drop` below an earlier reading for ≥ `scans`
+ * consecutive readings. `points` is NEWEST-FIRST (the order every history reader already returns).
+ *
+ * The walk, per dimension: keep a running maximum of the readings seen so far (newest outward) and
+ * step back until one is `drop` or more ABOVE that maximum. Finding it means *every* scan since that
+ * reading has sat at least `drop` below it — which is the precise sense of "fell and stayed down",
+ * and is why a plateau eighteen scans long is still measured against the reading before the fall
+ * rather than against a three-scan-ago reading that is itself part of the plateau. The FIRST such
+ * reading wins (the nearest baseline, so the claim is the smallest one the evidence supports), and if
+ * it is fewer than `scans` back the dimension is skipped: a fresh drop is an event, not yet a state.
+ *
+ * Pure — no env, no Date, no I/O. `mock`-engine points are dropped first, and a dimension missing
+ * from a point is skipped for that point rather than read as zero.
+ */
+export function detectStandingRegressions(
+  points: readonly StandingScanPoint[],
+  opts: { drop?: number; scans?: number } = {},
+): StandingConcern[] {
+  const drop = opts.drop ?? STANDING_REGRESSION_DROP;
+  const hold = opts.scans ?? STANDING_REGRESSION_SCANS;
+  const real = points.filter((p) => p.engineProvider !== MOCK_ENGINE);
+  if (real.length < hold + 1) return [];
+
+  const dimIds = (real[0]?.dimensions ?? []).map((d) => d.dimId);
+  const out: StandingConcern[] = [];
+
+  for (const dimId of dimIds) {
+    const series: { score: number; scannedAt: string; id?: string }[] = [];
+    for (const p of real) {
+      const hit = p.dimensions.find((d) => d.dimId === dimId);
+      if (hit) series.push({ score: hit.score, scannedAt: p.scannedAt, ...(p.id ? { id: p.id } : {}) });
+    }
+    const current = series[0];
+    if (!current || series.length < hold + 1) continue;
+
+    let depressedMax = current.score;
+    for (let i = 1; i < series.length; i++) {
+      const candidate = series[i];
+      const fell = series[i - 1];
+      if (!candidate || !fell) break;
+      if (candidate.score - depressedMax >= drop) {
+        if (i >= hold) {
+          const gap = candidate.score - current.score;
+          out.push({
+            dimId,
+            current: current.score,
+            currentAt: current.scannedAt,
+            ...(current.id ? { currentScanId: current.id } : {}),
+            baseline: candidate.score,
+            baselineAt: candidate.scannedAt,
+            ...(candidate.id ? { baselineScanId: candidate.id } : {}),
+            drop: gap,
+            scansHeld: i,
+            since: fell.scannedAt,
+            observation:
+              `${dimId} has held ${gap} points below its ${dayOf(candidate.scannedAt)} ` +
+              `reading (${candidate.score} → ${current.score}) across ${i} scan${i === 1 ? "" : "s"} since ${dayOf(fell.scannedAt)}`,
+          });
+        }
+        break; // nearest qualifying baseline decides, in both directions
+      }
+      depressedMax = Math.max(depressedMax, candidate.score);
+    }
+  }
+
+  return out.sort((a, b) => b.drop - a.drop || a.dimId.localeCompare(b.dimId));
 }
 
 // --- Per-repo regression-alert cooldown (fleet-alerts-digests #4) ----------------------------------
@@ -367,6 +548,46 @@ export interface FleetDigestInput {
   trajectory?: string | null;
   /** Prepaid credits remaining, when the org is metered and running low — null/undefined omits the line. */
   creditsRemaining?: number | null;
+  /**
+   * MOONSHOT #1 — controls observed FAILING in the period, from the control ledger.
+   *
+   * Undefined omits the block entirely (a deployment without the ledger says nothing rather than
+   * "0 controls failed", which would be a claim it cannot support). An empty array is the positive
+   * statement "we looked and none failed" and renders as such.
+   */
+  controlsFailed?: { repo: string; control: string; detail: string }[];
+  /**
+   * THE N THE CONTROLS BLOCK IS STATED WITH (UAT `DANA-L1-015`).
+   *
+   * `control-observations.ts` states the coverage law in as many words: *any surface that prints a
+   * control's state over a period must print its coverage beside it*, because "none failed this week"
+   * read off two observations is a sentence the evidence does not support. The digest is the surface
+   * that law was written for — it is the artifact a leader reads INSTEAD of opening the app, so it is
+   * the one place where an unqualified all-clear is never corrected by the page underneath it.
+   *
+   * Undefined omits the line entirely, on the same three-state terms as `controlsFailed`: a caller
+   * that could not read the ledger says nothing rather than printing a coverage of zero.
+   */
+  controlCoverage?: {
+    /** Distinct (repo, control) pairs observed in the window. */
+    pairs: number;
+    /** Total observations behind the block. */
+    observations: number;
+    /** Largest silent stretch BETWEEN observations across the fleet, or null when no pair had two. */
+    maxGapDays: number | null;
+    /** The read hit the ledger's per-read cap, so `observations` is a FLOOR. Stated, never implied. */
+    truncated: boolean;
+  };
+  /**
+   * Dimensions that have held materially below an earlier reading (`detectStandingRegressions`),
+   * newest concern per repo. Rendered as OBSERVATIONS, never as attributions — the block header says
+   * so in as many words, because the one thing this must not become is the digest guessing at cause.
+   *
+   * Same three-state contract as `controlsFailed`: undefined omits the block (a caller that did not
+   * compute it says nothing rather than "0 concerns"), an empty array is the positive statement
+   * "we looked and nothing is standing down".
+   */
+  standingConcerns?: { repo: string; observation: string; evidence?: string[] }[];
 }
 
 /**
@@ -394,8 +615,38 @@ export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
   const summary = `Fleet maturity *${d.avgOverall}/100* · ${d.level}${delta} · ${d.scannedCount}/${d.repoCount} repos scanned${pctile}`;
   const gain = (m: { name: string; delta: number }) => `• ${m.name} ${signed(m.delta)}`;
 
+  // MOONSHOT #1 — the Controls block sits ABOVE the movers, and deliberately: a control that came
+  // off a repo outranks every score delta on the page, and a reader who has to scroll past six
+  // gainers to find it will stop finding it.
+  const controlLine = (c: { repo: string; control: string; detail: string }) => `• ${c.repo} — ${c.control}: ${c.detail}`;
+  const controlsHeading = d.controlsFailed?.length
+    ? `Controls that failed this week (${d.controlsFailed.length}):`
+    : "Controls: none failed this week.";
+  // The coverage law (control-observations.ts): a state asserted over a period travels with its N, or
+  // it is not an assurance statement. It matters MOST under the all-clear — "none failed" off three
+  // observations is the sentence this line exists to qualify.
+  const cov = d.controlCoverage;
+  const coverageLine = cov
+    ? cov.observations === 0
+      ? "Coverage: no control was observed in this window — the all-clear above is not evidence."
+      : `Coverage: ${cov.observations}${cov.truncated ? "+" : ""} observation${cov.observations === 1 ? "" : "s"} across ${cov.pairs} repo/control pair${cov.pairs === 1 ? "" : "s"}` +
+        (cov.maxGapDays == null ? " (a single observation per pair — no gap measurable)." : `, largest gap ${cov.maxGapDays}d.`)
+    : null;
+
+  // Standing concerns sit beside the Controls block and for the same reason: a dimension that has been
+  // down for a month outranks this week's ±3, and a reader who has to scroll past six gainers to find
+  // it will stop finding it. The heading carries the disclaimer so the observation cannot be read as
+  // an attribution even when a line is quoted out of the message.
+  const standingLine = (c: { repo: string; observation: string; evidence?: string[] }) =>
+    [`• ${c.repo} — ${c.observation}`, ...(c.evidence ?? []).map((e) => `    ${e}`)].join("\n");
+  const standingHeading = d.standingConcerns?.length
+    ? `Standing concerns (${d.standingConcerns.length}) — observed, cause not attributed:`
+    : "Standing concerns: none open.";
+
   const lines: string[] = [headline, summary.replace(/\*/g, "")];
   if (d.trajectory) lines.push(d.trajectory);
+  if (d.controlsFailed) lines.push("", controlsHeading, ...d.controlsFailed.map(controlLine), ...(coverageLine ? [coverageLine] : []));
+  if (d.standingConcerns) lines.push("", standingHeading, ...d.standingConcerns.map(standingLine));
   if (d.gainers.length) lines.push("", "Top gainers:", ...d.gainers.map(gain));
   if (d.regressers.length) lines.push("", "Regressions:", ...d.regressers.map(gain));
   if (d.topRecommendation)
@@ -407,6 +658,22 @@ export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
   const blocks: unknown[] = [
     mrkdwnSection(`*${headline}*\n${summary}${d.trajectory ? `\n_${d.trajectory}_` : ""}`),
   ];
+  if (d.controlsFailed)
+    blocks.push(
+      mrkdwnSection(
+        (d.controlsFailed.length
+          ? `*${controlsHeading}*\n${d.controlsFailed.map(controlLine).join("\n")}`
+          : `_${controlsHeading}_`) + (coverageLine ? `\n_${coverageLine}_` : ""),
+      ),
+    );
+  if (d.standingConcerns)
+    blocks.push(
+      mrkdwnSection(
+        d.standingConcerns.length
+          ? `*${standingHeading}*\n${d.standingConcerns.map(standingLine).join("\n")}`
+          : `_${standingHeading}_`,
+      ),
+    );
   const mv: string[] = [];
   if (d.gainers.length) mv.push(`*Top gainers:*\n${d.gainers.map(gain).join("\n")}`);
   if (d.regressers.length) mv.push(`*Regressions:*\n${d.regressers.map(gain).join("\n")}`);
@@ -560,6 +827,102 @@ export function buildSecurityAlertMessage(d: SecurityAlertInput): AlertMessage {
   return { text: textParts.join("\n"), blocks };
 }
 
+// ── MOONSHOT #1 — the CONTROL push ───────────────────────────────────────────────────────────────
+//
+// Distinct from the security push above, which is a D9 SCORE movement. This one says a NAMED control
+// changed state, with the value either side and — when a webhook observed it — who did it.
+//
+// The `source` field is load-bearing for the reader, not decoration. A `probe` transition was
+// re-read from GitHub seconds after an event; a `scan` one was noticed at the scan's cadence and may
+// be hours old; a `conformance` one came from the repo's own doctor run (W1-A #16). An examiner asks
+// which, and a message that flattens the three would be asserting a freshness it cannot support.
+
+export type ControlAlertCode = "control-failed" | "control-restored" | "control-unmeasurable";
+
+export interface ControlAlertItem {
+  repo: string;
+  /** Catalogue id, or a doctor check id when `source: "conformance"`. */
+  controlId: string;
+  /** Human label; falls back to `controlId` at the call site. */
+  label?: string;
+  code: ControlAlertCode;
+  from: string;
+  to: string;
+  /** Values either side. Rendered only when they add something the states do not (2 → 0 approvals). */
+  fromValue?: string | null;
+  toValue?: string | null;
+  source: "scan" | "probe" | "webhook" | "conformance";
+  /** GitHub login, webhook-observed only. NEVER fabricated for scan/probe/conformance. */
+  actorLogin?: string | null;
+}
+
+export interface ControlAlertInput {
+  org: string;
+  url?: string;
+  items: ControlAlertItem[];
+}
+
+const CONTROL_VERB: Record<ControlAlertCode, string> = {
+  "control-failed": "failed",
+  "control-restored": "was restored",
+  "control-unmeasurable": "became unreadable",
+};
+
+/**
+ * Build the control push. Pure — no env, no clock.
+ *
+ * Severity is the MAX over the items, and the three codes do not mix loudness by accident: a batch
+ * containing one `control-failed` is critical even if the other nine are restorations. A batch of
+ * ONLY `control-unmeasurable` items is `info`, and `scan-alerts.ts` does not dispatch it to a sink —
+ * losing a read is a fact for the record, not a page.
+ */
+export function buildControlAlertMessage(d: ControlAlertInput): AlertMessage {
+  const failed = d.items.filter((i) => i.code === "control-failed").length;
+  const severity: AlertSeverity = failed > 0 ? "critical" : d.items.some((i) => i.code === "control-restored") ? "celebration" : "warning";
+  const emoji = failed > 0 ? SEV_EMOJI.critical : severity === "celebration" ? SEV_EMOJI.celebration : "👁️";
+  const headline =
+    failed > 0
+      ? `${emoji} Ascent: a control stopped operating in ${d.org}`
+      : severity === "celebration"
+        ? `${emoji} Ascent: a control was restored in ${d.org}`
+        : `${emoji} Ascent: a control became unreadable in ${d.org}`;
+  const n = d.items.length;
+  const summary = `${n} control change${n === 1 ? "" : "s"} observed${failed > 0 ? `, ${failed} failing` : ""}.`;
+
+  const line = (i: ControlAlertItem) => {
+    const name = i.label ?? i.controlId;
+    // The values are printed only when they carry information the states do not — "2 → 0" explains a
+    // required-approvals failure that "pass → fail" alone leaves abstract.
+    const values = i.fromValue != null && i.toValue != null && i.fromValue !== i.toValue ? ` (${i.fromValue} → ${i.toValue})` : "";
+    // The actor is named ONLY when one was observed. "by unknown" would be noise; silence here means
+    // no webhook carried an actor, which is the honest reading of a probe- or scan-sourced row.
+    const who = i.actorLogin ? ` by ${i.actorLogin}` : "";
+    return `• ${i.repo} — ${name} ${CONTROL_VERB[i.code]}${values}${who} · observed via ${i.source}`;
+  };
+
+  const lines = d.items.map(line);
+  const textParts = [headline, summary, ...lines];
+  if (d.url) textParts.push("", d.url);
+  const blocks: unknown[] = [mrkdwnSection(`*${headline}*\n${summary}`), mrkdwnSection(lines.join("\n"))];
+  if (d.url) blocks.push(linkContext(d.url, "Open governance"));
+  return { text: textParts.join("\n"), blocks };
+}
+
+/** The severity a batch of control items should be recorded at. Exported so the dispatcher and the
+ *  AlertEvent row agree without re-deriving the rule. */
+export function controlAlertSeverity(items: readonly ControlAlertItem[]): "critical" | "celebration" | "info" {
+  if (items.some((i) => i.code === "control-failed")) return "critical";
+  if (items.some((i) => i.code === "control-restored")) return "celebration";
+  return "info";
+}
+
+/** Cooldown key for a control push. Per (repo, control) so a branch-protection flip is never starved
+ *  by a score push that already consumed the repo's generic regression slot, and so two different
+ *  controls failing on the same repo both get through. */
+export function controlCooldownKey(repoFullName: string, controlId: string): string {
+  return `${repoFullName}#control:${controlId}`;
+}
+
 export interface SpendAnomalyInput {
   org: string;
   url?: string;
@@ -569,8 +932,18 @@ export interface SpendAnomalyInput {
   baseline: number;
   /** Ratio current/baseline, e.g. 2.4. */
   ratio: number;
-  /** Estimated USD for the period, when the usage layer could price it. */
+  /**
+   * Estimated USD for the period ACROSS EVERY INFERENCE LANE, when the usage layer could price it.
+   *
+   * MC-B32: this used to be fed `UsageSummary.estimatedCostUsd`, which prices the SCAN lane alone —
+   * the same understatement MC-B12 fixed on the `/usage` headline tile, left behind in the one place
+   * that pushes a number at an operator who is not looking at the page. The digest now sends
+   * `allLanesCostUsd`, so the alert and the page it links to state the same figure.
+   */
   estimatedCostUsd?: number | null;
+  /** Calls in the period that no basis could price. Non-zero makes `estimatedCostUsd` a FLOOR, and
+   *  the message says so — the same disclosure the lane rows and the headline tile carry. */
+  unpricedCalls?: number;
 }
 
 /** Default multiple of the trailing average that counts as a spend anomaly. */
@@ -609,7 +982,16 @@ export function buildSpendAnomalyMessage(d: SpendAnomalyInput): AlertMessage {
     d.baseline > 0
       ? `${d.periodScans} metered scans this period vs a ${Math.round(d.baseline)} trailing average (${mult}).`
       : `${d.periodScans} metered scans this period, against no prior activity.`;
-  const cost = d.estimatedCostUsd != null ? `Estimated inference cost this period: $${d.estimatedCostUsd.toFixed(2)}.` : null;
+  // "All lanes" is stated, not implied: a FinOps reader who reconciles this against an invoice must
+  // know whether the figure covers scans alone. The unpriced count makes it readable as a floor.
+  const floor =
+    d.unpricedCalls && d.unpricedCalls > 0
+      ? ` (a floor: ${d.unpricedCalls.toLocaleString()} call${d.unpricedCalls === 1 ? "" : "s"} could not be priced)`
+      : "";
+  const cost =
+    d.estimatedCostUsd != null
+      ? `Estimated inference cost this period, all lanes: $${d.estimatedCostUsd.toFixed(2)}${floor}.`
+      : null;
   const textParts = [headline, body];
   if (cost) textParts.push(cost);
   if (d.url) textParts.push("", d.url);
@@ -661,6 +1043,25 @@ export function resolveAlertWebhook(orgWebhookUrl?: string | null): string | nul
   if (org) return org;
   const global = process.env.ALERT_WEBHOOK_URL?.trim();
   return global || null;
+}
+
+/**
+ * What KIND of sink an alert actually left by — for the AlertEvent history row, not for routing.
+ *
+ * Takes the ORG's sink field and RESOLVES it first (org → the global ALERT_WEBHOOK_URL → none), because
+ * the row must describe the channel the message travelled on, not the column the caller happened to
+ * read. Classifying the unresolved field gets two things wrong on a tenant riding the global fallback:
+ * it reports `webhook` for a global `mailto:` sink (the mail went out; the record says otherwise), and
+ * it reports `webhook` where the org had no sink at all instead of the honest `null`.
+ *
+ * `src/lib/scan-alerts.ts` and `src/lib/standard/conformance-alerts.ts` already classified a RESOLVED
+ * url; this is the same rule, exported so a caller holding only the org's field cannot restate it
+ * against the wrong input.
+ */
+export function sinkKindForOrg(orgWebhookUrl: string | null | undefined): "webhook" | "email" | null {
+  const resolved = resolveAlertWebhook(orgWebhookUrl);
+  if (!resolved) return null;
+  return emailSinkAddress(resolved) ? "email" : "webhook";
 }
 
 /** Whether an alert sink is configured (so callers can skip the work entirely when it isn't).

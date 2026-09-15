@@ -15,6 +15,10 @@
 // without a cycle.
 
 import type { ProviderName, TokenUsage } from "@/lib/types";
+// TYPE-ONLY, and deliberately so: meter.ts imports this module's `LlmLegKind`, so a runtime import in
+// this direction would close a cycle. `import type` is erased, and this file stays the leaf it says
+// it is in the header.
+import type { MeterContext } from "@/lib/llm/meter";
 
 /**
  * Which surface a model call belongs to.
@@ -23,8 +27,22 @@ import type { ProviderName, TokenUsage } from "@/lib/types";
  *   - `memory`       — Shared Org Memory's write-gate + reflection passes (src/lib/memory/**).
  *   - `athena_turn`  — one interactive Athena reply to an operator's message.
  *   - `athena_cycle` — Athena's unattended background pass (no human waiting on it).
+ *   - `briefing`     — the executive briefing's one LLM-written paragraph (src/lib/org/briefing-narrative.ts).
+ *                      It DOES run through this seam now: the narrative resolves its runner through
+ *                      `resolveTextRunnerForOrg`, so an org's connected BYOM model writes its own
+ *                      board paragraph and the platform provider is used only when there is no BYOM.
+ *                      (It used to raw-`fetch` the Anthropic Messages API on a platform key, ignoring
+ *                      the org's model choice — the one LLM path in the app that did.) Like `scan` and
+ *                      `memory` it is deliberately ABSENT from LEG_TEMPERATURE_ENV /
+ *                      LEG_TEMPERATURE_DEFAULT (src/lib/llm/config.ts): adding a row there would change
+ *                      a resolved temperature, which is a scoring-reproducibility decision (D29), not a
+ *                      metering one.
+ *   - `lane_summary` — the loop's per-lane deliverable polish (src/lib/local/lane-summary.ts): condenses
+ *                      a derived headline list into ≤ 4 lines. Pinned at temperature 0 in config.ts
+ *                      (LANE_SUMMARY_TEMPERATURE overrides) — it rewrites, it does not invent — and it
+ *                      spends in the `local` usage lane, the loop's own budget.
  */
-export type LlmLegKind = "scan" | "memory" | "athena_turn" | "athena_cycle";
+export type LlmLegKind = "scan" | "memory" | "athena_turn" | "athena_cycle" | "briefing" | "lane_summary";
 
 /** A tool Athena may call. `inputSchema` is a JSON Schema object, the same source of truth every
  *  provider's own function-calling envelope wraps (Bedrock `inputSchema.json`, Gemini
@@ -133,4 +151,12 @@ export interface TextRunnerOptions {
   onUsage?: (usage: TokenUsage) => void;
   /** Override the tracklight tag. Defaults to `legKind`, which is what a caller almost always wants. */
   surface?: string;
+  /**
+   * WHOSE LEDGER this call lands in — the org, and optionally the row/repo/team it belongs to. The
+   * seam derives the lane from `legKind`, so a caller usually supplies only `{ orgSlug }`.
+   *
+   * Optional, and its absence is not a silent free pass: `meter()` writes NOTHING for an org it
+   * cannot name (see its own contract). An unattributable event is worth less than the row it costs.
+   */
+  meter?: MeterContext;
 }

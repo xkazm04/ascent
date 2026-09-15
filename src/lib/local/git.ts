@@ -18,6 +18,18 @@ import { execFile } from "node:child_process";
 const GIT_TIMEOUT_MS = 15_000;
 /** stdout cap — `git ls-files` on a huge monorepo is the biggest legitimate output (~a few MB). */
 const GIT_MAX_BUFFER = 32 * 1024 * 1024;
+/**
+ * SLACK AFTER `execFile`'s OWN TIMEOUT, after which this wrapper resolves whether or not git's
+ * callback ever fires.
+ *
+ * `options.timeout` kills the child; it does NOT guarantee the callback. Node fires it on the
+ * process's `close`, which waits for the stdio pipes to close — and a grandchild that inherited them
+ * (a credential helper, a hook, a lingering process holding an index lock in a worktree the loop just
+ * killed a test runner in) keeps them open after the parent is gone. That is a wait that never
+ * settles, and it is exactly how a loop lane parked for eight hours. Killing is not the mechanism;
+ * RESOLVING is, so this timer resolves the promise unconditionally and the orphan is left to the OS.
+ */
+const GIT_HARD_RESOLVE_SLACK_MS = 5_000;
 
 export interface GitResult {
   ok: boolean;
@@ -30,20 +42,38 @@ export interface GitResult {
  *  verification failure to surface, not an exception to unwind. */
 export function runGit(cwd: string, args: readonly string[], opts: { timeoutMs?: number } = {}): Promise<GitResult> {
   return new Promise((resolve) => {
-    execFile(
+    const timeoutMs = opts.timeoutMs ?? GIT_TIMEOUT_MS;
+    let settled = false;
+    const settle = (r: GitResult): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(hard);
+      resolve(r);
+    };
+    const child = execFile(
       "git",
       args as string[],
       {
         cwd,
-        timeout: opts.timeoutMs ?? GIT_TIMEOUT_MS,
+        timeout: timeoutMs,
         maxBuffer: GIT_MAX_BUFFER,
         windowsHide: true,
         env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0" },
       },
       (error, stdout, stderr) => {
-        resolve({ ok: !error, stdout: stdout ?? "", stderr: (stderr ?? "").slice(0, 4_000) });
+        settle({ ok: !error, stdout: stdout ?? "", stderr: (stderr ?? "").slice(0, 4_000) });
       },
     );
+    // The belt described at GIT_HARD_RESOLVE_SLACK_MS: `timeout` above kills, this resolves.
+    const hard = setTimeout(() => {
+      child.kill("SIGKILL");
+      settle({
+        ok: false,
+        stdout: "",
+        stderr: `git ${args[0] ?? ""} did not return within ${Math.round((timeoutMs + GIT_HARD_RESOLVE_SLACK_MS) / 1000)}s and was abandoned.`,
+      });
+    }, timeoutMs + GIT_HARD_RESOLVE_SLACK_MS);
+    (hard as unknown as { unref?: () => void }).unref?.();
   });
 }
 

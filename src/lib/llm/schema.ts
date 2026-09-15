@@ -14,7 +14,8 @@
 // schema can never drift from the rubric the rest of the app scores against.
 
 import { DIMENSIONS } from "@/lib/maturity/model";
-import { CLAIM_SCORED_DIMENSIONS, D4_FACET_IDS } from "@/lib/scoring/claims";
+import { ALL_FACET_IDS, CLAIM_SCORED_DIMENSIONS } from "@/lib/scoring/claims";
+import { CRAFT_AXES } from "@/lib/scoring/craft";
 
 const DIMENSION_IDS = DIMENSIONS.map((d) => d.id);
 /** The impact/effort vocabulary — the single source for both the schema enum (constrain the model
@@ -62,9 +63,17 @@ export const ASSESSMENT_JSON_SCHEMA = {
           impact: { type: "string", enum: IMPACT_LEVELS },
           effort: { type: "string", enum: IMPACT_LEVELS },
           rationale: { type: "string" },
+          firstStep: { type: "string", description: "The single concrete first move, one sentence. Omit when none is clear." },
           explore: { ...stringArray, description: "2-3 invitational questions." },
           levelUnlock: { type: "string" },
           kind: { type: "string", enum: ["gap", "craft"], description: "gap (default) or craft (for a dimension already at/above the band)." },
+          // The axis enum is DERIVED from the craft taxonomy, so the schema can never teach the model
+          // an axis the ledger and the loop's coverage ranking would then fail to recognise.
+          craftAxis: {
+            type: "string",
+            enum: CRAFT_AXES as unknown as string[],
+            description: "Required on a craft entry: which face of the craft it raises. Omit on a gap.",
+          },
         },
         required: ["title", "dimension", "impact", "effort", "rationale"],
       },
@@ -86,14 +95,19 @@ export const ASSESSMENT_JSON_SCHEMA = {
     claims: {
       type: "array",
       description:
-        "Cited practice claims (D4). Each names a facet, a sampled file path (or \"commits\"), and a verbatim quote from it.",
+        "Cited practice claims (D1, D4). Each names a facet, a sampled file path (or \"commits\"), and a " +
+        "verbatim quote from it. Facets that compare two files also carry path2/quote2.",
       items: {
         type: "object",
         properties: {
           dimension: { type: "string", enum: CLAIM_SCORED_DIMENSIONS as string[] },
-          facet: { type: "string", enum: D4_FACET_IDS as string[] },
+          // Ids are globally unique across the claim-scored dimensions, so ONE flat enum is exact:
+          // the claim's own `dimension` still decides which table verifies it.
+          facet: { type: "string", enum: ALL_FACET_IDS as string[] },
           path: { type: "string" },
           quote: { type: "string" },
+          path2: { type: "string" },
+          quote2: { type: "string" },
           note: { type: "string" },
         },
         required: ["dimension", "facet", "path", "quote"],

@@ -58,12 +58,12 @@ export interface StatProps {
 /** The two inverted (value-first) densities. Each row is one coherent typographic bundle. */
 const FIGURE = {
   figure: {
-    value: "font-mono text-3xl font-bold tabular-nums",
-    label: "mt-1 font-mono text-xs uppercase tracking-[0.2em] text-slate-500",
+    value: "type-figure-lg font-bold",
+    label: "mt-1 type-label tracking-[0.2em] text-slate-500",
   },
   "figure-compact": {
-    value: "font-mono text-2xl font-bold tabular-nums",
-    label: "mt-0.5 font-mono text-xs uppercase tracking-widest text-slate-500",
+    value: "type-figure font-bold",
+    label: "mt-0.5 type-label tracking-widest text-slate-500",
   },
 } as const;
 
@@ -85,21 +85,21 @@ export function Stat({ label, value, sub, color, delta, deltaLabel, goal, raw = 
         </>
       ) : (
         <>
-          <div className="font-mono text-[13px] uppercase leading-snug tracking-[0.12em] text-slate-400">{label}</div>
-          <div className={`mt-0.5 font-mono text-2xl font-bold tabular-nums${valueClass}`} style={valueStyle}>
+          <div className="font-mono type-micro uppercase leading-snug tracking-[0.12em] text-slate-400">{label}</div>
+          <div className={`mt-0.5 type-figure font-bold${valueClass}`} style={valueStyle}>
             {display}
           </div>
         </>
       )}
-      {sub && <div className="mt-0.5 text-sm text-slate-500">{sub}</div>}
+      {sub && <div className="mt-0.5 type-body-sm text-slate-500">{sub}</div>}
       {delta != null && (
-        <div className="mt-1 flex items-center gap-1.5 font-mono text-sm">
+        <div className="mt-1 flex items-center gap-1.5 type-mono-sm">
           <span style={{ color: deltaHex(delta) }}>{fmtDelta(delta)}</span>
           {deltaLabel && <span className="text-slate-500">{deltaLabel}</span>}
         </div>
       )}
       {goal && (
-        <div className="mt-1 font-mono text-sm" style={{ color: goal.color }} title={`Active goal target: ${goal.target}`}>
+        <div className="mt-1 type-mono-sm" style={{ color: goal.color }} title={`Active goal target: ${goal.target}`}>
           target {goal.target} · {goal.label}
         </div>
       )}

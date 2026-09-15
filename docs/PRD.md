@@ -49,7 +49,7 @@ Ascent turns this fingerprint into a score, a level, and a roadmap.
 | **VP Eng / CTO** | Justify AI spend, set transformation strategy | Org-level maturity score + trend + benchmark |
 | **Platform / DevEx lead** | Prioritize internal-tooling investments | Per-dimension gaps + prioritized roadmap |
 | **Eng manager** | Level up a specific team/repo | Repo report card + concrete next steps |
-| **Individual dev / OSS maintainer** | Curiosity, signaling, bragging rights | Free scan + shareable "AI-Native Level N" badge |
+| **Individual dev / OSS maintainer** | Curiosity, signaling, bragging rights | Free scan + a shareable public report permalink |
 | **DevEx consultancy** | Sell & benchmark transformation work | Repeatable assessment, history, client rollups |
 
 ## 5. Value Proposition
@@ -65,7 +65,7 @@ Ascent turns this fingerprint into a score, a level, and a roadmap.
 ## 6. Core Use Cases
 
 1. **One-time public scan (B2C / funnel):** paste a public GitHub URL → full report in
-   under a minute → share a badge. Zero signup.
+   under a minute → share the permalink. Zero signup.
 2. **Pro repo audit:** authenticate, scan private repos, export PDF, keep history.
 3. **Enterprise org assessment (B2B):** install the GitHub App, scan all org repos,
    roll up to an org score, track progress quarterly, export audit-ready reports, all
@@ -79,7 +79,7 @@ bespoke, on-demand implementation.
 
 | Tier | Price | Who | Includes |
 |---|---|---|---|
-| **Public** | **Free** | Anyone, on the web | Unlimited public-repo scans, full report (radar + roadmap), shareable badge. No signup. |
+| **Public** | **Free** | Anyone, on the web | Unlimited public-repo scans, full report (radar + roadmap), shareable permalink. No signup. |
 | **Private** | **Usage-based** (pay per scan) | Teams scanning private repos | Private repos via token / GitHub App, scan history + progress trends, recommendation tracking, PDF export. You pay only for what you scan; no subscription. |
 | **Enterprise** | **Custom** (on demand) | Regulated / large orgs | Bedrock private inference, SSO/SAML + RBAC, audit logs, data residency/VPC, org rollups, dedicated support, implemented to requirements. |
 
@@ -88,9 +88,10 @@ per private scan keeps margins predictable and lets customers start with zero co
 Exact per-scan rate is TBD (a function of model + repo size); the model is the decision,
 the number is a later calibration.
 
-**Growth loop:** the free **maturity badge**, an SVG embedded in READMEs reading "Ascent:
-AI-Native Level 3", drives organic discovery; each badge links back to a fresh scan,
-funneling public users toward private/enterprise.
+**Growth loop:** the free public **report permalink** and the AI-native register drive organic
+discovery; each shared report links back to a fresh scan, funneling public users toward
+private/enterprise. (A README SVG badge previously served this role and was removed on
+2026-08-29 — the register and the permalink carry the loop now.)
 
 **Why this is monetizable B2B (Track 2):** the buyer is an engineering org; the value
 (transformation roadmap, audit, benchmarking, privacy) is squarely enterprise, and the
@@ -102,7 +103,7 @@ usage-based private tier converts the free funnel without a subscription barrier
 - Public-repo scan via GitHub REST API (no clone).
 - Deterministic signal extraction + LLM synthesis → scored report.
 - Report UI: overall level, dimension radar, evidence, prioritized roadmap.
-- Shareable SVG badge.
+- Shareable public report permalink.
 - "Mock mode" so the app is fully demoable without any API key.
 
 ### Phase 2 (still within the 1-month window if time allows: DB + enterprise)
@@ -121,7 +122,7 @@ usage-based private tier converts the free funnel without a subscription barrier
 - **Activation:** % of visitors who complete a scan.
 - **Quality:** human agreement with assigned level on a labeled benchmark set (target
   ≥ 80%).
-- **Virality:** badges embedded → referral scans.
+- **Virality:** shared report permalinks → referral scans.
 - **B2B:** demo-to-pilot conversion; repos under management; re-scan retention.
 
 ## 10. Risks & Mitigations

@@ -83,8 +83,10 @@ describe("parseOtlpSessions", () => {
     expect(parseOtlpSessions(body({ metrics: [{ name: "claude_code.cost.usage", value: 1 }] }), NOW)).toEqual([]);
   });
 
-  it("yields nothing for a repo it cannot resolve to a GitHub full name", () => {
-    const b = body({ sessionId: "sess-3", repo: "https://gitlab.com/acme/web.git", metrics: [{ name: "claude_code.cost.usage", value: 1 }] });
+  it("yields nothing for a repo it cannot resolve to a forge Ascent reads", () => {
+    // Bitbucket, not GitLab: as of moonshot #4 a GitLab remote DOES resolve (to `gitlab:acme/web`),
+    // so the unreadable case has to be a forge with no adapter, or the test asserts a stale premise.
+    const b = body({ sessionId: "sess-3", repo: "git@bitbucket.org:acme/web.git", metrics: [{ name: "claude_code.cost.usage", value: 1 }] });
     expect(parseOtlpSessions(b, NOW)).toEqual([]);
   });
 

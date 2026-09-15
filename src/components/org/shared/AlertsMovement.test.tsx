@@ -41,8 +41,13 @@ function movement(over: Record<string, unknown> = {}) {
     count: 2,
     capped: false,
     items: [
-      { repo: "acme/api", event: "regression", summary: "…", at: new Date(Date.now() - 3_600_000).toISOString() },
-      { repo: "acme/web", event: "level-change", summary: "…", at: new Date(Date.now() - 86_400_000).toISOString() },
+      {
+        repo: "acme/api",
+        event: "regression",
+        summary: "Overall fell 21 (96 → 75): D9 Supply Chain & Security",
+        at: new Date(Date.now() - 3_600_000).toISOString(),
+      },
+      { repo: "acme/web", event: "level-change", summary: "Maturity climbed L3 → L4", at: new Date(Date.now() - 86_400_000).toISOString() },
     ],
     ...over,
   };
@@ -58,6 +63,10 @@ describe("Alerts chip — movement count", () => {
 
     fireEvent.click(bell);
     expect(await screen.findByText("Since you last looked")).toBeInTheDocument();
+    // …and each row says WHAT moved. The persisted summary was carried to the client and dropped, so
+    // a 21-point slide and a 1-point wobble rendered as the same sentence.
+    expect(screen.getByText(/Overall fell 21 \(96 → 75\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Maturity climbed L3 → L4/)).toBeInTheDocument();
     expect(screen.getByText("acme/api")).toBeInTheDocument();
     expect(screen.getByText("level change")).toBeInTheDocument();
   });

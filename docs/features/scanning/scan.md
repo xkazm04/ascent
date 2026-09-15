@@ -61,9 +61,50 @@ quota is consumed, so a typo can never burn one of the free tier's monthly scan 
 **Pre-scan gates, the same order on both routes** (`src/lib/scan-gates.ts`):
 
 ```
-rate limit  →  sign-in wall  →  monthly quota
-   429            401              429 { code: "monthly_quota" }
+rate limit  →  sign-in wall  →  monthly quota                   →  credit reserve
+   429            401              429 { code: "monthly_quota" }     402 INSUFFICIENT_CREDITS
 ```
+
+The **credit reserve** (`scanCreditGate`) is the last gate because it is the only one that mutates
+an org's balance: every cheaper refusal is answered before a credit moves. It applies to a
+**metered** scan only (private / installed-org, non-mock; `isMeteredScan`) and reserves one credit
+*before* inference, then hands it back on every path that delivered nothing billable: cached hit,
+coalesce join, degrade-to-mock, dedup, throw/abort. Public scans pay the monthly quota and never
+reach it. Until 2026-09-05 this gate lived inline in `/api/scan` only, so `/api/scan/stream` (the
+route the report UI drives) ran paid inference on private repos with no meter at all; both routes now
+share the one gate. Both also answer `x-ascent-credits-remaining`: on `/api/scan` it is the
+post-refund balance; on the SSE route the headers flush before `start()` can refund, so it is the
+**pre-refund** figure (the same soft-header caveat the `x-ascent-quota-*` fields carry). The report
+client renders the 402 as its own out-of-credits wall (see
+[report.md](../reporting/report.md#failure-states-on-the-report-page-2026-09-05)). A GitHub network
+failure inside `ghJson` now crosses back as a fixed sentence; the raw error is logged server-side.
+
+### The anonymous public scan is exempt from the sign-in wall
+
+`scanAuthGate` walls a **private / installed-org** scan whenever `authGateEnabled()` is true, but an
+**anonymous public** scan passes by default: the wall applies to it only when an operator opts back in
+with `ASCENT_REQUIRE_SIGNIN_FOR_PUBLIC_SCAN=1`. That composed predicate is
+`publicScanWallEnabled()` — `authGateEnabled() && publicScanSignInRequired()`, exported from
+`src/lib/scan-gates.ts`.
+
+The cost ceiling for the anonymous funnel does not depend on the flag: the shared burst limiter runs
+before this gate and the rolling monthly free-scan quota runs after it, on this exact path either way.
+
+**Every scan door reads that one predicate.** The three entry points a visitor can reach must agree
+with the endpoint, because a wall painted on a door the server would have opened costs the vendor the
+one visitor who used the front door and nobody else:
+
+| Door | How it stays consistent |
+| --- | --- |
+| The landing hero's scan dialog (`src/app/page.tsx` → `ScanModal`) | The page computes `gated` from `publicScanWallEnabled()` server-side and passes it down. It renders the "Sign in to scan" panel **only** when the endpoint would answer `401`. |
+| `/report?repo=…` (the scan form's destination) | No client-side predicate at all. It starts the scan and renders whatever the server answers — `auth_required` → `SignInNotice`, `monthly_quota` → `QuotaBlocked`. |
+| `/report/{owner}/{repo}` cold permalink (`ColdScanGate`) | No wall; an explicit **Scan now** button so a shared permalink never auto-starts a multi-minute scan nobody asked for. Says "free for public repositories and needs no account". |
+
+Pinned by `src/lib/scan-gates.wall-consistency.test.ts`, which drives the predicate and the gate across
+the whole env matrix and asserts they never disagree. When the dialog is open (the default), the
+`QuotaMeter` and the derived duration sentence render with it — both work signed-out (`/api/quota`
+reports `scope: "anon"`), so an anonymous visitor is told the real allowance and the real wait
+**before** committing a scan.
 
 A caller who trips more than one gate gets the **first** one, so a throttled anonymous caller sees
 `429` with `Retry-After` on **both** routes, not `401` on one and `429` on the other, which is what
@@ -112,6 +153,42 @@ passing `installationId` while throttled gets `401` there and `429` on the strea
 Ingest accepts an optional `ref` (branch/tag/SHA) so the pipeline can score a **PR head**
 instead of the default branch; this is what the [gate](./gate.md) and the App webhook use,
 and what the public scan form's branch selector drives (below).
+
+#### Ingest from a worktree (`src/lib/local/source.ts`)
+
+`LocalFsSource` is the self-hosted twin: same `pickFilesToFetch`, same caps, reading a paired
+working copy (or a loop worktree) from disk. One difference is deliberate and load-bearing. The
+GitHub source reserves workflows a *file-count* quota by appending them after the 50-slot list; a
+sequential disk read that stops at the 280 KB budget never reached them on a worktree with enough
+large samples, so the loop's rescan scored "0/1 workflows" against a before-scan that had read all
+of them and D9 fell forty points with no repository change. `readPicksWithReserve` now reads the
+**reserved class** first and exempts it from the byte budget (still capped per file):
+`.github/workflows/*`, `.github/dependabot.yml` / `renovate*`, `SECURITY.md`, everything under
+`.ai/`, `CLAUDE.md`, `AGENTS.md`. The rest fill the remaining budget in pick order and the result is
+restored to pick order, so the prompt window is unchanged for the files it was going to read anyway.
+Test: `source.reserve.test.ts`.
+
+**The GitHub byte budget is a plan, not a race (2026-09-05, rubric `r17`).** `fetchSnapshot` used to
+spend `MAX_TOTAL_BYTES` inside the 8-wide fetch pool with an optimistic per-file claim reconciled
+after each await, so which picks were displaced depended on network timing. `planFetchBudget` now
+walks the picks in `fetchRank` order and admits each while `planned + min(listed blob size,
+per-file cap) <= MAX_TOTAL_BYTES`, closing admission at the first pick that does not fit; only the
+admitted set is fetched (through the shared `mapPool`). The set a scan reads is a pure function of
+(tree, picks, budget): re-scanning the same commit reads the same files and produces the same score.
+Displaced picks are disclosed through coverage as their own term (`attempted / (attempted +
+displaced)`), the same depression they always caused, now reproducible. The GitLab source, whose
+tree carries no sizes, reaches the same guarantee by deciding admission in strict pick order from a
+single consumer (at most seven in-flight reads beyond the cut). See the `r17` entry in
+[maturity-model.md](maturity-model.md#6-rubric-versioning-scoring_rubric_version) for why this is a
+rubric bump.
+
+The other half of worktree comparability is D9's GitHub-only inputs (branch protection, installed
+Apps, org policy): an observed scan records them on `platformSignals.securityInputs`, a worktree
+rescan re-runs the battery with them and discloses the carry on each check, and with nothing to
+carry `computeSecurityChecks` **excludes** a check whose 0 only GitHub could refute instead of
+scoring it (`platformUnobservable`). `attributeDimension("D9", …)` refuses a GitHub end against a
+blind worktree end as `unmeasured`. Details in
+[the loop's platform fold](../org-planning/live.md#platform-signals-carried-into-a-worktree-rescan).
 
 ## Scan scope (branch &amp; sub-path)
 
@@ -167,10 +244,72 @@ zero score plus a warning, never the whole scan.
 | D3 | CI/CD & Delivery | Pipelines + stages, release automation, IaC, policy-as-code, GitOps, progressive delivery, migrations |
 | D4 | Agentic Workflows | AI code-review agents, LLM-in-CI, auto-fix/auto-PR bots, dependency automation |
 | D5 | Documentation & Knowledge | README depth, `/docs`, ADRs, CONTRIBUTING, CHANGELOG, API docs, examples |
-| D6 | Code Quality & Guardrails | Linters, formatters, strict types, pre-commit hooks, CODEOWNERS, commitlint |
+| D6 | Code Quality & Guardrails | Linters, formatters, strict types, pre-commit hooks, CODEOWNERS, commitlint — plus **enforcement**: guardrails run inline in CI, a quality ratchet / debt ceiling, a zero-warning lint gate (see [D6: presence vs enforcement](#d6-presence-vs-enforcement)) |
 | D7 | Commit & Velocity Signals | AI-attributed commits, conventional commits, cadence, recency |
 | D8 | AI Process & Harness | Evals/golden tests, prompt/agent library, runbooks, AI contribution process |
 | D9 | Supply Chain & Security | SAST, SCA, secret/container scanning, SBOM, signing, SECURITY.md, threat models |
+
+#### D6: presence vs enforcement
+
+D6 grades two different things, and the difference is load-bearing. **Presence** signals ask whether a
+tool is installed — `Linter configured` (20), `Formatter configured` (10), `TypeScript strict mode`
+(20) / `TypeScript configured` (10) / `Static type checking (mypy/pyright)` (15), `Pre-commit hooks`
+(15), `CODEOWNERS` (15), `Commit linting / conventions` (10), `PR template` (5). **Enforcement**
+signals ask whether it *operates* — the same "installed vs operating" distinction the assessment
+prompt already insists on for the model:
+
+| Signal | Points | What it reads |
+| --- | --- | --- |
+| `Lint/format/type-check enforced in CI` | 20 (or **+5** when a standalone linter config already scored) | lint/format/type commands in `.github/workflows/**` (`idx.workflowText`) |
+| `Quality ratchet / debt ceiling enforced` | 15 | a ratchet/ceiling/budget/`no-new-*`/suppression/baseline artifact: a **parsed `package.json` script** entry, a checked-in baseline (`.betterer.*`, `eslint-baseline.json`, `*-ceiling.json`, `knip.json`), or the same terms in a CI workflow |
+| `Lint/type gate fails on warnings (zero-warning policy)` | 5 | `--max-warnings 0`, `-D warnings`, `--deny warnings`, `--error-on-warnings`… in a workflow or a parsed script body |
+
+**Why the ratchet signal exists.** Measured over a 21-run campaign (2026-08): two repos gained ESLint
+import-boundary rules, a blocking ruff ignore-ceiling ratchet, a blocking TypeScript suppression
+ratchet, exception lists and several gates wired into `check:ci` — and D6 moved 66 → 68 on one and
+81 → 81 on the other. Every artifact mapped onto a presence signal **already awarded** (the linter
+config the repo already had), and the ratchets — the only artifacts that actually block a build —
+mapped onto no signal at all. A repo can carry an `.eslintrc` for years while its warning count
+climbs; a ceiling that fails `check:ci` cannot.
+
+Scripts are **parsed** out of `package.json` (`packageScripts`), never regexed out of the manifest
+blob: a dependency named `@acme/budget-ratchet-ui` is not a gate, and a script entry is runnable by
+construction. An unparseable manifest yields no scripts rather than a guess.
+
+#### Evidence has to be checkable
+
+A signal is `{ label, detail? }` and renders as `label (detail)`. UAT `SAM-L1-01` (2026-08-10)
+recorded the evidence lines as **unsourced labels** — an instant-trust-failure — because a presence
+check (`RepoIndex.has`) computed which path matched and then discarded it, leaving the reader to
+re-derive the regex by hand.
+
+`RepoIndex.first(...res)` returns that path, and the presence signals cite it: *"Found CLAUDE.md
+(Claude Code guidance) (docs/claude.md)"*. The **quality** claims about a guidance file cite the file
+they were read from, since the claim is about that file's contents.
+
+**A workflow-body signal cites the WORKFLOW FILE.** `RepoIndex.workflowMatch(re)` is `first()`'s twin
+for the other trigger: workflow bodies are kept per file (`workflowFiles`) as well as concatenated
+(`workflowText`), so *"CI runs tests"* names `.github/workflows/main.yml` rather than the blob. This
+is exact, not plausible — it names the file the matching line was actually read from. UAT `SAM-L1-01`
+recurrence 2 (2026-08-30) reframed the gap this way: the LLM narrative above the evidence list already
+cited the workflow paths, so *the deterministic detectors were lagging the model*, not the UI.
+
+**A signal fired by MANIFEST text stays unsourced, deliberately.** Several detectors match a path, a
+workflow body, *or* the manifest blob. A dependency named in `package.json` is not a standalone
+config a reader can open, so no detail is attached — naming a plausible file would be a fabrication in
+the one place the product is asking to be trusted. `evidence-source.test.ts` pins both directions.
+
+Covered: D1 (all presence + quality signals, plus the `.ai/` manifest awards), D2's
+framework/e2e/coverage config, **all of D3** (the CI presence path, the named workflow list, the
+tests/lint/build jobs, release/deploy, IaC and the delivery-as-code cluster), D5's document set, D6's
+linter/formatter/tsconfig configs and the CI guardrail's workflow, **all of D8** (eval harness, prompt
+library, runbooks/ADRs, contribution process, issue templates, `.ai/doctor.mjs` + the file that wires
+it, and the memory entries), and D9's SAST / SCA / SECURITY.md / threat-model.
+
+Still bare, and each for a stated reason rather than by omission: D9's text-only checks (the same
+manifest-blob case above); D2's assertion-substance sample, whose `detail` is a measurement rather than
+a path and is deliberately left untouched (guardrail **G6**); and the count/ratio signals, whose detail
+is already a number.
 
 The same pass also computes `classifyArchetype()` (**solo / team / org**, selects the
 weighting lens later), `detectAiUsage()` (AI-commit fraction, tracked separately from the
@@ -280,6 +419,30 @@ own first gap when the model gave one, else the catalog template — lowest scor
 model's own entries. Before this, 3-5 roadmap entries over nine dimensions left most mediocre
 dimensions with an empty "Next steps", which the drill-in read as "not a current gap".
 
+**Craft entries and the craft ladder (r12, 2026-08-30).** Every dimension **at or above** the floor
+with no gap entry gets one `kind: "craft"` roadmap entry — what would make it exemplary — and each
+one names a `craftAxis`: `architecture` · `performance` · `robustness` · `design` · `security-depth`
+· `dx` (`src/lib/scoring/craft.ts`), persisted on `Recommendation.craftAxis`. Two prompt rules make
+the entries a *ladder* rather than the same suggestion re-answered every scan:
+
+- the stable TASK block requires the axis, requires the entry to name **the artefact it would leave
+  behind**, forbids a rung two steps above a missing one, and at or above `GREEN_MIN_SCORE` (85)
+  shifts the voice from "adopt the practice" to *raise the ceiling* (a performance budget that fails
+  rather than another measurement, a chaos drill rather than another retry, an architecture-decay
+  check, a dependency-freshness SLO, design/API ergonomics);
+- a per-repo **`CRAFT ALREADY BUILT`** block lists the rungs the repository has completed with their
+  axis and instructs the model to propose the *next* one ("a k6 smoke baseline exists → the next rung
+  is a budget that fails CI, not another smoke test"). It is fed by `getCraftBuilt` from the same
+  read path that supplies `orgDecisions`, rendered into the **user** message only — never the cached
+  SYSTEM prefix — and `neutralize`d exactly like the standing-decisions block.
+
+Craft entries get their own roadmap budget (6 gaps + 6 craft) so gaps cannot starve the ladder, and
+`buildDimensionFollowUps` counts only **gap** entries as coverage, so a stray craft entry on a
+below-green dimension can never suppress the follow-up that dimension is guaranteed. A craft entry
+never touches a score or the fleet's debt; since r12 it *is* dispatchable by the loop's craft lane.
+Full mechanics — the ledger, the resolve rule, the debt exclusions — in
+[maturity-model.md §4d](./maturity-model.md#4d-the-craft-ladder--craft-becomes-dispatchable-work-r12-2026-08-30).
+
 **Ranking includes effort (2026-08-20).** The fallback roadmap ranks by `weight × headroom ×
 effort`, where effort discounts the weighted upside by 10% per ordinal (low ×1.0, medium ×0.9,
 high ×0.8, off the shared `IMPACT_RANK`). Effort was previously displayed but absent from the
@@ -334,6 +497,91 @@ These are running all-time totals, not a time series, so the rate is a lifetime 
   *Ungoverned*, *Solid but Manual*, *Getting Started* (`postureFor`).
 - **Warnings**: appended for no token (PR signals skipped), LLM fallback, truncated
   tree, low coverage (< 50%), or a detector error.
+
+#### Provenance: which engine produced the score, and what moved it
+
+Three facts travel with every persisted scan so a run-over-run delta can be *attributed* rather than
+assumed (see [the loop's attribution rule](../org-planning/live.md#is-this-lift-real-the-attribution-rule)):
+
+| Field | Column | Says |
+| --- | --- | --- |
+| `engine.provider` / `engine.model` | `engineProvider`, `engineModel` | which engine answered |
+| `engine.degraded` | `engineDegraded` | an LLM **was requested and never answered**, so the provider above is the deterministic *floor*, not a choice |
+| `report.scoreIntegrity` | `scoreIntegrityJson` | the levers that can move a headline on an **unchanged** commit: `d9Unmeasurable`, `widenedDims`, `widenCapped`, `unmeasuredDims`, `effectiveBlend` |
+| `report.platformSignals` | `platformSignalsJson` | what this scan could see of **GitHub** — `observed`, `carried` (from which scan, how old, `stale`), or `unavailable` |
+| `headSha` | `headSha` | the commit this scan pinned to — the **only** base evidence a scan carries, and what lets the loop refuse a pair whose two ends were taken on divergent trees ([incomparable bases](../org-planning/live.md#a-pair-that-crosses-a-base-change-is-not-comparable-2026-08-31)). Nullable: a sha-less scan makes the base question `unknown`, which refuses nothing. There is **no branch column** on a `Scan`, and the base rule does not invent one. |
+
+The fourth row is the one a *worktree* scan needs. D2/D3/D4 are credited partly for tooling that is
+**installed rather than committed** — review/CI/coverage Apps posting check suites, default-branch
+Actions health (`src/lib/analyze/platform-signals.ts`) — and a scan reading a local filesystem cannot
+observe any of it. `applyPlatformSignals` therefore records what the fold was worth (points +
+evidence, per dimension); a later local scan **replays** that record with its provenance and age on
+every line (`src/lib/analyze/platform-carry.ts`, stale past `PLATFORM_FOLD_STALE_DAYS` = 14), and when
+there is nothing to replay the record says `unavailable` — which excludes those three dimensions from
+the green verdict instead of scoring them at a floor the repository cannot raise. The same record
+carries D9's GitHub-side battery inputs (`securityInputs`) so the security score is on one ruler on
+both ends of a loop pair. See
+[the loop's platform fold](../org-planning/live.md#platform-signals-carried-into-a-worktree-rescan).
+
+### Unobservable is not failing
+
+A blind worktree rescan can measure everything a file scan can see — guidance, tests, configs, docs,
+conventions, history, the D9 checks whose evidence is committed. What it cannot measure is the half of
+D2/D3/D4 that is *installed rather than committed*, and with nothing to carry it has no reading of
+those dimensions at all.
+
+`dimensionObservability(record, dimId)` (`src/lib/analyze/platform-carry.ts`) is the single rule for
+which of the two a dimension is in: `observed`, `carried` (replayed from an earlier observed scan —
+still a measurement, and disclosed as a borrowed one), or `unobservable` (the fold was unavailable
+*and* nothing was carried). Every dimension outside the folds is `observed`, because the file scan
+reads it as well locally as it does through GitHub, and an *unknown* record is `observed` too: a
+legacy row is not evidence of blindness.
+
+The consequence is stated once and applied everywhere: **unmeasured is not the same as bad, so it must
+not be turned into work.** An unobservable dimension is excluded from the green verdict
+(`repoGreenness`), is owed **no** manufactured roadmap coverage entry (`buildDimensionFollowUps` — a
+gap the *model* raised from evidence it could see still stands), and is not armed by the loop
+(`openBatch`). It is never silent about it: the list is recorded on `scoreIntegrity.unmeasuredDims`
+and the report header's integrity chip prints `D2, D3, D4 not measured`, so a low number there reads
+as missing evidence rather than as a finding. **No score moves** — D4 keeps whatever it computes; what
+changes is what becomes work. See
+[the loop does not arm what it cannot verify](../org-planning/live.md#the-loop-does-not-arm-what-it-cannot-verify-2026-08-30).
+
+### A failed sensor read is unknown, never zero (2026-09-05)
+
+The token-gated enrichments (branch governance, security posture, dependency exposure, the
+installed-App inventory, CI health, deployments) each degrade to the same `null` / `[]` a
+successful-but-empty read produces. Until 2026-09-05 only the PR sensor recorded the difference
+(`prFetchFailed`); a failed posture read on a repo whose org has a `SECURITY.md` persisted score 0,
+"No security policy found" and a remediation for a control the repo has, and a failed governance
+read silently dropped the D3/D6/D8 credit. Now `ingestRepository` records every sensor whose read
+threw on `IngestPhaseResult.sensorFailures` (typed `ScanSensorId[]`, carried on
+`ScanReport.sensorFailures`), and:
+
+- `buildScanWarnings` emits **one** caveat naming the failed reads in reader words ("GitHub signal
+  reads FAILED during this scan (…), so the signals they feed are missing - this reflects failed
+  reads, not controls the repository lacks"). It persists through `warningsJson` like every other
+  caveat; there is no dedicated column for the typed list yet.
+- D9 checks whose only GitHub-side refutation came from a failed sensor (security policy from
+  posture; SAST and dependency updates from the App inventory) return `score: null` with evidence
+  "not observable: <sensor> read failed" and are **excluded** from the blend, through the same
+  `githubCanRefuteZero` path a structurally blind scan already uses. A sensor that ran and found
+  nothing scores exactly as before.
+- Governance and platform folds are not given partial credit; the caveat is the record. An absent
+  `platformSignals` record **plus** `appInventory`/`ciHealth` in `sensorFailures` means
+  *unmeasured*; an absent record with nothing listed means the scan looked and measured nothing.
+- `fetchDeployments` now accepts the scan's abort signal and joins the enrichment `Promise.all`
+  (its loop stays sequential for the secondary rate limit); the two score-input DB reads run in
+  parallel (measured on a modelled fixture: 268 ms → 134 ms); the outcome counters no longer block
+  the hot path. The ingest emits "Reading GitHub signals…" at 52 before the enrichment await and
+  "Analyzing signals…" at 62 after it, so the UI no longer claims to analyze during GitHub I/O.
+
+`engineProvider = "mock"` cannot carry the second on its own: it is also what a keyless deploy and an
+explicit `?mock=1` demo look like, and neither of those is a failure. All three are nullable — a row
+written before the columns is **unknown**, which is deliberately not the same value as "not degraded"
+/ "nothing widened" / "unavailable", and the readers keep it `undefined` rather than defaulting it.
+That asymmetry is load-bearing for the last row: `unavailable` *removes dimensions from a verdict*,
+and no historical row is entitled to make that claim.
 
 ### App Readiness Passport & autonomy tier (`src/lib/analyze/passport*.ts`)
 
@@ -516,15 +764,52 @@ a second award; the r7 platform folds in `pulls.ts` and `platform-signals.ts` ta
 same way. Design and the adversarial case: [`docs/SCORING-VALIDITY.md`](../../SCORING-VALIDITY.md);
 the facet table itself: [`maturity-model.md` §D4](maturity-model.md#d4-agentic-workflows-12--scored-from-verified-citations-r9-2026-08-26).
 
+### A claim can only cite what the prompt window showed (r13, 2026-08-31)
+
+The verifier checks a citation against `RepoSnapshot.files` — the whole 50-file-plus-workflows
+sample. The **model** only sees `buildFileExcerptBlock`'s output: per-file excerpts of
+`PROMPT_PER_FILE_CHARS` (2,200) up to `PROMPT_FILE_WINDOW_CHARS` (22,000), i.e. roughly ten files,
+filled in `pickFilesToFetch` order. Those two populations are not the same set, and D4 was the
+dimension that paid for the difference: `pickFilesToFetch` adds CI workflows **last** (a reserved
+*fetch* quota, ranked last for the prompt so README/manifests/source stay front-loaded), so they sat
+past position forty and never entered the window — while four of D4's seven facets have nowhere else
+in a normal repo to be cited from. Across 34 campaign readings the model cited eight distinct paths
+and not one was a workflow; D4 came out bistable (10/20 on a Python repo, 65/85 on a Node one with
+equivalent machinery, the difference being that `package.json` scripts described the automation and
+`pyproject`/`ruff.toml` did not).
+
+`buildFileExcerptBlock` now reserves **three excerpts of the window** for `.github/workflows/*.y(a)ml`
+before filling the rest in fetch-rank order. **Admission is reordered; emission is not**, so a scan
+that was not already dropping files (and any repo with no workflows) produces a byte-identical
+prompt — GitHub and worktree alike, since both sources feed the same builder. Tests:
+`src/lib/scoring/prompt-workflow-reserve.test.ts` (the window rule and the byte-identity oracle) and
+`src/lib/scoring/engine.d4-convergence.test.ts` (the composition, both arms of the old bistability,
+and the absence of a not-applicable hatch for D4).
+
+**The rule for anyone adding a claim-scored facet:** name the file class the facet must be cited
+from, and check it can reach the window. A facet whose only evidence sorts past position ten is not a
+facet the model can claim, however well the verifier would accept it. Residual: a repo with more than
+three workflows shows its first three in pick order.
+
 ## Known gaps
 
 - **Coverage is a heuristic.** `estimateCoverage` caps confidence on truncated/large
   repos; it isn't ground truth, and reports below 50% coverage carry an "indicative only"
   warning.
+- **A forge is scored on what it can be asked, and the gaps are NULLS.** The pipeline reads GitHub,
+  GitLab and a local working copy through one `Forge` registry (`src/lib/forge/**`). A signal a forge
+  cannot answer — GitLab has no platform security posture, no dependency-exposure read and no
+  check-suite inventory — reaches the report through the same paths a token-less scan uses, so it is
+  *unknown*, never zero, and no score is adjusted to compensate. That makes a lower-observability
+  forge a **floor**, not a penalty — but it also means a cross-forge score comparison is partly an
+  artifact of observability. The per-forge capability table and that disclosure live in
+  [`docs/features/github/forges.md`](../github/forges.md).
 - **PR + governance + platform signals require a token.** Anonymous scans skip PR stats,
   governance, security posture/exposure, deployments, the installed-App inventory and CI
   health, and warn. Every token-gated fold is additive, so an anonymous scan is a floor, not a
-  different rubric.
+  different rubric. A *failed* token-gated read is reported separately from an empty one since
+  2026-09-05 (see "A failed sensor read is unknown, never zero"); the typed `sensorFailures` list
+  has no `Scan` column, so only the prose caveat survives persistence.
 - **The App inventory is one page of one commit.** It reads the suites on the *scored* commit
   only (≤100, `truncated` flags a floor). An App that posts suites only on pull-request heads
   and never on the default branch is invisible to it; the observed `aiPreReviewedRate` covers
@@ -537,8 +822,21 @@ the facet table itself: [`maturity-model.md` §D4](maturity-model.md#d4-agentic-
 - **LLM fallback is automatic but lossy.** A failed LLM swaps to the deterministic mock;
   the report still renders but with `engine.provider: "mock"` and a warning. It is no longer
   *silent*: each fallback bumps a `scan_degraded` tally (see [Outcome
-  counters](#outcome-counters-srclibscan-outcomets)), but the rate is all-time, so there is
-  still no way to ask "did degradations spike this week" without a real event table.
+  counters](#outcome-counters-srclibscan-outcomets)), writes a `warn`-level line naming the repo and
+  the provider that was supposed to answer, and is recorded **per row** as `Scan.engineDegraded` — but
+  the tally rate is still all-time, so there is no way to ask "did degradations spike this week"
+  without a real event table.
+- **D6 enforcement is read from GitHub Actions only.** The `Lint/format/type-check enforced in CI`
+  signal tests `idx.workflowText` (`.github/workflows/**`); a gate that lives in `.gitlab-ci.yml`, a
+  `Jenkinsfile`, `lefthook.yml` or a `pre-push` hook is invisible to it, even though D3 already
+  credits off-GitHub CI from its own evidence. The ratchet and zero-warning signals partly compensate
+  (both also read parsed `package.json` scripts), but a non-npm, non-Actions repo still reads as
+  "configured, not enforced".
+- **Enforcement is worth +5 on top of presence, not more.** A linter that gates scores 25 where one
+  that merely exists scores 20 — a ratio that says a config file is 80% of the value of a gate. That
+  is a **rubric decision** (it would move weights, not add signals), so it is recorded here rather
+  than changed: raising the enforcement top-up, or splitting `Linter configured` into
+  configured/enforced tiers, needs a `SCORING_RUBRIC_VERSION` bump and a corpus recalibration.
 - **No raw source is persisted** in the MVP; only the derived report (see
   [data-model.md](../data/data-model.md)).
 - **The ingestion budget is not configurable per request, on purpose.** A bigger budget changes

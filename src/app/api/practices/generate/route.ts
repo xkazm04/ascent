@@ -6,6 +6,8 @@
 
 import { NextResponse } from "next/server";
 import { fetchRepoContext, GitHubError, parseRepoUrl } from "@/lib/github/source";
+import { githubErrorHeaders, githubErrorStatus } from "@/lib/api/github-status";
+import { respondError } from "@/lib/api/respond";
 import { buildArtifact } from "@/lib/practice-artifact";
 import { getInstallationIdForOwner } from "@/lib/db";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
@@ -51,9 +53,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ artifact });
   } catch (err) {
     if (err instanceof GitHubError) {
-      return NextResponse.json({ error: err.message }, { status: err.status ?? 502 });
+      // Was `err.status ?? 502` — GitHub's own status, populated at only some throw sites, which made
+      // this route disagree with /api/scan on the SAME error: EMPTY 502 vs 422, INVALID_URL 502 vs
+      // 400, and a secondary rate limit 403 vs 429 (the 403 being the one that tells a client to stop
+      // rather than to back off). Both routes now read one mapping. Retry-After rides along, which
+      // this route previously dropped entirely.
+      return respondError(githubErrorStatus(err), err.message, {
+        code: err.code,
+        headers: githubErrorHeaders(err),
+      });
     }
     console.error("[practices/generate] failed", err);
-    return NextResponse.json({ error: "Failed to generate the starter artifact." }, { status: 500 });
+    return respondError(500, "Failed to generate the starter artifact.", { cause: err });
   }
 }

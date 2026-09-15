@@ -6,6 +6,7 @@
 // this block (nothing else on the card reads it), so it moves with the markup.
 
 import { useState } from "react";
+import { StateSwatch, STATE_HINT } from "@/components/org/viz";
 import type { PlaybookAdoption, PlaybookRow } from "@/lib/db";
 
 export function PlaybookAdoptionRow({
@@ -53,7 +54,7 @@ export function PlaybookAdoptionRow({
   }
 
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-800 pt-3 text-sm">
+    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-800 pt-3 type-body-sm">
       <span className="font-mono text-slate-400">
         Adopted by <span className="text-white">{applied.length}</span> repo{applied.length === 1 ? "" : "s"}
       </span>
@@ -76,20 +77,32 @@ export function PlaybookAdoptionRow({
           </span>
         </span>
       )}
+      {/* An unmeasured lift used to render NOTHING, which is an unmarked absence: the reader cannot
+          tell "no repo has been scanned on both sides" from "we did not bother". The kit's hatch is
+          that absence, made pointable, and it carries the canonical caveat on hover/focus. */}
+      {lift == null && applied.length > 0 && (
+        <span
+          className="flex items-center gap-1.5 font-mono text-slate-500"
+          title={`Lift needs a scan on both sides of the adoption mark, and no adopting repository has one yet. ${STATE_HINT["not-judged"]}`}
+        >
+          <StateSwatch state="not-judged" size={12} />
+          lift not judged
+        </span>
+      )}
       {applied.length > 0 &&
         (trackedUpToDate ? (
-          <span className="font-mono text-sm text-emerald-300" title="Track this rollout on the Plan tab">✓ Tracked as initiative</span>
+          <span className="type-mono-sm text-emerald-300" title="Track this rollout on the Plan tab">✓ Tracked as initiative</span>
         ) : (
           <button
             onClick={trackAsInitiative}
             disabled={tracking}
-            className="font-mono text-sm text-accent hover:text-white disabled:opacity-50"
+            className="type-mono-sm text-accent hover:text-white disabled:opacity-50"
             title={trackedRepos ? "Update the tracked initiative to cover the newly-adopted repos" : "Track this playbook's rollout as an initiative on the Plan tab"}
           >
             {tracking ? "Tracking…" : trackedRepos ? "Update initiative →" : "Track as initiative →"}
           </button>
         ))}
-      {trackError && <span role="alert" className="font-mono text-sm text-orange-300">{trackError}</span>}
+      {trackError && <span role="alert" className="type-mono-sm text-orange-300">{trackError}</span>}
     </div>
   );
 }

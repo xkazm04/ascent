@@ -12,7 +12,6 @@ import {
   ORG_IMPORT_RATE_LIMIT,
   GATE_RATE_LIMIT,
   CONTACT_RATE_LIMIT,
-  BADGE_RATE_LIMIT,
   type RateLimitConfig,
 } from "./rate-limit";
 import {
@@ -22,6 +21,7 @@ import {
   SHARED_STORE_BREAKER_MS,
   type SharedWindowStore,
 } from "./rate-limit-store";
+import { trustedProxyHops, __resetTrustedProxyWarning } from "./env";
 
 // IMPORTANT: `rate-limit.ts` keeps its sliding-window state in a MODULE-GLOBAL `Map` that is not
 // exported and cannot be reset between tests. To keep tests isolated and deterministic we give
@@ -131,6 +131,46 @@ describe("clientIp — IP trust boundary (critical #2)", () => {
         headers: { "x-forwarded-for": "1.1.1.1, 2.2.2.2" },
       });
       expect(clientIp(req)).toBe("unknown");
+    });
+
+    // The default (1) trusts `x-real-ip` verbatim. That is a fail-open, so — like selfHosted()'s
+    // production inference — it is not forbidden, it is made LOUD exactly once per process.
+    describe("the unwitnessed default warns once (the fail-open is loud, not silent)", () => {
+      let warn: ReturnType<typeof vi.spyOn>;
+      beforeEach(() => {
+        __resetTrustedProxyWarning();
+        warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      });
+      afterEach(() => {
+        warn.mockRestore();
+        __resetTrustedProxyWarning();
+        vi.unstubAllEnvs();
+      });
+
+      it("explicitly set → no warning (the operator has declared the deploy shape)", () => {
+        vi.stubEnv("ASCENT_TRUSTED_PROXY_HOPS", "0");
+        expect(trustedProxyHops()).toBe(0);
+        vi.stubEnv("ASCENT_TRUSTED_PROXY_HOPS", "2");
+        expect(trustedProxyHops()).toBe(2);
+        expect(warn).not.toHaveBeenCalled();
+      });
+
+      it("VERCEL present → no warning (the platform edge witnesses the one trusted hop)", () => {
+        vi.stubEnv("ASCENT_TRUSTED_PROXY_HOPS", "");
+        vi.stubEnv("VERCEL", "1");
+        expect(trustedProxyHops()).toBe(1);
+        expect(warn).not.toHaveBeenCalled();
+      });
+
+      it("neither declared nor witnessed → EXACTLY one warning across many calls, naming the var", () => {
+        vi.stubEnv("ASCENT_TRUSTED_PROXY_HOPS", "");
+        vi.stubEnv("VERCEL", "");
+        for (let i = 0; i < 25; i += 1) expect(trustedProxyHops()).toBe(1); // value unchanged: still 1
+        expect(warn).toHaveBeenCalledTimes(1); // once per process, not once per request
+        const msg = String(warn.mock.calls[0]?.[0]);
+        expect(msg).toContain("ASCENT_TRUSTED_PROXY_HOPS");
+        expect(msg).toContain("x-real-ip");
+      });
     });
 
     it("unset / invalid values keep the default single-proxy platform behavior", () => {
@@ -284,6 +324,39 @@ describe("rateLimitRequest — enforce-and-trip (critical #1)", () => {
     expect(rateLimitRequest(reqFromIp("203.0.113.54"), cfg).ok).toBe(false);
   });
 
+  it("QUOTA #3: a GLOBAL refusal does not spend the caller's per-IP slot (the mirror of QUOTA #1)", () => {
+    // The global ceiling is tiny and filled by OTHER callers; an innocent caller then arrives with a
+    // full 3-request budget of its own. Before the fix its per-IP window was charged first, so a
+    // saturated instance drained the budget of callers it never served.
+    const cfg = makeConfig({ perIp: 3, global: 2 });
+    expect(rateLimitRequest(reqFromIp("192.0.2.201"), cfg).ok).toBe(true); // global 1
+    expect(rateLimitRequest(reqFromIp("192.0.2.202"), cfg).ok).toBe(true); // global 2 (full)
+
+    const innocent = reqFromIp("192.0.2.203");
+    for (let i = 0; i < 10; i += 1) {
+      const r = rateLimitRequest(innocent, cfg);
+      expect(r.ok).toBe(false);
+      expect(r.scope).toBe("global"); // never "ip" — the caller's own budget was never exceeded
+    }
+
+    // The global window drains; the innocent caller must still have ALL THREE of its own requests.
+    vi.advanceTimersByTime(WINDOW_MS + 1);
+    expect(rateLimitRequest(innocent, cfg).ok).toBe(true);
+    expect(rateLimitRequest(innocent, cfg).ok).toBe(true);
+    // (the 3rd would fill the tiny global window, so assert the per-IP window directly instead)
+    expect(rateLimitRequest(innocent, cfg).scope).not.toBe("ip");
+  });
+
+  it("QUOTA #3 keeps the per-IP ceiling exact: an ADMITTED request still charges the slot", () => {
+    const cfg = makeConfig({ perIp: 2, global: 1000 });
+    const ip = reqFromIp("192.0.2.210");
+    expect(rateLimitRequest(ip, cfg).ok).toBe(true);
+    expect(rateLimitRequest(ip, cfg).ok).toBe(true);
+    const tripped = rateLimitRequest(ip, cfg);
+    expect(tripped.ok).toBe(false);
+    expect(tripped.scope).toBe("ip"); // recording moved, the cap did not
+  });
+
   it("retryAfter tracks the sliding edge: a trip partway through the window reports the remaining wait, not a full window", () => {
     // Sliding-window correctness: the slot frees when the OLDEST in-window hit ages out
     // (recent[0] + windowMs), not after a fixed full window from the trip. A caller whose oldest hit
@@ -321,7 +394,7 @@ describe("rateLimitRequest — enforce-and-trip (critical #1)", () => {
 
   it("different config `name`s do not share a budget (namespacing)", () => {
     const a = makeConfig({ name: freshName("scan"), perIp: 1, global: 1000 });
-    const b = makeConfig({ name: freshName("badge"), perIp: 1, global: 1000 });
+    const b = makeConfig({ name: freshName("bucket-b"), perIp: 1, global: 1000 });
     const req = reqFromIp("203.0.113.20");
 
     expect(rateLimitRequest(req, a).ok).toBe(true);
@@ -420,7 +493,7 @@ describe("rateLimitRequest — spoofing cannot evade the per-IP bucket (critical
 describe("real exported configs pin the as-written limits", () => {
   // Importing the configs after a clean module load uses the env fallbacks (no env overrides set in
   // the test environment), pinning the documented defaults.
-  it("SCAN/ORG_IMPORT/BADGE defaults match the source", async () => {
+  it("SCAN/ORG_IMPORT defaults match the source", async () => {
     const mod = await import("./rate-limit");
     expect(mod.SCAN_RATE_LIMIT).toMatchObject({
       name: "scan",
@@ -432,12 +505,6 @@ describe("real exported configs pin the as-written limits", () => {
       name: "org-import",
       perIp: 3,
       global: 15,
-      windowMs: 60_000,
-    });
-    expect(mod.BADGE_RATE_LIMIT).toMatchObject({
-      name: "badge",
-      perIp: 60,
-      global: 600,
       windowMs: 60_000,
     });
   });
@@ -564,6 +631,20 @@ describe("shared store — the global ceiling holds ACROSS instances (G1-04)", (
     expect((await rateLimitRequestShared(reqFromIp("198.18.1.1"), cfg)).ok).toBe(false);
     expect(backend.calls).toBe(callsAfterAdmit); // the store was never touched
   });
+
+  it("QUOTA #3 across the network: a SHARED-store global refusal leaves the per-IP window unspent", async () => {
+    const cfg = makeConfig({ perIp: 3, global: 1 });
+    __setSharedWindowStore(createUpstashStore("https://fake.upstash", "tkn"));
+
+    expect((await rateLimitRequestShared(reqFromIp("198.18.2.1"), cfg)).ok).toBe(true); // fills global
+
+    const innocent = reqFromIp("198.18.2.2");
+    for (let i = 0; i < 8; i += 1) {
+      const r = await rateLimitRequestShared(innocent, cfg);
+      expect(r.ok).toBe(false);
+      expect(r.scope).toBe("global"); // still "global" after 8 tries → per-IP was never charged
+    }
+  });
 });
 
 describe("shared store — in-memory remains the default and behaves as today", () => {
@@ -636,6 +717,36 @@ describe("shared store unreachable — the deliberate FAIL-CLOSED choice", () =>
     expect((await rateLimitRequestShared(reqFromIp("198.51.102.2"), cfg)).ok).toBe(true);
     // Degraded, but NOT unlimited: the in-memory ceiling still bites.
     expect((await rateLimitRequestShared(reqFromIp("198.51.102.3"), cfg)).ok).toBe(false);
+  });
+
+  it("QUOTA #3: an 'unavailable' (fail-closed) refusal spends none of the caller's per-IP budget", async () => {
+    // `evaluated: false` claims "no budget of yours was exceeded". That has to be literally true:
+    // nothing was counted, so nothing may be charged either.
+    __setSharedWindowStore(unreachable);
+    const cfg = makeConfig({ perIp: 2, global: 100 });
+    const ip = reqFromIp("198.51.103.1");
+    for (let i = 0; i < 6; i += 1) {
+      const r = await rateLimitRequestShared(ip, cfg);
+      expect(r.scope).toBe("unavailable"); // never degrades into an "ip" refusal
+      expect(r.evaluated).toBe(false);
+    }
+    // The store comes back: the caller still has its FULL per-IP allowance of 2.
+    __setSharedWindowStore(null);
+    expect((await rateLimitRequestShared(ip, cfg)).ok).toBe(true);
+    expect((await rateLimitRequestShared(ip, cfg)).ok).toBe(true);
+    expect((await rateLimitRequestShared(ip, cfg)).scope).toBe("ip");
+  });
+
+  it("QUOTA #3: a fail-OPEN admit was served, so it DOES charge the per-IP slot", async () => {
+    __setSharedWindowStore(unreachable);
+    vi.stubEnv("ASCENT_RATE_LIMIT_SHARED_FAIL_OPEN", "1");
+    const cfg = makeConfig({ perIp: 2, global: 1000 });
+    const ip = reqFromIp("198.51.104.1");
+    expect((await rateLimitRequestShared(ip, cfg)).ok).toBe(true);
+    expect((await rateLimitRequestShared(ip, cfg)).ok).toBe(true);
+    const tripped = await rateLimitRequestShared(ip, cfg);
+    expect(tripped.ok).toBe(false);
+    expect(tripped.scope).toBe("ip"); // degraded service is still service — the budget was spent
   });
 
   it("a transport failure marks the store unavailable and opens a breaker (no timeout per request)", async () => {
@@ -757,7 +868,6 @@ describe("every limit declares how its number was arrived at (limit-derivation)"
     ORG_IMPORT_RATE_LIMIT,
     GATE_RATE_LIMIT,
     CONTACT_RATE_LIMIT,
-    BADGE_RATE_LIMIT,
   ];
 
   it("declares a basis on every exported budget", () => {
@@ -770,11 +880,6 @@ describe("every limit declares how its number was arrived at (limit-derivation)"
     for (const cfg of inThisModule) {
       expect(cfg.basis, `${cfg.name} claims to be derived; show the arithmetic above it`).toBe("inherited");
     }
-  });
-
-  it("BADGE is inherited by record, not by omission (it was matched to a previous bespoke limit)", () => {
-    expect(BADGE_RATE_LIMIT.basis).toBe("inherited");
-    expect(BADGE_RATE_LIMIT.perIp).toBe(60); // the value it inherited from the badge route
   });
 });
 

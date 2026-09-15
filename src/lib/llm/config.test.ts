@@ -369,27 +369,29 @@ describe("withLlmTimeout (shared provider cancellation wiring)", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
-// Gemini 3.7 Flash pricing is PROMOTIONAL and dated. Google's introductory rate (0.75 / 3.75) runs
-// through 2026-12-31 and DOUBLES to 1.5 / 7.5 on 2027-01-01.
+// Gemini 3.7 AND 3.8 Flash pricing is PROMOTIONAL and dated. Google's introductory rate
+// (0.75 / 3.75) runs through 2026-12-31 and DOUBLES to 1.5 / 7.5 on 2027-01-01 for BOTH models —
+// 3.8 shipped on 2026-09-02 at 3.7's rate and inherits 3.7's expiry, not a fresh 12-month window.
 //
 // The table has no date dimension — adding one for a single temporary promo would put a clock inside
 // a pure lookup. So the reversion is enforced HERE: this test fails the moment the promo ends,
 // turning a comment nobody re-reads into a build failure someone must act on. When it fires, update
 // the MODEL_PRICES row to 1.5 / 7.5 and update the expectations below.
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
-describe("gemini-3.7-flash promotional pricing", () => {
+describe("gemini-3.7/3.8-flash promotional pricing", () => {
   const PROMO_ENDS = Date.parse("2027-01-01T00:00:00Z");
+  const PROMO_MODELS = ["gemini-3.7-flash", "gemini-3.8-flash"];
 
-  it("carries the introductory rate the org is actually billed today", () => {
-    const p = priceForModel("gemini-3.7-flash");
+  it.each(PROMO_MODELS)("%s carries the introductory rate the org is actually billed today", (m) => {
+    const p = priceForModel(m);
     expect(p).toMatchObject({ inPerMTok: 0.75, outPerMTok: 3.75 });
   });
 
   it("FAILS ON 2027-01-01 so the reversion to 1.5 / 7.5 cannot be forgotten", () => {
     if (Date.now() >= PROMO_ENDS) {
       throw new Error(
-        "Gemini 3.7 Flash's introductory pricing ended on 2027-01-01. Update the MODEL_PRICES row to " +
-          "inPerMTok: 1.5, outPerMTok: 7.5 and update this test's expectations.",
+        "Gemini 3.7/3.8 Flash introductory pricing ended on 2027-01-01. Update BOTH MODEL_PRICES rows " +
+          "to inPerMTok: 1.5, outPerMTok: 7.5 and update this test's expectations.",
       );
     }
     expect(Date.now()).toBeLessThan(PROMO_ENDS);

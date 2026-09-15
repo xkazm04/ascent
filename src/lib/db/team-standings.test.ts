@@ -6,15 +6,19 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-const { mockIsDbConfigured, mockGetPrisma, mockGetOrgTeamRollup, mockExplain } = vi.hoisted(() => ({
+const { mockIsDbConfigured, mockGetPrisma, mockGetOrgTeamRollup, mockExplain, mockGetOrgBySlug } = vi.hoisted(() => ({
   mockIsDbConfigured: vi.fn(),
   mockGetPrisma: vi.fn(),
   mockGetOrgTeamRollup: vi.fn(),
   mockExplain: vi.fn(),
+  mockGetOrgBySlug: vi.fn(),
 }));
 
 vi.mock("@/lib/db/client", () => ({ isDbConfigured: mockIsDbConfigured, getPrisma: mockGetPrisma }));
-vi.mock("@/lib/db/org-shared", () => ({ normalizeOrgSlug: (s: string) => s.toLowerCase() }));
+vi.mock("@/lib/db/org-shared", () => ({
+  normalizeOrgSlug: (s: string) => s.toLowerCase(),
+  getOrgBySlug: mockGetOrgBySlug,
+}));
 vi.mock("@/lib/db/org-teams", () => ({ getOrgTeamRollup: mockGetOrgTeamRollup }));
 vi.mock("@/lib/org/teamStandings", () => ({ explainTeamStandings: mockExplain }));
 
@@ -48,6 +52,8 @@ beforeEach(() => {
   mockGetPrisma.mockReset();
   mockGetOrgTeamRollup.mockReset();
   mockExplain.mockReset();
+  mockGetOrgBySlug.mockReset();
+  mockGetOrgBySlug.mockResolvedValue({ id: "org_1" });
   mockIsDbConfigured.mockReturnValue(true);
   mockGetOrgTeamRollup.mockResolvedValue({ teams: [{}, {}, {}] });
   mockExplain.mockReturnValue(standings);
@@ -95,8 +101,19 @@ describe("getTeamStandingsProvenance", () => {
   });
 
   it("returns null for an unknown org", async () => {
-    mockGetPrisma.mockReturnValue(fakePrisma({ org: false }));
+    mockGetOrgBySlug.mockResolvedValue(null);
+    mockGetPrisma.mockReturnValue(fakePrisma());
     expect(await getTeamStandingsProvenance("ghost")).toBeNull();
+  });
+
+  // The Teams page joins this read into its Promise.all; that is only cheap because the org row comes
+  // from the cached, canonicalizing resolver the rollup has already warmed, not a second findUnique.
+  it("resolves the org through the cached getOrgBySlug, never its own organization.findUnique", async () => {
+    const prisma = fakePrisma({ queryRows: [] });
+    mockGetPrisma.mockReturnValue(prisma);
+    await getTeamStandingsProvenance("AcMe");
+    expect(mockGetOrgBySlug).toHaveBeenCalledWith("AcMe");
+    expect(prisma.organization.findUnique).not.toHaveBeenCalled();
   });
 
   it("returns null when no snapshot has been captured yet", async () => {
@@ -110,7 +127,9 @@ describe("getTeamStandingsProvenance", () => {
       fakePrisma({ queryRows: [{ generatedAt, source: "scan", spread: 24, leaderSlug: "platform", laggardSlug: "mobile" }] }),
     );
     const prov = await getTeamStandingsProvenance("acme");
-    expect(prov).toEqual({ generatedAt, source: "scan", spread: 24, leaderSlug: "platform", laggardSlug: "mobile" });
+    // `scope` is part of the contract, not decoration: the snapshot is whole-org (persistTeamStandings
+    // takes no filter), and the Teams page needs to know that to caption a filtered decomposition.
+    expect(prov).toEqual({ generatedAt, source: "scan", spread: 24, leaderSlug: "platform", laggardSlug: "mobile", scope: "fleet" });
   });
 
   it("is best-effort — a failing read resolves to null instead of throwing", async () => {

@@ -83,7 +83,7 @@ export function PlanEnquiryCta({ className, label = "Tell us what you need" }: {
         <ModalBody className="relative">
           {phase === "sent" ? <SentPanel email={draft.email} /> : (
             <>
-              <p className="mb-5 text-sm leading-relaxed text-slate-400">
+              <p className="mb-5 type-body-sm leading-relaxed text-slate-400">
                 Custom isn&apos;t a bigger tier: it&apos;s the same product with the parts that normally don&apos;t
                 bend made adjustable. Tell us which ones matter and we&apos;ll come back with a shape and a price.
               </p>
@@ -93,11 +93,11 @@ export function PlanEnquiryCta({ className, label = "Tell us what you need" }: {
         </ModalBody>
         <ModalFooter>
           {error ? (
-            <span role="alert" className="text-xs text-danger">
+            <span role="alert" className="type-note text-danger">
               {error.message}
             </span>
           ) : (
-            <span className="text-xs text-slate-500">
+            <span className="type-note text-slate-500">
               {phase === "sent"
                 ? "No mailing list: this was a one-off message to us."
                 : "Goes straight to us. We only use it to answer you."}
@@ -107,7 +107,7 @@ export function PlanEnquiryCta({ className, label = "Tell us what you need" }: {
             <button
               type="button"
               onClick={close}
-              className="focus-ring rounded-lg border border-divider px-4 py-2 font-mono text-sm text-slate-200 transition hover:border-accent hover:text-white"
+              className="focus-ring rounded-lg border border-divider px-4 py-2 type-mono-sm text-slate-200 transition hover:border-accent hover:text-white"
             >
               Close
             </button>
@@ -116,7 +116,7 @@ export function PlanEnquiryCta({ className, label = "Tell us what you need" }: {
               type="button"
               onClick={submit}
               disabled={sending}
-              className="focus-ring rounded-lg bg-accent px-4 py-2 font-mono text-sm font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
+              className="focus-ring rounded-lg bg-accent px-4 py-2 type-mono-sm font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
             >
               {sending ? "Sending…" : "Send requirement"}
             </button>
@@ -136,16 +136,16 @@ function SentPanel({ email }: { email: string }) {
       <div className="flex items-start gap-4">
         <span
           aria-hidden="true"
-          className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-accent/50 bg-accent/10 text-lg text-accent"
+          className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-accent/50 bg-accent/10 type-lede text-accent"
         >
           ✓
         </span>
         <div className="min-w-0">
           <Kicker tone="muted">Received</Kicker>
-          <p className="mt-1.5 text-base text-slate-200">
+          <p className="mt-1.5 type-body text-slate-200">
             We&apos;ll reply to <span className="font-mono text-white">{email}</span>.
           </p>
-          <p className="mt-2 text-sm leading-relaxed text-slate-400">
+          <p className="mt-2 type-body-sm leading-relaxed text-slate-400">
             You&apos;ll get a shape for the pieces you flagged: where inference runs, the scan volume that fits your
             fleet, the support level, and what needs customizing.
           </p>

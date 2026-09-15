@@ -11,10 +11,19 @@ import { verifyOrgApiToken, type SkillTokenScope } from "@/lib/db";
 import { requireOrgAccess, requireOrgRead } from "@/lib/authz";
 import { resolveViewerLogin } from "@/lib/access";
 
+/**
+ * WHAT kind of worker a principal is, for the work protocol (moonshot #3). This is not a second
+ * identity — `login` is still who — it is the answer to "what is holding this row": a remote coding
+ * agent on a scoped token, the operator's own local loop engine, or a person in a browser. The
+ * Follow-ups lease is compare-and-set over one column pair, so all three contend on the same path
+ * and the executor is what the ledger renders and what `claimability()` authorizes against.
+ */
+export type ClaimExecutor = "local" | "remote-agent" | "human";
+
 /** Who authorized a request: a scoped token (machine) or the fell-through session (browser). */
 export type OrgApiPrincipal =
-  | { via: "token"; login: string; tokenId: string; scopes: SkillTokenScope[] }
-  | { via: "session" };
+  | { via: "token"; login: string; tokenId: string; scopes: SkillTokenScope[]; executor: ClaimExecutor }
+  | { via: "session"; executor: ClaimExecutor };
 
 export type OrgAuthResult = { principal: OrgApiPrincipal } | { denied: NextResponse };
 
@@ -53,11 +62,43 @@ export async function authorizeOrgApi(
     if (!tok.scopes.includes(opts.scope)) {
       return { denied: NextResponse.json({ error: `This token lacks the ${opts.scope} scope.` }, { status: 403 }) };
     }
-    return { principal: { via: "token", login: `token:${tok.name}`, tokenId: tok.tokenId, scopes: tok.scopes } };
+    return {
+      principal: { via: "token", login: `token:${tok.name}`, tokenId: tok.tokenId, scopes: tok.scopes, executor: "remote-agent" },
+    };
   }
   const denied = opts.mode === "read" ? await requireOrgRead(org) : await requireOrgAccess(org);
   if (denied) return { denied };
-  return { principal: { via: "session" } };
+  return { principal: { via: "session", executor: "human" } };
+}
+
+/**
+ * `authorizeOrgApi` in the CAPABILITY vocabulary the work protocol speaks (moonshot #3): the same
+ * token/session resolution, returning the same executor-tagged principal.
+ *
+ * A thin alias rather than a second implementation, on purpose. A machine work door that resolved
+ * identity its own way would be a second place for the tenant, revocation and scope rules to be got
+ * right — and the one lesson this lane is built on is that two paths to the same decision IS the
+ * race, whether the thing being raced over is a row or a rule.
+ */
+export async function authorizeOrgCapability(
+  request: Request,
+  org: string,
+  opts: { scope: SkillTokenScope; mode: "read" | "write" },
+): Promise<OrgAuthResult> {
+  return authorizeOrgApi(request, org, opts);
+}
+
+/**
+ * The actor string a work CLAIM is stored under — `agent:<token name>` for a machine, null for a
+ * session (the browser hand-off records the viewer's login and takes no lease).
+ *
+ * Deliberately NOT the `token:<name>` audit label. `claimActor` is read back by `get_fix_brief` to
+ * decide whether this caller still holds a row, so it is prefixed by EXECUTOR rather than by
+ * credential type: the comparison stays meaningful the day an org mints a second kind of machine
+ * credential, and a reader of the ledger sees what held the row, not how it authenticated.
+ */
+export function claimActorFor(p: OrgApiPrincipal): string | null {
+  return p.via === "token" ? `agent:${p.login.replace(/^token:/, "")}` : null;
 }
 
 /** The audit actor for a principal: the token's label for machine calls, else the session viewer login. */

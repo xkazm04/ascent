@@ -49,7 +49,11 @@ export const getOrgNavCounts = cache(async (orgSlug: string): Promise<OrgNavCoun
         scans: {
           orderBy: { scannedAt: "desc" },
           take: 1,
-          select: { recommendations: { where: { status: { in: UNRESOLVED } }, select: { id: true } } },
+          // `kind: "gap"` by construction. A badge is a promise that the number goes down when you act
+          // on it; a craft entry is unbounded by design (there is always a next rung), so counting one
+          // would print a number that can never clear — exactly the failure this module's header
+          // refuses for derived counts. Craft has its own ledger, which only ever goes UP.
+          select: { recommendations: { where: { status: { in: UNRESOLVED }, kind: "gap" }, select: { id: true } } },
         },
       },
     }),
@@ -110,4 +114,31 @@ export const getOrgPassportBlockers = cache(async (orgSlug: string): Promise<Org
     });
   }
   return out;
+});
+
+/**
+ * Just the fleet's repo names — ONE column, one query, no scan join.
+ *
+ * Two tabs bought the dashboard's heaviest read to fill a `<select>`: PracticesTab and SkillsTab each
+ * ran a full unscoped `getOrgRollup` and used exactly `rollup.repos.map(r => r.fullName)`. That
+ * rollup is every repo's latest scan with its dimension rows, six JSON blobs parsed per repo, plus
+ * TWO unbounded `scan.findMany` sweeps (the daily trend and the baseline cohort) — none of it
+ * reachable from a list of names. Same defect, same remedy, and same neighbourhood as
+ * `getOrgPassportBlockers` above.
+ *
+ * The repo set MIRRORS the rollup's (watched OR has-scans) and the sort matches what both call sites
+ * applied afterwards, so the option lists are byte-identical to what they rendered before.
+ * React-`cache()`d for the request like its siblings here.
+ */
+export const listOrgRepoNames = cache(async (orgSlug: string): Promise<string[]> => {
+  if (!isDbConfigured()) return [];
+  const prisma = getPrisma();
+  const org = await getOrgBySlug(orgSlug);
+  if (!org) return [];
+  const repos = await prisma.repository.findMany({
+    where: { orgId: org.id, OR: [{ watched: true }, { scans: { some: {} } }] },
+    select: { fullName: true },
+    orderBy: { fullName: "asc" },
+  });
+  return repos.map((r) => r.fullName);
 });

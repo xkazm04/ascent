@@ -21,7 +21,7 @@ export function OriginTag({ origin, path }: { origin: string; path?: string | nu
   const isRegistry = origin === "registry";
   return (
     <span
-      className={`rounded border px-1.5 py-0.5 font-mono text-xs ${isRegistry ? "border-accent/40 text-accent" : "border-slate-700 text-slate-500"}`}
+      className={`rounded border px-1.5 py-0.5 type-caption ${isRegistry ? "border-accent/40 text-accent" : "border-slate-700 text-slate-500"}`}
       title={
         isRegistry
           ? `Mirrored from ${path ?? "the registry"} — change it with a pull request, not in ascent.`
@@ -37,7 +37,7 @@ export function OriginTag({ origin, path }: { origin: string; path?: string | nu
 export function OpenInRegistry({ href, label = "Open in registry ↗" }: { href: string | null; label?: string }) {
   if (!href) return null;
   return (
-    <a href={href} target="_blank" rel="noreferrer" className="focus-ring font-mono text-xs text-accent transition hover:text-white">
+    <a href={href} target="_blank" rel="noreferrer" className="focus-ring type-caption text-accent transition hover:text-white">
       {label}
     </a>
   );

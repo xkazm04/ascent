@@ -13,7 +13,9 @@
 // (git trees/commits) variant inside @/lib/github/write, NOT a parallel client here.
 
 import { AppApiError } from "@/lib/github/app";
+import { classifyPrWriteError } from "@/lib/github/pr-route";
 import { openDraftPr, type OpenPrResult } from "@/lib/github/write";
+import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 import type { GeneratedFile } from "./types";
 
 /** Branch every foundation PR is cut on — stable, so a re-run updates the same PR. */
@@ -83,4 +85,77 @@ export async function openFoundationPr(input: OpenFoundationPrInput): Promise<Fo
   // Unreachable unless every file after the spine threw a non-409 (which rethrows above).
   if (!pr) throw new Error("openFoundationPr: no pull request was opened");
   return { ...pr, committed, skipped };
+}
+
+// ── Fleet fan-out ─────────────────────────────────────────────────────────────────────────────────
+// One click installs the foundation across the repos an org just scanned, instead of N trips through
+// the single-repo route. Deliberately the SAME contract as /api/practices/apply-batch, because this is
+// the same act at a different scale: bounded concurrency so a big fleet neither hammers GitHub nor
+// trips the function ceiling, and a per-repo try/catch so one bad repo can never abort the pool. The
+// branch is unchanged (FOUNDATION_BRANCH), so a re-run UPDATES each repo's existing PR.
+
+/** One repo's outcome in a batch. `ok:false` is a REPORTED failure, never a thrown one. */
+export interface FoundationBatchItem {
+  /** "owner/name" — always present, so a failed row is still attributable. */
+  repo: string;
+  ok: boolean;
+  url?: string;
+  number?: number;
+  reused?: boolean;
+  committed?: number;
+  skipped?: string[];
+  error?: string;
+}
+
+export interface OpenFoundationPrBatchInput {
+  token: string;
+  owner: string;
+  base?: string;
+  concurrency?: number;
+  repos: Array<{ name: string; files: GeneratedFile[]; prTitle: string; prBody: string }>;
+}
+
+/**
+ * Open (or update) the foundation PR in every repo of `repos`, at most `concurrency` at a time.
+ *
+ * Error policy, verbatim from apply-batch: the worker OWNS its errors. Every failure — a spine 409
+ * ("already installed"), a 403 from an installation without write access, a network throw — becomes an
+ * `ok:false` row with a classified message, so an N-repo batch always returns N rows and the caller can
+ * answer 200 with an honest mixed result instead of losing the successes to one repo's exception.
+ */
+export async function openFoundationPrBatch(
+  input: OpenFoundationPrBatchInput,
+): Promise<FoundationBatchItem[]> {
+  const { token, owner, base, repos } = input;
+  const concurrency = Math.max(1, input.concurrency ?? SCAN_CONCURRENCY);
+  return mapPool(repos, concurrency, async (r): Promise<FoundationBatchItem> => {
+    const repo = `${owner}/${r.name}`;
+    try {
+      const pr = await openFoundationPr({
+        token,
+        owner,
+        repo: r.name,
+        base,
+        files: r.files,
+        prTitle: r.prTitle,
+        prBody: r.prBody,
+      });
+      return {
+        repo,
+        ok: true,
+        url: pr.url,
+        number: pr.number,
+        reused: pr.reused,
+        committed: pr.committed.length,
+        skipped: pr.skipped,
+      };
+    } catch (err) {
+      // A 409 can only come from the SPINE (`.ai/manifest.yaml` already on base) — later collisions are
+      // skipped inside openFoundationPr, not thrown — so it means "already installed here", which is the
+      // single most useful thing a fleet row can say. Everything else goes through the shared PR-write
+      // taxonomy so the copy matches the single-repo route exactly.
+      const classified = classifyPrWriteError(err, { conflict: (e) => e.message });
+      return { repo, ok: false, error: classified?.message ?? "Failed to open the foundation PR." };
+    }
+  });
 }

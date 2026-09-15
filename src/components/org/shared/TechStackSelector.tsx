@@ -36,7 +36,7 @@ export function TechStackSelector({ groups, active }: { groups: TechStackOption[
         type="button"
         onClick={() => select(null)}
         aria-pressed={active === null}
-        className={`rounded-md px-2.5 py-1 font-mono text-sm transition ${
+        className={`rounded-md px-2.5 py-1 type-mono-sm transition ${
           active === null ? "bg-accent font-semibold text-[#04070e]" : "text-slate-400 hover:text-white"
         }`}
       >
@@ -51,7 +51,7 @@ export function TechStackSelector({ groups, active }: { groups: TechStackOption[
             onClick={() => select(g.key)}
             aria-pressed={on}
             title={`${g.repoCount} repo${g.repoCount === 1 ? "" : "s"}`}
-            className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 font-mono text-sm transition ${
+            className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 type-mono-sm transition ${
               on ? "bg-accent font-semibold text-[#04070e]" : "text-slate-400 hover:text-white"
             }`}
           >

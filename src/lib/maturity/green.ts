@@ -13,6 +13,15 @@
 //
 // A repo with no dimensions is deliberately NOT green (see `repoGreenness`): an unscanned repo and a
 // perfect one must never be indistinguishable, and "no evidence" is the reading a loop can act on.
+//
+// AND SOME DIMENSIONS CANNOT BE READ AT ALL FROM WHERE THE LOOP STANDS. D2/D3/D4 are credited partly
+// for tooling that is INSTALLED rather than committed — review/CI/coverage Apps posting check suites,
+// default-branch Actions health (analyze/platform-signals.ts) — which a worktree scan cannot observe.
+// When the last observed fold can be carried forward it is (analyze/platform-carry.ts) and nothing
+// here changes. When there is none, demanding L5 on those three would be demanding a number the
+// reading had no way to produce, and the loop would drive at it forever. `unmeasurableDims` excludes
+// them instead — from the gaps, from the debt, and from `contested`. Excluded is NOT passed: a repo
+// whose every dimension is unmeasurable is not green, for the same reason an unscanned one is not.
 
 import { LEVEL_BY_ID, LLM_GUARDBAND, levelForScore } from "@/lib/maturity/model";
 import { CLAIM_SCORED_DIMENSIONS } from "@/lib/scoring/claims";
@@ -87,6 +96,10 @@ export interface RepoGreenness {
   /** Dimension ids where the clamp bound — present even when the dimension is numerically green,
    *  because "the detector is satisfied and the model objects" is the state worth surfacing. */
   contested: string[];
+  /** Dimension ids this reading could not measure and therefore did not judge — typically D2/D3/D4
+   *  on a worktree scan with no GitHub-side fold to carry. Named, never silently dropped: a verdict
+   *  reached over six dimensions must not look like one reached over nine. */
+  unmeasurable: string[];
   /** Total points across every gap — the cheap ordering key for "what needs the most work". */
   debt: number;
 }
@@ -95,16 +108,35 @@ export function isDimGreen(score: number): boolean {
   return levelForScore(score).id === GREEN_LEVEL;
 }
 
-/** Score one repo's latest dimensions against the target. Pure; order of `dims` is irrelevant. */
-export function repoGreenness(fullName: string, dims: readonly DimScore[]): RepoGreenness {
+/**
+ * Score one repo's latest dimensions against the target. Pure; order of `dims` is irrelevant.
+ *
+ * `unmeasurableDims` names dimensions this reading could not measure at all (see the header). They
+ * are held out of the verdict rather than counted as failed — and they are reported, because a green
+ * light standing on three excluded dimensions is a different claim from one standing on nine.
+ */
+export function repoGreenness(
+  fullName: string,
+  dims: readonly DimScore[],
+  unmeasurableDims: readonly string[] = [],
+): RepoGreenness {
   if (dims.length === 0) {
     // An unscanned repo is not green, and saying so explicitly is what keeps a loop from reporting
     // victory over a fleet it never measured.
-    return { fullName, green: false, unscanned: true, gaps: [], contested: [], debt: 0 };
+    return { fullName, green: false, unscanned: true, gaps: [], contested: [], unmeasurable: [], debt: 0 };
   }
+  const excluded = new Set(unmeasurableDims);
+  const unmeasurable: string[] = [];
   const gaps: DimGap[] = [];
   const contested: string[] = [];
   for (const d of dims) {
+    if (excluded.has(d.dimId)) {
+      // Nothing is asserted about it in EITHER direction: it raises no gap, adds no debt, and is
+      // never called contested — a disagreement between a detector and a model over a number neither
+      // could observe is not a signal about the repository.
+      unmeasurable.push(d.dimId);
+      continue;
+    }
     // A CONTESTED dimension is never green, whatever its number says. The clamp bound, so the score
     // is the detector's verdict over the model's objection — and "the detector is satisfied" is
     // precisely the state a loop reaches by satisfying the detector. Counting it as arrived would
@@ -126,10 +158,14 @@ export function repoGreenness(fullName: string, dims: readonly DimScore[]): Repo
   gaps.sort((a, b) => b.points - a.points || a.dimId.localeCompare(b.dimId));
   return {
     fullName,
-    green: gaps.length === 0,
+    // Every MEASURED dimension cleared the band — and at least one was measured. A repo whose whole
+    // dimension set was excluded has produced no evidence of anything, which is the unscanned case
+    // wearing different clothes, and vacuous green is the one verdict a drive must never report.
+    green: gaps.length === 0 && unmeasurable.length < dims.length,
     unscanned: false,
     gaps,
     contested,
+    unmeasurable,
     debt: gaps.reduce((sum, g) => sum + g.points, 0),
   };
 }

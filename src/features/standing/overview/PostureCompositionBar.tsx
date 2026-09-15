@@ -55,12 +55,12 @@ export function PostureCompositionBar({
               key={p}
               href={postureHref(slug, p, search)}
               title={`View the ${n} ${postureLabel(p)} repo${n === 1 ? "" : "s"}`}
-              className="focus-ring inline-flex items-center gap-1.5 rounded font-mono text-sm text-slate-400 transition hover:text-accent"
+              className="focus-ring inline-flex items-center gap-1.5 rounded type-mono-sm text-slate-400 transition hover:text-accent"
             >
               {chip}
             </Link>
           ) : (
-            <span key={p} className="inline-flex items-center gap-1.5 font-mono text-sm text-slate-600">{chip}</span>
+            <span key={p} className="inline-flex items-center gap-1.5 type-mono-sm text-slate-600">{chip}</span>
           );
         })}
       </div>

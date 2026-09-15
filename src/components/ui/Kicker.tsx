@@ -19,5 +19,5 @@ export function Kicker({
   className?: string;
 }) {
   const color = tone === "accent" ? "text-accent" : "text-slate-500";
-  return <Tag className={`font-mono text-xs uppercase tracking-[0.22em] ${color} ${className}`}>{children}</Tag>;
+  return <Tag className={`type-label tracking-[0.22em] ${color} ${className}`}>{children}</Tag>;
 }

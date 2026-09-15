@@ -23,7 +23,7 @@ function ScenarioOutcome({ scenario }: { scenario: SandboxScenarioRecord }) {
   const gap = actual.delta - projected.delta;
   const behind = Math.abs(gap);
   return (
-    <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-400">
+    <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 type-body-sm text-slate-400">
       <span className="text-slate-300">Since you modeled this:</span>
       <span className="inline-flex items-center gap-1">
         projected <DeltaTag delta={projected.delta} />
@@ -72,18 +72,18 @@ export function ScenarioBar({
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-divider bg-slate-950/30 p-4">
       <div className="min-w-0">
         <Kicker tone="accent">Saved plan</Kicker>
-        <p className="mt-1 max-w-prose text-sm leading-relaxed text-slate-400">
+        <p className="mt-1 max-w-prose type-body-sm leading-relaxed text-slate-400">
           {scenario
             ? `Saved ${dateLabel(scenario.updatedAt)} against the ${dateLabel(scenario.baseline.scannedAt)} scan: sliders, the gaps you picked, and the projected score.`
             : "Keep this what-if: the slider positions, the gaps you picked, and the projected score. Restored next time you open the sandbox."}
         </p>
         <div role="status" aria-live="polite">
           {restored && state !== "saving" && state !== "saved" && (
-            <p className="mt-1 text-sm text-emerald-300">Your saved plan is loaded. Drag to keep exploring.</p>
+            <p className="mt-1 type-body-sm text-emerald-300">Your saved plan is loaded. Drag to keep exploring.</p>
           )}
-          {state === "saved" && <p className="mt-1 text-sm text-emerald-300">Plan saved.</p>}
+          {state === "saved" && <p className="mt-1 type-body-sm text-emerald-300">Plan saved.</p>}
           {state === "error" && (
-            <p className="mt-1 flex items-center gap-1.5 text-sm text-amber-200/90">
+            <p className="mt-1 flex items-center gap-1.5 type-body-sm text-amber-200/90">
               <span aria-hidden>ⓘ</span>
               Couldn&apos;t save the plan just now. Try again.
             </p>
@@ -96,7 +96,7 @@ export function ScenarioBar({
           <button
             type="button"
             onClick={onDiscard}
-            className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 transition hover:border-accent hover:text-white"
+            className="rounded-lg border border-slate-700 px-3 py-1.5 type-body-sm text-slate-300 transition hover:border-accent hover:text-white"
           >
             Discard
           </button>
@@ -106,7 +106,7 @@ export function ScenarioBar({
           onClick={onSave}
           disabled={!anyChanged || state === "saving"}
           title={disabledTitle}
-          className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-accent transition hover:bg-accent/20 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-accent transition hover:bg-accent/20 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {state === "saving" ? "Saving…" : scenario ? "Update saved plan" : "Save this plan"}
         </button>

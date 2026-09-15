@@ -15,10 +15,13 @@ import {
   planScanLine,
   scanAllowance,
   decideScanCharge,
+  decideCharge,
+  resolveLaneCharge,
   PLAN_FEATURES,
   PLAN_ORDER,
   UNLIMITED_PLAN_LABEL,
 } from "./plans";
+import { publicScanAllowance } from "./public-scan-limit";
 
 const NOW = Date.UTC(2026, 5, 20); // fixed clock so the cutoff math is deterministic
 const DAY = 86_400_000;
@@ -117,6 +120,42 @@ describe("decideScanCharge — hybrid: allowance, then a credit, then denied", (
   });
 });
 
+// #11 ships the lane-aware generalization and NO repricing: every tier's laneAllowances is `{}`, so
+// nothing but a scan is billed on any plan. These two tests are what makes that claim checkable —
+// the second one would fail the moment `decideCharge("scan", …)` stopped being `decideScanCharge`.
+describe("decideCharge — lane-aware, and deliberately a no-op today", () => {
+  const CASES = [
+    { unlimited: true, allowance: 0, usageThisMonth: 9999, balance: 0 },
+    { unlimited: false, allowance: 10, usageThisMonth: 0, balance: 0 },
+    { unlimited: false, allowance: 10, usageThisMonth: 9, balance: 0 },
+    { unlimited: false, allowance: 10, usageThisMonth: 10, balance: 3 },
+    { unlimited: false, allowance: 10, usageThisMonth: 10, balance: 0 },
+    { unlimited: false, allowance: 0, usageThisMonth: 0, balance: 1 },
+    { unlimited: false, allowance: 0, usageThisMonth: 0, balance: 0 },
+  ] as const;
+
+  it("is byte-identical to decideScanCharge for the scan lane, across the whole table", () => {
+    for (const c of CASES) expect(decideCharge("scan", c)).toBe(decideScanCharge(c));
+  });
+
+  it("answers 'unlimited' for every non-scan lane on every tier under today's empty allowances", () => {
+    for (const plan of PLAN_ORDER) {
+      expect(PLAN_FEATURES[plan].laneAllowances).toEqual({}); // no tier prices a lane — yet
+      for (const lane of ["athena", "memory", "briefing", "local"] as const) {
+        expect(resolveLaneCharge(lane, { plan, usageThisMonth: 9_999, balance: 0 })).toBe("unlimited");
+      }
+    }
+  });
+
+  it("meters a lane only once a plan opts it in — the shape is ready, the price is not set", () => {
+    const opted = { unlimited: false, allowance: 10, usageThisMonth: 5, balance: 0, laneAllowances: { athena: 3 } };
+    expect(decideCharge("athena", opted)).toBe("denied"); // 5 used against an allowance of 3, no credits
+    expect(decideCharge("athena", { ...opted, usageThisMonth: 1 })).toBe("allowance");
+    // An explicit null is "included, unlimited" — different from absent, which is "not metered".
+    expect(decideCharge("athena", { ...opted, laneAllowances: { athena: null } })).toBe("unlimited");
+  });
+});
+
 describe("marketing copy matches the metering engine (checkout-plans-polar 07-16 #5)", () => {
   // The engine (src/lib/db/credits.ts, decideScanCharge callers) meters only PRIVATE (org) scans;
   // public scans are free and unmetered. The plan cards' copy must never re-claim the old
@@ -129,9 +168,29 @@ describe("marketing copy matches the metering engine (checkout-plans-polar 07-16
       }
     }
   });
-  it("the Free tier pitches the real model: private scans metered, public scans always free", () => {
+  it("the Free tier pitches the real model: private scans metered, public scans capped at the enforced allowance", () => {
     expect(PLAN_FEATURES.free.blurb).toMatch(/private scans/i);
-    expect(PLAN_FEATURES.free.blurb).toMatch(/public scans are always free/i);
+    expect(PLAN_FEATURES.free.blurb).toMatch(/public scans/i);
+    // MC-B5: the blurb used to promise "public scans are always free" beside an extras bullet reading
+    // "Unlimited free public scans" — while the scan dialog metered the same visitor down from 5. Both
+    // halves now carry the number the gate actually charges against.
+    // MC-B38: the card reads the composed PHRASE, so it pluralizes with the number rather than
+    // hardcoding an "s" beside a value an operator can set to 1.
+    expect(PLAN_FEATURES.free.blurb).toContain(publicScanAllowance().label);
+    expect(PLAN_FEATURES.free.features).toContain(`${publicScanAllowance().label} / month`);
+  });
+
+  // MC-B5 (recurrence of TOMAS-L1-02 / B8). A meter is rendered inside the scan dialog; any card that
+  // calls public scans unlimited or unmetered contradicts it on the same visit. This guards the whole
+  // plan model, not just the Free tier, so the claim can't reappear one tier over.
+  it("no plan copy claims public scans are unlimited or unmetered", () => {
+    for (const p of Object.values(PLAN_FEATURES)) {
+      for (const text of [p.blurb, ...p.features]) {
+        const t = text.toLowerCase();
+        if (!t.includes("public scan")) continue;
+        expect(t).not.toMatch(/unlimited|unmetered/);
+      }
+    }
   });
 });
 

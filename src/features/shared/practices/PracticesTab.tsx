@@ -9,11 +9,14 @@
 // OrgTabChunks call site: the tech-stack scope must resolve before getOrgPractices can be scoped by
 // it, so the reads are sequential/coupled rather than independent sources.
 
-import { getOrgPractices, getOrgRollup, getPlaybookAdoption, listPlaybooks } from "@/lib/db";
+import { getOrgPractices, getPlaybookAdoption, listOrgRepoNames, listPlaybooks } from "@/lib/db";
 import { resolveStackScope } from "@/lib/org/scope";
 import { buildPracticeLibrarySummary, practiceLibraryMarkdown } from "@/lib/org/practice-library";
 import { getOrgPracticeShapes, listOrgPracticeShapeRows } from "@/lib/db/org-practice-shapes";
 import { minePracticeShapes } from "@/lib/org/practice-mining";
+import { syncHousePatternVersions } from "@/lib/db/house-pattern-versions";
+import { getPracticeAdoptionSummary } from "@/lib/db/practice-adoption";
+import { PracticeDriftStrip } from "@/features/shared/practices/PracticeDriftStrip";
 import { HousePattern } from "./HousePattern";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import { Tile, TILE_GRID } from "@/components/org/shared/ui";
@@ -39,10 +42,12 @@ export async function PracticesTab({ slug, sp }: { slug: string; sp: SearchParam
   // clear it (docs/harness/biz-bug-scan-2026-06-29). The selector now renders, same as every sibling
   // tab. No segment selector here: getOrgPractices' segment scope isn't wired on this surface yet.
   const { techGroups, activeStack, techGroupId } = await resolveStackScope(slug, sp);
-  const [playbooks, adoption, rollup, practices, shapes, sync, shapeRows] = await Promise.all([
+  const [playbooks, adoption, repoOptions, practices, shapes, sync, shapeRows] = await Promise.all([
     listPlaybooks(slug),
     getPlaybookAdoption(slug),
-    getOrgRollup(slug),
+    // One column, one query. This used to be a full unscoped `getOrgRollup` whose ONLY consumed field
+    // was `repos[].fullName` — the dashboard's heaviest read, bought to fill a repo picker.
+    listOrgRepoNames(slug),
     getOrgPractices(slug, null, techGroupId),
     // W6 — the org's OWN structure, for the house-pattern panel. Degrades to null (panel omitted)
     // rather than failing the tab: a missing panel is honest, an empty one would assert the org
@@ -53,9 +58,14 @@ export async function PracticesTab({ slug, sp }: { slug: string; sp: SearchParam
     getRegistrySync(slug),
     listOrgPracticeShapeRows(slug).catch(() => []),
   ]);
+  // MOONSHOT #33 — version the org's mined patterns from the read that already mined them, then read
+  // the adoption ledger. `syncHousePatternVersions` writes only when the pattern's hash MOVED, so this
+  // is a no-op on every render but the first after a shape actually changes; both degrade to a
+  // no-strip rather than failing the tab.
   const mined = shapes ? minePracticeShapes(shapes) : null;
+  if (mined) await syncHousePatternVersions(slug);
+  const adoptionLedger = await getPracticeAdoptionSummary(slug).catch(() => null);
   const dimOptions = DIMENSIONS.map((d) => ({ id: d.id, label: d.name }));
-  const repoOptions = (rollup?.repos ?? []).map((r) => r.fullName).sort();
 
   const summary = buildPracticeLibrarySummary(slug, practices ?? [], playbooks ?? [], adoption);
   const md = practiceLibraryMarkdown(summary);
@@ -75,7 +85,7 @@ export async function PracticesTab({ slug, sp }: { slug: string; sp: SearchParam
       {mined && <HousePattern mined={mined} reposWithShape={shapes?.length ?? 0} />}
 
       {/* The org's OWN agreed practices, straight out of the registry, above the generic catalog. */}
-      <RegistryPractices rows={shapeRows} registryBase={registryBlobBase(sync)} />
+      <RegistryPractices rows={shapeRows} registryBase={registryBlobBase(sync)} repoOptions={repoOptions} />
 
       <div className={TILE_GRID}>
         <Tile
@@ -107,6 +117,11 @@ export async function PracticesTab({ slug, sp }: { slug: string; sp: SearchParam
           color={roll && roll.open > 0 ? READING_HUE : undefined}
         />
       </div>
+
+      {/* #33 — beneath the lift strip's tiles, not inside them: "what did this put in motion" and
+          "is it still there" are different readings on different bases. Renders nothing on an empty
+          ledger. */}
+      {adoptionLedger && <PracticeDriftStrip slug={slug} summary={adoptionLedger} />}
 
       <PracticesView
         slug={slug}

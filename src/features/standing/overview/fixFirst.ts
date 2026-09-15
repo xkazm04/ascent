@@ -10,14 +10,19 @@
 
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { FINDING_MODULES, type FindingModule } from "@/lib/org/findings";
+import { findingImpact, goalImpact, regressionImpact, type FixFirstImpact } from "./fixFirstImpact";
 
 export interface FixFirstInputs {
   /** movers.regressers — pre-sorted most-negative-first by getOrgMovers, dOverall < 0 guaranteed. */
   regressers: { name: string; fullName: string; dOverall: number }[];
   /** Derived findings a human hasn't resolved yet (getOrgFindings minus resolvedKeys). */
   findings: { module: FindingModule; repo: string; title: string }[];
-  /** listGoals rows (any shape carrying label/status/pace). */
-  goals: { label: string; status: string; pace: string }[];
+  /** listGoals rows. `target`/`current`/`metricLabel` are optional because the shape is structural:
+   *  a caller that has only the triage fields still gets a band — its goal bar is simply a void. */
+  goals: { label: string; status: string; pace: string; metricLabel?: string; target?: number; current?: number }[];
+  /** `OrgMovers.comparedRepos` — the population a repo's regression is divided across to reach the
+   *  fleet scale. Absent (or 0) makes the regression bar a void rather than an undivided overclaim. */
+  comparedRepos?: number;
 }
 
 export interface FixFirstItem {
@@ -26,6 +31,9 @@ export interface FixFirstItem {
   detail: string;
   href: string;
   cta: string;
+  /** How far this candidate's bar reaches on the band's shared fleet-points scale — and whether it
+   *  may reach at all. See fixFirstImpact.ts: a candidate with no scoring model is a void. */
+  impact: FixFirstImpact;
 }
 
 /** How each finding module reads in a sentence. Keys double as the org tab the item links to. */
@@ -34,6 +42,8 @@ const MODULE_LABEL: Record<FindingModule, string> = {
   teams: "team ownership",
   passports: "passport",
   contributors: "contributor-risk",
+  // MOONSHOT #33 — a practice artifact that drifted or was removed after it landed.
+  practices: "practice-adoption",
 };
 
 /** Append the active scope query (e.g. "stack=react") to an org-internal link, inserting it BEFORE
@@ -59,9 +69,14 @@ export function deriveFixFirst(slug: string, inp: FixFirstInputs, scopeQuery?: s
     items.push({
       key: "regression",
       title: `Triage ${worst.name}`,
-      detail: `regressed ${Math.abs(worst.dOverall)} pts this period`,
+      // Name the endpoints. "this period" is used by TWO cells on this page that measure different
+      // things: this one is latest-in-window vs the repo's last scan BEFORE the window (getOrgMovers,
+      // baselineKind "period"), while the cohort card's row delta is first-to-last WITHIN the window.
+      // Two identical labels over two different subtractions is worse than no label at all.
+      detail: `regressed ${Math.abs(worst.dOverall)} pts vs its last scan before this period`,
       href: `/report/${worst.fullName}`,
       cta: "open report →",
+      impact: regressionImpact(worst.name, worst.dOverall, inp.comparedRepos ?? 0),
     });
   }
 
@@ -89,6 +104,7 @@ export function deriveFixFirst(slug: string, inp: FixFirstInputs, scopeQuery?: s
       detail: `e.g. ${top.first.repo}: ${top.first.title}`,
       href: withScope(orgTabHref(slug, top.module), scopeQuery),
       cta: "review queue →",
+      impact: findingImpact(top.count, MODULE_LABEL[top.module]),
     });
   }
 
@@ -100,6 +116,7 @@ export function deriveFixFirst(slug: string, inp: FixFirstInputs, scopeQuery?: s
       detail: "behind the pace its deadline needs",
       href: withScope(orgTabHref(slug, "followups"), scopeQuery),
       cta: "work the follow-ups →",
+      impact: goalImpact(behind),
     });
   }
 

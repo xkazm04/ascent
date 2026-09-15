@@ -15,7 +15,7 @@ export function OutputsCard() {
   return (
     <div className="rounded-xl border border-divider bg-surface/40 p-5">
       <Kicker tone="muted">What you&apos;ll get</Kicker>
-      <ul className="mt-3 space-y-2 text-base text-slate-300">
+      <ul className="mt-3 space-y-2 type-body text-slate-300">
         {OUTPUTS.map((o) => (
           <li key={o} className="flex gap-2.5">
             <span className="mt-0.5 shrink-0 text-accent" aria-hidden>→</span>

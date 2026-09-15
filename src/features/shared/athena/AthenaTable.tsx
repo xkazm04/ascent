@@ -22,7 +22,7 @@ export function AthenaTable({ block }: { block: AthenaTableBlock }) {
   return (
     <div>
       {block.title && (
-        <div className="px-4 pb-1.5 font-mono text-xs uppercase tracking-widest text-slate-500">{block.title}</div>
+        <div className="px-4 pb-1.5 type-label tracking-widest text-slate-500">{block.title}</div>
       )}
       <OrgTable
         className="rounded-none border-x-0"

@@ -17,15 +17,15 @@ export const dynamic = "force-dynamic";
  * Identity is resolved with `resolveViewerLogin`, the canonical cross-stack resolver (custom-OAuth
  * session first, then the Supabase / dev-bypass viewer) — NOT `getViewer` alone. The header link is
  * rendered from either stack, so a `getViewer`-only lookup would have bounced a custom-OAuth session
- * straight back to /connect: the exact dead-end this direction exists to remove. This resolves the
+ * straight back to /onboarding: the exact dead-end this direction exists to remove. This resolves the
  * dormant branch's inconsistency rather than reviving custom OAuth — under the Supabase wall
  * `getSession()` is null and the precedence collapses to the viewer, unchanged.
  *
- * Signed-out visitors go to /connect to sign in first; the org layout's own login wall then covers the
+ * Signed-out visitors go to /onboarding to sign in first; the org layout's own login wall then covers the
  * walked-back-in case.
  */
 export default async function MePage() {
   const login = await resolveViewerLogin();
-  if (!login) redirect("/connect");
+  if (!login) redirect("/onboarding");
   redirect(`/org/${login.trim().toLowerCase()}`);
 }

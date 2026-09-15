@@ -19,7 +19,7 @@ function ItemRow({ item }: { item: PersonalBacklogItem }) {
         <span className={item.status === "done" || item.status === "dismissed" ? "text-slate-500 line-through" : "text-slate-200"}>
           {item.title}
         </span>
-        <div className="mt-0.5 flex flex-wrap items-center gap-2 font-mono text-sm text-slate-500">
+        <div className="mt-0.5 flex flex-wrap items-center gap-2 type-mono-sm text-slate-500">
           <span>{DIMENSION_SHORT[item.dimId as DimensionId] ?? item.dimId}</span>
           <span title="Impact">impact {item.impact}</span>
           <span title="Effort">effort {item.effort}</span>
@@ -35,7 +35,7 @@ function ItemRow({ item }: { item: PersonalBacklogItem }) {
 function CountChip({ status, count }: { status: RecStatus; count: number }) {
   return (
     <span
-      className="rounded-full border px-2.5 py-1 font-mono text-sm tabular-nums"
+      className="rounded-full border px-2.5 py-1 type-mono-sm tabular-nums"
       style={{ borderColor: `${STATUS_ACCENT[status]}66`, color: STATUS_ACCENT[status] }}
     >
       {STATUS_LABEL[status]} · {count}
@@ -78,7 +78,7 @@ export async function PersonalBacklog({ slug }: { slug: string }) {
             >
               {repo.fullName}
             </Link>
-            <span className="font-mono text-sm text-slate-500">
+            <span className="type-mono-sm text-slate-500">
               from the scan on {repo.scannedAt.slice(0, 10)}
             </span>
           </div>

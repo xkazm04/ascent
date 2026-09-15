@@ -7,6 +7,7 @@
 import { describe, it, expect } from "vitest";
 import { analyzeSignals, detectAiUsage, computeContributors, classifyArchetype } from "./index";
 import { applyPrSignals } from "./pulls";
+import { renderProjection } from "./guidance-projection";
 import { overallScoreFor } from "@/lib/maturity/model";
 import type { CommitInfo, PrStats, RepoMeta, RepoSnapshot, Signal } from "@/lib/types";
 
@@ -110,6 +111,39 @@ describe(".ai/ standard scoring — verified, not present (Goodhart guard)", () 
   it("rewards a WIRED, USED standard far above a dropped-in empty scaffold", () => {
     expect(score(wiredAndUsed, "D8")).toBeGreaterThan(score(scaffoldOnly, "D8"));
     expect(score(scaffoldOnly, "D8")).toBeGreaterThan(score(bare, "D8")); // a little, not a lot
+  });
+
+  // #13 PIN. `aiStandard()` now sources this branch from the shared manifest reader instead of three
+  // inline regexes. The rewrite must move NO number and NO label: this lane bumps no rubric, so the
+  // two awards are asserted byte-for-byte and the delta between a FETCHED manifest and a manifest
+  // that is only in the tree is pinned to exactly the +4. What legitimately changes is reachability —
+  // the +4 was unreachable while the fetch list never requested the file, and this is the test that
+  // makes the moment it becomes reachable a visible, deliberate event rather than a silent re-score.
+  const d1Labels = (s: RepoSnapshot) =>
+    analyzeSignals(s, "2026-06-10T00:00:00Z").find((d) => d.id === "D1")!.signals.map((x) => x.label);
+  // Present in the TREE but never fetched — exactly the state every scan was in before #14's fetch.
+  const treeOnly = fileSnap([{ path: ".ai/manifest.yaml" }, { path: ".ai/doctor.mjs", content: "// doctor" }]);
+  const fetched = fileSnap([
+    { path: ".ai/manifest.yaml", content: MANIFEST },
+    { path: ".ai/doctor.mjs", content: "// doctor" },
+  ]);
+
+  it("pins the two D1 manifest awards: exact labels, and a +4 that only a FETCHED manifest earns", () => {
+    expect(d1Labels(treeOnly)).toContain("Found .ai/manifest.yaml (agent-facing contract)");
+    expect(d1Labels(treeOnly)).not.toContain("Manifest declares capabilities + control placement");
+    expect(d1Labels(fetched)).toContain("Manifest declares capabilities + control placement");
+    // The ONLY difference between the two is that one award.
+    expect(d1Labels(fetched).filter((l) => !d1Labels(treeOnly).includes(l))).toEqual([
+      "Manifest declares capabilities + control placement",
+    ]);
+    expect(score(fetched, "D1") - score(treeOnly, "D1")).toBe(4);
+  });
+
+  it("a manifest the reader cannot read scores the presence award and nothing more", () => {
+    // Truncated by the fetch byte budget: the head survives, the capabilities block does not.
+    const truncated = fileSnap([{ path: ".ai/manifest.yaml", content: "schema: ai-manifest\nschemaVersion: 0.3.0\n" }]);
+    expect(d1Labels(truncated)).toContain("Found .ai/manifest.yaml (agent-facing contract)");
+    expect(d1Labels(truncated)).not.toContain("Manifest declares capabilities + control placement");
   });
 
   it("labels the doctor as unwired until it is in CI or a hook", () => {
@@ -338,6 +372,68 @@ describe("D1 broadened AI-tooling detection (P1-4)", () => {
   it("credits an AI-usage policy/guide (AI_POLICY.md)", () => {
     const s = repoSnap([{ path: "docs/AI_POLICY.md", content: "AI contribution policy" }, { path: "README.md", content: "# r" }]);
     expect(labelText(dimOf(s, "D1").signals)).toMatch(/AI-usage policy\/guide/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// D1 under rubric r11 — COHERENCE, not count (moonshot #15)
+//
+// The inversion this whole item exists to remove: under r10 the four-copy repo scored HIGHER (the
+// five formats summed to 76 on presence alone), so the rubric rewarded a repo where an agent gets a
+// different answer depending on which file it opened. This is the fail-before — the assertion below
+// is false against the r10 detector and true against r11.
+// ---------------------------------------------------------------------------
+
+describe("D1 scores coherence, not the number of vendor formats (r11)", () => {
+  const BODY = "# Guide\n\n- Test: `npm test`\n- Build: `npm run build`\n- Never commit generated files.\n";
+  const drifted = (test: string, build: string, rule: string) =>
+    `# Guide\n\n- Test: \`${test}\`\n- Build: \`${build}\`\n- ${rule}\n`;
+
+  /** One canonical document plus three in-sync generated projections of it. */
+  const coherent = () => {
+    const projection = renderProjection({ sourcePath: "AGENTS.md", sourceBody: BODY });
+    return repoSnap([
+      { path: "AGENTS.md", content: BODY },
+      { path: "CLAUDE.md", content: projection },
+      { path: ".cursorrules", content: projection },
+      { path: ".github/copilot-instructions.md", content: projection },
+    ]);
+  };
+
+  /** The same four formats, each telling an agent something different. */
+  const drifting = () =>
+    repoSnap([
+      { path: "AGENTS.md", content: drifted("npm test", "npm run build", "Never commit generated files.") },
+      { path: "CLAUDE.md", content: drifted("npm run test:ci", "make build", "Always commit generated files.") },
+      { path: ".cursorrules", content: drifted("yarn test", "npm run build", "Never commit generated files.") },
+      { path: ".github/copilot-instructions.md", content: drifted("bun test", "npm run build", "Never commit generated files.") },
+    ]);
+
+  it("scores one canonical source with in-sync projections ABOVE four drifting copies", () => {
+    expect(dimOf(coherent(), "D1").signalScore).toBeGreaterThan(dimOf(drifting(), "D1").signalScore);
+  });
+
+  it("names the canonical source and every penalty's two paths in the evidence", () => {
+    const evidence = dimOf(drifting(), "D1").signals.map((x) => `${x.label} ${x.detail ?? ""}`).join(" | ");
+    expect(evidence).toMatch(/Guidance coherence \d+\/100/);
+    expect(evidence).toMatch(/Coherence −\d+/);
+    expect(evidence).toContain("AGENTS.md");
+    expect(dimOf(coherent(), "D1").signals.some((x) => /canonical: AGENTS\.md/.test(x.detail ?? ""))).toBe(true);
+  });
+
+  it("does not sum the formats: a second copy of the same document does not pay a second time", () => {
+    const one = repoSnap([{ path: "AGENTS.md", content: BODY }]);
+    const two = repoSnap([{ path: "AGENTS.md", content: BODY }, { path: "CLAUDE.md", content: BODY }]);
+    // Two identical copies are not worth 22 + 16: they are one document with a duplicate. The second
+    // copy scores no more than the first, and costs the no-canonical deduction for being ambiguous.
+    expect(dimOf(two, "D1").signalScore).toBeLessThanOrEqual(dimOf(one, "D1").signalScore);
+  });
+
+  it("grades the CANONICAL document's quality, not a one-line pointer file (this repo's own shape)", () => {
+    // `CLAUDE.md` is the single line `@AGENTS.md`. The old detector awarded 22 for the file and then
+    // graded that one line; r11 grades what it points at.
+    const s = repoSnap([{ path: "CLAUDE.md", content: "@AGENTS.md\n" }, { path: "AGENTS.md", content: BODY }]);
+    expect(labelText(dimOf(s, "D1").signals)).toMatch(/build\/test/i);
   });
 });
 

@@ -12,18 +12,17 @@
 
 import {
   GitHubError,
-  GitHubPublicSource,
-  parseRepoUrl,
   type ParsedRepo,
   type ProgressFn,
   type RepoSource,
 } from "@/lib/github/source";
+import { parseForgeUrl, resolveForge } from "@/lib/forge/registry";
 import { getProviderForOrg } from "@/lib/llm";
 import { BedrockProvider } from "@/lib/llm/bedrock";
 import type { LLMProvider } from "@/lib/llm/provider";
 import { matrixCaptureEnabled, captureMatrixInput } from "@/lib/llm/matrix-capture";
 import { evalLogEnabled } from "@/lib/llm/eval-log";
-import type { ScanReport } from "@/lib/types";
+import type { PlatformSignalRecord, ScanReport } from "@/lib/types";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { getInstallationIdForOwner } from "@/lib/db";
 import { canMintInstallationToken } from "@/lib/authz";
@@ -33,6 +32,7 @@ import { runAssessmentPhase } from "@/lib/scan-assess";
 import { buildScanWarnings, captureScanEvalLog, composeScanReport } from "@/lib/scan-compose";
 import { classifyOutputBudget } from "@/lib/llm/output-budget";
 import { recordScanDegraded, recordScanFailure, recordScanStarted } from "@/lib/scan-outcome";
+import { mirrorRepoMemory } from "@/lib/memory/repo-memory-mirror";
 
 // The LLM failure classifiers live with the resilience loop that consumes them; re-exported here so
 // `@/lib/scan` remains the single import surface for the scan pipeline.
@@ -59,9 +59,9 @@ export interface ScanOptions {
   decisionOrgSlug?: string;
   /**
    * When true, do NOT fall back to the ambient `process.env.GITHUB_TOKEN` if no explicit `token`
-   * is given. Public, unauthenticated surfaces (the README badge) set this so a private repo can't
+   * is given. Public, unauthenticated surfaces (the CI gate) set this so a private repo can't
    * be ingested with the operator's server PAT — otherwise an anonymous caller could read a
-   * private repo's maturity. Token-less ingestion of a private repo simply 404s → neutral badge.
+   * private repo's maturity. Token-less ingestion of a private repo simply 404s → neutral result.
    */
   noAmbientToken?: boolean;
   source?: RepoSource;
@@ -106,6 +106,20 @@ export interface ScanOptions {
    * stops burning the function's duration budget, GitHub rate limit, and LLM spend.
    */
   signal?: AbortSignal;
+  /**
+   * This scan reads a WORKTREE and structurally cannot observe the GitHub-side platform signals
+   * (installed review/CI/coverage Apps, default-branch Actions health — src/lib/analyze/platform-signals.ts).
+   * Declared by the caller, not inferred: a null enrichment is equally what a failed read looks like
+   * on a scan that could have succeeded, and only this flag makes the resulting report say D2/D3/D4
+   * were NOT MEASURABLE rather than silently scoring them at their file-scan floor.
+   */
+  platformSignalsUnobservable?: boolean;
+  /**
+   * The last observed platform fold for this repo (see `getLatestPlatformSignals`), replayed into the
+   * dimension scores when this scan cannot observe one — with its provenance and age on every line it
+   * adds. Ignored when the live enrichments are present.
+   */
+  carriedPlatformSignals?: { record: PlatformSignalRecord; scanId: string } | null;
 }
 
 /**
@@ -153,25 +167,38 @@ export async function resolveScanAuth(
 
 /** Public entry point. Wraps the pipeline in outcome tallies (src/lib/scan-outcome.ts): a failed scan
  *  writes no Scan row, so without these counters a pipeline failure is invisible. The counters are
- *  best-effort and the error is always re-thrown unchanged — behavior for every caller is identical. */
+ *  best-effort and the error is always re-thrown unchanged — behavior for every caller is identical.
+ *
+ *  FIRE AND FORGET, both of them. These are counter upserts, documented best-effort at the top of
+ *  scan-outcome.ts and already swallowing their own errors (db/best-effort.ts `bumpCounter`) — so
+ *  awaiting them only ever bought a database round-trip on the scan's critical path: one before any
+ *  work starts, and one before the caller sees an error it is already going to receive. `void` them,
+ *  on exactly the discipline `recordScanDegraded` already uses below. Nothing observes their
+ *  completion, and an unhandled rejection is impossible because neither can reject. */
 export async function scanRepository(input: string, opts: ScanOptions = {}): Promise<ScanReport> {
-  await recordScanStarted();
+  void recordScanStarted();
   try {
     return await runScanRepository(input, opts);
   } catch (err) {
-    await recordScanFailure(err);
+    void recordScanFailure(err);
     throw err;
   }
 }
 
 async function runScanRepository(input: string, opts: ScanOptions = {}): Promise<ScanReport> {
-  const parsed = parseRepoUrl(input);
-  if (!parsed) {
+  // FORGE ROUTING (moonshot #4). `parseForgeUrl` tries an explicit `<forge>:` prefix, then each
+  // registered forge GITHUB FIRST — so every input that parsed before parses to the same
+  // `{owner, repo}` through the same GitHub parser, and only inputs GitHub REJECTED (an explicit
+  // gitlab.com URL, a `gitlab:` coordinate) can reach another adapter.
+  const routed = parseForgeUrl(input);
+  if (!routed) {
     throw new GitHubError(
       "INVALID_URL",
-      "Enter a valid GitHub repository URL, e.g. https://github.com/owner/repo.",
+      "Enter a valid repository URL, e.g. https://github.com/owner/repo or https://gitlab.com/group/project.",
     );
   }
+  const { forge: forgeId, ...parsed } = routed;
+  const forge = resolveForge(forgeId);
   // Resolve the provider up front so every progress event can carry provider-aware copy —
   // the loading UI renders "Asking Gemini…" / "Querying Bedrock in us-east-1…" from these
   // fields, starting with the very first frame. Construction is side-effect-free: no network
@@ -192,7 +219,9 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
   const emit: ProgressFn = (p) =>
     baseEmit({ provider: intendedProvider, region: providerRegion, ...p });
 
-  const source = opts.source ?? new GitHubPublicSource();
+  // An explicitly injected source still wins (local mode, the loop lane, tests). Otherwise the forge
+  // builds it — and for GitHub that is `new GitHubPublicSource()`, the same construction as before.
+  const source = opts.source ?? forge.source();
   const token = opts.token ?? (opts.noAmbientToken ? undefined : process.env.GITHUB_TOKEN);
   // Honor client disconnect: every downstream fetch is wired to this signal, and we re-check it
   // at each stage boundary so an abandoned scan stops before the next expensive leg.
@@ -200,10 +229,11 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
   signal?.throwIfAborted();
 
   // ── Phase 1: ingest ───────────────────────────────────────────────────────────────────────────
-  const { snapshot, prStats, prPartial, governance, securityPosture, securityExposure, appInventory, ciHealth, activityPromise, guidanceFreshnessPromise, aiChanges, deployments } =
+  const { snapshot, prStats, prPartial, prFetchFailed, sensorFailures, governance, securityPosture, securityExposure, appInventory, ciHealth, activityPromise, guidanceFreshnessPromise, aiChanges, deployments } =
     await ingestRepository({
       parsed,
       source,
+      forge,
       token,
       ref: opts.ref,
       headSha: opts.headSha,
@@ -218,8 +248,24 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
   // owner/repo — the LightTrack telemetry dimension and the eval-log / matrix-capture repo key.
   const repoFullName = `${parsed.owner}/${parsed.repo}`;
 
+  // The `.ai/memory` mirror (moonshot #14). FIRE AND FORGET, and deliberately not awaited: indexing a
+  // repo's own agent memory is a side benefit of the scan, never a reason for one to be slower or to
+  // fail. `mirrorRepoMemory` never throws and gates itself (org, repo ownership, opt-out, plan, caps).
+  //
+  // It reads `snapshot.memoryFiles` — the QUARANTINED channel — and nothing else in this pipeline may.
+  // Those bodies are untrusted prose from a customer repo; keeping them out of `snapshot.files` (and so
+  // out of Phase 2's scoreInput and Phase 3's prompt) is the guarantee the feature rests on.
+  if (snapshot.memoryFiles?.length) {
+    void mirrorRepoMemory({
+      orgSlug: opts.orgSlug,
+      repoFullName,
+      headSha: snapshot.meta.headSha ?? null,
+      memoryFiles: snapshot.memoryFiles,
+    });
+  }
+
   // ── Phase 2: deterministic signals → the model's input ────────────────────────────────────────
-  const { signals, archetype, stackFit, techStack, scoreInput, detectorWarnings } = await buildScanScoreInput({
+  const { signals, archetype, stackFit, techStack, scoreInput, detectorWarnings, platformSignals } = await buildScanScoreInput({
     snapshot,
     prStats,
     governance,
@@ -227,10 +273,18 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
     securityExposure,
     appInventory,
     ciHealth,
+    // Which of those enrichments FAILED rather than came back empty. The D9 battery excludes the
+    // checks a failed sensor could have refuted instead of scoring them 0 (src/lib/security/checks.ts).
+    sensorFailures,
     now,
     // decisionOrgSlug (individual tier) points the standing-decision read at the TRIGGERING viewer's
     // personal org on the public funnel; org scans keep reading their own org via the orgSlug fallback.
     decisionSlug: opts.decisionOrgSlug ?? opts.orgSlug,
+    // A worktree scan cannot observe the GitHub-side folds. Both of these are the CALLER's claim —
+    // see ScanOptions — and together they decide whether the report says "carried from scan X" or
+    // "D2/D3/D4 not measurable here" instead of quietly reporting a floor as a measurement.
+    platformSignalsUnobservable: opts.platformSignalsUnobservable,
+    carriedPlatformSignals: opts.carriedPlatformSignals,
   });
 
   // Model-matrix capture (dev/bench only, gated on ASCENT_MATRIX_CAPTURE_DIR): dump the fully-built
@@ -263,7 +317,19 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
   // The mock floor is a SILENT failure: a report still renders, so it counts as a success everywhere
   // else even though the model never ran. Tallied separately from the error rate, which is defined
   // over scans that terminated.
-  if (llmFailed) void recordScanDegraded(intendedProvider);
+  //
+  // It is also the failure mode that makes a run-over-run "lift" meaningless: a mock score and a real
+  // score are two different rulers, so a delta across that boundary measures the engine swap, not the
+  // repository. The counter above is aggregate and unattributed; this line names the repo and the
+  // engine that was supposed to answer, at `warn`, so the degrade is visible in the server log of the
+  // very run whose numbers it invalidates rather than only in a metric nobody is watching.
+  if (llmFailed) {
+    void recordScanDegraded(intendedProvider);
+    console.warn(
+      `[scan] ${repoFullName}: LLM assessment degraded to the deterministic mock floor (intended provider: ${intendedProvider}). ` +
+        `This scan's scores are NOT model-assessed — any lift measured against a real-engine scan is engine noise, not repository change.`,
+    );
+  }
 
   // ── Phase 4: compose ─────────────────────────────────────────────────────────────────────────
   // The mock fallback (and any provider that ignores the signal) can resolve even after a
@@ -285,6 +351,9 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
     activityPromise,
     guidanceFreshnessPromise,
     techStack,
+    // The fold's PROVENANCE, handed to the report assembly so a dimension this scan could not observe
+    // is owed no manufactured follow-up. The record itself is stamped onto the report below.
+    platformSignals,
     usage,
     llmLatencyMs,
   });
@@ -309,6 +378,22 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
   // refuse caching or persisting this report as authoritative (the matching prose caveat comes from
   // buildScanWarnings below).
   if (prPartial) report.prPartial = true;
+  // Stamp the mock-floor degrade onto the report's own engine record. composeScanReport only knows
+  // WHICH provider answered; `llmFailed` — the fact that one was asked for and did not — lives only
+  // here, and without it a degraded scan is indistinguishable from a deliberate keyless one once the
+  // row is persisted. Written unconditionally (false, not omitted, on a live scan) so a consumer can
+  // tell "proven not degraded" from "predates the flag".
+  report.engine.degraded = llmFailed;
+  // What this scan could see of GitHub, and from when. Stamped here rather than inside composeScanReport
+  // for the same reason `degraded` is: the compose phase knows the SIGNALS, not the provenance of the
+  // enrichment that produced them.
+  if (platformSignals) report.platformSignals = platformSignals;
+  // The typed half of the sensor-failure channel. It is what makes an ABSENT `platformSignals` record
+  // readable: with `appInventory`/`ciHealth` listed here the fold was UNMEASURED (the read failed);
+  // without them the scan looked and measured nothing. Stamped only when non-empty so a clean scan's
+  // report is byte-identical to what it was before. NOTE: `Scan` has no column for it, so only the
+  // prose caveat below survives persistence — see the report note for the doc/schema follow-up.
+  if (sensorFailures.length) report.sensorFailures = [...sensorFailures];
   // Surface non-fatal reliability caveats so the score is interpreted in context.
   const warnings = buildScanWarnings({
     detectorWarnings,
@@ -320,6 +405,8 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
     snapshotCoverage: snapshot.coverage,
     stackFit,
     prPartial,
+    prFetchFailed,
+    sensorFailures,
     // The god-scan indicator: how much of the model's output ceiling this single assessment call
     // used. Measured from the usage the winning provider reported, against that provider's model.
     outputBudget: classifyOutputBudget(report.usage?.outputTokens, report.engine?.model),

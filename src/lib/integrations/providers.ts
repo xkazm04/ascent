@@ -51,10 +51,6 @@ export const FIDELITY_META: Record<Fidelity, { label: string; hex: string; note:
   },
 };
 
-/** Every connector tier, derived from the (type-exhaustive) meta table so it cannot fall behind the
- *  union. Iterate this rather than re-listing the members at a call site. */
-export const FIDELITY_TIERS = Object.keys(FIDELITY_META) as Fidelity[];
-
 export const PROVIDERS: ProviderDef[] = [
   {
     id: "claude-code",
@@ -103,7 +99,3 @@ export const PROVIDERS: ProviderDef[] = [
     accent: "#10b981",
   },
 ];
-
-export function getProvider(id: string): ProviderDef | undefined {
-  return PROVIDERS.find((p) => p.id === id);
-}

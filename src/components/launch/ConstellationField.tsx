@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { CSSProperties } from "react";
 import { reportPermalink, scoreHex } from "@/lib/ui";
-import { meanOverall } from "./fleetMapDerive";
+import { meanOverall, moverDelta } from "./fleetMapDerive";
 import { Pill } from "./FleetMapChrome";
 import {
   ACCENT,
@@ -59,6 +59,15 @@ export function ConstellationField({
   const scanned = c.status === "done" ? c.repos.filter((r) => r.overall != null).length : 0;
   const total = c.status === "done" ? c.repos.length : 0;
   const overflow = Math.max(0, baseRepos.length - MAX_STARS);
+  // The SVG's accessible name used to count the RENDERED stars, which the MAX_STARS slice truncates.
+  // A 100-repo org therefore announced "100 repositories"'s worth of chrome as "80 repositories" —
+  // directly contradicting the "56/100 scanned" line read out immediately before it and the
+  // "+20 more stars" line after it. Name the real total, and say what is actually drawn when the two
+  // differ, so the sighted and the announced readings of the same card agree.
+  const fieldLabel =
+    overflow > 0
+      ? `${c.login} constellation: ${total} repositories, ${repos.length} brightest shown`
+      : `${c.login} constellation with ${repos.length} ${repos.length === 1 ? "repository" : "repositories"}`;
   // Single-sourced with fleetStats/orderConstellations's mean (G8-16) — see fleetMapDerive.meanOverall.
   const avg = c.status === "done" ? meanOverall(c.repos) : null;
   // Per-star derivations (position, look, dim) shared by BOTH the lines pass and the stars pass below —
@@ -79,12 +88,12 @@ export function ConstellationField({
         <div className="min-w-0">
           <Link
             href={`/org/${encodeURIComponent(c.login)}`}
-            className="block truncate font-mono text-base text-white hover:text-accent"
+            className="block truncate font-mono type-body text-white hover:text-accent"
             title={c.login}
           >
             {c.login}
           </Link>
-          <div className="font-mono text-sm uppercase tracking-widest text-slate-500">
+          <div className="type-mono-sm uppercase tracking-widest text-slate-500">
             {c.status === "loading" && "charting…"}
             {c.status === "error" && "unreachable"}
             {c.status === "done" && `${scanned}/${total} scanned`}
@@ -94,7 +103,7 @@ export function ConstellationField({
           {avg != null && (
             <Pill
               size="sm"
-              className="font-mono text-sm font-bold tabular-nums"
+              className="type-mono-sm font-bold tabular-nums"
               style={{ color: scoreHex(avg) }}
               title="Average maturity of scanned repos"
             >
@@ -130,7 +139,7 @@ export function ConstellationField({
                     ? `Scan ${c.login}: unavailable, one scan at a time; another organization is scanning`
                     : `Scan ${c.login}'s watched repos`
               }
-              className="rounded-md border border-accent/50 bg-accent/10 px-2 py-0.5 font-mono text-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-accent/10"
+              className="rounded-md border border-accent/50 bg-accent/10 px-2 py-0.5 type-mono-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-accent/10"
             >
               {scanning ? "Scanning…" : "Scan"}
             </button>
@@ -142,7 +151,7 @@ export function ConstellationField({
         {/* role="group" (not "img"): the map contains interactive per-star <a> report links — role="img"
             collapses the whole SVG to one image and makes every star link (+ its aria-label) unreachable
             to screen readers. A group keeps the label AND exposes the links. */}
-        <svg viewBox="0 0 120 120" className="absolute inset-0 h-full w-full" role="group" aria-label={`${c.login} constellation with ${repos.length} ${repos.length === 1 ? "repository" : "repositories"}`}>
+        <svg viewBox="0 0 120 120" className="absolute inset-0 h-full w-full" role="group" aria-label={fieldLabel}>
           {/* constellation lines from the org core to each scanned repo star */}
           {c.status === "done" &&
             starData.map(({ r, cx, cy, look, dim }) => {
@@ -183,8 +192,8 @@ export function ConstellationField({
               };
               // A repo that moved ≥1 point in the window (MAP-3): a thin directional ring — emerald
               // up, orange down — and the delta appended to the hover tooltip. Suppressed when dimmed.
-              const moved = !dim && r.dOverall != null && Math.abs(r.dOverall) >= 1 ? r.dOverall : null;
-              const moveDetail = moved != null ? ` · ${moved > 0 ? "+" : ""}${moved} 30d` : "";
+              const moved = dim ? 0 : moverDelta(r.dOverall);
+              const moveDetail = moved !== 0 ? ` · ${moved > 0 ? "+" : ""}${moved} 30d` : "";
               const detail = (r.overall != null ? ` · ${r.level ?? ""} ${r.overall}` : " · not scanned") + moveDetail;
               // SVG <a>: clicking a star opens that repo's report (the map's core "a star is a repo"
               // metaphor). A transparent halo widens the hit/focus target for the tiny stars.
@@ -200,7 +209,7 @@ export function ConstellationField({
                       px/unit), so a ≥6-unit radius = ≥12px = a ≥24px-diameter tap target down to a 320px
                       screen, clearing the WCAG 2.2 target-size minimum the old r≈3 (~15px) fell short of. */}
                   <circle cx={cx} cy={cy} r={Math.max(look.r + 3, 6)} fill="transparent" />
-                  {moved != null && (
+                  {moved !== 0 && (
                     <circle
                       cx={cx}
                       cy={cy}
@@ -238,14 +247,14 @@ export function ConstellationField({
 
         {c.status === "done" && total === 0 && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <span className="rounded-md border border-slate-800 bg-slate-900/70 px-2 py-1 font-mono text-sm text-slate-500">
+            <span className="rounded-md border border-slate-800 bg-slate-900/70 px-2 py-1 type-mono-sm text-slate-500">
               no repositories
             </span>
           </div>
         )}
       </div>
 
-      <div className="mt-3 flex items-center justify-between gap-2 text-sm">
+      <div className="mt-3 flex items-center justify-between gap-2 type-body-sm">
         {c.status === "error" ? (
           <span className="text-amber-400/80">{c.message}</span>
         ) : scanError ? (

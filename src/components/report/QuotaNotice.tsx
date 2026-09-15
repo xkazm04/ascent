@@ -106,7 +106,7 @@ function QuotaBannerShell({
   return (
     <div
       role="status"
-      className={`mx-auto mb-4 flex max-w-3xl items-center gap-2 rounded-lg border px-3 py-2 text-sm ${t.box}`}
+      className={`mx-auto mb-4 flex max-w-3xl items-center gap-2 rounded-lg border px-3 py-2 type-body-sm ${t.box}`}
     >
       <span aria-hidden className={t.glyph || undefined}>
         ◷
@@ -128,7 +128,7 @@ function quotaCta(scope: QuotaScope, signInNext: string, fallbackLink: boolean):
   }
   if (!fallbackLink) return null;
   return (
-    <a href="/pricing" className="shrink-0 font-mono text-sm text-accent hover:text-white">
+    <a href="/pricing" className="shrink-0 type-mono-sm text-accent hover:text-white">
       See plans →
     </a>
   );

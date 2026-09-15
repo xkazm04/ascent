@@ -88,7 +88,7 @@ export function LowBalanceNotice({
   const pack = packs.find((p) => p.productId === pref.packProductId) ?? packs[0] ?? null;
   return (
     <div
-      className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 text-sm text-amber-300"
+      className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 type-body-sm text-amber-300"
       // Announced when the popover re-reads a balance that has crossed the line mid-session.
       aria-live="polite"
     >
@@ -99,7 +99,7 @@ export function LowBalanceNotice({
       {pack && (
         <a
           href={`/api/billing/checkout?org=${encodeURIComponent(org)}&pack=${encodeURIComponent(pack.productId)}`}
-          className="focus-ring mt-1.5 inline-flex items-center gap-1 rounded-md bg-accent px-2.5 py-1 text-sm font-medium text-on-accent transition hover:bg-accent-soft"
+          className="focus-ring mt-1.5 inline-flex items-center gap-1 rounded-md bg-accent px-2.5 py-1 type-body-sm font-medium text-on-accent transition hover:bg-accent-soft"
         >
           Top up {pack.label} <span aria-hidden>→</span>
         </a>
@@ -130,7 +130,7 @@ export function AutoRechargeSection({
 
   return (
     <div className="mt-3 border-t border-slate-800 pt-2">
-      <label className="flex items-center gap-2 text-sm text-slate-300">
+      <label className="flex items-center gap-2 type-body-sm text-slate-300">
         <input
           type="checkbox"
           checked={enabled}
@@ -141,7 +141,7 @@ export function AutoRechargeSection({
       </label>
       {enabled && (
         <div className="mt-1.5 flex items-center gap-2">
-          <label htmlFor="ar-threshold" className="text-sm text-slate-400">
+          <label htmlFor="ar-threshold" className="type-body-sm text-slate-400">
             at
           </label>
           <input
@@ -151,12 +151,12 @@ export function AutoRechargeSection({
             inputMode="numeric"
             value={threshold}
             onChange={(e) => setThreshold(e.target.value)}
-            className="focus-ring w-20 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-sm text-slate-200"
+            className="focus-ring w-20 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 type-mono-sm text-slate-200"
           />
-          <span className="text-sm text-slate-400">credits left</span>
+          <span className="type-body-sm text-slate-400">credits left</span>
         </div>
       )}
-      <p className="mt-1.5 text-sm text-slate-500">
+      <p className="mt-1.5 type-body-sm text-slate-500">
         {AUTO_RECHARGE_CHARGES_AUTOMATICALLY
           ? "Credits are topped up automatically at this balance."
           : // Say the quiet part out loud: no card is on file and nothing buys credits by itself.
@@ -166,12 +166,12 @@ export function AutoRechargeSection({
         type="button"
         disabled={saving || !dirty || (enabled && !valid)}
         onClick={() => onSave({ enabled, threshold: valid ? parsed : pref.threshold, packProductId: pref.packProductId })}
-        className="focus-ring mt-1.5 rounded-md border border-slate-700 px-2.5 py-1 text-sm text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50"
+        className="focus-ring mt-1.5 rounded-md border border-slate-700 px-2.5 py-1 type-body-sm text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50"
       >
         {saving ? "Saving…" : "Save"}
       </button>
       {error && (
-        <p className="mt-1 text-sm text-danger" aria-live="polite">
+        <p className="mt-1 type-body-sm text-danger" aria-live="polite">
           {error}
         </p>
       )}

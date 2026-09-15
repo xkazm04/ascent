@@ -18,7 +18,7 @@ roll up, compare contributors, watch a subset, and auto-track on a schedule.
                                              │ repo list
                   ┌──────────────────────────▼───────────────────────────┐
    watch toggle → │  Repository rows  (watched · scanSchedule · nextScanAt)│
-   /connect       └──────────────────────────┬───────────────────────────┘
+   /onboarding    └──────────────────────────┬───────────────────────────┘
                                              │ watched set
         manual  ─────────────────────────────┤
         "Scan all"   POST /api/org/scan (SSE) │  cron  GET /api/cron/rescan
@@ -44,8 +44,8 @@ roll up, compare contributors, watch a subset, and auto-track on a schedule.
 
 Two ways repos enter the fleet:
 
-- **Private (GitHub App):** install Ascent on the org. `/connect` lists the installation's
-  repos with a **watch toggle** and **schedule** selector. Bulk scan and cron use the
+- **Private (GitHub App):** install Ascent on the org. The onboarding wizard imports the installation's
+  repos; the dashboard's Repositories tab carries the **watch** and **schedule** controls. Bulk scan and cron use the
   short-lived installation token. Requires `GITHUB_APP_*` + `DATABASE_URL`.
 - **Public org (token, no App):** `POST /api/org/import` lists an org's most-recently-pushed
   **public** repos and scans them under the org slug. Needs only `GITHUB_TOKEN` + `DATABASE_URL`.
@@ -106,7 +106,7 @@ Vercel calls `GET /api/cron/rescan` with `Authorization: Bearer $CRON_SECRET`. T
 2. For each: scan with the owner's installation token, `persistScanReport`, then
    `advanceSchedule(repoId, schedule)` → pushes `nextScanAt` forward (daily +1d / weekly +7d / monthly +30d).
 
-Setting a schedule on `/connect` seeds the first `nextScanAt`; the cron keeps it rolling.
+Setting a schedule (at import, or on the Repositories tab) seeds the first `nextScanAt`; the cron keeps it rolling.
 
 ---
 

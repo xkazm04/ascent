@@ -100,10 +100,10 @@ export function OrphanedTracking({
 
   return (
     <Surface radius="xl" className="border-amber-500/30 bg-amber-500/5 p-4">
-      <h3 className="text-base font-semibold text-amber-100">
+      <h3 className="type-body font-semibold text-amber-100">
         {orphans.length} tracked item{orphans.length === 1 ? "" : "s"} couldn’t be carried into this scan
       </h3>
-      <p className="mt-1 text-sm text-amber-200/80">
+      <p className="mt-1 type-body-sm text-amber-200/80">
         The gap{orphans.length === 1 ? " was" : "s were"} reworded between scans and more than one item
         in the same dimension changed, so pairing them would have been a guess. Nothing was lost. Pick
         the item below that is the same gap and the tracking moves across.
@@ -115,12 +115,12 @@ export function OrphanedTracking({
           const candidates = items.filter((i) => i.dimension === o.dim);
           return (
             <li key={key} className="rounded-lg border border-amber-500/20 bg-slate-950/30 p-3">
-              <p className="text-sm font-medium text-slate-100">{o.title}</p>
-              <p className="mt-0.5 font-mono text-sm text-amber-200/70">
+              <p className="type-body-sm font-medium text-slate-100">{o.title}</p>
+              <p className="mt-0.5 type-mono-sm text-amber-200/70">
                 {o.dim} · {trackingSummary(o)}
               </p>
               {candidates.length === 0 ? (
-                <p className="mt-2 text-sm text-slate-400">
+                <p className="mt-2 type-body-sm text-slate-400">
                   This scan raised nothing in {o.dim}. The gap may simply be closed.
                 </p>
               ) : (
@@ -132,7 +132,7 @@ export function OrphanedTracking({
                     id={`relink-${key}`}
                     value={targets[key] ?? ""}
                     onChange={(e) => setTargets((t) => ({ ...t, [key]: e.target.value }))}
-                    className="max-w-full flex-1 rounded-md border border-slate-700 bg-slate-950/60 px-2 py-1 text-sm text-slate-200"
+                    className="max-w-full flex-1 rounded-md border border-slate-700 bg-slate-950/60 px-2 py-1 type-body-sm text-slate-200"
                   >
                     <option value="">Same gap in this scan…</option>
                     {candidates.map((c) => (
@@ -145,7 +145,7 @@ export function OrphanedTracking({
                     type="button"
                     disabled={!targets[key] || busy === key}
                     onClick={() => relink(o)}
-                    className="rounded-md border border-amber-500/40 px-2 py-1 text-sm font-medium text-amber-200 transition hover:bg-amber-500/10 disabled:opacity-40"
+                    className="rounded-md border border-amber-500/40 px-2 py-1 type-body-sm font-medium text-amber-200 transition hover:bg-amber-500/10 disabled:opacity-40"
                   >
                     {busy === key ? "Re-linking…" : "Re-link"}
                   </button>
@@ -157,7 +157,7 @@ export function OrphanedTracking({
       </ul>
 
       {error && (
-        <p role="alert" className="mt-2 text-sm text-red-200/90">
+        <p role="alert" className="mt-2 type-body-sm text-red-200/90">
           {error}
         </p>
       )}

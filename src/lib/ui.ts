@@ -69,7 +69,7 @@ export function appConfigureUrl(installationId: string | number): string {
  * The floor is L1 red #ef4444 at ~5.2:1; L2–L5 sit at ~7–10:1 (yellow/lime are the brightest,
  * not the weakest, on a dark background). Darkening any token here would REDUCE contrast, so the
  * ramp is kept as-is — and hue is never the sole signal: pair it with LEVEL_GLYPH and the
- * always-present L1–L5 id. (As a solid FILL behind white text — e.g. the README badge — the
+ * always-present L1–L5 id. (As a solid FILL behind white text the
  * lighter tokens fail; that surface is out of scope for this numeral-contrast pass.)
  */
 export const LEVEL_HEX: Record<LevelId, string> = {

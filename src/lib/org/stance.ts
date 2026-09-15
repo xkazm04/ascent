@@ -157,8 +157,25 @@ export interface StanceRepoFacts {
   ackedVersion: number | null;
 }
 
+/**
+ * Controls actually OBSERVED for this repo, from the #1 control ledger. Every field is honest-null:
+ * absent/null means unobserved, and every check that reads one SKIPS rather than assuming a zero.
+ */
+export interface StanceObservedControls {
+  /** Required approving reviews on the default branch. NULL = unobserved, never 0. */
+  requiredApprovals?: number | null;
+}
+
 export interface StanceFinding {
-  code: "undeclared-tool" | "provenance-trailer" | "unapproved-ai-change" | "no-ai-zone-repo";
+  code:
+    | "undeclared-tool"
+    | "provenance-trailer"
+    | "unapproved-ai-change"
+    | "no-ai-zone-repo"
+    /** #8 — a path-scoped no-AI zone. ALWAYS `advisory: true`; see the finding for why. */
+    | "no-ai-zone-path"
+    /** #8 — the declared review requirement for this repo's tier vs the approvals actually observed. */
+    | "review-tier";
   message: string;
   /** True when the stance clause CANNOT be checked against observed data (path-scoped zones) —
    *  the finding is a reminder of the declared rule, not an observed breach. */
@@ -203,6 +220,7 @@ export function evaluateStanceCompliance(
   stance: AiStance,
   repo: StanceRepoFacts,
   stanceVersion: number,
+  observed: StanceObservedControls = {},
 ): RepoStanceCompliance {
   const findings: StanceFinding[] = [];
 
@@ -256,6 +274,49 @@ export function evaluateStanceCompliance(
     findings.push({
       code: "no-ai-zone-repo",
       message: "AI attribution observed in a repo the stance declares a no-AI zone.",
+      advisory: false,
+    });
+  }
+
+  // No-AI zones, PATH scope (#8): the first genuinely `advisory: true` finding this module emits.
+  //
+  // BACKLOG group-05 recorded the defect it closes: `advisory` was declared, documented, rendered —
+  // and never set true by any code path, so `compliant` (every finding advisory) was degenerate,
+  // structurally identical to `findings.length === 0`. A flag that can only hold one value is worse
+  // than no flag: every reader downstream believed the distinction was live.
+  //
+  // It is advisory because commit FILE PATHS are not ingested — the scan sees which repos and which
+  // PRs carry AI attribution, never which files a change touched. So a path zone is a declared rule
+  // this readout can restate but cannot check, and saying so is the honest form. The admission
+  // compiler is what makes such a zone enforceable, by rendering a CODEOWNERS block that guarantees a
+  // named human REVIEWS those paths — the enforceable half of a clause whose other half is not
+  // observable. `PATH_ZONE_ADVISORY_LABEL` is the single-sourced sentence every surface attaches.
+  const pathZones = stance.noAiZones.filter((z) => z.pathGlobs.length > 0);
+  if (pathZones.length > 0) {
+    const paths = [...new Set(pathZones.flatMap((z) => z.pathGlobs))];
+    findings.push({
+      code: "no-ai-zone-path",
+      message:
+        `${paths.length} declared no-AI path zone${paths.length === 1 ? "" : "s"} (${paths.slice(0, 3).join(", ")}` +
+        `${paths.length > 3 ? ", …" : ""}). ${PATH_ZONE_ADVISORY_LABEL}`,
+      advisory: true,
+    });
+  }
+
+  // Per-tier review requirement (#8): declared vs OBSERVED required approvals.
+  //
+  // SKIPPED ENTIRELY on a null observation, which is the common case today — a repo whose branch
+  // governance was unreadable, or one no control probe has reached. Null is not zero: reporting "0
+  // approvals required" for a repo nobody measured would be the loudest possible finding derived
+  // from the least possible evidence. It is also skipped when the tier is unassessed, because there
+  // is then no declared requirement to compare against.
+  const declaredReview = repo.autonomyTier ? stance.reviewTiers.find((t) => t.tier === repo.autonomyTier) : undefined;
+  if (declaredReview && observed.requiredApprovals != null && observed.requiredApprovals === 0) {
+    findings.push({
+      code: "review-tier",
+      message:
+        `The stance requires "${declaredReview.review}" for ${repo.autonomyTier} repositories, but no approving ` +
+        `review is required on this repository's default branch.`,
       advisory: false,
     });
   }

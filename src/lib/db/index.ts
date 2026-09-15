@@ -1,4 +1,9 @@
-﻿export {
+// Guards the fattest server surface in the app: a client component that reaches this barrel for a
+// VALUE (rather than `import type`) now fails the build here, naming this module, instead of failing
+// downstream with a message about next/headers. See Architect ADR 2026-08-28-server-only-boundary.
+import "server-only";
+
+export {
   getPrisma,
   isDbConfigured,
   withDb,
@@ -21,9 +26,13 @@ export {
   getScanReportByCommit,
   getRepoPassport,
   getLatestRecommendations,
+  getLatestPlatformSignals,
+  getLatestUnmeasurableDims,
+  getStandingRegressions,
   updateRecommendation,
   getRecommendationEvents,
   getRecommendationOrgSlug,
+  handoffRecommendations,
   getOrphanedTrackedRecommendations,
   recordAudit,
   recordOrgAudit,
@@ -33,7 +42,9 @@ export {
   type PersistResult,
   type RecommendationPatch,
   type RecommendationActor,
+  type HandoffOutcome,
   type OrphanedTrackedRec,
+  type RepoStandingConcern,
   type RepositoryHistory,
   type HistoryPoint,
   type ScanComparison,
@@ -64,8 +75,8 @@ export {
   type EraseOutcome,
 } from "@/lib/db/retention";
 export { getUsageSummary, type UsageSummary, type ProviderUsage, type UsageDay } from "@/lib/db/usage";
-export { recordBadgeImpression, getBadgeReach, type BadgeReach } from "@/lib/db/badge-analytics";
 export { recordQuotaEvent, getQuotaEventTotals, type QuotaEventTotals } from "@/lib/db/quota-events";
+export { transactPublicScanQuota, type QuotaWindowDecision } from "@/lib/db/scan-quota";
 // The adopted product KPIs, measured from the data already stored (see the module header).
 export {
   firstScanActivationRate,
@@ -326,6 +337,10 @@ export {
 } from "@/lib/db/improvement";
 
 export { getOrgNavCounts, getOrgPassportBlockers, type OrgNavCounts, type OrgPassportBlockers } from "@/lib/db/org-nav-counts";
+// One column, no scan join — the repo-name option list two tabs used to buy a full getOrgRollup for.
+export { listOrgRepoNames } from "@/lib/db/org-nav-counts";
+// Request-scoped getOrgRollup (React cache(), args normalized) — two panels on one page share one read.
+export { getOrgRollupShared } from "@/lib/db/org-rollup";
 export {
   decide,
   listDecisions,
@@ -395,3 +410,30 @@ export {
   setRepoLocalPath,
   type LocalPairing,
 } from "@/lib/db/org-local";
+export { countTenantOrgs } from "@/lib/db/tenants";
+// ── MOONSHOT wave 1 — barrel lines landed by the Director at integration ─────────────────────────
+export { getCompactionCoverage, digestPeriod, digestScans, type CompactedPoint, type ScanDigestRow } from "@/lib/db/scan-digest";
+export { getFoundationRollout, type FoundationRolloutRow } from "@/lib/db/org-foundation";
+export { ensureOrgApiToken, revokeOrgApiTokensByName } from "@/lib/db/org-api-tokens";
+export { recordOutcome, recordOutcomes, listOrgOutcomes, backfillOutcomes, type InterventionOutcomeRow, type OutcomeKind } from "@/lib/db/outcomes";
+export { recordUsageEvent, laneTotals, teamTotals, listUsageEvents, type UsageEventRow, type LaneUsage, type TeamUsage } from "@/lib/db/usage-events";
+export { upsertMirrorEntries, listRepoDeadEnds, countMirrored, type RepoMemoryEntryRow } from "@/lib/db/repo-memory";
+export { listOrgSkillUsageSamples, recordUsageSamples, purgeUsageSamples, type SkillUsageSampleRow } from "@/lib/db/org-skill-usage-samples";
+export { listSkillLessons, replaceSkillLessons, purgeSkillLessons, type SkillLessonRow } from "@/lib/db/org-skill-lessons";
+export { getSkillTrace, putSkillTrace, type SkillTraceRow } from "@/lib/db/org-skill-trace";
+export { createMemoryProposal, setMemoryProposalPr, type MemoryProposalRow } from "@/lib/db/org-registry-proposals";
+// ── MOONSHOT wave 2 — barrel lines landed by the Director at integration ─────────────────────────
+export * from "@/lib/db/practice-adoption";
+export * from "@/lib/db/house-pattern-versions";
+export { recordMemoryCitation, citationCountsFor, listMemoryCitations, type MemoryCitationRow } from "@/lib/db/org-memory-citations";
+export * from "@/lib/db/lane-brief-read";
+export * from "@/lib/db/lane-outcomes";
+export * from "@/lib/db/loop-lessons";
+export { getRedBaselines, getRepoBaselineLanes, type RepoRedBaseline } from "@/lib/db/loop-baselines";
+export { foldImprovementEvents, getImprovementEvents, recordLoopPr } from "@/lib/db/improvement-events";
+// ── MOONSHOT wave 3 — barrel lines landed by the Director at integration ─────────────────────────
+export * from "@/lib/db/scan-jobs";
+export * from "@/lib/db/control-observations";
+// ── MOONSHOT wave 4 — barrel lines landed by the Director at integration ─────────────────────────
+export { claimFollowups, releaseFollowups, reportAttempt, sweepExpiredLeases, heldFollowups, type FollowupClaimRow, type ClaimRefusal } from "@/lib/db/followup-claims";
+export { getForgeInstallation, upsertForgeInstallation, deleteForgeInstallation } from "@/lib/db/forge-installations";

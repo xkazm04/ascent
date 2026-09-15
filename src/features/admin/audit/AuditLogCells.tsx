@@ -6,92 +6,15 @@ import Link from "next/link";
 import type { AuditLogEntry } from "@/lib/db";
 import type { AuditVerdict } from "@/lib/db/audit-integrity";
 
-// One ordered list of the audit actions the app actually records, driving BOTH the badge metadata
-// and the filter dropdown — so they can't drift apart (the prior bug keyed on
-// `recommendation.status_changed`, which is never written; the real action is `recommendation.updated`,
-// and scan.regression / org.alerts.* / *.pr_opened / member.* / plan / retention were unrecognized).
-const ACTIONS: { value: string; label: string; cls: string }[] = [
-  { value: "scan.created", label: "Scan", cls: "border-accent/40 bg-accent/10 text-accent" },
-  { value: "recommendation.updated", label: "Rec update", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
-  { value: "scan.regression", label: "Regression", cls: "border-orange-500/40 bg-orange-500/10 text-orange-300" },
-  { value: "org.alerts.webhook", label: "Alert sink", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
-  { value: "org.alerts.thresholds", label: "Alert rules", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
-  { value: "practice.pr_opened", label: "Practice PR", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
-  { value: "playbook.pr_opened", label: "Playbook PR", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
-  // G6-06: `org.gate_policy`/`playbook.updated` are genuinely recorded (see the route files below) but
-  // were missing from this hand-maintained list, so they rendered as an unlabeled grey badge AND could
-  // not be selected in the Action filter. See AuditLogCells.actions.test.ts, which walks every
-  // recordAudit/recordOrgAudit call site in src/ and fails if a recorded action has no entry here — so
-  // the next new action can't silently fall off the same way.
-  { value: "org.gate_policy", label: "Gate policy", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
-  // W3 — the AI-stance module: draft/publish writes, per-repo acknowledgements, and the
-  // AI_POLICY.md draft PR (recorded via openArtifactDraftPr with this action).
-  { value: "org.ai_stance", label: "AI stance", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
-  { value: "org.ai_stance_ack", label: "Stance ack", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
-  { value: "ai_stance.pr_opened", label: "AI policy PR", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
-  { value: "playbook.updated", label: "Playbook updated", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
-  { value: "playbook.deleted", label: "Playbook deleted", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
-  { value: "org.member.role", label: "Member role", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
-  { value: "org.member.removed", label: "Member removed", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
-  { value: "org.member.invited", label: "Member invited", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
-  { value: "org.member.invite_accepted", label: "Invite accepted", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
-  { value: "org.plan", label: "Plan change", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
-  // A briefing share link is a per-grant capability: minting one is the act that lets a document
-  // leave the org, and opening one is the only record a stateless token could never give. Both are
-  // read affordances rather than mutations, hence the neutral sky/slate treatment rather than red.
-  { value: "briefing.share.minted", label: "Briefing shared", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
-  { value: "briefing.share.opened", label: "Briefing opened", cls: "border-slate-500/40 bg-slate-500/10 text-slate-300" },
-  // Revoking is the one act in this trio that TAKES a capability away, so it reads like the other
-  // revocations in this list (amber) rather than like its own siblings.
-  { value: "briefing.share.revoked", label: "Briefing link revoked", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
-  { value: "org.llm_provider.updated", label: "LLM provider updated", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
-  { value: "org.llm_provider.disabled", label: "LLM provider disabled", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
-  { value: "integrations.token.rotate", label: "Ingest token rotated", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
-  { value: "integrations.copilot.sync", label: "Copilot synced", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
-  { value: "org_api_token.created", label: "API token created", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
-  { value: "org_api_token.revoked", label: "API token revoked", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
-  { value: "org_skill.created", label: "Skill created", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
-  { value: "org_skill.updated", label: "Skill updated", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
-  { value: "org_skill.archived", label: "Skill archived", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
-  { value: "org_memory.created", label: "Memory created", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
-  { value: "org_memory.updated", label: "Memory updated", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
-  { value: "org_memory.archived", label: "Memory archived", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
-  { value: "org_memory.reflected", label: "Memory reflected", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
-  { value: "org_memory.decayed", label: "Memory decayed", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
-  { value: "org_decision.recorded", label: "Decision recorded", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
-  // Athena's action door. The ACCEPT is emerald because something was actually performed on the org's
-  // behalf — it is the one place a companion's suggestion turns into a write, and the trail is the
-  // reason that is safe to offer at all. The decline is slate: a considered "no" changed nothing.
-  { value: "athena_proposal.accepted", label: "Athena action accepted", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
-  { value: "athena_proposal.declined", label: "Athena action declined", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
-  { value: "passport.pr_opened", label: "Passport PR", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
-  { value: "passport.overrides_set", label: "Passport overrides", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
-  { value: "passport.declines_set", label: "Passport declines", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
-  { value: "foundation.pr_opened", label: "Foundation PR", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
-  { value: "issue.create", label: "Issue created", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
-  { value: "billing.autorecharge", label: "Auto-recharge", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
-  { value: "conformance.reported", label: "Conformance report", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
-  // W2 — an evidence pack leaving the building. Amber, not sky: this is a governance-relevant EGRESS
-  // (it can name individuals against unreviewed changes), so it should read as an event to notice in
-  // the trail rather than as routine reporting.
-  { value: "conformance.pack.export", label: "Evidence pack exported", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
-  { value: "data.erased", label: "Data erased", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
-  { value: "retention.purged", label: "Retention purge", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
-];
-
-const ACTION_META: Record<string, { label: string; cls: string }> = Object.fromEntries(
-  ACTIONS.map((a) => [a.value, { label: a.label, cls: a.cls }]),
-);
-
-export const ACTION_FILTERS = [
-  { value: "", label: "All actions" },
-  ...ACTIONS.map((a) => ({ value: a.value, label: a.label })),
-];
+// The action registry lives in `auditActions.ts` (extracted for the 200-LOC cap); re-exported here so
+// `AuditLogFilterBar` and the structural action test keep importing it from this module.
+export { ACTION_FILTERS } from "./auditActions";
+import { ACTION_META } from "./auditActions";
 
 export function ActionBadge({ action }: { action: string }) {
   const m = ACTION_META[action] ?? { label: action, cls: "border-slate-600 bg-slate-700/30 text-slate-300" };
   return (
-    <span className={`rounded border px-1.5 py-0.5 font-mono text-sm uppercase tracking-widest ${m.cls}`}>
+    <span className={`rounded border px-1.5 py-0.5 type-mono-sm uppercase tracking-widest ${m.cls}`}>
       {m.label}
     </span>
   );
@@ -121,12 +44,12 @@ const VERDICT_META: Record<Exclude<AuditVerdict, "no-secret">, { label: string; 
 
 /** Per-row integrity verdict badge. Renders nothing when the deployment has no signing secret. */
 export function IntegrityBadge({ verdict }: { verdict: AuditVerdict | undefined }) {
-  if (!verdict || verdict === "no-secret") return <span className="text-sm text-slate-600">—</span>;
+  if (!verdict || verdict === "no-secret") return <span className="type-body-sm text-slate-600">—</span>;
   const m = VERDICT_META[verdict];
   return (
     <span
       title={m.title}
-      className={`whitespace-nowrap rounded border px-1.5 py-0.5 font-mono text-sm uppercase tracking-widest ${m.cls}`}
+      className={`whitespace-nowrap rounded border px-1.5 py-0.5 type-mono-sm uppercase tracking-widest ${m.cls}`}
     >
       {m.label}
     </span>
@@ -140,19 +63,19 @@ export function Details({ entry }: { entry: AuditLogEntry }) {
     return (
       <div className="flex flex-wrap items-center gap-2">
         {s.repo && (
-          <span className="max-w-[16rem] truncate font-mono text-sm text-white" title={s.repo}>
+          <span className="max-w-[16rem] truncate type-mono-sm text-white" title={s.repo}>
             {s.repo}
           </span>
         )}
         {s.level && (
-          <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm text-slate-300">
+          <span className="rounded border border-slate-700 px-1.5 py-0.5 type-mono-sm text-slate-300">
             {s.level}
             {s.overall != null ? ` · ${s.overall}` : ""}
           </span>
         )}
-        {s.headSha && <span className="font-mono text-sm text-slate-500">{s.headSha.slice(0, 7)}</span>}
+        {s.headSha && <span className="type-mono-sm text-slate-500">{s.headSha.slice(0, 7)}</span>}
         {permalink && (
-          <Link href={permalink} className="font-mono text-sm text-accent hover:text-accent-soft">
+          <Link href={permalink} className="type-mono-sm text-accent hover:text-accent-soft">
             view report →
           </Link>
         )}
@@ -164,11 +87,11 @@ export function Details({ entry }: { entry: AuditLogEntry }) {
   const id = typeof entry.meta.id === "string" ? entry.meta.id : null;
   if (status) {
     return (
-      <span className="block max-w-[22rem] truncate font-mono text-sm text-slate-300" title={status}>
+      <span className="block max-w-[22rem] truncate type-mono-sm text-slate-300" title={status}>
         {id ? `${id.slice(0, 8)}… → ` : ""}
         <span className="text-white">{status}</span>
       </span>
     );
   }
-  return <span className="text-sm text-slate-600">—</span>;
+  return <span className="type-body-sm text-slate-600">—</span>;
 }

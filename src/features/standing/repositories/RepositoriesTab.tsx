@@ -11,12 +11,15 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { isPersonalOrg } from "@/lib/db";
+import { getFoundationRollout } from "@/lib/db/org-foundation";
 import { orgTabHref, DEFAULT_ORG_TAB } from "@/lib/org/orgTabs";
 import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
 import { FleetTabs } from "./FleetTabs";
 import { SegmentsSection } from "./SegmentsSection";
 import { RepositoriesLeaderboardPanel } from "./RepositoriesLeaderboardPanel";
 import { ContextHealthPanel } from "./context-health/ContextHealthPanel";
+import { FoundationRolloutPanel } from "./FoundationRolloutPanel";
+import { QueueDepthLine } from "./QueueDepthLine";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
@@ -49,16 +52,25 @@ export async function RepositoriesTab({
   return (
     <div className="stagger-children space-y-6">
       <FleetTabs slug={slug} active="repositories" />
+      {/* The cadence backlog as ONE number, above the table whose per-row "queued" tags were the only
+          way to see it (UAT `VICTOR-L1-07`). Suspended separately so a slow queue count never holds
+          the leaderboard back. */}
+      <Suspense fallback={<OrgTabGap minH="min-h-4" />}>
+        <QueueDepthLine slug={slug} />
+      </Suspense>
       {/* The leaderboard leads. It is the answer to the question the tab's own name asks ("which
           repos do I have, and where do they stand?"), so it must not be pushed below the fold by a
           derived lens — Context Health used to sit above it and did exactly that. */}
       <Suspense fallback={<OrgTabGap minH="min-h-[40rem]" />}>
         <RepositoriesLeaderboardPanel slug={slug} sp={sp} />
       </Suspense>
+      {/* Foundation rollout (moonshot #35): install `.ai/` across the fleet and provision report-back. */}
+      <FoundationRolloutPanel slug={slug} rows={await getFoundationRollout(slug)} />
       {/* Context Health (W4 — real): the quality-over-presence lens on the fleet's agent-context
-          layer. Fed by each scan's persisted contextHealthJson. */}
+          layer. Fed by each scan's persisted contextHealthJson. Takes `sp` so it resolves the SAME
+          ?stack= scope the leaderboard above does — and so both panels share one rollup read. */}
       <Suspense fallback={<OrgTabGap minH="min-h-[28rem]" />}>
-        <ContextHealthPanel slug={slug} />
+        <ContextHealthPanel slug={slug} sp={sp} />
       </Suspense>
     </div>
   );

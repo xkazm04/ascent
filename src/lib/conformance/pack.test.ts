@@ -18,6 +18,8 @@ const change = (over: Partial<AiChangeRecord> = {}): AiChangeRecord => ({
   approverLogin: "lead-one",
   approvedAt: "2026-06-02T00:00:00.000Z",
   reviewCount: 1,
+  source: "scan",
+  approvalObservedAt: null,
   ...over,
 });
 
@@ -40,11 +42,19 @@ const env = (over: Partial<RepoControlEnvironment> = {}): RepoControlEnvironment
   ...over,
 });
 
-const population = (changes: AiChangeRecord[], environments = [env()]): AiChangePopulation => ({
+const population = (
+  changes: AiChangeRecord[],
+  environments = [env()],
+  // MOONSHOT #1 — the as-of-merge map. Default empty: a population with no ledger coverage is the
+  // legacy case and must still build a pack, labelling every row `latest-scan`.
+  asOfByPr: AiChangePopulation["asOfByPr"] = {},
+): AiChangePopulation => ({
   changes,
   environments,
   observedFrom: changes[0]?.createdAt ?? null,
   observedTo: changes[changes.length - 1]?.createdAt ?? null,
+  asOfByPr,
+  asOfAttempted: changes.filter((c) => c.state === "MERGED").length,
 });
 
 const opts = {
@@ -265,5 +275,117 @@ describe("empty and edge populations", () => {
   it("renders a null control environment as absent, never as unprotected", () => {
     const p = buildConformancePack(population([change()], [env({ governance: null })]), opts);
     expect(p.sample.items[0]!.environment).toBeNull();
+  });
+});
+
+// ── MOONSHOT #1 — the as-of-merge environment ────────────────────────────────────────────────────
+
+describe("environmentAsOf", () => {
+  const ledger = {
+    "acme/web#1": {
+      source: "ledger" as const,
+      observedAt: "2026-06-01T12:00:00.000Z",
+      controls: { "branch-protection": { state: "pass", value: "true" }, "required-approvals": { state: "pass", value: "2" } },
+    },
+  };
+
+  it("uses the LEDGER when it covers the merge instant", () => {
+    const p = buildConformancePack(population([change()], [env()], ledger), opts);
+    expect(p.sample.items[0]!.environmentAsOf.source).toBe("ledger");
+    expect(p.sample.items[0]!.environmentAsOf.observedAt).toBe("2026-06-01T12:00:00.000Z");
+    expect(p.sample.items[0]!.environmentAsOf.controls["required-approvals"]).toEqual({ state: "pass", value: "2" });
+  });
+
+  it("falls back per row AND LABELS IT when the ledger has no observation at that instant", () => {
+    const p = buildConformancePack(population([change({ prNumber: 1 }), change({ prNumber: 2 })], [env()], ledger), opts);
+    const byPr = new Map(p.sample.items.map((i) => [i.prNumber, i]));
+    expect(byPr.get(1)!.environmentAsOf.source).toBe("ledger");
+    expect(byPr.get(2)!.environmentAsOf.source).toBe("latest-scan");
+    expect(byPr.get(2)!.environmentAsOf.observedAt).toBeNull();
+  });
+
+  it("the fallback speaks the ledger's vocabulary, so two rows are comparable", () => {
+    const p = buildConformancePack(population([change()], [env()]), opts);
+    const c = p.sample.items[0]!.environmentAsOf.controls;
+    expect(c["branch-protection"]).toEqual({ state: "pass", value: "true" });
+    expect(c["required-approvals"]).toEqual({ state: "pass", value: "1" });
+  });
+
+  it("an unreadable governance blob falls back to UNMEASURABLE, never to fail", () => {
+    const p = buildConformancePack(population([change()], [env({ governance: null })]), opts);
+    for (const v of Object.values(p.sample.items[0]!.environmentAsOf.controls)) {
+      expect(v).toEqual({ state: "unmeasurable", value: null });
+    }
+  });
+
+  it("counts the fallbacks in the coverage block and in a limitation line", () => {
+    const p = buildConformancePack(population([change({ prNumber: 1 }), change({ prNumber: 2 })], [env()], ledger), opts);
+    expect(p.environmentCoverage).toMatchObject({ mergedRows: 2, fromLedger: 1, fromLatestScan: 1 });
+    expect(p.limitations.some((l) => l.includes("1 of 2 merged rows"))).toBe(true);
+  });
+
+  it("says so plainly when NO row has ledger coverage", () => {
+    const p = buildConformancePack(population([change()], [env()]), opts);
+    expect(p.environmentCoverage.fromLedger).toBe(0);
+    expect(p.limitations.some((l) => l.startsWith("Control environment: NO row"))).toBe(true);
+  });
+
+  it("carries the as-of label and the evidence provenance into the CSV row", () => {
+    const csv = packSampleCsv(buildConformancePack(population([change()], [env()], ledger), opts));
+    expect(csv.split("\n")[0]).toContain("environment_as_of_source");
+    expect(csv).toContain("ledger");
+  });
+
+  // MC-B14 — the pack's central claim ("these were the settings in force when this merged") rested
+  // on ledger rows the artifact gave the reader no way to check. The root is what turns that from
+  // trust into a check they can run from an export.
+  it("quotes the ledger seal root, with the day it verifies through", () => {
+    const { manifest } = packFiles(
+      build([change()], {
+        ledgerSeal: {
+          throughDay: "2026-07-31",
+          root: "a".repeat(64),
+          daysSealed: 30,
+          daysVerified: 30,
+          chainOk: true,
+          unsealedDays: 1,
+        },
+      }),
+    );
+    expect(manifest).toContain("## Ledger integrity");
+    expect(manifest).toContain("2026-07-31");
+    expect(manifest).toContain("a".repeat(64));
+    expect(manifest).toContain("Chain intact | yes");
+  });
+
+  it("says plainly when there is NO root, rather than omitting the section", () => {
+    const { manifest } = packFiles(build([change()]));
+    expect(manifest).toContain("## Ledger integrity");
+    expect(manifest).toContain("no integrity root");
+  });
+
+  it("the manifest states coverage with its denominator", () => {
+    const files = packFiles(buildConformancePack(population([change()], [env()], ledger), opts));
+    expect(files.manifest).toContain("## Control-environment coverage");
+    expect(files.manifest).toContain("| Merged rows | 1 |");
+  });
+});
+
+describe("evidence provenance on a row", () => {
+  it("carries a webhook-sourced approval's OBSERVED time, distinct from the review's own", () => {
+    const p = buildConformancePack(
+      population([change({ source: "webhook", approvalObservedAt: "2026-06-02T00:00:05.000Z" })]),
+      opts,
+    );
+    expect(p.sample.items[0]!.evidenceSource).toBe("webhook");
+    expect(p.sample.items[0]!.approvalObservedAt).toBe("2026-06-02T00:00:05.000Z");
+    // The review's own submission time is untouched — the two are different facts.
+    expect(p.sample.items[0]!.approvedAt).toBe("2026-06-02T00:00:00.000Z");
+  });
+
+  it("a scan-sourced row has NO observed time — null is 'not observed live', not 'not approved'", () => {
+    const p = buildConformancePack(population([change()]), opts);
+    expect(p.sample.items[0]!.approvalObservedAt).toBeNull();
+    expect(p.sample.items[0]!.verdict).toBe("operated");
   });
 });

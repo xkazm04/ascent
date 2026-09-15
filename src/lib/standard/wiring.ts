@@ -7,6 +7,9 @@
 // Language-neutral: the gate only needs Node to run the in-repo doctor, so it works for any stack.
 
 import type { GeneratedFile } from "./types";
+// One Node major for every workflow Ascent generates - shared with the practice-artifact CI recipe
+// and asserted against this repo's own package.json engines, so the two cannot drift again.
+import { CI_NODE_VERSION } from "@/lib/practice-artifact";
 
 export function buildConformanceWiring(): GeneratedFile {
   // Trigger on pull_request (the merge gate) AND a weekly schedule (the CONTINUOUS half — G7-23).
@@ -45,13 +48,18 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${CI_NODE_VERSION}
       - name: .ai conformance gate
         run: node .ai/doctor.mjs
   # Scheduled/manual re-check: never fails the run (report-only), and self-reports to Ascent via
-  # doctor.mjs's own --json path when the two secrets below are set. Set ASCENT_CONFORMANCE_URL to
-  # your Ascent deployment's /api/report/conformance endpoint and ASCENT_CONFORMANCE_TOKEN to an
-  # org-scoped API token with the telemetry:write scope (Org Settings -> API tokens).
+  # doctor.mjs's own --json path when the two secrets below are set.
+  #
+  # EASIEST: don't set them by hand. Ascent provisions both, per repository, from the org dashboard's
+  # Repositories tab -> Foundation rollout -> "Provision report-back". It writes the URL and a
+  # scoped token as repository secrets and can revoke them from the same row.
+  # By hand instead: ASCENT_CONFORMANCE_URL is your Ascent deployment's /api/report/conformance
+  # endpoint, and ASCENT_CONFORMANCE_TOKEN an org-scoped API token with the telemetry:write scope
+  # (Org Settings -> API tokens).
   scheduled-report:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -61,7 +69,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${CI_NODE_VERSION}
       - name: .ai conformance report (continuous)
         env:
           ASCENT_CONFORMANCE_URL: \${{ secrets.ASCENT_CONFORMANCE_URL }}

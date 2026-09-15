@@ -38,18 +38,18 @@ export function PairingRow({ org, row, onChanged }: { org: string; row: PairingV
 
   const paired = row.localPath != null;
   const btn =
-    "focus-ring rounded-lg border border-divider px-3 py-1 font-mono text-xs text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50";
+    "focus-ring rounded-lg border border-divider px-3 py-1 type-caption text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50";
 
   return (
     <li className="border-t border-divider px-4 py-3 first:border-t-0">
       <div className="flex flex-wrap items-center gap-3">
-        <span className="min-w-48 font-mono text-sm text-slate-200">{row.fullName}</span>
+        <span className="min-w-48 type-mono-sm text-slate-200">{row.fullName}</span>
         {paired ? (
-          <span className="rounded-full border border-success/30 bg-success/10 px-2 py-0.5 font-mono text-[11px] uppercase tracking-widest text-success-soft">
+          <span className="rounded-full border border-success/30 bg-success/10 px-2 py-0.5 font-mono type-micro uppercase tracking-widest text-success-soft">
             paired
           </span>
         ) : (
-          <span className="rounded-full border border-divider px-2 py-0.5 font-mono text-[11px] uppercase tracking-widest text-slate-500">
+          <span className="rounded-full border border-divider px-2 py-0.5 font-mono type-micro uppercase tracking-widest text-slate-500">
             github only
           </span>
         )}
@@ -58,7 +58,7 @@ export function PairingRow({ org, row, onChanged }: { org: string; row: PairingV
           onChange={(e) => setPath(e.target.value)}
           placeholder="Absolute path on this server, e.g. C:\Users\you\code\repo"
           aria-label={`Local path for ${row.fullName}`}
-          className="focus-ring min-w-72 flex-1 rounded-lg border border-divider bg-ink px-3 py-1.5 font-mono text-xs text-slate-200 placeholder:text-slate-600"
+          className="focus-ring min-w-72 flex-1 rounded-lg border border-divider bg-ink px-3 py-1.5 type-caption text-slate-200 placeholder:text-slate-600"
         />
         <div className="flex items-center gap-2">
           <button type="button" disabled={busy !== null || !path.trim()} onClick={() => run("check")} className={btn}>
@@ -68,7 +68,7 @@ export function PairingRow({ org, row, onChanged }: { org: string; row: PairingV
             type="button"
             disabled={busy !== null || !path.trim()}
             onClick={() => run("pair")}
-            className="focus-ring rounded-lg bg-accent px-3 py-1 font-mono text-xs font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
+            className="focus-ring rounded-lg bg-accent px-3 py-1 type-caption font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
           >
             {busy === "pair" ? "Pairing…" : paired ? "Re-pair" : "Pair"}
           </button>
@@ -80,7 +80,7 @@ export function PairingRow({ org, row, onChanged }: { org: string; row: PairingV
         </div>
       </div>
       {(check || error) && (
-        <div className="mt-2 pl-1 font-mono text-xs">
+        <div className="mt-2 pl-1 type-caption">
           {error && <p className="text-danger">{error}</p>}
           {check?.ok && (
             <p className="text-slate-400">

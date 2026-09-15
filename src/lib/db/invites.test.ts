@@ -25,6 +25,7 @@ vi.mock("@/lib/db/members", async (orig) => {
   const actual = await orig<typeof import("@/lib/db/members")>();
   return {
     isOrgRole: actual.isOrgRole,
+    coerceStoredRole: actual.coerceStoredRole,
     roleAtLeast: actual.roleAtLeast,
     getMembershipRole: mockGetMembershipRole,
     setMembershipRole: mockSetMembershipRole,

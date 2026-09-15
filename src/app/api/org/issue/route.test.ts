@@ -1,7 +1,8 @@
 // Pins the issue-write tenant gate. /api/org/issue files a GitHub issue (a WRITE) into a customer
 // repo using the org installation token, so the load-bearing safety properties mirror
 // practices/apply: (a) a caller without org access is DENIED and NO token mint / write happens (the
-// cross-tenant write IDOR guard); (b) an unauthenticated session is 401'd before any write; (c) a
+// cross-tenant write IDOR guard) at the ADMIN bar this customer-repo write requires — the same bar
+// /api/report/passport/pr holds; (b) an unauthenticated session is 401'd before any write; (c) a
 // missing installation is 403'd; (d) the authorized happy path files exactly one issue, stamps the
 // requesting user into the body, and audit-logs it; (e) a 410 (issues disabled) AppApiError surfaces
 // as 410 with a human hint. GitHub-App / DB boundaries are mocked — no real issue.
@@ -27,7 +28,8 @@ vi.mock("@/lib/github/source", () => ({
 }));
 
 vi.mock("@/lib/github/issues", () => ({
-  createRepoIssue: vi.fn(async () => ({ number: 7, url: "https://github.com/acme/app/issues/7" })),
+  createRepoIssue: vi.fn(async () => ({ number: 7, url: "https://github.com/acme/app/issues/7", reused: false })),
+  passportBlockerMarker: (id: string) => `<!-- ascent:passport-blocker:${id} -->`,
 }));
 
 // Real AppApiError class (route catch does `instanceof AppApiError`), defined inside the factory.
@@ -58,21 +60,21 @@ vi.mock("@/lib/auth", () => ({
   isAuthConfigured: () => true,
 }));
 
-vi.mock("@/lib/authz", () => ({ requireOrgAccess: vi.fn(async () => null) }));
+vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn(async () => null) }));
 
 import { POST } from "./route";
 import { createRepoIssue } from "@/lib/github/issues";
 import { AppApiError, getInstallationToken } from "@/lib/github/app";
 import { getInstallationIdForOwner, recordAudit } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { requireOrgAccess } from "@/lib/authz";
+import { requireOrgRole } from "@/lib/authz";
 
 const mockCreate = vi.mocked(createRepoIssue);
 const mockToken = vi.mocked(getInstallationToken);
 const mockInstallId = vi.mocked(getInstallationIdForOwner);
 const mockRecordAudit = vi.mocked(recordAudit);
 const mockSession = vi.mocked(getSession);
-const mockRequireOrgAccess = vi.mocked(requireOrgAccess);
+const mockRequireOrgRole = vi.mocked(requireOrgRole);
 
 function run(body: Record<string, unknown>) {
   return POST(
@@ -86,16 +88,16 @@ function run(body: Record<string, unknown>) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockRequireOrgAccess.mockResolvedValue(null);
+  mockRequireOrgRole.mockResolvedValue(null);
   mockInstallId.mockResolvedValue("inst-1");
   mockToken.mockResolvedValue("installation-token");
   mockSession.mockResolvedValue({ login: "alice" } as never);
-  mockCreate.mockResolvedValue({ number: 7, url: "https://github.com/acme/app/issues/7" });
+  mockCreate.mockResolvedValue({ number: 7, url: "https://github.com/acme/app/issues/7", reused: false });
 });
 
 describe("POST /api/org/issue — tenant gate", () => {
   it("DENIES a caller without org access (403) and files NOTHING (no token mint / write / audit)", async () => {
-    mockRequireOrgAccess.mockResolvedValue(
+    mockRequireOrgRole.mockResolvedValue(
       Response.json({ error: "You don't have access to this organization." }, { status: 403 }) as never,
     );
 
@@ -105,7 +107,7 @@ describe("POST /api/org/issue — tenant gate", () => {
     expect(mockToken).not.toHaveBeenCalled();
     expect(mockCreate).not.toHaveBeenCalled();
     expect(mockRecordAudit).not.toHaveBeenCalled();
-    expect(mockRequireOrgAccess).toHaveBeenCalledWith("victim");
+    expect(mockRequireOrgRole).toHaveBeenCalledWith("victim", "admin");
   });
 
   it("denies an unauthenticated session (401) before any write", async () => {
@@ -130,7 +132,7 @@ describe("POST /api/org/issue — tenant gate", () => {
   it("returns 400 with no writes for a malformed repo coordinate or missing title", async () => {
     expect((await run({ repo: "not-a-repo", title: "x" })).status).toBe(400);
     expect((await run({ repo: "acme/app", title: "   " })).status).toBe(400);
-    expect(mockRequireOrgAccess).not.toHaveBeenCalled();
+    expect(mockRequireOrgRole).not.toHaveBeenCalled();
     expect(mockCreate).not.toHaveBeenCalled();
   });
 });
@@ -164,5 +166,74 @@ describe("POST /api/org/issue — authorized path", () => {
     expect(res.status).toBe(410);
     const json = await res.json();
     expect(String(json.error)).toMatch(/disabled/i);
+  });
+});
+
+// Direction 7 — the ADMIN bar. Writing into a customer repo on the org's installation token is the
+// same class of act as the passport PR writer, which requires admin; this route used to gate at
+// MEMBER (requireOrgAccess) while its own header comment claimed ownership. The gate is simulated
+// here by a role-aware fake of requireOrgRole, so the test pins the ROLE the route asks for rather
+// than merely that it calls something.
+const ROLE_RANK: Record<string, number> = { viewer: 1, member: 2, admin: 3, owner: 4 };
+function gateAs(role: string) {
+  mockRequireOrgRole.mockImplementation(async (_org: string, min) =>
+    ROLE_RANK[role]! >= ROLE_RANK[min]!
+      ? null
+      : (Response.json({ error: `This action requires the ${min} role.` }, { status: 403 }) as never),
+  );
+}
+
+describe("POST /api/org/issue — role bar", () => {
+  it("403s a MEMBER and writes nothing", async () => {
+    gateAs("member");
+
+    const res = await run({ repo: "acme/app", title: "x", body: "y" });
+
+    expect(res.status).toBe(403);
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockToken).not.toHaveBeenCalled();
+  });
+
+  it("lets an ADMIN through (200)", async () => {
+    gateAs("admin");
+
+    const res = await run({ repo: "acme/app", title: "x", body: "y" });
+
+    expect(res.status).toBe(200);
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("POST /api/org/issue — idempotency", () => {
+  it("passes a marker minted from findingId, not caller text, into the writer", async () => {
+    await run({ repo: "acme/app", title: "x", body: "y", findingId: "auto.self-verify-gaps" });
+
+    const [, , , issue] = mockCreate.mock.calls[0]!;
+    expect(issue.marker).toBe("<!-- ascent:passport-blocker:auto.self-verify-gaps -->");
+  });
+
+  it("REFUSES a findingId that could break out of the HTML comment (no marker, still files)", async () => {
+    await run({ repo: "acme/app", title: "x", body: "y", findingId: "evil --><script>x</script>" });
+
+    const [, , , issue] = mockCreate.mock.calls[0]!;
+    expect(issue.marker).toBeUndefined();
+  });
+
+  it("returns { reused: true } and records NO issue.create audit when the issue already exists", async () => {
+    mockCreate.mockResolvedValue({ number: 7, url: "https://github.com/acme/app/issues/7", reused: true });
+
+    const res = await run({ repo: "acme/app", title: "x", body: "y", findingId: "auto.self-verify-gaps" });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ reused: true, number: 7 });
+    expect(mockRecordAudit).not.toHaveBeenCalled();
+  });
+
+  it("files (and audits) with no findingId — the un-deduped caller keeps working", async () => {
+    const res = await run({ repo: "acme/app", title: "x", body: "y" });
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).reused).toBe(false);
+    expect(mockRecordAudit).toHaveBeenCalledTimes(1);
   });
 });

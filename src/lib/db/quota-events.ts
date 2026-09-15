@@ -44,7 +44,7 @@ export async function recordQuotaEvent(kind: QuotaEventKind, scope: string): Pro
 export interface QuotaEventTotals {
   /** Monthly (rolling 30-day) free-scan denials, by scope (anon / signed-in). */
   quotaDenies: { scope: string; count: number }[];
-  /** Per-minute rate-limit trips, by limiter name (badge, …). */
+  /** Per-minute rate-limit trips, by limiter name (gate, …). */
   rateLimitTrips: { scope: string; count: number }[];
   /** All counted events. */
   total: number;

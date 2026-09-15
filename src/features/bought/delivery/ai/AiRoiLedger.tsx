@@ -32,10 +32,10 @@ function Money({
   return (
     <div className="bg-ink p-4">
       <Kicker tone="muted">{label}</Kicker>
-      <div className="mt-1 font-mono text-2xl font-bold tabular-nums" style={{ color: locked ? "#475569" : color ?? "#e2e8f0" }}>
+      <div className="mt-1 type-figure font-bold" style={{ color: locked ? "#475569" : color ?? "#e2e8f0" }}>
         {locked ? "—" : value}
       </div>
-      {(locked || sub) && <div className="mt-0.5 font-mono text-xs text-slate-500">{locked ? "connect a provider" : sub}</div>}
+      {(locked || sub) && <div className="mt-0.5 type-caption text-slate-500">{locked ? "connect a provider" : sub}</div>}
     </div>
   );
 }
@@ -61,29 +61,29 @@ function LedgerRow({ r, noCostSource }: { r: AiRepoRoi; noCostSource: boolean })
   return (
     <tr className="text-slate-300">
       <td className="px-4 py-2">
-        <Link href={`/report/${r.fullName}`} className="focus-ring font-mono text-sm text-white transition hover:text-accent">
+        <Link href={`/report/${r.fullName}`} className="focus-ring type-mono-sm text-white transition hover:text-accent">
           {r.name}
         </Link>
       </td>
-      <td className="px-3 py-2 font-mono text-sm text-slate-400">{noCostSource ? sample : r.tool}</td>
-      <td className="px-3 py-2 text-right font-mono text-sm tabular-nums text-slate-400">{noCostSource ? sample : r.planned ? r.seats : "—"}</td>
-      <td className="px-3 py-2 text-right font-mono text-sm tabular-nums text-white">{noCostSource ? sample : r.monthlySpend > 0 ? fmtMoney(r.monthlySpend) : "—"}</td>
+      <td className="px-3 py-2 type-mono-sm text-slate-400">{noCostSource ? sample : r.tool}</td>
+      <td className="px-3 py-2 text-right type-mono-sm tabular-nums text-slate-400">{noCostSource ? sample : r.planned ? r.seats : "—"}</td>
+      <td className="px-3 py-2 text-right type-mono-sm tabular-nums text-white">{noCostSource ? sample : r.monthlySpend > 0 ? fmtMoney(r.monthlySpend) : "—"}</td>
       <td className="px-3 py-2">
         <div className="flex items-center justify-end gap-2">
           <Meter value={r.aiInvolvedRate} color={scoreHex(r.aiInvolvedRate)} className="w-16" size="sm" />
-          <span className="w-14 text-right font-mono text-sm tabular-nums text-slate-400">
+          <span className="w-14 text-right type-mono-sm tabular-nums text-slate-400">
             {r.aiPRs} <span className="text-slate-600">PR</span>
           </span>
         </div>
       </td>
-      <td className="px-3 py-2 text-center font-mono text-sm tabular-nums">
+      <td className="px-3 py-2 text-center type-mono-sm tabular-nums">
         {r.governedRate == null ? (
           <span className="text-slate-600" title="too few AI PRs to measure">—</span>
         ) : (
           <span style={{ color: scoreHex(r.governedRate) }}>{r.governedRate}%</span>
         )}
       </td>
-      <td className="px-3 py-2 text-right font-mono text-sm tabular-nums text-slate-200">
+      <td className="px-3 py-2 text-right type-mono-sm tabular-nums text-slate-200">
         {noCostSource ? sample : r.costPerAiPr == null ? <span className="text-slate-600">—</span> : `$${r.costPerAiPr.toLocaleString()}`}
       </td>
       <td className="px-3 py-2 text-right">
@@ -115,7 +115,7 @@ export function AiRoiLedger({ model, slug }: { model: AiDeliveryModel; slug: str
 
       {/* the takeaway — in noCostSource mode state only the real (git) facts + a connect prompt, never fake $. */}
       {noCostSource ? (
-        <p className="text-sm text-slate-400">
+        <p className="type-body-sm text-slate-400">
           AI reaches <span className="font-mono text-slate-200">{s.aiShareOfPRs}%</span> of merged PRs
           {s.governedAiShare != null && (
             <>
@@ -129,7 +129,7 @@ export function AiRoiLedger({ model, slug }: { model: AiDeliveryModel; slug: str
           .
         </p>
       ) : (
-        <p className="text-sm text-slate-300">{verdictLine(s)}</p>
+        <p className="type-body-sm text-slate-300">{verdictLine(s)}</p>
       )}
 
       {/* per-repo reconciliation ledger */}

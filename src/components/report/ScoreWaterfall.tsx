@@ -42,14 +42,14 @@ export function ScoreWaterfall({ report }: { report: ScanReport }) {
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
           <Kicker tone="accent">Why this score</Kicker>
-          <h2 className="mt-1 text-lg font-semibold text-white">Score waterfall</h2>
-          <p className="mt-1 text-base text-slate-400">
+          <h2 className="mt-1 type-lede font-semibold text-white">Score waterfall</h2>
+          <p className="mt-1 type-body text-slate-400">
             Every point attributed: each dimension contributes its{" "}
             <span className="text-slate-300">weight × score</span>, and the parts sum to your headline.
           </p>
         </div>
-        <span className="shrink-0 font-mono text-base tabular-nums text-slate-400">
-          = <span className="text-xl font-bold text-white">{overallScore}</span>
+        <span className="shrink-0 font-mono type-body tabular-nums text-slate-400">
+          = <span className="type-title font-bold text-white">{overallScore}</span>
           <span className="text-slate-400">/100</span>
         </span>
       </div>
@@ -84,7 +84,7 @@ export function ScoreWaterfall({ report }: { report: ScanReport }) {
       </ScoreBarTrack>
 
       {aggregated && (
-        <p className="mt-2 text-sm text-slate-500">
+        <p className="mt-2 type-body-sm text-slate-500">
           The grey sliver aggregates {aggregated.count} dimensions contributing under {fmtPts(MICRO_POINTS)} pts each.
           Each is itemized in full below.
         </p>
@@ -99,15 +99,15 @@ export function ScoreWaterfall({ report }: { report: ScanReport }) {
           const liftColor =
             lift === "up" ? "text-emerald-400" : lift === "down" ? "text-red-400" : "text-slate-400";
           return (
-            <li key={c.dimension} className="flex items-center gap-3 text-base">
+            <li key={c.dimension} className="flex items-center gap-3 type-body">
               <span aria-hidden className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: scoreHex(c.score) }} />
               <span className="w-20 shrink-0 truncate text-slate-300">{DIMENSION_SHORT[c.dimension]}</span>
-              <span className="flex-1 font-mono text-sm text-slate-400">
+              <span className="flex-1 type-mono-sm text-slate-400">
                 {c.score} × {Math.round(c.normalizedWeight * 100)}%
               </span>
               <span className="w-12 shrink-0 text-right font-mono tabular-nums text-slate-200">+{fmtPts(c.points)}</span>
               <span
-                className={`w-12 shrink-0 text-right font-mono text-sm tabular-nums ${liftColor}`}
+                className={`w-12 shrink-0 text-right type-mono-sm tabular-nums ${liftColor}`}
                 title="Lift vs your weighted-mean score: ▲ pulls the overall up, ▼ drags it down"
               >
                 {lift === "flat" ? "·" : `${lift === "up" ? "▲+" : "▼"}${fmtPts(Math.abs(c.signed))}`}

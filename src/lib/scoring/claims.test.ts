@@ -57,7 +57,7 @@ describe("the facet table — one authority", () => {
   });
 
   it("derives the prompt contract from the table, naming every facet and no vendor", () => {
-    const text = facetContract();
+    const text = facetContract("D4");
     for (const id of D4_FACET_IDS) expect(text).toContain(id);
     expect(text).not.toMatch(/coderabbit|greptile|copilot|sweep|dependabot|renovate/i);
   });
@@ -166,25 +166,25 @@ describe("applyVerifiedClaims — a trail is a trail OF something", () => {
   it("refuses an observed trail when no mechanism is evidenced anywhere", () => {
     // The first live r9 run: one tagged commit subject, in a repo with no review, no fix step and
     // no dispatch. A real quote, and still not evidence that automation ran.
-    const out = applyVerifiedClaims([v("observed")], []);
+    const out = applyVerifiedClaims([v("observed")], [], "D4");
     expect(out.points).toBe(0);
     expect(out.unsupported.map((u) => u.reason)).toEqual(["unsupported-trail"]);
   });
 
   it("awards the trail once the mechanism is evidenced by the detector", () => {
-    const out = applyVerifiedClaims([v("observed")], ["automated_review"]);
+    const out = applyVerifiedClaims([v("observed")], ["automated_review"], "D4");
     expect(out.points).toBe(facetPoints("observed"));
   });
 
   it("awards the trail when the mechanism arrives as a verified claim in the SAME assessment", () => {
     // Table order is dependency order: automated_review settles before observed is judged.
-    const out = applyVerifiedClaims([v("observed"), v("automated_review")], []);
+    const out = applyVerifiedClaims([v("observed"), v("automated_review")], [], "D4");
     expect(out.awarded.map((a) => a.facet)).toEqual(["automated_review", "observed"]);
     expect(out.points).toBe(facetPoints("automated_review") + facetPoints("observed"));
   });
 
   it("treats a claim on a detected facet as confirmation, not points", () => {
-    const out = applyVerifiedClaims([v("dependency_automation")], ["dependency_automation"]);
+    const out = applyVerifiedClaims([v("dependency_automation")], ["dependency_automation"], "D4");
     expect(out.points).toBe(0);
     expect(out.confirmed).toHaveLength(1);
   });

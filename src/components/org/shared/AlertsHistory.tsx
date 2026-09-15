@@ -54,19 +54,19 @@ export function AlertsHistory({ org }: { org: string }) {
 
   return (
     <details className="mb-3 border-b border-slate-800 pb-3" onToggle={(e) => e.currentTarget.open && void load()}>
-      <summary className="cursor-pointer font-mono text-sm uppercase tracking-widest text-slate-500 hover:text-slate-300">
+      <summary className="cursor-pointer type-mono-sm uppercase tracking-widest text-slate-500 hover:text-slate-300">
         Recent alerts
       </summary>
       {failed ? (
-        <p className="mt-2 font-mono text-xs text-slate-500">Couldn&apos;t load alert history.</p>
+        <p className="mt-2 type-caption text-slate-500">Couldn&apos;t load alert history.</p>
       ) : events === null ? (
-        <p className="mt-2 font-mono text-xs text-slate-500">Loading…</p>
+        <p className="mt-2 type-caption text-slate-500">Loading…</p>
       ) : events.length === 0 ? (
-        <p className="mt-2 font-mono text-xs text-slate-500">No alerts raised yet.</p>
+        <p className="mt-2 type-caption text-slate-500">No alerts raised yet.</p>
       ) : (
         <ul className="mt-2 max-h-48 space-y-1.5 overflow-y-auto pr-1">
           {events.map((e) => (
-            <li key={e.id} className="text-xs leading-snug">
+            <li key={e.id} className="type-note leading-snug">
               <span aria-hidden className="mr-1">{KIND_EMOJI[e.kind] ?? "•"}</span>
               <span className="text-slate-300">{e.title}</span>
               <span className="ml-1 font-mono text-slate-600">

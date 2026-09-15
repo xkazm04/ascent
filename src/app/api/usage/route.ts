@@ -3,6 +3,16 @@
 //   - default / format=json (no download): the UsageSummary as JSON
 //   - format=csv  -> per-day CSV, as a file download (finance reconciliation)
 //   - format=json + download: the summary as a pretty JSON file download
+//
+// EVERY date this route emits is UTC, and the body says so in `timezone`. The window is the
+// half-open `[windowSince, windowBefore)` echoed on the body — UTC-day-anchored, with the upper
+// bound at midnight UTC of TOMORROW, not "now" — and each `daily[].date` is a UTC calendar day
+// (`date_trunc('day', …)` server-side). `?days=` selects the window LENGTH; it does not shift the
+// day boundary to the caller's locale, so a consumer in UTC-8 reconciling against local-midnight
+// books must re-bucket rather than assume. The window is echoed rather than left to be rebuilt from
+// `days` and a local clock, and `effectiveSince` reports where the day series actually starts: a
+// window reaching back before the org's first scan is CLAMPED there instead of exporting rows of
+// zeros for days nobody was measuring.
 
 import { NextResponse } from "next/server";
 import { getUsageSummary, isDbConfigured, type UsageSummary } from "@/lib/db";
@@ -21,6 +31,42 @@ export const dynamic = "force-dynamic";
 function toCsv(summary: UsageSummary): string {
   const header = ["date", "billable", "free", "total"];
   const rows = summary.daily.map((d) => [d.date, d.billable, d.free, d.billable + d.free]);
+  return csvTable(header, rows);
+}
+
+/**
+ * The SHOWBACK export (`?view=showback`): one row per inference lane and one per code-owning team,
+ * with the `lane` and `team` columns a finance reader needs to allocate the bill.
+ *
+ * A SEPARATE view rather than columns bolted onto the per-day export, deliberately: the day series is
+ * a reconciliation artifact whose shape (`date,billable,free,total`) downstream sheets already key
+ * on, and a lane is not a property of a day's scan count. The same rule holds for the per-REPO spend
+ * the summary now carries (`byRepo[].estimatedCostUsd`): it rides the JSON body ADDITIVELY and enters
+ * neither CSV — a third `repo` scope block here would change a file shape, not add a column (G19).
+ * Both go through the shared `csvTable`, so
+ * the formula-injection guard and the quoting rules are the same ones every other export uses.
+ *
+ * `team` is OMITTED entirely for the public funnel: the shared anonymous org has no teams, and its
+ * summary is anonymously readable, so it must not carry an attribution column at all.
+ *
+ * `estimatedCostUsd` is EMPTY, never `0`, when a row could not be priced — `unpricedCalls` says how
+ * many calls that was. A zero in a finance export is a claim about money that was not spent.
+ */
+function toShowbackCsv(summary: UsageSummary, isPublic: boolean): string {
+  const header = isPublic
+    ? ["scope", "lane", "calls", "estimatedCostUsd", "unpricedCalls"]
+    : ["scope", "lane", "team", "calls", "estimatedCostUsd", "unpricedCalls"];
+  const money = (v: number | null) => (v == null ? "" : v.toFixed(6));
+  const rows: unknown[][] = summary.byLane.map((l) =>
+    isPublic
+      ? ["lane", l.lane, l.calls, money(l.estimatedCostUsd), l.unpricedCalls]
+      : ["lane", l.lane, "", l.calls, money(l.estimatedCostUsd), l.unpricedCalls],
+  );
+  if (!isPublic) {
+    for (const t of summary.byTeam) {
+      rows.push(["team", "", t.label, t.calls, money(t.estimatedCostUsd), ""]);
+    }
+  }
   return csvTable(header, rows);
 }
 
@@ -61,6 +107,16 @@ export async function GET(request: Request) {
     // Sanitize the caller-supplied slug before it reaches the Content-Disposition header (the public
     // org / auth-off path is never membership-checked). 64-char cap preserved from the prior inline copy.
     const fileOrg = safeFilenameSlug(org, "org", 64);
+    // The showback view rides the SAME auth, window and IDOR guard as everything else on this route —
+    // it is a different projection of the summary already computed, not a new surface.
+    if (searchParams.get("view") === "showback") {
+      return new NextResponse(toShowbackCsv(summary, orgLc === "public"), {
+        headers: {
+          "content-type": "text/csv; charset=utf-8",
+          "content-disposition": `attachment; filename="ascent-showback-${fileOrg}-${stamp}.csv"`,
+        },
+      });
+    }
     if (format === "csv") {
       return new NextResponse(toCsv(summary), {
         headers: {

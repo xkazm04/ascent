@@ -1,5 +1,18 @@
 // Org rollup: org-id resolution, per-repo watch/level state, and the org-rollup query that powers
 // the dashboard. All guarded by DATABASE_URL.
+//
+// WHAT THE WINDOW MEANS HERE — every reader in the org-*.ts family takes the same half-open
+// `[start, endExclusive)` bounds (`orgWindowBounds` in src/lib/org/period.ts), but they pick DIFFERENT
+// endpoints out of it, and that difference is deliberate:
+//   - getOrgRollup — "current" is each repo's LATEST SCAN AT-OR-BEFORE the upper bound, with NO lower
+//     bound (see the `scans: { where: upper … }` sub-select below). The rollup answers "where does the
+//     fleet stand as of the end of this period", so a repo last scanned before `start` still carries
+//     its most recent score into the fleet average. `start` bounds only the trend/baseline queries.
+//   - getOrgRepoHistories — EVERY scan inside the window, not an endpoint: it is a series, not a state.
+//   - getOrgMovers (org-insights.ts) / getOrgTeamRollup (org-teams.ts) — "now" is the latest scan
+//     INSIDE the window, because a move is a before/after MEASUREMENT and both ends must be real.
+// The visible consequence: a repo not scanned during the period counts in the rollup average and does
+// not appear in movers. The two are not expected to reconcile. (Pinned by src/lib/org/period.dialect.test.ts.)
 
 import { cache } from "react";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
@@ -7,10 +20,14 @@ import { forecastTrajectory, type Forecast } from "@/lib/maturity/forecast";
 import { levelForScore } from "@/lib/maturity/model";
 import { GroupedMean, dateRange, getOrgBySlug, normalizeOrgSlug, roundedMean, segmentScope, techGroupScope, upperBound } from "@/lib/db/org-shared";
 import { retentionCutoff } from "@/lib/plans";
+import { dayKeyInZone } from "@/lib/org/timezone";
 import { parseTechStackJson } from "@/lib/analyze/tech-extract";
 import { applyPassportOverrides, parsePassportJson, parsePassportOverrides } from "@/lib/analyze/passport";
 import { parseContextHealthJson } from "@/lib/analyze/context-health";
-import type { AppPassport, ContextHealth, PrStats, TechStack } from "@/lib/types";
+import { parseGuidanceGraphJson } from "@/lib/analyze/guidance-graph";
+import { parseManifestReadoutJson, type ManifestReadout } from "@/lib/standard/readout";
+import { parsePlatformSignals, unmeasurablePlatformDims } from "@/lib/analyze/platform-carry";
+import type { AppPassport, ContextHealth, GuidanceGraph, PrStats, TechStack } from "@/lib/types";
 
 /** Pull just the two branch-protection fields the fleet gate needs out of a persisted governance
  *  JSON blob. Returns undefined for a null/missing/malformed blob (no-token scan, parse error) so the
@@ -57,6 +74,30 @@ function parseProvenanceLite(raw: string | null | undefined): { aiGovernedRate: 
  *  the Delivery trend); we slice the last month HERE so this column reads as a 1-month figure without
  *  shrinking Delivery's longer trend. Existing scans get the 1-month view immediately — no re-scan. */
 const ACTIVITY_WEEKS = 4;
+
+/**
+ * The deterministic mock FLOOR — the placeholder score the scanner emits when it never called a
+ * model. Not a grade: averaging it into a figure presented as a measurement reports a measurement
+ * over a set that was partly never measured.
+ *
+ * The predicate lives HERE, at the producer, because that is where the exclusion has to happen for
+ * every consumer to inherit it. The cohort card's client-side twin (`isMockEngine` in
+ * `src/features/standing/overview/repoTrajectory.ts`) already held this rule for the numbers it
+ * derives itself; `src/lib/**` may not import from `src/features/**`, so the one line is restated
+ * rather than shared. Both read the same persisted `Scan.engineProvider`.
+ *
+ * EXPORTED (fleet-rollups-insights: aggregate honesty) so every sibling READER inherits the one
+ * predicate instead of restating it: `getOrgMovers` (org-insights.ts) and `getOrgTeamRollup`
+ * (org-teams.ts) both fold scores, and both used to fold the mock floor while this file refused it —
+ * so the same fleet reported a mock→live re-scan as a top gainer in Fix-first/the digest/the Exec
+ * Briefing while the badge above it excluded exactly that pair. One predicate, one meaning of "was
+ * this ever measured". It lives here rather than in org-shared.ts because this is the producer that
+ * defines the exclusion, and org-shared.ts carries no scoring semantics at all.
+ */
+const MOCK_ENGINE = "mock";
+export function isMockScore(engine: string | null | undefined): boolean {
+  return engine === MOCK_ENGINE;
+}
 
 /**
  * Project the repo-activity signals (weekly commits + PR volume + LoC changed) out of a scan's
@@ -147,6 +188,46 @@ export async function getRepoStates(orgSlug: string): Promise<Record<string, Rep
   return out;
 }
 
+/**
+ * Which passport identity fields this repo's OWNER asserted, rather than the scan observing them.
+ *
+ * Criticality, lifecycle and tested-rollback are things a scan cannot see: an owner states them
+ * through the overrides blob, and `applyPassportOverrides` merges them into the passport at read
+ * time. That merge is lossy on purpose — the passport is then a single coherent artifact — but it
+ * also erased the one thing the readiness-passports standard requires the artifact to say: who
+ * issued each claim. This summary carries only the FLAGS; the values stay on the passport.
+ *
+ * Booleans only, by design — the overrides blob keeps no timestamp for the identity fields (only a
+ * decline records `at`), so there is no date to report and none is invented. No `Date` crosses here.
+ */
+export interface PassportOwnerSet {
+  /** The owner asserted `identity.criticality`. */
+  criticality?: true;
+  /** The owner asserted `identity.lifecycle`. */
+  lifecycle?: true;
+  /** The owner asserted `productionReadiness.delivery.rollback` (which also lifts the prod score). */
+  rollback?: true;
+}
+
+/** Parse the passport and its overrides ONCE, returning the merged passport beside the provenance
+ *  summary — so the row does not parse the same blob twice to answer "who said this?". */
+function passportWithProvenance(
+  passportJson: string | null,
+  overridesJson: string | null,
+): { passport: AppPassport | null; ownerSet: PassportOwnerSet | null } {
+  const pp = parsePassportJson(passportJson);
+  if (!pp) return { passport: null, ownerSet: null };
+  const ov = parsePassportOverrides(overridesJson);
+  const ownerSet: PassportOwnerSet = {};
+  if (ov?.criticality) ownerSet.criticality = true;
+  if (ov?.lifecycle) ownerSet.lifecycle = true;
+  if (typeof ov?.rollback === "boolean") ownerSet.rollback = true;
+  return {
+    passport: applyPassportOverrides(pp, ov),
+    ownerSet: Object.keys(ownerSet).length ? ownerSet : null,
+  };
+}
+
 export interface OrgRepoRow {
   fullName: string;
   owner: string;
@@ -161,10 +242,34 @@ export interface OrgRepoRow {
   /** App Readiness Passport cached from the latest scan — null until first scan / if absent. Drives the
    *  portfolio passports view (the two readiness axes + named stack). */
   passport: AppPassport | null;
+  /** P4 provenance for the passport above: which identity fields the OWNER asserted rather than the
+   *  scan observing them. Null when this repo has no overrides — additive and optional, so every
+   *  existing reader of the row is unaffected. */
+  passportOwnerSet?: PassportOwnerSet | null;
   /** Context Health (W4) cached from the latest scan — guidance-file freshness/quality/drift, the
    *  Half-life panel's per-repo input. Null when the latest scan PREDATES the signal (or on parse
    *  failure), which the UI must render as "not assessed by this scan — re-scan", never as absent. */
   contextHealth: ContextHealth | null;
+  /** What the latest scan read in this repo's OWN `.ai/manifest.yaml` (#13) — declared capabilities,
+   *  the doctor's proven `verified` flags, and where each control is placed. Null when the latest scan
+   *  predates the signal or the blob is unparseable, which the UI must render as "not assessed —
+   *  re-scan" and exclude from every denominator, never as a repo that declares nothing. */
+  manifest: ManifestReadout | null;
+  /** The guidance arbiter's verdict cached from the latest scan (#15, rubric r11) — canonical source,
+   *  projection states and contradictions. Null when the latest scan PREDATES r11 or the blob is
+   *  unparseable: such a repo is excluded from the "repos with contradicting agent guidance"
+   *  denominator and the label says so, because 0-of-unknown is not a measurement. */
+  guidanceGraph: GuidanceGraph | null;
+  /** Two-speed freshness (moonshot #10): when this repo was last SCORED (a paid LLM scan) and when
+   *  its CONTROLS were last observed (a free probe). They move independently by design — the point of
+   *  the two-speed fleet is that posture can be current while a score is a week old. Every field is
+   *  null when the thing has never happened; the UI renders "—", never a fabricated "now". */
+  freshness: {
+    scoredAt: string | null;
+    controlsAt: string | null;
+    /** An unsettled `ScanJob` exists for this repo — a rescan is owed, not lost. */
+    queued: boolean;
+  };
   scanSchedule: string;
   lastScanAt: string | null;
   /** Outcome of the most recent scan attempt — "ok" | "error" | null (never attempted). */
@@ -197,6 +302,14 @@ export interface OrgRepoRow {
      *  a real graded scan); anything else is a live model. Surfaced so the UI can flag mock provenance. */
     engine: string;
     dims: { dimId: string; score: number; signalScore?: number; llmScore?: number }[];
+    /**
+     * Dimensions this scan could NOT measure — D2/D3/D4 on a worktree/local scan that had no
+     * GitHub-side fold to carry (src/lib/analyze/platform-carry.ts). Empty on every scan that could
+     * see GitHub, and empty on a legacy row, where the question was never asked: unknown provenance
+     * is not evidence that a dimension was unmeasurable, and reading it as such would quietly drop
+     * three dimensions out of every historical green verdict.
+     */
+    unmeasurableDims?: string[];
     /**
      * This scan scored NOTHING — no dimension row was persisted, so `overall`/`level` are the
      * renormalized floor (0 / L1) rather than a measurement. Carried because the FLEET path scores
@@ -249,9 +362,28 @@ export interface OrgRollup {
   org: string;
   repoCount: number;
   scannedCount: number;
-  avgOverall: number;
-  avgAdoption: number;
-  avgRigor: number;
+  /**
+   * Mean of the latest overall score across the LIVE-SCORED repos — mock placeholders excluded (see
+   * {@link isMockScore}). `realScoredCount` is its denominator and must be rendered beside it.
+   *
+   * **Null when that denominator is 0** — an org with no repo, no scan, or nothing but mock floors.
+   * This used to be `0` with the docstring "a division guard (0), NOT a grade, and every renderer
+   * must land on its no-score path instead of printing it": a rule stated in prose, enforced nowhere,
+   * and re-derived by each renderer from a DIFFERENT field (`realScoredCount === 0`). Renderers that
+   * skipped the re-derivation printed alarm-red 0s for un-scanned fleets. The absence is in the type
+   * now, so the no-score path is the only path the compiler will let a consumer take.
+   */
+  avgOverall: number | null;
+  /** Same exclusion, same denominator and the same null contract as {@link OrgRollup.avgOverall}. */
+  avgAdoption: number | null;
+  /** Same exclusion, same denominator and the same null contract as {@link OrgRollup.avgOverall}. */
+  avgRigor: number | null;
+  /** Scanned repos carrying a real graded score — the denominator behind the three averages above
+   *  and the cohort behind `deltas`/`movement`. A count travels with its predicate. */
+  realScoredCount: number;
+  /** Scanned repos whose latest score is the deterministic mock floor, EXCLUDED from every average
+   *  and delta above. Nonzero obliges the surface to disclose it ("N mock excluded"). */
+  mockCount: number;
   postureCounts: Record<string, number>;
   dimAverages: { dimId: string; avg: number }[];
   repos: OrgRepoRow[];
@@ -289,6 +421,23 @@ export interface RepoScoreSnap {
   overall: number;
   adoption: number;
   rigor: number;
+}
+
+/**
+ * The three headline means of a snapshot set — **null for an empty set**, all three together.
+ *
+ * The three move as one because they share a population: whenever one of them does not exist neither
+ * do the others, and every consumer here wants all three or none (a baseline, a movement delta). The
+ * `null` is the empty-cohort guard the call sites already had, relocated into the value so it also
+ * NARROWS: `if (!snapMeans(xs)) return …` proves to the type system what `if (!xs.length) return …`
+ * only asserted, which is why the six subtractions in {@link computeCohortMovement} no longer need a
+ * `!` apiece. See {@link roundedMean} for why the mean of nothing is not 0.
+ */
+function snapMeans(xs: readonly RepoScoreSnap[]): { overall: number; adoption: number; rigor: number } | null {
+  const overall = roundedMean(xs.map((s) => s.overall));
+  const adoption = roundedMean(xs.map((s) => s.adoption));
+  const rigor = roundedMean(xs.map((s) => s.rigor));
+  return overall === null || adoption === null || rigor === null ? null : { overall, adoption, rigor };
 }
 
 /**
@@ -331,12 +480,16 @@ export function computeCohortMovement(
   const before = baseline.filter((b) => currentIds.has(b.repoId));
   const beforeIds = new Set(before.map((b) => b.repoId));
   const now = current.filter((c) => beforeIds.has(c.repoId));
-  if (!before.length || !now.length) return null;
-  const avg = roundedMean;
+  // `!before.length || !now.length` ⇔ either side has no headline means. Same guard, written through
+  // {@link snapMeans} so the six subtractions below are narrowed by it: a delta needs a number on
+  // BOTH sides, and `mean − null` is not a movement of `mean` points, it is not a movement at all.
+  const nowAvg = snapMeans(now);
+  const beforeAvg = snapMeans(before);
+  if (!nowAvg || !beforeAvg) return null;
   return {
-    overall: avg(now.map((c) => c.overall)) - avg(before.map((b) => b.overall)),
-    adoption: avg(now.map((c) => c.adoption)) - avg(before.map((b) => b.adoption)),
-    rigor: avg(now.map((c) => c.rigor)) - avg(before.map((b) => b.rigor)),
+    overall: nowAvg.overall - beforeAvg.overall,
+    adoption: nowAvg.adoption - beforeAvg.adoption,
+    rigor: nowAvg.rigor - beforeAvg.rigor,
     // The intersection is already computed above, so the qualifiers are free — the reason they were
     // missing was never cost. `now.length === before.length` by construction (both are the same repo
     // set, one snapshot each side), so either is the cohort size.
@@ -405,18 +558,32 @@ export function computeDimDeltas(
 }
 
 /**
- * The org maturity TREND buckets scans by LOCAL calendar day — the SAME zone the window boundaries use
- * (window.ts `startOfDay` snaps `start`/`end` to LOCAL midnight). Bucketing by `toISOString().slice(0,10)`
- * (a UTC day) meant a scan was FILTERED by one calendar and LABELLED by another whenever the server runs
- * off UTC: a late-evening local scan (e.g. 2026-05-01 01:00 local = 2026-04-30 23:00Z) landed in the
- * previous UTC day's bucket, splitting one local day across two trend points and skewing the
- * forecastTrajectory ETA. One zone shared with the window. Mirrors window.ts `toDayInput`. (fleet-rollups-insights #2)
+ * The org maturity TREND buckets scans by the CANONICAL ORG ZONE's calendar day — the same zone the
+ * window boundaries are computed in. `dayKeyInZone` is that zone's one day-key derivation; this
+ * function exists only to name the intent at the call site.
+ *
+ * IT USED TO READ THE SERVER'S LOCAL ZONE (`getFullYear`/`getMonth`/`getDate`), with a comment
+ * asserting that was "the SAME zone the window boundaries use (window.ts `startOfDay` snaps to LOCAL
+ * midnight)". That was true when it was written and stopped being true when window.ts migrated to the
+ * canonical zone (`src/lib/org/timezone.ts`, UTC by default, `ASCENT_ORG_TZ`- and per-org-column
+ * overridable) — whose own header now says boundaries are "never in the server's local zone, which was
+ * only ever whatever the host happened to be set to". So the trend was FILTERED by one calendar and
+ * LABELLED by another: precisely the defect the old comment describes itself as having fixed,
+ * reintroduced from the other side, with the comment left behind claiming the two agree.
+ *
+ * Measured 2026-09-04 over three sample scan instants: 2 of 3 mislabelled under `ASCENT_ORG_TZ=
+ * America/New_York` on a UTC host, 1 of 3 under a non-UTC host with the default UTC org zone. Both are
+ * supported configurations; a UTC host with the UTC default was the only one where it agreed, which is
+ * why nothing caught it. The consequences are a day's scans split across two trend points, a
+ * `forecastTrajectory` ETA computed off the split series, and trend keys that no longer join to
+ * `daysBetweenDayKeys` arithmetic done in the canonical zone.
+ *
+ * `org-signals.ts` migrated its own week grid to this zone with an essay about why ("the moment an org
+ * sets a non-UTC zone the trend grid kept UTC weeks while the window moved"); this was its unmigrated
+ * sibling in the same family. (fleet-rollups-insights #2, re-fixed)
  */
-function localDayKey(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+function orgDayKey(d: Date): string {
+  return dayKeyInZone(d);
 }
 
 export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentId?: string | null, techGroupId?: string | null): Promise<OrgRollup | null> {
@@ -433,16 +600,61 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
   // Segment AND tech-group filters compose — both narrow the same repo set (Feature 3b).
   const seg = { ...segmentScope(segmentId), ...techGroupScope(techGroupId) };
 
+  // EXPLICIT `select`, not `include`, at BOTH levels (fleet-rollups-insights: cardinality-and-cost).
+  //
+  // `include` ships every scalar of every row. That is ~36 Repository columns and ~39 Scan columns
+  // while the mapper below reads 18 and 11 — and the nested `take: 1` does NOT bound the transfer:
+  // the Prisma 6.19 client query compiler applies a nested take AFTER the fetch, so the emitted
+  // `SELECT … FROM "Scan" WHERE "repoId" IN (…)` carries no LIMIT and the org's ENTIRE scan history
+  // crosses the wire so one row per repo can be kept (measured and documented at length in
+  // org-insights.ts' getOrgBacklog header). Every unread column is therefore paid for once per scan
+  // ever taken, not once per repo — including the big JSON blobs (`strengths`, `risks`,
+  // `discrepancies`, `aiUsageJson`, `warningsJson`, `scoreIntegrityJson`, `practiceShape`, and the
+  // Scan-side techStack/passport/contextHealth/manifest/guidanceGraph duplicates the mapper reads off
+  // REPOSITORY instead). Naming the columns is the whole fix; the shape the mapper sees is identical.
+  //
+  // Adding a field to OrgRepoRow means adding it HERE too — that is the intended friction.
   const repos = await prisma.repository.findMany({
     where: { orgId: org.id, ...seg, OR: [{ watched: true }, { scans: { some: {} } }] },
-    include: {
+    select: {
+      id: true,
+      fullName: true,
+      owner: true,
+      name: true,
+      isPrivate: true,
+      watched: true,
+      primaryLanguage: true,
+      // The five cached-from-latest-scan blobs the row parsers read — all off Repository, so no scan
+      // join is involved and the Scan-side copies of the same names are never fetched.
+      techStackJson: true,
+      passportJson: true,
+      passportOverridesJson: true,
+      contextHealthJson: true,
+      manifestJson: true,
+      guidanceGraphJson: true,
+      scanSchedule: true,
+      lastScanAt: true,
+      lastScanStatus: true,
+      lastScanError: true,
+      aiConformance: true,
       scans: {
         // Bound the "current" snapshot to the window end (almost always now) so a custom range
         // that ends in the past reflects the fleet as it stood then.
         where: upper ? { scannedAt: upper } : undefined,
         orderBy: { scannedAt: "desc" },
         take: 1,
-        include: {
+        select: {
+          level: true,
+          overallScore: true,
+          adoptionScore: true,
+          rigorScore: true,
+          posture: true,
+          scannedAt: true,
+          engineProvider: true,
+          governance: true,
+          prStats: true,
+          commitActivity: true,
+          platformSignalsJson: true,
           // signalScore + llmScore ride along so a consumer can tell whether the guardband BOUND on a
           // dimension (|llm - signal| > band) — the one persisted trace of the model having disagreed
           // with a detector more strongly than the engine let it act on. Two ints per dimension row.
@@ -452,6 +664,32 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
     },
     orderBy: { fullName: "asc" },
   });
+
+  // Two-speed freshness (moonshot #10), two cheap fleet-wide reads rather than a per-row query:
+  // the newest control observation per repo, and which repos have unsettled queue rows. Both degrade
+  // to "nothing known" on failure — an empty map renders as "—", which is the honest answer, and is
+  // also what an org that has never been probed genuinely looks like.
+  const controlsByRepo = new Map<string, string>();
+  const queuedRepos = new Set<string>();
+  try {
+    const grouped = await prisma.controlObservation.groupBy({
+      by: ["repoFullName"],
+      where: { orgId: org.id },
+      _max: { observedAt: true },
+    });
+    for (const g of grouped) if (g._max.observedAt) controlsByRepo.set(g.repoFullName, g._max.observedAt.toISOString());
+  } catch {
+    // No observations table access / no rows — leave the map empty.
+  }
+  try {
+    const pending = (await prisma.scanJob.findMany({
+      where: { orgId: org.id, state: { in: ["queued", "claimed"] } },
+      select: { repoFullName: true },
+    })) as { repoFullName: string }[];
+    for (const p of pending) queuedRepos.add(p.repoFullName);
+  } catch {
+    // Same: an unreadable queue means "we don't know of any queued work", not "there is none".
+  }
 
   const rows: OrgRepoRow[] = repos.map((r) => {
     const s = r.scans[0];
@@ -463,6 +701,7 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
     // W2 provenance signal for the fleet gate — parsed from the SAME persisted prStats blob the
     // activity columns read, so it costs no extra query and no extra parse pass of its own.
     const prov = parseProvenanceLite(s?.prStats);
+    const overrides = passportWithProvenance(r.passportJson, r.passportOverridesJson);
     return {
       fullName: r.fullName,
       owner: r.owner,
@@ -471,11 +710,23 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
       watched: r.watched,
       primaryLanguage: r.primaryLanguage ?? null,
       techStack: parseTechStackJson(r.techStackJson),
-      passport: (() => {
-        const pp = parsePassportJson(r.passportJson);
-        return pp ? applyPassportOverrides(pp, parsePassportOverrides(r.passportOverridesJson)) : null;
-      })(),
+      passport: overrides.passport,
+      // P4 PROVENANCE. `applyPassportOverrides` folds the owner's asserted criticality / lifecycle /
+      // rollback INTO the passport and then the parsed blob is gone, so every surface downstream
+      // renders an asserted "GA, mission-critical" exactly like an observed one. Declines already
+      // carry their own provenance (`at`, re-confirmation); the identity overrides carried none
+      // outside the edit form. This is the minimal summary that restores it — WHICH fields the owner
+      // set, nothing about their values, which the passport already holds. Null when the repo has no
+      // overrides at all, so a repo nobody has touched is unchanged.
+      passportOwnerSet: overrides.ownerSet,
       contextHealth: parseContextHealthJson(r.contextHealthJson),
+      manifest: parseManifestReadoutJson(r.manifestJson),
+      guidanceGraph: parseGuidanceGraphJson(r.guidanceGraphJson),
+      freshness: {
+        scoredAt: s ? s.scannedAt.toISOString() : (r.lastScanAt?.toISOString() ?? null),
+        controlsAt: controlsByRepo.get(r.fullName) ?? null,
+        queued: queuedRepos.has(r.fullName),
+      },
       scanSchedule: r.scanSchedule,
       lastScanAt: r.lastScanAt ? r.lastScanAt.toISOString() : null,
       lastScanStatus: r.lastScanStatus,
@@ -492,6 +743,7 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
             scannedAt: s.scannedAt.toISOString(),
             engine: s.engineProvider,
             dims: s.dimensions,
+            unmeasurableDims: unmeasurablePlatformDims(parsePlatformSignals(s.platformSignalsJson)),
             // See `incomplete` on OrgRepoRow["latest"]: no dimension row means nothing was scored,
             // which is the same predicate the engine and the per-repo gate use.
             incomplete: s.dimensions.length === 0,
@@ -505,12 +757,21 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
   });
 
   const scanned = rows.filter((r) => r.latest);
+  // The honest denominator for every AVERAGE below. `scanned` still counts the whole set — a count of
+  // repos with a scan is a count, and stays one; only the figures presented as MEASUREMENTS narrow.
+  const realScored = scanned.filter((r) => !isMockScore(r.latest!.engine));
+  const mockCount = scanned.length - realScored.length;
   const avg = roundedMean;
   const postureCounts: Record<string, number> = {};
   for (const r of scanned) postureCounts[r.latest!.posture] = (postureCounts[r.latest!.posture] ?? 0) + 1;
 
+  // Per-dimension fleet averages narrow to `realScored` for the SAME reason the three headline
+  // averages do: a dimension average is presented as a measurement, and the mock floor was never
+  // measured. Iterating `scanned` here meant the badge's overall excluded the placeholder while the
+  // dimension bars drawn under it folded it in — two numbers on one card, disagreeing by the weight
+  // of the floor. `realScoredCount` is the stated denominator for these too.
   const dimSum = new GroupedMean();
-  for (const r of scanned) for (const d of r.latest!.dims) dimSum.add(d.dimId, d.score);
+  for (const r of realScored) for (const d of r.latest!.dims) dimSum.add(d.dimId, d.score);
   const dimAverages = dimSum
     .keys()
     .sort()
@@ -526,14 +787,20 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
     where: {
       repo: { orgId: org.id, ...seg },
       ...dateRange(trendStart, window),
+      // Mock placeholders are excluded from the LINE for the same reason they are excluded from the
+      // badge drawn above it (see isMockScore). Without this the two disagreed structurally: the
+      // headline average refused the deterministic floor while the trend it sits on folded it in, and
+      // `forecastTrajectory` below then fit the promotion ETA over that mixed series — an ETA partly
+      // extrapolated from scans that were never scored.
+      engineProvider: { not: MOCK_ENGINE },
     },
     select: { scannedAt: true, overallScore: true },
     orderBy: { scannedAt: "asc" },
   });
   const byDay = new GroupedMean();
-  // LOCAL calendar day (localDayKey) — the same zone the window snaps to — so different-cadence repos
-  // bucket into the SAME day instead of splitting across a UTC midnight (bug+ui scan timezone fix).
-  for (const s of allScans) byDay.add(localDayKey(s.scannedAt), s.overallScore);
+  // CANONICAL-ZONE calendar day (orgDayKey) — the same zone the window snaps to — so different-cadence
+  // repos bucket into the SAME day instead of splitting across a midnight the filter does not share.
+  for (const s of allScans) byDay.add(orgDayKey(s.scannedAt), s.overallScore);
   const trend = byDay
     .keys()
     .sort()
@@ -542,9 +809,13 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
   // Project where the org maturity trend is heading from its per-day history.
   const forecast = forecastTrajectory(trend.map((t) => ({ date: t.date, value: t.avg })));
 
-  const avgOverall = avg(scanned.map((r) => r.latest!.overall));
-  const avgAdoption = avg(scanned.map((r) => r.latest!.adoption));
-  const avgRigor = avg(scanned.map((r) => r.latest!.rigor));
+  // Averaged over the live-scored repos ONLY, matching the cohort card's `avgRealScore` — the two
+  // headline numbers in the same scroll used to disagree by the whole weight of the mock floor, and
+  // the badge was the one without a stated basis. `realScoredCount`/`mockCount` ride out with them so
+  // the badge can say what it excluded.
+  const avgOverall = avg(realScored.map((r) => r.latest!.overall));
+  const avgAdoption = avg(realScored.map((r) => r.latest!.adoption));
+  const avgRigor = avg(realScored.map((r) => r.latest!.rigor));
 
   // Baseline = the fleet as it stood at the window start: latest scan per repo at-or-before `start`.
   // Powers the per-tile period delta and the period-in-review banner. Deltas are cohort-matched
@@ -572,41 +843,57 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
       // thousands of rows for an org scanned daily for a year+). Mirrors the fix getOrgMovers already
       // applies to its baseline query (org-insights.ts). (fleet-rollups-insights #1)
       where: { repo: { orgId: org.id, ...seg }, scannedAt: { lt: effStart } },
-      select: { id: true, repoId: true, overallScore: true, adoptionScore: true, rigorScore: true },
+      // engineProvider rides along so a mock placeholder on the BASELINE side is excluded from the
+      // period delta the same way it is on the current side — otherwise a mock→live re-scan would
+      // still read as fleet movement on the badge while the cohort card correctly refuses it.
+      select: { id: true, repoId: true, overallScore: true, adoptionScore: true, rigorScore: true, engineProvider: true },
       orderBy: { scannedAt: "desc" },
       distinct: ["repoId"],
     });
     // Defensive first-per-repo pick over the already-deduped rows, mirroring getOrgMovers: keeps the
     // baseline correct as one row per repo even if a driver ever under-honors `distinct`.
     const seen = new Set<string>();
-    const latestPerRepo: typeof priorScans = [];
+    const deduped: typeof priorScans = [];
     for (const s of priorScans) {
       if (seen.has(s.repoId)) continue;
       seen.add(s.repoId);
-      latestPerRepo.push(s);
+      deduped.push(s);
     }
-    if (latestPerRepo.length) {
+    // Mock placeholders drop out of the baseline cohort, exactly as they drop out of the current one
+    // below. We do NOT reach further back for an older live scan in their place: that would move the
+    // baseline INSTANT the `asOf` label claims, trading one silent inaccuracy for another.
+    const latestPerRepo = deduped.filter((s) => !isMockScore(s.engineProvider));
+    // The baseline snapshot rows the block below needs twice (its own averages, and the cohort
+    // movement's `before` side) — mapped once so the two cannot describe different populations.
+    const baselineSnaps: RepoScoreSnap[] = latestPerRepo.map((s) => ({
+      repoId: s.repoId,
+      overall: s.overallScore,
+      adoption: s.adoptionScore,
+      rigor: s.rigorScore,
+    }));
+    // `latestPerRepo.length` ⇔ `baselineAvg !== null`: same guard, but this one narrows, so the three
+    // baseline averages are plain numbers and `OrgRollup["baseline"]` keeps its non-null contract. A
+    // baseline whose averages don't exist is not a baseline — it is the `null` this already documents.
+    const baselineAvg = snapMeans(baselineSnaps);
+    if (baselineAvg) {
       baseline = {
         // asOf reflects the EFFECTIVE (retention-clamped) baseline instant, so a plan-limited
         // comparison is honestly labeled rather than claiming the full window depth.
         asOf: effStart.toISOString(),
         repos: latestPerRepo.length,
-        avgOverall: avg(latestPerRepo.map((s) => s.overallScore)),
-        avgAdoption: avg(latestPerRepo.map((s) => s.adoptionScore)),
-        avgRigor: avg(latestPerRepo.map((s) => s.rigorScore)),
+        avgOverall: baselineAvg.overall,
+        avgAdoption: baselineAvg.adoption,
+        avgRigor: baselineAvg.rigor,
       };
       const currentSnaps: RepoScoreSnap[] = repos
-        .filter((r) => r.scans[0])
+        .filter((r) => r.scans[0] && !isMockScore(r.scans[0]!.engineProvider))
         .map((r) => ({
           repoId: r.id,
           overall: r.scans[0]!.overallScore,
           adoption: r.scans[0]!.adoptionScore,
           rigor: r.scans[0]!.rigorScore,
         }));
-      movement = computeCohortMovement(
-        currentSnaps,
-        latestPerRepo.map((s) => ({ repoId: s.repoId, overall: s.overallScore, adoption: s.adoptionScore, rigor: s.rigorScore })),
-      );
+      movement = computeCohortMovement(currentSnaps, baselineSnaps);
       // Per-dimension movement needs the baseline scans' dimension rows — fetched for ONLY the deduped
       // latest-per-repo scan ids (bounded at one scan per repo), not every prior scan in the org.
       const priorDims = await prisma.scanDimension.findMany({
@@ -620,7 +907,9 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
         dimsByScan.set(d.scanId, list);
       }
       dimDeltas = computeDimDeltas(
-        repos.filter((r) => r.scans[0]).map((r) => ({ repoId: r.id, dims: r.scans[0]!.dimensions })),
+        repos
+          .filter((r) => r.scans[0] && !isMockScore(r.scans[0]!.engineProvider))
+          .map((r) => ({ repoId: r.id, dims: r.scans[0]!.dimensions })),
         latestPerRepo.map((s) => ({ repoId: s.repoId, dims: dimsByScan.get(s.id) ?? [] })),
       );
     }
@@ -633,6 +922,8 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
     avgOverall,
     avgAdoption,
     avgRigor,
+    realScoredCount: realScored.length,
+    mockCount,
     postureCounts,
     dimAverages,
     repos: rows,
@@ -645,6 +936,61 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
     movement,
     dimDeltas,
   };
+}
+
+/**
+ * The rollup keyed on PRIMITIVES, so React's `cache()` can actually memoize it.
+ *
+ * `cache()` compares arguments by identity: two call sites passing `undefined` and `null` for the
+ * same "no segment", or two structurally-equal `OrgWindow` objects, would each miss and run the whole
+ * rollup again. Every optional is normalized to `null` and every Date to epoch-ms here, so any two
+ * callers asking the same question in one request share one read.
+ */
+const getOrgRollupMemo = cache(
+  async (
+    orgSlug: string,
+    startMs: number | null,
+    endMs: number | null,
+    endExclusiveMs: number | null,
+    segmentId: string | null,
+    techGroupId: string | null,
+  ): Promise<OrgRollup | null> =>
+    getOrgRollup(
+      orgSlug,
+      {
+        start: startMs == null ? null : new Date(startMs),
+        end: endMs == null ? null : new Date(endMs),
+        endExclusive: endExclusiveMs == null ? null : new Date(endExclusiveMs),
+      },
+      segmentId,
+      techGroupId,
+    ),
+);
+
+/**
+ * Request-scoped `getOrgRollup` — same signature, same result, but two panels on one page that ask
+ * for the SAME scope pay for one read instead of two.
+ *
+ * The Repositories tab is why this exists: its leaderboard and its Context Health lens each ran their
+ * own full rollup per render (and Context Health's was UNSCOPED, so it silently ignored the `?stack=`
+ * filter its sibling honours — two panels on one screen describing different fleets). Prefer this over
+ * `getOrgRollup` from any server component; the raw function stays exported for the API routes and
+ * cron paths that run outside a React request, where `cache()` is a no-op anyway.
+ */
+export function getOrgRollupShared(
+  orgSlug: string,
+  window?: OrgWindow,
+  segmentId?: string | null,
+  techGroupId?: string | null,
+): Promise<OrgRollup | null> {
+  return getOrgRollupMemo(
+    orgSlug,
+    window?.start?.getTime() ?? null,
+    window?.end?.getTime() ?? null,
+    window?.endExclusive?.getTime() ?? null,
+    segmentId ?? null,
+    techGroupId ?? null,
+  );
 }
 
 /** One repo's overall-score reading at a single historical scan — the atom of the fleet trajectory view. */
@@ -764,11 +1110,14 @@ export interface OrgHeaderSummary {
   repoCount: number;
   scannedCount: number;
   watchedCount: number;
-  avgOverall: number;
+  /** Mean of each live-scored repo's latest overall score — mirrors `getOrgRollup.avgOverall`,
+   *  INCLUDING its null contract: null when `realScoredCount` is 0. The two must agree, because the
+   *  shell chip and the Overview badge render on the same page. */
+  avgOverall: number | null;
   /** Mean of each scanned repo's latest adoption score — mirrors `getOrgRollup.avgAdoption`. */
-  avgAdoption: number;
+  avgAdoption: number | null;
   /** Mean of each scanned repo's latest rigor score — mirrors `getOrgRollup.avgRigor`. */
-  avgRigor: number;
+  avgRigor: number | null;
   /** Scanned repos per posture id — mirrors `getOrgRollup.postureCounts`. */
   postureCounts: Record<string, number>;
   /**
@@ -780,6 +1129,12 @@ export interface OrgHeaderSummary {
   levelCounts: Record<string, number>;
   /** Tenant flavor — "personal" swaps the shell to the individual-workspace nav subset. */
   kind: "org" | "personal";
+  /** Repos whose latest scan was LIVE-scored — the denominator of the three averages above, mirroring
+   *  `getOrgRollup.realScoredCount`. 0 means the averages are undefined — and they now SAY so, as
+   *  `null`, rather than leaving each surface to re-derive the "—" from this count. */
+  realScoredCount: number;
+  /** Repos whose latest scan is a mock placeholder, excluded from the averages (mirrors the rollup). */
+  mockCount: number;
 }
 
 // React-`cache()`d (request-scoped memo, the repo's convention for shell+page shared reads — see
@@ -799,7 +1154,7 @@ export const getOrgHeaderSummary = cache(async (orgSlug: string): Promise<OrgHea
       scans: {
         orderBy: { scannedAt: "desc" },
         take: 1,
-        select: { overallScore: true, adoptionScore: true, rigorScore: true, posture: true },
+        select: { overallScore: true, adoptionScore: true, rigorScore: true, posture: true, engineProvider: true },
       },
     },
   });
@@ -814,16 +1169,23 @@ export const getOrgHeaderSummary = cache(async (orgSlug: string): Promise<OrgHea
     const lvl = levelForScore(s.overallScore).id;
     levelCounts[lvl] = (levelCounts[lvl] ?? 0) + 1;
   }
+  // The averages exclude mock placeholders exactly as getOrgRollup does (its docstring promises the
+  // two "can never disagree"; until 2026-09-05 the rollup narrowed and this one did not, so the shell
+  // chip and the Overview badge on the SAME page could show two different fleet averages). Counts stay
+  // counts over every scanned repo.
+  const realScored = scanned.filter((s) => !isMockScore(s.engineProvider));
   return {
     repoCount: repos.length,
     scannedCount: scanned.length,
     watchedCount: repos.filter((r) => r.watched).length,
-    avgOverall: roundedMean(scanned.map((s) => s.overallScore)),
-    avgAdoption: roundedMean(scanned.map((s) => s.adoptionScore)),
-    avgRigor: roundedMean(scanned.map((s) => s.rigorScore)),
+    avgOverall: roundedMean(realScored.map((s) => s.overallScore)),
+    avgAdoption: roundedMean(realScored.map((s) => s.adoptionScore)),
+    avgRigor: roundedMean(realScored.map((s) => s.rigorScore)),
     postureCounts,
     levelCounts,
     kind: org.kind === "personal" ? "personal" : "org",
+    realScoredCount: realScored.length,
+    mockCount: scanned.length - realScored.length,
   };
 });
 
@@ -842,13 +1204,21 @@ export interface EngineMixEntry {
 export async function getOrgEngineMix(orgSlug: string, window?: OrgWindow, segmentId?: string | null, techGroupId?: string | null): Promise<EngineMixEntry[]> {
   if (!isDbConfigured()) return [];
   const prisma = getPrisma();
-  const orgId = await getOrgId(orgSlug);
-  if (!orgId) return [];
-  const start = window?.start ?? null;
+  // The full org row, not just the id: `org.plan` feeds the retention floor below.
+  const org = await getOrgBySlug(orgSlug);
+  if (!org) return [];
+  // Retention clamp — the SAME non-destructive read floor every other windowed reader applies (the
+  // rollup's trend, its baseline, getOrgMovers, getOrgTeamRollup). This was the one windowed reader
+  // without it, so an "engine mix for the quarter" on a Free org (30d retention) counted scans from
+  // history the same page's trend refuses to draw: the provenance panel and the trend it explains
+  // were reading different amounts of the past.
+  const retentionStart = retentionCutoff(org.plan, Date.now());
+  const rawStart = window?.start ?? null;
+  const start = retentionStart && (!rawStart || retentionStart > rawStart) ? retentionStart : rawStart;
   const groups = await prisma.scan.groupBy({
     by: ["engineProvider"],
     where: {
-      repo: { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
+      repo: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
       ...dateRange(start, window),
     },
     _count: true,

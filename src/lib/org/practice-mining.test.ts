@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ALL_PRACTICES } from "@/lib/practices";
 import { EXEMPLAR_FLOOR, GAP_CEILING, MIN_AGREEMENT, minePracticeShapes, minedStarter, type ShapeSource } from "./practice-mining";
 
 /** A repo whose CLAUDE.md carries `outline`, scoring `d1` on D1 (agent-guidance's dimension). */
@@ -157,9 +158,30 @@ describe("minedStarter — the fallback signal", () => {
 describe("shape coverage", () => {
   it("mines every practice in the catalog, offerable or not", () => {
     const all = minePracticeShapes([]);
+    expect(all.map((m) => m.practiceId)).toEqual(ALL_PRACTICES.map((p) => p.id));
     expect(all.length).toBeGreaterThanOrEqual(9);
     expect(all.every((m) => m.offerable === false)).toBe(true);
     expect(all.every((m) => m.exemplars.length === 0 && m.outline.length === 0)).toBe(true);
+  });
+
+
+  // #15 — the miner read the one-per-dimension SPINE, so the tenth practice could never carry a house
+  // pattern even once an org's repos agreed on one. FAIL-BEFORE: revert to `PRACTICES` and this is
+  // undefined. The row is empty and non-offerable for an org with no shapes, which is the same honest
+  // answer every other practice gets — never a synthesized one.
+  it("mines the practices BEYOND the spine too", () => {
+    const m = minePracticeShapes([]).find((x) => x.practiceId === "consolidate-guidance");
+    expect(m).toBeDefined();
+    expect(m!.dimId).toBe("D1");
+    expect(m!.offerable).toBe(false);
+    expect(minedStarter(m!)).toBeNull();
+  });
+
+  // The spine's D1 answer is untouched: `agent-guidance` and `consolidate-guidance` are two distinct
+  // mined rows, not one shadowing the other.
+  it("keeps agent-guidance and consolidate-guidance as separate D1 rows", () => {
+    const d1 = minePracticeShapes([]).filter((m) => m.dimId === "D1").map((m) => m.practiceId);
+    expect(d1).toEqual(["agent-guidance", "consolidate-guidance"]);
   });
 
   it("requires MIN_AGREEMENT to be at least 2 — one repo is never a standard", () => {

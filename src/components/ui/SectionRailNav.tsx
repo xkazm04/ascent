@@ -66,8 +66,8 @@ function RailButton({
         {count > 0 && <NavBadge count={count} className="absolute -right-3 -top-2.5 ring-2 ring-ink" />}
       </span>
       {/* mobile chip carries the full name; the narrow desktop rail takes the abbreviation */}
-      <span className="font-mono text-xs uppercase tracking-[0.14em] lg:hidden">{section.label}</span>
-      <span className="hidden font-mono text-[11px] font-medium uppercase leading-none tracking-[0.05em] lg:block">
+      <span className="type-label tracking-[0.14em] lg:hidden">{section.label}</span>
+      <span className="hidden font-mono type-micro font-medium uppercase leading-none tracking-[0.05em] lg:block">
         {section.short ?? section.label}
       </span>
       {/* The current-page marker, the same left accent bar the level-2 items use — so "current" reads

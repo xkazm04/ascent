@@ -3,36 +3,51 @@
 // observed crossing anyway), four bands descending T0→T3 fed by each repo's REAL autonomy tier
 // (the shared passport-autonomy resolver), and the sealed no-AI zones at the centre. Every number
 // is declared-vs-observed attribution stamped with the stance version it was evaluated against.
+//
+// Org UX redesign §2: the panel now OPENS on that boundary as a `BandLadder` — nested bands, a
+// dashed outline where the stance is declared but nothing has been read against it, and an arrow at
+// the outer edge for what crossed with no declaration behind it. The 304-character paragraph that
+// used to describe this picture is deleted; its two load-bearing clauses are the dashed stroke and
+// the legend hint the kit generates from `STATE_HINT.declared`.
 
-import { Kicker } from "@/components/ui";
 import { SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
+import { BandLadder, Legend } from "@/components/org/viz";
+import { Kicker } from "@/components/ui";
 import { scoreHex } from "@/lib/ui";
-import type { AutonomyTierId } from "@/lib/types";
 import { reposByTier, type StanceOverview } from "@/lib/org/stance-overview";
+import { unenforceableClauses } from "@/lib/org/admission";
 import { CheckpointStrip, PerimeterBand, SealedZones, UnassessedRepos } from "./perimeterParts";
+import { TIER_ORDER, perimeterBands, perimeterEdge, perimeterStates } from "./perimeterLadder";
+import { UnenforceableClauses } from "./UnenforceableClauses";
 import { StanceApplyControl } from "./StanceApplyControl";
-
-const TIER_ORDER: AutonomyTierId[] = ["T0", "T1", "T2", "T3"];
+import { AdmissionColumn } from "./admission/AdmissionColumn";
 
 export function StancePerimeter({ overview, canEdit }: { overview: StanceOverview; canEdit: boolean }) {
   const o = overview;
   const { byTier, unassessed } = reposByTier(o.repos);
   const reviewFor = new Map(o.stance.reviewTiers.map((t) => [t.tier, t.review]));
+  const bands = perimeterBands(byTier, reviewFor);
+  const edge = perimeterEdge(o.undeclaredTools);
 
   return (
     <div className="space-y-6">
       <SectionHeader
-        descriptionClassName="max-w-3xl"
         title="AI perimeter"
-        description="One line around the fleet: what the stance permits to cross, how deep a change may go without extra review, and what stays sealed. Every scanned repo is placed in the band its REAL autonomy tier puts it in, and every readout compares the declaration with observed git attribution: declared, not enforced."
+        description={`${o.repos.length} scanned repos · 4 autonomy bands`}
         right={
-          <span className="font-mono text-xs uppercase tracking-[0.18em] text-slate-500">
+          <span className="font-mono type-micro uppercase tracking-[0.18em] text-slate-500">
             v{o.stanceVersion}
             {o.publishedAt ? ` · effective ${o.publishedAt}` : ""}
             {o.publishedBy ? ` · @${o.publishedBy}` : ""}
           </span>
         }
       />
+
+      {/* §2.2 — the topmost element under the header is the boundary itself. */}
+      <div className="max-w-md">
+        <BandLadder bands={bands} edge={edge} title="AI perimeter" />
+        <Legend className="mt-3" states={perimeterStates(bands, edge)} />
+      </div>
 
       <div className={TILE_GRID}>
         <Tile label="Inside the line" value={String(o.repos.length)} sub="scanned repos read against the stance" />
@@ -53,12 +68,10 @@ export function StancePerimeter({ overview, canEdit }: { overview: StanceOvervie
 
       {canEdit && <StanceApplyControl org={o.org} repos={o.repos.map((r) => r.fullName)} version={o.stanceVersion} />}
 
-      <section>
+      <section className="space-y-3">
+        {/* The lede that sat here ("Nothing reaches a band until it clears the edge…") is the arrow
+            on the ladder above: it named the picture instead of drawing it. */}
         <Kicker>The checkpoint</Kicker>
-        <p className="mb-3 mt-2 max-w-3xl text-base text-slate-300">
-          Nothing reaches a band until it clears the edge. Left: what the stance declares permitted. Right: what PR
-          attribution shows crossing without a declaration.
-        </p>
         <CheckpointStrip stance={o.stance} undeclared={o.undeclaredTools} />
       </section>
 
@@ -79,7 +92,16 @@ export function StancePerimeter({ overview, canEdit }: { overview: StanceOvervie
         <UnassessedRepos repos={unassessed} org={o.org} version={o.stanceVersion} canAck={canEdit} />
       </section>
 
+      {/* moonshot #8 — the decision layer, directly under the bands that show the measurement it
+          departs from. Its own client island: it owns its read so it can refresh after its own write. */}
+      <AdmissionColumn org={o.org} canEdit={canEdit} />
+
       <SealedZones zones={o.zones} />
+
+      {/* The honest half, from the SAME builder `compileStance` uses for the MCP tools — the agent
+          was told which clauses only it can honour; the owner publishing them was not. Facts are null
+          because this is the org-wide reading: no repository has been compiled at this altitude. */}
+      <UnenforceableClauses clauses={unenforceableClauses(o.stance, null)} />
     </div>
   );
 }

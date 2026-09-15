@@ -28,11 +28,20 @@ import type {
 } from "@/lib/types";
 import { DIMENSIONS, clamp } from "@/lib/maturity/model";
 import { IMPACT_LEVELS } from "@/lib/llm/schema";
-import { CLAIM_MAX, CLAIM_QUOTE_MAX, CLAIM_SCORED_DIMENSIONS, D4_FACET_IDS } from "@/lib/scoring/claims";
+import { ALL_FACET_IDS, CLAIM_MAX, CLAIM_QUOTE_MAX, CLAIM_SCORED_DIMENSIONS } from "@/lib/scoring/claims";
+import { asCraftAxis, type CraftAxis } from "@/lib/scoring/craft";
 import type { LlmClaim } from "@/lib/types";
 import { parseJsonLoose } from "@/lib/llm/json";
 import { deEmDash } from "@/lib/llm/prose";
 import type { StackFit } from "@/lib/analyze/stack-fit";
+
+/** One craft rung a repository has already built — the ladder's memory. `axis` is null on a row
+ *  written before the axis column existed, which the prompt renders honestly as "(no axis)". */
+export interface CraftBuiltEntry {
+  title: string;
+  dimId: string;
+  axis: CraftAxis | null;
+}
 
 export interface LlmScoreInput {
   repo: RepoMeta;
@@ -44,6 +53,11 @@ export interface LlmScoreInput {
    *  read side. Injected into the per-repo user message so a re-scan stops raising a gap a human has
    *  explicitly closed ("no CI because it's a docs-only mirror"). Empty/absent for an unscoped scan. */
   orgDecisions?: DecisionNote[];
+  /** CRAFT ALREADY BUILT — the craft rungs this repository has already completed, newest first, with
+   *  the axis each raised. Rendered into the per-repo user message (never the cached SYSTEM prefix)
+   *  so the model proposes the NEXT rung instead of re-proposing what is already there. Absent for a
+   *  repository that has completed none, which is the ordinary first-scan case. */
+  craftBuilt?: CraftBuiltEntry[];
   /** PR review/velocity/AI-governance stats — already fetched and folded into the deterministic
    *  D3/D6/D7/D8 scores. Threaded here so the LLM auditor sees the same behavioral evidence instead
    *  of reasoning blind about review discipline. Null when scanned without a token. */
@@ -162,6 +176,33 @@ function validLevelUnlock(v: unknown): string | undefined {
  * DIMENSIONS dimension ids, so the request schema and this acceptance check
  * cannot drift apart.
  */
+/** The roadmap has always been capped at 6. GAPS still are. */
+const ROADMAP_GAP_MAX = 6;
+/** Craft rungs get their OWN budget beside the gap cap, not a share of it. See `capRoadmap`. */
+const ROADMAP_CRAFT_MAX = 6;
+
+/**
+ * Cap the roadmap — gaps to 6 as always, craft to 6 MORE, gaps first.
+ *
+ * WHY CRAFT NEEDS ITS OWN BUDGET. The rubric asks for a gap entry per dimension below the follow-up
+ * floor AND a craft entry per dimension at or above it with no gap: with nine dimensions that is up
+ * to nine entries against a cap of six. Under one shared cap the craft entries are simply the ones
+ * that fall off the end — the model orders by impact and gaps outrank craft, so the ladder is starved
+ * exactly on the repositories that are strong enough to need it. That was not theoretical: the two
+ * repos scanned under r10 with several dimensions in the 90s produced ZERO stored craft rows between
+ * them, which is what "craft was a dead end" looked like from the data side.
+ *
+ * A repository with no craft entries gets a BYTE-IDENTICAL roadmap to the old `slice(0, 6)` — same
+ * items, same order — so every pre-r12 scan, fixture and mock is unchanged. When craft is present,
+ * gaps still come first, which is the same precedence `openBatch` applies.
+ */
+function capRoadmap(roadmap: LlmRoadmapItem[]): LlmRoadmapItem[] {
+  const gaps = roadmap.filter((r) => r.kind !== "craft");
+  const craft = roadmap.filter((r) => r.kind === "craft");
+  if (craft.length === 0) return gaps.slice(0, ROADMAP_GAP_MAX);
+  return [...gaps.slice(0, ROADMAP_GAP_MAX), ...craft.slice(0, ROADMAP_CRAFT_MAX)];
+}
+
 export function validateAssessment(raw: unknown): LlmAssessment {
   const obj = (raw ?? {}) as Record<string, unknown>;
 
@@ -227,8 +268,12 @@ export function validateAssessment(raw: unknown): LlmAssessment {
         explore: asStringArray(r.explore, 3),
         levelUnlock: validLevelUnlock(r.levelUnlock),
         // Only the non-default kind is carried; an absent kind IS "gap", so pre-r10 rows and
-        // fixtures are unchanged.
-        ...(r.kind === "craft" ? { kind: "craft" as const } : {}),
+        // fixtures are unchanged. The axis rides ONLY on a craft entry and only when it is one of
+        // the six the taxonomy declares — an unrecognised axis is dropped, never defaulted, because
+        // a fabricated axis would corrupt the ledger's coverage read (scoring/craft.ts).
+        ...(r.kind === "craft"
+          ? { kind: "craft" as const, ...(asCraftAxis(r.craftAxis) ? { craftAxis: asCraftAxis(r.craftAxis)! } : {}) }
+          : {}),
       });
     }
   }
@@ -259,21 +304,35 @@ export function validateAssessment(raw: unknown): LlmAssessment {
         typeof c?.dimension === "string" && (CLAIM_SCORED_DIMENSIONS as string[]).includes(c.dimension)
           ? (c.dimension as DimensionId)
           : null;
-      const facet = typeof c?.facet === "string" && D4_FACET_IDS.includes(c.facet.trim()) ? c.facet.trim() : null;
-      const path = typeof c?.path === "string" ? c.path.replace(CONTROL_CHARS, "").trim().slice(0, 300) : "";
-      const quote = typeof c?.quote === "string" ? c.quote.replace(CONTROL_CHARS, "").trim().slice(0, CLAIM_QUOTE_MAX) : "";
+      const facet = typeof c?.facet === "string" && ALL_FACET_IDS.includes(c.facet.trim()) ? c.facet.trim() : null;
+      const str = (v: unknown, max: number) => (typeof v === "string" ? v.replace(CONTROL_CHARS, "").trim().slice(0, max) : "");
+      const path = str(c?.path, 300);
+      const quote = str(c?.quote, CLAIM_QUOTE_MAX);
       if (!dim || !facet || !path || !quote) continue;
+      // The SECOND citation of a two-file facet, coerced by the same rules. Carried through only when
+      // BOTH halves survive — a half-citation is not a smaller claim, it is an unverifiable one, and
+      // the verifier rejects it with `missing-second-citation` rather than half-crediting it.
+      const path2 = str(c?.path2, 300);
+      const quote2 = str(c?.quote2, CLAIM_QUOTE_MAX);
       const note = typeof c?.note === "string" ? cap(c.note.trim()) : undefined;
-      claims.push(note ? { dimension: dim, facet, path, quote, note } : { dimension: dim, facet, path, quote });
+      claims.push({
+        dimension: dim,
+        facet,
+        path,
+        quote,
+        ...(path2 && quote2 ? { path2, quote2 } : {}),
+        ...(note ? { note } : {}),
+      });
     }
   }
 
   return {
     dimensions: dims,
     headline: typeof obj.headline === "string" ? cap(obj.headline.trim()) : "",
+    // roadmap: see capRoadmap — gaps keep the old cap; craft gets its own budget beside it.
     strengths: asStringArray(obj.strengths),
     risks: asStringArray(obj.risks),
-    roadmap: roadmap.slice(0, 6),
+    roadmap: capRoadmap(roadmap),
     discrepancies: discrepancies.slice(0, 8),
     claims: claims.slice(0, CLAIM_MAX),
   };

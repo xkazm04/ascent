@@ -7,6 +7,10 @@
 //
 // Same shape as ABOUT_FEATURES so both decks can render through the shared AboutFeature section.
 
+import { PRACTICES } from "@/lib/practices";
+import { orgGroupLabelFor } from "./orgModules";
+import type { OrgTabId } from "@/lib/org/orgTabs";
+
 export type AboutOrgFeatureId = "practices" | "knowledge" | "governance";
 
 interface AboutOrgFeatureData {
@@ -19,14 +23,27 @@ interface AboutOrgFeatureData {
   value: string;
 }
 
-export const ABOUT_ORG_FEATURES: AboutOrgFeatureData[] = [
+/** How a feature is WRITTEN: it names the tab it lives in, and the module half of the kicker is
+ *  derived from that. The three kickers used to read "Plan ·", "Library ·" and "Govern ·" — module
+ *  names from an information architecture the rail retired. `orgGroupLabelFor` reads the shipping
+ *  groups, so the next regroup renames the copy instead of stranding it. */
+interface AboutOrgFeatureSpec extends Omit<AboutOrgFeatureData, "kicker"> {
+  /** The tab this capability lives in — the source of the kicker's module name. */
+  tab: OrgTabId;
+  /** The half of the kicker that is editorial: what the capability IS, after the module name. */
+  kickerSuffix: string;
+}
+
+const SPECS: AboutOrgFeatureSpec[] = [
   {
     id: "practices",
-    kicker: "Plan · the practice library",
+    tab: "practices",
+    kickerSuffix: "the practice library",
     title: "Fix it once. Apply it across the fleet.",
     body: "A practice turns a finding into an artifact: Ascent scaffolds a starter file tailored to the target repo's language (a CI workflow, an AGENTS.md, an ADR template) and opens it as a draft pull request your team reviews and merges. One authored practice can be applied to a batch of repositories in a single action instead of being re-explained team by team.",
     points: [
-      "Nine practices, one per scored dimension, generated deterministically: no LLM, no keys, no leaked repo detail",
+      // The count comes from the library itself (src/lib/practices.ts), not from a word typed here.
+      `${PRACTICES.length} practices, one per scored dimension, generated deterministically: no LLM, no keys, no leaked repo detail`,
       "Batch apply opens draft PRs across up to 25 repositories per run",
       "The backlog carries every remaining gap with an owner and a due date, searchable, bulk-editable, exportable as CSV",
     ],
@@ -34,7 +51,8 @@ export const ABOUT_ORG_FEATURES: AboutOrgFeatureData[] = [
   },
   {
     id: "knowledge",
-    kicker: "Library · memory & skills",
+    tab: "memory",
+    kickerSuffix: "memory & skills",
     title: "Institutional memory that outlives the org chart",
     body: "Shared Org Memory is a durable store of what happened, what is true, and what worked, recalled by value under a budget rather than by recency, and corrected by superseding rather than editing in place, so the history of a decision survives the decision changing. Beside it, the Skills library holds the versioned SKILL.md entries your org authors, adopts against repos, and syncs from CLI and CI. Both are readable by your own agents over scoped org API tokens, so what the org learned rides along in every agent's context, not just every browser tab.",
     points: [
@@ -47,7 +65,8 @@ export const ABOUT_ORG_FEATURES: AboutOrgFeatureData[] = [
   },
   {
     id: "governance",
-    kicker: "Govern · policy & evidence",
+    tab: "governance",
+    kickerSuffix: "policy & evidence",
     title: "Walk into the audit with the evidence already assembled",
     body: "Branch protection, required review and rulesets are audited across every repository and rolled up into one sheet, with a per-org merge-gate policy you set once. Underneath it sits a searchable, paginated audit trail of every consequential action (who changed the policy, who applied the batch, who was promoted), recorded as it happened rather than reconstructed afterwards.",
     points: [
@@ -58,3 +77,9 @@ export const ABOUT_ORG_FEATURES: AboutOrgFeatureData[] = [
     value: "Security review stops being a two-week archaeology project.",
   },
 ];
+
+/** The rendered features, with each kicker's module half read from the shipping nav. */
+export const ABOUT_ORG_FEATURES: AboutOrgFeatureData[] = SPECS.map(({ tab, kickerSuffix, ...rest }) => ({
+  ...rest,
+  kicker: `${orgGroupLabelFor(tab) ?? "In the org dashboard"} · ${kickerSuffix}`,
+}));

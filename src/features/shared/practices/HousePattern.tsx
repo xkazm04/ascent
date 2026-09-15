@@ -13,23 +13,34 @@
 //   - fewer than MIN_AGREEMENT exemplars → no pattern, and it says one strong repo is not a standard;
 //   - exemplars that share nothing → no pattern, rather than promoting the best repo's document;
 //   - no gap repos → a pattern with nobody to offer it to, said plainly instead of dressed as a task.
+// All three are ZERO STATES — a reader with nothing to look at and a reason to act — which is exactly
+// where the redesign law puts an argument (§2.1 O). They stay.
+//
+// What did NOT stay is the paragraph above the populated panel. Its two halves were different jobs:
+// provenance ("your own repos, not a template") is a mark plus a disclosure, and "structure only,
+// never an artifact's contents" is a PRIVACY GUARANTEE, which is drawn by HousePatternPrivacy as a
+// row that is empty in both columns. An absence you can see beats an absence you are promised.
 //
 // Server-safe — no hooks, no handlers.
 
 import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { Kicker } from "@/components/ui";
+import { StateSwatch, WhyChip } from "@/components/org/viz";
+import { HousePatternPrivacy } from "./HousePatternPrivacy";
+import { shapeProvenanceHint } from "./housePatternViz";
 import { MIN_AGREEMENT, type MinedPractice } from "@/lib/org/practice-mining";
 
 function Lines({ title, lines }: { title: string; lines: { text: string; agreement: number }[] }) {
   if (lines.length === 0) return null;
   return (
     <div className="mt-3">
-      <div className="font-mono text-xs uppercase tracking-[0.14em] text-slate-500">{title}</div>
+      <div className="type-label tracking-[0.14em] text-slate-500">{title}</div>
       <ul className="mt-1.5 space-y-1">
         {lines.map((l) => (
-          <li key={l.text} className="flex items-baseline justify-between gap-3 text-sm">
+          <li key={l.text} className="flex items-baseline justify-between gap-3 type-body-sm">
             <span className="text-slate-200">{l.text.replace(/^#+\s*/, "")}</span>
             {/* The evidence, on every line: how many of your repos independently do this. */}
-            <span className="shrink-0 font-mono text-xs text-slate-500" title="repositories that independently carry this">
+            <span className="shrink-0 type-caption text-slate-500" title="repositories that independently carry this">
               {l.agreement}×
             </span>
           </li>
@@ -48,18 +59,34 @@ export function HousePattern({ mined, reposWithShape }: { mined: MinedPractice[]
       <SectionHeader
         size="sm"
         title="Your house pattern"
-        description="The practices this organization already shares, mined from the structure of your own strongest repositories, not from a generic template. Structure only: headings and layout travel between your repos, never an artifact's contents."
+        // §2.4 — provenance as a MARK, not a claim. `measured` says this was observed in the org's
+        // own repositories; the chip carries the agreement floor and the never-a-template sentence.
+        right={
+          <span className="flex items-center gap-1.5">
+            <StateSwatch state="measured" />
+            <Kicker tone="muted" as="span">
+              mined from your repos
+            </Kicker>
+            <WhyChip hint={shapeProvenanceHint(MIN_AGREEMENT)} label="provenance" align="end" />
+          </span>
+        }
       />
 
+      {/* First sight is the guarantee (§2.2): two columns, three rows, and the contents row is a
+          void in both. */}
+      <div className="mt-3">
+        <HousePatternPrivacy reposWithShape={reposWithShape} />
+      </div>
+
       {reposWithShape === 0 && (
-        <p className="mt-3 text-sm text-slate-400">
+        <p className="mt-3 type-body-sm text-slate-400">
           No repository has been scanned since practice-shape extraction shipped, so there is nothing to mine yet.
           Re-scan the fleet and this fills in with your own patterns.
         </p>
       )}
 
       {reposWithShape > 0 && !hasAnyPattern && (
-        <p className="mt-3 text-sm text-slate-400">
+        <p className="mt-3 type-body-sm text-slate-400">
           Nothing is shared across {reposWithShape} scanned{" "}
           {reposWithShape === 1 ? "repository" : "repositories"} yet. A pattern needs at least{" "}
           <strong className="font-medium text-slate-200">{MIN_AGREEMENT} repositories</strong> to structure an artifact
@@ -73,10 +100,10 @@ export function HousePattern({ mined, reposWithShape }: { mined: MinedPractice[]
           {offerable.map((m) => (
             <div key={m.practiceId} className="rounded-lg border border-divider bg-surface/40 px-4 py-3">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <span className="text-base text-white">{m.label}</span>
-                <span className="font-mono text-xs uppercase tracking-widest text-slate-500">{m.dimId}</span>
+                <span className="type-body text-white">{m.label}</span>
+                <span className="type-label tracking-widest text-slate-500">{m.dimId}</span>
               </div>
-              <p className="mt-1 text-sm text-slate-400">
+              <p className="mt-1 type-body-sm text-slate-400">
                 Shared by{" "}
                 <span className="text-slate-200">
                   {m.exemplars.length} {m.exemplars.length === 1 ? "repository" : "repositories"}
@@ -92,20 +119,12 @@ export function HousePattern({ mined, reposWithShape }: { mined: MinedPractice[]
       )}
 
       {hasAnyPattern && offerable.length === 0 && (
-        <p className="mt-3 text-sm text-slate-400">
+        <p className="mt-3 type-body-sm text-slate-400">
           Your repositories do share structure, but no repository is far enough behind on those dimensions to be worth
           offering it to. That is a good state, not a missing feature.
         </p>
       )}
 
-      <p className="mt-4 rounded-lg border border-dashed border-divider bg-surface/40 px-3 py-2 text-sm text-slate-400">
-        <span className="font-mono text-xs uppercase tracking-[0.22em] text-slate-500">How this is built</span> A
-        heading or path counts only when at least {MIN_AGREEMENT} of your exemplar repositories carry it
-        independently, so what you see is agreement rather than the highest-scoring repository&apos;s copy. The{" "}
-        <strong className="font-medium text-slate-200">{"n×"}</strong> beside each line is how many agreed. Only
-        document skeletons and path layouts are read (never an artifact&apos;s body), and a mined pattern stays inside
-        this organization.
-      </p>
     </Card>
   );
 }

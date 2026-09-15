@@ -20,6 +20,13 @@ vi.mock("@/lib/scan", () => ({ scanRepository: vi.fn() }));
 // ambient-token suite never enters that branch (it pins unlimited:true) so it omits this mock. The
 // credit-cap suite below DOES enter it, so stub the alert glue to keep the test hermetic.
 vi.mock("@/lib/scan-alerts", () => ({ maybeAlertLowCredits: vi.fn(async () => {}) }));
+let claimCounter = 0;
+vi.mock("@/lib/db/scan-jobs", () => ({
+  // A won claim by default: every existing money/flow case in this file predates the queue and must
+  // keep asserting exactly what it did. The contention case overrides it with null.
+  claimRepoWork: vi.fn(async (_org: string, repo: string) => ({ id: `job_${++claimCounter}`, repoFullName: repo })),
+  settleJob: vi.fn(async () => {}),
+}));
 vi.mock("@/lib/db", () => ({
   CREDIT_REASON: { SCAN: "scan", GRANT: "grant", ADJUSTMENT: "adjustment", REFUND: "refund", POLAR_REFUND: "polar-refund" },
   consumeScanCredit: vi.fn(),
@@ -104,9 +111,11 @@ import { listOrgRepos } from "@/lib/github/list";
 import { checkScanEntitlement } from "@/lib/entitlement";
 import { consumePublicScanQuota, peekPublicScanQuota, refundPublicScanQuota } from "@/lib/public-scan-quota";
 import { rateLimitRequestShared } from "@/lib/rate-limit";
-// Real (unmocked) process-local claim — the route imports it from the same sub-module, so a claim taken
-// here is visible to the route, letting us simulate a concurrent in-flight run deterministically.
-import { claimRepoScan, releaseRepoScan } from "@/lib/db/org-watch";
+// The claim is now a DB row (moonshot #10), so the "another run owns this repo" case is simulated by
+// the queue's own answer — `claimRepoWork` returning null — rather than by taking a process-local
+// lock in the test. That IS the behavioural change: the old Map could only refuse a second run on the
+// SAME instance, which on a serverless deploy is not where the second tab usually lands.
+import { claimRepoWork, settleJob } from "@/lib/db/scan-jobs";
 
 const mockScan = vi.mocked(scanRepository);
 const mockAuthOn = vi.mocked(isAuthConfigured);
@@ -321,7 +330,14 @@ describe("POST /api/org/import — credit-cap slice + per-repo refund (metered)"
     // The reservation was made (consumeScanCredit) and then refunded exactly once on the throw.
     expect(mockConsume).toHaveBeenCalledTimes(1);
     expect(mockGrant).toHaveBeenCalledTimes(1);
-    expect(mockGrant).toHaveBeenCalledWith("acme", 1, { reason: "refund", actor: "system" });
+    // The refund row carries the SAME repo (and actor) as the debit it reverses, so per-repo spend
+    // nets out on the ledger instead of leaving an unattributable +1. No viewer is signed in in this
+    // suite, so the honest actor is "system".
+    expect(mockGrant).toHaveBeenCalledWith("acme", 1, {
+      reason: "refund",
+      actor: "system",
+      repoFullName: "acme/boom",
+    });
     // The failure is surfaced honestly on the repo event, not swallowed.
     expect(events.find((e) => e.event === "repo")?.data).toMatchObject({ repo: "acme/boom", error: "github 500" });
   });
@@ -380,7 +396,11 @@ describe("POST /api/org/import — credit-cap slice + per-repo refund (metered)"
     mockScan.mockResolvedValue(report); // `report` is provider:"mock"
     mockPersist.mockRejectedValueOnce(new Error("write failed"));
     const events = await collectImport({ org: "acme", repos: ["acme/deg"], mock: false, watch: false });
-    expect(mockGrant).toHaveBeenCalledWith("acme", 1, { reason: "refund", actor: "system" });
+    expect(mockGrant).toHaveBeenCalledWith("acme", 1, {
+      reason: "refund",
+      actor: "system",
+      repoFullName: "acme/deg",
+    });
     expect(events.find((e) => e.event === "repo")?.data).toMatchObject({ charged: false });
   });
 
@@ -448,9 +468,9 @@ describe("POST /api/org/import — per-repo in-flight claim (no double-scan/char
   });
 
   it("skips a repo a concurrent run already claimed — no scan, no credit — then imports once released", async () => {
-    // Stand in for the concurrent run holding the claim for (acme, acme/dup).
-    const held = claimRepoScan("acme", "acme/dup");
-    expect(held).not.toBeNull();
+    // The queue refuses the claim: another run holds a live lease on (acme, acme/dup). Cross-instance
+    // now, which is the whole point of moving the claim into the DB.
+    vi.mocked(claimRepoWork).mockResolvedValueOnce(null);
 
     const first = await collectImport({ org: "acme", repos: ["acme/dup"], mock: false, watch: false });
     // Money invariant: no real inference and no credit reserved for the contended repo.
@@ -463,8 +483,7 @@ describe("POST /api/org/import — per-repo in-flight claim (no double-scan/char
     // in which zero scans happened. The skip now has its own outcome bucket.
     expect(first.find((e) => e.event === "result")?.data).toMatchObject({ scanned: 0, total: 1, skippedInProgress: 1 });
 
-    // The other run completes and frees the repo; the import now scans + bills exactly once.
-    releaseRepoScan("acme", "acme/dup", held!);
+    // The other run settles its job and frees the repo; the import now scans + bills exactly once.
     const second = await collectImport({ org: "acme", repos: ["acme/dup"], mock: false, watch: false });
     expect(mockScan).toHaveBeenCalledTimes(1);
     expect(mockConsume).toHaveBeenCalledTimes(1);
@@ -472,10 +491,11 @@ describe("POST /api/org/import — per-repo in-flight claim (no double-scan/char
     expect(second.find((e) => e.event === "result")?.data).toMatchObject({ scanned: 1, skippedInProgress: 0 });
   });
 
-  it("releases the claim after a normal import, so a repo isn't locked out of the next run", async () => {
+  it("SETTLES the claim after a normal import, so a repo isn't locked out of the next run", async () => {
     await collectImport({ org: "acme", repos: ["acme/again"], mock: false, watch: false });
     expect(mockScan).toHaveBeenCalledTimes(1);
-    // If the route leaked the claim, this second import would skip as in_progress. It must scan again.
+    // A claim left unsettled would bar this repo until its lease expired. The settle is what frees it.
+    expect(vi.mocked(settleJob)).toHaveBeenCalledTimes(1);
     const events = await collectImport({ org: "acme", repos: ["acme/again"], mock: false, watch: false });
     expect(mockScan).toHaveBeenCalledTimes(2);
     expect(events.find((e) => e.event === "repo")?.data).not.toMatchObject({ skipped: "in_progress" });
@@ -735,5 +755,47 @@ describe("POST /api/org/import — the 429 names the scope that refused", () => 
     expect(res.status).toBe(429);
     expect(res.headers.get("x-ascent-ratelimit-scope")).toBe("unavailable");
     expect(await res.json()).toMatchObject({ code: "rate_limit_unavailable", scope: "unavailable", evaluated: false });
+  });
+});
+
+// Direction 8 — the run's identity on the wire. `importRunId` was minted only as the queue's
+// idempotency bucket and never told to the client, so a browser that lost this stream (a refresh, an
+// auth bounce) had no handle to find the run again — while the server kept scanning and spending,
+// since the mapPool below is not tied to the request signal. The wizard stores this id in its resume
+// snapshot and re-attaches through GET /api/org/scan/queue instead of re-running the import.
+describe("POST /api/org/import — the run id is emitted, not just used internally", () => {
+  beforeEach(() => {
+    mockScan.mockResolvedValue(report as ScanReport);
+    // The rate-limit suite above leaves the shared limiter denying; this suite needs it to allow.
+    vi.mocked(rateLimitRequestShared).mockResolvedValue({ ok: true });
+  });
+
+  it("emits runId on an opening `queued` frame (the sibling scan route's shape) and again on `result`", async () => {
+    const events = await collectImport({ org: "acme", repos: ["acme/a", "acme/b"], watch: false });
+
+    const queued = events.find((e) => e.event === "queued")?.data as
+      | { runId?: string; queued?: number; total?: number }
+      | undefined;
+    expect(queued).toBeDefined();
+    expect(typeof queued?.runId).toBe("string");
+    expect(queued?.runId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(queued).toMatchObject({ queued: 2, total: 2 });
+
+    // The opening frame arrives BEFORE any repo result — that is the whole point: a client that dies
+    // mid-run must already hold the handle.
+    const order = events.map((e) => e.event);
+    expect(order.indexOf("queued")).toBeLessThan(order.indexOf("repo"));
+
+    // Same id on the terminal frame, for a client that joined late.
+    const result = events.find((e) => e.event === "result")?.data as { runId?: string } | undefined;
+    expect(result?.runId).toBe(queued?.runId);
+  });
+
+  it("mints a fresh id per import — one run's handle can never poll another's jobs", async () => {
+    const a = await collectImport({ org: "acme", repos: ["acme/a"], watch: false });
+    const b = await collectImport({ org: "acme", repos: ["acme/a"], watch: false });
+    const idOf = (evs: { event: string; data: unknown }[]) =>
+      (evs.find((e) => e.event === "queued")?.data as { runId: string }).runId;
+    expect(idOf(a)).not.toBe(idOf(b));
   });
 });

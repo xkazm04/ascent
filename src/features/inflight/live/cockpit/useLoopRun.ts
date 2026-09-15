@@ -25,6 +25,7 @@ import {
   type StartLoopInput,
 } from "./loopClient";
 import { isRunLive, type LoopProposal, type LoopRunDetail, type LoopRunRecord, type LoopRunSummary } from "./loopTypes";
+import { useIsVisible } from "../useIsVisible";
 
 const POLL_MS = 3_000;
 
@@ -39,6 +40,16 @@ export interface UseLoopRunInput {
 
 export function useLoopRun({ slug, initialActive, initialRuns, initialEnabled, onSettled }: UseLoopRunInput) {
   const [enabled, setEnabled] = useState(initialEnabled);
+  // Whether this deployment can open a PR at all. Defaults to TRUE and is corrected by the first
+  // tick: an absent field on the payload means "not answered", and disabling a mode the deployment
+  // may well support would be the worse guess of the two — the route refuses it either way.
+  const [prAvailable, setPrAvailable] = useState(true);
+  // A STOP THAT HAS BEEN ASKED FOR AND HAS NOT LANDED YET. Server state, not the button's own fetch:
+  // the loop's stop is cooperative, so this stays true for as long as the in-flight session takes
+  // (PRIYA-L2-C6 measured 19m43s). `busy` is the fetch and settles in milliseconds; conflating the two
+  // is what made the button revert to "Stop" while the run was still winding down.
+  const [stopRequested, setStopRequested] = useState(false);
+  const [stopHorizonMs, setStopHorizonMs] = useState<number | null>(null);
   const [active, setActive] = useState<LoopRunRecord | null>(initialActive);
   const [runs, setRuns] = useState<LoopRunSummary[]>(initialRuns);
   const [detail, setDetail] = useState<LoopRunDetail | null>(null);
@@ -56,19 +67,15 @@ export function useLoopRun({ slug, initialActive, initialRuns, initialEnabled, o
   // The id we last saw live — the thing whose disappearance means "it finished".
   const lastLiveId = useRef<string | null>(initialActive && isRunLive(initialActive.phase) ? initialActive.id : null);
 
-  const [visible, setVisible] = useState(true);
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    const sync = () => setVisible(document.visibilityState !== "hidden");
-    sync();
-    document.addEventListener("visibilitychange", sync);
-    return () => document.removeEventListener("visibilitychange", sync);
-  }, []);
+  const visible = useIsVisible();
 
   const tick = useCallback(async () => {
     try {
       const status = await fetchLoopStatus(slug);
       setEnabled(status.enabled);
+      setPrAvailable(status.prAvailable !== false);
+      setStopRequested(status.stopping === true);
+      setStopHorizonMs(status.stopHorizonMs ?? null);
       setActive(status.active);
       setRuns(status.runs);
       const nowId = status.active?.id ?? null;
@@ -129,6 +136,10 @@ export function useLoopRun({ slug, initialActive, initialRuns, initialEnabled, o
   const stop = useCallback(
     async (id: string) => {
       await guard(() => stopLoop(slug, id));
+      // Optimistic, and safe to be: the next tick re-reads the server's own answer, and until it
+      // arrives the operator has already been told the request landed rather than watching the button
+      // spring back.
+      setStopRequested(true);
       void tick();
     },
     [guard, slug, tick],
@@ -152,5 +163,23 @@ export function useLoopRun({ slug, initialActive, initialRuns, initialEnabled, o
     [guard, slug],
   );
 
-  return { enabled, active, activeId, live, runs, detail, error, busy, start, stop, retry, loadDetail, propose, refresh: tick };
+  return {
+    enabled,
+    prAvailable,
+    active,
+    activeId,
+    live,
+    runs,
+    detail,
+    error,
+    busy,
+    stopRequested,
+    stopHorizonMs,
+    start,
+    stop,
+    retry,
+    loadDetail,
+    propose,
+    refresh: tick,
+  };
 }

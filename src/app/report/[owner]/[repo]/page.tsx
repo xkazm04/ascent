@@ -24,6 +24,7 @@ import { PUBLIC_ORG, isAuthConfigured, readableOrgForOwner } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { hasOrgRole, canReadOrg } from "@/lib/authz";
 import { PRACTICES } from "@/lib/practices";
+import { EMPTY_LIFTS, getOrgExpectedLifts } from "@/lib/outcomes/expected-lift-load";
 import { parseRepoParam } from "./repoParam";
 
 export const dynamic = "force-dynamic";
@@ -142,6 +143,10 @@ async function ReportPermalinkBody({
   ]);
   // Owner-only passport controls (P4): editable only for a non-public org-owned repo by an owner.
   const canEditPassport = Boolean(passport) && orgSlug !== PUBLIC_ORG && (await hasOrgRole(orgSlug, "owner").catch(() => false));
+  // The .ai/passport.json PR route accepts ADMINS (unlike the owner-only overrides), so its button is
+  // gated separately: an admin who is not an owner gets the PR affordance and not the override form.
+  const canFilePassportPr =
+    canEditPassport || (Boolean(passport) && orgSlug !== PUBLIC_ORG && (await hasOrgRole(orgSlug, "admin").catch(() => false)));
   // The .ai/ foundation install-PR button: any org MEMBER of a non-public repo (mirrors the route's
   // requireOrgAccess — member-level, unlike the owner-only passport controls). UX courtesy only; the
   // route re-checks access and the App installation before writing anything.
@@ -159,12 +164,18 @@ async function ReportPermalinkBody({
         report={pinned}
         serverPassport={passport}
         serverHistory={history}
-        serverRecs={recs}
+        serverRecs={recs.items}
+        serverLifts={recs.lifts}
         installFoundation={canInstallFoundation}
       />
       {passport && (
         <div className="mt-8 animate-fade-up" style={{ animationDelay: "120ms" }}>
-          <PassportCard passport={passport} repo={repoRef} canEdit={canEditPassport} />
+          {/* The `engine` prop this branch passed is dropped: master's PassportCard cluster (declines
+              with identity, the autonomy verdict, PassportCardDeclined) is the landed implementation of
+              the same feature set and does not take one. Labelling a placeholder scan on the repo's own
+              page is therefore NOT on master — it survives only in the org portfolio, and is recorded as
+              an open item rather than silently carried by a prop the component would ignore. */}
+          <PassportCard passport={passport} repo={repoRef} canEdit={canEditPassport} canFilePr={canFilePassportPr} />
         </div>
       )}
       {skillHistory.length > 0 && (
@@ -196,12 +207,24 @@ async function readReportHistory(owner: string, name: string, orgSlug: string): 
  * when readable, else the public org) rather than reusing the report's `orgSlug`: the report resolves
  * via the dormant-session `readableOrgForOwner`, which under-permissions a private-org member and would
  * hand back an empty list where the client fetch found the real tracker.
+ *
+ * It also reads the org's measured lift map in the same pass. That map is what makes the roadmap's
+ * measured basis reachable in-app at all: `ExpectedLiftBasis` and the measured-sort toggle existed,
+ * were tested and were mounted, but nothing on this page ever read the ledger, so the clause could
+ * only ever be seen through the raw JSON of `GET /api/recommendations`.
  */
 async function readReportRecommendations(owner: string, name: string) {
   const ownerOrg = owner.toLowerCase();
   const orgSlug = (await canReadOrg(ownerOrg).catch(() => false)) ? ownerOrg : PUBLIC_ORG;
-  const result = await getLatestRecommendations(owner, name, { orgSlug }).catch(() => null);
-  return result?.items ?? [];
+  const [result, lifts] = await Promise.all([
+    getLatestRecommendations(owner, name, { orgSlug }).catch(() => null),
+    // The org's measured lift map, read under the SAME org the rows were read under — the ledger is
+    // tenant-local, so resolving it off the report's own (more conservative) orgSlug could pair one
+    // org's rows with another's measurements. A failed read degrades to no map, which is exactly the
+    // pre-existing rendering: no basis clause, no measured-sort toggle, no reordering (G4).
+    getOrgExpectedLifts(orgSlug).catch(() => EMPTY_LIFTS),
+  ]);
+  return { items: result?.items ?? [], lifts };
 }
 
 /** Instant repo masthead — derived purely from the URL, so it paints with zero data dependency. Doubles
@@ -212,9 +235,9 @@ function ReportMasthead({ repoRef, loading = false }: { repoRef: string; loading
   return (
     <div className="animate-fade-up">
       <Kicker tone="muted">Repository report</Kicker>
-      <h1 className="mt-2 text-2xl font-bold text-white">{repoRef}</h1>
+      <h1 className="mt-2 type-heading font-bold text-white">{repoRef}</h1>
       {loading && (
-        <p className="mt-2 flex items-center gap-2 text-sm text-slate-500">
+        <p className="mt-2 flex items-center gap-2 type-body-sm text-slate-500">
           <span aria-hidden className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
           Reading the latest scan…
         </p>
@@ -232,22 +255,22 @@ function SkillHistorySection({ rows }: { rows: { headSha: string | null; trackId
   const diff = prev ? diffTrackSets(prev.trackIds, latest.trackIds) : null;
   return (
     <section className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-      <h2 className="text-base font-semibold text-white">
+      <h2 className="type-body font-semibold text-white">
         Onboarding skill <span className="font-normal text-slate-500">· generated {rows.length}× · last {latest.generatedAt.slice(0, 10)}</span>
       </h2>
       <div className="mt-3 flex flex-wrap gap-1.5">
         {latest.trackIds.length === 0 ? (
-          <span className="text-sm text-slate-500">No open tracks. The skill targeted no gaps at last generation.</span>
+          <span className="type-body-sm text-slate-500">No open tracks. The skill targeted no gaps at last generation.</span>
         ) : (
           latest.trackIds.map((id) => (
-            <span key={id} className="rounded-full border border-slate-700 bg-slate-950/40 px-2.5 py-0.5 font-mono text-sm text-slate-300">
+            <span key={id} className="rounded-full border border-slate-700 bg-slate-950/40 px-2.5 py-0.5 type-mono-sm text-slate-300">
               {labelFor(id)}
             </span>
           ))
         )}
       </div>
       {diff && (diff.added.length > 0 || diff.dropped.length > 0) && (
-        <p className="mt-3 font-mono text-sm">
+        <p className="mt-3 type-mono-sm">
           {diff.added.length > 0 && <span className="text-emerald-300">+ {diff.added.map(labelFor).join(", ")}</span>}
           {diff.added.length > 0 && diff.dropped.length > 0 && <span className="text-slate-600"> · </span>}
           {diff.dropped.length > 0 && <span className="text-slate-500">✓ done: {diff.dropped.map(labelFor).join(", ")}</span>}

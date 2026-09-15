@@ -1,4 +1,4 @@
-// Shared best-effort DB write for the fire-and-forget counter upserts (badge-reach impressions and
+// Shared best-effort DB write for the fire-and-forget counter upserts (quota/rate-limit events and
 // public-funnel quota events). The contract is identical for both: no-op when persistence is off, and
 // swallow EVERY error so a failed analytics/observability write never breaks the hot path it rides on
 // (a public badge GET, a request the quota guard is already rejecting). The model-specific upsert

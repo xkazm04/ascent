@@ -67,5 +67,10 @@ export async function GET(request: Request) {
     nextSteps,
     series,
     prevScore,
+    // The provenance track cannot draw THIS dimension's real band without it: a flagged dimension's
+    // guardband is DOUBLED and the realized blend weight shrinks how far the model could move the
+    // number. Omitted — never null-padded — on a row scored before the field, which the track renders
+    // as "the blend weight was not recorded", not as a weight of zero.
+    ...(report.scoreIntegrity ? { scoreIntegrity: report.scoreIntegrity } : {}),
   });
 }

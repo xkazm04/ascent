@@ -34,7 +34,7 @@ export function WhatChanged({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <Kicker tone="accent">What changed</Kicker>
-            <p className="mt-1 text-base text-slate-400">
+            <p className="mt-1 type-body text-slate-400">
               <span className="text-slate-300">{scanCaption(before)}</span>
               <span aria-hidden className="mx-2 text-slate-600">→</span>
               <span className="text-slate-300">{scanCaption(after)}</span>
@@ -44,15 +44,15 @@ export function WhatChanged({
         </div>
 
         {sameScan ? (
-          <p className="mt-4 rounded-lg border border-divider bg-slate-950/40 px-4 py-3 text-base text-slate-400">
+          <p className="mt-4 rounded-lg border border-divider bg-slate-950/40 px-4 py-3 type-body text-slate-400">
             Same scan selected on both sides. Pick two different scans to see a diff.
           </p>
         ) : diff.unchanged ? (
-          <p className="mt-4 rounded-lg border border-divider bg-slate-950/40 px-4 py-3 text-base text-slate-400">
+          <p className="mt-4 rounded-lg border border-divider bg-slate-950/40 px-4 py-3 type-body text-slate-400">
             No measurable change between these two scans: same level, posture, scores, and open gaps.
           </p>
         ) : (
-          <div className="mt-4 flex flex-wrap gap-2 text-sm">
+          <div className="mt-4 flex flex-wrap gap-2 type-body-sm">
             {diff.appearedSignalCount > 0 && (
               <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 font-semibold text-emerald-300">
                 {diff.appearedSignalCount} {diff.appearedSignalCount === 1 ? "signal" : "signals"} detected
@@ -85,15 +85,15 @@ export function WhatChanged({
       {/* Explained movement — each score change tied to the concrete evidence behind it. */}
       {diff.movements.length > 0 && (
         <Surface radius="2xl" className="p-6">
-          <h2 className="text-lg font-semibold text-white">Why it moved</h2>
-          <p className="mt-1 text-base text-slate-400">
+          <h2 className="type-lede font-semibold text-white">Why it moved</h2>
+          <p className="mt-1 type-body text-slate-400">
             Each dimension&apos;s score change attributed to the specific signals that drove it.
           </p>
           <ul className="mt-3 space-y-2">
             {diff.movements.map((m, i) => (
               <li
                 key={i}
-                className="rounded-lg border border-divider bg-slate-950/40 px-3 py-2 font-mono text-sm leading-relaxed text-slate-300"
+                className="rounded-lg border border-divider bg-slate-950/40 px-3 py-2 type-mono-sm leading-relaxed text-slate-300"
               >
                 {m}
               </li>
@@ -114,12 +114,12 @@ export function WhatChanged({
           label="Posture"
           changed={diff.posture.changed}
           before={
-            <span className="rounded-full border border-slate-700 bg-surface/60 px-2.5 py-1 text-sm text-slate-300">
+            <span className="rounded-full border border-slate-700 bg-surface/60 px-2.5 py-1 type-body-sm text-slate-300">
               {diff.posture.before.label}
             </span>
           }
           after={
-            <span className="rounded-full border border-slate-700 bg-surface/60 px-2.5 py-1 text-sm text-slate-300">
+            <span className="rounded-full border border-slate-700 bg-surface/60 px-2.5 py-1 type-body-sm text-slate-300">
               {diff.posture.after.label}
             </span>
           }
@@ -134,8 +134,8 @@ export function WhatChanged({
 
       {/* Per-dimension diff — the full dimension list, GitHub-style annotated. */}
       <div>
-        <h2 className="text-lg font-semibold text-white">By dimension</h2>
-        <p className="mt-1 text-base text-slate-400">
+        <h2 className="type-lede font-semibold text-white">By dimension</h2>
+        <p className="mt-1 type-body text-slate-400">
           Each dimension&apos;s score change, with the gaps that closed or opened between scans.
         </p>
         <div className="mt-4 space-y-3">
@@ -148,15 +148,15 @@ export function WhatChanged({
       {/* Recommendations that moved to done. */}
       {diff.recsMovedToDone.length > 0 && (
         <Surface radius="2xl" className="p-6">
-          <h2 className="text-lg font-semibold text-white">Recommendations completed</h2>
-          <p className="mt-1 text-base text-slate-400">
+          <h2 className="type-lede font-semibold text-white">Recommendations completed</h2>
+          <p className="mt-1 type-body text-slate-400">
             Tracked items marked done between these two scans.
           </p>
-          <ul className="mt-3 space-y-2 text-base">
+          <ul className="mt-3 space-y-2 type-body">
             {diff.recsMovedToDone.map((r) => (
               <li key={r.id} className="flex items-center gap-2 text-slate-300">
                 <span aria-hidden className="text-emerald-400">✓</span>
-                <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm text-slate-400">
+                <span className="rounded border border-slate-700 px-1.5 py-0.5 type-mono-sm text-slate-400">
                   {DIMENSION_SHORT[r.dimId]}
                 </span>
                 <span className="line-through decoration-slate-600">{r.title}</span>

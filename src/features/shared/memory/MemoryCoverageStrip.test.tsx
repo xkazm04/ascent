@@ -5,10 +5,25 @@
 // an org that tracks no repos, the "+N more" fallback past STALE_SHOWN, and that a never-covered repo
 // reads "never" rather than a fabricated date.
 
-import { describe, it, expect } from "vitest";
+import { beforeAll, describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryCoverageStrip } from "./MemoryCoverageStrip";
 import type { MemoryCoverage } from "@/lib/memory/coverage";
+
+// The strip now opens on a BudgetPack, which reads `prefers-reduced-motion` through
+// `useSyncExternalStore`; jsdom has no matchMedia. Stub it to the REDUCED branch, as every viz
+// `.dom.test.tsx` does.
+beforeAll(() => {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: (query: string) => ({
+      matches: query.includes("reduce"),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }),
+  });
+});
 
 function coverage(overrides: Partial<MemoryCoverage>): MemoryCoverage {
   return {

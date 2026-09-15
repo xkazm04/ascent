@@ -79,6 +79,39 @@ describe("PassportHero", () => {
     expect(screen.getByTestId("passport-hero")).toBeInTheDocument();
   });
 
+  it("pins the provenance of an OWNER-MOVED production score, and pins nothing on a measured one", () => {
+    // An override is a decision, not a measurement: the lifted number must not render in the same form
+    // as a scan-derived one, and the measured figure stays readable beside it.
+    expect(render(<PassportHero passport={PASSPORT} repo="a/b" />).container.querySelector("[data-testid=passport-override-pin]")).toBeNull();
+
+    const lifted: AppPassport = {
+      ...PASSPORT,
+      productionReadiness: {
+        ...PASSPORT.productionReadiness,
+        score: 70,
+        overridden: { reason: "rollback", delta: 15, measuredScore: 55, measuredBand: "beta", by: "alice", at: "2026-09-05" },
+      },
+    };
+    render(<PassportHero passport={lifted} repo="a/b" />);
+    const pin = screen.getByTestId("passport-override-pin");
+    expect(pin).toHaveTextContent("+15 by owner override");
+    expect(pin).toHaveTextContent("rollback");
+    expect(pin).toHaveTextContent("55");
+    expect(pin).toHaveTextContent("alice");
+  });
+
+  it("says the author is UNKNOWN on an override stored before authorship was recorded", () => {
+    const lifted: AppPassport = {
+      ...PASSPORT,
+      productionReadiness: {
+        ...PASSPORT.productionReadiness,
+        overridden: { reason: "rollback", delta: 15, measuredScore: 55, measuredBand: "beta" },
+      },
+    };
+    render(<PassportHero passport={lifted} repo="a/b" />);
+    expect(screen.getByTestId("passport-override-pin")).toHaveTextContent("author unknown");
+  });
+
   it("emits seal tick coordinates rounded to 2dp, so SSR and client markup match", () => {
     const { container } = render(<PassportHero passport={PASSPORT} repo="sindresorhus/slugify" />);
     const lines = Array.from(container.querySelectorAll("line"));

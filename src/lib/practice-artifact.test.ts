@@ -1,6 +1,11 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { describe, it, expect } from "vitest";
-import { buildArtifact, commandsFor, type LangCommands } from "./practice-artifact";
-import { PRACTICES } from "@/lib/practices";
+import { buildArtifact, CI_NODE_VERSION, commandsFor, type LangCommands } from "./practice-artifact";
+import { buildConformanceWiring } from "@/lib/standard/wiring";
+import { ALL_PRACTICES, EXTRA_PRACTICES, PRACTICES } from "@/lib/practices";
+import { artifactFingerprint } from "@/lib/practices/fingerprint";
 
 const ctx = { fullName: "acme/api", name: "api", description: "Billing API", primaryLanguage: "TypeScript", defaultBranch: "main" };
 
@@ -41,27 +46,27 @@ describe("commandsFor — language→commands map", () => {
     [
       "ruby",
       "Ruby",
-      { install: "bundle install", test: "bundle exec rspec", lint: "bundle exec rubocop", build: "bundle exec rake build", ci: "generic", ciSetup: "ruby/setup-ruby" },
+      { install: "bundle install", test: "bundle exec rspec", lint: "bundle exec rubocop", build: "bundle exec rake build", ci: "generic", ciSetup: "ruby/setup-ruby", sourceFile: "Gemfile" },
     ],
     [
       "php",
       "PHP",
-      { install: "composer install", test: "vendor/bin/phpunit", lint: "vendor/bin/php-cs-fixer fix --dry-run", build: "composer dump-autoload -o", ci: "generic", ciSetup: "shivammathur/setup-php" },
+      { install: "composer install", test: "vendor/bin/phpunit", lint: "vendor/bin/php-cs-fixer fix --dry-run", build: "composer dump-autoload -o", ci: "generic", ciSetup: "shivammathur/setup-php", sourceFile: "composer.json" },
     ],
     [
       "java",
       "Java",
-      { install: "mvn -B dependency:go-offline", test: "mvn -B test", lint: "mvn -B checkstyle:check", build: "mvn -B package", ci: "generic", ciSetup: "actions/setup-java" },
+      { install: "mvn -B dependency:go-offline", test: "mvn -B test", lint: "mvn -B checkstyle:check", build: "mvn -B package", ci: "generic", ciSetup: "actions/setup-java", sourceFile: "pom.xml" },
     ],
     [
       "kotlin",
       "Kotlin",
-      { install: "./gradlew dependencies", test: "./gradlew test", lint: "./gradlew ktlintCheck", build: "./gradlew build", ci: "generic", ciSetup: "actions/setup-java" },
+      { install: "./gradlew dependencies", test: "./gradlew test", lint: "./gradlew ktlintCheck", build: "./gradlew build", ci: "generic", ciSetup: "actions/setup-java", sourceFile: "build.gradle" },
     ],
     [
       "scala",
       "Scala",
-      { install: "sbt update", test: "sbt test", lint: "sbt scalafmtCheckAll", build: "sbt package", ci: "generic", ciSetup: "actions/setup-java" },
+      { install: "sbt update", test: "sbt test", lint: "sbt scalafmtCheckAll", build: "sbt package", ci: "generic", ciSetup: "actions/setup-java", sourceFile: "build.sbt" },
     ],
     [
       "c#",
@@ -71,17 +76,17 @@ describe("commandsFor — language→commands map", () => {
     [
       "swift",
       "Swift",
-      { install: "swift package resolve", test: "swift test", lint: "swiftlint", build: "swift build -c release", ci: "generic", ciSetup: "swift-actions/setup-swift" },
+      { install: "swift package resolve", test: "swift test", lint: "swiftlint", build: "swift build -c release", ci: "generic", ciSetup: "swift-actions/setup-swift", sourceFile: "Package.swift" },
     ],
     [
       "dart",
       "Dart",
-      { install: "dart pub get", test: "dart test", lint: "dart analyze", build: "dart compile exe", ci: "generic", ciSetup: "dart-lang/setup-dart" },
+      { install: "dart pub get", test: "dart test", lint: "dart analyze", build: "dart compile exe", ci: "generic", ciSetup: "dart-lang/setup-dart", sourceFile: "pubspec.yaml" },
     ],
     [
       "elixir",
       "Elixir",
-      { install: "mix deps.get", test: "mix test", lint: "mix credo --strict", build: "mix compile --warnings-as-errors", ci: "generic", ciSetup: "erlef/setup-beam" },
+      { install: "mix deps.get", test: "mix test", lint: "mix credo --strict", build: "mix compile --warnings-as-errors", ci: "generic", ciSetup: "erlef/setup-beam", sourceFile: "mix.exs" },
     ],
   ];
 
@@ -150,6 +155,11 @@ describe("commandsFor — language→commands map", () => {
   });
 
   it("stability guard: dropping any language's commands fails this test", () => {
+    // `sourceFile` is pinned per family here as well as in the tuple table above: the extended
+    // families all carry ci: "generic", so anything keyed on `ci` collapses them onto one row —
+    // which is how standard/manifest.ts came to emit a <placeholder> provenance for every one of
+    // them. The field only helps when it is present on the families that have one, so both copies
+    // of the table assert it. C# is deliberately absent: its project file name is repo-specific.
     // Snapshot the FULL map (14 language families + the fallback = 15 tuples) so a regression that
     // drops/alters a case is caught here — the header claim that this file pins the single source of
     // truth only holds if every branch is present.
@@ -163,15 +173,15 @@ describe("commandsFor — language→commands map", () => {
       python: { install: "pip install -e .[dev]", test: "pytest", lint: "ruff check .", build: "python -m build", ci: "python" },
       go: { install: "go mod download", test: "go test ./...", lint: "golangci-lint run", build: "go build ./...", ci: "go" },
       rust: { install: "cargo fetch", test: "cargo test", lint: "cargo clippy -- -D warnings", build: "cargo build --release", ci: "rust" },
-      ruby: { install: "bundle install", test: "bundle exec rspec", lint: "bundle exec rubocop", build: "bundle exec rake build", ci: "generic", ciSetup: "ruby/setup-ruby" },
-      php: { install: "composer install", test: "vendor/bin/phpunit", lint: "vendor/bin/php-cs-fixer fix --dry-run", build: "composer dump-autoload -o", ci: "generic", ciSetup: "shivammathur/setup-php" },
-      java: { install: "mvn -B dependency:go-offline", test: "mvn -B test", lint: "mvn -B checkstyle:check", build: "mvn -B package", ci: "generic", ciSetup: "actions/setup-java" },
-      kotlin: { install: "./gradlew dependencies", test: "./gradlew test", lint: "./gradlew ktlintCheck", build: "./gradlew build", ci: "generic", ciSetup: "actions/setup-java" },
-      scala: { install: "sbt update", test: "sbt test", lint: "sbt scalafmtCheckAll", build: "sbt package", ci: "generic", ciSetup: "actions/setup-java" },
+      ruby: { install: "bundle install", test: "bundle exec rspec", lint: "bundle exec rubocop", build: "bundle exec rake build", ci: "generic", ciSetup: "ruby/setup-ruby", sourceFile: "Gemfile" },
+      php: { install: "composer install", test: "vendor/bin/phpunit", lint: "vendor/bin/php-cs-fixer fix --dry-run", build: "composer dump-autoload -o", ci: "generic", ciSetup: "shivammathur/setup-php", sourceFile: "composer.json" },
+      java: { install: "mvn -B dependency:go-offline", test: "mvn -B test", lint: "mvn -B checkstyle:check", build: "mvn -B package", ci: "generic", ciSetup: "actions/setup-java", sourceFile: "pom.xml" },
+      kotlin: { install: "./gradlew dependencies", test: "./gradlew test", lint: "./gradlew ktlintCheck", build: "./gradlew build", ci: "generic", ciSetup: "actions/setup-java", sourceFile: "build.gradle" },
+      scala: { install: "sbt update", test: "sbt test", lint: "sbt scalafmtCheckAll", build: "sbt package", ci: "generic", ciSetup: "actions/setup-java", sourceFile: "build.sbt" },
       "c#": { install: "dotnet restore", test: "dotnet test", lint: "dotnet format --verify-no-changes", build: "dotnet build -c Release", ci: "generic", ciSetup: "actions/setup-dotnet" },
-      swift: { install: "swift package resolve", test: "swift test", lint: "swiftlint", build: "swift build -c release", ci: "generic", ciSetup: "swift-actions/setup-swift" },
-      dart: { install: "dart pub get", test: "dart test", lint: "dart analyze", build: "dart compile exe", ci: "generic", ciSetup: "dart-lang/setup-dart" },
-      elixir: { install: "mix deps.get", test: "mix test", lint: "mix credo --strict", build: "mix compile --warnings-as-errors", ci: "generic", ciSetup: "erlef/setup-beam" },
+      swift: { install: "swift package resolve", test: "swift test", lint: "swiftlint", build: "swift build -c release", ci: "generic", ciSetup: "swift-actions/setup-swift", sourceFile: "Package.swift" },
+      dart: { install: "dart pub get", test: "dart test", lint: "dart analyze", build: "dart compile exe", ci: "generic", ciSetup: "dart-lang/setup-dart", sourceFile: "pubspec.yaml" },
+      elixir: { install: "mix deps.get", test: "mix test", lint: "mix credo --strict", build: "mix compile --warnings-as-errors", ci: "generic", ciSetup: "erlef/setup-beam", sourceFile: "mix.exs" },
       fallback: GENERIC,
     });
   });
@@ -272,10 +282,80 @@ describe("buildArtifact", () => {
     expect(buildArtifact("nope", ctx)).toBeNull();
   });
 
+  // #15 — the tenth practice. `buildArtifact` resolved against the SPINE, so every door that offers a
+  // practice (/api/practices/generate, /apply, /apply-batch, /rollout, the local loop's practice lane)
+  // answered `unknown-practice` for a practice the Practice Library was already advertising. This is
+  // the FAIL-BEFORE: revert the `ALL_PRACTICES` lookup and it goes red.
+  it("builds an artifact for every practice in the FULL catalog, not just the spine", () => {
+    for (const p of ALL_PRACTICES) {
+      const a = buildArtifact(p.id, ctx);
+      expect(a, `practice ${p.id} should yield an artifact`).not.toBeNull();
+      expect(a!.body.length).toBeGreaterThan(40);
+    }
+  });
+
   it("degrades to placeholders when repo context is sparse", () => {
     const a = buildArtifact("agent-guidance", { fullName: "x/y", name: "y" })!;
     expect(a.body).toContain("<install deps>");
     expect(a.body).toContain("TODO");
+  });
+
+  it("keeps the nine spine practices byte-identical to their declared paths", () => {
+    expect(PRACTICES.map((p) => buildArtifact(p.id, ctx)!.path)).toEqual([
+      "AGENTS.md",
+      "docs/TESTING.md",
+      ".github/workflows/ci.yml",
+      ".github/workflows/ai-review.yml",
+      "docs/adr/0001-record-architecture-decisions.md",
+      ".github/pull_request_template.md",
+      "docs/COMMIT_CONVENTIONS.md",
+      "docs/AI_HARNESS.md",
+      "SECURITY.md",
+    ]);
+  });
+});
+
+// GENERATE (the preview a maintainer reads) and APPLY (the body the server re-generates and commits)
+// are two independent runs of this builder joined only by the fingerprint, so the tenth practice is
+// only applicable if BOTH produce a real spec and the two agree.
+describe("buildArtifact consolidate-guidance — the tenth practice generates and applies", () => {
+  it("lands at the ONE path the catalog declares, so the adoption ledger keys on it", () => {
+    const declared = EXTRA_PRACTICES.find((p) => p.id === "consolidate-guidance")!.artifactPath;
+    const a = buildArtifact("consolidate-guidance", ctx)!;
+    expect(a.path).toBe(declared);
+    expect(a.path).toBe("docs/AGENT-GUIDANCE.md");
+    expect(a.branch).toBe("ascent/consolidate-guidance");
+    expect(a.prTitle).toContain("One canonical agent guidance source");
+  });
+
+  it("names every guidance format the arbiter reads, so the inventory step is actionable", () => {
+    const body = buildArtifact("consolidate-guidance", ctx)!.body;
+    for (const f of ["CLAUDE.md", "AGENTS.md", ".cursorrules", ".github/copilot-instructions.md", ".windsurfrules"]) {
+      expect(body, `inventory should name ${f}`).toContain(f);
+    }
+    // Reconcile BEFORE generating: a contradiction copied into five files is still a contradiction.
+    expect(body).toContain("guidance:");
+    expect(body).toContain("canonical:");
+    expect(body).toContain("projections:");
+  });
+
+  it("survives the preview→apply fingerprint guard: same ctx, same body", () => {
+    const preview = buildArtifact("consolidate-guidance", ctx)!;
+    const applied = buildArtifact("consolidate-guidance", { ...ctx })!;
+    expect(artifactFingerprint(applied.body)).toBe(artifactFingerprint(preview.body));
+  });
+
+  it("carries the org's mined house pattern through the same section as the spine practices", () => {
+    const house = { lines: ["## Commands"], exemplars: ["acme/api", "acme/web"] };
+    const a = buildArtifact("consolidate-guidance", { ...ctx, house })!;
+    expect(a.body).toContain("Your organization's shared pattern");
+    expect(a.prBody).toContain("your organization's own");
+  });
+
+  it("degrades to placeholders when repo context is sparse", () => {
+    const a = buildArtifact("consolidate-guidance", { fullName: "x/y", name: "y" })!;
+    expect(a.body).toContain("TODO");
+    expect(a.body).toContain("<...>");
   });
 });
 
@@ -354,5 +434,24 @@ describe("house pattern + provenance", () => {
     const nasty = { lines: ["<script>alert(1)</script>"], exemplars: ["acme/api", "acme/core"] };
     const a = buildArtifact("agent-guidance", { ...ctx, house: nasty })!;
     expect(a.body).not.toContain("<script>");
+  });
+});
+
+// The generated workflows run in SOMEONE ELSE's CI, so this repo's own green build says nothing
+// about the runtime they pin. That is how ascent came to ship node-version: 20 - EOL since April
+// 2026 - into every adopting repo while pinning 24 for itself in .nvmrc, package.json engines and
+// its own two workflows. Derived from package.json rather than re-typed, so the next bump carries.
+describe("generated workflows pin the Node major this repo actually runs", () => {
+  it("CI_NODE_VERSION matches package.json engines.node", () => {
+    const pkg = JSON.parse(readFileSync(resolve(process.cwd(), "package.json"), "utf8"));
+    const major = String(pkg.engines?.node ?? "").match(/^(\d+)/)?.[1];
+    expect(major, "package.json engines.node must pin a major").toBeTruthy();
+    expect(CI_NODE_VERSION).toBe(major);
+  });
+
+  it("the generated CI recipe and the .ai conformance workflow use it, not a literal", () => {
+    const wf = buildArtifact("ci-gates", { ...ctx, primaryLanguage: "TypeScript" })!.body;
+    expect(wf).toContain("node-version: " + CI_NODE_VERSION);
+    expect(buildConformanceWiring().body).toContain("node-version: " + CI_NODE_VERSION);
   });
 });

@@ -31,10 +31,10 @@ export function ClaudeCodeSetup({ slug, ingestToken, ingestPath }: { slug: strin
 
 function IngestNotConfigured() {
   return (
-    <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-sm">
+    <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 type-body-sm">
       <p className="font-medium text-amber-200">Ingest is not configured on this deployment.</p>
       <p className="mt-1 text-muted-foreground">
-        Set <code className="rounded bg-muted px-1 py-0.5 text-xs">INTEGRATIONS_INGEST_SECRET</code> on the server and
+        Set <code className="rounded bg-muted px-1 py-0.5 type-note">INTEGRATIONS_INGEST_SECRET</code> on the server and
         restart. Until then no ingest token can be issued or verified, and pushes to this endpoint are refused.
       </p>
     </div>
@@ -93,10 +93,10 @@ function ClaudeCodeSetupConfigured({ slug, ingestToken, ingestPath }: { slug: st
     <div className="space-y-3">
       <div>
         <Kicker tone="muted">Connect via OpenTelemetry</Kicker>
-        <p className="mt-1 text-sm text-slate-400">
+        <p className="mt-1 type-body-sm text-slate-400">
           Set these in the environment where your team runs Claude Code (shell profile, CI, or your OTel collector). The{" "}
-          <code className="font-mono text-xs text-slate-300">git.repository</code> attribute is what attributes tokens to the exact repo.
-          Keep <code className="font-mono text-xs text-slate-300">OTEL_EXPORTER_OTLP_PROTOCOL=http/json</code>: Ascent decodes OTLP over
+          <code className="type-caption text-slate-300">git.repository</code> attribute is what attributes tokens to the exact repo.
+          Keep <code className="type-caption text-slate-300">OTEL_EXPORTER_OTLP_PROTOCOL=http/json</code>: Ascent decodes OTLP over
           JSON only, and the exporter&apos;s default protobuf wire format is rejected (415).
         </p>
       </div>
@@ -110,7 +110,7 @@ function ClaudeCodeSetupConfigured({ slug, ingestToken, ingestPath }: { slug: st
           aria-pressed={revealed}
           // Names the blast radius: the control governs the snippet below as well as this field.
           aria-label={revealed ? "Hide ingest token and environment snippet" : "Reveal ingest token and environment snippet"}
-          className="focus-ring shrink-0 rounded border border-divider px-2 py-1 font-mono text-xs text-slate-400 transition hover:border-accent hover:text-white"
+          className="focus-ring shrink-0 rounded border border-divider px-2 py-1 type-caption text-slate-400 transition hover:border-accent hover:text-white"
         >
           {revealed ? "Hide" : "Reveal"}
         </button>
@@ -118,14 +118,14 @@ function ClaudeCodeSetupConfigured({ slug, ingestToken, ingestPath }: { slug: st
 
       <div>
         <div className="flex items-center justify-between">
-          <div className="font-mono text-xs uppercase tracking-widest text-slate-500">Environment</div>
+          <div className="type-label tracking-widest text-slate-500">Environment</div>
           <CopyButton text={snippet} />
         </div>
-        <pre className="mt-1 overflow-x-auto rounded-lg border border-divider bg-surface-strong/60 p-3 font-mono text-xs leading-relaxed text-slate-300">
+        <pre className="mt-1 overflow-x-auto rounded-lg border border-divider bg-surface-strong/60 p-3 type-caption leading-relaxed text-slate-300">
           {shownSnippet}
         </pre>
         {!revealed && (
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 type-note text-slate-500">
             The token is hidden here too. Copy still copies the working value. Use Reveal above to show it.
           </p>
         )}
@@ -136,19 +136,19 @@ function ClaudeCodeSetupConfigured({ slug, ingestToken, ingestPath }: { slug: st
           type="button"
           onClick={test}
           disabled={busy}
-          className="focus-ring rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50"
+          className="focus-ring rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50"
         >
           {busy ? "Testing…" : "Test ingest token"}
         </button>
         {result && (
-          <p role="status" className={`text-sm ${result.ok ? "text-emerald-300" : "text-orange-300"}`}>
+          <p role="status" className={`type-body-sm ${result.ok ? "text-emerald-300" : "text-orange-300"}`}>
             {result.text}
           </p>
         )}
       </div>
 
       <div className="space-y-2 border-t border-divider pt-3">
-        <p className="text-xs text-slate-500">
+        <p className="type-note text-slate-500">
           Leaked the token? Regenerating issues a new one and stops the old one being accepted (for this organization only).
         </p>
         <RegenerateTokenButton
@@ -161,7 +161,7 @@ function ClaudeCodeSetupConfigured({ slug, ingestToken, ingestPath }: { slug: st
           }}
         />
         {rotated && (
-          <p role="status" className="text-sm text-emerald-300">
+          <p role="status" className="type-body-sm text-emerald-300">
             New token issued. The endpoint snippet above already uses it. Copy it into every exporter; the previous token is now rejected.
           </p>
         )}

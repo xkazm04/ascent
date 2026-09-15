@@ -32,7 +32,11 @@ export function TeamsMatrixRow({
             type="button"
             onClick={() => onToggle(team.slug)}
             aria-expanded={open}
-            className="focus-ring flex items-center gap-2 rounded text-left font-mono text-sm text-white transition hover:text-accent"
+            // The section header used to instruct: "click a team to open its repos and champions".
+            // A row that needs telling is a row whose affordance is wrong — the disclosure triangle
+            // is the affordance, and what it opens rides on the control itself (§2.1 D).
+            title={`${open ? "Collapse" : "Expand"} ${team.slug}: its owned repos, AI champions and mover detail`}
+            className="focus-ring flex items-center gap-2 rounded text-left type-mono-sm text-white transition hover:text-accent"
           >
             <span aria-hidden className={`text-slate-500 transition-transform ${open ? "rotate-90" : ""}`}>▸</span>
             {team.slug}

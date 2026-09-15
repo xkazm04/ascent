@@ -19,38 +19,14 @@
 // Operators who prefer availability can set ASCENT_RATE_LIMIT_SHARED_FAIL_OPEN=1 to degrade to the
 // in-memory ceiling instead. Note the per-IP burst cap is in-memory and keeps working either way,
 // so failing open is a bounded (not unlimited) degradation.
-// (The badge route also uses this shared limiter via BADGE_RATE_LIMIT.)
 
 import { sharedWindowStore, SHARED_STORE_BREAKER_MS } from "@/lib/rate-limit-store";
+import { trustedProxyHops } from "@/lib/env";
 
 /**
- * TRUST MODEL (quotas-rate-limiting 07-16 #1): how many proxies between the client and this app are
- * trusted to append honest forwarding headers. The default (1) encodes the platform assumption this
- * module was built on — EXACTLY ONE well-behaved proxy (Vercel's edge) that strips/sets `x-real-ip`
- * and appends the real client to `x-forwarded-for`. On other deploy shapes that assumption breaks in
- * two opposite ways, so make it explicit via ASCENT_TRUSTED_PROXY_HOPS:
- *   - `0` — NO proxy is trusted (e.g. a self-hosted node behind a proxy that forwards client headers
- *     VERBATIM, where an attacker can mint a fresh `x-real-ip` per request and bypass every per-IP
- *     limit AND the 30-day quota). All forwarding headers are ignored; every anonymous caller shares
- *     one burst bucket (fail closed) and the monthly quota treats the caller as unidentifiable
- *     (fail open — see public-scan-quota's bucketContext) instead of trusting spoofable input.
- *   - `1` (default) — platform mode: `x-real-ip` first, then the RIGHT-most XFF hop.
- *   - `N >= 2` — an N-hop trusted chain (e.g. CDN → LB → app): the client is the Nth-from-the-right
- *     XFF entry (the right-most N−1 are the trusted proxies' own addresses — bucketing on those would
- *     collapse thousands of real users into a handful of edge IPs and lock the whole anonymous funnel
- *     out of the 30-day quota). `x-real-ip` is NOT trusted here: it was set by an intermediate hop and
- *     names the wrong peer. A chain shorter than N yields "unknown" (fail closed / unidentifiable).
- */
-function trustedProxyHops(): number {
-  const raw = process.env.ASCENT_TRUSTED_PROXY_HOPS?.trim();
-  if (!raw) return 1;
-  const n = Number(raw);
-  return Number.isInteger(n) && n >= 0 ? n : 1;
-}
-
-/**
- * Best-effort client IP under the configured trust model (see trustedProxyHops). The LEFT-most
- * X-Forwarded-For entry is client-supplied (spoofable to a fresh bucket per request), so only the
+ * Best-effort client IP under the configured trust model — `trustedProxyHops()` in @/lib/env, which
+ * documents what 0 / 1 / N mean, why the unwitnessed default warns, and why the env var is read
+ * nowhere else. The LEFT-most X-Forwarded-For entry is client-supplied (spoofable to a fresh bucket per request), so only the
  * hop appended by the innermost TRUSTED proxy is used; unidentifiable callers fall back to a single
  * shared "unknown" bucket so they are limited COLLECTIVELY (fail closed), never per spoofed value.
  */
@@ -206,8 +182,16 @@ export function __resetRateLimiterState(): void {
   stats.peakKeys = 0;
 }
 
-/** Record a hit for `key` and report whether it is now over `limit` within `windowMs`. */
-function hit(key: string, limit: number, windowMs: number): { ok: boolean; retryAfterSec: number } {
+/**
+ * Would a hit on `key` be admitted within `limit`/`windowMs`? Records NOTHING — it only trims the
+ * aged-out entries it had to compute anyway.
+ *
+ * QUOTA #3: the check and the record are separate steps because a request can still be refused by a
+ * LATER gate (the global ceiling, or the fail-closed "store unreachable" branch). A slot must be
+ * spent only by a request that was actually SERVED, so callers check every gate first and record the
+ * per-IP hit only on the admit path. See `rateLimitRequest`.
+ */
+function checkWindow(key: string, limit: number, windowMs: number): { ok: boolean; retryAfterSec: number } {
   const now = Date.now();
   const cutoff = now - windowMs;
   if (windowMs > maxWindowMs) maxWindowMs = windowMs;
@@ -232,9 +216,30 @@ function hit(key: string, limit: number, windowMs: number): { ok: boolean; retry
     const retryAfterSec = oldest != null ? Math.max(1, Math.ceil((oldest + windowMs - now) / 1000)) : 1;
     return { ok: false, retryAfterSec };
   }
+  // Persist the trimmed window (nothing added). An entry that trimmed to empty is dropped rather than
+  // left as an empty array, so a check that ends in a refusal elsewhere leaves no residue for the
+  // reaper to walk.
+  if (recent.length) windows.set(key, recent);
+  else windows.delete(key);
+  return { ok: true, retryAfterSec: 0 };
+}
+
+/** Record one ADMITTED hit for `key`. Re-reads the window rather than reusing the array a preceding
+ *  `checkWindow` trimmed, because the shared path awaits a network hop in between. */
+function recordHit(key: string, windowMs: number): void {
+  const now = Date.now();
+  const cutoff = now - windowMs;
+  const recent = (windows.get(key) ?? []).filter((t) => t > cutoff);
   recent.push(now);
   windows.set(key, recent);
-  return { ok: true, retryAfterSec: 0 };
+}
+
+/** Check `key` against `limit`/`windowMs` and record the hit iff it is admitted. The one-step form,
+ *  used for the GLOBAL window (nothing can refuse after it). */
+function hit(key: string, limit: number, windowMs: number): { ok: boolean; retryAfterSec: number } {
+  const r = checkWindow(key, limit, windowMs);
+  if (r.ok) recordHit(key, windowMs);
+  return r;
 }
 
 /**
@@ -320,14 +325,48 @@ export interface RateLimitResult {
  * therefore drains on schedule instead of being kept saturated by the very requests it rejects — a
  * 1s overload no longer escalates into a sustained instance-wide 429 lockout under normal follow-on
  * traffic. (A per-IP-rejected request still never reaches the global window, per QUOTA #1.)
+ *
+ * QUOTA #3 (the symmetric complement of #1): a request refused by the GLOBAL ceiling must not spend
+ * the caller's own per-IP slot either. The per-IP window is CHECKED first (so the QUOTA #1 ordering
+ * is unchanged — an over-cap IP still never reaches the global window) but RECORDED only once the
+ * global window has admitted. Otherwise, during global saturation an innocent caller's 20/min budget
+ * drains on requests that were never served, and a later `evaluated: false` refusal claiming "no
+ * budget of yours was exceeded" would be untrue.
  */
 export function rateLimitRequest(req: Request, cfg: RateLimitConfig): RateLimitResult {
-  const ip = clientIp(req);
-  const p = hit(`${cfg.name}:ip:${ip}`, cfg.perIp, cfg.windowMs);
+  return chargeWindows(`${cfg.name}:ip:${clientIp(req)}`, cfg);
+}
+
+/**
+ * The same two windows, charged against a CALLER-SUPPLIED key instead of the client IP.
+ *
+ * WHY A KEY AND NOT AN IP, for the door that needs it: `clientIp` returns the shared `"unknown"`
+ * bucket whenever `trustedProxyHops()` is 0 (the default), so on a self-hosted deployment every
+ * agent in the world shares ONE per-IP budget — the cap becomes a fleet cap by accident. An
+ * AUTHENTICATED door does not have to guess who is calling: it holds a verified token id, which is
+ * both unspoofable and exactly the unit the budget is meant to bound. See MCP_RATE_LIMIT.
+ *
+ * The refusal is reported with `scope: "ip"` unchanged — the scope names WHOSE budget refused (the
+ * caller's own, which it can act on) as opposed to the shared one, and that reading is still true
+ * when the caller is identified by a token rather than an address.
+ *
+ * NOT A SUBSTITUTE FOR THE PRE-AUTH GATE. A keyed limit can only be charged after the credential is
+ * verified, which is after the request has already cost a token hash. A door that uses this keeps its
+ * per-IP check in front of it as the cheap first gate.
+ */
+export function rateLimitKeyed(key: string, cfg: RateLimitConfig): RateLimitResult {
+  return chargeWindows(`${cfg.name}:key:${key}`, cfg);
+}
+
+/** The per-caller + global charge, shared by both entry points so the QUOTA rules above have ONE
+ *  implementation. `callerKey` is already namespaced by the caller. */
+function chargeWindows(callerKey: string, cfg: RateLimitConfig): RateLimitResult {
+  const p = checkWindow(callerKey, cfg.perIp, cfg.windowMs);
   if (!p.ok) return perIpRefusal(cfg, p.retryAfterSec);
   const g = hit(`${cfg.name}:__global__`, cfg.global, cfg.windowMs);
-  if (g.ok) return { ok: true, retryAfterSec: 0 };
-  return globalRefusal(cfg, g.retryAfterSec);
+  if (!g.ok) return globalRefusal(cfg, g.retryAfterSec); // served nothing → charge nothing per-caller
+  recordHit(callerKey, cfg.windowMs);
+  return { ok: true, retryAfterSec: 0 };
 }
 
 /** A refusal by the caller's OWN budget: fully named, because the caller can act on it. */
@@ -371,22 +410,30 @@ function sharedFailOpen(): boolean {
  * the file header for the reasoning.
  */
 export async function rateLimitRequestShared(req: Request, cfg: RateLimitConfig): Promise<RateLimitResult> {
-  const ip = clientIp(req);
-  const p = hit(`${cfg.name}:ip:${ip}`, cfg.perIp, cfg.windowMs);
+  const ipKey = `${cfg.name}:ip:${clientIp(req)}`;
+  // QUOTA #3: checked now, recorded only on an admit — a global refusal, and the fail-closed
+  // "unavailable" refusal below, must leave the caller's own burst budget untouched.
+  const p = checkWindow(ipKey, cfg.perIp, cfg.windowMs);
   if (!p.ok) return perIpRefusal(cfg, p.retryAfterSec);
+  const admit = (): RateLimitResult => {
+    recordHit(ipKey, cfg.windowMs);
+    return { ok: true, retryAfterSec: 0 };
+  };
 
   const store = sharedWindowStore();
   if (!store) {
     const g = hit(`${cfg.name}:__global__`, cfg.global, cfg.windowMs);
-    return g.ok ? { ok: true, retryAfterSec: 0 } : globalRefusal(cfg, g.retryAfterSec);
+    return g.ok ? admit() : globalRefusal(cfg, g.retryAfterSec);
   }
 
   const g = await store.hit(`ascent:rl:${cfg.name}:__global__`, cfg.global, cfg.windowMs);
-  if (g) return g.ok ? { ok: true, retryAfterSec: 0 } : globalRefusal(cfg, g.retryAfterSec);
+  if (g) return g.ok ? admit() : globalRefusal(cfg, g.retryAfterSec);
 
   if (sharedFailOpen()) {
+    // Degraded but SERVED when the in-memory ceiling admits — so the per-IP slot is spent, exactly
+    // as on the healthy path.
     const local = hit(`${cfg.name}:__global__`, cfg.global, cfg.windowMs);
-    return local.ok ? { ok: true, retryAfterSec: 0 } : globalRefusal(cfg, local.retryAfterSec);
+    return local.ok ? admit() : globalRefusal(cfg, local.retryAfterSec);
   }
   // Fail closed — and say so honestly. NO LIMIT WAS EVALUATED here: the store never answered, so
   // nothing was counted and no window is draining. The old code returned one full window (60s),
@@ -396,7 +443,9 @@ export async function rateLimitRequestShared(req: Request, cfg: RateLimitConfig)
   // SHARED_STORE_BREAKER_MS, so that is what we advertise, with `evaluated: false` and
   // `scope: "unavailable"` so the caller can tell an outage from its own overuse. Trade-off: a
   // shorter Retry-After means clients come back sooner during a store outage; that is bounded by
-  // the per-IP burst cap, which is in-memory and still enforced.
+  // the per-IP burst cap, which is in-memory and still enforced. The caller's per-IP window was
+  // checked but NOT recorded (QUOTA #3), so `evaluated: false` — "no budget of yours was exceeded"
+  // — is now literally true: this refusal costs the caller nothing.
   return {
     ok: false,
     retryAfterSec: Math.max(1, Math.ceil(SHARED_STORE_BREAKER_MS / 1000)),
@@ -598,11 +647,35 @@ export const ORG_IMPORT_RATE_LIMIT: RateLimitConfig = {
 // once per event, redo this — at one poll per 10s per open PR (6/min/PR), 60/min/IP is exhausted by
 // 10 concurrent PRs behind one egress IP, which is an ordinary Monday, not an attack.
 // NOT DERIVED: the ~1-call-per-PR-event cadence is real, but 60 was not computed from it — it is the
-// same round 60/600 used by PEEK and BADGE.
+// same round 60/600 used by PEEK.
 export const GATE_RATE_LIMIT: RateLimitConfig = {
   name: "gate",
   perIp: envInt("RATE_LIMIT_GATE_PER_IP", 60),
   global: envInt("RATE_LIMIT_GATE_GLOBAL", 600),
+  windowMs: 60_000,
+  basis: "inherited",
+};
+
+// The MCP agent door (POST /api/mcp) charged GATE_RATE_LIMIT and keyed it per IP. Both halves were
+// wrong for it.
+//   THE KEY: with `trustedProxyHops() === 0` — the default, and the normal self-hosted posture —
+//   `clientIp` returns the single shared "unknown" bucket, so every agent on earth shared ONE 60/min
+//   budget on that deployment. The door holds a VERIFIED token id, so it charges this config with
+//   `rateLimitKeyed(tokenId, …)` and each credential gets its own window. The per-IP GATE check stays
+//   in front as the cheap pre-auth gate.
+//   THE NUMBER: GATE_RATE_LIMIT's sizing comment reasons about ~1 call per PR event. An agent's
+//   cadence is nothing like that — one session claims, briefs, recalls memory, finds skills, compares
+//   an exemplar and reports per row, so a working session is TENS of calls, arriving in bursts while
+//   the agent is thinking and idle while it is editing. 300/min/token clears a burst of ~5 calls a
+//   second for a full minute, which is far above any interactive agent and still bounds a looping one;
+//   the 3,000/min global bounds ten such tokens at once.
+// Both env-overridable. NOT DERIVED: "tens of calls per session, in bursts" is an observed shape, not
+// a measured rate — nobody has counted an agent's calls per minute here, and 300/3,000 is a bound
+// placed above the shape rather than computed from it.
+export const MCP_RATE_LIMIT: RateLimitConfig = {
+  name: "mcp",
+  perIp: envInt("RATE_LIMIT_MCP_PER_TOKEN", 300),
+  global: envInt("RATE_LIMIT_MCP_GLOBAL", 3_000),
   windowMs: 60_000,
   basis: "inherited",
 };
@@ -625,20 +698,25 @@ export const CONTACT_RATE_LIMIT: RateLimitConfig = {
   basis: "inherited",
 };
 
-// The public README badge is hammered by crawlers/READMEs; the limit gates only the EXPENSIVE
-// cache-miss scan (a cheap static badge is still returned). Env-overridable.
-// INHERITED, AND THE CLEAREST CASE OF IT: nobody computed this budget. The 60/min/IP was "matched to
-// the badge route's previous bespoke 60/min/IP" when the route adopted the shared limiter, and the
-// 600 global was filled in to match its neighbours — yet it sits in the same list, in the same shape,
-// and so reads with the same authority as a limit somebody argued for. That is precisely what the
-// `basis` field is for: an operator tuning under load can see this one is inherited and may be moved
-// with far less argument than a derived ceiling.
-// A REAL derivation would start from badge impressions per minute on a busy README times the
-// cache-miss rate; neither has been measured, so do NOT write one — see LimitBasis.
-export const BADGE_RATE_LIMIT: RateLimitConfig = {
-  name: "badge",
-  perIp: envInt("RATE_LIMIT_BADGE_PER_IP", 60),
-  global: envInt("RATE_LIMIT_BADGE_GLOBAL", 600),
+// GET /api/org/repos was the last PUBLIC endpoint with no limiter — its siblings gate and
+// scorecard all have one. It is the most expensive of them per call: `listOrgRepos` pages up to
+// MAX_LIST_PAGES (5) x 100 repos against the server's AMBIENT `GITHUB_TOKEN`, so one anonymous
+// request costs up to 5 upstream calls on a shared credential nobody is authenticated against. An
+// unauthenticated loop over made-up org names is therefore a denial-of-wallet lever on the operator's
+// GitHub quota — the same shape as PEEK and QUOTA_PEEK above, at 5x the upstream cost.
+// CLEARS: this serves the onboarding org-name selector, where a human types an org, looks, and maybe
+// corrects it. 10/min/IP admits ten distinct orgs a minute from one address — past any real
+// onboarding session, and a 429 costs the user only a retry.
+// THE MULTIPLICATION THAT MATTERS: at up to 5 upstream calls each, the GLOBAL cap admits ~300 GitHub
+// calls/min, which exceeds the 5,000/hour core quota if sustained. So this is a BURST brake, not a
+// quota guarantee — the actual quota protection remains `listOrgRepos`'s own page budget. If the
+// shared token starts hitting secondary limits, lower `global` here first.
+// NOT DERIVED: 10 and 60 are judgement calls about onboarding behaviour; no selector-usage rate has
+// been measured.
+export const ORG_REPOS_RATE_LIMIT: RateLimitConfig = {
+  name: "org-repos",
+  perIp: envInt("RATE_LIMIT_ORG_REPOS_PER_IP", 10),
+  global: envInt("RATE_LIMIT_ORG_REPOS_GLOBAL", 60),
   windowMs: 60_000,
   basis: "inherited",
 };

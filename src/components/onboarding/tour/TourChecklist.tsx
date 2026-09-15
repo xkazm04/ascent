@@ -77,11 +77,14 @@ export function TourChecklist({ slug }: { slug: string }) {
   // effects run in declaration order, and the engine's persist effect writes the same record — read
   // after it and every mount would look like "the user already chose collapsed", so the companion could
   // never open itself. Not a lazy initializer (the drawer renders inside a server-rendered layout).
+  // The "taken" flag is a REF, not state: it only sequences this effect ahead of the restore effect
+  // below, and declaration order already guarantees that within every commit — nothing needs to
+  // re-render when it flips (state here would be a synchronous setState in an effect).
   const savedRef = useRef<TourStorageState | null>(null);
-  const [snapshotTaken, setSnapshotTaken] = useState(false);
+  const snapshotTakenRef = useRef(false);
   useEffect(() => {
     savedRef.current = readTourState(slug);
-    setSnapshotTaken(true);
+    snapshotTakenRef.current = true;
   }, [slug]);
 
   const isDemoOrg = slug.trim().toLowerCase() === PUBLIC_ORG;
@@ -104,11 +107,11 @@ export function TourChecklist({ slug }: { slug: string }) {
   // always wins: a member who shut the companion this session must not have it pushed back open on every
   // navigation. With nothing stored, the posture decides — that IS the entry-intensity rule.
   useEffect(() => {
-    if (!loaded || !snapshotTaken || restored) return;
+    if (!loaded || !snapshotTakenRef.current || restored) return;
     const saved = savedRef.current;
     setOpen(saved ? saved.open : derived === "companion");
     setRestored(true);
-  }, [loaded, snapshotTaken, restored, derived]);
+  }, [loaded, restored, derived]);
 
   useEffect(() => {
     if (restored) patchTourState(slug, { open });
@@ -174,7 +177,12 @@ export function TourChecklist({ slug }: { slug: string }) {
           invisibly, over whatever the dashboard put in that band: on the Overview that was the Fleet
           card's Type/Stack/Level group buttons, which read as dead. The panel is only translated
           off-screen, so `inert` already handles focus; this handles the mouse. */}
-      <div className="pointer-events-none fixed right-0 top-1/2 z-[55] -translate-y-1/2">
+      {/* z-[46]: just above the spotlight ring (z-[45]) and the header popovers (z-40), and BELOW the
+          modal band (z-50 — ui/Modal, ScanModal). It sat at z-[55], so the coaching drawer and its pull
+          tab painted on top of every dialog's backdrop: a panel floating over a modal the user opened,
+          still clickable, while the dialog dimmed everything else. Coaching is the most interruptible
+          content in the product — a dialog outranks it, always. (overlayBands.test.ts gates the order.) */}
+      <div className="pointer-events-none fixed right-0 top-1/2 z-[46] -translate-y-1/2">
         <div
           className={`relative transition-transform duration-300 ease-out motion-reduce:transition-none ${
             open ? "translate-x-0" : "translate-x-full"
@@ -189,8 +197,8 @@ export function TourChecklist({ slug }: { slug: string }) {
             className="focus-ring pointer-events-auto absolute right-full top-1/2 flex -translate-y-1/2 items-center gap-2 rounded-l-xl border border-r-0 border-divider bg-surface-strong px-2.5 py-4 text-accent shadow-2xl transition hover:bg-accent/10"
             style={{ writingMode: "vertical-rl" }}
           >
-            <span aria-hidden className="text-sm">{open ? "▸" : "◂"}</span>
-            <span className="font-mono text-xs uppercase tracking-[0.2em]">Guided setup</span>
+            <span aria-hidden className="type-body-sm">{open ? "▸" : "◂"}</span>
+            <span className="type-label tracking-[0.2em]">Guided setup</span>
           </button>
 
           {/* Panel — flush to the right edge (left-rounded, no right border). A COMPLEMENTARY region,

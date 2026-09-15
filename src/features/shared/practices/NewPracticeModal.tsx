@@ -18,7 +18,7 @@ interface DimOption {
 }
 
 const FIELD =
-  "w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200 placeholder:text-slate-600";
+  "w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-body-sm text-slate-200 placeholder:text-slate-600";
 
 export function NewPracticeModal({
   open,
@@ -111,12 +111,12 @@ export function NewPracticeModal({
       />
       <ModalBody className="space-y-3">
         {/* Start from a leak-free template instead of a blank form. */}
-        <label className="flex flex-wrap items-center gap-2 font-mono text-sm text-slate-500">
+        <label className="flex flex-wrap items-center gap-2 type-mono-sm text-slate-500">
           Start from a template
           <select
             value=""
             onChange={(e) => e.target.value !== "" && applyTemplate(Number(e.target.value))}
-            className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
+            className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-mono-sm text-slate-200"
           >
             <option value="">choose a template…</option>
             {PLAYBOOK_TEMPLATES.map((t, i) => (
@@ -138,7 +138,7 @@ export function NewPracticeModal({
             value={dimId}
             onChange={(e) => setDimId(e.target.value)}
             aria-label="Dimension"
-            className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
+            className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-mono-sm text-slate-200"
           >
             {dimOptions.map((d) => (
               <option key={d.id} value={d.id}>
@@ -162,22 +162,22 @@ export function NewPracticeModal({
           rows={4}
           className={FIELD}
         />
-        {error && <p className="text-sm text-orange-300">{error}</p>}
+        {error && <p className="type-body-sm text-orange-300">{error}</p>}
       </ModalBody>
       <ModalFooter>
-        <span className="font-mono text-sm text-slate-500">Saved to your org&apos;s playbooks.</span>
+        <span className="type-mono-sm text-slate-500">Saved to your org&apos;s playbooks.</span>
         <div className="flex items-center gap-2">
           <button
             onClick={onClose}
             disabled={busy}
-            className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50"
+            className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 type-body-sm text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             onClick={create}
             disabled={busy || !title.trim()}
-            className="focus-ring rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50"
+            className="focus-ring rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50"
           >
             {busy ? "Adding…" : "Add practice"}
           </button>

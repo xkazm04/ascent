@@ -82,6 +82,21 @@ export interface ManifestData {
   };
   /** Vendor-neutral agent registry — any coding agent, not one brand. */
   agents: { id: string; kind: string; entrypoint: string }[];
+  /**
+   * The guidance contract (spec 0.3.0): which instruction document is the AUTHORITY for agents, and
+   * which vendor files are generated projections of it.
+   *
+   * This is the repo declaring the answer rather than every reader guessing it. `canonical` is the
+   * one file an agent should believe when two of them disagree; each projection records the source it
+   * was generated from and the source's hash at generation time, so `.ai/doctor.mjs` can tell a STALE
+   * projection (source moved on — a warning) from a HAND-EDITED one (the repo now has two sources of
+   * truth — a failure). Optional: a repo that has not adopted the block is not failing it, and the
+   * doctor reports `unchecked` rather than a finding.
+   */
+  guidance?: {
+    canonical: string;
+    projections: { agent: string; path: string; generatedFrom: string; hash: string }[];
+  };
   /** The control model (shift-left): which layer primarily enforces each capability. */
   controls: {
     prePush: string[];
@@ -105,7 +120,7 @@ export interface ManifestData {
  *
  * Contrast `GUARDRAILS_SCHEMA_VERSION` below, which is deliberately independent and stays at 0.1.0.
  */
-export const MANIFEST_SCHEMA_VERSION = "0.2.0";
+export const MANIFEST_SCHEMA_VERSION = "0.3.0";
 
 /** Semver of the `.ai/guardrails.yaml` invariants schema (versioned independently of the spine). */
 export const GUARDRAILS_SCHEMA_VERSION = "0.1.0";

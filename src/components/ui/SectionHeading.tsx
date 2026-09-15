@@ -2,9 +2,9 @@
 // intro line, and an optional right-aligned slot. One treatment unifying the landing section heads
 // and the org dashboard's SectionHeader.
 //
-//   size="page" → editorial section top (text-2xl/3xl)   [marketing + flagship surfaces]
-//   size="lg"   → standalone dashboard section (text-lg)  [org default]
-//   size="sm"   → in-card heading next to tiles (text-base)
+//   size="page" → editorial section top (type-heading/type-display)   [marketing + flagship surfaces]
+//   size="lg"   → standalone dashboard section (type-lede)  [org default]
+//   size="sm"   → in-card heading next to tiles (type-body)
 
 import { Kicker, type KickerTone } from "./Kicker";
 
@@ -39,10 +39,10 @@ export function SectionHeading({
   // dense data surface wants a fixed, predictable type scale.
   const titleCls =
     size === "page"
-      ? "deck-h2 text-2xl font-bold text-white sm:text-3xl"
+      ? "deck-h2 type-heading font-bold text-white sm:type-display"
       : size === "lg"
-        ? "text-lg font-semibold text-white"
-        : "text-base font-semibold text-white";
+        ? "type-lede font-semibold text-white"
+        : "type-body font-semibold text-white";
   const introCls = size === "page" ? "deck-lede " : "";
 
   const heading = (
@@ -52,7 +52,7 @@ export function SectionHeading({
         {title}
       </Heading>
       {intro != null && (
-        <p className={`${introCls}mt-2 max-w-2xl text-base text-slate-400 ${introClassName}`}>{intro}</p>
+        <p className={`${introCls}mt-2 max-w-2xl type-body text-slate-400 ${introClassName}`}>{intro}</p>
       )}
     </div>
   );

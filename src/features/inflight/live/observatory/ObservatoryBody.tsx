@@ -105,7 +105,7 @@ export function ClusterMark({
         x={cx}
         y={cy + 4}
         textAnchor="middle"
-        className="fill-slate-400 font-mono text-[11px] tabular-nums"
+        className="fill-slate-400 font-mono type-micro tabular-nums"
         data-testid="cluster-count"
       >
         {cluster.count}

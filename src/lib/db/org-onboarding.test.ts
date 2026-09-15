@@ -47,6 +47,9 @@ function fakePrisma(over: Record<string, Record<string, unknown>> = {}) {
     invite: { findFirst: vi.fn(async () => null), ...(over.invite ?? {}) },
     // W1c — the programme step's fact. Unique by orgId, so findUnique rather than findFirst.
     transitionProgram: { findUnique: vi.fn(async () => null), ...(over.transitionProgram ?? {}) },
+    // moonshot #35 — the `foundation` step's fact reads the audit ledger (the install writes a row
+    // whichever door it came through); the `conformance` step's fact reuses the `repository` stub above.
+    auditLog: { findFirst: vi.fn(async () => null), ...(over.auditLog ?? {}) },
   };
   mockGetPrisma.mockReturnValue(p);
   return p;
@@ -150,6 +153,31 @@ describe("getGettingStartedFacts — step predicates", () => {
       memberCount: 1,
       hasPendingInvite: false,
       hasProgram: false,
+      foundationInstalled: false,
+      conformanceReported: false,
+    });
+  });
+
+  // moonshot #35 — both new facts, and the predicate that matters: `conformanceReported` keys on a
+  // NON-NULL conformance column, not on `> 0`. A repo that honestly scored 0% has still closed the
+  // adopt→verify→re-score loop, and calling that "not reported" would tell the org to redo done work.
+  it("foundation: any foundation.pr_opened audit row for the org counts (either door)", async () => {
+    const p = fakePrisma({ auditLog: { findFirst: vi.fn(async () => ({ id: "a1" })) } });
+    const facts = await getGettingStartedFacts("acme");
+    expect(facts!.foundationInstalled).toBe(true);
+    expect(p.auditLog.findFirst).toHaveBeenCalledWith({
+      where: { orgId: "org_1", action: "foundation.pr_opened" },
+      select: { id: true },
+    });
+  });
+
+  it("conformance: keys on a NON-NULL conformance score, not on a positive one", async () => {
+    const p = fakePrisma({ repository: { findFirst: vi.fn(async () => ({ id: "r1" })) } });
+    const facts = await getGettingStartedFacts("acme");
+    expect(facts!.conformanceReported).toBe(true);
+    expect(p.repository.findFirst).toHaveBeenCalledWith({
+      where: { orgId: "org_1", aiConformance: { not: null } },
+      select: { id: true },
     });
   });
 

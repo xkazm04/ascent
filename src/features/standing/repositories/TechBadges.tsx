@@ -14,11 +14,11 @@ export function TechBadges({ stack, max = 5 }: { stack: TechStack | null | undef
   return (
     <span className="ml-2 inline-flex flex-wrap gap-1 align-middle">
       {shown.map((c) => (
-        <span key={c} className="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 font-mono text-xs text-slate-400">
+        <span key={c} className="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 type-caption text-slate-400">
           {c}
         </span>
       ))}
-      {extra > 0 && <span className="font-mono text-xs text-slate-600">+{extra}</span>}
+      {extra > 0 && <span className="type-caption text-slate-600">+{extra}</span>}
     </span>
   );
 }

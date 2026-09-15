@@ -15,76 +15,37 @@
 //                                 the "record this out of band" instruction — never as a clean success.
 //
 // (The two degraded states can co-occur; both blocks render.)
+//
+// The same refusal to flatten governs the AUDIT line: what happened to the trail is read from the
+// response's own `auditDisposition` and reported in those words — kept, redacted to identifier-only,
+// or destroyed — using the identical phrasing DataErasurePreview showed BEFORE the confirmation. The
+// types and that arithmetic live in ./eraseTotals; its header says why there are three audit fields.
 
 import { ModalBody, ModalFooter, ModalHeader } from "@/components/ui";
-
-/** The JSON shape POST /api/org/erase returns (EraseResult, plus the 207-only `resumable`/`error`). */
-export interface EraseResponse {
-  orgSlug: string;
-  scope: "org" | "repo";
-  repoFullName?: string;
-  reposProcessed: number;
-  scansDeleted: number;
-  dimensionsDeleted: number;
-  recommendationsDeleted: number;
-  recommendationEventsDeleted: number;
-  auditDeleted: number;
-  stoppedEarly: boolean;
-  complete: boolean;
-  audited: boolean;
-  /** 207 only: the erase stopped at a batch boundary — repeat the request to continue. */
-  resumable?: boolean;
-  /** 207 only: the route's own description of the degraded outcome. */
-  error?: string;
-}
-
-/** Running totals across every pass of a resumed erase — one pass's counts alone would under-report. */
-export interface EraseTotals {
-  passes: number;
-  reposProcessed: number;
-  scansDeleted: number;
-  dimensionsDeleted: number;
-  recommendationsDeleted: number;
-  recommendationEventsDeleted: number;
-  auditDeleted: number;
-}
-
-export const ZERO_TOTALS: EraseTotals = {
-  passes: 0,
-  reposProcessed: 0,
-  scansDeleted: 0,
-  dimensionsDeleted: 0,
-  recommendationsDeleted: 0,
-  recommendationEventsDeleted: 0,
-  auditDeleted: 0,
-};
-
-export function addPass(totals: EraseTotals, r: EraseResponse): EraseTotals {
-  return {
-    passes: totals.passes + 1,
-    // Repos are re-walked on a resumed pass, so the max is the honest count of repos touched.
-    reposProcessed: Math.max(totals.reposProcessed, r.reposProcessed),
-    scansDeleted: totals.scansDeleted + r.scansDeleted,
-    dimensionsDeleted: totals.dimensionsDeleted + r.dimensionsDeleted,
-    recommendationsDeleted: totals.recommendationsDeleted + r.recommendationsDeleted,
-    recommendationEventsDeleted: totals.recommendationEventsDeleted + r.recommendationEventsDeleted,
-    auditDeleted: totals.auditDeleted + r.auditDeleted,
-  };
-}
+import {
+  auditAffectedTotal,
+  auditDispositionHint,
+  auditDispositionOf,
+  auditDispositionSummary,
+  type EraseResponse,
+  type EraseTotals,
+} from "./eraseTotals";
 
 const num = (n: number) => n.toLocaleString("en-US");
 
-function Counts({ totals }: { totals: EraseTotals }) {
+function Counts({ totals, auditHint }: { totals: EraseTotals; auditHint: string }) {
   const rows: [string, number][] = [
     ["Scans", totals.scansDeleted],
     ["Dimension rows", totals.dimensionsDeleted],
     ["Recommendations", totals.recommendationsDeleted],
     ["Recommendation events", totals.recommendationEventsDeleted],
     ["Repositories cleared", totals.reposProcessed],
-    ["Audit entries", totals.auditDeleted],
+    // Deleted + redacted, never `auditDeleted` alone: the checkbox path REDACTS, so reading only the
+    // delete counter reported 0 rows touched after the whole trail had been rewritten.
+    [`Audit rows ${auditHint}`, auditAffectedTotal(totals)],
   ];
   return (
-    <dl className="grid grid-cols-2 gap-x-6 gap-y-1 font-mono text-sm sm:grid-cols-3">
+    <dl className="grid grid-cols-2 gap-x-6 gap-y-1 type-mono-sm sm:grid-cols-3">
       {rows.map(([label, value]) => (
         <div key={label} className="flex items-baseline justify-between gap-2 border-b border-divider py-1">
           <dt className="text-slate-500">{label}</dt>
@@ -112,6 +73,7 @@ export function DataErasureOutcome({
 }) {
   const resumable = result.resumable === true || !result.complete;
   const clean = !resumable && result.audited;
+  const disposition = auditDispositionOf(result);
 
   return (
     <>
@@ -128,7 +90,7 @@ export function DataErasureOutcome({
       />
       <ModalBody className="space-y-4">
         {resumable && (
-          <p role="status" className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-sm text-amber-200">
+          <p role="status" className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 type-body-sm text-amber-200">
             This organization is too large to erase inside one request, so the erase stopped cleanly at a batch
             boundary instead of being cut off mid-delete. Everything counted below is already gone for good; the rest
             is still here. Running it again picks up exactly where it stopped. Repeating the request is safe.
@@ -137,7 +99,7 @@ export function DataErasureOutcome({
         {!result.audited && (
           <p
             role="alert"
-            className="rounded-lg border border-danger/40 bg-danger/5 px-3 py-2 text-sm text-danger-soft"
+            className="rounded-lg border border-danger/40 bg-danger/5 px-3 py-2 type-body-sm text-danger-soft"
           >
             The deletes below were applied and cannot be undone, but the <code>data.erased</code> audit entry could
             not be written. This erasure has no trace in the audit trail. Record it out of band (ticket, DSR log)
@@ -145,19 +107,19 @@ export function DataErasureOutcome({
           </p>
         )}
         {clean && (
-          <p role="status" className="rounded-lg border border-emerald-500/40 bg-emerald-500/5 px-3 py-2 text-sm text-emerald-200">
+          <p role="status" className="rounded-lg border border-emerald-500/40 bg-emerald-500/5 px-3 py-2 type-body-sm text-emerald-200">
             Every scan in scope is erased and the <code>data.erased</code> audit entry is written. The organization,
             its repositories, its members and your configuration are untouched.
           </p>
         )}
-        <Counts totals={totals} />
-        <p className="font-mono text-xs text-slate-500">
+        <Counts totals={totals} auditHint={auditDispositionHint(disposition)} />
+        <p className="type-caption text-slate-500">
           {totals.passes === 1 ? "One pass" : `${totals.passes} passes`}
-          {result.auditDeleted > 0 || totals.auditDeleted > 0 ? " · audit trail included" : " · audit trail kept"}
+          {` · ${auditDispositionSummary(disposition)}`}
         </p>
       </ModalBody>
       <ModalFooter>
-        <span className="font-mono text-xs text-slate-500">
+        <span className="type-caption text-slate-500">
           {resumable ? "Erased batches are already durable" : "This cannot be undone"}
         </span>
         <div className="flex items-center gap-2">
@@ -165,7 +127,7 @@ export function DataErasureOutcome({
             type="button"
             onClick={onClose}
             disabled={busy}
-            className="focus-ring rounded-lg border border-slate-700 px-4 py-2 font-mono text-sm text-slate-200 transition hover:border-accent hover:text-white disabled:opacity-50"
+            className="focus-ring rounded-lg border border-slate-700 px-4 py-2 type-mono-sm text-slate-200 transition hover:border-accent hover:text-white disabled:opacity-50"
           >
             {resumable ? "Stop here" : "Close"}
           </button>
@@ -174,7 +136,7 @@ export function DataErasureOutcome({
               type="button"
               onClick={onResume}
               disabled={busy}
-              className="focus-ring rounded-lg bg-danger px-4 py-2 font-mono text-sm font-semibold text-white transition hover:bg-danger/90 disabled:opacity-50"
+              className="focus-ring rounded-lg bg-danger px-4 py-2 type-mono-sm font-semibold text-white transition hover:bg-danger/90 disabled:opacity-50"
             >
               {busy ? "Erasing…" : "Continue erasing"}
             </button>

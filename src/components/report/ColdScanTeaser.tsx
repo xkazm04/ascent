@@ -23,7 +23,7 @@ import { Surface, Kicker, Stat } from "@/components/ui";
 /** One rubric dimension as a hairline chip — `D3 · CI/CD & Delivery`. No score, by design. */
 function DimensionChip({ id, name }: { id: string; name: string }) {
   return (
-    <span className="rounded-full border border-divider bg-surface/40 px-2.5 py-1 text-sm text-slate-300">
+    <span className="rounded-full border border-divider bg-surface/40 px-2.5 py-1 type-body-sm text-slate-300">
       <span className="font-mono text-slate-500">{id}</span> {name}
     </span>
   );
@@ -44,7 +44,7 @@ function LevelLadder() {
           <span
             key={l.id}
             title={l.tagline}
-            className={`inline-flex items-center gap-1.5 rounded-full border ${lc.border} ${lc.bg} px-2.5 py-1 text-sm font-medium ${lc.text}`}
+            className={`inline-flex items-center gap-1.5 rounded-full border ${lc.border} ${lc.bg} px-2.5 py-1 type-body-sm font-medium ${lc.text}`}
           >
             <span aria-hidden>{LEVEL_GLYPH[l.id]}</span>
             {l.id} {l.name}
@@ -58,7 +58,7 @@ function LevelLadder() {
 /** One disclosure line: a bullet the visitor would otherwise only discover mid-scan. */
 function Term({ children }: { children: React.ReactNode }) {
   return (
-    <li className="flex gap-2 text-sm leading-relaxed text-slate-400">
+    <li className="flex gap-2 type-body-sm leading-relaxed text-slate-400">
       <span aria-hidden className="mt-2 h-1 w-1 shrink-0 rounded-full bg-slate-600" />
       <span>{children}</span>
     </li>
@@ -74,7 +74,7 @@ export function ColdScanTeaser() {
         <Stat variant="figure-compact" value={DIMENSION_COUNT} label="dimensions scored" />
         <Stat variant="figure-compact" value={LEVEL_COUNT} label="maturity levels" />
         <div className="min-w-[16rem] flex-1">
-          <p className="text-sm leading-relaxed text-slate-400">
+          <p className="type-body-sm leading-relaxed text-slate-400">
             Every dimension comes back with evidence from the repository, a level, and a ranked route
             to the next one, plus a shareable report at this URL. No number is shown for this repo
             until a scan has actually produced one.
@@ -89,14 +89,14 @@ export function ColdScanTeaser() {
       </div>
 
       <div className="mt-5">
-        <div className="mb-2 font-mono text-xs uppercase tracking-[0.2em] text-slate-500">
+        <div className="mb-2 type-label tracking-[0.2em] text-slate-500">
           The repository lands on one of these
         </div>
         <LevelLadder />
       </div>
 
       <div className="mt-6 border-t border-divider pt-5">
-        <div className="mb-2 font-mono text-xs uppercase tracking-[0.2em] text-slate-500">Before you start</div>
+        <div className="mb-2 type-label tracking-[0.2em] text-slate-500">Before you start</div>
         <ul className="space-y-1.5">
           <Term>
             <strong className="font-semibold text-slate-300">Free for public repositories:</strong> no
@@ -116,7 +116,7 @@ export function ColdScanTeaser() {
         </ul>
       </div>
 
-      <p className="mt-5 text-sm text-slate-400">
+      <p className="mt-5 type-body-sm text-slate-400">
         Not ready to wait?{" "}
         <Link href={demoOrgHref()} className="focus-ring rounded text-accent underline-offset-4 hover:underline">
           Explore the live demo →

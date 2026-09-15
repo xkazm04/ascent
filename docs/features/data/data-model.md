@@ -75,7 +75,7 @@ inline comments (most models carry a multi-line design-rationale comment there).
 | Model | Purpose | Notable fields |
 | --- | --- | --- |
 | `AuditLog` | Compliance trail. Tamper-**evident**: every write folds a per-row HMAC into `meta._sig`, and every read recomputes it (see below). | `orgId?` (null for anonymous public scans), `actorId?`, `action`, JSON `meta` (incl. `_sig`), `at`; indexed `[orgId, at]` for keyset pagination |
-| `AlertEvent` | The in-app alert history: one row per alert the product decided to raise, delivered or not. Deliberately NOT `AuditLog`: audit claim rows are deleted on failed dispatch (`releaseAuditClaim`) and purged by `retentionAuditDays`, so neither attempts nor failures survive there. Written even with no sink configured (`suppressedReason="no-sink"`). Writers in `scan-alerts.ts`, the digest cron, and `extra-alerts.ts`; read by `GET /api/org/alerts?history=1`. | `orgId`, `kind` (regression\|promotion\|security\|low-credits\|digest\|goal-at-risk\|spend-anomaly), `severity`, `repoFullName?`, `title`, `body`, `delivered`, `sinkKind?` (webhook\|email), `suppressedReason?` (no-sink\|cooldown\|dispatch-failed), `createdAt`; indexed `[orgId, createdAt]` |
+| `AlertEvent` | The in-app alert history: one row per alert the product decided to raise, delivered or not. Deliberately NOT `AuditLog`: the audit trail is purged by `retentionAuditDays`, so alert history would not outlive it. (Until 2026-09-05 a second reason applied: audit claim rows were *deleted* on failed dispatch; `releaseAuditClaim` now appends a `claim.released` row instead.) Written even with no sink configured (`suppressedReason="no-sink"`). Writers in `scan-alerts.ts`, the digest cron, and `extra-alerts.ts`; read by `GET /api/org/alerts?history=1`. | `orgId`, `kind` (regression\|promotion\|security\|low-credits\|digest\|goal-at-risk\|spend-anomaly), `severity`, `repoFullName?`, `title`, `body`, `delivered`, `sinkKind?` (webhook\|email), `suppressedReason?` (no-sink\|cooldown\|dispatch-failed), `createdAt`; indexed `[orgId, createdAt]` |
 | `OrgDecision` | A human decision on a derived, recomputed-every-render finding (a failing check, a solo-maintained repo, a passport blocker): the state layer that lets a rail badge's count actually go down. Upsert on `(orgId, module, itemKey)`; `itemKey` must be the finding's deterministic identity. | `module` (security\|teams\|passports\|contributors), `itemKey`, `status` (open\|accepted\|dismissed\|snoozed), `rationale`, `title`, `decidedBy?`, `memoryId?` (the `OrgMemory` row it writes through to), `snoozedUntil?`; `@@unique([orgId, module, itemKey])` |
 | `OrgAiStance` | The org's published **AI stance** (W3) as **versioned rows**: each publish appends version N+1 and marks the prior published row `superseded`, so history is complete and an acknowledgement can pin the exact text a repo adopted. At most one `draft` and one `published` row per org. `stanceJson` is the serialized `AiStance` (permitted tools/models, no-AI zones, review tiers per autonomy tier, provenance requirements; JSON-in-TEXT, sanitized on write AND read by `sanitizeStance`). Compliance against it is derived at read time from existing scan data, never stored. | `version`, `status` (draft\|published\|superseded), `stanceJson`, `publishedBy?`, `publishedAt?`; `@@unique([orgId, version])`, indexed `[orgId, status]` |
 | `OrgArtifactAck` | A repo's acknowledgement of an org-level **artifact version**: the repo ⇄ stance-version link nothing recorded before (the Perimeter prototype's named schema gap). Sparse upsert per `(orgId, artifact, repoFullName)` (the `OrgDecision` shape: re-acknowledging updates; unacked = no row). `artifact` is `"ai-stance"` today; the column exists so a later org artifact can reuse the primitive without a second table. | `artifact`, `version`, `repoFullName`, `ackedBy?`, `ackedAt`; `@@unique([orgId, artifact, repoFullName])` |
@@ -101,11 +101,29 @@ inert when no `AUDIT_SIGNING_SECRET` / `AUTH_SECRET` is set.
 | --- | --- |
 | `ok` | Recomputed signature matched: the row is unchanged since it was written. |
 | `tampered` | Signature MISMATCH: the row was altered at rest (e.g. edited directly in the DB). |
-| `unsigned` | No `_sig` at all: a row written before signing landed. **Expected, not an alarm**; rendering these as `tampered` would fire on every legacy row and train reviewers to ignore the badge. |
+| `unsigned` | No `_sig` at all: a row written before signing landed. **Expected, not an alarm**; rendering these as `tampered` would fire on every legacy row and train reviewers to ignore the badge. Until 2026-09-05 the in-transaction `scan.created` and `recommendation.updated` writers also produced these; they are signed now, so a fresh `unsigned` row is a genuine finding. |
 | `no-secret` | The deployment configures no signing secret, so nothing can be verified. The UI hides the column entirely rather than showing a column of non-answers. |
 
 A file-level SHA-256 of the CSV bytes also ships in the `x-ascent-content-sha256` response header.
 That proves the *download* wasn't edited; the per-row `_sig` proves the *rows* weren't.
+
+#### `GET /api/audit/verify` — the control ledger's day chain
+
+A separate mechanism from the per-row `_sig` above: `ControlLedgerSeal` holds one sha256 root per
+`(org, closed UTC day)` over that day's observation digests plus the previous day's root. The route
+recomputes every root in the window, checks the day-to-day links, and ships `SEAL_RECIPE` — the exact
+field order and construction — so an examiner repeats the check from an export with no key from us.
+The stored HMAC is never returned.
+
+**It is a pure READ (changed 2026-08-31, MC-B14).** It used to seal lazily as a side effect of being
+called, which made an org's tamper-evidence a function of who curled the URL. Sealing moved to the
+daily `/api/cron/rescan` pass; `sealedOnThisRequest` is gone from the response and
+`sealBacklogRemaining` — closed unsealed days beyond what the next scheduled pass can take — is new.
+`unsealedDays` is now derived from a DISTINCT-day aggregate rather than from a capped page of rows,
+which used to hide exactly the older unsealed days approaching the retention horizon. The rows the
+chain is computed over are exported by `GET /api/org/controls?org=…&format=csv`, columns in
+`DIGEST_FIELD_ORDER`. Full treatment in
+[`org-dashboard/org-intelligence.md`](../org-dashboard/org-intelligence.md).
 
 ### Org knowledge & skills
 
@@ -117,6 +135,11 @@ That proves the *download* wasn't edited; the per-row `_sig` proves the *rows* w
 | `OrgSkillDownload` | One rolling download/use tally row per skill: the denormalized hot sort key for "most used". | `count`, `lastSeen`; `@@unique([skillId])` |
 | `OrgSkillEvent` | Append-only per-use event (download\|sync\|invoke) for slicing use rate by repo/type/source. | `type`, `repo?`, `source?` (cli\|hook\|ci\|web) |
 | `OrgApiToken` | Org-scoped API token for machine access to the Skills Library and org-memory recall. Only the SHA-256 hash is stored; the raw value is shown once at creation. Scopes: `skills:read` \| `skills:write` \| `telemetry:write` \| `memory:read`. | `name`, `tokenHash`, `tokenPrefix`, `scopes` (comma-joined), `revokedAt?` (soft-revoke) |
+| `OrgKnowledgeSubject` | One subject per registry bundle, mirrored from the bundle's generated `index.json` on every index pass (soft-archived when it leaves the corpus — a conformance row may still cite it). | `bundle`, `slug`, `category?`, `subcategory?`, `status?`, `file` (verbatim), `techniqueCount`, JSON `useWhen`, JSON `laws`, `digest?` (NULL = index predates the mirror), `revision?` / `changedAt?` (the subject's derived revision and `YYYY-MM-DD` of its last change, from the index; NULL = the index predates revisions — unknown, never r0), `archived`; `@@unique([registryId, bundle, slug])` |
+| `RepoConformanceMap` | One row per SWEPT repo (mapped or not): the header of its `.ai/registry-map.json` plus the foundation the sweep probed. `mapSha` NULL = no map; counts then 0. | `mapSha?`, `contexts`, `pairs`, `judged`, `deviations`, JSON `weaklyGovernedJson` (context names), `hasContextMap`, `hasManifest`, JSON `scopeJson`, JSON `directionsJson` (latest decision per subject), JSON `domainsJson`, `consults30d?`, JSON `warningsJson`, `orphanedVerdicts` / `arrivedContexts` / `renamedContexts` (the map's own churn stats; 0 for a map from an older builder — "0 known", not "none"), `contextMapRevision?` (the `context-map.json` revision the map was built from) / `repoContextMapRevision?` (the one the sweep read at the root; NULL when it could not); `@@unique([repositoryId])` |
+| `RepoConformance` | One judged (context × subject) pair from a repo's map, as its own `/conform` wrote it. | `state` (conformant\|deviation\|not-applicable\|unjudged), `evidence?`, `evaluatedAt?`, `evaluatedAgainst?` (digest → stale detection), `evaluatedRevision?` (the subject revision `/conform` judged at) / `revision?` (the subject's revision when the map was built; both NULL for pre-revision verdicts), `arrived` (the context was not in the previous map), `source?` (the builder's word: match \| retained \| conform \| renamed), `mapSha`; `@@unique([repositoryId, contextName, subjectSlug])` |
+| `RegistrySignal` | The registry's `signals/` lane as one contributor published it; every count nullable (absent ≠ zero). | `contributor`, `bundle`, `subjectSlug`, `consults?`, `deviations?`, `cit*?`, `windowDays` |
+| `RegistryDispatch` | One hand-off of registry work for a fleet repo — a populate / map / conform brief given to an operator or run by the local agent. Ascent writes only this ledger; the map changes through the PR a dispatch produces, and the sweep closes the row. | `stage`, `mode` (brief\|local), `status` (handed_off\|running\|proposed\|done\|failed\|superseded), JSON `subjectsJson`, `briefDigest`, `actor`, `branch?`, `prUrl?`, `mapShaBefore?`, `mapShaAfter?`, the local run's receipt (`model?`, `costMicros?`, `turns?`, `agentDurationMs?`, `summary?`, `error?`); indexes `(orgId, repositoryId)`, `(orgId, createdAt)` |
 
 ### LLM configuration & AI usage
 
@@ -133,7 +156,6 @@ That proves the *download* wasn't edited; the per-row `_sig` proves the *rows* w
 | `WebhookDelivery` | Cross-instance GitHub webhook replay/idempotency store: a row is a "claimed" mark for a delivery id, kept until `expiresAt`, deleted on a failed deferred process so GitHub can retry. | `id` (PK, `X-GitHub-Delivery`), `expiresAt` |
 | `PublicScanQuota` | Soft weekly quota for anonymous public scans, keyed by a salted hash of the client IP (never the raw IP). Fails open if persistence hiccups. | `ipHash` (PK), `hits` (JSON epoch-ms array, trimmed to the rolling window) |
 | `QuotaEvent` | Public-funnel abuse observability: a running tally bumped when a quota denial or rate-limit trip fires. | `kind` (quota_deny\|rate_limit), `scope`, `count`; `@@unique([kind, scope])` |
-| `BadgeImpression` | Best-effort reach tally for the public README badge, one row per (repo, embedding host), deliberately approximate (badges are CDN-cached). | `repoFullName` (lowercased), `refererHost` (lowercased, or "direct"), `count`; `@@unique([repoFullName, refererHost])` |
 | `SkillGeneration` | A record of each onboarding-skill (SKILL.md) generation: which tracks targeted a repo's skill, at which commit, when. | `repoFullName`, `headSha?`, JSON `trackIds` |
 | `PlanEnquiry` | A Custom-plan enquiry from the `/pricing` form. The tier has no checkout, so **this row is the lead** and the operator mail is only a notification about it, persisted first so a mail-provider outage can't lose a prospect. Standalone (a prospect has no `Organization` yet). | `plan` (default `enterprise`), `name`, `email`, `company`, `fleetSize`, `areasJson` (JSON string[] of hosting/scans/support/customization/sso), `message`, `viewerLogin?`/`orgSlug?` (server-resolved), `emailStatus` (pending\|sent\|skipped\|failed) |
 
@@ -244,6 +266,30 @@ default, so every pre-r10 row is a `gap`. Migration `20260826120000_add_recommen
 the per-dimension score movement is the independent witness for an in-progress row's fate (see
 `docs/features/org-followups/README.md`). Kept rows that matched nothing on the new scan are copied
 forward as `in_progress` with a same-status `RecommendationEvent` carrying the reason.
+
+## Revision-aware conformance columns (knowledge-context-matrix, 2026-09-06)
+
+Eleven additive columns across the three `#18` knowledge tables, every one nullable or defaulted so
+a pre-existing row reads as "unknown" rather than as a fabricated value:
+
+- `OrgKnowledgeSubject.revision INTEGER` / `changedAt TEXT` — the subject's derived revision and
+  `YYYY-MM-DD` of its last change, read beside `digest` from the bundle's `index.json`
+  (`src/lib/registry/subjects.ts`). `digest` is identity; `revision` is order.
+- `RepoConformance.evaluatedRevision INTEGER` / `revision INTEGER` / `arrived BOOLEAN DEFAULT
+  false` / `source TEXT` — per pair, from `.ai/registry-map.json` (`src/lib/registry/conformance-map.ts`).
+- `RepoConformanceMap.orphanedVerdicts` / `arrivedContexts` / `renamedContexts INTEGER DEFAULT 0`,
+  `contextMapRevision TEXT`, `repoContextMapRevision TEXT` — the map's own churn stats and the two
+  context-map revisions (the map's `contextMapRevision`; the `revision` the sweep read from the repo's
+  root `context-map.json`). `mapBehind` is NOT a column: `buildKnowledgeFleet` derives it as "both
+  known and different", so a failed read is never evidence of drift.
+
+**Migration convention followed:** the `#18` tables (`OrgKnowledgeSubject`, `RepoConformanceMap`,
+`RepoConformance`) have no `prisma/migrations/*` entry — they were created in `prisma/init.sql`
+only (commit `d6538af8`), and their later columns (`digest`, `hasContextMap`, `weaklyGovernedJson`)
+landed the same way: in the `CREATE TABLE` block **and** as `ALTER TABLE … ADD COLUMN IF NOT
+EXISTS` beside it, so a fresh bootstrap and an existing data dir both converge. These columns follow
+that exactly; PGlite picks them up on boot via the defaulted-column reconcile, and `init-sql.test.ts`
+holds the mirror to the schema.
 
 ## Known gaps
 

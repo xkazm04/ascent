@@ -170,7 +170,7 @@ describe("EmptyFleet — instrument-grade chrome, no emoji", () => {
 
   it("still leads to the connect flow", () => {
     render(<EmptyFleet />);
-    expect(screen.getByRole("link").getAttribute("href")).toBe("/connect");
+    expect(screen.getByRole("link").getAttribute("href")).toBe("/onboarding");
   });
 });
 

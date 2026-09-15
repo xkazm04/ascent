@@ -25,14 +25,27 @@ function historyToCsv(history: RepositoryHistory): string {
   // "engine" = provider (mock/bedrock/gemini/…), "model" = the specific model that graded the snapshot.
   // Both matter for an audit artifact: "mock" flags a deterministic-floor quarter, and the model name
   // lets an auditor tell a sonnet grade from a haiku one quarter to quarter. [Tiger P1-5]
-  const header = ["scannedAt", "overall", "level", "levelName", "engine", "model", ...dimIds];
+  // MOONSHOT #32: `compacted` + `scans` say out loud which rows are a period SUMMARY rather than a
+  // single scan — an audit CSV that presented a monthly average as a scan would be a lie the reader
+  // has no way to detect. Both columns are always present so the header never shifts shape.
+  const header = ["scannedAt", "overall", "level", "levelName", "engine", "model", "compacted", "scans", ...dimIds];
   const rows = [...history.scans].reverse().map((s) => {
     const byDim = new Map((s.dimensions ?? []).map((d) => [d.dimId, d.score]));
     const dims = dimIds.map((id) => byDim.get(id) ?? "");
     // csvTable quotes EVERY field uniformly via csvField: if any value ever gains a comma (a comma'd
     // locale timestamp, a stringy dim cell), an unquoted field shifts the column count and misaligns
     // the whole export.
-    return [s.scannedAt, s.overallScore, s.level, s.levelName, s.engineProvider, s.engineModel, ...dims];
+    return [
+      s.scannedAt,
+      s.overallScore,
+      s.level,
+      s.levelName,
+      s.engineProvider,
+      s.engineModel,
+      s.compacted ? "yes" : "",
+      s.scanCount ?? 1,
+      ...dims,
+    ];
   });
   return csvTable(header, rows);
 }
@@ -87,7 +100,16 @@ export async function GET(request: Request) {
     const limitParam = searchParams.get("limit");
     const limitRaw = limitParam == null ? NaN : Number(limitParam);
     const limit = Number.isFinite(limitRaw) ? limitRaw : wantCsv ? HISTORY_SCAN_CAP : undefined;
-    const history = await getRepositoryHistory(parsed.owner, parsed.repo, { orgSlug, includeDimensions, limit });
+    // `?compacted=1` opts into the compacted tail (MOONSHOT #32) — periods whose scans retention
+    // already deleted, served as labelled summaries. Off by default, so every existing caller of this
+    // endpoint keeps getting retained scans only.
+    const includeCompacted = searchParams.get("compacted") === "1";
+    const history = await getRepositoryHistory(parsed.owner, parsed.repo, {
+      orgSlug,
+      includeDimensions,
+      limit,
+      includeCompacted,
+    });
     const payload =
       history ??
       { repo: { owner: parsed.owner, name: parsed.repo, fullName: `${parsed.owner}/${parsed.repo}` }, scans: [] };
@@ -132,7 +154,9 @@ export async function GET(request: Request) {
             .join("|"),
         ).slice(0, 24)
       : "none";
-    const etag = `W/"h${includeDimensions ? "f" : "l"}${payload.scans.length}-${seriesSig}"`;
+    // The mode marker carries the compaction flag too: the same repo at the same depth answers with a
+    // different series depending on it, and two modes must never share one validator.
+    const etag = `W/"h${includeDimensions ? "f" : "l"}${includeCompacted ? "c" : ""}${payload.scans.length}-${seriesSig}"`;
     const headers: Record<string, string> = {
       etag,
       "cache-control": "private, max-age=30, stale-while-revalidate=300",

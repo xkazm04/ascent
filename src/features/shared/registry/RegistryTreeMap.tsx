@@ -20,33 +20,33 @@ export function RegistryTreeMap({ view }: { view: RegistryView }) {
     <div className="space-y-2">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <Kicker tone="muted">Repo layout</Kicker>
-        <span className="font-mono text-xs text-slate-500">
+        <span className="type-caption text-slate-500">
           {mapped ? `HEAD ${shortSha(view.registry?.lastIndexSha)} · ${view.registry?.defaultBranch}` : "not scaffolded — this is what the PR adds"}
         </span>
       </div>
       <div className="overflow-hidden rounded-2xl border border-divider bg-surface-strong/40">
-        <div className="border-b border-divider px-4 py-2 font-mono text-sm text-white">{root}/</div>
+        <div className="border-b border-divider px-4 py-2 type-mono-sm text-white">{root}/</div>
         <ul className="divide-y divide-divider">
           {rows.map((n, i) => {
             const last = i === rows.length - 1;
             const muted = !mapped || (n.count != null && n.count === 0);
             return (
               <li key={n.path} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-4 py-2">
-                <span className="select-none font-mono text-xs text-slate-700" aria-hidden>
+                <span className="select-none type-caption text-slate-700" aria-hidden>
                   {last ? "└─" : "├─"}
                 </span>
-                <span className={`font-mono text-sm ${muted ? "text-slate-500" : n.kind === "dir" ? "text-accent" : "text-slate-200"}`}>
+                <span className={`type-mono-sm ${muted ? "text-slate-500" : n.kind === "dir" ? "text-accent" : "text-slate-200"}`}>
                   {n.path}
                 </span>
                 {n.count != null ? (
-                  <span className={`font-mono text-sm tabular-nums ${muted ? "text-slate-600" : "text-white"}`}>{n.count}</span>
+                  <span className={`type-mono-sm tabular-nums ${muted ? "text-slate-600" : "text-white"}`}>{n.count}</span>
                 ) : null}
                 {n.generated ? (
-                  <span className="rounded border border-divider px-1.5 font-mono text-xs uppercase tracking-[0.14em] text-slate-500">
+                  <span className="rounded border border-divider px-1.5 type-label tracking-[0.14em] text-slate-500">
                     generated
                   </span>
                 ) : null}
-                <span className="ml-auto font-mono text-xs text-slate-500">{n.note}</span>
+                <span className="ml-auto type-caption text-slate-500">{n.note}</span>
               </li>
             );
           })}

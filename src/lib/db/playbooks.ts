@@ -181,6 +181,39 @@ export async function applyPlaybook(
   return true;
 }
 
+/**
+ * ADOPTION EVIDENCE FROM A VERIFIED CLOSE (moonshot #25).
+ *
+ * When a loop lane's rescan actually closes rows, the playbooks the lane's BRIEF quoted are stamped
+ * as applied to that repo. Two constraints make this evidence rather than optimism:
+ *
+ *   • only playbooks that were IN THE BRIEF. A close under a playbook the agent never saw is a
+ *     coincidence, and recording it as adoption would let the adoption number climb on work the
+ *     playbook had nothing to do with;
+ *   • only after the RESCAN closed something. The agent's claim is not the trigger — the verifier is.
+ *
+ * `appliedBy: "loop"` so the ledger can always separate machine-stamped adoption from a human's.
+ * Rides `applyPlaybook`'s existing per-(playbook, repo) upsert, so a second lane on the same repo
+ * refreshes the version rather than duplicating a row.
+ *
+ * @param briefedPlaybookIds the playbook ids the lane's brief actually quoted.
+ * @returns how many playbooks were stamped.
+ */
+export async function stampPlaybookApplications(
+  orgSlug: string,
+  repoFullName: string,
+  briefedPlaybookIds: readonly string[],
+): Promise<number> {
+  const ids = [...new Set(briefedPlaybookIds)].filter(Boolean);
+  if (ids.length === 0) return 0;
+  let stamped = 0;
+  for (const id of ids) {
+    const ok = await applyPlaybook(orgSlug, id, repoFullName, "loop").catch(() => false);
+    if (ok) stamped += 1;
+  }
+  return stamped;
+}
+
 /** Remove a playbook→repo application. */
 export async function unapplyPlaybook(playbookId: string, repoFullName: string): Promise<void> {
   if (!isDbConfigured()) return;

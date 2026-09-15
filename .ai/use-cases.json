@@ -1,0 +1,72 @@
+{
+  "schema": "lighttrack-use-cases/1",
+  "project": "ascent",
+  "generated_at": "2026-09-05",
+  "note": "Declared LLM call sites. This project already mirrors calls to LightTrack (src/lib/llm/tracklight.ts) but its LlmCallTrack carries no use-case name, so every event it emits is currently unattributed — this declaration is the set those events should be attributable to.",
+  "use_cases": [
+    {
+      "key": "scan.calibrate",
+      "name": "Scan calibration and explanation",
+      "description": "Nine deterministic analyzers produce the evidence for a repo scan; the model calibrates the maturity scores against it and explains them, guardbanded to the signals so it never invents a score.",
+      "kind": "judge",
+      "status": "active",
+      "component": "src/lib/llm (provider.assess)",
+      "expected_models": ["zai-org/GLM-5.3-Flash", "nvidia/Nemotron-3_5-Lightning", "MiniMaxAI/MiniMax-M3", "claude-sonnet-4-6"],
+      "owner": "ascent"
+    },
+    {
+      "key": "athena.turn",
+      "name": "Athena interactive turn",
+      "description": "Answers one interactive turn of an org's Athena companion chat, running an agentic tool loop against org memory and MCP tools.",
+      "kind": "agent",
+      "status": "active",
+      "component": "src/app/api/athena/gate.ts (runToolLoop, legKind athena_turn)",
+      "owner": "ascent"
+    },
+    {
+      "key": "athena.cycle",
+      "name": "Athena unattended cycle",
+      "description": "Generates Athena's proactive, unattended standing update from the org's rollup and open proposals in a single bounded, tool-free leg, kept separable from her interactive turns for spend attribution.",
+      "kind": "generation",
+      "status": "active",
+      "component": "src/app/api/cron/athena/deps.ts (runToolLoop, legKind athena_cycle)",
+      "owner": "ascent"
+    },
+    {
+      "key": "org.briefing_narrative",
+      "name": "Executive briefing narrative",
+      "description": "Writes the single narrative paragraph of an org's executive briefing PDF from the briefing's own printed figures, rejecting the result if it introduces any ungrounded or misattributed number.",
+      "kind": "generation",
+      "status": "active",
+      "component": "src/lib/org/briefing-narrative.ts (resolveTextRunnerForOrg, legKind briefing)",
+      "owner": "ascent"
+    },
+    {
+      "key": "memory.write_gate",
+      "name": "Shared memory write-intelligence judgment",
+      "description": "Judges whether a proposed memory duplicates, refines, contradicts or is unrelated to an existing one, deciding the supersede path before a write commits.",
+      "kind": "judge",
+      "status": "active",
+      "component": "src/lib/memory/consolidation.ts via src/lib/memory/consolidation-engine.ts (resolveTextRunner, legKind memory)",
+      "owner": "ascent"
+    },
+    {
+      "key": "memory.reflection",
+      "name": "Shared memory reflection rollup",
+      "description": "Writes a single rollup summary that supersedes a cluster of near-duplicate memories, producing the memory taxonomy's summary kind.",
+      "kind": "summarization",
+      "status": "active",
+      "component": "src/lib/memory/reflection.ts via src/lib/memory/consolidation-engine.ts (resolveTextRunner, legKind memory)",
+      "owner": "ascent"
+    },
+    {
+      "key": "local.lane_summary",
+      "name": "Remediation lane headline polish",
+      "description": "Optionally rewrites a completed remediation lane's deliverable headlines in place, one-to-one, into house verb-first phrasing without merging, dropping or inventing entries.",
+      "kind": "generation",
+      "status": "active",
+      "component": "src/lib/local/lane-summary.ts (resolveTextRunner, legKind lane_summary)",
+      "owner": "ascent"
+    }
+  ]
+}

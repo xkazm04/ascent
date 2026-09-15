@@ -1,5 +1,6 @@
 // Org dashboard "Integrations" tab — connect AI coding providers so the /delivery "AI delivery
-// intelligence" views run on real usage instead of the simulated placeholder. SERVER component,
+// intelligence" views have a spend layer at all. (W3c retired the simulated tier: with nothing
+// connected the money columns are EMPTY, not placeholder dollars.) SERVER component,
 // filename PINNED (docs/ORG-TABS-REFACTOR.md; see AuditTab.tsx for the worked example).
 //
 // Owner-only: the layout already gated org READ; this tab additionally requires the owner role since
@@ -14,6 +15,9 @@ import { ingestToken, isIngestConfigured } from "@/lib/integrations/ingest-token
 import { getIngestTokenEpoch, getProviderIngestStatus } from "@/lib/db";
 import { hasOrgRole } from "@/lib/authz";
 import { orgTabHref } from "@/lib/org/orgTabs";
+import { listForgeInstallations } from "@/lib/db/forge-installations";
+import { isEncryptionConfigured } from "@/lib/crypto/secret-box";
+import { ForgeInstallationCard } from "./ForgeInstallationCard";
 
 export async function IntegrationsTab({ slug }: { slug: string }) {
   if (!(await hasOrgRole(slug, "owner"))) {
@@ -35,12 +39,22 @@ export async function IntegrationsTab({ slug }: { slug: string }) {
   // What each provider has ACTUALLY delivered. A connector that receives datapoints and stores none
   // of them otherwise looks, on this page, exactly like one that is working.
   const statuses = (await getProviderIngestStatus(slug).catch(() => null)) ?? [];
+  // moonshot #4 — the org's connected forge accounts. Secret-free by type: `ForgeInstallationRow`
+  // carries `hasCredential`, and has no field the credential could travel in.
+  const forgeInstallations = await listForgeInstallations(slug).catch(() => []);
 
   return (
     <div className="space-y-6">
       <SectionHeader
         title="Integrations"
-        description="Connect your AI coding providers to replace the simulated spend in AI delivery with real usage, one provider at a time."
+        description="Connect your AI coding providers so AI delivery has a spend layer at all — until one that reports cost is connected, its money columns are empty rather than estimated."
+      />
+      {/* Where the CODE is read from, above where the SPEND is read from: a forge connection changes
+          which repositories can be scanned at all, which is the more fundamental of the two. */}
+      <ForgeInstallationCard
+        slug={slug}
+        initial={forgeInstallations}
+        encryptionConfigured={isEncryptionConfigured()}
       />
       {/* An empty token is the "not configured here" signal: the setup panel renders the operator
           instruction instead of a credential that could never verify. */}

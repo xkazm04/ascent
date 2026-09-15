@@ -9,6 +9,7 @@ Context-map group: **Org Knowledge & Skills** (`feature`).
 | --- | --- | --- |
 | [memory.md](memory.md) | Memory kinds, create/check/recall/reflect/decay, scoring and budget packing | CURRENT |
 | [skills.md](skills.md) | Registry, promote/adopt/push, dormancy, telemetry, org API tokens | CURRENT |
+| [knowledge-base.md](knowledge-base.md) | The Knowledge base tab: the registry's knowledge lane as it is structured, the subject × repo matrix with the eleven-state cell vocabulary, and dispatching a repo's next registry stage | CURRENT |
 
 ## Implementation roots
 
@@ -17,9 +18,11 @@ Context-map group: **Org Knowledge & Skills** (`feature`).
 | Org Memory | `/org/[slug]/memory`, `/api/org/memory[/check,/recall,/reflect]` | `src/lib/memory/**`, `src/lib/db/org-memory.ts`, `org-memory-lifecycle.ts`, `src/features/shared/memory/Memory*.tsx` |
 | Skills Registry | `/org/[slug]/skills`, `/api/org/skills*` | `src/lib/org/skill-*.ts`, `src/lib/db/org-skills.ts`, `src/features/shared/skills/**` |
 | API Tokens | `/api/org/tokens` | `src/lib/api-token-auth.ts`, `src/lib/db/org-api-tokens.ts` |
+| Knowledge base | `/org/[slug]?tab=knowledge`, `/api/org/[slug]/registry/{conformance,dispatch}` | `src/features/shared/knowledge/**`, `src/lib/org/knowledge-*.ts`, `src/lib/registry/{absence,conformance-fold,conformance-foundation,taxonomy,dispatch-*}.ts`, `src/lib/db/org-registry-dispatch.ts` |
 
 Backing models: `OrgMemory`, `OrgSkill`, `OrgSkillAdoption`, `OrgSkillDownload`,
-`OrgSkillEvent`, `OrgApiToken`, `SkillGeneration`.
+`OrgSkillEvent`, `OrgApiToken`, `SkillGeneration`; for the Knowledge base, `OrgKnowledgeSubject`,
+`RepoConformanceMap`, `RepoConformance`, `RegistrySignal`, `RegistryDispatch`.
 
 Both surfaces are tier-gated, via `planAllowsMemory` and `planAllowsSkillsLibrary` in
 `src/lib/plans.ts` (Team and above; see [`../billing/billing.md`](../billing/billing.md)).

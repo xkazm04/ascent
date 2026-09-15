@@ -13,7 +13,13 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Surface, Kicker } from "@/components/ui";
+import { StateSwatch, WhyChip } from "@/components/org/viz";
 import { timeAgo } from "@/lib/ui";
+
+// The two demoted sentences: what an absence from the listing means, and why it costs something.
+// Reachable on focus, absent at first sight — the row's own "missing since" date is the reading.
+const ABSENCE_HINT =
+  "These watched repos were absent from GitHub's last COMPLETE listing of this organization: renamed, transferred, made private, or deleted — the listing cannot tell those apart. Each keeps taking a scheduled-rescan slot and failing until it is unwatched.";
 
 export interface MissingRepoRow {
   owner: string;
@@ -69,14 +75,18 @@ export function MissingReposPanel({ org, repos }: { org: string; repos: MissingR
   return (
     <Surface className="p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <Kicker tone="accent">Missing from GitHub</Kicker>
-        <span className="font-mono text-sm tabular-nums text-slate-500">{rows.length}</span>
+        <div className="flex items-center gap-2">
+          <StateSwatch state="missing" />
+          <Kicker tone="accent">Missing from GitHub</Kicker>
+          <WhyChip hint={ABSENCE_HINT} label="what 'missing' means here" />
+        </div>
+        <span className="type-mono-sm tabular-nums text-slate-500">{rows.length}</span>
       </div>
-      <p className="mt-2 text-sm text-slate-400">
-        {rows.length === 1 ? "This watched repo was" : `These ${rows.length} watched repos were`} absent from the
-        last complete listing of <span className="font-mono">{org}</span>: renamed, transferred, made private, or
-        deleted. {rows.length === 1 ? "It keeps" : "They keep"} taking a scheduled-rescan slot and failing. Nothing
-        is removed automatically; unwatch when you&apos;ve confirmed. Scan history is kept either way.
+      {/* This one sentence stays on screen: it is a use-constraint the reader must meet at the same
+          moment as a destructive-looking button, and no visual state carries "nothing happens on its
+          own" (docs/ORG-UX-REDESIGN.md §2.1, the sentence-may-stay clause). */}
+      <p className="mt-2 type-body-sm text-slate-400">
+        Nothing is removed automatically; unwatch when you&apos;ve confirmed. Scan history is kept either way.
       </p>
       <ul className="mt-3 divide-y divide-divider border-t border-divider">
         {rows.map((r) => (
@@ -86,12 +96,12 @@ export function MissingReposPanel({ org, repos }: { org: string; repos: MissingR
                 href={r.url}
                 target="_blank"
                 rel="noreferrer"
-                className="focus-ring truncate font-mono text-sm text-slate-300 transition hover:text-accent"
+                className="focus-ring truncate type-mono-sm text-slate-300 transition hover:text-accent"
               >
                 {r.fullName}
               </a>
               <span
-                className="ml-2 font-mono text-sm tabular-nums text-warn"
+                className="ml-2 type-mono-sm tabular-nums text-warn"
                 title={`First missing on ${r.missingSince.slice(0, 10)}`}
               >
                 missing since {r.missingSince.slice(0, 10)} ({timeAgo(r.missingSince)})
@@ -102,7 +112,7 @@ export function MissingReposPanel({ org, repos }: { org: string; repos: MissingR
               onClick={() => unwatch(r)}
               aria-disabled={pending !== null || undefined}
               aria-label={`Unwatch ${r.fullName}`}
-              className={`rounded-md border border-slate-700 px-2 py-1 font-mono text-sm text-slate-300 transition focus:border-accent focus:outline-none ${
+              className={`rounded-md border border-slate-700 px-2 py-1 type-mono-sm text-slate-300 transition focus:border-accent focus:outline-none ${
                 pending !== null ? "cursor-not-allowed opacity-50" : "hover:border-accent hover:text-white"
               }`}
             >
@@ -112,7 +122,7 @@ export function MissingReposPanel({ org, repos }: { org: string; repos: MissingR
         ))}
       </ul>
       {error && (
-        <p role="alert" className="mt-2 text-sm text-danger">
+        <p role="alert" className="mt-2 type-body-sm text-danger">
           {error}
         </p>
       )}

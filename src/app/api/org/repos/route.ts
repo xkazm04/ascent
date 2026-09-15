@@ -8,6 +8,7 @@
 import { NextResponse } from "next/server";
 import { GitHubListError, listOrgRepos } from "@/lib/github/list";
 import { normalizeOrgSlug } from "@/lib/db/org-shared";
+import { rateLimitRequest, tooManyRequests, ORG_REPOS_RATE_LIMIT } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,6 +17,13 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const org = searchParams.get("org") ? normalizeOrgSlug(searchParams.get("org")!) : undefined;
   if (!org) return NextResponse.json({ error: "Missing 'org' query parameter." }, { status: 400 });
+
+  // Public and App-free by design — which is exactly why it needs a limiter. Each call fans out to up
+  // to 5 GitHub pages on the server's AMBIENT token, so an anonymous loop over invented org names
+  // spends the operator's quota, not the caller's. Checked AFTER the cheap arg validation so a
+  // malformed request costs a 400 rather than a limiter slot.
+  const rl = rateLimitRequest(request, ORG_REPOS_RATE_LIMIT);
+  if (!rl.ok) return tooManyRequests(rl);
   const count = Math.min(50, Math.max(1, Number(searchParams.get("count") ?? 30)));
 
   try {

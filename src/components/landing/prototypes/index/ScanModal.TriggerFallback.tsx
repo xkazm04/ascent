@@ -5,7 +5,7 @@ export function ScanTriggerFallback() {
     <button
       type="button"
       aria-haspopup="dialog"
-      className="focus-ring inline-flex items-center gap-2 rounded-xl bg-accent px-6 py-3 text-base font-semibold text-on-accent shadow-2xl shadow-black/40 transition hover:bg-accent-soft"
+      className="focus-ring inline-flex items-center gap-2 rounded-xl bg-accent px-6 py-3 type-body font-semibold text-on-accent shadow-2xl shadow-black/40 transition hover:bg-accent-soft"
     >
       Scan a repository <span aria-hidden>→</span>
     </button>

@@ -2,21 +2,26 @@
 // its two former inline helpers (ChampionsGrid, ConcentrationTable) now real sibling components.
 
 import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
-import { SectionEmpty, Tile, TILE_GRID } from "@/components/org/shared/ui";
+import { SectionEmpty } from "@/components/org/shared/ui";
 import { getContributorInsights } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { resolveOrgWindow } from "@/lib/org/period";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { SnapshotScopeNotice } from "@/components/org/shared/SnapshotScopeNotice";
-import { scoreHex } from "@/lib/ui";
 import { decisionMap } from "@/lib/org/decision-map";
 import { enablementTargets } from "@/lib/org/adoption";
 import { ContributorsChampionsGrid } from "./ContributorsChampionsGrid";
+import { ContributorsAdoptionStrip } from "./ContributorsAdoptionStrip";
+import { ContributorsNotes } from "./ContributorsNotes";
+import { ContributorsTiles } from "./ContributorsTiles";
 import { ContributorsConcentrationTable } from "./ContributorsConcentrationTable";
 import { EnablementTargets } from "./EnablementTargets";
 import { IndividualInvolvement } from "./IndividualInvolvement";
 import { ResilienceModule } from "./ResilienceModule";
 import { ContributorsYouStrip, isViewer } from "./ContributorsYouPointer";
+// The Delivery tab's settle helper, reused rather than re-implemented: one classification of a
+// settled query ("null value" vs "actually failed") for every tab that degrades per section.
+import { settle } from "@/features/bought/delivery/deliveryLoad";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
@@ -40,16 +45,43 @@ export async function ContributorsInsightsPanel({
   // per-(repo, login) commit totals captured at scan time — there is no dated commit history to
   // re-aggregate, so getContributorInsights takes no window and accepting one would be a lie in the
   // signature as well as the UI. See SnapshotScopeNotice for the full argument.
-  const [period, insights, decisions] = await Promise.all([
+  // Per-section degradation (the Delivery tab's G4-10 fix, applied here): under Promise.all a blip on
+  // decisionMap — an annotation on the concentration table — rejected the whole tab and blanked the
+  // tiles, the champions grid, the roster and the resilience read that would all have rendered fine.
+  const [periodSettled, insightsSettled, decisionsSettled] = await Promise.allSettled([
     resolveOrgWindow(sp),
     getContributorInsights(slug, segmentId, techGroupId),
     decisionMap(slug, "contributors"),
   ]);
+  const { value: period } = settle(periodSettled);
+  const { value: insights, failed: insightsFailed } = settle(insightsSettled);
+  const { value: decisionsValue, failed: decisionsFailed } = settle(decisionsSettled);
+  const decisions = decisionsValue ?? {};
+  for (const [label, r] of [
+    ["resolveOrgWindow", periodSettled],
+    ["getContributorInsights", insightsSettled],
+    ["decisionMap", decisionsSettled],
+  ] as const) {
+    if (r.status === "rejected") console.error(`[contributors/${slug}] ${label} failed:`, r.reason);
+  }
   if (!insights || insights.totalContributors === 0) {
     return (
       <div>
         {filterBar && <div className="mb-4 flex justify-end">{filterBar}</div>}
-        <SectionEmpty>No contributor data {segmentId || activeStack ? "for this filter" : "yet"}. Scan some of this org&apos;s repositories (contributor data is captured at scan time).</SectionEmpty>
+        {/* "Couldn't load" is a different claim from "no contributor data" — sending someone off to
+            scan repositories they have already scanned is the wrong instruction for a failed query. */}
+        {insightsFailed ? (
+          <SectionEmpty>Contributor data couldn&apos;t load right now (a query failed). Try refreshing this page.</SectionEmpty>
+        ) : (
+          // (O) The tab's old permanent lede lands here, where the reader has nothing to look at and
+          // genuinely needs the argument for scanning: what this surface is FOR.
+          <SectionEmpty>
+            No contributor data {segmentId || activeStack ? "for this filter" : "yet"}. Scan some of this org&apos;s
+            repositories (contributor data is captured at scan time) to see where trust in AI could grow across the
+            team: who&apos;s leaning in, whose approach others could learn from, and where key-person risk sits. These
+            are inputs to explore, never a ranking and never directives for anyone.
+          </SectionEmpty>
+        )}
       </div>
     );
   }
@@ -64,44 +96,26 @@ export async function ContributorsInsightsPanel({
 
   return (
     <div>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="max-w-3xl text-base text-slate-400">
-          Inputs to explore where trust in AI could grow across the team: who&apos;s leaning in, whose approach others could
-          learn from, and where key-person risk sits. Not a ranking, and not a to-do list for anyone.
-        </p>
-        {filterBar && <div className="flex shrink-0 items-center gap-2">{filterBar}</div>}
-      </div>
+      {/* §2.2 — the topmost element under the tab header is a shape, not a sentence. The lede that
+          used to sit here is now the empty state's argument (O) and the strip's WhyChip (D). */}
+      {filterBar && <div className="flex justify-end">{filterBar}</div>}
 
       {/* Above the tiles, not under them: the period the user picked on another tab follows them here
           via the cookie, and nothing below honours it. */}
-      <div className="mt-6">
-        <SnapshotScopeNotice
-          period={period}
-          subject="contributor"
-          scopedHref={orgTabHref(slug, "teams")}
-          scopedLabel="Teams"
-        />
-      </div>
+      {period && (
+        <div className="mt-6">
+          <SnapshotScopeNotice
+            period={period}
+            subject="contributor"
+            scopedHref={orgTabHref(slug, "teams")}
+            scopedLabel="Teams"
+          />
+        </div>
+      )}
 
-      {/* Summary tiles — each deep-links to its evidence section (the Teams tab's tile pattern),
-          so the warn-colored key-person stat jumps straight to the concentration table + decisions. */}
-      <div className={`mt-6 ${TILE_GRID}`}>
-        <Tile label="Contributors" value={insights.totalContributors} sub="humans, recent activity" href="#individuals" />
-        {/* Below the naming floor a percentage is the wrong unit: "100% AI-active" for a two-person
-            org is one person, stated as a fleet-wide claim (and colored green as if it were an
-            achievement). Show the raw count instead — same information, no false confidence. */}
-        {insights.namingAllowed ? (
-          <Tile label="AI-active" value={`${insights.aiActiveShare}%`} sub={`${insights.aiActive} use AI-attributed commits`} color={scoreHex(insights.aiActiveShare)} href="#individuals" />
-        ) : (
-          <Tile label="AI-active" value={`${insights.aiActive}/${insights.totalContributors}`} sub="too few contributors to read as a rate" />
-        )}
-        {insights.namingAllowed ? (
-          <Tile label="Org AI commit share" value={`${insights.orgAiShare}%`} sub="commit-weighted across the fleet" color={scoreHex(insights.orgAiShare)} />
-        ) : (
-          <Tile label="Org AI commit share" value={`${insights.orgAiShare}%`} sub="commit-weighted (a very small sample)" />
-        )}
-        <Tile label="Solo-maintainer repos" value={insights.soloMaintainerCount} sub="1 author or ≥80% concentration" color={insights.soloMaintainerCount > 0 ? "var(--color-warn)" : undefined} href="#concentration" />
-      </div>
+      <ContributorsAdoptionStrip insights={insights} viewerLogin={viewerLogin} />
+
+      <ContributorsTiles insights={insights} />
 
       {/* AI champions — only a meaningful "leaderboard" once the population is large enough. Below 3
           contributors a single Copilot user becomes a celebrated "#1 ★ champion" — success theater
@@ -112,8 +126,12 @@ export async function ContributorsInsightsPanel({
       )}
 
       {/* §5.2 — the pointer across to the developer's own view. When the viewer IS in the roster their
-          row and champion card carry the mark instead, so the strip would only repeat it. */}
-      {meInRoster ? null : <ContributorsYouStrip slug={slug} viewerLogin={viewerLogin} />}
+          row and champion card carry the mark instead, so the strip would only repeat it. Below the
+          naming floor NOBODY is in the roster (the producer empties it), so the strip must say the
+          attribution was withheld rather than assert the viewer has no commits — hence namingAllowed. */}
+      {meInRoster ? null : (
+        <ContributorsYouStrip slug={slug} viewerLogin={viewerLogin} namingAllowed={insights.namingAllowed} />
+      )}
 
       <IndividualInvolvement
         insights={insights}
@@ -136,31 +154,31 @@ export async function ContributorsInsightsPanel({
 
       {/* G7-18: the fleet read on key-person exposure, above the per-repo table it summarizes. It
           names no individual at any population size — see ResilienceModule's header. */}
-      {insights.resilience && <ResilienceModule resilience={insights.resilience} />}
+      {insights.resilience && (
+        <ResilienceModule resilience={insights.resilience} concentration={insights.concentration} />
+      )}
 
-      <ContributorsConcentrationTable slug={slug} rows={insights.concentration} decisions={decisions} />
+      <ContributorsConcentrationTable
+        slug={slug}
+        rows={insights.concentration}
+        contributors={insights.contributors}
+        namingAllowed={insights.namingAllowed}
+        decisions={decisions}
+      />
 
-      <p className="mt-6 max-w-3xl rounded-xl border border-slate-800 bg-slate-900/30 p-4 text-base text-slate-400">
-        <span className="text-slate-300">How to read this:</span> these are inputs to explore, never directives. Someone active
-        in a repo with thin agent guidance is well placed to seed it; a champion&apos;s approach is a pattern others can borrow.
-        The aim is to surface where trust could grow. People decide what to pick up.
-      </p>
+      {/* The decisions annotation degrades alone: the table above still renders, and this says the
+          annotations are missing rather than letting them read as "no decisions recorded". */}
+      {decisionsFailed && (
+        <div className="mt-4">
+          <SectionEmpty>Recorded decisions couldn&apos;t load right now, so the table above shows none. Try refreshing this page.</SectionEmpty>
+        </div>
+      )}
+
       {/* Staleness annotation (ambiguity-ui 2026-07-16 #5): the data layer drops repos whose
           snapshot recency trails the fleet's newest scan by ~6 months, so a long-unscanned repo
-          can't crown a departed engineer champion — say so instead of silently excluding. */}
-      {insights.staleRepos > 0 && (
-        <p className="mt-4 font-mono text-sm text-slate-500">
-          {insights.staleRepos} {insights.staleRepos === 1 ? "repo" : "repos"} excluded: last scanned too long ago for
-          its activity snapshot to blend honestly with the rest. Rescan to include {insights.staleRepos === 1 ? "it" : "them"}.
-        </p>
-      )}
-      <p className="mt-4 font-mono text-sm text-slate-600">
-        {/* The scan-time framing leads the panel now (SnapshotScopeNotice); this keeps only the
-            pointers it uniquely carries. */}
-        For team-level rollups, see the{" "}
-        <span className="text-slate-500">Teams</span> tab (CODEOWNERS attribution). Per-person trend over time,
-        “who introduced CLAUDE.md/evals”, and GitHub Teams (GraphQL) attribution are still on the roadmap.
-      </p>
+          can't crown a departed engineer champion. The COUNT stays on screen as a void mark; the
+          explanation and the roadmap inventory that used to trail it are demoted (D / F). */}
+      <ContributorsNotes slug={slug} staleRepos={insights.staleRepos} />
     </div>
   );
 }

@@ -13,12 +13,12 @@ import type { PairingView } from "./pairingClient";
 export function PairingList({ org, initial }: { org: string; initial: PairingView[] }) {
   const router = useRouter();
   if (initial.length === 0) {
-    return <SectionEmpty>No repositories in scope yet — add one above, or import your org's fleet from Onboarding.</SectionEmpty>;
+    return <SectionEmpty>No repositories in scope yet — add one above, or import your org&apos;s fleet from Onboarding.</SectionEmpty>;
   }
   const paired = initial.filter((r) => r.localPath != null).length;
   return (
     <section aria-label="Local pairings">
-      <p className="mb-2 font-mono text-xs text-slate-500">
+      <p className="mb-2 type-caption text-slate-500">
         {paired}/{initial.length} paired · paths resolve on the server running Ascent
         {" · "}under Docker, mount your code and pair the in-container path
       </p>

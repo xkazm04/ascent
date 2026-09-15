@@ -41,7 +41,7 @@ export function AddRepoForm({ org }: { org: string }) {
 
   return (
     <form onSubmit={submit} className="flex flex-wrap items-center gap-3 rounded-xl border border-divider bg-surface/40 p-4">
-      <label htmlFor="pairing-add-repo" className="font-mono text-xs uppercase tracking-widest text-slate-400">
+      <label htmlFor="pairing-add-repo" className="type-label tracking-widest text-slate-400">
         Add to scope
       </label>
       <input
@@ -49,17 +49,17 @@ export function AddRepoForm({ org }: { org: string }) {
         value={value}
         onChange={(e) => setValue(e.target.value)}
         placeholder="owner/repo — public repos welcome"
-        className="focus-ring min-w-64 flex-1 rounded-lg border border-divider bg-ink px-3 py-1.5 font-mono text-sm text-slate-200 placeholder:text-slate-600"
+        className="focus-ring min-w-64 flex-1 rounded-lg border border-divider bg-ink px-3 py-1.5 type-mono-sm text-slate-200 placeholder:text-slate-600"
       />
       <button
         type="submit"
         disabled={busy || !value.trim()}
-        className="focus-ring rounded-lg bg-accent px-4 py-1.5 text-sm font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
+        className="focus-ring rounded-lg bg-accent px-4 py-1.5 type-body-sm font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
       >
         {busy ? "Adding…" : "Add repo"}
       </button>
-      {added && <span className="font-mono text-xs text-success-soft">Added {added} ✓</span>}
-      {error && <span className="text-sm text-danger">{error}</span>}
+      {added && <span className="type-caption text-success-soft">Added {added} ✓</span>}
+      {error && <span className="type-body-sm text-danger">{error}</span>}
     </form>
   );
 }

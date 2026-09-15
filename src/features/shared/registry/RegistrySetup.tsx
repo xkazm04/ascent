@@ -77,7 +77,7 @@ export function RegistrySetupActions({ view, slug }: { view: RegistryView; slug:
       ) : null}
 
       {!actions.includes("create-registry") && actions.includes("map-existing") ? (
-        <p className="max-w-2xl text-xs text-slate-500">
+        <p className="max-w-2xl type-note text-slate-500">
           Creating the repository is not offered here: it needs an Organization account and the App&apos;s{" "}
           <span className="font-mono">administration: write</span> permission. Create it yourself on GitHub and map it above.
         </p>

@@ -28,6 +28,47 @@ export function appliesWhen(sweep: SweepPlan | undefined): string | null {
     : "No GitHub App installation, so open PRs were not re-checked. The new bar applies on each PR's next push or CI run.";
 }
 
+/**
+ * The GatePolicy fields this editor actually renders — and therefore the ONLY ones its save is
+ * entitled to replace. Everything else is carried through untouched by `passthroughPolicyFields`.
+ *
+ * Why (UAT 2026-08-30, NADIA-L1-07 / PRIYA-L1-01): the form builds its payload field by field and the
+ * POST replaces the stored policy wholesale, so `requireChecks` — a real, gate-enforced control bar,
+ * rendered READ-ONLY six rows above this very form — was DELETED the moment an owner changed an
+ * unrelated number. Live capture: min overall 50 → 55, and two required controls vanished. Same hole
+ * for `minAiGovernedRate` and `forbidAiAuthorship`, which no control here renders either.
+ *
+ * The fix is round-trip, not server-side merge, and the distinction matters: a merging POST could
+ * never CLEAR a field, so unchecking "Require a protected default branch" would stop working. The
+ * form owns exactly what it shows and touches nothing else.
+ *
+ * When a field gains a control here, add it to this list in the same change — otherwise the editor
+ * would show it AND stash a stale copy of it, and the stash would win.
+ */
+export const EDITED_POLICY_FIELDS = [
+  "minLevel",
+  "minOverall",
+  "minDimension",
+  "minDimensionFor",
+  "forbidPostures",
+  "requireProtectedBranch",
+] as const satisfies readonly (keyof GatePolicy)[];
+
+/**
+ * The stored policy minus the fields this form edits — the bars it must hand back byte-identical.
+ * Seeded from the server's echo on every save, never from the request, so the carried copy can't
+ * drift from what is actually stored.
+ */
+export function passthroughPolicyFields(p: GatePolicy | null): GatePolicy {
+  if (!p) return {};
+  const edited = new Set<string>(EDITED_POLICY_FIELDS);
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(p)) {
+    if (!edited.has(k) && v !== undefined) out[k] = v;
+  }
+  return out as GatePolicy;
+}
+
 /** The policy's per-dimension floors minus D9, as form strings. D9 has its own dedicated control. */
 export function floorsExceptD9(p: GatePolicy | null): Record<string, string> {
   const out: Record<string, string> = {};

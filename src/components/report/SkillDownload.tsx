@@ -69,7 +69,7 @@ export function SkillDownload({
       <Modal open={open} onClose={() => setOpen(false)} ariaLabel="Choose onboarding skill tracks" size="lg">
         <ModalHeader kicker="Onboarding skill" title="Choose the tracks" context={repoParam} />
         <ModalBody className="max-h-[60vh] overflow-y-auto">
-          <p className="text-sm text-slate-400">
+          <p className="type-body-sm text-slate-400">
             By default Ascent picks the dimensions this repo is weak on. Select your own set to scope a
             session, including a <span className="text-slate-200">refinement</span> on a dimension that
             is already strong.
@@ -86,17 +86,17 @@ export function SkillDownload({
                       onChange={() => toggle(d.id)}
                       className="focus-ring size-4 shrink-0 accent-accent"
                     />
-                    <span className="w-8 shrink-0 font-mono text-xs uppercase tracking-widest text-slate-500">
+                    <span className="w-8 shrink-0 type-label tracking-widest text-slate-500">
                       {d.id}
                     </span>
-                    <span className="min-w-0 flex-1 truncate text-sm text-slate-200">{d.name}</span>
+                    <span className="min-w-0 flex-1 truncate type-body-sm text-slate-200">{d.name}</span>
                     {auto.has(d.id) && (
-                      <span className="shrink-0 rounded-full border border-divider px-2 py-0.5 font-mono text-[0.65rem] uppercase tracking-widest text-slate-500">
+                      <span className="shrink-0 rounded-full border border-divider px-2 py-0.5 font-mono type-micro uppercase tracking-widest text-slate-500">
                         auto
                       </span>
                     )}
                     <span
-                      className="w-10 shrink-0 text-right font-mono text-sm tabular-nums"
+                      className="w-10 shrink-0 text-right type-mono-sm tabular-nums"
                       style={{ color: scoreHex(d.score) }}
                     >
                       {d.score}

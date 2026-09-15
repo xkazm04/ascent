@@ -6,6 +6,7 @@
 // timeUnixNano, falling back to a caller-supplied `fallbackMs`.
 
 import type { UsageRecordInput } from "@/lib/db";
+import { forgeFullName, parseForgeUrl } from "@/lib/forge/registry";
 
 interface OtlpValue {
   stringValue?: string;
@@ -55,8 +56,10 @@ function attrMap(attrs: OtlpAttr[] | undefined): Record<string, string> {
 export type SkipReason = "unknown-metric" | "no-repo-attr" | "unsupported-host";
 
 /** Resolve the `git.repository` resource attribute to a repo, or say why it can't be. Ascent's repo
- *  identity is GitHub's "owner/name" — a GitLab/Bitbucket/self-hosted remote has no row to attach
- *  spend to, so it is reported as unsupported rather than silently dropped. */
+ *  identity is `owner/name` for GitHub and a forge-prefixed `gitlab:group/project` elsewhere
+ *  (moonshot #4), so a GitLab remote now RESOLVES to the row a GitLab scan persists instead of being
+ *  reported as unsupported. A remote on a forge Ascent still cannot read has no row to attach spend
+ *  to, so it stays `unsupported-host` — named, never silently dropped. */
 export function resolveGitRepo(raw: string | undefined): { repo: string } | { reason: SkipReason; host: string } {
   if (!raw || !raw.trim()) return { reason: "no-repo-attr", host: "" };
   const s = raw.trim().replace(/\.git$/i, "");
@@ -64,6 +67,11 @@ export function resolveGitRepo(raw: string | undefined): { repo: string } | { re
   if (gh) return { repo: gh[1]! };
   const bare = s.match(/^([\w.-]+\/[\w.-]+)$/);
   if (bare) return { repo: bare[1]! };
+  // #4 — the ONE line this lane changes here. The router owns "is this a forge we read", so a remote
+  // resolves through exactly the parser the scanner would use; the identity it produces is the same
+  // `forgeFullName` the persist layer writes, which is what makes the join actually land on a row.
+  const routed = parseForgeUrl(s);
+  if (routed && routed.forge !== "github") return { repo: forgeFullName(routed.forge, routed.owner, routed.repo) };
   // Name the host so the report is actionable ("12 datapoints from gitlab.com") rather than a bare
   // count. Falls back to a truncated raw value when the attribute isn't remote-URL-shaped at all.
   const host = /^(?:[a-z][a-z0-9+.-]*:\/\/)?(?:[^@\s/]+@)?([^\s/:]+)[:/]/i.exec(s)?.[1] ?? s.slice(0, 40);

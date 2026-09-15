@@ -21,9 +21,11 @@
 // as an open finding" failure the aggregation change exists to prevent.
 
 import { useState } from "react";
+import { Legend, WhyChip, type LegendExtra } from "@/components/org/viz";
 import { PassportBlockerShell } from "@/features/standing/passports/PassportBlockerShell";
+import { PLACEHOLDER_LABEL, PLACEHOLDER_TITLE } from "@/features/standing/passports/PlaceholderMark";
 import { CreateIssueModal, type IssueDraft } from "@/components/github/CreateIssueModal";
-import { AXIS_TONE, aggregateBlockers, type Agg } from "@/features/standing/passports/passportBlockerAgg";
+import { AXIS_TONE, aggregateBlockers, scopeCounts, type Agg } from "@/features/standing/passports/passportBlockerAgg";
 import type { PassportRow } from "@/features/standing/passports/PassportTable";
 import { reportPermalink } from "@/lib/ui";
 
@@ -39,6 +41,10 @@ function draftFor(a: Agg, org: string, scopeLabel: string, inView: number): Issu
   const origin = window.location.origin;
   return {
     title: a.label.replace(/\.$/, ""),
+    // The finding id the issue route dedupes on (an open issue carrying this marker is relinked, not
+    // re-filed). `code` is the minted cause code on a 0.4.0 passport, or the normalized sentence on an
+    // older row - either is stable across rewordings, which is what a dedupe key needs.
+    findingId: `${a.axis === "automation" ? "auto" : "prod"}.${a.code}`,
     context: `${a.axis} blocker · ${a.repos.length}/${inView} repos in view`,
     body: [
       `Ascent flagged a **${a.axis} readiness** blocker on this repository:`,
@@ -55,8 +61,34 @@ function draftFor(a: Agg, org: string, scopeLabel: string, inView: number): Issu
   };
 }
 
+/** The docket's own marks at legend scale — the identical spans a row paints, so the legend cannot
+ *  describe a mark the rows draw differently. Neutral-toned: a row's hairline carries its axis. */
+const MARK_LEGEND = (anyDeclined: boolean): LegendExtra[] => [
+  {
+    id: "open",
+    label: "blocked",
+    swatch: <span className="h-1.5 w-1.5 rounded-[1px] bg-accent/75" />,
+    hint: "One solid mark per repository where this blocker is open. Click the row to file it as GitHub issues in those repos.",
+  },
+  ...(anyDeclined
+    ? [
+        {
+          id: "accepted",
+          label: "accepted by owner",
+          swatch: <span className="h-1.5 w-1.5 rounded-[1px] border border-accent/60" />,
+          hint: "A hollow mark is a repository whose owner has accepted this gap. Counted beside the open repos, never subtracted, and never targeted by the issue draft.",
+        },
+      ]
+    : []),
+];
+
+/** The ranking basis, disclosed rather than asserted — it used to live only in a code comment. */
+const RANK_HINT =
+  "Ranked by how many repositories each blocker affects — open plus accepted — so a gap every team has accepted keeps its true size. Somewhere to look next, not an order.";
+
 export function PassportBlockerPareto({ rows, scopeLabel, org, max = 8 }: { rows: PassportRow[]; scopeLabel: string; org: string; max?: number }) {
   const top = aggregateBlockers(rows).slice(0, max);
+  const scope = scopeCounts(rows);
   const [draft, setDraft] = useState<IssueDraft | null>(null);
 
   const anyDeclined = top.some((a) => a.declinedRepos.length > 0);
@@ -64,13 +96,26 @@ export function PassportBlockerPareto({ rows, scopeLabel, org, max = 8 }: { rows
   return (
     <PassportBlockerShell
       scopeLabel={scopeLabel}
-      intro={
-        anyDeclined
-          ? "Each solid mark is a blocked repo; each hollow one is a repo whose owner has accepted the gap. Click a row to file it as GitHub issues in the blocked repos."
-          : "Each mark is a blocked repo. Click a row to file it as GitHub issues."
-      }
+      legend={<Legend extra={MARK_LEGEND(anyDeclined)} />}
       empty={top.length === 0}
     >
+      {/* The docket's predicate, stated. A placeholder-scanned repo is COUNTED in every bucket below
+          (excluding it would shrink a real fleet problem), so the disclosure has to be arithmetic
+          the reader can apply: how many of the ranked repos were never graded by a model. */}
+      <p className="mt-2 flex items-center gap-1.5 type-caption text-slate-500">
+        <span className="font-mono tabular-nums text-slate-400">
+          {scope.repos} repo{scope.repos === 1 ? "" : "s"}
+        </span>
+        {scope.placeholderRepos > 0 && (
+          <span title={PLACEHOLDER_TITLE}>
+            {" · of which "}
+            <span className="font-mono tabular-nums text-slate-400">
+              {scope.placeholderRepos} from {PLACEHOLDER_LABEL}s
+            </span>
+          </span>
+        )}
+        <WhyChip hint={RANK_HINT} label="how this docket is ranked" />
+      </p>
       <div className="mt-3 space-y-1">
         {top.map((a) => {
           const tone = AXIS_TONE[a.axis];
@@ -84,7 +129,7 @@ export function PassportBlockerPareto({ rows, scopeLabel, org, max = 8 }: { rows
                 title="File this blocker as GitHub issues in the affected repos"
                 className="focus-ring group flex w-full items-baseline gap-3 rounded py-1.5 text-left"
               >
-                <p className="min-w-0 flex-1 text-base leading-snug text-slate-200 transition group-hover:text-white">
+                <p className="min-w-0 flex-1 type-body leading-snug text-slate-200 transition group-hover:text-white">
                   {a.label}
                 </p>
                 <span className="flex shrink-0 items-center gap-2">
@@ -106,11 +151,11 @@ export function PassportBlockerPareto({ rows, scopeLabel, org, max = 8 }: { rows
                       />
                     ))}
                   </span>
-                  <span className="font-mono text-sm tabular-nums text-slate-300">{a.repos.length}</span>
+                  <span className="type-mono-sm tabular-nums text-slate-300">{a.repos.length}</span>
                   {a.declinedRepos.length > 0 && (
                     <span
                       title={`${a.declinedRepos.length} repo(s) declined this gap by choice — counted, never subtracted`}
-                      className="font-mono text-xs tabular-nums text-slate-500"
+                      className="type-caption tabular-nums text-slate-500"
                     >
                       +{a.declinedRepos.length} accepted
                     </span>

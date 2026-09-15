@@ -23,6 +23,7 @@ import {
   buildSpendAnomalyMessage,
   dispatchAlert,
   isSpendAnomaly,
+  sinkKindForOrg,
   type GoalRisk,
 } from "@/lib/alerts";
 
@@ -75,7 +76,7 @@ async function claimAndDispatch(
     ...record,
     body: message.text,
     delivered: ok,
-    sinkKind: ctx.webhookUrl && /^mailto:/i.test(ctx.webhookUrl) ? "email" : "webhook",
+    sinkKind: sinkKindForOrg(ctx.webhookUrl),
     suppressedReason: ok ? null : "dispatch-failed",
   });
   return ok;
@@ -156,7 +157,11 @@ export async function dispatchExtraAlerts(ctx: ExtraAlertContext): Promise<Extra
               periodScans: period,
               baseline: baselinePerPeriod,
               ratio: baselinePerPeriod > 0 ? period / baselinePerPeriod : 0,
-              estimatedCostUsd: usage.estimatedCostUsd,
+              // MC-B32: the ALL-LANE total, not `estimatedCostUsd` (the scan lane alone). The digest
+              // was the last reader of the understated figure the `/usage` tile stopped showing in
+              // MC-B12, and it is the reader least able to notice — nobody cross-checks a push.
+              estimatedCostUsd: usage.allLanesCostUsd,
+              unpricedCalls: usage.allLanesUnpricedCalls,
             }),
           { periodScans: period, baseline: Math.round(baselinePerPeriod), weekStart: ctx.windowStart.toISOString() },
           {

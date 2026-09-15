@@ -45,7 +45,7 @@ export function AthenaComposer({ onSend, sending }: { onSend: (text: string) => 
         value={text}
         maxLength={MESSAGE_MAX}
         placeholder="Ask about this organization…"
-        className="text-sm"
+        className="type-body-sm"
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
@@ -55,11 +55,11 @@ export function AthenaComposer({ onSend, sending }: { onSend: (text: string) => 
         }}
       />
       <div className="mt-2 flex items-center justify-between gap-2">
-        <span className="font-mono text-xs text-slate-600">Enter sends · Shift+Enter for a new line</span>
+        <span className="type-caption text-slate-600">Enter sends · Shift+Enter for a new line</span>
         <button
           type="submit"
           disabled={sending || text.trim().length === 0}
-          className="focus-ring rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-on-accent transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-50"
+          className="focus-ring rounded-lg bg-accent px-3 py-1.5 type-body-sm font-semibold text-on-accent transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-50"
         >
           {sending ? "Thinking…" : "Ask"}
         </button>

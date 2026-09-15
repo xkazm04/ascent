@@ -63,7 +63,7 @@ export function AthenaPanel({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {s.degraded && (
-        <p className="border-b border-divider px-4 py-2 text-xs leading-relaxed text-slate-500">
+        <p className="border-b border-divider px-4 py-2 type-note leading-relaxed text-slate-500">
           No model is configured for this organization, so I can only answer from what is already stored
           here.{" "}
           <Link href={degradedHref} className="focus-ring text-accent underline-offset-2 hover:underline">
@@ -77,11 +77,11 @@ export function AthenaPanel({
         {s.turns.length === 0 && !s.loading && (
           <div className="border-l-2 border-accent/50 pl-3">
             <Kicker>Athena</Kicker>
-            <p className="mt-1 text-sm leading-relaxed text-slate-300">{restingLine(next)}</p>
+            <p className="mt-1 type-body-sm leading-relaxed text-slate-300">{restingLine(next)}</p>
             {next && (
               <Link
                 href={next.href}
-                className="focus-ring mt-2 inline-block rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 transition hover:border-accent hover:text-white"
+                className="focus-ring mt-2 inline-block rounded-lg border border-slate-700 px-3 py-1.5 type-body-sm text-slate-300 transition hover:border-accent hover:text-white"
               >
                 {next.cta}
               </Link>
@@ -96,7 +96,7 @@ export function AthenaPanel({
         <AthenaWaiting phase={s.phase} tool={s.tool} since={s.waitingSince} />
 
         {s.error && (
-          <p role="alert" className="border-l-2 border-danger/60 pl-3 text-sm leading-relaxed text-slate-400">
+          <p role="alert" className="border-l-2 border-danger/60 pl-3 type-body-sm leading-relaxed text-slate-400">
             {s.error}
           </p>
         )}

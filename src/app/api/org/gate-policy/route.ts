@@ -27,6 +27,7 @@ import { requireOrgRead } from "@/lib/authz";
 import { requireOrgOwnerPost } from "@/lib/api/orgPost";
 import { resolveViewerLogin } from "@/lib/access";
 import { describeGatePolicy, sanitizeGatePolicy, type GatePolicy } from "@/lib/scoring/gate";
+import { diffGatePolicy, summarizeGatePolicyDiff } from "@/lib/scoring/gate-diff";
 import { getInstallationToken, githubAppFetch, isAppConfigured } from "@/lib/github/app";
 import { runPrGate } from "@/lib/github/pr-gate";
 
@@ -221,14 +222,26 @@ export async function POST(request: Request) {
   // the bits come from describeGatePolicy — the same canonical enumeration the dashboard, gate URL, CI
   // snippet and PR footer render, so the audit trail can't advertise a bar different from the enforced one.
   const barBits = (p: GatePolicy | null) => describeGatePolicy(p ?? {}).map((c) => c.bit).join(" · ");
+  // Name what the write DROPPED or LOOSENED, in `status` — the field the audit viewer renders.
+  // (UAT NADIA-L1-07.) The old row put the deleted bar in `previousPolicy` and nowhere else, so a
+  // wiped `requireChecks` was discoverable only by diffing two JSON blobs nobody diffs. A control
+  // that can disappear without the log saying so is not a control. `changes` carries the structured
+  // form for the viewer/exports; `status` carries the sentence a human reads.
+  const changes = diffGatePolicy(previous, stored ?? null);
+  const dropped = changes.filter((c) => c.kind === "removed");
   await recordOrgAudit(
     "org.gate_policy",
     org,
     {
       org,
       action: stored ? "set" : "cleared",
-      status: stored ? barBits(stored) || "no enforced condition" : "cleared: archetype default",
+      status: stored
+        ? (barBits(stored) || "no enforced condition") + summarizeGatePolicyDiff(changes)
+        : // An explicit clear drops everything BY DEFINITION; re-listing all nine fields would bury
+          // the signal this clause exists for. `previousStatus` already carries what was in force.
+          "cleared: archetype default",
       policy: stored ?? null,
+      changes,
       previousPolicy: previous,
       previousStatus: previous ? barBits(previous) : "archetype default",
     },
@@ -241,5 +254,14 @@ export async function POST(request: Request) {
     console.warn("[gate-policy] could not schedule the re-check sweep", err instanceof Error ? err.message : err);
     return { status: "skipped", reason: "no-installation", repos: 0, cap: SWEEP_PR_CAP } satisfies SweepPlan;
   });
-  return NextResponse.json({ ok: true, policy: stored, sweep });
+  // `dropped` travels back so the editor's reconciliation can see a bar the FORM NEVER SENT. Its own
+  // request-vs-echo check (`droppedFields`) is structurally blind to that case — it can only notice a
+  // field it asked for going missing. The server is the only party that holds both the previous bar
+  // and the stored one, so it is the only party that can say "your save removed this".
+  return NextResponse.json({
+    ok: true,
+    policy: stored,
+    dropped: dropped.map((c) => ({ label: c.label, was: c.before })),
+    sweep,
+  });
 }

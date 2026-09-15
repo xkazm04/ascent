@@ -45,9 +45,9 @@ export function EmptyState({
   const wrap = section
     ? "rounded-2xl border border-dashed border-divider bg-surface/20 p-10 text-center"
     : "flex flex-col items-center py-24 text-center";
-  const iconCls = section ? "text-3xl" : "text-5xl";
-  const titleCls = section ? "text-base font-semibold text-white" : "mt-4 text-2xl font-bold text-white";
-  const bodyCls = section ? "mt-1 text-base text-slate-400" : "mt-2 max-w-md text-slate-400";
+  const iconCls = section ? "type-display" : "text-5xl";
+  const titleCls = section ? "type-body font-semibold text-white" : "mt-4 type-heading font-bold text-white";
+  const bodyCls = section ? "mt-1 type-body text-slate-400" : "mt-2 max-w-md text-slate-400";
 
   return (
     <div className={wrap}>

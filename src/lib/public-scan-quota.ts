@@ -22,11 +22,20 @@
 // scans are metered by prepaid credits (src/lib/entitlement.ts) and skip this entirely.
 
 import { createHash } from "node:crypto";
-import { Prisma } from "@prisma/client";
 import { clientIp, tooManyResponse } from "@/lib/rate-limit";
 import { envBool } from "@/lib/env";
-import { isDbConfigured, withDb, withRetry } from "@/lib/db";
-import { readDsqlConfig } from "@/lib/db/client";
+import {
+  PUBLIC_SCAN_WINDOW_DAYS,
+  publicScanAllowance,
+  publicScanMonthlyLimit,
+  signedInScanMonthlyLimit,
+} from "@/lib/public-scan-limit";
+import { PLAN_FEATURES } from "@/lib/plans";
+// The bucket's read-decide-write transaction (isolation selection, retry, upsert) lives in the
+// data layer — transactPublicScanQuota, src/lib/db/scan-quota.ts. This module keeps the POLICY:
+// window math, limits, bucket derivation, and the fail-open stance.
+// (Spec: docs/specs/2026-08-30-public-scan-quota-repository.md.)
+import { isDbConfigured, transactPublicScanQuota, withDb, withRetry } from "@/lib/db";
 import { recordQuotaEvent } from "@/lib/db/quota-events";
 
 /** Free monthly public-scan allowance attribution: which bucket a scan was counted against
@@ -36,40 +45,16 @@ import { recordQuotaEvent } from "@/lib/db/quota-events";
  *  existing importers. */
 export type QuotaScope = "anon" | "user";
 
-/**
- * Isolation for the quota's read-modify-write transactions. Vanilla Postgres defaults to READ
- * COMMITTED, where two concurrent consumers both read the same window and the last upsert silently
- * wins (lost update — no error is ever raised, so withRetry never fires); SERIALIZABLE makes one of
- * the racers abort with a 40001 that withRetry retries. Aurora DSQL runs snapshot OCC natively and
- * does not accept explicit isolation levels — its commit-time write-write conflict on the shared
- * row already aborts the loser with a retryable OC### error, so pass no option there.
- */
-function quotaTxOptions(): { isolationLevel: Prisma.TransactionIsolationLevel } | undefined {
-  return readDsqlConfig()
-    ? undefined
-    : { isolationLevel: Prisma.TransactionIsolationLevel.Serializable };
-}
+const WINDOW_MS = PUBLIC_SCAN_WINDOW_DAYS * 24 * 60 * 60 * 1000; // rolling 30-day "month"
 
-const WINDOW_MS = 30 * 24 * 60 * 60 * 1000; // rolling 30-day "month"
-
-/** Max free public scans per ANONYMOUS IP per rolling 30-day window — the Free plan's 5 scans/month
- *  applied to the public funnel. Env-overridable; default 5. */
-export function publicScanMonthlyLimit(): number {
-  const n = Number(process.env.PUBLIC_SCAN_MONTHLY_LIMIT);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 5;
-}
-
-/**
- * Monthly allowance for a SIGNED-IN viewer, keyed per-user (IP-independent) so a signed-in user gets
- * their OWN bucket (uncoupled from a shared IP). Defaults to the same 5/month Free allowance — under
- * the subscription model the lever for more volume is a paid plan, not merely signing in.
- * Env-overridable; clamped to be no lower than the anonymous limit (never grant *less*).
- */
-export function signedInScanMonthlyLimit(): number {
-  const n = Number(process.env.PUBLIC_SCAN_MONTHLY_LIMIT_SIGNED_IN);
-  const configured = Number.isFinite(n) && n > 0 ? Math.floor(n) : 5;
-  return Math.max(configured, publicScanMonthlyLimit());
-}
+// The two allowance functions moved to src/lib/public-scan-limit.ts (a pure, dependency-free module)
+// so the COPY that promises the allowance — /pricing's Free card via plans.ts, the landing FAQ, the
+// 429 below — can read the same number this gate charges against without dragging node:crypto and
+// Prisma into a client bundle (MC-B5). Re-exported here so this module stays their canonical import.
+// `publicScanAllowance` travels with them: it is the same allowance COMPOSED as the phrase the copy
+// prints ("1 free public scan" / "5 free public scans"), so a call site never appends its own plural
+// "s" to a number that may be 1 (MC-B38).
+export { publicScanAllowance, publicScanMonthlyLimit, signedInScanMonthlyLimit };
 
 /** Kill switch — set PUBLIC_SCAN_QUOTA_DISABLED=1 to turn the monthly gate off (dev / incident). */
 export function publicScanQuotaDisabled(): boolean {
@@ -225,44 +210,40 @@ export async function consumePublicScanQuota(
     return { enforced: false, allowed: true, remaining: limit, retryAfterSec: 0, resetAt: null, signedIn, chargedAt: null };
   }
 
+  // Minted ONCE, outside the retryable closure below: a serialization retry re-runs the decide
+  // against a fresh window, but the slot it charges (chargedAt) stays this request's stable key.
   const now = Date.now();
   try {
-    const result = await withDb((db) =>
-      withRetry(
-        () =>
-          db.$transaction(async (tx) => {
-            const row = await tx.publicScanQuota.findUnique({ where: { ipHash } });
-            const decision = decideQuota(parseHits(row?.hits), now, limit);
-            if (!decision.allowed) {
-              return {
-                enforced: true,
-                allowed: false,
-                remaining: 0,
-                retryAfterSec: retryAfterSec(decision.resetAt, now),
-                resetAt: decision.resetAt,
-                signedIn,
-                chargedAt: null,
-              };
-            }
-            const hits = JSON.stringify(decision.hits);
-            await tx.publicScanQuota.upsert({
-              where: { ipHash },
-              create: { ipHash, hits },
-              update: { hits },
-            });
-            return {
-              enforced: true,
-              allowed: true,
-              remaining: decision.remaining,
-              retryAfterSec: 0,
-              resetAt: decision.resetAt,
-              signedIn,
-              chargedAt: now,
-            };
-          }, quotaTxOptions()),
-        { label: "public-scan-quota" },
-      ),
-    );
+    // One read-decide-write transaction in the data layer (see transactPublicScanQuota for the
+    // isolation + retry story); the decide callback is PURE — safe to re-run on a conflict retry.
+    const result = await transactPublicScanQuota<QuotaResult>(ipHash, "public-scan-quota", (raw) => {
+      const decision = decideQuota(parseHits(raw), now, limit);
+      if (!decision.allowed) {
+        return {
+          result: {
+            enforced: true,
+            allowed: false,
+            remaining: 0,
+            retryAfterSec: retryAfterSec(decision.resetAt, now),
+            resetAt: decision.resetAt,
+            signedIn,
+            chargedAt: null,
+          },
+        };
+      }
+      return {
+        hits: JSON.stringify(decision.hits),
+        result: {
+          enforced: true,
+          allowed: true,
+          remaining: decision.remaining,
+          retryAfterSec: 0,
+          resetAt: decision.resetAt,
+          signedIn,
+          chargedAt: now,
+        },
+      };
+    });
     // QUOTA-6: count an enforced denial (fire-and-forget, after the tx — never inside it).
     if (result.enforced && !result.allowed) {
       void recordQuotaEvent("quota_deny", signedIn ? "user" : "anon").catch(() => {});
@@ -355,25 +336,15 @@ export async function refundPublicScanQuota(
   // there's nothing to refund — and touching the shared "unknown" bucket here could drop a real slot.
   if (unidentifiable) return;
   try {
-    await withDb((db) =>
-      withRetry(
-        // Same one-transaction read-modify-write as consume (see quotaTxOptions): a refund racing
-        // a concurrent consume must not silently drop the consume's freshly-recorded hit.
-        () =>
-          db.$transaction(async (tx) => {
-            const row = await tx.publicScanQuota.findUnique({ where: { ipHash } });
-            const prior = parseHits(row?.hits);
-            if (!row || prior.length === 0) return;
-            // Value-keyed by the exact charged timestamp (idempotent if already absent / aged out).
-            const next = removeHit(prior, chargedAt);
-            await tx.publicScanQuota.update({
-              where: { ipHash },
-              data: { hits: JSON.stringify(next) },
-            });
-          }, quotaTxOptions()),
-        { label: "public-scan-quota-refund" },
-      ),
-    );
+    // Same one-transaction read-modify-write as consume (same data-layer boundary): a refund racing
+    // a concurrent consume must not silently drop the consume's freshly-recorded hit.
+    await transactPublicScanQuota<void>(ipHash, "public-scan-quota-refund", (raw) => {
+      const prior = parseHits(raw);
+      // No row / empty window → nothing to refund, leave the store untouched.
+      if (raw === null || prior.length === 0) return { result: undefined };
+      // Value-keyed by the exact charged timestamp (idempotent if already absent / aged out).
+      return { hits: JSON.stringify(removeHit(prior, chargedAt)), result: undefined };
+    });
   } catch (err) {
     // Soft gate: losing a refund only costs the caller one slot — never fail the response over it.
     console.error("[public-scan-quota] refund failed; slot stays consumed", err);
@@ -391,8 +362,14 @@ export function monthlyQuotaExceeded(result: QuotaResult): Response {
   const limit = result.signedIn ? signedInScanMonthlyLimit() : publicScanMonthlyLimit();
   // Beyond the free monthly allowance the next scan needs a paid plan (which bundles more scans) or
   // prepaid scan credits — the same allowance-then-pay shape as a private scan.
+  //
+  // MC-B5 / id-vs-label: the tier is STORED as `pro` and DISPLAYED as "Starter" (see the TIER ID vs
+  // TIER LABEL note atop plans.ts). This copy said "Upgrade to Pro" — naming a plan that appears
+  // nowhere on /pricing, on the one screen where the upsell has to be trustworthy. Read the LABEL
+  // from the plan model so a future rename reaches this sentence with it; never re-type the name.
+  const upgradeTier = PLAN_FEATURES.pro.label;
   const error =
-    `You've used your ${limit} free scan${limit === 1 ? "" : "s"} this month. Upgrade to Pro for more monthly scans, add scan credits, or try again once the window resets.`;
+    `You've used your ${limit} free scan${limit === 1 ? "" : "s"} this month. Upgrade to ${upgradeTier} for more monthly scans, add scan credits, or try again once the window resets.`;
   // G8-29: shares tooManyResponse's status/content-type construction with rate-limit.ts's
   // tooManyRequests, but is NOT the same response — this body carries `code`/`remaining`/`resetAt`/
   // `scope` for the client meter, and the headers add the `x-ascent-quota-*` fields the per-minute

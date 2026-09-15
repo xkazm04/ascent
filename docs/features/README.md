@@ -31,7 +31,7 @@ and carries that area's known gaps.
 | [org-planning/](org-planning/README.md) | Org Planning & Execution | plan |
 | [org-knowledge/](org-knowledge/README.md) | Org Knowledge & Skills | memory · skills |
 | [reporting/](reporting/README.md) | Reporting & Visualization | report |
-| [billing/](billing/README.md) | Billing, Credits & Metering | billing · usage · badge |
+| [billing/](billing/README.md) | Billing, Credits & Metering | billing · usage |
 | [data/](data/README.md) | Data & Persistence | data-model · retention |
 | [design-system/](design-system/README.md) | Marketing Site & Design System | — *(not yet documented)* |
 
@@ -53,9 +53,6 @@ not just reading one.
   adoption × rigor posture, dimension radar, per-dimension evidence/gaps with a
   signal→LLM→blended **provenance track**, contributor AI-attribution, PR signals, a
   prioritized roadmap, and LLM-vs-detector discrepancies. ([report.md](reporting/report.md))
-- **Shareable maturity badge**: Shields-style SVG (level *or* pass/fail gate mode), cached
-  and rate-limited, with a [`/badge`](../../src/app/badge/page.tsx) generator that copies
-  ready-to-paste Markdown / HTML / AsciiDoc. ([badge.md](billing/badge.md))
 - **PR maturity gate**: a published GitHub Action scores a PR head and fails CI if the repo
   falls short of an archetype-aware policy, so teams can **block merges** on AI-native
   maturity. ([gate.md](scanning/gate.md))
@@ -124,7 +121,7 @@ and the audit method: [`../DOC-DRIFT.md`](../DOC-DRIFT.md).
 | Verdict | Docs |
 | --- | --- |
 | CURRENT | scan · maturity-model · calibration · gate · llm-providers · llm-model-matrix · async-scan-aws · ai-manifest-spec · alerts · rescan · practices · org-intelligence · report · billing · data-model · retention · memory · skills |
-| STALE | github-app · github/setup · wizard · badge · usage · fleet/enterprise · org-dashboard/roadmap · org-planning/plan |
+| STALE | github-app · github/setup · wizard · usage · fleet/enterprise · org-dashboard/roadmap · org-planning/plan |
 | OUTDATED | — |
 
 One group (**design-system**) still has no doc, and roughly a dozen shipped surfaces

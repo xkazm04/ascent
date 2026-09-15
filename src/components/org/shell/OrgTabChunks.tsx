@@ -24,6 +24,7 @@ import { SettingsTab } from "@/features/admin/settings/SettingsTab";
 import { PairingTab } from "@/features/admin/pairing/PairingTab";
 import { OverviewTab } from "@/features/standing/overview/OverviewTab";
 import { ExecutiveTab } from "@/features/bought/executive/ExecutiveTab";
+import { DigestTab } from "@/features/bought/digest/DigestTab";
 import { LiveTab } from "@/features/inflight/live/LiveTab";
 import { SecurityTab } from "@/features/standing/security/SecurityTab";
 import { PassportsTab } from "@/features/standing/passports/PassportsTab";
@@ -31,6 +32,7 @@ import { SkillsTab } from "@/features/shared/skills/SkillsTab";
 import { MemoryTab } from "@/features/shared/memory/MemoryTab";
 import { RegistryTab } from "@/features/shared/registry/RegistryTab";
 import { KnowledgeTab } from "@/features/shared/knowledge/KnowledgeTab";
+import { SurfacesTab } from "@/features/shared/surfaces/SurfacesTab";
 import { RepositoriesTab } from "@/features/standing/repositories/RepositoriesTab";
 import { TechStacksTab } from "@/features/standing/tech-stacks/TechStacksTab";
 import { TeamsTab } from "@/features/bought/teams/TeamsTab";
@@ -99,6 +101,14 @@ export function OrgTabChunks({ slug, tab, sp }: { slug: string; tab: OrgTabId; s
           </Suspense>
         ) : null}
 
+        {/* The Briefing's fixed-window sibling: the trailing 7 days as a pasteable leadership update.
+            Takes `sp` for shell uniformity only — its window ignores the period selector. */}
+        {tab === "digest" ? (
+          <Suspense fallback={<OrgTabGap minH="min-h-[36rem]" />}>
+            <DigestTab slug={slug} sp={sp} />
+          </Suspense>
+        ) : null}
+
         {tab === "live" ? (
           <Suspense fallback={<OrgTabGap minH="min-h-[36rem]" />}>
             <LiveTab slug={slug} sp={sp} />
@@ -137,10 +147,20 @@ export function OrgTabChunks({ slug, tab, sp }: { slug: string; tab: OrgTabId; s
           </Suspense>
         ) : null}
 
-        {/* The registry's knowledge lane, overview only — takes no `sp`, offers no drill-down. */}
+        {/* The registry's knowledge lane as the registry structures it, plus the fleet's standing
+            against it. Reads `?domain=` and `?subject=` (both tab-scoped). */}
         {tab === "knowledge" ? (
           <Suspense fallback={<OrgTabGap minH="min-h-[32rem]" />}>
-            <KnowledgeTab slug={slug} />
+            <KnowledgeTab slug={slug} sp={sp} />
+          </Suspense>
+        ) : null}
+
+        {/* The registry's ui-surfaces subjects as live scenes: a gallery, or one scene when
+            `?subject=` names a showcased slug (`?technique=` opens its mechanism drawer). Tall gap —
+            the scene frame is rail + canvas + drawer. */}
+        {tab === "surfaces" ? (
+          <Suspense fallback={<OrgTabGap minH="min-h-[40rem]" />}>
+            <SurfacesTab slug={slug} sp={sp} />
           </Suspense>
         ) : null}
 

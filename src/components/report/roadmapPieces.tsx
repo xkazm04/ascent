@@ -1,10 +1,21 @@
-import type { DimensionId, LevelId, LlmRoadmapItem, ScanReport } from "@/lib/types";
-import { DIMENSION_BY_ID, LEVELS } from "@/lib/maturity/model";
-import { cheapestPathToNextLevel, projectDimensionClose } from "@/lib/scoring/engine";
-import { isQuickWin, priorityScore, QuickWinBadge } from "@/components/report/roadmapPriority";
-import { EFFORT_CLASS, fastestPathNames, IMPACT_CLASS, LEVEL_GLYPH, LEVEL_HEX, scoreHex } from "@/lib/ui";
+import type { DimensionId, LlmRoadmapItem, ScanReport } from "@/lib/types";
+import { DIMENSION_BY_ID } from "@/lib/maturity/model";
+import { projectDimensionClose } from "@/lib/scoring/engine";
+import {
+  isQuickWin,
+  QuickWinBadge,
+  sortRoadmap,
+  type RoadmapLifts,
+  type RoadmapSortMode,
+} from "@/components/report/roadmapPriority";
+import { ExpectedLiftBasis } from "@/components/report/ExpectedLiftBasis";
+import { EFFORT_CLASS, IMPACT_CLASS } from "@/lib/ui";
 import { PRACTICES } from "@/lib/practices";
 import { Kicker, Surface } from "@/components/ui";
+
+// The two level callouts moved to roadmapLadder.tsx (300-LOC headroom) and are re-exported here, so
+// `import { TrustLadder, NextLevelPath } from "@/components/report/roadmapPieces"` keeps working.
+export { TrustLadder, NextLevelPath } from "@/components/report/roadmapLadder";
 
 /**
  * The canonical "impact / effort" chip pair. The default (roadmap list) variant renders
@@ -24,9 +35,93 @@ export function RoadmapMeta({
   const chip = compact ? "rounded border px-1.5 py-0.5" : "rounded-md border px-2 py-0.5";
   const sep = compact ? " " : ": ";
   return (
-    <div className={className ?? "flex items-center gap-2 text-sm"}>
+    <div className={className ?? "flex items-center gap-2 type-body-sm"}>
       <span className={`${chip} ${IMPACT_CLASS[item.impact]}`}>impact{sep}{item.impact}</span>
       <span className={`${chip} ${EFFORT_CLASS[item.effort]}`}>effort{sep}{item.effort}</span>
+    </div>
+  );
+}
+
+/**
+ * The tracker's triage progress header. Pure relocation out of RecommendationTracker.tsx, which sat at
+ * 296/300 lines and had to shed some before it could carry the measured-sort toggle (AGENTS.md: a file
+ * approaching the limit is the signal to extract). Behaviour is unchanged, including the two corners
+ * this header exists to get right: dismissed items leave the denominator (a fully-triaged backlog must
+ * be able to reach 100%), and ALL-dismissed is not success — it gets a neutral fill and its own
+ * sentence, never a triumphant green bar over work nobody did.
+ */
+export function TrackerProgress({
+  done,
+  actionable,
+  dismissed,
+  allDismissed,
+  pct,
+}: {
+  done: number;
+  actionable: number;
+  dismissed: number;
+  allDismissed: boolean;
+  pct: number;
+}) {
+  return (
+    <Surface radius="xl" className="p-4">
+      <div className="flex items-center justify-between type-body">
+        {allDismissed ? (
+          <span className="font-medium text-slate-400">
+            All {dismissed} recommendation{dismissed === 1 ? "" : "s"} dismissed, nothing left to track
+          </span>
+        ) : (
+          <>
+            <span className="font-medium text-white">
+              {done} of {actionable} done
+              {dismissed > 0 && <span className="text-slate-500"> · {dismissed} dismissed</span>}
+            </span>
+            <span className="text-slate-400">{pct}%</span>
+          </>
+        )}
+      </div>
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-800">
+        {allDismissed ? (
+          <div className="h-full rounded-full bg-slate-700" style={{ width: "100%" }} />
+        ) : (
+          <div className="h-full rounded-full bg-gradient-to-r from-accent to-emerald-500 transition-all" style={{ width: `${pct}%` }} />
+        )}
+      </div>
+    </Surface>
+  );
+}
+
+/**
+ * The roadmap's ordering switch (moonshot #9). CONTROLLED and hook-free, so it stays in this
+ * server-safe module while its state lives in the client tracker. The caller renders it only when at
+ * least one item has a measured clause: offering "by measured lift" over a ledger that has measured
+ * nothing would advertise evidence that does not exist.
+ */
+export function RoadmapSortToggle({
+  mode,
+  onChange,
+}: {
+  mode: RoadmapSortMode;
+  onChange: (mode: RoadmapSortMode) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5 type-body-sm">
+      <Kicker tone="muted" as="span">
+        order
+      </Kicker>
+      {(["priority", "measured"] as const).map((m) => (
+        <button
+          key={m}
+          type="button"
+          aria-pressed={mode === m}
+          onClick={() => onChange(m)}
+          className={`rounded-md border px-2 py-0.5 transition-colors ${
+            mode === m ? "border-accent/40 bg-accent/10 text-accent" : "border-slate-700 text-slate-400 hover:text-slate-200"
+          }`}
+        >
+          {m}
+        </button>
+      ))}
     </div>
   );
 }
@@ -36,7 +131,7 @@ export function ExploreList({ items }: { items?: string[] }) {
   return (
     <div className="mt-3 rounded-lg border border-divider bg-slate-950/40 p-3">
       <Kicker tone="accent">Explore</Kicker>
-      <ul className="mt-1.5 space-y-1 text-base text-slate-300">
+      <ul className="mt-1.5 space-y-1 type-body text-slate-300">
         {items.map((q, i) => (
           <li key={i} className="flex gap-2">
             <span className="select-none text-slate-600">→</span>
@@ -60,46 +155,10 @@ export function ExemplarPointer({ dim }: { dim: DimensionId }) {
   return (
     <div className="mt-3 rounded-lg border border-accent/20 bg-accent/[0.06] p-3">
       <Kicker tone="accent">What good looks like</Kicker>
-      <p className="mt-1.5 text-base leading-relaxed text-slate-300">
+      <p className="mt-1.5 type-body leading-relaxed text-slate-300">
         <span className="font-semibold text-white">{practice.label}</span>: {practice.what}
       </p>
     </div>
-  );
-}
-
-export function TrustLadder({ currentId }: { currentId: LevelId }) {
-  const cur = LEVELS.findIndex((l) => l.id === currentId);
-  const next = cur >= 0 && cur < LEVELS.length - 1 ? LEVELS[cur + 1] : null;
-  return (
-    <Surface radius="2xl" className="p-5">
-      <div className="flex items-center justify-between">
-        <h2 className="text-base font-semibold text-white">Trust ladder</h2>
-        <Kicker tone="muted">trust = adoption × rigor</Kicker>
-      </div>
-      <div className="mt-3 flex gap-1.5">
-        {LEVELS.map((l, i) => {
-          const reached = i <= cur;
-          const isCurrent = i === cur;
-          return (
-            <div key={l.id} className="flex-1">
-              <div className="h-1.5 rounded-full" style={{ backgroundColor: reached ? LEVEL_HEX[l.id] : "var(--color-divider)" }} />
-              <div aria-hidden className="mt-1 text-sm leading-none" style={{ color: reached ? LEVEL_HEX[l.id] : "#475569" }}>
-                {LEVEL_GLYPH[l.id]}
-              </div>
-              <div className={`mt-0.5 font-mono text-sm ${isCurrent ? "text-white" : "text-slate-500"}`}>
-                {l.id}
-                {isCurrent ? " ◂ you" : ""}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <p className="mt-2 text-sm text-slate-400">
-        {next
-          ? `The next rung is ${next.id} ${next.name}: ${next.tagline}. The gaps below are inputs to explore on the way.`
-          : "At the top of the ladder, the work now is sustaining trust and sharing what works."}
-      </p>
-    </Surface>
   );
 }
 
@@ -117,29 +176,47 @@ export function PayoffChip({ report, dim }: { report: ScanReport; dim: Dimension
   );
 }
 
-/** Headline of the cheapest combination of gaps to close to reach the next maturity band. */
-export function NextLevelPath({ report }: { report: ScanReport }) {
-  const path = cheapestPathToNextLevel(report);
-  if (!path.target || !path.reachable || path.steps.length === 0) return null;
-  const names = fastestPathNames(path.steps);
+/**
+ * The one concrete first move on a roadmap row, when the scan recorded one.
+ *
+ * Shared by BOTH renderings of the roadmap — the public `RoadmapSteps` below and the persisted
+ * `RecommendationTracker` — because it was previously inlined in RoadmapSteps only: every org with
+ * persistence enabled saw the tracker, which selected, typed and shipped `firstStep` over the wire and
+ * then never rendered it. One component means the two surfaces cannot drift on it again (the same
+ * failure the shared `sortRoadmap` contract exists to prevent).
+ *
+ * Renders NOTHING when the field is absent or blank — no "no first step recorded" placeholder, which
+ * would read as a finding about the gap rather than a silence about the model's output.
+ */
+export function RoadmapFirstStep({ firstStep }: { firstStep?: string | null }) {
+  if (!firstStep?.trim()) return null;
   return (
-    <div className="mt-3 rounded-lg border border-accent/20 bg-accent/[0.06] p-3 text-base">
-      <Kicker tone="accent">Fastest path</Kicker>
-      <p className="mt-1 text-slate-300">
-        Closing <span className="font-semibold text-white">{names}</span> projects to{" "}
-        <span className="font-semibold text-white">~{path.projected.overallScore}/100</span>, enough to reach{" "}
-        <span className="font-semibold" style={{ color: scoreHex(path.target.score) }}>
-          {path.target.level} {path.target.name}
-        </span>
-        .
-      </p>
-    </div>
+    <p className="mt-1.5 type-body leading-relaxed text-slate-300">
+      <span className="font-semibold text-slate-200">First step:</span> {firstStep}
+    </p>
   );
 }
 
-/** Prioritized, numbered next-steps for public scans — quick wins first. */
-export function RoadmapSteps({ items, report }: { items: LlmRoadmapItem[]; report: ScanReport }) {
-  const ordered = [...items].sort((a, b) => priorityScore(b) - priorityScore(a));
+/**
+ * Prioritized, numbered next-steps for public scans — quick wins first.
+ *
+ * `lifts` is the org's measured basis map (moonshot #9). It is OPTIONAL and defaults to absent, so an
+ * anonymous public scan — which has no tenant and therefore no ledger — renders exactly the roadmap it
+ * always did. When it is supplied each row gains a basis clause, and `sort` may order by measured
+ * evidence; the default stays `priority`.
+ */
+export function RoadmapSteps({
+  items,
+  report,
+  lifts,
+  sort = "priority",
+}: {
+  items: LlmRoadmapItem[];
+  report: ScanReport;
+  lifts?: RoadmapLifts;
+  sort?: RoadmapSortMode;
+}) {
+  const ordered = sortRoadmap(items, lifts, sort);
   return (
     <ol className="space-y-3">
       {ordered.map((item, i) => {
@@ -152,7 +229,7 @@ export function RoadmapSteps({ items, report }: { items: LlmRoadmapItem[]; repor
             style={quick ? { borderColor: "rgba(16,185,129,0.35)" } : { borderColor: "rgb(30,41,59)" }}
           >
             <div className="flex items-start gap-4">
-              <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-700 font-mono text-base text-slate-300">
+              <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-700 font-mono type-body text-slate-300">
                 {i + 1}
               </span>
               <div className="min-w-0 flex-1">
@@ -160,12 +237,14 @@ export function RoadmapSteps({ items, report }: { items: LlmRoadmapItem[]; repor
                   <h3 className="font-semibold text-white">{item.title}</h3>
                   {quick && <QuickWinBadge />}
                 </div>
+                <RoadmapFirstStep firstStep={item.firstStep} />
                 {item.rationale && (
-                  <p className="mt-1.5 text-base leading-relaxed text-slate-400">{item.rationale}</p>
+                  <p className="mt-1.5 type-body leading-relaxed text-slate-400">{item.rationale}</p>
                 )}
+                <ExpectedLiftBasis item={item} lifts={lifts} />
                 <ExploreList items={item.explore} />
                 <ExemplarPointer dim={item.dimension} />
-                <div className="mt-2.5 flex flex-wrap items-center gap-2 text-sm">
+                <div className="mt-2.5 flex flex-wrap items-center gap-2 type-body-sm">
                   <RoadmapMeta item={item} className="contents" />
                   {axis && (
                     <span className="rounded-md border border-slate-700 px-2 py-0.5 text-slate-400">

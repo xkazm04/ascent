@@ -1,7 +1,7 @@
 ---
 name: Tomáš (prospective buyer)
 role: Director of Engineering / Head of Platform (economic buyer evaluating whether to adopt Ascent after a big AI-coding-tool contract)
-maps_to: Landing (/), /launch, /about, /pricing, public scan + /report, /badge
+maps_to: Landing (/), /launch, /about, /pricing, public scan + /report, /leaderboard
 tech_level: comfortable
 promotion: discovery
 references:

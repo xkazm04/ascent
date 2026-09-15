@@ -14,10 +14,12 @@ import type {
   LevelId,
   LlmRoadmapItem,
   PersistedRecommendation,
+  PlatformSignalRecord,
   PrStats,
   ProviderName,
   RepoArchetype,
   ScanReport,
+  ScoreIntegrity,
   TechStack,
 } from "@/lib/types";
 import { createHash } from "node:crypto";
@@ -25,12 +27,31 @@ import { Prisma } from "@prisma/client";
 import { unstable_cache } from "next/cache";
 import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getDbMode, type DbMode } from "@/lib/db/mode";
-import { isDimensionId, LEVEL_BY_ID, levelForScore, postureFor } from "@/lib/maturity/model";
+import {
+  SCORING_RUBRIC_VERSION,
+  isDimensionId,
+  LEVEL_BY_ID,
+  levelForScore,
+  postureFor,
+} from "@/lib/maturity/model";
 import { stackFitFromLanguage } from "@/lib/analyze/stack-fit";
 import { applyPassportOverrides, parsePassportJson, parsePassportOverrides, type AppPassport } from "@/lib/analyze/passport";
+import { parsePlatformSignals, unmeasurablePlatformDims } from "@/lib/analyze/platform-carry";
 import { projectedGain } from "@/lib/scoring/engine";
+import { asCraftAxis } from "@/lib/scoring/craft";
 import { reportPermalink } from "@/lib/ui";
 import { canonicalRepoFullName, DEFAULT_ORG_SLUG, parseStringArray, resolveOrgId, toPersistedRec } from "@/lib/db/scans-shared";
+import { digestToPoint, readDigestTail } from "@/lib/db/scan-digest";
+// The standing-regression rule itself is PURE and lives beside the other detectors in the alert
+// layer; this module only supplies it with persisted readings and, for the concerns it raises, the
+// evidence strings behind the two named scans.
+import {
+  detectStandingRegressions,
+  STANDING_REGRESSION_LOOKBACK,
+  type StandingConcern,
+  type StandingScanPoint,
+} from "@/lib/alerts";
+import { diffStringSets } from "@/lib/report/compare";
 
 // reportPermalink now lives in @/lib/ui (a client-safe module, so the trend charts can build the
 // same link); re-exported here for the existing @/lib/db barrel + server callers.
@@ -285,6 +306,14 @@ export interface HistoryPoint {
   rubricVersion: string | null;
   scannedAt: string;
   dimensions: { dimId: string; score: number }[];
+  /** MOONSHOT #32 — set only on a COMPACTED point: one period's summary served in place of scans
+   *  retention already deleted. Absent (not `false`) on a real scan, so an existing consumer that
+   *  never heard of compaction reads exactly what it always did. A compacted point carries
+   *  `headSha: null` and an `id` prefixed `digest:`, so nothing can build a permalink from it. */
+  compacted?: true;
+  /** How many scans a compacted point summarises. Absent on a real scan (where it would be 1 and
+   *  therefore noise). */
+  scanCount?: number;
 }
 
 export interface RepositoryHistory {
@@ -344,11 +373,17 @@ function historyPointFrom(s: {
  * the OVERALL line (a first paint, an embed, the /api/history `?dims=0` mode) doesn't need them.
  * Passing `false` skips that select entirely and returns empty `dimensions` arrays — a lighter query
  * for the overall-only path, with the by-dimension data fetched separately when actually shown.
+ *
+ * `includeCompacted` (default **false**) appends the repo's compacted tail — the `ScanDigest` rows
+ * retention wrote for periods whose scans it deleted (MOONSHOT #32) — after the real scans, as one
+ * ordered newest-first series. Off by default on purpose: every existing caller (the compare picker,
+ * `skill-outcomes-load`, `/api/history` without the param) keeps reading retained scans only, and a
+ * consumer that would treat a period average as a scan never receives one by accident.
  */
 export async function getRepositoryHistory(
   owner: string,
   name: string,
-  opts: { orgSlug?: string; limit?: number; includeDimensions?: boolean } = {},
+  opts: { orgSlug?: string; limit?: number; includeDimensions?: boolean; includeCompacted?: boolean } = {},
 ): Promise<RepositoryHistory | null> {
   if (!isDbConfigured()) return null;
   // DB-DOWN DEGRADE, deliberately uniform (scan-persistence-history 07-16 #4): every reader in this
@@ -365,7 +400,7 @@ export async function getRepositoryHistory(
 async function loadRepositoryHistory(
   owner: string,
   name: string,
-  opts: { orgSlug?: string; limit?: number; includeDimensions?: boolean },
+  opts: { orgSlug?: string; limit?: number; includeDimensions?: boolean; includeCompacted?: boolean },
 ): Promise<RepositoryHistory | null> {
   const prisma = getPrisma();
   const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
@@ -399,6 +434,19 @@ async function loadRepositoryHistory(
         })
       ).map(historyPointFrom)
     : (await prisma.scan.findMany({ ...args, select: HISTORY_POINT_SELECT })).map(historyPointFrom);
+
+  // MOONSHOT #32 — the compacted tail, appended AFTER the retained scans so the array stays one
+  // newest-first series. `before` is the oldest RETAINED scan: a period straddling the retention
+  // horizon must not appear twice, once as its surviving scans and once as a summary of them. The
+  // combined length still honours `limit`, so the tail extends the reach of a page, not its size.
+  if (opts.includeCompacted && scans.length < limit) {
+    const oldestRetained = scans[scans.length - 1];
+    const tail = await readDigestTail(repo.id, {
+      before: oldestRetained ? new Date(oldestRetained.scannedAt) : undefined,
+      limit: limit - scans.length,
+    });
+    for (const row of tail) scans.push(digestToPoint(row));
+  }
 
   return {
     repo: { owner: repo.owner, name: repo.name, fullName },
@@ -447,6 +495,17 @@ export interface ComparableScan {
   posture: string;
   confidence: number;
   engineProvider: string;
+  engineModel: string;
+  /** The mock floor FIRED on this scan: a model was requested and never answered, so `engineProvider`
+   *  is the deterministic floor rather than a chosen engine. Undefined on a row written before the
+   *  column — UNKNOWN, which the attribution rule must not read as "not degraded". */
+  engineDegraded?: boolean;
+  /** The levers that can move a headline on an UNCHANGED commit (see ScoreIntegrity). Undefined on a
+   *  row written before the column, and on any scan that never recorded one. */
+  scoreIntegrity?: ScoreIntegrity;
+  /** What this end could SEE of the GitHub-side folds (observed / carried / unavailable). Undefined
+   *  on a row written before the column — UNKNOWN, which no consumer may read as "unavailable". */
+  platformSignals?: PlatformSignalRecord;
   headSha: string | null;
   dimensions: ComparableDimension[];
   recommendations: ComparableRecommendation[];
@@ -483,12 +542,23 @@ async function loadComparableScan(
       posture: true,
       confidence: true,
       engineProvider: true,
+      engineModel: true,
+      // The two provenance columns the loop's attribution rule reads: WHICH engine produced this end
+      // of a bracketed pair, and whether the number it carries was moved by something other than the
+      // repository. A comparison that cannot see them cannot tell a lift from an engine swap.
+      engineDegraded: true,
+      scoreIntegrityJson: true,
+      // The third provenance column: whether this end's D2/D3/D4 were observed, carried from an
+      // earlier GitHub scan, or not measurable at all. A pair whose two ends folded the platform
+      // signals differently did not move those dimensions for a repository reason.
+      platformSignalsJson: true,
       headSha: true,
       dimensions: { select: { dimId: true, name: true, score: true, signalScore: true, evidence: true, gaps: true } },
       recommendations: { select: { id: true, title: true, dimId: true, status: true } },
     },
   });
   if (!scan) return null;
+  const integrity = parseJsonObject<ScoreIntegrity>(scan.scoreIntegrityJson);
   return {
     id: scan.id,
     scannedAt: scan.scannedAt.toISOString(),
@@ -501,6 +571,16 @@ async function loadComparableScan(
     posture: scan.posture,
     confidence: scan.confidence,
     engineProvider: scan.engineProvider,
+    engineModel: scan.engineModel,
+    // Both are OMITTED, not defaulted, when the column is null: a row written before these existed is
+    // unknown on both counts, and defaulting would manufacture the exact certainty the attribution
+    // rule is there to withhold.
+    ...(scan.engineDegraded == null ? {} : { engineDegraded: scan.engineDegraded }),
+    ...(integrity ? { scoreIntegrity: integrity } : {}),
+    ...(() => {
+      const ps = parsePlatformSignals(scan.platformSignalsJson);
+      return ps ? { platformSignals: ps } : {};
+    })(),
     headSha: scan.headSha,
     dimensions: scan.dimensions.map((d) => ({
       dimId: d.dimId,
@@ -636,6 +716,17 @@ export interface PublicRepoCard {
   scannedAt: string; // ISO
   /** Permalink to the pinned report (commit-pinned when the scan recorded a head SHA). */
   href: string;
+  /** The rubric this score was computed under ("r15"), or null on a row scored before the column. */
+  rubricVersion: string | null;
+  /** True only when the score was taken with the rubric in force NOW. A null version is UNKNOWN and
+   *  therefore NOT current — the same reading `db/outcomes.ts` and `register/data.ts` give it.
+   *
+   *  MC-B18 gave `RegisterEntry` (/leaderboard) this pair; the landing register is a SECOND public
+   *  ranking over the same corpus and was left un-qualified (MC-B42). Derived here, at the same point
+   *  the row is projected, so both surfaces say the same thing in the same words. Computed inside the
+   *  60 s cache window, so a rubric bump takes at most one revalidation to show — the bump itself does
+   *  NOT re-scan anything, which is the whole reason the qualifier has to exist. */
+  currentRubric: boolean;
 }
 
 export interface PublicScanGallery {
@@ -679,6 +770,7 @@ const GALLERY_REPO_SELECT = Prisma.validator<Prisma.RepositorySelect>()({
       rigorScore: true,
       posture: true,
       scannedAt: true,
+      rubricVersion: true,
       dimensions: { select: { dimId: true, score: true } },
     },
   },
@@ -686,8 +778,10 @@ const GALLERY_REPO_SELECT = Prisma.validator<Prisma.RepositorySelect>()({
 
 type GalleryRepoRow = Prisma.RepositoryGetPayload<{ select: typeof GALLERY_REPO_SELECT }>;
 
-/** Project a repo + its latest scan into a gallery card; null when the repo has no scan row. */
-function galleryCardFrom(r: GalleryRepoRow): PublicRepoCard | null {
+/** Project a repo + its latest scan into a gallery card; null when the repo has no scan row.
+ *  Exported for the provenance unit tests (`scans-gallery.test.ts`) — the rubric derivation is the
+ *  one thing on this path that must not drift from `register/data.ts`. */
+export function galleryCardFrom(r: GalleryRepoRow): PublicRepoCard | null {
   const s = r.scans[0];
   if (!s) return null;
   const dimensions: Partial<Record<DimensionId, number>> = {};
@@ -709,6 +803,9 @@ function galleryCardFrom(r: GalleryRepoRow): PublicRepoCard | null {
     stars: r.stars,
     scannedAt: s.scannedAt.toISOString(),
     href: reportPermalink(r.fullName, s.headSha),
+    rubricVersion: s.rubricVersion,
+    // Never `!= current`: a null column is unknown, and unknown is not current.
+    currentRubric: s.rubricVersion === SCORING_RUBRIC_VERSION,
   };
 }
 
@@ -812,6 +909,188 @@ export async function getPublicScanGallery(
   }, null);
 }
 
+/**
+ * The most recent scan of `fullName` that actually OBSERVED the GitHub-side platform signals, with
+ * the fold it recorded — the snapshot a worktree rescan replays (src/lib/analyze/platform-carry.ts).
+ *
+ * The `observed` filter is applied in JS over a small newest-first window rather than as a substring
+ * match on the JSON column: a `contains: '"source":"observed"'` predicate would silently depend on
+ * `JSON.stringify` key order, which is exactly the kind of gate that keeps passing after it stops
+ * meaning anything. The window is bounded (`PLATFORM_FOLD_LOOKBACK`) because a repo the loop has been
+ * hammering accumulates local rescans between GitHub scans, and an unbounded scan-back would grow
+ * with the loop's own activity.
+ *
+ * Null when there is none: the caller must then say D2/D3/D4 were not measurable, never invent a fold.
+ */
+export async function getLatestPlatformSignals(
+  orgSlug: string,
+  fullName: string,
+): Promise<{ record: PlatformSignalRecord; scanId: string } | null> {
+  if (!isDbConfigured()) return null;
+  return dbReadSafe(async () => {
+    const orgId = await resolveOrgId(orgSlug);
+    if (!orgId) return null;
+    const prisma = getPrisma();
+    const repo = await prisma.repository.findUnique({
+      where: { orgId_fullName: { orgId, fullName: fullName.toLowerCase() } },
+      select: { id: true },
+    });
+    if (!repo) return null;
+    const rows = await prisma.scan.findMany({
+      where: { repoId: repo.id, platformSignalsJson: { not: null } },
+      orderBy: [{ scannedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+      take: PLATFORM_FOLD_LOOKBACK,
+      select: { id: true, platformSignalsJson: true },
+    });
+    for (const row of rows) {
+      const record = parsePlatformSignals(row.platformSignalsJson);
+      if (record?.source === "observed") return { record, scanId: row.id };
+    }
+    return null;
+  }, null);
+}
+
+/** How far back to look for a GitHub-side scan before giving up. Ten is comfortably more than a
+ *  drive's whole run budget (DRIVE_MAX_RUNS_CAP = 8), so a full drive cannot bury the snapshot it
+ *  started from under its own rescans. */
+export const PLATFORM_FOLD_LOOKBACK = 10;
+
+/**
+ * The dimensions the repo's LATEST scan could not observe at all — the read behind the loop's refusal
+ * to arm work it cannot verify (src/lib/local/loop-lane.ts).
+ *
+ * The LATEST scan, deliberately, not the latest OBSERVED one: the question is what the next cycle
+ * will be able to measure, and the last reading is the best evidence of that. Empty — never "assume
+ * blind" — when there is no scan, no DB, or a row written before the column: unknown provenance is
+ * not evidence that a dimension was unmeasurable, the same rule parsePlatformSignals holds.
+ */
+export async function getLatestUnmeasurableDims(orgSlug: string, fullName: string): Promise<string[]> {
+  if (!isDbConfigured()) return [];
+  return dbReadSafe(async () => {
+    const orgId = await resolveOrgId(orgSlug);
+    if (!orgId) return [];
+    const prisma = getPrisma();
+    const repo = await prisma.repository.findUnique({
+      where: { orgId_fullName: { orgId, fullName: fullName.toLowerCase() } },
+      select: { id: true },
+    });
+    if (!repo) return [];
+    const row = await prisma.scan.findFirst({
+      where: { repoId: repo.id },
+      orderBy: [{ scannedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+      select: { platformSignalsJson: true },
+    });
+    return unmeasurablePlatformDims(parsePlatformSignals(row?.platformSignalsJson)) as string[];
+  }, [] as string[]);
+}
+
+// ---- Standing regressions (a decline that stopped moving) --------------------
+// The read behind `detectStandingRegressions` (src/lib/alerts.ts). Persisted scans are the ONLY
+// input, deliberately: a dimension that fell because a human pushed two new workflows deserves the
+// same alarm as one that fell inside a loop lane, so nothing here consults a run, a lane or an
+// attribution verdict. See the detector's header for why the attribution guard cannot be the one
+// asked whether a decline is real.
+
+export interface RepoStandingConcern extends StandingConcern {
+  repoFullName: string;
+  repoName: string;
+}
+
+/**
+ * Every repo in the org whose latest scan has a dimension holding materially below an earlier
+ * reading. Two bounded queries, never a fan-out per repo:
+ *
+ *   1. the org's repos with their last `STANDING_REGRESSION_LOOKBACK` scans, carrying only
+ *      `(scannedAt, engineProvider, per-dimension score)` — the detector reads nothing else;
+ *   2. the evidence strings for ONLY the (scan, dimension) pairs a concern actually named, so the
+ *      "what appeared / what disappeared" lines cost one extra query for the whole fleet rather than
+ *      dragging every dimension's evidence blob through step 1.
+ *
+ * The evidence lines are a LIST, never an explanation: they name signals that differ between the two
+ * readings, which is evidence a reader can check, and stop short of asserting that they caused the
+ * drop. Empty when the two ends carry no comparable evidence.
+ */
+export async function getStandingRegressions(
+  orgSlug: string,
+  opts: { drop?: number; scans?: number; lookback?: number; limit?: number } = {},
+): Promise<RepoStandingConcern[]> {
+  if (!isDbConfigured()) return [];
+  return dbReadSafe(async () => {
+    const orgId = await resolveOrgId(orgSlug);
+    if (!orgId) return [];
+    const prisma = getPrisma();
+    const lookback = Math.max(2, Math.min(50, Math.trunc(opts.lookback ?? STANDING_REGRESSION_LOOKBACK) || STANDING_REGRESSION_LOOKBACK));
+    const repos = await prisma.repository.findMany({
+      where: { orgId },
+      select: {
+        fullName: true,
+        name: true,
+        scans: {
+          orderBy: SCAN_ORDER,
+          take: lookback,
+          select: {
+            id: true,
+            scannedAt: true,
+            engineProvider: true,
+            dimensions: { select: { dimId: true, score: true } },
+          },
+        },
+      },
+    });
+
+    const found: RepoStandingConcern[] = [];
+    for (const repo of repos) {
+      const points: StandingScanPoint[] = repo.scans.map((s) => ({
+        id: s.id,
+        scannedAt: s.scannedAt.toISOString(),
+        engineProvider: s.engineProvider,
+        dimensions: s.dimensions.map((d) => ({ dimId: d.dimId, score: d.score })),
+      }));
+      for (const c of detectStandingRegressions(points, { drop: opts.drop, scans: opts.scans })) {
+        found.push({ ...c, repoFullName: repo.fullName, repoName: repo.name });
+      }
+    }
+
+    found.sort((a, b) => b.drop - a.drop || a.repoFullName.localeCompare(b.repoFullName) || a.dimId.localeCompare(b.dimId));
+    const top = typeof opts.limit === "number" ? found.slice(0, Math.max(0, opts.limit)) : found;
+    if (top.length === 0) return top;
+
+    // One evidence query for every named end across the whole fleet.
+    const wanted = new Set<string>();
+    for (const c of top) {
+      if (c.currentScanId) wanted.add(`${c.currentScanId}|${c.dimId}`);
+      if (c.baselineScanId) wanted.add(`${c.baselineScanId}|${c.dimId}`);
+    }
+    const dimRows = await prisma.scanDimension.findMany({
+      where: {
+        scanId: { in: [...new Set(top.flatMap((c) => [c.currentScanId, c.baselineScanId].filter((x): x is string => !!x)))] },
+        dimId: { in: [...new Set(top.map((c) => c.dimId))] },
+      },
+      select: { scanId: true, dimId: true, evidence: true },
+    });
+    const evidenceBy = new Map<string, string[]>();
+    for (const r of dimRows) {
+      const key = `${r.scanId}|${r.dimId}`;
+      if (wanted.has(key)) evidenceBy.set(key, parseStringArray(r.evidence));
+    }
+
+    return top.map((c) => {
+      const before = c.baselineScanId ? evidenceBy.get(`${c.baselineScanId}|${c.dimId}`) : undefined;
+      const after = c.currentScanId ? evidenceBy.get(`${c.currentScanId}|${c.dimId}`) : undefined;
+      if (!before || !after) return c;
+      const { onlyInA: disappeared, onlyInB: appeared } = diffStringSets(before, after);
+      const lines = [
+        ...appeared.slice(0, STANDING_EVIDENCE_CAP).map((e) => `appeared: ${e}`),
+        ...disappeared.slice(0, STANDING_EVIDENCE_CAP).map((e) => `disappeared: ${e}`),
+      ];
+      return lines.length ? { ...c, evidence: lines } : c;
+    });
+  }, [] as RepoStandingConcern[]);
+}
+
+/** At most this many appeared / disappeared evidence lines per concern — a digest line, not a diff. */
+const STANDING_EVIDENCE_CAP = 3;
+
 /** Recommendations from the most recent scan of a repo (with ids + trackable status). */
 export async function getLatestRecommendations(
   owner: string,
@@ -864,6 +1143,7 @@ async function loadLatestRecommendations(
           impact: true,
           effort: true,
           rationale: true,
+          firstStep: true,
           explore: true,
           levelUnlock: true,
           kind: true,
@@ -1014,9 +1294,15 @@ async function loadScanReportByCommit(
     impact: r.impact as Impact,
     effort: r.effort as Effort,
     rationale: r.rationale,
+    ...(r.firstStep ? { firstStep: r.firstStep } : {}),
     explore: parseStringArray(r.explore),
     levelUnlock: r.levelUnlock ?? undefined,
-    ...(r.kind === "craft" ? { kind: "craft" as const } : {}),
+    // Only the non-default kind is carried (an absent kind IS "gap"), and the axis rides only with
+    // it — narrowed through the taxonomy so a stale or hand-edited column value cannot enter the
+    // report as an axis the ledger would not recognise.
+    ...(r.kind === "craft"
+      ? { kind: "craft" as const, ...(asCraftAxis(r.craftAxis) ? { craftAxis: asCraftAxis(r.craftAxis)! } : {}) }
+      : {}),
   }));
 
   // Contributors are stored as a per-repo LATEST-scan snapshot (persistScanReport replaces them
@@ -1128,6 +1414,12 @@ async function loadScanReportByCommit(
     discrepancies: parseDiscrepancies(scan.discrepancies),
     confidence: scan.confidence,
     ...(warnings.length ? { warnings } : {}),
+    // The integrity record round-trips onto the reconstructed report, so a permalinked or reloaded
+    // report can explain a headline the same way the fresh scan could. Undefined on a legacy row —
+    // "not recorded", never "nothing fired".
+    ...(parseJsonObject<ScoreIntegrity>(scan.scoreIntegrityJson)
+      ? { scoreIntegrity: parseJsonObject<ScoreIntegrity>(scan.scoreIntegrityJson)! }
+      : {}),
     scannedAt: scan.scannedAt.toISOString(),
     engine: {
       provider: scan.engineProvider as ProviderName,
@@ -1136,6 +1428,8 @@ async function loadScanReportByCommit(
       // A legacy row (scored before the column) is NULL -> undefined, which the header renders as the
       // platform wording. Never upgrade "unknown" to an in-your-account claim.
       byom: scan.engineByom ?? undefined,
+      // Same rule for the mock-floor degrade: NULL is UNKNOWN, and unknown is not "not degraded".
+      degraded: scan.engineDegraded ?? undefined,
     },
   };
 }

@@ -25,7 +25,7 @@ export function HeaderProgress({
       {running && (
         <div className="mt-4">
           <div
-            className="h-1.5 overflow-hidden rounded-full bg-slate-800"
+            className="h-1.5 overflow-hidden rounded-full bg-divider"
             role="progressbar"
             aria-label="Scan progress"
             aria-valuenow={safePct}
@@ -43,17 +43,17 @@ export function HeaderProgress({
             // announcing it floods a polite region during a full-fleet run (it never finishes reading).
             // The single run announcer is the coalesced "done/total repos" count above; this caption
             // is a visual-only status (matching the TV scanning stage, which likewise omits aria-live).
-            <p className="mt-1 truncate font-mono text-sm text-slate-500" suppressHydrationWarning>
+            <p className="mt-1 truncate type-mono-sm text-slate-500" suppressHydrationWarning>
               scanning {shortName(progress.current)}…
             </p>
           )}
         </div>
       )}
       {error && (
-        <p className="mt-3 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-base text-danger-soft">{error}</p>
+        <p className="mt-3 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 type-body text-danger-soft">{error}</p>
       )}
       {skipped > 0 && (
-        <p className="mt-3 rounded-lg border border-warn/30 bg-warn/5 px-3 py-2 text-base text-warn">
+        <p className="mt-3 rounded-lg border border-warn/30 bg-warn/5 px-3 py-2 type-body text-warn">
           {skipped} {skipped === 1 ? "repo" : "repos"} skipped, out of scan credits.
         </p>
       )}

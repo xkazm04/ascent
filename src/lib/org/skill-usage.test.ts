@@ -1,10 +1,13 @@
-// Pure tests for the skill dormancy verdict: the download > sync recency ranking, the 30-day window,
-// and — the rule most likely to regress — the AGE GUARD that keeps a freshly authored or freshly adopted
-// skill out of the "dormant" bucket.
+// Pure tests for the skill dormancy verdict: the real-use recency ranking, the 30-day window, and — the
+// rule most likely to regress — the AGE GUARD that keeps a freshly authored or freshly adopted skill out
+// of the "dormant" bucket.
 //
-// ONE SIGNAL (2026-07-29): `invoke` is gone (it had no producer, so `active` was unreachable), and the
-// web-UI Copy/Download path now emits the same `download` event the CLI reports — pinned below by the
-// test that a web use and a CLI use land in the SAME verdict.
+// ONE SIGNAL (2026-07-29): the web-UI Copy/Download path emits the same `download` event the CLI
+// reports — pinned below by the test that a web use and a CLI use land in the SAME verdict.
+//
+// `invoke` (2026-08-29, moonshot #19): un-retired now that the hook/MCP channel produces it. The rank
+// is invoke > download > sync, but ONLY as a tiebreak — recency decides which event was the last use.
+// Both halves are pinned below, because a rank that ignored timestamps would mislabel the last use.
 
 import { describe, it, expect, vi } from "vitest";
 
@@ -28,6 +31,62 @@ import {
 const NOW = new Date("2026-07-27T12:00:00.000Z");
 const daysAgo = (n: number) => new Date(NOW.getTime() - n * 86_400_000).toISOString();
 const ev = (type: string, days: number, count = 1) => ({ type, lastAt: daysAgo(days), count });
+
+describe("skillUsage and `invoke`", () => {
+  it("makes a skill whose only event is an invoke inside the window ACTIVE", () => {
+    // FAIL-BEFORE: `invoke` was not a known type, so it fell through to the `unused`/`unmeasured`
+    // branch and this skill read `dormant` — the exact hole #19 exists to close.
+    const u = skillUsage({ skillId: "s", createdAt: daysAgo(200), events: [ev("invoke", 3, 4)] }, NOW);
+    expect(u.verdict).toBe("active");
+    expect(u.state).toBe("active");
+    expect(u.lastUsedType).toBe("invoke");
+    expect(u.useCount).toBe(4);
+    expect(u.invokes).toBe(4);
+  });
+
+  it("ranks by RECENCY: a newer download beats an older invoke", () => {
+    const u = skillUsage(
+      { skillId: "s", createdAt: daysAgo(200), events: [ev("invoke", 20, 3), ev("download", 2, 1)] },
+      NOW,
+    );
+    expect(u.lastUsedType).toBe("download");
+    expect(u.daysSinceUse).toBe(2);
+    // Both kinds are real uses, so both count toward the tally the card renders.
+    expect(u.useCount).toBe(4);
+    expect(u.invokes).toBe(3);
+  });
+
+  it("ranks invoke above download only when the two land on the same instant", () => {
+    const at = daysAgo(5);
+    const u = skillUsage(
+      {
+        skillId: "s",
+        createdAt: daysAgo(200),
+        events: [
+          { type: "download", lastAt: at, count: 1 },
+          { type: "invoke", lastAt: at, count: 1 },
+        ],
+      },
+      NOW,
+    );
+    expect(u.lastUsedType).toBe("invoke");
+  });
+
+  it("still refuses to let a `sync` outrank silence — an invoke-less pull is not a use", () => {
+    const u = skillUsage({ skillId: "s", createdAt: daysAgo(200), events: [ev("sync", 1, 9)] }, NOW);
+    expect(u.lastUsedType).toBe("sync");
+    expect(u.verdict).toBe("dormant");
+    expect(u.state).toBe("unused");
+    expect(u.invokes).toBe(0);
+  });
+
+  it("an invoke past the window makes the skill ABANDONED, not unused", () => {
+    // The distinction is what makes a prune candidate honest: someone ran this and stopped.
+    const u = skillUsage({ skillId: "s", createdAt: daysAgo(300), events: [ev("invoke", 90, 1)] }, NOW);
+    expect(u.state).toBe("abandoned");
+    expect(isPruneCandidate(u)).toBe(true);
+  });
+});
 
 describe("skillUsage verdicts", () => {
   it("is `new` for a young skill with no uses at all", () => {

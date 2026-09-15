@@ -101,7 +101,9 @@ describe("extractPracticeShape", () => {
   });
 
   it("is empty-safe", () => {
-    expect(extractPracticeShape([], [])).toEqual({ version: "1", entries: [] });
+    // #33: an empty repo yields a v2 shape with an EMPTY census — which is a true statement here
+    // (the tree really is empty and really is not truncated), unlike an absent census on a v1 blob.
+    expect(extractPracticeShape([], [])).toEqual({ version: "2", entries: [], artifacts: [], truncated: false });
   });
 });
 

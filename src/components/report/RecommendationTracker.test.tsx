@@ -14,7 +14,11 @@ import type { PersistedRecommendation, ScanReport } from "@/lib/types";
 // (OrphanedTracking.dom.test.tsx); stub it out so these assertions see only the tracker's own PATCHes.
 vi.mock("@/components/report/OrphanedTracking", () => ({ OrphanedTracking: () => null }));
 
-vi.mock("@/components/report/roadmapPieces", () => ({
+// PARTIAL: the presentational chips are stubbed to keep these assertions on the tracker's own chrome,
+// but TrackerProgress and RoadmapSortToggle are the tracker's chrome — several tests below read the
+// progress header's text directly — so they stay real.
+vi.mock("@/components/report/roadmapPieces", async (orig) => ({
+  ...(await orig<typeof import("@/components/report/roadmapPieces")>()),
   RoadmapMeta: () => null,
   PayoffChip: () => null,
   ExploreList: () => null,

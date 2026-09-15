@@ -140,7 +140,7 @@ export function PlanEnquiryFields({
           maxLength={ENQUIRY_LIMITS.message.max}
           placeholder="Repos, teams, where inference has to run, the timeline you're working to…"
           aria-invalid={invalidField === "message"}
-          className="text-sm"
+          className="type-body-sm"
         />
       </Field>
 

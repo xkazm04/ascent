@@ -30,6 +30,15 @@ vi.mock("@/lib/db", () => ({
   persistTeamStandings: vi.fn(async () => false),
   recordScanOutcome: vi.fn(async () => {}),
 }));
+// Since moonshot #10 the scan itself runs in the queue worker, which forwards the scanner's
+// `onProgress` back to the route. The worker is mocked to REPLAY exactly that sequence, so this file
+// keeps testing what it always tested — the route's frame arithmetic — without a database.
+vi.mock("@/lib/db/scan-jobs", () => ({
+  JOB_PRIORITY: { manual: 10, webhook: 5, cadence: 0 },
+  enqueueScanJob: vi.fn(),
+  listJobsForRun: vi.fn(async () => []),
+}));
+vi.mock("@/lib/scan-queue-worker", () => ({ drainLane: vi.fn() }));
 vi.mock("@/lib/github/app", () => ({ getInstallationToken: vi.fn(async () => "tok"), isAppConfigured: () => true }));
 vi.mock("@/lib/authz", () => ({ requireOrgAccess: vi.fn(async () => null), requireFleetOrg: vi.fn(async () => null) }));
 vi.mock("@/lib/entitlement", () => ({
@@ -38,8 +47,9 @@ vi.mock("@/lib/entitlement", () => ({
 }));
 
 import { POST } from "./route";
-import { scanRepository } from "@/lib/scan";
 import { listWatchedRepos } from "@/lib/db";
+import { enqueueScanJob } from "@/lib/db/scan-jobs";
+import { drainLane } from "@/lib/scan-queue-worker";
 import { SCAN_SUBSTAGES, foldProgressFrame, type ScanProgressState } from "@/lib/scan-stage";
 import { parseSSE } from "@/lib/sse";
 
@@ -60,11 +70,37 @@ async function runScan(repos: string[]): Promise<{ event: string | null; data: R
   vi.mocked(listWatchedRepos).mockResolvedValue(
     repos.map((fullName) => ({ fullName, lastScanAt: null })) as unknown as Awaited<ReturnType<typeof listWatchedRepos>>,
   );
-  vi.mocked(scanRepository).mockImplementation(async (_repo, opts) => {
-    for (const [i, stage] of ALL_STAGES.entries()) {
-      opts?.onProgress?.({ stage, message: stage, pct: (i + 1) * 12 });
+  let n = 0;
+  vi.mocked(enqueueScanJob).mockImplementation(async () => ({ id: `job_${++n}`, created: true }));
+  // Replay the worker: per job, the repo boundary, then every scanner sub-stage (including the
+  // terminal `done`, which the ROUTE is responsible for dropping), then the repo's result.
+  vi.mocked(drainLane).mockImplementation(async (_lane, opts) => {
+    for (const j of opts.jobs ?? []) {
+      opts.onRepo?.({ repo: j.repo, stage: "start" });
+      for (const [i, stage] of ALL_STAGES.entries()) {
+        opts.onScanProgress?.(j.repo, { stage, message: stage, pct: (i + 1) * 12 });
+      }
+      const r = report();
+      opts.onRepo?.({
+        repo: j.repo,
+        stage: "done",
+        level: r.level.id,
+        overall: r.overallScore,
+        posture: r.posture.id,
+        adoption: r.adoptionScore,
+        rigor: r.rigorScore,
+      });
     }
-    return report();
+    return {
+      claimed: opts.jobs?.length ?? 0,
+      done: opts.jobs?.length ?? 0,
+      failed: 0,
+      skipped: 0,
+      skippedForCredits: 0,
+      skippedNoToken: 0,
+      truncated: false,
+      errors: [],
+    };
   });
   const res = await POST(
     new Request("http://localhost/api/org/scan", {

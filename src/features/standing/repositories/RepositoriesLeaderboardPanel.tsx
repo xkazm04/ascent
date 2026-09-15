@@ -11,9 +11,11 @@ import Link from "next/link";
 import { OrgEmpty, SectionHeader, postureLabel, POSTURE_ORDER } from "@/components/org/shared/ui";
 import { POSTURE_HEX } from "@/components/org/shared/liveWarRoomShared";
 import { RepoLeaderboard } from "./RepoLeaderboard";
+import { FleetScoreShape } from "./FleetScoreShape";
+import { fleetScoreShape } from "./fleetShape";
 import { MissingReposPanel } from "./MissingReposPanel";
 import { TechStackSelector } from "@/components/org/shared/TechStackSelector";
-import { getOrgRollup, listMissingRepos, listSegments } from "@/lib/db";
+import { getOrgRollupShared, listMissingRepos, listSegments } from "@/lib/db";
 import { resolveStackScope } from "@/lib/org/scope";
 import { isAppConfigured } from "@/lib/github/app";
 import { orgTabHref } from "@/lib/org/orgTabs";
@@ -23,7 +25,10 @@ type SearchParams = { [key: string]: string | string[] | undefined };
 export async function RepositoriesLeaderboardPanel({ slug, sp }: { slug: string; sp: SearchParams }) {
   // Optional tech-stack scope (Feature 3b): scope the leaderboard to the selected group's repos.
   const { techGroups, activeStack, techGroupId } = await resolveStackScope(slug, sp);
-  const rollup = await getOrgRollup(slug, undefined, null, techGroupId);
+  // Request-scoped: Context Health below this panel asks for the SAME scoped rollup, and the tab used
+  // to run two full ones per render. `getOrgRollupShared` normalizes null/undefined args so the two
+  // calls key identically and collapse into one read.
+  const rollup = await getOrgRollupShared(slug, undefined, null, techGroupId);
   // Same empty-state contract as the overview: don't render a blank panel inside the org shell when
   // there's no fleet data to table — point the user at how to populate it (tabs stay visible).
   if (!rollup) {
@@ -80,10 +85,12 @@ export async function RepositoriesLeaderboardPanel({ slug, sp }: { slug: string;
       <div>
         <SectionHeader
           title="Repositories"
+          // §2.3 — scope and unit only. What the columns MEAN is now the shape above them and each
+          // column header's own title.
           description={
             posture
-              ? `${visible.length} of ${rollup.repoCount} repos in ${postureLabel(posture)} posture: recent commits, PRs & lines changed.`
-              : `${rollup.scannedCount}/${rollup.repoCount} scanned: recent commits, PRs & lines changed.`
+              ? `${visible.length}/${rollup.repoCount} repos · ${postureLabel(posture)} posture`
+              : `${rollup.scannedCount}/${rollup.repoCount} scanned · ~4-week activity`
           }
           right={
             <div className="flex flex-wrap items-center gap-2">
@@ -93,20 +100,23 @@ export async function RepositoriesLeaderboardPanel({ slug, sp }: { slug: string;
               <a
                 href={`/api/org/repositories?org=${encodeURIComponent(slug)}&format=csv${posture ? `&posture=${encodeURIComponent(posture)}` : ""}${activeStack ? `&stack=${encodeURIComponent(activeStack.key)}` : ""}`}
                 title={posture || activeStack ? "Download the currently filtered repos as CSV" : "Download the full fleet as CSV"}
-                className="focus-ring rounded-md border border-slate-700 px-3 py-1.5 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white"
+                className="focus-ring rounded-md border border-slate-700 px-3 py-1.5 type-mono-sm text-slate-300 transition hover:border-accent hover:text-white"
               >
                 Export CSV
               </a>
             </div>
           }
         />
+        {/* First sight is the fleet's SHAPE, not row 1 (§2.2). The box is drawn over the SCOPED set
+            the table shows, so the two can never describe different fleets. */}
+        <FleetScoreShape className="mt-3" shape={fleetScoreShape(visible)} />
         {/* Posture filter chips — the on-page surface for the ?posture= scope (also deep-linked from
             the Overview's posture bar). Full-fleet counts; "All" clears; active chip highlighted. */}
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           <Link
             href={chipHref(null)}
             aria-current={posture === null ? "true" : undefined}
-            className={`focus-ring rounded-full border px-2.5 py-1 font-mono text-sm transition ${posture === null ? "border-accent/60 text-white" : "border-slate-700 text-slate-400 hover:border-accent hover:text-white"}`}
+            className={`focus-ring rounded-full border px-2.5 py-1 type-mono-sm transition ${posture === null ? "border-accent/60 text-white" : "border-slate-700 text-slate-400 hover:border-accent hover:text-white"}`}
           >
             All <span className="text-slate-500">{leaderboard.length}</span>
           </Link>
@@ -115,7 +125,7 @@ export async function RepositoriesLeaderboardPanel({ slug, sp }: { slug: string;
               key={p}
               href={chipHref(p)}
               aria-current={posture === p ? "true" : undefined}
-              className={`focus-ring inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-sm transition ${posture === p ? "border-accent/60 text-white" : "border-slate-700 text-slate-400 hover:border-accent hover:text-white"}`}
+              className={`focus-ring inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 type-mono-sm transition ${posture === p ? "border-accent/60 text-white" : "border-slate-700 text-slate-400 hover:border-accent hover:text-white"}`}
             >
               <span aria-hidden className="h-2 w-2 rounded-full" style={{ backgroundColor: POSTURE_HEX[p] ?? "#64748b" }} />
               {postureLabel(p)} <span className="text-slate-500">{postureCounts.get(p)}</span>

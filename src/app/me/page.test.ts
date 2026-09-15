@@ -2,7 +2,7 @@
 // than only from the two Supabase-era CTAs that used to be the only way in. It therefore has to
 // resolve the login the way the rest of the app does (resolveViewerLogin: custom-OAuth session first,
 // then the Supabase / dev-bypass viewer) — a getViewer-only lookup would bounce a custom-OAuth session
-// straight back to /connect, which is the dead end this exists to remove.
+// straight back to /onboarding, which is the dead end this exists to remove.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
@@ -45,6 +45,6 @@ describe("/me", () => {
 
   it("sends a signed-out visitor to sign in rather than to an org they can't read", async () => {
     h.resolveViewerLogin.mockResolvedValue(null);
-    expect(await redirectTarget()).toBe("/connect");
+    expect(await redirectTarget()).toBe("/onboarding");
   });
 });

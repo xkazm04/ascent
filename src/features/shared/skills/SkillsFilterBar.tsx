@@ -37,13 +37,13 @@ export function SkillsFilterBar({
         onChange={(e) => setSearch(e.target.value)}
         placeholder="Search skills…"
         aria-label="Search skills"
-        className="min-w-[10rem] flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200 placeholder:text-slate-600"
+        className="min-w-[10rem] flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-body-sm text-slate-200 placeholder:text-slate-600"
       />
       <select
         value={category}
         onChange={(e) => setCategory(e.target.value)}
         aria-label="Filter by category"
-        className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
+        className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-mono-sm text-slate-200"
       >
         <option value="">All categories</option>
         {categories.map((c) => (
@@ -56,7 +56,7 @@ export function SkillsFilterBar({
         value={sort}
         onChange={(e) => setSort(e.target.value as SkillSort)}
         aria-label="Sort skills"
-        className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
+        className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-mono-sm text-slate-200"
       >
         {SORTS.map((s) => (
           <option key={s.id} value={s.id}>{s.label}</option>

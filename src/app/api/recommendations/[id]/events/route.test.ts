@@ -27,6 +27,7 @@ vi.mock("@/lib/authz", () => ({ requireOrgRead: vi.fn(), requireOrgAccess: vi.fn
 import { GET } from "./route";
 import { isDbConfigured, getRecommendationOrgSlug, getRecommendationEvents } from "@/lib/db";
 import { requireOrgRead, requireOrgAccess } from "@/lib/authz";
+import { REC_EVENTS_LIMIT } from "@/lib/db/scans-recommendations";
 
 const mockIsDbConfigured = vi.mocked(isDbConfigured);
 const mockOrgSlug = vi.mocked(getRecommendationOrgSlug);
@@ -85,5 +86,22 @@ describe("GET /api/recommendations/:id/events — read tenant gate", () => {
     expect(mockEvents).toHaveBeenCalledWith("rec_1");
     const body = (await res.json()) as { events: unknown[] };
     expect(body.events).toHaveLength(1);
+  });
+});
+
+// D11: the timeline read is bounded, so the response must say when it is not the whole record.
+describe("GET /api/recommendations/:id/events — a bounded list says it is bounded", () => {
+  it("reports truncated: false and the limit for a short history", async () => {
+    mockEvents.mockResolvedValue([{ id: "ev_1" }] as never);
+    const body = (await (await get("rec_1")).json()) as { events: unknown[]; truncated: boolean; limit: number };
+    expect(body.events).toHaveLength(1);
+    expect(body.truncated).toBe(false);
+    expect(body.limit).toBe(REC_EVENTS_LIMIT);
+  });
+
+  it("reports truncated: true on a full page — older changes exist and are not in this list", async () => {
+    mockEvents.mockResolvedValue(Array.from({ length: REC_EVENTS_LIMIT }, (_, i) => ({ id: `ev_${i}` })) as never);
+    const body = (await (await get("rec_1")).json()) as { truncated: boolean };
+    expect(body.truncated).toBe(true);
   });
 });

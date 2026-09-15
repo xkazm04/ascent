@@ -8,6 +8,7 @@ import { Card, InlineEmpty, Meter, SectionHeader } from "@/components/org/shared
 // public share page, and the wording must have one source across every goal surface.
 import { GOAL_ATTAINMENT_MARKER } from "@/components/org/shared/goalViewLogic";
 import { MoveRow } from "./briefingShared";
+import { movementLine } from "@/lib/org/briefing";
 import { scoreHex } from "@/lib/ui";
 import type { BriefingGoal, BriefingMove, ExecBriefing } from "@/lib/org/briefing";
 
@@ -25,6 +26,7 @@ export function BriefingMovementCard({
   gainers,
   regressions,
   movement = null,
+  liveScoredRepos = 0,
   reportLinks = false,
   className = "",
 }: {
@@ -32,20 +34,22 @@ export function BriefingMovementCard({
   regressions: BriefingMove[];
   /** Fleet-wide movement scale, rendered above the rows when `compared > 0`. */
   movement?: ExecBriefing["movement"] | null;
+  /** `ExecBriefing.realScoredCount` — the SUPERSET the scale line names the comparable set against.
+   *  0 (the default) simply omits the "(of N live-scored)" clause; the line still renders. */
+  liveScoredRepos?: number;
   /** Exec-only: link each mover to its report permalink. */
   reportLinks?: boolean;
   className?: string;
 }) {
   if (gainers.length === 0 && regressions.length === 0) return null;
+  const scale = movement ? movementLine(movement, liveScoredRepos) : null;
   return (
     <Card className={className}>
       <SectionHeader size="sm" title="Movement this period" />
-      {movement && movement.compared > 0 && (
-        <p className="mt-2 font-mono text-sm text-slate-500">
-          {movement.up + movement.down} of {movement.compared} compared repos moved
-          ({movement.up} ▲ / {movement.down} ▼)
-        </p>
-      )}
+      {/* Direction 2 — the composed line (G12). The inlined copy read "{up+down} of {compared}
+          compared repos moved" with no statement of what `compared` is a subset OF, which is the
+          gap UAT DANA-L1-012 named; the PDF and the markdown were already reading the composer. */}
+      {scale && <p className="mt-2 type-mono-sm text-slate-500">{scale}</p>}
       <div className="mt-3 space-y-1.5">
         {gainers.map((m) => (
           <MoveRow
@@ -99,7 +103,7 @@ export function BriefingGoalsCard({
       ) : (
         <div className="mt-3 space-y-2.5">
           {goals.map((g) => (
-            <div key={g.label} className="flex items-center gap-3 text-base">
+            <div key={g.label} className="flex items-center gap-3 type-body">
               <span className="min-w-0 flex-1 truncate text-slate-300">{g.label}</span>
               {/* The meter's basis rides in the tooltip and, when a goal can only report
                   attainment, as a visible marker: an attainment bar opens near-full and a
@@ -111,7 +115,7 @@ export function BriefingGoalsCard({
                 color={scoreHex(g.pct)}
                 ariaLabel={`${g.label}: ${g.pct}% — ${g.pctLabel}`}
               />
-              <span className="w-28 shrink-0 text-right font-mono text-sm text-slate-400" title={g.pctLabel}>
+              <span className="w-28 shrink-0 text-right type-mono-sm text-slate-400" title={g.pctLabel}>
                 {g.current}/{g.target}
                 {g.pctBasis === "attainment" ? (
                   <span className="text-slate-500"> · {GOAL_ATTAINMENT_MARKER}</span>

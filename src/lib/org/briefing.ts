@@ -15,9 +15,11 @@ import {
   type GoalPctBasis,
 } from "@/lib/db";
 import { getOrgEngineMix, getOrgRecsActioned, type EngineMixEntry } from "@/lib/db/org";
+import { hasFleetGrade } from "@/lib/db/org-shared";
 import { getOrgPractices, getPlaybookAdoption, listPlaybooks } from "@/lib/db";
 import { buildPracticeLibrarySummary } from "@/lib/org/practice-library";
-import { forecastHeadline } from "@/lib/maturity/forecast";
+import { getImprovementEvents, type ImprovementEvent } from "@/lib/db/improvement-events";
+import { composeTrajectory, forecastConfidenceNote, trajectoryNote, type TrajectoryRead } from "@/lib/maturity/forecast";
 import { DIMENSION_BY_ID, levelForScore } from "@/lib/maturity/model";
 import { providerLabel as engineLabel } from "@/lib/llm/config";
 import type { DimensionId } from "@/lib/types";
@@ -45,28 +47,56 @@ export function engineMixCaveat(mix: EngineMixEntry[]): string | null {
 
 /** "trend confidence 30% · noisy" — the same hedge the exec page shows under the trajectory headline,
  *  so the board PDF and the shared read-only link can't present a low-R² projection as a firm headline.
- *  Null when there's no confidence figure (too little history). `< 50` (R²) is the "noisy" threshold. */
-export function forecastConfidenceNote(confidence: number | null): string | null {
-  if (confidence == null) return null;
-  return `trend confidence ${confidence}%${confidence < 50 ? " · noisy" : ""}`;
+ *  Re-exported from @/lib/maturity/forecast, where it now lives beside the composer that uses it, so
+ *  the phrase has exactly one definition; this alias keeps every existing import site unchanged. */
+export { forecastConfidenceNote };
+
+/** The trajectory as the briefing's renderers must present it — the composed read of the fit behind
+ *  `forecastHeadline` / `forecastConfidence` / `forecastBasis` / `forecastInsufficiency`.
+ *
+ *  EVERY briefing surface (the Trajectory card, the board PDF, the read-only share page and the
+ *  "Copy for LLM" markdown) reads the line through this one function, so the four artifacts a board
+ *  might see cannot disagree about the same fit. Previously each assembled its own line and guarded
+ *  the hedge on `forecastConfidence != null` — and that figure is nulled precisely when the fit is
+ *  too thin to state one, so the LEAST trustworthy fit rendered the MOST confidently. (MC-B1.) */
+export function briefingTrajectory(b: ExecBriefing): TrajectoryRead {
+  return {
+    headline: b.forecastHeadline,
+    confidence: b.forecastConfidence,
+    basis: b.forecastBasis ?? null,
+    insufficiency: b.forecastInsufficiency ?? null,
+  };
+}
+
+/** The hedge a rendered briefing headline must carry: "trend confidence 34% · noisy · fit over 9 scan
+ *  days across 84 days". Null only when there is no headline to hedge. */
+export function briefingTrajectoryNote(b: ExecBriefing): string | null {
+  return trajectoryNote(briefingTrajectory(b));
 }
 
 /** One-line value-realization summary ("3 recommendations completed · fleet +6 pts · 2 repos leveled
  *  up"), or null when nothing measurable happened this period — so the renewal line only appears when
  *  there's value to show, never as an empty "0 · 0 · 0". Shared by the exec page and the markdown.
  *
- *  UAT DANA-L1-012 — `scannedRepos` names the basis of the points figure. `pointsMoved` is the
- *  fleet-wide average delta over every SCANNED repo, while the movement line beside it counts only
+ *  UAT DANA-L1-012 — `liveScoredRepos` names the basis of the points figure. `pointsMoved` is the
+ *  fleet-wide average delta over every LIVE-SCORED repo, while the movement line beside it counts only
  *  repos with a COMPARABLE prior scan. A live board PDF put "fleet -6 pts" next to "Of 2 repositories
  *  comparable across the period, 0 improved and 0 regressed", and the reader could not reconcile them:
  *  "A board member does not need to know the word 'cohort-matched'; they need the page not to
  *  contradict itself." The two numbers were never in conflict — only one of them stated its scope. */
-export function valueRealizedLine(vr: ExecBriefing["valueRealized"], scannedRepos?: number): string | null {
+export function valueRealizedLine(vr: ExecBriefing["valueRealized"], liveScoredRepos?: number): string | null {
   const parts: string[] = [];
   if (vr.recsActioned > 0) parts.push(`${vr.recsActioned} recommendation${vr.recsActioned === 1 ? "" : "s"} completed`);
   else if (vr.recsEngaged > 0) parts.push(`${vr.recsEngaged} recommendation${vr.recsEngaged === 1 ? "" : "s"} actioned`);
   if (vr.pointsMoved != null && vr.pointsMoved !== 0) {
-    const basis = scannedRepos && scannedRepos > 0 ? ` across ${scannedRepos} scanned repo${scannedRepos === 1 ? "" : "s"}` : "";
+    // Direction 1 — the basis is the LIVE-SCORED set, not the scanned set. `pointsMoved` is
+    // `avgOverall − baseline.avgOverall`, and both of those are means over `realScoredCount`
+    // (org-rollup.ts:320-326). Naming the scanned count here overstated the denominator by exactly
+    // `mockCount`, on the one line a renewal conversation quotes.
+    const basis =
+      liveScoredRepos && liveScoredRepos > 0
+        ? ` across ${liveScoredRepos} live-scored repo${liveScoredRepos === 1 ? "" : "s"}`
+        : "";
     parts.push(`fleet ${vr.pointsMoved > 0 ? "+" : ""}${vr.pointsMoved} pts${basis}`);
   }
   if (vr.reposPromoted > 0) parts.push(`${vr.reposPromoted} repo${vr.reposPromoted === 1 ? "" : "s"} leveled up`);
@@ -111,10 +141,75 @@ export function benchmarkCaption(benchmark: ExecBriefing["benchmark"]): string {
  * period" sat on the same page as "6 of 6 repositories scanned" with nothing saying the 2 was a subset
  * of the 6. Returns null when nothing is comparable (the callers already skip the line then).
  */
-export function movementLine(movement: ExecBriefing["movement"], scannedRepos: number): string | null {
+export function movementLine(movement: ExecBriefing["movement"], liveScoredRepos: number): string | null {
   if (movement.compared <= 0) return null;
-  const of = scannedRepos > 0 ? ` (of ${scannedRepos} scanned)` : "";
+  // Direction 1 — the superset is the LIVE-SCORED set. `getOrgMovers` refuses any pair with a mock
+  // endpoint (`isRealPair`, org-insights.ts), so a mock placeholder can never be one of the
+  // `compared` repos; quoting the scanned count as the superset invited the reader to subtract
+  // repos that were never in the running.
+  const of = liveScoredRepos > 0 ? ` (of ${liveScoredRepos} live-scored)` : "";
   return `${movement.up + movement.down} of ${movement.compared} repos with a comparable prior scan moved${of} (${movement.up} up / ${movement.down} down)`;
+}
+
+/**
+ * Does this briefing have a fleet score AT ALL?
+ *
+ * Direction 1. `getOrgRollup` computes `avgOverall/avgAdoption/avgRigor` over the LIVE-SCORED repos
+ * and states the contract in its own doc comment: "when that denominator is 0 this number is a
+ * division guard (0), NOT a grade, and every renderer must land on its no-score path". Before this,
+ * `buildExecBriefing` guarded only on `scannedCount === 0`, so an all-mock fleet produced
+ * `maturity.overall = 0` → `levelForScore(0)` → L1, and four surfaces printed a grade of "0/100
+ * (L1 Ad hoc)" for a fleet that had never been measured. This is the predicate every renderer gates
+ * on instead.
+ */
+export function briefingHasScore(b: Pick<ExecBriefing, "realScoredCount">): boolean {
+  return b.realScoredCount > 0;
+}
+
+/** A fleet average as a renderer must print it: the figure, or an em dash when there is no score. */
+export function scoreValue(b: Pick<ExecBriefing, "realScoredCount">, value: number): string {
+  return briefingHasScore(b) ? String(value) : "—";
+}
+
+/** "L3 Managed" — the level caption under the headline score. Null when there is no score: a level
+ *  derived from a division guard is L1, the most damaging possible misreading of an unmeasured fleet. */
+export function briefingLevelCaption(b: ExecBriefing): string | null {
+  return briefingHasScore(b) ? `${b.maturity.levelId} ${b.maturity.levelName}` : null;
+}
+
+/** THE sentence a no-score fleet gets in place of a grade, on every surface. Null when there is a
+ *  score. Never a number: the point is that there is nothing to state. */
+export function noScoreLine(b: ExecBriefing): string | null {
+  if (briefingHasScore(b)) return null;
+  return "No live-scored repositories in this period — every scanned repository's latest score is a mock placeholder, so no fleet average can be stated.";
+}
+
+/** The score's BASIS, stated separately from the coverage line: `coverage` answers "how much of the
+ *  fleet did we look at", this answers "what is the average actually averaged over". Null when there
+ *  is no score (the surface prints {@link noScoreLine} instead). */
+export function scoreBasisLine(b: ExecBriefing): string | null {
+  if (!briefingHasScore(b)) return null;
+  const n = b.realScoredCount;
+  return `averaged over ${n} live-scored repositor${n === 1 ? "y" : "ies"}`;
+}
+
+/** "2 mock placeholders excluded from every average" — the disclosure a nonzero `mockCount` obliges.
+ *  Null when every scanned repo carries a real graded score.
+ *
+ *  This is the gap `engineMixCaveat` cannot cover, and the two are NOT redundant (G9): the engine mix
+ *  counts scans that ran INSIDE the window, while the averages read each repo's latest scan
+ *  at-or-before the upper bound. A fleet whose mock scans predate the window gets no engine-mix
+ *  caveat at all and still has its averages computed over a shrunken denominator. */
+export function mockDisclosure(b: Pick<ExecBriefing, "mockCount">): string | null {
+  if (b.mockCount <= 0) return null;
+  return `${b.mockCount} mock placeholder${b.mockCount === 1 ? "" : "s"} excluded from every average`;
+}
+
+/** "Coverage: 8/12 repositories scanned" — one definition for the PDF, the markdown, the tab and the
+ *  share page (G12). This denominator is deliberately the SCANNED set: it answers how much of the
+ *  fleet was looked at, which is a different question from what the averages stand on. */
+export function coverageLine(b: ExecBriefing): string {
+  return `Coverage: ${b.coverage.scanned}/${b.coverage.total} repositories scanned`;
 }
 
 export interface BriefingDim {
@@ -151,7 +246,23 @@ export interface ExecBriefing {
   periodTitle: string;
   generatedOn: string; // YYYY-MM-DD
   maturity: { overall: number; levelId: string; levelName: string; adoption: number; rigor: number };
+  /** How much of the fleet was LOOKED AT — `scanned` of `total` repositories. Deliberately NOT the
+   *  basis of `maturity`: see {@link ExecBriefing.realScoredCount}. Read it through
+   *  {@link coverageLine}. */
   coverage: { scanned: number; total: number };
+  /** The DENOMINATOR of every figure in `maturity` (and of `periodDelta` / `valueRealized.pointsMoved`,
+   *  which are differences of those means): scanned repos carrying a real graded score, mock
+   *  placeholders excluded, straight off `getOrgRollup.realScoredCount`.
+   *
+   *  0 means the three averages are a division guard and NOT a grade — every renderer must land on
+   *  its no-score path ({@link briefingHasScore} / {@link noScoreLine}). Required, not optional: a
+   *  briefing that cannot say what its average is averaged over is the defect this field exists to
+   *  remove, so it may not be silently absent. */
+  realScoredCount: number;
+  /** Scanned repos whose latest score is the deterministic mock floor — excluded from every average
+   *  above, and therefore owed a disclosure wherever those averages are printed ({@link mockDisclosure}).
+   *  `realScoredCount + mockCount === coverage.scanned`. */
+  mockCount: number;
   /** Overall-score delta vs the window's start, or null for all-time / no baseline. */
   periodDelta: number | null;
   /** End-state comparison against the immediately-preceding equal-length window (EXEC-4); null for
@@ -164,13 +275,34 @@ export interface ExecBriefing {
     dOverall: number;
     dAdoption: number;
     dRigor: number;
+    /** The prior window's own live-scored denominator — the basis of `overall`/`adoption`/`rigor`
+     *  above and therefore of every delta beside them. Non-zero by construction: the block is null
+     *  when the prior window scored nothing live, because a delta against a division guard is a
+     *  fabricated movement, not a comparison. */
+    realScoredCount: number;
     /** Per-dimension now/prior/delta, biggest movers first (capped). */
     dims: { dimId: string; label: string; now: number; prior: number; delta: number }[];
   } | null;
+  /** The projected trajectory sentence — set ONLY when the fit cleared the shared presentability gate
+   *  (`isProjectable`). Null both when there is no fit at all and when the fit is real but too thin to
+   *  present; `forecastInsufficiency` distinguishes those two. Never a bare slope off two scan days. */
   forecastHeadline: string | null;
   /** Trend confidence (R² as 0–100) behind the forecast headline; null when there's too little history.
-   *  Carried so the executive read shows the same "· noisy" honesty the overview Trajectory card does. */
+   *  Carried so the executive read shows the same "· noisy" honesty the overview Trajectory card does.
+   *  Non-null exactly when `forecastHeadline` is — the gate excludes `lowData`, where R² is 1 by
+   *  construction, so the hedge can no longer go missing on the fits that most need it. */
   forecastConfidence: number | null;
+  /** What the projection stands on — "fit over 9 scan days across 84 days[, 3 of them compacted]".
+   *  Non-null exactly when `forecastHeadline` is. The answer to the only question the audit committee
+   *  asks about a projection ("based on what?"), which the board artifacts previously could not give.
+   *  OPTIONAL for the same fixture-compatibility reason as `recommendations`; `buildExecBriefing`
+   *  always sets it. Read it through `briefingTrajectory(b)` / `briefingTrajectoryNote(b)`. */
+  forecastBasis?: string | null;
+  /** Why we are NOT projecting, in the same words the Delivery fit readout and the /trends panel use
+   *  ("Not enough history to project: 2 distinct scan days…"). Set when a fit exists but falls below
+   *  the shared gate; null when projecting, and null when there is no fit at all — nothing to refuse.
+   *  OPTIONAL for fixture compatibility; `buildExecBriefing` always sets it. */
+  forecastInsufficiency?: string | null;
   /** Which inference engine(s) produced this period's scores — provenance so a mock-degraded quarter
    *  is auditable in the durable briefing, not just the transient scan stream. */
   engineMix: EngineMixEntry[];
@@ -229,6 +361,14 @@ export interface ExecBriefing {
    *  tried" must not render as "tried and nothing landed". OPTIONAL for the same
    *  fixture-compatibility reason as `recommendations`; `buildExecBriefing` always sets it. */
   proof?: { open: number; merged: number; lift: number | null; liftPractices: number } | null;
+  /**
+   * MOONSHOT #26 — the LOOP's half of the proof block. Null on managed cloud (no lanes exist there)
+   * and null when no lane has both scan ends, so the line is ABSENT rather than printed as "0 · 0".
+   * `points` is branch-basis: verified movement on lane branches that have not merged. It is
+   * deliberately reported separately from the practice proof, because "we merged it" and "it is
+   * sitting on a branch waiting for review" are different claims to make to a board.
+   */
+  loopProof?: { lanes: number; points: number | null; merged: number } | null;
   /** Optional LLM-written executive narrative (G5-03). NEVER produced by `buildExecBriefing` — a
    *  deliverable path opts in explicitly via `attachBriefingNarrative` (see ./briefing-narrative),
    *  which is grounded strictly in the figures above and degrades to deterministic copy. Null/absent
@@ -276,7 +416,7 @@ export async function buildExecBriefing(
       }
     : undefined;
 
-  const [rollup, benchmark, movers, goals, priorRollup, engineMix, recsActivity, orgRecs, practices, playbooks, playbookAdoption] = await Promise.all([
+  const [rollup, benchmark, movers, goals, priorRollup, engineMix, recsActivity, orgRecs, practices, playbooks, playbookAdoption, loopEvents] = await Promise.all([
     getOrgRollup(orgSlug, window, segmentId, techGroupId),
     getOrgBenchmark(orgSlug),
     getOrgMovers(orgSlug, window, segmentId, techGroupId),
@@ -296,8 +436,17 @@ export async function buildExecBriefing(
     getOrgPractices(orgSlug, null, techGroupId).catch(() => null),
     listPlaybooks(orgSlug).catch(() => null),
     getPlaybookAdoption(orgSlug).catch(() => ({})),
+    // The union read (moonshot #26). Degrades to [] independently, exactly like the practice reads
+    // above: a loop failure costs the loop line, never the briefing or the PDF.
+    getImprovementEvents(orgSlug, {
+      start: window?.start ?? null,
+      end: window?.endExclusive ?? window?.end ?? null,
+    }).catch(() => [] as ImprovementEvent[]),
   ]);
-  if (!rollup || rollup.scannedCount === 0) return null;
+  // `hasFleetGrade`, not `scannedCount === 0`: the briefing's whole maturity block is the three
+  // averages, and a scanned-but-all-mock fleet has none of them. The old guard printed a board PDF
+  // headlining 0/100 at L1.
+  if (!rollup || !hasFleetGrade(rollup)) return null;
 
   const level = levelForScore(rollup.avgOverall);
   const dimSorted = [...rollup.dimAverages].sort((a, b) => b.avg - a.avg);
@@ -321,7 +470,12 @@ export async function buildExecBriefing(
     .reverse();
 
   const priorPeriod =
-    priorRollup && priorRollup.scannedCount > 0
+    // Direction 1 — the prior window needs a GRADE, not merely a scan. An all-mock prior window used
+    // to arrive with `avgOverall === 0` by division guard, and subtracting that from a real current
+    // average manufactured a "+62 this period" the fleet never moved. That was guarded here by
+    // re-deriving the condition from `realScoredCount`; `hasFleetGrade` is the same condition read off
+    // the fields it actually governs, and it narrows all three for the subtractions below.
+    priorRollup && hasFleetGrade(priorRollup)
       ? (() => {
           const priorBy = new Map(priorRollup.dimAverages.map((d) => [d.dimId, d.avg]));
           return {
@@ -331,6 +485,7 @@ export async function buildExecBriefing(
             dOverall: rollup.avgOverall - priorRollup.avgOverall,
             dAdoption: rollup.avgAdoption - priorRollup.avgAdoption,
             dRigor: rollup.avgRigor - priorRollup.avgRigor,
+            realScoredCount: priorRollup.realScoredCount,
             dims: rollup.dimAverages
               .map((d) => ({
                 dimId: d.dimId,
@@ -357,15 +512,27 @@ export async function buildExecBriefing(
       rigor: rollup.avgRigor,
     },
     coverage: { scanned: rollup.scannedCount, total: rollup.repoCount },
+    // Direction 1 — the rollup's own denominator travels ONTO the briefing, so every renderer can
+    // answer "over what?" without reaching back to the db layer, and so a 0 denominator is visible
+    // rather than inferred from a suspiciously round 0/100.
+    realScoredCount: rollup.realScoredCount,
+    mockCount: rollup.mockCount,
     periodDelta: rollup.baseline ? rollup.avgOverall - rollup.baseline.avgOverall : null,
     priorPeriod,
-    forecastHeadline: rollup.forecast ? forecastHeadline(rollup.forecast) : null,
-    // forecast.ts explicitly warns NOT to render fitQuality as a hard confidence % when `lowData` is
-    // set: OLS through 1–2 points fits perfectly by construction (fitQuality=1), so a 2-scan forecast
-    // would otherwise show "trend confidence 100%" in the board PDF. Suppress the number on low data —
-    // the trajectory headline still renders, just without a bogus confidence.
-    forecastConfidence:
-      rollup.forecast && !rollup.forecast.lowData ? Math.round(rollup.forecast.fitQuality * 100) : null,
+    // ONE composition, shared with /trends and Delivery: the presentability gate decides whether this
+    // briefing may state a trajectory at all, and when it may, the hedge travels WITH the claim.
+    // The old code suppressed the confidence figure on `lowData` and left the headline standing — so
+    // the board PDF printed "Climbing at +35/wk" off two scan days with no caveat at all, while
+    // Delivery refused the same claim one click away. Replacing the hedge, not deleting it. (MC-B1.)
+    ...(() => {
+      const t = composeTrajectory(rollup.forecast);
+      return {
+        forecastHeadline: t.headline,
+        forecastConfidence: t.confidence,
+        forecastBasis: t.basis,
+        forecastInsufficiency: t.insufficiency,
+      };
+    })(),
     engineMix,
     adoptionRate:
       rollup.scannedCount > 0
@@ -415,6 +582,7 @@ export async function buildExecBriefing(
     regressionCount: movers?.regressers.length ?? 0,
     recommendations: orgRecs ?? [],
     proof: practices ? buildPracticeLibrarySummary(orgSlug, practices, playbooks ?? [], playbookAdoption).rollout : null,
+    loopProof: buildLoopProof(loopEvents),
     narrative: null,
   };
 }
@@ -423,6 +591,43 @@ export async function buildExecBriefing(
  *  page and the markdown so the four can't drift (the valueRealizedLine pattern). Null when no
  *  practice was ever applied OR nothing is in flight: the proof section only appears when there is
  *  proof, never as "0 · 0". */
+/**
+ * The loop's proof, folded from the union. Null when no lane has both scan ends — so the LINE is
+ * absent rather than printed as "0 lanes · 0 points", the same contract `briefingProofLine` has.
+ */
+export function buildLoopProof(events: readonly ImprovementEvent[]): ExecBriefing["loopProof"] {
+  const branch = events.filter((e) => e.basis === "branch" && e.verified);
+  const merged = events.filter((e) => e.source === "loop" && e.basis === "merged").length;
+  if (branch.length === 0 && merged === 0) return null;
+  return {
+    lanes: branch.length,
+    points: branch.length > 0 ? branch.reduce((n, e) => n + (e.dimPoints ?? 0), 0) : null,
+    merged,
+  };
+}
+
+/**
+ * One prose line for the loop's proof — printed by the exec banner, the PDF, the share page and the
+ * markdown from THIS function, so the four cannot drift.
+ *
+ * It says "on branches, not merged" in words. That phrase is the whole point of the line: the number
+ * beside it is real, verified, independently rescanned movement, and it is also not yet bought. A
+ * board reading "12 points" without that clause would reasonably believe the change had landed.
+ */
+export function briefingLoopProofLine(p: ExecBriefing["loopProof"]): string | null {
+  if (!p || (p.lanes === 0 && p.merged === 0)) return null;
+  const parts: string[] = [];
+  if (p.lanes > 0 && p.points != null) {
+    parts.push(
+      `${p.points >= 0 ? "+" : ""}${p.points} verified dimension point${Math.abs(p.points) === 1 ? "" : "s"} from ${p.lanes} local loop lane${p.lanes === 1 ? "" : "s"} — on branches, not merged`,
+    );
+  } else if (p.lanes > 0) {
+    parts.push(`${p.lanes} local loop lane${p.lanes === 1 ? "" : "s"} awaiting measurement`);
+  }
+  if (p.merged > 0) parts.push(`${p.merged} loop PR${p.merged === 1 ? "" : "s"} merged and verified`);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
 export function briefingProofLine(p: ExecBriefing["proof"]): string | null {
   if (!p || (p.open === 0 && p.merged === 0)) return null;
   const parts: string[] = [];
@@ -455,6 +660,12 @@ export function nextMoveLine(rec: OrgRec, scannedRepos?: number): string {
   const dimLabel = DIMENSION_BY_ID[rec.dimId as DimensionId]?.name ?? rec.dimId;
   // UAT DANA-L1-012 — "shared by 3 repositories" was the fourth unlabelled repository denominator on
   // one board page. It is a subset of the scanned set; say so.
+  //
+  // Direction 1 deliberately does NOT move this one onto the live-scored denominator, unlike the
+  // value and movement lines. `rec.repoCount` counts repos whose LATEST scan carries this open
+  // recommendation, and `getOrgRecommendations` reads every scanned repo including the mock-floored
+  // ones (org-insights.ts) — so "6 of the 4 live-scored repositories" would be arithmetically
+  // impossible copy. G4: the clause names the denominator the figure is actually drawn from.
   const repos =
     scannedRepos && scannedRepos > 0
       ? `${rec.repoCount} of the ${scannedRepos} scanned repositor${scannedRepos === 1 ? "y" : "ies"}`
@@ -481,10 +692,20 @@ export function briefingMarkdown(b: ExecBriefing): string {
   out.push(`Generated ${b.generatedOn} · period: ${b.periodTitle}`);
   out.push("");
   out.push("## Standing");
-  out.push(`- Overall maturity: **${b.maturity.overall}/100** (${b.maturity.levelId} ${b.maturity.levelName})${delta}`);
-  out.push(`- AI Adoption: ${b.maturity.adoption}/100 · Engineering Rigor: ${b.maturity.rigor}/100`);
-  out.push(`- Coverage: ${b.coverage.scanned}/${b.coverage.total} repositories scanned`);
-  const vline = valueRealizedLine(b.valueRealized, b.coverage.scanned);
+  // Direction 1 — the no-score path. An all-mock fleet has `maturity.overall === 0` by division
+  // guard, and this markdown is what a leader pastes into an LLM: "stands at 0/100 overall (L1)"
+  // would be laundered into confident prose downstream. State the absence instead.
+  if (briefingHasScore(b)) {
+    out.push(`- Overall maturity: **${b.maturity.overall}/100** (${b.maturity.levelId} ${b.maturity.levelName})${delta}`);
+    out.push(`- AI Adoption: ${b.maturity.adoption}/100 · Engineering Rigor: ${b.maturity.rigor}/100`);
+    out.push(`- Score basis: ${scoreBasisLine(b)}`);
+  } else {
+    out.push(`- Overall maturity: — · ${noScoreLine(b)}`);
+  }
+  out.push(`- ${coverageLine(b)}`);
+  const mockLine = mockDisclosure(b);
+  if (mockLine) out.push(`- Provenance: ${mockLine}`);
+  const vline = valueRealizedLine(b.valueRealized, b.realScoredCount);
   if (vline) out.push(`- ${valueRealizedHeading(b.valueRealized)}: ${vline}`);
   if (b.adoptionRate != null) out.push(`- Fleet adoption: ${b.adoptionRate}% of scanned repos at a high AI-adoption posture`);
   if (b.benchmark?.percentile != null) {
@@ -496,10 +717,16 @@ export function briefingMarkdown(b: ExecBriefing): string {
       `- Peer cohort (${c.language}): ${c.overallPercentile}th percentile overall vs ${c.repos} ${c.language} repos${c.adoptionPercentile != null ? `; ${c.adoptionPercentile}th on AI adoption` : ""}`,
     );
   }
-  if (b.forecastHeadline)
-    out.push(
-      `- Trajectory: ${b.forecastHeadline}${b.forecastConfidence != null ? ` (trend confidence ${b.forecastConfidence}%${b.forecastConfidence < 50 ? ", noisy" : ""})` : ""}`,
-    );
+  // MC-B1: the markdown is what a leader pastes into an LLM and what the "Copy for LLM" button hands
+  // out, so it gets the SAME composed line as the screen and the PDF — the claim with its hedge, or
+  // the refusal to claim, never a slope on its own.
+  const traj = briefingTrajectory(b);
+  if (traj.headline) {
+    const note = trajectoryNote(traj);
+    out.push(`- Trajectory: ${traj.headline}${note ? ` (${note})` : ""}`);
+  } else if (traj.insufficiency) {
+    out.push(`- Trajectory: ${traj.insufficiency}`);
+  }
   if (b.engineMix.length) {
     const caveat = engineMixCaveat(b.engineMix);
     out.push(`- Scored by: ${engineMixLabel(b.engineMix)}${caveat ? ` (⚠ ${caveat})` : ""}`);
@@ -524,7 +751,7 @@ export function briefingMarkdown(b: ExecBriefing): string {
   if (b.topGainers.length || b.topRegressions.length) {
     out.push("");
     out.push("## Movement this period");
-    const mline = movementLine(b.movement, b.coverage.scanned);
+    const mline = movementLine(b.movement, b.realScoredCount);
     if (mline) out.push(`- ${mline}`);
     for (const m of b.topGainers) out.push(moveLine("▲", m));
     for (const m of b.topRegressions) out.push(moveLine("▼", m));
@@ -539,10 +766,14 @@ export function briefingMarkdown(b: ExecBriefing): string {
   // Proof before the ask: the rollout numbers are the briefing's evidence that acting on the last
   // ask worked. Fleet-wide by construction (practices aren't segment-scoped) — say so.
   const proofLine = briefingProofLine(b.proof ?? null);
-  if (proofLine) {
+  const loopLine = briefingLoopProofLine(b.loopProof ?? null);
+  if (proofLine || loopLine) {
     out.push("");
     out.push("## Proof: improvement shipped and measured");
-    out.push(`- Fleet-wide: ${proofLine}`);
+    if (proofLine) out.push(`- Fleet-wide: ${proofLine}`);
+    // SEPARATE from the practice line, never merged into it: "we merged it" and "it is on a branch
+    // waiting for review" are different claims, and a board is entitled to both, distinctly.
+    if (loopLine) out.push(`- Local loop: ${loopLine}`);
   }
   // Name the recommended next move from the SAME ranked list the on-screen page renders (G5-02).
   // This used to be `risks[0] ?? security`, computed only here: on a small, high-scoring fleet with

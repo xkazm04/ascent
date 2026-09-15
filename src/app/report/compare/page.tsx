@@ -10,6 +10,8 @@ import { resolveSignInState } from "@/lib/signin-gate";
 import { SignInNotice } from "@/components/SignInNotice";
 import { diffScans } from "@/lib/report/compare";
 import { HEADER_ACTION_LINK_CLASS } from "@/components/report/pill";
+import { listExemplarOptions, loadSubjectFacets } from "@/lib/report/exemplar-load";
+import { ExemplarSection } from "./ExemplarSection";
 
 export const dynamic = "force-dynamic";
 
@@ -30,9 +32,9 @@ function Notice({ title, body, repo }: { title: string; body: string; repo?: str
 export default async function ComparePage({
   searchParams,
 }: {
-  searchParams: Promise<{ repo?: string; a?: string; b?: string }>;
+  searchParams: Promise<{ repo?: string; a?: string; b?: string; against?: string }>;
 }) {
-  const { repo, a, b } = await searchParams;
+  const { repo, a, b, against } = await searchParams;
 
   // The gate used to be `isAuthConfigured() && !session` — the DORMANT custom-OAuth predicate, false in
   // production, so a signed-out visitor was never prompted (and readableOrgForOwner then resolved them
@@ -85,7 +87,9 @@ export default async function ComparePage({
     limit: 60,
   });
 
-  if (!comparison || comparison.scans.length === 0) {
+  // `after` is null only when no scans exist, so it rides the same guard — and the exemplar axis then
+  // has a subject scan without needing the pair.
+  if (!comparison || comparison.scans.length === 0 || !comparison.after) {
     return (
       <Shell>
         <Notice
@@ -97,21 +101,29 @@ export default async function ComparePage({
     );
   }
 
-  if (comparison.scans.length < 2 || !comparison.before || !comparison.after) {
-    return (
-      <Shell>
-        <Notice
-          title="Need two scans to compare"
-          body={`Only one scan is stored for ${comparison.repo.fullName}. Re-scan after making changes, then come back to see what moved.`}
-          repo={comparison.repo.fullName}
-        />
-      </Shell>
-    );
-  }
-
-  const { before, after } = comparison;
-  const diff = diffScans(before, after);
+  // The TIME axis needs two scans. The EXEMPLAR axis does not — it compares this scan against another
+  // repository — and gating the whole page on the pair made the exemplar diff unreachable for exactly
+  // the repo that most needs it: one scanned once, with nothing of its own to compare to
+  // (UAT `SAM-L1-13`). A single-scan repo now gets the picker's exemplar field and the diff, with the
+  // time half replaced by the notice that used to replace the page.
+  const pair =
+    comparison.scans.length >= 2 && comparison.before && comparison.after
+      ? { before: comparison.before, after: comparison.after }
+      : null;
+  const subject = comparison.after;
+  const diff = pair ? diffScans(pair.before, pair.after) : null;
   const repoRef = comparison.repo.fullName;
+
+  // The second comparison axis (moonshot #34): as well as "this repo, then vs now", "this repo vs a
+  // stronger one". Options are loaded unconditionally so the picker can offer the field; an org with
+  // no eligible peer and no qualifying cohort gets an empty list and the field is simply absent.
+  const facets = await loadSubjectFacets(orgSlug, repoRef);
+  const exemplarOptions = await listExemplarOptions({
+    orgSlug,
+    subjectFullName: repoRef,
+    primaryLanguage: facets.primaryLanguage,
+    archetype: facets.archetype,
+  });
 
   // Requested ids the server did NOT honor (trends-comparison 07-16 #2). getScanComparison resolves
   // ?a/?b only within the newest-`limit` window, so a bookmarked compare URL whose scan aged past the
@@ -119,18 +131,19 @@ export default async function ComparePage({
   // default pair — previously with ZERO indication, silently breaking the shareable-URL contract
   // (the saved link later shows different numbers). Detect the substitution here by comparing the
   // requested ids against the resolved pair and say so above the picker.
-  const unhonored = [
-    a && after.id !== a ? a : null,
-    b && before.id !== b ? b : null,
-  ].filter((x): x is string => x !== null);
+  const unhonored = pair
+    ? [a && pair.after.id !== a ? a : null, b && pair.before.id !== b ? b : null].filter(
+        (x): x is string => x !== null,
+      )
+    : [];
 
   return (
     <Shell>
       <div className="animate-fade-up space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">Scan comparison</div>
-            <h1 className="mt-1 text-2xl font-bold text-white">{repoRef}</h1>
+            <div className="type-mono-sm uppercase tracking-[0.3em] text-accent">Scan comparison</div>
+            <h1 className="mt-1 type-heading font-bold text-white">{repoRef}</h1>
           </div>
           <div className="flex items-center gap-2">
             <Link
@@ -151,7 +164,7 @@ export default async function ComparePage({
         {unhonored.length > 0 && (
           <p
             role="status"
-            className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-base text-amber-200/90"
+            className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 type-body text-amber-200/90"
           >
             <span aria-hidden>ⓘ </span>
             {unhonored.length === 1
@@ -164,11 +177,25 @@ export default async function ComparePage({
         <ScanComparePicker
           repo={repoRef}
           scans={comparison.scans}
-          beforeId={before.id}
-          afterId={after.id}
+          beforeId={pair?.before.id ?? subject.id}
+          afterId={subject.id}
+          exemplarOptions={exemplarOptions}
+          against={against ?? null}
         />
 
-        <WhatChanged diff={diff} before={before} after={after} />
+        {pair && diff ? (
+          <WhatChanged diff={diff} before={pair.before} after={pair.after} />
+        ) : (
+          <Notice
+            title="Need two scans to compare over time"
+            body={`Only one scan is stored for ${repoRef}. Re-scan after making changes to see what moved — or compare it against another repository above, which needs no second scan.`}
+            repo={repoRef}
+          />
+        )}
+
+        {against && (
+          <ExemplarSection against={against} orgSlug={orgSlug} subjectFullName={repoRef} subject={subject} />
+        )}
       </div>
     </Shell>
   );

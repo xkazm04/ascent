@@ -15,8 +15,12 @@ describe("delivery commit-activity caption pluralization (G6-24)", () => {
     expect(SOURCE).not.toMatch(/\{activity\.weeks\} weeks\b/);
   });
 
+  // The /org redesign reduced the caption to a unit/window line (§2.3), so the same conditional now
+  // lives in a template literal rather than in JSX children. The INVARIANT is unchanged and this
+  // matches either spelling — a source-scanning check that only knows one syntax reports a clean
+  // codebase in a voice indistinguishable from success (AGENTS.md).
   it("conditionally pluralizes weeks the same way repos already is", () => {
-    expect(SOURCE).toMatch(/\{activity\.weeks\} week\{activity\.weeks === 1 \? "" : "s"\}/);
+    expect(SOURCE).toMatch(/[{$]\{?activity\.weeks\} week\$?\{\s*activity\.weeks === 1 \? "" : "s"\s*\}/);
   });
 });
 

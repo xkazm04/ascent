@@ -6,6 +6,12 @@
 // a caller can never reach another tenant's memory by guessing an id (design doc §4.1: "a key asking for
 // a project it doesn't own gets a 403, not empty results"). DELETE soft-archives, never hard-deletes, so
 // provenance and supersede lineage survive. Mirrors the skills [id] route.
+//
+// AND THE AUTHOR GATE, on reads AND writes (§4.5). Membership is not enough for another author's
+// PRIVATE scratch: GET 404s it, every db read composes visibilityScope(viewer), and gateWrite applies
+// the same test. It did not, which meant a member who could not READ a private memory could still PATCH
+// it — overwrite the content, or set visibility:"shared" and publish it — because updateOrgMemory is
+// keyed on id alone. Read-scoping without write-scoping is not a privacy rule, it is a display rule.
 
 import { NextResponse } from "next/server";
 import {
@@ -35,12 +41,32 @@ async function gateWrite(id: string, min: OrgRole): Promise<{ org: string } | Ne
   if (!org) return NextResponse.json({ error: "Memory not found." }, { status: 404 });
   const denied = min === "member" ? await requireOrgAccess(org) : await requireOrgRole(org, min);
   if (denied) return denied;
+  const authorGate = await denyForeignPrivate(id);
+  if (authorGate) return authorGate;
   const credit = await getCreditState(org).catch(() => null);
   // Team+ orgs, or a personal workspace (free-with-limits — edits/archives don't grow the store).
   if (!(await workspaceAllowsMemory(org, credit?.plan))) {
     return NextResponse.json({ error: "Shared Org Memory is a Team-plan feature." }, { status: 403 });
   }
   return { org };
+}
+
+/**
+ * The §4.5 author gate, applied to a WRITE. Another author's private scratch answers 404 — the same
+ * response GET gives, deliberately: a caller who is not allowed to know the row exists must not learn
+ * it from the write path either, so this is 404 rather than 403.
+ *
+ * It runs for `admin` too. An admin can archive any SHARED memory, and an org that needs a compliance
+ * erase has /api/org/erase for it; letting the role reach inside a colleague's private notes is not
+ * the same power, and nothing in the product asks for it.
+ */
+async function denyForeignPrivate(id: string): Promise<NextResponse | null> {
+  const memory = await getOrgMemory(id);
+  if (!memory) return NextResponse.json({ error: "Memory not found." }, { status: 404 });
+  if (memory.visibility !== "private") return null;
+  const viewer = await resolveViewerLogin();
+  if (viewer && memory.createdBy === viewer) return null;
+  return NextResponse.json({ error: "Memory not found." }, { status: 404 });
 }
 
 export async function GET(_request: Request, ctx: { params: Promise<{ id: string }> }) {

@@ -16,13 +16,20 @@ import { cache } from "react";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
 import { getInstallationIdForOwner } from "@/lib/db/installations";
+import { recordOutcomeForScanPair } from "@/lib/db/outcomes";
 import { updateRecommendation } from "@/lib/db/scans-recommendations";
+import { reconcileRecommendationOutcomes } from "@/lib/outcomes/reconcile-recs";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { getPullRequest } from "@/lib/github/write";
 import { applyPracticeToRepo } from "@/lib/practices/apply";
 import { PRACTICES } from "@/lib/practices";
 
-const PRACTICE_BY_DIM = new Map(PRACTICES.map((p) => [p.dimId as string, p]));
+// FIRST wins, not last (#15): `new Map(...)` lets a later row with the same `dimId` silently shadow
+// an earlier one, so the day a second D1 practice joins this array, every repo weak on D1 would be
+// pointed at it instead of at `agent-guidance` — a behaviour change nothing in the diff would name.
+// Reversing before the Map makes the FIRST row for a dimension the answer, which is the catalog's
+// documented order and the one a reader assumes.
+const PRACTICE_BY_DIM = new Map([...PRACTICES].reverse().map((p) => [p.dimId as string, p]));
 
 const TRIAGE_MAX = 8;
 const LANDED_MAX = 8;
@@ -172,7 +179,10 @@ export async function listOpsState(orgSlug: string): Promise<OpsState | null> {
           take: 1,
           select: {
             recommendations: {
-              where: { status: "open" },
+              // `kind: "gap"` by construction: this triage opens draft PRs against a repo's gaps. A
+              // craft entry is not a gap and must never become an unsolicited PR — the loop's craft
+              // lane is the only door it goes through (r12).
+              where: { status: "open", kind: "gap" },
               select: { id: true, title: true, dimId: true, impact: true, effort: true, rationale: true },
             },
           },
@@ -534,8 +544,10 @@ async function verifyMergedPrs(orgId: string): Promise<void> {
     // scan row may never exist (persistScanReport dedups per commit). Verifying against the current
     // standing closes the demo loop with an honest ±0 — nothing actually changed in the repo. A real
     // merge always moves the head (merge commit), so production never takes this branch.
+    let simulated = false;
     if (!after && mockPrsEnabled()) {
       after = await prisma.scan.findFirst({ where: { repoId: repo.id }, orderBy: { scannedAt: "desc" }, select: scanSelect });
+      simulated = after !== null;
     }
     if (!after) continue; // awaiting rescan
     const before = row.baselineScanId
@@ -553,5 +565,28 @@ async function verifyMergedPrs(orgId: string): Promise<void> {
       where: { id: row.id },
       data: { verifiedScanId: after.id, impactDim: impact.impactDim, impactOverall: impact.impactOverall },
     });
+    // Mirror the measurement into the intervention outcome ledger (moonshot #9), so "this practice
+    // moves D2" can be cited rather than asserted. `computePrImpact` is untouched: the ledger
+    // re-derives the pair from the two scan ids because it additionally needs the INSTRUMENT both
+    // sides were scored under, and it declines to write when they disagree — which is why the
+    // simulated-merge branch above is excluded here. That branch compares a scan against itself, so
+    // its ±0 is an artifact of mock mode, and a demo artifact must never enter a fact table.
+    if (!simulated) {
+      await recordOutcomeForScanPair({
+        orgId,
+        repoFullName: row.repoFullName,
+        kind: "practice",
+        identityKey: row.practiceId,
+        dimId: row.dimId,
+        beforeScanId: row.baselineScanId,
+        afterScanId: after.id,
+        interventionAt: row.mergedAt,
+        sourceRowId: row.id,
+      });
+    }
   }
+  // Same tick, same loop: the recommendations someone marked `done` are the other half of "what did
+  // we actually buy". Driven off the durable RecommendationEvent rows rather than the render-time
+  // diff, which is pure and has no write seam (see src/lib/outcomes/reconcile-recs.ts).
+  await reconcileRecommendationOutcomes(orgId);
 }

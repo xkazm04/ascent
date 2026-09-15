@@ -20,6 +20,8 @@ import { Suspense } from "react";
 import { Defer } from "@/components/ui/Defer";
 import { MemoryPanel } from "@/features/shared/memory/MemoryPanel";
 import { MemoryCoverageStrip } from "@/features/shared/memory/MemoryCoverageStrip";
+import { RepoMemoryDeadEnds } from "@/features/shared/memory/RepoMemoryDeadEnds";
+import { listRepoDeadEnds } from "@/lib/db/repo-memory";
 import { MemoryRecallPanelChunk, MemoryReflectPanelChunk } from "@/features/shared/memory/MemoryTabChunks";
 import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
 import { getMemoryCoverage } from "@/lib/memory/coverage";
@@ -45,9 +47,13 @@ interface MemoryShared {
   personal: boolean;
 }
 
-async function resolveMemoryShared(slug: string): Promise<MemoryShared> {
+async function resolveMemoryShared(slug: string, viewer: Promise<string | null>): Promise<MemoryShared> {
+  // `viewer` arrives as a PROMISE, not a value: the namespace list is viewer-scoped (exactly like the
+  // memory list beside it, so the filter dropdown cannot name another author's private namespace), but
+  // awaiting the login here would serialize it ahead of the four reads that do not need it — and this
+  // whole function is deliberately started un-awaited so it can stream.
   const [namespaces, credit, isMember, isAdmin, personal] = await Promise.all([
-    listOrgMemoryNamespaces(slug),
+    viewer.then((v) => listOrgMemoryNamespaces(slug, v)),
     getCreditState(slug).catch(() => null),
     hasOrgRole(slug, "member"),
     hasOrgRole(slug, "admin"),
@@ -66,9 +72,29 @@ async function MemoryCoverageData({ slug }: { slug: string }) {
   return <MemoryCoverageStrip coverage={coverage} />;
 }
 
-async function MemoryLibraryData({ slug, shared, sync }: { slug: string; shared: Promise<MemoryShared>; sync: Promise<RegistrySync> }) {
-  // The viewer is resolved FIRST because it scopes the very rows we read (private scratch, §4.5).
-  const viewer = await resolveViewerLogin();
+/** The mirrored dead ends (moonshot #14) — its own boundary and its own read, because it is the one
+ *  region of this tab that is useful before anyone in the org has written a single memory by hand.
+ *  A failed read degrades to nothing rather than taking the library down with it. */
+async function MemoryDeadEndsData({ slug }: { slug: string }) {
+  const rows = await listRepoDeadEnds(slug).catch(() => []);
+  return <RepoMemoryDeadEnds rows={rows} />;
+}
+
+async function MemoryLibraryData({
+  slug,
+  shared,
+  sync,
+  viewer: viewerP,
+}: {
+  slug: string;
+  shared: Promise<MemoryShared>;
+  sync: Promise<RegistrySync>;
+  viewer: Promise<string | null>;
+}) {
+  // The viewer scopes the very rows we read (private scratch, §4.5). ONE resolve for the whole tab,
+  // shared with resolveMemoryShared — the namespace filter and the rows it filters must agree about
+  // who is looking, and resolving it twice would also mean two session reads per render.
+  const viewer = await viewerP;
   const [memories, { namespaces, isMember, isAdmin, planAllowed, personal }] = await Promise.all([
     listOrgMemories(slug, {}, viewer),
     shared,
@@ -111,7 +137,8 @@ async function MemoryRecallReflectData({ slug, shared }: { slug: string; shared:
 
 export async function MemoryTab({ slug }: { slug: string }) {
   // NOT awaited here — the promise streams into both consuming regions (see the note at the top).
-  const shared = resolveMemoryShared(slug);
+  const viewer = resolveViewerLogin();
+  const shared = resolveMemoryShared(slug, viewer);
   const sync = getRegistrySync(slug);
 
   return (
@@ -122,8 +149,11 @@ export async function MemoryTab({ slug }: { slug: string }) {
       <Suspense fallback={null}>
         <MemoryCoverageData slug={slug} />
       </Suspense>
+      <Suspense fallback={null}>
+        <MemoryDeadEndsData slug={slug} />
+      </Suspense>
       <Suspense fallback={<OrgTabGap minH="min-h-[36rem]" />}>
-        <MemoryLibraryData slug={slug} shared={shared} sync={sync} />
+        <MemoryLibraryData slug={slug} shared={shared} sync={sync} viewer={viewer} />
       </Suspense>
       <Suspense fallback={<OrgTabGap minH="min-h-[24rem]" />}>
         <MemoryRecallReflectData slug={slug} shared={shared} />

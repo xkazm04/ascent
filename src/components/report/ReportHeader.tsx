@@ -8,8 +8,11 @@ import { DownloadButton } from "@/components/report/DownloadButton";
 import { pillClass } from "@/components/report/pill";
 import { SkillDownload } from "@/components/report/SkillDownload";
 import { FoundationPrButton } from "@/components/report/FoundationPrButton";
+import { ScoreIntegrityChip } from "@/components/report/ScoreIntegrityChip";
 import { CopyForLlm } from "@/components/CopyForLlm";
+import { ReportPermalinkShare, levelLine } from "@/components/report/ReportPermalinkShare";
 import { reportLlmMarkdown } from "@/lib/report/llm-markdown";
+import { reportPermalink } from "@/lib/ui";
 
 // Chip hints: `title=` fires only on pointer hover, so every hinted chip ALSO carries the hint as
 // sr-only text — screen-reader users hear the explanation inline, and hover users get the tooltip.
@@ -61,12 +64,12 @@ export function ReportHeader({
           owner/name break instead of forcing horizontal overflow of the header (mobile). */}
       <div className="min-w-0">
         <Kicker tone="muted">AI-native readiness briefing</Kicker>
-        <h1 className="mt-2 break-words text-2xl font-bold text-white">
+        <h1 className="mt-2 break-words type-heading font-bold text-white">
           <a href={repo.url} target="_blank" rel="noreferrer" className="hover:text-accent">
             {repo.owner}/{repo.name}
           </a>
         </h1>
-        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-base text-slate-400">
+        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 type-body text-slate-400">
           {repo.primaryLanguage && <span>{repo.primaryLanguage}</span>}
           <span>★ {repo.stars.toLocaleString()}</span>
           <span>updated {timeAgo(repo.pushedAt)}</span>
@@ -75,13 +78,13 @@ export function ReportHeader({
             and archetype lens are explained on the methodology page. */}
         <Link
           href="/about"
-          className="focus-ring mt-2 inline-flex items-center gap-1 rounded-sm font-mono text-sm uppercase tracking-widest text-slate-500 transition hover:text-accent"
+          className="focus-ring mt-2 inline-flex items-center gap-1 rounded-sm type-mono-sm uppercase tracking-widest text-slate-500 transition hover:text-accent"
         >
           How scoring works <span aria-hidden>→</span>
         </Link>
       </div>
       <div className="flex flex-col items-start gap-2 sm:items-end">
-        <div className="flex flex-wrap items-center gap-2 text-sm sm:justify-end">
+        <div className="flex flex-wrap items-center gap-2 type-body-sm sm:justify-end">
           <span
             className="cursor-help rounded-full border border-divider bg-surface/60 px-3 py-1 text-slate-400"
             title={ARCHETYPE_HINT[report.archetype]}
@@ -128,6 +131,11 @@ export function ReportHeader({
               <span className="sr-only">. {AI_ESTIMATE_HINT}</span>
             </span>
           )}
+          {/* What fired while SCORING that could move this headline on an unchanged commit. Sits
+              beside the "may vary between runs" chip on purpose: that one discloses that variation
+              exists, this one names the specific levers that produced it here. Renders nothing on a
+              clean run (UAT SAM-L1-02 — the record existed and nothing showed it). */}
+          <ScoreIntegrityChip report={report} />
           {/* The report's own credibility signal must explain itself — it's the number most likely
               to be challenged in a shared report (repo-report-shell-tabs #3). */}
           <span
@@ -140,6 +148,16 @@ export function ReportHeader({
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           <FreshnessControl report={report} onRetest={onRetest} rescanning={rescanning} />
+          {/* The durable address of the artifact the reader just waited for — first in the export row
+              because it is the cheapest thing to hand over and the one the pricing page already sells
+              (UAT SAM-L1-04, recurrence 3). Carries the level line, which is what the retired README
+              badge used to state (SAM-L1-12, option b). */}
+          <ReportPermalinkShare
+            fullName={`${repo.owner}/${repo.name}`}
+            path={reportPermalink(`${repo.owner}/${repo.name}`)}
+            pinnedPath={repo.headSha ? reportPermalink(`${repo.owner}/${repo.name}`, repo.headSha) : undefined}
+            level={levelLine(report.level.id, report.level.name, report.overallScore)}
+          />
           {/* Fetch-and-download buttons (not bare anchors): the PDF render can take up to a minute and
               any error branch returns JSON — a plain <a> gave no pending feedback and navigated the
               user onto a raw JSON page on failure (pdf-llm-export #1). */}

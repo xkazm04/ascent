@@ -4,7 +4,16 @@
 //                                                Check Run + sticky PR comment (Feature 2).
 //   • push (to the default branch, head moved) → re-scan a watched repo and alert on a
 //                                                regression vs the prior scan (Feature 4), throttled to
-//                                                one paid scan per repo per PUSH_RESCAN_MIN_INTERVAL_MINUTES.
+//                                                one paid scan per repo per PUSH_RESCAN_MIN_INTERVAL_MINUTES
+//                                                and PAID FOR: the rescan reserves a prepaid credit
+//                                                before inference exactly like the queue worker, and
+//                                                is skipped (never served free) when the org is out.
+//   • branch_protection_rule / repository_ruleset / repository / member / team
+//                                             → enqueue a FREE control probe (moonshot #10). These
+//                                                events move a repo's governance posture without
+//                                                touching its code, cost no credit, and are never
+//                                                trusted for the control STATE — only for what to
+//                                                re-read.
 //
 // GitHub expects a fast 2xx, so the scan work runs in `after()` — scheduled to execute AFTER the
 // response is sent, within the route's maxDuration. We always 200 (even on handler errors) so
@@ -26,7 +35,9 @@ import {
   getScanReportByCommit,
   isDbConfigured,
   isRepoWatched,
+  listWatchedRepos,
   persistScanReport,
+  recordScanOutcome,
   reconcileWatchedRepos,
   removeInstallation,
   resumeInstallation,
@@ -34,6 +45,21 @@ import {
   upsertInstallation,
 } from "@/lib/db";
 import { scanRepository } from "@/lib/scan";
+// Deep path, not the "@/lib/db" barrel: db/index.ts is Director-owned and its queue re-export lands
+// at merge (see the handoff). The webhook's half of moonshot #10 is enqueue-ONLY — no observation is
+// written here, because a signed payload is not evidence of a control's state.
+import { enqueueProbeJob } from "@/lib/db/scan-jobs";
+// MOONSHOT #1 (W3-M) — the two things a delivery carries that a later probe can NEVER recover: the
+// actor, and the moment. `normalizeGovernanceEvent` extracts only those; it never produces a control
+// state (see that module's header for why payload-sourced state would swallow its own alert).
+// `readReviewApproval` is the AI-change reducer's half of the same fan-in.
+import { GOVERNANCE_EVENTS, normalizeGovernanceEvent, readReviewApproval } from "@/lib/github/governance-events";
+import { latestObservations, recordObservations, type ControlSample } from "@/lib/db/control-observations";
+import { resolveRepoJobRef } from "@/lib/db/scan-jobs";
+import { upsertLiveAiChange } from "@/lib/db/ai-changes";
+import { readAiInvolvement } from "@/lib/analyze/pulls";
+import type { PrNode } from "@/lib/github/graphql";
+import { AI_TOOLS } from "@/lib/analyze/ai-tools";
 import { abandonDelivery, deliveryAlreadySeen, forgetLocalDelivery } from "@/lib/github/webhook-delivery";
 // The PR gate itself now lives in @/lib/github/pr-gate so the org gate-policy sweep can re-run the
 // SAME check-writing path (a route file may only export the HTTP-method / segment-config names, so
@@ -41,6 +67,14 @@ import { abandonDelivery, deliveryAlreadySeen, forgetLocalDelivery } from "@/lib
 // it as hooks — behavior is unchanged.
 import { runPrGate, type PrGateHooks } from "@/lib/github/pr-gate";
 import { checkAndAlertRegression } from "@/lib/scan-alerts";
+// The push rescan is a REAL, LLM-billed scan and must pay for itself. Same pair the queue worker and
+// the import funnel use (src/lib/scan-queue-worker.ts, src/app/api/org/import/route.ts) — deliberately
+// NOT a second reserve mechanism, and NOT `scanCreditGate` (that shape exists to 402 an interactive
+// caller; a webhook has nobody to 402, so it mirrors the worker's reserve/skip/refund instead).
+// `reserveScanCredit` also fires `maybeAlertLowCredits` on a debit that crossed the low-water mark, so
+// a push-funded depletion pushes the same lifecycle alert /api/scan does.
+import { refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
+import { isMeteredScan } from "@/lib/entitlement";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,16 +84,41 @@ interface WebhookPayload {
   action?: string;
   installation?: { id: number; account?: { login?: string } };
   repository?: { full_name?: string; name?: string; default_branch?: string; owner?: { login?: string } };
-  pull_request?: { number?: number; head?: { sha?: string; ref?: string }; base?: { ref?: string } };
+  pull_request?: {
+    number?: number;
+    head?: { sha?: string; ref?: string };
+    base?: { ref?: string };
+    // MOONSHOT #1 — the fields the live AI-change reducer reads. All optional: the PR-gate arm above
+    // has always used only `number`/`head`/`base`, and a delivery that omits these simply yields no
+    // AI-change row rather than a partial one.
+    title?: string;
+    body?: string;
+    draft?: boolean;
+    created_at?: string;
+    merged?: boolean;
+    merged_at?: string | null;
+    merge_commit_sha?: string | null;
+    user?: { login?: string; type?: string };
+    labels?: { name?: string }[];
+  };
   ref?: string;
   after?: string;
   deleted?: boolean;
   // check_run event: a "Re-run" button click (requested_action) or GitHub's rerequested.
   check_run?: { head_sha?: string; pull_requests?: { number?: number; base?: { ref?: string } }[] };
   requested_action?: { identifier?: string };
+  // Control-probe events (moonshot #10). Only the ORGANIZATION/owner is read off these — the payload
+  // names WHAT to re-read, never the control state itself (see enqueueControlProbe).
+  organization?: { login?: string };
 }
 
 const PR_ACTIONS = new Set(["opened", "synchronize", "reopened", "ready_for_review"]);
+
+/** Repo-scoped events that move a CONTROL rather than the code (moonshot #10). Each enqueues a free
+ *  probe of that one repo. */
+const REPO_CONTROL_EVENTS = new Set(["branch_protection_rule", "repository_ruleset", "repository"]);
+/** Owner-scoped control events — the access shape moved, so the org's watched repos are re-observed. */
+const ORG_CONTROL_EVENTS = new Set(["member", "team"]);
 
 // Replay defense (in-memory fast path + the shared "abort, but release the delivery" helper) lives in
 // @/lib/github/webhook-delivery: deliveryAlreadySeen, forgetLocalDelivery, forgetDelivery, abandonDelivery.
@@ -274,6 +333,179 @@ function withinPushRescanWindow(prevScannedAt: string | undefined, now: number =
   return now - t < window;
 }
 
+// ── Control-probe fan-in (moonshot #10) ──────────────────────────────────────────────────────────
+// Five events change a repo's CONTROL posture without changing a line of code, so none of them used
+// to reach us at all: branch_protection_rule, repository_ruleset, repository, member, team.
+//
+// THE PAYLOAD IS NEVER TRUSTED FOR CONTROL STATE. A `branch_protection_rule.deleted` delivery is
+// treated as "re-read this repo", not as "protection is off" — a validly-signed but replayed or
+// misrouted delivery would otherwise write a false governance record that outlives it. Only the
+// probe's own re-read from GitHub produces an observation. That is the same discipline
+// `installation_repositories` already follows for the destructive unwatch path.
+//
+// The work is a QUEUED JOB, not an inline read: GitHub wants a fast 2xx, a burst of rule edits would
+// otherwise fan out to a burst of API calls, and the delivery id as the idempotency bucket makes a
+// redelivery enqueue nothing new.
+
+/** Cap on the org-wide fan-out of an owner-level event. A `member`/`team` change is org-scoped, but
+ *  enqueuing one job per repo for a 900-repo fleet on every membership edit is a burst nobody asked
+ *  for; the hourly cadence catches the tail either way. */
+const ORG_EVENT_PROBE_CAP = 200;
+
+async function enqueueControlProbe(
+  installationId: number,
+  owner: string,
+  fullName: string,
+  event: string,
+  deliveryId?: string,
+): Promise<void> {
+  const orgSlug = owner.toLowerCase();
+  if (!(await installationMatchesOwner(installationId, orgSlug))) {
+    await abandonDelivery(deliveryId);
+    return;
+  }
+  await enqueueProbeJob(orgSlug, fullName, `webhook:${event}`, deliveryId).catch((err) => {
+    console.warn(`[webhook] could not enqueue a control probe for ${fullName}`, err instanceof Error ? err.message : err);
+    return null;
+  });
+}
+
+/**
+ * MOONSHOT #1 — record WHO touched a control area and WHEN, without asserting what it became.
+ *
+ * The attribution row copies the control's CURRENT state and value unchanged from the newest
+ * observation, so the (state, value) pair does not move and the ledger's transition flag stays false.
+ * Three consequences, all deliberate:
+ *   • it asserts nothing about the control — a forged or replayed delivery cannot write a false
+ *     governance record, which is W3-L's frozen contract and the reason this is not a state write;
+ *   • it cannot mask the probe's transition, because the probe still diffs against an unchanged pair;
+ *   • it cannot alert, so a burst of rule edits pages nobody.
+ *
+ * A control with NO prior observation gets no attribution row: there is nothing to attribute against,
+ * and inventing a baseline from a payload is the exact thing this design refuses.
+ */
+async function recordControlAttribution(
+  orgSlug: string,
+  fullName: string,
+  event: string,
+  payload: WebhookPayload,
+  deliveryId?: string,
+): Promise<void> {
+  const attribution = normalizeGovernanceEvent(event, payload);
+  // No actor means the delivery adds nothing a probe will not recover on its own — skip the write
+  // rather than storing a row whose only content is "something happened, somewhere, to someone".
+  if (!attribution || !attribution.actorLogin) return;
+
+  const ref = await resolveRepoJobRef(orgSlug, fullName).catch(() => null);
+  const repoId = ref?.repoId ?? null;
+  if (!repoId) return;
+  const current = await latestObservations(repoId).catch(() => []);
+  const byId = new Map(current.map((o) => [o.controlId, o]));
+
+  const samples: ControlSample[] = [];
+  for (const controlId of attribution.controlIds) {
+    const seen = byId.get(controlId);
+    if (!seen) continue;
+    samples.push({
+      controlId,
+      state: seen.state,
+      value: seen.value,
+      evidence: { ...attribution.evidence, actor: attribution.actorLogin, attribution: true },
+      occurredAt: attribution.occurredAt ?? undefined,
+    });
+  }
+  if (samples.length === 0) return;
+  await recordObservations(orgSlug, repoId, samples, {
+    repoFullName: fullName,
+    source: "webhook",
+    actorLogin: attribution.actorLogin,
+    deliveryId: deliveryId ?? null,
+  }).catch(() => null);
+}
+
+/**
+ * MOONSHOT #1 — the live AI-change reducer for `pull_request_review` (approved) and
+ * `pull_request.closed` (merged).
+ *
+ * AI involvement is decided by `readAiInvolvement`, IMPORTED from analyze/pulls.ts rather than
+ * re-implemented: the webhook-sourced rows and the scan-sourced rows have to be one population, or
+ * the conformance pack's count and its own percentage would disagree about who is in it.
+ *
+ * The predicate is fed a PrNode assembled from the delivery. Two channels work on webhook data
+ * (`authored` — an AI agent opened it; `marked` — AI fingerprints in title/body/labels) and one does
+ * NOT: `trailer` needs commit messages the payload does not carry. A trailer-only PR is therefore
+ * invisible to this path and is picked up at the next scan — a known, bounded under-count in the
+ * direction the pack already discloses (the population is a LOWER BOUND), never an over-count.
+ */
+async function reduceAiChangeEvent(orgSlug: string, event: string, payload: WebhookPayload): Promise<void> {
+  const fullName = payload.repository?.full_name;
+  const pr = payload.pull_request;
+  if (!fullName || !pr?.number || !pr.created_at) return;
+
+  const approval = event === "pull_request_review" ? readReviewApproval(payload) : null;
+  const merged = event === "pull_request" && payload.action === "closed" && pr.merged === true;
+  // Nothing to record: a review that was not an approval, or a PR that closed without merging. A
+  // closed-unmerged PR is genuinely not evidence — the pre-merge control was never due to operate.
+  if (!approval && !merged) return;
+
+  const node = {
+    number: pr.number,
+    title: pr.title ?? "",
+    bodyText: pr.body ?? "",
+    isDraft: pr.draft ?? false,
+    state: merged ? "MERGED" : "OPEN",
+    createdAt: pr.created_at,
+    mergedAt: pr.merged_at ?? null,
+    closedAt: null,
+    additions: 0,
+    deletions: 0,
+    changedFiles: 0,
+    author: pr.user?.login ? { login: pr.user.login, __typename: pr.user.type === "Bot" ? "Bot" : "User" } : null,
+    labels: { nodes: (pr.labels ?? []).map((l) => ({ name: l.name ?? "" })) },
+    reviews: { totalCount: 0, nodes: [] },
+    comments: { totalCount: 0 },
+  } as PrNode;
+
+  const ai = readAiInvolvement(node);
+  // NOT AI-involved by the shared predicate ⇒ no row. The population is AI-attributed changes; a
+  // human PR entering it would inflate the denominator every published rate is computed over.
+  if (!ai.signal) return;
+
+  const tools = AI_TOOLS.filter((t) => new RegExp(t.token, "i").test(ai.toolText)).map((t) => t.name);
+  await upsertLiveAiChange(orgSlug, {
+    repoFullName: fullName,
+    prNumber: pr.number,
+    title: pr.title ?? "",
+    authorLogin: pr.user?.login ?? null,
+    authorIsBot: pr.user?.type === "Bot",
+    aiSignal: ai.signal,
+    aiTools: tools.join(", "),
+    state: merged ? "MERGED" : "OPEN",
+    createdAt: pr.created_at,
+    mergedAt: pr.merged_at ?? null,
+    mergeCommitSha: pr.merge_commit_sha ? pr.merge_commit_sha.toLowerCase() : null,
+    approved: approval !== null,
+    approverLogin: approval?.approverLogin ?? null,
+    approvedAt: approval?.approvedAt ?? null,
+    // The DELIVERY's arrival, not the review's submission time — this column exists precisely to
+    // keep those two apart (see AiChange.approvalObservedAt).
+    approvalObservedAt: approval ? new Date().toISOString() : null,
+  }).catch(() => false);
+}
+
+/** An owner-level control change (`member`, `team`): re-observe the org's WATCHED repos. */
+async function enqueueOrgControlProbes(installationId: number, owner: string, event: string, deliveryId?: string): Promise<void> {
+  const orgSlug = owner.toLowerCase();
+  if (!(await installationMatchesOwner(installationId, orgSlug))) {
+    await abandonDelivery(deliveryId);
+    return;
+  }
+  const repos = await listWatchedRepos(orgSlug).catch(() => []);
+  for (const r of repos.slice(0, ORG_EVENT_PROBE_CAP)) {
+    await enqueueProbeJob(orgSlug, r.fullName, `webhook:${event}`, deliveryId).catch(() => null);
+  }
+}
+
 /** Re-scan a watched repo on push, persist, and alert on a regression vs the prior scan. */
 async function runPushRescan(installationId: number, owner: string, repo: string, deliveryId?: string) {
   try {
@@ -309,33 +541,97 @@ async function runPushRescan(installationId: number, owner: string, repo: string
         );
         return;
       }
-      const token = await getInstallationToken(installationId);
-      const report = await scanRepository(fullName, { token });
-      // DEGRADE-TO-MOCK GUARD. This path asks for a real LLM grade; when the provider is down
-      // scanRepository still returns a report, stamped engine.provider = "mock" — the deterministic
-      // FLOOR, not a measurement. Persisting it makes that floor the repo's current public reading AND
-      // the next run's regression baseline, and the alert below would then diff a real prior scan
-      // against our own outage and tell the customer their repo regressed. The interactive routes
-      // already refuse to store such a report (scan-finalize.ts's `authoritative` gate); this path
-      // recognised the degrade only for BILLING (the sibling cron/org-scan routes refund the credit on
-      // exactly this condition) and never applied the same judgment to the data.
+      // ── CREDIT RESERVATION ──────────────────────────────────────────────────────────────────────
+      // This is the money gate the header promises, and until now it did not exist: the push rescan
+      // ran real LLM inference on a private org repo with no reservation at all, so a watched org at
+      // balance zero kept scanning free forever and the 15-minute throttle was the only cost ceiling.
+      // Mirrors the queue worker's shape (reserve → skip / refund), because the outcomes are the same
+      // ones a background scan has: a webhook cannot 402 anybody.
       //
-      // Deliberately NOT released for redelivery: a provider outage would degrade the retry too, so a
-      // release turns one outage into a scan storm. The repo is covered by the next push past the
-      // window or its scheduled autoscan — the same "coalesce, don't queue" reasoning as the throttle
-      // above.
-      // Optional-chained on purpose: a report with no engine stamp (a legacy/reconstructed shape) is
-      // not PROVEN degraded, so it persists — fail toward keeping a real scan, never toward dropping one.
-      if (report.engine?.provider === "mock") {
-        console.warn(
-          `[webhook] push rescan for ${fullName} degraded to the deterministic floor (LLM unavailable) — not persisted, no regression alert`,
-        );
-        return;
+      // ORDER: the throttle check above runs FIRST, on purpose. The throttle is not a stamp we set —
+      // it is derived from the PRIOR PERSISTED SCAN's `scannedAt`, so only a scan that actually ran
+      // and persisted moves the window. A push skipped for credits therefore consumes nothing, and a
+      // later top-up scans on the very next push instead of waiting out a window it never opened.
+      // Checking credits first would only add a ledger read to pushes that were going to coalesce.
+      //
+      // `mock: false` — this path asks for a real grade (no orgSlug is passed to scanRepository, so it
+      // uses the platform provider, never a BYOM key). isMeteredScan still exempts self-hosted, a
+      // DB-less deployment and the public org, which is the whole set of not-metered deployments here.
+      const metered = isMeteredScan(orgSlug, false);
+      // Attribution for BOTH sides of the movement: no human is behind a push delivery, so the honest
+      // actor is the path itself, and the refund below names the same actor and repo as the debit.
+      const actor = "webhook:push";
+      let charged = false;
+      if (metered) {
+        const reservation = await reserveScanCredit(orgSlug, fullName, { actor });
+        if (reservation.skip) {
+          // SKIP, don't scan-for-free and don't release the delivery: the balance is exhausted, and a
+          // GitHub redelivery would find it exhausted too (releasing would turn an empty wallet into a
+          // retry storm). Same "coalesce, don't queue" reasoning as the throttle — the repo is covered
+          // by the next push after a top-up, or by its scheduled autoscan.
+          //
+          // A DURABLE trace, not just a log line. This is the one skip an OWNER has to be able to act
+          // on — nobody is watching the response (it was sent before after() ran) and the fix is to buy
+          // credits — so it writes the same Repository.lastScanStatus/lastScanError the queue worker
+          // writes for its own skips (scan-queue-worker.ts). The Repositories tab already renders that
+          // pair, so a watched repo going stale says WHY on the dashboard instead of only in the logs.
+          // Best-effort, exactly as everywhere else: a bookkeeping write must not decide the skip.
+          await recordScanOutcome(orgSlug, fullName, { ok: false, error: "insufficient credits" }).catch(() => {});
+          console.warn(
+            `[webhook] push rescan for ${fullName} skipped: insufficient_credits (balance ${reservation.balance ?? "unknown"})`,
+          );
+          return;
+        }
+        charged = reservation.reserved; // true only on an overflow DEBIT — a within-allowance scan is free
       }
-      const persisted = await persistScanReport(report, { orgSlug });
-      if (persisted && !persisted.deduped) {
-        const orgId = (await getOrgId(orgSlug).catch(() => null)) ?? undefined;
-        await checkAndAlertRegression(prev, report, { orgId, orgSlug });
+      // Give the credit back when nothing billable was produced. No-op unless an overflow credit was
+      // actually debited; refunding a free scan would MINT one.
+      const refundCredit = () => refundScanCredit(orgSlug, charged, { actor, repoFullName: fullName });
+
+      // Every unwind path from here on has to answer "was anything billable produced?". A throw
+      // BEFORE a real report (token mint, provider error) produced nothing and releases the delivery
+      // for redelivery, so it must refund or every retry buys a second credit; a throw AFTER one keeps
+      // the credit, because the inference genuinely ran. Same rule as the worker's `inferenceBilled`.
+      let inferenceBilled = false;
+      try {
+        const token = await getInstallationToken(installationId);
+        const report = await scanRepository(fullName, { token });
+        inferenceBilled = report.engine?.provider != null && report.engine.provider !== "mock";
+        // DEGRADE-TO-MOCK GUARD. This path asks for a real LLM grade; when the provider is down
+        // scanRepository still returns a report, stamped engine.provider = "mock" — the deterministic
+        // FLOOR, not a measurement. Persisting it makes that floor the repo's current public reading AND
+        // the next run's regression baseline, and the alert below would then diff a real prior scan
+        // against our own outage and tell the customer their repo regressed. The interactive routes
+        // already refuse to store such a report (scan-finalize.ts's `authoritative` gate), and the
+        // sibling cron/org-scan routes refund the credit on exactly this condition — as, now, does the
+        // reserve above: the degrade is recognised for BOTH the data and the billing here.
+        //
+        // Deliberately NOT released for redelivery: a provider outage would degrade the retry too, so a
+        // release turns one outage into a scan storm. The repo is covered by the next push past the
+        // window or its scheduled autoscan — the same "coalesce, don't queue" reasoning as the throttle
+        // above.
+        // Optional-chained on purpose: a report with no engine stamp (a legacy/reconstructed shape) is
+        // not PROVEN degraded, so it persists — fail toward keeping a real scan, never toward dropping one.
+        if (report.engine?.provider === "mock") {
+          await refundCredit(); // no inference was bought, so the org keeps its credit
+          console.warn(
+            `[webhook] push rescan for ${fullName} degraded to the deterministic floor (LLM unavailable) — not persisted, credit refunded, no regression alert`,
+          );
+          return;
+        }
+        const persisted = await persistScanReport(report, { orgSlug });
+        // The shared refund policy, byte-for-byte the worker's: degrade-to-mock (handled above) or a
+        // dedup — an unchanged head scored no new row, and "a dedup run is free".
+        if (shouldRefundScan({ engine: { provider: report.engine?.provider ?? "" } }, persisted)) {
+          await refundCredit();
+        }
+        if (persisted && !persisted.deduped) {
+          const orgId = (await getOrgId(orgSlug).catch(() => null)) ?? undefined;
+          await checkAndAlertRegression(prev, report, { orgId, orgSlug });
+        }
+      } catch (err) {
+        if (!inferenceBilled) await refundCredit();
+        throw err; // the outer catch owns the delivery release + the log
       }
     });
   } catch (err) {
@@ -524,6 +820,24 @@ export async function POST(request: Request) {
           runPrGate({ installationId, owner, repo, prNumber, headSha, baseRef }, webhookGateHooks(delivery ?? undefined)),
         );
       }
+      // MOONSHOT #1 — a MERGED close is the evidence moment for the AI-change population, and it is
+      // not a gate action (a merged PR needs no check run), so it sits beside the gate rather than
+      // inside its condition. `after()` so the ack stays fast; failures are swallowed inside the
+      // reducer — a missed row is picked up by the next scan, and must never fail a delivery.
+      if (owner && payload.action === "closed" && isDbConfigured()) {
+        const slug = owner.toLowerCase();
+        after(() => reduceAiChangeEvent(slug, "pull_request", payload));
+      }
+    } else if (event === "pull_request_review" && isDbConfigured()) {
+      // MOONSHOT #1 — an approving human review is THE control the conformance pack evidences, and
+      // this is the only path that observes it within seconds rather than at the next scan's cadence.
+      // Deliberately NOT gated on isAppConfigured(): it writes no check run and mints no token, it
+      // only records what the signed delivery already told us.
+      const owner = payload.repository?.owner?.login;
+      if (owner) {
+        const slug = owner.toLowerCase();
+        after(() => reduceAiChangeEvent(slug, "pull_request_review", payload));
+      }
     } else if (event === "check_run" && isAppConfigured()) {
       // A "Re-run" button click (requested_action with our identifier) or GitHub's native
       // rerequested — re-evaluate the gate for the PR the run is attached to, without a new push.
@@ -552,6 +866,39 @@ export async function POST(request: Request) {
       const headMoved = !payload.deleted && !!payload.after && !/^0+$/.test(payload.after);
       if (installationId && owner && repo && onDefault && headMoved) {
         after(() => runPushRescan(installationId, owner, repo, delivery ?? undefined));
+      }
+    } else if (REPO_CONTROL_EVENTS.has(event) && isAppConfigured() && isDbConfigured()) {
+      // A repo-scoped control change (protection rule, ruleset, or the repo itself being renamed /
+      // archived / made private). Enqueue a FREE probe — no credit, no inference — which re-reads the
+      // truth from GitHub rather than believing the delivery.
+      const installationId = payload.installation?.id;
+      const owner = payload.repository?.owner?.login;
+      const fullName = payload.repository?.full_name;
+      if (installationId && owner && fullName) {
+        const login = owner;
+        after(async () => {
+          await enqueueControlProbe(installationId, login, fullName, event, delivery ?? undefined);
+          // MOONSHOT #1 — and, separately, record WHO. The probe re-reads the truth; only the
+          // delivery knows the actor, and the attribution row asserts no state of its own.
+          if (GOVERNANCE_EVENTS.includes(event)) {
+            await recordControlAttribution(login.toLowerCase(), fullName, event, payload, delivery ?? undefined);
+          }
+        });
+      }
+    } else if (ORG_CONTROL_EVENTS.has(event) && isAppConfigured() && isDbConfigured()) {
+      // An owner-level change (`member`, `team`). Deliberately enqueue-only and membership-blind: this
+      // writes NO membership or RBAC row of its own (that is deck item #21, not this lane) — it only
+      // says "this org's access shape moved, go re-observe the controls".
+      const installationId = payload.installation?.id;
+      const owner = payload.organization?.login ?? payload.repository?.owner?.login;
+      const repoFullName = payload.repository?.full_name;
+      if (installationId && owner) {
+        const login = owner;
+        after(() =>
+          repoFullName
+            ? enqueueControlProbe(installationId, login, repoFullName, event, delivery ?? undefined)
+            : enqueueOrgControlProbes(installationId, login, event, delivery ?? undefined),
+        );
       }
     }
   } catch (err) {

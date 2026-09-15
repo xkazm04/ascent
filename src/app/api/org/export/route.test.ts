@@ -230,6 +230,30 @@ describe("GET /api/org/export — authorized export", () => {
     expect(body).toContain("@acme/frontend");
   });
 
+  it("exports an unmeasured AI share as an EMPTY cell, never as a 0", async () => {
+    // `rollupTeams` returns `aiCommitShare: null` for a team with no commit population. A 0 in this
+    // column would be indistinguishable from a team observed at zero AI usage, and a spreadsheet
+    // AVERAGE over the column would fold the unmeasured teams in silently.
+    mockGetOrgTeamRollup.mockResolvedValue({
+      teams: [
+        {
+          slug: "@acme/ops", name: "ops", repoCount: 1, totalOwned: 1, defaultOwnerCount: 1,
+          avgOverall: 50, avgAdoption: 40, avgRigor: 60, posture: "manual",
+          contributors: 0, aiContributors: 0, aiCommitShare: null,
+          comparedRepos: 0, improving: 0, declining: 0, avgDelta: 0,
+        },
+      ],
+    } as never);
+
+    const csv = await (await get("?org=acme&kind=teams&format=csv")).text();
+    const lines = csv.trim().split(/\r?\n/);
+    const shareCol = lines[0]!.split(",").indexOf("aiCommitSharePct");
+    expect(lines[1]!.split(",")[shareCol]).toBe("");
+
+    const json = await (await get("?org=acme&kind=teams")).json();
+    expect(json.rows[0][shareCol]).toBeNull();
+  });
+
   it("returns 404 when the team rollup lookup itself returns null (unknown org, not zero teams)", async () => {
     mockGetOrgTeamRollup.mockResolvedValue(null as never);
 
@@ -237,6 +261,56 @@ describe("GET /api/org/export — authorized export", () => {
 
     expect(res.status).toBe(404);
     expect(res.headers.get("content-disposition")).toBeNull();
+  });
+
+  it("exports declines + autonomy tier + the measured score, so an ACCEPTED gap is not a clean repo", async () => {
+    // The rollup's passports are POST-overlay: an accepted gap has already been retired from
+    // `blockers`. Without the declined columns this row exported byte-identical to a repo that
+    // genuinely has error tracking — the subtraction the Pareto explicitly refuses to make. And a
+    // production score an OWNER lifted (rollback) must not export in the same form as a measured one.
+    mockGetOrgRollup.mockResolvedValue({
+      repos: [
+        {
+          fullName: "acme/edge",
+          name: "edge",
+          passport: {
+            automationReadiness: { level: "L3", score: 61, blockers: [] },
+            productionReadiness: {
+              band: "beta", score: 72,
+              ci: { level: "gated", provider: "github-actions" },
+              tests: { level: "partial", coveragePct: 41 },
+              security: { level: "scanning" },
+              observability: { level: "none" },
+              delivery: { migrations: "versioned", iac: true, rollback: true },
+              blockers: [],
+              overridden: { reason: "rollback", delta: 8, measuredScore: 64, measuredBand: "beta", by: "alice", at: "2026-09-01" },
+            },
+            autonomy: { tier: "T2" },
+            declined: [
+              { path: "productionReadiness.observability", label: "Observability", reason: "internal cron worker" },
+              { path: "productionReadiness.security", label: "Security scanning", needsReconfirm: true },
+            ],
+          },
+        },
+      ],
+    } as never);
+
+    const res = await get("?org=acme&kind=passports&format=csv");
+    const csv = await res.text();
+    const [header, row] = csv.trim().split(/\r?\n/);
+
+    expect(header).toContain("declinedCount");
+    expect(header).toContain("declinedPaths");
+    expect(header).toContain("declinedNeedingReconfirm");
+    expect(header).toContain("autonomyTier");
+    expect(header).toContain("productionScoreMeasured");
+    expect(row).toContain("T2");
+    // Both accepted gaps are named, and the one awaiting re-confirmation is counted separately.
+    expect(row).toContain("productionReadiness.observability; productionReadiness.security");
+    expect(row).toContain(",2,");
+    // The owner-lifted score ships with the measurement it moved, and with its author.
+    expect(row).toContain("alice");
+    expect(row).toContain("64");
   });
 
   it("returns 404 when the passports rollup lookup itself returns null (matches its sibling branches)", async () => {

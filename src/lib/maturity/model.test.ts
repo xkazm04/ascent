@@ -172,7 +172,27 @@ describe("SCORING_RUBRIC_VERSION — mechanical backstop for the bump-on-change 
     // Re-pinned 2026-08-26 WITH the r10 bump: the TASK block gained CRAFT ENTRIES (one `kind: "craft"`
     // roadmap entry per dimension at/above the follow-up floor with no gap) — a changed model input, the
     // r6 precedent; no weight, band, blend or detector moved.
-    const EXPECTED_RUBRIC_HASH = "ccc5a3d456a1b3ccfd2777a90f1401e02114bd4f5646030439e824fbcdda1e43";
+    // Re-pinned 2026-08-30 WITH the r11 bump (moonshot #15): D1's criteria were rewritten from
+    // "presence AND content-quality of each format" to COHERENCE across all of them, and the
+    // assessment prompt now carries one cited-claims contract per claim-scored dimension (D1 joined
+    // D4). Both halves of the hash moved for the same reason, and both are score-moving: the D1
+    // detector collapsed five presence awards into one + a coherence band, and D1 lost its guardband
+    // blend. This is the case the backstop exists for — the bump is the remedy, the re-pin records it.
+    // Re-pinned 2026-08-30 WITH the r12 bump (the craft ladder): ONLY the prompt half moved. The TASK
+    // block's CRAFT ENTRIES section now requires a `craftAxis` from the six-axis taxonomy, demands an
+    // escalating rung naming its artefact, and shifts the voice to "raise the ceiling" for dimensions
+    // at or above the green floor. No weight, band, blend, guardband, posture threshold, lens or
+    // detector moved — the whole point of r12 is that craft became dispatchable work WITHOUT entering
+    // any score. (The per-repo CRAFT ALREADY BUILT block is not in this hash by construction: it is
+    // rendered into the USER message, never the cacheable SYSTEM prefix this snapshot covers.)
+    // Re-pinned 2026-09-01 WITH the r16 bump (the `code-health` craft axis): again ONLY the prompt
+    // half moved. The CRAFT ENTRIES section's axis list gained a seventh entry and the craft rules
+    // gained "THE CODE ITSELF IS CRAFT" — at or above the green floor, at least one rung must name
+    // something in the SOURCE (a duplicated module, a hot path, a dumping-ground file) rather than a
+    // gate about it. A changed model INPUT, so the bump is the remedy and this re-pin records it; no
+    // weight, band, blend, guardband, posture threshold, lens or detector moved, and craft still
+    // enters no score (craft.score.test.ts pins that end-to-end).
+    const EXPECTED_RUBRIC_HASH = "7de0db475ec0b89a1fbf03d4de3909438d5c6a6bc2a0b2892c3429c3155ab200";
     expect(
       actual,
       `The scoring rubric changed (weights/bands/blend/guardband/posture threshold/lens/prompt). ` +

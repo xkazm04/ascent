@@ -19,9 +19,20 @@ import type { LevelId } from "@/lib/types";
 // The read view and the shared labels/classes live in co-located siblings (200-line cap); this file
 // keeps all the state and both fetches.
 import { ProgramPanelSummary } from "./ProgramPanelSummary";
-import { CADENCE_LABEL, inputClass, labelClass } from "./programPanelConstants";
+import { CADENCE_LABEL, PROGRAM_ORIGIN_HINT, inputClass, labelClass } from "./programPanelConstants";
+import { WhyChip } from "@/components/org/viz";
 
-export function ProgramPanel({ slug, initial }: { slug: string; initial: TransitionProgramRow | null }) {
+export function ProgramPanel({
+  slug,
+  initial,
+  now = null,
+}: {
+  slug: string;
+  initial: TransitionProgramRow | null;
+  /** Today's fleet overall standing, so the read view can DRAW the movement from the frozen origin
+   *  rather than describe the origin in a sentence. Null ⇒ no "now" mark. */
+  now?: number | null;
+}) {
   const [program, setProgram] = useState(initial);
   const [editing, setEditing] = useState(initial == null);
   const [name, setName] = useState(initial?.name ?? "");
@@ -80,13 +91,18 @@ export function ProgramPanel({ slug, initial }: { slug: string; initial: Transit
       <div data-tour="transition-program" />
       <SectionHeader
         size="sm"
-        title="Transition programme"
-        description="The named, dated thing this org is actually doing: the frame the goals below hang off. Its baseline is frozen the moment it starts, so every later number is measured against a fixed origin."
+        title={
+          <span className="inline-flex items-center gap-2">
+            Transition programme
+            <WhyChip hint={PROGRAM_ORIGIN_HINT} label="the frozen origin" />
+          </span>
+        }
       />
 
       {!editing && program && (
         <ProgramPanelSummary
           program={program}
+          now={now}
           busy={busy}
           onEdit={() => setEditing(true)}
           onStatus={(status) => void patchStatus(status)}
@@ -148,20 +164,20 @@ export function ProgramPanel({ slug, initial }: { slug: string; initial: Transit
 
           {/* Said out loud, because a form that silently moved the origin would erase every
               measurement taken since the start. */}
-          <p className="text-sm text-slate-500">
+          <p className="type-body-sm text-slate-500">
             {program
               ? "Re-targeting keeps the original baseline; movement stays measured from where you started."
               : "Starting freezes today's fleet standing as the baseline. It is never recomputed."}
           </p>
 
-          {error && <p className="text-sm text-orange-300">{error}</p>}
+          {error && <p className="type-body-sm text-orange-300">{error}</p>}
 
           <div className="flex gap-2">
-            <button type="submit" disabled={busy || !name.trim()} className="focus-ring rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-ink transition disabled:opacity-50">
+            <button type="submit" disabled={busy || !name.trim()} className="focus-ring rounded-md bg-accent px-3 py-1.5 type-body-sm font-medium text-ink transition disabled:opacity-50">
               {busy ? "Saving…" : program ? "Save" : "Start programme"}
             </button>
             {program && (
-              <button type="button" onClick={() => setEditing(false)} disabled={busy} className="focus-ring rounded-md border border-divider px-3 py-1.5 text-sm text-slate-400 transition hover:text-white disabled:opacity-50">
+              <button type="button" onClick={() => setEditing(false)} disabled={busy} className="focus-ring rounded-md border border-divider px-3 py-1.5 type-body-sm text-slate-400 transition hover:text-white disabled:opacity-50">
                 Cancel
               </button>
             )}

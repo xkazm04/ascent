@@ -18,13 +18,14 @@
 
 import { NextResponse } from "next/server";
 import {
-  getAuditLog,
   getCreditState,
   getOrgAlertWebhook,
   getOrgBenchmark,
   getOrgMovers,
   getOrgRecommendations,
   getOrgRollup,
+  getRedBaselines,
+  getStandingRegressions,
   isDbConfigured,
   listOrgsWithWatchedRepos,
   recordAlertEvent,
@@ -34,16 +35,20 @@ import {
 // @/lib/db barrel. They collapse the digest's old check-then-act idempotency guard into one conditional
 // write (fleet-alerts-digests #3).
 import { claimOrgAuditOnce, releaseAuditClaim } from "@/lib/db/scans-audit";
+import { hasFleetGrade } from "@/lib/db/org-shared";
 import { requireCronAuth } from "@/lib/cron-auth";
-import { buildFleetDigestMessage, creditsAlertThreshold, digestHasSignal, dispatchAlert, isAlertConfigured } from "@/lib/alerts";
+import { buildFleetDigestMessage, creditsAlertThreshold, digestHasSignal, dispatchAlert, isAlertConfigured, sinkKindForOrg } from "@/lib/alerts";
+import { controlLabel } from "@/lib/controls/catalog";
+import { controlCoverage, listObservationsSince } from "@/lib/db/control-observations";
 import { dispatchExtraAlerts } from "./extra-alerts";
 import { mapPool } from "@/lib/pool";
 import { PUBLIC_ORG } from "@/lib/auth";
 import { isWithinNoise } from "@/lib/maturity/noise";
 import { levelForScore } from "@/lib/maturity/model";
-import { forecastHeadline } from "@/lib/maturity/forecast";
+import { trajectoryLine } from "@/lib/maturity/forecast";
 import { publicBaseUrl } from "@/lib/site";
 import { resolveWindow, weekRangeParams } from "@/lib/window";
+import { orgWindowBounds } from "@/lib/org/period";
 import { orgTabHref } from "@/lib/org/orgTabs";
 
 export const runtime = "nodejs";
@@ -83,7 +88,9 @@ export async function GET(request: Request) {
   const weekParams = weekRangeParams();
   const period = resolveWindow(weekParams);
   const windowStart = period.start ?? new Date(Date.now() - 7 * 86_400_000);
-  const win: OrgWindow = { start: period.start, end: period.end };
+  // Half-open `{ start, endExclusive }` from the one adapter — the digest and the Briefing page it
+  // links to must not close the same week differently.
+  const win: OrgWindow = orgWindowBounds(period);
   // Query string that makes the linked briefing reproduce the digest's exact window.
   const periodQs = `range=custom&from=${weekParams.from}&to=${weekParams.to}`;
 
@@ -124,16 +131,22 @@ export async function GET(request: Request) {
         skippedNoSink += 1;
         return;
       }
-      // At-most-once per window: this handler loops every org under maxDuration and can time out
-      // partway, be retried by the platform, or overlap a re-fired schedule. Without a last-sent guard
-      // every already-notified org would receive the weekly digest AGAIN (eroding the exact push channel
-      // the feature makes habit-forming). Skip an org that already got a digest within this window —
-      // recorded as an audit entry after each successful dispatch below.
-      const alreadySent = await getAuditLog(org, { action: DIGEST_SENT_ACTION, since: windowStart, limit: 1 }).catch(() => null);
-      if (alreadySent && alreadySent.entries.length > 0) {
-        skippedAlreadySent += 1;
-        return;
-      }
+      // ONE EVALUATOR FOR THE AT-MOST-ONCE RULE, AND IT IS `claimOrgAuditOnce` (below).
+      //
+      // There used to be a cheap pre-check here — `getAuditLog(DIGEST_SENT_ACTION, since: windowStart)`
+      // — that skipped the rollup work for an org already notified this window. It was correct while a
+      // release DELETED the claim row. It stopped being correct when `releaseAuditClaim` changed to
+      // APPEND a `claim.released` record instead (see the note in src/lib/db/alert-events.ts): the
+      // claim row survives a release, `getAuditLog` is a plain trail read that knows nothing about
+      // releases, and only `claimOrgAuditOnce` subtracts them. So an org whose dispatch failed had its
+      // claim released for exactly the reason the code below states — "so the next run retries this
+      // org" — and then the next run skipped it here, before ever reaching the release-aware gate.
+      // The digest was dropped for the window: the failure the release exists to prevent.
+      //
+      // Deleted rather than taught about releases, because the release bookkeeping is private to
+      // scans-audit.ts and a second reader of the same rule is what produced this defect. The claim
+      // below is the authority; the only cost is that an already-sent org does its rollup reads before
+      // losing the claim, on the re-runs alone.
       // G7-03: the goal-at-risk / spend-anomaly pushes ride this run (see ./extra-alerts). Placed
       // BEFORE the rollup and the movement-gate on purpose — a goal sliding off pace or a spend spike
       // is exactly the kind of news a FLAT fleet week still needs to carry, and the digest's silence-
@@ -146,28 +159,115 @@ export async function GET(request: Request) {
       errors.push(...extra.errors);
 
       const rollup = await getOrgRollup(org, win);
-      if (!rollup || rollup.scannedCount === 0) {
-        // Nothing to report on yet (no rollup, or zero scanned repos) — counted so `orgs.length`
+      if (!rollup || !hasFleetGrade(rollup)) {
+        // Nothing to report on yet (no rollup, or no LIVE-scored repo) — counted so `orgs.length`
         // reconciles against the sum of all counters instead of these orgs silently vanishing.
+        // Tightened from `scannedCount === 0`: an all-mock fleet passed that and pushed a Slack
+        // digest reading "avg 0" with an L1 badge, which is a grade nobody measured.
         skippedNoData += 1;
         return;
       }
-      const [movers, recs, benchmark, credit] = await Promise.all([
+      const [movers, recs, benchmark, credit, controlTransitions, coverage, standing, redBaselines] = await Promise.all([
         getOrgMovers(org, win).catch(() => null),
         getOrgRecommendations(org, 1).catch(() => null),
         getOrgBenchmark(org).catch(() => null),
         // Credit runway for the digest's "top up" line — public org is free/unmetered, skip it.
         org === PUBLIC_ORG ? Promise.resolve(null) : getCreditState(org).catch(() => null),
+        // MOONSHOT #1: control transitions in the window feed the digest's Controls block. Failures
+        // only — a restored control is good news the weekly summary need not push.
+        //
+        // NULL ON FAILURE, NOT `[]` (UAT `DANA-L1-015`). The block's three-state contract needs the
+        // difference between "we read the ledger and nothing failed" and "we could not read it": an
+        // error swallowed into an empty array collapses exactly the two states `alerts.ts` documents.
+        listObservationsSince(org, windowStart.toISOString(), { transitionsOnly: true }).catch(() => null),
+        // …and the N the block is stated with, over the same window. Same null-on-failure rule: a
+        // coverage line the digest could not compute is omitted, never printed as zero.
+        controlCoverage(org, { from: windowStart.toISOString() }).catch(() => null),
+        // Standing concerns: dimensions holding materially below an earlier reading. Computed from
+        // persisted scans only, and DELIBERATELY not window-scoped — the whole failure this closes is a
+        // decline that stopped moving, so a shortfall that began before this week is exactly the one
+        // every windowed surface has already been silent about.
+        //
+        // NULL ON FAILURE, NOT `[]` — the same rule the Controls block above keeps, for the same
+        // reason: `[]` is the positive statement "we looked and nothing is standing down", and a read
+        // that FAILED must not be able to say it.
+        getStandingRegressions(org, { limit: 5 }).catch(() => null),
+        // A RED BASELINE IS THE SAME KIND OF FACT, from a different column. The improvement loop's
+        // degradation guard records `baseline-red` when a repository's OWN check was already failing
+        // before an agent touched it — which means the guard cannot compare anything and everything
+        // the loop commits there is unverified. It is a state, not an event, so every windowed and
+        // movement-shaped signal is silent about it, exactly as they are about a decline that stopped
+        // moving. Same block, same voice, not window-scoped for the same reason. Null on failure on
+        // the same terms as the standing read above.
+        getRedBaselines(org, { limit: 5 }).catch(() => null),
       ]);
+      // ONE list, deliberately. A red baseline is not a second kind of concern needing a second
+      // heading: the heading already says these are observations with no cause attributed, and each
+      // line names its own subject (a dimension, or the command a repository declares for itself).
+      // Red baselines lead, because a guard that cannot run outranks a score that fell.
+      //
+      // THE THREE-STATE CONTRACT, ON THIS BLOCK TOO. `alerts.ts` documents `standingConcerns` on the
+      // same terms as `controlsFailed` — undefined omits the block, `[]` is "we looked and nothing is
+      // standing down" — and `buildFleetDigestMessage` renders both. This caller used to collapse the
+      // middle state: an empty array became `undefined`, so the "Standing concerns: none open." branch
+      // was unit-tested and unreachable in production, and a week in which nothing was standing down
+      // rendered byte-identical to a week neither read could be taken. Null from EITHER read poisons
+      // the whole list, because the block states one heading over both sources and a half-read list
+      // cannot honestly say "none open".
+      const standingRows =
+        standing == null || redBaselines == null
+          ? null
+          : [
+              ...redBaselines.map((b) => ({
+                repo: b.repoFullName,
+                observation: b.observation,
+                ...(b.evidence.length > 0 ? { evidence: b.evidence } : {}),
+              })),
+              ...standing.map((c) => ({
+                repo: c.repoFullName,
+                observation: c.observation,
+                ...(c.evidence ? { evidence: c.evidence } : {}),
+              })),
+            ];
+      // Null (the ledger could not be read) stays null all the way to the message, where `undefined`
+      // omits the block. An empty ARRAY is the positive statement "we looked and none failed" and is
+      // passed through as one — it used to be turned back into `undefined`, which made a clean week
+      // byte-identical to a week nobody measured.
+      const controlsFailedRows = controlTransitions
+        ? controlTransitions
+            .filter((o) => o.state === "fail")
+            .slice(0, 10)
+            .map((o) => ({
+              repo: o.repoFullName,
+              control: controlLabel(o.controlId),
+              detail: o.prevState && o.prevState !== o.state ? `was ${o.prevState}` : (o.value ?? ""),
+            }))
+        : null;
+      // Fleet-level roll-up of the per-pair coverage rows: the digest states one N for one block, and
+      // `maxGapDays` is the WORST pair's gap, because a coverage claim is only as strong as its
+      // thinnest evidence. Null pairs (a single observation) contribute no gap rather than a 0.
+      const coverageSummary = coverage
+        ? {
+            pairs: coverage.length,
+            observations: coverage.reduce((n, c) => n + c.observations, 0),
+            maxGapDays: coverage.reduce<number | null>((m, c) => (c.maxGapDays == null ? m : Math.max(m ?? 0, c.maxGapDays)), null),
+            truncated: coverage.some((c) => c.windowTruncated),
+          }
+        : undefined;
       // Movement-gate: a leader relies on this push instead of opening the app, so a flat week stays
       // silent rather than training the inbox filter. Skip unless something material moved (or credits
       // are running low — always worth the heads-up).
       const creditLow = !!(credit && !credit.unlimited && credit.balance <= creditsAlertThreshold() * 2);
-      // ALERTS #1: noise-filter regressers SYMMETRICALLY with gainers below. `regressers` partitions
-      // purely on sign, so a pure-jitter week (every repo within ±noise, a couple landing net-negative)
-      // would count as "regressions > 0" and fire a misleading digest — defeating the silence-on-noise
-      // contract. Compute the beyond-noise set ONCE so the signal gate and the rendered list (below)
-      // can't drift out of lockstep.
+      // ALERTS #1: the beyond-noise regresser set, computed ONCE so the signal gate and the rendered
+      // list (below) can't drift out of lockstep.
+      //
+      // The premise this filter was written against is GONE: `getOrgMovers` used to partition purely
+      // on sign, so a pure-jitter week (every repo within ±noise, a couple landing net-negative) read
+      // as "regressions > 0" and fired a misleading digest. `org-insights.ts` now partitions on the
+      // noise band itself (`classifyDelta`, sub-band moves go to `held`), for the same reason and in
+      // both directions — so this is defence in depth over a feed that already filters, NOT the fix
+      // for a live defect. Kept because the digest's silence-on-noise contract is its own to hold,
+      // and a future change to that feed must not be able to break it silently.
       const regressersBeyondNoise = (movers?.regressers ?? []).filter((m) => !isWithinNoise(m.dOverall));
       const hasSignal = digestHasSignal({
         overallDelta: rollup.deltas?.overall ?? null,
@@ -175,6 +275,8 @@ export async function GET(request: Request) {
         regressions: regressersBeyondNoise.length,
         gainersBeyondNoise: (movers?.gainers ?? []).filter((m) => !isWithinNoise(m.dOverall)).length,
         creditLow,
+        controlsFailed: controlsFailedRows?.length ?? 0,
+        standingConcerns: standingRows?.length ?? 0,
       });
       if (!hasSignal) {
         skippedFlat += 1;
@@ -184,22 +286,38 @@ export async function GET(request: Request) {
       const top = recs?.[0];
       const msg = buildFleetDigestMessage({
         org,
-        // Link straight to the exec briefing — the digest is its push-channel summary. Carry the same
-        // ?range=custom&from=&to= so the page reproduces the digest's exact "this week" window.
-        url: base ? `${base}${orgTabHref(org, "executive")}${orgTabHref(org, "executive").includes("?") ? "&" : "?"}${periodQs}` : undefined,
+        // Link to the Weekly digest tab — the in-app page this push summarizes. That page's window is
+        // FIXED at the same `weekRangeParams()` trailing week this route resolves above, so no
+        // ?range=custom&from=&to= needs to travel: the two cannot disagree about the period. (The extra
+        // alerts below still link into the Briefing with `periodQs`, because that page's window is
+        // selectable and must be pinned to the week explicitly.)
+        url: base ? `${base}${orgTabHref(org, "digest")}` : undefined,
         repoCount: rollup.repoCount,
         scannedCount: rollup.scannedCount,
         avgOverall: rollup.avgOverall,
         level: `${level.id} · ${level.name}`,
         overallDelta: rollup.deltas?.overall ?? null,
         gainers: (movers?.gainers ?? []).slice(0, 3).map((m) => ({ name: m.name, delta: m.dOverall })),
-        // ALERTS #1: render only regressers beyond noise (the same set the signal gate counted above),
-        // so a within-noise −1/−2 repo is never listed under "Regressions:" (which would train the inbox
-        // filter the gate exists to avoid).
+        // ALERTS #1: render the same beyond-noise set the signal gate counted above, so a within-noise
+        // −1/−2 repo is never listed under "Regressions:" (which would train the inbox filter the gate
+        // exists to avoid). `gainers` needs no mirror filter here — `getOrgMovers` already excludes
+        // sub-band moves from BOTH lists (see the note on `regressersBeyondNoise` above).
         regressers: regressersBeyondNoise.slice(0, 3).map((m) => ({ name: m.name, delta: m.dOverall })),
         topRecommendation: top ? { title: top.title, repoCount: top.repoCount } : null,
+        // THE THREE-STATE CONTRACT, KEPT (UAT `DANA-L1-015`). `undefined` (ledger unreadable) omits
+        // the block; `[]` says "we looked and none failed". This used to send `undefined` whenever the
+        // array was empty, so the `[]` branch — unit-tested since it shipped — was unreachable from the
+        // only production caller and a clean week rendered byte-identical to an unpopulated ledger.
+        controlsFailed: controlsFailedRows ?? undefined,
+        // …and the block never travels without its N (control-observations.ts's coverage law).
+        controlCoverage: coverageSummary,
+        standingConcerns: standingRows ?? undefined,
         percentile: benchmark?.overallPercentile ?? null,
-        trajectory: rollup.forecast ? forecastHeadline(rollup.forecast) : null,
+        // MC-B1: the digest gets the SAME composed line as the briefing it links to — the headline
+        // with its confidence + basis once the fit is presentable, and the refusal sentence when it
+        // is not. A push channel is the worst place to state a slope nobody can question, and the
+        // digest previously printed `forecastHeadline` raw, hedge and gate alike bypassed.
+        trajectory: trajectoryLine(rollup.forecast),
         // Carry the balance only when the org is metered and running low (the same condition the
         // movement-gate treats as always-worth-sending) — the digest is the one push a leader reliably
         // reads, so a depleting balance gets a standing line there, not just the crossing alert.
@@ -221,7 +339,15 @@ export async function GET(request: Request) {
       } else {
         // Delivery failed AFTER we claimed the window — RELEASE the claim so the next run retries this
         // org, rather than the window staying falsely marked sent (which would DROP the digest).
-        await releaseAuditClaim(claim.id);
+        //
+        // CAUGHT, like the same call in ./extra-alerts. Unhandled, a release failure threw past the
+        // `failed` counter AND past the AlertEvent row below into the per-org catch, so the one
+        // outcome that most needs a record — delivery failed and the window is still claimed, i.e.
+        // this org gets no digest at all — was the outcome that left none. A release that fails is
+        // worth an error line; it is not worth destroying the history row for the send.
+        await releaseAuditClaim(claim.id).catch((err: unknown) => {
+          errors.push(`${org}: digest claim release failed (${err instanceof Error ? err.message : "unknown"})`);
+        });
         failed += 1; // sink unresolvable at send time, non-2xx, or the deadline aborted the POST
       }
       // History row for the in-app drawer — the released claim forgets a failed window (so next run
@@ -232,7 +358,7 @@ export async function GET(request: Request) {
         title: `Weekly fleet digest (${rollup.scannedCount} repos, avg ${rollup.avgOverall})`,
         body: msg.text,
         delivered,
-        sinkKind: webhookUrl && /^mailto:/i.test(webhookUrl) ? "email" : "webhook",
+        sinkKind: sinkKindForOrg(webhookUrl),
         suppressedReason: delivered ? null : "dispatch-failed",
       });
     } catch (err) {

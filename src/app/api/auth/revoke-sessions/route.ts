@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 /**
  * DUAL-STACK. This route used to read ONLY the dormant custom-OAuth cookie, so under the ACTIVE
  * Supabase wall — where `ascent_session` is never minted — it found no session and bounced to
- * /connect having revoked nothing. The user's self-serve kill switch for a lost or shared machine
+ * /onboarding having revoked nothing. The user's self-serve kill switch for a lost or shared machine
  * did not exist in production, on the stack that IS production.
  *
  * Supabase's own primitive is `signOut({ scope: "others" })`: it revokes every OTHER refresh token
@@ -28,7 +28,7 @@ export const dynamic = "force-dynamic";
  * contract revokeOtherSessions provides for the custom stack (bump the version, re-mint this browser
  * at the new one). So each stack keeps its own mechanism and the route just picks the live one.
  *
- * NOTE: the UI that reaches this route (`src/app/connect/page.tsx`) still renders its
+ * NOTE: the UI that reaches this route (`src/app/onboarding/page.tsx`) still renders its
  * "Sign out everywhere else" form only when the DORMANT `session` exists, so a production viewer
  * cannot yet click it. That file belongs to another context; the render gate is filed as a finding.
  */
@@ -43,18 +43,18 @@ export async function POST(request: Request) {
   // ACTIVE stack first (mirroring resolveViewerLogin / the session route's precedence).
   if (authGateEnabled()) {
     if (!(await getViewer())) {
-      return NextResponse.redirect(new URL("/connect", request.url), 303);
+      return NextResponse.redirect(new URL("/onboarding", request.url), 303);
     }
     try {
       const supabase = await createSupabaseServerClient();
       const { error } = await supabase.auth.signOut({ scope: "others" });
       if (error) throw new Error(error.message);
-      return NextResponse.redirect(new URL("/connect?revoked=others", request.url), 303);
+      return NextResponse.redirect(new URL("/onboarding?revoked=others", request.url), 303);
     } catch (err) {
       // Report the failure rather than redirecting as though it worked: on a shared machine,
       // "we revoked your other sessions" when we did not is the worst possible answer.
       console.warn("[auth/revoke-sessions] supabase revoke failed", err instanceof Error ? err.message : err);
-      return NextResponse.redirect(new URL("/connect?error=revoke", request.url), 303);
+      return NextResponse.redirect(new URL("/onboarding?error=revoke", request.url), 303);
     }
   }
 
@@ -62,16 +62,16 @@ export async function POST(request: Request) {
   const session = raw ? decodeSession(raw) : null;
   // No valid session → nothing to revoke; bounce back to connect (303 so the form POST follows with GET).
   if (!session) {
-    return NextResponse.redirect(new URL("/connect", request.url), 303);
+    return NextResponse.redirect(new URL("/onboarding", request.url), 303);
   }
   try {
     const revoked = await revokeOtherSessions(session);
     return NextResponse.redirect(
-      new URL(`/connect?revoked=${revoked ? "others" : "none"}`, request.url),
+      new URL(`/onboarding?revoked=${revoked ? "others" : "none"}`, request.url),
       303,
     );
   } catch (err) {
     console.warn("[auth/revoke-sessions] failed", err);
-    return NextResponse.redirect(new URL("/connect?error=revoke", request.url), 303);
+    return NextResponse.redirect(new URL("/onboarding?error=revoke", request.url), 303);
   }
 }

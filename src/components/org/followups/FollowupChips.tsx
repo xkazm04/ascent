@@ -7,11 +7,42 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { EFFORT_CLASS, IMPACT_CLASS, timeAgo } from "@/lib/ui";
-import { STATUS_LABEL, type FollowUpRow, type FollowUpStatus } from "./followupsModel";
+import { STATUS_LABEL, claimLine, type FollowUpRow, type FollowUpStatus } from "./followupsModel";
+
+/**
+ * NEEDS HUMAN (moonshot #3) — an agent tried this row and stopped deliberately.
+ *
+ * A chip and not a status, which is the whole distinction: the row is still `in_progress` and still
+ * owed, and a fifth status would have hidden it from every "what is open" count in the product. It
+ * sits beside the status pill rather than replacing it, and it is the ONE row state on this ledger
+ * that a machine can raise and only a person can clear.
+ */
+export function NeedsHumanChip({ r }: { r: Pick<FollowUpRow, "needsHuman"> }) {
+  if (!r.needsHuman) return null;
+  return (
+    <span
+      className="inline-flex items-center whitespace-nowrap rounded-full border border-warn/60 px-2 py-px type-caption text-warn"
+      title="An agent worked this and stopped deliberately — it needs a person. The row is still open."
+    >
+      needs human
+    </span>
+  );
+}
+
+/** Who holds this row and for how long. Renders nothing when nobody does — the ordinary open row. */
+export function ClaimLine({ r }: { r: Pick<FollowUpRow, "claimActor" | "leaseUntil" | "status"> }) {
+  const line = claimLine(r);
+  if (!line) return null;
+  return (
+    <span className="whitespace-nowrap type-caption tabular-nums text-slate-500" title="A work lease. When it expires the row returns to the queue.">
+      {line}
+    </span>
+  );
+}
 
 export function ImpactEffort({ r }: { r: Pick<FollowUpRow, "impact" | "effort"> }) {
   return (
-    <span className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-xs">
+    <span className="inline-flex items-center gap-1 whitespace-nowrap type-caption">
       <span className={`rounded border px-1 py-px ${IMPACT_CLASS[r.impact] ?? "border-slate-700 text-slate-400"}`} title={`impact ${r.impact}`}>
         {r.impact[0]?.toUpperCase()}
       </span>
@@ -31,7 +62,7 @@ const STATUS_CLASS: Record<FollowUpStatus, string> = {
 
 export function StatusPill({ status, at }: { status: FollowUpStatus; at?: string }) {
   return (
-    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2 py-px font-mono text-xs ${STATUS_CLASS[status]}`} title={at ? `last activity ${timeAgo(at)}` : undefined}>
+    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2 py-px type-caption ${STATUS_CLASS[status]}`} title={at ? `last activity ${timeAgo(at)}` : undefined}>
       {status === "in_progress" && <span aria-hidden className="live-dot h-1.5 w-1.5 rounded-full bg-accent" />}
       {STATUS_LABEL[status]}
     </span>
@@ -39,9 +70,9 @@ export function StatusPill({ status, at }: { status: FollowUpStatus; at?: string
 }
 
 export function Points({ n }: { n: number | null }) {
-  if (n == null) return <span className="font-mono text-xs text-slate-600">—</span>;
+  if (n == null) return <span className="type-caption text-slate-600">—</span>;
   return (
-    <span className="font-mono text-sm tabular-nums text-slate-200" title="Overall-score points the repo gains if this gap fully closes">
+    <span className="type-mono-sm tabular-nums text-slate-200" title="Overall-score points the repo gains if this gap fully closes">
       +{n}
     </span>
   );
@@ -62,13 +93,13 @@ export function RowActions({ r, compact = false }: { r: FollowUpRow; compact?: b
   };
   if (r.status === "done" || r.status === "dismissed") {
     return (
-      <button type="button" onClick={() => set("open")} disabled={busy !== null} className="focus-ring rounded font-mono text-xs text-slate-500 hover:text-accent">
+      <button type="button" onClick={() => set("open")} disabled={busy !== null} className="focus-ring rounded type-caption text-slate-500 hover:text-accent">
         reopen
       </button>
     );
   }
   return (
-    <span className={`inline-flex items-center gap-2 font-mono text-xs ${compact ? "" : "gap-3"}`}>
+    <span className={`inline-flex items-center gap-2 type-caption ${compact ? "" : "gap-3"}`}>
       <button type="button" onClick={() => set("done")} disabled={busy !== null} className="focus-ring rounded text-slate-500 hover:text-emerald-400" title="Mark resolved by hand">
         {busy === "done" ? "…" : "resolve"}
       </button>

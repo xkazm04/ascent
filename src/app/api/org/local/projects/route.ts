@@ -92,12 +92,23 @@ export async function GET(request: Request) {
   // this costs one query, not nine per repo (which is what /api/org/repo-dimension would have been).
   const rollup = await getOrgRollup(g.org.slug);
   const dimsByRepo = new Map<string, { dimId: string; score: number; signalScore?: number; llmScore?: number }[]>();
-  for (const r of rollup?.repos ?? []) if (r.latest) dimsByRepo.set(r.fullName, r.latest.dims);
+  // Dimensions the repo's latest reading could not measure at all (D2/D3/D4 on a local scan with no
+  // GitHub-side fold to carry). They are excluded from the verdict and NAMED on the repo's row —
+  // an agent driving this door has to be able to tell "cleared nine" from "cleared the six we could
+  // see", and it reads `repos[].unmeasurable` for exactly that.
+  const unmeasurableByRepo = new Map<string, string[]>();
+  for (const r of rollup?.repos ?? []) {
+    if (!r.latest) continue;
+    dimsByRepo.set(r.fullName, r.latest.dims);
+    if (r.latest.unmeasurableDims?.length) unmeasurableByRepo.set(r.fullName, r.latest.unmeasurableDims);
+  }
 
   // Scope is what is WATCHED. An unwatched row still appears in `projects` (it keeps its history and
   // its pairing state is worth seeing) but must not hold the fleet back from green.
   const inScope = projects.filter((p) => p.watched);
-  const fleet = fleetGreenness(inScope.map((p) => repoGreenness(p.fullName, dimsByRepo.get(p.fullName) ?? [])));
+  const fleet = fleetGreenness(
+    inScope.map((p) => repoGreenness(p.fullName, dimsByRepo.get(p.fullName) ?? [], unmeasurableByRepo.get(p.fullName) ?? [])),
+  );
 
   return NextResponse.json({
     org: g.org.slug,

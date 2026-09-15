@@ -34,6 +34,12 @@ vi.mock("@/lib/db", () => ({
   getOrgRecommendations: vi.fn(async () => null),
   getOrgBenchmark: vi.fn(async () => null),
   getCreditState: vi.fn(async () => null),
+  // Standing concerns (dimensions holding materially below an earlier reading). Default: none, so
+  // every pre-existing case keeps its exact movement-gate outcome.
+  getStandingRegressions: vi.fn(async () => [] as unknown[]),
+  // A repository whose OWN check was already failing before a loop lane touched it — the same
+  // standing-concerns block, from the degradation guard's column. Default: none.
+  getRedBaselines: vi.fn(async () => [] as unknown[]),
   // Early fast-path (skip rollup for an org already sent this window): getAuditLog reports whether a
   // digest already went out. Default: nothing sent yet.
   getAuditLog: vi.fn(async () => ({ entries: [] as unknown[], nextCursor: null })),
@@ -62,11 +68,23 @@ vi.mock("./extra-alerts", () => ({
   dispatchExtraAlerts: vi.fn(async () => ({ goalAlerts: 0, spendAlerts: 0, errors: [] })),
 }));
 
+// The control ledger. Mocked so this suite can drive the THREE states of the Controls block
+// (unreadable / read-and-clean / read-and-failing) from the only production caller — the state the
+// route used to collapse (UAT `DANA-L1-015`) is the one that has no other way of being observed.
+vi.mock("@/lib/db/control-observations", () => ({
+  listObservationsSince: vi.fn(async () => [] as unknown[]),
+  controlCoverage: vi.fn(async () => [] as unknown[]),
+}));
+
 vi.mock("@/lib/alerts", () => ({
   // `isAlertConfigured(url)` must mirror the real "a non-null/usable sink resolves" semantics for
   // routing decisions: here, any truthy webhookUrl is a configured sink (env fallback not needed
   // for these tests — every routed org carries its own URL).
   isAlertConfigured: vi.fn((url?: string | null) => Boolean(url)),
+  // The AlertEvent row's channel, RESOLVED (org sink → global env) rather than read off the org's
+  // field — the real helper's whole point. These tests always route a per-org URL, so the mock just
+  // classifies it; the resolution half is pinned in src/lib/alerts.test.ts.
+  sinkKindForOrg: vi.fn((url?: string | null) => (url ? (/^mailto:/i.test(url) ? "email" : "webhook") : null)),
   dispatchAlert: vi.fn(async () => true),
   buildFleetDigestMessage: vi.fn((d: { org: string }) => ({
     // Tag the built message with its org so a cross-tenant build is detectable too.
@@ -90,11 +108,16 @@ import {
   getOrgBenchmark,
   getCreditState,
   getAuditLog,
+  getStandingRegressions,
+  getRedBaselines,
+  recordAlertEvent,
 } from "@/lib/db";
 import { claimOrgAuditOnce, releaseAuditClaim } from "@/lib/db/scans-audit";
 import { dispatchAlert, buildFleetDigestMessage, digestHasSignal } from "@/lib/alerts";
 import { isWithinNoise } from "@/lib/maturity/noise";
+import { forecastTrajectory } from "@/lib/maturity/forecast";
 import { dispatchExtraAlerts } from "./extra-alerts";
+import { controlCoverage, listObservationsSince } from "@/lib/db/control-observations";
 
 const mockIsDb = vi.mocked(isDbConfigured);
 const mockListOrgs = vi.mocked(listOrgsWithWatchedRepos);
@@ -111,15 +134,21 @@ const mockAuditLog = vi.mocked(getAuditLog);
 const mockClaim = vi.mocked(claimOrgAuditOnce);
 const mockRelease = vi.mocked(releaseAuditClaim);
 const mockExtra = vi.mocked(dispatchExtraAlerts);
+const mockRecordAlertEvent = vi.mocked(recordAlertEvent);
 
 const SECRET = "digest-secret-xyz";
 
 // A non-empty rollup so the route proceeds past the `scannedCount === 0` short-circuit and builds.
+// All THREE averages, because a real rollup carries them together or not at all — they share one
+// population (`realScoredCount`). The route's `hasFleetGrade` gate reads all three, so a fixture that
+// claims a graded fleet has to look like one.
 const rollupWith = () =>
   ({
     repoCount: 4,
     scannedCount: 4,
     avgOverall: 72,
+    avgAdoption: 68,
+    avgRigor: 76,
     deltas: { overall: 1 },
     forecast: null,
   }) as unknown as Awaited<ReturnType<typeof getOrgRollup>>;
@@ -158,6 +187,13 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     mockAuditLog.mockResolvedValue({ entries: [], nextCursor: null });
     mockClaim.mockResolvedValue({ claimed: true, id: "clm_1" });
     mockRelease.mockResolvedValue(undefined);
+    // Both standing-concern inputs reset to "nothing standing" so a case that arms one does not leak
+    // its concern into the next case's movement gate.
+    vi.mocked(getStandingRegressions).mockResolvedValue([] as never);
+    vi.mocked(getRedBaselines).mockResolvedValue([] as never);
+    // The ledger reads clean by default: READ, and nothing failed. That is a state, not an absence.
+    vi.mocked(listObservationsSince).mockResolvedValue([] as never);
+    vi.mocked(controlCoverage).mockResolvedValue([] as never);
   });
 
   afterEach(() => {
@@ -295,24 +331,42 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
 
   // ---- (5b) LAST-SENT GUARD — at-most-once dispatch per window (cron retry/overlap) ----
 
-  it("skips an org already sent a digest within the window — no rollup/build/dispatch (skippedAlreadySent++)", async () => {
+  it("skips an org already sent a digest within the window — no build/dispatch (skippedAlreadySent++)", async () => {
     mockListOrgs.mockResolvedValue(["orgSent", "orgFresh"]);
     mockOrgWebhook.mockResolvedValue("https://hooks.example.com/X");
     mockRollup.mockResolvedValue(rollupWith());
-    // orgSent already has a digest-sent audit entry in this window; orgFresh has none.
-    mockAuditLog.mockImplementation(async (org: string) =>
-      org === "orgSent"
-        ? { entries: [{ id: "a1" }] as unknown as never, nextCursor: null }
-        : { entries: [], nextCursor: null },
+    // The at-most-once decision belongs to the release-aware claim, not to a plain audit read: orgSent
+    // loses the claim (a live marker exists for this window), orgFresh takes it.
+    mockClaim.mockImplementation(async (_action: string, org: string) =>
+      org === "orgSent" ? { claimed: false, id: null } : { claimed: true, id: "clm_1" },
     );
 
     const res = await GET(req({ auth: `Bearer ${SECRET}` }));
     const body = await bodyOf(res);
 
-    // The already-sent org short-circuits BEFORE getOrgRollup; only orgFresh is processed + dispatched.
     expect(body).toMatchObject({ orgs: 2, sent: 1, skippedAlreadySent: 1 });
-    expect(mockRollup).toHaveBeenCalledTimes(1);
-    expect(mockRollup.mock.calls[0][0]).toBe("orgFresh");
+    expect(mockDispatch).toHaveBeenCalledTimes(1);
+    expect((mockDispatch.mock.calls[0][1] as { webhookUrl?: string }).webhookUrl).toBe("https://hooks.example.com/X");
+  });
+
+  it("RETRIES a window whose claim was RELEASED — the surviving audit row must not block it", async () => {
+    // The other half of "so the next run retries this org". A release APPENDS a `claim.released`
+    // record and leaves the `org.digest.sent` row in place, so an audit-log read still sees it; only
+    // `claimOrgAuditOnce` subtracts releases. While the route pre-checked the audit log, the run after
+    // a failed dispatch skipped the org before reaching that gate and the digest was dropped for the
+    // week — the exact outcome the release exists to prevent.
+    mockListOrgs.mockResolvedValue(["orgRetry"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/R");
+    mockRollup.mockResolvedValue(rollupWith());
+    // The previous run's (released) marker is still in the trail…
+    mockAuditLog.mockResolvedValue({ entries: [{ id: "a1" }] as unknown as never, nextCursor: null });
+    // …and the release-aware gate correctly hands the window back.
+    mockClaim.mockResolvedValue({ claimed: true, id: "clm_2" });
+
+    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
+    const body = await bodyOf(res);
+
+    expect(body).toMatchObject({ sent: 1, skippedAlreadySent: 0 });
     expect(mockDispatch).toHaveBeenCalledTimes(1);
   });
 
@@ -361,6 +415,24 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     expect(mockClaim).toHaveBeenCalledTimes(1);
     expect(mockRelease).toHaveBeenCalledTimes(1);
     expect(mockRelease.mock.calls[0][0]).toBe("clm_1");
+  });
+
+  it("a FAILING release still counts the failure and still writes the history row", async () => {
+    // The worst outcome this route can reach — delivery failed AND the window is still claimed, so
+    // this org gets no digest at all this week — used to be the one that left no trace: an unhandled
+    // release rejection threw past `failed` and past recordAlertEvent into the per-org catch.
+    mockListOrgs.mockResolvedValue(["orgStuck"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/S");
+    mockRollup.mockResolvedValue(rollupWith());
+    mockDispatch.mockResolvedValue(false);
+    mockRelease.mockRejectedValue(new Error("release blew up"));
+
+    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
+    const body = (await bodyOf(res)) as { failed: number; errors: string[] };
+    expect(body.failed).toBe(1);
+    expect(body.errors.join(" ")).toContain("claim release failed");
+    // …and the attempt is still remembered, with its outcome.
+    expect(mockRecordAlertEvent).toHaveBeenCalledWith("orgStuck", expect.objectContaining({ delivered: false }));
   });
 
   // ---- (6) PARTIAL-FAILURE ISOLATION — one org failing doesn't abort others ----
@@ -437,6 +509,225 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     expect(mockDispatch).not.toHaveBeenCalled();
   });
 
+  it("passes a standing concern to the gate and the message — the flat week that must NOT stay silent", async () => {
+    // The kp shape: D9 fell 21 points and stopped moving, so every MOVEMENT the digest measures is
+    // zero. The standing read is the one input that is not a movement, and it must reach both the
+    // gate and the rendered message with its observation intact.
+    mockListOrgs.mockResolvedValue(["orgStanding"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/S");
+    mockRollup.mockResolvedValue(rollupWith());
+    vi.mocked(getStandingRegressions).mockResolvedValue([
+      {
+        repoFullName: "orgStanding/kp",
+        observation: "D9 has held 21 points below its 2026-08-11 reading (96 -> 75) across 19 scans since 2026-08-12",
+        evidence: ["disappeared: 3/3 workflows set an explicit permissions: scope"],
+      },
+    ] as never);
+
+    await GET(req({ auth: `Bearer ${SECRET}` }));
+    expect(mockHasSignal).toHaveBeenCalledWith(expect.objectContaining({ standingConcerns: 1 }));
+    expect(mockBuild).toHaveBeenCalledWith(
+      expect.objectContaining({
+        standingConcerns: [
+          expect.objectContaining({ repo: "orgStanding/kp", observation: expect.stringContaining("D9 has held 21 points") }),
+        ],
+      }),
+    );
+  });
+
+  it("raises an UNAVAILABLE BASELINE in the standing-concerns block — the loop's own guard, switched off", async () => {
+    // The guard could not establish a baseline in the lane's worktree, so it has nothing to compare
+    // against and everything the loop commits there is unverified. It is a state, not an event: every
+    // windowed, movement-shaped input is silent about it, which is exactly the silence the
+    // standing-concerns block exists to break. The line says WORKTREE and ends with the remedy — it
+    // must not assert the repository's own checks are failing (`lane-baseline.ts` owns the wording).
+    mockListOrgs.mockResolvedValue(["orgRed"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/R");
+    mockRollup.mockResolvedValue(rollupWith());
+    vi.mocked(getRedBaselines).mockResolvedValue([
+      {
+        repoFullName: "orgRed/systedo-case",
+        observation:
+          "`npm run test:unit` has not passed in the loop's isolated worktree on any loop lane since 2026-08-28 " +
+          "(3 lanes). A worktree carries tracked files plus linked dependency caches and none of the gitignored local " +
+          "state a check may need, so this is not a reading of the repository's own checks. With no baseline the " +
+          "degradation guard cannot compare anything, so nothing the loop commits here is verified. To make this " +
+          "repository verifiable, declare a command that runs from a clean checkout at `controls.ciHardPass` in " +
+          "`.ai/manifest.yaml` (the guard prefers it over anything it infers), or turn `verifyMode` off for this " +
+          "repository.",
+        evidence: ["✖ test-unit/fault-injection-llm.test.mjs"],
+        lanes: 3,
+        command: "npm run test:unit",
+        since: "2026-08-28T09:00:00.000Z",
+      },
+    ] as never);
+
+    await GET(req({ auth: `Bearer ${SECRET}` }));
+    // It reaches the movement gate, so a flat week no longer stays silent about it…
+    expect(mockHasSignal).toHaveBeenCalledWith(expect.objectContaining({ standingConcerns: 1 }));
+    // …and the rendered block carries the observation and its evidence, in the same shape a standing
+    // regression uses. No new panel, no second heading.
+    const sent = mockBuild.mock.calls[0]![0] as { standingConcerns?: { repo: string; observation: string; evidence?: string[] }[] };
+    expect(sent.standingConcerns).toEqual([
+      expect.objectContaining({
+        repo: "orgRed/systedo-case",
+        observation: expect.stringContaining("has not passed in the loop's isolated worktree on any loop lane since 2026-08-28"),
+        evidence: ["✖ test-unit/fault-injection-llm.test.mjs"],
+      }),
+    ]);
+    // The line a reader may quote out of the message must not accuse the repository, and must carry
+    // the one thing the operator can act on.
+    const line = sent.standingConcerns![0]!.observation;
+    expect(line).not.toMatch(/repository'?s? own check — has failed|own checks are failing/i);
+    expect(line).toContain("`controls.ciHardPass`");
+  });
+
+  it("passes an EMPTY array through when both reads succeeded and found nothing — a clear fleet SAYS so", async () => {
+    // The three-state contract `controlsFailed` keeps, on this block too. `alerts.ts` documents `[]` as
+    // "we looked and nothing is standing down" and `buildFleetDigestMessage` renders it as "Standing
+    // concerns: none open." — but this caller collapsed `[]` to `undefined`, so that branch was
+    // unit-tested and unreachable in production, and a clean fleet rendered byte-identical to a fleet
+    // neither read could be taken for.
+    mockListOrgs.mockResolvedValue(["orgGreen"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/G");
+    mockRollup.mockResolvedValue(rollupWith());
+    vi.mocked(getStandingRegressions).mockResolvedValue([] as never);
+    vi.mocked(getRedBaselines).mockResolvedValue([] as never);
+
+    await GET(req({ auth: `Bearer ${SECRET}` }));
+    expect(mockHasSignal).toHaveBeenCalledWith(expect.objectContaining({ standingConcerns: 0 }));
+    const sent = mockBuild.mock.calls[0]![0] as { standingConcerns?: unknown };
+    expect(sent.standingConcerns).toEqual([]);
+    // …and it is NOT the omit-the-block state, which now means only "we could not read".
+    expect(sent.standingConcerns).not.toBeUndefined();
+  });
+
+  it("OMITS the block when a read failed — an unreadable ledger must not be able to say 'none open'", async () => {
+    mockListOrgs.mockResolvedValue(["orgUnread"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/U");
+    mockRollup.mockResolvedValue(rollupWith());
+    vi.mocked(getStandingRegressions).mockRejectedValue(new Error("db down"));
+    vi.mocked(getRedBaselines).mockResolvedValue([] as never);
+
+    await GET(req({ auth: `Bearer ${SECRET}` }));
+    const sent = mockBuild.mock.calls[0]![0] as { standingConcerns?: unknown };
+    expect(sent.standingConcerns).toBeUndefined();
+    // Absent means "not computed", not zero — the gate counts it as no signal either way, but the
+    // MESSAGE must not print an all-clear it cannot support.
+    expect(mockHasSignal).toHaveBeenCalledWith(expect.objectContaining({ standingConcerns: 0 }));
+  });
+
+  it("OMITS the block when the OTHER read failed — one heading over two sources, so either poisons it", async () => {
+    mockListOrgs.mockResolvedValue(["orgUnread2"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/U2");
+    mockRollup.mockResolvedValue(rollupWith());
+    vi.mocked(getStandingRegressions).mockResolvedValue([] as never);
+    vi.mocked(getRedBaselines).mockRejectedValue(new Error("db down"));
+
+    await GET(req({ auth: `Bearer ${SECRET}` }));
+    const sent = mockBuild.mock.calls[0]![0] as { standingConcerns?: unknown };
+    expect(sent.standingConcerns).toBeUndefined();
+  });
+
+  it("omits the block when EITHER read failed, even if the other returned rows", async () => {
+    // A HALF-READ LIST CANNOT SAY "none open". One heading covers both sources, so printing the rows
+    // one surviving column returned states a count over a population that was never fully read — and
+    // the reader has no way to see which half is missing.
+    //
+    // Two independent sweeps fixed this same defect and disagreed here: the earlier one on this branch
+    // printed the surviving rows (reasoning that the block is a top-5, so partial output overstates
+    // nothing). That is wrong about the HEADING, which is not a top-5 claim, and the stricter rule is
+    // the one kept.
+    mockListOrgs.mockResolvedValue(["orgHalf"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/H");
+    mockRollup.mockResolvedValue(rollupWith());
+    vi.mocked(getStandingRegressions).mockRejectedValue(new Error("db down"));
+    vi.mocked(getRedBaselines).mockResolvedValue([
+      { repoFullName: "orgHalf/kp", observation: "no baseline for `npm test` since 2026-08-30", evidence: [] },
+    ] as never);
+
+    await GET(req({ auth: `Bearer ${SECRET}` }));
+    // An unreadable half contributes no signal — it must not manufacture a push out of a flat week.
+    expect(mockHasSignal).toHaveBeenCalledWith(expect.objectContaining({ standingConcerns: 0 }));
+    const sent = mockBuild.mock.calls[0]![0] as { standingConcerns?: unknown };
+    expect(sent.standingConcerns).toBeUndefined();
+  });
+
+  // ---- The Controls block's three states, from the ONLY production caller ------------------
+  // UAT `DANA-L1-015`: `alerts.ts` documents `undefined` = say nothing, `[]` = "we looked and none
+  // failed", rows = these failed. The route sent `undefined` whenever the array was empty, so the
+  // middle state was unit-tested in `alerts.test.ts` and unreachable in production — a week in which
+  // every control held rendered byte-identical to a week the ledger was never populated.
+  describe("the Controls block keeps its three states", () => {
+    it("passes an EMPTY array through — a clean week says so, it does not go silent", async () => {
+      mockListOrgs.mockResolvedValue(["orgClean"]);
+      mockOrgWebhook.mockResolvedValue("https://hooks.example.com/C");
+      mockRollup.mockResolvedValue(rollupWith());
+
+      await GET(req({ auth: `Bearer ${SECRET}` }));
+      const sent = mockBuild.mock.calls[0]![0] as { controlsFailed?: unknown[] };
+      expect(sent.controlsFailed).toEqual([]);
+    });
+
+    it("says NOTHING when the ledger could not be read — an error is not an all-clear", async () => {
+      mockListOrgs.mockResolvedValue(["orgBlind"]);
+      mockOrgWebhook.mockResolvedValue("https://hooks.example.com/B");
+      mockRollup.mockResolvedValue(rollupWith());
+      vi.mocked(listObservationsSince).mockRejectedValue(new Error("ledger unreachable"));
+
+      await GET(req({ auth: `Bearer ${SECRET}` }));
+      const sent = mockBuild.mock.calls[0]![0] as { controlsFailed?: unknown; controlCoverage?: unknown };
+      expect(sent.controlsFailed).toBeUndefined();
+      // The movement gate must see 0 failures, not crash and not count a phantom one.
+      expect(mockHasSignal).toHaveBeenCalledWith(expect.objectContaining({ controlsFailed: 0 }));
+    });
+
+    it("carries the coverage the block is stated with, worst gap first", async () => {
+      mockListOrgs.mockResolvedValue(["orgCov"]);
+      mockOrgWebhook.mockResolvedValue("https://hooks.example.com/V");
+      mockRollup.mockResolvedValue(rollupWith());
+      vi.mocked(controlCoverage).mockResolvedValue([
+        { repoFullName: "orgCov/kp", controlId: "branch-protection", observations: 7, maxGapDays: 1.2, windowTruncated: false },
+        { repoFullName: "orgCov/kp", controlId: "signed-commits", observations: 5, maxGapDays: 4.5, windowTruncated: false },
+        // A single observation describes no gap. It must contribute none rather than a 0.
+        { repoFullName: "orgCov/case", controlId: "branch-protection", observations: 1, maxGapDays: null, windowTruncated: false },
+      ] as never);
+
+      await GET(req({ auth: `Bearer ${SECRET}` }));
+      const sent = mockBuild.mock.calls[0]![0] as { controlCoverage?: unknown };
+      expect(sent.controlCoverage).toEqual({ pairs: 3, observations: 13, maxGapDays: 4.5, truncated: false });
+    });
+
+    it("omits the coverage line when coverage could not be read, rather than printing zero", async () => {
+      mockListOrgs.mockResolvedValue(["orgNoCov"]);
+      mockOrgWebhook.mockResolvedValue("https://hooks.example.com/N");
+      mockRollup.mockResolvedValue(rollupWith());
+      vi.mocked(controlCoverage).mockRejectedValue(new Error("nope"));
+
+      await GET(req({ auth: `Bearer ${SECRET}` }));
+      const sent = mockBuild.mock.calls[0]![0] as { controlCoverage?: unknown; controlsFailed?: unknown };
+      expect(sent.controlCoverage).toBeUndefined();
+      // …and an unreadable COVERAGE read does not silence the block itself: the two are separate reads.
+      expect(sent.controlsFailed).toEqual([]);
+    });
+  });
+
+  it("puts an unavailable baseline ABOVE a standing regression — a guard that cannot run outranks a score that fell", async () => {
+    mockListOrgs.mockResolvedValue(["orgBoth"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/B");
+    mockRollup.mockResolvedValue(rollupWith());
+    vi.mocked(getRedBaselines).mockResolvedValue([
+      { repoFullName: "orgBoth/case", observation: "`npm test` did not pass in the loop's isolated worktree …", evidence: [], lanes: 1, command: "npm test", since: "2026-08-30T00:00:00.000Z" },
+    ] as never);
+    vi.mocked(getStandingRegressions).mockResolvedValue([
+      { repoFullName: "orgBoth/kp", observation: "D9 has held 21 points below …", evidence: [] },
+    ] as never);
+
+    await GET(req({ auth: `Bearer ${SECRET}` }));
+    const sent = mockBuild.mock.calls[0]![0] as { standingConcerns?: { repo: string }[] };
+    expect(sent.standingConcerns?.map((c) => c.repo)).toEqual(["orgBoth/case", "orgBoth/kp"]);
+  });
+
   // ---- (7) ALERTS #1: regressers are noise-filtered symmetrically with gainers ----
 
   it("excludes within-noise regressers from the movement-gate (a pure-jitter week stays silent)", async () => {
@@ -498,10 +789,10 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     expect(built.regressers.map((r) => r.name)).toEqual(["real"]);
   });
 
-  it("does not dispatch when the org has a sink but nothing to report (scannedCount === 0)", async () => {
+  it("does not dispatch when the org has a sink but nothing GRADED to report", async () => {
     mockListOrgs.mockResolvedValue(["orgA"]);
     mockOrgWebhook.mockResolvedValue("https://hooks.example.com/A");
-    mockRollup.mockResolvedValue({ repoCount: 2, scannedCount: 0 } as unknown as Awaited<
+    mockRollup.mockResolvedValue({ repoCount: 2, scannedCount: 0, avgOverall: null, avgAdoption: null, avgRigor: null } as unknown as Awaited<
       ReturnType<typeof getOrgRollup>
     >);
 
@@ -509,6 +800,20 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     const body = await bodyOf(res);
     expect(body).toMatchObject({ orgs: 1, sent: 0, skippedNoSink: 0 });
     expect(mockBuild).not.toHaveBeenCalled();
+    expect(mockDispatch).not.toHaveBeenCalled();
+  });
+
+  it("does not dispatch for a fleet that IS scanned but carries no grade (all mock)", async () => {
+    // The guard was `scannedCount === 0`, which this fleet passes — and the push then read
+    // "avg 0 · L1", a grade nobody measured. It reads the averages themselves now.
+    mockListOrgs.mockResolvedValue(["orgA"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/A");
+    mockRollup.mockResolvedValue({ repoCount: 4, scannedCount: 4, avgOverall: null, avgAdoption: null, avgRigor: null } as unknown as Awaited<
+      ReturnType<typeof getOrgRollup>
+    >);
+
+    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
+    expect(await bodyOf(res)).toMatchObject({ orgs: 1, sent: 0, skippedNoSink: 0 });
     expect(mockDispatch).not.toHaveBeenCalled();
   });
 
@@ -558,5 +863,59 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     const body = await bodyOf(await GET(req({ auth: `Bearer ${SECRET}` })));
     expect(body).toMatchObject({ skippedNoSink: 1, goalAlerts: 0, spendAlerts: 0 });
     expect(mockExtra).not.toHaveBeenCalled();
+  });
+});
+
+// MC-B1 — the digest is a PUSH channel: nobody clicks through to question the sentence it states.
+// It used to print `forecastHeadline` raw, so the same two-scan-day fit the briefing headlined bare
+// went out to Slack as "Climbing at +35/wk". It now sends the SAME composed line the briefing does.
+describe("weekly digest — the trajectory line consults the presentability gate", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.CRON_SECRET = SECRET;
+    mockIsDb.mockReturnValue(true);
+    mockMovers.mockResolvedValue(null);
+    mockRecs.mockResolvedValue(null);
+    mockBenchmark.mockResolvedValue(null);
+    mockCredit.mockResolvedValue(null);
+    mockDispatch.mockResolvedValue(true);
+    mockHasSignal.mockReturnValue(true);
+    mockClaim.mockResolvedValue({ claimed: true, id: "clm_1" });
+  });
+  afterEach(() => {
+    delete process.env.CRON_SECRET;
+  });
+
+  const daily = (n: number, step: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      date: new Date(Date.parse("2026-01-01") + i * 86_400_000).toISOString().slice(0, 10),
+      value: 60 + step * i,
+    }));
+
+  async function trajectorySentTo(points: { date: string; value: number }[]) {
+    mockListOrgs.mockResolvedValue(["orgA"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/A");
+    mockRollup.mockResolvedValue({
+      ...(rollupWith() as object),
+      forecast: forecastTrajectory(points),
+    } as unknown as Awaited<ReturnType<typeof getOrgRollup>>);
+    await GET(req({ auth: `Bearer ${SECRET}` }));
+    return (mockBuild.mock.calls[0]![0] as { trajectory?: string | null }).trajectory;
+  }
+
+  it("pushes the refusal, not the slope, when the fit is below the gate", async () => {
+    const traj = await trajectorySentTo(daily(2, 5));
+    expect(traj).toContain("Not enough history to project");
+    expect(traj).not.toContain("/wk");
+  });
+
+  it("pushes the headline WITH its confidence and basis when the fit is presentable", async () => {
+    const traj = await trajectorySentTo(daily(20, 0.3));
+    expect(traj).toContain("trend confidence");
+    expect(traj).toContain("fit over 20 scan days across 19 days");
+  });
+
+  it("says nothing at all when there is no fit — absence, not a fabricated basis", async () => {
+    expect(await trajectorySentTo([{ date: "2026-01-01", value: 60 }])).toBeNull();
   });
 });
