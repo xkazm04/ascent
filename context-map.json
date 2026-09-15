@@ -1659,7 +1659,8 @@
             "src/lib/pdf/briefing-document.test-helpers.ts",
             "src/lib/pdf/briefing-document.trajectory.test.tsx",
             "src/lib/org/briefing-format.ts",
-            "src/lib/org/briefing-markdown.ts"
+            "src/lib/org/briefing-markdown.ts",
+            "src/features/bought/barRowMarks.tsx"
           ],
           "target": null,
           "apiRoutes": [
@@ -3207,8 +3208,6 @@
             "src/components/org/viz/WhyChip.tsx",
             "src/components/org/viz/index.ts",
             "src/components/org/viz/lorenz.ts",
-            "src/components/org/viz/matrixAxis.test.ts",
-            "src/components/org/viz/matrixAxis.ts",
             "src/components/org/viz/states.dom.test.tsx",
             "src/components/org/viz/states.ts",
             "src/components/org/viz/vizNum.ts",
