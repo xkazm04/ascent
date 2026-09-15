@@ -11,8 +11,11 @@
 export function guidanceQuality(text: string): { points: number; label: string }[] {
   const t = text.toLowerCase();
   const out: { points: number; label: string }[] = [];
-  if (text.length >= 4000) out.push({ points: 8, label: "Detailed agent guidance (4k+ chars)" });
-  else if (text.length >= 1200) out.push({ points: 5, label: "Substantial agent guidance" });
+  // No rule pays for LENGTH (rubric r18). Two tiers used to: 1200+ chars earned 5 and 4000+ earned 8,
+  // so two characters of padding across 4000 bought 3 D1 points while every content rule below already
+  // pays for the substance a long file carries. Always-on guidance is re-sent with every agent request,
+  // so size is a cost the reader pays, not a quality the author earned. Evidence and the decision on
+  // the saturated rules: docs/SCORING-VALIDITY.md section 4c; the boundary is pinned by calibration.test.ts (T4).
   if (
     /(npm|pnpm|yarn|bun)\s+(run\s+)?(test|build|dev|lint)|\bmake\s|pytest|go test|cargo (test|build)|##\s*(commands|build|test|scripts|development|getting started)/.test(t)
   )

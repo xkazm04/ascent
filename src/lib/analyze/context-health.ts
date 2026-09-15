@@ -73,8 +73,10 @@ export function pickGuidanceFiles(tree: RepoFile[]): RepoFile[] {
     .slice(0, MAX_GUIDANCE_FILES);
 }
 
-/** guidanceQuality's maximum attainable points (the sum of every rule) — the 0..100 normalizer. */
-const GUIDANCE_QUALITY_MAX = 56;
+/** guidanceQuality's maximum attainable points (the sum of every rule) — the 0..100 normalizer.
+ *  48 since r18 dropped the two length tiers (was 56); scripts/guidance-signal-census.mjs pins that a
+ *  file firing every rule reaches exactly this number. */
+const GUIDANCE_QUALITY_MAX = 48;
 
 /**
  * APPROXIMATE commits landed since `sinceIso`, read off the scan's weekly commit-activity buckets
