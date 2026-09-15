@@ -17,6 +17,7 @@ vi.mock("@/lib/integrations/ingest-token", () => ({
   isIngestConfigured: vi.fn(() => true),
 }));
 vi.mock("@/lib/db", () => ({ recordUsage: vi.fn(async () => ({ ok: true, stored: 1 })) }));
+vi.mock("@/lib/db/integrations", () => ({ getIngestTokenEpoch: vi.fn(async () => 0) }));
 
 import { GET, POST } from "./route";
 import { parseIngestToken } from "@/lib/integrations/ingest-token";
