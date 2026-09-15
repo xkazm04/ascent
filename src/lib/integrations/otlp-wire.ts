@@ -22,8 +22,23 @@ export interface OtlpDataPoint {
 
 export interface OtlpMetric {
   name?: string;
-  sum?: { dataPoints?: OtlpDataPoint[] };
+  /** `aggregationTemporality`: 1 DELTA, 2 CUMULATIVE (OTLP/JSON may also spell the enum name). */
+  sum?: { dataPoints?: OtlpDataPoint[]; aggregationTemporality?: number | string };
   gauge?: { dataPoints?: OtlpDataPoint[] };
+}
+
+/**
+ * True when a counter's datapoints are RUNNING TOTALS rather than increments.
+ *
+ * Claude Code's exporter defaults to delta (`OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE`,
+ * default `delta`) and the connect snippet does not change it, so an absent or unspecified field reads
+ * as delta. Every consumer of one export must decode this the same way: adding a running total
+ * multiplies it by the export count, and keeping only the latest increment discards all but the last
+ * interval. `agent-sessions.temporality.test.ts` pins both paths against both settings.
+ */
+export function isCumulativeSum(metric: OtlpMetric): boolean {
+  const t = metric.sum?.aggregationTemporality;
+  return t === 2 || t === "2" || t === "AGGREGATION_TEMPORALITY_CUMULATIVE";
 }
 
 export interface OtlpResourceMetrics {

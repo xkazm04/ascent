@@ -1,4 +1,4 @@
-import { attrMap, dpValue, type OtlpDataPoint, type OtlpResourceMetrics } from "./otlp-wire";
+import { attrMap, dpValue, isCumulativeSum, type OtlpDataPoint, type OtlpResourceMetrics } from "./otlp-wire";
 // OTLP/JSON metrics → AiUsageRecord mapping for the Claude Code telemetry push path. Claude Code's
 // OpenTelemetry exporter POSTs an ExportMetricsServiceRequest to <endpoint>/v1/metrics; the
 // `git.repository` resource attribute (set via OTEL_RESOURCE_ATTRIBUTES in the connect snippet) carries
@@ -14,7 +14,7 @@ export interface OtlpMetricsBody {
 
 /** Why a datapoint could not be turned into a usage record. Reported back to the caller so an
  *  integration that receives forty datapoints and stores zero never LOOKS like one that is working. */
-export type SkipReason = "unknown-metric" | "no-repo-attr" | "unsupported-host";
+export type SkipReason = "unknown-metric" | "no-repo-attr" | "unsupported-host" | "cumulative-temporality";
 
 /** Resolve the `git.repository` resource attribute to a repo, or say why it can't be. Ascent's repo
  *  identity is `owner/name` for GitHub and a forge-prefixed `gitlab:group/project` elsewhere
@@ -89,7 +89,7 @@ const MAX_REPORTED_HOSTS = 5;
  */
 export function parseOtlpMetrics(body: OtlpMetricsBody, fallbackMs: number): OtlpParseResult {
   const buckets = new Map<string, Bucket>();
-  const skipped: Record<SkipReason, number> = { "unknown-metric": 0, "no-repo-attr": 0, "unsupported-host": 0 };
+  const skipped: Record<SkipReason, number> = { "unknown-metric": 0, "no-repo-attr": 0, "unsupported-host": 0, "cumulative-temporality": 0 };
   const hosts = new Set<string>();
   let received = 0;
 
@@ -119,10 +119,18 @@ export function parseOtlpMetrics(body: OtlpMetricsBody, fallbackMs: number): Otl
       for (const metric of sm.metrics ?? []) {
         const dps = metric.sum?.dataPoints ?? metric.gauge?.dataPoints ?? [];
         const known = KNOWN_METRICS.has(metric.name ?? "");
+        // The day bucket is stored with increments (`recordUsage` mode "add"). A running total has no
+        // honest increment without the series' previous point, which a stateless parse does not hold,
+        // so it is counted and reported rather than summed into a number that grows with export count.
+        const cumulative = isCumulativeSum(metric);
         for (const dp of dps) {
           received++;
           if (!known) {
             skipped["unknown-metric"]++;
+            continue;
+          }
+          if (cumulative) {
+            skipped["cumulative-temporality"]++;
             continue;
           }
           const day = dpDayMs(dp, fallbackMs);

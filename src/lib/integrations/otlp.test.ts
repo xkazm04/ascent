@@ -166,7 +166,7 @@ describe("parseOtlpMetrics — skip reporting", () => {
   it("reports zero skips for a clean export", () => {
     const r = parseOtlpMetrics({ resourceMetrics: [resource("vercel/next.js", [{ name: "claude_code.token.usage", count: 3 }])] }, FALLBACK);
     expect(r.received).toBe(3);
-    expect(r.skipped).toEqual({ "unknown-metric": 0, "no-repo-attr": 0, "unsupported-host": 0 });
+    expect(r.skipped).toEqual({ "unknown-metric": 0, "no-repo-attr": 0, "unsupported-host": 0, "cumulative-temporality": 0 });
     expect(r.unsupportedHosts).toEqual([]);
     expect(r.records).toHaveLength(1);
   });

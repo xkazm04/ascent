@@ -91,9 +91,11 @@ export async function POST(req: NextRequest) {
       ...(droppedTotal > 0
         ? {
             note:
-              parsed.skipped["unsupported-host"] > 0
-                ? `${droppedTotal} datapoint(s) were not stored. Ascent attributes usage to GitHub repositories; set OTEL_RESOURCE_ATTRIBUTES=git.repository to a GitHub remote for the repos you want measured.`
-                : `${droppedTotal} datapoint(s) were not stored. See the skipped counts.`,
+              parsed.skipped["cumulative-temporality"] > 0
+                ? `${droppedTotal} datapoint(s) were not stored. Daily usage is recorded from increments; set OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta (the exporter default) instead of cumulative.`
+                : parsed.skipped["unsupported-host"] > 0
+                  ? `${droppedTotal} datapoint(s) were not stored. Ascent attributes usage to GitHub repositories; set OTEL_RESOURCE_ATTRIBUTES=git.repository to a GitHub remote for the repos you want measured.`
+                  : `${droppedTotal} datapoint(s) were not stored. See the skipped counts.`,
           }
         : {}),
     },

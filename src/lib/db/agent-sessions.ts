@@ -25,14 +25,24 @@ import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
 import type { AgentSessionInput } from "@/lib/integrations/sessions";
 
+const COUNTERS = ["tokens", "costCents", "commits", "pullRequests", "linesAdded", "linesRemoved"] as const;
+
+function counterUpdate(s: AgentSessionInput) {
+  return Object.fromEntries(COUNTERS.map((k) => [k, s.cumulative ? s[k] : { increment: s[k] }]));
+}
+
 /**
  * Upsert a batch of attempts.
  *
- * Counters are SET, not incremented — the opposite of `recordUsage`'s day-bucket semantics, and the
- * difference matters. Claude Code's exporter emits CUMULATIVE per-session counters, so each export
- * carries the session's running totals; adding them would multiply a long session's cost by the
- * number of times it was exported. `startedAt` keeps the earliest timestamp ever seen and
- * `lastSeenAt` the latest, so a session spanning several exports reads as one attempt.
+ * How counters update follows the export's declared TEMPORALITY (`s.cumulative`, decoded from
+ * `sum.aggregationTemporality`). Claude Code's exporter defaults to DELTA: each export, every 60 s,
+ * carries only that interval's increments, so they are ADDED, exactly like `recordUsage`'s day
+ * buckets over the same body. An exporter set to cumulative carries running totals, which are SET,
+ * because adding them would multiply a long session by its export count. Until 2026-09-15 this
+ * always set, which under the default kept only a session's last minute (a two-export session of
+ * 1000 + 500 tokens stored 500; `agent-sessions.temporality.test.ts`). `startedAt` keeps the earliest
+ * timestamp ever seen and `lastSeenAt` the latest, so a session spanning several exports reads as one
+ * attempt.
  */
 export async function recordAgentSessions(orgSlug: string, sessions: AgentSessionInput[]): Promise<number> {
   if (!isDbConfigured() || sessions.length === 0) return 0;
@@ -60,15 +70,10 @@ export async function recordAgentSessions(orgSlug: string, sessions: AgentSessio
         linesRemoved: s.linesRemoved,
       },
       update: {
-        // Cumulative counters: take the LATEST reported value, and never move a timestamp backwards
-        // past what we already recorded.
+        // Cumulative: take the LATEST running total. Delta: add this interval. `startedAt` is never
+        // touched, so the earliest timestamp survives either way.
         lastSeenAt: s.lastSeenAt,
-        tokens: s.tokens,
-        costCents: s.costCents,
-        commits: s.commits,
-        pullRequests: s.pullRequests,
-        linesAdded: s.linesAdded,
-        linesRemoved: s.linesRemoved,
+        ...counterUpdate(s),
       },
     });
     written += 1;

@@ -1,4 +1,4 @@
-import { attrMap, dpValue, type OtlpDataPoint, type OtlpResourceMetrics } from "./otlp-wire";
+import { attrMap, dpValue, isCumulativeSum, type OtlpDataPoint, type OtlpResourceMetrics } from "./otlp-wire";
 // OTLP/JSON → per-session ATTEMPT rows (W3a). The session-scoped sibling of otlp.ts's day-bucket
 // mapping, folded out of the SAME export in one pass by the caller.
 //
@@ -34,6 +34,13 @@ export interface AgentSessionInput {
   pullRequests: number;
   linesAdded: number;
   linesRemoved: number;
+  /**
+   * The counters above are RUNNING TOTALS (cumulative temporality) rather than this export's increments
+   * (delta, the exporter default). Decides whether the upsert sets or increments. One exporter applies
+   * one temporality preference to every counter, so a session is never legitimately mixed; if it were,
+   * any delta datapoint makes it delta, because setting a delta discards every earlier interval.
+   */
+  cumulative: boolean;
 }
 
 /**
@@ -57,9 +64,10 @@ function dpMs(dp: OtlpDataPoint, fallbackMs: number): number {
   return Number.isFinite(nano) && nano > 0 ? Math.floor(nano / 1e6) : fallbackMs;
 }
 
-interface Acc extends Omit<AgentSessionInput, "startedAt" | "lastSeenAt"> {
+interface Acc extends Omit<AgentSessionInput, "startedAt" | "lastSeenAt" | "cumulative"> {
   firstMs: number;
   lastMs: number;
+  sawDelta: boolean;
 }
 
 /**
@@ -88,6 +96,7 @@ export function parseOtlpSessions(body: SessionsBody, fallbackMs: number): Agent
     for (const sm of rm.scopeMetrics ?? []) {
       for (const metric of sm.metrics ?? []) {
         if (!SESSION_METRICS.has(metric.name ?? "")) continue;
+        const delta = !isCumulativeSum(metric);
         for (const dp of metric.sum?.dataPoints ?? metric.gauge?.dataPoints ?? []) {
           const ms = dpMs(dp, fallbackMs);
           const e =
@@ -105,7 +114,9 @@ export function parseOtlpSessions(body: SessionsBody, fallbackMs: number): Agent
               linesRemoved: 0,
               firstMs: ms,
               lastMs: ms,
+              sawDelta: false,
             } satisfies Acc);
+          if (delta) e.sawDelta = true;
           e.firstMs = Math.min(e.firstMs, ms);
           e.lastMs = Math.max(e.lastMs, ms);
           const v = dpValue(dp);
@@ -151,5 +162,6 @@ export function parseOtlpSessions(body: SessionsBody, fallbackMs: number): Agent
     pullRequests: Math.round(e.pullRequests),
     linesAdded: Math.round(e.linesAdded),
     linesRemoved: Math.round(e.linesRemoved),
+    cumulative: !e.sawDelta,
   }));
 }
