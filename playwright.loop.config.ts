@@ -55,6 +55,11 @@ function dataDir(): string {
 
 export default defineConfig({
   testDir: "./e2e/loop",
+  // live-*.spec.ts share this directory but belong to playwright.loop-live.config.ts: they need ITS
+  // server (port 3220, org l2loop, ASCENT_AUTOPILOT=0). Collected here they ran against this server
+  // and failed in CI with ECONNREFUSED :3220 and "autopilot should be OFF" — a wrong-config run, not
+  // a product regression.
+  testIgnore: [/live-.*\.spec\.ts/],
   // A run installs the `.ai/` foundation into a git worktree and rescans it; on a cold `next dev`
   // the first paint of /org/[slug] compiles the whole org shell first. Both are minutes, not seconds.
   timeout: 420_000,
