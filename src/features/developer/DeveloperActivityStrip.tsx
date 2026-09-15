@@ -11,7 +11,7 @@
 import { Kicker } from "@/components/ui";
 import { Tile, TILE_GRID } from "@/components/org/shared/ui";
 import { StateSwatch } from "@/components/org/viz";
-import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
+import { CHAMPION_MIN_POP } from "@/lib/org/champions";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { timeAgo } from "@/lib/ui";
 import { CareShareBar } from "./CareShareBar";
