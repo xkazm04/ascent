@@ -48,7 +48,7 @@ describe("the score step names the provider being queried — every provider", (
     return text;
   };
 
-  const ALL: ProviderName[] = ["gemini", "bedrock", "openai", "openrouter", "local", "mock", "claude-cli", "codex-cli"];
+  const ALL: ProviderName[] = ["gemini", "bedrock", "openai", "openrouter", "local", "mock", "claude-cli", "codex-cli", "gateway"];
 
   it.each(ALL)("names %s rather than falling through to the generic label", (provider) => {
     expect(scoreStepText(provider)).not.toContain("Scoring against the rubric");

@@ -111,6 +111,11 @@ const TRACKLIGHT_PROVIDER: Record<ProviderName, string> = {
   // direct OpenAI call so a codex-scored scan lands on OpenAI's price-book rows when the model id
   // matches one (the "codex-default" sentinel simply stays unpriced).
   "codex-cli": "openai",
+  // Never reached for an assess() call: scan-assess.ts suppresses the mirror when the gateway
+  // served it, because the gateway records every attempt (under the seat that actually answered)
+  // itself and a second row per call would be a double count. Present for the Record's
+  // exhaustiveness and for any future non-assess seam that tracks through here.
+  gateway: "lt-gateway",
   openai: "openai",
   // OpenRouter is a PROXY, not a vendor — the real provider is resolved per-model below, and this is
   // only the fallback for a slug whose vendor tracklight doesn't price.

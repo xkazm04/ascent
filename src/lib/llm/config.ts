@@ -185,6 +185,7 @@ export function techStackPromptEnabled(): boolean {
 export const PROVIDER_LABEL: Record<ProviderName, string> & Record<string, string> = {
   "claude-cli": "Claude CLI",
   "codex-cli": "Codex CLI",
+  gateway: "LightTrack gateway",
   claude: "Claude",
   gemini: "Gemini",
   bedrock: "AWS Bedrock",

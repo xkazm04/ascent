@@ -53,6 +53,8 @@ const SCORE_STEP_LABEL: Record<Exclude<ProviderName, "bedrock">, string> = {
   mock: "Running deterministic rubric",
   "claude-cli": "Asking Claude",
   "codex-cli": "Asking Codex",
+  // Which seat answers is the gateway's call per request, so the copy names the route, not a model.
+  gateway: "Asking the model via the LightTrack gateway",
   nebius: "Asking the model on Nebius",
 };
 
