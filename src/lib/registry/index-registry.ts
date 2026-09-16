@@ -19,7 +19,7 @@ import { purgeSkillLessons, replaceSkillLessons } from "@/lib/db/org-skill-lesso
 import { upsertRegistryMemory, upsertRegistryPractice, upsertRegistrySkill } from "@/lib/db/org-registry-mirror";
 import { buildCatalog, shortDigest, type RegistryCatalog } from "./catalog";
 import { REGISTRY_CATALOG_PATH, REGISTRY_LESSONS_FILE, REGISTRY_SKILL_FILE, REGISTRY_SPINE_PATH } from "./layout";
-import { cappedReader, countLessons, selectArtifacts, type RegistrySource } from "./index-walk";
+import { cappedReader, countLessons, MAX_BUNDLE_INDEX_BYTES, selectArtifacts, type RegistrySource } from "./index-walk";
 import { contentDigest, parseRegistryMemory, parseRegistryPractice, parseRegistrySkill } from "./parse";
 import { modeToYaml, parseRegistryYaml, type RegistryDeclaration } from "./policy";
 import { aggregateUsage, type RegistryUsage } from "./usage-samples";
@@ -329,7 +329,8 @@ export async function indexRegistry(registry: OrgRegistryRow, source: RegistrySo
   // ONE read feeds two readers: `readBundles` takes the `meta` counts, `readBundleSubjects` takes
   // the subject map. Fetching the same file twice for two shapes of the same document would be a
   // second request per bundle for no new information.
-  const bundleFiles = await Promise.all(picked.bundles.map(async (e) => ({ path: e.path, text: await read(e) })));
+  const readIndex = cappedReader(source, warnings, MAX_BUNDLE_INDEX_BYTES);
+  const bundleFiles = await Promise.all(picked.bundles.map(async (e) => ({ path: e.path, text: await readIndex(e) })));
   // ── knowledge/<domain>/taxonomy.json — the category tree WITH titles, mirrored beside the counts.
   // A bundle that has an index but no taxonomy is reported, not failed: the tab falls back to
   // id-derived titles, which is the same tree with worse labels.

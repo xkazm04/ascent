@@ -46,7 +46,7 @@ their source of truth from it once it is mapped.
 - **Unmapped — the onboarding stepper.** Six resumable steps, each reading its own evidence rather than
   a stored cursor: *choose* (create · map an existing repo · stay hosted), *permissions*
   (`contents:write`), *scaffold* (one PR adds the v1 layout), *migrate* (one PR per artifact type),
-  *point the fleet* (`.ai/manifest.yaml → skills.registry`), *verify* (first `catalog.json`, first sync,
+  *point the fleet* (`.ai/manifest.yaml → registry.remote`), *verify* (first `catalog.json`, first sync,
   first invoke). The **artifact ledger is not rendered here**: its three Stat cards read
   "n in the registry / +m hosted only", which against an unmapped org is three zeroes and a migrate
   action whose only answer is "map a registry first".
@@ -140,12 +140,27 @@ user account). Every probe fails closed.
 | `GET /api/org/:slug/registry` | read | `{ view: RegistryView }` (`?demo=` selects a fixture) |
 | `POST /api/org/:slug/registry` | admin | map `fullName`, or `create: true` to create `<org>/ai-registry`; then open the scaffold PR |
 | `POST .../registry/index` | member | re-read HEAD and rebuild the mirror rows |
+| `POST .../registry/local` | admin · **self-hosted only** (404 otherwise) | map the registry checkout on this machine and index it — see below |
 | `POST .../registry/migrate?type=skills,practices,memory` | admin | export the still-hosted rows of one type as one draft PR; a type with zero rows is a **no-op**, never an empty PR |
 | `POST .../registry/conformance` (`{ repositoryIds?, repositoryId? }`) | admin | sweep the fleet, a list, or one repo — see the conformance ledger |
 | `GET` / `POST .../registry/dispatch` | member / admin (brief) · owner + self-host + autopilot (local) | the hand-off ledger and the two dispatch modes — see below |
 
 Every failure is `{ error, code }` with a real status — `persistence-off` (503), `invalid-input` (400),
 `not-permitted` (403), `not-mapped` (409), `github-error` (502) — never a bare 500.
+
+### Mapping a local checkout (self-hosted, 2026-09-16)
+
+A self-hosted install usually has no GitHub App, so the map and index routes above have no token to
+read with. `POST .../registry/local` maps the checkout named by `registry.local` in the app's own
+`.ai/manifest.yaml` (or `ASCENT_REGISTRY_LOCAL`), upserting it as the canonical `git_native` row
+under the `registry.remote: github:owner/repo` name, then runs the same `indexRegistry` pass over
+`localSource(dir)` (`src/lib/registry/local-source.ts`): the COMMITTED tree of the checkout's current
+branch via `git ls-tree` / `git cat-file`, never the working tree. The path is server configuration
+only; the request carries none. The terminal `registry-onboarding` skill calls it as its step 7.
+
+**Known gap.** The local source carries no token, so the pass does not chain the fleet conformance
+sweep; Knowledge-tab conformance stays as last swept. The Surfaces tab is unaffected either way: it is
+a static mirror of the ui-surfaces taxonomy (`src/lib/org/surface-catalog.ts`).
 
 ## The indexer
 

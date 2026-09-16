@@ -130,6 +130,28 @@ for this repo; report it for others). Stale verdicts inside the map are `/confor
 onboarding. `no context-map.json - nothing to join against` means the project has never been
 populated: that is `/project-populate` in that project, not a registry fault.
 
+### 7 · map into the local ascent app (self-hosted)
+
+The tab reads a registry only once ascent has indexed it into its own tables. A self-hosted install
+usually has no GitHub App, so the hosted map + index routes cannot run; the local route reads the
+checkout named by this repo's `registry.local` (or `ASCENT_REGISTRY_LOCAL`) at its current branch's
+**committed** HEAD — uncommitted registry edits are not indexed.
+
+```sh
+# find the port ascent is on (<title> starts with "Ascent"); the org slug is ASCENT_LOCAL_ORG
+curl -s -X POST http://localhost:<port>/api/org/<slug>/registry/local
+```
+
+200 returns `fullName`, `branch`, `headSha`, `counts`, `warnings`. **connect**: run it after any
+registry commit you want the app to see (it is the local "Re-index"). Then confirm the surfaces:
+`/org/<slug>?tab=registry` shows "Your way of working, in a repo you own"; `?tab=skills`, `?tab=memory`
+and `?tab=knowledge` render registry rows instead of their "not mapped" notices. `?tab=surfaces` is a
+static mirror of the ui-surfaces taxonomy (`src/lib/org/surface-catalog.ts`) and does not read the index.
+
+Expected, non-blocking warnings: a skill `description` over 1000 characters, and `signals/*.json`
+bundles without a `subjects` object. Not done by this route: the fleet conformance sweep (it needs an
+installation token), so conformance on the Knowledge tab stays as last swept.
+
 ## Validation record
 
 - **2026-09-16, machine Wolf** (first run, `connect`): 13/13 declared checkouts connected; 21
@@ -137,6 +159,10 @@ populated: that is `/project-populate` in that project, not a registry fault.
   repos pointing at the registry were auto-declared and then REVERTED on the owner's word — they do
   not belong in the fleet. That is why `--write` now takes explicit slugs and `undeclared` is a
   question, never a repair.
+- **2026-09-16, step 7**: org `kiro` on :3002 mapped `xkazm04/ai-registry` from `../ai-registry` at
+  `main@a90f9bc` — 33 skills, 8 practices, 6 memory, 219 lessons, 9 bundles, 11 warnings, 14s.
+  The first attempt would have dropped the 1.3MB software-engineering bundle index under the 256KB
+  per-file cap; bundle indexes now read under their own 8MB cap.
 
 ## Output
 

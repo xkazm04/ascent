@@ -150,17 +150,26 @@ export function selectArtifacts(tree: RegistryTree, warnings: string[]): Selecte
 }
 
 /**
+ * Cap for a GENERATED bundle index (`knowledge/<domain>/index.json`). One file per bundle carries every
+ * subject and technique trigger, so it outgrows the hand-written-artifact cap with the corpus: a
+ * 229-subject bundle measured 1.3MB (2026-09-16) and was silently skipped under 256KB, which left the
+ * Knowledge tab without its largest bundle.
+ */
+export const MAX_BUNDLE_INDEX_BYTES = 8 * 1024 * 1024;
+
+/**
  * A blob reader that enforces the size cap and turns any read failure into a warning + `null`, so
  * one unreadable file can never abort the pass.
  */
 export function cappedReader(
   source: RegistrySource,
   warnings: string[],
+  maxBytes: number = MAX_FILE_BYTES,
 ): (entry: RegistryTreeEntry) => Promise<string | null> {
   return async (entry) => {
-    if (entry.size > MAX_FILE_BYTES) {
+    if (entry.size > maxBytes) {
       warnings.push(
-        `${entry.path}: ${Math.round(entry.size / 1024)}KB exceeds the ${MAX_FILE_BYTES / 1024}KB cap — skipped`,
+        `${entry.path}: ${Math.round(entry.size / 1024)}KB exceeds the ${maxBytes / 1024}KB cap — skipped`,
       );
       return null;
     }
