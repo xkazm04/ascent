@@ -97,7 +97,7 @@ export function registryVerdict(v: RegistryView): string {
 /**
  * The six onboarding steps, resolved against the view. Resumable by construction: each step reads its
  * own evidence, so a reload lands on the same place and a step that is already satisfied reads `done`
- * whatever order it happened in.
+ * whatever order it happened in. Terminal counterpart: `.claude/skills/registry-onboarding` (same ids).
  */
 export function registrySteps(v: RegistryView): RegistryStep[] {
   const mapped = v.status !== "unmapped";
