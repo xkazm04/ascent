@@ -263,6 +263,15 @@ export const CLAIM_MAX = 16;
 /** The literal path a behavioral claim must carry: it cites the commit sample, not a file. */
 export const COMMITS_PATH = "commits";
 
+/** The bullet the prompt renders before each sampled commit subject (prompt.ts commitBlock). Defined
+ *  here so the verifier and the renderer share one spelling: a model told to quote "a commit subject
+ *  from the sample" copies the line it was shown, bullet included. */
+export const COMMIT_LINE_PREFIX = "- ";
+
+/** The prompt shows excerpts with triple-backtick runs defused to two (untrusted.ts `neutralize`, pinned
+ *  to this by claims.test.ts). A quote copied across a fence carries the defused form. */
+const defuseFences = (s: string): string => s.replace(/`{3,}/g, "``");
+
 // ---- the prompt contract (derived) -------------------------------------------------------------
 
 const DIMENSION_LABEL: Partial<Record<DimensionId, string>> = {
@@ -490,7 +499,12 @@ export function verifyClaims(
       if (spec.kind === "behavioral") {
         // A trail is cited from history, never from a file: a file can only say something ran.
         if (norm(rawPath) !== COMMITS_PATH) return "path-not-sampled";
-        return commitText.includes(quote) ? null : "quote-not-found";
+        // The quote is compared with the line as the model was shown it, so the renderer's own bullet
+        // is transport. It is stripped from the quote, never added to the history, and the stripped
+        // quote still has to clear the length floor on its own.
+        const subject = quote.startsWith(COMMIT_LINE_PREFIX) ? quote.slice(COMMIT_LINE_PREFIX.length).trim() : quote;
+        if (subject.length < CLAIM_QUOTE_MIN) return "quote-too-short";
+        return commitText.includes(subject) ? null : "quote-not-found";
       }
       const path = rawPath.trim();
       const content = byPath.get(path.toLowerCase());
@@ -499,7 +513,8 @@ export function verifyClaims(
       // more useful sentence for a reader than "that file is prose", and it is the tighter bound.
       if (allowed && !allowed.has(path.toLowerCase())) return "not-guidance-file";
       if (isProsePath(path, spec.kind)) return "prose-evidence";
-      return norm(content).includes(quote) ? null : "quote-not-found";
+      // Raw first; then the excerpt as the prompt rendered it, where a fence run reads as two backticks.
+      return norm(content).includes(quote) || norm(defuseFences(content)).includes(quote) ? null : "quote-not-found";
     };
 
     const first = checkCitation(claim.path, claim.quote);

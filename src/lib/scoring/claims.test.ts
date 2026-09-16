@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
+import { neutralize } from "@/lib/llm/untrusted";
 import {
   CLAIM_QUOTE_MIN,
+  COMMIT_LINE_PREFIX,
   COMMITS_PATH,
   D4_FACETS,
   D4_FACET_IDS,
@@ -140,6 +142,36 @@ describe("verifyClaims — existence, not interpretation", () => {
       "D4",
     );
     expect(fromFile.rejected[0]!.reason).toBe("path-not-sampled");
+  });
+
+  it("verifies a commit subject copied as the prompt rendered it, bullet included", () => {
+    // The prompt shows each subject as `- <subject>`; a model told to quote "a commit subject from the
+    // sample" copies that line. Measured 2026-09-16: 0 of 140 bullet-copied subjects across the ten
+    // bench snapshots verified before this rule, 140 of 140 after, with 0 of 267 fabricated near-copies
+    // admitted either way.
+    const withTrail = snap([], ["[ci] format", "fix: address review-bot findings on the auth handler"]);
+    const copied = `${COMMIT_LINE_PREFIX}fix: address review-bot findings`;
+    expect(verifyClaims([claim({ facet: "observed", path: COMMITS_PATH, quote: copied })], withTrail, "D4").verified).toHaveLength(1);
+    // The bullet is stripped from the quote, never granted as content: what is left clears the floor alone.
+    const bulletOnly = verifyClaims([claim({ facet: "observed", path: COMMITS_PATH, quote: `${COMMIT_LINE_PREFIX}[ci] format` })], withTrail, "D4");
+    expect(`${COMMIT_LINE_PREFIX}[ci] format`.length).toBeGreaterThanOrEqual(CLAIM_QUOTE_MIN);
+    expect(bulletOnly.rejected[0]!.reason).toBe("quote-too-short");
+    // A quote that joins two subjects is still two records, not one citation.
+    const joined = verifyClaims([claim({ facet: "observed", path: COMMITS_PATH, quote: "[ci] format fix: address review-bot" })], withTrail, "D4");
+    expect(joined.rejected[0]!.reason).toBe("quote-not-found");
+  });
+
+  it("verifies a quote copied across a fence the prompt defused, and pins that defusal to neutralize", () => {
+    const content = "# Review rubric\n\n```\nFlag any change that widens a public API\n```\n";
+    const withRubric = snap([{ path: "prompts/review-rubric.md", content }]);
+    const shown = neutralize(content);
+    const quote = shown.slice(shown.indexOf("``"), shown.indexOf("widens") + 6);
+    expect(quote.startsWith("``\n")).toBe(true);
+    const ok = verifyClaims([claim({ facet: "custom_judgment", path: "prompts/review-rubric.md", quote })], withRubric, "D4");
+    expect(ok.verified).toHaveLength(1);
+    // Four backticks where the file has three is still a quote of nothing.
+    const bad = verifyClaims([claim({ facet: "custom_judgment", path: "prompts/review-rubric.md", quote: "````\nFlag any change that widens" })], withRubric, "D4");
+    expect(bad.rejected[0]!.reason).toBe("quote-not-found");
   });
 
   it("awards a facet once — the second claim for it is a duplicate, whichever came first", () => {
