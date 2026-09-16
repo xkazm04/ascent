@@ -286,6 +286,7 @@ export {
   archiveOrgMemories,
   applyReflection,
   ReflectionMembersNotFoundError,
+  ReflectionScopeMismatchError,
   type LifecycleFetchOpts,
   type ApplyReflectionInput,
 } from "@/lib/db/org-memory-lifecycle";
