@@ -115,8 +115,13 @@ export function rolloutMatrixRows(
   return rows.slice(0, limit).map((r) => ({
     id: r.key,
     label: truncateLabel(r.label),
-    cells: r.source === "mined" && r.mined ? minedCells(r, fleetSize) : authoredCells(r, fleetSize),
+    cells: rolloutCellsFor(r, fleetSize),
   }));
+}
+
+/** One practice's four stage cells, in `ROLLOUT_AXES` order — the unit the library rows paint. */
+export function rolloutCellsFor(row: PracticeRow, fleetSize: number): MatrixCell[] {
+  return row.source === "mined" && row.mined ? minedCells(row, fleetSize) : authoredCells(row, fleetSize);
 }
 
 /** Only the states these rows actually contain, in kit order — the `Legend` contract. */

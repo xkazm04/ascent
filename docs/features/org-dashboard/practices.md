@@ -139,8 +139,9 @@ error isolation so one failure doesn't sink the batch. Driven by
 `src/app/org/[slug]/practices/page.tsx` is a permanent redirect into the tab shell; the real
 mount is `PracticesTab` (`OrgTabChunks.tsx`). The tab renders the registry strip, the house
 pattern, four tiles (Practices, Fleet adoption with its `strong/measured` basis, Could adopt, PRs
-in flight), the drift strip and a dense **ledger table** (`PracticesView` → `PracticeLedger`),
-one row per practice. Opening a row shows a layer-2 modal (`PracticeDetailModal` →
+in flight), the drift strip and the **practice library** (`PracticesView` →
+`PracticeRolloutStrip`), one row per practice grouped by dimension (see *The practice library* below).
+Opening a row shows a layer-2 modal (`PracticeDetailModal` →
 `MinedPracticeDetail`) with the embedded `PracticeApply`: pick a target gap repo, **Preview**
 (→ `/generate`, the artifact body in a collapsible block), **Open draft PR** (→ `/apply`, a link
 to the PR, labelled "Existing draft PR" when reused), or **Roll out to the fleet**
@@ -193,6 +194,38 @@ score; and a `missing` cell draws nothing at all, so "never applied" can never r
 The four column captions the strip used to carry are `WhyChip`s beside the matrix, and the two
 unmeasured lifts show the `not-judged` swatch in place of their value instead of an em dash.
 
+### The practice library: the matrix absorbed the ledger (2026-09-16)
+
+The tab used to read the same rows twice. The rollout matrix showed the first 8 practices as
+stage states. Under it, the `PracticeLedger` table showed every practice with its category,
+source, an adoption meter and PR counts. The two are now **one surface**, `PracticeRolloutStrip`,
+with the matrix as the baseline and the ledger's facts added to it:
+
+- **Every practice, grouped by dimension.** There is no cap of eight. Groups run D1 → D9
+  (`practiceRolloutGroups.ts`, pure, tested). Inside a group, rows keep `buildPracticeRows`' order:
+  the org's authored standards first, then the widest reuse opportunity.
+- **Group headings.** Each heading states its size and the **mean measured adoption** across its
+  assessed practices (`5 practices · 50% adopted across 4 assessed`). A declared authored
+  application is left out of that mean, because a recorded application and an observed share are
+  different numbers. A group with nothing assessed prints only its size.
+- **Each row** (`PracticeRolloutRow.tsx`) shows:
+  - The practice name, which is the button that opens the detail modal (the whole row is also
+    clickable), with an **Authored / Mined** pill and the one-line description.
+  - The four stage cells, painted by MatrixGrid's ledger kit (`MatrixMark`, `cellInk`), each its
+    own named `role="img"` (`"<practice> — Adopted: Measured 50"`). A hatched or void stage still
+    cannot print a number.
+  - A counts column (`PracticeRolloutReadout.tsx`). It holds the adoption count with its state
+    swatch ("not assessed" for a never-scored practice), the reach line (*N could adopt*), and PRs
+    in flight / landed / measured lift. PR counts live here as figures, never on the maturity ramp
+    in a cell.
+- **A source filter** (All · Authored · Mined) appears when the library holds both kinds.
+- **Deep links.** Mined rows keep the `#practice-<id>` anchor, so the deep links from the
+  briefing, initiatives and overview still scroll to the row and open its apply flow
+  (`usePracticeHash`).
+
+`PracticeLedger.tsx` was deleted. `PracticeRolloutStrip` became a client component (the filter
+state), and the rows no longer truncate their names.
+
 ### Never assessed is not "not adopted" (bug fixed 2026-09-08)
 
 `getOrgPractices` builds each practice's `total` from repos whose **latest scan carries
@@ -202,7 +235,7 @@ adoption meter as one measured on 41 of 41, and a practice with `total === 0` ar
 ledger's adoption column as the same grey em dash a genuine zero would.
 
 Both are fixed. The matrix's **Assessed** column draws fleet coverage as its own reading, and
-`PracticeLedger`'s adoption cell now carries the state on the mark: `not-judged` + "not assessed"
+the library row's counts column (the ledger's adoption cell until the 2026-09-16 merge) carries the state on the mark: `not-judged` + "not assessed"
 where no repo has been scored, `declared` beside an authored playbook's count (a recorded
 application, not an observation of the repo), `measured` beside a scan-derived share.
 
@@ -269,7 +302,7 @@ straight at the CI-gates practice and its exemplars.
 | `src/lib/org/playbook-apply.ts` | The shared single-repo playbook write sequence (PR + adoption mark + audit). |
 | `src/features/shared/practices/PlaybookApplyBatch.tsx` | Playbook fleet-rollout UI (select, confirm, per-repo results). |
 | `src/features/shared/practices/promotePractice.ts` | Mined practice → playbook draft mapping (pure, bounded). |
-| `src/features/shared/practices/PracticeRolloutStrip.tsx` | The rollout panel: `MatrixGrid` first, totals below, zero state instead of zeros. |
+| `src/features/shared/practices/PracticeRolloutStrip.tsx` | The practice library: every practice grouped by dimension, stage cells beside the counts, source filter, totals below, zero state instead of zeros. Rows: `PracticeRolloutMatrix` · `PracticeRolloutRow` · `PracticeRolloutReadout`; grouping in `practiceRolloutGroups.ts`. |
 | `src/features/shared/practices/foundation/` | Moved from Repositories 2026-09-15: `FoundationRolloutPanel` (+ grid, row view, secrets dialog, `foundationViz.ts`) and `GuidanceCoherenceCard` (+ `coherenceSpread.ts`, `guidanceCoherenceModel.ts`). |
 | `src/features/shared/practices/practiceRolloutViz.ts` | Pure view model: practice × (assessed, adopted, landed, verified) → kit states. Tested. |
 | `src/features/shared/practices/PracticeRolloutTotals.tsx` | The four fleet figures; an unmeasured lift renders the `not-judged` mark, not an em dash. |

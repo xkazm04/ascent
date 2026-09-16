@@ -1,6 +1,8 @@
 "use client";
 
-// The redesigned Practices page. Layer 1 is a dense ledger table (one row per practice); layer 2 is the
+// The redesigned Practices page. Layer 1 is the rollout library (PracticeRolloutStrip: one row per
+// practice, grouped by dimension, stages drawn beside the counts — the ledger table merged into it
+// 2026-09-16); layer 2 is the
 // shared PracticeDetailModal (opened from any row) and NewPracticeModal (opened by "+ New practice").
 // The server page fetches; this client wrapper owns the authored-playbook list (so a newly-created
 // practice appears without a reload), the selected detail row, and the create-modal flag.
@@ -9,7 +11,6 @@ import { useMemo, useState } from "react";
 import { SectionHeader, SectionEmpty } from "@/components/org/shared/ui";
 import { buildPracticeRows, summarizeRollout, type PracticeRow } from "./practiceRows";
 import { PracticeRolloutStrip } from "./PracticeRolloutStrip";
-import { PracticeLedger } from "./PracticeLedger";
 import { PracticeDetailModal } from "./PracticeDetailModal";
 import { NewPracticeModal } from "./NewPracticeModal";
 import { usePracticeHash } from "./usePracticeHash";
@@ -97,18 +98,16 @@ export function PracticesView({
         }
       />
 
-      {/* G7-20: what the library has actually put in motion, and what it moved — folded from the
-          rows below, so it costs no extra query and can never disagree with them. */}
-      <PracticeRolloutStrip rollout={rollout} rows={rows} fleetSize={repoOptions.length} />
-      {rolloutSlot}
-
+      {/* G7-20 + the merged ledger: every practice, what it has put in motion and what it moved —
+          folded from the rows, so it costs no extra query. A row opens the detail modal. */}
       {rows.length === 0 ? (
         <SectionEmpty>
           No practices yet. Author one with “+ New practice”, or scan this org&apos;s repos to mine some.
         </SectionEmpty>
       ) : (
-        <PracticeLedger rows={rows} onOpen={setOpenRow} />
+        <PracticeRolloutStrip rollout={rollout} rows={rows} fleetSize={repoOptions.length} onOpen={setOpenRow} />
       )}
+      {rolloutSlot}
 
       <PracticeDetailModal
         row={openRow}

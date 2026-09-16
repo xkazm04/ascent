@@ -1172,7 +1172,6 @@
             "src/features/shared/practices/PracticeApplyBatch.tsx",
             "src/features/shared/practices/PracticeApplyBatchResults.tsx",
             "src/features/shared/practices/PracticeDetailModal.tsx",
-            "src/features/shared/practices/PracticeLedger.tsx",
             "src/features/shared/practices/practiceRows.ts",
             "src/features/shared/practices/PracticesView.tsx",
             "src/features/shared/practices/usePracticeHash.ts",
@@ -1277,7 +1276,12 @@
             "src/features/shared/practices/foundation/GuidanceCoherenceCard.tsx",
             "src/features/shared/practices/foundation/coherenceSpread.ts",
             "src/features/shared/practices/foundation/guidanceCoherenceModel.ts",
-            "src/features/shared/practices/foundation/guidanceCoherenceModel.test.ts"
+            "src/features/shared/practices/foundation/guidanceCoherenceModel.test.ts",
+            "src/features/shared/practices/PracticeRolloutMatrix.tsx",
+            "src/features/shared/practices/PracticeRolloutRow.tsx",
+            "src/features/shared/practices/PracticeRolloutReadout.tsx",
+            "src/features/shared/practices/practiceRolloutGroups.ts",
+            "src/features/shared/practices/PracticeRolloutStrip.ledger.dom.test.tsx"
           ],
           "target": null,
           "apiRoutes": [
