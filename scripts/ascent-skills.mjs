@@ -331,7 +331,7 @@ async function cmdHooks(args) {
   }
   if (sub === "status") {
     const installed = Array.isArray(settings?.hooks?.PreToolUse) && settings.hooks.PreToolUse.some(isOurHook);
-    const pending = (await pendingEvents()).length;
+    const pending = (await pendingEvents()).events.length;
     console.log(`hook:    ${installed ? "installed" : "absent"}${existsSync(HOOK_FILE) ? "" : " (script missing)"}`);
     console.log(`spool:   ${existsSync(EVENTS_FILE) ? EVENTS_FILE : "none"}`);
     console.log(`pending: ${pending} event(s) since the last report`);
@@ -374,13 +374,36 @@ export function dedupeEvents(events) {
   return out;
 }
 
+/**
+ * Read the spool from `base` bytes on, keeping for every event the absolute byte offset just past its
+ * line. `through` is the end of the last COMPLETE line: a tail with no newline is a line the hook is
+ * still writing, so it is neither parsed nor covered.
+ *
+ * The offsets exist so the watermark can certify what was sent rather than what the file held when the
+ * report finished. Draining to the file's size marked three kinds of event reported that never were:
+ * the ones past the per-call cap, the ones the hook appended while the report ran, and a line that was
+ * torn when read and completed afterwards.
+ */
+export function readSpool(buf, base = 0) {
+  const events = [];
+  let start = 0;
+  let through = base;
+  for (let nl = buf.indexOf(10, start); nl !== -1; nl = buf.indexOf(10, start)) {
+    const end = base + nl + 1;
+    for (const e of parseSpool(buf.subarray(start, nl).toString("utf8"))) events.push({ ...e, end });
+    through = end;
+    start = nl + 1;
+  }
+  return { events, through };
+}
+
 async function pendingEvents() {
-  if (!existsSync(EVENTS_FILE)) return [];
+  if (!existsSync(EVENTS_FILE)) return { events: [], through: 0 };
   const offset = Number(await readFile(OFFSET_FILE, "utf8").catch(() => "0")) || 0;
   const size = (await stat(EVENTS_FILE)).size;
-  if (size <= offset) return [];
-  const text = (await readFile(EVENTS_FILE)).subarray(offset).toString("utf8");
-  return dedupeEvents(parseSpool(text));
+  if (size <= offset) return { events: [], through: offset };
+  const { events, through } = readSpool((await readFile(EVENTS_FILE)).subarray(offset), offset);
+  return { events: dedupeEvents(events), through };
 }
 
 /**
@@ -452,7 +475,7 @@ export function assertUsageLaneSafe(payload) {
 }
 
 async function cmdReport(args, cfgFor) {
-  const events = await pendingEvents();
+  const { events, through } = await pendingEvents();
   const dry = Boolean(args["dry-run"]);
   if (!events.length) { console.log("Nothing to report."); return; }
 
@@ -467,7 +490,7 @@ async function cmdReport(args, cfgFor) {
     if (dry) { console.log(JSON.stringify(payload, null, 2)); return; }
     await mkdir(join(dir, "usage"), { recursive: true });
     await writeFile(file, JSON.stringify(payload, null, 2) + "\n");
-    await drain();
+    await drain(through);
     console.log(`Wrote ${Object.keys(payload.skills).length} skill(s) → ${file}`);
     console.log("Counts only — no repo, no path, no login. Commit it yourself when you're ready.");
     return;
@@ -504,17 +527,19 @@ async function cmdReport(args, cfgFor) {
   if (dry) { console.log(JSON.stringify(body, null, 2)); return; }
   const { status, json } = await api(cfg, `/api/org/skills/events`, { method: "POST", body });
   if (status !== 200) fail(`report failed (${status}): ${json.error || "unknown"}`);
-  // Drain only after the server acknowledged. A failed report leaves the watermark where it was, so
-  // the next run re-sends — at-least-once, which the server's dedupe key turns into exactly-once.
-  await drain();
+  // Drain only after the server acknowledged, and only through what this call SENT. A failed report
+  // leaves the watermark where it was, so the next run re-sends — at-least-once, which the server's
+  // dedupe key turns into exactly-once. A capped batch drains to its own last line, so the remainder
+  // is the next call's batch rather than a gap.
+  const truncated = resolved.length > batch.length;
+  await drain(truncated ? batch[batch.length - 1].end : through);
   console.log(`Reported ${json.recorded} of ${batch.length} event(s).`);
+  if (truncated) console.log(`${resolved.length - batch.length} more pending — run report again.`);
 }
 
-async function drain() {
-  if (!existsSync(EVENTS_FILE)) return;
-  const size = (await stat(EVENTS_FILE)).size;
+async function drain(offset) {
   await mkdir(ASCENT_DIR, { recursive: true });
-  await writeFile(OFFSET_FILE, String(size));
+  await writeFile(OFFSET_FILE, String(offset));
 }
 
 async function cmdList(cfg) {
