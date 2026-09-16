@@ -97,7 +97,7 @@ cd <registry> && node scripts/link-registry.mjs --check [--project <slug>]
 | State | Meaning | connect repair |
 |---|---|---|
 | `connected` | declared for this machine, present, manifest points here | none |
-| `undeclared` | local repo's manifest points here; not in `projects.json` | `fleet-connect.mjs --write` (relative path under this machine's key), then `check-projects.mjs` |
+| `undeclared` | local repo's manifest points here; not in `projects.json` | **ask the owner** — pointing at the registry does not make a repo a fleet member. Only for the slugs they confirm: `fleet-connect.mjs --write <slug,...>`, then `check-projects.mjs`. A declined repo stays `undeclared` in every report; that is expected, not a finding to re-raise |
 | `missing` | declared for this machine, no checkout | report; clone it or remove the machine key (owner's call) |
 | `unpointed` | declared + present, manifest lacks a `registry.local` resolving here | report the manifest edit for that project's owner |
 
@@ -132,11 +132,11 @@ populated: that is `/project-populate` in that project, not a registry fault.
 
 ## Validation record
 
-- **2026-09-16, machine Wolf** (first run, `connect`): 13/13 declared checkouts connected;
-  `fleet-connect` found 2 undeclared consumers (`clon-astra`, `clon-fable`) and declared them;
-  21 drifted rule copies across 13 projects rewritten; `clon-astra` linked (1 skill, 2 rules);
-  `clon-fable` blocked on its missing `skills:` block; ascent's registry map was stale and was rebuilt.
-  Neither `clon-*` has a `context-map.json`.
+- **2026-09-16, machine Wolf** (first run, `connect`): 13/13 declared checkouts connected; 21
+  drifted rule copies across 13 projects rewritten; ascent's stale registry map rebuilt. Two local
+  repos pointing at the registry were auto-declared and then REVERTED on the owner's word — they do
+  not belong in the fleet. That is why `--write` now takes explicit slugs and `undeclared` is a
+  question, never a repair.
 
 ## Output
 
@@ -144,12 +144,15 @@ End with the step table filled in — `done | active | blocked | pending` per st
 and for `connect` the exact repairs applied and the ones left for an owner. Same vocabulary as the
 tab's `STATE_READ`, so the terminal and the tab read alike.
 
-## Known divergences between the tab and the local path
+## How the tab's how-to maps to reality
 
-- The tab's how-to (`src/lib/org/registry-howto.ts`) names `npx ascent skills sync` and
-  `npx ascent hooks install`. **No such CLI ships** (`package.json` has no `bin`). The working
-  local equivalents are `link-registry.mjs` (sync) and — for per-repo installs outside a
-  single-owner fleet — `install-registry.mjs --project <path> --harness claude`.
+- `sync` / `hooks` in the tab (`src/lib/org/registry-howto.ts`) run `scripts/ascent-skills.mjs` — a
+  single zero-dependency file a repo copies in from ascent (no npm package, no `npx ascent` bin).
+  `sync` pulls the org's skills through the ascent API with an `askl_` token; it is the hosted path.
+- The local, single-owner path is `link-registry.mjs` (links + rules for every declared project) or,
+  for a repo outside that fleet, `install-registry.mjs --project <path> --harness claude`.
+- `pointer` is `registry.remote: github:<owner>/<repo>` under `registry:` in `.ai/manifest.yaml`
+  (the key this repo's own manifest carries; `registry.local` is the checkout path).
 - The tab's `point` counts repos from scans; the local path counts `projects.json` rows for this
   machine. A repo can be one without the other.
 

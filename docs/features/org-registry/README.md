@@ -86,6 +86,18 @@ switcher were cut).
   drop out, a `skipped` entry stays because it states why the step will never run), then fleet sync,
   telemetry, activity and the developer how-to.
 
+### The developer how-to (2026-09-16)
+
+`registryHowTo(fullName, orgSlug)` (`src/lib/org/registry-howto.ts`) produces three lines, and each one
+names something that exists: `node scripts/ascent-skills.mjs sync --org <slug>` and
+`node scripts/ascent-skills.mjs hooks install` (a single zero-dependency file a repo copies in from
+ascent's `scripts/`; sync needs an `askl_` token from the Skills tab), and the pointer
+`registry.remote: github:<owner>/<repo>` under `registry:` in `.ai/manifest.yaml`. The scaffold
+README (`src/lib/registry/layout.ts`) uses the same pointer shape. Earlier copy showed
+`npx ascent skills sync` / `npx ascent hooks install` and a `skills.registry` pointer, none of which
+existed (no npm package or bin ships, and `skills:` in a real manifest is the list of linked skills).
+The local, terminal counterpart of the six steps is the `.claude/skills/registry-onboarding` skill.
+
 ### The preview switcher (development only)
 
 `RegistryPreviewShell` renders the states a young org cannot produce — `indexed`, `scaffold_pr_open`,

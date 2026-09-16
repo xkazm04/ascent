@@ -84,7 +84,7 @@ export function SkillsLifecycle({
           <Figure label="Use over time" hint={RAN_HINT}>
             <p className="type-body-sm text-slate-500">
               No usage has been computed for these skills yet — install the invoke hook
-              (<code className="type-mono-sm">ascent-skills hooks install</code>) or copy a skill to
+              (<code className="type-mono-sm">node scripts/ascent-skills.mjs hooks install</code>) or copy a skill to
               start the record.
             </p>
           </Figure>

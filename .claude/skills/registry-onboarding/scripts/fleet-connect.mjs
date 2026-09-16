@@ -6,7 +6,7 @@
  * registry but is not declared?" — and an undeclared consumer is invisible to `link-registry`,
  * `build-registry-map` and every fleet pass, silently.
  *
- *   node fleet-connect.mjs [--registry <dir>] [--depth 2] [--json] [--write]
+ *   node fleet-connect.mjs [--registry <dir>] [--depth 2] [--json] [--write <slug,...>]
  *
  * Reports four row states:
  *   connected    declared for this machine, checkout exists, its manifest points at this registry
@@ -14,8 +14,10 @@
  *   missing      declared for this machine, no checkout at the resolved path
  *   unpointed    declared and present, but its manifest has no registry.local resolving here
  *
- * `--write` adds each `undeclared` row to projects.json under this machine's key with a path
- * RELATIVE to the machine root (the file's portability contract). It never removes a row and never
+ * `--write <slug,...>` adds the NAMED `undeclared` rows to projects.json under this machine's key with a
+ * path RELATIVE to the machine root (the file's portability contract). It takes names, never "all":
+ * a repo pointing at the registry is not thereby a member of the fleet — that is the owner's call,
+ * and a blanket write once declared two repos that did not belong. It never removes a row and never
  * edits a manifest. Exit 0 clean, 1 findings, 2 cannot run.
  */
 import fs from 'node:fs';
@@ -93,8 +95,12 @@ for (const abs of found) {
   additions.push({ slug, rel });
 }
 
-if (flag('--write') && additions.length) {
-  for (const { slug, rel } of additions) {
+const chosen = (value('--write') ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+if (flag('--write') && !chosen.length) fail('--write needs the slugs to declare, e.g. --write my-app,other-app');
+const toWrite = additions.filter((a) => chosen.includes(a.slug));
+for (const c of chosen) if (!toWrite.some((a) => a.slug === c)) fail(`--write ${c}: not an undeclared repo pointing at this registry`);
+if (toWrite.length) {
+  for (const { slug, rel } of toWrite) {
     fleet.projects[slug] ??= { checkouts: {} };
     fleet.projects[slug].checkouts ??= {};
     fleet.projects[slug].checkouts[machine] = rel;
@@ -105,7 +111,7 @@ if (flag('--write') && additions.length) {
 
 const findings = rows.filter((r) => r.state !== 'connected' && r.state !== 'declared');
 if (flag('--json')) {
-  console.log(JSON.stringify({ machine, registry, rows, written: flag('--write') ? additions.map((a) => a.slug) : [] }, null, 2));
+  console.log(JSON.stringify({ machine, registry, rows, written: toWrite.map((a) => a.slug) }, null, 2));
 } else {
   console.log(`fleet-connect — machine ${machine}, ${found.length} manifest(s) under the root, ${Object.keys(fleet.projects).length} declared\n`);
   for (const r of rows.sort((a, b) => a.state.localeCompare(b.state) || a.slug.localeCompare(b.slug))) {

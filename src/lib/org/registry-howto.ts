@@ -10,11 +10,18 @@
 
 import type { RegistryView } from "./registry-view";
 
-/** The developer-facing commands + manifest pointer. Same strings on every path, real or fixture. */
-export function registryHowTo(registryFullName: string): RegistryView["howTo"] {
+/**
+ * The developer-facing commands + manifest pointer. Same strings on every path, real or fixture.
+ *
+ * Every string names something that EXISTS: `ascent-skills.mjs` is a single zero-dependency file in
+ * ascent's `scripts/` that a repo copies in (there is no npm package and no `npx ascent` bin), and the
+ * pointer is the `registry.remote` key the ai-manifest spec actually carries. An earlier version showed
+ * `npx ascent skills sync` — a command nobody could run.
+ */
+export function registryHowTo(registryFullName: string, orgSlug: string): RegistryView["howTo"] {
   return {
-    syncCmd: "npx ascent skills sync",
-    hooksCmd: "npx ascent hooks install",
-    pointer: `skills.registry: github:${registryFullName}`,
+    syncCmd: `node scripts/ascent-skills.mjs sync --org ${orgSlug}`,
+    hooksCmd: "node scripts/ascent-skills.mjs hooks install",
+    pointer: `registry.remote: github:${registryFullName}`,
   };
 }

@@ -316,7 +316,7 @@ export async function getRegistryView(slug: string): Promise<RegistryView> {
     ...(signalRows.length
       ? { signals: { contributors: new Set(signalRows.map((r) => r.contributor)).size, subjects: summarizeSignals(signalRows) } }
       : {}),
-    howTo: registryHowTo(fullName),
+    howTo: registryHowTo(fullName, slug),
     capabilities: caps,
     permission: { contentsWrite: caps.canWrite, ...(caps.installUrl ? { installUrl: caps.installUrl } : {}) },
     ...(row?.scaffoldPrUrl ? { scaffoldPrUrl: row.scaffoldPrUrl } : {}),

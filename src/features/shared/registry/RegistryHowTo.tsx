@@ -36,8 +36,10 @@ export function RegistryHowTo({ view, dense = false }: { view: RegistryView; den
       </div>
       {!dense && (
         <p className="type-note text-slate-500">
-          The pointer lives in each repo&apos;s <code className="font-mono">.ai/manifest.yaml</code>. A repo with no pointer falls back
-          to your canonical registry.
+          <code className="font-mono">ascent-skills.mjs</code> is one zero-dependency file: copy it from ascent&apos;s{" "}
+          <code className="font-mono">scripts/</code> into the repo. Sync reads an <code className="font-mono">askl_</code> token from{" "}
+          <code className="font-mono">ASCENT_TOKEN</code> (mint one on the Skills tab). The pointer goes under{" "}
+          <code className="font-mono">registry:</code> in each repo&apos;s <code className="font-mono">.ai/manifest.yaml</code>.
         </p>
       )}
     </div>
