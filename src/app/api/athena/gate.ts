@@ -32,10 +32,11 @@ import { resolveLegRunnerForOrg } from "@/lib/llm/text-org";
 import { createAthenaGrounding } from "@/lib/athena/grounding";
 import { ATHENA_HISTORY_TURNS } from "@/lib/athena/prompt";
 import type { AthenaTurnDeps } from "@/lib/athena/turn";
+import { asOrgSlug, type OrgId, type OrgSlug } from "@/lib/org/ids";
 
 export interface AthenaOrgContext {
-  org: string;
-  orgId: string;
+  org: OrgSlug;
+  orgId: OrgId;
 }
 
 const isResponse = (v: unknown): v is NextResponse => v instanceof Response;
@@ -59,7 +60,7 @@ export async function gateAthenaOrg(
   const guard = dbGuard("Athena", "Athena requires a database.");
   if (guard) return guard;
 
-  const org = typeof orgParam === "string" ? orgParam.trim().toLowerCase() : "";
+  const org = asOrgSlug(typeof orgParam === "string" ? orgParam : "");
   if (!org) return NextResponse.json({ error: "Missing 'org'." }, { status: 400 });
   if (org === PUBLIC_ORG) {
     return NextResponse.json(
