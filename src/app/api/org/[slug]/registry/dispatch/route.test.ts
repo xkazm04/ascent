@@ -38,7 +38,17 @@ const h = vi.hoisted(() => ({
 
 vi.mock("@/lib/registry/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/registry/api")>();
-  return { ...actual, guardRegistryRead: h.read, guardRegistryRole: h.role, guardRegistryWrite: h.write };
+  return {
+    ...actual,
+    guardRegistryRead: h.read,
+    guardRegistryRole: h.role,
+    guardRegistryWrite: h.write,
+    // Local-first gate: nothing is paired locally in these tests, so it is the (mocked) App write gate.
+    resolveRegistrySource: async (slug: string, opts: unknown) => {
+      const gate = await h.write(slug, opts);
+      return gate && typeof gate === "object" && "token" in gate ? { kind: "github", row: null, token: gate.token } : gate;
+    },
+  };
 });
 vi.mock("@/lib/authz", () => ({ requireOrgRole: h.requireOrgRole }));
 vi.mock("@/lib/api/self-host", () => ({ selfHostGuard: h.selfHost }));

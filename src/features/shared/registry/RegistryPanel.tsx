@@ -45,8 +45,11 @@ function Masthead({ view, slug }: { view: RegistryView; slug: string }) {
   const left = r
     ? `${r.fullName} · ${r.canonical ? "canonical" : "secondary"} · ${MODE_LABEL[r.mode]}`
     : `${slug} · no registry mapped`;
+  // A paired local checkout has no webhook to be healthy — it is re-read whenever its HEAD moves — so
+  // the masthead says which source this reading came from rather than reporting a permanent "unconfirmed".
+  const freshness = r?.localPath ? "local checkout" : `webhook ${r?.webhookHealthy ? "ok" : "unconfirmed"}`;
   const right = r
-    ? `indexed ${r.lastIndexedAt ? timeAgo(r.lastIndexedAt) : "never"} · ${shortSha(r.lastIndexSha)} · webhook ${r.webhookHealthy ? "ok" : "unconfirmed"} · telemetry ${SINK_LABEL[r.telemetrySink]}`
+    ? `indexed ${r.lastIndexedAt ? timeAgo(r.lastIndexedAt) : "never"} · ${shortSha(r.lastIndexSha)} · ${freshness} · telemetry ${SINK_LABEL[r.telemetrySink]}`
     : `status ${STATUS_READ[view.status]}`;
   return <Dateline left={left} right={right} />;
 }

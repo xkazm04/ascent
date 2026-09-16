@@ -261,13 +261,13 @@ export async function ingestRepoConformance(input: {
 export async function listSweepTargets(
   org: string | { orgId: string },
   repositoryIds?: string[],
-): Promise<{ orgId: string; repos: { id: string; fullName: string }[] } | null> {
+): Promise<{ orgId: string; repos: { id: string; fullName: string; localPath: string | null }[] } | null> {
   if (!isDbConfigured()) return null;
   const orgId = typeof org === "string" ? await getOrgId(org) : org.orgId;
   if (!orgId) return null;
   const repos = await getPrisma().repository.findMany({
     where: { orgId, ...(repositoryIds?.length ? { id: { in: repositoryIds } } : {}) },
-    select: { id: true, fullName: true },
+    select: { id: true, fullName: true, localPath: true },
     orderBy: { fullName: "asc" },
   });
   return { orgId, repos };

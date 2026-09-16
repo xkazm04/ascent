@@ -1303,6 +1303,7 @@ CREATE TABLE "OrgRegistry" (
     "id" TEXT NOT NULL,
     "orgId" TEXT NOT NULL,
     "repositoryId" TEXT,
+    "localPath" TEXT,
     "fullName" TEXT NOT NULL,
     "defaultBranch" TEXT NOT NULL DEFAULT 'main',
     "canonical" BOOLEAN NOT NULL DEFAULT true,

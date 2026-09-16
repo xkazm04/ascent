@@ -423,9 +423,10 @@ export async function indexRegistry(registry: OrgRegistryRow, source: RegistrySo
   // gets a matrix that is never older than the corpus it is judged against. A sweep failure is a
   // warning on this pass — the index already succeeded, and saying otherwise would hide it.
   let sweep: SweepResult | undefined;
-  if (source.token) {
+  const sweepVia = source.token ?? source.sweep;
+  if (sweepVia) {
     try {
-      sweep = await sweepConformance({ orgId: registry.orgId }, source.token);
+      sweep = await sweepConformance({ orgId: registry.orgId }, sweepVia);
       for (const w of sweep.warnings) warnings.push(`sweep: ${w}`);
     } catch (err) {
       warnings.push(`sweep: the fleet conformance sweep did not run (${err instanceof Error ? err.message : String(err)})`);

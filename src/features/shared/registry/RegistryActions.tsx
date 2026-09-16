@@ -15,7 +15,8 @@
 
 import { CTA_OUTLINE, CTA_PRIMARY } from "@/lib/ui";
 import type { RegistryView } from "@/lib/org/registry-view";
-import { capabilityNotice, visibleActions, type RegistryActionId } from "./registryActionRules";
+import { visibleActions, type RegistryActionId } from "./registryActionRules";
+import { RegistryCapabilityNote, RegistryPairLocalLink } from "./RegistryCapabilityNote";
 import { num, str, useRegistryMutation, type RegistryMutation } from "./useRegistryMutation";
 import { ARTIFACT_LABEL } from "./registryModel";
 
@@ -80,19 +81,8 @@ export function RegistryOutcomeLine({ m, action }: { m: RegistryMutation; action
 }
 
 /** One honest sentence instead of buttons, plus the install link when (and only when) there is one. */
-export function RegistryCapabilityNote({ view, slug }: { view: RegistryView; slug: string }) {
-  const notice = capabilityNotice(view.capabilities, slug);
-  if (!notice) return null;
-  const actions = visibleActions(view.capabilities, { mapped: view.status !== "unmapped" });
-  return (
-    <div className="space-y-2">
-      <p className="max-w-2xl type-body-sm text-slate-400">{notice}</p>
-      {actions.includes("install-app") && view.capabilities.installUrl ? (
-        <RegistryButton href={view.capabilities.installUrl}>Install the GitHub App ↗</RegistryButton>
-      ) : null}
-    </div>
-  );
-}
+// Re-exported so existing imports keep resolving; the note lives in its own file (200-LOC cap).
+export { RegistryCapabilityNote } from "./RegistryCapabilityNote";
 
 /** Indexed-state header: re-index (member floor on the route, admin floor on the flag) + the repo. */
 export function RegistryHeaderActions({ view, slug }: { view: RegistryView; slug: string }) {
@@ -107,18 +97,21 @@ export function RegistryHeaderActions({ view, slug }: { view: RegistryView; slug
         const warnings = Array.isArray(d.warnings) ? d.warnings.length : 0;
         return {
           message: `Indexed at ${sha ? sha.slice(0, 7) : "HEAD"} — ${num(c.skills) ?? 0} skills · ${num(c.practices) ?? 0} practices · ${num(c.memory) ?? 0} notes${warnings ? ` · ${warnings} file${warnings === 1 ? "" : "s"} skipped` : ""}`,
-          ...(view.registry && sha ? { href: `${view.registry.url}/tree/${sha}`, hrefLabel: "view tree ↗" } : {}),
+          ...(view.registry && sha && !view.registry.localPath ? { href: `${view.registry.url}/tree/${sha}`, hrefLabel: "view tree ↗" } : {}),
         };
       },
     });
   }
 
-  if (actions.length === 0 || actions.includes("install-app")) {
+  // `pair-local` / `install-app` are ways IN, not actions on a registry: with nothing else to offer,
+  // the note (which carries both links) is the whole answer.
+  if (!actions.some((a) => a !== "install-app" && a !== "pair-local")) {
     return <RegistryCapabilityNote view={view} slug={slug} />;
   }
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
+        {actions.includes("pair-local") ? <RegistryPairLocalLink slug={slug} /> : null}
         {actions.includes("reindex") ? (
           <RegistryButton onClick={reindex} disabled={m.pending !== null} title="Re-read the registry at HEAD and rebuild the mirror rows">
             {m.pending === "reindex" ? "Re-indexing…" : "Re-index"}

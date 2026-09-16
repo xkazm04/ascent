@@ -140,7 +140,7 @@ user account). Every probe fails closed.
 | `GET /api/org/:slug/registry` | read | `{ view: RegistryView }` (`?demo=` selects a fixture) |
 | `POST /api/org/:slug/registry` | admin | map `fullName`, or `create: true` to create `<org>/ai-registry`; then open the scaffold PR |
 | `POST .../registry/index` | member | re-read HEAD and rebuild the mirror rows |
-| `POST .../registry/local` | admin · **self-hosted only** (404 otherwise) | map the registry checkout on this machine and index it — see below |
+| `POST .../registry/local` | owner · **self-hosted only** (404 otherwise) | pair / verify / unpair the registry checkout on this machine, and index it — see below |
 | `POST .../registry/migrate?type=skills,practices,memory` | admin | export the still-hosted rows of one type as one draft PR; a type with zero rows is a **no-op**, never an empty PR |
 | `POST .../registry/conformance` (`{ repositoryIds?, repositoryId? }`) | admin | sweep the fleet, a list, or one repo — see the conformance ledger |
 | `GET` / `POST .../registry/dispatch` | member / admin (brief) · owner + self-host + autopilot (local) | the hand-off ledger and the two dispatch modes — see below |
@@ -148,19 +148,22 @@ user account). Every probe fails closed.
 Every failure is `{ error, code }` with a real status — `persistence-off` (503), `invalid-input` (400),
 `not-permitted` (403), `not-mapped` (409), `github-error` (502) — never a bare 500.
 
-### Mapping a local checkout (self-hosted, 2026-09-16)
+### Pairing a local checkout (self-hosted, 2026-09-16)
 
-A self-hosted install usually has no GitHub App, so the map and index routes above have no token to
-read with. `POST .../registry/local` maps the checkout named by `registry.local` in the app's own
-`.ai/manifest.yaml` (or `ASCENT_REGISTRY_LOCAL`), upserting it as the canonical `git_native` row
-under the `registry.remote: github:owner/repo` name, then runs the same `indexRegistry` pass over
-`localSource(dir)` (`src/lib/registry/local-source.ts`): the COMMITTED tree of the checkout's current
-branch via `git ls-tree` / `git cat-file`, never the working tree. The path is server configuration
-only; the request carries none. The terminal `registry-onboarding` skill calls it as its step 7.
+A self-hosted install usually has no GitHub App, and every registry read went through an installation
+token. Admin → **Pairing** now pairs the registry to a checkout on the server (`OrgRegistry.localPath`)
+as its FIRST step, and GitHub is the optional second. `resolveRegistrySource` (`src/lib/registry/api.ts`)
+resolves local first for every re-read route — index, trace, the conformance sweep, a local dispatch —
+and mints a token only for an unpaired registry. `visibleActions` follows the same order: `pair-local`
+ahead of the App's actions, `reindex` on a paired registry whatever the App can do, and the steps read
+the App's permission and migration entries as **optional** rather than blocked. Full mechanics —
+verification, the committed-tree source, the working-tree fleet reader, the render-triggered refresh —
+in [`docs/features/local-mode/README.md`](../local-mode/README.md#the-registry-paired-locally-2026-09-16).
+The terminal `registry-onboarding` skill drives the same route as its step 7.
 
-**Known gap.** The local source carries no token, so the pass does not chain the fleet conformance
-sweep; Knowledge-tab conformance stays as last swept. The Surfaces tab is unaffected either way: it is
-a static mirror of the ui-surfaces taxonomy (`src/lib/org/surface-catalog.ts`).
+**Known gap.** A local checkout cannot open pull requests, so scaffold, migration, signals contribution
+and a dispatch's PR still need the App. The Surfaces tab is unaffected either way: it is a static mirror
+of the ui-surfaces taxonomy (`src/lib/org/surface-catalog.ts`).
 
 ## The indexer
 

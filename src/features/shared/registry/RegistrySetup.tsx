@@ -14,6 +14,7 @@ import type { RegistryView } from "@/lib/org/registry-view";
 import { visibleActions } from "./registryActionRules";
 import { RegistryButton, RegistryCapabilityNote, RegistryOutcomeLine } from "./RegistryActions";
 import { RegistryMapPanel } from "./RegistryMapPanel";
+import { RegistryPairLocalLink } from "./RegistryCapabilityNote";
 import { num, str, useRegistryMutation } from "./useRegistryMutation";
 
 /** Both POSTs return the same body; one reader so create and map can never describe it differently. */
@@ -35,7 +36,7 @@ export function RegistrySetupActions({ view, slug }: { view: RegistryView; slug:
   const [name, setName] = useState(DEFAULT_REGISTRY_NAME);
   const [mapping, setMapping] = useState(false);
 
-  if (actions.length === 0 || actions.includes("install-app")) {
+  if (!actions.includes("create-registry") && !actions.includes("map-existing")) {
     return <RegistryCapabilityNote view={view} slug={slug} />;
   }
 
@@ -45,6 +46,7 @@ export function RegistrySetupActions({ view, slug }: { view: RegistryView; slug:
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
+        {actions.includes("pair-local") ? <RegistryPairLocalLink slug={slug} /> : null}
         {actions.includes("create-registry") ? (
           <>
             <RegistryButton

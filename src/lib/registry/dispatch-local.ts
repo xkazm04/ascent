@@ -13,7 +13,7 @@ import { runClaudeAgent, type AgentRunResult } from "@/lib/local/agent";
 import { runGit } from "@/lib/local/git";
 import { branchNameFor, createLoopWorktree, removeLoopWorktree, runStamp, type LoopWorktree } from "@/lib/local/loop-worktree";
 import { markDispatch } from "@/lib/db/org-registry-dispatch";
-import { sweepConformance } from "./conformance-sweep";
+import { localStandardsReader, sweepConformance } from "./conformance-sweep";
 import { DISPATCH_TRAILER_KEY } from "./dispatch-brief";
 import { openDispatchPr, type DispatchPrInput, type DispatchPrResult } from "./dispatch-pr";
 
@@ -51,15 +51,20 @@ export interface LocalDispatchInput {
   stage: string;
   repo: { repositoryId: string; fullName: string; defaultBranch: string; localPath: string };
   brief: string;
-  /** Installation token — for the PR and the closing sweep. */
-  token: string;
+  /**
+   * Installation token — for the PR and the closing sweep. NULL on a self-hosted org whose registry is
+   * paired locally and has no GitHub App: the run stops at a committed branch in the paired checkout
+   * (status `proposed`, no PR) and the closing sweep reads the paired working copies instead.
+   */
+  token: string | null;
 }
 
 /** What the brief's "commit" steps mean under the local plane: the session has no shell, so the
  *  runner commits for it. Appended at run time; the brief itself stays the pure, digested text. */
-export function localPostscript(branch: string): string {
+export function localPostscript(branch: string, opensPr = true): string {
+  const after = opensPr ? ", pushes the branch and opens the pull request." : " and leaves the branch in the paired checkout for the operator to merge.";
   return (
-    `\n\nLOCAL RUN CONTEXT:\n- You are in an isolated worktree on branch \`${branch}\`. DO NOT run git — this session has no shell permission and every git command will be refused. Leave your changes in the working tree; Ascent commits them for you the moment you exit, with the \`${DISPATCH_TRAILER_KEY}\` trailer, pushes the branch and opens the pull request.\n- NEVER push, never switch branches, never touch remotes.\n`
+    `\n\nLOCAL RUN CONTEXT:\n- You are in an isolated worktree on branch \`${branch}\`. DO NOT run git — this session has no shell permission and every git command will be refused. Leave your changes in the working tree; Ascent commits them for you the moment you exit, with the \`${DISPATCH_TRAILER_KEY}\` trailer${after}\n- NEVER push, never switch branches, never touch remotes.\n`
   );
 }
 
@@ -100,7 +105,7 @@ export async function runLocalDispatch(deps: DispatchLocalDeps, input: LocalDisp
     if (!head.ok) throw new Error(`Could not read the worktree's HEAD: ${head.stderr || head.stdout}`);
     const base = head.stdout.trim();
 
-    const result = await deps.runAgent({ cwd: wt.dir, prompt: input.brief + localPostscript(wt.branch) });
+    const result = await deps.runAgent({ cwd: wt.dir, prompt: input.brief + localPostscript(wt.branch, input.token !== null) });
     await deps.mark(orgId, dispatchId, {
       status: "running",
       branch: wt.branch,
@@ -115,6 +120,17 @@ export async function runLocalDispatch(deps: DispatchLocalDeps, input: LocalDisp
     const commits = await commitResidue(deps, wt, base, input);
     if (commits === 0) throw new Error("the agent produced no commits");
 
+    if (input.token === null) {
+      // Local-only: the branch outlives the worktree in the paired checkout; merging it is the operator's.
+      await deps.mark(orgId, dispatchId, {
+        status: "proposed",
+        branch: wt.branch,
+        prUrl: null,
+        summary: `${commits} commit${commits === 1 ? "" : "s"} on local branch ${wt.branch} — no GitHub App, so no pull request. Merge it in ${repo.localPath}, then sweep.`,
+        endedAt: deps.now(),
+      });
+      return;
+    }
     const [owner, name] = repo.fullName.split("/");
     if (!owner || !name) throw new Error(`${repo.fullName} is not an owner/name pair.`);
     const pr = await deps.openPr({
@@ -136,5 +152,5 @@ export async function runLocalDispatch(deps: DispatchLocalDeps, input: LocalDisp
     if (wt) await deps.removeWorktree(wt).catch(() => null);
   }
   // Best-effort: the sweep degrades per repo on its own, and a failure here is not the dispatch's.
-  await deps.sweep({ orgId }, input.token, { repositoryId: repo.repositoryId }).catch(() => null);
+  await deps.sweep({ orgId }, input.token ?? localStandardsReader(), { repositoryId: repo.repositoryId }).catch(() => null);
 }

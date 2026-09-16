@@ -42,3 +42,52 @@ export async function postPairing(body: {
   if (!r.ok && !d.check && !d.error) d.error = `Request failed (${r.status}).`;
   return d;
 }
+
+// ── the registry step (local first, GitHub optional) ─────────────────────────────────────────────
+
+/** What the Pairing tab knows about the org's registry — built on the server in PairingTab. */
+export interface RegistryPairingView {
+  /** The canonical registry row's name, or null when nothing is mapped. */
+  fullName: string | null;
+  /** The paired working copy, or null (unpaired — reads go through GitHub if at all). */
+  localPath: string | null;
+  /** `registry.local` from this app's own manifest, resolved — the prefill for an unpaired registry. */
+  suggestedPath: string | null;
+  status: string;
+  lastIndexedAt: string | null;
+  lastIndexSha: string | null;
+  counts: { skills: number; practices: number; memory: number; lessons: number };
+  lastError: string | null;
+  github: { appConfigured: boolean; installed: boolean; canWrite: boolean; installUrl: string | null };
+}
+
+export interface RegistryCheckView extends PairingCheckView {
+  lanes: string[];
+  fullName: string | null;
+}
+
+export interface RegistryPairingResponse {
+  ok?: boolean;
+  paired?: boolean;
+  check?: RegistryCheckView;
+  fullName?: string;
+  headSha?: string;
+  counts?: { skills?: number; practices?: number; memory?: number; lessons?: number };
+  warnings?: string[];
+  error?: string;
+}
+
+/** POST the registry pairing route (`path: null` unpairs, `verifyOnly` persists nothing). */
+export async function postRegistryPairing(
+  org: string,
+  body: { path: string | null; verifyOnly?: boolean },
+): Promise<RegistryPairingResponse> {
+  const r = await fetch(`/api/org/${encodeURIComponent(org)}/registry/local`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const d = (await r.json().catch(() => ({}))) as RegistryPairingResponse;
+  if (!r.ok && !d.check && !d.error) d.error = `Request failed (${r.status}).`;
+  return d;
+}

@@ -5,14 +5,16 @@
 // tree of one ref, never the working tree, so an uncommitted edit in a sibling session is not indexed
 // as if it had been adopted — the same "merging is adopting" rule the hosted path enforces.
 //
-// All git access goes through `runGit` (execFile, bounded, no shell). No token, so an index pass over
-// this source indexes and does not chain the fleet conformance sweep (see `RegistrySource.token`).
+// All git access goes through `runGit` (execFile, bounded, no shell). No token: an index pass over this
+// source chains the fleet conformance sweep through each repo's PAIRED working copy instead.
 
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { runGit } from "@/lib/local/git";
 import type { RegistrySource } from "./index-walk";
-import type { RegistryTreeEntry } from "./read";
+import { MAX_FILE_BYTES, type RegistryTreeEntry } from "./read";
+import type { PathCommit } from "./trace";
+import { localStandardsReader } from "./conformance-sweep";
 
 /** The branch the checkout is on, or null when detached / not a repo. */
 export async function localCurrentBranch(dir: string): Promise<string | null> {
@@ -55,7 +57,40 @@ export function localSource(dir: string): RegistrySource {
       if (!r.ok) throw new Error(r.stderr.trim() || "git cat-file failed");
       return r.stdout;
     },
+    sweep: localStandardsReader(),
   };
+}
+
+/**
+ * Commits touching `path` at `ref`, newest first — the local twin of `listPathCommits`. Same cap and
+ * the same one-extra-row probe, so `truncated` means what it means on the GitHub path. `authorLogin`
+ * is always null: a local commit carries an author NAME, which is an unverified string, never a login.
+ */
+export async function listLocalPathCommits(
+  dir: string,
+  path: string,
+  ref: string,
+  perPage: number,
+): Promise<{ commits: PathCommit[]; truncated: boolean }> {
+  const capped = Math.min(100, Math.max(1, perPage));
+  const r = await runGit(dir, ["log", `-n${capped + 1}`, "--format=%H%x1f%aI%x1f%s%x1e", ref, "--", path]);
+  if (!r.ok) throw new Error(r.stderr.trim() || "git log failed");
+  const rows = r.stdout
+    .split("\x1e")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => {
+      const [sha = "", authoredAt = "", message = ""] = l.split("\x1f");
+      return { sha, authoredAt: authoredAt || new Date(0).toISOString(), authorLogin: null, message };
+    });
+  return { commits: rows.slice(0, capped), truncated: rows.length > capped };
+}
+
+/** One file's text at a commit, or null when absent there, unreadable, or over the file cap. */
+export async function readLocalFileAtRef(dir: string, path: string, ref: string): Promise<string | null> {
+  const r = await runGit(dir, ["show", `${ref}:${path}`]);
+  if (!r.ok || Buffer.byteLength(r.stdout) > MAX_FILE_BYTES) return null;
+  return r.stdout;
 }
 
 export interface LocalRegistryTarget {

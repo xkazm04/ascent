@@ -11,6 +11,7 @@
 // denormalized counts the last index pass stamped on the row — one query, no network.
 
 import { getOrgRegistry } from "@/lib/db/org-registry";
+import { refreshLocalRegistryIfStale } from "@/lib/registry/local-registry";
 
 export interface RegistrySync {
   /** True once an `OrgRegistry` row exists for the org — the registry may still be mid-scaffold. */
@@ -60,6 +61,9 @@ export function registryBlobBase(sync: RegistrySync): string | null {
 export async function getRegistrySync(slug: string): Promise<RegistrySync> {
   const row = await getOrgRegistry(slug).catch(() => null);
   if (!row) return UNMAPPED_SYNC;
+  // Skills / Memory / Practices render this too: a paired local checkout that moved is re-indexed in
+  // the background from whichever of them is opened first (self-hosted only; a no-op otherwise).
+  refreshLocalRegistryIfStale(row);
   return {
     mapped: true,
     fullName: row.fullName,

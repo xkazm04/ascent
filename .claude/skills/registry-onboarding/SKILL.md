@@ -130,27 +130,35 @@ for this repo; report it for others). Stale verdicts inside the map are `/confor
 onboarding. `no context-map.json - nothing to join against` means the project has never been
 populated: that is `/project-populate` in that project, not a registry fault.
 
-### 7 · map into the local ascent app (self-hosted)
+### 7 · pair the registry into the local ascent app (self-hosted)
 
-The tab reads a registry only once ascent has indexed it into its own tables. A self-hosted install
-usually has no GitHub App, so the hosted map + index routes cannot run; the local route reads the
-checkout named by this repo's `registry.local` (or `ASCENT_REGISTRY_LOCAL`) at its current branch's
-**committed** HEAD — uncommitted registry edits are not indexed.
+The tab reads a registry only once ascent has indexed it into its own tables. On a self-hosted install
+this needs **no GitHub App**: Admin → Pairing's first step pairs the registry to its checkout, and every
+registry module then reads that checkout. The route behind it:
 
 ```sh
-# find the port ascent is on (<title> starts with "Ascent"); the org slug is ASCENT_LOCAL_ORG
-curl -s -X POST http://localhost:<port>/api/org/<slug>/registry/local
+# the port ascent runs on (<title> starts with "Ascent"); slug = ASCENT_LOCAL_ORG
+curl -s -X POST -H 'content-type: application/json' -d '{"verifyOnly":true}'   http://localhost:<port>/api/org/<slug>/registry/local          # check: lanes, branch, HEAD, origin
+curl -s -X POST -H 'content-type: application/json' -d '{}'   http://localhost:<port>/api/org/<slug>/registry/local          # pair + index (path from registry.local)
+curl -s -X POST http://localhost:<port>/api/org/<slug>/registry/index    # re-index a paired registry
 ```
 
-200 returns `fullName`, `branch`, `headSha`, `counts`, `warnings`. **connect**: run it after any
-registry commit you want the app to see (it is the local "Re-index"). Then confirm the surfaces:
-`/org/<slug>?tab=registry` shows "Your way of working, in a repo you own"; `?tab=skills`, `?tab=memory`
-and `?tab=knowledge` render registry rows instead of their "not mapped" notices. `?tab=surfaces` is a
-static mirror of the ui-surfaces taxonomy (`src/lib/org/surface-catalog.ts`) and does not read the index.
+`{"path":"<abs>"}` pairs a checkout elsewhere; `{"path":null}` unpairs. Owner role; 404 off self-host.
+It indexes the **committed** tree, so commit in the registry before expecting the app to see a change —
+and after that a page render re-indexes it on its own when HEAD has moved (at most one probe per 30s).
 
-Expected, non-blocking warnings: a skill `description` over 1000 characters, and `signals/*.json`
-bundles without a `subjects` object. Not done by this route: the fleet conformance sweep (it needs an
-installation token), so conformance on the Knowledge tab stays as last swept.
+**connect**: pair if `localPath` is null, then confirm the surfaces — `/org/<slug>?tab=pairing` reads
+`paired`; `?tab=registry` shows "Your way of working, in a repo you own" with the permission and
+migration steps marked *optional*; `?tab=skills`, `?tab=memory`, `?tab=knowledge` render registry rows.
+`?tab=surfaces` is a static mirror of the ui-surfaces taxonomy and never reads the index.
+
+The fleet conformance sweep also runs token-free once repos are paired
+(`POST …/registry/conformance`): it reads each paired repo's working tree, and counts the unpaired ones
+in one warning rather than clearing their verdicts. What still needs the optional GitHub App: pull
+requests (scaffold, migration, signals, a dispatch's PR).
+
+Expected, non-blocking index warnings: a skill `description` over 1000 characters, and `signals/*.json`
+bundles without a `subjects` object.
 
 ## Validation record
 
@@ -159,10 +167,11 @@ installation token), so conformance on the Knowledge tab stays as last swept.
   repos pointing at the registry were auto-declared and then REVERTED on the owner's word — they do
   not belong in the fleet. That is why `--write` now takes explicit slugs and `undeclared` is a
   question, never a repair.
-- **2026-09-16, step 7**: org `kiro` on :3002 mapped `xkazm04/ai-registry` from `../ai-registry` at
-  `main@a90f9bc` — 33 skills, 8 practices, 6 memory, 219 lessons, 9 bundles, 11 warnings, 14s.
-  The first attempt would have dropped the 1.3MB software-engineering bundle index under the 256KB
-  per-file cap; bundle indexes now read under their own 8MB cap.
+- **2026-09-16, step 7**: org `kiro` on :3002, **no GitHub App configured at all**, paired
+  `../ai-registry` (`xkazm04/ai-registry`, `main@a90f9bc`) — 33 skills, 8 practices, 6 memory, 219
+  lessons, 9 bundles, 11 warnings, 8s; re-index and the fleet conformance sweep (462 pairs, 1 unpaired
+  repo skipped) both ran token-free. The first pass would have dropped the 1.3MB software-engineering
+  bundle index under the 256KB per-file cap; bundle indexes now read under their own 8MB cap.
 
 ## Output
 

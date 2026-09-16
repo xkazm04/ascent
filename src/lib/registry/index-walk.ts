@@ -31,6 +31,11 @@ export interface RegistrySource {
    * the registry). A source without one — every test fixture — indexes and does not sweep.
    */
   token?: string;
+  /**
+   * A token-less source that can still reach the fleet — the self-hosted local source, over each
+   * repo's paired working copy. Consulted only when `token` is absent.
+   */
+  sweep?: import("./conformance-sweep").StandardsReader;
 }
 
 /** The default source: the installation-token GitHub read layer in ./read. */

@@ -88,6 +88,41 @@ not be able to erase it.
   deliberate deep link on an implicit self-host still works. A cloud deep link gets an explanation,
   not a 404.
 
+## The registry, paired locally (2026-09-16)
+
+Pairing's **first** step is the org's REGISTRY, not a fleet repo, and it needs no GitHub App — which is
+the point: a self-hosted install usually has none, and until this every registry read went through an
+installation token, so Skills / Practices / Memory / Knowledge sat behind a wall the operator could not
+open. The checkout is normally the same one the operator edits and links skills from, so reading GitHub
+would also mean lagging them by a push.
+
+- `OrgRegistry.localPath` (nullable, migration `20260916120000_add_registry_local_path`) is the pairing.
+  `localRegistryDir(row)` returns it only when `selfHosted()`, so the column is inert on cloud.
+- `POST /api/org/:slug/registry/local` — **owner**-gated, 404 off self-host, path from the body (or, with
+  none, `registry.local` in the app's own `.ai/manifest.yaml`). `{ verifyOnly: true }` checks,
+  `{ path: null }` unpairs, re-pairing the same path IS the local re-index. Verification adds one rule to
+  `verifyLocalPath`'s: at least one registry lane (`skills/ practices/ memory/ knowledge/`) at HEAD.
+- `localSource(dir)` (`src/lib/registry/local-source.ts`) is a `RegistrySource` over `git ls-tree` /
+  `git cat-file` at the **committed** tree of the checkout's branch — an uncommitted edit in a sibling
+  session is not indexed as if it had been adopted, the same "merging is adopting" rule the hosted path
+  keeps.
+- **Local first, everywhere a registry is read.** `resolveRegistrySource` (`src/lib/registry/api.ts`)
+  returns `{ kind: "local", dir }` for a paired registry and mints nothing; only an unpaired one falls
+  through to `guardRegistryWrite`. Index, skill trace (`git log` over the skill's path) and the fleet
+  conformance sweep all take it, and a local dispatch ends at a committed branch in the paired checkout
+  instead of a pull request.
+- The fleet sweep reads each repo's PAIRED WORKING TREE (`conformance-read-local.ts`) — deliberately not
+  HEAD, because `.ai/consults.jsonl` is gitignored in consuming repos. `mapSha` is git's own blob id, so
+  a repo swept locally and later through GitHub does not re-ingest an unchanged map. An **unpaired** repo
+  is skipped and counted in one warning; its standing verdicts are never cleared.
+- **No webhook, so a render is the trigger.** `refreshLocalRegistryIfStale` (called from
+  `getRegistryView` and `getRegistrySync`) compares the checkout's HEAD to `lastIndexSha` and starts one
+  background pass when they differ — one in flight per registry, at most one probe per 30s.
+- GitHub becomes the optional second step (`RegistryGithubStep`): pull requests (scaffold, migration,
+  dispatch, signals) and a registry that is not on this machine. Measured 2026-09-16 on org `kiro` with
+  no App configured at all: pair + index 8s (33 skills, 8 practices, 6 notes, 219 lessons, 9 bundles),
+  fleet sweep 462 pairs from paired checkouts.
+
 ## Scan from disk (`src/lib/local/source.ts`)
 
 `LocalFsSource` implements the same `RepoSource` seam as `GitHubPublicSource`, so everything
@@ -270,5 +305,7 @@ session. The lane log says `cost unknown` in that case, and the cockpit does the
   message rather than retrying without it.
 - A run interrupted by a restart is **reconciled, not resumed**: the row is marked `stopped` and its
   in-flight lanes `error`. The branch and its commits survive; nothing picks the cycle back up.
+- A locally paired registry cannot open pull requests, so migration, scaffold, signals contribution and
+  a dispatch's PR stay behind the optional GitHub App; the steps say so rather than failing on click.
 - The dirty-tree sha-less scan can't dedup against itself — two identical dirty scans persist two
   rows (bounded by the content-key `dedupKey`, which catches byte-identical reports).

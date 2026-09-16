@@ -23,6 +23,8 @@ import { listRecentLessons, type SkillLessonRow } from "@/lib/db/org-skill-lesso
 import { summarizeSignals, type SignalSummary } from "@/lib/registry/signals";
 import { getRegistryCapabilities, type RegistryCapabilities } from "@/lib/registry/capabilities";
 import { DEFAULT_REGISTRY_NAME } from "@/lib/registry/layout";
+import { localRegistryDir, refreshLocalRegistryIfStale } from "@/lib/registry/local-registry";
+import { selfHosted } from "@/lib/env";
 import { registryHowTo } from "./registry-howto";
 
 export { DEFAULT_REGISTRY_NAME, registryHowTo };
@@ -83,6 +85,8 @@ export type RegistryView = {
     lastIndexSha: string | null;
     catalogSha: string | null;
     webhookHealthy: boolean;
+    /** Self-hosted: the paired working copy the registry is read from (Admin -> Pairing). Absent = GitHub. */
+    localPath?: string | null;
   };
   counts: {
     skills: { registry: number; hostedOnly: number };
@@ -190,6 +194,7 @@ const registryOf = (row: OrgRegistryRow): NonNullable<RegistryView["registry"]> 
   lastIndexSha: row.lastIndexSha,
   catalogSha: row.catalogSha,
   webhookHealthy: row.webhookHealthy,
+  localPath: localRegistryDir(row),
 });
 
 /**
@@ -245,9 +250,13 @@ export async function getRegistryView(slug: string): Promise<RegistryView> {
     getOrgRollup(slug).catch(() => null),
     getOrgId(slug).catch(() => null),
   ]);
-  const caps: RegistryCapabilities = capabilities ?? {
+  const baseCaps: RegistryCapabilities = capabilities ?? {
     appConfigured: false, installed: false, canWrite: false, canCreateRepo: false, reason: "app-not-configured", installUrl: null,
   };
+  // Local first (self-hosted): a paired checkout is a complete read source on its own, and a render is
+  // the one moment a checkout that moved since the last pass is noticed (there is no webhook).
+  const caps: RegistryCapabilities = { ...baseCaps, localAvailable: selfHosted(), localPaired: localRegistryDir(row) !== null };
+  refreshLocalRegistryIfStale(row);
   const zeroes = () => ({ skills: { registry: 0, hostedOnly: 0 }, practices: { registry: 0, hostedOnly: 0 }, memory: { registry: 0, hostedOnly: 0 } });
   const counts = orgId ? await countRegistryMirrors(orgId).catch(zeroes) : zeroes();
   // Both sinks, read side by side so the panel can say which one is silent (#19). Each degrades on

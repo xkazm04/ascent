@@ -20,25 +20,36 @@ vi.mock("next/server", () => ({
   },
 }));
 
-const { mockRead, mockWrite, mockOrgId, mockMaps, mockPairs, mockSweep } = vi.hoisted(() => ({
+const { mockRead, mockWrite, mockOrgId, mockMaps, mockPairs, mockSweep, mockLocal } = vi.hoisted(() => ({
   mockRead: vi.fn(),
   mockWrite: vi.fn(),
   mockOrgId: vi.fn(),
   mockMaps: vi.fn(),
   mockPairs: vi.fn(),
   mockSweep: vi.fn(),
+  mockLocal: { dir: null as string | null },
 }));
 
 vi.mock("@/lib/registry/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/registry/api")>();
-  return { ...actual, guardRegistryRead: mockRead, guardRegistryWrite: mockWrite };
+  return {
+    ...actual,
+    guardRegistryRead: mockRead,
+    guardRegistryWrite: mockWrite,
+    // Local-first resolution: a `local` answer when a test sets one, else the (mocked) App write gate.
+    resolveRegistrySource: async (slug: string) => {
+      if (mockLocal.dir) return { kind: "local", row: { id: "reg-1" }, dir: mockLocal.dir };
+      const gate = await mockWrite(slug);
+      return gate && typeof gate === "object" && "token" in gate ? { kind: "github", row: null, token: gate.token } : gate;
+    },
+  };
 });
 vi.mock("@/lib/db/org-rollup", () => ({ getOrgId: mockOrgId }));
 vi.mock("@/lib/db/org-registry-conformance", () => ({
   listConformanceMaps: mockMaps,
   listConformance: mockPairs,
 }));
-vi.mock("@/lib/registry/conformance-sweep", () => ({ sweepConformance: mockSweep }));
+vi.mock("@/lib/registry/conformance-sweep", () => ({ sweepConformance: mockSweep, localStandardsReader: () => "LOCAL_READER" }));
 
 import { NextResponse } from "next/server";
 import { GET, POST } from "./route";
@@ -53,6 +64,7 @@ const post = (body: unknown) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockLocal.dir = null;
   mockRead.mockResolvedValue(null);
   mockWrite.mockResolvedValue({ token: "tok", capabilities: {} });
   mockOrgId.mockResolvedValue("org-1");
@@ -100,6 +112,13 @@ describe("POST", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ scanned: 3, withMap: 2 });
     expect(mockSweep).toHaveBeenCalledWith("acme", "tok", {});
+  });
+
+  it("sweeps each repo's paired checkout when the registry is paired locally — no token minted", async () => {
+    mockLocal.dir = "C:/registry";
+    expect((await POST(post({}), ctx)).status).toBe(200);
+    expect(mockSweep).toHaveBeenCalledWith("acme", "LOCAL_READER", {});
+    expect(mockWrite).not.toHaveBeenCalled();
   });
 
   it("takes the write gate's refusal verbatim — no token is minted for a non-admin", async () => {

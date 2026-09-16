@@ -23,7 +23,9 @@ export type RegistryActionId =
   /** Plain link to the mapped repo on GitHub. */
   | "open-repo"
   /** The one link offered when the App is missing — install/configure it. */
-  | "install-app";
+  | "install-app"
+  /** Self-hosted: pair the registry's local checkout on Admin -> Pairing (no App needed). */
+  | "pair-local";
 
 /**
  * The actions the panel may render for this viewer.
@@ -32,6 +34,15 @@ export type RegistryActionId =
  * @param opts.mapped  whether an `OrgRegistry` row exists (`view.status !== "unmapped"`).
  */
 export function visibleActions(caps: RegistryCapabilities, opts: { mapped: boolean }): RegistryActionId[] {
+  // LOCAL FIRST (self-hosted). A paired checkout re-indexes with no App; the GitHub-writing actions
+  // appear beside it only when the App can actually act. Unpaired, pairing is offered ahead of whatever
+  // the App path would offer — the App becomes the optional second step, not the gate.
+  if (caps.localPaired && opts.mapped) return caps.canWrite ? ["reindex", "migrate", "open-repo"] : ["reindex"];
+  const hosted = hostedActions(caps, opts);
+  return caps.localAvailable ? ["pair-local", ...hosted] : hosted;
+}
+
+function hostedActions(caps: RegistryCapabilities, opts: { mapped: boolean }): RegistryActionId[] {
   // Nothing to act THROUGH: no App on this deployment, or none installed on this org. The only
   // honest affordance is the install link, and only when there is one to give.
   if (!caps.appConfigured || !caps.installed) return caps.installUrl ? ["install-app"] : [];
@@ -52,12 +63,14 @@ export function canRender(actions: readonly RegistryActionId[], id: RegistryActi
  */
 export function capabilityNotice(caps: RegistryCapabilities, slug: string): string | null {
   const reason: RegistryCapabilityReason | null = caps.reason;
-  if (!reason) return null;
+  if (!reason || caps.localPaired) return null;
   switch (reason) {
     case "persistence-off":
       return "This workspace is running without a database, so a registry cannot be mapped or read here.";
     case "app-not-configured":
-      return "Ascent's GitHub App is not configured on this deployment, so there is nothing to connect a registry through.";
+      return caps.localAvailable
+        ? "Pair the registry's local checkout — no GitHub App is needed on a self-hosted install. Connecting GitHub is optional."
+        : "Ascent's GitHub App is not configured on this deployment, so there is nothing to connect a registry through.";
     case "not-installed":
       return `Ascent's GitHub App is not installed on ${slug}. Install it and the registry actions appear here.`;
     case "insufficient-role":
