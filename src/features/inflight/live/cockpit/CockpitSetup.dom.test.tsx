@@ -42,3 +42,44 @@ describe("CockpitSetup — the self-hosting guide is always a link", () => {
     expect(screen.queryByRole("link", { name: /Self-hosting guide/i })).toBeNull();
   });
 });
+
+// ADR-0001. The SECOND cloud card. `hosted` says "this deployment has no loop for you"; this one says
+// "this deployment does, and your organization may not use it yet" — a different sentence with a
+// different next action, which is why it is a different state rather than different copy on one.
+describe("CockpitSetup — `hosted-not-enabled`", () => {
+  // THE SERVER'S SENTENCE, VERBATIM. Plan, credit headroom and per-repo admission are three walls
+  // with three different fixes, and only the server knows which one refused — a card that re-derived
+  // it in the browser would name the wrong action two times in three.
+  it("renders the server's own reason rather than a guess", () => {
+    render(<CockpitSetup state="hosted-not-enabled" slug="acme" message="This organization has no credit headroom, and a hosted run spends credits." />);
+    expect(screen.getByText(/no credit headroom/i)).toBeInTheDocument();
+  });
+
+  it("still says something actionable when the server sent no reason", () => {
+    render(<CockpitSetup state="hosted-not-enabled" slug="acme" />);
+    expect(screen.getByText(/not enabled for this organization/i)).toBeInTheDocument();
+  });
+
+  // It must NOT be the self-hosting card. Telling a cloud owner on a deployment that does operate a
+  // worker to go and self-host is the exact misdirection ADR-0001 set out to retire.
+  it("does not send a cloud owner off to self-host", () => {
+    render(<CockpitSetup state="hosted-not-enabled" slug="acme" />);
+    expect(screen.queryByRole("link", { name: /Self-hosting guide/i })).toBeNull();
+  });
+
+  // Every link on a card whose job is to name a next action has to be a real destination. The
+  // fabricated `?tab=billing` this card first shipped with is pinned out by name.
+  it("links only to destinations that exist", () => {
+    render(<CockpitSetup state="hosted-not-enabled" slug="acme" />);
+    expect(screen.getByRole("link", { name: /Plans & pricing/i })).toHaveAttribute("href", "/pricing");
+    expect(screen.getByRole("link", { name: /Repository admission/i })).toHaveAttribute("href", "/org/acme?tab=governance");
+    for (const link of screen.getAllByRole("link")) expect(link.getAttribute("href")).not.toContain("tab=billing");
+  });
+
+  // The degraded door stays open and stays named: a run the customer's OWN agent claims needs none
+  // of the three gates above, and it is what this org can do today.
+  it("keeps the remote-agent fallback visible", () => {
+    render(<CockpitSetup state="hosted-not-enabled" slug="acme" />);
+    expect(screen.getByText(/Remote-agent runs still work here/i)).toBeInTheDocument();
+  });
+});

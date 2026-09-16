@@ -9,6 +9,7 @@
 import { Kicker } from "@/components/ui";
 import { InlineEmpty, TILE_LEDGER } from "@/components/org/shared/ui";
 import { LaneRail } from "./LaneRail";
+import { isExternalExecutor } from "./loopTypes";
 import type { LoopLaneOutcome, LoopRunDetail } from "./loopTypes";
 
 export interface CockpitRunPanelProps {
@@ -39,8 +40,10 @@ export function CockpitRunPanel({ detail, live, onStop, onRetry, busy = false, e
   // is the honest thing rather than a missing feature: "stop after in-flight" is a cooperative signal
   // to a process THIS deployment is driving, and there is no such process here. What a remote run's
   // owner can actually do is let the leases lapse, which the rows say for themselves.
-  const remote = lanes.length > 0 && lanes.every((l) => l.executor === "remote-agent");
-  const unclaimed = lanes.filter((l) => l.executor === "remote-agent" && !l.claimedBy).length;
+  // ADR-0001: a `hosted-worker` lane is external for exactly this reason too — Ascent Cloud asked a
+  // worker to take it, and this process is no more able to stop that worker than a customer's own.
+  const remote = lanes.length > 0 && lanes.every((l) => isExternalExecutor(l.executor));
+  const unclaimed = lanes.filter((l) => isExternalExecutor(l.executor) && !l.claimedBy).length;
 
   return (
     <div>

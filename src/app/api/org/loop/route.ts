@@ -1,6 +1,9 @@
-// LOCAL-MODE IMPROVEMENT LOOP control (self-hosted only, ASCENT_AUTOPILOT=1 only).
+// IMPROVEMENT LOOP control. Three executors, three different gate sets — `local` (self-hosted only,
+// ASCENT_AUTOPILOT=1 only), `remote-agent` (the customer's own harness claims the lanes) and `hosted`
+// (ADR-0001: Ascent Cloud dispatches a worker of its own). Only the first reads the server's disk,
+// and only the first is behind `selfHostGuard`.
 //
-//   GET  ?org=…                                              → { enabled, active, runs }
+//   GET  ?org=…                                              → { enabled, active, runs, hosted }
 //   POST { action:"start",  org, repos[], batches?, concurrency?, maxCycles?, curated?, model?, effort?,
 //          delivery?, batchSize?, agentTimeoutMs?, verifyMode?, verifyTimeoutMs? }  → { run }
 //   POST { action:"stop",   org, id }                        → { ok, run }
@@ -47,7 +50,18 @@ import {
   markStaleRunsStopped,
   reviewDeliverable,
 } from "@/lib/db/loop-runs";
-import { isLoopRunLive, loopRunStopRequested, retryLane, startLoopRun, startRemoteRun, stopLoopRun } from "@/lib/local/loop-engine";
+import {
+  HostedRunRefused,
+  isLoopRunLive,
+  loopRunStopRequested,
+  retryLane,
+  startHostedRun,
+  startLoopRun,
+  startRemoteRun,
+  stopLoopRun,
+} from "@/lib/local/loop-engine";
+import { hostedBlockStatus } from "@/lib/local/hosted-gate";
+import { resolveHostedGate } from "@/lib/local/hosted-dispatch";
 import { orgIdForSlug } from "@/lib/db/loop-tenancy";
 
 export const runtime = "nodejs";
@@ -91,6 +105,18 @@ export async function GET(request: Request) {
   // be wrong on every deployment that raised it.
   const stopping = active ? loopRunStopRequested(active.id) : false;
   const stopHorizonMs = active ? agentTimeoutMs(active.agentTimeoutMs) : null;
+  // ADR-0001 §3 — THE FACT THAT RETIRES THE `hosted` CARD. `enabled` above answers "can this
+  // deployment run a LOCAL loop", and the cockpit used to infer everything else from `selfHosted` in
+  // the browser: a cloud owner who could dispatch was shown a self-hosting guide because a client-side
+  // read of deployment mode is not the question. `hosted` is the server's own answer to "can THIS org
+  // dispatch a run Ascent gets worked", with the reason when it cannot. A read failure degrades to
+  // refused-with-a-reason rather than absent, because an absent field means "an older server" to the
+  // gate and would be read as the old behaviour.
+  const hosted = await resolveHostedGate(org).catch(() => ({
+    enabled: false,
+    reason: "Could not read this organization's hosted-dispatch status.",
+    available: false,
+  }));
   return NextResponse.json({
     enabled: autopilotEnabled(),
     active,
@@ -99,6 +125,7 @@ export async function GET(request: Request) {
     prAvailable: isAppConfigured(),
     stopping,
     stopHorizonMs,
+    hosted,
   });
 }
 
@@ -131,7 +158,9 @@ type Body = {
   /** `cycle` | `run` — rescan after every cycle (default) or once after the last cycle a repo
    *  progressed in. Opt-in: intermediate cycles then settle at the run's end, not their own. */
   rescanCadence?: unknown;
-  /** #3 — `local` (the default, and what every caller before it meant) or `remote-agent`. */
+  /** #3 — `local` (the default, and what every caller before it meant), `remote-agent`, or `hosted`
+   *  (ADR-0001: a run Ascent Cloud dispatches to a worker of its own). The wire word is `hosted`; the
+   *  lane rows record `hosted-worker`, which is the executor vocabulary's word for the same thing. */
   executor?: unknown;
 };
 
@@ -164,9 +193,16 @@ export async function POST(request: Request) {
   // else's harness, and applying them anyway would make the hosted half of the protocol unreachable
   // on the exact deployments it exists for. Every other gate below is unchanged, including
   // `requireOrgRole("owner")`.
+  //
+  // ADR-0001 adds a THIRD executor on the same reasoning. `hosted` is a run ASCENT CLOUD gets worked:
+  // still no worktree, still no process here, so `selfHostGuard` does not apply to it either — and
+  // applying it would 404 the one surface the managed product exists to offer. What replaces the
+  // self-hosted checks for it is the gate table in `startHostedRun`, which is stricter than the local
+  // one, not looser: entitlement, credit headroom, a recorded per-repo admission, and pr-only delivery.
   const body = (await request.json().catch(() => ({}))) as Body;
   const remote = body.executor === "remote-agent";
-  const guard = (remote ? null : selfHostGuard()) ?? dbGuard("The improvement loop", "The improvement loop requires a database.");
+  const hosted = body.executor === "hosted";
+  const guard = (remote || hosted ? null : selfHostGuard()) ?? dbGuard("The improvement loop", "The improvement loop requires a database.");
   if (guard) return guard;
 
   const org = typeof body.org === "string" ? body.org.trim().toLowerCase() : "";
@@ -188,7 +224,7 @@ export async function POST(request: Request) {
   // must work on a deployment where the loop itself has since been switched off.
   if (action === "review") return review(org, body);
 
-  if (!remote && !autopilotEnabled()) {
+  if (!remote && !hosted && !autopilotEnabled()) {
     return NextResponse.json(
       { error: "The loop is not enabled on this deployment — set ASCENT_AUTOPILOT=1 (and make sure the claude CLI is available)." },
       { status: 409 },
@@ -196,6 +232,31 @@ export async function POST(request: Request) {
   }
   const repos = Array.isArray(body.repos) ? body.repos.filter((r): r is string => typeof r === "string") : [];
   if (repos.length === 0) return NextResponse.json({ error: "Missing 'repos'." }, { status: 400 });
+
+  if (hosted) {
+    // A HOSTED RUN takes the same none-of-the-local-dials shape a remote one does, for the same
+    // reason: Ascent schedules nothing, the worker decides its own cycle, and a model Ascent did not
+    // choose must not be recorded on the row. `delivery` is the ONE dial it reads, and only so that a
+    // caller who asked for `land` is refused with that fact rather than silently given a PR.
+    const viewer = await getViewer().catch(() => null);
+    try {
+      const run = await startHostedRun({
+        org,
+        repos,
+        batches: parseBatches(body.batches),
+        delivery: normalizeDelivery(body.delivery),
+        actor: viewer?.login ?? null,
+      });
+      return NextResponse.json({ run }, { status: 202 });
+    } catch (err) {
+      // Each gate answers with its OWN code (402 money, 403 a decision, 409 not the caller's to fix).
+      // Everything else keeps the 409 every arm failure on this route has always been.
+      if (err instanceof HostedRunRefused) {
+        return NextResponse.json({ error: err.message, code: err.block }, { status: hostedBlockStatus(err.block) });
+      }
+      return NextResponse.json({ error: err instanceof Error ? err.message : "Could not arm the run." }, { status: 409 });
+    }
+  }
 
   if (remote) {
     // A REMOTE RUN takes none of the local dials — no concurrency (Ascent schedules nothing), no

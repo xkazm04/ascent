@@ -5,7 +5,7 @@
 // beyond the monthly allowance (see src/lib/entitlement.ts, src/lib/db/credits.ts, src/lib/plans.ts).
 // Public scans, cached re-scans, and every capability below are never metered.
 
-import { PLAN_CAPABILITIES, PLAN_CAPABILITY_ORDER, PLAN_FEATURES, PLAN_ORDER, type PlanId } from "@/lib/plans";
+import { PLAN_CAPABILITIES, PLAN_LISTED_CAPABILITY_ORDER, PLAN_FEATURES, PLAN_ORDER, type PlanId } from "@/lib/plans";
 
 export type { PlanId };
 
@@ -102,11 +102,11 @@ const from = (tier: PlanId): Record<PlanId, Cell> => {
   return Object.fromEntries(ORDER.map((p, j) => [p, j >= i])) as Record<PlanId, Cell>;
 };
 
-/** One matrix row per gated capability, in PLAN_CAPABILITY_ORDER. The cells read
+/** One matrix row per gated capability, in PLAN_LISTED_CAPABILITY_ORDER. The cells read
  *  `PLAN_FEATURES[id].capabilities` rather than re-deriving a tier threshold, so a cell is a ✓ exactly
  *  when `planAllows()` would say yes for that tier — the page and the gate cannot disagree. */
 const capabilityRows = (): MatrixRow[] =>
-  PLAN_CAPABILITY_ORDER.map((c) => ({
+  PLAN_LISTED_CAPABILITY_ORDER.map((c) => ({
     label: PLAN_CAPABILITIES[c].label,
     detail: PLAN_CAPABILITIES[c].detail,
     tag: "plan" as const,
