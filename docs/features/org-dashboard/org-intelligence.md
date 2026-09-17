@@ -1121,7 +1121,9 @@ bad logo or contrast before handing a client PDF or share link. OrgShell, the na
 tabs stay Ascent chrome; this is the briefing header only. `BrandingSettings` still prefills from
 the same row, and a live PDF-header mock on a light card beside the fields shows the current brand
 name, accent hex and logo URL against the white PDF surface (the same `accentContrastWarning` as
-the form).
+the form). The form also has a **Download branded PDF** control (`DownloadButton` →
+`GET /api/org/briefing/pdf?org=`), disabled while a save is in flight so the export cannot race
+the write.
 
 **Two denominators, stated on all four surfaces (2026-09-05).** Coverage (`scanned/total`) answers
 "how much was looked at"; the score basis (`realScoredCount`, carried on `ExecBriefing` from the

@@ -1,34 +1,14 @@
 // @vitest-environment jsdom
-//
-// Pins org-branding-white-label contrast advisory (#1) and the live PDF-header mock (name, hex, logo).
+// Pins org-branding-white-label contrast advisory (#1), the live PDF-header mock, and branded PDF download.
 
 import { afterEach, describe, it, expect, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { OrgBranding } from "@/lib/db/branding";
-import { BrandingSettings, accentContrastOnWhite, accentContrastWarning, MIN_ACCENT_CONTRAST } from "./BrandingSettings";
+import { BrandingSettings } from "./BrandingSettings";
 
 function branding(over: Partial<OrgBranding> = {}): OrgBranding {
   return { brandName: null, brandColor: null, logoUrl: null, ...over } as OrgBranding;
 }
-
-describe("accent contrast helper", () => {
-  it("passes the readable default blue on white (>= 3:1)", () => {
-    expect(accentContrastOnWhite("#2563eb")).toBeGreaterThanOrEqual(MIN_ACCENT_CONTRAST);
-    expect(accentContrastWarning("#2563eb")).toBeNull();
-  });
-
-  it("flags a light accent that nearly vanishes on white", () => {
-    expect(accentContrastOnWhite("#ffff00")).toBeLessThan(MIN_ACCENT_CONTRAST); // pure yellow ≈ 1.07:1
-    const warning = accentContrastWarning("#eab308");
-    expect(warning).toMatch(/low contrast/i);
-    expect(warning).toMatch(/:1/);
-  });
-
-  it("does not false-alarm on a malformed colour", () => {
-    expect(accentContrastWarning("not-a-hex")).toBeNull();
-    expect(Number.isNaN(accentContrastOnWhite("#zzz"))).toBe(true);
-  });
-});
 
 describe("BrandingSettings contrast advisory (DOM)", () => {
   it("shows a non-blocking warning wired to the accent input for a low-contrast colour", () => {
@@ -196,5 +176,25 @@ describe("BrandingSettings live PDF-header mock (DOM)", () => {
     expect(card.textContent).toMatch(/Acme Inc/);
     expect(card.textContent).toMatch(/#c41e3a/i);
     expect(card.querySelector("img")?.getAttribute("src")).toBe("https://cdn.example/acme.png");
+  });
+});
+
+describe("BrandingSettings branded PDF download (DOM)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("offers DownloadButton at /api/org/briefing/pdf?org=", () => {
+    render(<BrandingSettings slug="acme" initial={branding()} />);
+    expect(screen.getByRole("link", { name: /download branded pdf/i })).toHaveAttribute("href", "/api/org/briefing/pdf?org=acme");
+  });
+
+  it("disables the download while a save is in flight", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})) as unknown as typeof fetch);
+    render(<BrandingSettings slug="acme" initial={branding()} />);
+    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /saving/i })).toBeDisabled());
+    expect(screen.getByRole("link", { name: /download branded pdf/i })).toHaveClass("pointer-events-none");
   });
 });

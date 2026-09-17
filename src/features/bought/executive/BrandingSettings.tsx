@@ -6,6 +6,8 @@
 
 import type { OrgBranding } from "@/lib/db/branding";
 import { DEFAULT_BRAND_ACCENT, HEX_COLOR_RE } from "@/lib/branding/color";
+import { DownloadButton } from "@/components/report/DownloadButton";
+import { chipButtonClass } from "@/components/ui";
 import { BrandingPreview } from "./BrandingPreview";
 import { useBrandingSettings } from "./useBrandingSettings";
 export { accentContrastOnWhite, accentContrastWarning, MIN_ACCENT_CONTRAST } from "./brandingContrast";
@@ -115,6 +117,14 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
         <button onClick={save} disabled={state === "saving"} aria-busy={state === "saving"} className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50">
           {state === "saving" ? "Saving…" : "Save"}
         </button>
+        {/* Disabled while saving so the PDF export cannot race the branding write. */}
+        <DownloadButton
+          href={`/api/org/briefing/pdf?org=${encodeURIComponent(slug)}`}
+          className={chipButtonClass("idle", state === "saving" ? "pointer-events-none opacity-50" : "")}
+          title="Download the branded briefing PDF"
+        >
+          <span aria-hidden>↓</span> Download branded PDF
+        </DownloadButton>
         </div>
         <BrandingPreview brandName={brandName} brandColor={brandColor} logoUrl={logoUrl} />
       </div>
