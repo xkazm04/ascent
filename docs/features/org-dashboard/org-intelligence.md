@@ -1399,6 +1399,16 @@ Segment fleet-slice mutations record `segment.created` / `segment.updated` / `se
 `segment.bulk_tag`.
 `src/features/admin/audit/AuditLogViewer.tsx` is the searchable, paginated client viewer.
 
+**Details for non-scan rows (2026-09-17).** Scan-linked rows still show the repo, level, SHA and a
+report permalink. Every other row used to render a bare em dash unless the writer had stuffed a
+`status` string into `meta`, so a plan change, a member-role grant, a refused loop PR and a forge
+connect all looked like they carried no payload. The em dash is the product's missing-measurement
+glyph (G4), not a "we did not show this" placeholder. `Details` (`AuditLogCells.tsx`) now prints the
+useful scalar fields from `meta` (`plan`, `login`, `repoFullName`, `reason`, …), keeps `status` as
+the composed sentence writers already send (gate policy, branding, AI stance), never prints `_sig`
+or the redundant `org`, and when nothing displayable was recorded it says **no details recorded** in
+words. The CSV export is unchanged: it still ships the full `meta` JSON.
+
 **The ledger has no delete door (2026-09-05).** The once-per-window claim markers the digest and
 Athena crons write through `claimOrgAuditOnce` used to be hard-deleted by `releaseAuditClaim` when
 the guarded dispatch failed: the only delete on `AuditLog` outside retention, and one that erased the

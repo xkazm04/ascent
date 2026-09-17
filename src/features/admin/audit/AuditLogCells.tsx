@@ -82,9 +82,80 @@ export function Details({ entry }: { entry: AuditLogEntry }) {
       </div>
     );
   }
-  // Non-scan entries: surface the most useful meta field(s) compactly.
-  const status = typeof entry.meta.status === "string" ? entry.meta.status : null;
-  const id = typeof entry.meta.id === "string" ? entry.meta.id : null;
+  return <NonScanDetails meta={entry.meta} />;
+}
+
+// HMAC + the tenant the page is already scoped to. Neither is a detail of the act.
+const SKIP_META = new Set(["_sig", "org"]);
+
+// Prefer the fields writers actually store for non-scan acts; then fill from remaining scalars.
+const META_PRIORITY = [
+  "repo",
+  "repoFullName",
+  "login",
+  "target",
+  "plan",
+  "role",
+  "newRole",
+  "prevRole",
+  "name",
+  "title",
+  "provider",
+  "forge",
+  "reason",
+  "pr",
+  "prNumber",
+  "jti",
+  "module",
+  "itemKey",
+  "verdict",
+  "severity",
+  "branch",
+  "action",
+  "file",
+  "identityMode",
+  "epoch",
+  "emailed",
+] as const;
+
+function scalar(v: unknown): string | null {
+  if (typeof v === "string") {
+    const t = v.trim();
+    return t || null;
+  }
+  if (typeof v === "number" && Number.isFinite(v)) return String(v);
+  if (typeof v === "boolean") return v ? "yes" : "no";
+  return null;
+}
+
+/** Compact `key: value` line from meta scalars. Empty when nothing displayable remains. */
+function compactMeta(meta: Record<string, unknown>): string | null {
+  const parts: string[] = [];
+  const seen = new Set<string>(SKIP_META);
+  const add = (key: string) => {
+    if (seen.has(key) || key === "status") return;
+    const text = scalar(meta[key]);
+    if (!text) return;
+    seen.add(key);
+    parts.push(`${key}: ${text}`);
+  };
+  for (const key of META_PRIORITY) {
+    add(key);
+    if (parts.length >= 4) break;
+  }
+  if (parts.length < 4) {
+    for (const key of Object.keys(meta)) {
+      add(key);
+      if (parts.length >= 4) break;
+    }
+  }
+  return parts.length ? parts.join(" · ") : null;
+}
+
+function NonScanDetails({ meta }: { meta: Record<string, unknown> }) {
+  // Writers that already compose a human sentence (gate policy, branding, stance) keep that line.
+  const status = typeof meta.status === "string" && meta.status.trim() ? meta.status : null;
+  const id = typeof meta.id === "string" && meta.id.trim() ? meta.id : null;
   if (status) {
     return (
       <span className="block max-w-[22rem] truncate type-mono-sm text-slate-300" title={status}>
@@ -93,5 +164,21 @@ export function Details({ entry }: { entry: AuditLogEntry }) {
       </span>
     );
   }
-  return <span className="type-body-sm text-slate-600">—</span>;
+  const line = compactMeta(meta);
+  if (line) {
+    return (
+      <span className="block max-w-[22rem] truncate type-mono-sm text-slate-300" title={line}>
+        {line}
+      </span>
+    );
+  }
+  // G4: an em dash is a missing measurement, not "this row stored nothing we chose to show".
+  return (
+    <span
+      className="type-body-sm text-slate-500"
+      title="This row recorded no displayable details."
+    >
+      no details recorded
+    </span>
+  );
 }
