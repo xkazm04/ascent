@@ -35,6 +35,13 @@ export function isRefundReason(reason: string | null | undefined): boolean {
   return (reason ?? "").trim().toLowerCase() === CREDIT_REASON.REFUND;
 }
 
+/** True iff a ledger reason marks a Polar pack clawback — an EXACT match on CREDIT_REASON.POLAR_REFUND
+ *  (trim/case-tolerant), not a `/refund/i` substring, so only a genuine clawback is excluded from
+ *  reconciliation `debited` and a look-alike reason can never be mis-bucketed as a billing reversal. */
+export function isPolarRefundReason(reason: string | null | undefined): boolean {
+  return (reason ?? "").trim().toLowerCase() === CREDIT_REASON.POLAR_REFUND;
+}
+
 /** Polar pack top-ups (`polar:<orderId>` webhook key, or reason "polar") stamp CREDIT_REASON.POLAR. */
 function grantLedgerReason(opts: { reason?: string; externalId?: string }, delta: number): string {
   const polarTopup =
@@ -502,7 +509,7 @@ export async function sumRefundClawback(orgSlug: string, orderId: string): Promi
   const rows = await prisma.creditLedger.findMany({
     where: {
       orgId: org.id,
-      reason: "polar-refund",
+      reason: CREDIT_REASON.POLAR_REFUND,
       OR: [{ externalId: `polar-refund:${orderId}` }, { externalId: { startsWith: `polar-refund:${orderId}:` } }],
     },
     select: { delta: true },
@@ -546,16 +553,14 @@ export async function getCreditReconciliation(
   });
   const sum = (pred: (e: { delta: number; reason: string }) => boolean, abs = false) =>
     rows.filter(pred).reduce((a, e) => a + (abs ? Math.abs(e.delta) : e.delta), 0);
-  // Bucket by REASON before sign: a Polar refund-clawback is a NEGATIVE delta with reason `polar-refund`
-  // (a /refund/i match). The old `debited: delta < 0` counted that reversal as scan spend, so the /usage
-  // panel reported a billing refund as extra "credits debited". Exclude /refund/i-reason rows from the
-  // scan-spend bucket; the clawback still nets correctly in `net`.
-  const isReversal = (e: { reason: string }) => /refund/i.test(e.reason);
+  // Bucket by REASON before sign: a Polar pack clawback is a NEGATIVE delta stamped
+  // CREDIT_REASON.POLAR_REFUND. The old `debited: delta < 0` counted that reversal as scan spend, so
+  // the /usage panel reported a billing refund as extra "credits debited". Classify on the shared
+  // POLAR_REFUND constant (see isPolarRefundReason), NOT a `/refund/i` substring — a look-alike
+  // reason must never be excluded from scan-spend, and a genuine clawback never lands in `debited`.
+  // The clawback still nets correctly in `net`.
   return {
-    // Exclude reversal-reason rows from scan-spend: a Polar refund-clawback is a NEGATIVE delta with
-    // reason `polar-refund` (an /refund/i match), and counting it as debited would overstate scan spend
-    // on the /usage panel (see the isReversal note above). The clawback still nets correctly in `net`.
-    debited: sum((e) => e.delta < 0 && !isReversal(e), true),
+    debited: sum((e) => e.delta < 0 && !isPolarRefundReason(e.reason), true),
     // Classify positives on the shared CREDIT_REASON.REFUND constant (see isRefundReason), NOT a
     // free-text substring, so a refund stamped with any other reason can't silently land in `granted`.
     refunded: sum((e) => e.delta > 0 && isRefundReason(e.reason)),

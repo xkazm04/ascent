@@ -354,7 +354,7 @@ function fakePrismaForReconciliation(rows: Array<{ delta: number; reason: string
   return { prisma, getArgs: () => lastFindManyArgs };
 }
 
-import { getCreditLedger, getCreditReconciliation, CREDIT_REASON, isRefundReason } from "./credits";
+import { getCreditLedger, getCreditReconciliation, CREDIT_REASON, isRefundReason, isPolarRefundReason } from "./credits";
 import { usageWindow } from "./usage";
 
 /**
@@ -575,6 +575,48 @@ describe("getCreditReconciliation refund-vs-grant classification", () => {
     const rec = await getCreditReconciliation("acme", lastDays(30));
     expect(rec!.refunded).toBe(4);
     expect(rec!.granted).toBe(7);
+  });
+
+  it("classifies clawbacks on CREDIT_REASON.POLAR_REFUND, NOT a /refund/i substring", async () => {
+    // Producers stamp CREDIT_REASON.POLAR_REFUND on Polar pack reversals (negative delta). The reader
+    // must accept that exact constant and reject look-alikes: a negative whose reason merely contains
+    // "refund" is still scan-spend / adjustment, not a billing clawback.
+    expect(isPolarRefundReason(CREDIT_REASON.POLAR_REFUND)).toBe(true);
+    expect(isPolarRefundReason("POLAR-REFUND")).toBe(true); // trim/case-tolerant
+    expect(isPolarRefundReason(" polar-refund ")).toBe(true);
+    expect(isPolarRefundReason(CREDIT_REASON.REFUND)).toBe(false);
+    expect(isPolarRefundReason("order refund")).toBe(false); // substring no longer matches
+    expect(isPolarRefundReason("refunded-pack")).toBe(false);
+
+    const { prisma } = fakePrismaForReconciliation([
+      { delta: -5, reason: CREDIT_REASON.SCAN, createdAt: daysAgo(1) },
+      { delta: -20, reason: CREDIT_REASON.POLAR_REFUND, createdAt: daysAgo(1) }, // clawback → not debited
+      { delta: -7, reason: "order refund", createdAt: daysAgo(1) }, // look-alike substring → still debited
+      { delta: 3, reason: CREDIT_REASON.REFUND, createdAt: daysAgo(1) },
+      { delta: 50, reason: CREDIT_REASON.GRANT, createdAt: daysAgo(1) },
+    ]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const rec = await getCreditReconciliation("acme", lastDays(30));
+    expect(rec!.debited).toBe(12); // |−5| + |−7|; the −20 clawback is excluded
+    expect(rec!.refunded).toBe(3);
+    expect(rec!.granted).toBe(50);
+    expect(rec!.net).toBe(21); // −5 −20 −7 +3 +50
+    expect(rec!.entries).toBe(5);
+  });
+
+  it("a Polar clawback (negative POLAR_REFUND) is not scan spend — it still nets", async () => {
+    const { prisma } = fakePrismaForReconciliation([
+      { delta: -40, reason: CREDIT_REASON.POLAR_REFUND, createdAt: daysAgo(1) },
+    ]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const rec = await getCreditReconciliation("acme", lastDays(30));
+    expect(rec!.debited).toBe(0);
+    expect(rec!.refunded).toBe(0);
+    expect(rec!.granted).toBe(0);
+    expect(rec!.net).toBe(-40);
+    expect(rec!.entries).toBe(1);
   });
 
   it("a negative/adjustment delta is bucketed into `debited` (abs), never into granted/refunded", async () => {
