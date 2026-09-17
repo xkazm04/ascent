@@ -21,7 +21,7 @@ All charts are **dependency-free inline SVG** (no D3/recharts) to keep the bundl
 | Route | Component | Type | Data source |
 | --- | --- | --- | --- |
 | `/report` | `src/app/report/page.tsx` | Client-driven | Live scan over `/api/scan/stream`; reads `?repo=` / `?fresh=1`, plus the optional scan scope `?ref=<branch\|tag\|sha>` / `?path=<sub-dir>` (see [scan.md](../scanning/scan.md#scan-scope-branch--sub-path)). A scoped scan skips the cache peek, always re-scans, is never persisted, and carries a warning that its score isn't comparable with default-branch scans. `Re-test` and the sign-in round-trip both preserve the scope. |
-| `/report/[owner]/[repo]` | `src/app/report/[owner]/[repo]/page.tsx` | Hybrid | Server-renders a persisted scan (`getScanReportByCommit`, optional `@sha`); else falls back to a live stream. Shareable permalink. |
+| `/report/[owner]/[repo]` | `src/app/report/[owner]/[repo]/page.tsx` | Hybrid | Server-renders a persisted scan (`getScanReportByCommit`, optional `@sha`); else `ColdScanGate` (no auto-scan). Shareable permalink. `generateMetadata` claims a score only when a snapshot exists. |
 | `/report/compare` | `src/app/report/compare/page.tsx` | Server | `getScanComparison()` (needs DB). **Two axes:** time (`?a=`/`?b=` — two scans of this repo) and exemplar (`?against=` — this repo vs a peer repo, the org's best, or the public cohort). |
 | `/trends` | `src/app/trends/page.tsx` | Server | `getRepositoryHistory()` (needs DB), to `HISTORY_SCAN_CAP`, the same depth the CSV export uses. Range-filtered chart, plus an all-time trajectory panel and timeline annotations. |
 
@@ -94,6 +94,14 @@ opt-in flag, i.e. a schema change.
 A `/report/{owner}/{repo}` hit with **no persisted snapshot** never auto-starts a scan. It renders
 `ColdScanGate`, which asks first (a shared link shouldn't spend minutes of model time uninvited) and
 keeps any pinned `@sha` on the ref handed to `ReportClient`.
+
+**Cold metadata is not a report.** `generateMetadata` used to emit `{ref}: AI-native maturity` and
+"See {ref}'s AI-native engineering maturity … with evidence and a route to the next level" even when
+`getScanReportByCommit` returned null. A crawler or Slack unfurl then advertised a scored report for
+a URL that renders `ColdScanGate`. A successful empty lookup now titles "No report yet" and does not
+mention a score, a level, or evidence. A thrown lookup is a separate miss ("report unavailable"): it
+is not "never scanned", matching the PDF/LLM 503-vs-404 split. Only a persisted snapshot may claim a
+score.
 
 Under the CTA, `ColdScanTeaser` shows **what a scan produces**, derived from the maturity model: the
 `DIMENSIONS` chips, the `LEVELS` ladder (all five, none marked), and the terms: free for public
@@ -1006,6 +1014,7 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/app/api/report/pdf/route.ts` | Single-report PDF export. Read-gated by the owning org, then plan-gated (`planAllowsPdfExport`, the lowest paid tier `pro` and up); `PUBLIC_ORG` reports are exempt from the plan check, matching the unmetered public-scan model. |
 | `src/lib/pdf/report-document.tsx` | The exported PDF's layout (`@react-pdf/renderer`). Includes a "Roadmap & recommendations" section (title, impact/effort, rationale, sorted quick-wins-first, same ordering as the in-app roadmap), a caveat box surfacing `report.warnings` near the top, a fallback "Incomplete scan" banner for a sparse/zero-dimension report so a degraded scan's PDF reads as caveated rather than a confident empty document, and a "Flagged for review" section listing each LLM-vs-detector discrepancy with its recorded outcome so a board PDF cannot hide disagreement the in-app report shows (G1). |
 | `src/components/report/ReportClient.tsx` | Live-scan orchestration: SSE stream, progress UI, validation. |
+| `src/app/report/[owner]/[repo]/page.tsx` | Shareable permalink. Pinned snapshot or `ColdScanGate`. `generateMetadata` claims a score only for a persisted snapshot; a cold or failed lookup does not unfurl as a maturity report. |
 | `src/components/report/ReportPermalinkShare.tsx` | The header's Permalink control: the canonical URL, the commit-pinned URL, and the README markdown carrying the level line. |
 | `src/components/report/discrepancyOutcome.ts` | Derives one outcome word per "Flagged for review" row from `report.scoreIntegrity` (pure; no stored second copy to drift). |
 | `src/components/report/ReportView.tsx` | The full report render (all sections + trackers/panels). |

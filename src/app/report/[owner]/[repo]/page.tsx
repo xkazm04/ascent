@@ -51,14 +51,27 @@ export async function generateMetadata({
   const { name, sha } = parseRepoParam(repo);
   const ref = `${owner}/${name}`;
   const orgSlug = await resolveReportOrg(owner, await searchParams);
-  const report = await getScanReportByCommit(owner, name, { headSha: sha, orgSlug }).catch(() => null);
+  // A successful empty lookup is cold (never scanned). A thrown read is unavailable. Collapsing
+  // either into the old "See {ref}'s AI-native maturity" unfurl advertised a scored report when
+  // none is on the page, and a blip as "never scanned" (the PDF/LLM 503-vs-404 split).
+  let report: Awaited<ReturnType<typeof getScanReportByCommit>> = null;
+  let lookupFailed = false;
+  try {
+    report = await getScanReportByCommit(owner, name, { headSha: sha, orgSlug });
+  } catch {
+    lookupFailed = true;
+  }
 
   const title = report
     ? `${ref}: ${report.level.id} ${report.level.name} · Ascent`
-    : `${ref}: AI-native maturity · Ascent`;
+    : lookupFailed
+      ? `${ref}: report unavailable · Ascent`
+      : `No report yet for ${ref} · Ascent`;
   const description = report
     ? `${ref} scores ${report.overallScore}/100 (${report.level.id} ${report.level.name}) on Ascent's AI-native maturity index${sha ? ` at ${sha.slice(0, 7)}` : ""}.`
-    : `See ${ref}'s AI-native engineering maturity on Ascent, a 5-level ladder with evidence and a route to the next level.`;
+    : lookupFailed
+      ? `Ascent could not load a scan for ${ref} right now. Try again in a moment.`
+      : `${ref} has not been scanned on Ascent yet.`;
 
   return {
     title,
