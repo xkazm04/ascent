@@ -125,7 +125,7 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   { value: "foundation.reportback_provisioned", label: "Report-back provisioned", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
   { value: "foundation.reportback_revoked", label: "Report-back revoked", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
   { value: "issue.create", label: "Issue created", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
-  { value: "billing.autorecharge", label: "Auto-recharge", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
+  { value: "billing.autorecharge", label: "Low-balance warning", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
   { value: "conformance.reported", label: "Conformance report", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
   { value: "outcomes.backfill", label: "Outcome backfill", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
   // W2 — an evidence pack leaving the building. Amber, not sky: this is a governance-relevant EGRESS

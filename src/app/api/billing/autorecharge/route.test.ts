@@ -94,6 +94,7 @@ describe("GET — before anything is stored", () => {
   it("states plainly that nothing charges automatically", async () => {
     const body = await (await GET(getReq())).json();
     expect(body.chargesAutomatically).toBe(false);
+    expect(body.label).toBe("Low-balance warning");
   });
 
   it("400s without ?org", async () => {

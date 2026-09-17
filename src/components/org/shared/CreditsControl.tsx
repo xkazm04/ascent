@@ -6,12 +6,13 @@
 // are disabled (production), it explains that top-ups go through billing. The recent ledger is loaded
 // lazily when the popover opens. Server passes the initial balance so the chip paints without a fetch.
 //
-// It also carries the opt-in LOW-BALANCE warning (the honest half of "auto-recharge"): a pre-emptive
-// notice + one-click top-up while the balance is still positive, driven by a per-org threshold. Nothing
-// here charges anyone — see CreditsControl.autorecharge.ts for why that is not possible today.
+// It also carries the opt-in LOW-BALANCE warning: a pre-emptive notice + one-click top-up while the
+// balance is still positive, driven by a per-org threshold. Nothing here charges anyone — see
+// CreditsControl.autorecharge.ts for why that is not possible today. Owner-facing chrome labels this
+// "Low-balance warning"; it must not claim a purchase happens without a click.
 //
 // State/effects/handlers live in useCreditsControl.ts — this file is JSX only. Public props are
-// unchanged (a sibling reads the auto-recharge preference through CreditsControl.autorechargeUi's
+// unchanged (a sibling reads the low-balance preference through CreditsControl.autorechargeUi's
 // accessor, so its shape must not move).
 
 import type { CreditPack } from "@/lib/polar";

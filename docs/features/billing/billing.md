@@ -383,22 +383,25 @@ state.
     refused with 403 + `{ granted, cap }`; debits/corrections are never blocked. Deliberately a code
     constant, not an env var: a cap the leaked environment could raise would be no cap at all.
 
-## Low-balance warning (the opt-in "auto-recharge" preference)
+## Low-balance warning
 
 A paying org whose prepaid balance hits 0 used to discover it only from the `paused` chip (or the next
 402); autoscans stall mid-week and nobody is told until someone looks. The counter-measure is an
-**opt-in low-balance warning** with a one-click top-up, armed per org.
+**opt-in low-balance warning** with a one-click top-up, armed per org. Owner-facing chrome (the credits
+popover heading and the audit-trail badge) reads **Low-balance warning**. The machine ids
+(`/api/billing/autorecharge`, `billing.autorecharge`, `Organization.autoRechargeJson`) stay so existing
+clients and rows do not break.
 
-**What it is NOT.** Ascent cannot auto-recharge in the literal sense. The Polar integration is a *hosted
-checkout redirect* plus a *signed fulfilment webhook*; nothing stores a payment method or a Polar
+**What it is NOT.** Ascent cannot charge a saved card when the balance drops. The Polar integration is a
+*hosted checkout redirect* plus a *signed fulfilment webhook*; nothing stores a payment method or a Polar
 customer session, and no off-session charge API is used. Buying credits therefore always requires a
 present human. The constant `AUTO_RECHARGE_CHARGES_AUTOMATICALLY`
 (`src/components/org/shared/CreditsControl.autorecharge.ts`) is hard-wired `false`, every "we top up for
-you" string in the UI is gated on it, and the endpoint returns it as `chargesAutomatically`, so the
-product cannot drift into promising a purchase that would silently never happen. **The one genuinely
-recurring top-up that exists is a Polar *subscription* whose product is also a credit pack: its renewal
-`order.paid` grants credits every cycle (see the webhook above). That is calendar-driven, not
-balance-driven.**
+you" string in the UI is gated on it via `lowBalanceHelpCopy()`, and the endpoint returns it as
+`chargesAutomatically` plus `label: "Low-balance warning"`, so the product cannot drift into promising a
+purchase that would silently never happen. **The one genuinely recurring top-up that exists is a Polar
+*subscription* whose product is also a credit pack: its renewal `order.paid` grants credits every cycle
+(see the webhook above). That is calendar-driven, not balance-driven.**
 
 - **The preference**: `{ enabled, threshold, packProductId }`. `enabled` is the switch (default
   **off**); `threshold` is the balance at which to warn (1…10,000, default **5**, matching
@@ -416,9 +419,10 @@ balance-driven.**
   which is a feature in its own right. **No backfill was run**: `getOrgAutoRecharge` falls back to the
   legacy audit row while the column is NULL, so an org that configured a threshold before the migration
   keeps it, and the next save moves it into the column.
-- **`GET /api/billing/autorecharge?org=`**: read-gated; returns `{ pref, chargesAutomatically, source }`
-  where `source` is `"stored"` or `"default"`. A missing/unreadable preference degrades to the default,
-  which is **off**: failing to read a warning setting must never invent a warning.
+- **`GET /api/billing/autorecharge?org=`**: read-gated; returns
+  `{ pref, chargesAutomatically, label, source }` where `label` is `"Low-balance warning"` and `source`
+  is `"stored"` or `"default"`. A missing/unreadable preference degrades to the default, which is
+  **off**: failing to read a warning setting must never invent a warning.
 - **`PUT /api/billing/autorecharge`**: owner-gated + same-origin. An out-of-range `threshold` is a 400
   (not a silent clamp); a failed **column** write is a **503, never `ok: true`**. A failed *audit* write
   is logged but no longer fails the save: the customer's setting is already durably persisted, so
@@ -428,9 +432,10 @@ balance-driven.**
   `low` (balance still **positive** and `<= threshold`) · `ok`. `low` is the only state the preference
   can produce and it requires `enabled`, so an org that never opts in sees byte-identical behaviour to
   before the feature existed. At 0 the harder `paused`/`covered` states win: they say more.
-- **In the UI**: `CreditsControl`'s popover renders the amber "Running low: N credits left (your alert is
-  set at the threshold). Private scans pause at 0." notice with a direct `/api/billing/checkout` link for
-  the chosen pack, plus the opt-in toggle itself.
+- **In the UI**: `CreditsControl`'s popover renders a **Low-balance warning** heading, the amber
+  "Running low: N credits left (your alert is set at the threshold). Private scans pause at 0." notice
+  with a direct `/api/billing/checkout` link for the chosen pack, and the opt-in "Warn me before I run
+  out" toggle. Help copy says this warns and offers a one-click top-up; it does not buy credits.
 
 ## Ledger & consumption safety (`src/lib/db/credits.ts`)
 
