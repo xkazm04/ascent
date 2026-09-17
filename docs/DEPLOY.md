@@ -10,7 +10,10 @@ Direct-push-to-master **is** the delivery topology: the push is the release act.
 queue or merge gate in front of production, so the full blocking gate is `npm run verify`
 (lint → typecheck → tests+coverage → build), enforced **before** the push by
 [`.githooks/pre-push`](../.githooks/pre-push) on any push updating `refs/heads/master`
-(wired via `core.hooksPath`, set by the `prepare` script on `npm install`). The escape hatch is
+(wired via `core.hooksPath`, set by the `prepare` script on `npm install`). On Windows the hook
+prefers `npm.cmd` over the unix `npm` shim: Git-for-Windows (and Grok's bundled git) inherit a
+Windows PATH, so `#!/usr/bin/env bash` resolves to `C:\WINDOWS\system32\bash` (WSL) which cannot
+exec `C:/nvm4w/nodejs/npm`. The escape hatch is
 `ASCENT_SKIP_GATE=1 git push` — emergencies only, and the reason must be recorded (commit message
 or a note here). A red `master` is an **outage**: fix it before the next feature. After every
 master push, run `gh run watch --exit-status` and follow CI to its verdict.

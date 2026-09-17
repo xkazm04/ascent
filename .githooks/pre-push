@@ -28,6 +28,24 @@ if [ "$ASCENT_SKIP_GATE" = "1" ]; then
   exit 0
 fi
 
+# Windows / Git-for-Windows / Grok's bundled git inherit a Windows PATH. The unix `npm`
+# shim (`#!/usr/bin/env bash`) then execs `C:\WINDOWS\system32\bash` (WSL), which cannot
+# see `C:/nvm4w/nodejs/npm` and dies with ENOENT. The cmd shim works. POSIX `command -v`
+# will not list `*.cmd`, so walk PATH for the file itself. Linux/macOS have no npm.cmd.
+npm_cmd=
+old_ifs=$IFS
+IFS=:
+for d in $PATH; do
+  if [ -n "$d" ] && [ -f "$d/npm.cmd" ]; then
+    npm_cmd="$d/npm.cmd"
+    break
+  fi
+done
+IFS=$old_ifs
+if [ -n "$npm_cmd" ]; then
+  npm() { "$npm_cmd" "$@"; }
+fi
+
 echo "pre-push: push targets master — running the gate: npm run verify (lint, typecheck, tests+coverage, build)..." >&2
 
 npm run verify || {
