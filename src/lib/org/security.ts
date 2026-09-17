@@ -209,6 +209,36 @@ export async function buildSecurityOverview(
 /** How many gate-failing repos the display surfaces (tiles/cards) list — a UI bound, NOT a data cap. */
 export const FAILING_DISPLAY_CAP = 8;
 
+/** Display caps for the auditor PDF / LLM "What to fix" block (failing rows only). */
+export const WHAT_TO_FIX_REPO_CAP = 8;
+export const WHAT_TO_FIX_ISSUE_CAP = 4;
+
+/** One failing register row as the PDF and the LLM brief render it under "What to fix". */
+export interface SecurityFixItem {
+  name: string;
+  fullName: string;
+  summary: string;
+  issues: string[];
+  moreIssues: number;
+}
+
+/**
+ * Capped "What to fix" for the auditor PDF and the LLM brief. Failing rows only; reads `r.issues` /
+ * `r.summary` as they already sit on the register — does not re-derive from `r.checks`. Both fields
+ * travel so an LLM headline cannot silently replace the detector gaps (G1).
+ */
+export function securityWhatToFix(register: SecurityRegisterRow[]): { items: SecurityFixItem[]; moreRepos: number } {
+  const eligible = register.filter((r) => r.gateReason && (r.summary || r.issues.length > 0));
+  const items = eligible.slice(0, WHAT_TO_FIX_REPO_CAP).map((r) => ({
+    name: r.name,
+    fullName: r.fullName,
+    summary: r.summary,
+    issues: r.issues.slice(0, WHAT_TO_FIX_ISSUE_CAP),
+    moreIssues: Math.max(0, r.issues.length - WHAT_TO_FIX_ISSUE_CAP),
+  }));
+  return { items, moreRepos: eligible.length - items.length };
+}
+
 /**
  * The paste-ready CI gate snippet ("Copy CI gate snippet") — one curl per gate-failing repo, built
  * from the FULL register, never the display-capped `securityGate.failingRepos`: an org with 20
@@ -226,6 +256,7 @@ export function buildGateSnippet(o: SecurityOverview): string {
 }
 
 /** A security-focused markdown brief for the "Copy for LLM" action — ends with a remediation ASK.
+ *  Failing register rows append a capped "What to fix" from `r.issues` / `r.summary` (not from checks).
  *  `supply` (optional) appends the Dependabot supply-chain signal when scanning is enabled. */
 export function securityMarkdown(o: SecurityOverview, supply?: OrgSupplyChain | null): string {
   const out: string[] = [];
@@ -263,6 +294,17 @@ export function securityMarkdown(o: SecurityOverview, supply?: OrgSupplyChain | 
     out.push(`| ${r.name} | ${r.measured ? `${r.score}/100` : "not measured"} | ${gate} | ${rules} |${adv != null ? ` ${adv} |` : ""}`);
   }
   if (o.register.length > REGISTER_CAP) out.push(`…and ${o.register.length - REGISTER_CAP} more repos (see the dashboard's risk register).`);
+  const { items: fixItems, moreRepos: moreFix } = securityWhatToFix(o.register);
+  if (fixItems.length) {
+    out.push("");
+    out.push("## What to fix");
+    for (const r of fixItems) {
+      out.push(`- ${r.name}${r.summary ? `: ${r.summary}` : ""}`);
+      for (const issue of r.issues) out.push(`  - ${issue}`);
+      if (r.moreIssues) out.push(`  - …and ${r.moreIssues} more issues`);
+    }
+    if (moreFix) out.push(`…and ${moreFix} more failing repos (see the dashboard's risk register).`);
+  }
   if (o.unprotected.length) {
     out.push("");
     out.push("## Repos with no default-branch protection");

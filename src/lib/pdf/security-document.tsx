@@ -5,7 +5,7 @@
 // Stat, Footer) with briefing-document.tsx + report-document.tsx via ./theme.
 
 import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
-import type { SecurityOverview } from "@/lib/org/security";
+import { securityWhatToFix, type SecurityOverview } from "@/lib/org/security";
 import type { OrgSupplyChain } from "@/lib/security/supply-chain";
 import { FAINT, baseStyles, scoreColor, Stat, Footer } from "./theme";
 import { latin1Safe } from "./latin1";
@@ -32,6 +32,7 @@ export function SecurityDocument({ overview, supply }: { overview: SecurityOverv
   // (including the degraded/UNKNOWN state). With scanning off, this is a security-posture report.
   const subject = supply ? "Supply-chain & security posture" : "Security posture";
   const supplyRepos = supply && supply.scanned > 0 ? supply.repos.filter((r) => r.total > 0) : [];
+  const fix = securityWhatToFix(o.register);
   return (
     <Document title={`Ascent security posture — ${o.org}`} author="Ascent" subject={subject}>
       <Page size="A4" style={baseStyles.page}>
@@ -85,6 +86,29 @@ export function SecurityDocument({ overview, supply }: { overview: SecurityOverv
               </View>
             ))}
             {o.register.length > 20 ? <Text style={baseStyles.muted}>…and {o.register.length - 20} more repos.</Text> : null}
+          </View>
+        )}
+
+        {fix.items.length > 0 && (
+          <View>
+            <View style={baseStyles.rule} />
+            <Text style={baseStyles.sectionH}>What to fix</Text>
+            {fix.items.map((r) => (
+              <View key={r.fullName} style={{ marginBottom: 6 }}>
+                <Text>{latin1Safe(r.summary ? `${r.name}: ${r.summary}` : r.name)}</Text>
+                {r.issues.map((issue, i) => (
+                  <Text key={`${r.fullName}-${i}`} style={{ marginTop: 2, ...baseStyles.muted }}>
+                    - {latin1Safe(issue)}
+                  </Text>
+                ))}
+                {r.moreIssues > 0 ? (
+                  <Text style={{ marginTop: 2, ...baseStyles.muted }}>{`…and ${r.moreIssues} more issues`}</Text>
+                ) : null}
+              </View>
+            ))}
+            {fix.moreRepos > 0 ? (
+              <Text style={baseStyles.muted}>{`…and ${fix.moreRepos} more failing repos.`}</Text>
+            ) : null}
           </View>
         )}
 

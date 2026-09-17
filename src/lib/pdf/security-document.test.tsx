@@ -11,7 +11,7 @@
 import { describe, it, expect } from "vitest";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { SecurityDocument } from "./security-document";
-import type { SecurityOverview, SecurityRegisterRow } from "@/lib/org/security";
+import { WHAT_TO_FIX_ISSUE_CAP, WHAT_TO_FIX_REPO_CAP, type SecurityOverview, type SecurityRegisterRow } from "@/lib/org/security";
 import type { OrgSupplyChain } from "@/lib/security/supply-chain";
 
 function overview(overrides: Partial<SecurityOverview> = {}): SecurityOverview {
@@ -196,5 +196,124 @@ describe("SecurityDocument — unmeasured D9 is a void, never the fail-closed 0"
     }) as ReactElement;
     expect(d9CellOf(el, "web")).toBe("72");
     expect(d9CellOf(el, "floor")).toBe("0");
+  });
+});
+
+describe("SecurityDocument — What to fix from failing rows' issues/summary", () => {
+  it("renders failing-row issues and summary, and does not invent a findings list from checks", () => {
+    const el = SecurityDocument({
+      overview: overview({
+        register: [
+          registerRow({
+            name: "legacy-api",
+            fullName: "acme/legacy-api",
+            score: 22,
+            gateReason: "Security 22 < 50",
+            issues: ["No SAST configuration visible", "No SBOM generation evidenced"],
+            summary: "Weak supply-chain posture.",
+            checks: [
+              {
+                id: "sast",
+                name: "SAST",
+                group: "posture",
+                risk: "medium",
+                score: 0,
+                detail: "INVENTED-FROM-CHECKS",
+              },
+            ],
+          }),
+          registerRow({
+            name: "web",
+            fullName: "acme/web",
+            score: 72,
+            issues: ["passing-row-issue"],
+            summary: "Passing summary.",
+          }),
+        ],
+      }),
+    }) as ReactElement;
+    const text = collectText(el).join(" ");
+    expect(text).toContain("What to fix");
+    expect(text).toContain("Weak supply-chain posture.");
+    expect(text).toContain("No SAST configuration visible");
+    expect(text).toContain("No SBOM generation evidenced");
+    expect(text).not.toContain("passing-row-issue");
+    expect(text).not.toContain("Passing summary.");
+    expect(text).not.toContain("INVENTED-FROM-CHECKS");
+  });
+
+  it("keeps a disagreeing summary next to the detector issues (G1)", () => {
+    const el = SecurityDocument({
+      overview: overview({
+        register: [
+          registerRow({
+            name: "api",
+            fullName: "acme/api",
+            score: 22,
+            gateReason: "Security 22 < 50",
+            summary: "Model notes Dependabot is present.",
+            issues: ["No Dependabot alerts configuration visible"],
+          }),
+        ],
+      }),
+    }) as ReactElement;
+    const text = collectText(el).join(" ");
+    expect(text).toContain("Model notes Dependabot is present.");
+    expect(text).toContain("No Dependabot alerts configuration visible");
+  });
+
+  it("omits the section when no failing row carries issues or summary", () => {
+    const el = SecurityDocument({
+      overview: overview({
+        register: [registerRow({ gateReason: "Security 22 < 50", issues: [], summary: "" })],
+      }),
+    }) as ReactElement;
+    expect(collectText(el).join(" ")).not.toContain("What to fix");
+  });
+
+  it("renders capped issues and a remainder for extra failing repos", () => {
+    const manyIssues = Array.from({ length: WHAT_TO_FIX_ISSUE_CAP + 2 }, (_, i) => `gap-${i}`);
+    const el = SecurityDocument({
+      overview: overview({
+        register: Array.from({ length: WHAT_TO_FIX_REPO_CAP + 1 }, (_, i) =>
+          registerRow({
+            name: `r-${i}`,
+            fullName: `acme/r-${i}`,
+            score: 22,
+            gateReason: "Security 22 < 40",
+            issues: manyIssues,
+            summary: "",
+          }),
+        ),
+      }),
+    }) as ReactElement;
+    const text = collectText(el).join(" ");
+    expect(text).toContain("gap-0");
+    expect(text).toContain("…and 2 more issues");
+    expect(text).not.toContain(`gap-${WHAT_TO_FIX_ISSUE_CAP}`);
+    expect(text).toContain("…and 1 more failing repos.");
+  });
+
+  it("an unmeasured failing row with issues still voids the D9 cell (no numeral)", () => {
+    const el = SecurityDocument({
+      overview: overview({
+        register: [
+          registerRow({
+            name: "legacy",
+            fullName: "acme/legacy",
+            score: 0,
+            measured: false,
+            gateReason: "D9 not measured",
+            issues: ["Re-scan so D9 can be measured"],
+            summary: "No D9 row on the latest scan.",
+          }),
+        ],
+      }),
+    }) as ReactElement;
+    expect(d9CellOf(el, "legacy")).not.toMatch(/\d/);
+    const text = collectText(el).join(" ");
+    expect(text).toContain("What to fix");
+    expect(text).toContain("Re-scan so D9 can be measured");
+    expect(text).toContain("No D9 row on the latest scan.");
   });
 });
