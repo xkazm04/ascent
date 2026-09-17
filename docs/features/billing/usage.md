@@ -48,7 +48,9 @@ is reported per lane so a `$0.00` line reads as "nothing to price", not "free". 
 the **scan lane applies the same BYOM rule**: scans with `engineByom: true` are grouped separately,
 never priced (a BYOM-only window prices as `null`, never `$0.00`, and the env-rate override is
 refused when every token is BYOM), and `UsageSummary.byomScans` drives a "N BYOM scans, unpriced"
-note beside the estimate. Their tokens still count in the volume tiles.
+note beside the estimate. When every unpriced call in the window is BYOM, the Est. cost tile shows
+that note alone — it does not tell the operator to set `LLM_*_COST_PER_MTOK`, which cannot price a
+BYOM scan. Their tokens still count in the volume tiles.
 
 **Free-to-paid conversion is the same contract.** `freeToPaidConversion` (`src/lib/db/kpi-metrics.ts`,
 surfaced on `GET /api/kpi` as `NOT_MEASURABLE` when the producer returns null) is the share of orgs
