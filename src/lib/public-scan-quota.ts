@@ -1,8 +1,11 @@
-// Soft MONTHLY quota for public scans — the Free plan's 5 scans/month applied to the public funnel,
-// as a persistent per-IP (anon) / per-user (signed-in) allowance on top of the per-minute in-memory
-// burst limiter (src/lib/rate-limit.ts). A single public scan = a GitHub ingest + an LLM completion
-// (real $), and the public funnel is free + no-signup, so without a longer-horizon cap a casual user
-// (or a cheap script) can graze indefinitely. This caps that at N scans per rolling 30-day window.
+// Soft MONTHLY quota for public scans — publicScanAllowance() / publicScanMonthlyLimit() applied to
+// every anonymous public scan (and the elevated signed-in sibling via signedInScanMonthlyLimit()), as
+// a persistent per-IP (anon) / per-user (signed-in) allowance on top of the per-minute in-memory
+// burst limiter (src/lib/rate-limit.ts). Not PLAN_FEATURES.free.includedCredits (the hosted Free
+// tier's private-scan allotment): this gate runs for the public funnel regardless of plan. A single
+// public scan = a GitHub ingest + an LLM completion (real $), and the public funnel is free +
+// no-signup, so without a longer-horizon cap a casual user (or a cheap script) can graze indefinitely.
+// This caps that at N scans per rolling 30-day window.
 // Beyond the allowance the caller hits the upgrade / add-credits wall (monthlyQuotaExceeded) — the
 // same allowance-then-pay shape private scans get (src/lib/entitlement.ts).
 //
@@ -355,11 +358,14 @@ export async function refundPublicScanQuota(
 export function monthlyQuotaExceeded(result: QuotaResult): Response {
   const scope = result.signedIn ? "user" : "anon";
   // DERIVE the allowance from the scope that actually tripped — the SAME limit consumePublicScanQuota
-  // charged against (signed-in viewers get the elevated per-user tier). The old copy hardcoded "5",
-  // which lied on any PUBLIC_SCAN_MONTHLY_LIMIT / *_SIGNED_IN override or the elevated signed-in tier —
-  // a user-facing untruth about how many scans they get, on the exact upgrade prompt that must be
-  // trustworthy. Pluralize so a limit of 1 doesn't read "1 free scans".
-  const limit = result.signedIn ? signedInScanMonthlyLimit() : publicScanMonthlyLimit();
+  // charged against (signed-in viewers get the elevated per-user tier). Anonymous callers read
+  // publicScanAllowance().limit (publicScanMonthlyLimit()); signed-in callers read
+  // signedInScanMonthlyLimit(). This window is every public scan's, not a Free-plan entitlement.
+  // The old copy hardcoded "5", which lied on any PUBLIC_SCAN_MONTHLY_LIMIT / *_SIGNED_IN override
+  // or the elevated signed-in tier — a user-facing untruth about how many scans they get, on the
+  // exact upgrade prompt that must be trustworthy. Pluralize so a limit of 1 doesn't read "1 free scans".
+  const allowance = publicScanAllowance();
+  const limit = result.signedIn ? signedInScanMonthlyLimit() : allowance.limit;
   // Beyond the free monthly allowance the next scan needs a paid plan (which bundles more scans) or
   // prepaid scan credits — the same allowance-then-pay shape as a private scan.
   //

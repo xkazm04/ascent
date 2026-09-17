@@ -272,8 +272,10 @@ Every `RateLimitConfig` declares a required `basis`:
 ### The free public-scan allowance (`src/lib/public-scan-limit.ts` + `public-scan-quota.ts`)
 
 Layered **on top of** the per-minute burst limiter, and a different kind of thing: a persistent,
-per-IP (anonymous) / per-user (signed-in) allowance of **5 free public scans per rolling 30-day
-window**, salted-hashed at rest, deliberately soft and fail-open. It is not billing — a public scan
+per-IP (anonymous) / per-user (signed-in) allowance from `publicScanAllowance()` /
+`publicScanMonthlyLimit()` (default **5** free public scans per rolling 30-day window),
+salted-hashed at rest, deliberately soft and fail-open. It applies to **every anonymous public
+scan**, on every plan — not `PLAN_FEATURES.free.includedCredits`. It is not billing — a public scan
 never touches the plan allowance or a credit (see `billing.md`) — it is a cost nudge on a free,
 no-signup funnel.
 

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { Prisma } from "@prisma/client";
 
@@ -351,6 +353,40 @@ describe("monthlyQuotaExceeded — derives the limit from the tripped scope", ()
       expect(PLAN_FEATURES.pro.id).toBe("pro"); // the id did not move; only the name a buyer reads
       expect(body.error).not.toMatch(/Upgrade to Pro\b/);
     });
+  });
+
+  it("does not describe the public quota as a Free-plan entitlement", async () => {
+    await withEnv({}, async () => {
+      const { body } = await errorOf(denied(false));
+      expect(body.error).not.toMatch(/Free plan/i);
+      expect(body.error).toContain(`your ${publicScanAllowance().limit} free scan`);
+    });
+  });
+});
+
+// The public funnel's rolling window is publicScanAllowance() / publicScanMonthlyLimit() for every
+// anonymous public scan. Calling it the Free plan's monthly allotment conflates two numbers
+// (PLAN_FEATURES.free.includedCredits is the private-scan allotment) and a plan the anonymous
+// visitor does not have.
+describe("public-scan quota copy is not a Free-plan allotment", () => {
+  const files = [
+    "src/lib/public-scan-quota.ts",
+    "src/lib/public-scan-limit.ts",
+    "src/lib/scan-finalize.ts",
+  ];
+
+  it("zero production files attribute the quota to the Free plan's monthly scan count", () => {
+    const hits = files.filter((f) =>
+      /the Free plan's \d+ scans\/month/.test(readFileSync(join(process.cwd(), f), "utf8")),
+    );
+    expect(hits).toEqual([]);
+  });
+
+  it("public-scan-quota.ts derives the allowance from publicScanAllowance / publicScanMonthlyLimit", () => {
+    const src = readFileSync(join(process.cwd(), "src/lib/public-scan-quota.ts"), "utf8");
+    expect(src).toMatch(/publicScanAllowance\(\)/);
+    expect(src).toMatch(/publicScanMonthlyLimit\(\)/);
+    expect(src).toMatch(/every anonymous public scan/);
   });
 });
 

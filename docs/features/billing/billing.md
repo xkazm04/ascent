@@ -151,10 +151,12 @@ entitlement **before** paid inference and debits/records **after**, so a cache/d
 degrade-to-mock run is never charged.
 
 - **Public scans**: never touch the plan allowance or credits — they cost the visitor nothing. They
-  are separately capped at a free monthly allowance (`publicScanAllowance()`,
-  `src/lib/public-scan-limit.ts`; default **5** per rolling 30-day window, per anonymous IP or
-  per signed-in user), enforced by `src/lib/public-scan-quota.ts` and shown live by the scan
-  dialog's `QuotaMeter`. **Never describe them as "unlimited" or "unmetered"** — a meter is
+  are separately capped at a free monthly allowance (`publicScanAllowance()` /
+  `publicScanMonthlyLimit()`, `src/lib/public-scan-limit.ts`; default **5** per rolling 30-day
+  window, per anonymous IP or per signed-in user), enforced by `src/lib/public-scan-quota.ts` and
+  shown live by the scan dialog's `QuotaMeter`. This gate applies to **every anonymous public
+  scan**, on every plan — it is not `PLAN_FEATURES.free.includedCredits` (the hosted Free tier's
+  private-scan allotment). **Never describe them as "unlimited" or "unmetered"** — a meter is
   rendered on the same screen. Every surface that states the number derives it from that one
   function: the Free card and blurb (`PLAN_SPECS.free`), `/pricing`'s metadata and footnote, the
   landing FAQ's JSON-LD, the 429 body, and the credit-matrix public-scan row (`creditMatrixData.ts`:

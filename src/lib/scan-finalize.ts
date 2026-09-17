@@ -51,11 +51,12 @@ const noopQuota: ScanQuotaResult = {
 };
 
 /**
- * Monthly SOFT gate for public scans: the Free plan's 5 scans/month, bucketed per-user (signed-in) or
- * per-IP (anon). Only real, public, non-mock scans count (a cache hit / peek / private token scan skips
- * this). Consumes
- * one slot and returns the header fields + a `refund()` thunk that hits the same bucket the slot was
- * charged to. Fails open (proceeds) when persistence isn't configured. Identical in both scan routes.
+ * Monthly SOFT gate for public scans: publicScanAllowance() / publicScanMonthlyLimit(), bucketed
+ * per-user (signed-in) or per-IP (anon). Applies to every anonymous public scan, not a Free-plan
+ * entitlement. Only real, public, non-mock scans count (a cache hit / peek / private token scan skips
+ * this). Consumes one slot and returns the header fields + a `refund()` thunk that hits the same
+ * bucket the slot was charged to. Fails open (proceeds) when persistence isn't configured. Identical
+ * in both scan routes.
  */
 export async function consumeScanQuota(
   req: Request,
