@@ -127,6 +127,11 @@ passing `installationId` while throttled gets `401` there and `429` on the strea
 
 - `progress`: `{ stage, message, pct, provider?, region?, fallback? }` where `stage` ∈
   `fetch | tree | files | analyze | score | compose | done`.
+- `persisted`: `{ ok: boolean }`, emitted **before** `result`. `ok` is true only when this
+  scan is in the durable store (new row or commit dedup). The live-scan page rewrites
+  `/report?repo=` to `/report/{owner}/{repo}` only then — a persist miss (DB off, scoped,
+  degraded/low-coverage) leaves the job URL in the address bar so a reload cannot unfurl a
+  cold permalink as a scored report. See [report.md](../reporting/report.md).
 - `result`: the final `ScanReport`.
 - `error`: `{ error, code? }`.
 - A `: ping` comment is emitted every ~15s so idle proxies don't drop the connection.

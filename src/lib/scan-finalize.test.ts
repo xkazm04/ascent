@@ -66,7 +66,7 @@ describe("cacheAndPersistScan — interactive regression alert wiring", () => {
 
     const out = await cacheAndPersistScan(fresh, AUTHORITATIVE, { ...OPTS });
 
-    expect(out).toEqual({ deduped: false, persistedOk: true });
+    expect(out).toEqual({ deduped: false, persistedOk: true, durable: true });
     // Baseline was read for THIS repo+org (the diff target)...
     expect(mockPrev).toHaveBeenCalledWith("acme", "api", { orgSlug: "acme" });
     // ...and the check ran once with (prev, freshReport, {orgId, orgSlug}) — mirroring cron/webhook.
@@ -102,7 +102,7 @@ describe("cacheAndPersistScan — interactive regression alert wiring", () => {
   it("does NOT persist NOR fire the check on a non-authoritative (degraded) report", async () => {
     const out = await cacheAndPersistScan(report(), DEGRADED, { ...OPTS });
 
-    expect(out).toEqual({ deduped: false, persistedOk: true });
+    expect(out).toEqual({ deduped: false, persistedOk: true, durable: false });
     expect(mockPersist).not.toHaveBeenCalled();
     expect(mockPrev).not.toHaveBeenCalled();
     expect(mockCheck).not.toHaveBeenCalled();
@@ -116,6 +116,7 @@ describe("cacheAndPersistScan — interactive regression alert wiring", () => {
     await expect(cacheAndPersistScan(report(), AUTHORITATIVE, { ...OPTS })).resolves.toEqual({
       deduped: false,
       persistedOk: true,
+      durable: true,
     });
   });
 
@@ -137,5 +138,31 @@ describe("cacheAndPersistScan — interactive regression alert wiring", () => {
     await cacheAndPersistScan(fresh, AUTHORITATIVE, { ...OPTS });
 
     expect(mockCheck).toHaveBeenCalledWith(prevReport, fresh, { orgId: undefined, orgSlug: "acme" });
+  });
+
+  it("durable is false when persistence is not configured — a permalink rewrite would be a lie", async () => {
+    mockDbConfigured.mockReturnValue(false);
+    const out = await cacheAndPersistScan(report(), AUTHORITATIVE, { ...OPTS });
+    expect(out).toEqual({ deduped: false, persistedOk: true, durable: false });
+    expect(mockPersist).not.toHaveBeenCalled();
+  });
+
+  it("durable is false when persist:false (scoped scan — not the repo's standing)", async () => {
+    mockPersist.mockResolvedValue(persisted(false) as never);
+    const out = await cacheAndPersistScan(report(), AUTHORITATIVE, { ...OPTS, persist: false });
+    expect(out.durable).toBe(false);
+    expect(mockPersist).not.toHaveBeenCalled();
+  });
+
+  it("durable is false when the persist write throws", async () => {
+    mockPersist.mockRejectedValue(new Error("rollback"));
+    const out = await cacheAndPersistScan(report(), AUTHORITATIVE, { ...OPTS });
+    expect(out).toEqual({ deduped: false, persistedOk: false, durable: false });
+  });
+
+  it("a commit dedup is still durable — the permalink already resolves for that sha", async () => {
+    mockPersist.mockResolvedValue(persisted(true) as never);
+    const out = await cacheAndPersistScan(report(), AUTHORITATIVE, { ...OPTS });
+    expect(out).toEqual({ deduped: true, persistedOk: true, durable: true });
   });
 });

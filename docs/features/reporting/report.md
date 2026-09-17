@@ -20,7 +20,7 @@ All charts are **dependency-free inline SVG** (no D3/recharts) to keep the bundl
 
 | Route | Component | Type | Data source |
 | --- | --- | --- | --- |
-| `/report` | `src/app/report/page.tsx` | Client-driven | Live scan over `/api/scan/stream`; reads `?repo=` / `?fresh=1`, plus the optional scan scope `?ref=<branch\|tag\|sha>` / `?path=<sub-dir>` (see [scan.md](../scanning/scan.md#scan-scope-branch--sub-path)). A scoped scan skips the cache peek, always re-scans, is never persisted, and carries a warning that its score isn't comparable with default-branch scans. `Re-test` and the sign-in round-trip both preserve the scope. |
+| `/report` | `src/app/report/page.tsx` | Client-driven | Live scan over `/api/scan/stream`; reads `?repo=` / `?fresh=1`, plus the optional scan scope `?ref=<branch\|tag\|sha>` / `?path=<sub-dir>` (see [scan.md](../scanning/scan.md#scan-scope-branch--sub-path)). A scoped scan skips the cache peek, always re-scans, is never persisted, and carries a warning that its score isn't comparable with default-branch scans. `Re-test` and the sign-in round-trip both preserve the scope. After an unscoped scan is **persisted**, the client rewrites the address bar from `/report?repo=` to the durable `/report/{owner}/{repo}` permalink via `history.replaceState` (not a router navigation — that would remount the force-dynamic tree). The rewrite is withheld when persist did not happen (DB off, scoped, degraded/low-coverage, in-memory cache only), so a reload cannot land on `ColdScanGate` under a URL that looks scored. |
 | `/report/[owner]/[repo]` | `src/app/report/[owner]/[repo]/page.tsx` | Hybrid | Server-renders a persisted scan (`getScanReportByCommit`, optional `@sha`); else `ColdScanGate` (no auto-scan). Shareable permalink. `generateMetadata` claims a score only when a snapshot exists. |
 | `/report/compare` | `src/app/report/compare/page.tsx` | Server | `getScanComparison()` (needs DB). **Two axes:** time (`?a=`/`?b=` — two scans of this repo) and exemplar (`?against=` — this repo vs a peer repo, the org's best, or the public cohort). |
 | `/trends` | `src/app/trends/page.tsx` | Server | `getRepositoryHistory()` (needs DB), to `HISTORY_SCAN_CAP`, the same depth the CSV export uses. Range-filtered chart, plus an all-time trajectory panel and timeline annotations. |
@@ -101,7 +101,8 @@ keeps any pinned `@sha` on the ref handed to `ReportClient`.
 a URL that renders `ColdScanGate`. A successful empty lookup now titles "No report yet" and does not
 mention a score, a level, or evidence. A thrown lookup is a separate miss ("report unavailable"): it
 is not "never scanned", matching the PDF/LLM 503-vs-404 split. Only a persisted snapshot may claim a
-score.
+score. The live-scan address-bar rewrite (below) is gated on the same fact: it never puts this URL
+in the bar until a snapshot exists, so an unfurl of the rewritten URL cannot be a cold miss.
 
 Under the CTA, `ColdScanTeaser` shows **what a scan produces**, derived from the maturity model: the
 `DIMENSIONS` chips, the `LEVELS` ladder (all five, none marked), and the terms: free for public
@@ -118,6 +119,13 @@ headline, stage checklist), then validates the `result` payload with `parseScanR
 before handing it to `ReportView`. A malformed scan becomes a clean error, not a render
 crash. `ReportErrorBoundary` wraps both for render-time safety, and `onRetest()` re-runs a
 fresh scan in place.
+
+When the stream's `persisted` frame (or a DB peek/salvage) says this scan is in the durable
+store, `ReportClient` rewrites the address bar from `/report?repo=owner/name` to
+`/report/owner/name` with `history.replaceState` (`liveScanPermalink.ts`). Tab switches after
+that rewrite read `window.location.pathname` so they cannot revert the bar to `/report?tab=`.
+A scoped scan, a memory-only peek, and a persist miss leave the job URL in place. The header
+Permalink control still hands over the same address (and the commit-pinned variant) for copy.
 
 `ReportView` (`src/components/report/ReportView.tsx`) renders, in order:
 

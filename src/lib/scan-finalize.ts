@@ -118,9 +118,12 @@ export function classifyScanResult(report: ScanReport, mock: boolean): ScanResul
  * Cache + persist a scan report behind the shared cache-poisoning guards: skip BOTH the in-memory cache
  * (cacheSet) and the durable store (persistScanReport) when the report degraded to mock or is low-coverage,
  * so getScanReportByCommit's DB tier can't re-serve the deterministic floor cross-instance under ::llm.
- * Returns `deduped` (whether the commit was already scored — no new row) and `persistedOk` (false when an
- * atomic persist threw and the whole scan rolled back). The stream route ignores both; the JSON route uses
- * them for its dedup-refund + degraded-persist header.
+ * Returns `deduped` (whether the commit was already scored — no new row), `persistedOk` (false when an
+ * atomic persist threw and the whole scan rolled back), and `durable` (true only when THIS report is
+ * in the durable store — new row or dedup — so a `/report/{owner}/{repo}` permalink will resolve).
+ * The JSON route uses `deduped`/`persistedOk` for its refund + degraded-persist header; the stream
+ * route emits `durable` as the `persisted` SSE frame so the live-scan client can rewrite the address
+ * bar without advertising a cold permalink.
  */
 export async function cacheAndPersistScan(
   report: ScanReport,
@@ -148,7 +151,7 @@ export async function cacheAndPersistScan(
      */
     persist?: boolean;
   },
-): Promise<{ deduped: boolean; persistedOk: boolean }> {
+): Promise<{ deduped: boolean; persistedOk: boolean; durable: boolean }> {
   const { degradedToMock, lowCoverage, partialPrSlice } = cls;
   const { lookup, persist = true } = opts;
   // A truncated PR slice is the third poisoning vector, alongside a mock fallback and low coverage: its
@@ -218,5 +221,9 @@ export async function cacheAndPersistScan(
       }
     }
   }
-  return { deduped, persistedOk };
+  // True only when a later `/report/{owner}/{repo}` hit will serve THIS scan. DB-off, scoped,
+  // non-authoritative, and a thrown persist all stay false — rewriting the live-scan address bar
+  // in those cases would land a reload on ColdScanGate under a URL that looks scored.
+  const durable = Boolean(persist && authoritative && persistedOk && isDbConfigured());
+  return { deduped, persistedOk, durable };
 }

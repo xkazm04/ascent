@@ -337,7 +337,7 @@ export async function POST(request: Request) {
         // scored produced no new scored row, so the reservation is handed back — "a dedup run is free",
         // the same rule /api/scan and the fleet paths apply.
         // Pass the whole guard object so a new poisoning vector (e.g. partialPrSlice) can't be dropped.
-        const { deduped } = await cacheAndPersistScan(report, resultClass, {
+        const { deduped, durable } = await cacheAndPersistScan(report, resultClass, {
           tag: "scan/stream",
           repo: parsed ? `${parsed.owner}/${parsed.repo}` : url,
           orgSlug,
@@ -367,6 +367,11 @@ export async function POST(request: Request) {
               : { message: "Email isn't configured on this deployment, so we can't send the report link." }),
           });
         }
+        // BEFORE `result`: the client settles on that frame and stops reading. `ok` is the same
+        // durable-store fact cacheAndPersistScan just computed — the live-scan page rewrites
+        // `/report?repo=` to `/report/{owner}/{repo}` only when this is true, so a reload cannot
+        // land on ColdScanGate under a URL whose metadata would claim a scored report.
+        send("persisted", { ok: durable });
         send("result", report);
 
         // "Email me when it's done" (opt-in). Sent AFTER the result frame so the report appears

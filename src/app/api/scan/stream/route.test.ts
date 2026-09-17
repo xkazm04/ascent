@@ -275,3 +275,53 @@ describe("POST /api/scan/stream — credit metering", () => {
     expect(res.headers.get("x-ascent-credits-remaining")).toBeNull();
   });
 });
+
+describe("POST /api/scan/stream — persisted SSE frame (address-bar rewrite contract)", () => {
+  async function drainText(body: unknown): Promise<string> {
+    const res = await POST(
+      new Request("http://localhost/api/scan/stream", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+    return res.text();
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAuth.mockResolvedValue({ orgSlug: "public" });
+    mockMetered.mockReturnValue(false);
+    mockLookup.mockResolvedValue(lookup("o/r@sha::llm"));
+    mockScan.mockResolvedValue({
+      ...reportWith("gemini"),
+      confidence: 0.9,
+      repo: { owner: "o", name: "r", headSha: "sha" },
+    } as unknown as ScanReport);
+    mockDbConfigured.mockReturnValue(false);
+  });
+
+  it("emits persisted ok:false when the DB is off, before result", async () => {
+    const text = await drainText({ url: "o/r" });
+    expect(text).toMatch(/event: persisted\ndata: \{"ok":false\}/);
+    expect(text.indexOf("event: persisted")).toBeGreaterThanOrEqual(0);
+    expect(text.indexOf("event: persisted")).toBeLessThan(text.indexOf("event: result"));
+  });
+
+  it("emits persisted ok:true after a durable write", async () => {
+    mockDbConfigured.mockReturnValue(true);
+    // Dedup: the row already exists, so durable is true without firing the new-row alert path
+    // (scan-alerts is unmocked in this file).
+    mockPersist.mockResolvedValue({ deduped: true } as Awaited<ReturnType<typeof persistScanReport>>);
+    const text = await drainText({ url: "o/r" });
+    expect(text).toMatch(/event: persisted\ndata: \{"ok":true\}/);
+    expect(text.indexOf("event: persisted")).toBeLessThan(text.indexOf("event: result"));
+  });
+
+  it("emits persisted ok:false for a degrade-to-mock report (not saved)", async () => {
+    mockDbConfigured.mockReturnValue(true);
+    mockScan.mockResolvedValue(reportWith("mock"));
+    const text = await drainText({ url: "o/r", mock: false });
+    expect(text).toMatch(/event: persisted\ndata: \{"ok":false\}/);
+  });
+});

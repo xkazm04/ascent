@@ -8,6 +8,7 @@ import { classifyScanAbort } from "@/components/report/reportTaxonomy";
 import { parseSSE } from "@/lib/sse";
 import { type Progress } from "@/components/report/ReportClientStatus";
 import { formatResetAt, type QuotaScope } from "@/components/report/QuotaNotice";
+import { peekWasDurable, persistedFrameOk } from "@/components/report/liveScanPermalink";
 
 /** A report salvaged from the last persisted scan because the monthly quota blocked a fresh one. */
 type Stale = { resetAt: number | null; scope: QuotaScope };
@@ -50,6 +51,9 @@ export interface ReportScan {
   rescan: { active: boolean; error: string | null; errorClass: ScanErrorClass };
   /** Bumps once per re-test — used as the re-scan banner's `key` so its elapsed clock resets. */
   attempt: number;
+  /** True when THIS scan is in the durable store (SSE `persisted` ok, or a DB peek/salvage). The
+   *  live-scan page rewrites `/report?repo=` to `/report/{owner}/{repo}` only then. */
+  persisted: boolean;
   retest: () => void;
   dismissRescan: () => void;
 }
@@ -88,6 +92,7 @@ export function useReportScan(
   // Bumped by "Re-test" to re-run the scan in place; > 0 also implies fresh.
   const [retestNonce, setRetestNonce] = useState(0);
   const [rescan, setRescan] = useState<ReportScan["rescan"]>({ active: false, error: null, errorClass: {} });
+  const [persisted, setPersisted] = useState(false);
   // The report currently on screen, read at scan-start to decide whether a re-test can keep it mounted.
   const reportRef = useRef<ScanReport | null>(null);
   // `fresh` (a "Re-test" link, or a re-test below) forces a re-score that bypasses the report cache.
@@ -104,6 +109,8 @@ export function useReportScan(
     // mount re-runs.
     let cancelled = false;
     let timedOut = false;
+    let durable = false;
+    setPersisted(false);
     // A re-test (retestNonce bumped) while a report is already shown keeps that report visible and
     // surfaces progress through `rescan`; a first load blanks to the full Loading checklist.
     const rescanMode = retestNonce > 0 && reportRef.current != null;
@@ -139,6 +146,7 @@ export function useReportScan(
     // banner updates; otherwise the page-level state machine drives Loading/error/done.
     const settleDone = (report: ScanReport, stale?: Stale) => {
       if (cancelled) return;
+      setPersisted(durable);
       setState({ status: "done", report, stale });
       setRescan({ active: false, error: null, errorClass: {} });
     };
@@ -176,6 +184,7 @@ export function useReportScan(
             if (cancelled) return;
             // Verify the peeked report is actually for the repo we asked about before rendering it.
             if (matchesRequestedRepo(parsed, repo)) {
+              durable = peekWasDurable(peek.headers);
               settleDone(parsed.report);
               clearTimeout(timeout);
               return;
@@ -251,6 +260,7 @@ export function useReportScan(
                 const parsed = parseScanReport(await peek.json().catch(() => null));
                 if (cancelled) return;
                 if (matchesRequestedRepo(parsed, repo)) {
+                  durable = peekWasDurable(peek.headers);
                   settleDone(parsed.report, { resetAt, scope });
                   return;
                 }
@@ -310,6 +320,8 @@ export function useReportScan(
               region: p.region ?? prev.region,
               fallback: p.fallback || prev.fallback,
             }));
+          } else if (event === "persisted") {
+            if (persistedFrameOk(data)) durable = true;
           } else if (event === "result") {
             settled = true;
             const parsed = parseScanReport(data);
@@ -382,6 +394,7 @@ export function useReportScan(
     quota,
     rescan,
     attempt: retestNonce,
+    persisted,
     retest: () => setRetestNonce((n) => n + 1),
     dismissRescan: () => setRescan({ active: false, error: null, errorClass: {} }),
   };
