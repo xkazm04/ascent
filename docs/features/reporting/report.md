@@ -24,6 +24,7 @@ All charts are **dependency-free inline SVG** (no D3/recharts) to keep the bundl
 | `/report/[owner]/[repo]` | `src/app/report/[owner]/[repo]/page.tsx` | Hybrid | Server-renders a persisted scan (`getScanReportByCommit`, optional `@sha`); else `ColdScanGate` (no auto-scan). Shareable permalink. `generateMetadata` claims a score only when a snapshot exists. Permalink **Re-test** stays on this path with `?fresh=1` (does not bounce to `/report?repo=`); that query mounts the live scanner on the durable URL, keeps a pinned `@sha`, and is stripped from the bar after persist so a reload cannot re-fire. |
 | `/report/compare` | `src/app/report/compare/page.tsx` | Server | `getScanComparison()` (needs DB). **Two axes:** time (`?a=`/`?b=` — two scans of this repo) and exemplar (`?against=` — this repo vs a peer repo, the org's best, or the public cohort). |
 | `/trends` | `src/app/trends/page.tsx` | Server | `getRepositoryHistory()` (needs DB), to `HISTORY_SCAN_CAP`, the same depth the CSV export uses. Range-filtered chart, plus an all-time trajectory panel and timeline annotations. |
+| `/portfolio` | `src/app/portfolio/page.tsx` | Server | `buildPortfolio()` over `?orgs=` slugs the viewer `canReadOrg`. Cross-org fleet-of-fleets table. |
 
 ## The public register + org scorecards (G7-05 / G7-06)
 
@@ -88,6 +89,21 @@ already readable one at a time at `/report/{owner}/{repo}` and already listed on
 aggregate is opt-**out** by default. A *tenant* fleet scorecard (an org's own dashboard aggregates)
 would be a genuinely new disclosure and is deliberately **not** built: it needs a persisted per-org
 opt-in flag, i.e. a schema change.
+
+## Portfolio (`/portfolio`)
+
+`/portfolio?orgs=a,b,c` is the cross-org fleet-of-fleets table (`src/lib/org/portfolio.ts`). Every
+slug is authorized with `canReadOrg`; an unreadable slug is dropped and counted, never leaked. A
+live-scored org becomes a row. `hasFleetGrade` is the drop rule for a row: a mock-only fleet is
+scanned but not graded, and is not published as L1 at 0/100.
+
+**A miss is not one empty.** The page used to render one "No readable organizations with scans"
+state for three different facts: the viewer could not read any requested org, every readable org
+had no live-scored fleet, or the rollup threw / persistence was off. Those are now distinct
+(`no-access` / `no-scans` / `read-failure`), unit-pinned in `src/lib/org/portfolio.test.ts`. A
+failed read is not a claim that none of the orgs have scans; no access is not a claim they are
+unscanned; absence of a fleet grade is not a score of 0. A mixed empty+unavailable miss with no
+rows is named as a read failure, because a failed read is not proof of absence.
 
 ### Cold permalink (`ColdScanGate` + `ColdScanTeaser`)
 
