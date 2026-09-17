@@ -184,9 +184,13 @@ There is no mapping table: a second place to ask "who holds this" is the race th
 to prevent. Dropping the claim at persist made a machine-held lease read as a human take
 (`in_progress` + `leaseUntil: null`) on the new row.
 
-Leases expire **lazily**: `sweepExpiredLeases` runs at the top of a claim, the same precedent
-`markStaleRunsStopped` sets on `GET /api/org/loop`. No cron entry is needed, and a claim path that
+Leases expire **lazily**: `sweepExpiredLeases` runs at the top of a claim **and at the Proposals
+ledger read** (`getOrgBacklog`), the same precedent `markStaleRunsStopped` sets on
+`GET /api/org/loop`. Without the read-side pass a crashed agent's rows stay "handed off" on every
+tab load until something else happens to claim. No cron entry is needed, and a claim path that
 required a scheduler to be correct would be wrong on any deployment whose scheduler was down.
+A rescan still **carries** `claimActor` / `claimExecutor` / `leaseUntil` / `needsHuman` onto the
+new in-progress row — the sweep releases what has expired; it does not drop a live claim at persist.
 
 ### Who may claim
 
@@ -237,6 +241,7 @@ is exactly as much of a claim as the trailer it also wrote — and every claim a
 | --- | --- |
 | `src/lib/org/followups.ts` (+ `.test.ts`, `followups-lease.test.ts`) | Trailer, resolve rule, prompt builder, and the pure lease/`claimability` layer + `buildAgentBrief`. |
 | `src/lib/db/followup-claims.ts` (+ `.test.ts`) | **The one claim path**: compare-and-set claim, release, lazy sweep, attempt. |
+| `src/lib/db/org-insights.ts` (`getOrgBacklog`) | The Proposals ledger read. Sweeps expired leases before assembling rows so a lapsed claim reads as open. |
 | `src/lib/mcp/work-tools.ts` (+ `handlers-write.test.ts`) | `claim_followups` / `get_fix_brief` / `report_attempt`. |
 | `scripts/ascent-work.mjs` · `examples/ascent-work.action.yml` | The zero-dep client and a reference Action (outside `.github/`, so it never runs here). |
 | `src/lib/scoring/engine.ts` | Collects `resolvedFollowUpIds` from the commit sample. |

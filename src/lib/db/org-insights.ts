@@ -18,6 +18,7 @@ import { PRACTICES } from "@/lib/practices";
 import { projectedGain } from "@/lib/scoring/engine";
 import type { DimensionId } from "@/lib/types";
 import { getOrgBySlug, IMPACT_WEIGHT, LEVEL_RANK, isBot, segmentScope, techGroupScope, upperBound } from "@/lib/db/org-shared";
+import { sweepExpiredLeases } from "@/lib/db/followup-claims";
 import { retentionCutoff } from "@/lib/plans";
 // The canonical noise band — the same primitive alerts/digest/format already share, so a movers tile
 // and a digest line can never disagree about whether a delta was real.
@@ -557,6 +558,12 @@ export interface OrgBacklog extends BacklogCounts {
  * rows are grouped too, so their status control is reachable again and the item can be set back to Open.
  * The headline counts never change with the flag — they always describe the ACTIVE backlog.
  *
+ * Expired leases are released HERE, before the rows are assembled. `sweepExpiredLeases` already
+ * runs at the top of a claim; without the same pass on this read a crashed agent's rows stay
+ * "handed off" on every Proposals load until something else happens to claim. A sweep failure
+ * must not blank the tab (best-effort, same `.catch` `claimFollowups` uses). Human hand-offs
+ * (`leaseUntil: null`) are invisible to the sweep. Claim columns still carry across persist.
+ *
  * ── Why this reads in six flat queries instead of one nested `include` (measured 2026-08-03) ──
  * The obvious shape — repository → scans(take 1) → recommendations → events(take 1) — is NOT an N+1.
  * Prisma 6.19 with `engineType = "client"` (the wasm query compiler, see the generator block in
@@ -593,6 +600,10 @@ export async function getOrgBacklog(
   const prisma = getPrisma();
   const org = await getOrgBySlug(orgSlug);
   if (!org) return null;
+  // Reclaim what lapsed BEFORE assembling the ledger, so a crashed agent's rows read as open
+  // rather than staying "handed off" until the next claim. Best-effort: a sweep failure must
+  // not blank the tab. Human hand-offs (null lease) are invisible to the sweep.
+  await sweepExpiredLeases(orgSlug, now).catch(() => 0);
   // "Overdue" must mean overdue in THIS org's calendar, not the deployment's: the org's stored zone when
   // it has one, else ASCENT_ORG_TZ, else UTC (resolveOrgTimeZone owns that order). G4-07.
   const tz = resolveOrgTimeZone(org.timezone);
