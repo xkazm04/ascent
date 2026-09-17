@@ -37,3 +37,30 @@ export function deliveryEmptyMessage(opts: { anyFailed: boolean; segmentId: stri
   }
   return "Delivery signals (pull requests, branch governance, commit activity) need a GitHub token. Re-scan with a token configured to populate this tab.";
 }
+
+/**
+ * How the AI ROI spend layer should be presented, given the settled usage query.
+ *
+ * A rejected `getOrgUsageRollup` is NOT "no cost source". `buildAiDeliveryModel(pr, null)` assigns
+ * fidelity `"none"` (the "No cost source" badge + connect-a-provider prompt), so feeding it a failed
+ * query would send the reader to Integrations for a connector they may already have. The three facts:
+ *   - `unavailable` — the query threw; we do not know whether a cost source exists
+ *   - `none`        — the query succeeded and no provider reported cost
+ *   - `present`     — the query succeeded and a cost source is connected
+ * must not share a render path.
+ */
+export type AiRoiSpendKind = "unavailable" | "none" | "present";
+
+export function aiRoiSpendKind(
+  usage: { hasMeasured?: boolean; hasAllocatedCost?: boolean } | null,
+  failed: boolean,
+): AiRoiSpendKind {
+  if (failed) return "unavailable";
+  if (usage?.hasMeasured || usage?.hasAllocatedCost) return "present";
+  return "none";
+}
+
+/** Copy for the AI ROI panel when the usage query threw. Never mentions "no cost source". */
+export function aiRoiUnavailableMessage(): string {
+  return "AI ROI spend is unavailable right now (the usage query failed). Try refreshing this page.";
+}

@@ -15,7 +15,7 @@ import { DeliveryGovernanceSection } from "./DeliveryGovernanceSection";
 import { AiDeliveryModuleChunk, DeliveryActivityChartChunk } from "./DeliveryTabChunks";
 import { buildAiDeliveryModel } from "./ai/aiDeliveryModel";
 import { getOrgActivity, getOrgGovernance, getOrgPrSignals, getOrgUsageRollup } from "@/lib/db";
-import { deliveryEmptyMessage, settle } from "./deliveryLoad";
+import { aiRoiSpendKind, aiRoiUnavailableMessage, deliveryEmptyMessage, settle } from "./deliveryLoad";
 import type { OrgScope } from "@/lib/org/scope";
 import type { ResolvedWindow } from "@/lib/window";
 
@@ -66,10 +66,11 @@ export async function DeliveryCorePanel({
     if (r.status === "rejected") console.error(`[delivery/${slug}] ${label} failed:`, r.reason);
   }
 
-  // AI delivery intelligence: join the real per-repo AI signals above with connected-provider usage
-  // (measured/allocated), falling back to a simulated placeholder when nothing is connected. Computed
-  // server-side; the client module toggles between the Table and Map views over this one model.
-  const aiModel = buildAiDeliveryModel(pr, usage);
+  // Query failure ≠ no cost source: a rejected usage rollup must not be passed to
+  // buildAiDeliveryModel as `null` (that is the "none"/no-cost-source input). Withhold the model
+  // and let the panel name the load as unavailable.
+  const spendKind = aiRoiSpendKind(usage, usageFailed);
+  const aiModel = spendKind === "unavailable" ? null : buildAiDeliveryModel(pr, usage);
 
   // Finding A (money misattribution): in "allocated" fidelity buildAiDeliveryModel distributes the
   // WHOLE-ORG spend total across only the repos in `pr` (the filtered set) — weightSum shrinks with the
@@ -131,11 +132,8 @@ export async function DeliveryCorePanel({
       {prFailed && <SectionEmpty>Pull request signals couldn&apos;t load right now. Try refreshing this page.</SectionEmpty>}
       {govFailed && <SectionEmpty>Branch governance couldn&apos;t load right now. Try refreshing this page.</SectionEmpty>}
       {activityFailed && <SectionEmpty>Commit activity couldn&apos;t load right now. Try refreshing this page.</SectionEmpty>}
-      {usageFailed && pr && (
-        <SectionEmpty>
-          AI usage/spend data couldn&apos;t load right now. The AI delivery figures below (if shown) may be
-          missing spend context. Try refreshing this page.
-        </SectionEmpty>
+      {spendKind === "unavailable" && pr && (
+        <SectionEmpty>{aiRoiUnavailableMessage()}</SectionEmpty>
       )}
 
       {/* AI delivery intelligence — spend × AI output × governance, as a Table and a Map view. Below
