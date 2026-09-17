@@ -96,6 +96,13 @@ const WAVE1_LEDGERS = [
   // failure — which is how a whole table quietly stops being erased.
   "repoAdmission",
   "installation",
+  // Latest-scan evidence persistScanReport writes on Repository. Drained in eraseRepo (keyed by
+  // repoId), not eraseOrgLedgers: a repo-scoped erase must take them without sweeping the tenant,
+  // and a fake that omits a delegate makes that drain THROW rather than silently skip.
+  "aiChange",
+  "repoContributor",
+  "repoTeam",
+  "deployment",
 ] as const;
 type Wave1Ledger = (typeof WAVE1_LEDGERS)[number];
 type LedgerDelegate = {
@@ -1952,7 +1959,64 @@ describe("eraseOrgData — on-demand DSR erasure", () => {
     // Scan-derived caches on Repository are cleared too, so an "erased" repo can't still render its
     // cached passport / tech stack on the dashboard.
     expect(cacheResets.map((c) => c.id).sort()).toEqual(["repo_1", "repo_2"]);
-    expect(cacheResets[0]!.data).toMatchObject({ techStackJson: null, passportJson: null, lastScanAt: null });
+    expect(cacheResets[0]!.data).toEqual({
+      techStackJson: null,
+      passportJson: null,
+      contextHealthJson: null,
+      manifestJson: null,
+      guidanceGraphJson: null,
+      aiConformance: null,
+      aiConformanceFails: null,
+      aiConformanceWarns: null,
+      aiConformanceAt: null,
+      headSha: null,
+      headEtag: null,
+      lastScanAt: null,
+      lastScanStatus: null,
+      lastScanError: null,
+      lastScanAttemptAt: null,
+    });
+  });
+
+  // persistScanReport also caches contextHealth/manifest/guidanceGraph + aiConformance* on
+  // Repository and writes AiChange / RepoContributor / RepoTeam / Deployment as latest-scan
+  // evidence. ERASED_REPO_CACHE_RESET used to null only techStack/passport/head, so a "complete"
+  // DSR still rendered Passports, contributor ledgers, CODEOWNERS teams and deployments.
+  it("resets every leftover scan-derived cache and evidence table (dryRun keeps them, apply clears 8/8)", async () => {
+    const { prisma, ledgers } = fakeWave1ErasePrisma();
+    const cacheResets: { id: string; data: Record<string, unknown> }[] = [];
+    prisma.repository.update = vi.fn(
+      async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+        cacheResets.push({ id: where.id, data });
+        return { id: where.id };
+      },
+    );
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const leftoverTables = ["aiChange", "repoContributor", "repoTeam", "deployment"] as const;
+    const leftoverCaches = [
+      "contextHealthJson",
+      "manifestJson",
+      "guidanceGraphJson",
+      "aiConformance",
+      "aiConformanceFails",
+      "aiConformanceWarns",
+      "aiConformanceAt",
+    ] as const;
+
+    const preview = await eraseOrgData({ orgSlug: "acme", dryRun: true });
+    expect(preview.ok && preview.dryRun).toBe(true);
+    expect(cacheResets).toHaveLength(0);
+    for (const name of leftoverTables) expect(ledgers.rows[name].length).toBeGreaterThan(0);
+
+    const outcome = await eraseOrgData({ orgSlug: "acme" });
+    expect(outcome.ok && outcome.complete).toBe(true);
+    expect(cacheResets).toHaveLength(1);
+    for (const field of leftoverCaches) expect(cacheResets[0]!.data[field]).toBeNull();
+    for (const name of leftoverTables) {
+      expect(ledgers.rows[name]).toEqual([]);
+      expect(prisma[name].findMany.mock.calls[0]![0].where).toEqual({ repoId: "repo_1" });
+    }
   });
 
   // The improvement loop (src/lib/local/loop-engine.ts) writes org-scoped tenant data: which repos
@@ -2517,6 +2581,12 @@ function fakeWave1ErasePrisma() {
     // would pass both while never being erased at all.
     repoAdmission: ["ad_1", "ad_2"],
     installation: ["in_1"],
+    // persistScanReport's latest-scan evidence — seeded so the "nothing survives" / "preview removes
+    // nothing" assertions cannot pass while these four tables are never touched.
+    aiChange: ["ac_1", "ac_2"],
+    repoContributor: ["cn_1"],
+    repoTeam: ["tm_1"],
+    deployment: ["dp_1", "dp_2"],
   });
   const tx = {
     ...ledgers.delegates,

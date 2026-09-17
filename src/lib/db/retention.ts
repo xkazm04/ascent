@@ -362,6 +362,46 @@ async function pruneAgedLedger(
   return total;
 }
 
+/** Repo-scoped table drain: `findMany`/`deleteMany` keyed by `repoId`, paged like every other sweep. */
+type RepoIdTable = {
+  findMany: (args: {
+    where: { repoId: string };
+    orderBy: { id: "asc" };
+    take: number;
+    select: { id: true };
+  }) => Promise<Array<{ id: string }>>;
+  deleteMany: (args: { where: { id: { in: string[] } } }) => Promise<{ count: number }>;
+};
+
+/**
+ * Drain one latest-scan evidence table for a single repo (AiChange, RepoContributor, RepoTeam,
+ * Deployment). persistScanReport writes these beside the JSON caches on Repository; relationMode =
+ * "prisma" emits no cascade from Scan (or from Repository, which an erase keeps), so they have to
+ * leave in the same eraseRepo path as ERASED_REPO_CACHE_RESET. Not org-scoped: a repo-scoped erase
+ * must take this repo's rows without sweeping the rest of the tenant.
+ */
+async function drainRepoEvidenceTable(
+  table: RepoIdTable,
+  repoId: string,
+  batchSize: number,
+  overBudget: () => boolean,
+  label: string,
+): Promise<number> {
+  return pruneAgedLedger(
+    (take) =>
+      table.findMany({
+        where: { repoId },
+        orderBy: { id: "asc" },
+        take,
+        select: { id: true },
+      }),
+    async (ids) =>
+      (await withRetry(() => table.deleteMany({ where: { id: { in: ids } } }), { label })).count,
+    batchSize,
+    overBudget,
+  );
+}
+
 /**
  * MOONSHOT #10 — retire SETTLED queue rows older than {@link SCAN_JOB_RETENTION_DAYS}.
  *
@@ -1988,13 +2028,23 @@ export type EraseOutcome =
   | ({ ok: true } & EraseResult);
 
 /** Scan-DERIVED caches denormalized onto Repository. Erasing the scans without clearing these would
- *  leave the analysis (tech stack, passport, head pins, last-attempt status) readable on the dashboard
- *  after an "erasure" — so they are reset as part of the same operation. Owner-AUTHORED config
- *  (watch flag, schedule, segment tags, passport overrides) is configuration, not scan output, and is
- *  left alone: erasure removes the data, it does not silently unconfigure the tenant. */
+ *  leave the analysis (tech stack, passport, context health, manifest, guidance graph, AI-standard
+ *  conformance, head pins, last-attempt status) readable on the dashboard after an "erasure" — so
+ *  they are reset as part of the same operation. Owner-AUTHORED config (watch flag, schedule, segment
+ *  tags, passport overrides) is configuration, not scan output, and is left alone: erasure removes
+ *  the data, it does not silently unconfigure the tenant. Latest-scan evidence tables
+ *  (AiChange / RepoContributor / RepoTeam / Deployment) are not columns; eraseRepo drains those
+ *  separately via {@link drainRepoEvidenceTable}. */
 const ERASED_REPO_CACHE_RESET = {
   techStackJson: null,
   passportJson: null,
+  contextHealthJson: null,
+  manifestJson: null,
+  guidanceGraphJson: null,
+  aiConformance: null,
+  aiConformanceFails: null,
+  aiConformanceWarns: null,
+  aiConformanceAt: null,
   headSha: null,
   headEtag: null,
   lastScanAt: null,
@@ -2170,6 +2220,14 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
       }
     }
     if (dryRun) return;
+    // persistScanReport's latest-scan evidence. AiChange/Deployment upsert and accumulate; contributors
+    // and teams are a replace-the-set snapshot — none of them ride Scan, and keeping the Repository
+    // row means Prisma's emulated cascade never fires. Drain before the JSON-cache reset so a resume
+    // after a budget stop cannot serve an empty passport beside a still-full AI-change ledger.
+    await drainRepoEvidenceTable(prisma.aiChange, repoId, batchSize, overBudget, "erase.ai-change");
+    await drainRepoEvidenceTable(prisma.repoContributor, repoId, batchSize, overBudget, "erase.repo-contributor");
+    await drainRepoEvidenceTable(prisma.repoTeam, repoId, batchSize, overBudget, "erase.repo-team");
+    await drainRepoEvidenceTable(prisma.deployment, repoId, batchSize, overBudget, "erase.deployment");
     await withRetry(() => prisma.repository.update({ where: { id: repoId }, data: { ...ERASED_REPO_CACHE_RESET } }), {
       label: "erase.reset-repo-cache",
     });

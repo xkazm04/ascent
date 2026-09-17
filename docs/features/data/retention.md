@@ -208,10 +208,13 @@ conflict retries.
 
 - **Scope.** Scans + dimensions + recommendations + recommendation events for the org's repos, plus
   the *scan-derived caches* denormalized onto `Repository` (`techStackJson`, `passportJson`,
-  `headSha`/`headEtag`, `lastScan*`); otherwise an "erased" repo would still render its cached
-  passport. Owner-authored configuration (watch flag, schedule, segment tags, passport overrides) and
-  the `Organization` / `Repository` / `Membership` rows themselves are **kept**: erasure removes the
-  data, it does not unconfigure or delete the tenant.
+  `contextHealthJson`, `manifestJson`, `guidanceGraphJson`, `aiConformance*`, `headSha`/`headEtag`,
+  `lastScan*`) and the latest-scan evidence tables persist writes beside them (`AiChange`,
+  `RepoContributor`, `RepoTeam`, `Deployment`); otherwise an "erased" repo would still render its
+  cached passport, contributor/AI-change ledgers, CODEOWNERS teams and deployments. Owner-authored
+  configuration (watch flag, schedule, segment tags, passport overrides) and the `Organization` /
+  `Repository` / `Membership` rows themselves are **kept**: erasure removes the data, it does not
+  unconfigure or delete the tenant.
 - **Improvement-loop history (org scope only).** `LoopRunLane` then `LoopRun`
   ([org-planning/live.md](../org-planning/live.md)) — the runs name the repos that were worked, the
   branch each lane produced, the follow-up ids it dispatched and closed, and the agent's log, so they
