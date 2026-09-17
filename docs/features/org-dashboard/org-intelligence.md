@@ -963,6 +963,10 @@ latest scan strictly before `start` (a move is a measurement, so both endpoints 
 the period counts in the rollup average and is absent from movers, and the two counts are not expected
 to reconcile. Each reader's file header states its rule.
 
+**2026-09-17:** `ScopeFilterBar` discloses that split when a period window is active (`window.start`
+set, not all-time): "Repos not scanned in-period still count in the fleet average and do not appear
+in movers." Copy matches the `org-rollup.ts` header. The queries are unchanged.
+
 Every calendar-day decision the org dashboard makes (window preset starts, custom-range
 parsing, trend day-keys, due-date bucketing) resolves in **one** reference frame. Before
 this existed each of those picked its own: presets and the custom-range parser used the
@@ -2459,6 +2463,7 @@ survivor is a unit line: that one, `4 open · 9 settled`, and
 | `src/lib/db/org.ts` | Barrel re-exporting the org rollup/aggregate queries (rollup, movers, recs, benchmark, gaps, practices, contributors, **teams** (`getOrgTeamRollup`/`rollupTeams`), governance, activity, PR signals, discrepancies) from the `org-*.ts` sub-modules above. Each fleet aggregate takes an optional `segmentId` to scope it. |
 | `src/lib/db/segments.ts` | User-defined **segments** (`Segment`/`RepoSegment` tags): CRUD + membership, `listTaggableRepos` (the tag manager's repo universe), per-segment summaries, and the side-by-side `compareSegments` (pure diff `buildSegmentComparison`, unit-tested). |
 | `src/components/org/shared/SegmentSelector.tsx` · `RepoSegmentsPanel.tsx` · `SegmentComparePicker.tsx` | Overview/Contributors segment filter (its "+ Create a segment →" pointer links to `?tab=segments`) · the Segments-view tag manager · A-vs-B comparison picker. |
+| `src/components/org/shared/ScopeFilterBar.tsx` | Shared segment + tech-stack filter. When a period window is active, a caption discloses that repos not scanned in-period still count in the fleet average and do not appear in movers (`org-rollup.ts` header; queries unchanged). |
 | `src/features/standing/tech-stacks/fleetAnalysis.ts` | Pure cross-stack dimension analysis: classification thresholds, per-dimension leader/laggard/spread, and `coverageOf` (what a verdict rests on, see [above](#tech-stacks--dimension-analysis-and-what-each-verdict-rests-on)). |
 | `src/features/standing/tech-stacks/analysisShared.tsx` | Shared diagnosis chrome: class pill (de-weightable), `CoverageChip`, 0→100 range bar, plain-language note, the `ConsensusRow`. |
 | `src/lib/github/codeowners.ts` | Pure CODEOWNERS → team parser (`parseCodeowners`/`extractTeamOwnership`); run at scan time, persisted as `RepoTeam`. |

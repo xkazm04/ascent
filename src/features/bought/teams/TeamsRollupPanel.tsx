@@ -70,7 +70,7 @@ export async function TeamsRollupPanel({ slug, sp }: { slug: string; sp: { [key:
   }
 
   const hasFilters = barProps.segments.length > 0 || barProps.techGroups.length > 0;
-  const filterBar = hasFilters && <ScopeFilterBar {...barProps} />;
+  const filterBar = hasFilters && <ScopeFilterBar {...barProps} window={window} />;
 
   if (!rollup || rollup.teams.length === 0) {
     return (

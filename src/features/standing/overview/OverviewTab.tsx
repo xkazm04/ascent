@@ -25,6 +25,7 @@ import { OverviewScopeReadout } from "./OverviewScopeReadout";
 import { resolveBillingReturn } from "./overviewBilling";
 import { PersonalOverview } from "@/components/org/PersonalOverview";
 import { BillingReturnNotice } from "@/components/org/shared/BillingReturnNotice";
+import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
 import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
 import { getOrgHeaderSummary } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
@@ -91,6 +92,10 @@ export async function OverviewTab({ slug, sp }: { slug: string; sp: SearchParams
           <TimeRangeSelector range={period.key} from={period.from} to={period.to} />
         </div>
       </div>
+      {/* Caption-only: Overview's Type/Stack/Level filters live in the view headers, but this is
+          still the rollup+movers surface, so the bar discloses the in-period split when `win.start`
+          is set (all-time renders nothing). */}
+      <ScopeFilterBar segments={[]} segmentId={null} techGroups={[]} activeStack={null} window={win} />
 
       {/* "Fix first" punch-list — its own boundary so its reads (movers + goals; findings ride the
           rail badges' cache) stream independently and can never hold the fleet panel, per the
