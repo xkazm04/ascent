@@ -18,6 +18,7 @@ const TITLE: Record<DrawerPosture, { kicker: string; title: string }> = {
   companion: { kicker: "Getting started", title: "Set up your dashboard" },
   teaching: { kicker: "Guided setup", title: "Learn this dashboard" },
   athena: { kicker: "Companion", title: "Athena" },
+  unavailable: { kicker: "Guided setup", title: "Setup unavailable" },
 };
 
 function ModeButton({ label, on, onClick }: { label: string; on: boolean; onClick: () => void }) {

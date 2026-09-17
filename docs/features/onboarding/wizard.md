@@ -218,6 +218,12 @@ third is an explicit choice layered over them (`resolveDrawerPosture`):
 | Body | ONE promoted next task (primary CTA + "Show me") over the full task rail | task rail + the "Learn the dashboard" teach rail | the conversation surface ([companion](../companion/README.md)) |
 | Footer | "Skip setup" (stamps) | — | the composer |
 
+**A failed getting-started fetch is not teaching.** `useGettingStarted` keeps the last good payload
+when a later poll misses. With no last-good snapshot, `decidePosture` returns `unavailable`: the
+drawer does not auto-open, does not show the teach rail, and does not render "nothing to derive"
+(a miss is not an empty checklist). The one-shot restore is not consumed by the failure, so the next
+successful poll can still auto-open the companion for an unstamped member.
+
 **`companion` is not Athena, and the name predates her.** It means "the onboarding drawer opened
 itself", and it is load-bearing in `TourChecklist`, `TourNextTask`, `useGettingStarted` and
 `useTourEngine` — so the absorb added a distinct `athena` value beside it rather than a rename that
