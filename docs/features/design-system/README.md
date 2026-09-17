@@ -215,6 +215,12 @@ Rules that make this safe to extend:
 
 ## `/about`: invented data is labelled where it renders
 
+**The masthead does not lead with ROI.** GOLDEN-TRIO: do not lead with ROI. `AboutHero`
+INTRO and the page `metadata.description` name the score, the maturity ladder, and the
+evidence — the same three ingredients as `siteDescription()` in `lib/site.ts` — never
+"the highest-ROI path". Counts are derived from the model. The ROI simulator stays later
+on the deck, labelled illustrative.
+
 The marketing deck's four diagrams (`FleetGrid`, `RoiSimulator`, `ChampionNetwork`,
 `RiskRadar`) are demonstrations, not customer results. The **ROI simulator** is the
 one a prospective buyer reads as proof — it computes over eight invented repos at a
