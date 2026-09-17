@@ -41,12 +41,15 @@ It still renders the full dashboard chrome:
 
 Sub-view switching inside the module is **React state, never a search param** (§5.3). The old `?demo=`
 mechanism is gone: a "Preview as" control lives in `useState` inside the client `DeveloperHome`, and it
-appears **only while the real view is blank** — a fixture is a dev/preview affordance, not a shareable
-URL, and it always stamps a visible `preview · <state>` chip **and**, since 2026-09-05, holds a sticky
-"Sample data - not your activity" banner (`CarePreviewBanner`) for the whole scroll with a way back
-to the empty view, so the fixture cannot be mistaken for the viewer's own activity once the masthead
-is out of view. The fixture module is imported on demand at the moment a preview is chosen; it is not
-in the initial client bundle.
+appears **only on a true empty view** — `activityState` is `absent` or `signed-out`, and nothing of the
+viewer's own has landed (no attributed activity, nothing shared, no moves, no repos). `withheld` and
+`unreadable` still have `activity: null`, but they are not invitations: Preview-as is hidden, and the
+page never says "Nothing of yours has landed here yet" for those states (the activity strip already
+names them). A fixture is a dev/preview affordance, not a shareable URL, and it always stamps a
+visible `preview · <state>` chip **and**, since 2026-09-05, holds a sticky "Sample data - not your
+activity" banner (`CarePreviewBanner`) for the whole scroll with a way back to the empty view, so the
+fixture cannot be mistaken for the viewer's own activity once the masthead is out of view. The fixture
+module is imported on demand at the moment a preview is chosen; it is not in the initial client bundle.
 
 ## What the page shows
 
@@ -118,7 +121,9 @@ Every one of these is about the viewer themself, which is why the page cares mor
 `activity: null` carried all four and the page narrated them with one paragraph, so a **suppression**
 read exactly like "you have never committed here". `DeveloperView.activityState` now names which, set
 in `getDeveloperView` from `ContributorInsights.namingAllowed` — the same typed-state discipline as
-`RepoConcentration.topLoginState` ("withheld" vs "unknown").
+`RepoConcentration.topLoginState` ("withheld" vs "unknown"). Preview-as follows the same split: it is
+an invitation for `absent` and `signed-out` only; `withheld` and `unreadable` keep the real view and
+hide the chrome.
 
 The session-shape strip carries the same discipline on four outcomes:
 
