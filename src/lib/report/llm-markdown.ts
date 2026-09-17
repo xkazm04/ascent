@@ -17,6 +17,8 @@
 // claims sit with the score narrative so a model cannot treat a blended number as uncontested.
 // Roadmap rows carry the additive `firstStep` when the scan recorded one (G2: invitational voice
 // stays; the concrete move is not buried in the rationale, and a blank/absent field emits nothing).
+// Counted evidence lines (`dimension.evidence`) leave as their own bullets (G2: a templating pass
+// must not flatten "0 of 8 Action references pinned to a SHA" into the dimension catalogue table).
 
 import type { ScanReport } from "@/lib/types";
 import { isIncompleteReport } from "@/lib/scoring/gate";
@@ -119,6 +121,26 @@ function cell(s: string): string {
 }
 
 /**
+ * G2: counted evidence lines must survive as their own bullets. Joining them into the dimension
+ * table (or one " · "-separated cell) would flatten "0 of 8 Action references pinned to a SHA" into
+ * a catalogue label. Omitted when every list is empty so pre-change fixtures stay byte-identical.
+ */
+function evidenceSection(report: ScanReport): string[] {
+  const withEvidence = report.dimensions.filter((d) => (d.evidence ?? []).some((e) => e.trim()));
+  if (withEvidence.length === 0) return [];
+  const lines = ["### Evidence by dimension", ""];
+  for (const d of withEvidence) {
+    lines.push(`**${d.id} · ${d.name}** (${d.score}/100)`);
+    for (const e of d.evidence ?? []) {
+      const line = e.trim();
+      if (line) lines.push(`- ${line}`);
+    }
+    lines.push("");
+  }
+  return lines;
+}
+
+/**
  * G1: the in-app "Flagged for review" panel (`ReportDiscrepancies`) must survive into the briefing a
  * model will act on. Same outcome derivation the page uses (`discrepancyOutcome`), so an export cannot
  * disagree with the chip about what a claim did. Omitted entirely when the array is empty or absent
@@ -217,6 +239,9 @@ export function reportLlmMarkdown(report: ScanReport, options: ReportMarkdownOpt
       );
     }
     out.push("");
+    // G2: counted evidence is the other half a flat table would strand. Own bullets, never a
+    // joined catalogue cell; omitted entirely when nothing was recorded.
+    out.push(...evidenceSection(report));
     // The per-dimension gaps are the actionable half of the report; a flat table alone would strand
     // them in the UI. Only dimensions that actually named gaps get a block.
     const withGaps = report.dimensions.filter((d) => d.gaps.length > 0);

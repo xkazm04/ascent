@@ -142,6 +142,8 @@ fresh scan in place.
    a `ProvenanceTrack`. The derived facts are pure (`dimensionExplorerDerive.ts`). The radar
    (`RadarChart`) no longer renders here; it still draws the passport hero and the sandbox.
    An empty `dimensions` array (nothing could be scored) renders a section empty state.
+   Counted evidence lines also travel in the LLM briefing as their own bullets (G2: they are not
+   flattened into the dimension catalogue table).
 
    `ProvenanceTrack` draws **the mechanism that actually produced that dimension's number**,
    and only that mechanism (`src/lib/scoring/provenance.ts` classifies it from the dimension id
@@ -806,7 +808,7 @@ read-gated by the owning org (`readableOrgForOwner` → `requireOrgRead`, gate b
 
 | Route | Output | Plan-gated? |
 | --- | --- | --- |
-| `/api/report/llm` | `text/markdown`, the LLM briefing (headline, dimension table, gaps, Flagged-for-review discrepancies when present, roadmap with `firstStep` when recorded, "Ask"). | **No.** |
+| `/api/report/llm` | `text/markdown`, the LLM briefing (headline, dimension table, counted evidence lines, gaps, Flagged-for-review discrepancies when present, roadmap with `firstStep` when recorded, "Ask"). | **No.** |
 | `/api/report/share-card` | `image/png` (attachment), the 1200×630 score card. | **No.** |
 | `/api/report/pdf` | `application/pdf` (attachment). | **Yes**, the lowest paid tier (`pro`, shown as Starter) and up. |
 
@@ -828,8 +830,10 @@ explain them: the markdown leads with an `incomplete` warning, a mock-provenance
 model contributed"), and the scan's `warnings`; a non-empty `discrepancies` list becomes a **Flagged
 for review** section naming each claim and its recorded outcome (widened / lost to the budget / D9
 dropped as unmeasurable / structurally ineligible / outcome not recorded) so a model cannot treat
-those blended scores as uncontested (G1). Roadmap rows include the recorded `firstStep` when
-present (G2); a blank or absent field omits the line, matching the in-app `RoadmapFirstStep`. The
+those blended scores as uncontested (G1). Counted evidence lines (`dimension.evidence`) emit as
+their own bullets under Evidence by dimension (G2: they are not joined into the catalogue table).
+An empty list omits the section. Roadmap rows include the recorded `firstStep` when present (G2);
+a blank or absent field omits the line, matching the in-app `RoadmapFirstStep`. The
 card **refuses to draw a number at all** for an `incomplete` scan (a renormalized 0/100 is not a
 measurement) and shows a DEMO badge for a mock-engine report.
 
@@ -1021,7 +1025,7 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/app/api/report/foundation/pr/route.ts` | Draft PR seeding the generated `.ai/` foundation. Admin-gated (see above). |
 | `src/app/api/report/conformance/route.ts` | `.ai/` conformance ingest: org-bound auth, clamping, ledger write. The legacy shared `CONFORMANCE_INGEST_TOKEN` is compared with `crypto.timingSafeEqual`, matching the per-org token path. |
 | `src/app/api/report/llm/route.ts` | Machine-readable markdown export: the "Copy for LLM" payload as a fetchable endpoint. |
-| `src/lib/report/llm-markdown.ts` | `reportLlmMarkdown()`: the single briefing generator behind both the copy chip and the endpoint. Pure/client-safe and deterministic. Emits a Flagged-for-review section (claim + `discrepancyOutcome` label/hint) when `discrepancies` is non-empty (G1). Roadmap rows include `firstStep` when the scan recorded one (G2). |
+| `src/lib/report/llm-markdown.ts` | `reportLlmMarkdown()`: the single briefing generator behind both the copy chip and the endpoint. Pure/client-safe and deterministic. Emits a Flagged-for-review section (claim + `discrepancyOutcome` label/hint) when `discrepancies` is non-empty (G1). Counted evidence lines emit as their own bullets, not flattened into the dimension table (G2). Roadmap rows include `firstStep` when the scan recorded one (G2). |
 | `src/app/api/report/share-card/route.ts` | Downloadable PNG share card (attachment), rendered from the shared OG card. |
 | `src/lib/og/report-card.tsx` | `ReportShareCard`: the 1200×630 artwork shared by the permalink's `opengraph-image` and the share-card download. |
 | `src/app/api/report/pdf/route.ts` | Single-report PDF export. Read-gated by the owning org, then plan-gated (`planAllowsPdfExport`, the lowest paid tier `pro` and up); `PUBLIC_ORG` reports are exempt from the plan check, matching the unmetered public-scan model. |
@@ -1117,6 +1121,8 @@ transient failure), and both surfaces branch on it:
   in-app. The invitational voice is untouched (guardrail **G2**) — titles stay observations,
   `explore` stays questions; the field is additive and never fabricated: absent on pre-field scans
   and on rows where the model omitted it, so old reports and sparse exports render exactly as before.
+  The same guardrail keeps counted evidence lines as bullets in the LLM briefing; a templating pass
+  must not flatten them into the dimension catalogue table.
 - (Closed 2026-09-05.) ~~The lift map is not yet mounted on the report page.~~ The permalink page reads
   `getOrgExpectedLifts` in the same `Promise.all` as the recommendations, under the same org, and
   threads `lifts` through `ReportView` → `ReportPanels` to both the tracker and `RoadmapSteps`, so

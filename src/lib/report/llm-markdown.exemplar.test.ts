@@ -269,3 +269,80 @@ describe("reportLlmMarkdown firstStep (G2)", () => {
     expect(md.indexOf("## Flagged for review")).toBeLessThan(md.indexOf("## Roadmap"));
   });
 });
+
+// G2: counted evidence lines must leave the briefing as their own bullets. Flattening them into
+// the dimension table (or joining with " · ") would turn "0 of 8 Action references pinned to a
+// SHA" into a catalogue label. Empty/absent stays omitted so PRE_CHANGE remains stable.
+describe("reportLlmMarkdown counted evidence (G2)", () => {
+  const flag = (dimension: Discrepancy["dimension"], claim: string): Discrepancy => ({ dimension, claim });
+  const integrity = (over: Partial<ScoreIntegrity> = {}): ScoreIntegrity => ({
+    d9Unmeasurable: false,
+    widenedDims: [],
+    effectiveBlend: 0.6,
+    ...over,
+  });
+
+  const COUNTED = [
+    "0 of 8 Action references pinned to a SHA",
+    "56% of merged PRs carry an approving review despite a ruleset requiring one",
+    "Found 138 test files (1.04 test-to-source ratio)",
+  ] as const;
+
+  function withCountedEvidence(): ScanReport {
+    const r = report();
+    r.dimensions = [{ ...r.dimensions[0], evidence: [...COUNTED] }];
+    return r;
+  }
+
+  it("emits each counted line as its own bullet and leaves the catalogue table untouched", () => {
+    const md = reportLlmMarkdown(withCountedEvidence());
+    expect(md).toContain("### Evidence by dimension");
+    expect(md).toContain("**D2 · Testing** (40/100)");
+    for (const line of COUNTED) {
+      expect(md).toContain(`- ${line}`);
+    }
+    // Counts survive — a catalogue rewrite (signalName / a joined cell) would drop or fold them.
+    expect(md).toContain("0 of 8");
+    expect(md).toContain("56%");
+    expect(md).toContain("1.04 test-to-source ratio");
+    const tableRow = md.split("\n").find((l) => l.startsWith("| D2 |"));
+    expect(tableRow).toBe("| D2 | Testing | 40 | 20% | Thin |");
+    expect(tableRow).not.toContain("0 of 8");
+    expect(md).not.toContain(COUNTED.join(" · "));
+    expect(md).not.toContain(COUNTED.join("; "));
+    // Same order as DimensionDetail: evidence, then gaps.
+    expect(md.indexOf("### Evidence by dimension")).toBeGreaterThan(md.indexOf("## Dimensions"));
+    expect(md.indexOf("### Evidence by dimension")).toBeLessThan(md.indexOf("### Gaps by dimension"));
+  });
+
+  it("omits the evidence section when every dimension's list is empty (byte-stable with PRE_CHANGE)", () => {
+    expect(reportLlmMarkdown(fixtureReport())).toBe(PRE_CHANGE);
+    expect(reportLlmMarkdown(fixtureReport())).not.toContain("Evidence by dimension");
+    expect(reportLlmMarkdown(report())).not.toContain("Evidence by dimension");
+  });
+
+  it("skips blank evidence strings so a sparse array does not emit empty bullets", () => {
+    const r = report();
+    r.dimensions[0] = {
+      ...r.dimensions[0],
+      evidence: ["  ", "Found 6 test files", ""],
+    };
+    const md = reportLlmMarkdown(r);
+    expect(md).toContain("- Found 6 test files");
+    expect(md).not.toMatch(/^- $/m);
+  });
+
+  it("does not drop discrepancies or firstStep when counted evidence is also present", () => {
+    const r = withCountedEvidence();
+    r.roadmap[0] = { ...r.roadmap[0], firstStep: "Open a PR adding CODEOWNERS." };
+    r.discrepancies = [flag("D3", "Detector missed CI-inline lint enforced off-GitHub.")];
+    r.scoreIntegrity = integrity({ widenedDims: ["D3"] });
+    const md = reportLlmMarkdown(r);
+    expect(md).toContain("- 0 of 8 Action references pinned to a SHA");
+    expect(md).toContain("**First step:** Open a PR adding CODEOWNERS.");
+    expect(md).toContain("## Flagged for review");
+    expect(md).toContain("**D3**: Detector missed CI-inline lint enforced off-GitHub. · **widened**");
+    expect(md.indexOf("### Evidence by dimension")).toBeLessThan(md.indexOf("## Flagged for review"));
+    expect(md.indexOf("## Flagged for review")).toBeLessThan(md.indexOf("## Roadmap"));
+  });
+});
