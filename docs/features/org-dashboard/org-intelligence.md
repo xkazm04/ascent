@@ -1109,6 +1109,14 @@ Briefing tab (`src/features/bought/executive/ExecutiveTab.tsx`; `src/app/org/[sl
 markdown (`briefingMarkdown`). The anonymous share link (`/share/briefing/[token]`) re-runs the
 same builder against the token's window.
 
+**White-label on the Briefing tab (Team+).** Stored `OrgBranding` — brand name, logo URL, accent
+colour — paints a compact header on the authenticated briefing when the viewer is an owner on a
+white-label plan and at least one field is set. Those are the same three slots the board PDF
+(`BriefingDocument`) and the anonymous share page (`BrandMark`) already use, so an owner can catch a
+bad logo or contrast before handing a client PDF or share link. OrgShell, the nav rail, and other
+tabs stay Ascent chrome; this is the briefing header only. `BrandingSettings` still prefills from
+the same row.
+
 **Two denominators, stated on all four surfaces (2026-09-05).** Coverage (`scanned/total`) answers
 "how much was looked at"; the score basis (`realScoredCount`, carried on `ExecBriefing` from the
 rollup) answers "what the averages are averaged over". Every basis clause that stands on an average

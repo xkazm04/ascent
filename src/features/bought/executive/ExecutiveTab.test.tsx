@@ -1,19 +1,7 @@
-// G8-54: the public /share/briefing/[token] page and this authenticated /org/[slug]/executive page
-// render the SAME shared Card blocks (briefingCards.tsx), whose prop contract is deliberately
-// "public by default" — every internal-only affordance (org deep links, practice deep links, the
-// security dimension row, per-repo report links, the "Manage goals" action) is optional and defaults
-// to OFF. share/briefing/[token]/page.test.tsx already pins that the PUBLIC page keeps all of those
-// off. That alone doesn't prove the props are doing any gating — an always-absent feature would pass
-// the same assertions. This file pins the other half: the authenticated exec page DOES turn every one
-// of those affordances on, so the boundary is provably a prop switch, not a feature that's simply
-// unimplemented everywhere.
-//
-// Style: call the async server-component function directly and walk the returned React element tree
-// (no DOM render needed for a server component) — same pattern as
-// src/app/org/[slug]/members/page.test.tsx and src/app/share/briefing/[token]/page.test.tsx.
-//
-// The Impact Ledger wiring (W1d) is pinned in the sibling ExecutiveTab.impact.test.tsx, which carries
-// its own copy of this mock harness (200-line cap).
+// G8-54: this authenticated /org/[slug]/executive page turns ON every internal-only affordance of
+// the shared briefingCards.tsx blocks (public-by-default). share/briefing/[token]/page.test.tsx
+// pins the public page keeps them off. Walk the async server-component tree (no DOM). Impact Ledger
+// wiring lives in ExecutiveTab.impact.test.tsx (200-line cap).
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as React from "react";
@@ -26,23 +14,26 @@ const {
   mockHasOrgRole,
   mockBriefingShareEnabled,
   mockGetOrgImpactLedger,
-} =
-  vi.hoisted(() => ({
-    mockBuildExecBriefing: vi.fn(),
-    mockResolveOrgWindow: vi.fn(),
-    mockResolveStackScope: vi.fn(),
-    mockHasOrgRole: vi.fn(),
-    mockBriefingShareEnabled: vi.fn(),
-    mockGetOrgImpactLedger: vi.fn(),
-  }));
+  mockGetOrgBranding,
+  mockGetCreditState,
+  mockPlanAllowsWhiteLabel,
+} = vi.hoisted(() => ({
+  mockBuildExecBriefing: vi.fn(),
+  mockResolveOrgWindow: vi.fn(),
+  mockResolveStackScope: vi.fn(),
+  mockHasOrgRole: vi.fn(),
+  mockBriefingShareEnabled: vi.fn(),
+  mockGetOrgImpactLedger: vi.fn(),
+  mockGetOrgBranding: vi.fn(),
+  mockGetCreditState: vi.fn(),
+  mockPlanAllowsWhiteLabel: vi.fn(),
+}));
 
 vi.mock("@/lib/org/briefing", () => ({
   buildExecBriefing: mockBuildExecBriefing,
   briefingMarkdown: () => "md",
   engineMixLabel: () => "1 model",
   engineMixCaveat: () => null,
-  // MC-B1 — the Trajectory card reads its line through the ONE briefing composer; stub both
-  // halves so a mocked briefing renders the claim WITH its hedge, never the claim alone.
   briefingTrajectory: (b: { forecastHeadline: string | null; forecastConfidence: number | null }) => ({
     headline: b.forecastHeadline,
     confidence: b.forecastConfidence,
@@ -53,8 +44,6 @@ vi.mock("@/lib/org/briefing", () => ({
     b.forecastConfidence != null ? `trend confidence ${b.forecastConfidence}%` : null,
   valueRealizedLine: () => null,
 }));
-// `orgWindowBounds` is the pure half-open adapter the tab now hands the db layer; it is stubbed with
-// its real (one-line) shape so these tests still assert the WINDOW the tab passes, not the adapter.
 vi.mock("@/lib/org/period", () => ({
   resolveOrgWindow: mockResolveOrgWindow,
   orgWindowBounds: (w: { start: Date | null; endExclusive: Date | null }) => ({ start: w.start, endExclusive: w.endExclusive }),
@@ -63,14 +52,15 @@ vi.mock("@/lib/org/scope", () => ({ resolveStackScope: mockResolveStackScope }))
 vi.mock("@/lib/authz", () => ({ hasOrgRole: mockHasOrgRole }));
 vi.mock("@/lib/briefing-share", () => ({ briefingShareEnabled: mockBriefingShareEnabled }));
 vi.mock("@/lib/db", () => ({
-  getOrgBranding: vi.fn(async () => null),
-  getCreditState: vi.fn(async () => null),
+  getOrgBranding: mockGetOrgBranding,
+  getCreditState: mockGetCreditState,
 }));
-vi.mock("@/lib/plans", () => ({ planAllowsWhiteLabel: () => false }));
+vi.mock("@/lib/plans", () => ({ planAllowsWhiteLabel: mockPlanAllowsWhiteLabel }));
 vi.mock("@/lib/db/org-impact", () => ({ getOrgImpactLedger: mockGetOrgImpactLedger }));
 
 import { ExecutiveTab } from "./ExecutiveTab";
 import {
+  BriefingBrandHeader,
   BriefingDimensionCards,
   BriefingGoalsCard,
   BriefingMovementCard,
@@ -108,7 +98,6 @@ function baseBriefing(overrides: Partial<ExecBriefing> = {}): ExecBriefing {
   } as ExecBriefing;
 }
 
-/** Depth-first search the returned element tree for the first element whose `type` matches. */
 function findElement(node: unknown, type: unknown): React.ReactElement | null {
   if (!React.isValidElement(node)) return null;
   if (node.type === type) return node;
@@ -132,63 +121,77 @@ beforeEach(() => {
   mockHasOrgRole.mockReset().mockResolvedValue(false);
   mockBriefingShareEnabled.mockReset().mockReturnValue(false);
   mockGetOrgImpactLedger.mockReset().mockResolvedValue(null);
+  mockGetOrgBranding.mockReset().mockResolvedValue(null);
+  mockGetCreditState.mockReset().mockResolvedValue(null);
+  mockPlanAllowsWhiteLabel.mockReset().mockReturnValue(false);
 });
 
 describe("OrgExecutive page — internal-only affordances turned ON (proves the shared props are a real switch)", () => {
   it("passes orgSlug so headline tiles deep-link into the org dashboard", async () => {
     mockBuildExecBriefing.mockResolvedValue(baseBriefing());
-
     const el = await renderPage();
     const tiles = findElement(el, BriefingTiles)!;
-
     expect(tiles).not.toBeNull();
-    expect(tiles.props.orgSlug).toBe("acme"); // deep link switch ON — share page proves it OFF
-    // Direction 2 — the tab printed "Coverage: N/M repositories scanned" NOWHERE, while the PDF and
-    // the "Copy for LLM" markdown both did; the tiles' denominator now travels with them.
+    expect(tiles.props.orgSlug).toBe("acme");
     const note = findElement(el, BriefingBasisNote)!;
     expect(note).not.toBeNull();
     expect(note.props.briefing.coverage).toEqual({ scanned: 10, total: 10 });
+    expect(findElement(el, BriefingBrandHeader)).toBeNull();
   });
 
   it("passes practiceOrgSlug and the security dimension into BriefingDimensionCards", async () => {
     mockBuildExecBriefing.mockResolvedValue(baseBriefing());
-
     const el = await renderPage();
     const dims = findElement(el, BriefingDimensionCards)!;
-
     expect(dims).not.toBeNull();
-    expect(dims.props.practiceOrgSlug).toBe("acme"); // practice deep links ON
-    expect(dims.props.security).toEqual({ dimId: "D9", label: "Security", avg: 90 }); // D9 row surfaced
+    expect(dims.props.practiceOrgSlug).toBe("acme");
+    expect(dims.props.security).toEqual({ dimId: "D9", label: "Security", avg: 90 });
   });
 
   it("passes reportLinks:true so movers link to their per-repo report permalink", async () => {
     mockBuildExecBriefing.mockResolvedValue(baseBriefing());
-
     const el = await renderPage();
     const movement = findElement(el, BriefingMovementCard)!;
-
     expect(movement).not.toBeNull();
-    expect(movement.props.reportLinks).toBe(true); // per-repo report link ON
+    expect(movement.props.reportLinks).toBe(true);
   });
 
-  // The "Manage goals →" header action retired with the Plan tab (2026-08-17): goals are read here,
-  // not managed. The card must still render — the shared-card boundary is about the OTHER internal
-  // affordances — but with no header action, same as the public share page.
   it("renders BriefingGoalsCard without a management action (goals are read-only since the Plan tab retired)", async () => {
     mockBuildExecBriefing.mockResolvedValue(baseBriefing());
-
     const el = await renderPage();
     const goals = findElement(el, BriefingGoalsCard)!;
-
     expect(goals).not.toBeNull();
     expect(goals.props.right).toBeUndefined();
   });
 
   it("renders nothing (SectionEmpty) and skips the briefing cards entirely when there's no scanned data", async () => {
     mockBuildExecBriefing.mockResolvedValue(null);
+    expect(findElement(await renderPage(), BriefingTiles)).toBeNull();
+  });
+});
 
-    const el = await renderPage();
+describe("OrgExecutive page — in-app white-label header", () => {
+  const brand = { brandName: "Acme Inc.", brandColor: "#c41e3a", logoUrl: "https://cdn.example/acme.png" };
 
-    expect(findElement(el, BriefingTiles)).toBeNull();
+  it("renders stored brand name, logo and accent on the briefing header when canBrand", async () => {
+    mockBuildExecBriefing.mockResolvedValue(baseBriefing());
+    mockHasOrgRole.mockResolvedValue(true);
+    mockPlanAllowsWhiteLabel.mockReturnValue(true);
+    mockGetCreditState.mockResolvedValue({ plan: "team" });
+    mockGetOrgBranding.mockResolvedValue(brand);
+    const header = findElement(await renderPage(), BriefingBrandHeader)!;
+    expect(header).not.toBeNull();
+    expect(header.props.branding.brandName).toBe("Acme Inc.");
+    expect(header.props.branding.logoUrl).toBe("https://cdn.example/acme.png");
+    expect(header.props.branding.brandColor).toBe("#c41e3a");
+  });
+
+  it("omits the branded header when no brand fields are set", async () => {
+    mockBuildExecBriefing.mockResolvedValue(baseBriefing());
+    mockHasOrgRole.mockResolvedValue(true);
+    mockPlanAllowsWhiteLabel.mockReturnValue(true);
+    mockGetCreditState.mockResolvedValue({ plan: "team" });
+    mockGetOrgBranding.mockResolvedValue({ brandName: null, brandColor: null, logoUrl: null });
+    expect(findElement(await renderPage(), BriefingBrandHeader)).toBeNull();
   });
 });
