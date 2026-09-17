@@ -272,15 +272,20 @@ halves:
   `src/features/shared/practices/promotePractice.ts`), so nothing is silently truncated on
   save. Everything stays editable: a promotion is a review, not a commit.
 - **Fleet rollout for playbooks (G7-24).** `POST /api/org/playbooks/[id]/apply-batch
-  { repos[] }` opens a draft PR seeding the playbook into a whole segment (or the whole
-  fleet) in one action, mirroring the practices batch verbatim. Its bounds: the **admin**
+  { repos[], dryRun?: true }` opens a draft PR seeding the playbook into a whole segment (or the
+  whole fleet) in one action, mirroring the practices batch verbatim. Its bounds: the **admin**
   role (resolved from the playbook's own org; the single-repo `apply` stays member-level),
   every repo must belong to that org (a foreign coordinate fails the whole batch, never
   partially applies), **25 repos per call** after case-insensitive dedupe with the excess
   reported as `skipped`, and `SCAN_CONCURRENCY` lanes. One repo's failure never aborts the
-  rest. UI: `PlaybookApplyBatch.tsx`, behind the same `batchPrConfirm` dialog the practices
-  rollout uses; the single-repo and batch paths are mutually locked. The write sequence
-  itself is single-sourced in `src/lib/org/playbook-apply.ts`, shared with the single route.
+  rest. `dryRun: true` is the HITL preview: it returns `{ repos, starter, skipped }` where
+  `starter` is the exact `playbookStarterFile` bytes that would be committed, after the same
+  admin / tenancy / cap gates, and it returns before `requirePrWriteContext` so no installation
+  token is minted and `applyPlaybookToRepo` is never called. The write path is unchanged when
+  `dryRun` is absent or false. UI: `PlaybookApplyBatch.tsx`, behind the same `batchPrConfirm`
+  dialog the practices rollout uses; the single-repo and batch paths are mutually locked. The
+  write sequence itself is single-sourced in `src/lib/org/playbook-apply.ts`, shared with the
+  single route.
 - **Rollout rollup (G7-20).** `summarizeRollout` (in `practiceRows.ts`) folds the rows
   already on screen into the fleet answer: repos adopting, starter PRs landed / in flight,
   and lift, rendered by `PracticeRolloutStrip.tsx`. It adds no query and no schema: the
@@ -317,7 +322,7 @@ straight at the CI-gates practice and its exemplars.
 | `src/lib/github/write.ts` | `openDraftPr()`: branch → file → draft PR (idempotent). |
 | `src/features/shared/practices/PracticeApply.tsx` | Preview + apply UI. |
 | `src/features/shared/practices/PracticePreviewKicker.tsx` | One-line house-vs-generic kicker above the previewed artifact. |
-| `src/app/api/org/playbooks/[id]/apply-batch/route.ts` | Playbook fleet rollout: admin-gated, org-scoped, capped at 25 repos/run. |
+| `src/app/api/org/playbooks/[id]/apply-batch/route.ts` | Playbook fleet rollout: admin-gated, org-scoped, capped at 25 repos/run. `dryRun: true` returns `{ repos, starter, skipped }` and opens 0 PRs. |
 | `src/lib/org/playbook-apply.ts` | The shared single-repo playbook write sequence (PR + adoption mark + audit). |
 | `src/features/shared/practices/PlaybookApplyBatch.tsx` | Playbook fleet-rollout UI (select, confirm, per-repo results). |
 | `src/features/shared/practices/promotePractice.ts` | Mined practice → playbook draft mapping (pure, bounded). |
@@ -538,7 +543,9 @@ contradictions only. See [org-intelligence.md](./org-intelligence.md) for the st
 - **Batch apply is capped**: both `POST /api/practices/apply-batch` and
   `POST /api/org/playbooks/[id]/apply-batch` are bounded to **25 repos per call** (a
   deliberate bound, not a limitation to remove: one click must never become hundreds of
-  PRs); larger fleets need repeated, re-confirmed passes. The `base` override has no UI yet.
+  PRs); larger fleets need repeated, re-confirmed passes. Playbook apply-batch also
+  accepts `dryRun: true` so the operator can inspect the starter bytes and the capped
+  repo list before the write. The `base` override has no UI yet.
 - (Closed 2026-08-14.) ~~The rollout rollup is page-local.~~ The rollout proof now rides
   the executive briefing: `buildExecBriefing` folds `buildPracticeLibrarySummary(...)
   .rollout` onto `ExecBriefing.proof`, and one shared `briefingProofLine` renders it on the

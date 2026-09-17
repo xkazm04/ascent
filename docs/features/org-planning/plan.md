@@ -88,9 +88,12 @@ it at `?tab=live` — in [live.md](live.md).
 
 The committed starter (`playbookStarterFile` in `src/lib/org/playbook-brief.ts`) pins the playbook's
 `version` in the opening blockquote as `v{n}`. `playbookMarkdown` (PR body / Copy-for-LLM) names the
-same `v{n}` so the two artifacts stay in lockstep; callers pass `PlaybookRow.version`. Create also
-accepts `fromDim` / `fromRec` to prefill from the dimension template (the briefing's ranked next
-move when `fromRec` is set); see [practices.md](../org-dashboard/practices.md).
+same `v{n}` so the two artifacts stay in lockstep; callers pass `PlaybookRow.version`. Fleet
+apply-batch (`POST /api/org/playbooks/[id]/apply-batch`) accepts `dryRun: true` and returns those
+exact starter bytes plus the capped unique repo list (`{ repos, starter, skipped }`) without
+minting an installation token or opening PRs; the admin gate still runs so the starter does not
+leak. Create also accepts `fromDim` / `fromRec` to prefill from the dimension template (the
+briefing's ranked next move when `fromRec` is set); see [practices.md](../org-dashboard/practices.md).
 
 ## Weekly digest (`?tab=digest`, Bought)
 
