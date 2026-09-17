@@ -237,6 +237,15 @@ contribute to both, and adding them would count it twice. `telemetry/<repo>/<yyy
 repo-dimensioned data in a repo whose privacy the operator does not control, and
 sink A already serves that need.
 
+The Registry tab's instrument column ranks sink B per skill name
+(`telemetry.invokesBySkill`) next to the 30d registry readout
+(`RegistryInstrumentPanel` / `RegistryInvokesBySkill`). The keys are registry
+skill names: a registry-only skill has no `OrgSkill` id, so the list never
+tries to resolve one. That ranked list is **not** added to `invokesDirect30d`.
+When no index pass has read the `usage/` lane (`registry.lastIndexedAt` is
+absent) the list is hatched (`not-judged`) and prints no number, rather than a
+row of zeros.
+
 **`invoke` is back (2026-08-29).** It was retired on 2026-07-29 for having no
 producer: nothing in the app, the CLI or the hooks emitted it, so `active` was
 unreachable for every skill in production, and a documented-but-unemittable type
