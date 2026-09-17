@@ -252,6 +252,17 @@ contribute to both, and adding them would count it twice. `telemetry/<repo>/<yyy
 repo-dimensioned data in a repo whose privacy the operator does not control, and
 sink A already serves that need.
 
+**Setup chooses the sink (and the mode).** Step 1 of the Registry tab
+(`RegistrySetup`) is where an admin picks **git-native** vs **hosted-mirror**
+and the telemetry sink (`off` / `api` / `registry`) before create or map.
+`POST /api/org/:slug/registry` persists those on `OrgRegistry.mode` /
+`telemetrySink` (closed sets; YAML aliases `git-native` / `hosted-mirror` are
+accepted, anything else is 400). Defaults are git-native and `off`: a fresh
+registry reports nothing until the owner opts in. git-native is the recommended
+path (content enters by PR; usage is `report --to-registry`, sink B).
+hosted-mirror keeps ascent as the writer (hosted push / sink A). The choice is
+independent of "stay hosted" (no registry mapped at all).
+
 The Registry tab's instrument column ranks sink B per skill name
 (`telemetry.invokesBySkill`) next to the 30d registry readout
 (`RegistryInstrumentPanel` / `RegistryInvokesBySkill`). The keys are registry
@@ -874,6 +885,13 @@ distinguishes the two worlds, and the affordances follow it:
 Before a registry is mapped the marker is not rendered at all — every row is hosted, and "hosted" is
 only news once the other world exists.
 
+**Mode vs stay hosted.** Mapping a registry in **hosted-mirror** mode is not the
+same as never mapping one. Stay hosted is the unmapped org: skills live only in
+ascent's tables. Hosted-mirror maps a repo and keeps ascent as the writer, with
+the repo a read-only copy. git-native (the Setup default) makes the repo the
+source of truth. Setup's two radios write that distinction at create/map time;
+the Skills tab then follows `origin` as above.
+
 ### Trace — a registry skill's own history (2026-08-30)
 
 A **registry-origin** skill card carries a `Trace` disclosure: the commits over
@@ -938,6 +956,8 @@ as Trace.
 | `scripts/ascent-skills.mjs` | The distributable: sync/push/list/status + `hooks` and `report`. |
 | `src/lib/org/registry-howto.ts` | Registry tab how-to lines: `report --to-registry` (no token) vs hosted push/events (token). |
 | `src/features/shared/registry/RegistryHowTo.tsx` | Renders that split; `ASCENT_TOKEN` is named only for sink A / MCP. |
+| `src/features/shared/registry/RegistrySetup.tsx` | Step 1: create/map, plus git-native vs hosted-mirror and the telemetry sink. |
+| `src/features/shared/registry/registryActionRules.ts` | Which actions render, and the setup mode/sink closed sets. |
 | `src/lib/org/skill-outcomes.ts` / `skill-outcomes-load.ts` | Before/after adoption score deltas. |
 | `src/lib/org/skill-categories.ts` | Closed category set. |
 | `src/lib/mcp/tools.ts` | The tool catalog: scopes, plan gates, the `mutates` marker. |

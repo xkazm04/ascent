@@ -80,6 +80,40 @@ export function capabilityNotice(caps: RegistryCapabilities, slug: string): stri
   }
 }
 
+/** Column values `POST /api/org/:slug/registry` persists. YAML aliases (`git-native`) are the route's job. */
+export const SETUP_MODES = ["git_native", "hosted_mirror"] as const;
+export const SETUP_SINKS = ["api", "registry", "off"] as const;
+export type SetupMode = (typeof SETUP_MODES)[number];
+export type SetupSink = (typeof SETUP_SINKS)[number];
+
+/** git-native: content enters by PR. A fresh registry reports nothing until the owner opts in. */
+export const DEFAULT_SETUP_MODE: SetupMode = "git_native";
+export const DEFAULT_SETUP_SINK: SetupSink = "off";
+
+export const SETUP_MODE_OPTIONS: readonly { value: SetupMode; label: string; title: string }[] = [
+  { value: "git_native", label: "git-native", title: "Content enters by pull request; ascent only reads. The default." },
+  { value: "hosted_mirror", label: "hosted-mirror", title: "Content is authored in ascent and mirrored into the repo." },
+];
+
+export const SETUP_SINK_OPTIONS: readonly { value: SetupSink; label: string; title: string }[] = [
+  { value: "off", label: "off", title: "No invocation counts until you opt in. The default." },
+  { value: "api", label: "api", title: "Sink A: POST /api/org/skills/events. Token; the only sink that may name a repo." },
+  { value: "registry", label: "registry", title: "Sink B: usage/<contributor>.json in this repo. Counts only; no token." },
+];
+
+export const isSetupMode = (v: unknown): v is SetupMode =>
+  typeof v === "string" && (SETUP_MODES as readonly string[]).includes(v);
+export const isSetupSink = (v: unknown): v is SetupSink =>
+  typeof v === "string" && (SETUP_SINKS as readonly string[]).includes(v);
+
+/** Create and map send the same keys so the two POSTs cannot drift on mode or sink. */
+export function registryMapPayload(
+  base: { create: true; name: string } | { fullName: string },
+  choice: { mode: SetupMode; telemetrySink: SetupSink },
+): Record<string, unknown> {
+  return { ...base, mode: choice.mode, telemetrySink: choice.telemetrySink };
+}
+
 /** `{ error, code }` bodies, as sentences. The server's `error` is preferred; this is the fallback. */
 export const ERROR_SENTENCE: Record<string, string> = {
   "persistence-off": "This workspace has no database, so nothing could be saved.",

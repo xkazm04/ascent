@@ -6,7 +6,19 @@
 // a pure function is cheap enough to test exhaustively.
 
 import { describe, expect, it } from "vitest";
-import { ERROR_SENTENCE, canRender, capabilityNotice, visibleActions } from "./registryActionRules";
+import {
+  DEFAULT_SETUP_MODE,
+  DEFAULT_SETUP_SINK,
+  ERROR_SENTENCE,
+  SETUP_MODES,
+  SETUP_SINKS,
+  canRender,
+  capabilityNotice,
+  isSetupMode,
+  isSetupSink,
+  registryMapPayload,
+  visibleActions,
+} from "./registryActionRules";
 import type { RegistryCapabilities } from "@/lib/registry/capabilities";
 
 /** Everything present: App configured, installed, admin viewer, org account. */
@@ -93,5 +105,35 @@ describe("ERROR_SENTENCE", () => {
     for (const code of ["persistence-off", "invalid-input", "not-permitted", "not-mapped", "github-error"]) {
       expect(ERROR_SENTENCE[code], code).toBeTruthy();
     }
+  });
+});
+
+describe("setup mode + telemetry sink", () => {
+  it("defaults to git-native and off (a fresh registry reports nothing until the owner opts in)", () => {
+    expect(DEFAULT_SETUP_MODE).toBe("git_native");
+    expect(DEFAULT_SETUP_SINK).toBe("off");
+  });
+
+  it("the closed sets are the column values the route persists", () => {
+    expect(SETUP_MODES).toEqual(["git_native", "hosted_mirror"]);
+    expect(SETUP_SINKS).toEqual(["api", "registry", "off"]);
+    expect(isSetupMode("git_native")).toBe(true);
+    expect(isSetupMode("git-native")).toBe(false);
+    expect(isSetupSink("registry")).toBe(true);
+    expect(isSetupSink("jsonl")).toBe(false);
+  });
+
+  it("create and map payloads both carry mode and telemetrySink so the two POSTs cannot drift", () => {
+    expect(registryMapPayload({ create: true, name: "ai-registry" }, { mode: "git_native", telemetrySink: "off" })).toEqual({
+      create: true,
+      name: "ai-registry",
+      mode: "git_native",
+      telemetrySink: "off",
+    });
+    expect(registryMapPayload({ fullName: "acme/handbook" }, { mode: "hosted_mirror", telemetrySink: "api" })).toEqual({
+      fullName: "acme/handbook",
+      mode: "hosted_mirror",
+      telemetrySink: "api",
+    });
   });
 });
