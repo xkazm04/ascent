@@ -58,11 +58,55 @@ describe("install", () => {
     expect(onInstalled).toHaveBeenCalledWith(2);
   });
 
+  it("lists each successful PR url as a link", async () => {
+    mockFetch({
+      results: [
+        { ok: true, url: "https://github.com/acme/app/pull/11", number: 11 },
+        { ok: true, url: "https://github.com/acme/api/pull/22", number: 22 },
+      ],
+    });
+    render(<FoundationPanel org="acme" repos={REPOS} />);
+    fireEvent.click(screen.getByRole("button", { name: "Install the foundation in 2 repos" }));
+    await waitFor(() => expect(screen.getAllByRole("link")).toHaveLength(2));
+    expect(screen.getByRole("link", { name: "PR #11" }).getAttribute("href")).toBe(
+      "https://github.com/acme/app/pull/11",
+    );
+    expect(screen.getByRole("link", { name: "PR #22" }).getAttribute("href")).toBe(
+      "https://github.com/acme/api/pull/22",
+    );
+  });
+
+  it("links an ok row that only has a url (no number)", async () => {
+    mockFetch({ results: [{ ok: true, url: "https://github.com/acme/app/pull/11" }] });
+    render(<FoundationPanel org="acme" repos={["acme/app"]} />);
+    fireEvent.click(screen.getByRole("button", { name: /Install the foundation/ }));
+    await waitFor(() => expect(screen.getByRole("link")).toBeTruthy());
+    expect(screen.getByRole("link").getAttribute("href")).toBe("https://github.com/acme/app/pull/11");
+    expect(screen.getByRole("link").textContent).toBe("https://github.com/acme/app/pull/11");
+  });
+
+  it("does not invent a link for an ok row with no url", async () => {
+    mockFetch({ results: [{ ok: true }] });
+    render(<FoundationPanel org="acme" repos={["acme/app"]} />);
+    fireEvent.click(screen.getByRole("button", { name: /Install the foundation/ }));
+    await waitFor(() => expect(screen.getByText(/Opened 1 draft PR/)).toBeTruthy());
+    expect(screen.queryByRole("link")).toBeNull();
+  });
+
   it("discloses partial failure rather than reporting a clean success", async () => {
-    mockFetch({ results: [{ ok: true }, { ok: false, error: "No saved scan" }] });
+    mockFetch({
+      results: [
+        { ok: true, url: "https://github.com/acme/app/pull/11", number: 11 },
+        { ok: false, error: "No saved scan" },
+      ],
+    });
     render(<FoundationPanel org="acme" repos={REPOS} />);
     fireEvent.click(screen.getByRole("button", { name: /Install the foundation/ }));
     await waitFor(() => expect(screen.getByText(/1 repo couldn't be installed/)).toBeTruthy());
+    expect(screen.getByText(/No saved scan/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "PR #11" }).getAttribute("href")).toBe(
+      "https://github.com/acme/app/pull/11",
+    );
   });
 
   it("an all-failed batch is an ERROR, not '0 PRs opened' dressed as success", async () => {

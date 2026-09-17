@@ -177,7 +177,9 @@ The panel renders on the App path only (`foundationOrg`, gated the
 same way as the invite panel: an installation id means a real org with a token behind it), offers a
 no-op **Skip**, and discloses before sending — that the PR is a draft nobody merges for you, and that
 report-back (the two Actions secrets and the `Secrets: write` permission they need) is *described*
-here but performed on the Repositories tab, behind a typed confirmation and the owner role. A repo
+here but performed on the Repositories tab, behind a typed confirmation and the owner role. After
+the batch succeeds, each ok row with a `url` (and `number` when present) is listed as a link; the
+first per-repo error is kept so a mixed result still says why a repo failed. A repo
 that errored or was credit-skipped is excluded: it has no saved scan, so no foundation can be
 generated for it. Everything else on the done screen still hands off to the dashboard.
 `OnboardingChecklist` itself stays: the
