@@ -16,6 +16,10 @@
 //
 // The accessors are ASYNC now, since the truth lives in the DB rather than a process Map. That is
 // the one signature change, and the route awaits them.
+//
+// AutopilotJob is a ONE-REPO row (one `repo`, one branch). A multi-repo loop run has no faithful
+// projection onto that shape — naming `repos[0]` and flattening every lane's log would tell the
+// band the wrong repo is being worked. Multi-repo runs stay on the cockpit; this shim ignores them.
 
 import { LOOP_MAX_CYCLES_CAP, getActiveLoopRun, listLanes, listLoopRuns, getLoopRun, type LoopLaneRecord, type LoopRunRecord } from "@/lib/db/loop-runs";
 import { startLoopRun, stopLoopRun } from "@/lib/local/loop-engine";
@@ -43,8 +47,15 @@ export interface AutopilotJob {
   stopRequested: boolean;
 }
 
-/** Project a single-repo run + its lanes back into the legacy job shape. Pure; exported for tests. */
-export function toAutopilotJob(org: string, run: LoopRunRecord, lanes: readonly LoopLaneRecord[]): AutopilotJob {
+/** A run the legacy job shape can name without lying. AutopilotJob has one `repo`. */
+function isSingleRepoRun(run: { readonly repos: readonly string[] }): boolean {
+  return run.repos.length === 1;
+}
+
+/** Project a single-repo run + its lanes back into the legacy job shape. Pure; exported for tests.
+ *  Multi-repo runs return null — the cockpit owns that surface, not `/api/org/local/autopilot`. */
+export function toAutopilotJob(org: string, run: LoopRunRecord, lanes: readonly LoopLaneRecord[]): AutopilotJob | null {
+  if (!isSingleRepoRun(run)) return null;
   const ordered = [...lanes].sort((a, b) => a.cycle - b.cycle);
   const last = ordered[ordered.length - 1];
   return {
@@ -82,23 +93,31 @@ function projectPhase(run: LoopRunRecord, last: LoopLaneRecord | undefined): Aut
   }
 }
 
-/** The org's current (or most recent) single-repo autopilot job, or null. */
+/** The org's current (or most recent) single-repo autopilot job, or null.
+ *  A live multi-repo run is skipped, not projected: the band must not look like it owns a fleet pass. */
 export async function getAutopilotJob(org: string): Promise<AutopilotJob | null> {
   const active = await getActiveLoopRun(org);
-  const run = active ?? (await mostRecentRun(org));
+  const run = active && isSingleRepoRun(active) ? active : await mostRecentSingleRepoRun(org);
   if (!run) return null;
   return toAutopilotJob(org, run, await listLanes(run.id));
 }
 
-async function mostRecentRun(org: string): Promise<LoopRunRecord | null> {
-  const [newest] = await listLoopRuns(org, 1);
-  return newest ? await getLoopRun(newest.id) : null;
+async function mostRecentSingleRepoRun(org: string): Promise<LoopRunRecord | null> {
+  // listLoopRuns caps at 100; taking only the newest row would hide the last autopilot behind a
+  // later fleet pass.
+  const recent = await listLoopRuns(org, 100);
+  for (const row of recent) {
+    if (!isSingleRepoRun(row)) continue;
+    const run = await getLoopRun(row.id);
+    if (run && isSingleRepoRun(run)) return run;
+  }
+  return null;
 }
 
-/** Cooperative stop for the org's active run. */
+/** Cooperative stop for the org's active single-repo run. A multi-repo loop is not this job. */
 export async function requestAutopilotStop(org: string): Promise<boolean> {
   const active = await getActiveLoopRun(org);
-  if (!active) return false;
+  if (!active || !isSingleRepoRun(active)) return false;
   return stopLoopRun(active.id);
 }
 
@@ -122,5 +141,7 @@ export async function startAutopilot(opts: {
     deps: opts.deps,
     branchFor: (_repo, stamp) => `ascent/autopilot-${stamp}`,
   });
-  return toAutopilotJob(opts.org, run, await listLanes(run.id));
+  const job = toAutopilotJob(opts.org, run, await listLanes(run.id));
+  if (!job) throw new Error("Autopilot can only arm a single-repo run.");
+  return job;
 }
