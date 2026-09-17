@@ -9,20 +9,12 @@
 
 import { useState, type CSSProperties } from "react";
 
-import { chipLeft, isLibraryPath, type LocEntry } from "./devLocate";
+import { chipLeft, formatHudCopy, isLibraryPath, splitLoc, type LocEntry } from "./devLocate";
 
 export const Z = 2147483646;
 const ACCENT = "#38bdf8"; // cyan
 const DIM = "#a855f7"; // purple — secondary (pointed) outline
 const OK = "#34d399"; // green — copy confirmation
-
-/** Split `src/a/b/File.tsx:88` → `{ dir: 'src/a/b/', file: 'File.tsx:88' }`. */
-export function splitLoc(loc: string): { dir: string; file: string } {
-  const slash = loc.lastIndexOf("/");
-  return slash === -1
-    ? { dir: "", file: loc }
-    : { dir: loc.slice(0, slash + 1), file: loc.slice(slash + 1) };
-}
 
 function boxStyle(rect: DOMRect, color: string, dashed: boolean): CSSProperties {
   return {
@@ -40,16 +32,8 @@ function boxStyle(rect: DOMRect, color: string, dashed: boolean): CSSProperties 
   };
 }
 
-export function HighlightBox({
-  rect,
-  variant,
-}: {
-  rect: DOMRect;
-  variant: "target" | "pointer";
-}) {
-  return (
-    <div style={boxStyle(rect, variant === "target" ? ACCENT : DIM, variant === "pointer")} />
-  );
+export function HighlightBox({ rect, variant }: { rect: DOMRect; variant: "target" | "pointer" }) {
+  return <div style={boxStyle(rect, variant === "target" ? ACCENT : DIM, variant === "pointer")} />;
 }
 
 // Chip layout invariants, named so the placement math and the CSS enforce the SAME numbers.
@@ -121,7 +105,7 @@ function CrumbRow({
   return (
     <button
       type="button"
-      onClick={() => onCopy(entry.loc)}
+      onClick={() => onCopy(formatHudCopy(entry.loc))}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       aria-label={`Copy ${entry.loc}`}
@@ -168,6 +152,25 @@ const PANEL: CSSProperties = {
   backdropFilter: "blur(4px)",
 };
 
+const HUD_BTN: CSSProperties = {
+  background: "transparent",
+  border: `1px solid ${ACCENT}66`,
+  borderRadius: 4,
+  color: ACCENT,
+  cursor: "pointer",
+  font: "inherit",
+  lineHeight: 1,
+  padding: "1px 5px",
+};
+
+function HudBtn({ label, onClick, children }: { label: string; onClick: () => void; children: string }) {
+  return (
+    <button type="button" onClick={onClick} aria-label={label} title={label} className="focus-ring" style={HUD_BTN}>
+      {children}
+    </button>
+  );
+}
+
 export function InspectorHud({
   copied,
   copyOk,
@@ -213,25 +216,27 @@ export function InspectorHud({
         >
           {copied ? (copyOk ? "Copied ✓" : "Copy failed") : "⌖ DevInspector"}
         </div>
-        <button
-          type="button"
-          onClick={() => setOnRight((r) => !r)}
-          aria-label={`Move panel to the bottom-${onRight ? "left" : "right"} corner`}
-          title={`Move panel to the bottom-${onRight ? "left" : "right"} corner`}
-          className="focus-ring"
-          style={{
-            background: "transparent",
-            border: `1px solid ${ACCENT}66`,
-            borderRadius: 4,
-            color: ACCENT,
-            cursor: "pointer",
-            font: "inherit",
-            lineHeight: 1,
-            padding: "1px 5px",
-          }}
-        >
-          ⇄
-        </button>
+        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+          {defaultLoc ? (
+            <>
+              <HudBtn label={`Copy ${defaultLoc}`} onClick={() => onCopy(formatHudCopy(defaultLoc, "claude"))}>
+                path:line
+              </HudBtn>
+              <HudBtn
+                label={`Copy editor deep-link code -g ${defaultLoc}`}
+                onClick={() => onCopy(formatHudCopy(defaultLoc, "vscode"))}
+              >
+                code -g
+              </HudBtn>
+            </>
+          ) : null}
+          <HudBtn
+            label={`Move panel to the bottom-${onRight ? "left" : "right"} corner`}
+            onClick={() => setOnRight((r) => !r)}
+          >
+            ⇄
+          </HudBtn>
+        </div>
       </div>
       {copied ? (
         <div style={{ wordBreak: "break-all" }}>{copied}</div>
@@ -269,7 +274,7 @@ export function InspectorHud({
         <div style={{ color: "#9ca3af" }}>Hover a component…</div>
       )}
       <div style={{ color: "#6b7280", marginTop: 6, fontSize: 11 }}>
-        right-click: innermost non-library file · Alt+right-click: this element · click a row · Esc: exit
+        right-click: path:line · HUD: path:line or code -g · Alt+right-click: this element · click a row · Esc: exit
       </div>
     </div>
   );

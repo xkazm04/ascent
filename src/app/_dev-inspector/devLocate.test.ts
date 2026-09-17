@@ -8,7 +8,16 @@ import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { describe, it, expect } from "vitest";
-import { chipLeft, isLibraryPath, LIBRARY_ROOTS, pickDefaultIndex, type LocEntry } from "./devLocate";
+import {
+  chipLeft,
+  formatHudCopy,
+  HUD_COPY_FORMATS,
+  isLibraryPath,
+  LIBRARY_ROOTS,
+  pickDefaultIndex,
+  splitLoc,
+  type LocEntry,
+} from "./devLocate";
 
 const entry = (path: string, line = 1): LocEntry =>
   ({ el: null as unknown as Element, path, line, loc: `${path}:${line}` });
@@ -37,6 +46,34 @@ describe("isLibraryPath — anchored shared roots", () => {
   it("tolerates './'-prefixed stamps", () => {
     expect(isLibraryPath("./src/lib/ui.ts")).toBe(true);
     expect(isLibraryPath("./src/components/landing/hooks/useHero.ts")).toBe(false);
+  });
+});
+
+describe("formatHudCopy — two clipboard formats from the HUD", () => {
+  const loc = "src/app/_dev-inspector/DevInspector.tsx:88";
+
+  it("keeps Claude path:line as the default payload", () => {
+    expect(formatHudCopy(loc)).toBe(loc);
+    expect(formatHudCopy(loc, "claude")).toBe("src/app/_dev-inspector/DevInspector.tsx:88");
+  });
+
+  it("formats the VS Code CLI deep-link as code -g path:line", () => {
+    expect(formatHudCopy(loc, "vscode")).toBe("code -g src/app/_dev-inspector/DevInspector.tsx:88");
+  });
+
+  it("exposes exactly two formats the HUD can copy", () => {
+    expect(HUD_COPY_FORMATS).toHaveLength(2);
+    expect([...HUD_COPY_FORMATS]).toEqual(["claude", "vscode"]);
+  });
+});
+
+describe("splitLoc — chip / crumb label split", () => {
+  it("splits a nested path at the last slash", () => {
+    expect(splitLoc("src/a/b/File.tsx:88")).toEqual({ dir: "src/a/b/", file: "File.tsx:88" });
+  });
+
+  it("treats a slash-less loc as the file", () => {
+    expect(splitLoc("File.tsx:9")).toEqual({ dir: "", file: "File.tsx:9" });
   });
 });
 

@@ -17,6 +17,28 @@ export interface LocEntry {
 }
 
 /**
+ * Clipboard formats the HUD can copy. `claude` (`path:line`) is the default —
+ * right-click, Alt+right-click, and crumb-row click all use it. `vscode` is a
+ * HUD-only action (`code -g path:line`) so Alt+right-click stays "innermost
+ * element", not a format switch.
+ */
+export const HUD_COPY_FORMATS = ["claude", "vscode"] as const;
+export type HudCopyFormat = (typeof HUD_COPY_FORMATS)[number];
+
+/** Claude-Code `path:line`, or VS Code / Cursor `code -g ${path}:${line}`. */
+export function formatHudCopy(loc: string, format: HudCopyFormat = "claude"): string {
+  return format === "vscode" ? `code -g ${loc}` : loc;
+}
+
+/** Split `src/a/b/File.tsx:88` → `{ dir: 'src/a/b/', file: 'File.tsx:88' }`. */
+export function splitLoc(loc: string): { dir: string; file: string } {
+  const slash = loc.lastIndexOf("/");
+  return slash === -1
+    ? { dir: "", file: loc }
+    : { dir: loc.slice(0, slash + 1), file: loc.slice(slash + 1) };
+}
+
+/**
  * Repo-relative path PREFIXES of the shared "library" roots. When resolving the
  * default copy target we skip files under these and land on the call site (the
  * feature/page file that *used* the shared component). Alt+right-click still

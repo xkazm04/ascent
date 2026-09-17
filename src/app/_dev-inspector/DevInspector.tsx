@@ -15,7 +15,8 @@
  *      component that is the component's own file; it is only the page-level
  *      call site when the pointed-at element is library code. Alt+right-click
  *      copies the innermost element regardless; click a HUD row to copy any
- *      enclosing file.
+ *      enclosing file. A HUD `code -g` action copies the editor CLI deep-link
+ *      for the default target — Alt+right-click is not a format switch.
  *   4. `Esc` exits.
  *
  * Mounted only behind `process.env.NODE_ENV === 'development'` in the root
@@ -26,7 +27,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { buildChain, dedupeChain, pickDefaultIndex, type LocEntry } from "./devLocate";
+import { buildChain, dedupeChain, formatHudCopy, pickDefaultIndex, type LocEntry } from "./devLocate";
 import { HighlightBox, InspectorHud, NavHint, SourceLabel, Z } from "./devInspectorUi";
 
 async function copyText(text: string): Promise<boolean> {
@@ -193,7 +194,7 @@ export function DevInspector() {
       if (chain.length === 0 || !chain[0]) return;
       const di = pickDefaultIndex(chain);
       const pick = e.altKey ? chain[0] : (chain[di] ?? chain[0]);
-      void doCopy(pick.loc);
+      void doCopy(formatHudCopy(pick.loc));
     };
 
     // The highlight/label rects are captured from getBoundingClientRect on mousemove and rendered as
