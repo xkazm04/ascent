@@ -1522,6 +1522,13 @@ and never a dollar figure, so a synced Copilot org can no longer read "$0.00 ove
 days". Before this the panel keyed on the literal `claude-code` id, so Copilot showed a green
 "Available" badge with nothing to click while its finished sync route had no caller.
 
+**Available capabilities are stored facts, not a roadmap (2026-09-17).** Claude Code's catalog
+row lists only what Test + OTel metrics persist: per-repo tokens and cost via the
+`git.repository` resource attribute (`parseOtlpMetrics` → `AiUsageRecord` `scope=repo`).
+Per-user sessions, lines, commits and PRs, and Anthropic Admin Usage/Cost totals, are not
+written by this connector and are not listed. The card (`ProviderCard`) renders the registry
+verbatim, so honesty lives in `PROVIDERS[].capabilities`.
+
 | Fidelity | Provider | What it means |
 | --- | --- | --- |
 | `measured` | Claude Code (available) | Spend attributed to the exact repo, via the OTel `git.repository` resource attribute. |

@@ -33,7 +33,7 @@ export interface ProviderDef {
   /** Best per-repo fidelity this provider can reach once connected. */
   fidelity: Fidelity;
   connectKind: ConnectKind;
-  /** What connecting it brings, shown as a short list on the card. */
+  /** What connecting it brings, shown as a short list on the card. Available rows list only stored facts. */
   capabilities: string[];
   /** The honest per-repo attribution note. */
   perRepo: string;
@@ -59,11 +59,9 @@ export const PROVIDERS: ProviderDef[] = [
     fidelity: "measured",
     connectKind: "otel-push",
     blurb: "Per-session token & cost telemetry, pushed to Ascent over OpenTelemetry.",
-    capabilities: [
-      "Per-repo tokens & cost (OTel git.repository)",
-      "Per-user sessions, lines, commits, PRs",
-      "Admin Usage/Cost totals (optional, next)",
-    ],
+    // Honest catalog: Test + OTel metrics persist per-repo tokens & cost via git.repository.
+    // Do not list per-user sessions/lines/commits/PRs or Admin Usage totals; those are not stored.
+    capabilities: ["Per-repo tokens & cost (OTel git.repository)"],
     perRepo: "Measured: OTel resource attributes carry the repository, so spend lands on the exact repo.",
     accent: "#d97757",
   },
