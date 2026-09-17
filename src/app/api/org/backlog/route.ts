@@ -31,6 +31,12 @@ const CSV_HEADER = [
   "projectedPoints",
   "unlocks",
   "lastActivityAt",
+  // Work-queue facts already on BacklogItem (MOONSHOT #3). A CSV without them makes a leased or
+  // needs-human row look unclaimed once the download leaves the app — assigneeLogin is the planning
+  // owner, not the claim holder.
+  "claimActor",
+  "leaseUntil",
+  "needsHuman",
   "recommendationId",
 ] as const;
 
@@ -56,6 +62,11 @@ function backlogCsvRows(backlog: OrgBacklog): unknown[][] {
       i.projectedPoints ?? "",
       i.unlocks ?? "",
       i.lastActivityAt,
+      i.claimActor ?? "",
+      // ISO from getOrgBacklog. Empty = no lease: on an in_progress row that means a human took it,
+      // not "expired" — the same honest-null the JSON read already carries.
+      i.leaseUntil ?? "",
+      i.needsHuman,
       i.id,
     ]),
   );

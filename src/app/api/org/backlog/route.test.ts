@@ -53,6 +53,9 @@ function item(over: Record<string, unknown> = {}) {
     unlocks: "L3",
     rationale: "",
     explore: [],
+    claimActor: null,
+    leaseUntil: null,
+    needsHuman: false,
     ...over,
   };
 }
@@ -108,11 +111,13 @@ describe("GET /api/org/backlog?format=csv", () => {
     const csv = bodyOf(res);
     const lines = csv.trim().split("\n");
     expect(lines[0]).toBe(
-      "repo,title,dimId,dimension,impact,effort,status,owner,dueDate,dueBucket,overdue,projectedPoints,unlocks,lastActivityAt,recommendationId",
+      "repo,title,dimId,dimension,impact,effort,status,owner,dueDate,dueBucket,overdue,projectedPoints,unlocks,lastActivityAt,claimActor,leaseUntil,needsHuman,recommendationId",
     );
     // Exactly one data row — byDue carries the same items and must not double them.
     expect(lines).toHaveLength(2);
     expect(lines[1]).toContain("acme/app,Add CI gate,D2,CI/CD,high,low,open,alice,2026-08-01,later,false,4,L3,");
+    // Unclaimed default: empty claim/lease, needsHuman false — so a later claimed row is distinguishable.
+    expect(lines[1]).toContain(",2026-01-01T00:00:00.000Z,,,false,rec1");
     expect(headerOf(res, "content-type")).toContain("text/csv");
     expect(headerOf(res, "content-disposition")).toContain('filename="ascent-backlog-acme.csv"');
     expect(headerOf(res, "cache-control")).toBe("private, no-store");
@@ -122,6 +127,25 @@ describe("GET /api/org/backlog?format=csv", () => {
     const res = await get("org=acme&format=csv&segment=seg1&techGroup=tg1&includeClosed=1");
     expect(mockBacklog).toHaveBeenCalledWith("acme", "seg1", expect.any(Date), "tg1", { includeClosed: true });
     expect(headerOf(res, "content-disposition")).toContain("ascent-backlog-acme-seg1-tg1-all.csv");
+  });
+
+  it("exports claimActor, leaseUntil and needsHuman so a held or escalated row is distinguishable", async () => {
+    mockBacklog.mockResolvedValue(
+      backlog([
+        item({
+          claimActor: "agent:ci",
+          leaseUntil: "2026-08-02T12:00:00.000Z",
+          needsHuman: true,
+        }),
+      ]) as never,
+    );
+    const csv = bodyOf(await get("org=acme&format=csv"));
+    const header = csv.trim().split("\n")[0]!.split(",");
+    const row = csv.trim().split("\n")[1]!.split(",");
+    expect(header).toEqual(expect.arrayContaining(["claimActor", "leaseUntil", "needsHuman"]));
+    expect(row[header.indexOf("claimActor")]).toBe("agent:ci");
+    expect(row[header.indexOf("leaseUntil")]).toBe("2026-08-02T12:00:00.000Z");
+    expect(row[header.indexOf("needsHuman")]).toBe("true");
   });
 
   it("neutralizes a spreadsheet formula in a title (the shared csvTable guard)", async () => {
