@@ -632,6 +632,15 @@ its curated skills. `tools/list` filters to what the token holds, which the revi
 permits, since credentials are per-request input rather than connection state, so an agent is never
 shown a tool it would then be refused.
 
+`tools/list` also states the scope model on `_meta`: `io.modelcontextprotocol/serverInfo.description`
+and `ascent.dev/scopeModel` both carry the catalog-level copy (`TOOLS_LIST_SCOPE_COPY` in
+`src/lib/mcp/tools.ts`). An `mcp:read`-only agent can therefore see that `memory:read` unlocks
+`recall_org_memory`, `skills:read` unlocks `find_skills` (and `get_skill` / `get_skill_lessons` /
+`get_governing_subject`), and writes need `telemetry:write` plus the resource they write about. The
+copy is the same on every list; it is not a per-token leak of which tools this credential is
+missing. `tools/call` refusals stay the opaque `Unknown tool`. The list is where the model is named;
+a call is not an oracle for what this org has that this token cannot reach.
+
 ### Two authorizations: scopes and the plan
 
 A token's **scopes** say what this caller may do; the workspace's **plan** says what this org has.

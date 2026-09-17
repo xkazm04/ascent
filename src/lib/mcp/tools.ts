@@ -29,8 +29,16 @@
 // revision blesses this explicitly: the tool set "MAY vary by the authorization presented on the
 // request … since credentials are per-request input, not connection state." So an agent is never
 // shown a tool it would be refused, and granting the door does not grant the org's memory.
+//
+// THE LIST STILL NAMES THE MODEL. Filtering the tools array is not the same as hiding that
+// `memory:read` / `skills:read` exist. A door-only agent that listed tools used to see standing
+// reads and nothing else, with no hint that `recall_org_memory` and `find_skills` sit behind
+// other scopes. Catalog-level copy on the list `_meta` / `serverInfo` states which scopes unlock
+// those families and the writes. `tools/call` refusals stay opaque (`Unknown tool`); the list is
+// where the model is stated, and a call is not an oracle for which tools this token cannot reach.
 
 import type { SkillTokenScope } from "@/lib/db";
+import { META, ok } from "./protocol";
 
 /** The plan-gated resource families the catalog knows about (see `src/app/api/mcp/gates.ts`). */
 export type McpPlanGate = "memory" | "skills";
@@ -459,3 +467,69 @@ export function toWireTool(t: McpToolDef): Record<string, unknown> {
  */
 export const TOOLS_TTL_MS = 3_600_000;
 export const TOOLS_CACHE_SCOPE = "private" as const;
+
+/**
+ * Catalog-level copy on every `tools/list` result. Same string for every caller: this is the
+ * door's published scope model, not a per-token leak of which tools this credential is missing.
+ * Per-tool `scopes` stay off the wire (`toWireTool`).
+ */
+export const TOOLS_LIST_SCOPE_COPY =
+  "mcp:read is the door and does not include memory or skills. " +
+  "recall_org_memory requires memory:read. " +
+  "find_skills, get_skill, get_skill_lessons and get_governing_subject require skills:read. " +
+  "Writes require telemetry:write plus the resource they write about: " +
+  "cite_memory needs memory:read; report_skill_invoke needs skills:read; " +
+  "claim_followups and report_attempt need followups:write.";
+
+/** Namespaced `_meta` key for the scope-model copy. Not a spec key. */
+export const TOOLS_LIST_SCOPE_META_KEY = "ascent.dev/scopeModel";
+
+/** The `tools/list` result body: advertised tools plus the revision's cache hints. */
+export function toolsListResult(tools: readonly McpToolDef[]): Record<string, unknown> {
+  return {
+    tools: tools.map(toWireTool),
+    // REQUIRED on list results in this revision. `private` because the list varies by the
+    // caller's scopes — a shared cache serving one org's list to another would leak which
+    // tools that token reaches.
+    ttlMs: TOOLS_TTL_MS,
+    cacheScope: TOOLS_CACHE_SCOPE,
+  };
+}
+
+/**
+ * Re-applies list `_meta` after `ok()` stamps `serverInfo`. `ok()` overwrites `_meta`, so extra
+ * keys and the `description` on `serverInfo` have to land here rather than in `toolsListResult`.
+ */
+export function stampToolsListMeta(envelope: Record<string, unknown>): Record<string, unknown> {
+  const result = envelope.result;
+  if (!result || typeof result !== "object") return envelope;
+  const rec = result as Record<string, unknown>;
+  const existing =
+    rec._meta && typeof rec._meta === "object" && !Array.isArray(rec._meta)
+      ? (rec._meta as Record<string, unknown>)
+      : {};
+  const infoRaw = existing[META.serverInfo];
+  const info =
+    infoRaw && typeof infoRaw === "object" && !Array.isArray(infoRaw)
+      ? (infoRaw as Record<string, unknown>)
+      : {};
+  return {
+    ...envelope,
+    result: {
+      ...rec,
+      _meta: {
+        ...existing,
+        [META.serverInfo]: { ...info, description: TOOLS_LIST_SCOPE_COPY },
+        [TOOLS_LIST_SCOPE_META_KEY]: TOOLS_LIST_SCOPE_COPY,
+      },
+    },
+  };
+}
+
+/** The complete `tools/list` JSON-RPC envelope, including the scope-model `_meta` / serverInfo copy. */
+export function toolsListEnvelope(
+  id: string | number | null,
+  tools: readonly McpToolDef[],
+): Record<string, unknown> {
+  return stampToolsListMeta(ok(id, toolsListResult(tools)));
+}
