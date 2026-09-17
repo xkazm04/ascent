@@ -264,6 +264,14 @@ When no index pass has read the `usage/` lane (`registry.lastIndexedAt` is
 absent) the list is hatched (`not-judged`) and prints no number, rather than a
 row of zeros.
 
+The Registry tab's fleet-sync meters (`RegistryFleetSync`) hatch pointing and
+30d-sync the same way until the adoption pass (R5) hashes each repo's
+`.claude/skills` against the catalog. `getRegistryView` omits
+`fleet.reposPointing` and `fleet.reposSynced30d` until that pass exists; a
+zero would mean "we looked and nobody points", which is not a fact anyone has
+measured. Reporting (the usage-lane contributor count) stays a real readout.
+Shaped preview states that pretend R5 already ran still carry the counts.
+
 **`invoke` is back (2026-08-29).** It was retired on 2026-07-29 for having no
 producer: nothing in the app, the CLI or the hooks emitted it, so `active` was
 unreachable for every skill in production, and a documented-but-unemittable type

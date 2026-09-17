@@ -2,9 +2,10 @@
 //
 // The registry is a CUSTOMER-OWNED repo (`<org>/ai-registry`); ascent onboards it, indexes it and
 // tracks how the fleet syncs against it. This loader reads the `OrgRegistry` row and the indexed
-// mirror counts, falling back to an honest `unmapped` view. Anything the indexer cannot yet observe
-// (fleet pointers, sync recency, invoke telemetry) is reported as ZERO rather than guessed.
-// `capabilities` is what the UI gates GitHub actions on (§0b.5) — see @/lib/registry/capabilities.
+// mirror counts, falling back to an honest `unmapped` view. Fleet pointers and 30d-sync are omitted
+// until the adoption pass (R5) exists — unmeasured is not zero. Invoke telemetry degrades per-sink
+// (a failed read is "not measured", never a zero). `capabilities` is what the UI gates GitHub
+// actions on (§0b.5) — see @/lib/registry/capabilities.
 //
 // THIS MODULE IS SERVER-ONLY and returns ONLY real data. The shaped example states live in
 // `registry-view.fixture.ts` and are selected in REACT STATE by the tab's preview shell — never by a
@@ -98,8 +99,12 @@ export type RegistryView = {
   migration: Record<RegistryArtifact, MigrationStep>;
   fleet: {
     reposTotal: number;
-    reposPointing: number;
-    reposSynced30d: number;
+    /**
+     * Present only after the adoption pass (R5) hashes each repo against the catalog.
+     * Absent is unmeasured, never a zero fleet. 0 is "we looked and nobody points".
+     */
+    reposPointing?: number;
+    reposSynced30d?: number;
     adoption: { inSync: number; stale: number; diverged: number; localOnly: number };
   };
   /** Last 20, newest first. */
@@ -240,6 +245,14 @@ function activityOf(row: OrgRegistryRow | null, lessons: SkillLessonRow[] = []):
 }
 
 /**
+ * Fleet sync until R5. `reposTotal` is the rollup size (a real count). Pointing and 30d-sync are
+ * omitted: a 0 would mean "we looked and nobody points", which this pass cannot attest.
+ */
+export function unmeasuredFleet(reposTotal: number): RegistryView["fleet"] {
+  return { reposTotal, adoption: { inSync: 0, stale: 0, diverged: 0, localOnly: 0 } };
+}
+
+/**
  * The tab's loader. The view is assembled from the `OrgRegistry` row + mirror counts + fleet size and
  * degrades to an honest `unmapped` when no registry is mapped. Never throws: a persistence-off
  * workspace degrades to zeroes and `capabilities.reason = "persistence-off"`, not an error panel.
@@ -295,8 +308,8 @@ export async function getRegistryView(slug: string): Promise<RegistryView> {
     counts: { ...counts, lessons: row?.counts.lessons ?? 0 },
     migration: migrationOf(row, totals),
     // Fleet sync is not observable until the adoption pass (R5) hashes each repo's skills against
-    // the catalog; reported as zero rather than estimated.
-    fleet: { reposTotal: rollup?.repos?.length ?? 0, reposPointing: 0, reposSynced30d: 0, adoption: { inSync: 0, stale: 0, diverged: 0, localOnly: 0 } },
+    // the catalog; pointing/synced are omitted, never a fabricated 0.
+    fleet: unmeasuredFleet(rollup?.repos?.length ?? 0),
     activity: activityOf(row, recentLessons),
     // Read from the registry's own `usage/` lane at index time, not counted here.
     // `reposReporting` is how many installations CONTRIBUTED a file — a zero with
