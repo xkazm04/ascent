@@ -20,6 +20,7 @@ import {
   ghHeaders,
   githubApiBase,
   githubRawBase,
+  githubWebBase,
 } from "@/lib/github/host";
 import { MEMORY_ENTRY_RE, capForPath, pickFilesToFetch, planFetchBudget, quarantineMemoryFiles, estimateCoverage } from "@/lib/forge/source-selection";
 import { mapPool } from "@/lib/pool";
@@ -47,8 +48,19 @@ const TIMEOUT_FILE_MS = 15_000; // per-file content fetch (capped at MAX_FILE_BY
 const FILE_CONCURRENCY = 8; // cap parallel file fetches (avoid secondary rate limits)
 
 
+/** Hostname of `githubWebBase()` (`GITHUB_SERVER_URL`, else github.com). Empty if the base isn't a URL. */
+function githubConfiguredWebHost(): string {
+  try {
+    return new URL(githubWebBase()).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
 /**
- * Accepts full URLs, `github.com/owner/repo`, or bare `owner/repo`.
+ * Accepts full URLs, `github.com/owner/repo`, or bare `owner/repo`. A GHES clipboard URL
+ * (`https://ghe.example/owner/repo`, `git@ghe.example:owner/repo`) is accepted when its hostname
+ * equals `githubWebBase()` (`GITHUB_SERVER_URL`) — the same configured-host check GitLab's parser uses.
  *
  * DELIBERATELY LENIENT about trailing path segments (github-repo-data-access 07-16 #4): a pasted
  * deep link (`/pull/123`, `/tree/my-branch`, `/blob/main/README.md`, `/releases`, …) still parses to
@@ -63,7 +75,8 @@ const FILE_CONCURRENCY = 8; // cap parallel file fetches (avoid secondary rate l
 export function parseRepoUrl(input: string): ParsedRepo | null {
   if (!input) return null;
   let s = input.trim();
-  s = s.replace(/^git@github\.com:/i, "https://github.com/");
+  // scp-style SSH (`git@host:owner/repo`) — github.com and a configured GHES host both become https.
+  s = s.replace(/^git@([^:]+):/i, "https://$1/");
   s = s.replace(/\.git$/i, "");
 
   let owner: string | undefined;
@@ -73,7 +86,11 @@ export function parseRepoUrl(input: string): ParsedRepo | null {
   const hadScheme = s.includes("://");
   try {
     const url = new URL(hadScheme ? s : `https://${s}`);
-    if (/(^|\.)github\.com$/i.test(url.hostname)) {
+    const host = url.hostname.toLowerCase();
+    const configured = githubConfiguredWebHost();
+    const isGithubCom = /(^|\.)github\.com$/i.test(host);
+    const isConfiguredHost = Boolean(configured) && host === configured;
+    if (isGithubCom || isConfiguredHost) {
       const parts = url.pathname.split("/").filter(Boolean);
       [owner, repo] = parts;
       extra = parts.slice(2);

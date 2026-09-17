@@ -156,6 +156,49 @@ describe("parseRepoUrl — SSRF / injection vectors are rejected (return null)",
   }
 });
 
+describe("parseRepoUrl — GHES clipboard URLs parse when GITHUB_SERVER_URL matches", () => {
+  // Mirror parseGitlabUrl's isConfiguredHost check: a pasted GHES URL is a GitHub repo when its
+  // hostname equals githubWebBase() (GITHUB_SERVER_URL). charset/traversal guards stay in force.
+  // SSRF contract: evil.com / github.com.evil.com remain null even with a GHES host configured.
+  afterEach(() => vi.unstubAllEnvs());
+
+  const ghes = "https://ghe.acme.com";
+
+  it("accepts https GHES owner/repo", () => {
+    vi.stubEnv("GITHUB_SERVER_URL", ghes);
+    const out = parseRepoUrl("https://ghe.acme.com/acme/api");
+    expect(out).toEqual({ owner: "acme", repo: "api" });
+    assertSafe(out);
+  });
+
+  it("accepts git@ GHES scp-style SSH", () => {
+    vi.stubEnv("GITHUB_SERVER_URL", ghes);
+    const out = parseRepoUrl("git@ghe.acme.com:acme/api");
+    expect(out).toEqual({ owner: "acme", repo: "api" });
+    assertSafe(out);
+  });
+
+  it("accepts trailing .git on a GHES URL", () => {
+    vi.stubEnv("GITHUB_SERVER_URL", ghes);
+    const out = parseRepoUrl("https://ghe.acme.com/acme/api.git");
+    expect(out).toEqual({ owner: "acme", repo: "api" });
+    assertSafe(out);
+  });
+
+  it("accepts /tree/ref on a GHES URL and surfaces the ref", () => {
+    vi.stubEnv("GITHUB_SERVER_URL", ghes);
+    const out = parseRepoUrl("https://ghe.acme.com/acme/api/tree/main");
+    expect(out).toEqual({ owner: "acme", repo: "api", ref: "main" });
+    assertSafe(out);
+  });
+
+  it("still rejects evil.com and github.com.evil.com when a GHES host is configured", () => {
+    vi.stubEnv("GITHUB_SERVER_URL", ghes);
+    expect(parseRepoUrl("https://evil.com/a/b")).toBeNull();
+    expect(parseRepoUrl("https://github.com.evil.com/a/b")).toBeNull();
+  });
+});
+
 describe("parseRepoUrl — CURRENT-BEHAVIOR pins (documented quirks; safe because coords stay clean)", () => {
   // These inputs do NOT return null today, but the security invariant still holds: the owner/repo
   // that comes out is always charset-clean, so no traversal/credential/query material reaches the
