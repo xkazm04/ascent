@@ -104,8 +104,8 @@ identical either way. `SignInNotice.tsx` distinguishes "Your session expired" fr
 | `/auth/callback` | `GET` | **Supabase.** Exchanges the PKCE `?code=` for a session (setting auth cookies), then redirects to `?next=` (run through `safeNext()` so a tampered value can't bounce to an external origin). Defaults to `/launch`. Also **seeds the watchlist** from the exchange's GitHub `provider_token`, deferred via `after()` so sign-in latency is untouched (see [Org auto-discovery](#org-auto-discovery-srclibgithubdiscoverts)). |
 | `/api/auth/session` | `GET` | Dual-stack JSON session status for client components and "session expires in N minutes" nudges. Under the Supabase wall the Supabase viewer is reported, `installations` is always `[]` (App installs resolve per-org via `canReadOrg`), and `expiresAt` is null (Supabase refreshes its own tokens). Otherwise falls through to custom-OAuth state. No token is ever in the payload. |
 | `/api/auth/viewer` | `GET` | The *effective* viewer for client components (the scan form's notify control), honoring the dev bypass viewer, unlike a raw client-side Supabase call. Returns `{ signedIn, email, gated }`. |
-| `/api/auth/login` | `GET` | **Dormant stack.** CSRF `state` cookie + `next` cookie, redirect to GitHub authorize with scope `read:user read:org`. |
-| `/api/auth/callback` | `GET` | **Dormant stack.** Verify `state`, exchange `code`, fetch user + App installations, `upsertInstallation()` each, auto-discover orgs, set the signed session. The GitHub token is used here and discarded. |
+| `/api/auth/login` | `GET` | **Dormant stack.** CSRF `state` cookie + `next` cookie, redirect to `{githubWebBase()}/login/oauth/authorize` with scope `read:user read:org`. |
+| `/api/auth/callback` | `GET` | **Dormant stack.** Verify `state`, exchange `code` at `{githubWebBase()}/login/oauth/access_token`, fetch user + App installations, `upsertInstallation()` each, auto-discover orgs, set the signed session. The GitHub token is used here and discarded. |
 | `/api/auth/logout` | `POST` | Same-origin check, bump the login's session version (server-side revocation), delete the cookie, redirect to `/`. |
 | `/api/auth/revoke-sessions` | `POST` | **Dual-stack** "sign out everywhere else". Under the wall: `supabase.auth.signOut({ scope: "others" })`, which revokes every other refresh token server-side and deliberately leaves *this* browser signed in; a failed revoke reports `?error=revoke` rather than claiming success. Dormant stack: bumps the session version so other devices and any leaked cookie copy are rejected, re-minting *this* cookie at the new version (best-effort: with no DB there is no revocation authority). POST-only + same-origin either way, mirroring logout's CSRF guard. |
 
@@ -116,6 +116,13 @@ identical either way. `SignInNotice.tsx` distinguishes "Your session expired" fr
 Still present and fully implemented; unconfigured in production. Documented because
 it remains the code path when `GITHUB_OAUTH_*` **is** configured (some local and
 e2e setups), and because `resolveViewerLogin()` still gives it precedence.
+
+`buildAuthorizeUrl()` and `exchangeCodeForToken()` talk to the GitHub **web** host —
+`{githubWebBase()}/login/oauth/authorize` and `POST {githubWebBase()}/login/oauth/access_token`.
+`githubWebBase()` reads `GITHUB_SERVER_URL` (default `https://github.com`), so a GHES
+deployment hits its own host instead of github.com. Post-exchange REST (`/user`,
+`/user/installations`) already goes through `githubApiBase()`. `parseRepoUrl` and
+`appInstallUrl` are unchanged.
 
 `AUTH_SECRET` is **load-bearing, not optional**: `signSession()` throws without it and
 `decodeSession()` refuses every cookie. The HMAC key would otherwise fall back to the
@@ -162,6 +169,8 @@ transient blip shouldn't log everyone out, bounded by the short access TTL.
 | `orgOptionsForSession()` | Orgs the viewer can switch between. |
 | `getActiveOrg()` | Reads `ascent_active_org`, falls back to first installation or `public`. |
 | `safeNext()` | Validates a post-login redirect (blocks absolute / protocol-relative / control-char URLs). Shared with the Supabase callback. |
+| `buildAuthorizeUrl()` | Browser redirect to `{githubWebBase()}/login/oauth/authorize`. |
+| `exchangeCodeForToken()` | `POST {githubWebBase()}/login/oauth/access_token`. |
 
 ### Org auto-discovery (`src/lib/github/discover.ts`)
 
