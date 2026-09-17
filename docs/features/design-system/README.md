@@ -229,6 +229,11 @@ is configured), while this deck is a client orchestrator whose `roi` section cop
 here is a structural move, not a caption fix — and a labelled demo beside a real
 register elsewhere is honest, whereas an unlabelled one is not.
 
+The paired `roi` money line in `features.ts` names those same live tiles
+(promotions, average gain, repos in scope). It must not carry a dated N-of-M
+forecast the sliders never compute (no calendar quarter, no "6 of 8" count).
+GOLDEN-TRIO: do not lead with ROI. `features.test.ts` pins the contract.
+
 ## `/about-org`: the organization edition deck
 
 Seven snap sections: masthead · the five questions · three feature deep-dives
