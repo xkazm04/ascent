@@ -5,7 +5,7 @@
 // indistinguishable from a different (and wrong) reading of the same pixels.
 
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { ConstellationField } from "./ConstellationField";
 import { EmptyFleet } from "./FleetMapChrome";
 import { FleetHeader } from "./FleetMap.Header";
@@ -62,35 +62,75 @@ describe("countMatches — a zero-match filter must be distinguishable from a fa
   });
 });
 
+const triageBase = {
+  query: "",
+  setQuery: () => {},
+  levels: new Set<string>(),
+  toggleLevel: () => {},
+  watchedOnly: false,
+  setWatchedOnly: () => {},
+  sortKey: "name" as const,
+  setSortKey: () => {},
+  onClear: () => {},
+};
+
 describe("TriageControls — the match summary is rendered, not just computed", () => {
-  const base = {
-    query: "",
-    setQuery: () => {},
-    levels: new Set<string>(),
-    toggleLevel: () => {},
-    watchedOnly: false,
-    setWatchedOnly: () => {},
-    sortKey: "name" as const,
-    setSortKey: () => {},
-    onClear: () => {},
-  };
 
   it("says nothing when no filter is active", () => {
-    render(<TriageControls {...base} filterActive={false} matchCount={{ matched: 8, total: 8 }} />);
+    render(<TriageControls {...triageBase} filterActive={false} matchCount={{ matched: 8, total: 8 }} />);
     expect(screen.queryByRole("status")).toBeNull();
   });
 
   it("summarizes N of M while a filter is active", () => {
-    render(<TriageControls {...base} filterActive matchCount={{ matched: 2, total: 8 }} />);
+    render(<TriageControls {...triageBase} filterActive matchCount={{ matched: 2, total: 8 }} />);
     expect(screen.getByRole("status").textContent).toBe("2 of 8 match");
   });
 
   it("calls out a dead-end query explicitly", () => {
-    render(<TriageControls {...base} filterActive matchCount={{ matched: 0, total: 8 }} />);
+    render(<TriageControls {...triageBase} filterActive matchCount={{ matched: 0, total: 8 }} />);
     const status = screen.getByRole("status");
     expect(status.textContent).toMatch(/no repos match/);
     // Politely announced as the user types, not a focus-stealing alert.
     expect(status.getAttribute("aria-live")).toBe("polite");
+  });
+});
+
+describe("TriageControls — / focuses Find a repo like the rest of the app", () => {
+  function renderTriage() {
+    render(<TriageControls {...triageBase} filterActive={false} matchCount={{ matched: 8, total: 8 }} />);
+    return screen.getByRole("searchbox", { name: "Filter repositories by name" });
+  }
+
+  it("captures / when the target is not an input and focuses Find a repo", () => {
+    const search = renderTriage();
+    expect(screen.getAllByRole("searchbox")).toHaveLength(1);
+    expect(search.getAttribute("aria-keyshortcuts")).toBe("/");
+    fireEvent.keyDown(document, { key: "/" });
+    expect(search).toHaveFocus();
+  });
+
+  it("ignores / inside inputs so a typed slash is not stolen", () => {
+    render(
+      <div>
+        <input aria-label="other field" />
+        <TriageControls {...triageBase} filterActive={false} matchCount={{ matched: 8, total: 8 }} />
+      </div>,
+    );
+    const search = screen.getByRole("searchbox", { name: "Filter repositories by name" });
+    const other = screen.getByLabelText("other field");
+    other.focus();
+    fireEvent.keyDown(other, { key: "/" });
+    expect(other).toHaveFocus();
+    expect(search).not.toHaveFocus();
+  });
+
+  it("ignores / inside the sort select", () => {
+    const search = renderTriage();
+    const sort = screen.getByRole("combobox");
+    sort.focus();
+    fireEvent.keyDown(sort, { key: "/" });
+    expect(sort).toHaveFocus();
+    expect(search).not.toHaveFocus();
   });
 });
 

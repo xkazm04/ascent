@@ -173,6 +173,8 @@ export function FleetMap({
   // Order the org cards by the chosen key; loaded constellations rank ahead of loading/error ones.
   const ordered = useMemo(() => orderConstellations(constellations, sortKey), [constellations, sortKey]);
   const missionHref = missionControlHref(next, installations);
+  // `/` focuses Find a repo while these controls are mounted (TriageControls).
+  const triageShown = showTriageControls(constellations.length, stats.repos);
 
   function toggleLevel(band: string) {
     setLevels((s) => {
@@ -201,7 +203,7 @@ export function FleetMap({
         {/* Triage controls — for any multi-org fleet, and for a single org once it is dense enough to
             need triage. Gating on `length > 1` alone left the one-org / many-repos user (who needs
             search most) with no search box at all. */}
-        {showTriageControls(constellations.length, stats.repos) && (
+        {triageShown && (
           <TriageControls
             query={query}
             setQuery={setQuery}
