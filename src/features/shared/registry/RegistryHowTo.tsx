@@ -2,11 +2,16 @@
 // text editor types. Deliberately a mono block rather than a marketing panel — the registry's whole
 // premise is that ascent is NOT in the write path, so the commands are the product surface here.
 //
+// Two groups: git-native usage (`report --to-registry`, no token) vs hosted push / sink A events
+// (token). The token sentence names sink A and MCP only; it never claims registry usage sync needs
+// ASCENT_TOKEN.
+//
 // Server-safe (no hooks): the copy affordance is a plain `<code>` the user selects. A clipboard button
 // would need a client boundary for three lines of text; the round can decide that later.
 
 import { Kicker } from "@/components/ui";
 import type { RegistryView } from "@/lib/org/registry-view";
+import { HOWTO_HOSTED_NOTE, HOWTO_USAGE_NOTE } from "@/lib/org/registry-howto";
 
 function Line({ label, value }: { label: string; value: string }) {
   return (
@@ -17,8 +22,10 @@ function Line({ label, value }: { label: string; value: string }) {
   );
 }
 
+const BLOCK = "mt-1 divide-y divide-divider rounded-xl border border-divider bg-surface-strong/40 px-4 py-2";
+
 export function RegistryHowTo({ view, dense = false }: { view: RegistryView; dense?: boolean }) {
-  const { syncCmd, hooksCmd, pointer } = view.howTo;
+  const { reportCmd, hooksCmd, pointer, hostedPushCmd, hostedEventsCmd } = view.howTo;
   return (
     <div className={dense ? "" : "space-y-2"}>
       <Kicker tone="muted">Developer how-to</Kicker>
@@ -29,18 +36,21 @@ export function RegistryHowTo({ view, dense = false }: { view: RegistryView; den
           an ascent session.
         </p>
       )}
-      <div className="mt-1 divide-y divide-divider rounded-xl border border-divider bg-surface-strong/40 px-4 py-2">
-        <Line label="sync" value={syncCmd} />
+      <div data-howto="git-native" className={BLOCK}>
+        <Line label="usage" value={reportCmd} />
         <Line label="hooks" value={hooksCmd} />
         <Line label="pointer" value={pointer} />
       </div>
+      {!dense && <p className="type-note text-slate-500">{HOWTO_USAGE_NOTE}</p>}
       {!dense && (
-        <p className="type-note text-slate-500">
-          <code className="font-mono">ascent-skills.mjs</code> is one zero-dependency file: copy it from ascent&apos;s{" "}
-          <code className="font-mono">scripts/</code> into the repo. Sync reads an <code className="font-mono">askl_</code> token from{" "}
-          <code className="font-mono">ASCENT_TOKEN</code> (mint one on the Skills tab). The pointer goes under{" "}
-          <code className="font-mono">registry:</code> in each repo&apos;s <code className="font-mono">.ai/manifest.yaml</code>.
-        </p>
+        <>
+          <p className="pt-2 type-label tracking-[0.18em] text-slate-500">Hosted push / events</p>
+          <div data-howto="hosted" className={BLOCK}>
+            <Line label="push" value={hostedPushCmd} />
+            <Line label="events" value={hostedEventsCmd} />
+          </div>
+          <p className="type-note text-slate-500">{HOWTO_HOSTED_NOTE}</p>
+        </>
       )}
     </div>
   );

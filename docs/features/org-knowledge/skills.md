@@ -16,7 +16,10 @@ locally (the `Skill` PreToolUse hook), writes them into the registry's
 `usage/<contributor>.json` with `ascent-skills report --to-registry`, and
 Ascent sums the lane at index time into the table's **Uses** column and the
 status badge. The token path (sink A) exists only for the per-repo breakdown
-the public registry lane forbids. See *Usage telemetry* below.
+the public registry lane forbids. The Registry tab how-to
+(`RegistryHowTo` / `registryHowTo`) shows that command with no token, and
+names `ASCENT_TOKEN` only for sink A and the MCP door. See *Usage telemetry*
+below.
 
 ## UI entry point
 
@@ -204,6 +207,11 @@ Two routes exist specifically for a non-interactive client:
   skills-write route, push gates directly on `planAllowsSkillsLibrary`
   rather than the personal-workspace-inclusive `workspaceAllowsSkills`; the
   CLI/CI push path does not extend the personal-workspace free tier.
+
+Those two routes are the hosted library path and they need an `askl_` token.
+Git-native usage does not use them: `ascent-skills report --to-registry`
+writes `usage/<contributor>.json` in a registry checkout with no token
+(sink B below).
 
 ### Usage telemetry — one event contract, two sinks, one repo rule
 
@@ -898,6 +906,8 @@ as Trace.
 | `src/lib/registry/usage-samples.ts` | Registry `usage/` samples → per-skill `invoke` stats (pure). |
 | `src/lib/db/org-skill-usage-samples.ts` | `OrgSkillUsageSample` snapshot read/upsert/purge. |
 | `scripts/ascent-skills.mjs` | The distributable: sync/push/list/status + `hooks` and `report`. |
+| `src/lib/org/registry-howto.ts` | Registry tab how-to lines: `report --to-registry` (no token) vs hosted push/events (token). |
+| `src/features/shared/registry/RegistryHowTo.tsx` | Renders that split; `ASCENT_TOKEN` is named only for sink A / MCP. |
 | `src/lib/org/skill-outcomes.ts` / `skill-outcomes-load.ts` | Before/after adoption score deltas. |
 | `src/lib/org/skill-categories.ts` | Closed category set. |
 | `src/lib/mcp/tools.ts` | The tool catalog: scopes, plan gates, the `mutates` marker. |

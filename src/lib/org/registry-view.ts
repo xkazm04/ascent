@@ -25,9 +25,10 @@ import { getRegistryCapabilities, type RegistryCapabilities } from "@/lib/regist
 import { DEFAULT_REGISTRY_NAME } from "@/lib/registry/layout";
 import { localRegistryDir, refreshLocalRegistryIfStale } from "@/lib/registry/local-registry";
 import { selfHosted } from "@/lib/env";
-import { registryHowTo } from "./registry-howto";
+import { registryHowTo, type RegistryHowToCommands } from "./registry-howto";
 
 export { DEFAULT_REGISTRY_NAME, registryHowTo };
+export type { RegistryHowToCommands };
 export type { ConformanceMapRow, ConformanceRow, SignalSummary };
 
 /**
@@ -127,7 +128,7 @@ export type RegistryView = {
   /** The knowledge/ lane, one entry per Reference Knowledge Bundle, as that
    *  bundle's own generated index states it. Empty until a pass reads the lane. */
   bundles: OrgRegistryRow["bundles"];
-  howTo: { syncCmd: string; hooksCmd: string; pointer: string };
+  howTo: RegistryHowToCommands;
 
   /** What ascent can ACTUALLY do for this viewer: render a GitHub action only when its flag is true
    *  — `canWrite` for scaffold / re-index / migrate, `canCreateRepo` for "create the repo". */
