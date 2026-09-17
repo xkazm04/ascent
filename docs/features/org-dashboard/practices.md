@@ -47,8 +47,13 @@ commands and CI setup step (node, python, go, rust, or generic), so a Node repo 
 degrades to placeholders when context is sparse.
 
 `POST /api/practices/generate` accepts `{ repo, practiceId }`, fetches read-only repo
-context from GitHub, calls `buildArtifact`, and returns the spec for **preview** (no
-writes).
+context from GitHub, and returns `{ artifact, shape }` for **preview** (no writes).
+Generation goes through `buildPracticeArtifact` so a caller with standing reviews the
+same house-or-generic body apply will commit. `shape` is `{ kind: "house", exemplars }`
+or `{ kind: "generic" }`: the one-line kicker above the previewed artifact
+("House pattern from N exemplars" vs "Generic starter (no mined pattern yet)").
+Without standing, orgSlug is omitted: a generic starter, and mined structure stays
+inside the org.
 
 A GitHub failure is answered with the status its *condition* means, via the single
 `githubErrorStatus` mapping in `src/lib/api/github-status.ts` — shared with `/api/scan`,
@@ -143,7 +148,8 @@ in flight), the drift strip and the **practice library** (`PracticesView` →
 `PracticeRolloutStrip`), one row per practice grouped by dimension (see *The practice library* below).
 Opening a row shows a layer-2 modal (`PracticeDetailModal` →
 `MinedPracticeDetail`) with the embedded `PracticeApply`: pick a target gap repo, **Preview**
-(→ `/generate`, the artifact body in a collapsible block), **Open draft PR** (→ `/apply`, a link
+(→ `/generate`, a one-line shape kicker above the artifact body in a collapsible block:
+"House pattern from N exemplars" or "Generic starter (no mined pattern yet)"), **Open draft PR** (→ `/apply`, a link
 to the PR, labelled "Existing draft PR" when reused), or **Roll out to the fleet**
 (`PracticeApplyBatch` → `/apply-batch`, confirm dialog, neediest-first, `skipped` surfaced).
 Errors surface inline. (Rewritten 2026-09-05; the previous text described the pre-tab card
@@ -294,10 +300,11 @@ straight at the CI-gates practice and its exemplars.
 | `src/lib/practice-artifact.ts` | `buildArtifact()`: deterministic, language-aware artifact builder. |
 | `src/lib/practices/artifact.ts` | `buildPracticeArtifact()` / `resolveHousePattern()`: the generation step, shared by the PR path and the loop's practice lane. |
 | `src/lib/practice-artifact.test.ts` | Verifies tailored AGENTS.md, language-appropriate CI, non-null for every practice, null for unknown, placeholder degradation. |
-| `src/app/api/practices/generate/route.ts` | Preview endpoint (no writes). |
+| `src/app/api/practices/generate/route.ts` | Preview endpoint (no writes); returns `shape` (house vs generic). |
 | `src/app/api/practices/apply/route.ts` | Apply endpoint: gates + `openDraftPr` + audit. |
 | `src/lib/github/write.ts` | `openDraftPr()`: branch → file → draft PR (idempotent). |
 | `src/features/shared/practices/PracticeApply.tsx` | Preview + apply UI. |
+| `src/features/shared/practices/PracticePreviewKicker.tsx` | One-line house-vs-generic kicker above the previewed artifact. |
 | `src/app/api/org/playbooks/[id]/apply-batch/route.ts` | Playbook fleet rollout: admin-gated, org-scoped, capped at 25 repos/run. |
 | `src/lib/org/playbook-apply.ts` | The shared single-repo playbook write sequence (PR + adoption mark + audit). |
 | `src/features/shared/practices/PlaybookApplyBatch.tsx` | Playbook fleet-rollout UI (select, confirm, per-repo results). |

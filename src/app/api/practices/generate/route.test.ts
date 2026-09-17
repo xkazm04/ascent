@@ -40,8 +40,11 @@ vi.mock("@/lib/github/source", () => ({
   })),
 }));
 
-vi.mock("@/lib/practice-artifact", () => ({
-  buildArtifact: vi.fn(() => ({ path: "AGENTS.md", body: "# starter" })),
+vi.mock("@/lib/practices/artifact", () => ({
+  buildPracticeArtifact: vi.fn(async () => ({
+    artifact: { path: "AGENTS.md", body: "# starter" },
+    house: null,
+  })),
 }));
 
 vi.mock("@/lib/db", () => ({ getInstallationIdForOwner: vi.fn(async () => null) }));
@@ -58,12 +61,14 @@ import { fetchRepoContext } from "@/lib/github/source";
 import { getInstallationIdForOwner } from "@/lib/db";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { canMintInstallationToken } from "@/lib/authz";
+import { buildPracticeArtifact } from "@/lib/practices/artifact";
 
 const mockFetchCtx = vi.mocked(fetchRepoContext);
 const mockInstallId = vi.mocked(getInstallationIdForOwner);
 const mockMintToken = vi.mocked(getInstallationToken);
 const mockAppConfigured = vi.mocked(isAppConfigured);
 const mockCanMint = vi.mocked(canMintInstallationToken);
+const mockBuild = vi.mocked(buildPracticeArtifact);
 
 function run(body: Record<string, unknown>) {
   return POST(
@@ -85,6 +90,10 @@ beforeEach(() => {
   mockCanMint.mockResolvedValue(false);
   mockInstallId.mockResolvedValue(null);
   mockMintToken.mockResolvedValue("installation-token");
+  mockBuild.mockResolvedValue({
+    artifact: { path: "AGENTS.md", body: "# starter" },
+    house: null,
+  });
 });
 
 afterEach(() => {
@@ -133,5 +142,26 @@ describe("POST /api/practices/generate — ambient-PAT gate keys on caller stand
     await run({ repo: "acme/repo", practiceId: "agents-md" });
 
     expect(tokenPassed()).toBe("operator-pat");
+  });
+});
+
+describe("POST /api/practices/generate — preview shape", () => {
+  it("returns generic shape and does not resolve a house pattern without standing", async () => {
+    const res = await run({ repo: "acme/repo", practiceId: "agent-guidance" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ shape: { kind: "generic" } });
+    expect(mockBuild.mock.calls.at(-1)?.[2]).toEqual({});
+  });
+
+  it("names a mined pattern as house with the exemplar count when the caller has standing", async () => {
+    mockCanMint.mockResolvedValue(true);
+    mockBuild.mockResolvedValue({
+      artifact: { path: "AGENTS.md", body: "# starter" },
+      house: { lines: ["Commands"], exemplars: ["acme/api", "acme/core", "acme/web"] },
+    });
+
+    const res = await run({ repo: "Acme/repo", practiceId: "agent-guidance" });
+    expect(await res.json()).toMatchObject({ shape: { kind: "house", exemplars: 3 } });
+    expect(mockBuild.mock.calls.at(-1)?.[2]).toEqual({ orgSlug: "acme" });
   });
 });
