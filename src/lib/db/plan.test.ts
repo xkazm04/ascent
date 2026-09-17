@@ -594,8 +594,9 @@ describe("dailyAvg (via listGoals trend) — collapses same-day points to a per-
   });
 
   it("a clear rising day-over-day mean yields a positive trend (perWeek > 0, an ETA exists)", async () => {
-    // Day 1 mean ≈ 50, then a strictly rising mean each day for two weeks → positive slope.
-    const scans = Array.from({ length: 14 }, (_, d) => ({
+    // Day 1 mean ≈ 50, then a strictly rising mean each day across the presentability span
+    // (MIN_FORECAST_SPAN_DAYS = 14) so projectGoal may emit an ETA.
+    const scans = Array.from({ length: 15 }, (_, d) => ({
       at: `2026-05-${String(d + 1).padStart(2, "0")}T06:00:00.000Z`,
       overall: 50 + d * 2, // rises 2/day across distinct days
     }));

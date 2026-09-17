@@ -255,13 +255,16 @@ export type GoalPace = "reached" | "on-pace" | "behind" | "tracking";
 
 /** A projection of a single goal: its trend slope, the ETA to the target, and the pace verdict. */
 export interface GoalProjection {
+  /** `on-pace` / `behind` only when the fit clears {@link isProjectable}; otherwise `tracking`
+   *  (or `reached`, a standing fact). A sub-gate slope does not get to state a pace (G4). */
   pace: GoalPace;
   /** Current weekly rate of change of the metric (0 when there's no fittable trend). */
   perWeek: number;
   trajectory: Trajectory;
   /** R² of the underlying fit, 0..1 — how trustworthy the slope is. */
   fitQuality: number;
-  /** Whole days from now until the metric reaches the target at the current slope, or null. */
+  /** Whole days from now until the metric reaches the target at the current slope, or null when
+   *  the target is already met, the slope cannot cross it, or the fit is not projectable (G4). */
   etaDays: number | null;
   /** Absolute ISO date (YYYY-MM-DD) of the projected target crossing, or null. */
   etaDate: string | null;
@@ -282,10 +285,11 @@ const GOAL_ETA_CAP_DAYS = 1095;
  * and judge the pace against `targetDate`. Pure and deterministic — `nowMs` is injected (the
  * present), never read, so this stays unit-testable like the rest of this module.
  *
- * Verdict: `reached` once current ≥ target; otherwise, with a deadline, `on-pace` when the
- * projected crossing lands on/before it and `behind` when it lands after (or the trend is flat/
- * falling, so the target is never reached at this pace). With no deadline — or not enough trend to
- * fit a slope yet — the verdict is the neutral `tracking` (the ETA still shows when one exists).
+ * Verdict: `reached` once current ≥ target (a standing fact, no slope required). Otherwise a
+ * pace/ETA is only emitted when the fit clears {@link isProjectable}: with a deadline, `on-pace`
+ * when the projected crossing lands on/before it and `behind` when it lands after (or the trend
+ * is flat/falling, so the target is never reached at this pace). With no deadline — or a fit too
+ * thin to project — the verdict is the neutral `tracking` and no ETA is emitted (G4).
  */
 export function projectGoal(opts: {
   series: SeriesPoint[];
@@ -296,16 +300,17 @@ export function projectGoal(opts: {
 }): GoalProjection {
   const { series, current, target, targetDate, nowMs } = opts;
   const fit = forecastTrajectory(series, 90, nowMs); // inject nowMs so the fit stays deterministic; null when < 2 distinct days
-  const perDay = fit?.perDay ?? 0;
+  const projectable = isProjectable(fit);
+  const perDay = projectable ? fit.perDay : 0;
 
   const deadlineMs = targetDate ? Date.parse(targetDate) : NaN;
   const hasDeadline = Number.isFinite(deadlineMs);
   const daysToDeadline = hasDeadline ? Math.round((deadlineMs - nowMs) / DAY_MS) : null;
 
-  // Days/date to reach the target at the current (rising) slope.
+  // Days/date to reach the target at the current (rising) slope. A sub-gate fit does not get a date.
   let etaDays: number | null = null;
   let etaDate: string | null = null;
-  if (current < target && perDay > 0) {
+  if (projectable && current < target && perDay > 0) {
     const d = Math.round((target - current) / perDay);
     if (Number.isFinite(d) && d >= 0 && d <= GOAL_ETA_CAP_DAYS) {
       etaDays = d;
@@ -322,7 +327,7 @@ export function projectGoal(opts: {
 
   let pace: GoalPace;
   if (current >= target) pace = "reached";
-  else if (!hasDeadline || !fit) pace = "tracking";
+  else if (!hasDeadline || !projectable) pace = "tracking";
   else if (etaDate && Date.parse(etaDate) <= deadlineMs) pace = "on-pace";
   else pace = "behind";
 

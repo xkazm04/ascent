@@ -78,12 +78,14 @@ discrepancy budget below was blown, so *nothing* widened), and `effectiveBlend` 
 prose, so anything anchoring a number must be able to attribute a move rather than report it as
 repository change.
 
-**Forecast presentability.** `forecastTrajectory` / `projectGoal` in `src/lib/maturity/forecast.ts`
-will fit a line through two scans a day apart; the *claim* is not presentable. Presenters must go
-through `composeTrajectory` (fleet path) or `composeGoal` (named-goal ETA) so the unmeasurable hedge
-(`forecastInsufficiency`, at least 3 distinct scan days spanning 14 calendar days) travels with the
-line and cannot be dropped. A reached goal is a standing fact and needs no hedge; no fit degrades to
-absence, never a fabricated basis (G4). See [org-intelligence.md](../org-dashboard/org-intelligence.md).
+**Forecast presentability.** `forecastTrajectory` in `src/lib/maturity/forecast.ts` will fit a line
+through two scans a day apart; the *claim* is not presentable. `projectGoal` consults `isProjectable`
+before emitting a pace or ETA: a sub-gate fit is the neutral `tracking` with no date; a reached
+target is still a standing fact. Presenters must go through `composeTrajectory` (fleet path) or
+`composeGoal` (named-goal ETA) so the unmeasurable hedge (`forecastInsufficiency`, at least 3
+distinct scan days spanning 14 calendar days) travels with the line and cannot be dropped. A reached
+goal needs no hedge; no fit degrades to absence, never a fabricated basis (G4). See
+[org-intelligence.md](../org-dashboard/org-intelligence.md).
 
 **Untrusted repo content + the discrepancy budget.** Repo file excerpts, file paths and commit
 messages are authored by the repository being scored, and the score gates PR merges, so they are

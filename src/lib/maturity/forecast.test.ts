@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  MIN_FORECAST_POINTS,
   MIN_FORECAST_SPAN_DAYS,
   composeGoal,
   composeTrajectory,
@@ -192,9 +193,9 @@ describe("projectGoal", () => {
   const NOW = "2026-02-01";
   const nowMs = Date.parse(NOW);
 
-  // A perfectly linear rising trend: 50→60 over 10 days, +1/day. forecastTrajectory anchors
-  // `current` at the latest value (60) and reads perDay=1 / perWeek=7 exactly.
-  const rising = series(50, 1, 11); // latest value 60, slope +1/day
+  // Consecutive daily points spanning the presentability gate (spanDays === MIN_FORECAST_SPAN_DAYS).
+  // Slope is still +1/day / +7/wk; `current` is passed separately so ETA math stays (target − current).
+  const rising = series(50, 1, MIN_FORECAST_SPAN_DAYS + 1);
 
   it("reports 'reached' (and no ETA) once current meets/exceeds target", () => {
     // current == target boundary.
@@ -215,6 +216,7 @@ describe("projectGoal", () => {
     // perDay=1, target 80, current 60 → ETA = 20 days → 2026-02-21.
     const targetDate = "2026-03-01"; // 28 days out, after the 2026-02-21 crossing.
     const p = projectGoal({ series: rising, current: 60, target: 80, targetDate, nowMs });
+    expect(isProjectable(p.forecast)).toBe(true);
     expect(p.pace).toBe("on-pace");
     expect(p.etaDays).toBe(20);
     expect(p.etaDate).toBe("2026-02-21");
@@ -275,8 +277,9 @@ describe("projectGoal", () => {
 
   it("a flat/zero-progress trend below target is 'behind' with no finite/negative ETA (no false on-pace)", () => {
     // Flat series → perDay 0 → no crossing → cannot be on-pace against a deadline.
-    const flat = series(50, 0, 11); // perDay 0, fit is non-null (a flat line fits exactly).
+    const flat = series(50, 0, MIN_FORECAST_SPAN_DAYS + 1); // perDay 0, fit is non-null (a flat line fits exactly).
     const p = projectGoal({ series: flat, current: 50, target: 80, targetDate: "2026-03-01", nowMs });
+    expect(isProjectable(p.forecast)).toBe(true);
     expect(p.pace).toBe("behind"); // NOT a false "on pace".
     expect(p.etaDays).toBeNull(); // never projects a >1095-day / infinite ETA.
     expect(p.etaDate).toBeNull();
@@ -286,8 +289,9 @@ describe("projectGoal", () => {
   });
 
   it("a falling trend below target is 'behind' (it never reaches the target at this pace)", () => {
-    const falling = series(60, -1, 11); // latest 50, slope −1/day, away from an 80 target.
+    const falling = series(60, -1, MIN_FORECAST_SPAN_DAYS + 1); // latest 50, slope −1/day, away from an 80 target.
     const p = projectGoal({ series: falling, current: 50, target: 80, targetDate: "2026-03-01", nowMs });
+    expect(isProjectable(p.forecast)).toBe(true);
     expect(p.pace).toBe("behind");
     expect(p.etaDays).toBeNull();
     expect(p.trajectory).toBe("falling");
@@ -303,10 +307,57 @@ describe("projectGoal", () => {
 
   it("caps a glacial ETA: a crawl that needs > 1095 days to reach the target yields no ETA → behind", () => {
     // 0.01/day toward a 30-point gap ⇒ 3000 days ⇒ over GOAL_ETA_CAP_DAYS (1095).
-    const crawl = series(50, 0.01, 11); // perDay 0.01.
+    const crawl = series(50, 0.01, MIN_FORECAST_SPAN_DAYS + 1); // perDay 0.01.
     const p = projectGoal({ series: crawl, current: 50, target: 80, targetDate: "2026-03-01", nowMs });
+    expect(isProjectable(p.forecast)).toBe(true);
     expect(p.etaDays).toBeNull(); // capped, not a 9-year "on-pace" ETA.
     expect(p.pace).toBe("behind");
+  });
+
+  it("does not emit a pace or ETA when the fit is below the presentability gate (G4)", () => {
+    // Two distinct days: OLS fits perfectly by construction, but isProjectable is false (lowData).
+    // The un-gated projector used to print on-pace with a 20-day ETA off this slope.
+    const thin = projectGoal({
+      series: series(50, 1, MIN_FORECAST_POINTS - 1),
+      current: 60,
+      target: 80,
+      targetDate: "2026-03-01",
+      nowMs,
+    });
+    expect(thin.forecast).not.toBeNull();
+    expect(isProjectable(thin.forecast)).toBe(false);
+    expect(thin.pace).toBe("tracking");
+    expect(thin.etaDays).toBeNull();
+    expect(thin.etaDate).toBeNull();
+
+    // Enough distinct days, not enough calendar span — the n-only guard would have passed it.
+    const short = projectGoal({
+      series: series(50, 1, 5),
+      current: 60,
+      target: 80,
+      targetDate: "2026-03-01",
+      nowMs,
+    });
+    expect(short.forecast!.points).toBeGreaterThanOrEqual(MIN_FORECAST_POINTS);
+    expect(short.forecast!.spanDays).toBeLessThan(MIN_FORECAST_SPAN_DAYS);
+    expect(isProjectable(short.forecast)).toBe(false);
+    expect(short.pace).toBe("tracking");
+    expect(short.etaDays).toBeNull();
+    expect(short.etaDate).toBeNull();
+  });
+
+  it("still reports 'reached' on an unprojectable series — a standing fact, not a projection", () => {
+    const p = projectGoal({
+      series: series(50, 1, 2),
+      current: 80,
+      target: 80,
+      targetDate: "2026-03-01",
+      nowMs,
+    });
+    expect(isProjectable(p.forecast)).toBe(false);
+    expect(p.pace).toBe("reached");
+    expect(p.etaDays).toBeNull();
+    expect(p.etaDate).toBeNull();
   });
 });
 
@@ -480,7 +531,10 @@ describe("composeGoal — the unmeasurable hedge travels with the goal line", ()
     expect(g.insufficiency).toBe(forecastInsufficiency(p.forecast));
     expect(g.insufficiency).toContain("2 distinct scan days");
     expect(g.insufficiency).toContain("Not enough history to project");
-    // The data layer may still compute a pace; the presenter must not print it.
+    // The projector itself refuses a pace/ETA off a sub-gate slope (G4); the presenter still prints
+    // the insufficiency, never a leftover verdict.
+    expect(p.pace).toBe("tracking");
+    expect(p.etaDays).toBeNull();
     expect(goalLine(p.forecast, p, GOAL_CTX)).toBe(g.insufficiency);
     expect(goalLine(p.forecast, p, GOAL_CTX)).not.toMatch(/On pace|Behind|ETA|\/wk/i);
   });
@@ -494,6 +548,9 @@ describe("composeGoal — the unmeasurable hedge travels with the goal line", ()
       nowMs: NOW_MS,
     });
     const g = composeGoal(p.forecast, p, GOAL_CTX);
+    expect(isProjectable(p.forecast)).toBe(false);
+    expect(p.pace).toBe("tracking");
+    expect(p.etaDays).toBeNull();
     expect(g.headline).toBeNull();
     expect(g.insufficiency).toContain(`at least ${MIN_FORECAST_SPAN_DAYS}`);
   });
