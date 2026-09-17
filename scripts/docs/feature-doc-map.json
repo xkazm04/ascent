@@ -377,6 +377,7 @@
         "src/app/usage/**",
         "src/components/usage/**",
         "src/lib/rate-limit*.ts",
+        "src/app/api/quota/**",
         "src/lib/public-scan-quota.ts",
         "src/lib/public-scan-limit.ts",
         "src/components/QuotaMeter.tsx",

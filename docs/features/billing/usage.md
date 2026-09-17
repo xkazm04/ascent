@@ -346,9 +346,11 @@ burst cap is in-memory and unaffected, so failing open (`ASCENT_RATE_LIMIT_SHARE
 is a bounded, not unlimited, degradation. The driver keeps a 1.5s timeout and a 3s breaker so an
 outage never stalls the request path.
 
-**Adoption status:** the shared path is implemented and tested but the route handlers still call
-the synchronous `rateLimitRequest()`; switching a route is a one-word `await` at its call site.
-Until a route adopts `rateLimitRequestShared()`, its global ceiling remains per-instance.
+**Adoption status:** `GET /api/quota` charges `rateLimitRequestShared()`, so its global ceiling is
+one fleet budget when a shared store is configured, not `instances × 600`. The expensive scan
+path, org import, plan-enquiry, ingest, and the live-LLM gate already take the same path. Remaining
+`rateLimitRequest()` callers (`GET /api/org/repos`, the cache-only scan peek, MCP's pre-auth IP
+gate, the default mock gate) still have a per-instance global ceiling.
 
 ## Key files
 
@@ -366,6 +368,7 @@ Until a route adopts `rateLimitRequestShared()`, its global ceiling remains per-
 | `src/app/usage/costHeadline.ts` | The "Est. cost" tile's value + caption: all-lane sum, lane scope, pricing basis, unpriced floor. |
 | `src/lib/db/kpi-metrics.ts` | `avgLlmCostPerActiveOrg()` — per-tenant LLM cost across every lane, beside `avgLlmCostPerScan()`. `freeToPaidConversion()` — share of orgs that scanned free and subscribed inside the window; **null** (not 0%) while the `Subscription` table has never been written. |
 | `src/lib/rate-limit.ts` | Sliding-window limiter: sync per-IP burst + sync/shared global ceiling. |
+| `src/app/api/quota/route.ts` | `GET /api/quota` peek. Charges `rateLimitRequestShared` (`QUOTA_PEEK_RATE_LIMIT`) so the global ceiling is fleet-wide when a shared store is configured. |
 | `src/lib/public-scan-limit.ts` | The free public-scan allowance + window — the ONE source both the gate and the marketing copy read. |
 | `src/lib/public-scan-quota.ts` | The persistent rolling-30-day public-scan gate: window math, bucket derivation, fail-open stance, the 429. |
 | `src/lib/rate-limit-store.ts` | Shared-store adapter: in-memory default, fetch-based Upstash REST driver. |
