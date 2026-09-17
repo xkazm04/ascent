@@ -21,7 +21,7 @@ All charts are **dependency-free inline SVG** (no D3/recharts) to keep the bundl
 | Route | Component | Type | Data source |
 | --- | --- | --- | --- |
 | `/report` | `src/app/report/page.tsx` | Client-driven | Live scan over `/api/scan/stream`; reads `?repo=` / `?fresh=1`, plus the optional scan scope `?ref=<branch\|tag\|sha>` / `?path=<sub-dir>` (see [scan.md](../scanning/scan.md#scan-scope-branch--sub-path)). A scoped scan skips the cache peek, always re-scans, is never persisted, and carries a warning that its score isn't comparable with default-branch scans. `Re-test` and the sign-in round-trip both preserve the scope. After an unscoped scan is **persisted**, the client rewrites the address bar from `/report?repo=` to the durable `/report/{owner}/{repo}` permalink via `history.replaceState` (not a router navigation — that would remount the force-dynamic tree). The rewrite is withheld when persist did not happen (DB off, scoped, degraded/low-coverage, in-memory cache only), so a reload cannot land on `ColdScanGate` under a URL that looks scored. A scoped live scan also does not copy that unscoped permalink — `/report/{owner}/{repo}` is a different (default-branch) artifact. |
-| `/report/[owner]/[repo]` | `src/app/report/[owner]/[repo]/page.tsx` | Hybrid | Server-renders a persisted scan (`getScanReportByCommit`, optional `@sha`); else `ColdScanGate` (no auto-scan). Shareable permalink. `generateMetadata` claims a score only when a snapshot exists. |
+| `/report/[owner]/[repo]` | `src/app/report/[owner]/[repo]/page.tsx` | Hybrid | Server-renders a persisted scan (`getScanReportByCommit`, optional `@sha`); else `ColdScanGate` (no auto-scan). Shareable permalink. `generateMetadata` claims a score only when a snapshot exists. Permalink **Re-test** stays on this path with `?fresh=1` (does not bounce to `/report?repo=`); that query mounts the live scanner on the durable URL, keeps a pinned `@sha`, and is stripped from the bar after persist so a reload cannot re-fire. |
 | `/report/compare` | `src/app/report/compare/page.tsx` | Server | `getScanComparison()` (needs DB). **Two axes:** time (`?a=`/`?b=` — two scans of this repo) and exemplar (`?against=` — this repo vs a peer repo, the org's best, or the public cohort). |
 | `/trends` | `src/app/trends/page.tsx` | Server | `getRepositoryHistory()` (needs DB), to `HISTORY_SCAN_CAP`, the same depth the CSV export uses. Range-filtered chart, plus an all-time trajectory panel and timeline annotations. |
 
@@ -118,11 +118,14 @@ exists. The no-wait alternative is a link to the real demo org, not a mock-up.
 headline, stage checklist), then validates the `result` payload with `parseScanReport()`
 before handing it to `ReportView`. A malformed scan becomes a clean error, not a render
 crash. `ReportErrorBoundary` wraps both for render-time safety, and `onRetest()` re-runs a
-fresh scan in place.
+fresh scan in place. On a pinned permalink (no callback) `FreshnessControl` links to
+`/report/{owner}/{repo}[@{sha}]?fresh=1` — same durable path, `fresh` query only.
 
 When the stream's `persisted` frame (or a DB peek/salvage) says this scan is in the durable
 store, `ReportClient` rewrites the address bar from `/report?repo=owner/name` to
-`/report/owner/name` with `history.replaceState` (`liveScanPermalink.ts`). Tab switches after
+`/report/owner/name` with `history.replaceState` (`liveScanPermalink.ts`). A permalink Re-test
+already on `/report/{owner}/{repo}?fresh=1` only strips those job keys (the path stays), so a
+reload cannot re-fire the scan. Tab switches after
 that rewrite read `window.location.pathname` so they cannot revert the bar to `/report?tab=`.
 A scoped scan, a memory-only peek, and a persist miss leave the job URL in place. The header
 Permalink control copies `/report/{owner}/{repo}` (and the commit-pinned variant) only for an

@@ -9,7 +9,7 @@
 // and the degrade path.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 
 const scanReport = { repo: { owner: "acme", name: "web" }, level: { id: "L2", name: "Assisted" }, overallScore: 50 };
 const recItems = [{ id: "r1", title: "Adopt review checklist", dimension: "D2" }];
@@ -42,17 +42,26 @@ vi.mock("@/components/report/ReportErrorBoundary", () => ({
 vi.mock("@/components/report/ColdScanGate", () => ({ ColdScanGate: () => null }));
 vi.mock("@/features/standing/passports/PassportCard", () => ({ PassportCard: () => null }));
 
+let liveScanRepo: string | undefined;
+vi.mock("@/components/report/ReportClient", () => ({
+  ReportClient: ({ repo }: { repo?: string }) => {
+    liveScanRepo = repo;
+    return <div data-testid="fresh-retest" />;
+  },
+}));
+
 import { getScanReportByCommit } from "@/lib/db";
 import { getOrgExpectedLifts } from "@/lib/outcomes/expected-lift-load";
 import Page, { generateMetadata } from "./page";
 import type { Metadata } from "next";
 
 /** Resolve the page, then its Suspense-deferred async body, and render the result. */
-async function renderPage() {
+async function renderPage(search: Record<string, string> = {}, repo = "web") {
   captured = {};
+  liveScanRepo = undefined;
   const shell = (await Page({
-    params: Promise.resolve({ owner: "acme", repo: "web" }),
-    searchParams: Promise.resolve({}),
+    params: Promise.resolve({ owner: "acme", repo }),
+    searchParams: Promise.resolve(search),
   })) as React.ReactElement<{ children: React.ReactElement<{ children: React.ReactElement }> }>;
   const body = shell.props.children.props.children;
   const resolved = await (body.type as (p: unknown) => Promise<React.ReactElement>)(body.props);
@@ -145,5 +154,27 @@ describe("report permalink — generateMetadata does not advertise a cold report
     expect(text).not.toMatch(/has not been scanned/i);
     expect(text).not.toMatch(/never been scanned/i);
     expect(text).not.toMatch(SCORED_UNFURL);
+  });
+});
+
+describe("report permalink — Re-test stays on the durable path", () => {
+  it("?fresh=1 mounts a live re-test on this path instead of serving the pinned snapshot", async () => {
+    await renderPage({ fresh: "1" });
+    expect(screen.getByTestId("fresh-retest")).toBeInTheDocument();
+    expect(liveScanRepo).toBe("acme/web");
+    expect(captured.report).toBeUndefined();
+    expect(getScanReportByCommit).not.toHaveBeenCalled();
+  });
+
+  it("commit-pinned ?fresh=1 keeps the sha on the live-scan ref", async () => {
+    await renderPage({ fresh: "1" }, "web@deadbeef");
+    expect(liveScanRepo).toBe("acme/web@deadbeef");
+    expect(captured.report).toBeUndefined();
+  });
+
+  it("without ?fresh=1 still serves the pinned snapshot", async () => {
+    await renderPage();
+    expect(screen.queryByTestId("fresh-retest")).toBeNull();
+    expect(captured.report).toBe(scanReport);
   });
 });

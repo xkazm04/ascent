@@ -52,13 +52,21 @@ export function liveScanPermalinkPath(input: {
   // Inspect the job URL, not only the caller's `scoped` flag: a `?ref=` / `?path=` live scan
   // must never be rewritten to `/report/{owner}/{repo}` (that path is a different artifact).
   if (!input.persisted || input.scoped || searchHasLiveScanScope(input.search)) return null;
+  const params = new URLSearchParams(input.search.replace(/^\?/, ""));
+  for (const key of LIVE_SCAN_PARAM_KEYS) params.delete(key);
+  const qs = params.toString();
+  // A Re-test already on `/report/{owner}/{repo}?fresh=1` only drops job keys so a reload
+  // cannot re-fire the scan. Keep the current durable path (including a pinned `@sha`).
+  if (isReportPermalinkPath(input.pathname)) {
+    const next = qs ? `${input.pathname}?${qs}` : input.pathname;
+    const currentSearch = new URLSearchParams(input.search.replace(/^\?/, "")).toString();
+    const current = currentSearch ? `${input.pathname}?${currentSearch}` : input.pathname;
+    return next === current ? null : next;
+  }
   if (input.pathname !== "/report") return null;
   const parsed = parseOwnerRepo(input.fullName);
   if (!parsed) return null;
   const path = reportPermalink(`${parsed.owner}/${parsed.repo}`);
-  const params = new URLSearchParams(input.search.replace(/^\?/, ""));
-  for (const key of LIVE_SCAN_PARAM_KEYS) params.delete(key);
-  const qs = params.toString();
   return qs ? `${path}?${qs}` : path;
 }
 

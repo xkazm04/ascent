@@ -7,6 +7,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { ReportShell } from "@/components/report/ReportShell";
 import { ColdScanGate } from "@/components/report/ColdScanGate";
+import { ReportClient } from "@/components/report/ReportClient";
 import { ReportView } from "@/components/report/ReportView";
 import { PassportCard } from "@/features/standing/passports/PassportCard";
 import { ReportErrorBoundary } from "@/components/report/ReportErrorBoundary";
@@ -126,7 +127,10 @@ async function ReportPermalinkBody({
   repoRef: string;
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
-  const orgSlug = await resolveReportOrg(owner, await searchParams);
+  const sp = await searchParams;
+  // Permalink Re-test stays here (`?fresh=1` only). Bouncing to `/report?repo=` dropped the durable URL.
+  if (sp.fresh === "1" || sp.fresh === "true") return <ReportClient repo={sha ? `${repoRef}@${sha}` : repoRef} />;
+  const orgSlug = await resolveReportOrg(owner, sp);
   const pinned = await getScanReportByCommit(owner, name, { headSha: sha, orgSlug }).catch(() => null);
 
   // No persisted snapshot: confirm before launching a multi-minute live scan, so a shared / example

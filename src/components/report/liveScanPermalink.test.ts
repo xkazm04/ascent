@@ -58,6 +58,17 @@ describe("liveScanPermalinkPath", () => {
     expect(href({ pathname: "/report/acme/web", search: "" })).toBeNull();
   });
 
+  it("strips ?fresh=1 from a permalink Re-test after persist so a reload cannot re-fire", () => {
+    expect(href({ pathname: "/report/acme/web", search: "fresh=1" })).toBe("/report/acme/web");
+    expect(href({ pathname: "/report/acme/web@abc123", search: "fresh=1" })).toBe("/report/acme/web@abc123");
+  });
+
+  it("keeps a section tab when stripping the permalink Re-test query", () => {
+    expect(href({ pathname: "/report/acme/web", search: "fresh=1&tab=dimensions" })).toBe(
+      "/report/acme/web?tab=dimensions",
+    );
+  });
+
   it("refuses a GitLab identity the [owner]/[repo] route cannot host as two segments", () => {
     expect(href({ fullName: "gitlab:group/project" })).toBeNull();
     expect(href({ fullName: "gitlab:group/sub/project" })).toBeNull();
