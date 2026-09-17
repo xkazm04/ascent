@@ -274,9 +274,19 @@ coercing their contents. Even an object with a `toString` data property receives
 the normal argument-correction response through both tool entry points.
 
 `src/lib/athena/grounding.ts` builds her tool list from `MCP_TOOLS` (`src/lib/mcp/tools.ts`) and
-dispatches through `runTool` (`src/lib/mcp/handlers.ts`). One catalog, one set of handlers, one
-serializer - an agent asking the MCP endpoint and Athena answering from the dashboard cannot disagree
-about the fleet, because neither owns a copy.
+dispatches through `runTool` (`src/lib/mcp/handlers.ts`). One catalog, one serializer - an agent
+asking the MCP endpoint and Athena answering from the dashboard cannot disagree about the fleet,
+because neither owns a copy.
+
+**`recall_org_memory` is the exception.** Prefetch already packs with `recallMemories`
+(`src/lib/memory/recall.ts`) over `lifecycleWorkingSet`. The MCP handler still filters by term
+overlap and slices `scoreMemories` by `limit`, so a tool-calling turn that borrowed it could
+disagree with the Memory tab about which note matters. Until that handler uses the value model,
+Athena executes this one tool locally: same working set (every namespace, never the write-check
+helper), same packer, then the shared `toolResultText` serializer. She still **offers** the tool;
+she will not borrow a ranking that is not the org's. Deliveries are not bumped on this path -
+counting a companion side-read would feed the Memory tab's ranking from chat, and she cannot
+`cite_memory` to distinguish use from delivery.
 
 **`runTool` performs no tenancy check.** Its own comment says scope enforcement happens in the route,
 and `org` goes straight into `getOrgRollup(org)` / `getActiveOrgStance(org)` /
