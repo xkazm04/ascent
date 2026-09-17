@@ -45,6 +45,14 @@ never an ROI-ranked backlog and never `/org/{demo}/plan` (Plan tab retired
 2026-08-17 in favour of that ledger; GOLDEN-TRIO: do not lead with ROI;
 `getOrgBacklog` sorts by due/impact/recency and projected points are display-only).
 
+**Fleet (`IndexFleet`, deck id `fleet`)**: the Mission Control constellation made
+public. The picture is data-free `PublicConstellation` (deterministic phyllotaxis,
+no fetch, no session, no fleet data). The three notes decode the metaphor — a
+cluster per org, a star per repo, the sky as a glance at the estate — and never
+claim the vignette is live-scanning. The stamp under the picture stays
+`Illustrative fleet`. Sign-in copy points at the real Mission Control; the
+picture itself is the metaphor.
+
 **The register's counter is suppressed at zero** (`IndexGallery`). A count is a
 claim, and zero is not one worth making: on a configured-but-empty database this
 section headed "The register" used to open with "0 public repos rated", on a page

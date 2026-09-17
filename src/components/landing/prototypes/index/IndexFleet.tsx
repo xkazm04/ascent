@@ -11,11 +11,12 @@ import { DeckSection } from "@/components/deck/DeckSection";
 import { Kicker } from "@/components/ui";
 import { PublicConstellation } from "@/components/launch/PublicConstellation";
 
-// The three claims the picture is making, spelled out so the vignette is readable, not merely pretty.
+// The three keys of the metaphor, spelled out so the vignette is readable, not merely pretty.
+// The picture is data-free PublicConstellation: these notes decode the sky. They never claim a live scan.
 const FLEET_NOTES: Array<{ term: string; detail: string }> = [
   { term: "One cluster per org", detail: "Every installation you connect becomes its own constellation." },
   { term: "One star per repo", detail: "Brightness and size track the repository's AI-native maturity." },
-  { term: "Live as it scans", detail: "Stars light up in place as scores stream in. Nothing to refresh." },
+  { term: "One glance at the estate", detail: "The sky is the map: where the light is, and where it is not." },
 ];
 
 export function IndexFleet({ selfHosted = false }: { selfHosted?: boolean }) {

@@ -36,6 +36,20 @@ describe("IndexFleet — the public constellation section", () => {
     const hrefs = Array.from(container.querySelectorAll("a")).map((a) => a.getAttribute("href"));
     expect(hrefs).toContain("/onboarding");
   });
+
+  // The picture is data-free PublicConstellation. Notes that say "live as it scans" / "scores stream
+  // in" are a lie about the vignette; the Illustrative stamp is the honesty, the notes decode the sky.
+  it("keeps the Illustrative stamp and never claims the vignette is live-scanning", () => {
+    const { container } = render(<IndexFleet />);
+    expect(container.textContent).toMatch(/Illustrative fleet/);
+    const notes = Array.from(container.querySelectorAll("dl dt, dl dd"))
+      .map((el) => el.textContent ?? "")
+      .join("\n");
+    expect(notes.length).toBeGreaterThan(0);
+    expect(notes).not.toMatch(/\blive\b/i);
+    expect(notes).not.toMatch(/stream/i);
+    expect(notes).not.toMatch(/refresh/i);
+  });
 });
 
 describe("IndexFleet is actually composed onto the landing page", () => {
@@ -54,5 +68,18 @@ describe("IndexFleet is actually composed onto the landing page", () => {
   it("IndexLanding lists the `fleet` deck stop", () => {
     const src = readFileSync(join(process.cwd(), "src/components/landing/prototypes/IndexLanding.tsx"), "utf8");
     expect(src).toMatch(/id: "fleet"/);
+  });
+
+  it("FLEET_NOTES decode the metaphor and do not claim live streaming", () => {
+    const src = readFileSync(
+      join(process.cwd(), "src/components/landing/prototypes/index/IndexFleet.tsx"),
+      "utf8",
+    );
+    const notesBlock = src.match(/const FLEET_NOTES[\s\S]*?\];/)?.[0] ?? "";
+    expect(notesBlock.length).toBeGreaterThan(0);
+    expect(notesBlock).not.toMatch(/\blive\b/i);
+    expect(notesBlock).not.toMatch(/stream/i);
+    expect(notesBlock).not.toMatch(/refresh/i);
+    expect(src).toMatch(/Illustrative fleet/);
   });
 });
