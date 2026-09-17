@@ -84,7 +84,7 @@ test("the cockpit's gate is open on this deployment, and the fleet plots the pai
   // The rail is the INSPECTOR, which means `cockpitSetupState` returned null: self-hosted, repos in
   // scope, owner, ASCENT_AUTOPILOT on, and a paired working copy. If any of the five were missing we
   // would be looking at a CockpitSetup block instead — so this assertion IS the gate assertion.
-  await expect(cockpit.getByText(/Lasso or click bodies/)).toBeVisible();
+  await expect(cockpit.getByText(/Lasso or click bodies/).first()).toBeVisible();
   await expect(page.getByText("Three steps to your first run")).toHaveCount(0);
   await expect(page.getByText("Loop disabled on this deployment")).toHaveCount(0);
   await expect(page.getByText("Loops run where your code is")).toHaveCount(0);
