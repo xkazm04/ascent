@@ -261,24 +261,35 @@ conflict retries.
   not the decision.
 - **The confirmation shows the count before it asks for the name.** The org-settings dialog fetches
   the preview when it opens, and **again whenever the audit disposition changes** (the audit
-  casualties differ between keeping the trail and redacting it), then renders scans, repositories and
-  audit rows affected beside the confirm field. The destructive button stays **disabled until a count
-  has actually rendered**: echo-to-confirm only means anything if the operator was told what they are
+  casualties differ between keeping the trail and redacting it), then renders the **full blast
+  radius** beside the confirm field — not scans, repositories and audit rows alone. Every family
+  `eraseOrgData` already counted is listed when the body carries it: scan graph (scans, dimensions,
+  recommendations, events, compacted digests), repositories walked, improvement-loop runs/lanes,
+  Athena, org memory, the registry ledger, governance ledgers, leftover secrets (installations, BYOM
+  configs, API tokens) and alert events, plus audit rows affected. Families the body omitted are
+  **omitted, never shown as zero** — inventing a 0 for a counter nobody returned is the same lie as
+  rendering a failed preview as "0 scans". The UI does not delete extra tables; it only displays
+  counters the route already returns. The destructive button stays **disabled until a count has
+  actually rendered**: echo-to-confirm only means anything if the operator was told what they are
   confirming. A preview that FAILS renders **unknown** and leaves the button disabled — it never
   falls back to zeros, because a failed count displayed as "0 scans" is reassurance that was never
   received, and is precisely what would talk an owner into an erasure whose size nobody measured. A
   preview stopped by its own time budget (`complete: false`) is labelled "at least N" rather than
-  presented as a total.
+  presented as a total. The matrix above the list draws the same radius as kinds (loop, Athena,
+  memory, registry, governance, secrets) rather than only scan history and repo caches; settings and
+  the tenant stay void in the Erased column.
 - **The dialog and the receipt describe the SAME disposition.** The manifest calls the audit opt-in
   what it is — redaction — and puts a row in *both* columns, because that is what redaction does:
   the actor and every `meta` payload move to "Erased, permanently", while *what happened and when*
   moves to "Kept, untouched". After the act, the receipt reads `auditDisposition` off the response
   and reports it in the same words the preview used ("redacted to identifier-only" / "destroyed" /
-  "trail kept"), counting `auditDeleted + auditRedacted`. Until 2026-08-29 it read `auditDeleted`
-  alone — which is 0 on every path the UI can reach, since `includeAudit: true` resolves to
-  `"redact"` — so redacting an entire trail was reported as "Audit rows 0 · audit trail kept", and
-  the arming manifest above it promised that only the `data.erased` entry would survive. Both are
-  pinned by `DataErasureCard.outcomes.test.tsx`.
+  "trail kept"), counting `auditDeleted + auditRedacted`. The receipt also reuses the preview's
+  family list (`EraseBlastList`), accumulated across resumed passes, so leftover ledgers counted on
+  the way in are counted on the way out. Until 2026-08-29 it read `auditDeleted` alone — which is 0
+  on every path the UI can reach, since `includeAudit: true` resolves to `"redact"` — so redacting
+  an entire trail was reported as "Audit rows 0 · audit trail kept", and the arming manifest above
+  it promised that only the `data.erased` entry would survive. Both are pinned by
+  `DataErasureCard.outcomes.test.tsx`.
 - **Bounded + resumable.** Never one mega-transaction: every delete is a small batched transaction,
   the repo enumeration is cursor-paged, and a wall-clock budget (`ERASE_MAX_DURATION_S` − headroom,
   mirroring the cron's derivation and pinned to the route's `maxDuration` by a test) is polled
@@ -369,6 +380,7 @@ must never report a green `200`, since cron/uptime monitors only watch HTTP stat
 | `src/features/admin/settings/DataErasureCard.tsx` | Org-settings entry point: owns the erase request, and the preview hook that arms the confirmation. |
 | `src/features/admin/settings/DataErasureDialog.tsx` | The arming dialog: destroyed/kept manifest, typed confirmation, preview-gated confirm button. |
 | `src/features/admin/settings/DataErasurePreview.tsx` | `preview: true` fetch (re-run on disposition change) + the counts panel; unknown-on-failure, never zeros. |
+| `src/features/admin/settings/ErasePreviewPanel.tsx` | Blast-radius picture + family list: every `EraseResult` counter the body carried, not scans+repos+audit only. |
 | `src/lib/db/audit-integrity.ts` | Per-row HMAC signing, and `redactAuditIdentity` — the identifier-only rewrite an erasure applies. |
 
 ## Known gaps

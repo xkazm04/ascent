@@ -12,7 +12,8 @@
 //
 //  1. THE COUNT COMES FROM THE DELETE'S OWN PREDICATE. `preview: true` runs the whole request as a
 //     count inside eraseOrgData, so the number shown here cannot drift from the number that dies.
-//     We do not compute anything client-side.
+//     We do not compute anything client-side. The panel lists every family the body already counted,
+//     not a scans+repos+audit subset; omitted fields are omitted, never zeroed.
 //  2. A NON-PREVIEW RESPONSE IS AN ERROR, NOT DATA. `isPreview` demands `dryRun === true` and numeric
 //     counts. A 200 whose body we did not understand renders as UNKNOWN — never as zeros. Rendering
 //     "0 scans" from a failed preview is reassurance we did not earn, and it is exactly what would
@@ -22,13 +23,18 @@
 //     stale count beside a changed request.
 
 import { useEffect, useState } from "react";
-import { type AuditDisposition } from "./eraseTotals";
+import { type AuditDisposition, type EraseLedgers } from "./eraseTotals";
 import { ErasePreviewPanel } from "./ErasePreviewPanel";
 
-/** The preview body POST /api/org/erase returns for `preview: true` (EraseResult with `dryRun: true`). */
-export interface ErasePreview {
+/** The preview body POST /api/org/erase returns for `preview: true` (EraseResult with `dryRun: true`).
+ *  Ledger fields are optional: an older/truncated body still previews, and omitted families are not
+ *  shown as zero. Scan-graph dependents are optional for the same reason. */
+export interface ErasePreview extends EraseLedgers {
   reposProcessed: number;
   scansDeleted: number;
+  dimensionsDeleted?: number;
+  recommendationsDeleted?: number;
+  recommendationEventsDeleted?: number;
   auditDeleted: number;
   auditRedacted: number;
   auditDisposition: AuditDisposition;
