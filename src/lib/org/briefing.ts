@@ -19,6 +19,7 @@ import { hasFleetGrade } from "@/lib/db/org-shared";
 import { getOrgPractices, getPlaybookAdoption, listPlaybooks } from "@/lib/db";
 import { buildPracticeLibrarySummary } from "@/lib/org/practice-library";
 import { getImprovementEvents, type ImprovementEvent } from "@/lib/db/improvement-events";
+import { MOCK_ENGINE } from "@/lib/maturity/attribution";
 import { composeTrajectory, forecastConfidenceNote } from "@/lib/maturity/forecast";
 import { DIMENSION_BY_ID, levelForScore } from "@/lib/maturity/model";
 import type { DimensionId } from "@/lib/types";
@@ -123,9 +124,9 @@ export interface ExecBriefing {
   /** Which inference engine(s) produced this period's scores — provenance so a mock-degraded quarter
    *  is auditable in the durable briefing, not just the transient scan stream. */
   engineMix: EngineMixEntry[];
-  /** Fleet adoption rate (0..100) — share of scanned repos at a HIGH-adoption posture (AI-Native or
-   *  Fast & Ungoverned). The "is the standardization landing across the fleet" number a platform lead
-   *  tracks cycle-over-cycle; null when nothing is scanned. */
+  /** Fleet adoption rate (0..100) — share of LIVE-SCORED repos at a HIGH-adoption posture (AI-Native
+   *  or Fast & Ungoverned). Same denominator as {@link ExecBriefing.maturity} / `realScoredCount`;
+   *  mock placeholders are not a posture measurement. Null when nothing is live-scored. */
   adoptionRate: number | null;
   /** Full-fleet movement scale this period (not just the top-3 listed) — how many comparable repos moved
    *  up vs down, so a 200-repo fleet sees the spread, not a capped list. */
@@ -191,6 +192,33 @@ export interface ExecBriefing {
    *  which is grounded strictly in the figures above and degrades to deterministic copy. Null/absent
    *  means "not requested", which every renderer must treat as "render no narrative". */
   narrative?: string | null;
+}
+
+const HIGH_ADOPTION_POSTURE = new Set(["ai-native", "ungoverned"]);
+
+/**
+ * Fleet adoption as a measurement: share of LIVE-SCORED repos at a high-adoption posture
+ * (AI-Native or Fast & Ungoverned), 0..100. Null when nothing is live-scored.
+ *
+ * Direction 1. The briefing's other measurements already stand on `realScoredCount`. This used to
+ * divide by `scannedCount`, so a mixed fleet's "is the standardization landing" number included mock
+ * placeholders the rest of the briefing had excluded — overstating the denominator by exactly
+ * `mockCount`. When repo rows are present, mock engines are excluded from the numerator too
+ * (`postureCounts` is still the scanned-set histogram).
+ */
+export function fleetAdoptionRate(input: {
+  realScoredCount: number;
+  postureCounts: Record<string, number>;
+  repos?: ReadonlyArray<{ latest: { engine?: string | null; posture: string } | null }>;
+}): number | null {
+  if (input.realScoredCount <= 0) return null;
+  const live = (input.repos ?? []).filter((r) => r.latest != null && r.latest.engine !== MOCK_ENGINE);
+  const denom = live.length > 0 ? live.length : input.realScoredCount;
+  const high =
+    live.length > 0
+      ? live.filter((r) => HIGH_ADOPTION_POSTURE.has(r.latest!.posture)).length
+      : (input.postureCounts["ai-native"] ?? 0) + (input.postureCounts["ungoverned"] ?? 0);
+  return Math.round((high / denom) * 100);
 }
 
 const named = (d: { dimId: string; avg: number }): BriefingDim => ({
@@ -351,10 +379,7 @@ export async function buildExecBriefing(
       };
     })(),
     engineMix,
-    adoptionRate:
-      rollup.scannedCount > 0
-        ? Math.round((((rollup.postureCounts["ai-native"] ?? 0) + (rollup.postureCounts["ungoverned"] ?? 0)) / rollup.scannedCount) * 100)
-        : null,
+    adoptionRate: fleetAdoptionRate(rollup),
     movement: {
       up: movers?.gainers.length ?? 0,
       down: movers?.regressers.length ?? 0,

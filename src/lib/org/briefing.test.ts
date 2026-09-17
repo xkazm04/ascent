@@ -2,7 +2,7 @@
 // shape: standing headline, benchmark, strengths/weaknesses, movement, and a trailing actionable ASK.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { benchmarkCaption, briefingHasScore, briefingLevelCaption, briefingLoopProofLine, briefingMarkdown, briefingProofLine, briefingTrajectoryNote, buildLoopProof, coverageLine, engineMixCaveat, mockDisclosure, movementLine, noScoreLine, scoreBasisLine, scoreValue, valueRealizedHeading, valueRealizedLine, type ExecBriefing } from "./briefing";
+import { benchmarkCaption, briefingHasScore, briefingLevelCaption, briefingLoopProofLine, briefingMarkdown, briefingProofLine, briefingTrajectoryNote, buildLoopProof, coverageLine, engineMixCaveat, fleetAdoptionRate, mockDisclosure, movementLine, noScoreLine, scoreBasisLine, scoreValue, valueRealizedHeading, valueRealizedLine, type ExecBriefing } from "./briefing";
 import { forecastTrajectory } from "@/lib/maturity/forecast";
 
 // `buildExecBriefing` is pure assembly over five @/lib/db reads (rollup/benchmark/movers/goals +
@@ -228,6 +228,67 @@ describe("scoreBasisLine / noScoreLine / coverageLine — two denominators, stat
     expect(noScoreLine(b)).toContain("No live-scored repositories in this period");
     expect(noScoreLine(b)).not.toMatch(/\d/);
     expect(noScoreLine(fixture)).toBeNull();
+  });
+});
+
+// Direction 1 — fleet adoption is a MEASUREMENT, so it stands on the live-scored set the rest of
+// the briefing already claims. Dividing by scannedCount overstated the denominator by mockCount.
+describe("fleetAdoptionRate — live-scored denominator, mock engines out of both sides", () => {
+  const row = (engine: string, posture: string) => ({ latest: { engine, posture } });
+
+  it("is null when nothing is live-scored — a mock-inclusive 0% is not a measurement", () => {
+    expect(
+      fleetAdoptionRate({
+        realScoredCount: 0,
+        postureCounts: { early: 8 },
+        repos: Array.from({ length: 8 }, () => row("mock", "early")),
+      }),
+    ).toBeNull();
+  });
+
+  it("divides high-adoption posture by the live-scored set, not the mock-inclusive scanned set", () => {
+    // 3 live high-adoption + 3 live early + 2 mock high-adoption.
+    // scanned ratio 5/8 = 63%; live-numerator / scanned-denom 3/8 = 38%; live ratio 3/6 = 50%.
+    expect(
+      fleetAdoptionRate({
+        realScoredCount: 6,
+        postureCounts: { "ai-native": 4, ungoverned: 1, early: 3 },
+        repos: [
+          row("claude-cli", "ai-native"),
+          row("claude-cli", "ai-native"),
+          row("claude-cli", "ai-native"),
+          row("claude-cli", "early"),
+          row("claude-cli", "early"),
+          row("claude-cli", "early"),
+          row("mock", "ai-native"),
+          row("mock", "ungoverned"),
+        ],
+      }),
+    ).toBe(50);
+  });
+
+  it("falls back to postureCounts / realScoredCount when repo rows are absent", () => {
+    expect(
+      fleetAdoptionRate({
+        realScoredCount: 6,
+        postureCounts: { "ai-native": 3, early: 5 },
+      }),
+    ).toBe(50); // 3/6 — not 3/8 of a mock-inclusive scanned set
+  });
+
+  it("on a clean all-live fleet equals the high-adoption share of scanned (the two sets coincide)", () => {
+    expect(
+      fleetAdoptionRate({
+        realScoredCount: 4,
+        postureCounts: { "ai-native": 3, manual: 1 },
+        repos: [
+          row("claude-cli", "ai-native"),
+          row("claude-cli", "ai-native"),
+          row("claude-cli", "ai-native"),
+          row("claude-cli", "manual"),
+        ],
+      }),
+    ).toBe(75);
   });
 });
 
@@ -514,10 +575,41 @@ describe("buildExecBriefing — the rollup's denominator travels onto the briefi
     expect(scoreValue(b, b.maturity.overall)).toBe("—");
     expect(briefingLevelCaption(b)).toBeNull();
     expect(mockDisclosure(b)).toBe("8 mock placeholders excluded from every average");
+    // Adoption is a measurement too — an all-mock 0% over the scanned set would be a grade.
+    expect(b.adoptionRate).toBeNull();
     // The dimension lists come out empty because getOrgRollup's dimAverages iterate the live-scored
     // set too — so there is no 0/100 dimension row to print either.
     expect(b.strengths).toEqual([]);
     expect(b.risks).toEqual([]);
+  });
+
+  it("computes fleet adoption over the live-scored set, not the mock-inclusive scanned set", async () => {
+    const scored = (engine: string, posture: string) =>
+      ({ latest: { engine, posture } }) as Rollup["repos"][number];
+    mockRollup.mockResolvedValue(
+      rollup({
+        scannedCount: 8,
+        realScoredCount: 6,
+        mockCount: 2,
+        postureCounts: { "ai-native": 4, ungoverned: 1, early: 3 },
+        repos: [
+          scored("claude-cli", "ai-native"),
+          scored("claude-cli", "ai-native"),
+          scored("claude-cli", "ai-native"),
+          scored("claude-cli", "early"),
+          scored("claude-cli", "early"),
+          scored("claude-cli", "early"),
+          scored("mock", "ai-native"),
+          scored("mock", "ungoverned"),
+        ],
+      }),
+    );
+    const b = (await buildExecBriefing("acme"))!;
+    // 3 of 6 live-scored — not 5/8 (scanned, mocks in the numerator) and not 3/8 (live numerator,
+    // scanned denominator). Coverage still names the scanned eight.
+    expect(b.coverage.scanned).toBe(8);
+    expect(b.realScoredCount).toBe(6);
+    expect(b.adoptionRate).toBe(50);
   });
 
   it("refuses a prior-period comparison against an all-mock prior window", async () => {

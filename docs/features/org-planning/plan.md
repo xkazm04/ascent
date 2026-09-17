@@ -376,3 +376,9 @@ contract.
 - **Goals have no management UI.** Deliberate half-state, see above.
 - (Closed 2026-08-14.) ~~Goal metrics are point-in-time.~~ Every `GoalProgress` row carries
   `series`, drawn by `GoalCard` (`src/components/org/shared/GoalTrend.tsx`).
+- (Closed 2026-09-17.) ~~Executive briefing fleet adoption used the mock-inclusive scanned set as
+  its denominator.~~ `adoptionRate` is the share of **live-scored** repositories at a high-adoption
+  posture (`realScoredCount`), matching the briefing's other measurements; mock-engine rows are
+  excluded from both sides of the ratio when repo rows are present. Markdown/PDF still say "of
+  scanned repos" (`briefing-markdown.ts`, `briefing-document.tsx`) — presentation, outside this
+  write set.
