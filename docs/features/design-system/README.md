@@ -245,15 +245,21 @@ The marketing deck's four diagrams (`FleetGrid`, `RoiSimulator`, `ChampionNetwor
 one a prospective buyer reads as proof — it computes over eight invented repos at a
 `W = 0.16` weighting its own source calls "deliberately NOT the production
 weighting" — and until 2026-08-31 both facts lived only in comments, i.e. only for
-people reading the repository (UAT `MC-B6` / `TOMAS-L1-04`, recurrence 2).
+people reading the repository (UAT `MC-B6` / `TOMAS-L1-04`, recurrence 2). The other
+three diagrams were the same omission: invented cells, contributors and alerts,
+labelled only in source.
 
-**The rule: a provenance caveat renders, or it does not exist.** `RoiSimulator` now
-closes with `Illustrative · N sample repos, demo weighting — not customer data`, in
-the same `type-label tracking-[0.22em] text-slate-600` chrome `AboutOrgHero`
-("Illustrative fleet · 48 repos") and `AboutOrgLoop` ("Illustrative cycle") already
-use — so the disclosure is one recognizable house form across both decks rather than
-three phrasings. The count comes from `REPOS.length`, so editing the fleet cannot
-leave the caption lying; `RoiSimulator.dom.test.tsx` pins both halves.
+**The rule: a provenance caveat renders, or it does not exist.** Every invented
+diagram on `/about` now closes with the same `type-label tracking-[0.22em]
+text-slate-600` chrome `AboutOrgHero` ("Illustrative fleet · 48 repos") and
+`AboutOrgLoop` ("Illustrative cycle") already use — so the disclosure is one
+recognizable house form across both decks rather than a per-diagram phrasing.
+`RoiSimulator` still names the sample-repo count from `REPOS.length` and the demo
+weighting; `FleetGrid` names `REPOS.length`; `ChampionNetwork` names the sample
+contributor count from `NODES`; `RiskRadar` names the sample alert count from
+`BLIPS`. Counts come from the arrays they render, so editing a vignette cannot
+leave the caption lying. `RoiSimulator.dom.test.tsx` and `FleetGrid.dom.test.tsx`
+pin the rendered labels.
 
 The simulator was kept rather than deleted in favour of the landing register of real
 scanned repos: the register is server-fetched on `/` (and absent entirely when no DB
@@ -304,6 +310,14 @@ the rail has, and that a non-rail tab yields `null` rather than a wrong trail.
 same 25 repos/call `POST /api/practices/apply-batch` enforces; `KnowledgeLedger`
 renders `MEMORY_KIND_LABEL` and `usageVerdictLabel` / `DORMANCY_WINDOW_DAYS` from
 the product's own modules rather than invented vocabulary.
+
+**And every invented number is labelled where it renders.** The practice fan, the
+recall list and the governance sheet are demonstrations: a sample fleet, sample
+memories, sample pass counts and a sample trail. They close with the same
+`Illustrative · …, not customer data` chrome as `/about`, counting from `FLEET` /
+`RECALL.length` so the caption cannot outlive the vignette. The real constraints
+above stay in the picture; the stamp is what stops a visitor reading those
+constraints as a customer result. `FleetGrid.dom.test.tsx` pins the three stamps.
 
 **The loop section borrows the live theater's vocabulary, not a metaphor for it.**
 It is the cockpit's `LaneRail` shape (`src/features/inflight/live/cockpit/`): one
