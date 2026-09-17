@@ -119,6 +119,14 @@ export function isIncompleteReport(report: Pick<ScanReport, "incomplete" | "dime
   return report.incomplete === true || report.dimensions.length === 0;
 }
 
+/**
+ * Fleet/MCP snapshot counterpart of {@link isIncompleteReport}. A missing `dims` array is the same
+ * as an empty one: not a full scan. Fail-closed — absence of dimensions is not a pass.
+ */
+export function isIncompleteSnapshot(snap: Pick<GateSnapshot, "incomplete" | "dims">): boolean {
+  return snap.incomplete === true || (snap.dims?.length ?? 0) === 0;
+}
+
 const INCOMPLETE_MESSAGE =
   "This scan is INCOMPLETE: no dimension could be scored (every detector failed or returned no data), " +
   "so its 0 / L1 result is not a measurement. The gate fails closed rather than certify or condemn a " +
@@ -780,6 +788,12 @@ export interface GateSnapshot {
   overall: number;
   posture: string; // posture id, e.g. "ungoverned"
   dims: { dimId: string; score: number }[];
+  /**
+   * This snapshot is not a full scan — no dimension could be scored, so `overall`/`level` are the
+   * renormalized floor rather than a measurement. Same meaning as {@link ScanReport.incomplete}.
+   * `evaluateGateLite` fails closed on the flag **or** on empty/missing `dims` (legacy rollup rows).
+   */
+  incomplete?: boolean;
   /** Default-branch protection, when the rollup carries it. `requireProtectedBranch` is enforced here
    *  only when `govReadable` is true (parity with evaluateGate's readable-gated check); absent → skipped. */
   protected?: boolean;
@@ -796,6 +810,12 @@ export interface GateSnapshot {
  * dashboard's fleet status and the CI gate agree. Used to compute org-wide gate analytics cheaply.
  */
 export function evaluateGateLite(snap: GateSnapshot, policy: GatePolicy): GateResult {
+  // Incomplete snapshot (missing dims / not a full scan): fail closed. Empty dims vacuously pass
+  // every dimension-floor sweep in evaluateNormalized — absence is not a pass. Same short-circuit
+  // evaluateGate uses, so fleet/MCP cannot certify a repo nobody measured.
+  if (isIncompleteSnapshot(snap)) {
+    return { pass: false, policy, failures: [{ code: "incomplete", message: INCOMPLETE_MESSAGE }], skipped: [], caveats: [] };
+  }
   const dimName = (id: string) => DIMENSION_BY_ID[id as DimensionId]?.name ?? id;
   const { failures, skipped } = evaluateNormalized(
     {

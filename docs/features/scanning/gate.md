@@ -163,16 +163,20 @@ check and releases the delivery for GitHub to redeliver.
 ### Incomplete scans fail closed (one honest failure)
 
 A scan where **every** detector failed produces no dimensions, so the renormalized roll-up floors at
-`0 / L1`, numerically identical to a genuinely manual repo. `evaluateGate` short-circuits on it
-(`isIncompleteReport`: the report's `incomplete` flag, or an empty `dimensions` array on a legacy /
-reconstructed report) and returns a single failure with code **`incomplete`** instead of running the
-criteria. Two reasons: the gate must not certify a repository it could not read, and it must not emit
-a wall of "D1 scored 0" failures that read as findings *about the repository* when the only true
-statement is that nothing was measured. Fail-closed, like every other criterion here.
+`0 / L1`, numerically identical to a genuinely manual repo. Both evaluators short-circuit on that
+and return a single failure with code **`incomplete`** instead of running the criteria:
 
-> Fleet parity note: `evaluateGateLite` (the org rollup) does not yet carry an incompleteness signal
-> in `GateSnapshot`; such a repo currently fails the fleet view via its `0 / L1` numbers, with a
-> less precise reason.
+- `evaluateGate` (`isIncompleteReport`: the report's `incomplete` flag, or an empty `dimensions`
+  array on a legacy / reconstructed report).
+- `evaluateGateLite` (`isIncompleteSnapshot`: the snapshot's `incomplete` flag, or empty / **missing**
+  `dims` — not a full scan). Empty dims used to *pass* every dimension floor by absence (the sweep
+  iterates present rows); that is closed. An empty policy cannot certify an unscored snapshot either.
+
+Two reasons: the gate must not certify a repository it could not read, and it must not emit a wall
+of "D1 scored 0" failures that read as findings *about the repository* when the only true statement
+is that nothing was measured. Fail-closed, like every other criterion here. The fleet overview still
+buckets those repos as `incomplete` before scoring so they never enter the pass-rate; MCP and any
+other lite caller get the honest `incomplete` failure rather than a vacuous pass.
 
 ### Degraded scans fail closed (`503`)
 
