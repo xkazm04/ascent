@@ -413,7 +413,8 @@ mitigation; spreadsheet save/reopen behavior can change escaping
 The trends "Export CSV" control is a client fetch (`src/app/trends/ExportCsvButton.tsx`), not an
 anchor to the API route: a 401/403 from an expired session renders an in-page re-auth prompt instead
 of replacing the page with a raw JSON error body, and a success streams to a Blob download that keeps
-the page and its range state intact.
+the page and its range state intact. The fetch passes `compacted=1` so the spreadsheet includes the
+same labelled compacted tail the chart draws; without it the export is retained scans only.
 
 ## Recommendations UI
 
