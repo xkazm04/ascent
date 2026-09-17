@@ -50,6 +50,17 @@ never priced (a BYOM-only window prices as `null`, never `$0.00`, and the env-ra
 refused when every token is BYOM), and `UsageSummary.byomScans` drives a "N BYOM scans, unpriced"
 note beside the estimate. Their tokens still count in the volume tiles.
 
+**Free-to-paid conversion is the same contract.** `freeToPaidConversion` (`src/lib/db/kpi-metrics.ts`,
+surfaced on `GET /api/kpi` as `NOT_MEASURABLE` when the producer returns null) is the share of orgs
+that scanned on the free tier and took a subscription within the window. It reads the local
+`Subscription` row — not Polar, not `Organization.plan`. Polar checkout writes the plan via
+`setOrgPlan`; nothing writes `Subscription`. When that table has **zero rows** the producer returns
+`null` even if eligible orgs exist: absence of a conversion event is not 0%. `rate()` already
+returns null when the eligible cohort is empty; the extra gate is the remaining lie (eligible > 0,
+`converted` stuck at 0 because no row was ever written). A measured 0% is only legal once at least
+one `Subscription` row exists. A current paid `Organization.plan` is not a substitute timestamp and
+must not invent the rate.
+
 **Idempotency.** `idemKey` is `"<lane>:<refId>"` when the caller owns a stable id, else `null`
 (NULLs are distinct under the unique index — the same at-least-once fallback `Scan.dedupKey` uses).
 A retried write collides on P2002 and is swallowed by the best-effort writer: no double count.
@@ -340,7 +351,7 @@ Until a route adopts `rateLimitRequestShared()`, its global ceiling remains per-
 | `src/lib/db/usage-showback.ts` | `laneTeamTotals()` (the lane × team ledger read) + `buildShowbackMatrix()` (the pure grid fold). |
 | `src/app/usage/usageShowbackPanel.tsx` | The "Showback · lane × team" server panel, and its accruing state. |
 | `src/app/usage/costHeadline.ts` | The "Est. cost" tile's value + caption: all-lane sum, lane scope, pricing basis, unpriced floor. |
-| `src/lib/db/kpi-metrics.ts` | `avgLlmCostPerActiveOrg()` — per-tenant LLM cost across every lane, beside `avgLlmCostPerScan()`. |
+| `src/lib/db/kpi-metrics.ts` | `avgLlmCostPerActiveOrg()` — per-tenant LLM cost across every lane, beside `avgLlmCostPerScan()`. `freeToPaidConversion()` — share of orgs that scanned free and subscribed inside the window; **null** (not 0%) while the `Subscription` table has never been written. |
 | `src/lib/rate-limit.ts` | Sliding-window limiter: sync per-IP burst + sync/shared global ceiling. |
 | `src/lib/public-scan-limit.ts` | The free public-scan allowance + window — the ONE source both the gate and the marketing copy read. |
 | `src/lib/public-scan-quota.ts` | The persistent rolling-30-day public-scan gate: window math, bucket derivation, fail-open stance, the 429. |
@@ -369,3 +380,6 @@ Until a route adopts `rateLimitRequestShared()`, its global ceiling remains per-
 - **No lane but `scan` is billed.** `laneAllowances` is `{}` on every tier, so the other four lanes
   are measured and shown but never charged. That is deliberate, and it is the state until a pricing
   decision is made on this data.
+- **No `Subscription` writer.** Polar fulfilment updates `Organization.plan` only. The conversion KPI
+  therefore stays not-measurable (`null`) until a writer exists; it does not invent conversion from
+  the plan column, and this page does not add a Polar → `Subscription` writer.
