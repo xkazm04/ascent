@@ -309,10 +309,14 @@ It replaces a CTA that was a `mailto:` when `ASCENT_CONTACT_EMAIL` happened to b
    session must never fire from a link prefetcher, crawler, or cross-origin probe.
 2. Validates `pack` against **both** catalogs (`creditsForProduct(pack) > 0` or `planForProduct(pack)`); an
    unknown/forged product id → 400.
-3. If a DB is configured, resolves the org and 404s an unknown slug with a uniform message (doesn't echo
+3. Owner-gates (`requireOrgRole(org, "owner")`) **before** minting a Polar session and before the
+   org-existence read, so a member, signed-in stranger, or unauthenticated same-origin GET cannot create a
+   hosted checkout (and a non-owner does not get a 404-vs-303 existence oracle). Auth-off deployments stay
+   open, matching the other owner gates. Same tier as `POST /api/org/plan` and credit grants.
+4. If a DB is configured, resolves the org and 404s an unknown slug with a uniform message (doesn't echo
    the slug back, so the response can't be used as an org-existence oracle); a DB-unavailable read is a
    retryable 503, not a misleading 404.
-4. Creates a hosted Polar checkout (`polar.checkouts.create`) carrying the org in **both**
+5. Creates a hosted Polar checkout (`polar.checkouts.create`) carrying the org in **both**
    `externalCustomerId` and `metadata.org`, and 303-redirects the browser to it. No credits or plan change
    happen here: the trust boundary for the actual grant is the webhook signature.
 

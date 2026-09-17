@@ -10,15 +10,18 @@
 // No credits move until Polar confirms payment via the signed webhook (the trust boundary for the
 // GRANT is the webhook signature). But CREATING the checkout session itself is an external state change
 // (a remote, billable resource), so this safe-looking GET is guarded: a speculative prefetch/prerender
-// is refused, and the request must be same-origin (mirroring /api/org/plan). It also returns a UNIFORM
+// is refused, the request must be same-origin (mirroring /api/org/plan), and only the org owner may mint
+// the session (requireOrgRole, same tier as /api/org/plan and credit grants). It also returns a UNIFORM
 // unknown-org error. Without these, a browser/link prefetcher, crawler, or chat-unfurl bot following the
-// link would mint a real Polar session per probe, and the differentiated unknown-org 404 vs existing-org
-// 303 would leak which org slugs exist. See docs/features/billing/billing.md.
+// link would mint a real Polar session per probe, a member or signed-in stranger could start checkout
+// for an org they do not own, and the differentiated unknown-org 404 vs existing-org 303 would leak
+// which org slugs exist. See docs/features/billing/billing.md.
 
 import { NextResponse } from "next/server";
 import { creditsForProduct, getPolar, planForProduct, polarEnabled } from "@/lib/polar";
 import { getOrgId, isDbConfigured, isDbUnavailableError } from "@/lib/db";
 import { requireSameOrigin } from "@/lib/auth";
+import { requireOrgRole } from "@/lib/authz";
 import { publicBaseUrl } from "@/lib/site";
 import { normalizeOrgSlug } from "@/lib/db/org-shared";
 
@@ -59,11 +62,16 @@ export async function GET(request: Request) {
   if (!pack || (creditsForProduct(pack) <= 0 && !planForProduct(pack))) {
     return NextResponse.json({ error: "Unknown product." }, { status: 400 });
   }
+  // Owner-gated BEFORE any Polar mint (and before the org-existence read, so a non-owner does not
+  // get a 404-vs-303 existence oracle). Minting a hosted Polar session is an external, billable
+  // state change bound to this org — same owner tier as /api/org/plan and credit grants. Auth-off
+  // (local / demo / e2e) stays open via requireOrgRole, so the documented gift/seed path is unblocked.
+  const denied = await requireOrgRole(org, "owner");
+  if (denied) return denied;
   // Fail fast on a target that can never receive the credits — a typo'd/nonexistent slug would create
-  // a real paid checkout whose fulfilment then can't bind to an org (pay-into-a-void). Cheap DB read,
-  // no auth needed (the grant amount is still webhook-authoritative). Skipped when there's no DB to
-  // check against (the org can't exist either, but we can't verify — don't block the documented
-  // gift/seed path).
+  // a real paid checkout whose fulfilment then can't bind to an org (pay-into-a-void). Cheap DB read
+  // after the owner gate. Skipped when there's no DB to check against (the org can't exist either, but
+  // we can't verify — don't block the documented gift/seed path).
   if (isDbConfigured()) {
     let orgId: string | null;
     try {
