@@ -101,9 +101,11 @@ export default async function UsagePage({
   let recon: CreditReconciliation | null = null;
   // Public-funnel abuse counters (QUOTA-6) — only meaningful on the shared public view; best-effort.
   let quotaEvents: QuotaEventTotals | null = null;
-  // Month-to-date metered scans — the third input the charge resolver needs (UAT DANA-L1-003). The
-  // banner cannot decide "refused" from the balance alone: a scan under the monthly allowance is free
-  // whatever the balance is. Same round-trip, same best-effort posture as the credit read.
+  // Month-to-date metered scans — the allotment numerator AND the third input the charge resolver
+  // needs (UAT DANA-L1-003). The banner cannot decide "refused" from the balance alone: a scan under
+  // the monthly allowance is free whatever the balance is. AllotmentPanel must read this same
+  // calendar-month count, not the page's ?days= billable window. Same round-trip, same best-effort
+  // posture as the credit read.
   let meteredThisMonth: number | null = null;
   try {
     [usage, credit, recon, quotaEvents, meteredThisMonth] = await Promise.all([
@@ -154,8 +156,8 @@ export default async function UsagePage({
   // UAT DANA-L1-003 (recurrence 2) — the banner is resolved by `creditNotice`, which asks
   // `resolveScanCharge` (the resolver BOTH billing gates already share) instead of re-deriving a local
   // predicate that ignored the monthly allowance and was non-monotonic in the balance. Rationale in
-  // ./creditNotice.ts. `meteredThisMonth` is null when the read failed or the org is public/unlimited;
-  // a failed read means no banner, which is the right way to fail on a warning surface.
+  // ./creditNotice.ts. `meteredThisMonth` is null when the read failed or the org is public; a failed
+  // read hides the banner AND the allotment meter (don't invent a 0% against the monthly grant).
   const notice =
     credit && meteredThisMonth != null
       ? creditNotice({
@@ -178,6 +180,7 @@ export default async function UsagePage({
         billable={billable}
         runwayDays={runwayDays}
         notice={notice}
+        meteredThisMonth={meteredThisMonth}
         maxDays={maxDays}
       />
     </Shell>
