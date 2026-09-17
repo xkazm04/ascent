@@ -91,14 +91,22 @@ describe("buildSegmentComparison", () => {
     expect(c.deltas).toEqual({ overall: 30, adoption: 45, rigor: 10 });
   });
 
-  it("unions dimensions from both sides (sorted) and treats a missing side as 0", () => {
+  it("unions dimensions from both sides (sorted) and leaves a missing side null", () => {
     const a = summary({ dimAverages: [{ dimId: "D2", avg: 60 }, { dimId: "D1", avg: 90 }] });
     const b = summary({ dimAverages: [{ dimId: "D1", avg: 40 }, { dimId: "D8", avg: 30 }] });
     const c = buildSegmentComparison(a, b);
     expect(c.dimDeltas.map((d) => d.dimId)).toEqual(["D1", "D2", "D8"]);
     expect(c.dimDeltas).toContainEqual({ dimId: "D1", a: 90, b: 40, delta: 50 });
-    expect(c.dimDeltas).toContainEqual({ dimId: "D2", a: 60, b: 0, delta: 60 }); // absent in b
-    expect(c.dimDeltas).toContainEqual({ dimId: "D8", a: 0, b: 30, delta: -30 }); // absent in a
+    expect(c.dimDeltas).toContainEqual({ dimId: "D2", a: 60, b: null, delta: null }); // absent in b
+    expect(c.dimDeltas).toContainEqual({ dimId: "D8", a: null, b: 30, delta: null }); // absent in a
+  });
+
+  it("keeps a dimension MEASURED at zero as 0, distinguishable from a missing side", () => {
+    const a = summary({ dimAverages: [{ dimId: "D1", avg: 0 }, { dimId: "D2", avg: 80 }] });
+    const b = summary({ dimAverages: [{ dimId: "D1", avg: 40 }] });
+    const c = buildSegmentComparison(a, b);
+    expect(c.dimDeltas).toContainEqual({ dimId: "D1", a: 0, b: 40, delta: -40 });
+    expect(c.dimDeltas).toContainEqual({ dimId: "D2", a: 80, b: null, delta: null });
   });
 });
 

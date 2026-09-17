@@ -2742,10 +2742,13 @@ with no numeral where `forecastInsufficiency` refuses to state one.
   and cannot draw two boxes. Returning a five-number summary per side would turn `SegmentDumbbell`
   into a real distribution comparison. Not a drawing problem; a shared-query widening, deliberately
   left rather than done from inside a tab.
-- **Two adjacent sentinels of the same shape, deliberately out of scope of `b1042324`.**
-  `SegmentComparison.dimDeltas` still coalesces a dimension a scope is not scored on — that is
+- **One adjacent sentinel of the same shape, deliberately out of scope of `b1042324`.**
+  ~~`SegmentComparison.dimDeltas` still coalesces a dimension a scope is not scored on — that is
   per-dimension *coverage*, a different population from the mean of nothing, and its view-side guard
-  (`value(scanned, v)` in `segmentViz.ts`) is correct today. `OrgBenchmark.corpusAvg*` still returns
+  (`value(scanned, v)` in `segmentViz.ts`) is correct today.~~ **Closed:** `dimDeltas.a` / `b` /
+  `delta` are `number | null`. A dimension a scope is not scored on is `null`, never `0`, and a
+  one-sided delta is withheld — the same subtract-measured rule as the headline averages. The
+  view-side `value(scanned, v)` re-derivation is gone. `OrgBenchmark.corpusAvg*` still returns
   `0` beside `corpusRepos: 0`; honestly guarded at present, but the same shape of defect if the guard
   ever moves.
 - **`permittedModels` is declared and unchecked, and stays that way.** Not an oversight and not a
