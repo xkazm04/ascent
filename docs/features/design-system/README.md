@@ -248,6 +248,14 @@ The paired `roi` money line in `features.ts` names those same live tiles
 forecast the sliders never compute (no calendar quarter, no "6 of 8" count).
 GOLDEN-TRIO: do not lead with ROI. `features.test.ts` pins the contract.
 
+**The transition pane does not sell settable goals or forecast ETAs as climb
+controls.** `AboutTransition`'s intro names the `LEVELS`-derived ladder and the
+measurable path between rungs. The Plan tab that hosted visitor-settable goals
+retired 2026-08-17; goals are read-only, and `etaDays` prints on the Briefing PDF
+(`src/lib/pdf/briefing-document.tsx`), not as a control the visitor operates on
+this deck. `AboutTransition.test.ts` pins that zero intro clauses restore the old
+"goals and forecast ETAs so the climb stays on pace" pitch.
+
 ## `/about-org`: the organization edition deck
 
 Seven snap sections: masthead · the five questions · three feature deep-dives
