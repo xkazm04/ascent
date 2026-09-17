@@ -7,8 +7,14 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import type { ScanReport } from "@/lib/types";
-import { ReportHeader } from "./ReportHeader";
 import { reportLlmMarkdown } from "@/lib/report/llm-markdown";
+
+const search = vi.hoisted(() => ({ current: "" }));
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(search.current),
+}));
+
+import { ReportHeader } from "./ReportHeader";
 
 // Minimal cast — the header reads repo/archetype/aiUsage/engine/confidence/scannedAt, plus (since
 // G5-17) the score/level/dimension fields the "Copy for LLM" payload is rendered from.
@@ -64,6 +70,7 @@ function report(
 
 describe("ReportHeader", () => {
   afterEach(() => {
+    search.current = "";
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -170,6 +177,26 @@ describe("ReportHeader", () => {
     expect(alert).toHaveTextContent("PDF export is a Pro-plan feature.");
     expect(alert).toHaveTextContent("Upgrade");
     expect(alert).toHaveAttribute("href", "/pricing");
+  });
+
+  it("still hands over the durable permalink on an unscoped reading", () => {
+    render(<ReportHeader report={report("acme")} isMock={false} />);
+    fireEvent.click(screen.getByRole("button", { name: /permalink/i }));
+    expect(screen.getByLabelText(/^The permalink to the acme\/web report$/)).toHaveValue(
+      `${window.location.origin}/report/acme/web`,
+    );
+  });
+
+  it("does not copy the unscoped /report/{owner}/{repo} permalink from a scoped live scan", () => {
+    search.current = "repo=acme%2Fweb&ref=feat";
+    render(<ReportHeader report={report("acme")} isMock={false} />);
+    expect(screen.queryByRole("button", { name: /permalink/i })).toBeNull();
+  });
+
+  it("does not copy the unscoped permalink from a sub-path live scan", () => {
+    search.current = "repo=acme%2Fweb&path=packages%2Fapi";
+    render(<ReportHeader report={report("acme")} isMock={false} />);
+    expect(screen.queryByRole("button", { name: /permalink/i })).toBeNull();
   });
 
   it("G5-04: offers the share card as a download of the SAME image the permalink unfurls", () => {

@@ -1,16 +1,20 @@
 // @vitest-environment jsdom
 //
 // After persist, the live-scan job URL (`/report?repo=`) is rewritten to the durable permalink.
-// These pin the honesty gates: no rewrite when persist missed, when the scan is scoped, or when
-// the identity is not a GitHub owner/name the [owner]/[repo] route can host.
+// These pin the honesty gates: no rewrite when persist missed, when the scan is scoped (including
+// when the job URL carries `ref`/`path` even if the caller omitted the scoped flag), or when the
+// identity is not a GitHub owner/name the [owner]/[repo] route can host. A scoped live scan also
+// must not copy that unscoped permalink.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   isReportPermalinkPath,
+  liveScanCopyPermalink,
   liveScanPermalinkPath,
   peekWasDurable,
   persistedFrameOk,
   reportSectionUrl,
   rewriteLiveScanAddressBar,
+  searchHasLiveScanScope,
 } from "./liveScanPermalink";
 
 function href(input: Partial<Parameters<typeof liveScanPermalinkPath>[0]> = {}) {
@@ -42,6 +46,12 @@ describe("liveScanPermalinkPath", () => {
 
   it("does not rewrite a scoped scan (never persisted, score is not the default-branch reading)", () => {
     expect(href({ scoped: true, search: "repo=acme%2Fweb&ref=feat" })).toBeNull();
+  });
+
+  it("does not copy an unscoped permalink from a scoped live-scan URL even if the scoped flag is omitted", () => {
+    expect(href({ search: "repo=acme%2Fweb&ref=feat" })).toBeNull();
+    expect(href({ search: "repo=acme%2Fweb&path=packages%2Fapi" })).toBeNull();
+    expect(href({ search: "repo=acme%2Fweb&ref=feat&path=packages%2Fapi" })).toBeNull();
   });
 
   it("is a no-op on the permalink path itself (ColdScanGate → ReportClient)", () => {
@@ -103,6 +113,33 @@ describe("isReportPermalinkPath", () => {
   });
 });
 
+describe("searchHasLiveScanScope", () => {
+  it("reads ref and path as scope, ignoring other live-scan job keys", () => {
+    expect(searchHasLiveScanScope("repo=acme%2Fweb")).toBe(false);
+    expect(searchHasLiveScanScope("repo=acme%2Fweb&fresh=1&notify=1")).toBe(false);
+    expect(searchHasLiveScanScope("repo=acme%2Fweb&ref=feat")).toBe(true);
+    expect(searchHasLiveScanScope("?path=packages/api")).toBe(true);
+    expect(searchHasLiveScanScope("ref=")).toBe(false);
+  });
+});
+
+describe("liveScanCopyPermalink", () => {
+  it("hands over the unscoped durable path (and commit pin) for an unscoped reading", () => {
+    expect(liveScanCopyPermalink({ fullName: "acme/web", search: "repo=acme%2Fweb", headSha: "abc123" })).toEqual({
+      path: "/report/acme/web",
+      pinnedPath: "/report/acme/web@abc123",
+    });
+  });
+
+  it("does not copy the unscoped permalink from a scoped live scan", () => {
+    expect(liveScanCopyPermalink({ fullName: "acme/web", search: "repo=acme%2Fweb&ref=feat", headSha: "abc123" })).toBeNull();
+    expect(liveScanCopyPermalink({ fullName: "acme/web", search: "repo=acme%2Fweb&path=packages/api" })).toBeNull();
+    expect(
+      liveScanCopyPermalink({ fullName: "acme/web", search: "repo=acme%2Fweb", scoped: true, headSha: "abc123" }),
+    ).toBeNull();
+  });
+});
+
 describe("rewriteLiveScanAddressBar", () => {
   afterEach(() => {
     window.history.replaceState(null, "", "/");
@@ -132,6 +169,21 @@ describe("rewriteLiveScanAddressBar", () => {
         search: "repo=acme%2Fweb",
         fullName: "acme/web",
         persisted: false,
+      }),
+    ).toBeNull();
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it("does not rewrite a scoped job URL to /report/{owner}/{repo} even if persist claimed ok", () => {
+    window.history.replaceState(null, "", "/report?repo=acme%2Fweb&ref=feat");
+    const spy = vi.spyOn(window.history, "replaceState");
+    expect(
+      rewriteLiveScanAddressBar({
+        pathname: "/report",
+        search: "repo=acme%2Fweb&ref=feat",
+        fullName: "acme/web",
+        persisted: true,
       }),
     ).toBeNull();
     expect(spy).not.toHaveBeenCalled();

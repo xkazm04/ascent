@@ -1,7 +1,8 @@
 // After a live scan lands on `/report?repo=…`, the address bar still names the *job*, not the
 // artifact. The durable URL is `/report/{owner}/{repo}` (reportPermalink) — but only once that
 // path will actually resolve. Rewriting before persist would put a scored-looking permalink in
-// the bar whose generateMetadata still says "No report yet" (cold-permalink honesty).
+// the bar whose generateMetadata still says "No report yet" (cold-permalink honesty). A scoped
+// live scan (`?ref=` / `?path=`) must not be rewritten — or copied — to that unscoped path.
 //
 // history.replaceState, not router.replace: `/report` is force-dynamic, so a router navigation
 // remounts the server tree and can flash ColdScanGate over the report the user just waited for.
@@ -11,6 +12,15 @@ import { reportPermalink } from "@/lib/ui";
 
 /** Query keys that belong to the live-scan job URL, not the durable permalink. */
 export const LIVE_SCAN_PARAM_KEYS = ["repo", "fresh", "notify", "ref", "path"] as const;
+
+/** Job keys that mean this reading is not the default-branch, whole-repo snapshot. */
+export const LIVE_SCAN_SCOPE_KEYS = ["ref", "path"] as const;
+
+/** True when the live-scan job URL itself is scoped (`?ref=` / `?path=`). */
+export function searchHasLiveScanScope(search: string): boolean {
+  const params = new URLSearchParams(search.replace(/^\?/, ""));
+  return LIVE_SCAN_SCOPE_KEYS.some((key) => Boolean(params.get(key)));
+}
 
 /** `/report/{owner}/{repo}` or `/report/{owner}/{repo}@{sha}` — not the `/report?repo=` job page. */
 export function isReportPermalinkPath(pathname: string): boolean {
@@ -39,7 +49,9 @@ export function liveScanPermalinkPath(input: {
   persisted: boolean;
   scoped?: boolean;
 }): string | null {
-  if (!input.persisted || input.scoped) return null;
+  // Inspect the job URL, not only the caller's `scoped` flag: a `?ref=` / `?path=` live scan
+  // must never be rewritten to `/report/{owner}/{repo}` (that path is a different artifact).
+  if (!input.persisted || input.scoped || searchHasLiveScanScope(input.search)) return null;
   if (input.pathname !== "/report") return null;
   const parsed = parseOwnerRepo(input.fullName);
   if (!parsed) return null;
@@ -48,6 +60,23 @@ export function liveScanPermalinkPath(input: {
   for (const key of LIVE_SCAN_PARAM_KEYS) params.delete(key);
   const qs = params.toString();
   return qs ? `${path}?${qs}` : path;
+}
+
+/**
+ * Durable `/report/{owner}/{repo}` the header Permalink control may copy, or null when this
+ * reading is a scoped live scan. Copying the unscoped permalink from a branch/sub-path scan
+ * would name a different artifact (the default-branch snapshot, or ColdScanGate).
+ */
+export function liveScanCopyPermalink(input: {
+  fullName: string;
+  search: string;
+  headSha?: string | null;
+  scoped?: boolean;
+}): { path: string; pinnedPath?: string } | null {
+  if (input.scoped || searchHasLiveScanScope(input.search)) return null;
+  const path = reportPermalink(input.fullName);
+  const pinnedPath = input.headSha ? reportPermalink(input.fullName, input.headSha) : undefined;
+  return pinnedPath ? { path, pinnedPath } : { path };
 }
 
 /** Rewrite the address bar in place. Returns the new href, or null when nothing changed. */

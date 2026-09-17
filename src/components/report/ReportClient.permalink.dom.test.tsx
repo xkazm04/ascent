@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 //
 // After a persisted live scan, ReportClient rewriteState-s `/report?repo=` to the durable
-// permalink. Withheld when persist did not happen, so a reload cannot land on ColdScanGate
-// under a URL whose generateMetadata would still say "No report yet".
+// permalink. Withheld when persist did not happen or the job URL is scoped (`?ref=` / `?path=`),
+// so a reload cannot land on ColdScanGate (or a different default-branch snapshot) under a URL
+// that looks scored.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, waitFor } from "@testing-library/react";
@@ -10,9 +11,10 @@ import type { ScanReport } from "@/lib/types";
 import type { ReportScan } from "./useReportScan";
 
 const scan = vi.hoisted(() => ({ current: {} as ReportScan }));
+const search = vi.hoisted(() => ({ current: "repo=acme/web" }));
 
 vi.mock("next/navigation", () => ({
-  useSearchParams: () => new URLSearchParams("repo=acme/web"),
+  useSearchParams: () => new URLSearchParams(search.current),
 }));
 vi.mock("./useReportScan", () => ({
   useReportScan: () => scan.current,
@@ -43,6 +45,7 @@ function doneScan(persisted: boolean): ReportScan {
 
 describe("ReportClient — live-scan address bar rewrite", () => {
   beforeEach(() => {
+    search.current = "repo=acme/web";
     window.history.replaceState(null, "", "/report?repo=acme%2Fweb");
   });
   afterEach(() => {
@@ -63,6 +66,18 @@ describe("ReportClient — live-scan address bar rewrite", () => {
     render(<ReportClient />);
     await waitFor(() => expect(document.querySelector("[data-testid=report]")).toBeTruthy());
     expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it("does not rewrite a scoped live scan to the unscoped /report/{owner}/{repo}", async () => {
+    search.current = "repo=acme/web&ref=feat";
+    window.history.replaceState(null, "", "/report?repo=acme%2Fweb&ref=feat");
+    scan.current = doneScan(true);
+    const spy = vi.spyOn(window.history, "replaceState");
+    render(<ReportClient />);
+    await waitFor(() => expect(document.querySelector("[data-testid=report]")).toBeTruthy());
+    expect(spy).not.toHaveBeenCalled();
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/report?repo=acme%2Fweb&ref=feat");
     spy.mockRestore();
   });
 });
