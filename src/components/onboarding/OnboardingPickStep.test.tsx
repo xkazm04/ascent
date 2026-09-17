@@ -6,8 +6,9 @@
 // `[data-step-heading]` on every phase change; without one here that focus call was a silent no-op.
 
 import { describe, it, expect } from "vitest";
-import { render } from "@testing-library/react";
-import { PickStep } from "./OnboardingPickStep";
+import { render, screen, within } from "@testing-library/react";
+import { DEMO_ORG_SLUG } from "@/lib/site";
+import { PickStep, pickTryChips } from "./OnboardingPickStep";
 
 function renderPick() {
   return render(
@@ -42,5 +43,25 @@ describe("OnboardingPickStep step-heading focus target (ONB #3)", () => {
     const heading = container.querySelector<HTMLElement>("[data-step-heading]")!;
     heading.focus();
     expect(document.activeElement).toBe(heading);
+  });
+});
+
+describe("OnboardingPickStep try-chips follow DEMO_ORG_SLUG", () => {
+  it("leads with the demo slug and fills two distinct well-known publics", () => {
+    expect(pickTryChips(DEMO_ORG_SLUG)[0]).toBe(DEMO_ORG_SLUG);
+    expect(pickTryChips("vercel")).toEqual(["vercel", "anthropics", "openai"]);
+    expect(pickTryChips("anthropics")).toEqual(["anthropics", "vercel", "openai"]);
+    expect(pickTryChips("openai")).toEqual(["openai", "vercel", "anthropics"]);
+    expect(pickTryChips("acme")).toEqual(["acme", "vercel", "anthropics"]);
+  });
+
+  it("renders those chips in order on the pick form", () => {
+    renderPick();
+    const expected = pickTryChips(DEMO_ORG_SLUG);
+    const tryRow = screen.getByText("try:").closest("div");
+    expect(tryRow).not.toBeNull();
+    const chips = within(tryRow!).getAllByRole("button").map((b) => b.textContent);
+    expect(chips[0]).toBe(DEMO_ORG_SLUG);
+    expect(chips).toEqual(expected);
   });
 });
