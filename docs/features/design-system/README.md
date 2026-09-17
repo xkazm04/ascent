@@ -37,6 +37,14 @@ roster (also the right-edge `DeckNav`): **hero · org · fleet · local · galle
 (when the register has data) · levels · dimensions**, each a `DeckSection` under
 `src/components/landing/prototypes/index/`.
 
+**Org edition (`IndexOrg`, deck id `org`)**: six use-case cards into the curated
+demo org. Copy names shipped tabs, not a retired Plan. The last card is
+Follow-ups & Proposals (`orgTabHref(DEMO_ORG_SLUG, "proposals")`) — scan
+follow-ups and loop proposals in one in-flight ledger, waiting on a decision —
+never an ROI-ranked backlog and never `/org/{demo}/plan` (Plan tab retired
+2026-08-17 in favour of that ledger; GOLDEN-TRIO: do not lead with ROI;
+`getOrgBacklog` sorts by due/impact/recency and projected points are display-only).
+
 **The register's counter is suppressed at zero** (`IndexGallery`). A count is a
 claim, and zero is not one worth making: on a configured-but-empty database this
 section headed "The register" used to open with "0 public repos rated", on a page
