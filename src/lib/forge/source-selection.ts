@@ -43,9 +43,9 @@ export { MEMORY_ENTRY_RE } from "@/lib/standard/memory-entry";
  * tree so each package gets a couple of files, NOT that repo-wide files are unwanted. So the split is:
  *
  *   • repo-wide, kept regardless — root README/manifests/configs (step 1), CODEOWNERS, SECURITY.md,
- *     and ALL CI workflows (step 7). These feed deterministic batteries that are repo-level facts;
- *     filtering them out would floor D9 on every sub-path scan exactly the way the old 3-workflow cap
- *     did (see MAX_WORKFLOW_FILES).
+ *     and ALL CI workflows (step 7): `.github/workflows/*` plus GitLab `.gitlab-ci.yml` / `.gitlab/ci/*`.
+ *     These feed deterministic batteries that are repo-level facts; filtering them out would floor D9
+ *     on every sub-path scan exactly the way the old 3-workflow cap did (see MAX_WORKFLOW_FILES).
  *   • sub-tree preferred/scoped — the package's OWN manifests (step 1b), and the docs/test/source
  *     SAMPLES (steps 4-6), which are the slots that were being spread thin in the first place.
  *   • agent guidance (step 0) — repo-wide, but sub-tree copies rank first, since a nested
@@ -205,6 +205,14 @@ export function pickFilesToFetch(blobs: RepoFile[], subPath?: string): string[] 
     .filter((p) => /^\.github\/workflows\/.+\.(ya?ml)$/i.test(p))
     .slice(0, MAX_WORKFLOW_FILES)
     .forEach((p) => picked.add(p)); // reserved quota — deliberately NOT gated by MAX_FILES
+
+  // GitLab pipelines live in `.gitlab-ci.yml` (plus optional `.gitlab/ci/*` includes), not
+  // `.github/workflows/`. Same reserved class, own slice: a GitHub-only tree stays byte-identical,
+  // and a full MAX_FILES budget cannot starve GitLab CI the way it used to starve Actions.
+  paths
+    .filter((p) => /(^|\/)\.gitlab-ci\.ya?ml$/i.test(p) || /^\.gitlab\/ci\/.+\.(ya?ml)$/i.test(p))
+    .slice(0, MAX_WORKFLOW_FILES)
+    .forEach((p) => picked.add(p));
 
   // 8. `.ai/memory/NNNN-*.md` — the repo's own agent-written memory entries (moonshot #14). LAST, and
   //    a RESERVED quota like workflows: these must never displace a manifest or a source sample from
