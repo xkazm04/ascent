@@ -112,6 +112,11 @@ three behaviors below apply to either. Its inner write (openDraftPr + the unifor
 `path`/`pr`/`reused` audit envelope) is exported as `openArtifactDraftPr()`, which the
 AI-stance module reuses to open its `AI_POLICY.md` PR (`/api/org/ai-stance/apply`, see
 [org-intelligence.md](./org-intelligence.md)) instead of forking the customer-repo write path.
+That apply route is HITL: `preview: true` or `dryRun: true` returns the exact `AI_POLICY.md`
+bytes (`{ preview, path, body, bytes, version }`) without minting an installation token or
+calling `openDraftPr`. The **admin** role gate still runs (policy bytes are org-authored, not
+public). `StanceApplyControl` shows path, byte count, and body before the Open PR button;
+absent those flags, the write path is unchanged.
 
 - **Generation is factored out (2026-08-28).** `buildPracticeArtifact()`
   (`src/lib/practices/artifact.ts`) owns the house-pattern lookup + `buildArtifact` call
@@ -525,7 +530,9 @@ org-internal: no public report, leaderboard, shared corpus or cross-org read.
 
 The AI-stance apply path reuses this writer's `openArtifactDraftPr` (see *Shared write path* above).
 The published `AI_POLICY.md` is the committed form of the Governance perimeter, whose repo node is
-`RepoNode` in `src/features/standing/governance/stance/perimeterParts.tsx`.
+`RepoNode` in `src/features/standing/governance/stance/perimeterParts.tsx`. Opening that PR is
+preview-then-confirm: the control posts `preview: true` first, renders the file bytes, and only
+then offers the write.
 
 `evaluateStanceCompliance` already emits path-scoped no-AI zones as `advisory: true` findings
 (compliant stays true because every finding is advisory). The node used to drop them
