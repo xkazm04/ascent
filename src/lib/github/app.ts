@@ -6,7 +6,7 @@
 // Setup: see docs/features/github/setup.md.
 
 import { createHmac, createSign, timingSafeEqual } from "crypto";
-import { fetchWithTimeout, githubApiBase, isListableRepo } from "@/lib/github/host";
+import { fetchWithTimeout, githubApiBase, githubWebBase, isListableRepo } from "@/lib/github/host";
 
 const API = githubApiBase();
 
@@ -36,7 +36,16 @@ export function isAppConfigured(): boolean {
 
 export function appInstallUrl(): string | null {
   const slug = process.env.GITHUB_APP_SLUG;
-  return slug ? `https://github.com/apps/${slug}/installations/new` : null;
+  if (!slug) return null;
+  // GitHub.com: /apps/<slug>/…; GHES serves the same flow at /github-apps/<slug>/… on GITHUB_SERVER_URL.
+  const web = githubWebBase();
+  let hostname = "";
+  try {
+    hostname = new URL(web).hostname.toLowerCase();
+  } catch {
+    hostname = "";
+  }
+  return `${web}/${hostname === "github.com" ? "apps" : "github-apps"}/${slug}/installations/new`;
 }
 
 // The per-installation Configure page (where repo access is granted) lives in @/lib/ui — a

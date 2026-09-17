@@ -34,6 +34,12 @@ feature on the env vars being present; `listInstallationRepos(id)` pages through
 accessible repos; `verifyWebhook(rawBody, signature)` does the HMAC-SHA256 check against
 `GITHUB_APP_WEBHOOK_SECRET`.
 
+`appInstallUrl()` builds the user-facing install link from `githubWebBase()` (`GITHUB_SERVER_URL`,
+default `https://github.com`) and `GITHUB_APP_SLUG`. GitHub.com keeps `/apps/<slug>/installations/new`;
+a GHES web host (hostname not `github.com`) uses `/github-apps/<slug>/installations/new` on that host.
+Returns `null` when the slug is unset. JWT minting and `githubAppFetch` are unchanged — those already
+talk to `githubApiBase()`.
+
 ## Webhook (`src/app/api/app/webhook/route.ts`)
 
 `POST /api/app/webhook` verifies the signature, then handles:
