@@ -177,8 +177,13 @@ dropped, it emits `queued { runId, queued, total }` — work still owed, which t
 finishes. `GET /api/org/scan/queue?org=&runId=` serves the poll behind "N queued — finishing in the
 background" (gate the org, then constrain the query by it, so a foreign run id is simply not found).
 
-`POST /api/org/import` keeps its own scan loop; only its claim moved onto the queue (`claimRepoWork`
-→ `settleJob`).
+`POST /api/org/import` keeps its own scan loop (it also meters the public-scan allowance); its claim
+moved onto the queue (`claimRepoWork` → `settleJob`). After a successful overflow reserve it stamps
+`creditCharged` on that row (`markJobCredit`) **before** inference, and settles `skipped` / `failed`
+/ `done` honestly — `creditRefunded` on a pre-inference refund, left standing on billed inference. A
+process kill at the 300s ceiling never runs `finally`; `reapExpiredLeases` returns the row to
+`queued` without clearing `creditCharged`, and the next `runRescoreJob` carries that credit instead
+of reserving again. Without the stamp, a killed import would double-debit.
 
 **Three skip reasons, kept apart (2026-09-06).** The worker emits `insufficient_credits`, `no_token`
 and `in_progress`. The `result` frame used to carry only the first and the third, and the client
@@ -237,11 +242,10 @@ nothing was billed"*. That premise only holds **before `scanRepository` returns*
   credit**. Refunding here would return a credit for work that was genuinely performed, and the
   retry would re-run and re-bill the same inference.
 
-Since the queue landed there is **one** implementation of this: `runRescoreJob` in
-`src/lib/scan-queue-worker.ts`, used by the cron and by `/api/org/scan` (the import keeps its own
-loop, because it also meters the public-scan allowance below). The policy was moved, not rewritten —
-three copies that could drift became one, and the held reservation is now recorded on the job row
-(`ScanJob.creditCharged`) rather than in a local variable, so a process kill leaves it attributable.
+Since the queue landed the cron and `/api/org/scan` share **one** implementation (`runRescoreJob` in
+`src/lib/scan-queue-worker.ts`). The import keeps its own loop (public-scan allowance, below) but
+stamps the same `ScanJob.creditCharged` after reserve, so a 300s kill + reap cannot double-debit an
+import either. The held reservation is recorded on the job row rather than in a local variable.
 
 **And the retry now READS it back (2026-09-06).** Being attributable was only half the point: the
 row was written and never consulted, so the sequence this queue exists to survive — reserve, start
@@ -348,8 +352,8 @@ through the calendar (a flat 30-day step fires 12.2 times a year, one day earlie
 | --- | --- |
 | `src/app/api/cron/rescan/route.ts` | The rescore lane's seeder + worker. |
 | `src/app/api/cron/probe/route.ts` | The free control lane's worker (`maxDuration = 60`, hourly). |
-| `src/lib/db/scan-jobs.ts` | The queue: `enqueueScanJob`, `enqueueDueRescans`, `enqueueProbeJob`, `claimJob`, `claimJobById`, `claimRepoWork`, `settleJob`, `reapExpiredLeases`, `queueDepth`, `orgQueueDepth` (the null-honest read the Repositories tab renders), `listJobsForRun`. |
-| `src/lib/scan-queue-worker.ts` | `drainLane` — the one implementation of the money loop, shared by the cron, the bulk scan and the import. |
+| `src/lib/db/scan-jobs.ts` | The queue: `enqueueScanJob`, `enqueueDueRescans`, `enqueueProbeJob`, `claimJob`, `claimJobById`, `claimRepoWork`, `markJobCredit`, `settleJob`, `reapExpiredLeases` (requeues without clearing `creditCharged`), `queueDepth`, `orgQueueDepth` (the null-honest read the Repositories tab renders), `listJobsForRun`. |
+| `src/lib/scan-queue-worker.ts` | `drainLane` — the money loop for the cron and the bulk scan. Import keeps its own loop but stamps `creditCharged` the same way, so a reaped import row is carried, not re-reserved. |
 | `src/lib/scan-probe.ts` · `src/lib/scan-probe-controls.ts` | The credit-free runner and its pure `Governance`/`SecurityPosture`/repo-meta → control samplers. |
 | `src/lib/db/control-observations.ts` | `recordObservations`, `latestObservations`, `listObservationsSince` — the ledger's write side. |
 | `src/lib/cron-auth.ts` | Shared `requireCronAuth` gate for all cron routes. |

@@ -25,6 +25,7 @@ vi.mock("@/lib/db/scan-jobs", () => ({
   // A won claim by default: every existing money/flow case in this file predates the queue and must
   // keep asserting exactly what it did. The contention case overrides it with null.
   claimRepoWork: vi.fn(async (_org: string, repo: string) => ({ id: `job_${++claimCounter}`, repoFullName: repo })),
+  markJobCredit: vi.fn(async () => {}),
   settleJob: vi.fn(async () => {}),
 }));
 vi.mock("@/lib/db", () => ({
@@ -115,7 +116,7 @@ import { rateLimitRequestShared } from "@/lib/rate-limit";
 // the queue's own answer — `claimRepoWork` returning null — rather than by taking a process-local
 // lock in the test. That IS the behavioural change: the old Map could only refuse a second run on the
 // SAME instance, which on a serverless deploy is not where the second tab usually lands.
-import { claimRepoWork, settleJob } from "@/lib/db/scan-jobs";
+import { claimRepoWork, markJobCredit, settleJob } from "@/lib/db/scan-jobs";
 
 const mockScan = vi.mocked(scanRepository);
 const mockAuthOn = vi.mocked(isAuthConfigured);
@@ -496,9 +497,90 @@ describe("POST /api/org/import — per-repo in-flight claim (no double-scan/char
     expect(mockScan).toHaveBeenCalledTimes(1);
     // A claim left unsettled would bar this repo until its lease expired. The settle is what frees it.
     expect(vi.mocked(settleJob)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(settleJob)).toHaveBeenCalledWith(
+      expect.stringMatching(/^job_/),
+      expect.objectContaining({ state: "done", creditRefunded: false }),
+    );
     const events = await collectImport({ org: "acme", repos: ["acme/again"], mock: false, watch: false });
     expect(mockScan).toHaveBeenCalledTimes(2);
     expect(events.find((e) => e.event === "repo")?.data).not.toMatchObject({ skipped: "in_progress" });
+  });
+});
+
+// Stamp creditCharged after reserve (parity with runRescoreJob) so a 300s kill + reapExpiredLeases
+// cannot debit a second credit for the same import job. Settle skipped/failed/done honestly:
+// creditRefunded on a pre-inference refund, left standing on billed inference.
+describe("POST /api/org/import — creditCharged on the job row (killed-import double-debit)", () => {
+  beforeEach(() => {
+    mockEntitlement.mockResolvedValue({ allowed: true, unlimited: false, balance: 5, allowanceRemaining: 0 });
+    mockConsume.mockResolvedValue({ ok: true, balance: 4, unlimited: false, charged: true });
+    mockScan.mockResolvedValue(realReport);
+    mockGrant.mockResolvedValue(0);
+  });
+
+  it("records creditCharged on the ScanJob BEFORE inference, so a 300s kill leaves it attributable", async () => {
+    await collectImport({ org: "acme", repos: ["acme/ok"], mock: false, watch: false });
+    const mark = vi.mocked(markJobCredit);
+    expect(mark).toHaveBeenCalledTimes(1);
+    expect(mark).toHaveBeenCalledWith(expect.stringMatching(/^job_/), true);
+    expect(mark.mock.invocationCallOrder[0]!).toBeLessThan(mockScan.mock.invocationCallOrder[0]!);
+  });
+
+  it("does not stamp creditCharged when the reservation charged nothing (within-allowance)", async () => {
+    mockConsume.mockResolvedValue({ ok: true, balance: 4, unlimited: false, charged: false });
+    await collectImport({ org: "acme", repos: ["acme/ok"], mock: false, watch: false });
+    expect(vi.mocked(markJobCredit)).not.toHaveBeenCalled();
+  });
+
+  it("settles skipped — not done — when the reservation is refused mid-run", async () => {
+    mockConsume.mockResolvedValue({ ok: false, unlimited: false, charged: false, balance: 0 });
+    const events = await collectImport({ org: "acme", repos: ["acme/skip"], mock: false, watch: false });
+    expect(mockScan).not.toHaveBeenCalled();
+    expect(vi.mocked(markJobCredit)).not.toHaveBeenCalled();
+    expect(vi.mocked(settleJob)).toHaveBeenCalledWith(
+      expect.stringMatching(/^job_/),
+      expect.objectContaining({ state: "skipped", error: "insufficient credits" }),
+    );
+    expect(events.find((e) => e.event === "repo")?.data).toMatchObject({ skipped: "insufficient_credits" });
+  });
+
+  it("settles failed + creditRefunded on a pre-inference throw", async () => {
+    mockScan.mockRejectedValueOnce(new Error("github 500"));
+    await collectImport({ org: "acme", repos: ["acme/boom"], mock: false, watch: false });
+    expect(mockGrant).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(settleJob)).toHaveBeenCalledWith(
+      expect.stringMatching(/^job_/),
+      expect.objectContaining({ state: "failed", error: "github 500", creditRefunded: true }),
+    );
+  });
+
+  it("settles done and KEEPS creditCharged after billed inference", async () => {
+    await collectImport({ org: "acme", repos: ["acme/ok"], mock: false, watch: false });
+    expect(mockGrant).not.toHaveBeenCalled();
+    expect(vi.mocked(settleJob)).toHaveBeenCalledWith(
+      expect.stringMatching(/^job_/),
+      expect.objectContaining({ state: "done", creditRefunded: false }),
+    );
+  });
+
+  it("settles done + creditRefunded when a mock-degraded scan refunds", async () => {
+    mockScan.mockResolvedValue(report);
+    await collectImport({ org: "acme", repos: ["acme/deg"], mock: false, watch: false });
+    expect(mockGrant).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(settleJob)).toHaveBeenCalledWith(
+      expect.stringMatching(/^job_/),
+      expect.objectContaining({ state: "done", creditRefunded: true }),
+    );
+  });
+
+  it("settles failed WITHOUT refunding after a post-inference persist throw — the credit was kept", async () => {
+    mockPersist.mockRejectedValueOnce(new Error("could not serialize access"));
+    await collectImport({ org: "acme", repos: ["acme/ok"], mock: false, watch: false });
+    expect(mockGrant).not.toHaveBeenCalled();
+    expect(vi.mocked(settleJob)).toHaveBeenCalledWith(
+      expect.stringMatching(/^job_/),
+      expect.objectContaining({ state: "failed", creditRefunded: false }),
+    );
   });
 });
 
