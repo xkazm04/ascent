@@ -12,8 +12,8 @@
 import { describe, it, expect, vi } from "vitest";
 
 // skill-usage only touches the DB through this one reader; mock the boundary so the fold stays pure.
-const { mockRows } = vi.hoisted(() => ({ mockRows: vi.fn() }));
-vi.mock("@/lib/db", () => ({ getOrgSkillUsageRows: mockRows }));
+const { mockRows, mockList } = vi.hoisted(() => ({ mockRows: vi.fn(), mockList: vi.fn(async () => []) }));
+vi.mock("@/lib/db", () => ({ getOrgSkillUsageRows: mockRows, listOrgSkills: mockList }));
 
 import { getOrgSkillUsage } from "./skill-usage-load";
 import {
@@ -242,7 +242,20 @@ describe("skillUsageMap / usageSummary", () => {
     mockRows.mockResolvedValueOnce(null);
     expect(await getOrgSkillUsage("acme", NOW)).toEqual({});
     mockRows.mockResolvedValueOnce(rows);
+    mockList.mockResolvedValueOnce([]);
     expect(Object.keys(await getOrgSkillUsage("acme", NOW))).toEqual(["a", "b", "c"]);
+  });
+
+  it("getOrgSkillUsage honours list-row cadenceDays so a quarterly skill idle 40 days is not dormant", async () => {
+    mockRows.mockResolvedValueOnce({
+      skills: [{ id: "q", name: "release-checklist", createdAt: daysAgo(400) }],
+      events: [{ skillId: "q", type: "download", lastAt: daysAgo(40), count: 1 }],
+      adoptions: [],
+    });
+    mockList.mockResolvedValueOnce([{ id: "q", frontmatter: { cadenceDays: 90 }, content: "" }] as never);
+    const map = await getOrgSkillUsage("acme", NOW);
+    expect(map.q.verdict).toBe("active");
+    expect(map.q.windowDays).toBe(DORMANCY_WINDOW_MAX_DAYS);
   });
 
   it("labels every verdict", () => {
@@ -317,6 +330,50 @@ describe("dormancyWindowFor", () => {
     // 4 uses over a year ⇒ a ~91-day rhythm, 2 cycles = 182, clamped to the 120-day ceiling.
     expect(u.windowDays).toBe(DORMANCY_WINDOW_MAX_DAYS);
     expect(u.verdict).toBe("active");
+  });
+
+  it("REGRESSION: a declared-quarterly skill idle past 30 days is not branded dormant", () => {
+    // One use 40 days ago cannot derive an observed cadence (needs two uses), so without honouring
+    // the author's `cadenceDays: 90` this skill fell through to the 30-day floor and read dormant —
+    // the exact branding a quarterly release checklist earns by being used as intended.
+    const u = skillUsage(
+      { skillId: "s", createdAt: daysAgo(400), events: [ev("download", 40, 1)], cadenceDays: 90 },
+      NOW,
+    );
+    expect(u.windowDays).toBe(DORMANCY_WINDOW_MAX_DAYS);
+    expect(u.verdict).toBe("active");
+    expect(u.state).toBe("active");
+    expect(isPruneCandidate(u)).toBe(false);
+  });
+
+  it("skillUsageMap threads declared cadenceDays onto the fold", () => {
+    const map = skillUsageMap(
+      {
+        skills: [{ id: "q", name: "release-checklist", createdAt: daysAgo(400), cadenceDays: 90 }],
+        events: [{ skillId: "q", type: "download", lastAt: daysAgo(40), count: 1 }],
+        adoptions: [],
+        samples: [],
+      },
+      NOW,
+    );
+    expect(map.q.verdict).toBe("active");
+    expect(map.q.windowDays).toBe(DORMANCY_WINDOW_MAX_DAYS);
+  });
+
+  it("skillUsageMap reads cadenceDays from SKILL.md frontmatter when the row still has content", () => {
+    const content =
+      "---\nname: release-checklist\ndescription: Quarterly release checklist.\ncadenceDays: 90\n---\n\n# Body\n";
+    const map = skillUsageMap(
+      {
+        skills: [{ id: "q", name: "release-checklist", createdAt: daysAgo(400), content }],
+        events: [{ skillId: "q", type: "download", lastAt: daysAgo(40), count: 1 }],
+        adoptions: [],
+        samples: [],
+      },
+      NOW,
+    );
+    expect(map.q.verdict).toBe("active");
+    expect(map.q.windowDays).toBe(DORMANCY_WINDOW_MAX_DAYS);
   });
 
   it("the SAME window governs the age guard, so nothing can be new and dormant at once", () => {

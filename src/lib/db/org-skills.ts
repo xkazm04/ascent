@@ -363,7 +363,7 @@ export interface SkillEventStat {
  *  its event rollup, and its adoptions. Kept as a pure ROW read so the verdict itself stays a pure,
  *  unit-testable function over data instead of a query. Null when persistence is off. */
 export interface SkillUsageRows {
-  skills: { id: string; name: string; createdAt: string }[];
+  skills: { id: string; name: string; createdAt: string; content?: string }[];
   events: SkillEventStat[];
   adoptions: SkillAdoptionRow[];
   /** The registry `usage/` lane's snapshot rows (sink B), folded read-time into `invoke` stats. Empty
@@ -381,7 +381,7 @@ export async function getOrgSkillUsageRows(orgSlug: string): Promise<SkillUsageR
   const skills = await prisma.orgSkill.findMany({
     where: { orgId, archived: false },
     orderBy: { name: "asc" },
-    select: { id: true, name: true, createdAt: true },
+    select: { id: true, name: true, createdAt: true, content: true },
   });
   if (!skills.length) return empty;
   const ids = skills.map((s) => s.id);
@@ -398,7 +398,12 @@ export async function getOrgSkillUsageRows(orgSlug: string): Promise<SkillUsageR
     listOrgSkillUsageSamples(orgId).catch(() => []),
   ]);
   return {
-    skills: skills.map((s) => ({ id: s.id, name: s.name, createdAt: s.createdAt.toISOString() })),
+    skills: skills.map((s) => ({
+      id: s.id,
+      name: s.name,
+      createdAt: s.createdAt.toISOString(),
+      content: s.content,
+    })),
     events: grouped
       .filter((g) => g._max.createdAt)
       .map((g) => ({ skillId: g.skillId, type: g.type, lastAt: g._max.createdAt!.toISOString(), count: g._count._all })),

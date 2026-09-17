@@ -32,6 +32,21 @@
 import type { SkillEventStat, SkillUsageRows } from "@/lib/db";
 // Pure module, safe for the client bundle — see its header.
 import { sampleEventStats } from "@/lib/registry/usage-samples";
+import { cadenceDaysFromFrontmatter } from "@/lib/org/skill-frontmatter";
+
+/** Per-skill extras the fold reads. `SkillUsageRows.skills` is id/name/createdAt; cadence is either
+ *  already parsed (`cadenceDays`) or still sitting in the SKILL.md (`content`). */
+export type SkillUsageSkillRow = SkillUsageRows["skills"][number] & {
+  cadenceDays?: number | null;
+  content?: string | null;
+};
+
+export type SkillUsageMapInput = Omit<SkillUsageRows, "skills"> & { skills: SkillUsageSkillRow[] };
+
+function declaredCadenceDays(s: SkillUsageSkillRow): number | null {
+  if (typeof s.cadenceDays === "number" && s.cadenceDays > 0) return s.cadenceDays;
+  return cadenceDaysFromFrontmatter(s.content ?? "");
+}
 
 /** `new` = arrived recently, never invoked. `active` = used inside the window. `dormant` = past the
  *  window with no use since. The COARSE badge vocabulary — see {@link SkillUsageState} for the state
@@ -177,7 +192,7 @@ export interface SkillUsageInput {
   /** Adoption timestamps for this skill (only the latest matters). */
   adoptedAt?: string[];
   /** Declared cadence in days ("this is a quarterly checklist"). Overrides the observed cadence in
-   *  {@link dormancyWindowFor}. Absent for every skill until the library carries the field. */
+   *  {@link dormancyWindowFor}. Read from SKILL.md `cadenceDays` by {@link skillUsageMap}. */
   cadenceDays?: number | null;
   /**
    * Has this ORG's skill-event pathway ever emitted anything at all? False ⇒ a zero-event skill is
@@ -279,7 +294,7 @@ export function skillUsage(input: SkillUsageInput, now: Date = new Date()): Skil
  * ledger rows would double-count the second time the same head was indexed, and no de-duplication key
  * exists on the registry side to prevent it. Read-time folding is idempotent by construction.
  */
-export function skillUsageMap(rows: SkillUsageRows, now: Date = new Date()): Record<string, SkillUsage> {
+export function skillUsageMap(rows: SkillUsageMapInput, now: Date = new Date()): Record<string, SkillUsage> {
   const sampleStats = sampleEventStats(
     (rows.samples ?? []).map((s) => ({
       contributor: s.contributor,
@@ -318,6 +333,7 @@ export function skillUsageMap(rows: SkillUsageRows, now: Date = new Date()): Rec
         createdAt: s.createdAt,
         events: events.get(s.id) ?? [],
         adoptedAt: adoptions.get(s.id) ?? [],
+        cadenceDays: declaredCadenceDays(s),
         orgHasTelemetry,
       },
       now,

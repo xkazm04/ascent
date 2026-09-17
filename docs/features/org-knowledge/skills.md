@@ -97,6 +97,7 @@ name: pr-review-checklist
 description: "One sentence telling an agent when to use this skill."
 category: workflow
 tags: review, pull-request
+cadenceDays: 90
 ---
 ```
 
@@ -106,6 +107,7 @@ tags: review, pull-request
 | `description` | yes | single line, max 1000 chars. |
 | `category` | no | must normalize to one of the closed set below; if declared but unrecognized, it's an error. Omitted entirely → `null`. |
 | `tags` | no | comma list, bracket list, or YAML block-sequence; max 20 tags, 40 chars each. |
+| `cadenceDays` | no | positive whole number of days (1-9999), e.g. `90` for quarterly. Omitted → `null`. The dormancy fold reads this so a correctly-used quarterly skill is not branded dormant after 30 idle days. |
 
 Categories (`src/lib/org/skill-categories.ts`): `ci-cd`, `testing`,
 `security`, `ai-native`, `docs`, `workflow`, `other`.
@@ -346,13 +348,14 @@ no event identity, so an append-shaped mirror would inflate on the second pass.
 `dormant`:
 
 1. A real use — `invoke` (the skill RAN) or `download` (a copy or download from
-   the web UI or a CLI), but never a `sync` — within the last 30 days
-   (`DORMANCY_WINDOW_DAYS`) → **active**. Where both exist, the **more recent**
+   the web UI or a CLI), but never a `sync` — within the skill's dormancy window
+   → **active**. The window is `DORMANCY_WINDOW_DAYS` (30) unless the skill
+   declares or observes a longer cadence (below). Where both exist, the **more recent**
    decides `lastUsedType`; `invoke` outranks `download` only on an exact tie,
    because running a skill is stronger evidence than reading it while a later
    download is still the last thing that happened.
-2. Otherwise, if the skill has never been used and is younger than 30 days
-   (measured from creation, or from its most recent adoption if that's
+2. Otherwise, if the skill has never been used and is younger than that same
+   window (measured from creation, or from its most recent adoption if that's
    later, since re-adopting an old skill into a new repo restarts its chance to
    prove itself) → **new**, so a brand-new skill isn't punished for having
    no uses yet.
@@ -368,16 +371,20 @@ no event identity, so an append-shaped mirror would inflate on the second pass.
    problem whose remedy is surfacing the skill, not removing it.
    `usageSummary` reports the three counts beside `dormant`.
 
-The 30-day window is now a **floor, not a constant** (2026-08-20): a skill's
-own cadence derives its window (`dormancyWindowFor`) — a declared
-`cadenceDays` if the skill has one, else its observed rhythm
+The 30-day window is a **floor, not a constant** (2026-08-20): a skill's own
+cadence derives its window (`dormancyWindowFor`) — a declared `cadenceDays` on
+the SKILL.md frontmatter if the skill has one, else its observed rhythm
 (`ageDays / useCount`, needing at least two uses) — times two, clamped to
-`[DORMANCY_WINDOW_DAYS, DORMANCY_WINDOW_MAX_DAYS]` (30…120). A
-release-checklist skill used correctly once a quarter used to read `dormant`
-for two months of every three and become a prune candidate for being used
-exactly as intended. Both halves of the rule (the silence threshold and the
-"still new" age guard) read the same derived `windowDays`, so a skill can
-never be `new` and `dormant` at once.
+`[DORMANCY_WINDOW_DAYS, DORMANCY_WINDOW_MAX_DAYS]` (30…120). `skillUsageMap`
+threads that field from the stored document (and `getOrgSkillUsage` also reads
+the list row's resolved frontmatter), so a quarterly skill (`cadenceDays: 90`)
+idle 40 days with a single use is **active**, not dormant: one use cannot
+derive an observed cadence, and without honouring the declaration it fell
+through to the 30-day floor. A release-checklist skill used correctly once a
+quarter used to read `dormant` for two months of every three and become a prune
+candidate for being used exactly as intended. Both halves of the rule (the
+silence threshold and the "still new" age guard) read the same derived
+`windowDays`, so a skill can never be `new` and `dormant` at once.
 
 `SkillDormancyBadge` renders the **state**, not the coarse verdict (2026-09-08).
 Until then it showed `verdict`, so `abandoned`, `unused` and `unmeasured` all came
