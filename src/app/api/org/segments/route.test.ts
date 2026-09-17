@@ -17,6 +17,7 @@ vi.mock("@/lib/db", async () => ({
   createSegment: vi.fn(async () => ({ id: "seg-1" })),
   getRepoSegmentMap: vi.fn(async () => ({})),
   listSegments: vi.fn(async () => []),
+  recordOrgAudit: vi.fn(async () => true),
   // The REAL validator (pure) so the 400 contract below exercises production rules, not a stub.
   segmentInputError: (await vi.importActual<typeof import("@/lib/db/segments")>("@/lib/db/segments")).segmentInputError,
 }));
@@ -24,13 +25,17 @@ vi.mock("@/lib/authz", () => ({
   requireOrgAccess: vi.fn(async () => null),
   requireOrgRead: vi.fn(async () => null),
 }));
+vi.mock("@/lib/access", () => ({
+  resolveViewerLogin: vi.fn(async () => "alice"),
+}));
 
 import { POST } from "./route";
-import { createSegment } from "@/lib/db";
+import { createSegment, recordOrgAudit } from "@/lib/db";
 import { requireOrgAccess } from "@/lib/authz";
 
 const mockCreate = vi.mocked(createSegment);
 const mockAccess = vi.mocked(requireOrgAccess);
+const mockAudit = vi.mocked(recordOrgAudit);
 
 function post(body: Record<string, unknown>) {
   return POST(
@@ -55,6 +60,7 @@ describe("POST /api/org/segments — auth gate on create", () => {
     const res = await post({ org: "victim", name: "Platform" });
     expect(res.status).toBe(403);
     expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
   });
 
   it("400s a missing name without ever calling the gate or the db", async () => {
@@ -62,6 +68,7 @@ describe("POST /api/org/segments — auth gate on create", () => {
     expect(res.status).toBe(400);
     expect(mockAccess).not.toHaveBeenCalled();
     expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
   });
 
   it("creates inside the SAME org the gate passed for — no tenant smuggling", async () => {
@@ -73,10 +80,27 @@ describe("POST /api/org/segments — auth gate on create", () => {
     expect(mockCreate.mock.calls[0][0]).toBe("acme");
   });
 
+  it("audits `segment.created` on success with the new id and name", async () => {
+    const res = await post({ org: "acme", name: "Platform", color: "#a1b2c3" });
+    expect(res.status).toBe(200);
+    expect(mockAudit).toHaveBeenCalledTimes(1);
+    expect(mockAudit.mock.calls[0][0]).toBe("segment.created");
+    expect(mockAudit.mock.calls[0][1]).toBe("acme");
+    expect(mockAudit.mock.calls[0][2]).toEqual({ segmentId: "seg-1", name: "Platform" });
+    expect(mockAudit.mock.calls[0][3]).toBe("alice");
+  });
+
+  it("denied create records NO audit", async () => {
+    mockAccess.mockResolvedValue(Response.json({ error: "no" }, { status: 403 }) as never);
+    await post({ org: "victim", name: "Platform" });
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+
   it("maps a P2002 unique-name clash to 409", async () => {
     mockCreate.mockRejectedValue({ code: "P2002" } as never);
     const res = await post({ org: "acme", name: "Platform" });
     expect(res.status).toBe(409);
+    expect(mockAudit).not.toHaveBeenCalled();
   });
 
   // repositories-segments 2026-07-16 #5: a malformed colour / over-long name is a 400, never a

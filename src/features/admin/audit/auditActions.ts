@@ -63,6 +63,11 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   { value: "ai_stance.pr_opened", label: "AI policy PR", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
   { value: "playbook.updated", label: "Playbook updated", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
   { value: "playbook.deleted", label: "Playbook deleted", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
+  // Segment fleet-slice mutations — create / rename / delete / bulk tag previously left no trail.
+  { value: "segment.created", label: "Segment created", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
+  { value: "segment.updated", label: "Segment updated", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
+  { value: "segment.deleted", label: "Segment deleted", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
+  { value: "segment.bulk_tag", label: "Segment bulk tag", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
   { value: "org.member.role", label: "Member role", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
   { value: "org.member.removed", label: "Member removed", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
   { value: "org.member.invited", label: "Member invited", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },

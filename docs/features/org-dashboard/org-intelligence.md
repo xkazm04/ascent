@@ -1346,9 +1346,10 @@ consumed by another model, which gains nothing from prose we generated for it.
 | `/api/org/schedule` | `POST` | Set a repo's autoscan period off/daily/weekly/monthly (`setRepoSchedule`, computes `nextScanAt`). Drives the rescan [cron](../fleet/rescan.md). |
 | `/api/org/repos` | `GET` | List an org's public repos (onboarding picker). |
 | `/api/org/export` | `GET` | `kind=contributors\|delivery\|passports\|teams` as JSON or CSV (`format=csv`), gated by `requireOrgRead` and scoped by `segment`/`stack`. `kind=contributors` returns **403** below the 3-contributor naming floor rather than a header-only CSV: a CSV carries no scope marker once it leaves the app. |
-| `/api/org/segments` | `GET` / `POST` | List an org's segments (with repo counts) / create one (`listSegments` / `createSegment`). |
-| `/api/org/segments/[id]` | `PATCH` / `DELETE` | Rename or recolor / delete a segment and its memberships (`updateSegment` / `deleteSegment`). |
-| `/api/org/segments/[id]/repos` | `POST` | Tag/untag a repo into a segment (`setRepoSegment`, org-scoped). |
+| `/api/org/segments` | `GET` / `POST` | List an org's segments (with repo counts) / create one (`listSegments` / `createSegment`). Create appends `segment.created`. |
+| `/api/org/segments/[id]` | `PATCH` / `DELETE` | Rename or recolor / delete a segment and its memberships (`updateSegment` / `deleteSegment`). Append `segment.updated` / `segment.deleted`. PATCH stays member-gated; DELETE stays admin-gated. |
+| `/api/org/segments/[id]/repos` | `POST` | Tag/untag a repo into a segment (`setRepoSegment`, org-scoped). Not audited; bulk tag is. |
+| `/api/org/segments/[id]/repos/bulk` | `POST` | Bulk tag/untag many repos (`setRepoSegmentsBulk`, org-scoped). Appends `segment.bulk_tag` with counts, never the repo list. Denied or unknown-segment writes record nothing. |
 
 ## Audit log
 
@@ -1358,6 +1359,8 @@ consumed by another model, which gains nothing from prose we generated for it.
 
 Recorded actions include `scan.created`, `recommendation.status_changed`,
 `practice.pr_opened`, `scan.regression`, `retention.purged`, and since 2026-09-05 `claim.released`.
+Segment fleet-slice mutations record `segment.created` / `segment.updated` / `segment.deleted` /
+`segment.bulk_tag`.
 `src/features/admin/audit/AuditLogViewer.tsx` is the searchable, paginated client viewer.
 
 **The ledger has no delete door (2026-09-05).** The once-per-window claim markers the digest and
