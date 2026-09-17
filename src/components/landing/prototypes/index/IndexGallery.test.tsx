@@ -106,3 +106,21 @@ describe("IndexGallery — the rubric qualifier", () => {
     expect(screen.getByTitle("acme/web")).toBeInTheDocument();
   });
 });
+
+// The landing board is a capped slice; /leaderboard is the crawlable ranking of the same corpus.
+// The register footer used to carry only the growth-loop scan CTA, so a visitor who wanted the
+// full board had to leave through global chrome. One real next/link; the scan CTA stays.
+describe("IndexGallery — the register footer's path onto /leaderboard", () => {
+  it("puts exactly one /leaderboard anchor in the register footer, and keeps the scan CTA", () => {
+    const { container } = render(
+      <IndexGallery gallery={gallery({ totalRepos: 1, recent: [row("acme/web")] as never })} />,
+    );
+    const footer = container.querySelector("section#gallery > div:last-of-type");
+    expect(footer).not.toBeNull();
+    const hrefs = Array.from(footer!.querySelectorAll("a")).map((a) => a.getAttribute("href"));
+    expect(hrefs.filter((h) => h === "/leaderboard")).toHaveLength(1);
+    expect(hrefs).toContain("/?scan=1");
+    expect(screen.getByRole("link", { name: /the full register/i })).toHaveAttribute("href", "/leaderboard");
+    expect(screen.getByRole("link", { name: /scan your repo/i })).toHaveAttribute("href", "/?scan=1");
+  });
+});

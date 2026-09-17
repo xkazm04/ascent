@@ -86,6 +86,12 @@ rating taken on an earlier instrument, unlike a mock score, which is not a ratin
 at all; dropping every pre-bump row would empty the register on the day of each
 bump and publish something less true.
 
+**The register footer links the capped landing board to `/leaderboard`.** The deck
+gallery is a slice (`getPublicScanGallery` `recentLimit`/`topLimit`); the crawlable,
+paginated ranking of the same corpus lives on `/leaderboard`. That path is a real
+`next/link` in the register footer, not a heading that merely names the register.
+The growth-loop scan CTA (`/?scan=1`) stays beside it.
+
 Two self-host surfaces added 2026-08-25, phrased in lockstep with `/pricing`'s
 `SelfHostBand` so the copy can't drift apart in spirit:
 
