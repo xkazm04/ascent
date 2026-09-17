@@ -170,7 +170,10 @@ deleted the wizard-state-derived 5–6 step list (`buildChecklistSteps`, gone wi
 duplicated the dashboard. What replaced it is narrower and does real work: `FoundationPanel`
 (`OnboardingFoundationPanel.tsx`) offers **one click that opens a draft PR in every repo that just
 scanned successfully**, seeding the `.ai/` foundation Ascent generated from each scan
-(`POST /api/report/foundation/pr-batch`). It renders on the App path only (`foundationOrg`, gated the
+(`POST /api/report/foundation/pr-batch`) **and** the personalized
+`.claude/skills/ascent-onboard/SKILL.md` (same tracks as `GET /api/report/skill`). A pre-existing
+skill file is skipped (409), not overwritten; the SKILL.md download remains the no-App fallback.
+The panel renders on the App path only (`foundationOrg`, gated the
 same way as the invite panel: an installation id means a real org with a token behind it), offers a
 no-op **Skip**, and discloses before sending — that the PR is a draft nobody merges for you, and that
 report-back (the two Actions secrets and the `Secrets: write` permission they need) is *described*

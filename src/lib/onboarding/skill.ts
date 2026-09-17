@@ -9,7 +9,8 @@
 
 import type { DimensionId, ScanReport } from "@/lib/types";
 import { ARCHETYPE_LABEL } from "@/lib/maturity/model";
-import { buildFoundation, type GeneratedFile } from "@/lib/standard";
+import type { GeneratedFile } from "@/lib/standard/types";
+import { buildStandardFiles } from "@/lib/standard";
 import { publicBaseUrl } from "@/lib/site";
 import { selectTracks, WEAK_THRESHOLD, type OnboardingTrack, type SelectOpts } from "./tracks";
 
@@ -33,6 +34,9 @@ export interface GeneratedSkill {
 
 const SKILL_NAME = "ascent-onboard";
 
+/** Repo-relative path the generated skill is written to (download and foundation PR share it). */
+export const ONBOARDING_SKILL_PATH = `.claude/skills/${SKILL_NAME}/SKILL.md`;
+
 /** How many refinement tracks an already-strong repo is offered when it has no weak dimension. */
 const REFINEMENT_COUNT = 3;
 
@@ -50,8 +54,12 @@ function refinementTargets(report: ScanReport, count: number): DimensionId[] {
  *
  *  When the repo has NO weak dimension and the maintainer picked nothing, this no longer ships an
  *  empty Tracks shell (a download with nothing to do in it) — it offers refinement tracks on the
- *  lowest-scoring dimensions instead, which is exactly what `include` was built for. */
-export function buildOnboardingSkill(report: ScanReport, opts?: SelectOpts): GeneratedSkill {
+ *  lowest-scoring dimensions instead, which is exactly what `include` was built for.
+ *
+ *  `embedFiles` overrides Step 0's embedded tree (the fence-escaping test injects a hostile body).
+ *  Production callers omit it. Defaults to `buildStandardFiles` — not `buildFoundation` — so the
+ *  skill cannot embed (or recursively generate) itself. */
+export function buildOnboardingSkill(report: ScanReport, opts?: SelectOpts, embedFiles?: readonly GeneratedFile[]): GeneratedSkill {
   const selected = selectTracks(report, opts);
   const isRefinement = selected.length === 0 && !opts?.include?.length;
   const tracks = isRefinement
@@ -67,13 +75,25 @@ export function buildOnboardingSkill(report: ScanReport, opts?: SelectOpts): Gen
     currentState(report, tracks),
     ...(proven ? [proven] : []),
     controlModel(),
-    foundation(report),
+    foundation(embedFiles ?? buildStandardFiles(report)),
     tracksMenu(tracks, isRefinement),
     runProtocol(tracks),
     guardrails(),
     footer(report),
   ].join("\n\n"); // blank line between every section so headings/`---` aren't glued to prose
-  return { name: SKILL_NAME, path: `.claude/skills/${SKILL_NAME}/SKILL.md`, body, trackIds: tracks.map((t) => t.id) };
+  return { name: SKILL_NAME, path: ONBOARDING_SKILL_PATH, body, trackIds: tracks.map((t) => t.id) };
+}
+
+/** The skill as a `GeneratedFile` so the foundation PR can commit it next to `.ai/` (later-file 409 skip). */
+export function buildOnboardingSkillFile(report: ScanReport, opts?: SelectOpts): GeneratedFile {
+  const skill = buildOnboardingSkill(report, opts);
+  return {
+    path: skill.path,
+    body: skill.body,
+    purpose:
+      "Personalized onboarding harness the repo's agent runs after merge — same tracks as the SKILL.md download.",
+    lang: "markdown",
+  };
 }
 
 // ---- sections -----------------------------------------------------------------
@@ -216,8 +236,7 @@ ${fence}${f.lang}
 ${f.body}${fence}`;
 }
 
-function foundation(report: ScanReport): string {
-  const files = buildFoundation(report);
+function foundation(files: readonly GeneratedFile[]): string {
   const blocks = files.map(embedFile).join("\n\n");
   const paths = files.map((f) => `\`${f.path}\``).join(", ");
   return `## Step 0 — Lay the foundation (the \`.ai/\` standard)

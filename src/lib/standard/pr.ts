@@ -33,7 +33,7 @@ export interface OpenFoundationPrInput {
   owner: string;
   repo: string;
   base?: string;
-  /** The generated tree, spine first (see buildFoundation). */
+  /** The generated tree, spine first (see buildFoundation — `.ai/` then the onboarding skill). */
   files: GeneratedFile[];
   prTitle: string;
   prBody: string;
@@ -46,9 +46,10 @@ export interface OpenFoundationPrInput {
  *  - the SPINE (`files[0]`, `.ai/manifest.yaml`) colliding means the standard is already installed —
  *    the 409 propagates so the caller can say so, and nothing is written.
  *  - any LATER file colliding is a pre-existing real file (a repo may well already have a root
- *    `CONTEXT.md` or its own workflow). We never overwrite it: the path is skipped and reported, and
- *    the rest of the foundation still lands. Refusing the whole PR over one such file would make the
- *    install unreachable for exactly the repos most likely to want it.
+ *    `CONTEXT.md`, its own workflow, or `.claude/skills/ascent-onboard/SKILL.md`). We never overwrite
+ *    it: the path is skipped and reported, and the rest of the foundation still lands. Refusing the
+ *    whole PR over one such file would make the install unreachable for exactly the repos most likely
+ *    to want it. The onboarding skill is a later file so a pre-existing copy is skipped, not clobbered.
  */
 export async function openFoundationPr(input: OpenFoundationPrInput): Promise<FoundationPrResult> {
   const { token, owner, repo, base, files, prTitle, prBody } = input;
