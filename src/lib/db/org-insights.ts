@@ -70,12 +70,37 @@ export interface OrgMovers {
   levelChanges: RepoMove[]; // promotions + demotions
   /** Repos onboarded mid-period (`baselineKind: "onboarded"`) — their first-scan→now move, kept OUT of
    *  gainers/regressers/held/levelChanges/comparedRepos so a fleet's onboarding wave can't read as this
-   *  period's improvement. Sorted like gainers (largest climb first) so "new this period" is still
-   *  visible to any caller that wants it, without corrupting the period comparison (G4-06). */
+   *  period's improvement. Sorted like gainers (largest climb first). Production readers must go
+   *  through {@link readOnboardedRepos}: a count without names is not a fleet of onboarded repos. */
   onboarded: RepoMove[];
   /** Count of repos with a REAL period-baseline comparison (baselineKind === "period"). Excludes
    *  onboarded repos — see `onboarded` above. */
   comparedRepos: number;
+}
+
+/** One onboarded repo as production must quote it: a NAME, never a count. */
+export interface OnboardedRepo {
+  fullName: string;
+  name: string;
+  overall: number;
+  /** Lifetime delta since first in-window scan; 0 when the repo has only that one scan. */
+  dOverall: number;
+  sinceDays: number;
+}
+
+/**
+ * Production read of `OrgMovers.onboarded`. `CohortMovement.onboarded` is a composition COUNT;
+ * quoting that number as "who joined" is a fleet with no members. This projects the named list
+ * (fullName + name) so a caller cannot collapse the fleet to `.length` and still type-check.
+ */
+export function readOnboardedRepos(movers: OrgMovers): OnboardedRepo[] {
+  return movers.onboarded.map((m) => ({
+    fullName: m.fullName,
+    name: m.name,
+    overall: m.overall,
+    dOverall: m.dOverall,
+    sinceDays: m.sinceDays,
+  }));
 }
 
 interface ScanLite {
@@ -207,11 +232,18 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
       // score → now) within the window. That fallback move is tagged `baselineKind: "onboarded"` below
       // and kept OUT of gainers/regressers/comparedRepos (G4-06): it's a LIFETIME delta since the
       // repo's first scan, not a period delta, and reporting it as a period gain would inflate the
-      // mover list and comparedRepos exactly when an org is growing. A repo with a single in-window
-      // scan and no baseline collapses to prev === now and is skipped below.
+      // mover list and comparedRepos exactly when an org is growing. A single in-window scan with no
+      // pre-start baseline is still onboarded this period: NAME it (a count without names is not a
+      // fleet) but do not treat now===prev as a period move.
       const realBaseline = baselineByRepo.get(repoId);
       const prev = realBaseline ?? arr[arr.length - 1];
-      if (!now || !prev || prev === now) continue; // no baseline, or nothing moved within the window
+      if (!now || !prev) continue;
+      if (prev === now) {
+        if (!realBaseline && !isMockScore(now.engineProvider)) {
+          moves.push(buildMove(now.repo.fullName, now.repo.name, now, prev, "onboarded"));
+        }
+        continue;
+      }
       if (!isRealPair(now, prev)) continue; // an engine transition is not repo movement
       moves.push(buildMove(now.repo.fullName, now.repo.name, now, prev, realBaseline ? "period" : "onboarded"));
     }
