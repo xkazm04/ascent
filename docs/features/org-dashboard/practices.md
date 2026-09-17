@@ -48,12 +48,16 @@ degrades to placeholders when context is sparse.
 
 `POST /api/practices/generate` accepts `{ repo, practiceId }`, fetches read-only repo
 context from GitHub, and returns `{ artifact, shape }` for **preview** (no writes).
-Generation goes through `buildPracticeArtifact` so a caller with standing reviews the
-same house-or-generic body apply will commit. `shape` is `{ kind: "house", exemplars }`
-or `{ kind: "generic" }`: the one-line kicker above the previewed artifact
-("House pattern from N exemplars" vs "Generic starter (no mined pattern yet)").
-Without standing, orgSlug is omitted: a generic starter, and mined structure stays
-inside the org.
+Generation goes through `buildPracticeArtifact` — the same call `applyPracticeToRepo`
+makes — so a caller with standing reviews the same house-or-generic **body** apply
+will commit. For one repo context the generate payload's `artifact.body` equals the
+apply artifact, and `artifactFingerprint` of both matches; a 409 `content-drift` then
+only means the repo changed between preview and apply, never that preview was the
+generic starter while apply baked in the house pattern. `shape` is
+`{ kind: "house", exemplars }` or `{ kind: "generic" }`: the one-line kicker above the
+previewed artifact ("House pattern from N exemplars" vs "Generic starter (no mined
+pattern yet)"). Without standing, orgSlug is omitted: a generic starter, and mined
+structure stays inside the org.
 
 A GitHub failure is answered with the status its *condition* means, via the single
 `githubErrorStatus` mapping in `src/lib/api/github-status.ts` — shared with `/api/scan`,

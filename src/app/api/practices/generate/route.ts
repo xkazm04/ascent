@@ -53,8 +53,10 @@ export async function POST(request: Request) {
       }
     }
     const ctx = await fetchRepoContext(parsed, token);
-    // Standing callers resolve this org's mined pattern (same door as apply). Anonymous callers
-    // get the generic starter: mined headings are one tenant's private structure.
+    // Same (practiceId, ctx, orgSlug) `applyPracticeToRepo` uses, so the preview body is the
+    // commit body and the fingerprint drift-guard can pass. Standing callers resolve this org's
+    // mined pattern; anonymous callers omit orgSlug — a generic starter, mined structure stays
+    // inside the org.
     const orgSlug = callerHasStanding ? parsed.owner.toLowerCase() : undefined;
     const { artifact, house } = await buildPracticeArtifact(
       body.practiceId,

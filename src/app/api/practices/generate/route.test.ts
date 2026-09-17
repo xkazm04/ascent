@@ -36,7 +36,10 @@ vi.mock("@/lib/github/source", () => ({
   },
   fetchRepoContext: vi.fn(async (ref: { owner: string; repo: string }) => ({
     fullName: `${ref.owner}/${ref.repo}`,
+    name: ref.repo,
+    description: null,
     primaryLanguage: "TypeScript",
+    defaultBranch: "main",
   })),
 }));
 
@@ -45,6 +48,10 @@ vi.mock("@/lib/practices/artifact", () => ({
     artifact: { path: "AGENTS.md", body: "# starter" },
     house: null,
   })),
+}));
+
+vi.mock("@/lib/db/org-practice-shapes", () => ({
+  getOrgPracticeShapes: vi.fn(async () => null),
 }));
 
 vi.mock("@/lib/db", () => ({ getInstallationIdForOwner: vi.fn(async () => null) }));
@@ -62,6 +69,9 @@ import { getInstallationIdForOwner } from "@/lib/db";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { canMintInstallationToken } from "@/lib/authz";
 import { buildPracticeArtifact } from "@/lib/practices/artifact";
+import { getOrgPracticeShapes } from "@/lib/db/org-practice-shapes";
+import { artifactFingerprint } from "@/lib/practices/fingerprint";
+import type { ShapeSource } from "@/lib/org/practice-mining";
 
 const mockFetchCtx = vi.mocked(fetchRepoContext);
 const mockInstallId = vi.mocked(getInstallationIdForOwner);
@@ -69,6 +79,7 @@ const mockMintToken = vi.mocked(getInstallationToken);
 const mockAppConfigured = vi.mocked(isAppConfigured);
 const mockCanMint = vi.mocked(canMintInstallationToken);
 const mockBuild = vi.mocked(buildPracticeArtifact);
+const mockShapes = vi.mocked(getOrgPracticeShapes);
 
 function run(body: Record<string, unknown>) {
   return POST(
@@ -90,6 +101,7 @@ beforeEach(() => {
   mockCanMint.mockResolvedValue(false);
   mockInstallId.mockResolvedValue(null);
   mockMintToken.mockResolvedValue("installation-token");
+  mockShapes.mockResolvedValue(null);
   mockBuild.mockResolvedValue({
     artifact: { path: "AGENTS.md", body: "# starter" },
     house: null,
@@ -149,19 +161,101 @@ describe("POST /api/practices/generate — preview shape", () => {
   it("returns generic shape and does not resolve a house pattern without standing", async () => {
     const res = await run({ repo: "acme/repo", practiceId: "agent-guidance" });
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ shape: { kind: "generic" } });
+    expect(await res.json()).toMatchObject({
+      artifact: { body: "# starter" },
+      shape: { kind: "generic" },
+    });
     expect(mockBuild.mock.calls.at(-1)?.[2]).toEqual({});
   });
 
   it("names a mined pattern as house with the exemplar count when the caller has standing", async () => {
     mockCanMint.mockResolvedValue(true);
+    const houseBody = "# house starter\n- Commands";
     mockBuild.mockResolvedValue({
-      artifact: { path: "AGENTS.md", body: "# starter" },
+      artifact: { path: "AGENTS.md", body: houseBody },
       house: { lines: ["Commands"], exemplars: ["acme/api", "acme/core", "acme/web"] },
     });
 
     const res = await run({ repo: "Acme/repo", practiceId: "agent-guidance" });
-    expect(await res.json()).toMatchObject({ shape: { kind: "house", exemplars: 3 } });
+    expect(await res.json()).toMatchObject({
+      artifact: { body: houseBody },
+      shape: { kind: "house", exemplars: 3 },
+    });
     expect(mockBuild.mock.calls.at(-1)?.[2]).toEqual({ orgSlug: "acme" });
+  });
+});
+
+/** Two D1 exemplars that agree on headings, plus a gap repo — `minedStarter` is offerable. */
+function houseFixture(): ShapeSource[] {
+  const entry = {
+    practiceId: "agent-guidance",
+    path: "AGENTS.md",
+    outline: ["## Commands", "## Architecture map"],
+    layout: [] as string[],
+  };
+  const shape = { version: "2" as const, entries: [entry] };
+  return [
+    { repoFullName: "acme/api", shape, dims: { D1: 90 } },
+    { repoFullName: "acme/core", shape, dims: { D1: 88 } },
+    { repoFullName: "acme/gap", shape, dims: { D1: 10 } },
+  ];
+}
+
+async function useRealBuild() {
+  const actual = await vi.importActual<typeof import("@/lib/practices/artifact")>("@/lib/practices/artifact");
+  mockBuild.mockImplementation(actual.buildPracticeArtifact);
+  return actual.buildPracticeArtifact;
+}
+
+describe("POST /api/practices/generate — preview body equals apply artifact", () => {
+  it("matches apply's house body and fingerprint when the caller has standing", async () => {
+    const build = await useRealBuild();
+    mockCanMint.mockResolvedValue(true);
+    mockShapes.mockResolvedValue(houseFixture());
+
+    const res = await run({ repo: "acme/repo", practiceId: "agent-guidance" });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    const ctx = mockBuild.mock.calls.at(-1)![1];
+    const apply = await build("agent-guidance", ctx, { orgSlug: "acme" });
+
+    expect(json.shape).toEqual({ kind: "house", exemplars: 2 });
+    expect(json.artifact.body).toBe(apply.artifact!.body);
+    expect(json.artifact.body).toContain("Your organization's shared pattern");
+    expect(json.artifact.body).toContain("Commands");
+    expect(artifactFingerprint(json.artifact.body)).toBe(artifactFingerprint(apply.artifact!.body));
+  });
+
+  it("matches apply's generic body and fingerprint when nothing is mined", async () => {
+    const build = await useRealBuild();
+    mockCanMint.mockResolvedValue(true);
+    mockShapes.mockResolvedValue(null);
+
+    const res = await run({ repo: "acme/repo", practiceId: "agent-guidance" });
+    const json = await res.json();
+    const ctx = mockBuild.mock.calls.at(-1)![1];
+    const apply = await build("agent-guidance", ctx, { orgSlug: "acme" });
+
+    expect(json.shape).toEqual({ kind: "generic" });
+    expect(json.artifact.body).toBe(apply.artifact!.body);
+    expect(json.artifact.body).not.toContain("Your organization's shared pattern");
+    expect(artifactFingerprint(json.artifact.body)).toBe(artifactFingerprint(apply.artifact!.body));
+  });
+
+  it("does not bake mined lines into a preview without standing", async () => {
+    const build = await useRealBuild();
+    mockCanMint.mockResolvedValue(false);
+    mockShapes.mockResolvedValue(houseFixture());
+
+    const res = await run({ repo: "acme/repo", practiceId: "agent-guidance" });
+    const json = await res.json();
+    const ctx = mockBuild.mock.calls.at(-1)![1];
+    const generic = await build("agent-guidance", ctx, {});
+    const house = await build("agent-guidance", ctx, { orgSlug: "acme" });
+
+    expect(json.shape).toEqual({ kind: "generic" });
+    expect(json.artifact.body).toBe(generic.artifact!.body);
+    expect(json.artifact.body).not.toBe(house.artifact!.body);
+    expect(mockBuild.mock.calls[0]?.[2]).toEqual({});
   });
 });

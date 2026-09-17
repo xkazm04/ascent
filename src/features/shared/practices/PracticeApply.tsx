@@ -55,6 +55,7 @@ export function PracticeApply({
       if (!res.ok) throw new Error(data.error ?? "Failed to generate.");
       // Stamp the artifact with the repo it was generated for, so apply can't post a different one.
       // `shape` is the generate payload's house-vs-generic mark: the kicker above the body.
+      // `body` is `buildPracticeArtifact`'s output — the same bytes apply fingerprints and commits.
       setArtifact({
         path: data.artifact.path,
         body: data.artifact.body,
