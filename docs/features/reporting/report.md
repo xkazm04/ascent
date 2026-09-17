@@ -416,6 +416,9 @@ each save. When the DB isn't configured it degrades to the read-only `RoadmapSte
 
 **2026-09-05.** Both renderings share one `RoadmapFirstStep` (the tracker used to drop `firstStep`
 while the anonymous fallback rendered it) and both receive the measured `lifts` map from the page.
+**2026-09-17.** The sandbox Try-it rows (`RoadmapSimulators`) reuse that same `RoadmapFirstStep` under
+the title, so a planner sees the concrete move before simulating the close. A blank or absent field
+renders nothing — the same omit-when-blank rule as the tracker.
 `PersistedRecommendation.expectedLift` is a declared field: the live-scan path, which has no server
 render, reads the per-item clause `/api/recommendations` computes, while the permalink path threads
 the distribution map, which wins when both are present. The sandbox commit writes a **signed**
@@ -593,10 +596,12 @@ standing-decision path, rather than forking a second suppression list.
 ### The Roadmap Sandbox remembers the plan
 
 The sandbox (`RoadmapSandbox.tsx`) recomputes a repo's projected score live in the browser from
-per-dimension slider overrides. Phase 1 (`sandbox-to-tracker-bridge`) let "Try it" **commit statuses**
-to the tracker. It did not save the *model*: the overrides were React state, so a reload erased the
-plan a team had just built, and the projected delta survived only as a rounded number inside an
-English event-trail note: a number nothing could ever read back or reconcile.
+per-dimension slider overrides. Each Try-it row shows the recommendation's `firstStep` under the
+title via the shared `RoadmapFirstStep` (blank omitted, matching the tracker). Phase 1
+(`sandbox-to-tracker-bridge`) let "Try it" **commit statuses** to the tracker. It did not save the
+*model*: the overrides were React state, so a reload erased the plan a team had just built, and the
+projected delta survived only as a rounded number inside an English event-trail note: a number
+nothing could ever read back or reconcile.
 
 A **`SandboxScenario`** row now holds the model whole: the per-dimension overrides, the roadmap items
 the scenario selected, the baseline it was modeled against (score, level, `scannedAt`), and
@@ -1015,6 +1020,7 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/components/report/chartEngine.ts` | Mock-vs-model point provenance predicates + caveat copy. |
 | `src/components/report/deltas.tsx` | `DeltaPill` / `DeltaTag` chips. |
 | `src/components/report/RoadmapSandbox.tsx` | The what-if orchestrator: sliders → live hero recompute. |
+| `src/components/report/RoadmapSandboxParts.tsx` | Sandbox presentational pieces: sliders, level transition, Try-it simulators (`RoadmapFirstStep` under each title). |
 | `src/components/report/RoadmapSandboxScenario.tsx` | The sandbox's durable half: scenario load/save/discard IO, the item identity key, and the guarded one-shot restore. |
 | `src/components/report/RoadmapSandboxScenarioBar.tsx` | The saved-plan bar: save/update/discard controls plus projected-vs-actual once a newer scan lands. |
 | `src/lib/db/sandbox-scenario.ts` | `SandboxScenario` read/write + the reconciliation against the next scan. |
@@ -1072,11 +1078,13 @@ transient failure), and both surfaces branch on it:
 - **No LLM-reasoning drill-down.** `ProvenanceTrack` shows *that* the LLM adjusted a
   score, not the full rationale beyond the dimension summary.
 - **A roadmap row's concrete move is the additive `firstStep` field** (UAT `SAM-L1-05`, `MC-B8a`,
-  closed 2026-08-31): `LlmRoadmapItem.firstStep` / `Recommendation.firstStep`, requested by the
-  model schema as one optional sentence and rendered as a "First step:" line above the rationale.
-  The invitational voice is untouched (guardrail **G2**) — titles stay observations, `explore`
-  stays questions; the field is additive and never fabricated: absent on pre-field scans and on
-  rows where the model omitted it, so old reports render exactly as before.
+  closed 2026-08-31; sandbox Try-it rows 2026-09-17): `LlmRoadmapItem.firstStep` /
+  `Recommendation.firstStep`, requested by the model schema as one optional sentence and rendered
+  as a "First step:" line above the rationale (tracker, anonymous `RoadmapSteps`) and under the
+  title on sandbox Try-it rows — one shared `RoadmapFirstStep`. The invitational voice is untouched
+  (guardrail **G2**) — titles stay observations, `explore` stays questions; the field is additive
+  and never fabricated: absent on pre-field scans and on rows where the model omitted it, so old
+  reports render exactly as before.
 - (Closed 2026-09-05.) ~~The lift map is not yet mounted on the report page.~~ The permalink page reads
   `getOrgExpectedLifts` in the same `Promise.all` as the recommendations, under the same org, and
   threads `lifts` through `ReportView` → `ReportPanels` to both the tracker and `RoadmapSteps`, so
