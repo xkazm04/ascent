@@ -1,8 +1,10 @@
-// GET /api/usage?org=<slug>&days=<n>[&format=csv|json]
+// GET /api/usage?org=<slug>&days=<n>[&format=csv|json][&view=showback|showback-matrix]
 // Usage metering for an org over a period. Requires DATABASE_URL (returns 503 when off).
 //   - default / format=json (no download): the UsageSummary as JSON
 //   - format=csv  -> per-day CSV, as a file download (finance reconciliation)
 //   - format=json + download: the summary as a pretty JSON file download
+//   - view=showback -> lane totals then team totals (two flat sections)
+//   - view=showback-matrix -> one scope=cell row per byLaneTeam intersection
 //
 // EVERY date this route emits is UTC, and the body says so in `timezone`. The window is the
 // half-open `[windowSince, windowBefore)` echoed on the body — UTC-day-anchored, with the upper
@@ -51,12 +53,20 @@ function toCsv(summary: UsageSummary): string {
  *
  * `estimatedCostUsd` is EMPTY, never `0`, when a row could not be priced — `unpricedCalls` says how
  * many calls that was. A zero in a finance export is a claim about money that was not spent.
+ *
+ * The MATRIX (`?view=showback-matrix`) is a third view, not extra rows on this one: one `scope=cell`
+ * row per `byLaneTeam` entry, both `lane` and `team` filled — the join the on-page panel allocates
+ * on. Bolting those cells onto this file, or onto the per-day CSV, would change a shape downstream
+ * sheets already key on (G19). A pair with nothing recorded is OMITTED, never a 0 row.
  */
+function money(v: number | null): string {
+  return v == null ? "" : v.toFixed(6);
+}
+
 function toShowbackCsv(summary: UsageSummary, isPublic: boolean): string {
   const header = isPublic
     ? ["scope", "lane", "calls", "estimatedCostUsd", "unpricedCalls"]
     : ["scope", "lane", "team", "calls", "estimatedCostUsd", "unpricedCalls"];
-  const money = (v: number | null) => (v == null ? "" : v.toFixed(6));
   const rows: unknown[][] = summary.byLane.map((l) =>
     isPublic
       ? ["lane", l.lane, l.calls, money(l.estimatedCostUsd), l.unpricedCalls]
@@ -65,6 +75,23 @@ function toShowbackCsv(summary: UsageSummary, isPublic: boolean): string {
   if (!isPublic) {
     for (const t of summary.byTeam) {
       rows.push(["team", "", t.label, t.calls, money(t.estimatedCostUsd), ""]);
+    }
+  }
+  return csvTable(header, rows);
+}
+
+function teamLabel(summary: UsageSummary, teamKey: string | null): string {
+  return summary.byTeam.find((t) => t.teamKey === teamKey)?.label ?? teamKey ?? "Org-wide (no repo)";
+}
+
+function toShowbackMatrixCsv(summary: UsageSummary, isPublic: boolean): string {
+  const header = isPublic
+    ? ["scope", "lane", "calls", "estimatedCostUsd", "unpricedCalls"]
+    : ["scope", "lane", "team", "calls", "estimatedCostUsd", "unpricedCalls"];
+  const rows: unknown[][] = [];
+  if (!isPublic) {
+    for (const c of summary.byLaneTeam) {
+      rows.push(["cell", c.lane, teamLabel(summary, c.teamKey), c.calls, money(c.estimatedCostUsd), c.unpricedCalls]);
     }
   }
   return csvTable(header, rows);
@@ -107,13 +134,22 @@ export async function GET(request: Request) {
     // Sanitize the caller-supplied slug before it reaches the Content-Disposition header (the public
     // org / auth-off path is never membership-checked). 64-char cap preserved from the prior inline copy.
     const fileOrg = safeFilenameSlug(org, "org", 64);
-    // The showback view rides the SAME auth, window and IDOR guard as everything else on this route —
-    // it is a different projection of the summary already computed, not a new surface.
-    if (searchParams.get("view") === "showback") {
+    // Showback views ride the SAME auth, window and IDOR guard as everything else on this route —
+    // they are different projections of the summary already computed, not a new surface.
+    const view = searchParams.get("view");
+    if (view === "showback") {
       return new NextResponse(toShowbackCsv(summary, orgLc === "public"), {
         headers: {
           "content-type": "text/csv; charset=utf-8",
           "content-disposition": `attachment; filename="ascent-showback-${fileOrg}-${stamp}.csv"`,
+        },
+      });
+    }
+    if (view === "showback-matrix") {
+      return new NextResponse(toShowbackMatrixCsv(summary, orgLc === "public"), {
+        headers: {
+          "content-type": "text/csv; charset=utf-8",
+          "content-disposition": `attachment; filename="ascent-showback-matrix-${fileOrg}-${stamp}.csv"`,
         },
       });
     }
