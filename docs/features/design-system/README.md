@@ -206,6 +206,11 @@ Rules that make this safe to extend:
   `animation-timeline: scroll(root block)` behind an `@supports` guard: no scroll
   listener, no rAF, no per-frame React work. Rendered by all three deck
   orchestrators.
+- **`DeckNav`** (`src/components/deck/DeckNav.tsx`): labelled `#id` anchors for every
+  deck section. Desktop is a right-edge rail; below `lg` the same `sections` array
+  feeds a bottom bar with prev/next plus a native `<details>` jump list so a phone
+  reader can open any mid-deck chapter (Pricing, ROI, CTA) without paging through
+  every snap. Progress pills stay visual-only (`aria-hidden`).
 - **The canvas wash moved off `body`'s own background** into a fixed `body::before`.
   `background-attachment: fixed` forced a main-thread repaint of a 70rem radial
   gradient on every scroll frame and blocked compositor promotion.
