@@ -81,7 +81,8 @@ still resolves to `"auto"`; only a misspelled *non-empty* value fails loudly.
 that want to know if the `auto` default will resolve to a real model). `providerAvailable(name)`
 is a cheap, synchronous prerequisite check: bedrock sniffs for any AWS-wiring signal
 (`BEDROCK_REGION`, `AWS_REGION`, `AWS_DEFAULT_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_PROFILE`,
-role/container-credential env vars), `local` requires BOTH of its variables, `claude-cli`
+role/container-credential env vars), `local` requires BOTH of its variables, `nebius`
+requires BOTH `NEBIUS_API_KEY` and `NEBIUS_MODEL` (matching `nebiusConfigured()`), `claude-cli`
 and `codex-cli` gate on the shared `cliProviderAllowed()` (mirroring the throw below), and it lets `getProvider()`'s implicit failover chain and
 `providerByName()` skip a doomed provider instead of wasting a round trip proving the
 obvious.
@@ -260,6 +261,11 @@ including a keyless `"gemini"` (which would otherwise construct a `MockProvider`
 real failure). `null` tells the caller "no real fallback exists"; the caller then degrades
 to `MockProvider` itself, with honest accounting.
 
+`"nebius"` is in that switch, same contract as `"local"` / `"bedrock"`: when both Token
+Factory knobs are set it returns a `NebiusProvider`; otherwise `null`. Setting
+`LLM_FALLBACK_PROVIDER=nebius` therefore actually fails over instead of the name falling
+through as unknown.
+
 ## Per-org BYOM (`getProviderForOrg()`, `src/lib/db/org-llm.ts`)
 
 **BYOM (Bring Your Own Model)** lets an Enterprise-plan org run scans on its *own*
@@ -414,7 +420,8 @@ silent all-scans-to-mock degrade:
 - `BEDROCK_MAX_TOKENS` / `OPENAI_MAX_TOKENS` / `OPENROUTER_MAX_TOKENS` (default 4096,
   floored at 256): per-provider max-output-tokens knob.
 - `LLM_FALLBACK_PROVIDER`: the scan pipeline's failover; retry with this named provider
-  (built via `providerByName()`) if the primary throws, before degrading to mock.
+  (built via `providerByName()`) if the primary throws, before degrading to mock. Named
+  values include `nebius` (gated on both `NEBIUS_API_KEY` and `NEBIUS_MODEL`).
 - `LLM_THINKING_BUDGET` (Bedrock only, default 0 = off): extended-thinking token budget;
   helps the discrepancy-audit sub-task on complex repos at higher cost/latency.
 - `TECH_STACK_PROMPT`: gated prompt-enrichment flag (Feature 3a) that adds a "DETECTED
