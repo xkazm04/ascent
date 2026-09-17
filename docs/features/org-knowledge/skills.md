@@ -464,8 +464,10 @@ mint another token). The raw value (`askl_` + 24 random bytes, base64url) is
 returned exactly once; only its SHA-256 hash and a 12-character display
 prefix are stored. Scopes: `skills:read`, `skills:write`,
 `telemetry:write`, `memory:read` (org-memory recall, see
-[memory.md](./memory.md)); an empty/invalid scope list defaults to
-`["skills:read"]` (never a zero-scope token). `DELETE
+[memory.md](./memory.md)), `mcp:read`, `followups:write`. The mint form
+pre-checks `mcp:read` (the MCP door). An empty/invalid scope list defaults
+to `["mcp:read"]` (never a zero-scope token). `skills:read` is an explicit
+opt-in and is not implied by `mcp:read`. `DELETE
 /api/org/tokens/:id` soft-revokes it (`revokedAt` set; the row survives for
 audit). `GET /api/org/tokens` lists summaries only, never the raw value or
 hash.

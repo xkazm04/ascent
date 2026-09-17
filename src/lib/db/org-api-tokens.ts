@@ -66,10 +66,11 @@ function parseScopes(raw: string): SkillTokenScope[] {
     .filter(isSkillTokenScope);
 }
 
-function cleanScopes(scopes: string[] | undefined): SkillTokenScope[] {
+export function cleanScopes(scopes: string[] | undefined): SkillTokenScope[] {
   const valid = (scopes ?? []).filter(isSkillTokenScope);
-  // Never mint an empty-scope token (it would authorize nothing yet still exist) — default to read.
-  return valid.length ? Array.from(new Set(valid)) : ["skills:read"];
+  // Never mint an empty-scope token (it would authorize nothing yet still exist) — default to the
+  // MCP door. skills:read is an explicit opt-in and is not implied by mcp:read.
+  return valid.length ? Array.from(new Set(valid)) : ["mcp:read"];
 }
 
 /**
