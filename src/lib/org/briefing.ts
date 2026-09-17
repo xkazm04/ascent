@@ -20,7 +20,7 @@ import { getOrgPractices, getPlaybookAdoption, listPlaybooks } from "@/lib/db";
 import { buildPracticeLibrarySummary } from "@/lib/org/practice-library";
 import { getImprovementEvents, type ImprovementEvent } from "@/lib/db/improvement-events";
 import { MOCK_ENGINE } from "@/lib/maturity/attribution";
-import { composeTrajectory, forecastConfidenceNote } from "@/lib/maturity/forecast";
+import { composeGoal, composeTrajectory, forecastConfidenceNote } from "@/lib/maturity/forecast";
 import { DIMENSION_BY_ID, levelForScore } from "@/lib/maturity/model";
 import type { DimensionId } from "@/lib/types";
 
@@ -57,6 +57,14 @@ export interface BriefingGoal {
   pctLabel: string;
   pace: string;
   etaDays: number | null;
+  /** Composed goal read ({@link composeGoal}). Optional for fixture compatibility; `buildExecBriefing`
+   *  always sets them. `headline`/`confidence`/`basis` are non-null together when projecting;
+   *  `insufficiency` is the unmeasurable hedge and is the only thing a renderer may say about a
+   *  sub-gate fit. Read them through `briefingGoal(g)` / `briefingGoalLine(g)`. */
+  headline?: string | null;
+  confidence?: number | null;
+  basis?: string | null;
+  insufficiency?: string | null;
 }
 
 export interface ExecBriefing {
@@ -411,16 +419,31 @@ export async function buildExecBriefing(
     security: security ? named(security) : null,
     topGainers: (movers?.gainers ?? []).slice(0, 3).map(moveRow),
     topRegressions: (movers?.regressers ?? []).slice(0, 3).map(moveRow),
-    goals: (goals ?? []).map((g) => ({
-      label: g.label,
-      current: g.current,
-      target: g.target,
-      pct: g.pct,
-      pctBasis: g.pctBasis,
-      pctLabel: g.pctLabel,
-      pace: g.pace,
-      etaDays: g.etaDays,
-    })),
+    goals: (goals ?? []).map((g) => {
+      // ONE composition, shared with the GoalCard readout: the presentability gate decides whether
+      // this briefing may state a pace/ETA at all, and when it may, the hedge travels WITH the claim.
+      // Fixtures that predate `forecast` compose as "no fit" and keep their raw etaDays; a real
+      // listGoals row always carries the fit, so a sub-gate slope cannot leak onto the board PDF (G4).
+      const read = composeGoal(g.forecast ?? null, g, {
+        current: g.current,
+        target: g.target,
+        targetDate: g.targetDate ?? null,
+      });
+      return {
+        label: g.label,
+        current: g.current,
+        target: g.target,
+        pct: g.pct,
+        pctBasis: g.pctBasis,
+        pctLabel: g.pctLabel,
+        pace: g.pace,
+        etaDays: read.insufficiency ? null : g.etaDays,
+        headline: read.headline,
+        confidence: read.confidence,
+        basis: read.basis,
+        insufficiency: read.insufficiency,
+      };
+    }),
     regressionCount: movers?.regressers.length ?? 0,
     recommendations: orgRecs ?? [],
     proof: practices ? buildPracticeLibrarySummary(orgSlug, practices, playbooks ?? [], playbookAdoption).rollout : null,
@@ -449,5 +472,5 @@ export function buildLoopProof(events: readonly ImprovementEvent[]): ExecBriefin
 }
 
 // Preserve the public module entry point while presentation lives separately.
-export { engineMixLabel, engineMixCaveat, briefingTrajectory, briefingTrajectoryNote, valueRealizedLine, valueRealizedHeading, benchmarkCaption, movementLine, briefingHasScore, scoreValue, briefingLevelCaption, noScoreLine, scoreBasisLine, mockDisclosure, coverageLine, briefingLoopProofLine, briefingProofLine, briefingNextMove, nextMoveLine } from './briefing-format';
+export { engineMixLabel, engineMixCaveat, briefingTrajectory, briefingTrajectoryNote, briefingGoal, briefingGoalLine, briefingGoalStats, valueRealizedLine, valueRealizedHeading, benchmarkCaption, movementLine, briefingHasScore, scoreValue, briefingLevelCaption, noScoreLine, scoreBasisLine, mockDisclosure, coverageLine, briefingLoopProofLine, briefingProofLine, briefingNextMove, nextMoveLine } from './briefing-format';
 export { briefingMarkdown } from './briefing-markdown';

@@ -1,11 +1,14 @@
 import { describe, it, expect } from "vitest";
 import {
   MIN_FORECAST_SPAN_DAYS,
+  composeGoal,
   composeTrajectory,
   forecastBasis,
   forecastInsufficiency,
   forecastTrajectory,
   forecastHeadline,
+  goalLine,
+  goalNote,
   humanizeDays,
   isProjectable,
   projectGoal,
@@ -456,5 +459,105 @@ describe("trajectoryNote / trajectoryLine — one line for the push surfaces", (
     expect(line).toContain("Not enough history to project");
     expect(line).not.toContain("/wk"); // the bare slope the digest used to push
     expect(trajectoryLine(null)).toBeNull();
+  });
+});
+
+// composeGoal sits beside composeTrajectory so a presenter cannot print a goal ETA and drop the
+// hedge. Same contract, one object over: an unmeasurable fit refuses the pace claim and hands back
+// Delivery's own sentence; a presentable fit carries headline AND both halves of the hedge.
+const GOAL_CTX = { current: 60, target: 80, targetDate: "2026-03-01" as string | null };
+const NOW_MS = Date.parse("2026-02-01");
+
+describe("composeGoal — the unmeasurable hedge travels with the goal line", () => {
+  it("refuses to headline a lowData fit, and hands back Delivery's own refusal instead", () => {
+    const rising = series(50, 1, 2); // 2 distinct days → R²=1 by construction, not a trend
+    const p = projectGoal({ series: rising, current: 60, target: 80, targetDate: GOAL_CTX.targetDate, nowMs: NOW_MS });
+    const g = composeGoal(p.forecast, p, GOAL_CTX);
+    expect(p.forecast).not.toBeNull();
+    expect(g.headline).toBeNull();
+    expect(g.confidence).toBeNull();
+    expect(g.basis).toBeNull();
+    expect(g.insufficiency).toBe(forecastInsufficiency(p.forecast));
+    expect(g.insufficiency).toContain("2 distinct scan days");
+    expect(g.insufficiency).toContain("Not enough history to project");
+    // The data layer may still compute a pace; the presenter must not print it.
+    expect(goalLine(p.forecast, p, GOAL_CTX)).toBe(g.insufficiency);
+    expect(goalLine(p.forecast, p, GOAL_CTX)).not.toMatch(/On pace|Behind|ETA|\/wk/i);
+  });
+
+  it("refuses a short-SPAN fit too: enough days, not enough calendar", () => {
+    const p = projectGoal({
+      series: series(50, 1, 5),
+      current: 60,
+      target: 80,
+      targetDate: GOAL_CTX.targetDate,
+      nowMs: NOW_MS,
+    });
+    const g = composeGoal(p.forecast, p, GOAL_CTX);
+    expect(g.headline).toBeNull();
+    expect(g.insufficiency).toContain(`at least ${MIN_FORECAST_SPAN_DAYS}`);
+  });
+
+  it("says NOTHING at all when there is no fit — absence, never a fabricated basis (G4)", () => {
+    const empty = { headline: null, confidence: null, basis: null, insufficiency: null };
+    const tracking = {
+      pace: "tracking" as const,
+      perWeek: 0,
+      etaDays: null,
+      etaDate: null,
+      requiredPerWeek: null,
+    };
+    expect(composeGoal(null, tracking, GOAL_CTX)).toEqual(empty);
+    const p = projectGoal({
+      series: [{ date: "2026-01-01", value: 60 }],
+      current: 60,
+      target: 80,
+      targetDate: GOAL_CTX.targetDate,
+      nowMs: NOW_MS,
+    });
+    expect(p.forecast).toBeNull();
+    expect(composeGoal(p.forecast, p, GOAL_CTX)).toEqual(empty);
+    expect(goalLine(null, tracking, GOAL_CTX)).toBeNull();
+  });
+
+  it("carries BOTH halves of the hedge whenever it carries a projected headline — they are inseparable", () => {
+    const s = series(50, 0.3, 20);
+    const p = projectGoal({ series: s, current: 60, target: 80, targetDate: null, nowMs: atLast(s) });
+    const g = composeGoal(p.forecast, p, { current: 60, target: 80, targetDate: null });
+    expect(isProjectable(p.forecast)).toBe(true);
+    expect(g.headline).toBeTruthy();
+    expect(g.headline).toMatch(/On track|Holding near/);
+    expect(g.confidence).toBe(Math.round(p.forecast!.fitQuality * 100));
+    expect(g.basis).toBe(forecastBasis(p.forecast!));
+    expect(g.insufficiency).toBeNull();
+    expect(goalNote(g)).toContain("trend confidence");
+    expect(goalNote(g)).toContain("fit over 20 scan days across 19 days");
+    expect(goalLine(p.forecast, p, { current: 60, target: 80, targetDate: null })).toContain(g.headline!);
+    expect(goalLine(p.forecast, p, { current: 60, target: 80, targetDate: null })).toContain("trend confidence");
+  });
+
+  it("a reached target is a standing fact: headline without a forecast hedge, even with no fit", () => {
+    const p = projectGoal({
+      series: [{ date: "2026-01-01", value: 80 }],
+      current: 80,
+      target: 80,
+      targetDate: GOAL_CTX.targetDate,
+      nowMs: NOW_MS,
+    });
+    const g = composeGoal(p.forecast, p, { current: 80, target: 80, targetDate: GOAL_CTX.targetDate });
+    expect(p.pace).toBe("reached");
+    expect(g.headline).toBe("Target met: holding at or above 80.");
+    expect(g.confidence).toBeNull();
+    expect(g.basis).toBeNull();
+    expect(g.insufficiency).toBeNull();
+    expect(goalLine(p.forecast, p, { current: 80, target: 80, targetDate: GOAL_CTX.targetDate })).toBe(g.headline);
+  });
+
+  it("puts the compacted share in front of the reader when the fit rests on one", () => {
+    const pts = series(50, 0.3, 20).map((p, i) => (i < 4 ? { ...p, compacted: true } : p));
+    const p = projectGoal({ series: pts, current: 60, target: 80, targetDate: null, nowMs: atLast(pts) });
+    const g = composeGoal(p.forecast, p, { current: 60, target: 80, targetDate: null });
+    expect(g.basis).toContain("4 of them compacted");
+    expect(goalNote(g)).toContain("4 of them compacted");
   });
 });

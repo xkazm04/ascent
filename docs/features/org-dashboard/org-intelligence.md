@@ -1170,6 +1170,25 @@ deterministic narrative — so the four artifacts a board might see cannot disag
 Confidence and basis are non-null *by construction* whenever a headline is, so a renderer cannot print
 the claim and drop the caveat.
 
+### The goal line carries the same hedge (`composeGoal`)
+
+Named-goal ETAs used to skip that composer: each briefing renderer assembled `pace` + `etaDays` and
+had no slot for the hedge, so a two-scan-day fit Delivery would refuse still printed
+"behind, ETA ~120d" on the board PDF and the Copy-for-LLM markdown. `composeGoal(forecast, projection, ctx)`
+sits beside `composeTrajectory` and is the only thing a presenter may say about a goal's pace.
+
+| Field | When set | Renders as |
+| --- | --- | --- |
+| `headline` | the fit clears the gate, or the target is already reached | "On pace: reaches 80 in ~3 weeks (2026-02-21)." / "Target met: holding at or above 80." |
+| `confidence` / `basis` | **exactly** when `headline` is a projection | the same hedge `composeTrajectory` attaches |
+| `insufficiency` | a fit exists but is below the gate | `forecastInsufficiency`'s sentence *verbatim* |
+
+A reached target is a standing fact (current vs target), not a projection, so it carries no forecast
+hedge. No fit at all degrades to **absence**. `buildExecBriefing` spreads the read onto each
+`BriefingGoal`; the markdown, the board PDF and the Goals card read it through `briefingGoalLine` /
+`briefingGoalStats` so they cannot print an ETA and drop the caveat. `listGoals` now carries the
+underlying `forecast` on every row so the GoalCard readout can call `composeGoal` too.
+
 This replaced the inverse behavior, found three UAT cycles running (`DANA-L1-001`): on `lowData` the
 briefing **nulled** `forecastConfidence` and each renderer guarded its hedge on that null, so the least
 trustworthy fit rendered the most confidently — a live board PDF read "Trajectory: Climbing at +35/wk"

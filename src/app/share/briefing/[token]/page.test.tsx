@@ -38,6 +38,7 @@ vi.mock("@/lib/org/briefing", () => ({
     [b.forecastConfidence != null ? `trend confidence ${b.forecastConfidence}%` : null, b.forecastBasis ?? null]
       .filter(Boolean)
       .join(" · ") || null,
+  briefingGoal: (g: { insufficiency?: string | null }) => ({ headline: null, confidence: null, basis: null, insufficiency: g.insufficiency ?? null }),
   valueRealizedLine: () => null,
   // Direction 1 — the two denominators. Stubbed to the REAL wording (not to null) so these cases
   // prove the public artifact carries the exclusion notice a board reader is owed, rather than

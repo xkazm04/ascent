@@ -44,6 +44,7 @@ vi.mock("@/lib/org/briefing", () => ({
   }),
   briefingTrajectoryNote: (b: { forecastConfidence: number | null }) =>
     b.forecastConfidence != null ? `trend confidence ${b.forecastConfidence}%` : null,
+  briefingGoal: (g: { insufficiency?: string | null }) => ({ headline: null, confidence: null, basis: null, insufficiency: g.insufficiency ?? null }),
   valueRealizedLine: () => null,
 }));
 // `orgWindowBounds` is the pure half-open adapter the tab now hands the db layer; it is stubbed with

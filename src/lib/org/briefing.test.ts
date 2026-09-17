@@ -2,7 +2,7 @@
 // shape: standing headline, benchmark, strengths/weaknesses, movement, and a trailing actionable ASK.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { benchmarkCaption, briefingHasScore, briefingLevelCaption, briefingLoopProofLine, briefingMarkdown, briefingProofLine, briefingTrajectoryNote, buildLoopProof, coverageLine, engineMixCaveat, fleetAdoptionRate, mockDisclosure, movementLine, noScoreLine, scoreBasisLine, scoreValue, valueRealizedHeading, valueRealizedLine, type ExecBriefing } from "./briefing";
+import { benchmarkCaption, briefingGoalLine, briefingHasScore, briefingLevelCaption, briefingLoopProofLine, briefingMarkdown, briefingProofLine, briefingTrajectoryNote, buildLoopProof, coverageLine, engineMixCaveat, fleetAdoptionRate, mockDisclosure, movementLine, noScoreLine, scoreBasisLine, scoreValue, valueRealizedHeading, valueRealizedLine, type ExecBriefing } from "./briefing";
 import { forecastTrajectory } from "@/lib/maturity/forecast";
 
 // `buildExecBriefing` is pure assembly over five @/lib/db reads (rollup/benchmark/movers/goals +
@@ -957,11 +957,92 @@ describe("buildExecBriefing — benchmark / movers / goals pass-through", () => 
       { label: "Lift security", metric: "D9", current: 41, target: 70, pct: 22, pace: "behind", etaDays: 120 } as never,
     ]);
     let b = (await buildExecBriefing("acme"))!;
-    expect(b.goals).toEqual([{ label: "Lift security", current: 41, target: 70, pct: 22, pace: "behind", etaDays: 120 }]);
+    expect(b.goals).toEqual([
+      expect.objectContaining({
+        label: "Lift security",
+        current: 41,
+        target: 70,
+        pct: 22,
+        pace: "behind",
+        etaDays: 120,
+        headline: null,
+        confidence: null,
+        basis: null,
+        insufficiency: null,
+      }),
+    ]);
 
     mockGoals.mockResolvedValue(null);
     b = (await buildExecBriefing("acme"))!;
     expect(b.goals).toEqual([]);
+  });
+
+  it("composeGoal refuses a sub-gate fit: the board line carries the hedge, never a bare ETA (G4)", async () => {
+    const thin = forecastTrajectory([
+      { date: "2026-08-21", value: 60 },
+      { date: "2026-08-22", value: 65 },
+    ]);
+    mockGoals.mockResolvedValue([
+      {
+        label: "Lift security",
+        current: 41,
+        target: 70,
+        pct: 22,
+        pace: "behind",
+        perWeek: 35,
+        etaDays: 120,
+        etaDate: "2026-12-01",
+        requiredPerWeek: 15,
+        targetDate: "2026-09-01",
+        forecast: thin,
+      } as never,
+    ]);
+    const b = (await buildExecBriefing("acme"))!;
+    const g = b.goals[0]!;
+    expect(g.etaDays).toBeNull();
+    expect(g.headline).toBeNull();
+    expect(g.insufficiency).toContain("Not enough history to project");
+    expect(g.insufficiency).toContain("2 distinct scan days");
+    const line = briefingGoalLine(g);
+    expect(line).toContain("Not enough history to project");
+    expect(line).not.toMatch(/ETA/);
+    expect(briefingMarkdown(b)).toContain("Not enough history to project");
+    expect(briefingMarkdown(b)).not.toMatch(/ETA ~/);
+  });
+
+  it("a presentable goal line carries both halves of the hedge, never the ETA alone", async () => {
+    const DAY = 86_400_000;
+    const pts = Array.from({ length: 20 }, (_, i) => ({
+      date: new Date(Date.parse("2026-01-01") + i * DAY).toISOString().slice(0, 10),
+      value: 50 + 0.3 * i,
+    }));
+    const fit = forecastTrajectory(pts)!;
+    mockGoals.mockResolvedValue([
+      {
+        label: "Lift security",
+        current: 60,
+        target: 80,
+        pct: 50,
+        pace: "tracking",
+        perWeek: fit.perWeek,
+        etaDays: 20,
+        etaDate: "2026-02-21",
+        requiredPerWeek: null,
+        targetDate: null,
+        forecast: fit,
+      } as never,
+    ]);
+    const b = (await buildExecBriefing("acme"))!;
+    const g = b.goals[0]!;
+    expect(g.headline).toBeTruthy();
+    expect(g.confidence).not.toBeNull();
+    expect(g.basis).toContain("fit over 20 scan days across 19 days");
+    expect(g.insufficiency).toBeNull();
+    expect(g.etaDays).toBe(20);
+    const line = briefingGoalLine(g);
+    expect(line).toContain("ETA ~20d");
+    expect(line).toContain("trend confidence");
+    expect(line).toContain("fit over 20 scan days across 19 days");
   });
 });
 

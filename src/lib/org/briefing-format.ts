@@ -1,10 +1,10 @@
 // Pure presentation rules shared by briefing surfaces and exports.
-import type { ExecBriefing } from './briefing';
+import type { BriefingGoal, ExecBriefing } from './briefing';
 import type { OrgRec } from '@/lib/db';
 import type { EngineMixEntry } from '@/lib/db/org';
 import type { DimensionId } from '@/lib/types';
 import { DIMENSION_BY_ID } from '@/lib/maturity/model';
-import { trajectoryNote, type TrajectoryRead } from '@/lib/maturity/forecast';
+import { goalNote, trajectoryNote, type GoalRead, type TrajectoryRead } from '@/lib/maturity/forecast';
 import { providerLabel as engineLabel } from '@/lib/llm/config';
 
 
@@ -50,6 +50,34 @@ export function briefingTrajectory(b: ExecBriefing): TrajectoryRead {
  *  days across 84 days". Null only when there is no headline to hedge. */
 export function briefingTrajectoryNote(b: ExecBriefing): string | null {
   return trajectoryNote(briefingTrajectory(b));
+}
+
+/** The composed goal read a briefing renderer must present — claim, hedge, or refusal. */
+export function briefingGoal(g: BriefingGoal): GoalRead {
+  return {
+    headline: g.headline ?? null,
+    confidence: g.confidence ?? null,
+    basis: g.basis ?? null,
+    insufficiency: g.insufficiency ?? null,
+  };
+}
+
+/** Standing + pace/ETA as one line, with the unmeasurable hedge attached. Used by the markdown
+ *  export; the PDF splits label from stats via {@link briefingGoalStats}. Older fixtures with no
+ *  composed fields keep the historical "pct%, pace, ETA ~Nd" shape (absence, not a fabricated hedge). */
+export function briefingGoalStats(g: BriefingGoal): string {
+  const read = briefingGoal(g);
+  const note = goalNote(read);
+  if (read.insufficiency) {
+    return `${g.current}/${g.target} (${g.pct}%) · ${read.insufficiency}`;
+  }
+  const eta = g.etaDays != null ? `, ETA ~${g.etaDays}d` : "";
+  const core = `${g.current}/${g.target} (${g.pct}%, ${g.pace}${eta})`;
+  return note ? `${core} (${note})` : core;
+}
+
+export function briefingGoalLine(g: BriefingGoal): string {
+  return `${g.label}: ${briefingGoalStats(g)}`;
 }
 
 /** One-line value-realization summary ("3 recommendations completed · fleet +6 pts · 2 repos leveled

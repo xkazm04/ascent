@@ -65,6 +65,13 @@ band ("behind the pace its deadline needs" now sends the reader to the Follow-up
 digest alerts. Goals duplicate the transition programme's single named commitment and are the next
 retirement candidate; when that happens those four readers lose a branch each, nothing else.
 
+**A goal ETA is gated the same way a trajectory is.** `listGoals` carries the OLS `forecast` next to
+pace/ETA; presenters must run it through `composeGoal` (`src/lib/maturity/forecast.ts`) so an
+unmeasurable fit cannot print a bare "behind, ETA ~120d". The briefing markdown, board PDF and Goals
+card all read the composed line (`briefingGoalLine` / `briefingGoalStats`); a sub-gate fit renders
+`forecastInsufficiency` verbatim and drops the ETA. A reached target is a standing fact and needs no
+hedge. See [org-intelligence.md](../org-dashboard/org-intelligence.md).
+
 ## Transition programme
 
 Documented in [org-intelligence.md](../org-dashboard/org-intelligence.md) (W1c). Its control panel

@@ -42,6 +42,7 @@ vi.mock("@/lib/org/briefing", () => ({
   }),
   briefingTrajectoryNote: (b: { forecastConfidence: number | null }) =>
     b.forecastConfidence != null ? `trend confidence ${b.forecastConfidence}%` : null,
+  briefingGoal: (g: { insufficiency?: string | null }) => ({ headline: null, confidence: null, basis: null, insufficiency: g.insufficiency ?? null }),
   valueRealizedLine: () => null,
 }));
 vi.mock("@/lib/org/period", () => ({

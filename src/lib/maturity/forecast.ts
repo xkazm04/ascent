@@ -269,6 +269,9 @@ export interface GoalProjection {
   requiredPerWeek: number | null;
   /** Whole days from now to the deadline (negative if past), or null when no deadline is set. */
   daysToDeadline: number | null;
+  /** The OLS fit this projection was derived from. Null when fewer than two distinct days.
+   *  Presenters MUST run it through {@link composeGoal} so the unmeasurable hedge cannot be dropped (G4). */
+  forecast: Forecast | null;
 }
 
 /** A goal's ETA is fantasy beyond this — flatter than "reaches target in ~3 years" reads as "behind". */
@@ -332,6 +335,7 @@ export function projectGoal(opts: {
     etaDate,
     requiredPerWeek,
     daysToDeadline,
+    forecast: fit,
   };
 }
 
@@ -485,4 +489,106 @@ export function trajectoryLine(f: Forecast | null): string | null {
   if (!t.headline) return null;
   const note = trajectoryNote(t);
   return note ? `${t.headline} (${note})` : t.headline;
+}
+
+// ── The composed goal read ───────────────────────────────────────────────────
+// ONE composition of "what may we say about this goal's pace", sitting beside composeTrajectory so
+// the two claims a board quotes — the fleet trajectory and the named-goal ETA — cannot disagree about
+// presentability. Before this existed each renderer assembled its own goal line from `pace` +
+// `etaDays` and had no slot for the hedge, so a 2-scan-day fit that Delivery would refuse still
+// printed "behind, ETA ~120d" on the board PDF and the Copy-for-LLM markdown. Same defect as
+// MC-B1, one object over. (G4.)
+//
+// The contract, in order:
+//   * already reached (current ≥ target) → `headline` is the standing fact, no forecast hedge.
+//     Reaching a target is a measurement, not a projection.
+//   * no fit at all → every field null. The caller says "not enough trend yet" in its own voice;
+//     the basis DEGRADES TO ABSENCE, never to a fabricated one (G4).
+//   * a fit below the shared presentability gate → `insufficiency` carries `forecastInsufficiency`
+//     VERBATIM and `headline` is null: an unpresentable fit does not get to state a pace or ETA.
+//   * a presentable fit → `headline` AND both halves of its hedge (`confidence`, `basis`). They are
+//     non-null together by construction, so a renderer cannot print the claim and drop the caveat.
+
+/** The pace fields {@link composeGoal} reads off a {@link GoalProjection} (or a GoalProgress row). */
+export type GoalPaceFields = Pick<GoalProjection, "pace" | "perWeek" | "etaDays" | "etaDate" | "requiredPerWeek">;
+
+/** Current / target / deadline the goal line names. */
+export interface GoalComposeContext {
+  current: number;
+  target: number;
+  targetDate: string | null;
+}
+
+/** A goal as it may be PRESENTED: the pace claim, its hedge, or the refusal to claim. */
+export interface GoalRead {
+  /** The pace/ETA headline — only ever set when the fit cleared the presentability gate, or when
+   *  the target is already reached (a standing fact, not a projection). */
+  headline: string | null;
+  /** R² as 0–100. Non-null exactly when `headline` is a projection (the gate excludes `lowData`). */
+  confidence: number | null;
+  /** What the fit stands on ({@link forecastBasis}). Non-null exactly when `confidence` is. */
+  basis: string | null;
+  /** Why we are refusing to project, verbatim from {@link forecastInsufficiency}; null when
+   *  projecting, when already reached, or when there is no fit at all (absence, not a refusal). */
+  insufficiency: string | null;
+}
+
+const goalRate = (n: number) => `${n > 0 ? "+" : ""}${n}/wk`;
+
+/** One-line, leader-facing read of a goal's pace — the claim half, never the hedge. */
+export function goalHeadline(p: GoalPaceFields, ctx: GoalComposeContext): string {
+  if (p.pace === "reached") return `Target met: holding at or above ${ctx.target}.`;
+  const eta = p.etaDate ? `reaches ${ctx.target} ${humanizeDays(p.etaDays ?? 0)} (${p.etaDate})` : null;
+  if (p.pace === "on-pace") {
+    return eta
+      ? `On pace: ${eta}${ctx.targetDate ? `, ahead of ${ctx.targetDate}` : ""}.`
+      : `On pace to reach ${ctx.target}${ctx.targetDate ? ` by ${ctx.targetDate}` : ""}.`;
+  }
+  if (p.pace === "behind") {
+    const need = p.requiredPerWeek != null ? `, needs ${goalRate(p.requiredPerWeek)} (now ${goalRate(p.perWeek)})` : "";
+    if (eta) return `Behind: at ${goalRate(p.perWeek)}, ${eta}, past the ${ctx.targetDate} deadline${need}.`;
+    return `Behind: flat at ${ctx.current} on a ${goalRate(p.perWeek)} trend, target not reached at this pace${need}.`;
+  }
+  if (eta) return `On track: ${eta}.`;
+  return `Holding near ${ctx.current} on a ${goalRate(p.perWeek)} trend, no ETA to ${ctx.target} at this pace.`;
+}
+
+/** Compose the one presentable read of a goal. Pure; see the block comment above for the contract. */
+export function composeGoal(f: Forecast | null, p: GoalPaceFields, ctx: GoalComposeContext): GoalRead {
+  const empty: GoalRead = { headline: null, confidence: null, basis: null, insufficiency: null };
+  // Reached is a standing fact (current vs target), not a projection — no hedge required.
+  if (p.pace === "reached") return { ...empty, headline: goalHeadline(p, ctx) };
+  if (!f) return empty;
+  const insufficiency = forecastInsufficiency(f);
+  // The refusal already names the points and the span, so a pace/ETA claim beside it would be the
+  // bare slope the digest used to push. One sentence, the same words every other forecast surface uses.
+  if (insufficiency) return { ...empty, insufficiency };
+  return {
+    headline: goalHeadline(p, ctx),
+    confidence: Math.round(f.fitQuality * 100),
+    basis: forecastBasis(f),
+    insufficiency: null,
+  };
+}
+
+/** The full hedge for a presented goal headline: confidence AND basis, joined. Null only when there
+ *  is no projection to hedge (reached, refused, or no fit). */
+export function goalNote(g: GoalRead): string | null {
+  const parts = [forecastConfidenceNote(g.confidence), g.basis].filter((s): s is string => !!s);
+  return parts.length ? parts.join(" · ") : null;
+}
+
+/** Format a composed goal read as ONE line. The refusal when the fit is unpresentable; null when
+ *  there is no fit at all; otherwise the headline with its hedge attached, never the headline alone. */
+export function formatGoalRead(g: GoalRead): string | null {
+  if (g.insufficiency) return g.insufficiency;
+  if (!g.headline) return null;
+  const note = goalNote(g);
+  return note ? `${g.headline} (${note})` : g.headline;
+}
+
+/** The whole goal as ONE line, for a push/summary surface that has room for exactly one. The
+ *  unmeasurable hedge travels WITH the line: presenters that only print this cannot drop it. */
+export function goalLine(f: Forecast | null, p: GoalPaceFields, ctx: GoalComposeContext): string | null {
+  return formatGoalRead(composeGoal(f, p, ctx));
 }
