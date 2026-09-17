@@ -164,6 +164,11 @@ The line between them is enforced in two directions:
   anonymized asks, shape bands and outcomes — all under `CHAMPION_MIN_POP`, suppressed rather than
   thinned below it. The guarantee is structural: `CareOrgView` has **no field that could hold a
   person**, and nothing per-person crosses from this page except through an explicit `share`.
+- **The git contributor count is not an opt-in.** `CareOrgView.population` is
+  `getContributorInsights().totalContributors` — how many people the snapshot counted, the same
+  denominator the naming floor uses. Sharing a care aggregate is a later, separate choice
+  (`adoption.sharing`). The Care section names that git count as the git snapshot (`CareOrgSuppressed`,
+  the Developers tile); it does not call it an opt-in.
 - **Shape bands have their own floor, on sharers** (2026-09-15). `careBandFromSharers` computes a
   field's p25/p50/p75 only when at least `CARE_BAND_MIN_SHARERS` (5) people **shared that field**; the
   population floor was the wrong key. With 3 sharers [10, 40, 90] the population floor showed
