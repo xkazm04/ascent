@@ -776,13 +776,16 @@ day granularity can observe.
 
 ### What `find_skills` actually ranks on
 
-Persisted fields only — name, description, tags, category, adoption and download counts — plus one
-**declared** map, `CATEGORY_DIMENSIONS`, from the closed skill-category set to the maturity
-dimensions a skill in that category plausibly moves. (`CatalogSkillEntry.applicability` / `adopters`
-/ `invokes30d` are interface fields with no producer anywhere; ranking on them would have ranked on
-`undefined`.) Every result carries a `why`, and the response carries `dimensionBasis`, which is
-**`null` with a sentence** when the repo is unscanned or not in the fleet — never a zeroed dimension
-list a model would read as a clean bill of health.
+Term overlap over name, description and tags is the **relevance filter** — the same discipline
+`recall_org_memory` states — not the ranking. Among matches, ranking uses **observed invokes** (the
+same `skillUsageMap` fold the Skills tab shows: MCP / CLI events plus the registry `usage/` lane),
+then a **declared** `CATEGORY_DIMENSIONS` nudge when the named repo has sub-band dimensions, then
+adoption as a weaker term (running a skill outranks copying it). (`CatalogSkillEntry.applicability`
+/ `adopters` / `invokes30d` remain interface fields with no producer; ranking does not read them.)
+An unmatched skill never appears, however often it has been invoked. Every result carries a `why`,
+and the response carries `dimensionBasis`, which is **`null` with a sentence** when the repo is
+unscanned or not in the fleet — never a zeroed dimension list a model would read as a clean bill of
+health.
 
 `get_governing_subject` resolves through the `file` column the registry index mirrored, **never** by
 building a path from a slug — the registry access contract. No registry mapped is an explicit

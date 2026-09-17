@@ -16,6 +16,7 @@ import { getOrgId, getOrgRollup, listOrgSkills, type SkillRow } from "@/lib/db";
 import { listOrgKnowledgeSubjects } from "@/lib/db/org-registry-subjects";
 import { listSkillLessons } from "@/lib/db/org-skill-lessons";
 import { rankSkills, weakDimensionsFor } from "@/lib/mcp/skill-match";
+import { getOrgSkillUsage } from "@/lib/org/skill-usage-load";
 import { fail, str, type Args, type ToolResult } from "./tool-result";
 export { fail, str, type Args } from "./tool-result";
 
@@ -84,7 +85,16 @@ export async function findSkills(org: string, args: Args): Promise<ToolResult> {
   const repo = str(args, "repo");
   const { basis, note } = await dimensionBasisFor(org, repo);
   const limit = typeof args.limit === "number" ? args.limit : 5;
-  const ranked = rankSkills(task, rows, { weakDims: basis ? basis.weakDims : null, limit });
+  // USE EVIDENCE as an INPUT TO RANKING, not a decoration on the sliced set. Fetching invoke counts
+  // after rankSkills had already sliced meant a skill that lost a term-overlap race never entered
+  // the pack, so the live invoke channel could not change who an agent saw. An id missing from the
+  // map is "no evidence", which is exactly the 0 the model treats as the term's absence.
+  const usage = await getOrgSkillUsage(org).catch(() => ({}));
+  const ranked = rankSkills(
+    task,
+    rows.map((r) => ({ ...r, invokes: usage[r.id]?.invokes ?? 0 })),
+    { weakDims: basis ? basis.weakDims : null, limit },
+  );
 
   if (ranked.length === 0) {
     return {
@@ -115,6 +125,7 @@ export async function findSkills(org: string, args: Args): Promise<ToolResult> {
         tags: r.tags,
         why: r.why,
         adoptionCount: r.adoptionCount,
+        invokes: r.invokes,
         registryPath: r.registryPath,
         registryVersion: r.registryVersion,
       })),

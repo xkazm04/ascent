@@ -198,7 +198,8 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     description:
       "Which of this organization's own curated skills apply to the task you are about to do. These " +
       "are the house's proven ways of doing things, written by the people who work here — matching one " +
-      "is how you write code that looks like it belongs. Name the repository too and the ranking also " +
+      "is how you write code that looks like it belongs. Ranking prefers skills this organization has " +
+      "actually invoked over unused lexical matches. Name the repository too and the ranking also " +
       "weights the dimensions that repository is measurably weakest in.",
     scopes: ["mcp:read", "skills:read"],
     planGate: "skills",
