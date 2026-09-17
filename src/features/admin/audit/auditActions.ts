@@ -87,6 +87,9 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   { value: "briefing.share.revoked", label: "Briefing link revoked", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
   { value: "org.llm_provider.updated", label: "LLM provider updated", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
   { value: "org.llm_provider.disabled", label: "LLM provider disabled", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
+  // White-label briefing branding. Sky like the other org-config writes: it changes client-facing
+  // PDFs/share chrome, but it is not a grant/revoke (those are amber/red).
+  { value: "org.branding.updated", label: "Branding updated", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
   { value: "integrations.token.rotate", label: "Ingest token rotated", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
   { value: "integrations.copilot.sync", label: "Copilot synced", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
   { value: "org_api_token.created", label: "API token created", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
