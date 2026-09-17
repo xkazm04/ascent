@@ -40,7 +40,12 @@ Category / Status / Adoptions / Uses), and expands a `SkillCard` beneath a
 clicked row. **Uses** is `SkillUsage.useCount`, the same fold the status badge
 reads (web copies/downloads, hook-reported invokes and the registry `usage/`
 samples); it falls back to the denormalized `downloadCount` only for a row with
-no computed verdict, so the column and the badge cannot disagree. The header
+no computed verdict, so the column and the badge cannot disagree. The column
+**names both sinks and its window**: sink A (the events API) is an all-time
+groupBy with no window; sink B is each registry contributor's declared
+`windowDays`. That is a volume. It is never labelled a 30d rate — those
+windowed claims live on the neighbouring Registry tab (`invokes30d` for
+sink B, normalized; `invokesDirect30d` for sink A, last 30 days). The header
 carries scope only (`N skills · M repos`); the **empty state** says skills
 arrive from the linked registry and that each project reports its own use
 counts into the registry's `usage/` lane, and the two
@@ -250,6 +255,11 @@ The Registry tab's instrument column ranks sink B per skill name
 (`RegistryInstrumentPanel` / `RegistryInvokesBySkill`). The keys are registry
 skill names: a registry-only skill has no `OrgSkill` id, so the list never
 tries to resolve one. That ranked list is **not** added to `invokesDirect30d`.
+The ranked counts are each sample's declared `invokes` over its own
+`windowDays` (the persisted snapshot, not the 30d-normalized lane total), so
+they are not a 30d rate even though they sit next to one. Skills **Uses**
+names that distinction on the neighbouring tab: all-time sink A plus sink B
+as reported, never the Registry `invokes30d` / `invokesDirect30d` rates.
 When no index pass has read the `usage/` lane (`registry.lastIndexedAt` is
 absent) the list is hatched (`not-judged`) and prints no number, rather than a
 row of zeros.
@@ -388,9 +398,11 @@ a registry sample. The badge says "invoked", "used" or "synced" for the three
 kinds rather than collapsing them.
 
 `SkillInvokeChip` shows how often a skill actually **ran**, beside how often it
-was read. It is deliberately not labelled "30d": the rollup has no window and
-each registry contributor counts over one it chose for itself, so it is a volume,
-not a rate — the windowed claim lives in the badge next to it.
+was read. It names both sinks and the window: sink A is all-time (the DB
+rollup has no window) and sink B is each contributor's declared window, so it
+is a volume, not a rate, and it is deliberately not labelled "30d". The
+windowed 30d claim lives on the neighbouring Registry tab (`invokes30d` /
+`invokesDirect30d`) and recency lives in the dormancy badge beside the chip.
 
 ### Outcome tracking (score movement since adoption)
 
@@ -929,7 +941,8 @@ as Trace.
 | `src/features/shared/skills/SkillCard.tsx` | Per-skill detail, adopt actions. |
 | `src/features/shared/skills/SkillCardActions.tsx` | Copy / Download / Open-in-registry / archive — and the two CTA instructions. |
 | `src/features/shared/skills/SkillDormancyBadge.tsx` | Dormancy status chip, painted from `SkillUsage.state`. |
-| `src/features/shared/skills/SkillInvokeChip.tsx` | "N ran" — the invocation half of the use count. |
+| `src/features/shared/skills/SkillInvokeChip.tsx` | "N ran" — the invocation half of the use count; all-time volume, not a 30d rate. |
+| `src/features/shared/skills/SkillsLibraryTable.tsx` | Catalog table. **Uses** names sink A / sink B and the all-time window, distinct from Registry 30d. |
 | `src/features/shared/skills/SkillOutcomes.tsx` | Score-movement-since-adoption display. |
 | `src/features/shared/skills/ApiTokensPanel.tsx` | Token mint/list/revoke UI. |
 | `src/app/org/[slug]/skills/page.tsx` | Page composition. |
