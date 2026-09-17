@@ -1209,14 +1209,14 @@ prevent. A repo with no fit at all still renders nothing: absence is not a refus
 `PersonalOverview.gate.test.ts` pins the predicate at the source, since the component is an async
 server component and what must not regress is what it filters on.
 
-**The compaction clause is wired but presently silent on the org path** (`DANA-L1-014`): `getOrgRollup`
-fits over retained `Scan` rows only and never sets `SeriesPoint.compacted`, so `compactedPoints` is 0
-there by construction and ", N of them compacted" cannot yet appear on a briefing. The clause travels
-end-to-end the moment that series carries compacted points (it is covered by tests that feed one in),
-and it is deliberately **not** synthesised from the org-level `getCompactionCoverage`, which counts
-digests across the org rather than the points behind *this* fit — that would be a fabricated basis,
-which G4 forbids more strongly than an absent one. The user-visible consequence on a purged-history
-org remains unverified: no fixture with a compacted tail exists on the test host.
+**The compaction clause reaches the org path** (`DANA-L1-014`): `getOrgRollup` folds `ScanDigest` rows
+into the same series as retained scans and `buildOrgForecastSeries` keeps `SeriesPoint.compacted`, so
+`compactedPoints` is no longer 0 by construction and ", N of them compacted" can appear on a briefing
+when the fit actually rests on digest days. It is deliberately **not** synthesised from the org-level
+`getCompactionCoverage`, which counts digests across the org rather than the points behind *this*
+fit — that would be a fabricated basis, which G4 forbids more strongly than an absent one. The
+user-visible consequence on a purged-history org remains unverified: no fixture with a compacted tail
+exists on the test host.
 
 **Share links are per-grant, and say whether their figures still hold.** Every mint stamps a random
 `jti` (`signBriefingShareToken`, returned by `POST /api/org/briefing/share`), so one leaked link can

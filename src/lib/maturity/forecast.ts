@@ -389,12 +389,11 @@ export function humanizeDays(days: number): string {
  * (For three cycles this docstring NAMED a caller that did not exist — the sentence Dana kept asking
  * for was composed, unit-tested three ways, and rendered nowhere. UAT DANA-L1-013 → MC-B1.)
  *
- * The compaction clause is wired but presently silent on the ORG path: `getOrgRollup` fits over
- * retained `Scan` rows only and never sets `SeriesPoint.compacted`, so `compactedPoints` is 0 there
- * by construction (DANA-L1-014). The clause appears the moment that series carries compacted points;
- * it is deliberately NOT synthesised from org-level `getCompactionCoverage`, which counts digests
- * across the org rather than the points behind THIS fit — that would be a fabricated basis, which
- * G4 forbids more strongly than it forbids an absent one.
+ * The org rollup threads compacted flags through `buildOrgForecastSeries` so `compactedPoints` is
+ * no longer 0 by construction (DANA-L1-014). The clause is still NOT synthesised from org-level
+ * `getCompactionCoverage`, which counts digests across the org rather than the points behind THIS
+ * fit — that would be a fabricated basis, which G4 forbids more strongly than it forbids an absent
+ * one.
  */
 export function forecastBasis(f: Forecast): string {
   const days = `${f.points} scan ${f.points === 1 ? "day" : "days"}`;

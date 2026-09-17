@@ -21,6 +21,9 @@ const { mockGetPrisma, mockIsDbConfigured } = vi.hoisted(() => ({
 vi.mock("@/lib/db/client", () => ({ getPrisma: mockGetPrisma, isDbConfigured: mockIsDbConfigured }));
 
 import {
+  buildOrgForecastSeries,
+  buildOrgMaturityTrend,
+  collectOrgTrendSamples,
   computeCohortMovement,
   computeWindowDeltas,
   computeDimDeltas,
@@ -31,6 +34,7 @@ import {
   type RepoScoreSnap,
   type RepoDimSnap,
 } from "@/lib/db/org-rollup";
+import { forecastBasis, forecastTrajectory } from "@/lib/maturity/forecast";
 import { retentionCutoff } from "@/lib/plans";
 import { __resetOrgTimeZoneCache } from "@/lib/org/timezone";
 
@@ -236,19 +240,24 @@ describe("getOrgRollup — baseline query shape + local-day trend", () => {
   }
 
   /** scan.findMany is called twice (trend, then the distinct baseline); branch on the `distinct` arg. */
-  function fakePrisma(trendScans: { scannedAt: Date; overallScore: number }[]) {
+  function fakePrisma(
+    trendScans: { scannedAt: Date; overallScore: number; repoId?: string }[],
+    digests: { repoId: string; lastScannedAt: Date; overallSum: number; scanCount: number }[] = [],
+  ) {
     const scanFindMany = vi.fn(async (args: { distinct?: unknown } = {}) =>
       args.distinct
         ? [{ id: "s_base", repoId: "r1", overallScore: 50, adoptionScore: 50, rigorScore: 50 }]
         : trendScans,
     );
+    const digestFindMany = vi.fn(async () => digests);
     const prisma = {
       organization: { findUnique: vi.fn(async () => ({ id: "org_1", plan: "enterprise", slug: "acme" })) },
       repository: { findMany: vi.fn(async () => [repoRow("r1", new Date("2026-05-12T12:00:00Z"))]) },
       scan: { findMany: scanFindMany },
+      scanDigest: { findMany: digestFindMany },
       scanDimension: { findMany: vi.fn(async () => []) },
     };
-    return { prisma, scanFindMany };
+    return { prisma, scanFindMany, digestFindMany };
   }
 
   it("issues the pre-window baseline query with distinct:['repoId'] — one row per repo at the DB (fleet-rollups-insights #1)", async () => {
@@ -466,6 +475,48 @@ describe("getOrgRollup — baseline query shape + local-day trend", () => {
     // A repo with real dimension rows is never flagged — the bucket must not swallow measured repos.
     expect(res!.repos.find((r) => r.fullName === "acme/ok")!.latest!.incomplete).toBe(false);
   });
+
+  it("fits the forecast over compacted digest days and keeps compactedPoints (DANA-L1-014)", async () => {
+    const scans = [
+      { scannedAt: new Date("2026-05-12T12:00:00Z"), overallScore: 70, repoId: "r1" },
+      { scannedAt: new Date("2026-05-20T12:00:00Z"), overallScore: 80, repoId: "r1" },
+    ];
+    const digests = [
+      { repoId: "r1", lastScannedAt: new Date("2026-03-28T00:00:00Z"), overallSum: 200, scanCount: 4 },
+    ];
+    const { prisma, digestFindMany } = fakePrisma(scans, digests);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getOrgRollup("acme");
+
+    expect(res!.trend).toEqual([
+      { date: "2026-03-28", avg: 50, compacted: true },
+      { date: "2026-05-12", avg: 70 },
+      { date: "2026-05-20", avg: 80 },
+    ]);
+    expect(res!.forecast).toMatchObject({ points: 3, compactedPoints: 1 });
+    expect(forecastBasis(res!.forecast!)).toContain("1 of them compacted");
+    const digestCall = digestFindMany.mock.calls[0]![0] as { where: { engineProvider?: unknown; lastScannedAt?: unknown } };
+    expect(digestCall.where.engineProvider).toEqual({ not: "mock" });
+  });
+
+  it("does not double-count a digest whose period still has retained scans", async () => {
+    const scans = [
+      { scannedAt: new Date("2026-05-10T12:00:00Z"), overallScore: 60, repoId: "r1" },
+      { scannedAt: new Date("2026-05-20T12:00:00Z"), overallScore: 80, repoId: "r1" },
+    ];
+    // lastScannedAt is AFTER the oldest retained scan for r1 — the period still has live rows.
+    const digests = [
+      { repoId: "r1", lastScannedAt: new Date("2026-05-12T00:00:00Z"), overallSum: 200, scanCount: 4 },
+    ];
+    const { prisma } = fakePrisma(scans, digests);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getOrgRollup("acme");
+
+    expect(res!.trend.every((t) => t.compacted !== true)).toBe(true);
+    expect(res!.forecast?.compactedPoints ?? 0).toBe(0);
+  });
 });
 
 // ── computeCohortMovement — the delta travels WITH its denominator (cohort-size-not-returned) ─────
@@ -556,6 +607,7 @@ describe("getOrgRollup — the mock floor leaves dimAverages and the trend", () 
         organization: { findUnique: vi.fn(async () => ({ id: "org_1", plan: "enterprise", slug: "acme" })) },
         repository: { findMany: vi.fn(async () => repoRows) },
         scan: { findMany: scanFindMany },
+        scanDigest: { findMany: vi.fn(async () => []) },
         scanDimension: { findMany: vi.fn(async () => []) },
       },
     };
@@ -603,6 +655,75 @@ describe("getOrgRollup — the mock floor leaves dimAverages and the trend", () 
       | undefined;
     expect(trendCall, "the trend scan.findMany should have run").toBeDefined();
     expect(trendCall!.where.engineProvider).toEqual({ not: "mock" });
+  });
+});
+
+// ── Compacted flags survive the org-rollup forecast series (DANA-L1-014) ──────────────────────────
+// `forecastTrajectory` only counts compactedPoints when SeriesPoint.compacted is set. The rollup
+// used to map `{ date, avg }` and drop the flag, so every org forecast reported 0 compacted days
+// even after the digest tail was in the trend. These pin the mapping and the overlap rule without
+// Prisma.
+describe("org rollup forecast series — compacted flags", () => {
+  const dayKey = (d: Date) => d.toISOString().slice(0, 10);
+
+  it("preserves compacted flags when building the forecast series", () => {
+    const series = buildOrgForecastSeries([
+      { date: "2026-03-01", avg: 50, compacted: true },
+      { date: "2026-04-01", avg: 55 },
+      { date: "2026-05-01", avg: 60 },
+    ]);
+    expect(series).toEqual([
+      { date: "2026-03-01", value: 50, compacted: true },
+      { date: "2026-04-01", value: 55 },
+      { date: "2026-05-01", value: 60 },
+    ]);
+    expect(forecastTrajectory(series)).toMatchObject({ points: 3, compactedPoints: 1 });
+    expect(forecastBasis(forecastTrajectory(series)!)).toBe(
+      "fit over 3 scan days across 61 days, 1 of them compacted",
+    );
+  });
+
+  it("does not stamp compacted:false on a retained-only series", () => {
+    const series = buildOrgForecastSeries([
+      { date: "2026-05-01", avg: 70 },
+      { date: "2026-05-02", avg: 72 },
+    ]);
+    expect(series.every((p) => p.compacted === undefined)).toBe(true);
+    expect(forecastTrajectory(series)!.compactedPoints).toBe(0);
+  });
+
+  it("marks a mixed day compacted so the day's mean is not a straight measurement", () => {
+    const trend = buildOrgMaturityTrend(
+      [
+        { scannedAt: new Date("2026-05-10T11:00:00Z"), overallScore: 60 },
+        { scannedAt: new Date("2026-05-10T13:00:00Z"), overallScore: 80, compacted: true },
+        { scannedAt: new Date("2026-05-12T12:00:00Z"), overallScore: 90 },
+      ],
+      dayKey,
+    );
+    expect(trend).toEqual([
+      { date: "2026-05-10", avg: 70, compacted: true },
+      { date: "2026-05-12", avg: 90 },
+    ]);
+    expect(buildOrgForecastSeries(trend)[0]).toEqual({ date: "2026-05-10", value: 70, compacted: true });
+  });
+
+  it("drops a digest that overlaps that repo's retained scans, and keeps one that does not", () => {
+    const samples = collectOrgTrendSamples(
+      [
+        { scannedAt: new Date("2026-05-12T12:00:00Z"), overallScore: 70, repoId: "r1" },
+        { scannedAt: new Date("2026-05-20T12:00:00Z"), overallScore: 80, repoId: "r1" },
+      ],
+      [
+        { repoId: "r1", lastScannedAt: new Date("2026-05-15T00:00:00Z"), overallSum: 200, scanCount: 4 },
+        { repoId: "r1", lastScannedAt: new Date("2026-03-28T00:00:00Z"), overallSum: 200, scanCount: 4 },
+        { repoId: "r2", lastScannedAt: new Date("2026-04-15T00:00:00Z"), overallSum: 90, scanCount: 2 },
+      ],
+    );
+    expect(samples.filter((s) => s.compacted).map((s) => s.scannedAt.toISOString().slice(0, 10))).toEqual([
+      "2026-03-28",
+      "2026-04-15",
+    ]);
   });
 });
 
@@ -694,6 +815,7 @@ describe("getOrgRollup — the repository query selects only what the mapper rea
         organization: { findUnique: vi.fn(async () => ({ id: "org_1", plan: "enterprise", slug: "acme" })) },
         repository: { findMany: repoFindMany },
         scan: { findMany: vi.fn(async () => []) },
+        scanDigest: { findMany: vi.fn(async () => []) },
         scanDimension: { findMany: vi.fn(async () => []) },
       },
     };
@@ -772,6 +894,7 @@ describe("getOrgRollupShared — argument normalization", () => {
         organization: { findUnique: vi.fn(async () => ({ id: "org_1", plan: "enterprise", slug: "acme" })) },
         repository: { findMany: repoFindMany },
         scan: { findMany: vi.fn(async () => []) },
+        scanDigest: { findMany: vi.fn(async () => []) },
         scanDimension: { findMany: vi.fn(async () => []) },
       },
     };

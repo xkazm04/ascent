@@ -16,7 +16,7 @@
 
 import { cache } from "react";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
-import { forecastTrajectory, type Forecast } from "@/lib/maturity/forecast";
+import { forecastTrajectory, type Forecast, type SeriesPoint } from "@/lib/maturity/forecast";
 import { levelForScore } from "@/lib/maturity/model";
 import { GroupedMean, dateRange, getOrgBySlug, normalizeOrgSlug, roundedMean, segmentScope, techGroupScope, upperBound } from "@/lib/db/org-shared";
 import { retentionCutoff } from "@/lib/plans";
@@ -387,9 +387,13 @@ export interface OrgRollup {
   postureCounts: Record<string, number>;
   dimAverages: { dimId: string; avg: number }[];
   repos: OrgRepoRow[];
-  trend: { date: string; avg: number }[];
+  /** Per-day fleet average. `compacted` is set when any observation on that day was a ScanDigest
+   *  (MOONSHOT #32); omitted on a day of retained scans only. */
+  trend: OrgTrendPoint[];
   /** Forward-looking trajectory fit over `trend` — projected level + promotion/demotion ETA.
-   * Null until there are at least two distinct scan days to fit a line through. */
+   * Null until there are at least two distinct scan days to fit a line through. Compacted days
+   * keep their flag on the series (`buildOrgForecastSeries`) so `compactedPoints` is not 0 by
+   * construction (DANA-L1-014). */
   forecast: Forecast | null;
   /** Fleet snapshot as of the window's `start` (latest scan per repo at-or-before that date).
    * Null when no window start is given or no repo had been scanned by then. */
@@ -580,6 +584,89 @@ export function computeDimDeltas(
  */
 function orgDayKey(d: Date): string {
   return dayKeyInZone(d);
+}
+
+/** One observation the org maturity trend / forecast is built from. */
+export interface OrgTrendSample {
+  scannedAt: Date;
+  overallScore: number;
+  /** Set on a ScanDigest observation — a period average of scans retention already deleted. */
+  compacted?: boolean;
+}
+
+/** One calendar-day point on the org maturity trend. */
+export interface OrgTrendPoint {
+  date: string;
+  avg: number;
+  /** True when any observation on this day was compacted. Omitted otherwise. */
+  compacted?: boolean;
+}
+
+/**
+ * Fold retained scans and compacted digests into one sample list. A digest whose `lastScannedAt` is
+ * at-or-after that repo's oldest retained scan is dropped — the same `before` rule
+ * `readDigestTail` uses — so a period that straddles the retention horizon is not counted twice.
+ */
+export function collectOrgTrendSamples(
+  scans: readonly { scannedAt: Date; overallScore: number; repoId?: string }[],
+  digests: readonly { repoId: string; lastScannedAt: Date; overallSum: number; scanCount: number }[],
+): OrgTrendSample[] {
+  const oldestRetained = new Map<string, Date>();
+  for (const s of scans) {
+    if (!s.repoId) continue;
+    const prev = oldestRetained.get(s.repoId);
+    if (!prev || s.scannedAt < prev) oldestRetained.set(s.repoId, s.scannedAt);
+  }
+  const samples: OrgTrendSample[] = [];
+  for (const s of scans) {
+    if (!(s.scannedAt instanceof Date) || Number.isNaN(s.scannedAt.getTime())) continue;
+    if (!Number.isFinite(s.overallScore)) continue;
+    samples.push({ scannedAt: s.scannedAt, overallScore: s.overallScore });
+  }
+  for (const d of digests) {
+    if (!(d.lastScannedAt instanceof Date) || Number.isNaN(d.lastScannedAt.getTime())) continue;
+    const oldest = oldestRetained.get(d.repoId);
+    if (oldest && d.lastScannedAt >= oldest) continue;
+    const n = Math.max(1, d.scanCount);
+    const value = d.overallSum / n;
+    if (!Number.isFinite(value)) continue;
+    samples.push({ scannedAt: d.lastScannedAt, overallScore: value, compacted: true });
+  }
+  return samples;
+}
+
+/** Bucket samples by canonical-zone day. A day is compacted when ANY sample on it was. */
+export function buildOrgMaturityTrend(
+  samples: readonly OrgTrendSample[],
+  dayKey: (d: Date) => string,
+): OrgTrendPoint[] {
+  const byDay = new GroupedMean();
+  const compactedDays = new Set<string>();
+  for (const s of samples) {
+    const key = dayKey(s.scannedAt);
+    byDay.add(key, s.overallScore);
+    if (s.compacted) compactedDays.add(key);
+  }
+  return byDay
+    .keys()
+    .sort()
+    .map((date) => {
+      const point: OrgTrendPoint = { date, avg: byDay.get(date) };
+      if (compactedDays.has(date)) point.compacted = true;
+      return point;
+    });
+}
+
+/**
+ * The series `forecastTrajectory` fits. Compacted flags must survive this mapping — dropping them
+ * here is what made `compactedPoints` structurally 0 on every org forecast (DANA-L1-014).
+ */
+export function buildOrgForecastSeries(trend: readonly OrgTrendPoint[]): SeriesPoint[] {
+  return trend.map((t) =>
+    t.compacted === true
+      ? { date: t.date, value: t.avg, compacted: true as const }
+      : { date: t.date, value: t.avg },
+  );
 }
 
 export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentId?: string | null, techGroupId?: string | null): Promise<OrgRollup | null> {
@@ -790,20 +877,33 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
       // extrapolated from scans that were never scored.
       engineProvider: { not: MOCK_ENGINE },
     },
-    select: { scannedAt: true, overallScore: true },
+    select: { scannedAt: true, overallScore: true, repoId: true },
     orderBy: { scannedAt: "asc" },
   });
-  const byDay = new GroupedMean();
+  // Compacted tail (MOONSHOT #32 / DANA-L1-014). Retention deleted the Scan rows; ScanDigest is what
+  // remains of that history. The Scan query above is clamped to the plan's retention floor; this
+  // query is NOT — clamping it to the same floor would drop every digest (they live *beyond* that
+  // floor) and `compactedPoints` would stay 0 by construction. The user-selected window `start`
+  // still bounds the tail. Never synthesised from getCompactionCoverage (G4).
+  // `scanDigest` is optional on test doubles that predate this query; production Prisma always has it.
+  const digestRows: { repoId: string; lastScannedAt: Date; overallSum: number; scanCount: number }[] =
+    prisma.scanDigest
+      ? await prisma.scanDigest.findMany({
+          where: {
+            repo: { orgId: org.id, ...seg },
+            engineProvider: { not: MOCK_ENGINE },
+            ...dateRange(start, window, "lastScannedAt"),
+          },
+          select: { repoId: true, lastScannedAt: true, overallSum: true, scanCount: true },
+        })
+      : [];
   // CANONICAL-ZONE calendar day (orgDayKey) — the same zone the window snaps to — so different-cadence
   // repos bucket into the SAME day instead of splitting across a midnight the filter does not share.
-  for (const s of allScans) byDay.add(orgDayKey(s.scannedAt), s.overallScore);
-  const trend = byDay
-    .keys()
-    .sort()
-    .map((date) => ({ date, avg: byDay.get(date) }));
+  const trend = buildOrgMaturityTrend(collectOrgTrendSamples(allScans, digestRows), orgDayKey);
 
-  // Project where the org maturity trend is heading from its per-day history.
-  const forecast = forecastTrajectory(trend.map((t) => ({ date: t.date, value: t.avg })));
+  // Project where the org maturity trend is heading from its per-day history. Compacted flags stay
+  // on the series so the basis can name them (DANA-L1-014).
+  const forecast = forecastTrajectory(buildOrgForecastSeries(trend));
 
   // Averaged over the live-scored repos ONLY, matching the cohort card's `avgRealScore` — the two
   // headline numbers in the same scroll used to disagree by the whole weight of the mock floor, and
