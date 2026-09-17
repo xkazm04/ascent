@@ -31,7 +31,7 @@ Two crawlable, unauthenticated surfaces built on one read module, `src/lib/regis
 
 | Route | What it is |
 | --- | --- |
-| `/leaderboard` | The **AI-native register**: every model-scored public repo, ranked, paginated via `?page=N`, with the full nine-dimension breakdown. Rows carry honesty qualifiers: `conf N` when the scan reported confidence below 0.75, `no PR signal` when the analysis window held no merged PR (mirrors, push-based workflows), and `rubric rNN` when the score was taken under an earlier rubric than the one in force — plus page copy stating every score is computed outside-in from public artifacts. |
+| `/leaderboard` | The **AI-native register**: every model-scored public repo, ranked, paginated via `?page=N`, with the full nine-dimension breakdown. Rows carry honesty qualifiers: `conf N` when the scan reported confidence below 0.75, `no PR signal` when the analysis window held no merged PR (mirrors, push-based workflows), and `rubric rNN` when the score was taken under an earlier rubric than the one in force — plus page copy stating every score is computed outside-in from public artifacts. A `null` register (persistence off or a failed read) omits that ranking lede and names the miss; a readable empty-verified mock-only board is not an outage. Absence is never printed as `0 public repos rated`. |
 | `/scorecard/[owner]` | An owner's **public scorecard**: the aggregate score/level over that owner's public repos, with its own OG card. An invalid owner segment (GitHub name grammar) is a 404. Persistence off, a thrown register read, and a valid owner with nothing in the public corpus are **not**: they render an honest unavailable or empty card. Failure is not "this owner does not exist", and absence is not a score of 0. |
 
 **Two invariants, both unit-pinned (`src/lib/register/data.test.ts`):**
@@ -63,6 +63,15 @@ query, an empty corpus, and an invalid owner prefix, and `/scorecard/[owner]` 40
 tagged read (`ok` / `empty` / `unavailable`) keeps invalid owner grammar as the only 404. The other
 two render distinct non-404 bodies (H1 kept, no score of 0) so a register failure is not "this owner
 does not exist".
+
+**A miss is not a ranking.** `/leaderboard` used to keep the ranking lede ("Every public repository
+Ascent has scored, ranked…") even when `getPublicRegister` returned `null`. Null is persistence-off
+or a failed read (the data layer also uses null for a fully empty corpus). The page now omits that
+lede and names the miss as persistence-off or a read failure — not a ranked corpus of every public
+scan, and not a count of 0. `0 public repos rated` is never printed; absence is not a number. A
+readable register whose verified set is empty but that still carries mock-engine rows is **not** an
+outage: that is the existing "Nothing model-scored yet" branch, unchanged. A readable register with
+nothing at all says "No public scans yet" and still does not print a zero.
 
 Ranking happens in memory over a bounded candidate window (`REGISTER_CANDIDATE_CAP`, ordered by score
 at the DB), so neither surface needs a new column or index. `windowed` discloses when the corpus has
@@ -1038,7 +1047,7 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/features/standing/passports/capabilityViz.ts` | The declared × proven × enforced grid, one row per capability, over assessed repos only. |
 | `src/features/standing/passports/autonomy/clearanceLadder.ts` | The clearance perimeter: nested `BandLadder` bands per tier, with placeholder-scanned clearances on the edge. |
 | `src/lib/register/data.ts` | The public register read layer: `getPublicRegister` / `getPublicOrgScorecard`. Public-org + `isPrivate:false` on every query; mock-engine scans carried as `verified:false` and never ranked; `rubricVersion` + `currentRubric` carried so a stale-rubric row is qualified. `getPublicOrgScorecard` returns a tagged `{ kind: "ok" \| "empty" \| "unavailable" }` so a failed or empty read cannot collapse into a 404. |
-| `src/app/leaderboard/page.tsx` | The register page: server-rendered ranking, `?page=` pagination, per-page canonical + OG. |
+| `src/app/leaderboard/page.tsx` | The register page: server-rendered ranking, `?page=` pagination, per-page canonical + OG. A null register omits the ranking lede and names persistence-off / read-failure; mock-only empty-verified stays the preview branch; never prints `0 public repos rated`. |
 | `src/components/leaderboard/LeaderboardTable.tsx` | The ranked table. `ranked={false}` draws the unranked preview section; a `demo` chip marks every unverified row, a `rubric rNN` chip every stale-rubric one. |
 | `src/components/leaderboard/RegisterPager.tsx` | Anchor-based pager (`rel=prev/next`) + the shared scan CTA. |
 | `src/app/scorecard/[owner]/page.tsx` | Public org scorecard. Invalid owner grammar 404s; a failed or empty register read keeps the H1 and renders a distinct unavailable or empty body. |
