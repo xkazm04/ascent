@@ -19,6 +19,7 @@ import { describe, it, expect, vi } from "vitest";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { ReportDocument } from "./report-document";
+import { Footer } from "./theme";
 import type { ScanReport, DimensionResult, Discrepancy, MaturityLevel, RepoMeta, Posture, ScoreIntegrity } from "@/lib/types";
 
 // The `renderToBuffer` cases below drive the REAL @react-pdf pipeline (font registration, layout,
@@ -128,6 +129,13 @@ function colorOf(el: El): string | undefined {
 function tree(report: ScanReport): El[] {
   const root = ReportDocument({ report });
   return flatten(root);
+}
+
+/** The fixed page-footer `note`. Flatten does not expand Footer, so this is the only way to read it. */
+function footerNote(report: ScanReport): string {
+  const footer = tree(report).find((el) => el.type === Footer);
+  const note = (footer?.props as { note?: unknown } | undefined)?.note;
+  return typeof note === "string" ? note : "";
 }
 
 /** The headline score <Text> — the one whose text equals the overall score and that carries a band color. */
@@ -500,6 +508,74 @@ describe("ReportDocument — Flagged for review discrepancies (G1)", () => {
   });
 });
 
+// ── G9: mock/engine-mix caveat in the PDF body, not the footer ────────────────────────────────────
+describe("ReportDocument — mock/engine-mix caveat in the body (G9)", () => {
+  const flag = (dimension: Discrepancy["dimension"], claim: string): Discrepancy => ({ dimension, claim });
+  const integrity = (over: Partial<ScoreIntegrity> = {}): ScoreIntegrity => ({
+    d9Unmeasurable: false,
+    widenedDims: [],
+    effectiveBlend: 0.6,
+    ...over,
+  });
+  const roadmapItem = (over: Partial<ScanReport["roadmap"][number]> = {}): ScanReport["roadmap"][number] => ({
+    title: "Add CI-enforced test coverage gates",
+    dimension: "D2",
+    impact: "high",
+    effort: "low",
+    rationale: "Coverage regressed twice this quarter with no gate to catch it.",
+    ...over,
+  });
+
+  it("puts the mock caveat in the BODY when the engine is mock, not in the footer", () => {
+    const report = makeReport({ engine: { provider: "mock", model: "deterministic" } });
+    const texts = tree(report).map(textOf);
+    expect(texts.some((t) => /no language model contributed/i.test(t))).toBe(true);
+    expect(texts.some((t) => /deterministic signal rubric/i.test(t))).toBe(true);
+    expect(texts.some((t) => /Demo scoring/i.test(t))).toBe(true);
+    expect(texts.some((t) => /Scored by mock/.test(t) && /deterministic demo/.test(t))).toBe(true);
+    const note = footerNote(report);
+    expect(note).not.toMatch(/mock|deterministic|engine:|coverage/i);
+    expect(note).toContain("Scored by Ascent");
+  });
+
+  it("places the mock caveat before the overall score it qualifies", () => {
+    const report = makeReport({ engine: { provider: "mock", model: "deterministic" }, overallScore: 72 });
+    const els = tree(report);
+    const caveatIdx = els.findIndex((el) => /no language model contributed/i.test(textOf(el)));
+    const scoreIdx = els.findIndex((el) => colorOf(el) != null && textOf(el).trim() === "72");
+    expect(caveatIdx).toBeGreaterThanOrEqual(0);
+    expect(scoreIdx).toBeGreaterThan(caveatIdx);
+  });
+
+  it("omits the demo caveat on a live-engine report and still names the engine in the body", () => {
+    const report = makeReport({ engine: { provider: "claude-cli", model: "test" } });
+    const texts = tree(report).map(textOf);
+    expect(texts.some((t) => /no language model contributed/i.test(t))).toBe(false);
+    expect(texts.some((t) => /Demo scoring/i.test(t))).toBe(false);
+    expect(texts.some((t) => /Scored by claude-cli/.test(t) && /coverage 82%/.test(t))).toBe(true);
+    expect(footerNote(report)).not.toMatch(/claude-cli|engine:|mock|coverage/i);
+  });
+
+  it("keeps Flagged for review, firstStep, and counted evidence when the mock caveat is present", () => {
+    const evidenceLine = "0 of 8 Action references pinned to a SHA";
+    const texts = tree(
+      makeReport({
+        engine: { provider: "mock", model: "deterministic" },
+        dimensions: [dim({ evidence: [evidenceLine] })],
+        discrepancies: [flag("D3", "Detector missed CI-inline lint enforced off-GitHub.")],
+        scoreIntegrity: integrity({ widenedDims: ["D3"] }),
+        roadmap: [roadmapItem({ firstStep: "Open a PR adding CODEOWNERS." })],
+      }),
+    ).map(textOf);
+    expect(texts.some((t) => /no language model contributed/i.test(t))).toBe(true);
+    expect(texts).toContain("Flagged for review");
+    expect(texts).toContain("widened");
+    expect(texts).toContain("Detector missed CI-inline lint enforced off-GitHub.");
+    expect(texts.some((t) => t.includes("First step:") && t.includes("Open a PR adding CODEOWNERS."))).toBe(true);
+    expect(texts).toContain(evidenceLine);
+  });
+});
+
 // ── G5-22: long owner/name soft-break + auto-scale ──────────────────────────────────────────────────
 describe("ReportDocument — long ref title (G5-22)", () => {
   // Match the h1 <Text>'s OWN text exactly (stripping the soft-break zero-width space) rather than
@@ -598,6 +674,17 @@ describe("ReportDocument — full renderToBuffer never throws on edge reports", 
         { dimension: "D9", claim: "CodeQL runs via default setup." },
       ],
       scoreIntegrity: { d9Unmeasurable: true, widenedDims: ["D3"], effectiveBlend: 0.6 },
+    });
+    const buf = await renderToBuffer(ReportDocument({ report }) as ReactElement);
+    expect(buf.length).toBeGreaterThan(0);
+  });
+
+  it("renders a mock-engine report (G9 body caveat) without throwing", async () => {
+    const report = makeReport({
+      engine: { provider: "mock", model: "deterministic" },
+      dimensions: [dim({ evidence: ["0 of 8 Action references pinned to a SHA"] })],
+      roadmap: [{ title: "Item A", dimension: "D1", impact: "high", effort: "low", rationale: "r", firstStep: "Open a PR." }],
+      discrepancies: [{ dimension: "D3", claim: "Detector missed CI-inline lint." }],
     });
     const buf = await renderToBuffer(ReportDocument({ report }) as ReactElement);
     expect(buf.length).toBeGreaterThan(0);

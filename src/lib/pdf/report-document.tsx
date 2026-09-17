@@ -4,12 +4,18 @@
 // pages automatically. Driven by src/app/api/report/pdf/route.ts.
 
 import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
-import type { LlmRoadmapItem, ScanReport } from "@/lib/types";
+import type { ScanReport } from "@/lib/types";
 import { isIncompleteReport } from "@/lib/scoring/gate";
-import { IMPACT_RANK } from "@/lib/scoring/impact";
 import { ACCENT, FAINT, LINE, MUTED, baseStyles, scoreColor, Footer } from "./theme";
 import { latin1Safe } from "./latin1";
 import { discrepancyOutcome } from "@/components/report/discrepancyOutcome";
+import {
+  MAX_DIM_SUMMARY_CHARS,
+  MAX_ROADMAP_FIRST_STEP_CHARS,
+  MAX_ROADMAP_RATIONALE_CHARS,
+  roadmapPriority,
+  truncateText,
+} from "./report-document-text";
 
 // report-document keeps its own h1 (fontSize 22) and rule (marginVertical 16) — these legitimately
 // differ from the 24/14 used by briefing/security, so they are NOT hoisted into the shared theme.
@@ -50,27 +56,6 @@ const styles = StyleSheet.create({
   roadmapRationale: { color: MUTED, marginTop: 1 },
 });
 
-// A verbose LLM-generated string dropped into a `wrap={false}` block can exceed a page's remaining
-// height (G5-08/G5-09) — @react-pdf's handling of an unsplittable block taller than the page is
-// inconsistent (clip / overlap / blank page). Cap length defensively rather than trust the model.
-function truncateText(s: string, max: number): string {
-  const trimmed = s.trim();
-  if (trimmed.length <= max) return trimmed;
-  return `${trimmed.slice(0, max - 1).trimEnd()}…`;
-}
-
-const MAX_DIM_SUMMARY_CHARS = 320;
-const MAX_ROADMAP_RATIONALE_CHARS = 280;
-const MAX_ROADMAP_FIRST_STEP_CHARS = 220;
-
-/** Quick-wins-first ordering for the PDF roadmap — same impact-dominates/effort-tiebreak contract as
- *  the in-app roadmap (roadmapPriority.tsx), reimplemented locally: that module lives under
- *  src/components/report/, out of scope for this file's edit. */
-function roadmapPriority(item: Pick<LlmRoadmapItem, "impact" | "effort">): number {
-  const effortRank: Record<string, number> = { low: 1, medium: 2, high: 3 };
-  return (IMPACT_RANK[item.impact] ?? 0) * 10 - (effortRank[item.effort] ?? 0);
-}
-
 export function ReportDocument({ report }: { report: ScanReport }) {
   const { repo, level } = report;
   const ref = `${repo.owner}/${repo.name}`;
@@ -102,6 +87,8 @@ export function ReportDocument({ report }: { report: ScanReport }) {
   // in-app panel already shows. Absent on reconstructed/legacy snapshots; treat that as empty so a
   // sparse export never throws over a missing array.
   const flags = report.discrepancies ?? [];
+  const isMock = report.engine.provider === "mock";
+  const engineModel = report.engine.model?.trim() ? latin1Safe(report.engine.model) : "";
 
   return (
     <Document title={`Ascent maturity report — ${ref}`} author="Ascent" subject="AI-native engineering maturity">
@@ -129,6 +116,23 @@ export function ReportDocument({ report }: { report: ScanReport }) {
             ))}
           </View>
         )}
+        {/* G9: mock/engine-mix caveat in the body, never the page footer. */}
+        {isMock ? (
+          <View style={styles.warnBox}>
+            <Text style={styles.warnBadge}>⚠ Demo scoring</Text>
+            <Text style={styles.warnText}>
+              No language model contributed to this report. Scores come from the deterministic
+              signal rubric only. Summaries, strengths, risks and the roadmap are template-derived,
+              not written analysis.
+            </Text>
+          </View>
+        ) : null}
+        <Text style={baseStyles.meta}>
+          Scored by {latin1Safe(report.engine.provider)}
+          {engineModel ? ` / ${engineModel}` : ""}
+          {isMock ? " (deterministic demo)" : ""}
+          {` · coverage ${Math.round(report.confidence * 100)}%`}
+        </Text>
 
         <View style={styles.rule} />
 
@@ -205,6 +209,16 @@ export function ReportDocument({ report }: { report: ScanReport }) {
                 {d.summary ? (
                   <Text style={styles.dimSummary}>{latin1Safe(truncateText(d.summary, MAX_DIM_SUMMARY_CHARS))}</Text>
                 ) : null}
+                {/* G2: counted evidence stays its own lines, never joined into the summary. Capped so
+                    a wrap={false} row cannot exceed a page (G5-08). */}
+                {(d.evidence ?? [])
+                  .filter((e) => e.trim())
+                  .slice(0, 3)
+                  .map((e, i) => (
+                    <Text key={i} style={styles.dimSummary}>
+                      {latin1Safe(truncateText(e, MAX_DIM_SUMMARY_CHARS))}
+                    </Text>
+                  ))}
               </View>
             ))}
           </>
@@ -277,7 +291,7 @@ export function ReportDocument({ report }: { report: ScanReport }) {
           </View>
         )}
 
-        <Footer note={`Scored by Ascent · engine: ${report.engine.provider} · coverage ${Math.round(report.confidence * 100)}%`} />
+        <Footer note="Scored by Ascent · AI-native engineering maturity" />
       </Page>
     </Document>
   );

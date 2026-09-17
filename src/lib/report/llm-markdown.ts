@@ -182,7 +182,7 @@ export function reportLlmMarkdown(report: ScanReport, options: ReportMarkdownOpt
   out.push(`${repo.url}`);
   out.push("");
 
-  // --- Caveats first. A model that reads only the top of a long context must still see them. ---
+  // --- Caveats first (G9: mock/engine-mix in the body, not the generated-by footer). ---
   if (incomplete) {
     out.push(
       "> **INCOMPLETE SCAN: do not treat the score as a measurement.** No dimension could be scored " +

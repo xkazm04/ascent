@@ -847,7 +847,11 @@ dropped as unmeasurable / structurally ineligible / outcome not recorded) so a m
 those blended scores as uncontested (G1). Counted evidence lines (`dimension.evidence`) emit as
 their own bullets under Evidence by dimension (G2: they are not joined into the catalogue table).
 An empty list omits the section. Roadmap rows include the recorded `firstStep` when present (G2);
-a blank or absent field omits the line, matching the in-app `RoadmapFirstStep`. The
+a blank or absent field omits the line, matching the in-app `RoadmapFirstStep`. The paid PDF carries
+the same mock/engine-mix caveat in the **document body**, not the page footer (G9): a mock-engine
+report opens with a Demo scoring box ("no language model contributed") and a "Scored by … coverage
+N%" line, so a board PDF cannot present synthetic scores as a footnote. Counted evidence lines
+under each dimension stay their own rows (G2). The
 card **refuses to draw a number at all** for an `incomplete` scan (a renormalized 0/100 is not a
 measurement) and shows a DEMO badge for a mock-engine report.
 
@@ -1039,11 +1043,11 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/app/api/report/foundation/pr/route.ts` | Draft PR seeding the generated `.ai/` foundation. Admin-gated (see above). |
 | `src/app/api/report/conformance/route.ts` | `.ai/` conformance ingest: org-bound auth, clamping, ledger write. The legacy shared `CONFORMANCE_INGEST_TOKEN` is compared with `crypto.timingSafeEqual`, matching the per-org token path. |
 | `src/app/api/report/llm/route.ts` | Machine-readable markdown export: the "Copy for LLM" payload as a fetchable endpoint. |
-| `src/lib/report/llm-markdown.ts` | `reportLlmMarkdown()`: the single briefing generator behind both the copy chip and the endpoint. Pure/client-safe and deterministic. Emits a Flagged-for-review section (claim + `discrepancyOutcome` label/hint) when `discrepancies` is non-empty (G1). Counted evidence lines emit as their own bullets, not flattened into the dimension table (G2). Roadmap rows include `firstStep` when the scan recorded one (G2). |
+| `src/lib/report/llm-markdown.ts` | `reportLlmMarkdown()`: the single briefing generator behind both the copy chip and the endpoint. Pure/client-safe and deterministic. Leads with the mock-provenance block when `engine.provider === "mock"` (G9: body, not the generated-by footer). Emits a Flagged-for-review section (claim + `discrepancyOutcome` label/hint) when `discrepancies` is non-empty (G1). Counted evidence lines emit as their own bullets, not flattened into the dimension table (G2). Roadmap rows include `firstStep` when the scan recorded one (G2). |
 | `src/app/api/report/share-card/route.ts` | Downloadable PNG share card (attachment), rendered from the shared OG card. |
 | `src/lib/og/report-card.tsx` | `ReportShareCard`: the 1200×630 artwork shared by the permalink's `opengraph-image` and the share-card download. |
 | `src/app/api/report/pdf/route.ts` | Single-report PDF export. Read-gated by the owning org, then plan-gated (`planAllowsPdfExport`, the lowest paid tier `pro` and up); `PUBLIC_ORG` reports are exempt from the plan check, matching the unmetered public-scan model. |
-| `src/lib/pdf/report-document.tsx` | The exported PDF's layout (`@react-pdf/renderer`). Includes a "Roadmap & recommendations" section (title, impact/effort, `firstStep` when present, rationale, sorted quick-wins-first, same ordering as the in-app roadmap), a caveat box surfacing `report.warnings` near the top, a fallback "Incomplete scan" banner for a sparse/zero-dimension report so a degraded scan's PDF reads as caveated rather than a confident empty document, and a "Flagged for review" section listing each LLM-vs-detector discrepancy with its recorded outcome so a board PDF cannot hide disagreement the in-app report shows (G1). |
+| `src/lib/pdf/report-document.tsx` | The exported PDF's layout (`@react-pdf/renderer`). Includes a "Roadmap & recommendations" section (title, impact/effort, `firstStep` when present, rationale, sorted quick-wins-first, same ordering as the in-app roadmap), a caveat box surfacing `report.warnings` near the top, a fallback "Incomplete scan" banner for a sparse/zero-dimension report so a degraded scan's PDF reads as caveated rather than a confident empty document, a Demo scoring box plus "Scored by … coverage N%" line in the **body** when the engine is mock so provenance is not a footer footnote (G9), counted evidence as its own lines under each dimension (G2), and a "Flagged for review" section listing each LLM-vs-detector discrepancy with its recorded outcome so a board PDF cannot hide disagreement the in-app report shows (G1). |
 | `src/components/report/ReportClient.tsx` | Live-scan orchestration: SSE stream, progress UI, validation. |
 | `src/app/report/[owner]/[repo]/page.tsx` | Shareable permalink. Pinned snapshot or `ColdScanGate`. `generateMetadata` claims a score only for a persisted snapshot; a cold or failed lookup does not unfurl as a maturity report. |
 | `src/components/report/ReportPermalinkShare.tsx` | The header's Permalink control: the canonical URL, the commit-pinned URL, and the README markdown carrying the level line. |
