@@ -151,6 +151,13 @@ namespace). A viewer with **no** organization is coherent by construction: the c
 workspace, and the org layout renders a zero-repo personal org's shell: its add-repo form *is* the
 empty state.
 
+**Personal Overview degrades per read.** The individual landing (`PersonalOverview`) used to
+`Promise.all` the watchlist, usage meters and passports, so a throw on any one rejected the page
+and blanked the repo list that had already succeeded. It now uses `Promise.allSettled` the same way
+Delivery, Teams and Contributors do: the watchlist renders when present; passports and usage each
+degrade to an explicit "couldn't load" banner rather than taking the landing down.
+`PersonalOverview.gate.test.ts` pins the rejected-passports case.
+
 **The zero-repo wall fell for members (W6b, 2026-08-12).** The layout's empty-org decision is now the
 pure `resolveOrgShellState` (`src/lib/org/orgShellGate.ts`, pinned by its co-located test):
 a **member's** zero-repo fleet org renders the FULL shell: org header (alerts · credits · scan) +
