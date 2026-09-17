@@ -445,13 +445,26 @@ Design principles:
   "strengths": ["…"], "risks": ["…"],
   "roadmap": [                   // prioritized next steps to climb a level
     { "title": "Wire tests into a CI gate", "dimension": "D3",
-      "impact": "high", "effort": "low", "rationale": "…", "levelUnlock": "L3→L4" }
+      "impact": "high", "effort": "low",
+      "firstStep": "A GitHub Actions workflow that runs the test command on every pull request would put a gate in front of main.",
+      "rationale": "…", "levelUnlock": "L3→L4" }
   ],
   "confidence": 0.0,            // 0..1
   "scannedAt": "ISO-8601",
   "engine": { "provider": "gemini|bedrock|mock", "model": "…" }
 }
 ```
+
+**`firstStep` on catalog, fallback, and guaranteed follow-up rows (G2).** The live prompt asks
+for a `firstStep` on every roadmap entry (r14/r15). The deterministic catalog that feeds the
+keyless mock, the empty-LLM fallback (`buildFallbackRoadmap`), and the follow-up guarantee
+(`buildDimensionFollowUps`) now carries one too — a hand-reviewed sentence per dimension,
+stated as what the move IS, never an order. Those builders copy it onto the rows they emit.
+A model-written row that omitted the field stays omitted (never fabricated). Additive beside
+the invitational voice: titles stay observations, `explore` stays questions. Display only; no
+weight, band, blend or guardband moved. Extra `firstStep` text is not a blend input: a lying
+D9=100 against a battery of 40 still lands at 40 (`engine.test.ts`). G5: do not widen the
+guardband.
 
 ## 4b. "Green" — the termination condition for a drive-to-target loop (`green.ts`, 2026-08-26)
 

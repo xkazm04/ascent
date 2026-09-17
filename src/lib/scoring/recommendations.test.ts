@@ -119,6 +119,75 @@ describe("buildDimensionFollowUps — the follow-up guarantee", () => {
   });
 });
 
+// G2: r14/r15 asked the model for firstStep; the catalog that feeds the mock, the empty-LLM
+// fallback, and the follow-up guarantee used to omit it, so those rows buried the move in the
+// rationale. Catalog-sourced rows now carry a hand-reviewed sentence (what the move IS, never an
+// order). Model-written rows that omitted the field stay omitted — never fabricated.
+const DIM_IDS = ["D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9"] as const;
+const IMPERATIVE_FIRST_WORD = /^(add|adopt|build|configure|create|define|document|enable|enforce|ensure|establish|fix|implement|improve|install|introduce|make|migrate|move|replace|run|set|start|switch|update|use|write)\b/i;
+
+describe("catalog / fallback / follow-up firstStep (G2)", () => {
+  it("puts a non-empty firstStep on every fallback row", () => {
+    const roadmap = buildFallbackRoadmap(signals({}), 50, "org");
+    expect(roadmap.length).toBeGreaterThan(0);
+    for (const row of roadmap) {
+      expect(row.firstStep?.trim()).toBeTruthy();
+    }
+  });
+
+  it("puts a non-empty firstStep on every synthesised follow-up row, including D9", () => {
+    const followUps = buildDimensionFollowUps(
+      [],
+      DIM_IDS.map((id) => ({ id, score: 10 })),
+      30,
+    );
+    expect(followUps).toHaveLength(DIM_IDS.length);
+    expect(new Set(followUps.map((r) => r.dimension))).toEqual(new Set(DIM_IDS));
+    for (const row of followUps) {
+      expect(row.firstStep?.trim()).toBeTruthy();
+    }
+    expect(followUps.find((r) => r.dimension === "D9")!.firstStep).toContain("Dependabot");
+  });
+
+  it("uses the same catalog firstStep for a dimension on both builders", () => {
+    const fallback = buildFallbackRoadmap(signals({ D1: 100, D2: 100, D3: 100, D9: 5 }), 50, "org");
+    const followUps = buildDimensionFollowUps([], [{ id: "D9" as const, score: 10 }], 30);
+    const fallbackD9 = fallback.find((r) => r.dimension === "D9");
+    expect(fallbackD9).toBeDefined();
+    expect(fallbackD9!.firstStep).toBe(followUps[0]!.firstStep);
+  });
+
+  it("still attaches the catalog firstStep when the title is the dimension's own gap", () => {
+    const out = buildDimensionFollowUps(
+      [],
+      [{ id: "D2" as const, score: 30, gaps: ["No visible coverage threshold fails a run"] }],
+      30,
+    );
+    expect(out[0]!.title).toBe("No visible coverage threshold fails a run");
+    expect(out[0]!.firstStep?.trim()).toBeTruthy();
+  });
+
+  it("does not backfill firstStep onto a model-written row that omitted it", () => {
+    const raised = item("D4", "The review workflow never runs on a pull request");
+    const out = buildDimensionFollowUps([raised], [{ id: "D4" as const, score: 10 }], 30);
+    expect(out[0]).toBe(raised);
+    expect(out[0]!.firstStep).toBeUndefined();
+  });
+
+  it("states firstStep as what the move IS, not as an order", () => {
+    const followUps = buildDimensionFollowUps(
+      [],
+      DIM_IDS.map((id) => ({ id, score: 10 })),
+      30,
+    );
+    for (const row of followUps) {
+      const step = row.firstStep!.trim();
+      expect(step).not.toMatch(IMPERATIVE_FIRST_WORD);
+      expect(step).not.toMatch(/\byou (?:must|should|need to|have to)\b/i);
+    }
+  });
+});
+
 // UNMEASURED IS NOT A GAP. The failure this pins was measured, not imagined: on a worktree scan with
 // no GitHub fold to carry, D4's deterministic signal sits at its floor whatever the repo actually
 // has — so the guarantee above minted a fresh D4 follow-up on every scan, the loop armed it every
