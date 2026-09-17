@@ -8,7 +8,8 @@
 //     (SupersedeTargetNotFoundError) instead of committing a correction that corrected nothing;
 //   - candidateOrgMemories bounds the LLM input and compares org-wide memories against org-wide ones;
 //   - lifecycleWorkingSet is the recall door: omitted namespace is no filter, so a namespaced
-//     scan-pipeline row is returned (the write-check helper would have asked for IS NULL and dropped it).
+//     scan-pipeline row is returned (the write-check helper would have asked for IS NULL and dropped it);
+//   - toRow copies citedCount/notUsefulCount, so REST recall's evidence term is the stored counter.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 

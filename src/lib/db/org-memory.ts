@@ -144,8 +144,9 @@ export function toRow(m: OrgMemory): MemoryRow {
     supersededBy: m.supersededBy,
     version: m.version,
     accessCount: m.accessCount,
-    // Already stored on OrgMemory — the browse list and lifecycleWorkingSet share this mapper, so
-    // recall does not need a second query to rank on evidence. Absent on a partial mock is 0.
+    // Already stored on OrgMemory — listOrgMemories and lifecycleWorkingSet share this mapper, so
+    // REST `/api/org/memory/recall` ranks on the evidence term without a second query. A partial
+    // mock that omits the column scores as 0 ("no evidence"), never as a missing field.
     citedCount: m.citedCount ?? 0,
     notUsefulCount: m.notUsefulCount ?? 0,
     expiresAt: m.expiresAt ? m.expiresAt.toISOString() : null,

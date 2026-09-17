@@ -368,8 +368,17 @@ would hide every scan-fed, repo-mirrored, and otherwise namespaced note. On
 `scan-pipeline` row is in the working set the REST verb already packs.
 
 ```
-score = confidence × 0.5^(ageDays / halfLife(kind)) × min(2, 1 + 0.25·ln(1 + accessCount))
+score = confidence × 0.5^(ageDays / halfLife(kind))
+      × min(2, delivery × evidence)
+
+delivery = min(2,   1 + 0.25·ln(1 + accessCount))
+evidence = min(1.6, 1 + 0.4·ln(1 + citedCount))
 ```
+
+`citedCount` reaches this formula on the wire row: `toRow()` copies it from
+`OrgMemory` onto `MemoryRow`, and REST `/api/org/memory/recall` passes that
+working set straight into `recallMemories`. There is no second citation query
+on this door.
 
 - **Half-life by kind** (days until the decay term halves): `episodic` 30,
   `semantic` 180, `procedural` 365, `summary` 120; an unrecognized kind falls
@@ -377,10 +386,18 @@ score = confidence × 0.5^(ageDays / halfLife(kind)) × min(2, 1 + 0.25·ln(1 + 
 - **Delivery bonus** is sub-linear (natural log) *and capped at ×2*, reached at
   about 54 deliveries. It counts **deliveries, not uses**: a memory packed into
   fifty prompts and ignored scores exactly like one that answered fifty
-  questions, because nothing flows back from the agent to say which happened.
-  The cap exists because the term otherwise feeds its own input — rank high, get
-  delivered, rank higher — and `decay` scores with the same function, so an
-  uncapped bonus is an unbounded stay of execution.
+  questions. The cap exists because the term otherwise feeds its own input —
+  rank high, get delivered, rank higher — and `decay` scores with the same
+  function, so an uncapped bonus is an unbounded stay of execution.
+- **Evidence bonus** is the citation term: `citedCount` is how many agent
+  `cite_memory` votes said this memory was used. Weighted above delivery
+  (0.4 vs 0.25) because a deliberate self-report is stronger than a send, and
+  capped at ×1.6 (~four citations) so self-reports cannot outrank trust and
+  recency. An unset or zero count is a factor of exactly 1 — "no evidence",
+  never "found useless". `notUsefulCount` is deliberately absent from this
+  arithmetic. The product of delivery and evidence is itself clamped at ×2,
+  so adding the term cannot inflate scores past what delivery alone used to
+  reach.
 - Age is computed from `updatedAt` against an injected "now" (never read from
   the system clock inside the scoring function itself), clamped to zero so a
   future timestamp can't inflate a score.
@@ -443,10 +460,11 @@ Below the pack:
   derived through the same exported constants the server scored with
   (`halfLifeDays`, `ACCESS_BONUS_WEIGHT`, `MAX_DELIVERY_BONUS`), so it cannot
   drift from the model by being re-typed. Zero deliveries is drawn as a counted
-  zero, not an absence. `citedCount` now travels on `MemoryRow` (via `toRow()`)
-  and `MemoryTrust` draws the listed votes, but the per-row bar has not grown a
-  fourth segment yet — drawing a factor from geometry we have not built would be
-  a fabricated measurement.
+  zero, not an absence. `citedCount` travels on `MemoryRow` (via `toRow()`), so
+  the packed row's `score` includes the evidence term at this door. `MemoryTrust`
+  draws the listed votes, but the per-row bar has not grown a fourth segment
+  yet — drawing a factor from geometry we have not built would be a fabricated
+  measurement.
 - **"ranked but left out: budget"** and **"not recallable"**, each collapsed
   behind a summary carrying its group's real swatch, with the demoted sentence on
   a `WhyChip` rather than as a paragraph over the group. An ineligible row shows
@@ -688,7 +706,7 @@ guessing an id from another org 404s rather than leaking existence via a
 | `version` | Starts at 1, incremented on edit or supersede. |
 | `archived` | Soft-delete flag; never a hard delete. |
 | `accessCount` | Denormalized recall/copy tally. |
-| `citedCount` | Denormalized count of agent `cite_memory` votes that said the memory was used. Surfaced on `MemoryRow` via `toRow()` and drawn on `MemoryTrust` when any listed row has votes. 0 is no evidence, never "found useless". |
+| `citedCount` | Denormalized count of agent `cite_memory` votes that said the memory was used. Surfaced on `MemoryRow` via `toRow()`, so REST `/api/org/memory/recall` ranks on the evidence term without a second query. Drawn on `MemoryTrust` when any listed row has votes. 0 is no evidence, never "found useless". |
 | `notUsefulCount` | Denormalized count of votes that said the memory did not help. Never netted against `citedCount`. |
 | `expiresAt` | Optional TTL for ephemeral memory. |
 | `createdBy` | GitHub login of the author, or `null` for scan-fed rows. |
@@ -755,11 +773,11 @@ by hand does not accumulate it by scan either.
   covers deleting the whole org; an explicit per-repo delete belongs in
   `src/lib/db/retention.ts`, which this lane does not own.
 - **The per-row `RecallContribution` bar still draws three factors, not four.**
-  `MemoryRow` now carries `citedCount` / `notUsefulCount` (via `toRow()`), and
-  `MemoryTrust` draws those votes when any listed row has them. The recall bar
-  has not been wired to the new field yet; it still draws trust · freshness ·
-  delivery. The packed row's `score` includes the citation term and stays the
-  server's verbatim value.
+  `MemoryRow` carries `citedCount` / `notUsefulCount` (via `toRow()`), REST
+  recall ranks on the evidence term, and `MemoryTrust` draws those votes when
+  any listed row has them. The recall bar has not been wired to the new field
+  yet; it still draws trust · freshness · delivery. The packed row's `score`
+  includes the citation term and stays the server's verbatim value.
 
 ## Registry-backed state (UC2, 2026-08-18)
 
