@@ -53,7 +53,7 @@ function LedgerRow({ r, noCostSource }: { r: AiRepoRoi; noCostSource: boolean })
   // W3c: with no cost source there IS no spend layer — the model no longer synthesizes one, so these
   // cells are empty rather than blurred-but-populated. Adoption (AI reach) and governance are always
   // real (git-derived) and render normally either way.
-  const sample = (
+  const empty = (
     <span className="text-slate-600" title="No provider reports cost: connect one for spend figures">
       —
     </span>
@@ -65,9 +65,9 @@ function LedgerRow({ r, noCostSource }: { r: AiRepoRoi; noCostSource: boolean })
           {r.name}
         </Link>
       </td>
-      <td className="px-3 py-2 type-mono-sm text-slate-400">{noCostSource ? sample : r.tool}</td>
-      <td className="px-3 py-2 text-right type-mono-sm tabular-nums text-slate-400">{noCostSource ? sample : r.planned ? r.seats : "—"}</td>
-      <td className="px-3 py-2 text-right type-mono-sm tabular-nums text-white">{noCostSource ? sample : r.monthlySpend > 0 ? fmtMoney(r.monthlySpend) : "—"}</td>
+      <td className="px-3 py-2 type-mono-sm text-slate-400">{noCostSource ? empty : r.tool}</td>
+      <td className="px-3 py-2 text-right type-mono-sm tabular-nums text-slate-400">{noCostSource ? empty : r.planned ? r.seats : "—"}</td>
+      <td className="px-3 py-2 text-right type-mono-sm tabular-nums text-white">{noCostSource ? empty : r.monthlySpend > 0 ? fmtMoney(r.monthlySpend) : "—"}</td>
       <td className="px-3 py-2">
         <div className="flex items-center justify-end gap-2">
           <Meter value={r.aiInvolvedRate} color={scoreHex(r.aiInvolvedRate)} className="w-16" size="sm" />
@@ -84,7 +84,7 @@ function LedgerRow({ r, noCostSource }: { r: AiRepoRoi; noCostSource: boolean })
         )}
       </td>
       <td className="px-3 py-2 text-right type-mono-sm tabular-nums text-slate-200">
-        {noCostSource ? sample : r.costPerAiPr == null ? <span className="text-slate-600">—</span> : `$${r.costPerAiPr.toLocaleString()}`}
+        {noCostSource ? empty : r.costPerAiPr == null ? <span className="text-slate-600">—</span> : `$${r.costPerAiPr.toLocaleString()}`}
       </td>
       <td className="px-3 py-2 text-right">
         <VerdictChip verdict={r.verdict} />
@@ -122,7 +122,7 @@ export function AiRoiLedger({ model, slug }: { model: AiDeliveryModel; slug: str
               , <span className="font-mono text-slate-200">{s.governedAiShare}%</span> reviewed
             </>
           )}
-          , both real, from git. Spend, idle, and ROI are a deterministic sample until you{" "}
+          , both real, from git. Spend, idle, and ROI have no cost source until you{" "}
           <Link href={`/org/${slug}/integrations`} className="text-accent transition hover:underline">
             connect a provider
           </Link>
