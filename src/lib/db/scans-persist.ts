@@ -442,12 +442,17 @@ export async function persistScanReport(
         // Engine upgrade: retire the mock scan of this SAME commit first, so the live scan can take its
         // (repoId, headSha) slot — the @@unique constraint permits only one scan per commit, and Scan's
         // children don't cascade (relationMode="prisma"), so delete events → recommendations →
-        // dimensions → the scan, in dependency order. Same tx as the insert, so a failure rolls the
-        // delete back too (the mock row is never lost without a live replacement).
+        // dimensions → outcome bookends → the scan, in dependency order. Same tx as the insert, so a
+        // failure rolls the delete back too (the mock row is never lost without a live replacement).
         if (upgradeOldScanId) {
           await tx.recommendationEvent.deleteMany({ where: { recommendation: { scanId: upgradeOldScanId } } });
           await tx.recommendation.deleteMany({ where: { scanId: upgradeOldScanId } });
           await tx.scanDimension.deleteMany({ where: { scanId: upgradeOldScanId } });
+          // InterventionOutcome has no FK (beforeScanId/afterScanId are strings). A leftover row
+          // after this scan dies is unfalsifiable lift — the same rule pruneRepoScans applies.
+          await tx.interventionOutcome.deleteMany({
+            where: { OR: [{ beforeScanId: upgradeOldScanId }, { afterScanId: upgradeOldScanId }] },
+          });
           await tx.scan.delete({ where: { id: upgradeOldScanId } });
         }
         const scan = await tx.scan.create({

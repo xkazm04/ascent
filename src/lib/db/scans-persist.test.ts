@@ -137,6 +137,9 @@ function fakePrisma(opts: {
       findFirst: vi.fn(async () => ({ id: "rec_carried" })),
     },
     scanDimension: { deleteMany: vi.fn(async () => ({})) },
+    // Moonshot #9 bookends: no Prisma relation, so the upgrade path must delete them explicitly
+    // (same subgraph pruneRepoScans drains) or the mock Scan delete leaves unfalsifiable lift.
+    interventionOutcome: { deleteMany: vi.fn(async () => ({})) },
     repoContributor: { deleteMany: vi.fn(async () => ({})), createMany: vi.fn(async () => ({})) },
     repoTeam: { deleteMany: vi.fn(async () => ({})), createMany: vi.fn(async () => ({})) },
     aiChange: { upsert: vi.fn(async () => ({})) },
@@ -299,7 +302,13 @@ describe("persistScanReport — commit-SHA dedup (no second metered Scan row)", 
     expect(tx.recommendationEvent.deleteMany).toHaveBeenCalledWith({ where: { recommendation: { scanId: "scan_mock" } } });
     expect(tx.recommendation.deleteMany).toHaveBeenCalledWith({ where: { scanId: "scan_mock" } });
     expect(tx.scanDimension.deleteMany).toHaveBeenCalledWith({ where: { scanId: "scan_mock" } });
+    expect(tx.interventionOutcome.deleteMany).toHaveBeenCalledWith({
+      where: { OR: [{ beforeScanId: "scan_mock" }, { afterScanId: "scan_mock" }] },
+    });
     expect(tx.scan.delete).toHaveBeenCalledWith({ where: { id: "scan_mock" } });
+    expect(tx.interventionOutcome.deleteMany.mock.invocationCallOrder[0]!).toBeLessThan(
+      tx.scan.delete.mock.invocationCallOrder[0]!,
+    );
     expect(scanCreate).toHaveBeenCalledTimes(1);
     expect(res).toMatchObject({ scanId: "scan_new", deduped: false, upgraded: true, headSha: null });
   });
@@ -375,7 +384,13 @@ describe("persistScanReport — mock → live engine upgrade", () => {
     expect(tx.recommendationEvent.deleteMany).toHaveBeenCalledWith({ where: { recommendation: { scanId: "scan_mock" } } });
     expect(tx.recommendation.deleteMany).toHaveBeenCalledWith({ where: { scanId: "scan_mock" } });
     expect(tx.scanDimension.deleteMany).toHaveBeenCalledWith({ where: { scanId: "scan_mock" } });
+    expect(tx.interventionOutcome.deleteMany).toHaveBeenCalledWith({
+      where: { OR: [{ beforeScanId: "scan_mock" }, { afterScanId: "scan_mock" }] },
+    });
     expect(tx.scan.delete).toHaveBeenCalledWith({ where: { id: "scan_mock" } });
+    expect(tx.interventionOutcome.deleteMany.mock.invocationCallOrder[0]!).toBeLessThan(
+      tx.scan.delete.mock.invocationCallOrder[0]!,
+    );
     // …and the live scan is written into the freed slot (a real, billable row — not deduped).
     expect(scanCreate).toHaveBeenCalledTimes(1);
     expect(res).toMatchObject({ scanId: "scan_new", deduped: false, upgraded: true, headSha: "sha_x" });
@@ -391,6 +406,7 @@ describe("persistScanReport — mock → live engine upgrade", () => {
     expect(res).toMatchObject({ scanId: "scan_live", deduped: true, headSha: "sha_x" });
     expect(scanCreate).not.toHaveBeenCalled();
     expect(tx.scan.delete).not.toHaveBeenCalled();
+    expect(tx.interventionOutcome.deleteMany).not.toHaveBeenCalled();
   });
 
   it("a MOCK re-scan never replaces an existing mock (mock does not upgrade mock)", async () => {
@@ -403,6 +419,7 @@ describe("persistScanReport — mock → live engine upgrade", () => {
     expect(res).toMatchObject({ scanId: "scan_mock", deduped: true, headSha: "sha_x" });
     expect(scanCreate).not.toHaveBeenCalled();
     expect(tx.scan.delete).not.toHaveBeenCalled();
+    expect(tx.interventionOutcome.deleteMany).not.toHaveBeenCalled();
   });
 });
 
