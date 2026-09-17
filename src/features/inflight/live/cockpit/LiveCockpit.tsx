@@ -24,10 +24,12 @@ import { Surface } from "@/components/ui";
 import { reportPermalink } from "@/lib/ui";
 import type { ObservatoryHistory, ObservatorySeed } from "../observatory";
 import { OutcomeSection } from "../outcome/OutcomeSection";
+import { CockpitBatchLedger } from "./CockpitBatchLedger";
 import { CockpitField } from "./CockpitField";
 import { CockpitHeader } from "./CockpitHeader";
 import { CockpitRail } from "./CockpitRail";
 import { PriceListPanel } from "./PriceListPanel";
+import { RunSetupModal, dialsSummary } from "./RunSetupModal";
 import { useCockpit } from "./useCockpit";
 import type { LoopRunDetail, LoopRunRecord, LoopRunSummary } from "./loopTypes";
 
@@ -56,6 +58,10 @@ export function LiveCockpit(props: LiveCockpitProps) {
   const { slug, seeds, isOwner, wallHref, runDetails = NO_DETAILS } = props;
   const router = useRouter();
   const [listOpen, setListOpen] = useState(true);
+  // The setup dialog is the ONE piece of view state this layout owns: which panel the rail shows and
+  // what the run is armed with both belong to the state machine, but "is the gear's dialog open" is
+  // nothing but chrome.
+  const [setupOpen, setSetupOpen] = useState(false);
   const c = useCockpit(props);
   const { loop, drive } = c;
   // `outcome` is still a real mode of the state machine (it suppresses the interrupted-drive offer and
@@ -71,6 +77,10 @@ export function LiveCockpit(props: LiveCockpitProps) {
         live={loop.live || drive.live}
         driveCaption={drive.live && drive.drive ? `drive · run ${drive.drive.runs.length}/${drive.drive.maxRuns}` : null}
         wallHref={wallHref}
+        // The gear arms the NEXT run, so it is offered only where a run could actually be started —
+        // the same gate the CTA answers to.
+        onOpenSetup={isOwner && loop.enabled ? () => setSetupOpen(true) : undefined}
+        setupSummary={dialsSummary(c.dials)}
         onStop={c.stop}
         stopping={loop.busy || drive.busy}
         // The DRIVE's own flag counts here too: the header's Stop is `c.stop`, which stops whichever
@@ -100,11 +110,9 @@ export function LiveCockpit(props: LiveCockpitProps) {
             interruptedDrive={c.interruptedDrive}
             runDetail={loop.detail}
             runLive={loop.live}
-            selected={c.selected}
-            paired={c.paired}
-            propose={loop.propose}
+            batch={c.batch}
+            dials={c.dials}
             canRun={isOwner && loop.enabled}
-            prAvailable={loop.prAvailable}
             busy={loop.busy || drive.busy}
             loopError={loop.error}
             driveError={drive.error}
@@ -118,6 +126,19 @@ export function LiveCockpit(props: LiveCockpitProps) {
           />
         </Surface>
       </div>
+
+      {/* THE PROPOSED BATCH, in the main column rather than the rail (2026-09-17): it is a table, and
+          a table needs the width. It curates the very batch the rail's CTA dispatches — one piece of
+          state (`c.batch`), read by both. */}
+      <CockpitBatchLedger
+        proposals={c.batch.proposals}
+        pruned={c.batch.pruned}
+        onTogglePrune={c.batch.togglePrune}
+        dimFocus={c.dials.dimFocus}
+        unpaired={c.batch.unpaired}
+        loading={c.batch.loading}
+        empty={c.batch.repos.length === 0}
+      />
 
       <OutcomeSection
         slug={slug}
@@ -133,6 +154,14 @@ export function LiveCockpit(props: LiveCockpitProps) {
       {/* What a verified maturity point has cost, per model, per dimension — the standing summary
           the strip's individual runs add up to. */}
       <PriceListPanel slug={slug} />
+      <RunSetupModal
+        open={setupOpen}
+        onClose={() => setSetupOpen(false)}
+        dials={c.dials}
+        onChange={c.setDial}
+        dims={c.batch.dims}
+        prAvailable={loop.prAvailable}
+      />
       {/* Lesson candidates left the cockpit on 2026-09-15: they are a review queue, and review queues
           live in the In flight group's own ledgers (Lessons, Proposals). */}
     </section>

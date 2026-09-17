@@ -292,6 +292,28 @@ Adopted by `PlanEnquiryFields` (the `/pricing` Custom-plan dialog) and
 change so the standard didn't ship with exactly one user. The remaining hand-rolled
 inputs are unmigrated; move them as you touch them.
 
+## `InfoTip` (`src/components/ui/InfoTip.tsx`, 2026-09-17)
+
+A small circled **i** beside a label that opens a one-paragraph explanation on click.
+
+**What it is for.** Several control surfaces carry a standing explanation under the control — what
+the loop's verification dial executes, what a lane brief is assembled from, what "land in my current
+branch" does to a working copy. Each paragraph is true and worth having; rendered inline, five of them
+turn a setup panel into an essay whose controls you have to hunt for (the Live tab's run dials were
+exactly that before they became `RunSetupModal`). The sentence keeps its place in the product and
+loses its place on the page.
+
+**What it is not for.** Never the alarm. A consequence the operator must read *before* they act — a
+mode that writes into their checkout, a guard they have just switched off — stays on the page as a
+visible line. Use `InfoTip` for the explanation, never for the warning.
+
+**Why a button and not `title`.** The native attribute is invisible to touch, unreadable to most
+screen readers as prose, and unstyleable. This is a real toggle: `aria-expanded`, a keyboard-reachable
+trigger, Escape and blur to dismiss (a click inside the panel keeps it open — `relatedTarget` is
+checked against the wrapper), and a `role="tooltip"` panel wired through `aria-describedby`, so the
+sentence is announced rather than merely drawn. `align="right"` pins the panel to the right edge for a
+trigger near the edge of its container.
+
 ## What a doc here should still cover
 
 - The primitive inventory in `src/components/ui/` and when to reach for each.

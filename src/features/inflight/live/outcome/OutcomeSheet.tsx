@@ -15,11 +15,20 @@
 //
 // Every column — the frozen one included — is drag-resizable, and WIDTH IS DISCLOSURE: a wider column
 // reveals the dimension label and the evidence line (OutcomeSheetCell). Widths persist per org.
+//
+// AND THE ROWS THEMSELVES ARE DISCLOSURE (2026-09-17). Between the project and its gaps sits a
+// DIMENSION BAND (`outcomeSheetGroups.ts`), collapsed by default: the frozen column names the
+// dimension once for the whole band and every run column carries a COUNT of the band's gaps that run
+// touched. A hundred always-expanded gap rows made the column comparison the sheet exists for
+// impossible to hold in the head; the counts are comparable at a glance and the rows are one click
+// away. A band of one is not a band and renders as its gap row, unchanged.
 
-import { useEffect, useMemo, useRef } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { OutcomeGroupSheetRow } from "./OutcomeGroupRow";
 import { OutcomeSheetHeader } from "./OutcomeSheetHeader";
 import { OutcomeGapSheetRow, OutcomeProjectRow } from "./OutcomeSheetRow";
 import type { OutcomeMatrix } from "./outcomeMatrix";
+import { groupSheetRows, isBand } from "./outcomeSheetGroups";
 import { buildSheetProjects, type CellReviewHandler } from "./outcomeSheetModel";
 import { LABEL_COLUMN, useColumnWidths } from "./useColumnWidths";
 
@@ -36,7 +45,15 @@ export interface OutcomeSheetProps {
 
 export function OutcomeSheet({ matrix, slug, selectedId, onOpen, canReview, onReview }: OutcomeSheetProps) {
   const { widthOf, setWidth } = useColumnWidths(slug, matrix.latestId);
-  const projects = useMemo(() => buildSheetProjects(matrix), [matrix]);
+  const columnIds = useMemo(() => matrix.columns.map((c) => c.id), [matrix.columns]);
+  const projects = useMemo(
+    () => buildSheetProjects(matrix).map((p) => ({ ...p, groups: groupSheetRows(p.rows, columnIds) })),
+    [matrix, columnIds],
+  );
+  // WHICH BANDS ARE OPEN — `<repo>|<dimension>`, and not persisted. Widths are a layout preference
+  // worth remembering across sessions; which bands you opened is a question about the run you are
+  // reading right now, and restoring a stale set of them is how a sheet greets you expanded again.
+  const [openBands, setOpenBands] = useState<ReadonlySet<string>>(() => new Set());
   const latestRef = useRef<HTMLTableCellElement | null>(null);
   useEffect(() => {
     // jsdom has no scrollIntoView; the optional call keeps the dom tests honest about that.
@@ -66,16 +83,42 @@ export function OutcomeSheet({ matrix, slug, selectedId, onOpen, canReview, onRe
         {projects.map((project) => (
           <tbody key={project.repo}>
             <OutcomeProjectRow project={project} columns={matrix.columns} slug={slug} canOpenPr={canReview === true} />
-            {project.rows.map((row) => (
-              <OutcomeGapSheetRow
-                key={row.key}
-                row={row}
-                columns={matrix.columns}
-                widthOf={widthOf}
-                canReview={canReview}
-                onReview={onReview}
-              />
-            ))}
+            {project.groups.map((group) => {
+              const id = `${project.repo}|${group.key}`;
+              const band = isBand(group);
+              const open = !band || openBands.has(id);
+              return (
+                <Fragment key={id}>
+                  {band && (
+                    <OutcomeGroupSheetRow
+                      group={group}
+                      columns={matrix.columns}
+                      open={open}
+                      onToggle={() =>
+                        setOpenBands((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(id)) next.delete(id);
+                          else next.add(id);
+                          return next;
+                        })
+                      }
+                    />
+                  )}
+                  {open &&
+                    group.rows.map((row) => (
+                      <OutcomeGapSheetRow
+                        key={row.key}
+                        row={row}
+                        columns={matrix.columns}
+                        widthOf={widthOf}
+                        canReview={canReview}
+                        onReview={onReview}
+                        indent={band}
+                      />
+                    ))}
+                </Fragment>
+              );
+            })}
           </tbody>
         ))}
       </table>

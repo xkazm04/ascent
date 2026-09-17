@@ -424,6 +424,20 @@ export interface LoopRunDetail {
   /** One row per item the run's lanes dispatched — the agent's account beside the rescan's ruling.
    *  Empty on a run that predates the contract, which is not the same as "nothing was skipped". */
   itemOutcomes: LaneOutcomeRow[];
+  /**
+   * EVERY DISPATCHED ITEM'S TITLE, BY ID — so a proposal never renders as a raw uuid.
+   *
+   * The outcome sheet gives an armed-but-unresolved batch item its own row, and titled it by looking
+   * the id up in the lane's own before/after scans. That lookup fails for exactly the lanes that most
+   * need a row: a FORCE-FAILED or still-queued lane has no `afterScanId` and often no `beforeScanId`,
+   * so it has no scan to look anything up in — and the row fell back to printing the id. A ledger
+   * whose left column reads `4f2c0b18-…` tells a reader nothing about what the loop was asked to do.
+   *
+   * The titles exist, in the `Recommendation` table, and this read is where a database is reachable.
+   * One query per detail, not one per row. Absent on a payload from a server older than this field,
+   * which is why every consumer treats it as optional and keeps its own fallbacks.
+   */
+  batchTitles?: Record<string, { title: string; dimId: string | null }>;
 }
 
 

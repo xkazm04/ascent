@@ -45,3 +45,23 @@ export function verdictWord(a: Attribution): string {
 
 /** "3 commits · 2 gaps" — the mono footnote under a cell. */
 export const cellFootnote = (commits: number, gaps: number): string => `${plural(commits, "commit")} · ${plural(gaps, "gap")}`;
+
+/**
+ * THE FIRST CLAUSE OF A LANE FAILURE — what the error dialog is titled, and what the icon says on
+ * hover. The engine's errors are written to be read in full and are long by design ("Cycle 1 was
+ * FORCE-FAILED: it exceeded its 90 min deadline while no stage in particular was in flight, so the
+ * lane was cut loose rather than left holding the run. …"), which is right for a dialog and wrong for
+ * a spreadsheet cell 168px wide. The lead clause — up to the first colon, else the first sentence —
+ * is the part that names WHAT happened; the rest names what it means, and that is the dialog's job.
+ */
+export function errorHeadline(error: string, max = 72): string {
+  const text = error.trim().replace(/\s+/g, " ");
+  const colon = text.indexOf(": ");
+  const stop = text.search(/[.!?](\s|$)/);
+  const candidates = [colon > 0 ? text.slice(0, colon) : null, stop > 0 ? text.slice(0, stop) : null].filter(
+    (c): c is string => c != null && c.length <= max,
+  );
+  // Longest clause that still fits — a colon inside a sentence is the better cut when both survive.
+  const lead = candidates.sort((a, b) => b.length - a.length)[0];
+  return lead ?? shortTitle(text, max);
+}

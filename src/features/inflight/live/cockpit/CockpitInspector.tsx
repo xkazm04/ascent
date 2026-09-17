@@ -2,33 +2,36 @@
 
 // INSPECT mode — the right rail while nothing is running. It answers three questions about the
 // current selection, in the order an operator asks them: what did I select, what do these repos have
-// in COMMON, and what exactly would each lane work? Then one CTA.
+// in COMMON, and what standard would each lane be handed? Then one CTA.
+//
+// WHAT LEFT THIS PANEL (2026-09-17), and why it is not a loss:
+//   • the ten DIALS went to the run-setup dialog behind the masthead's gear — setup is a property of
+//     the next run, not of this selection, and it never fitted an 18rem column;
+//   • the PROPOSED BATCH went to the ledger under the sky (`CockpitBatchLedger`) — it is a table, and
+//     a table needs the main column.
+// Both still travel with the run this CTA starts: the dials and the batch live in `useCockpit`, and
+// this panel composes the request from them exactly as it did when it owned them.
 //
 // PAIRING RULE. A loop lane edits a real working copy, so a selected repo with no local pairing
 // cannot run. Rather than disabling the whole CTA (which would punish a lasso for catching one
 // unpaired repo), the unpaired rows are flagged and EXCLUDED, and the CTA counts only what will
 // actually run — dropping to disabled when that count is zero.
 
-import { useEffect, useMemo, useState } from "react";
 import { Kicker } from "@/components/ui";
 import { BriefStrip, InspectorEmpty } from "./BriefStrip";
-import { ProposalList, SharedDimensionBars } from "./CockpitBatch";
+import { SharedDimensionBars } from "./CockpitBatch";
 import { CockpitInspectorCta } from "./CockpitInspectorCta";
-import { CockpitRunControls } from "./CockpitRunControls";
-import { proposalDimensions, sharedDimensions } from "./cockpitDimensions";
-import { useRunDials } from "./useRunDials";
 import type { StartDriveInput } from "./driveClient";
 import type { StartLoopInput } from "./loopClient";
-import type { LoopProposal } from "./loopTypes";
-
-/** A lasso drags through dozens of intermediate selections; only the one it settles on is queried. */
-const PROPOSE_DEBOUNCE_MS = 350;
+import type { ProposalBatch } from "./useProposalBatch";
+import type { RunDials } from "./useRunDials";
 
 export interface CockpitInspectorProps {
-  selected: ReadonlySet<string>;
-  /** Repos with a local pairing — the only ones a lane can be dispatched into. */
-  paired: ReadonlySet<string>;
-  propose: (repos: readonly string[]) => Promise<LoopProposal[] | null>;
+  /** The selection's proposals, pruning and arithmetic — owned by `useCockpit`, read here and by the
+   *  batch ledger, so the CTA dispatches exactly what the ledger draws. */
+  batch: ProposalBatch;
+  /** The armed run configuration (the setup dialog writes it; this composes the request from it). */
+  dials: RunDials;
   onRun: (input: StartLoopInput) => void;
   /** Start a DRIVE over the same scope: runs until green, dry, or the run budget is spent. */
   onDrive: (input: StartDriveInput) => void;
@@ -39,66 +42,14 @@ export interface CockpitInspectorProps {
   error?: string | null;
   /** Why running is unavailable (hosted, not owner, autopilot off) — shown in place of the CTA. */
   blockedReason?: string | null;
-  /** Whether this deployment can open a PR at all (a GitHub App is configured). False DISABLES the
-   *  "Open a PR" delivery choice and says why, rather than offering a mode the route would refuse. */
-  prAvailable?: boolean;
   busy?: boolean;
 }
 
 export function CockpitInspector(props: CockpitInspectorProps) {
-  const { selected, paired, propose, onRun, onDrive, canRun, canDrive = true, blockedReason = null, busy = false, error = null } = props;
-  const prAvailable = props.prAvailable !== false;
-  // Keyed by the selection they were fetched FOR, so a stale response can never be read against a
-  // selection it does not describe (and an emptied selection needs no state write at all).
-  const [fetched, setFetched] = useState<{ key: string; proposals: LoopProposal[] }>({ key: "", proposals: [] });
-  const [loading, setLoading] = useState(false);
-  const [pruned, setPruned] = useState<ReadonlySet<string>>(() => new Set());
-  // Six dials in one piece of state (useRunDials) — the run and the drive read the SAME values, which
-  // is what makes them two ways of arming one experiment rather than two configurations.
-  const { dials, set } = useRunDials();
-
-  const repos = useMemo(() => [...selected].sort(), [selected]);
-  const key = repos.join(",");
-  const proposals = useMemo(() => (fetched.key === key ? fetched.proposals : []), [fetched, key]);
-
-  useEffect(() => {
-    if (repos.length === 0) return;
-    let alive = true;
-    const t = setTimeout(() => {
-      setLoading(true);
-      void propose(repos).then((res) => {
-        if (!alive) return;
-        setFetched({ key, proposals: res ?? [] });
-        setLoading(false);
-      });
-    }, PROPOSE_DEBOUNCE_MS);
-    return () => {
-      alive = false;
-      clearTimeout(t);
-    };
-    // `key` is the stable identity of the selection; `repos` is a fresh array every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, propose]);
-
-  const unpaired = useMemo(() => new Set(repos.filter((r) => !paired.has(r))), [repos, paired]);
-  const runnable = useMemo(() => repos.filter((r) => paired.has(r)), [repos, paired]);
-  const shares = useMemo(() => sharedDimensions(proposals, selected), [proposals, selected]);
-  const dims = useMemo(() => proposalDimensions(proposals), [proposals]);
-
-  const togglePrune = (id: string) => {
-    const next = new Set(pruned);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    setPruned(next);
-  };
+  const { batch, dials, onRun, onDrive, canRun, canDrive = true, blockedReason = null, busy = false, error = null } = props;
+  const { repos, unpaired, runnable, proposals, shares, batches } = batch;
 
   const run = () => {
-    const batches: Record<string, string[]> = {};
-    for (const p of proposals) {
-      if (!paired.has(p.repo)) continue;
-      const ids = p.items.filter((i) => !pruned.has(i.id) && (!dials.dimFocus || i.dimId === dials.dimFocus)).map((i) => i.id);
-      if (ids.length > 0) batches[p.repo] = ids;
-    }
     const curated = Object.keys(batches).length > 0;
     onRun({
       repos: runnable,
@@ -119,7 +70,7 @@ export function CockpitInspector(props: CockpitInspectorProps) {
   };
 
   // A drive picks its OWN batch before every run (the fleet is re-scored between them), so the
-  // inspector's pruning and dimension focus deliberately do not travel with it — only the scope and
+  // ledger's pruning and dimension focus deliberately do not travel with it — only the scope and
   // the three bounds do.
   const drive = () =>
     onDrive({
@@ -162,17 +113,6 @@ export function CockpitInspector(props: CockpitInspectorProps) {
       <SharedDimensionBars shares={shares} />
 
       <BriefStrip proposals={proposals} />
-
-      <CockpitRunControls dims={dims} dials={dials} onChange={set} prAvailable={prAvailable} />
-
-      <ProposalList
-        proposals={proposals}
-        pruned={pruned}
-        onTogglePrune={togglePrune}
-        dimFocus={dials.dimFocus}
-        unpaired={unpaired}
-        loading={loading}
-      />
 
       <CockpitInspectorCta
         runnable={runnable.length}

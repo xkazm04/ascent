@@ -72,6 +72,15 @@ owner review. A gap counts at its latest run only, so the same gap proposed in r
 one row, and a ruling on run 7 settles it. Loop proposals list first, then the scan ledger in its
 value order. Header: `N open · M handed off · L from the loop · +P pts on the table`.
 
+**A loop proposal is never titled with a uuid (2026-09-17).** These rows come from the same
+`buildGapRows` the outcome sheet folds, and its title lookup used to be the lane's own before/after
+scans — which a FORCE-FAILED or still-queued lane does not have, so its armed items arrived in this
+ledger as raw ids. `pendingLoopProposals` now passes the run's `batchTitles` (resolved server-side
+against the `Recommendation` table in `getLoopRunDetail`) into the fold, and an id nothing can title
+falls back to *"Armed item · 4f2c0b18"* rather than to the id itself. Measured on the `kiro` fleet
+(2026-09-17): 50 of 157 armed items were uuid-titled before the fix, 0 after. See
+[live.md](../org-planning/live.md#gap-states-and-the-review-gate-wave-2b-2026-08-30).
+
 A loop proposal has no impact/effort rating, no projected points and no fleet spread, so those
 cells print a dash, and an Impact or org-wide filter excludes the row rather than guessing. Being
 pending by construction, it is in the working set and never in the resolved archive. A **Source**

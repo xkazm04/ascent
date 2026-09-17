@@ -7,7 +7,7 @@ import { diffScans } from "@/lib/report/compare";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import type { ComparableScan } from "@/lib/db/scans";
 import type { LoopLaneOutcome, LoopLaneRecord } from "../cockpit/loopTypes";
-import { buildGapRows, rowCover } from "./outcomeGapRows";
+import { buildGapRows, rowCover, untitledBatchItem } from "./outcomeGapRows";
 
 const scan = (p: Partial<ComparableScan> & { id: string }): ComparableScan => ({
   scannedAt: "2026-08-22T10:00:00.000Z", overallScore: 50, level: "L3", levelName: "Augmented", archetype: "org",
@@ -76,5 +76,48 @@ describe("buildGapRows — one state per row", () => {
     const cycle2 = outcome({ lane: lane({ id: "l2", cycle: 2 }), deliverables: [closedRow, { ...closedRow, covers: ["rec-2"] }] });
     const rows = buildGapRows([outcome({ lane: lane({}), deliverables: [closedRow] }), cycle2]);
     expect(rows.map((r) => r.covers)).toEqual([["rec-1"], ["rec-2"]]);
+  });
+});
+
+// A LANE THAT NEVER RESCANNED IS THE CASE THAT PRODUCED UUIDs IN THE LEDGER. A FORCE-FAILED or still-
+// queued lane has no `after` and often no `before`, so the scan lookup that titles an armed item has
+// nothing to look in — and the row used to fall back to printing the raw id, in the sheet's frozen
+// column and again in the Proposals ledger. Four sources are asked now, and the last resort is a
+// label rather than an id.
+describe("buildGapRows — an armed item's title, when the lane has no scans", () => {
+  const dead = (batchIds: string[]) =>
+    outcome({ lane: lane({ batchIds, phase: "error", commits: 0, beforeScanId: null, afterScanId: null }), before: null, after: null, diff: null });
+
+  it("falls back to the run's server-side title resolution", () => {
+    const rows = buildGapRows([dead(["rec-9"])], { "rec-9": { title: "Pin the CI action SHAs", dimId: "D3" } });
+    expect(rows[0]).toMatchObject({ headline: "Pin the CI action SHAs", dimId: "D3", state: "proposed" });
+  });
+
+  it("drops a dimension the client cannot render rather than carrying a raw column value", () => {
+    const rows = buildGapRows([dead(["rec-9"])], { "rec-9": { title: "Something", dimId: "not-a-dimension" } });
+    expect(rows[0]!.dimId).toBeNull();
+  });
+
+  it("titles from the lane's own deliverables when the run carries no resolution", () => {
+    const withHeadline = outcome({
+      lane: lane({ batchIds: ["rec-7"], beforeScanId: null, afterScanId: null }),
+      before: null,
+      after: null,
+      diff: null,
+      deliverables: [{ headline: "Replace the ad-hoc retry loop", dimId: null, kind: "noted", covers: ["rec-7"], evidence: null, review: "dismissed" }],
+    });
+    // The deliverable above is a REVIEW MARKER by shape only when its headline IS the cover; here it
+    // is a real noted row, so it both renders and lends its headline to the armed id.
+    expect(buildGapRows([withHeadline]).some((r) => r.headline === "Replace the ad-hoc retry loop")).toBe(true);
+  });
+
+  it("NEVER prints a bare uuid — an id nothing can title says what it is and keeps a short handle", () => {
+    const id = "4f2c0b18-9a51-4a0e-8e0f-2b7c1d3e5a90";
+    const rows = buildGapRows([dead([id])]);
+    expect(rows[0]!.headline).toBe(untitledBatchItem(id));
+    expect(rows[0]!.headline).not.toBe(id);
+    expect(rows[0]!.headline).toContain("4f2c0b18");
+    // The row is still addressable: the review POST keys on the id, which stays in `covers`.
+    expect(rowCover(rows[0]!)).toBe(id);
   });
 });
