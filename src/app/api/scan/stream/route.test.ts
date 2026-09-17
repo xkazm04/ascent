@@ -37,6 +37,11 @@ vi.mock("@/lib/entitlement", () => ({
   checkScanEntitlement: vi.fn(async () => ({ allowed: true, unlimited: false, balance: 5 })),
   paymentRequired: (balance: number) =>
     new Response(JSON.stringify({ code: "INSUFFICIENT_CREDITS", balance }), { status: 402 }),
+  orgNotFound: () => new Response(JSON.stringify({ code: "NOT_FOUND" }), { status: 404 }),
+  scanCreditRefusal: (decision: { reason: "not_found" } | { reason: "payment_required"; balance: number }) =>
+    decision.reason === "not_found"
+      ? new Response(JSON.stringify({ code: "NOT_FOUND" }), { status: 404 })
+      : new Response(JSON.stringify({ code: "INSUFFICIENT_CREDITS", balance: decision.balance }), { status: 402 }),
 }));
 vi.mock("@/lib/scan-credit", () => ({
   reserveScanCredit: vi.fn(async () => ({ skip: false, reserved: true, balance: 4 })),
@@ -170,6 +175,34 @@ describe("POST /api/scan/stream — credit metering", () => {
 
     expect(res.status).toBe(402);
     expect(await res.json()).toMatchObject({ balance: 0 });
+    expect(mockScan).not.toHaveBeenCalled();
+  });
+
+  it("answers 404 NOT_FOUND — not 402 INSUFFICIENT_CREDITS — when the org does not exist", async () => {
+    mockEnt.mockResolvedValue({
+      allowed: false,
+      unlimited: false,
+      balance: 0,
+      withinAllowance: false,
+      allowanceRemaining: 0,
+      orgExists: false,
+    } as Awaited<ReturnType<typeof checkScanEntitlement>>);
+
+    const res = await post({ url: "o/r" });
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toMatchObject({ code: "NOT_FOUND" });
+    expect(mockReserve).not.toHaveBeenCalled();
+    expect(mockScan).not.toHaveBeenCalled();
+  });
+
+  it("answers 404 when the reservation reports orgExists:false (org vanished after the read)", async () => {
+    mockReserve.mockResolvedValue({ skip: true, reserved: false, balance: 0, orgExists: false });
+
+    const res = await post({ url: "o/r" });
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toMatchObject({ code: "NOT_FOUND" });
     expect(mockScan).not.toHaveBeenCalled();
   });
 

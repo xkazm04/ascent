@@ -16,7 +16,7 @@ vi.mock("@/lib/db/credits", () => ({
   countMeteredScansThisMonth: mockCountUsage,
 }));
 
-import { checkScanEntitlement, isMeteredScan, paymentRequired } from "./entitlement";
+import { checkScanEntitlement, isMeteredScan, orgNotFound, paymentRequired, scanCreditRefusal } from "./entitlement";
 import { scanAllowance } from "@/lib/plans";
 
 // The Free tier's monthly allowance, read from the plan model. These tests assert what happens AT the
@@ -113,5 +113,25 @@ describe("paymentRequired", () => {
     const body = await res.json();
     expect(body.code).toBe("INSUFFICIENT_CREDITS");
     expect(body.balance).toBe(0);
+  });
+});
+
+describe("orgNotFound / scanCreditRefusal", () => {
+  it("is a 404 carrying NOT_FOUND, never INSUFFICIENT_CREDITS", async () => {
+    const res = orgNotFound();
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.code).toBe("NOT_FOUND");
+    expect(body.code).not.toBe("INSUFFICIENT_CREDITS");
+  });
+
+  it("maps not_found to 404 and payment_required to 402", async () => {
+    const missing = scanCreditRefusal({ reason: "not_found" });
+    expect(missing.status).toBe(404);
+    expect((await missing.json()).code).toBe("NOT_FOUND");
+
+    const paywall = scanCreditRefusal({ reason: "payment_required", balance: 0 });
+    expect(paywall.status).toBe(402);
+    expect((await paywall.json()).code).toBe("INSUFFICIENT_CREDITS");
   });
 });

@@ -44,6 +44,7 @@ vi.mock("@/lib/authz", () => ({
 vi.mock("@/lib/entitlement", () => ({
   checkScanEntitlement: vi.fn(async () => ({ allowed: true, unlimited: false, balance: 5, allowanceRemaining: 0 })),
   paymentRequired: vi.fn(() => new Response("{}", { status: 402 })),
+  orgNotFound: vi.fn(() => new Response(JSON.stringify({ code: "NOT_FOUND" }), { status: 404 })),
 }));
 
 import { POST } from "./route";
@@ -250,6 +251,22 @@ describe("POST /api/org/scan — credit capacity is still decided up front", () 
       new Request("http://localhost/api/org/scan", { method: "POST", body: JSON.stringify({ org: "acme" }) }),
     );
     expect(res.status).toBe(402);
+    expect(mockEnqueue).not.toHaveBeenCalled();
+  });
+
+  it("refuses a missing org with 404 NOT_FOUND, not 402 INSUFFICIENT_CREDITS", async () => {
+    mockEntitlement.mockResolvedValue({
+      allowed: false,
+      unlimited: false,
+      balance: 0,
+      allowanceRemaining: 0,
+      orgExists: false,
+    });
+    const res = await POST(
+      new Request("http://localhost/api/org/scan", { method: "POST", body: JSON.stringify({ org: "ghost" }) }),
+    );
+    expect(res.status).toBe(404);
+    expect(await res.json()).toMatchObject({ code: "NOT_FOUND" });
     expect(mockEnqueue).not.toHaveBeenCalled();
   });
 });

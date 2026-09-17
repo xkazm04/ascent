@@ -489,6 +489,17 @@ describe("consumeScanCredit plan-resolution + casing contract", () => {
     expect(updateMany).not.toHaveBeenCalled();
     expect(ledger).toHaveLength(0);
   });
+
+  it("a real org at zero credits denies WITHOUT orgExists:false — that is a paywall, not a 404", async () => {
+    const { prisma, ledger } = fakePrismaForPlanResolution({ scanCredits: 0, plan: "free" });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await consumeScanCredit("acme");
+
+    expect(res).toEqual({ ok: false, balance: 0, unlimited: false, charged: false });
+    expect(res.orgExists).not.toBe(false);
+    expect(ledger).toHaveLength(0);
+  });
 });
 
 describe("getCreditReconciliation refund-vs-grant classification", () => {

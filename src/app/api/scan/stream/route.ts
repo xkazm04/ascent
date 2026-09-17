@@ -13,7 +13,7 @@ import { resolveScanScope } from "@/lib/scan-scope-server";
 import { tooManyRequests } from "@/lib/rate-limit";
 import { cacheAndPersistScan, classifyScanResult, consumeScanQuota } from "@/lib/scan-finalize";
 import { scanAuthGate, scanCreditGate, scanRateLimitGate } from "@/lib/scan-gates";
-import { paymentRequired } from "@/lib/entitlement";
+import { scanCreditRefusal } from "@/lib/entitlement";
 import { getViewer } from "@/lib/access";
 import { publicBaseUrl } from "@/lib/site";
 import { reportPermalink } from "@/lib/ui";
@@ -144,7 +144,7 @@ export async function POST(request: Request) {
   // Credit RESERVATION for a metered (private / installed-org) scan — the fourth and last pre-scan
   // gate, shared with /api/scan via scanCreditGate and sequenced there identically (rate limit →
   // sign-in wall → quota → credit). Reserved HERE, before the stream opens and before any inference,
-  // so a 402 is a plain JSON response rather than an SSE `error` frame, and so two concurrent scans
+  // so a 402/404 is a plain JSON response rather than an SSE `error` frame, and so two concurrent scans
   // cannot both pass a point-in-time balance read and both run paid inference. Public (token-less)
   // and mock scans are never charged — `isMeteredScan` inside the gate short-circuits them, so the
   // public funnel still pays only the monthly quota consumed above.
@@ -155,7 +155,7 @@ export async function POST(request: Request) {
     // so the thunk just hands it back — the ledger row names the person whose scan spent the credit.
     resolveActor: () => viewer?.login ?? null,
   });
-  if (!credit.ok) return paymentRequired(credit.balance);
+  if (!credit.ok) return scanCreditRefusal(credit);
   // Refund the reservation from the same in-stream no-delivery paths `refundQuota` fires on (cached
   // hit, coalesce join, degrade-to-mock, dedup, throw/abort): the credit meter, like the free tier,
   // meters on commit, not attempt. Idempotent — at most one refund per reservation.

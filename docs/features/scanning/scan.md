@@ -63,6 +63,7 @@ quota is consumed, so a typo can never burn one of the free tier's monthly scan 
 ```
 rate limit  →  sign-in wall  →  monthly quota                   →  credit reserve
    429            401              429 { code: "monthly_quota" }     402 INSUFFICIENT_CREDITS
+                                                                     404 NOT_FOUND (missing org)
 ```
 
 The **credit reserve** (`scanCreditGate`) is the last gate because it is the only one that mutates
@@ -76,8 +77,9 @@ share the one gate. Both also answer `x-ascent-credits-remaining`: on `/api/scan
 post-refund balance; on the SSE route the headers flush before `start()` can refund, so it is the
 **pre-refund** figure (the same soft-header caveat the `x-ascent-quota-*` fields carry). The report
 client renders the 402 as its own out-of-credits wall (see
-[report.md](../reporting/report.md#failure-states-on-the-report-page-2026-09-05)). A GitHub network
-failure inside `ghJson` now crosses back as a fixed sentence; the raw error is logged server-side.
+[report.md](../reporting/report.md#failure-states-on-the-report-page-2026-09-05)). A missing org
+(`orgExists: false` from `reserveScanCredit`) is `404 { code: "NOT_FOUND" }`, never that 402. A GitHub
+network failure inside `ghJson` now crosses back as a fixed sentence; the raw error is logged server-side.
 
 ### The anonymous public scan is exempt from the sign-in wall
 

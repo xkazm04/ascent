@@ -70,6 +70,7 @@ vi.mock("@/lib/authz", () => ({
 vi.mock("@/lib/entitlement", () => ({
   checkScanEntitlement: vi.fn(async () => ({ allowed: true, unlimited: true, balance: 0 })),
   paymentRequired: vi.fn(),
+  orgNotFound: vi.fn(),
 }));
 // `rateLimitRequestShared` is a vi.fn so the refusal suite below can make it deny, and
 // `tooManyRequests` is the REAL helper (not a stub) so that suite asserts the response this route

@@ -322,8 +322,10 @@ export async function countMeteredScansThisMonth(orgSlug: string): Promise<numbe
 /**
  * Consume the budget for one metered scan under the hybrid model: FREE on the unlimited plan, FREE
  * while the org is under its monthly allowance, then ONE prepaid credit (atomic, balance-clamped), else
- * denied. Returns { ok, balance, unlimited, charged } — `charged` is true ONLY when a credit was
- * actually debited, so the caller refunds (on dedup/degrade) exactly that and nothing else.
+ * denied. Returns { ok, balance, unlimited, charged, orgExists } — `charged` is true ONLY when a
+ * credit was actually debited, so the caller refunds (on dedup/degrade) exactly that and nothing else.
+ * `orgExists: false` is a missing org (typo / deletion), NOT an out-of-credits paywall: callers
+ * (`reserveScanCredit` → `scanCreditGate`) must 404 that, never 402 `INSUFFICIENT_CREDITS`.
  *
  * The allowance pre-check is a SOFT, non-atomic read: usageThisMonth counts persisted Scan rows, which
  * land only AFTER a lane reserves, so concurrent lanes at the allowance boundary all read the same stale

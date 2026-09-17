@@ -44,7 +44,7 @@ import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, getViewer } from "@/lib/access";
 import { canMintInstallationToken, requireFleetOrg, requireOrgAccess } from "@/lib/authz";
 import { normalizeOrgSlug } from "@/lib/db/org-shared";
-import { checkScanEntitlement, paymentRequired } from "@/lib/entitlement";
+import { checkScanEntitlement, orgNotFound, paymentRequired } from "@/lib/entitlement";
 import {
   consumePublicScanQuota,
   peekPublicScanQuota,
@@ -216,6 +216,7 @@ export async function POST(request: Request) {
   let scanCapacity = 0;
   if (metered) {
     const ent = await checkScanEntitlement(org);
+    if (ent.orgExists === false) return orgNotFound();
     if (!ent.allowed) return paymentRequired(ent.balance);
     unlimited = ent.unlimited;
     scanCapacity = ent.balance + ent.allowanceRemaining;
