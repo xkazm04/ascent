@@ -64,6 +64,7 @@ export function SkillDownload({
         href={skillHref(repoParam)}
         className={pillClass({ accent: true, focusRing: true, textSm: true })}
         title="Download a personalized Claude Code onboarding skill (drop it in .claude/skills/ and run it to act on this report)"
+        aria-label={`Onboarding skill for ${repoParam}`}
       >
         <span aria-hidden>✦</span> Onboarding skill
       </a>
@@ -135,6 +136,7 @@ export function SkillDownload({
               href={skillHref(repoParam, picked)}
               onClick={() => setOpen(false)}
               className={pillClass({ accent: true, focusRing: true, textSm: true })}
+              aria-label={`Download SKILL.md for ${repoParam}`}
             >
               <span aria-hidden>↓</span> Download SKILL.md
             </a>
@@ -142,5 +144,29 @@ export function SkillDownload({
         </ModalFooter>
       </Modal>
     </>
+  );
+}
+
+/** Wizard done-step offer: one SkillDownload pill per repo that actually scored. Empty list is a
+ *  no-op so the scan step can pass the same scored-repo set the foundation panel uses. */
+export function SkillDownloadList({ repos }: { repos: string[] }) {
+  if (repos.length === 0) return null;
+  return (
+    <div className="mt-6 rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+      <h2 className="type-body font-semibold text-white">Download SKILL.md</h2>
+      <p className="mt-1 type-body-sm text-slate-400">
+        Personalized onboarding skill for each repo that scored. Drop it in{" "}
+        <span className="font-mono text-slate-300">.claude/skills/</span> and run it to act on this
+        report.
+      </p>
+      <ul className="mt-3 space-y-2">
+        {repos.map((repo) => (
+          <li key={repo} className="flex flex-wrap items-center gap-2">
+            <span className="min-w-0 flex-1 truncate font-mono type-body-sm text-slate-300">{repo}</span>
+            <SkillDownload repoParam={repo} />
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

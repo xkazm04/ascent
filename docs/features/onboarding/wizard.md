@@ -47,7 +47,7 @@ the co-located `useOnboardingFlow` hook (the component is the view layer).
 | **pick** | Choose a source: a GitHub **App installation** (private repos included, via `/api/app/repos`), a discovered/suggested org chip, or a free-text org/user handle (public listing, via `/api/org/repos`). The handle form's **try:** chips lead with `DEMO_ORG_SLUG` (`lib/site.ts`, env-overridable) then two well-known public orgs when those slugs are distinct, so the shortcut matches the landing and the "See an example org report" link. A `?org=<handle>` query param (the `/api/app/setup` post-install bounce, and any deep link that already knows the account) starts the public path immediately. |
 | **select** | Up to 10 selectable. The public listing is ordered most-recently-pushed; the App listing is ordered by stars → recent activity. Both disclose when the listing was cut short (`truncated` from `/api/org/repos` or `/api/app/repos`). Preselection is by prominence (stars, then recency) in both. Sticky action bar with "Select top 10" / "Clear", plus the cost disclosure + autoscan **opt-in** (see below). |
 | **scanning** | Stream SSE from `POST /api/org/import` (`{ org, repos, mock, watch, schedule }`); per-repo live progress (level + score, error, or credit-skipped); cancel button; **360s stall timeout** (`STALL_MS`, sized above one real LLM assessment — see below). |
-| **done** | A **short dashboard handoff** + the **foundation install panel** and the invite panel (both App path only) + "View dashboard" / "Scan another" (`resetRun` clears the full per-run state, money snapshot included), plus the preview disclosure and any credit-shortfall notice. On a preview-then-upgrade run the banner + CTA switch to the handoff copy ("live scan is queued: open the dashboard and it starts automatically"). |
+| **done** | A **short dashboard handoff** + the **SKILL.md download** (`SkillDownload` / `SkillDownloadList`, every repo that scored) + the **foundation install panel** and the invite panel (both App path only) + "View dashboard" / "Scan another" (`resetRun` clears the full per-run state, money snapshot included), plus the preview disclosure and any credit-shortfall notice. On a preview-then-upgrade run the banner + CTA switch to the handoff copy ("live scan is queued: open the dashboard and it starts automatically"). |
 
 **Real vs. preview scans.** `resolveScanMode` (`scanMode.ts`) settles this before any POST, and it
 now has **two** real paths:
@@ -174,7 +174,7 @@ duplicated the dashboard. What replaced it is narrower and does real work: `Foun
 scanned successfully**, seeding the `.ai/` foundation Ascent generated from each scan
 (`POST /api/report/foundation/pr-batch`) **and** the personalized
 `.claude/skills/ascent-onboard/SKILL.md` (same tracks as `GET /api/report/skill`). A pre-existing
-skill file is skipped (409), not overwritten; the SKILL.md download remains the no-App fallback.
+skill file is skipped (409), not overwritten.
 The panel renders on the App path only (`foundationOrg`, gated the
 same way as the invite panel: an installation id means a real org with a token behind it), offers a
 no-op **Skip**, and discloses before sending — that the PR is a draft nobody merges for you, and that
@@ -183,7 +183,13 @@ here but performed on the Repositories tab, behind a typed confirmation and the 
 the batch succeeds, each ok row with a `url` (and `number` when present) is listed as a link; the
 first per-repo error is kept so a mixed result still says why a repo failed. A repo
 that errored or was credit-skipped is excluded: it has no saved scan, so no foundation can be
-generated for it. Everything else on the done screen still hands off to the dashboard.
+generated for it.
+
+**The done screen always offers the SKILL.md download for each scored repo.** It reuses the report
+header's `SkillDownload` control (`GET /api/report/skill?repo=owner/name`, no leaked `?dims=` on the
+default pill) via `SkillDownloadList`. That is the public-funnel / no-App fallback, and it stays on
+screen if the App-path user skips the foundation PR. A skipped or errored row is omitted: the route
+404s without a saved scan. Everything else on the done screen still hands off to the dashboard.
 `OnboardingChecklist` itself stays: the
 [connect page](../github/github-app.md) still renders it over its own three-step funnel progress
 (install → pick → first scan), with a progress bar, the first incomplete step highlighted as the
@@ -368,7 +374,8 @@ cluster, each repo a star:
 | `src/app/api/org/getting-started/route.ts` | `GET` the derived checklist + the caller's stamp (polling-safe). |
 | `src/app/launch/page.tsx` | Post-OAuth cinematic entrance. |
 | `src/components/launch/FleetMap.tsx` | Animated constellation star-map of the fleet. |
-| `src/lib/onboarding/skill.ts` | Generated per-repo `ascent-onboard` SKILL.md (`POST /api/report/skill` and the foundation PR). Footer credits this deployment (`publicBaseUrl()`), never a hardcoded product domain; when that origin is set, one extra line names Standing › Passports as the org control matrix after `--json` doctor report-back. |
+| `src/components/report/SkillDownload.tsx` | Report-header SKILL.md pill + `SkillDownloadList` for the wizard done step (one pill per scored repo). |
+| `src/lib/onboarding/skill.ts` | Generated per-repo `ascent-onboard` SKILL.md (`GET /api/report/skill` and the foundation PR). Footer credits this deployment (`publicBaseUrl()`), never a hardcoded product domain; when that origin is set, one extra line names Standing › Passports as the org control matrix after `--json` doctor report-back. |
 
 ## Generated onboarding skill footer (control matrix)
 
