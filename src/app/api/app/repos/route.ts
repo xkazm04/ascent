@@ -2,7 +2,7 @@
 // Lists the repositories an installation can access, for the connect UI.
 
 import { NextResponse } from "next/server";
-import { isAppConfigured, listInstallationRepos } from "@/lib/github/app";
+import { isAppConfigured, listInstallationReposResult } from "@/lib/github/app";
 import { getInstallationIdForOwner, getOrgMovers, getRepoStates, isDbConfigured } from "@/lib/db";
 import { isAuthConfigured } from "@/lib/auth";
 import { normalizeRepoName } from "@/lib/cache";
@@ -15,7 +15,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // ---- Short-TTL payload cache -------------------------------------------------------------------
-// Every call here costs a live GitHub App `listInstallationRepos` plus two DB queries (repo states +
+// Every call here costs a live GitHub App `listInstallationReposResult` plus two DB queries (repo states +
 // the 30-day movers rollup). The launch fleet map polls this once PER ORG every 90s per open tab, the
 // connect + onboarding surfaces hit it on every mount, and React StrictMode double-mounts each of
 // those in dev — so N tabs on an M-org fleet multiplied straight through to N×M GitHub round-trips per
@@ -37,6 +37,8 @@ interface ReposPayload {
   installationId: string;
   org: string | undefined;
   repos: unknown[];
+  /** True when GitHub's listing hit the page cap — the `repos` array is incomplete. */
+  truncated: boolean;
 }
 const payloadCache = new Map<string, { at: number; data: ReposPayload }>();
 
@@ -117,7 +119,7 @@ export async function GET(request: Request) {
   if (cached) return NextResponse.json(cached);
 
   try {
-    const repos = await listInstallationRepos(installationId);
+    const { repos, truncated } = await listInstallationReposResult(installationId);
     repos.sort((a, b) => Number(b.private) - Number(a.private) || a.fullName.localeCompare(b.fullName));
     // Merge stored watch/schedule/level state + a 30-day per-repo overall delta (MAP-3, for the
     // fleet-map movers overlay) — both only when DB + we can resolve the org login.
@@ -140,7 +142,9 @@ export async function GET(request: Request) {
       state: states[r.fullName] ?? null,
       dOverall: dByName[r.fullName] ?? null,
     }));
-    const payload = { installationId, org: orgLogin, repos: merged };
+    // `truncated` is always on the wire (true or false). The thin listInstallationRepos wrapper
+    // dropped it, so a page-capped installation looked complete to onboarding / the fleet map.
+    const payload = { installationId, org: orgLogin, repos: merged, truncated };
     // Only a fully-assembled SUCCESS is cached — a 502 below must be retried, not served for 30s.
     payloadCacheSet(cacheKey, payload);
     return NextResponse.json(payload);

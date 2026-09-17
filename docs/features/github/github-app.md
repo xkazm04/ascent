@@ -30,8 +30,10 @@ The App authenticates in two hops and caches the result:
 
 `githubAppFetch<T>(path, auth, init)` wraps calls with standard headers and throws
 `AppApiError` (carrying the HTTP status) on non-2xx. `isAppConfigured()` gates the whole
-feature on the env vars being present; `listInstallationRepos(id)` pages through all
-accessible repos; `verifyWebhook(rawBody, signature)` does the HMAC-SHA256 check against
+feature on the env vars being present; `listInstallationReposResult(id)` pages through
+accessible repos and reports `truncated` when the walk hits the 50-page / 5000-repo cap
+before `total_count` is exhausted (`listInstallationRepos` is the thin array wrapper);
+`verifyWebhook(rawBody, signature)` does the HMAC-SHA256 check against
 `GITHUB_APP_WEBHOOK_SECRET`.
 
 `appInstallUrl()` builds the user-facing install link from `githubWebBase()` (`GITHUB_SERVER_URL`,
@@ -173,7 +175,7 @@ repo with `scanSchedule: off` can sit up to one window behind until its next pus
 | Route | Method | Role |
 | --- | --- | --- |
 | `/api/app/setup` | `GET` | Post-install redirect: fetch the installation's account login, `upsertInstallation`, bounce to `/onboarding?org=…&installation_id=…`. |
-| `/api/app/repos` | `GET` | List the installation's repos (`?org=` or `?installation_id=`), merged with the DB watch/schedule state. |
+| `/api/app/repos` | `GET` | List the installation's repos (`?org=` or `?installation_id=`), merged with the DB watch/schedule state. Body includes `truncated: true` when GitHub's listing hit the page cap (the `repos` array is incomplete; overflow is not visible to watch/scan). |
 
 ## Installations storage (`src/lib/db/installations.ts`)
 
@@ -290,12 +292,12 @@ for, and failing would strand the id forever). See
 
 | File | Role |
 | --- | --- |
-| `src/lib/github/app.ts` | JWT + installation-token minting, `githubAppFetch`, `listInstallationRepos`, `verifyWebhook`. |
+| `src/lib/github/app.ts` | JWT + installation-token minting, `githubAppFetch`, `listInstallationRepos` / `listInstallationReposResult`, `verifyWebhook`. |
 | `src/lib/github/write.ts` | `openDraftPr`: seed a starter artifact; refuses an existing base file by design. |
 | `src/lib/github/admission-write.ts` | `proposeManagedBlock` (merge-append, dry-run first) + ruleset apply/revert. |
 | `src/app/api/app/webhook/route.ts` | `installation` / `pull_request` / `push` handling. |
 | `src/app/api/app/setup/route.ts` | Post-install redirect + upsert. |
-| `src/app/api/app/repos/route.ts` | List repos for an installation (+ DB watch/schedule). |
+| `src/app/api/app/repos/route.ts` | List repos for an installation (+ DB watch/schedule). Surfaces `listInstallationReposResult.truncated` on the wire. |
 | `src/lib/db/installations.ts` | Installation persistence on `Organization`. |
 | `src/lib/github/governance.ts` | Branch-protection + commit-activity signals. |
 | `src/app/onboarding/page.tsx`, `src/components/onboarding/OnboardingGateStep.tsx` | Install entry (the wizard; the access gate carries the install link). |

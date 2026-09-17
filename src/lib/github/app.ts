@@ -342,9 +342,9 @@ export async function listInstallationReposResult(
 
 /**
  * List ALL repositories an installation can access (the filtered AppRepo projection). Thin wrapper
- * over {@link listInstallationReposResult} for the non-destructive callers (the connect/onboarding
- * listing) that don't need the truncation flag. Reconcilers MUST use listInstallationReposResult and
- * honor `truncated` — see github-app-installation-webhooks #1.
+ * over {@link listInstallationReposResult} for callers that only need the repo array.
+ * GET /api/app/repos and reconcilers MUST use listInstallationReposResult and honor `truncated` —
+ * see github-app-installation-webhooks #1.
  */
 export async function listInstallationRepos(installationId: number | string): Promise<AppRepo[]> {
   return (await listInstallationReposResult(installationId)).repos;
