@@ -1,9 +1,22 @@
 # Org Skills Library
 
-A curated, versioned library of `SKILL.md` entries an org's members author,
-adopt against repos, and sync with CLI/CI tooling, plus the org API tokens
-that let non-browser callers (CLIs, agents, CI jobs) read and write it
+A curated, versioned library of `SKILL.md` entries an org shares through its
+registry, adopts against repos, and syncs with CLI/CI tooling, plus the org
+API tokens that let non-browser callers (agents, CI jobs) reach the org
 without a cookie session.
+
+**No skill is authored in the dashboard (2026-09-17).** The author form and
+its starter templates are gone. A skill enters the library from the org's
+linked ai-registry checkout (its `skills/` lane, mirrored on each index pass)
+or from `POST /api/org/skills/push` under a token; the tab is a view over
+what the fleet actually shares, never a second place a skill can be born.
+
+**Use counters need no token.** Each project counts its own invocations
+locally (the `Skill` PreToolUse hook), writes them into the registry's
+`usage/<contributor>.json` with `ascent-skills report --to-registry`, and
+Ascent sums the lane at index time into the table's **Uses** column and the
+status badge. The token path (sink A) exists only for the per-repo breakdown
+the public registry lane forbids. See *Usage telemetry* below.
 
 ## UI entry point
 
@@ -12,8 +25,8 @@ without a cookie session.
 data, per-skill dormancy/usage data (degrades to `{}` on failure), per-skill
 outcome data (degrades to `{}` on failure), the org's repo list (for the
 adopt-picker), plan/credit state, and membership/admin role. It renders
-`SkillsPanel` with `canAuthor = isMember && planAllowed`, then, only for
-members, `ApiTokensPanel`.
+`SkillsPanel` (the same for every reader of the org; admins additionally get
+archive), then, only for members, `ApiTokensPanel`.
 
 `SkillsPanel` (`src/features/shared/skills/SkillsPanel.tsx`, client) debounces
 (250ms) a server-side refetch of `GET /api/org/skills` on search/category/sort
@@ -21,8 +34,13 @@ changes — the debounce covers the timer and an `AbortController` covers the
 request it starts, so a superseded read cannot land its rows after a newer one —
 opens on `SkillsLifecycle` (below), then renders a filter bar and a table (Name /
 Category / Status / Adoptions / Uses), and expands a `SkillCard` beneath a
-clicked row. The header carries scope only (`N skills · M repos`); the value
-claim for authoring a skill lives in the table's **empty state**, and the two
+clicked row. **Uses** is `SkillUsage.useCount`, the same fold the status badge
+reads (web copies/downloads, hook-reported invokes and the registry `usage/`
+samples); it falls back to the denormalized `downloadCount` only for a row with
+no computed verdict, so the column and the badge cannot disagree. The header
+carries scope only (`N skills · M repos`); the **empty state** says skills
+arrive from the linked registry and that each project reports its own use
+counts into the registry's `usage/` lane, and the two
 instructions that used to sit above the table ("copy a skill into Claude Code",
 "download it as a SKILL.md") are `title`s on the Copy and Download controls
 themselves (`SkillCardActions`).
@@ -104,15 +122,14 @@ Three ways this contract is applied:
 
 ## Primary user flows
 
-### Author a skill
+### Get a skill into the library
 
-The author form (`SkillsPanel.AuthorForm.tsx`) offers a template picker
-(`SKILL_TEMPLATES`, `src/lib/org/skill-templates.ts`) that prefills the form,
-then posts `{ org, name, category, content, description?, tags? }` to `POST
-/api/org/skills`. If `!canAuthor`, the form renders only an upsell line when
-the plan doesn't allow it ("Authoring the Skills Library is a Team-plan
-feature. Members can browse, copy and download existing skills."); nothing
-renders if the plan allows it but the viewer just isn't a member.
+There is no author form. The two producers are the registry mirror (a skill
+under `skills/<name>/SKILL.md` in the linked registry appears on the next
+index pass, tagged with its origin) and the CLI/CI push route below. `POST
+/api/org/skills` (`{ org, name, category, content, description?, tags? }`)
+still exists for token-bearing callers and tests, but nothing in the UI calls
+it; the removed form's Team-plan upsell line went with it.
 
 ### Promote a repo's generated onboarding skill into the library
 
@@ -433,6 +450,15 @@ skill spread.
 
 ## Org API tokens
 
+**What a token is for, and what it is not.** A token is machine access to
+the org itself: the MCP agent door (`mcp:read`, `followups:write`), org-memory
+recall (`memory:read`), and sink-A telemetry with a repo dimension
+(`telemetry:write`). It is **not** how skills or their counters move: a
+registry-linked org reads skills from its checkout, and every project reports
+its use counts into the registry's `usage/` lane with no token at all. The
+panel's copy says so, and its empty state no longer asks the reader to mint
+one "to connect a repo".
+
 Minted via `POST /api/org/tokens` (session-only, member-gated; no token can
 mint another token). The raw value (`askl_` + 24 random bytes, base64url) is
 returned exactly once; only its SHA-256 hash and a 12-character display
@@ -502,10 +528,12 @@ isPersonalOrg(slug)`. A personal workspace can author/edit/promote/archive
 regardless of plan, capped at 10 non-archived skills
 (`PERSONAL_SKILL_LIMIT`); exceeding it returns 402 ("Personal skills are
 capped at 10. Archive one to author another."). A Team+ org has no such cap.
+With the dashboard form gone, the routes these gates guard are reached only
+by token-bearing callers.
 
 The **push** route is the one exception: it gates directly on
 `planAllowsSkillsLibrary`, not `workspaceAllowsSkills`: a personal workspace
-cannot use the CLI/CI push path even though it can author through the UI.
+cannot use the CLI/CI push path.
 
 ## The agent door — MCP server (W5, 2026-08-14)
 
@@ -773,7 +801,7 @@ Practices — so the three tabs cannot drift in what they claim.
 
 | Registry | What the tab shows |
 | --- | --- |
-| Not mapped | A pointer strip: "Nothing is backed by a registry yet — … lives only in ascent," linking to the Registry tab. It is a pointer, **not a gate**: hosted rows and the author form render below exactly as before, and nothing on screen names a repo that may not exist. |
+| Not mapped | A pointer strip: "Nothing is backed by a registry yet — … lives only in ascent," linking to the Registry tab. It is a pointer, **not a gate**: hosted rows render below exactly as before, and nothing on screen names a repo that may not exist. |
 | Mapped | The strip becomes the live status — the repo (linked), `indexed <relative time>` (or "mapped, not indexed yet" before the first pass), and the counts the last index pass read out of the repo. |
 
 Per row, once a registry is mapped, an origin marker (`src/features/shared/registry/RegistryOriginTag.tsx`)
@@ -860,7 +888,6 @@ as Trace.
 | `src/lib/mcp/exemplar-tool.ts` | `compare_against_exemplar` — the door's projection of the #34 diff. |
 | `src/app/api/mcp/gates.ts` | Per-request plan gates + the per-token write ceiling. |
 | `src/lib/db/org-memory-citations.ts` | `OrgMemoryCitation` writes/reads + counter bumps. |
-| `src/lib/org/skill-templates.ts` | Author-form starter templates. |
 | `src/lib/db/org-skills.ts` | CRUD, `toRow()` read-time frontmatter resolution. |
 | `src/lib/db/org-api-tokens.ts` | Token mint/verify/revoke, hashing. |
 | `src/lib/api-token-auth.ts` | `authorizeOrgApi()`: token-or-session gate for skills routes. |

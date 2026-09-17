@@ -1,8 +1,13 @@
 "use client";
 
-// The Skills catalog table — extracted from SkillsPanel per the 200-LOC .tsx cap. Pure relocation: same
-// markup, className strings and row-expansion behavior; list state and the archive mutation stay in
-// useSkillsLibrary and are passed in as props.
+// The Skills catalog table — extracted from SkillsPanel per the 200-LOC .tsx cap. List state and the
+// archive mutation stay in useSkillsLibrary and are passed in as props.
+//
+// "Uses" is the FOLDED total (`SkillUsage.useCount`): web copies/downloads, hook-reported invokes, AND
+// the registry `usage/` lane every project writes its own counter into (`ascent-skills report
+// --to-registry`, no token). It falls back to the denormalized `downloadCount` only when no verdict
+// was computed for the row (persistence off, or a skill that arrived after the page loaded), so the
+// column can never disagree with the status badge beside it — both read the same fold.
 
 import { Fragment } from "react";
 import { OrgTable } from "@/components/org/shared/ui";
@@ -51,9 +56,10 @@ export function SkillsLibraryTable({
         <div className="type-body text-slate-500">
           <p>No skills yet.</p>
           <p className="mt-1">
-            Author one once and the whole team discovers and reuses it: every member can copy it into
-            Claude Code or download it as a <span className="type-mono-sm text-slate-400">SKILL.md</span>,
-            and each of those uses is recorded, so the library can show you what is actually being run.
+            Skills are not written here. Link the org&apos;s registry and every skill in its{" "}
+            <span className="type-mono-sm text-slate-400">skills/</span> lane appears on the next sync;
+            each project then reports its own use counts into the registry&apos;s{" "}
+            <span className="type-mono-sm text-slate-400">usage/</span> lane, and this table sums them.
           </p>
         </div>
       );
@@ -63,7 +69,7 @@ export function SkillsLibraryTable({
 
   return (
     <OrgTable
-      caption="Org skills: name, category, use status, adoptions and downloads"
+      caption="Org skills: name, category, use status, adoptions and uses (web, hooks and registry counters)"
       minWidth={660}
       head={
         <tr>
@@ -71,7 +77,9 @@ export function SkillsLibraryTable({
           <th className="px-3 py-2 text-left">Category</th>
           <th className="px-3 py-2 text-left">Status</th>
           <th className="px-3 py-2 text-right">Adoptions</th>
-          <th className="px-3 py-2 text-right">Uses</th>
+          <th className="px-3 py-2 text-right" title="Copies, downloads, hook-reported invokes and the registry usage lane, summed">
+            Uses
+          </th>
         </tr>
       }
     >
@@ -101,7 +109,9 @@ export function SkillsLibraryTable({
                 <SkillDormancyBadge usage={usage[s.id]} />
               </td>
               <td className="px-3 py-2 text-right font-mono tabular-nums text-slate-400">{s.adoptionCount}</td>
-              <td className="px-3 py-2 text-right font-mono tabular-nums text-slate-400">{s.downloadCount}</td>
+              <td className="px-3 py-2 text-right font-mono tabular-nums text-slate-400">
+                {usage[s.id]?.useCount ?? s.downloadCount}
+              </td>
             </tr>
             {open && (
               <tr>

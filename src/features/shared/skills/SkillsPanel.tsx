@@ -1,17 +1,17 @@
 "use client";
 
 // Org Skills Library (Feature 2) — the browsable catalog: a server-filtered table (search + category +
-// sort) over the org's reusable skills, each row expanding to a SkillCard (copy/download/adopt). Authors
-// (members on a Team+ plan) get the create form; admins get archive. Mirrors PlaybooksPanel; adds the
-// scalable filter bar + the Name·Category·Adoptions·Downloads table. Filtering happens on the server
-// (?category=&search=&sort=) so the list stays cheap as the catalog grows.
+// sort) over the org's reusable skills, each row expanding to a SkillCard (copy/download/adopt). Admins
+// get archive. Mirrors PlaybooksPanel; adds the scalable filter bar + the Name·Category·Status·
+// Adoptions·Uses table. Filtering happens on the server (?category=&search=&sort=) so the list stays
+// cheap as the catalog grows.
 //
-// State/effects live in useSkillsLibrary.ts; the table region lives in SkillsLibraryTable.tsx — both
-// extracted to keep this file under the 200-LOC .tsx cap (docs/ORG-TABS-REFACTOR.md §3).
+// No author form: skills arrive from the linked registry (or a CLI push), never from a dashboard
+// textarea (2026-09-17). State/effects live in useSkillsLibrary.ts; the table region lives in
+// SkillsLibraryTable.tsx — both extracted to keep this file under the 200-LOC cap.
 
 import { Card, SectionHeader } from "@/components/org/shared/ui";
 import { SkillsFilterBar } from "@/features/shared/skills/SkillsFilterBar";
-import { SkillsAuthorForm } from "@/features/shared/skills/SkillsAuthorForm";
 import { SkillsLibraryTable } from "@/features/shared/skills/SkillsLibraryTable";
 import { SkillsLifecycle } from "@/features/shared/skills/SkillsLifecycle";
 import { useSkillsLibrary } from "@/features/shared/skills/useSkillsLibrary";
@@ -27,9 +27,7 @@ export function SkillsPanel({
   usage,
   outcomes,
   repoOptions,
-  canAuthor,
   isAdmin,
-  planAllowed,
   registryBase,
 }: {
   slug: string;
@@ -41,9 +39,7 @@ export function SkillsPanel({
   /** Server-computed adoption→outcome deltas per skill id (src/lib/org/skill-outcomes.ts). */
   outcomes: Record<string, SkillOutcome[]>;
   repoOptions: string[];
-  canAuthor: boolean;
   isAdmin: boolean;
-  planAllowed: boolean;
   /** `https://github.com/<owner>/<repo>/blob/<branch>` when a registry is mapped, else null. Non-null
    *  is what turns the per-row origin markers on: with nothing mapped, "hosted" is not news. */
   registryBase: string | null;
@@ -92,24 +88,6 @@ export function SkillsPanel({
         />
       </div>
 
-      <SkillsAuthorForm
-        canAuthor={canAuthor}
-        planAllowed={planAllowed}
-        categories={categories}
-        name={s.name}
-        setName={s.setName}
-        formCategory={s.formCategory}
-        setFormCategory={s.setFormCategory}
-        description={s.description}
-        setDescription={s.setDescription}
-        content={s.content}
-        setContent={s.setContent}
-        tagsText={s.tagsText}
-        setTagsText={s.setTagsText}
-        busy={s.busy}
-        create={s.create}
-        applyTemplate={s.applyTemplate}
-      />
       {s.error && <p className="mt-2 type-body-sm text-orange-300">{s.error}</p>}
     </Card>
   );
