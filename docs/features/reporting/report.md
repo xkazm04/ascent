@@ -193,6 +193,12 @@ it names a different default-branch artifact, or ColdScanGate.
    COUNT (a percentage off a handful of PRs reads as an accusation) and the fast-approval
    share, each with its caveat rendered as visible text — both are signals to ask about, not
    verdicts (self-approval is normal in a single-maintainer repo).
+   When the scan carries `report.aiChanges` (the evidence rows `extractAiChanges` already
+   produces), the panel lists them under the rates: PR number, title, how each was identified
+   (agent-authored / AI-marked / trailer), tools named, and who approved it — or that it is
+   unreviewed / unapproved. A revert stamp (`reverted by #N`) shows when the window matched
+   one. An absent or empty list is omitted, never printed as a 0; a reconstructed snapshot
+   that never ran ingestion leaves `aiChanges` undefined so stored rows are not implied empty.
 10. **Next-level path**: fastest dimensions to close, then either `RoadmapSteps` (no DB)
     or the interactive `RecommendationTracker` (DB-backed, see below). Each row's recorded `firstStep` also travels with the paid PDF and the LLM briefing when present (G2); a blank or absent field omits the line, matching `RoadmapFirstStep`.
 11. **Discrepancies**: claims where the LLM questioned a deterministic signal. The paid PDF (`ReportDocument`) and the LLM briefing (`reportLlmMarkdown`, Copy-for-LLM / `GET /api/report/llm`) emit the same non-empty list with each row's recorded outcome; an empty array omits the section, matching this panel. G1: disagreement is not dropped or softened when the report leaves the page.

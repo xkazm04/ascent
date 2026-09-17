@@ -1,4 +1,4 @@
-import type { ScanReport } from "@/lib/types";
+import type { AiChangeRecord, ScanReport } from "@/lib/types";
 import {
   FAST_APPROVAL_MAX_MINUTES,
   RATE_BASIS,
@@ -112,7 +112,25 @@ function PrMetric({
   );
 }
 
-export function PrSignalsPanel({ stats }: { stats: NonNullable<ScanReport["prStats"]> }) {
+const AI_SIGNAL_LABEL: Record<AiChangeRecord["aiSignal"], string> = {
+  authored: "agent-authored",
+  marked: "AI-marked",
+  trailer: "trailer",
+};
+
+function approvalPhrase(c: AiChangeRecord): string {
+  if (c.approved) return c.approverLogin ? `approved by ${c.approverLogin}` : "approved";
+  return c.reviewCount > 0 ? "unapproved" : "unreviewed";
+}
+
+export function PrSignalsPanel({
+  stats,
+  aiChanges,
+}: {
+  stats: NonNullable<ScanReport["prStats"]>;
+  /** Evidence rows behind the AI rates. Undefined/empty = omit (never a fabricated 0). */
+  aiChanges?: ScanReport["aiChanges"];
+}) {
   const rates = stats.rates;
   const reviewed = read(rates, "reviewed", "human PRs reviewed", stats.reviewedRate);
   const merge = mergeReading(stats);
@@ -231,6 +249,28 @@ export function PrSignalsPanel({ stats }: { stats: NonNullable<ScanReport["prSta
           </span>
         )}
       </div>
+      {aiChanges && aiChanges.length > 0 && (
+        <div className="mt-4">
+          <Kicker tone="muted">AI-attributed changes</Kicker>
+          <p className="mt-1 type-body-sm text-slate-500">
+            The PRs behind the AI-involved rate, and who approved each one. A rate cannot name them.
+          </p>
+          <ul className="mt-2 space-y-1.5" aria-label="AI-attributed pull requests">
+            {aiChanges.map((c) => (
+              <li key={c.prNumber} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 type-body-sm">
+                <span className="font-mono tabular-nums text-slate-400">#{c.prNumber}</span>
+                <span className="text-slate-200">{c.title}</span>
+                <span className="type-mono-sm text-slate-500">
+                  {AI_SIGNAL_LABEL[c.aiSignal]}
+                  {c.aiTools.length > 0 ? ` · ${c.aiTools.join(", ")}` : ""}
+                  {` · ${approvalPhrase(c)}`}
+                  {c.revertedByPr != null ? ` · reverted by #${c.revertedByPr}` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </Surface>
   );
 }
