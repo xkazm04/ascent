@@ -131,8 +131,8 @@ export interface OrgPurgeResult {
   recommendationsDeleted: number;
   recommendationEventsDeleted: number;
   auditDeleted: number;
-  /** InterventionOutcome rows that died with their scan bookends (moonshot #9). Not enumerated in a
-   *  dry run (0), for the same reason dimensions/recommendations aren't. */
+  /** InterventionOutcome rows that died with their scan bookends (moonshot #9). Counted in a dry
+   *  run over the same OR-of-bookends predicate the delete uses. */
   outcomesDeleted: number;
   /** UsageEvent rows aged out on the org's `retentionAuditDays` horizon (moonshot #11). */
   usageEventsDeleted: number;
@@ -198,8 +198,9 @@ export interface PurgeSummary {
   /** Orgs left unprocessed when the run stopped early (0 on a complete run) — the resume tail. */
   orgsRemaining: number;
   /** True when this was a preview run: nothing was deleted and no audit entry was written. Scan
-   *  counts are per-repo would-delete totals; dependent dimension/recommendation(-event) rows are NOT
-   *  enumerated in a dry run (reported as 0) — the scan count is the decision-relevant number. */
+   *  counts are per-repo would-delete totals; dependent dimension/recommendation(-event)/outcome
+   *  rows and conformance findings are counted over the same predicates the delete uses — a 0 is
+   *  measured, not a skipped placeholder (G4). */
   dryRun: boolean;
 }
 

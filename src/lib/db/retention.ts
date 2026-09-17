@@ -135,6 +135,73 @@ interface RepoPruneResult {
   digestsWouldWrite: number | null;
 }
 
+/**
+ * Dry-run counts for the scan sub-graph the delete removes: dimensions, recommendations,
+ * recommendation events, and outcomes whose bookends sit in the stale window.
+ *
+ * Same keep-window as the scan count (`skip: max`, `createdAt desc, id desc`). Leaving these at 0
+ * without querying would present an unmeasured empty as a number (G4).
+ */
+async function countStaleScanDependents(
+  prisma: PrismaLike,
+  repoId: string,
+  max: number,
+  batchSize: number,
+): Promise<{ dimensions: number; recommendations: number; events: number; outcomes: number }> {
+  const zeros = { dimensions: 0, recommendations: 0, events: 0, outcomes: 0 };
+  const order = [{ createdAt: "desc" as const }, { id: "desc" as const }];
+  const staleIds: string[] = [];
+  for (let skip = max; ; skip += batchSize) {
+    const page = await prisma.scan.findMany({
+      where: { repoId },
+      orderBy: order,
+      skip,
+      take: batchSize,
+      select: { id: true },
+    });
+    if (page.length === 0) break;
+    for (const s of page) staleIds.push(s.id);
+    if (page.length < batchSize) break;
+  }
+  if (staleIds.length === 0) return zeros;
+
+  let dimensions = 0;
+  let recommendations = 0;
+  let events = 0;
+  for (let i = 0; i < staleIds.length; i += batchSize) {
+    const chunk = staleIds.slice(i, i + batchSize);
+    const inIds = { in: chunk };
+    dimensions += await prisma.scanDimension.count({ where: { scanId: inIds } });
+    recommendations += await prisma.recommendation.count({ where: { scanId: inIds } });
+    events += await prisma.recommendationEvent.count({
+      where: { recommendation: { scanId: inIds } },
+    });
+  }
+
+  let outcomes = 0;
+  if (staleIds.length <= batchSize) {
+    // One IN matches the delete's OR-of-bookends predicate exactly — no partition to straddle.
+    outcomes = await prisma.interventionOutcome.count({
+      where: { OR: [{ beforeScanId: { in: staleIds } }, { afterScanId: { in: staleIds } }] },
+    });
+  } else {
+    // Chunked INs can see the same outcome twice (before in chunk A, after in chunk B). Unique
+    // on id so a straddling row is still one casualty, matching a single deleteMany.
+    const seen = new Set<string>();
+    for (let i = 0; i < staleIds.length; i += batchSize) {
+      const chunk = staleIds.slice(i, i + batchSize);
+      const rows = await prisma.interventionOutcome.findMany({
+        where: { OR: [{ beforeScanId: { in: chunk } }, { afterScanId: { in: chunk } }] },
+        select: { id: true },
+      });
+      for (const r of rows) seen.add(r.id);
+    }
+    outcomes = seen.size;
+  }
+
+  return { dimensions, recommendations, events, outcomes };
+}
+
 /** Per-repo: delete every scan beyond the newest `max`, with its dimensions + recommendations. */
 async function pruneRepoScans(
   prisma: PrismaLike,
@@ -163,18 +230,23 @@ async function pruneRepoScans(
   const where = { repoId } satisfies Prisma.ScanWhereInput;
   if (countOnly) {
     // Preview: how many scans fall OUTSIDE the keep-window (`max`); an erase passes max = 0, so it is
-    // the repo's whole scan count. Dependent dimension/recommendation(-event) rows are NOT enumerated
-    // (reported 0), matching purgeExpiredData's dry run — the scan count is the decision-relevant
-    // number, and counting three more tables per repo would triple a preview's cost for no new decision.
+    // the repo's whole scan count. Dependents (dimensions, recommendations, events, outcomes) are
+    // counted over that same stale-id set — a 0 is measured, not a skipped placeholder (G4).
     const total = await prisma.scan.count({ where });
     const stale = Math.max(0, total - max);
     if (compact && stale > 0) digestsWouldWrite = await previewDigestKeys(prisma, where, max, stale, batchSize);
-    return {
-      scans: stale,
+    const deps = stale > 0 ? await countStaleScanDependents(prisma, repoId, max, batchSize) : {
       dimensions: 0,
       recommendations: 0,
       events: 0,
       outcomes: 0,
+    };
+    return {
+      scans: stale,
+      dimensions: deps.dimensions,
+      recommendations: deps.recommendations,
+      events: deps.events,
+      outcomes: deps.outcomes,
       digestsWritten: 0,
       scansCompacted: 0,
       digestsWouldWrite,
@@ -716,8 +788,9 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
 
     try {
       // Preview mode (data-retention 07-16 #2): count what the policy WOULD delete — per-repo scan
-      // counts beyond the keep-window plus in-window audit rows — with no deletes, no transactions,
-      // and no self-audit entry. Dependent dimension/recommendation rows are not enumerated (0).
+      // counts beyond the keep-window, their dependent rows, plus in-window audit rows — with no
+      // deletes, no transactions, and no self-audit entry. Dependents use the same stale window the
+      // delete pages; a 0 is measured, not a skipped placeholder (G4).
       if (opts.dryRun) {
         if (policy.maxScansPerRepo > 0) {
           const perRepo = await prisma.scan.groupBy({
@@ -725,7 +798,22 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
             where: { repo: { orgId: org.id } },
             _count: { _all: true },
           });
-          for (const row of perRepo) scansDeleted += Math.max(0, row._count._all - policy.maxScansPerRepo);
+          for (const row of perRepo) {
+            const stale = Math.max(0, row._count._all - policy.maxScansPerRepo);
+            scansDeleted += stale;
+            if (stale > 0) {
+              const deps = await countStaleScanDependents(
+                prisma,
+                row.repoId,
+                policy.maxScansPerRepo,
+                policy.batchSize,
+              );
+              dimensionsDeleted += deps.dimensions;
+              recommendationsDeleted += deps.recommendations;
+              recommendationEventsDeleted += deps.events;
+              outcomesDeleted += deps.outcomes;
+            }
+          }
           // MOONSHOT #32 — what the fold would WRITE, over the same per-repo stale window the scan
           // count above is derived from. One repo past the cap makes the org's figure unknown: a
           // partial sum shown as a total is exactly the reassurance the cap exists to refuse.
@@ -748,13 +836,16 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
           const cutoff = new Date(now() - policy.auditDays * DAY_MS);
           auditDeleted = await prisma.auditLog.count({ where: { orgId: org.id, at: { lt: cutoff } } });
           // Counted over the SAME predicates the real sweeps below use, so the preview is the number
-          // that dies. Findings are NOT enumerated (0) — like dimensions/recommendations, they are a
-          // dependent row count that would triple the preview's cost for no new decision.
+          // that dies. Findings ride the report predicate: the delete pages aged reports and removes
+          // their children, so this nested count is that same set (G4 — not left as an unmeasured 0).
           usageEventsDeleted = await prisma.usageEvent.count({
             where: { orgId: org.id, createdAt: { lt: cutoff } },
           });
           conformanceReportsDeleted = await prisma.conformanceReport.count({
             where: { orgId: org.id, reportedAt: { lt: cutoff } },
+          });
+          conformanceFindingsDeleted = await prisma.conformanceFinding.count({
+            where: { report: { orgId: org.id, reportedAt: { lt: cutoff } } },
           });
           // MOONSHOT #17 — counted, not skipped as a dependent row would be: a citation is a
           // standalone event with its own predicate, and spec 17 asks for it in the COUNTED preview
@@ -2211,7 +2302,11 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
     dimensionsDeleted += r.dimensions;
     recommendationsDeleted += r.recommendations;
     recommendationEventsDeleted += r.events;
-    outcomesDeleted += r.outcomes;
+    // Org-scope preview: eraseOrgLedgers counts every org outcome over `{ orgId }`. Adding the
+    // bookend count here would double-count because nothing has been deleted; the apply path is
+    // safe because the first delete empties the set the ledger drain walks. Repo-scope never
+    // reaches the ledger drain, so it needs this figure in both preview and apply.
+    if (!dryRun || scope === "repo") outcomesDeleted += r.outcomes;
     reposProcessed++;
     // The repo's compacted tail. Batched and budget-polled like every other loop here; in a preview
     // it is counted over the SAME `{ repoId }` predicate the delete uses.

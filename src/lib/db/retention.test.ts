@@ -196,9 +196,31 @@ function makeWave1Ledgers(seed: Partial<Record<Wave1Ledger, string[]>> = {}) {
   return { rows, delegates };
 }
 
+/** Scan-graph child counts the dry-run path reads. Empty by default so pre-existing fixtures that
+ *  never seeded dimensions still get a measured 0 instead of throwing. */
+function scanGraphDelegates(seed: { dimensions?: number; recommendations?: number; events?: number } = {}) {
+  return {
+    scanDimension: {
+      count: vi.fn(async () => seed.dimensions ?? 0),
+      findMany: vi.fn(async () => []),
+      deleteMany: vi.fn(async () => ({ count: 0 })),
+    },
+    recommendation: {
+      count: vi.fn(async () => seed.recommendations ?? 0),
+      findMany: vi.fn(async () => []),
+      deleteMany: vi.fn(async () => ({ count: 0 })),
+    },
+    recommendationEvent: {
+      count: vi.fn(async () => seed.events ?? 0),
+      findMany: vi.fn(async () => []),
+      deleteMany: vi.fn(async () => ({ count: 0 })),
+    },
+  };
+}
+
 /** The same delegates, empty — the default every pre-existing fixture in this file gets. */
 function wave1Delegates() {
-  return makeWave1Ledgers().delegates;
+  return { ...makeWave1Ledgers().delegates, ...scanGraphDelegates() };
 }
 
 // Most fixtures in this file deliberately use tiny windows (retentionMaxScans: 1 or 2) to exercise the
@@ -385,6 +407,8 @@ describe("purgeExpiredData — destructive-override safety floor + dry run (data
           { repoId: "r1", _count: { _all: 5 } },
           { repoId: "r2", _count: { _all: 1 } },
         ]),
+        // Stale-id walk for dependent counts. Empty → measured 0 dependents (G4), not a throw.
+        findMany: vi.fn(async () => []),
       },
       auditLog: { count: vi.fn(async () => 4) },
       $transaction: vi.fn(),
@@ -402,6 +426,81 @@ describe("purgeExpiredData — destructive-override safety floor + dry run (data
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(recordAudit).not.toHaveBeenCalled();
     expect(purgeStalePublicScanQuota).not.toHaveBeenCalled();
+  });
+
+  it("dry run counts dependents of STALE scans only, over the same skip:max window the delete uses (G4)", async () => {
+    // Newest-first: kept_1 is inside the keep-window (max=1); stale_* die. Dependents on the kept
+    // scan must not inflate the preview — that would be counting rows the confirmed run leaves.
+    const ordered = ["kept_1", "stale_1", "stale_2"];
+    const dims: Record<string, number> = { kept_1: 9, stale_1: 3, stale_2: 5 };
+    const recs: Record<string, number> = { kept_1: 4, stale_1: 1, stale_2: 1 };
+    const events: Record<string, number> = { kept_1: 8, stale_1: 2, stale_2: 3 };
+    const outcomesByScan: Record<string, string[]> = {
+      kept_1: ["io_kept"],
+      stale_1: ["io_stale"],
+      stale_2: ["io_stale", "io_straddle"],
+    };
+    const prisma = {
+      ...wave1Delegates(),
+      organization: {
+        findMany: vi.fn(async () => [{ id: "org_1", slug: "acme", retentionMaxScans: 1, retentionAuditDays: 7 }]),
+      },
+      scan: {
+        groupBy: vi.fn(async () => [{ repoId: "r1", _count: { _all: 3 } }]),
+        findMany: vi.fn(async ({ skip = 0, take = 500 }: { skip?: number; take?: number }) =>
+          ordered.slice(skip, skip + take).map((id) => ({ id })),
+        ),
+      },
+      scanDimension: {
+        count: vi.fn(async ({ where }: { where: { scanId: { in: string[] } } }) =>
+          where.scanId.in.reduce((n, id) => n + (dims[id] ?? 0), 0),
+        ),
+      },
+      recommendation: {
+        count: vi.fn(async ({ where }: { where: { scanId: { in: string[] } } }) =>
+          where.scanId.in.reduce((n, id) => n + (recs[id] ?? 0), 0),
+        ),
+      },
+      recommendationEvent: {
+        count: vi.fn(async ({ where }: { where: { recommendation: { scanId: { in: string[] } } } }) =>
+          where.recommendation.scanId.in.reduce((n, id) => n + (events[id] ?? 0), 0),
+        ),
+      },
+      interventionOutcome: {
+        count: vi.fn(
+          async ({
+            where,
+          }: {
+            where: { OR: Array<{ beforeScanId?: { in: string[] }; afterScanId?: { in: string[] } }> };
+          }) => {
+            const ids = new Set([
+              ...(where.OR[0]?.beforeScanId?.in ?? []),
+              ...(where.OR[1]?.afterScanId?.in ?? []),
+            ]);
+            const out = new Set<string>();
+            for (const id of ids) for (const o of outcomesByScan[id] ?? []) out.add(o);
+            return out.size;
+          },
+        ),
+      },
+      conformanceFinding: {
+        count: vi.fn(async () => 6),
+      },
+      auditLog: { count: vi.fn(async () => 0) },
+      $transaction: vi.fn(),
+    };
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const summary = await purgeExpiredData({ dryRun: true });
+
+    expect(summary!.scansDeleted).toBe(2);
+    expect(summary!.dimensionsDeleted).toBe(8); // 3+5, not 9+3+5
+    expect(summary!.recommendationsDeleted).toBe(2);
+    expect(summary!.recommendationEventsDeleted).toBe(5);
+    expect(summary!.outcomesDeleted).toBe(2); // io_stale + io_straddle, not io_kept
+    expect(summary!.conformanceFindingsDeleted).toBe(6);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(recordAudit).not.toHaveBeenCalled();
   });
 });
 
@@ -1825,6 +1924,11 @@ function fakeErasePrisma(seed?: {
       ),
       count: vi.fn(async ({ where }: { where: { repoId: string } }) => (scansByRepo[where.repoId] ?? []).length),
     },
+    // Dry-run scan-graph dependents: same per-repo constants the apply-path tx deleteMany returns,
+    // so a preview of this fixture equals the confirmed run (2 repos × these).
+    scanDimension: { count: vi.fn(async () => 4) },
+    recommendation: { count: vi.fn(async () => 1), findMany: vi.fn(async () => [{ id: "rec_1" }]) },
+    recommendationEvent: { count: vi.fn(async () => 2) },
     loopRun: {
       // Cursor-paged like the real read; deleted runs leave the fixture, so the real path's
       // cursor-less paging terminates for the same reason it does in production.
@@ -2002,6 +2106,28 @@ describe("eraseOrgData — on-demand DSR erasure", () => {
       lastScanError: null,
       lastScanAttemptAt: null,
     });
+  });
+
+  it("a preview counts scan-graph dependents (not 0) over the same keep-nothing window", async () => {
+    const { prisma } = fakeErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const preview = await eraseOrgData({ orgSlug: "acme", dryRun: true });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+    expect(preview.dryRun).toBe(true);
+    expect(preview.scansDeleted).toBe(4);
+    expect(preview.dimensionsDeleted).toBe(8);
+    expect(preview.recommendationsDeleted).toBe(2);
+    expect(preview.recommendationEventsDeleted).toBe(4);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+
+    const done = await eraseOrgData({ orgSlug: "acme" });
+    expect(done.ok).toBe(true);
+    if (!done.ok) return;
+    expect(preview.dimensionsDeleted).toBe(done.dimensionsDeleted);
+    expect(preview.recommendationsDeleted).toBe(done.recommendationsDeleted);
+    expect(preview.recommendationEventsDeleted).toBe(done.recommendationEventsDeleted);
   });
 
   // persistScanReport also caches contextHealth/manifest/guidanceGraph + aiConformance* on
@@ -2482,6 +2608,7 @@ function fakeWave1PurgePrisma() {
 
   const prisma = {
     ...ledgers.delegates,
+    ...scanGraphDelegates(),
     organization: {
       findMany: vi.fn(async () => [{ id: "org_1", slug: "acme", retentionMaxScans: 5, retentionAuditDays: 30 }]),
     },
@@ -2568,6 +2695,8 @@ describe("purgeExpiredData — moonshot wave-1 ledger cascades", () => {
 
     expect(summary?.usageEventsDeleted).toBe(3);
     expect(summary?.conformanceReportsDeleted).toBe(1);
+    expect(summary?.conformanceFindingsDeleted).toBe(2);
+    expect(summary?.outcomesDeleted).toBe(2);
     expect(ledgers.rows.usageEvent).toEqual(["ue_1", "ue_2", "ue_3"]);
     expect(ledgers.rows.conformanceReport).toEqual(["cr_1"]);
     expect(recordAudit).not.toHaveBeenCalled();
@@ -2647,6 +2776,7 @@ function fakeWave1ErasePrisma() {
   };
   const prisma = {
     ...ledgers.delegates,
+    ...scanGraphDelegates(),
     organization: { findUnique: vi.fn(async () => ({ id: "org_1" })) },
     repository: {
       findMany: vi.fn(async () => [{ id: "repo_1" }]),

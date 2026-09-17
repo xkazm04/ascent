@@ -79,12 +79,15 @@ too large to drain in one tick still reaches every org within a bounded number o
 of the same prefix winning every run.
 
 **Dry run:** `?dryRun=1` (or `true`) on the route counts what every effective policy *would*
-delete (per-repo stale-scan totals, in-window audit rows) without deleting anything or writing
-an audit entry; the summary carries `dryRun: true`. The safety floor above is not enforced in
-a dry run. With compaction on it also reports `digestsWouldWrite` — or **`null`** once the stale
-window passes `DIGEST_PREVIEW_MAX_SCANS` (5000), because past that an estimate would be a guess
-wearing a number's clothes. The **scan** count is unaffected: it still comes from the one shared
-`where`, so "the number you were shown is the number that dies" still holds.
+delete (per-repo stale-scan totals, their dependent dimension / recommendation / recommendation-event
+/ outcome rows, in-window audit rows, and conformance findings of aged reports) without deleting
+anything or writing an audit entry; the summary carries `dryRun: true`. Dependents are counted
+over the same stale-id window / report predicate the delete uses, so a **0 is measured**, not an
+unenumerated placeholder (G4). The safety floor above is not enforced in a dry run. With
+compaction on it also reports `digestsWouldWrite` — or **`null`** once the stale window passes
+`DIGEST_PREVIEW_MAX_SCANS` (5000), because past that an estimate would be a guess wearing a
+number's clothes. The **scan** count is unaffected: it still comes from the one shared `where`,
+so "the number you were shown is the number that dies" still holds.
 
 ## The control ledger, and the seal that must beat the purge
 
@@ -246,11 +249,16 @@ conflict retries.
   Counts are reported separately as `auditRedacted` and `auditDeleted`.
 - **Preview (`preview: true`).** Runs the whole request as a count — nothing deleted, redacted, or
   audited — and returns the same result shape with `dryRun: true`. The scan count comes from the
-  *same* `where` predicate inside `pruneRepoScans` that the delete selection pages over, and the audit
-  count from the same `{ orgId }` sweep predicate: a preview built from a second, separately written
-  query is worse than none, because it licenses an irreversible act with a number that can drift.
-  Like the cron dry run, the disposition floor is **not** enforced in a preview — seeing what a
-  `delete` would cost is the input to that decision, not the decision.
+  *same* `where` predicate inside `pruneRepoScans` that the delete selection pages over, and dependent
+  dimension / recommendation / recommendation-event rows (and, on the repo-scoped path, outcomes
+  whose bookends die with those scans) are counted over that same stale-id set — a 0 is measured,
+  not an unenumerated placeholder (G4). Org-scope outcomes are counted once by `eraseOrgLedgers`
+  over `{ orgId }`, not added again from the per-repo bookend count (nothing has been deleted, so
+  the two sets still overlap). The audit count uses the same `{ orgId }` sweep predicate: a preview
+  built from a second, separately written query is worse than none, because it licenses an
+  irreversible act with a number that can drift. Like the cron dry run, the disposition floor is
+  **not** enforced in a preview — seeing what a `delete` would cost is the input to that decision,
+  not the decision.
 - **The confirmation shows the count before it asks for the name.** The org-settings dialog fetches
   the preview when it opens, and **again whenever the audit disposition changes** (the audit
   casualties differ between keeping the trail and redacting it), then renders scans, repositories and
