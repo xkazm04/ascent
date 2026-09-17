@@ -23,6 +23,7 @@ import { RepoDimensionModal, type HeatTarget } from "@/components/org/shared/Rep
 import type { SecurityRegisterRow } from "@/lib/org/security";
 import {
   DEFAULT_DIR,
+  presentAdvisoryChips,
   sortRows,
   VISIBLE_DEFAULT,
   type RegisterAdvisories,
@@ -148,14 +149,16 @@ export function SecurityRiskRegister({
                       // Demo counts don't exist on GitHub — a deep-link would land on a Dependabot page
                       // showing something entirely different and erode trust in the real numbers too.
                       <span className="type-mono-sm text-slate-400" title="Demo data, no matching advisories exist on GitHub">
-                        {adv.critical > 0 && <span className="text-red-300">{adv.critical}C </span>}
-                        {adv.high > 0 && <span className="text-orange-300">{adv.high}H </span>}
+                        {presentAdvisoryChips(adv).map((c) => (
+                          <span key={c.letter} className={c.className}>{c.count}{c.letter} </span>
+                        ))}
                         {adv.total}
                       </span>
                     ) : (
                       <a href={`https://github.com/${r.fullName}/security/dependabot`} target="_blank" rel="noreferrer" className="focus-ring type-mono-sm text-slate-300 hover:text-white" title={`${adv.total} open Dependabot advisories, open on GitHub`}>
-                        {adv.critical > 0 && <span className="text-red-300">{adv.critical}C </span>}
-                        {adv.high > 0 && <span className="text-orange-300">{adv.high}H </span>}
+                        {presentAdvisoryChips(adv).map((c) => (
+                          <span key={c.letter} className={c.className}>{c.count}{c.letter} </span>
+                        ))}
                         {adv.total} ↗
                       </a>
                     )

@@ -147,7 +147,9 @@ export async function SecurityTab({ slug, sp }: { slug: string; sp: SearchParams
         <SecurityRiskRegister
           org={slug}
           rows={sec.register}
-          advisories={supplyOn ? supply!.repos.map((r) => ({ fullName: r.fullName, critical: r.critical, high: r.high, total: r.total })) : null}
+          // Pass the full severity breakdown. Mapping only critical/high hid moderate/low exposure
+          // behind a bare total on the register — and must not coerce an omitted band to 0 (G4).
+          advisories={supplyOn ? supply!.repos.map((r) => ({ fullName: r.fullName, critical: r.critical, high: r.high, medium: r.medium, low: r.low, total: r.total })) : null}
           // security-posture-audit-log #3: the mock provider's honesty flag was wired into the
           // markdown brief ("Dependabot — demo data") but never the on-screen register, so fabricated
           // counts rendered as fleet fact with live GitHub links. Label + de-link them.
