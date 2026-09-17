@@ -42,7 +42,9 @@ export interface LifecycleFetchOpts {
  * store exceeds it (an old row that the cap drops was the least likely to win recall anyway).
  *
  * `namespace` is an optional filter here, unlike candidateOrgMemories' deliberate `null` default —
- * recall over the whole org is the normal case; narrowing to one project is the option.
+ * recall over the whole org is the normal case; narrowing to one project is the option. This is the
+ * recall door REST `/api/org/memory/recall`, MCP `recall_org_memory`, and Athena's chat prefetch share.
+ * The write-check helper must not be reused as a recall loader: omitted namespace there is IS NULL.
  */
 export async function lifecycleWorkingSet(
   orgSlug: string,

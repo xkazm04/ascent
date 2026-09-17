@@ -32,7 +32,7 @@ const h = vi.hoisted(() => ({
   getOrgId: vi.fn(async () => "org-1"),
   getCreditState: vi.fn(async () => ({ plan: "team" })),
   workspaceAllowsMemory: vi.fn(async () => true),
-  candidateOrgMemories: vi.fn(async () => []),
+  lifecycleWorkingSet: vi.fn(async () => []),
   listAthenaThreads: vi.fn(async () => []),
   listAthenaTurns: vi.fn(async () => []),
   listThreadAthenaProposals: vi.fn(async () => []),
@@ -57,7 +57,7 @@ vi.mock("@/lib/db", () => ({
   getOrgId: h.getOrgId,
   getCreditState: h.getCreditState,
   workspaceAllowsMemory: h.workspaceAllowsMemory,
-  candidateOrgMemories: h.candidateOrgMemories,
+  lifecycleWorkingSet: h.lifecycleWorkingSet,
 }));
 vi.mock("@/lib/db/athena", () => ({
   listAthenaThreads: h.listAthenaThreads,

@@ -384,6 +384,11 @@ export async function archiveOrgMemory(id: string): Promise<void> {
  * SAME namespace (where a duplicate would live), most-recent first and hard-capped — so the prompt the
  * consolidation core builds can never grow with the store. Pure data access: the ranking/judgment lives
  * in src/lib/memory/consolidation.ts, which is what keeps that core framework-agnostic.
+ *
+ * NOT THE AGENT RECALL DOOR. Omitted namespace means `namespace IS NULL` (org-wide rows only).
+ * Scan-fed, repo-mirrored, and every other namespaced note would be invisible. REST recall, MCP
+ * `recall_org_memory`, and Athena's chat prefetch load via `lifecycleWorkingSet`, whose omitted
+ * namespace is "no filter".
  */
 export async function candidateOrgMemories(
   orgSlug: string,

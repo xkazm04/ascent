@@ -46,7 +46,7 @@ vi.mock("@/lib/db", () => ({
     // The REAL contract this handler now leans on: the repo filter is applied INSIDE, before the cap.
     recs === null ? null : (repo ? recs.filter((r) => r.repos.some((x) => `acme/${x}` === repo)) : recs).slice(0, limit),
   ),
-  candidateOrgMemories: vi.fn(async () => memories),
+  lifecycleWorkingSet: vi.fn(async () => memories),
   bumpMemoryAccessCounts: vi.fn(async (_org: string, ids: string[]) => {
     bumped.push(ids);
     return ids.length;

@@ -11,9 +11,9 @@ import { PUBLIC_ORG } from "@/lib/auth";
 import { canReadOrg, requireOrgAccess, requireOrgRead } from "@/lib/authz";
 import { dbGuard } from "@/lib/api/orgPlan";
 import {
-  candidateOrgMemories,
   getCreditState,
   getOrgId,
+  lifecycleWorkingSet,
   workspaceAllowsMemory,
   workspaceAllowsSkills,
   type MemoryRow,
@@ -150,7 +150,9 @@ async function recallForMessage(org: string, message: string, viewer: string | n
   if (terms.length === 0) return [];
   let rows: MemoryRow[] = [];
   try {
-    rows = await candidateOrgMemories(org, { limit: RECALL_CANDIDATES }, viewer);
+    // lifecycleWorkingSet, never candidateOrgMemories: omitted namespace on the write-check helper
+    // means IS NULL (org-wide only). Scan-fed namespaced rows would never reach this prefetch.
+    rows = await lifecycleWorkingSet(org, { limit: RECALL_CANDIDATES }, viewer);
   } catch {
     return [];
   }

@@ -6,7 +6,9 @@
 //   - createOrgMemory bounds/normalizes inputs and stores a blank namespace as NULL;
 //   - the supersede write is ATOMIC and org-scoped: a target in another org rolls the whole write back
 //     (SupersedeTargetNotFoundError) instead of committing a correction that corrected nothing;
-//   - candidateOrgMemories bounds the LLM input and compares org-wide memories against org-wide ones.
+//   - candidateOrgMemories bounds the LLM input and compares org-wide memories against org-wide ones;
+//   - lifecycleWorkingSet is the recall door: omitted namespace is no filter, so a namespaced
+//     scan-pipeline row is returned (the write-check helper would have asked for IS NULL and dropped it).
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
@@ -21,6 +23,8 @@ import {
   listOrgMemoryNamespaces,
   recordMemoryRecall,
 } from "@/lib/db/org-memory";
+import { lifecycleWorkingSet } from "@/lib/db/org-memory-lifecycle";
+import { SCAN_PIPELINE_SOURCE } from "@/lib/org/memory-kinds";
 
 type Where = Record<string, unknown>;
 
@@ -31,6 +35,8 @@ function fakePrisma(
     memories?: { id: string; orgId: string; version: number }[];
     /** What updateMany reports having stamped (0 simulates a lost race). */
     updateManyCount?: number;
+    /** Rows findMany returns, filtered by `where.namespace` when that clause is present. */
+    findManyRows?: { namespace: string | null; [k: string]: unknown }[];
   } = {},
 ) {
   const slugToId = opts.slugToId ?? { acme: "org_acme" };
@@ -43,7 +49,11 @@ function fakePrisma(
   const orgMemory = {
     findMany: vi.fn(async (args: { where: Where; orderBy?: unknown; take?: number }) => {
       calls.findMany.push({ where: args.where, orderBy: args.orderBy, take: args.take });
-      return [] as never[];
+      const all = opts.findManyRows ?? [];
+      const ns = args.where.namespace;
+      if (ns === null) return all.filter((r) => r.namespace == null) as never[];
+      if (typeof ns === "string") return all.filter((r) => r.namespace === ns) as never[];
+      return all as never[];
     }),
     create: vi.fn(async (args: { data: Record<string, unknown> }) => {
       calls.create.push({ data: args.data });
@@ -316,6 +326,58 @@ describe("candidateOrgMemories — bounds the LLM input", () => {
     const { prisma } = fakePrisma({ slugToId: {} });
     mockGetPrisma.mockReturnValue(prisma);
     expect(await candidateOrgMemories("ghost", {})).toEqual([]);
+  });
+});
+
+describe("lifecycleWorkingSet — the recall door, not the write-check helper", () => {
+  const now = new Date("2026-09-01T00:00:00.000Z");
+  const scanPipelineRow = {
+    id: "mem_scan",
+    orgId: "org_acme",
+    namespace: "acme/api",
+    content: "Overall dropped 12 points on acme/api",
+    kind: "episodic",
+    visibility: "shared",
+    source: SCAN_PIPELINE_SOURCE,
+    confidence: 1,
+    tags: "[]",
+    supersededBy: null,
+    version: 1,
+    archived: false,
+    accessCount: 0,
+    expiresAt: null,
+    origin: "hosted",
+    registryPath: null,
+    createdBy: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  it("does not default omitted namespace to IS NULL", async () => {
+    const { prisma, calls } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    await lifecycleWorkingSet("acme", {});
+    expect(calls.findMany[0]!.where.namespace).toBeUndefined();
+  });
+
+  it("returns a namespaced scan-pipeline row the write-check helper would drop", async () => {
+    const { prisma, calls } = fakePrisma({ findManyRows: [scanPipelineRow] });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const recalled = await lifecycleWorkingSet("acme");
+    expect(calls.findMany[0]!.where.namespace).toBeUndefined();
+    expect(recalled).toEqual([
+      expect.objectContaining({
+        id: "mem_scan",
+        namespace: "acme/api",
+        source: SCAN_PIPELINE_SOURCE,
+        kind: "episodic",
+      }),
+    ]);
+
+    const writeCheck = await candidateOrgMemories("acme", {});
+    expect(calls.findMany[1]!.where.namespace).toBeNull();
+    expect(writeCheck).toEqual([]);
   });
 });
 

@@ -342,8 +342,14 @@ the same `authorizeOrgApi` seam the Skills routes use; minted on the Skills
 tab's API-tokens panel). A token principal carries no GitHub identity, so it
 reads as an anonymous member: **shared memories only**, never anyone's
 private scratch. The route fetches the org's active, visible memories
-(namespace/kind filters allowed, unknown kind values silently dropped) and
-scores each one:
+via `lifecycleWorkingSet` (namespace/kind filters allowed, unknown kind values
+silently dropped) and scores each one. MCP `recall_org_memory` and Athena's
+chat prefetch load through the **same** function. They must not call
+`candidateOrgMemories`: that helper is the write-intelligence check, and an
+omitted namespace there means `namespace IS NULL` (org-wide rows only), which
+would hide every scan-fed, repo-mirrored, and otherwise namespaced note. On
+`lifecycleWorkingSet`, omitted namespace means no filter — a namespaced
+`scan-pipeline` row is in the working set the REST verb already packs.
 
 ```
 score = confidence × 0.5^(ageDays / halfLife(kind)) × min(2, 1 + 0.25·ln(1 + accessCount))
@@ -783,8 +789,8 @@ only news once the other world exists.
 | `src/lib/memory/reflection.ts` | Cluster detection + proposal hardening. |
 | `src/lib/memory/scan-feed.ts` | Scan-pipeline memory writers. |
 | `src/lib/memory/coverage.ts` | Per-repo memory freshness for the coverage strip. |
-| `src/lib/db/org-memory.ts` | CRUD + supersede transaction, visibility scoping. |
-| `src/lib/db/org-memory-lifecycle.ts` | `applyReflection`, `archiveOrgMemories`. |
+| `src/lib/db/org-memory.ts` | CRUD + supersede transaction, visibility scoping, write-check `candidateOrgMemories` (omitted namespace → IS NULL). |
+| `src/lib/db/org-memory-lifecycle.ts` | `lifecycleWorkingSet` (recall door), `applyReflection`, `archiveOrgMemories`. |
 | `src/lib/org/memory-kinds.ts` | Kind/visibility/confidence-band constants. |
 | `src/features/shared/memory/MemoryPanel.tsx` | Client orchestrator. |
 | `src/features/shared/memory/MemoryTrust.tsx` | Confidence quartiles of the listed rows (`Distribution`). |

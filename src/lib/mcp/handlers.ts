@@ -19,7 +19,7 @@
 // model would read as "nothing to worry about". An agent acting on a silent absence is exactly the
 // failure this product spends its whole surface avoiding.
 
-import { bumpMemoryAccessCounts, candidateOrgMemories, getOrgRecommendations, getOrgRollup } from "@/lib/db";
+import { bumpMemoryAccessCounts, getOrgRecommendations, getOrgRollup, lifecycleWorkingSet } from "@/lib/db";
 import { citationCountsFor } from "@/lib/db/org-memory-citations";
 import { getOrgGatePolicy } from "@/lib/db/org-gate";
 import { getActiveOrgStance } from "@/lib/db/org-stance";
@@ -290,7 +290,9 @@ async function recallMemory(org: string, args: Args): Promise<ToolResult> {
   const query = str(args, "query");
   if (!query) return fail("Provide a `query` describing what you are about to do or decide.");
   const limit = num(args, "limit", 5, 20);
-  const rows = await candidateOrgMemories(org, { limit: limit * 4 }, null);
+  // lifecycleWorkingSet, never candidateOrgMemories: omitted namespace on the write-check helper
+  // means IS NULL (org-wide only), which hides every scan-fed / repo-mirrored namespaced row.
+  const rows = await lifecycleWorkingSet(org, { limit: limit * 4 }, null);
   const q = query.toLowerCase().split(/\s+/).filter(Boolean);
   // Deliberately a plain term overlap, not a semantic search: this is a projection of stored rows,
   // and inventing a relevance model here would put a second, divergent ranking beside the one the
