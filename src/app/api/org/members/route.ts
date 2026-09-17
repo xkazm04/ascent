@@ -22,7 +22,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // GitHub logins are 1–39 chars of alphanumerics and single hyphens. Validate the shape so a role can't
-// be granted to a garbage/squatted/typo'd string and so the gate, mutation, and audit all agree.
+// be granted (or a member removed) against a garbage/squatted/typo'd string and so the gate, mutation,
+// and audit all agree. POST and DELETE share this check.
 const GITHUB_LOGIN = /^[A-Za-z0-9-]{1,39}$/;
 
 export async function GET(request: Request) {
@@ -85,6 +86,10 @@ export async function DELETE(request: Request) {
   const org = normalizeOrgSlug(searchParams.get("org") ?? "");
   const login = (searchParams.get("login") ?? "").trim();
   if (!org || !login) return NextResponse.json({ error: "Provide ?org=&login=." }, { status: 400 });
+  // Same shape check as POST so a garbage login never reaches the gate, mutation, or audit.
+  if (!GITHUB_LOGIN.test(login)) {
+    return NextResponse.json({ error: "login must be a valid GitHub login." }, { status: 400 });
+  }
   const denied = await requireOrgRole(org, "owner");
   if (denied) return denied;
   const outcome = await removeMembership(org, login);
