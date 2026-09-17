@@ -11,10 +11,10 @@ export { OverviewFixFirstGap } from "./OverviewFixFirst";
 // the deleted 8fff1001 version was cut because it taxed the landing path with reads the page never
 // makes — this revival keeps the marginal cost to movers + goals (findings ride the rail badges'
 // unstable_cache, and decisions are subtracted fresh exactly like getOrgFindingCounts does).
-// Every read is .catch'ed: the band is guidance chrome, and a failed derivation must render as
-// "no band", never as a broken landing page. "No band" is the RESOLVED empty (`OverviewFixFirst`
-// returns null). The wait is `OverviewFixFirstGap` in OverviewTab's Suspense — so a pending
-// punch-list is not the same frame as no priorities.
+// Goals/findings/decisions are .catch'ed so a blip cannot break the landing page. A movers throw
+// is flagged `moversFailed` rather than emptied: substituting `{ regressers: [] }` skipped the
+// regression slot and read as "no scoring model". "No band" (`OverviewFixFirst` returns null) is
+// the resolved empty. The wait is `OverviewFixFirstGap` in OverviewTab's Suspense.
 
 export async function OverviewFixFirstPanel({
   slug,
@@ -28,12 +28,17 @@ export async function OverviewFixFirstPanel({
   win: OrgWindow;
   scopeQuery?: string;
 }) {
-  const [movers, goals, findings, resolved] = await Promise.all([
-    getOrgMovers(slug, win).catch(() => null),
+  const [moversRead, goals, findings, resolved] = await Promise.all([
+    // A throw is not `{ regressers: [], comparedRepos: 0 }`: that skipped the regression slot and
+    // let a void bar read as "no scoring model". Flag the rejection so deriveFixFirst can name it.
+    getOrgMovers(slug, win)
+      .then((value) => ({ failed: false, value }))
+      .catch(() => ({ failed: true, value: null })),
     listGoals(slug).catch(() => null),
     getOrgFindings(slug).catch(() => []),
     resolvedKeys(slug).catch(() => new Map<string, Set<string>>()),
   ]);
+  const movers = moversRead.value;
 
   const unresolved = findings.filter((f) => !resolved.get(f.module)?.has(f.itemKey));
 
@@ -47,8 +52,9 @@ export async function OverviewFixFirstPanel({
       // read: listGoals already computed them for the pace verdict this item is selected by.
       goals: goals ?? [],
       // The population a repo's regression is divided across before it may sit on a fleet scale.
-      // Already on the movers row — a missing movers read leaves it 0, which draws a void, not a 0.
+      // A successful empty movers row still leaves it 0 (void bar, not a 0). A throw is moversFailed.
       comparedRepos: movers?.comparedRepos ?? 0,
+      moversFailed: moversRead.failed,
     },
     scopeQuery,
   );

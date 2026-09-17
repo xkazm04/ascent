@@ -1909,7 +1909,11 @@ and the interesting part is the case where it refuses:
 
 - a **regression** is a loss on ONE repo, so it is divided by `OrgMovers.comparedRepos` (repos with a
   real baseline on both sides) before it may sit on a fleet scale — a 9-point drop on one repo of 45
-  is 0.2 fleet points, not 9. With no compared population the bar is a **void**, never an undivided 9;
+  is 0.2 fleet points, not 9. With no compared population the bar is a **void**, never an undivided 9.
+  A **failed `getOrgMovers` read** is a different absence: it is not an empty `regressers` list.
+  `OverviewFixFirstPanel` flags `moversFailed` on a throw; `deriveFixFirst` occupies the regression
+  slot with "Couldn't load regressions" copy (link to Repositories) rather than omitting the slot
+  (which would let findings/goals read as the top triage, and a void bar read as "no scoring model");
 - a **behind-pace goal** already names a fleet-wide target on a 0..100 metric, so `target − current` is
   the same unit by construction; the basis names *which* metric;
 - a **findings queue has no scoring model at all.** The honest answer is `missing`, and
@@ -2801,7 +2805,9 @@ with no numeral where `forecastInsufficiency` refuses to state one.
   (`getOrgFindings`, already `unstable_cache`d for the rail badges, decisions subtracted fresh),
   and the first behind-pace active goal (`listGoals`). It streams in its own `<Suspense>` boundary
   so the fleet panel is never held, drops `getOrgGapAnalysis` (the expensive read that motivated
-  the deletion), and renders nothing when there is nothing actionable.
+  the deletion), and renders nothing when there is nothing actionable. A `getOrgMovers` throw is
+  flagged `moversFailed` and still occupies the regression slot with couldn't-load copy; it is not
+  substituted as `{ regressers: [], comparedRepos: 0 }`.
 
 - **No per-contributor drill-down page, deliberately**, and no per-person time-series to build one
   from: `RepoContributor` is uniquely keyed `(repoId, login)` and upserted each scan, so it is a
