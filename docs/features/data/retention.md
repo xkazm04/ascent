@@ -297,6 +297,29 @@ conflict retries.
 brief cited and a local run's summary or error text, which is tenant data. Batched and retried like
 every other drain, resumable, and the preview counts it without deleting.
 
+### Remaining tenant ledgers (OrgMemory, BYOM, API tokens, alerts)
+
+`eraseOrgAthena` still deletes only the `OrgMemory` rows Athena wrote (`source: "athena"`, counted as
+`athenaMemoriesDeleted`). An org-scoped erase then drains the rest of that store — human-authored
+notes, the scan-pipeline feed, registry-mirrored notes, and rows with a null source — as
+`orgMemoriesDeleted`. The remaining-memory predicate is `{ orgId, OR: [{ source: { not: "athena" } },
+{ source: null }] }`, the same `where` the delete pages over: `source: { not: "athena" }` alone would
+miss the human rows `cleanSource` stored as null, and sharing `{ orgId }` with Athena's sweep would
+make a **preview double-count** her episodes.
+
+The same org-scoped pass drains three other leftover tables the cron does not age:
+
+| Table | Why it is tenant data | Counter |
+| --- | --- | --- |
+| `OrgLlmConfig` | BYOM ciphertext (`credentialsEncrypted`). Deleting the row destroys the secret. | `llmConfigsDeleted` |
+| `OrgApiToken` | SHA-256 of a live capability (revoked rows too — still a hash of a tenant secret). | `apiTokensDeleted` |
+| `AlertEvent` | The body a sink got, or would have gotten, about this tenant. | `alertEventsDeleted` |
+
+All four use the existing batched `pruneAgedLedger` drain (`orgId` only — never a bare `deleteMany`
+over the table, never another org). The repo-scoped variant never reaches them. A preview counts
+each family over the delete's own predicate and deletes nothing; the number shown equals the number
+the confirmed run removes. Schema is not dropped; the `Organization` row stays.
+
 ## Return shape (`PurgeSummary`)
 
 ```ts

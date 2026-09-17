@@ -1436,10 +1436,11 @@ async function eraseOrgLoopRuns(
  * threads → identity → the OrgMemory rows. Children before parents, exactly like eraseOrgLoopRuns.
  *
  * SCOPING CAVEAT, stated here because the counter it produces will be read as broader than it is:
- * this is the FIRST OrgMemory sweep in this module — `retention.ts` covers no memory row today. It is
- * deliberately narrowed to `source: "athena"`, i.e. HER OWN WRITES. Human-authored memories, the
- * scan-pipeline feed, and registry-mirrored notes are untouched and remain a real gap; this function
- * is not a fix for it and must not be widened into one by accident.
+ * this sweep is deliberately narrowed to `source: "athena"`, i.e. HER OWN WRITES, so
+ * `athenaMemoriesDeleted` stays an Athena-only figure. Human-authored memories, the scan-pipeline
+ * feed, registry-mirrored notes and source-null rows are drained later by {@link eraseOrgLedgers}
+ * (counted separately as `orgMemoriesDeleted`). This function must not be widened to the whole store
+ * — that would double-count a preview.
  *
  * Org scope ONLY: a thread is not a repo's row, so the repo-scoped erase variant never reaches it.
  */
@@ -1547,8 +1548,10 @@ async function eraseOrgAthena(
  * mirror (#14), the doctor control ledger (#16), the registry knowledge/conformance/signals tables
  * (#18), the skill usage samples (#19) and the lessons / trace / memory-proposal lane (#36) — plus
  * the wave-2 ones: the lane verdict ledger and memory-candidate queue (#25) and the practice
- * adoption / house-pattern ledger (#33). (OrgMemoryCitation is NOT here: it must die before the
- * OrgMemory rows it points at, so it is swept earlier — see eraseOrgMemoryCitations.)
+ * adoption / house-pattern ledger (#33); plus the leftover org-level ledgers an erase used to skip:
+ * OrgMemory beyond Athena, OrgLlmConfig (BYOM ciphertext), OrgApiToken, and AlertEvent.
+ * (OrgMemoryCitation is NOT here: it must die before the OrgMemory rows it points at, so it is
+ * swept earlier — see eraseOrgMemoryCitations.)
  *
  * WHY EACH ONE IS TENANT DATA, since an erase that leaves any of them behind is not an erasure:
  * an InterventionOutcome names the repo and the measured lift; a UsageEvent names the repo, the team
@@ -1597,6 +1600,10 @@ async function eraseOrgLedgers(
   controlSeals: number;
   repoAdmissions: number;
   installations: number;
+  orgMemories: number;
+  llmConfigs: number;
+  apiTokens: number;
+  alertEvents: number;
 }> {
   const totals = {
     outcomes: 0,
@@ -1617,6 +1624,10 @@ async function eraseOrgLedgers(
     controlSeals: 0,
     repoAdmissions: 0,
     installations: 0,
+    orgMemories: 0,
+    llmConfigs: 0,
+    apiTokens: 0,
+    alertEvents: 0,
   };
 
   /** Drain one flat org-scoped table. Counts in a preview; batched deletes otherwise. */
@@ -1841,6 +1852,56 @@ async function eraseOrgLedgers(
     "erase.installations",
   );
 
+  // ── Remaining tenant ledgers (erase-only; the cron does not age them) ────────────────────────
+  // OrgMemory beyond Athena. `source` is nullable (`cleanSource` stores "" as null), so excluding
+  // Athena is an OR of `not "athena"` and `null` — `source: { not: "athena" }` alone would miss the
+  // human-authored rows that never set a source. Athena's own writes are already counted (and, on a
+  // real run, already deleted) by eraseOrgAthena; sharing `{ orgId }` here would make a PREVIEW
+  // double-count them. Citations were swept before any memory delete.
+  const remainingMemoryWhere: Prisma.OrgMemoryWhereInput = {
+    orgId,
+    OR: [{ source: { not: ATHENA_MEMORY_SOURCE } }, { source: null }],
+  };
+  totals.orgMemories = await drain(
+    (take) =>
+      prisma.orgMemory.findMany({
+        where: remainingMemoryWhere,
+        orderBy: { id: "asc" },
+        take,
+        select: { id: true },
+      }),
+    () => prisma.orgMemory.count({ where: remainingMemoryWhere }),
+    async (ids) => (await prisma.orgMemory.deleteMany({ where: { id: { in: ids } } })).count,
+    "erase.org-memories",
+  );
+
+  // BYOM ciphertext. `credentialsEncrypted` is secret-box AES-256-GCM; deleting the row IS destroying
+  // the credential — there is no separate secret store to sweep afterwards. One row per org, still
+  // batched like every other drain so a resume after a budget stop is the same loop.
+  totals.llmConfigs = await drain(
+    (take) => prisma.orgLlmConfig.findMany(page(take)),
+    () => prisma.orgLlmConfig.count({ where }),
+    async (ids) => (await prisma.orgLlmConfig.deleteMany({ where: { id: { in: ids } } })).count,
+    "erase.llm-config",
+  );
+
+  // API tokens. Only the SHA-256 hash is stored, but the row is still a live capability (and a
+  // revoked row is still a hash of a tenant secret). Org-scoped, never a bare sweep.
+  totals.apiTokens = await drain(
+    (take) => prisma.orgApiToken.findMany(page(take)),
+    () => prisma.orgApiToken.count({ where }),
+    async (ids) => (await prisma.orgApiToken.deleteMany({ where: { id: { in: ids } } })).count,
+    "erase.api-tokens",
+  );
+
+  // Alert history. Each row is the body a sink got (or would have gotten) about this tenant.
+  totals.alertEvents = await drain(
+    (take) => prisma.alertEvent.findMany(page(take)),
+    () => prisma.alertEvent.count({ where }),
+    async (ids) => (await prisma.alertEvent.deleteMany({ where: { id: { in: ids } } })).count,
+    "erase.alert-events",
+  );
+
   return totals;
 }
 
@@ -1937,10 +1998,9 @@ export interface EraseResult {
   athenaProposalsDeleted: number;
   /** Identity rows removed: the constitution and the self-model, at most one of each. */
   athenaIdentityDeleted: number;
-  /** OrgMemory rows removed — HER episodes only (`source: "athena"`). This is the module's first
-   *  memory sweep and is deliberately narrow: human, scan-pipeline and registry memories are NOT
-   *  covered by any erase path yet. See eraseOrgAthena's scoping caveat before reading this as
-   *  "memory is now erased". */
+  /** OrgMemory rows removed — HER episodes only (`source: "athena"`). Remaining memories are
+   *  counted separately as {@link EraseResult.orgMemoriesDeleted}; see eraseOrgAthena's scoping
+   *  caveat before adding the two together as one "memory" figure on a preview. */
   athenaMemoriesDeleted: number;
   /** InterventionOutcome rows removed (moonshot #9) — org scope removes them all; a repo-scoped
    *  erase removes the ones whose scan bookends died with the repo's scan graph. */
@@ -1997,6 +2057,16 @@ export interface EraseResult {
    *  carries a credential: `credentialRef` is ciphertext, so deleting the row IS destroying the
    *  secret — there is no separate store to sweep afterwards. */
   installationsDeleted: number;
+  /** OrgMemory rows removed that Athena did not write (human, scan-pipeline, registry, source-null).
+   *  Org scope only. The predicate excludes `source: "athena"` so a preview cannot double-count
+   *  {@link EraseResult.athenaMemoriesDeleted}. */
+  orgMemoriesDeleted: number;
+  /** `OrgLlmConfig` rows removed — the BYOM ciphertext (`credentialsEncrypted`). Org scope only. */
+  llmConfigsDeleted: number;
+  /** `OrgApiToken` rows removed (hashes, prefixes, revoked-or-not). Org scope only. */
+  apiTokensDeleted: number;
+  /** `AlertEvent` rows removed — the durable alert history. Org scope only. */
+  alertEventsDeleted: number;
   /** `ScanDigest` rows removed (moonshot #32). An erase both REFUSES to compact and deletes the
    *  compacted tail: a summary of erased data is still that data's shadow. */
   digestsDeleted: number;
@@ -2120,6 +2190,10 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
   let controlSealsDeleted = 0;
   let repoAdmissionsDeleted = 0;
   let installationsDeleted = 0;
+  let orgMemoriesDeleted = 0;
+  let llmConfigsDeleted = 0;
+  let apiTokensDeleted = 0;
+  let alertEventsDeleted = 0;
   let digestsDeleted = 0;
   let stoppedEarly = false;
 
@@ -2288,7 +2362,8 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
 
     // Athena: org-scoped like the loop history, and tenant data for the same reason — her threads are
     // the operator's words and her self-model is a document about this organization. Includes the
-    // OrgMemory rows she wrote (`source: "athena"`) and NOTHING else in that store; see eraseOrgAthena.
+    // OrgMemory rows she wrote (`source: "athena"`) only; remaining memories are drained with the
+    // ledgers below so the two counters cannot double-count a preview. See eraseOrgAthena.
     if (!stoppedEarly) {
       const athena = await eraseOrgAthena(prisma, org.id, batchSize, overBudget, dryRun);
       athenaThreadsDeleted = athena.threads;
@@ -2325,6 +2400,10 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
       // already taken that repo's row and this org sweep never runs, so the two never double-count.
       repoAdmissionsDeleted += led.repoAdmissions;
       installationsDeleted = led.installations;
+      orgMemoriesDeleted = led.orgMemories;
+      llmConfigsDeleted = led.llmConfigs;
+      apiTokensDeleted = led.apiTokens;
+      alertEventsDeleted = led.alertEvents;
       if (overBudget()) stoppedEarly = true;
     }
 
@@ -2386,6 +2465,10 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
       controlSealsDeleted,
       repoAdmissionsDeleted,
       installationsDeleted,
+      orgMemoriesDeleted,
+      llmConfigsDeleted,
+      apiTokensDeleted,
+      alertEventsDeleted,
       auditDeleted,
       auditRedacted,
       auditDisposition,
@@ -2440,6 +2523,10 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
       controlSealsDeleted,
       repoAdmissionsDeleted,
       installationsDeleted,
+      orgMemoriesDeleted,
+      llmConfigsDeleted,
+      apiTokensDeleted,
+      alertEventsDeleted,
       auditDeleted,
       auditRedacted,
       complete: !stoppedEarly,
@@ -2484,6 +2571,10 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
     controlSealsDeleted,
     repoAdmissionsDeleted,
     installationsDeleted,
+    orgMemoriesDeleted,
+    llmConfigsDeleted,
+    apiTokensDeleted,
+    alertEventsDeleted,
     auditDeleted,
     auditRedacted,
     auditDisposition,

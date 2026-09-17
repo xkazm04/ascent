@@ -96,6 +96,13 @@ const WAVE1_LEDGERS = [
   // failure — which is how a whole table quietly stops being erased.
   "repoAdmission",
   "installation",
+  // Remaining org-level tenant ledgers: BYOM ciphertext, API tokens, alert history. OrgMemory
+  // beyond Athena is NOT in this array — that table is already a dual-predicate stub because
+  // eraseOrgAthena reads it first with source:"athena"; a generic ledger would make the two
+  // sweeps share rows and double-count the preview.
+  "orgLlmConfig",
+  "orgApiToken",
+  "alertEvent",
   // Latest-scan evidence persistScanReport writes on Repository. Drained in eraseRepo (keyed by
   // repoId), not eraseOrgLedgers: a repo-scoped erase must take them without sweeping the tenant,
   // and a fake that omits a delegate makes that drain THROW rather than silently skip.
@@ -110,6 +117,41 @@ type LedgerDelegate = {
   count: ReturnType<typeof vi.fn>;
   deleteMany: ReturnType<typeof vi.fn>;
 };
+
+const ATHENA_SOURCE = "athena";
+
+/** Dual-predicate OrgMemory store: Athena's sweep (`source: "athena"`) and the remaining-memory
+ *  drain (anything else) share one delegate so a test can prove the two counters do not overlap. */
+function makeOrgMemoryStore(seed: { athena?: string[]; remaining?: string[] } = {}) {
+  const athena = [...(seed.athena ?? [])];
+  const remaining = [...(seed.remaining ?? [])];
+  const pick = (where: { source?: unknown } | undefined) =>
+    where?.source === ATHENA_SOURCE ? athena : remaining;
+  return {
+    athena,
+    remaining,
+    delegate: {
+      findMany: vi.fn(async ({ where, take }: { where?: { source?: unknown }; take: number }) =>
+        pick(where).slice(0, take).map((id) => ({ id })),
+      ),
+      count: vi.fn(async ({ where }: { where?: { source?: unknown } } = {}) => pick(where).length),
+      deleteMany: vi.fn(async ({ where }: { where?: { id?: { in: string[] } } } = {}) => {
+        const ids = where?.id?.in ?? [...athena, ...remaining];
+        let count = 0;
+        for (const id of ids) {
+          for (const arr of [athena, remaining]) {
+            const at = arr.indexOf(id);
+            if (at >= 0) {
+              arr.splice(at, 1);
+              count++;
+            }
+          }
+        }
+        return { count };
+      }),
+    } satisfies LedgerDelegate,
+  };
+}
 
 /**
  * Stateful delegates for the wave-1 ledgers: deleted ids really leave `rows`, so the paging loops
@@ -1633,6 +1675,7 @@ function fakeErasePrisma(seed?: {
   athenaThreads?: string[];
   athenaIdentity?: string[];
   athenaMemories?: string[];
+  remainingMemories?: string[];
 }) {
   const repoIds = seed?.repos ?? ["repo_1", "repo_2"];
   const scansByRepo: Record<string, string[]> = {};
@@ -1656,9 +1699,13 @@ function fakeErasePrisma(seed?: {
     athenaProposalsByThread[t] = [`${t}_prop`];
   }
   const athenaIdentityRows = [...(seed?.athenaIdentity ?? ["ident_constitution", "ident_self_model"])];
-  /** OrgMemory rows SHE wrote. Rows from other sources are deliberately absent from the fixture —
-   *  the sweep's predicate is `source: "athena"`, and this fake only ever serves that predicate. */
-  const athenaMemories = [...(seed?.athenaMemories ?? ["mem_1", "mem_2", "mem_3"])];
+  /** OrgMemory rows SHE wrote, plus remaining memories (empty by default so Athena tests stay
+   *  isolated). The delegate routes on `where.source === "athena"` vs everything else. */
+  const memoryStore = makeOrgMemoryStore({
+    athena: seed?.athenaMemories ?? ["mem_1", "mem_2", "mem_3"],
+    remaining: seed?.remainingMemories ?? [],
+  });
+  const athenaMemories = memoryStore.athena;
   /** Deletes as issued, so a test can assert proposals→turns→threads (no FK cascade). */
   const athenaDeleteOrder: string[] = [];
   const cacheResets: { id: string; data: Record<string, unknown> }[] = [];
@@ -1826,29 +1873,7 @@ function fakeErasePrisma(seed?: {
         return { count };
       }),
     },
-    orgMemory: {
-      // The ONLY predicate this fake serves is the sweep's own `{ orgId, source: "athena" }`; the
-      // assertion below pins it, so a widened predicate fails loudly instead of quietly erasing more.
-      findMany: vi.fn(async ({ where, take }: { where: { source: string }; take: number }) => {
-        expect(where.source).toBe("athena");
-        return athenaMemories.slice(0, take).map((id) => ({ id }));
-      }),
-      count: vi.fn(async ({ where }: { where: { source: string } }) => {
-        expect(where.source).toBe("athena");
-        return athenaMemories.length;
-      }),
-      deleteMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) => {
-        let count = 0;
-        for (const id of where.id.in) {
-          const at = athenaMemories.indexOf(id);
-          if (at >= 0) {
-            athenaMemories.splice(at, 1);
-            count++;
-          }
-        }
-        return { count };
-      }),
-    },
+    orgMemory: memoryStore.delegate,
     auditLog: {
       // Serves BOTH readers: the delete sweep (ids only) and the redaction loop (id/action/orgId/at,
       // cursor-paged). `skip` is honored so the cursor walk advances instead of re-reading page one.
@@ -1891,6 +1916,7 @@ function fakeErasePrisma(seed?: {
     athenaProposalsByThread,
     athenaIdentityRows,
     athenaMemories,
+    remainingMemories: memoryStore.remaining,
     athenaDeleteOrder,
   };
 }
@@ -2135,12 +2161,21 @@ describe("eraseOrgData — on-demand DSR erasure", () => {
 
     await eraseOrgData({ orgSlug: "acme" });
 
-    // The fixture asserts `where.source === "athena"` on every read; this pins the DELETE side too,
-    // so a future widening to "all of the org's memory" cannot slip in under this counter's name.
-    for (const call of f.prisma.orgMemory.findMany.mock.calls) {
-      expect((call[0] as { where: { source: string } }).where.source).toBe("athena");
-    }
-    expect(f.prisma.orgMemory.findMany).toHaveBeenCalled();
+    // Athena's own counter stays source-narrow; remaining memories are a separate sweep whose
+    // predicate excludes her writes so a preview cannot double-count them.
+    const athenaReads = f.prisma.orgMemory.findMany.mock.calls.filter(
+      (call) => (call[0] as { where: { source?: string } }).where.source === "athena",
+    );
+    const remainingReads = f.prisma.orgMemory.findMany.mock.calls.filter(
+      (call) => (call[0] as { where: { source?: string } }).where.source !== "athena",
+    );
+    expect(athenaReads.length).toBeGreaterThan(0);
+    expect(remainingReads.length).toBeGreaterThan(0);
+    expect((remainingReads[0]![0] as { where: { orgId: string; OR: unknown } }).where.orgId).toBe("org_1");
+    expect((remainingReads[0]![0] as { where: { OR: unknown } }).where.OR).toEqual([
+      { source: { not: "athena" } },
+      { source: null },
+    ]);
   });
 
   it("a repo-scoped erase never touches Athena — a thread is not a repo's row", async () => {
@@ -2541,6 +2576,10 @@ describe("purgeExpiredData — moonshot wave-1 ledger cascades", () => {
 
 /** Erase fixture: the org-scoped variant of the same tables, all seeded. */
 function fakeWave1ErasePrisma() {
+  const memories = makeOrgMemoryStore({
+    athena: ["mem_ath_1"],
+    remaining: ["om_1", "om_2"],
+  });
   const ledgers = makeWave1Ledgers({
     interventionOutcome: ["io_1"],
     usageEvent: ["ue_1", "ue_2"],
@@ -2581,6 +2620,12 @@ function fakeWave1ErasePrisma() {
     // would pass both while never being erased at all.
     repoAdmission: ["ad_1", "ad_2"],
     installation: ["in_1"],
+    // Remaining org-level ledgers (BYOM / API tokens / alerts). Seeded for the same "nothing
+    // survives" / "preview removes nothing" reason; remaining OrgMemory is a dual-predicate stub
+    // beside this fixture, not a WAVE1_LEDGERS row.
+    orgLlmConfig: ["llm_1"],
+    orgApiToken: ["tok_1", "tok_2"],
+    alertEvent: ["al_1", "al_2", "al_3"],
     // persistScanReport's latest-scan evidence — seeded so the "nothing survives" / "preview removes
     // nothing" assertions cannot pass while these four tables are never touched.
     aiChange: ["ac_1", "ac_2"],
@@ -2615,15 +2660,11 @@ function fakeWave1ErasePrisma() {
     athenaTurn: { count: vi.fn(async () => 0) },
     athenaProposal: { count: vi.fn(async () => 0), deleteMany: vi.fn(async () => ({ count: 0 })) },
     athenaIdentity: { count: vi.fn(async () => 0), deleteMany: vi.fn(async () => ({ count: 0 })) },
-    orgMemory: {
-      findMany: vi.fn(async () => []),
-      count: vi.fn(async () => 0),
-      deleteMany: vi.fn(async () => ({ count: 0 })),
-    },
+    orgMemory: memories.delegate,
     auditLog: { findMany: vi.fn(async () => []), count: vi.fn(async () => 0), deleteMany: vi.fn(async () => ({ count: 0 })) },
     $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
   };
-  return { prisma, tx, ledgers };
+  return { prisma, tx, ledgers, memories };
 }
 
 describe("eraseOrgData — moonshot wave-1 ledger cascades", () => {
@@ -2910,6 +2951,133 @@ describe("eraseOrgData — moonshot wave-4 ledger cascades", () => {
     expect(ledgers.rows.installation).toEqual(["in_1"]);
     expect(prisma.repoAdmission.deleteMany).not.toHaveBeenCalled();
     expect(prisma.installation.deleteMany).not.toHaveBeenCalled();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// Remaining org-level tenant ledgers: OrgMemory beyond Athena, OrgLlmConfig (BYOM ciphertext),
+// OrgApiToken, AlertEvent. None has an FK cascade that fires — an erase never deletes the
+// Organization row — so without these drains an "erasure" leaves the tenant's knowledge store, its
+// BYOM secret, its API tokens and its alert bodies. Gate: seeded rows of each family; preview count
+// equals delete count.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+describe("eraseOrgData — remaining tenant ledgers (OrgMemory, BYOM, API tokens, alerts)", () => {
+  beforeEach(() => {
+    mockGetPrisma.mockReset();
+    mockIsDbConfigured.mockReset();
+    mockIsDbConfigured.mockReturnValue(true);
+    vi.mocked(recordAudit).mockResolvedValue(true);
+    delete process.env[ERASE_AUDIT_FORCE_ENV];
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  it("org scope: drains all four leftover families, org-scoped, and reports what it removed", async () => {
+    const { prisma, ledgers, memories } = fakeWave1ErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const outcome = await eraseOrgData({ orgSlug: "acme" });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.orgMemoriesDeleted).toBe(2);
+    expect(outcome.athenaMemoriesDeleted).toBe(1);
+    expect(outcome.llmConfigsDeleted).toBe(1);
+    expect(outcome.apiTokensDeleted).toBe(2);
+    expect(outcome.alertEventsDeleted).toBe(3);
+    expect(memories.remaining).toEqual([]);
+    expect(memories.athena).toEqual([]);
+    for (const name of ["orgLlmConfig", "orgApiToken", "alertEvent"] as const) {
+      expect(ledgers.rows[name]).toEqual([]);
+      expect(prisma[name].findMany.mock.calls[0]![0].where).toEqual({ orgId: "org_1" });
+    }
+  });
+
+  it("a preview counts each family over the delete's own predicate and removes nothing", async () => {
+    const { prisma, ledgers, memories } = fakeWave1ErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const preview = await eraseOrgData({ orgSlug: "acme", dryRun: true });
+
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+    expect(preview.orgMemoriesDeleted).toBe(2);
+    expect(preview.athenaMemoriesDeleted).toBe(1);
+    expect(preview.llmConfigsDeleted).toBe(1);
+    expect(preview.apiTokensDeleted).toBe(2);
+    expect(preview.alertEventsDeleted).toBe(3);
+    expect(memories.remaining).toEqual(["om_1", "om_2"]);
+    expect(memories.athena).toEqual(["mem_ath_1"]);
+    expect(ledgers.rows.orgLlmConfig).toEqual(["llm_1"]);
+    expect(ledgers.rows.orgApiToken).toEqual(["tok_1", "tok_2"]);
+    expect(ledgers.rows.alertEvent).toEqual(["al_1", "al_2", "al_3"]);
+    expect(prisma.orgLlmConfig.deleteMany).not.toHaveBeenCalled();
+    expect(prisma.orgApiToken.deleteMany).not.toHaveBeenCalled();
+    expect(prisma.alertEvent.deleteMany).not.toHaveBeenCalled();
+    expect(prisma.orgMemory.deleteMany).not.toHaveBeenCalled();
+
+    const done = await eraseOrgData({ orgSlug: "acme" });
+    expect(done.ok).toBe(true);
+    if (!done.ok) return;
+    expect(preview.orgMemoriesDeleted).toBe(done.orgMemoriesDeleted);
+    expect(preview.athenaMemoriesDeleted).toBe(done.athenaMemoriesDeleted);
+    expect(preview.llmConfigsDeleted).toBe(done.llmConfigsDeleted);
+    expect(preview.apiTokensDeleted).toBe(done.apiTokensDeleted);
+    expect(preview.alertEventsDeleted).toBe(done.alertEventsDeleted);
+  });
+
+  it("remaining OrgMemory excludes Athena so a preview cannot double-count her episodes", async () => {
+    const { prisma } = fakeWave1ErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const preview = await eraseOrgData({ orgSlug: "acme", dryRun: true });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+    // Two remaining + one Athena, reported on two counters — not 3+1 and not 3+3.
+    expect(preview.orgMemoriesDeleted + preview.athenaMemoriesDeleted).toBe(3);
+    expect(preview.orgMemoriesDeleted).not.toBe(preview.athenaMemoriesDeleted);
+
+    const remainingWhere = prisma.orgMemory.count.mock.calls
+      .map((call) => (call[0] as { where?: { OR?: unknown; source?: string } } | undefined)?.where)
+      .find((where) => where?.OR);
+    expect(remainingWhere).toEqual({
+      orgId: "org_1",
+      OR: [{ source: { not: "athena" } }, { source: null }],
+    });
+  });
+
+  it("a repo-scoped erase never touches the four leftover families (they are the org's rows)", async () => {
+    const { prisma, ledgers, memories } = fakeWave1ErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const outcome = await eraseOrgData({ orgSlug: "acme", repoFullName: "acme/api" });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.orgMemoriesDeleted).toBe(0);
+    expect(outcome.llmConfigsDeleted).toBe(0);
+    expect(outcome.apiTokensDeleted).toBe(0);
+    expect(outcome.alertEventsDeleted).toBe(0);
+    expect(memories.remaining).toEqual(["om_1", "om_2"]);
+    expect(ledgers.rows.orgLlmConfig).toEqual(["llm_1"]);
+    expect(ledgers.rows.orgApiToken).toEqual(["tok_1", "tok_2"]);
+    expect(ledgers.rows.alertEvent).toEqual(["al_1", "al_2", "al_3"]);
+    expect(prisma.orgLlmConfig.deleteMany).not.toHaveBeenCalled();
+    expect(prisma.orgApiToken.deleteMany).not.toHaveBeenCalled();
+    expect(prisma.alertEvent.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("records the four leftover counters in the data.erased audit meta", async () => {
+    const { prisma } = fakeWave1ErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await eraseOrgData({ orgSlug: "acme", actorId: "owner-login" });
+
+    const meta = vi.mocked(recordAudit).mock.calls.at(-1)![1] as Record<string, unknown>;
+    expect(meta.orgMemoriesDeleted).toBe(2);
+    expect(meta.llmConfigsDeleted).toBe(1);
+    expect(meta.apiTokensDeleted).toBe(2);
+    expect(meta.alertEventsDeleted).toBe(3);
   });
 });
 
