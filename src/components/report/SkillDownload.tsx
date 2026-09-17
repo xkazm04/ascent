@@ -5,6 +5,10 @@
 // the generator's long-dormant maintainer multiselect (`?dims=`), so a session can be scoped to one
 // dimension — or ask for a REFINEMENT on a dimension the repo is already strong on.
 //
+// The picker opens with that auto-picked weak set already checked, and Reset restores it — never an
+// empty box that silently means "Ascent picks". The picker's download still encodes `?dims=` from the
+// current selection, including when the selection is the auto set.
+//
 // Index chrome: a hairline-ruled dimension ledger inside the brand Modal, mono tabular-nums scores,
 // score color only ever from scoreHex. No hand-rolled overlay — Modal owns focus trap/Escape/scroll.
 
@@ -25,6 +29,11 @@ function skillHref(repoParam: string, dims?: DimensionId[]): string {
   return `/api/report/skill?${q.toString()}`;
 }
 
+/** Dimensions Ascent would pick on its own (blended score below the strength line). */
+function autoPicked(dims: DimensionResult[]): DimensionId[] {
+  return dims.filter((d) => d.score < WEAK_THRESHOLD).map((d) => d.id);
+}
+
 export function SkillDownload({
   repoParam,
   dimensions,
@@ -36,15 +45,18 @@ export function SkillDownload({
   dimensions?: DimensionResult[];
 }) {
   const [open, setOpen] = useState(false);
-  const [picked, setPicked] = useState<DimensionId[]>([]);
   const dims = useMemo(() => dimensions ?? [], [dimensions]);
-
-  // The default set Ascent would choose on its own — shown as the "auto" marker so a maintainer can
-  // see what they are overriding before they override it.
-  const auto = useMemo(() => new Set(dims.filter((d) => d.score < WEAK_THRESHOLD).map((d) => d.id)), [dims]);
+  const autoIds = useMemo(() => autoPicked(dims), [dims]);
+  const auto = useMemo(() => new Set(autoIds), [autoIds]);
+  const [picked, setPicked] = useState<DimensionId[]>(() => autoPicked(dimensions ?? []));
 
   const toggle = (id: DimensionId) =>
     setPicked((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  const openChooser = () => {
+    setPicked(autoIds);
+    setOpen(true);
+  };
 
   return (
     <>
@@ -58,7 +70,7 @@ export function SkillDownload({
       {dims.length > 0 && (
         <button
           type="button"
-          onClick={() => setOpen(true)}
+          onClick={openChooser}
           className={pillClass({ focusRing: true, textSm: true })}
           title="Choose which dimensions the onboarding skill should cover"
         >
@@ -114,7 +126,7 @@ export function SkillDownload({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setPicked([])}
+              onClick={() => setPicked(autoIds)}
               className={pillClass({ focusRing: true, textSm: true })}
             >
               Reset
