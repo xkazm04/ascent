@@ -151,14 +151,16 @@ entitlement **before** paid inference and debits/records **after**, so a cache/d
 degrade-to-mock run is never charged.
 
 - **Public scans**: never touch the plan allowance or credits — they cost the visitor nothing. They
-  are separately capped at a free monthly allowance (`publicScanMonthlyLimit()`,
+  are separately capped at a free monthly allowance (`publicScanAllowance()`,
   `src/lib/public-scan-limit.ts`; default **5** per rolling 30-day window, per anonymous IP or
   per signed-in user), enforced by `src/lib/public-scan-quota.ts` and shown live by the scan
   dialog's `QuotaMeter`. **Never describe them as "unlimited" or "unmetered"** — a meter is
   rendered on the same screen. Every surface that states the number derives it from that one
   function: the Free card and blurb (`PLAN_SPECS.free`), `/pricing`'s metadata and footnote, the
-  landing FAQ's JSON-LD, and the 429 body. `plans.test.ts` fails any plan copy that re-claims
-  "unlimited"/"unmetered" public scans.
+  landing FAQ's JSON-LD, the 429 body, and the credit-matrix public-scan row (`creditMatrixData.ts`:
+  all four tier cells plus the Scanning intro). `plans.test.ts` fails any plan copy that re-claims
+  "unlimited"/"unmetered" public scans; `creditMatrixData.test.ts` pins the matrix cells to
+  `publicScanAllowance().label`.
 - **Custom**: `unlimited: true`; never debited regardless of usage.
 
 ## Credit packs vs. plan products (Polar catalogs)
@@ -536,6 +538,15 @@ into a $ estimate on `/usage`, useful for calibrating pack/plan prices against r
   *private* allowance only, naming the public funnel's rolling 30-day window separately.
   `.env.example` documented the gate as `PUBLIC_SCAN_WEEKLY_LIMIT` (7 days, default 3);
   no such variable is read anywhere — the names now match the code.
+
+  **…and the matrix still said Unlimited (fixed 2026-09-17).** MC-B5's write set stopped at the
+  Free card, metadata, FAQ and 429. The Scanning group on the same `/pricing` page kept
+  `cells: all("Unlimited")` and an intro that called public scans "always free and never metered"
+  — a volume claim wearing a credit-currency word, pinned by `creditMatrixData.test.ts`. All four
+  tier cells and the intro now derive from `publicScanAllowance()`, the same phrase the quota
+  gate and the Free card use (G8: the number a visitor reads is the number the gate charges).
+  Credit-currency copy ("never metered on any plan") stays on the row's detail, under a cell
+  that now states the allowance.
 
   Two claims were **corrected rather than logged**, because they asserted capabilities that don't exist at
   all: the matrix's "SSO · RBAC · audit logs ✓" (roles and the audit trail ship; **SAML/OIDC sign-in does
