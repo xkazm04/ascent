@@ -149,4 +149,33 @@ describe("DigestMovement — 'crossed the noise band' is the band, drawn", () =>
     render(<DigestMovement movement={{ gainers: [], regressers: [], compared: 8 }} />);
     expect(screen.getByText(/No repository moved beyond the noise band/)).toBeInTheDocument();
   });
+
+  it("plots held and onboarded on the axis, and never prints 0 for an unmeasured onboard", () => {
+    const { container } = render(
+      <DigestMovement
+        movement={{
+          gainers: [],
+          regressers: [],
+          held: [{ name: "core", fullName: "acme/core", dOverall: 1, levelFrom: "L2", levelTo: "L2" }],
+          onboarded: [{ name: "fresh", fullName: "acme/fresh", dOverall: null, levelFrom: "L1", levelTo: "L1" }],
+          compared: 8,
+        }}
+      />,
+    );
+    expect(screen.queryByText(/No repository moved beyond the noise band/)).not.toBeInTheDocument();
+    expect(container.querySelector('[data-mover="held:acme/core"]')).not.toBeNull();
+    expect(container.querySelector('[data-mover="onboarded:acme/fresh"]')).not.toBeNull();
+    expect(screen.getByRole("link", { name: "core" })).toHaveAttribute("href", "/report/acme/core");
+    expect(screen.getByRole("link", { name: "fresh" })).toHaveAttribute("href", "/report/acme/fresh");
+    // G4: a single-scan onboard is a name, not a fabricated 0 on the week axis.
+    const fresh = container.querySelector('[data-mover="onboarded:acme/fresh"]')!;
+    expect(fresh.textContent).not.toMatch(/0/);
+  });
+
+  it("does not print 0 held or 0 onboarded when those buckets were empty", () => {
+    render(<DigestMovement movement={{ gainers: [], regressers: [], held: [], onboarded: [], compared: 8 }} />);
+    expect(screen.getByText(/No repository moved beyond the noise band/)).toBeInTheDocument();
+    expect(screen.queryByText(/0 held/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/0 onboarded/i)).not.toBeInTheDocument();
+  });
 });

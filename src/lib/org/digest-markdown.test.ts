@@ -174,6 +174,23 @@ describe("weeklyDigestMarkdown", () => {
     expect(headers(d)).not.toContain("## Repository movement");
   });
 
+  it("names held and onboarded on the movement list, and does not print 0 for an unmeasured onboard", () => {
+    const d = digest({
+      movement: {
+        gainers: [],
+        regressers: [],
+        held: [{ name: "core", dOverall: 1, levelFrom: "L2", levelTo: "L2" }],
+        onboarded: [{ name: "fresh", dOverall: null, levelFrom: "L1", levelTo: "L1" }],
+        compared: 8,
+      },
+    });
+    const l = lines(d);
+    expect(headers(d)).toContain("## Repository movement");
+    expect(l).toContain("- ○ core: +1 (held)");
+    expect(l).toContain("- + fresh (onboarded)");
+    expect(l.some((x) => x.includes("fresh") && /0/.test(x))).toBe(false);
+  });
+
   it("surfaces the engine caveat on the coverage line", () => {
     const d = digest({ provenance: { ...base.provenance, engineCaveat: "all scores this period used the deterministic mock engine, not the live model" } });
     expect(lines(d)[1]).toContain("⚠ all scores this period used the deterministic mock engine");

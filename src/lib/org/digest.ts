@@ -82,8 +82,15 @@ function toAction(rec: OrgRec, rank: 1 | 2 | 3, scanned: number): DigestAction {
   };
 }
 
-function toMover(m: RepoMove): DigestMover {
-  return { name: m.name, fullName: m.fullName, dOverall: m.dOverall, levelFrom: m.levelFrom, levelTo: m.levelTo };
+function toMover(m: RepoMove, lifetime = false): DigestMover {
+  // A single-scan onboard compares the scan to itself: dOverall is 0 by arithmetic, not measurement.
+  return {
+    name: m.name,
+    fullName: m.fullName,
+    dOverall: lifetime && m.dOverall === 0 ? null : m.dOverall,
+    levelFrom: m.levelFrom,
+    levelTo: m.levelTo,
+  };
 }
 
 /** Assemble the weekly digest for an org. Null when nothing has been scanned. */
@@ -206,13 +213,15 @@ function buildFollowups(
   };
 }
 
-/** Top 3 climbers and top 3 sliders, with the count of repositories that had a real comparison.
+/** Top 3 climbers, sliders, held-within-noise, and onboarded names, plus the comparison count.
  *  `comparedRepos` deliberately excludes repos onboarded mid-window (G4-06) — their move is a lifetime
- *  delta, not a week's. */
+ *  delta, not a week's — but those names still travel on `onboarded` so the axis can render them. */
 function buildMovement(movers: OrgMovers): DigestMovement {
   return {
-    gainers: movers.gainers.slice(0, 3).map(toMover),
-    regressers: movers.regressers.slice(0, 3).map(toMover),
+    gainers: movers.gainers.slice(0, 3).map((m) => toMover(m)),
+    regressers: movers.regressers.slice(0, 3).map((m) => toMover(m)),
+    held: movers.held.slice(0, 3).map((m) => toMover(m)),
+    onboarded: movers.onboarded.slice(0, 3).map((m) => toMover(m, true)),
     compared: movers.comparedRepos,
   };
 }

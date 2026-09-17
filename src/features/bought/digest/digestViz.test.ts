@@ -111,6 +111,27 @@ describe("moveMarks", () => {
     expect(marks.every((m) => m.crossedLevel)).toBe(true);
     expect(extent).toBe(9);
   });
+
+  it("places held and onboarded on the same axis, and keeps an unmeasured onboarded delta as null — never 0", () => {
+    const { marks, extent } = moveMarks({
+      gainers: [{ name: "api", dOverall: 9, levelFrom: "L2", levelTo: "L3" }],
+      regressers: [],
+      held: [{ name: "core", dOverall: 1, levelFrom: "L2", levelTo: "L2" }],
+      onboarded: [
+        { name: "grown", dOverall: 12, levelFrom: "L1", levelTo: "L2" },
+        { name: "fresh", dOverall: null, levelFrom: "L1", levelTo: "L1" },
+      ],
+      compared: 8,
+    });
+    expect(marks.map((m) => [m.name, m.d, m.kind])).toEqual([
+      ["api", 9, "moved"],
+      ["core", 1, "held"],
+      ["grown", 12, "onboarded"],
+      ["fresh", null, "onboarded"],
+    ]);
+    // Extent is the largest MEASURED |d|; a null onboarded delta does not collapse the axis to 0.
+    expect(extent).toBe(12);
+  });
 });
 
 describe("presentStates", () => {

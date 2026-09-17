@@ -279,7 +279,9 @@ silent rather than training the inbox filter.
   (`getOrgRollup(org, win)`: avg overall, level, scanned/repo counts, overall delta vs the
   week's start), the **top movers** (`getOrgMovers`, up to 3 gainers + 3 regressers,
   noise-filtered via `isWithinNoise` so within-jitter moves never appear under
-  "Regressions:"), the **highest-leverage gap** (`getOrgRecommendations(org, 1)`'s top
+  "Regressions:", plus the `held` and `onboarded` buckets on the same movement axis:
+  held sit inside the noise band; onboarded are named lifetime deltas, with a
+  single-scan onboard carrying **no numeral** rather than a fabricated 0), the **highest-leverage gap** (`getOrgRecommendations(org, 1)`'s top
   result: title + affected repo count), the corpus percentile (`getOrgBenchmark`), a
   one-line forecast trajectory (`trajectoryLine` — see "The trajectory line is gated and
   hedged" below), and, for metered, non-public orgs
@@ -382,9 +384,10 @@ silent rather than training the inbox filter.
   pure) builds the same `AlertMessage { text, blocks }` shape as the regression/promotion
   builders: a headline (`📊 Ascent weekly digest: <org>`), a summary line (fleet maturity,
   level, delta, scanned/repo counts, percentile), an optional trajectory line, a "Top
-  gainers"/"Regressions" block, a "Highest-leverage gap" block, an optional "Credits
-  remaining" line, and a link to the org's executive briefing (carrying the same
-  `?range=custom&from=&to=` window). A `null` `overallDelta` (no baseline exists for the
+  gainers"/"Regressions" block, optional "Held within noise" and "Onboarded this week"
+  blocks (omitted when the bucket was not measured or is empty — never "0 held" /
+  "0 onboarded"; an unmeasured onboarded delta prints the name without a 0), a "Highest-leverage gap" block, an optional "Credits
+  remaining" line, and a link to the org's Weekly digest tab. A `null` `overallDelta` (no baseline exists for the
   window at all, whether a freshly-onboarded org or a fleet whose entire scan history is younger
   than the window boundary) renders as an explicit "not enough history yet for a
   week-over-week comparison" clause, never a silently-dropped delta: an empty string there

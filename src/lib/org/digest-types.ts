@@ -94,7 +94,8 @@ export interface DigestAction {
 export interface DigestMover {
   name: string;
   fullName?: string;
-  dOverall: number;
+  /** Null when the repo has no comparable pair (a single-scan onboard). Never a stand-in 0. */
+  dOverall: number | null;
   levelFrom: string;
   levelTo: string;
 }
@@ -102,6 +103,13 @@ export interface DigestMover {
 export interface DigestMovement {
   gainers: DigestMover[];
   regressers: DigestMover[];
+  /** Within-noise period moves (`OrgMovers.held`). Omit or `[]` rather than printing "0 held". */
+  held?: DigestMover[];
+  /**
+   * Mid-window onboarded repos (`OrgMovers.onboarded`). Lifetime delta, or `dOverall: null` when
+   * only one scan exists. Omit or `[]` rather than printing "0 onboarded".
+   */
+  onboarded?: DigestMover[];
   /** Repos compared on both sides of the window. */
   compared: number;
 }

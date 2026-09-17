@@ -711,3 +711,49 @@ describe("the digest's Controls block", () => {
     });
   });
 });
+
+describe("buildFleetDigestMessage held and onboarded", () => {
+  const base: FleetDigestInput = {
+    org: "acme",
+    repoCount: 10,
+    scannedCount: 10,
+    avgOverall: 70,
+    level: "L3 · Defined",
+    overallDelta: 0,
+    gainers: [],
+    regressers: [],
+    topRecommendation: null,
+  };
+
+  it("omits both blocks when the caller passes nothing — never a '0 held' or '0 onboarded' claim", () => {
+    const text = buildFleetDigestMessage(base).text;
+    expect(text).not.toContain("Held within noise");
+    expect(text).not.toContain("Onboarded this week");
+    expect(text).not.toContain("0 held");
+    expect(text).not.toContain("0 onboarded");
+  });
+
+  it("omits both blocks for empty arrays — measured none is not printed as zero", () => {
+    const text = buildFleetDigestMessage({ ...base, held: [], onboarded: [] }).text;
+    expect(text).not.toContain("Held within noise");
+    expect(text).not.toContain("Onboarded this week");
+  });
+
+  it("lists held and onboarded names, and never prints a 0 delta for an unmeasured onboard", () => {
+    const m = buildFleetDigestMessage({
+      ...base,
+      held: [{ name: "core", delta: 1 }],
+      onboarded: [
+        { name: "fresh", delta: null },
+        { name: "grown", delta: 12 },
+      ],
+    });
+    expect(m.text).toContain("Held within noise:");
+    expect(m.text).toContain("core +1");
+    expect(m.text).toContain("Onboarded this week:");
+    expect(m.text).toContain("• fresh");
+    expect(m.text).toContain("grown +12");
+    expect(m.text).not.toMatch(/fresh \+0/);
+    expect(m.text).not.toMatch(/fresh 0/);
+  });
+});

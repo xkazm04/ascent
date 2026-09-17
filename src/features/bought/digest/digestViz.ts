@@ -1,14 +1,6 @@
 // The weekly digest's view models — every scale and every epistemic state, decided HERE.
-//
-// The digest is the one org surface that also LEAVES the product (markdown, Slack, a board PDF), so
-// its screen rendering and its pasted form have to agree about what was measured and what was not.
-// Deciding in a pure module means a chart and its generated `sr-only` table are built from one
-// answer, and the refusals are testable without a DOM — the Wave 1 pattern (leverageMoves.ts).
-//
-// The rule this file enforces: `band === "unmeasured"` maps to the kit's `missing` state, whose
-// `rendersValue()` is false. A dimension the window could not measure therefore CANNOT print a
-// numeral — "an em dash is a missing measurement, not a zero" stops being a promise the reader has
-// to hold and becomes a shape the code cannot draw wrong.
+// `band === "unmeasured"` maps to `missing` (`rendersValue()` false), so an unmeasured dimension
+// cannot print a numeral. Held/onboarded follow the same rule: a null delta is a name, not a 0.
 
 import { isNum, type VizState } from "@/components/org/viz";
 import { SCORE_NOISE_BAND } from "@/lib/maturity/noise";
@@ -18,15 +10,14 @@ import type {
   DigestDimDelta,
   DigestFollowups,
   DigestHeadline,
+  DigestMover,
   DigestMovement,
 } from "@/lib/org/digest-types";
 
 /** Half-width of the drawn noise band, in score points — the canonical one, never a local constant. */
 export const NOISE = SCORE_NOISE_BAND;
 
-/** The presentation band → the shared epistemic state. `flat` is deliberately **measured**, not a
- *  third state: a within-noise hold IS a measurement, and the reason it is not movement is that it
- *  lands inside the drawn band. Encoding that twice lets the two copies disagree. */
+/** Presentation band → epistemic state. `flat` stays measured: a within-noise hold is a measurement. */
 export function bandState(band: DigestBand): VizState {
   return band === "unmeasured" ? "missing" : "measured";
 }
@@ -94,16 +85,13 @@ export function ledgerView(f: DigestFollowups): LedgerView {
   const openedCount = f.openedMeasurable ? f.opened : null;
   return {
     closed: { id: "closed", label: "Closed", count: f.closed, state: "measured" },
-    // `decided`: the kit's accent ring is "a person decided this". A dismissal is exactly that — a
-    // human call that the work will not be done — which is why it is drawn beside the closes and
-    // never inside them. A leadership update that folds it in claims credit for a decision to stop.
+    // `decided`: a dismissal is a human call not to do the work — drawn beside closes, never inside.
     dismissed: { id: "dismissed", label: "Dismissed", count: f.dismissed, state: "decided" },
     opened: {
       id: "opened",
       label: "Opened",
       count: openedCount,
-      // No repo had a pre-window scan, so the identity diff has nothing to compare: `missing`, whose
-      // `rendersValue` is false. The 0 that would otherwise read as "a calm week" is unprintable.
+      // Unmeasurable opened: `missing` so the 0 that would read as "a calm week" is unprintable.
       state: f.openedMeasurable ? "measured" : "missing",
     },
     max: Math.max(1, f.closed + f.dismissed, openedCount ?? 0),
@@ -136,7 +124,6 @@ export function actionBars(actions: readonly DigestAction[]): { bars: ActionBar[
     dimId: a.dimId,
     dimLabel: a.dimLabel,
     repoCount: a.repoCount,
-    // A move cannot lift more repos than it reaches; a bad row must not draw a segment past its bar.
     lifts: Math.max(0, Math.min(a.repoCount, a.liftsRepos)),
     perRepo: isNum(a.projectedPoints) ? a.projectedPoints : null,
     pointsState: (isNum(a.projectedPoints) ? "measured" : "missing") as VizState,
@@ -174,26 +161,39 @@ export function coverageView(h: DigestHeadline): CoverageView {
 
 // ── repository movement ───────────────────────────────────────────────────────
 
+export type MoveKind = "moved" | "held" | "onboarded";
+
 export interface MoveMark {
   key: string;
   name: string;
   fullName?: string;
-  d: number;
+  /** Null when the repo appeared this week with no comparable pair — a name, not a 0. */
+  d: number | null;
   from: string;
   to: string;
-  /** The move also carried the repo across a maturity level edge — a different fact from its size. */
   crossedLevel: boolean;
+  kind: MoveKind;
 }
 
-export function moveMarks(m: DigestMovement): { marks: MoveMark[]; extent: number } {
-  const marks = [...m.gainers, ...m.regressers].map((r) => ({
-    key: r.fullName ?? r.name,
+function asMark(kind: MoveKind, r: DigestMover): MoveMark {
+  return {
+    key: `${kind}:${r.fullName ?? r.name}`,
     name: r.name,
     fullName: r.fullName,
     d: r.dOverall,
     from: r.levelFrom,
     to: r.levelTo,
     crossedLevel: r.levelFrom !== r.levelTo,
-  }));
+    kind,
+  };
+}
+
+export function moveMarks(m: DigestMovement): { marks: MoveMark[]; extent: number } {
+  const marks = [
+    ...m.gainers.map((r) => asMark("moved", r)),
+    ...m.regressers.map((r) => asMark("moved", r)),
+    ...(m.held ?? []).map((r) => asMark("held", r)),
+    ...(m.onboarded ?? []).map((r) => asMark("onboarded", r)),
+  ];
   return { marks, extent: deltaExtent(marks.map((x) => x.d)) };
 }

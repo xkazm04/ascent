@@ -303,6 +303,14 @@ export async function GET(request: Request) {
         // exists to avoid). `gainers` needs no mirror filter here — `getOrgMovers` already excludes
         // sub-band moves from BOTH lists (see the note on `regressersBeyondNoise` above).
         regressers: regressersBeyondNoise.slice(0, 3).map((m) => ({ name: m.name, delta: m.dOverall })),
+        // Held / onboarded ride the same axis the in-app digest draws. Undefined when movers could
+        // not be read (omit, never "0 held"); empty arrays omit the same way. A single-scan onboard
+        // has no comparable pair, so its delta is null rather than a fabricated 0 (G4).
+        held: movers?.held?.slice(0, 3).map((m) => ({ name: m.name, delta: m.dOverall })),
+        onboarded: movers?.onboarded?.slice(0, 3).map((m) => ({
+          name: m.name,
+          delta: m.dOverall === 0 ? null : m.dOverall,
+        })),
         topRecommendation: top ? { title: top.title, repoCount: top.repoCount } : null,
         // THE THREE-STATE CONTRACT, KEPT (UAT `DANA-L1-015`). `undefined` (ledger unreadable) omits
         // the block; `[]` says "we looked and none failed". This used to send `undefined` whenever the

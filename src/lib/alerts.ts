@@ -198,6 +198,16 @@ export interface FleetDigestInput {
   overallDelta: number | null; // vs the week's start (null = no baseline)
   gainers: { name: string; delta: number }[];
   regressers: { name: string; delta: number }[];
+  /**
+   * Within-noise period moves (`OrgMovers.held`). Undefined or empty omits the block — never
+   * "0 held", which would claim a measurement the caller did not take (or took and found none).
+   */
+  held?: { name: string; delta: number }[];
+  /**
+   * Mid-window onboarded repos (`OrgMovers.onboarded`). `delta` is the lifetime move, or null when
+   * only one scan exists (never printed as 0). Undefined or empty omits the block.
+   */
+  onboarded?: { name: string; delta: number | null }[];
   topRecommendation: { title: string; repoCount: number } | null;
   /** Corpus percentile (0..100) for the exec digest, or null/undefined when no corpus yet. */
   percentile?: number | null;
@@ -271,6 +281,8 @@ export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
   const pctile = d.percentile != null ? ` · ${ordinal(d.percentile)} pctile` : "";
   const summary = `Fleet maturity *${d.avgOverall}/100* · ${d.level}${delta} · ${d.scannedCount}/${d.repoCount} repos scanned${pctile}`;
   const gain = (m: { name: string; delta: number }) => `• ${m.name} ${signed(m.delta)}`;
+  const onboardLine = (m: { name: string; delta: number | null }) =>
+    m.delta == null || m.delta === 0 ? `• ${m.name}` : `• ${m.name} ${signed(m.delta)}`;
 
   // MOONSHOT #1 — the Controls block sits ABOVE the movers, and deliberately: a control that came
   // off a repo outranks every score delta on the page, and a reader who has to scroll past six
@@ -306,6 +318,8 @@ export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
   if (d.standingConcerns) lines.push("", standingHeading, ...d.standingConcerns.map(standingLine));
   if (d.gainers.length) lines.push("", "Top gainers:", ...d.gainers.map(gain));
   if (d.regressers.length) lines.push("", "Regressions:", ...d.regressers.map(gain));
+  if (d.held?.length) lines.push("", "Held within noise:", ...d.held.map(gain));
+  if (d.onboarded?.length) lines.push("", "Onboarded this week:", ...d.onboarded.map(onboardLine));
   if (d.topRecommendation)
     lines.push("", `Highest-leverage gap: ${d.topRecommendation.title} (affects ${d.topRecommendation.repoCount} repo${d.topRecommendation.repoCount === 1 ? "" : "s"})`);
   if (d.creditsRemaining != null)
@@ -334,6 +348,8 @@ export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
   const mv: string[] = [];
   if (d.gainers.length) mv.push(`*Top gainers:*\n${d.gainers.map(gain).join("\n")}`);
   if (d.regressers.length) mv.push(`*Regressions:*\n${d.regressers.map(gain).join("\n")}`);
+  if (d.held?.length) mv.push(`*Held within noise:*\n${d.held.map(gain).join("\n")}`);
+  if (d.onboarded?.length) mv.push(`*Onboarded this week:*\n${d.onboarded.map(onboardLine).join("\n")}`);
   if (mv.length) blocks.push(mrkdwnSection(mv.join("\n\n")));
   if (d.topRecommendation)
     blocks.push(

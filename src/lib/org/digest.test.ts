@@ -204,6 +204,34 @@ describe("buildWeeklyDigest — happy path", () => {
     expect(d.movement!.gainers.map((m) => m.name)).toEqual(["api", "web", "cli"]);
     expect(d.movement!.regressers.map((m) => m.name)).toEqual(["legacy"]);
     expect(d.movement!.compared).toBe(8);
+    expect(d.movement!.held).toEqual([]);
+    expect(d.movement!.onboarded).toEqual([]);
+  });
+
+  it("carries held and onboarded names, and nulls an unmeasured onboarded delta rather than printing 0", async () => {
+    mockGetOrgMovers.mockResolvedValue(
+      movers({
+        held: [
+          { name: "core", fullName: "acme/core", dOverall: 1, levelFrom: "L2", levelTo: "L2" },
+          { name: "lib", fullName: "acme/lib", dOverall: -1, levelFrom: "L2", levelTo: "L2" },
+          { name: "sdk", fullName: "acme/sdk", dOverall: 2, levelFrom: "L3", levelTo: "L3" },
+          { name: "extra", fullName: "acme/extra", dOverall: 1, levelFrom: "L1", levelTo: "L1" },
+        ],
+        onboarded: [
+          { name: "grown", fullName: "acme/grown", dOverall: 12, levelFrom: "L1", levelTo: "L2" },
+          { name: "fresh", fullName: "acme/fresh", dOverall: 0, levelFrom: "L1", levelTo: "L1" },
+          { name: "svc", fullName: "acme/svc", dOverall: 4, levelFrom: "L1", levelTo: "L1" },
+          { name: "drop", fullName: "acme/drop", dOverall: 3, levelFrom: "L1", levelTo: "L1" },
+        ],
+      }),
+    );
+    const d = (await buildWeeklyDigest("acme", NOW))!;
+    expect(d.movement!.held!.map((m) => m.name)).toEqual(["core", "lib", "sdk"]);
+    expect(d.movement!.onboarded!.map((m) => [m.name, m.dOverall])).toEqual([
+      ["grown", 12],
+      ["fresh", null],
+      ["svc", 4],
+    ]);
   });
 
   it("composes the two follow-up reads without merging them", async () => {
