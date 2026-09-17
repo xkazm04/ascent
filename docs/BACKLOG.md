@@ -311,6 +311,24 @@ Coordinator wave over **all 54 contexts**, 5 highest-impact cards each (270). De
 | PDF & LLM Export | Keep LLM-vs-detector discrepancies in PDF and markdown (G1) | `2b466e41` |
 | Data Retention & Purge | Reset every scan-derived Repository cache and evidence table on erase | `55a58aba` |
 
+### Wave 2 shipped
+
+11 disjoint S/M items, one per context-map group. Catalog.json write-back after index was skipped (no GitHub contents helper — would be L); swapped for default MCP token scopes.
+
+| Context | Item | SHA |
+| --- | --- | --- |
+| LLM Provider Abstraction | Honor LLM_FALLBACK_PROVIDER=nebius in providerByName | `4440a630` |
+| GitHub App Installation & Webhooks | Build App install URLs from githubWebBase for GHES | `efcc02f4` |
+| Launch Fleet Map | Send Enter mission control to the first org dashboard | `48e5a214` |
+| Org Import, Scan & Watchlist | Stamp creditCharged on import reservations so a killed import cannot double-debit | `463a88f4` |
+| Developer home (UC3 individual care) | Do not offer Preview-as when activity is withheld or unreadable | `83738312` |
+| Follow-ups Ledger | Carry claimActor, leaseUntil and needsHuman across scan persist | `50974709` |
+| Skills Registry & API Tokens | Default minted tokens to the MCP door scopes, not leftover skills:read | `b0f08386` |
+| Portfolio & Public Leaderboard | Stop 404ing a public scorecard when the register read fails | `bdaff48e` |
+| Landing Page Prototypes | Add a numeric, anonymous pricing snap section on the Index deck | `63f77947` |
+| Usage Metering | Return null from freeToPaidConversion when no Subscription row has ever been written | `82949da0` |
+| Data Retention & Purge | Erase remaining tenant ledgers: OrgMemory, BYOM creds, API tokens, alerts | `8f8edee1` |
+
 ### Escalated (human / architecture / irreversible / hot-file)
 
 | Context | Item | Size | Gate | Why |
@@ -324,4 +342,4 @@ Coordinator wave over **all 54 contexts**, 5 highest-impact cards each (270). De
 | First-Run Onboarding Wizard | Re-judge wizard-flows: mid-scan resume now re-attaches | S | contract | contract |
 | Live War Room | Surface drive/run outcome on the shared kiosk instead of standing-only LiveWarRoom | M | none | none |
 
-Remaining auto-buildable cards (254) stay in `.personas/scan-sweep-20260917/catalog.json` for later waves. Outbox ingest cap took 30 remaining findings (escalated first, then highest impact); the rest are unrecorded in the outbox and live in the catalog.
+Remaining auto-buildable cards (243) stay in `.personas/scan-sweep-20260917/catalog.json` for later waves. Outbox ingest cap took 30 remaining findings (escalated first, then highest impact); the rest are unrecorded in the outbox and live in the catalog.
