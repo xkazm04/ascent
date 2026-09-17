@@ -6,8 +6,32 @@ import { RadarChart } from "./RadarChart";
 
 // A DimensionResult carries far more than the chart reads; build the minimal shape the radar uses
 // (id/name/score) and stub the rest so the fixture stays honest to the type without noise.
-function dim(id: DimensionResult["id"], name: string, score: number): DimensionResult {
-  return { id, name, score, weight: 1, signalScore: score, llmScore: score, summary: "", evidence: [], strengths: [], gaps: [] };
+function dim(
+  id: DimensionResult["id"],
+  name: string,
+  score: number,
+  extra?: Partial<Pick<DimensionResult, "signalScore" | "llmScore">>,
+): DimensionResult {
+  return {
+    id,
+    name,
+    score,
+    weight: 1,
+    signalScore: extra?.signalScore ?? score,
+    llmScore: extra?.llmScore ?? score,
+    summary: "",
+    evidence: [],
+    strengths: [],
+    gaps: [],
+  };
+}
+
+/** jsdom has no layout — give the svg a concrete box so pointer→viewBox math works (size 340). */
+function hoverAt(container: HTMLElement, clientX: number, clientY: number) {
+  const svg = container.querySelector("svg")!;
+  svg.getBoundingClientRect = () =>
+    ({ left: 0, top: 0, width: 436, height: 340, right: 436, bottom: 340, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+  fireEvent.pointerMove(svg, { clientX, clientY });
 }
 
 const DIMS: DimensionResult[] = [
@@ -201,5 +225,62 @@ describe("RadarChart zero-score vertices (no inflating floor)", () => {
     expect(container.querySelectorAll("circle[data-zero]")).toHaveLength(3);
     // The sr table still reports three honest zeros.
     expect(screen.getAllByRole("cell", { name: "0" })).toHaveLength(3);
+  });
+});
+
+// --- Signal vs LLM ticks on hover (G1: do not hide disagreement) ----------------
+describe("RadarChart signal vs LLM hover ticks", () => {
+  // D2 at i=0 (straight up) so the pointer math matches the existing D1 tap fixture.
+  // Finding flow: signal 70, llm 90, blended 78 — vertex at 78, hover must name both witnesses.
+  const MIXED: DimensionResult[] = [
+    dim("D2", "Testing", 78, { signalScore: 70, llmScore: 90 }),
+    dim("D3", "Eval", 50),
+    dim("D6", "CI", 50),
+  ];
+
+  it("SR table names signal and LLM when they differ from the blended score", () => {
+    render(<RadarChart dimensions={MIXED} />);
+    expect(screen.getByText(/78 · signal 70 · LLM 90/)).toBeInTheDocument();
+    // Neighbours where all three match stay one number — no extra ticks invented.
+    expect(screen.getAllByRole("cell", { name: "50" })).toHaveLength(2);
+    expect(screen.queryByText(/signal 50/)).not.toBeInTheDocument();
+  });
+
+  it("hover draws both ticks and lists them; equal scores stay one number", () => {
+    // Blended vertex at frac 78/100, straight up: y = 170 − 114×0.78 ≈ 81; client x = 170+48 = 218.
+    const { container } = render(<RadarChart dimensions={MIXED} size={340} />);
+    expect(container.querySelector("[data-hover-ticks]")).toBeNull();
+    hoverAt(container, 218, 81);
+    expect(screen.getByText("signal 70 · LLM 90")).toBeInTheDocument();
+    expect(container.querySelector('[data-tick="signal"]')).not.toBeNull();
+    expect(container.querySelector('[data-tick="llm"]')).not.toBeNull();
+    // Ticks sit at their own radii, not stacked on the blended vertex (G1 visible, not a label-only lie).
+    const sig = container.querySelector('[data-tick="signal"]')!;
+    const llm = container.querySelector('[data-tick="llm"]')!;
+    expect(sig.getAttribute("cy")).not.toBe(llm.getAttribute("cy"));
+  });
+
+  it("does not invent ticks when signal, LLM, and blend agree", () => {
+    const { container } = render(<RadarChart dimensions={DIMS} size={340} />);
+    hoverAt(container, 218, 88);
+    // Tooltip duplicates the name already in the SR table — proof the vertex is active.
+    expect(screen.getAllByText("AI Tooling").length).toBeGreaterThan(1);
+    expect(screen.queryByText(/signal \d/)).not.toBeInTheDocument();
+    expect(container.querySelector("[data-hover-ticks]")).toBeNull();
+  });
+
+  it("still names the detector when it equals the blend but the LLM disagrees (G1)", () => {
+    // Collapsing to "LLM 90" would hide that the detectors already sat at 70 — the blend is not a
+    // single fact, and G1 forbids softening that disagreement.
+    const dims = [
+      dim("D2", "Testing", 70, { signalScore: 70, llmScore: 90 }),
+      dim("D3", "Eval", 50),
+      dim("D6", "CI", 50),
+    ];
+    const { container } = render(<RadarChart dimensions={dims} size={340} />);
+    hoverAt(container, 218, 90);
+    expect(screen.getByText("signal 70 · LLM 90")).toBeInTheDocument();
+    expect(container.querySelector('[data-tick="signal"]')).not.toBeNull();
+    expect(container.querySelector('[data-tick="llm"]')).not.toBeNull();
   });
 });

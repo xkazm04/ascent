@@ -9,6 +9,7 @@ import { DIMENSION_SHORT, scoreHex } from "@/lib/ui";
 import { ChartTooltip } from "@/components/report/chartHover";
 import { RadarFallback } from "@/components/report/RadarFallback";
 import { r2 } from "@/components/report/svgCoord";
+import { radarHoverTicks } from "@/lib/scoring/provenance";
 
 /** Fixed radius the zero MARKER is parked at. It is not a vertex — the polygon still closes through
  *  the true centre — only the place the "this dimension scored zero" ring is drawn so it is legible
@@ -96,6 +97,9 @@ export function RadarChart({
   // dropping the non-null assertions.
   const actPt = active != null ? markPts[active] : undefined;
   const actDim = active != null ? dimensions[active] : undefined;
+  const ticks = actDim ? radarHoverTicks(actDim) : null;
+  const sigPt = active != null && ticks ? point(active, ticks.signal / 100) : undefined;
+  const llmPt = active != null && ticks ? point(active, ticks.llm / 100) : undefined;
   const dataPath = polyPts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
   function onPointerMove(e: PointerEvent<SVGSVGElement>) {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -178,6 +182,15 @@ export function RadarChart({
       {actPt && actDim && (
         <circle cx={actPt[0]} cy={actPt[1]} r={8} fill="none" stroke={scoreHex(actDim.score)} strokeWidth={2} />
       )}
+      {/* Signal vs LLM ticks on the hovered spoke. Same marks as ProvenanceTrack (hollow
+          slate tick = detector, filled pale dot = model). Drawn only when they disagree
+          with the blend so a single fact stays one number (G1: never hide disagreement). */}
+      {sigPt && llmPt && (
+        <g data-hover-ticks>
+          <circle data-tick="signal" cx={sigPt[0]} cy={sigPt[1]} r={3} fill="none" stroke="#94a3b8" strokeWidth={1.5} />
+          <circle data-tick="llm" cx={llmPt[0]} cy={llmPt[1]} r={3} fill="#cbd5e1" stroke="var(--color-surface)" strokeWidth={1} />
+        </g>
+      )}
       {/* labels */}
       {dimensions.map((d, i) => {
         const [x, y] = point(i, 1.2);
@@ -219,6 +232,7 @@ export function RadarChart({
                 {levelForScore(actDim.score).id} {levelForScore(actDim.score).name}
               </span>
             </div>
+            {ticks && <div className="mt-0.5 type-body-sm text-slate-400">{ticks.line}</div>}
           </div>
         </ChartTooltip>
       )}
@@ -248,6 +262,7 @@ export function RadarChart({
         <tbody>
           {dimensions.map((d) => {
             const lvl = levelForScore(d.score);
+            const rowTicks = radarHoverTicks(d);
             return (
               <tr key={d.id}>
                 <th scope="row">
@@ -259,7 +274,7 @@ export function RadarChart({
                     d.name
                   )}
                 </th>
-                <td>{d.score}</td>
+                <td>{rowTicks ? `${d.score} · ${rowTicks.line}` : d.score}</td>
                 <td>{`${lvl.id} ${lvl.name}`}</td>
               </tr>
             );

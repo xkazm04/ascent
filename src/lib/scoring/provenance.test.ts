@@ -6,6 +6,7 @@ import {
   SIGNAL_ONLY_DIMENSIONS,
   blendWeightLabel,
   blendWeightPercent,
+  radarHoverTicks,
   scoreProvenance,
 } from "@/lib/scoring/provenance";
 import { integrityNotes } from "@/lib/maturity/attribution";
@@ -97,5 +98,37 @@ describe("blend weight — one unit for both surfaces", () => {
     const p = scoreProvenance({ id: "D2", signalScore: 50, score: 52 }, si);
     if (p.kind !== "blended" || p.blend === null) throw new Error("unreachable");
     expect(note?.label).toContain(`${blendWeightPercent(p.blend)}%`);
+  });
+});
+
+// RadarChart plots the blend. Hover/SR must still name both witnesses when they disagree with it
+// (G1: never collapse LLM-vs-detector disagreement into the headline). Equal values stay one number.
+describe("radarHoverTicks", () => {
+  it("returns null when signal, LLM, and blend are the same number", () => {
+    expect(radarHoverTicks({ score: 72, signalScore: 72, llmScore: 72 })).toBeNull();
+  });
+
+  it("names BOTH ticks when the blend sits off the signal (the radar hover case)", () => {
+    expect(radarHoverTicks({ score: 78, signalScore: 70, llmScore: 90 })).toEqual({
+      signal: 70,
+      llm: 90,
+      line: "signal 70 · LLM 90",
+    });
+  });
+
+  it("still names the signal when it equals the blend but the LLM disagrees (G1)", () => {
+    expect(radarHoverTicks({ score: 70, signalScore: 70, llmScore: 90 })).toEqual({
+      signal: 70,
+      llm: 90,
+      line: "signal 70 · LLM 90",
+    });
+  });
+
+  it("still names the LLM when it equals the blend but the signal disagrees (G1)", () => {
+    expect(radarHoverTicks({ score: 90, signalScore: 70, llmScore: 90 })).toEqual({
+      signal: 70,
+      llm: 90,
+      line: "signal 70 · LLM 90",
+    });
   });
 });

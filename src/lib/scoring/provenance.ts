@@ -92,3 +92,18 @@ export function blendWeightPercent(blend: number): number {
 export function blendWeightLabel(blend: number): string {
   return `blend weight ${blendWeightPercent(blend)}% of ${blendWeightPercent(SCORE_BLEND)}%`;
 }
+
+// ── Radar hover ticks (signal vs LLM) ─────────────────────────────────────────
+//
+// RadarChart plots the blended `score` as the polygon (the headline). Hover and the
+// SR table must still name the two witnesses when either disagrees with that number
+// (G1: LLM-vs-detector disagreement is never collapsed into the blend). When all
+// three match there is nothing to disclose, so the hover stays one number.
+
+export type RadarHoverTicks = { signal: number; llm: number; line: string };
+
+/** Signal + LLM ticks for a radar vertex, or null when they equal the plotted score. */
+export function radarHoverTicks(d: { score: number; signalScore: number; llmScore: number }): RadarHoverTicks | null {
+  if (d.signalScore === d.score && d.llmScore === d.score) return null;
+  return { signal: d.signalScore, llm: d.llmScore, line: `signal ${d.signalScore} · LLM ${d.llmScore}` };
+}

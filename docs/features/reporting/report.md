@@ -191,7 +191,7 @@ the current scan if not yet stored), and picks the correct baseline for deltas.
 | Component | Renders | Interaction |
 | --- | --- | --- |
 | `ScoreRing` | Overall score as an SVG progress ring; arc length **and** color encode the score (color-blind-safe). | static |
-| `RadarChart` | The dimensions as a radar polygon with 25/50/75/100 rings. | hover snaps to nearest vertex; SR-table fallback |
+| `RadarChart` | The dimensions as a radar polygon with 25/50/75/100 rings (the plotted vertex is the blended score). | hover snaps to nearest vertex and names signal vs LLM ticks when they disagree with the blend (G1); SR-table fallback |
 | `RadarFallback` | The under-3-dimension form: labeled bars. | per-row picker buttons |
 | `TrendChart` | Overall-score history; background bands shade the 5 levels. | hover crosshair + `PointTooltip` (score, date, engine, delta) |
 | `Sparkline` | One dimension's score history inline (132×34). | hover crosshair |
@@ -219,6 +219,12 @@ than no chart. Each of these is a load-bearing behavior, not a style choice:
   `ScoreWaterfall` segments carry no pixel floor either: their widths *are* their point
   contributions, sub-1.5pt contributions aggregate into one labeled neutral sliver
   (`scoreWaterfallSegments.ts`), and the headroom-to-100 tail is the honest remainder.
+- **Signal vs LLM on radar hover.** The polygon stays the blended headline so the shape
+  does not fork, but hover (and the SR table) names both witnesses when either disagrees
+  with that number (`signal 70 · LLM 90` beside a vertex at 78, with ticks on the spoke
+  at those radii; `radarHoverTicks` in `provenance.ts`, the same two marks ProvenanceTrack
+  uses). Identical values stay one number. G1: disagreement is never collapsed into the
+  blend.
 - **Mock-scored points are marked.** `engine.provider === "mock"` means the deterministic
   rubric scored the scan and no model contributed, so those points are not comparable to
   model-scored ones. `TrendChart` and `DimLine` draw them **hollow** (score-coloured stroke,
