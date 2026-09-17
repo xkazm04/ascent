@@ -19,7 +19,7 @@
 
 import { Suspense } from "react";
 import { TimeRangeSelector } from "./TimeRangeSelector";
-import { OverviewFixFirstPanel } from "./OverviewFixFirstPanel";
+import { OverviewFixFirstGap, OverviewFixFirstPanel } from "./OverviewFixFirstPanel";
 import { OverviewFleetPanel } from "./OverviewFleetPanel";
 import { OverviewScopeReadout } from "./OverviewScopeReadout";
 import { resolveBillingReturn } from "./overviewBilling";
@@ -99,8 +99,10 @@ export async function OverviewTab({ slug, sp }: { slug: string; sp: SearchParams
 
       {/* "Fix first" punch-list — its own boundary so its reads (movers + goals; findings ride the
           rail badges' cache) stream independently and can never hold the fleet panel, per the
-          two-tier rule at the top of this file. Falls back to nothing: guidance, not chrome. */}
-      <Suspense fallback={null}>
+          two-tier rule at the top of this file. Falls back to a reserved-height gap, not null: a
+          pending band must not read as "no priorities." Empty (deriveFixFirst = []) still
+          collapses — that is the resolved absence, not the wait. */}
+      <Suspense fallback={<OverviewFixFirstGap />}>
         <OverviewFixFirstPanel slug={slug} win={win} scopeQuery={typeof sp.stack === "string" ? `stack=${sp.stack}` : undefined} />
       </Suspense>
 

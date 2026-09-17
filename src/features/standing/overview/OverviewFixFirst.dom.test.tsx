@@ -10,7 +10,10 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 
-import { OverviewFixFirst } from "@/features/standing/overview/OverviewFixFirst";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { OverviewFixFirst, OverviewFixFirstGap } from "@/features/standing/overview/OverviewFixFirst";
 import { deriveFixFirst, type FixFirstInputs } from "@/features/standing/overview/fixFirst";
 
 const INPUTS: FixFirstInputs = {
@@ -29,6 +32,21 @@ describe("OverviewFixFirst — the ranked impact band", () => {
   it("renders nothing at all when nothing is actionable", () => {
     const c = band({ regressers: [], findings: [], goals: [] });
     expect(c.firstChild).toBeNull();
+  });
+
+  it("reserves a quiet gap while pending, so a wait is not the empty punch-list", () => {
+    const empty = render(<OverviewFixFirst items={[]} />);
+    expect(empty.container.firstChild).toBeNull();
+
+    const pending = render(<OverviewFixFirstGap />);
+    const gap = pending.container.firstElementChild;
+    expect(gap).not.toBeNull();
+    expect(gap).toHaveAttribute("aria-hidden");
+    expect(gap?.className).toMatch(/reveal-quiet/);
+    expect(gap?.className).toMatch(/min-h-/);
+
+    const tab = readFileSync(join(process.cwd(), "src/features/standing/overview/OverviewTab.tsx"), "utf8");
+    expect(tab).toMatch(/<Suspense fallback=\{<OverviewFixFirstGap \/>\}>\s*<OverviewFixFirstPanel/);
   });
 
   it("opens on shapes: one track per candidate, drawn before any legend", () => {
