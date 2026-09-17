@@ -1,10 +1,6 @@
-// Pins G5-11 (regression warning) and G5-12 (comparison label) on the PUBLIC share page, plus the
-// boundary they must respect: the public page renders MORE CONTEXT (a comparison label, a regression
-// caveat) than before, but still exposes none of the internal-only affordances `briefingCards.tsx`
-// gates behind optional props (org deep links, practice links, the security dimension row, per-repo
-// report links). Style: call the async server-component function directly and walk the returned React
-// element tree (no DOM render needed for a server component) — same pattern as
-// src/app/org/[slug]/members/page.test.tsx.
+// Pins G5-11 (regression), G5-12 (comparison label) and G12 (one Trajectory card) on the PUBLIC
+// share page, plus the public-safe boundary: more context, none of the internal-only affordances
+// briefingCards.tsx gates behind optional props. Walk the async server-component tree (no DOM).
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as React from "react";
@@ -31,9 +27,12 @@ vi.mock("@/lib/org/briefing", () => ({
   buildExecBriefing: mockBuildExecBriefing,
   engineMixLabel: () => "1 model",
   engineMixCaveat: () => null,
-  // MC-B1 — the shared page reads the trajectory hedge through the ONE briefing composer. Stubbed to
+  // MC-B1 — the shared Trajectory card reads the line through the ONE briefing composer. Stubbed to
   // the real shape (confidence · basis) rather than to null, so a test that renders a headline also
   // proves the hedge rides along with it on the public artifact.
+  briefingTrajectory: (b: { forecastHeadline: string | null; forecastConfidence: number | null; forecastBasis?: string | null; forecastInsufficiency?: string | null }) => ({
+    headline: b.forecastHeadline, confidence: b.forecastConfidence, basis: b.forecastBasis ?? null, insufficiency: b.forecastInsufficiency ?? null,
+  }),
   briefingTrajectoryNote: (b: { forecastConfidence: number | null; forecastBasis?: string | null }) =>
     [b.forecastConfidence != null ? `trend confidence ${b.forecastConfidence}%` : null, b.forecastBasis ?? null]
       .filter(Boolean)
@@ -72,6 +71,7 @@ import {
   BriefingTiles,
 } from "@/features/bought/executive/briefingCards";
 import { BriefingBasisNote } from "@/features/bought/executive/BriefingBasisNote";
+import { ExecutiveTrajectoryCard } from "@/features/bought/executive/ExecutiveTrajectoryCard";
 
 function baseBriefing(overrides: Partial<ExecBriefing> = {}): ExecBriefing {
   return {
@@ -151,43 +151,64 @@ describe("SharedBriefingPage — G5-12 comparison label", () => {
   });
 });
 
-describe("SharedBriefingPage — G5-11 regression warning", () => {
-  it("renders the regression caveat when regressionCount > 0", async () => {
-    mockBuildExecBriefing.mockResolvedValue(baseBriefing({ regressionCount: 3 }));
+function trajectoryCopy(el: React.ReactElement): string {
+  const card = findElement(el, ExecutiveTrajectoryCard);
+  if (!card) return "";
+  const rendered = ExecutiveTrajectoryCard(card.props as React.ComponentProps<typeof ExecutiveTrajectoryCard>);
+  return collectText(rendered).join("").replace(/\s+/g, " ").trim();
+}
+
+describe("SharedBriefingPage — G5-11 / G12 shared Trajectory card", () => {
+  it("mounts ExecutiveTrajectoryCard with the briefing and periodHasStart (not an inlined copy)", async () => {
+    const briefing = baseBriefing({ regressionCount: 3 });
+    mockBuildExecBriefing.mockResolvedValue(briefing);
 
     const el = await renderPage();
-    const text = collectText(el).join("").replace(/\s+/g, " ").trim();
+    const card = findElement(el, ExecutiveTrajectoryCard);
 
-    expect(text).toContain("3 repos regressed");
+    expect(card).not.toBeNull();
+    expect(card!.props.briefing).toBe(briefing);
+    expect(card!.props.periodHasStart).toBe(true);
+    expect(trajectoryCopy(el)).toContain("3 repos regressed");
   });
 
-  it("renders singular phrasing for regressionCount === 1", async () => {
+  it("passes periodHasStart=false for a frozen all-time window (no winStart)", async () => {
+    mockVerify.mockReturnValue({ org: "acme", range: "all", winStart: null, winEnd: "2026-07-28T00:00:00.000Z" });
     mockBuildExecBriefing.mockResolvedValue(baseBriefing({ regressionCount: 1, forecastHeadline: null }));
 
     const el = await renderPage();
-    const text = collectText(el).join("").replace(/\s+/g, " ").trim();
+    const card = findElement(el, ExecutiveTrajectoryCard)!;
+    const text = trajectoryCopy(el);
 
+    expect(card.props.periodHasStart).toBe(false);
+    expect(card.props.briefing.regressionCount).toBe(1);
     expect(text).toContain("1 repo regressed");
     expect(text).not.toContain("1 repos regressed");
+    expect(text).toContain("since last scan");
+  });
+
+  it("still mounts the card on regressionCount alone, even with no forecast headline", async () => {
+    mockBuildExecBriefing.mockResolvedValue(baseBriefing({ regressionCount: 2, forecastHeadline: null }));
+
+    const el = await renderPage();
+    const card = findElement(el, ExecutiveTrajectoryCard);
+    const text = trajectoryCopy(el);
+
+    expect(card).not.toBeNull();
+    expect(card!.props.briefing.forecastHeadline).toBeNull();
+    expect(card!.props.briefing.regressionCount).toBe(2);
+    expect(text).toContain("2 repos regressed");
+    expect(text).toContain("Not enough history yet to project a trajectory.");
   });
 
   it("omits the regression caveat when regressionCount is 0", async () => {
     mockBuildExecBriefing.mockResolvedValue(baseBriefing({ regressionCount: 0 }));
 
     const el = await renderPage();
-    const text = collectText(el).join("").replace(/\s+/g, " ").trim();
+    const card = findElement(el, ExecutiveTrajectoryCard)!;
 
-    expect(text).not.toContain("regressed");
-  });
-
-  it("still renders the Trajectory card on regressionCount alone, even with no forecast headline", async () => {
-    mockBuildExecBriefing.mockResolvedValue(baseBriefing({ regressionCount: 2, forecastHeadline: null }));
-
-    const el = await renderPage();
-    const text = collectText(el).join("").replace(/\s+/g, " ").trim();
-
-    expect(text).toContain("2 repos regressed");
-    expect(text).toContain("Not enough history yet to project a trajectory.");
+    expect(card.props.briefing.regressionCount).toBe(0);
+    expect(trajectoryCopy(el)).not.toContain("regressed");
   });
 });
 

@@ -259,6 +259,7 @@ law](../../ORG-UX-REDESIGN.md) §2 was applied here in full. `SectionHeader desc
 | Impact ledger | Tiles + a by-dimension chip row + a field-notes paragraph | A `FlowRibbon` funnel (merged → re-scanned → repos moved) beside `ImpactMovement`, a diverging per-dimension bar on one symmetric axis; then the tiles; then the receipt table |
 | Transition programme | A header sentence asserting the baseline is frozen | `ProgramBaseline` — the frozen origin as an accent **ring** (the kit's `decided` encoding: a person froze it) on the 0-100 maturity ramp, the movement to today's standing, and the target rung as a dashed edge |
 | vs previous period | A header sentence naming the comparison window | `PeriodDumbbell` in each of the three cells: hollow origin dot at the prior window's end, filled dot at now, on one track. Rendered by `PriorPeriodGrid`, so the public `/share/briefing/[token]` page gets the same mark |
+| Trajectory | Headline / hedge / regression caveat inlined on the share page | One `ExecutiveTrajectoryCard` mounted by the Briefing tab and `/share/briefing/[token]` (G12) |
 
 **The pure view-models** — `leverageMoves.ts` and `impactView.ts` decide every state and every scale,
 so the panel's refusals are unit-testable without a DOM (`leverageMoves.test.ts`,

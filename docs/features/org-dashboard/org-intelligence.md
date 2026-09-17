@@ -1175,7 +1175,11 @@ Every renderer reads the line through `briefingTrajectory(b)` / `briefingTraject
 than assembling its own — the Trajectory card, the board PDF, the share page, the markdown and the
 deterministic narrative — so the four artifacts a board might see cannot disagree about one fit.
 Confidence and basis are non-null *by construction* whenever a headline is, so a renderer cannot print
-the claim and drop the caveat.
+the claim and drop the caveat. The two HTML surfaces mount one component,
+`ExecutiveTrajectoryCard` (`src/features/bought/executive/ExecutiveTrajectoryCard.tsx`): the Briefing
+tab and `/share/briefing/[token]` pass the briefing plus `periodHasStart` (the frozen window's start
+on a share link). PDF and markdown still compose the same line in their own renderers because they
+are not HTML.
 
 ### The goal line carries the same hedge (`composeGoal`)
 
