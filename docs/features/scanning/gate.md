@@ -36,8 +36,9 @@ model can mark D9 n/a this way; it can never raise a measured D9 sub-check score
 ## Gate API (`src/app/api/gate/[owner]/[repo]/route.ts`)
 
 `GET /api/gate/:owner/:repo` scores the repo and evaluates a policy, returning **`200` on
-pass**, **`422` on fail**, and **`503` when degraded** (see below) so `curl --fail` / CI can
-branch on the status alone.
+pass**, **`422` on fail**, and **`503` when the grade could not run** (degraded LLM fallback,
+or an explicitly requested skippable bar this token-less scan could not measure — see below)
+so `curl --fail` / CI can branch on the status alone.
 
 | Query param | Effect |
 | --- | --- |
@@ -59,7 +60,7 @@ Flow: normalize names → if `?ref` scan that ref fresh, else resolve HEAD and u
 LLM/mock cache → resolve the policy → `evaluateGate(report, policy)` → return a `GateResult`:
 
 ```jsonc
-{ "repo", "ref", "pass", "degraded", "level", "overallScore", "posture", "archetype",
+{ "repo", "ref", "pass", "degraded", "unmeasured", "level", "overallScore", "posture", "archetype",
   "policy": { … }, "failures": [ … ], "skipped": [ … ], "caveats": [ … ],
   "engine", "confidence", "warnings" }
 ```
@@ -74,7 +75,12 @@ measured on this run"), the API body, the Action's `skipped` step output and its
 stays complete, with each untested bar marked "(not measured)". Two consequences worth knowing:
 on **this public endpoint** the scan runs without a token, so `require_protection`,
 `min_ai_governed` and `no_ungoverned_ai` are always skipped here and only the App-mode check run
-can enforce them; and a non-finite score is still a **failure**, never a skip. A scan whose
+can *enforce* them. When the **caller named** one of those bars as a query param
+(`explicitPolicyFromParams`), the route returns **`503` with `unmeasured: true`** so
+`curl --fail` cannot merge on a bar nobody tested — the same honesty a degraded LLM grade
+already gets. Org-policy-only skips (the org stored `requireProtectedBranch`, the request did
+not name it) stay **`200` + `skipped[]`**; drop the parameters to follow server policy alone.
+And a non-finite score is still a **failure**, never a skip. A scan whose
 governance or pull-request **sensor read failed** (today's `sensorFailures`) skips the same bars
 with "read failed" as the reason; failures of score-feeding sensors become `caveats` rather than
 skips, because a security floor on an understated D9 must still bite. `caveats[]` (the report's own
@@ -189,6 +195,14 @@ the floor and 503'd again without re-scanning: the gate stayed wedged for the fu
 TTL while the response told the operator to retry. Skipping the write is what makes "retry
 the gate" actually true.
 
+### Explicit unmeasured bars fail closed (`503`)
+
+A skip in `evaluateGate` is not a pass on this endpoint when the **query named** the bar.
+`?require_protection=1` or `?min_ai_governed=100` on a token-less scan returns **`503` with
+`unmeasured: true`** (the skip stays in `skipped[]`). Org-policy-only skips stay 200+`skipped`
+so an org that stores `requireProtectedBranch` does not 503 every default Action call that
+sends no params; the App-mode check run is the surface that can actually read those bars.
+
 ### Private repositories
 
 The public endpoint cannot gate a private repo, on purpose. Every ingest passes
@@ -276,8 +290,10 @@ AI-attributed PRs in the window. Failing those would block repositories for havi
 activity, inverting the intent of a policy that exists to govern repositories with a lot of it.
 
 So a null rate **skips** the criterion, exactly as `requireProtectedBranch` skips when governance was
-unreadable. The practical consequence worth knowing: the anonymous gate endpoint can never enforce
-this bar. It lands where the data lives: the App-mode Check Run and the fleet governance view.
+unreadable. The practical consequence: the anonymous gate endpoint can never *enforce* this bar. Naming
+it on the query (`?min_ai_governed=100`) returns **`503` `unmeasured`**, not a green merge; an
+org-policy-only skip stays 200+`skipped`. The bar lands where the data lives: the App-mode Check Run
+and the fleet governance view.
 
 `OrgRepoRow.latest` now carries `aiGovernedRate`/`aiPrSample` (parsed from the same persisted
 `prStats` blob the activity columns already read, so no extra query), and `buildGovernanceOverview`
