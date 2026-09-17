@@ -1,4 +1,4 @@
-import { test, expect, type APIRequestContext } from "@playwright/test";
+import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
 import { FIXTURE_NAME, FIXTURE_REPO, createFixtureRepo, git, removeFixtureRepo, theLoopBranch } from "./fixture";
 
 // THE COCKPIT LOOP, END TO END — the UC1 journey as one spec: map a repo → scan it from disk → open
@@ -7,14 +7,14 @@ import { FIXTURE_NAME, FIXTURE_REPO, createFixtureRepo, git, removeFixtureRepo, 
 // WHAT IS DRIVEN FOR REAL (everything except the agent session):
 //   • local-mode mapping + pairing, through the real `/api/org/local/projects` door;
 //   • a real scan of a real git repository on disk (LocalFsSource, deterministic mock engine);
-//   • the real cockpit UI — observatory selection, the propose panel, the model/effort dials, Run;
+//   • the real cockpit UI — observatory selection, the propose panel, the run-setup dialog, Run;
 //   • the real loop engine: a real `git worktree`, a real FOUNDATION lane that writes the generated
 //     `.ai/` tree and commits it, a real rescan of that worktree, real persistence;
 //   • the real attribution rule, the real outcome ledger, the real branch left behind.
 //
 // WHAT IS NOT: no `claude -p` session ever runs. The fixture repo has no `.ai/manifest.yaml`, so
 // rule 1 of `proposeLaneKind` gives it a FOUNDATION lane — a deterministic install, no agent — and
-// `Cycles` is pinned to 1 so cycle 2 (which would fall back to the agent lane) never happens. That
+// Cycles is pinned to 1 (via the masthead's run-setup dialog) so cycle 2 never happens. That
 // is a deliberate scoping choice, not an accident: an e2e spec that spends a real model session per
 // run is neither fast nor repeatable, and the foundation lane exercises every part of the loop
 // *around* the agent.
@@ -61,7 +61,7 @@ test.afterAll(async () => {
 });
 
 /** Open the cockpit and select the fixture repo, leaving the inspector's proposal on screen. */
-async function selectFixture(page: import("@playwright/test").Page) {
+async function selectFixture(page: Page) {
   await page.goto(COCKPIT);
   const cockpit = page.getByRole("region", { name: "Loop cockpit" });
   await expect(cockpit).toBeVisible();
@@ -72,6 +72,18 @@ async function selectFixture(page: import("@playwright/test").Page) {
   if ((await row.getAttribute("aria-pressed")) !== "true") await row.click();
   await expect(row).toHaveAttribute("aria-pressed", "true");
   return cockpit;
+}
+
+/** Pin Cycles=1, haiku, low via the masthead setup dialog so cycle 2 cannot start an agent session. */
+async function armBoundedFoundationRun(page: Page) {
+  await page.getByTestId("cockpit-setup-gear").click();
+  const setup = page.getByRole("dialog", { name: "Run setup" });
+  await expect(setup).toBeVisible();
+  await setup.getByTestId("setup-cycles").getByRole("radio", { name: "1", exact: true }).click();
+  await setup.getByTestId("setup-model").getByRole("radio", { name: "haiku" }).click();
+  await setup.getByTestId("setup-effort").getByRole("radio", { name: "low" }).click();
+  await setup.getByRole("button", { name: "Done" }).click();
+  await expect(setup).toHaveCount(0);
 }
 
 test("the cockpit's gate is open on this deployment, and the fleet plots the paired repo", async ({ page }) => {
@@ -125,9 +137,8 @@ test("a bounded run installs the foundation, and the ledger refuses to call a mo
   await expect(cockpit.getByText(".ai/ foundation", { exact: true })).toBeVisible();
 
   // ONE cycle. Cycle 2 would drop back to the backlog lane and spawn a real `claude -p` session.
-  await cockpit.getByLabel("Cycles").selectOption("1");
-  await cockpit.getByTestId("cockpit-model").selectOption("haiku");
-  await cockpit.getByTestId("cockpit-effort").selectOption("low");
+  // The dials live in the masthead gear's dialog (they left the inspector rail 2026-09-17).
+  await armBoundedFoundationRun(page);
 
   await cockpit.getByRole("button", { name: "Run (1 repo)" }).click();
 
