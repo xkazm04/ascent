@@ -455,6 +455,10 @@ export async function persistScanReport(
           });
           await tx.scan.delete({ where: { id: upgradeOldScanId } });
         }
+        // Last-wins by dimId so nested create writes at most one ScanDimension per dimension
+        // (readers already key that way; schema unique on (scanId, dimId) is a separate item).
+        const byDimId = new Map<string, (typeof report.dimensions)[number]>();
+        for (const d of report.dimensions) byDimId.set(d.id, d);
         const scan = await tx.scan.create({
           data: {
             repoId: repo.id,
@@ -536,7 +540,7 @@ export async function persistScanReport(
             llmLatencyMs: report.usage?.latencyMs ?? null,
             scannedAt: new Date(report.scannedAt),
             dimensions: {
-              create: report.dimensions.map((d) => ({
+              create: [...byDimId.values()].map((d) => ({
                 dimId: d.id,
                 name: d.name,
                 weight: d.weight,

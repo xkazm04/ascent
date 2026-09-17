@@ -1278,6 +1278,59 @@ describe("persistScanReport — follow-up feedback on in-progress rows", () => {
   });
 });
 
+// ── ScanDimension last-wins de-dupe (writer half of a future (scanId, dimId) unique) ──────────────
+//
+// Nested create used to map report.dimensions 1:1. Two D1 entries persist as two rows; history and
+// reconstructed reports then double-count, while standing evidence last-wins in a Map. Collapse here
+// so the writer matches how readers already key. Schema unique is a separate item.
+
+describe("persistScanReport — ScanDimension last-wins de-dupe by dimId", () => {
+  type Dim = ScanReport["dimensions"][number];
+  function dim(id: Dim["id"], score: number, over: Partial<Dim> = {}): Dim {
+    return {
+      id,
+      name: over.name ?? id,
+      weight: over.weight ?? 0.1,
+      score,
+      signalScore: over.signalScore ?? score,
+      llmScore: over.llmScore ?? score,
+      summary: over.summary ?? "",
+      evidence: over.evidence ?? [],
+      strengths: over.strengths ?? [],
+      gaps: over.gaps ?? [],
+    };
+  }
+
+  it("collapses duplicate dimId rows to one nested create (last write wins)", async () => {
+    const { prisma, createdScans } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(
+      makeReport({
+        headSha: "sha_dup_dim",
+        dimensions: [
+          dim("D1", 40, { summary: "first", evidence: ["old"] }),
+          dim("D2", 70, { name: "Automated Testing" }),
+          dim("D1", 55, { summary: "last", evidence: ["new"] }),
+        ],
+      }),
+    );
+
+    const created = (createdScans[0] as { dimensions: { create: Array<Record<string, unknown>> } })
+      .dimensions.create;
+    expect(created).toHaveLength(2);
+    expect(created.map((d) => d.dimId)).toEqual(["D1", "D2"]);
+    expect(created[0]).toMatchObject({
+      dimId: "D1",
+      score: 55,
+      summary: "last",
+      evidence: JSON.stringify(["new"]),
+    });
+    expect(created[1]).toMatchObject({ dimId: "D2", score: 70, name: "Automated Testing" });
+  });
+});
+
 // ── PROVENANCE: which engine produced the score, and what moved it ───────────────────────────────
 //
 // Both columns exist for ONE consumer — the loop's attribution rule, which refuses to call a delta a
