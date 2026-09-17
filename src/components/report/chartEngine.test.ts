@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  MIXED_ENGINE_PAIR_LABEL,
+  MIXED_ENGINE_PAIR_NOTE,
   MOCK_ENGINE,
   MOCK_POINT_NOTE,
   MOCK_SR_SUFFIX,
@@ -63,5 +65,15 @@ describe("the caveat copy says the model did not contribute", () => {
     expect(MOCK_POINT_NOTE).toMatch(/hollow/i); // the legend must name the mark it explains
     expect(MOCK_SR_SUFFIX).toMatch(/demo scan/i);
     expect(MOCK_SR_SUFFIX).toMatch(/no model/i);
+  });
+});
+
+describe("mixed-engine What Changed pair copy", () => {
+  it("labels the pair and names why mock vs live is not a comparable delta", () => {
+    expect(MIXED_ENGINE_PAIR_LABEL).toBe("Mixed engines");
+    expect(MIXED_ENGINE_PAIR_NOTE).toMatch(/demo/i);
+    expect(MIXED_ENGINE_PAIR_NOTE).toMatch(/deterministic/i);
+    expect(MIXED_ENGINE_PAIR_NOTE).toMatch(/no model/i);
+    expect(MIXED_ENGINE_PAIR_NOTE).toMatch(/not a comparable measurement/i);
   });
 });

@@ -223,6 +223,10 @@ than no chart. Each of these is a load-bearing behavior, not a style choice:
   surface fill; the mark changes, the value ramp does not), any series containing one shows
   the legend footnote, and the caveat is repeated in the SR table / point list rather than
   living only in the hover tooltip. Predicates: `src/components/report/chartEngine.ts`.
+  The same `mixesEngines` predicate labels a **What Changed** pair that spans mock and a
+  live model: the delta still draws, with a "Mixed engines" chip and caveat, so a
+  demo-vs-live jump is not read as a maturity move. Same-kind pairs (both mock, or both
+  live — including two different live providers) stay quiet. Copy: `MIXED_ENGINE_PAIR_NOTE`.
 - **A degraded load is not a finished one.** `DimensionTrends` treats a parsed history whose
   scans all carry empty `dimensions` arrays as a load *failure* (retry UI), not as nine
   successfully-loaded "—" cards.
@@ -273,7 +277,12 @@ diff bars, per-dimension `DimensionDiffCard`s, and completed recommendations.
 in the URL (`?a=&b=&against=`) so the comparison is shareable and back-button-safe. It
 shows an inline warning (no hard block) when the chosen baseline is chronologically
 *newer* than the compared scan. An inverted pair renders an all-red diff that reads as a
-regression while actually looking backward in time. The **Against** field is rendered only
+regression while actually looking backward in time. A **mixed-engine pair** (one side
+`engineProvider === "mock"`, the other a live model) is labelled the same way — an inline
+"Mixed engines" caveat on both the picker and the `WhatChanged` story, not a hard block.
+Hiding the numbers would be another kind of lie; leaving the pair silent would present two
+instruments as one. Two live providers, or two mock scans, are not mixed-engine pairs.
+The **Against** field is rendered only
 when `listExemplarOptions` returns something: an org with no eligible peer and no qualifying
 cohort has nothing to offer, and an empty dropdown would advertise a comparison that cannot
 be made. On a repo with a single stored scan the two time dropdowns are hidden and the
@@ -1032,11 +1041,12 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/app/trends/annotations.ts` | Band-crossing / regression markers for the timeline. |
 | `src/app/trends/ExportCsvButton.tsx` | CSV download as UI (401 → re-auth prompt, not raw JSON). |
 | `src/lib/history/limits.ts` | `HISTORY_SCAN_CAP` + the "newest N" cap note. |
-| `src/components/report/WhatChanged.tsx` | Diff story renderer. |
-| `src/components/report/ScanComparePicker.tsx` | URL-driven two-scan picker. |
+| `src/components/report/WhatChanged.tsx` | Diff story renderer; labels mixed-engine pairs. |
+| `src/components/report/WhatChangedEngineCaveat.tsx` | "Mixed engines" caveat for a mock-vs-live pair. |
+| `src/components/report/ScanComparePicker.tsx` | URL-driven two-scan picker; labels mixed-engine pairs. |
 | `src/components/report/RadarFallback.tsx` | Labeled-bar form for 1-2 dimensions. |
 | `src/components/report/scoreWaterfallSegments.ts` | Floor-free waterfall segment layout + headroom. |
-| `src/components/report/chartEngine.ts` | Mock-vs-model point provenance predicates + caveat copy. |
+| `src/components/report/chartEngine.ts` | Mock-vs-model point provenance predicates + chart/pair caveat copy. |
 | `src/components/report/deltas.tsx` | `DeltaPill` / `DeltaTag` chips. |
 | `src/components/report/RoadmapSandbox.tsx` | The what-if orchestrator: sliders → live hero recompute. |
 | `src/components/report/RoadmapSandboxParts.tsx` | Sandbox presentational pieces: sliders, level transition, Try-it simulators (`RoadmapFirstStep` under each title). |
