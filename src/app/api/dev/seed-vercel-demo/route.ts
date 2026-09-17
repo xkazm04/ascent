@@ -4,15 +4,15 @@
 // process, so it reaches the in-process embedded PGlite (a standalone script can't while dev is up).
 // Idempotent: re-running skips rows that already exist by their unique name/label/title.
 //
-// Gating mirrors /api/dev/seed-fleet: when ASCENT_SEED_SECRET is set the caller must present it
-// (x-seed-secret header or ?secret=); with no secret it's allowed only outside production.
+// Gating mirrors /api/dev/seed-fleet: ASCENT_EMPTY refuses; when ASCENT_SEED_SECRET is set the caller
+// must present it (x-seed-secret header or ?secret=); with no secret it's allowed only outside production.
 //
 //   curl -X POST http://localhost:3001/api/dev/seed-vercel-demo
 //
 // Prereq: the org must already be imported (scripts/seed-org.mjs vercel) so its repos exist to tag.
 
 import { NextResponse, type NextRequest } from "next/server";
-import { seedRequestAuthorized } from "@/lib/dev/seed-auth";
+import { seedForbiddenMessage, seedRequestAuthorized } from "@/lib/dev/seed-auth";
 import {
   createGoal,
   createOrgSkill,
@@ -32,10 +32,7 @@ export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
   if (!seedRequestAuthorized(req)) {
-    return NextResponse.json(
-      { error: "forbidden: set ASCENT_SEED_SECRET and pass it via the x-seed-secret header or ?secret=" },
-      { status: 403 },
-    );
+    return NextResponse.json({ error: seedForbiddenMessage() }, { status: 403 });
   }
   if (!isDbConfigured()) {
     return NextResponse.json({ error: "persistence is disabled: set DATABASE_URL (or DSQL_ENDPOINT) first" }, { status: 400 });

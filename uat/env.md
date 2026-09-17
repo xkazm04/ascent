@@ -90,9 +90,9 @@ PUBLIC_SCAN_QUOTA_DISABLED= ASCENT_SELF_HOSTED=0 npx next dev -p 3100
 
 - Export the flags as **empty strings**, not `0` and not merely unset — exported empties stop Next's
   dotenv loader re-applying `.env.local`'s `1`, and `envBool("") === false`.
-- `ASCENT_EMPTY=1` is **isolation only**: `emptyTenantEnabled()` has zero non-test callers, so the
-  flag is behaviourally inert; it exists because `next.config.ts:47` switches `distDir` to
-  `.next-empty` on it, which keeps this instance's build cache off the shared server's `.next`.
+- `ASCENT_EMPTY=1` is **isolation + seed refuse**: `next.config.ts` switches `distDir` to
+  `.next-empty`, and `seedRequestAuthorized` refuses `/api/dev/seed-*` writes so the empty tenant
+  stays empty. Real scans and org import stay open (those are the onboarding path).
 - Use a **throwaway `PGLITE_DATA_DIR`**; never open `.pglite/ascent` from a second process.
 - **Assert identity, then assert anonymity, before trusting any evidence:** `/api/health` must answer
   Ascent's shape, *and* the rendered `/` ARIA must carry a bare `Sign in` button with no org name, no

@@ -1,12 +1,12 @@
 // POST /api/dev/seed-ai-usage — DEV/DEMO ONLY. Inserts MEASURED Claude Code usage (one record per
 // repo) for an org so the /delivery "AI delivery intelligence" views demonstrate the measured-fidelity
 // path — real telemetry isn't available in the PGlite demo. Idempotent (recordUsage upserts by the
-// unique key). Gating mirrors /api/dev/seed-vercel-demo: ASCENT_SEED_SECRET when set, else non-prod only.
+// unique key). Gating mirrors /api/dev/seed-vercel-demo: ASCENT_EMPTY refuses; ASCENT_SEED_SECRET when set, else non-prod only.
 //
 //   curl -X POST "http://localhost:3000/api/dev/seed-ai-usage?org=vercel"
 
 import { NextResponse, type NextRequest } from "next/server";
-import { seedRequestAuthorized } from "@/lib/dev/seed-auth";
+import { seedForbiddenMessage, seedRequestAuthorized } from "@/lib/dev/seed-auth";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { recordUsage, type UsageRecordInput } from "@/lib/db";
 
@@ -25,7 +25,7 @@ function hash(s: string): number {
 
 export async function POST(req: NextRequest) {
   if (!seedRequestAuthorized(req)) {
-    return NextResponse.json({ error: "forbidden: set ASCENT_SEED_SECRET and pass it via x-seed-secret or ?secret=" }, { status: 403 });
+    return NextResponse.json({ error: seedForbiddenMessage() }, { status: 403 });
   }
   if (!isDbConfigured()) {
     return NextResponse.json({ error: "persistence is disabled: set DATABASE_URL first" }, { status: 400 });
