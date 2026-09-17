@@ -252,9 +252,17 @@ application, not an observation of the repo), `measured` beside a scan-derived s
 ## Playbooks: the org's OWN standards (authored, not mined)
 
 Alongside the mined practices, the Practice Library lists **playbooks** an org authors for
-itself (`src/lib/db/playbooks.ts`, `/api/org/playbooks`). Three things connect the two
+itself (`src/lib/db/playbooks.ts`, `/api/org/playbooks`). Four things connect the two
 halves:
 
+- **Seed from the briefing's ranked next move.** `POST /api/org/playbooks` accepts
+  `{ org, fromDim: "D5" }` or `{ org, fromRec: true }` and fills title, dimId, summary and
+  steps from `PLAYBOOK_TEMPLATES` (`src/lib/org/playbook-templates.ts`). `fromRec` reads
+  rank 1 of `getOrgRecommendations` — the same row `briefingNextMove` prints on the
+  executive page, PDF and markdown. The rec's title and dimension carry over; the
+  checklist is the leak-free template for that dim, never LLM-authored (G4). An unknown
+  dim 400s; a blank title without a seed is still rejected. The author form prefills from
+  the same `PLAYBOOK_TEMPLATES` list (`NewPracticeModal`).
 - **Promote a mined practice into a playbook (G7-25).** A mined practice detail carries a
   "Save as playbook →" action that opens the author form pre-filled from the practice:
   its label becomes the title, its dimension carries over, its "what" plus the exemplar
@@ -313,6 +321,7 @@ straight at the CI-gates practice and its exemplars.
 | `src/lib/org/playbook-apply.ts` | The shared single-repo playbook write sequence (PR + adoption mark + audit). |
 | `src/features/shared/practices/PlaybookApplyBatch.tsx` | Playbook fleet-rollout UI (select, confirm, per-repo results). |
 | `src/features/shared/practices/promotePractice.ts` | Mined practice → playbook draft mapping (pure, bounded). |
+| `src/lib/org/playbook-templates.ts` | Leak-free per-dimension starters; `seedPlaybookCreate` prefills POST/form from `fromDim` or the briefing's ranked next move. |
 | `src/features/shared/practices/PracticeRolloutStrip.tsx` | The practice library: every practice grouped by dimension, stage cells beside the counts, source filter, totals below, zero state instead of zeros. Rows: `PracticeRolloutMatrix` · `PracticeRolloutRow` · `PracticeRolloutReadout`; grouping in `practiceRolloutGroups.ts`. |
 | `src/features/shared/practices/foundation/` | Moved from Repositories 2026-09-15: `FoundationRolloutPanel` (+ grid, row view, secrets dialog, `foundationViz.ts`) and `GuidanceCoherenceCard` (+ `coherenceSpread.ts`, `guidanceCoherenceModel.ts`). |
 | `src/features/shared/practices/practiceRolloutViz.ts` | Pure view model: practice × (assessed, adopted, landed, verified) → kit states. Tested. |

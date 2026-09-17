@@ -88,7 +88,9 @@ it at `?tab=live` — in [live.md](live.md).
 
 The committed starter (`playbookStarterFile` in `src/lib/org/playbook-brief.ts`) pins the playbook's
 `version` in the opening blockquote as `v{n}`. `playbookMarkdown` (PR body / Copy-for-LLM) names the
-same `v{n}` so the two artifacts stay in lockstep; callers pass `PlaybookRow.version`.
+same `v{n}` so the two artifacts stay in lockstep; callers pass `PlaybookRow.version`. Create also
+accepts `fromDim` / `fromRec` to prefill from the dimension template (the briefing's ranked next
+move when `fromRec` is set); see [practices.md](../org-dashboard/practices.md).
 
 ## Weekly digest (`?tab=digest`, Bought)
 

@@ -1271,6 +1271,9 @@ small, high-scoring fleet with an empty `risks` list the PDF and the markdown pr
 dimension as "the fleet's weakest dimension" **even when it was the fleet's strongest**, a board
 document naming a strength as the weakness. There is deliberately **no dimension fallback** now: an
 empty list means the section is omitted, never replaced by a second notion of "weakest".
+`POST /api/org/playbooks { fromRec: true }` creates a playbook from that same rank-1 row: title and
+dim from the rec, checklist from `PLAYBOOK_TEMPLATES` for that dim — never invented steps (G4).
+`fromDim` seeds the same template without a rec. See [practices.md](practices.md).
 
 **Window resolution matches the page (G5-10).** The PDF route resolves its window with
 `resolveOrgWindow` (`src/lib/org/period.ts`), the same cookie-aware precedence every org tab uses:
