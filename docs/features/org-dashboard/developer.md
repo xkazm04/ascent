@@ -71,7 +71,9 @@ One render, the Companion direction: a private notebook a calm colleague keeps f
 - **Session shape (30 days)** — one `Distribution` per shared count, with **your own value marked**
   against the org's p25→p75. See the four outcomes below; they are all visually distinct.
 - **The repos you commit to** — and their open recommendations. A repo with no scan shows the `missing`
-  void ("no scan"), never a "—" that could read as a floor score.
+  void ("no scan"), never a "—" that could read as a floor score. An empty list is not a watch-nudge
+  when `activityState` is `withheld` or `unreadable`: those reuse the activity-strip sentences (they
+  never say "Watch the repositories you commit to"). A genuine `absent` keeps the scan/watch nudge.
 - **Journal** · **Setup + the privacy ledger** — see below. The ledger is now a picture.
 
 ### The privacy guarantee is drawn, not promised
@@ -123,7 +125,8 @@ read exactly like "you have never committed here". `DeveloperView.activityState`
 in `getDeveloperView` from `ContributorInsights.namingAllowed` — the same typed-state discipline as
 `RepoConcentration.topLoginState` ("withheld" vs "unknown"). Preview-as follows the same split: it is
 an invitation for `absent` and `signed-out` only; `withheld` and `unreadable` keep the real view and
-hide the chrome.
+hide the chrome. The repos empty state follows the same split: `withheld` and `unreadable` reuse those
+sentences rather than asking the viewer to watch repositories so their gaps appear.
 
 The session-shape strip carries the same discipline on four outcomes:
 
