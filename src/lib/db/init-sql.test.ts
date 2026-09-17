@@ -256,3 +256,34 @@ describe("prisma/init.sql mirrors prisma/schema.prisma", () => {
     expect(initSql).toMatch(/CREATE UNIQUE INDEX "Scan_repoId_headSha_key" ON "Scan"\("repoId", "headSha"\)/);
   });
 });
+
+// The feature docs used to pin stale counts (README 40, data-model 48) while schema.prisma grew.
+// Parse the live model list (same regex as the init.sql mirror above) and assert both docs state
+// that count and that every model appears as a table row under "Models by feature area". A bumped
+// number with a missing row, or a new model that never reached the doc, both fail.
+const dataModelDoc = readFileSync(join(root, "docs", "features", "data", "data-model.md"), "utf8");
+const dataReadme = readFileSync(join(root, "docs", "features", "data", "README.md"), "utf8");
+
+describe("data-model docs match the live schema model count", () => {
+  it("pins the documented count to the parsed schema model count (no invented number)", () => {
+    expect(models.length).toBeGreaterThan(0);
+    const lead = dataModelDoc.match(/The schema now defines \*\*(\d+) models\*\*/);
+    expect(lead).not.toBeNull();
+    expect(Number(lead![1])).toBe(models.length);
+
+    const keyFiles = dataModelDoc.match(/The (\d+)-model schema/);
+    expect(Number(keyFiles?.[1])).toBe(models.length);
+
+    const readmeLead = dataReadme.match(/All (\d+) models grouped/);
+    expect(Number(readmeLead?.[1])).toBe(models.length);
+
+    const readmeRoot = dataReadme.match(/\*\*(\d+) models\*\*/);
+    expect(Number(readmeRoot?.[1])).toBe(models.length);
+  });
+
+  it("lists every schema model as a table row in data-model.md", () => {
+    const modelsSection = dataModelDoc.split("## Models by feature area")[1]?.split("\n## ")[0] ?? "";
+    const listed = [...modelsSection.matchAll(/^\| `([A-Z]\w*)` \|/gm)].map((m) => m[1]!);
+    expect(listed.sort()).toEqual([...models].sort());
+  });
+});
