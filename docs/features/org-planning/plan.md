@@ -79,6 +79,10 @@ Unchanged by the retirement and documented where they live: the briefing and its
 [practices.md](../org-dashboard/practices.md); the live wall — and the loop cockpit that now fronts
 it at `?tab=live` — in [live.md](live.md).
 
+The committed starter (`playbookStarterFile` in `src/lib/org/playbook-brief.ts`) pins the playbook's
+`version` in the opening blockquote as `v{n}`. `playbookMarkdown` (PR body / Copy-for-LLM) names the
+same `v{n}` so the two artifacts stay in lockstep; callers pass `PlaybookRow.version`.
+
 ## Weekly digest (`?tab=digest`, Bought)
 
 The Briefing's fixed-window sibling, and the one page in the product designed to leave it: a lead

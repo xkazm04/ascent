@@ -2,13 +2,20 @@
 // playbook into Claude Code and have it applied to the current repo (Direction #3 + the #6 reuse).
 // Pure + client-safe (no server imports), so the PlaybooksPanel can build it inline.
 
-export function playbookMarkdown(
-  p: { title: string; dimId: string; summary: string; steps: string[] },
-  dimLabel: string,
-): string {
+/** Fields both artifacts consume. Callers pass PlaybookRow (including `version`). */
+type PlaybookBriefSource = {
+  title: string;
+  dimId: string;
+  summary: string;
+  steps: string[];
+  version: number;
+};
+
+export function playbookMarkdown(p: PlaybookBriefSource, dimLabel: string): string {
   const out: string[] = [];
   out.push(`# Apply playbook: ${p.title}`);
-  out.push(`Strengthens ${p.dimId} (${dimLabel}).`);
+  // Same `v{n}` pin as playbookStarterFile's blockquote — PR body and committed file name one revision.
+  out.push(`Strengthens ${p.dimId} (${dimLabel}) v${p.version}.`);
   if (p.summary) {
     out.push("");
     out.push(p.summary);
@@ -30,18 +37,16 @@ export function playbookMarkdown(
  * The exact `docs/playbooks/<slug>.md` starter file the apply route commits when rolling a playbook
  * into a repo (PRAC-5) — a leak-free, org-authored "practice with a starter". Single-sourced here so
  * the apply route and the PlaybookCard "Preview starter" render the identical artifact. Pure +
- * client-safe.
+ * client-safe. The opening blockquote pins `v{PlaybookRow.version}` so a later edit is visible in
+ * the committed file, not only on the Ascent card.
  */
-export function playbookStarterFile(
-  p: { title: string; dimId: string; summary: string; steps: string[] },
-  dimLabel: string,
-): string {
+export function playbookStarterFile(p: PlaybookBriefSource, dimLabel: string): string {
   const stepsChecklist = p.steps.length
     ? p.steps.map((s) => `- [ ] ${s}`).join("\n")
     : "- [ ] <!-- TODO: break this playbook into concrete steps for this repo -->";
   return `# Playbook: ${p.title}
 
-> Org standard for **${p.dimId} · ${dimLabel}**, rolled out from Ascent. Track adoption by
+> Org standard for **${p.dimId} · ${dimLabel}** v${p.version}, rolled out from Ascent. Track adoption by
 > completing the steps below, then mark this PR ready for review.
 
 ${p.summary ? `${p.summary}\n\n` : ""}## Steps
