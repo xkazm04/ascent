@@ -54,6 +54,27 @@ un-restated new item is a fresh `open` row (never inherits the claim).
 written as the repo's standing (see [scan.md](../scanning/scan.md)), so resolution happens when
 the fix *lands* — the honest semantics: resolved = merged and rescanned. The prompt says so.
 
+### Local Rescan counts persist closures, not trailer claims (2026-09-17)
+
+`POST /api/org/local/rescan` used to return `report.resolvedFollowUpIds` — the ids `Ascent-Resolves:`
+trailers named in the local `git log`. `LocalRescanButton` totaled that array as *"N follow-ups
+closed"*. The trailer is a **claim**; `persistScanReport` is the verdict (the same split
+`rescanWorktree` already makes for the loop: `closedIds` vs `claimedIds`). A local rescan that
+restated the gap, or whose dimension did not move, still printed a close.
+
+The route now returns:
+
+| Field | Source | Meaning |
+| --- | --- | --- |
+| `closedFollowUps` | `persistScanReport`'s `closedFollowUpIds` | What `decideInProgress` ruled `done` after restatement, movement, and engine attribution |
+| `claimedFollowUps` | `report.resolvedFollowUpIds` | Trailer claims. Never a close count |
+| `resolvedFollowUps` | the same array as `closedFollowUps` | The field the button used to count as trailers; kept as the **verdict** so a stale client cannot print a claim as a close |
+
+`LocalRescanButton` totals `closedFollowUps`. Zero means the rescan confirmed nothing, not "no
+trailers found". Claim carry (`claimActor` / `claimExecutor` / `leaseUntil` / `needsHuman` onto the
+new in-progress row), the lazy lease sweep at claim and at the Proposals read, and `get_fix_brief`'s
+held-row gate are unchanged.
+
 ## The tab (`?tab=proposals`, In flight — formerly `?tab=followups`, Standing)
 
 **2026-09-15: the Follow-ups tab became In flight → Proposals.** It left Standing and merged with
@@ -245,10 +266,11 @@ is exactly as much of a claim as the trailer it also wrote — and every claim a
 | `src/lib/mcp/work-tools.ts` (+ `handlers-write.test.ts`) | `claim_followups` / `get_fix_brief` / `report_attempt`. |
 | `scripts/ascent-work.mjs` · `examples/ascent-work.action.yml` | The zero-dep client and a reference Action (outside `.github/`, so it never runs here). |
 | `src/lib/scoring/engine.ts` | Collects `resolvedFollowUpIds` from the commit sample. |
-| `src/lib/db/scans-persist.ts` (+ `.test.ts`, "follow-up feedback") | Applies the rule at carry-forward; writes resolved rows + events. |
+| `src/lib/db/scans-persist.ts` (+ `.test.ts`, "follow-up feedback") | Applies the rule at carry-forward; writes resolved rows + events. Returns `closedFollowUpIds` — the adjudicated set, not the trailer claims. |
+| `src/app/api/org/local/rescan/route.ts` (+ `route.test.ts`) | Local Rescan. `closedFollowUps` is persist's adjudicated set; `claimedFollowUps` is the trailer set. |
 | `src/app/api/org/followups/handoff/route.ts` | The hand-off write. |
 | `src/features/inflight/proposals/` | `ProposalsTab` (server; renders `PersonalBacklog` for a personal workspace) · `ProposalsWorklist` · `ProposalColumns` · `ProposalDetail` · `proposalsModel.ts` (+ `.test.ts`: the loop fold and the cross-source filters). |
-| `src/components/org/followups/` | The row vocabulary Proposals reuses: `FollowupsPromptModal` · `FollowupsFilterBar` (takes a `children` slot for extra menus) · `FollowupChips` · `FollowupHistory` · `followupsModel.ts` · `LocalRescanButton`. |
+| `src/components/org/followups/` | The row vocabulary Proposals reuses: `FollowupsPromptModal` · `FollowupsFilterBar` (takes a `children` slot for extra menus) · `FollowupChips` · `FollowupHistory` · `followupsModel.ts` · `LocalRescanButton` (counts persist-closed rows, not trailer claims). |
 | `src/components/org/shared/DecisionTable.tsx` | The shared decision-ledger shape (selection, in-place expander, source-aware bulk bar) behind Proposals and Lessons. |
 | `src/app/api/org/backlog/route.ts` | The ledger's read API (`getOrgBacklog`), kept from the retired tab for automation. |
 
