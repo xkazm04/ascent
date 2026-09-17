@@ -35,6 +35,7 @@ export async function GET(request: Request) {
   const org = normalizeOrgSlug(raw);
   const denied = await requireOrgRole(org, "owner");
   if (denied) return denied;
+  // `createdAt` is already an ISO string (`toRow` in members.ts) — JSON must not see a Date.
   const members = await listOrgMembers(org);
   return NextResponse.json({ members });
 }
