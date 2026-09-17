@@ -178,12 +178,17 @@ it names a different default-branch artifact, or ColdScanGate.
 8. **Contributors**: login + AI-commit ratio bars.
 9. **PR signals**: `PrSignalsPanel` (review coverage, merge rate, small-PR rate, time to
    merge / first review, revert rate, tools detected) when `report.prStats.analyzed > 0`.
-   Every percentage it shows is read through the **qualified-rate contract**
+   Every percentage from the rate book is read through the **qualified-rate contract**
    (`prStats.rates` → `rateReading`, `src/lib/analyze/pr-thresholds.ts`), so the tile carries
    its counts (`18 of 22 · human PRs reviewed`) and the full basis — denominator, exclusions,
    sample floor, caveat — as a tooltip and to screen readers. Under a rate's sample floor the
    tile reads `n/a`, never 0. A scan written before the contract has no rate book and falls
    back to the bare scalar with no basis, which is the honest reading of an unrecorded one.
+   **Merge rate** is the remaining scalar: its denominator is decided PRs (merged +
+   closed-unmerged), not the analyzed window, and the analyzer has not yet published it in
+   the book. The tile still applies the same ≥5 sample floor as `reviewedRate`, so a 1-of-1
+   100% merge reads `n/a` (with the floor in the hint), never a colored mature-process rate;
+   at n≥5 the percent still shows.
    A **Review integrity** block appears only for scans carrying the book: self-approvals as a
    COUNT (a percentage off a handful of PRs reads as an accusation) and the fast-approval
    share, each with its caveat rendered as visible text — both are signals to ask about, not

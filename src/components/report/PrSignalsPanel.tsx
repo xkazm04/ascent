@@ -3,6 +3,7 @@ import {
   FAST_APPROVAL_MAX_MINUTES,
   RATE_BASIS,
   rateReading,
+  REVIEW_INTEGRITY_MIN_SAMPLE,
   REVERT_RATE_ELEVATED,
   SMALL_PR_MAX_LINES,
   type PrRateBook,
@@ -51,6 +52,24 @@ function read(rates: PrRateBook | undefined, id: RateBasisId, hint: string, fall
   };
 }
 
+/**
+ * Merge rate is still a scalar (decided = merged + closed-unmerged). Until it joins the rate book,
+ * apply the same ≥5 floor as reviewedRate so a 1-of-1 100% cannot publish as a mature process.
+ */
+function mergeReading(stats: { merged: number; closedUnmerged: number; mergeRate: number }): Reading {
+  const decided = stats.merged + stats.closedUnmerged;
+  const floor = REVIEW_INTEGRITY_MIN_SAMPLE;
+  if (decided < floor) {
+    return {
+      value: "n/a",
+      percent: null,
+      hint: `${stats.merged} of ${decided} · below the ${floor}-sample floor`,
+      basis: `${stats.merged} of ${decided} decided pull requests (merged + closed unmerged), below the ${floor}-sample floor, so no percentage is published.`,
+    };
+  }
+  return { value: `${stats.mergeRate}%`, percent: stats.mergeRate, hint: "vs closed unmerged" };
+}
+
 function PrMetric({
   label,
   value,
@@ -96,6 +115,7 @@ function PrMetric({
 export function PrSignalsPanel({ stats }: { stats: NonNullable<ScanReport["prStats"]> }) {
   const rates = stats.rates;
   const reviewed = read(rates, "reviewed", "human PRs reviewed", stats.reviewedRate);
+  const merge = mergeReading(stats);
   const smallPr = read(rates, "smallPr", `≤${SMALL_PR_MAX_LINES} lines`, stats.smallPrRate);
   const revert = read(rates, "revert", "reverted PRs", stats.revertRate);
   const aiInvolved = read(rates, "aiInvolved", "AI-involved", stats.aiInvolvedRate);
@@ -138,8 +158,14 @@ export function PrSignalsPanel({ stats }: { stats: NonNullable<ScanReport["prSta
         />
         {/* Merge rate has no qualified counterpart: its denominator is the DECIDED PRs
             (merged + closed-unmerged), not the analyzed window, and the analyzer publishes it only
-            as a scalar. It renders from the scalar with its static hint until it joins the book. */}
-        <PrMetric label="Merge rate" value={`${stats.mergeRate}%`} color={scoreHex(stats.mergeRate)} hint="vs closed unmerged" />
+            as a scalar. Until it joins the book, mergeReading still applies the same ≥5 floor. */}
+        <PrMetric
+          label="Merge rate"
+          value={merge.value}
+          color={merge.percent == null ? undefined : scoreHex(merge.percent)}
+          hint={merge.hint}
+          basis={merge.basis}
+        />
         <PrMetric
           label="Small PRs"
           value={smallPr.value}

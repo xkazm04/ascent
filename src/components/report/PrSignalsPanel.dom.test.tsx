@@ -5,9 +5,15 @@
 // low-contrast reader gets the cue without perceiving the tint. Below the threshold there is no marker.
 
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { PrSignalsPanel } from "./PrSignalsPanel";
-import { qualifiedRate, RATE_BASIS, REVERT_RATE_ELEVATED, SMALL_PR_MAX_LINES } from "@/lib/analyze/pr-thresholds";
+import {
+  qualifiedRate,
+  RATE_BASIS,
+  REVIEW_INTEGRITY_MIN_SAMPLE,
+  REVERT_RATE_ELEVATED,
+  SMALL_PR_MAX_LINES,
+} from "@/lib/analyze/pr-thresholds";
 import type { PrStats } from "@/lib/types";
 
 const base: PrStats = {
@@ -118,5 +124,37 @@ describe("PrSignalsPanel qualified rates", () => {
     render(<PrSignalsPanel stats={base} />); // no `rates`
     expect(screen.queryByText(/Review integrity/i)).toBeNull();
     expect(screen.getByText("72%")).toBeInTheDocument(); // falls back to the historical scalar
+  });
+});
+
+// Merge rate is still a scalar (decided = merged + closed-unmerged) until it joins the rate book.
+// Every other tile goes through rateReading, which publishes null under the sample floor; without
+// the same floor here a 1-of-1 100% merge is colored as a mature process (score-charts-visuals).
+
+function mergeTile(): HTMLElement {
+  const parent = screen.getByText("Merge rate").parentElement;
+  if (!parent) throw new Error("Merge rate tile missing");
+  return parent;
+}
+
+describe("PrSignalsPanel merge-rate sample floor", () => {
+  it("renders n/a — never a colored 100% — when only one decided PR exists", () => {
+    // `analyzed` stays at 40 on purpose: the floor is the decided denominator, not the window.
+    render(<PrSignalsPanel stats={{ ...base, merged: 1, closedUnmerged: 0, mergeRate: 100 }} />);
+    expect(within(mergeTile()).getByText("n/a")).toBeInTheDocument();
+    expect(within(mergeTile()).queryByText("100%")).toBeNull();
+    expect(
+      within(mergeTile()).getAllByText(new RegExp(`below the ${REVIEW_INTEGRITY_MIN_SAMPLE}-sample floor`)).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("still shows the percent when decided PRs meet the sample floor", () => {
+    render(
+      <PrSignalsPanel
+        stats={{ ...base, merged: REVIEW_INTEGRITY_MIN_SAMPLE, closedUnmerged: 0, mergeRate: 100 }}
+      />,
+    );
+    expect(within(mergeTile()).getByText("100%")).toBeInTheDocument();
+    expect(within(mergeTile()).queryByText("n/a")).toBeNull();
   });
 });
