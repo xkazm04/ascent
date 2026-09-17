@@ -17,13 +17,9 @@ const STEP_W = 168;
 const TOP_Y = 100;
 const BOTTOM_Y = 300;
 const RIGHT_PAD = 50;
-const UNLOCK: Record<string, string> = {
-  L1: "ad-hoc AI",
-  L2: "tools adopted",
-  L3: "standard workflow",
-  L4: "agents in the loop",
-  L5: "self-governing",
-};
+// Unlock captions are LEVELS.tagline, not a parallel map: the previous UNLOCK table paraphrased
+// the model and had already drifted (L5 said "self-governing" while the model is "Fully
+// autonomous, reliable, AI-native system").
 
 export function AboutAscentSteps() {
   // ABOUT #1: the climber travels via `cx`/`cy` keyframes (non-transform), and the rungs draw via
@@ -32,7 +28,7 @@ export function AboutAscentSteps() {
   const reduced = useReducedMotion();
   const n = LEVELS.length;
   const yFor = (i: number) => (n > 1 ? BOTTOM_Y - ((BOTTOM_Y - TOP_Y) * i) / (n - 1) : BOTTOM_Y);
-  const steps = LEVELS.map((l, i) => ({ id: l.id, name: l.name, x: X0 + i * STEP_W, y: yFor(i) }));
+  const steps = LEVELS.map((l, i) => ({ id: l.id, name: l.name, tagline: l.tagline, x: X0 + i * STEP_W, y: yFor(i) }));
   const vbWidth = X0 + n * STEP_W + RIGHT_PAD;
   // Climber keyframes: trace the staircase corners (platform, riser-up, platform, …).
   const cx: number[] = [];
@@ -66,7 +62,7 @@ export function AboutAscentSteps() {
               {l.id}
             </span>
             <span className="type-mono-sm text-slate-200">{l.name}</span>
-            <span className="ml-auto text-right type-caption text-slate-500">{UNLOCK[l.id]}</span>
+            <span className="ml-auto text-right type-caption text-slate-500">{l.tagline}</span>
           </li>
         ))}
       </ol>
@@ -104,7 +100,7 @@ export function AboutAscentSteps() {
               {s.name}
             </text>
             <text x={mid} y={s.y + 42} textAnchor="middle" className="fill-slate-500 font-mono" fontSize={11}>
-              {UNLOCK[s.id]}
+              {s.tagline}
             </text>
           </g>
         );
