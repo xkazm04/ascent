@@ -161,6 +161,14 @@ hero/kiosk surfaces. The table in `src/components/ui/BRAND.md` is the reference;
 deliberately sets no letter-spacing (Tailwind v4 emits `tracking-*` before multi-declaration
 custom utilities, so a fixed tracking would beat the explicit one on the element).
 
+## Design-tokens study (`AppearanceStudy`)
+
+The surface-library design-tokens study (`src/features/shared/surfaces/AppearanceStudy.tsx`)
+renders the live token table — **accent, ink, surface, divider, danger, warn, success**,
+and `LEVEL_HEX` from `@/lib/ui` — not a picker of Ascent / Mint / Amber appearances.
+[BRAND.md](../../../src/components/ui/BRAND.md) is one azure on cold ink. Mint and amber
+are not peer accents; `warn` / `success` are status, and `LEVEL_HEX` is the score ramp only.
+
 ## The deck reading scale (large-screen typography & measure)
 
 Marketing decks used to stop growing at `lg`: the container was pinned at

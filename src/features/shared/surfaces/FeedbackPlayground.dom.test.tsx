@@ -25,12 +25,11 @@ describe("surface feedback studies", () => {
     expect(screen.getByRole("status").textContent).toContain("Changes undone");
   });
 
-  it("marks a newly changed appearance as unapplied", () => {
+  it("routes design-tokens to the live table, not a Mint/Amber re-theme", () => {
     render(<FeedbackPlayground slug="design-tokens" />);
-    fireEvent.click(screen.getByRole("button", { name: "Apply appearance" }));
-    expect(screen.getByRole("button", { name: /Applied/ })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Mint" }));
-    expect(screen.getByRole("button", { name: "Apply appearance" })).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toContain("Mint");
+    expect(screen.queryByRole("button", { name: "Mint" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Amber" })).toBeNull();
+    expect(screen.getByText("accent")).toBeTruthy();
+    expect(screen.getByText("LEVEL_HEX")).toBeTruthy();
   });
 });
