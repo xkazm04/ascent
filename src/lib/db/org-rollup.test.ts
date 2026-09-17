@@ -921,3 +921,131 @@ describe("getOrgRollupShared — argument normalization", () => {
     expect(JSON.stringify(where)).toContain("tg_1");
   });
 });
+
+// ── freshness.queued splits rescore vs probe (fleet-rollups-insights) ─────────────────────────────
+// Two-speed freshness already stamps scoredAt / controlsAt independently; the queued tag did not.
+// `ScanJob.lane` is `rescore | probe` on the existing row (no schema change). Lumping them into one
+// boolean made a free control probe render identically to a paid rescore, so the UI could not say
+// which work was owed. `queued` stays the OR so existing lumped tags keep working.
+describe("getOrgRollup — freshness.queued splits rescore vs probe", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsDbConfigured.mockReturnValue(true);
+  });
+
+  function repoRow(id: string) {
+    return {
+      id,
+      fullName: `acme/${id}`,
+      owner: "acme",
+      name: id,
+      isPrivate: false,
+      watched: true,
+      primaryLanguage: "TypeScript",
+      techStackJson: null,
+      passportJson: null,
+      passportOverridesJson: null,
+      scanSchedule: "manual",
+      lastScanAt: null,
+      lastScanStatus: "ok",
+      lastScanError: null,
+      aiConformance: null,
+      scans: [
+        {
+          level: "L3",
+          overallScore: 70,
+          adoptionScore: 60,
+          rigorScore: 80,
+          posture: "ai-native",
+          scannedAt: new Date("2026-05-12T12:00:00Z"),
+          engineProvider: "anthropic",
+          governance: null,
+          commitActivity: null,
+          prStats: null,
+          dimensions: [{ dimId: "D1", score: 70 }],
+        },
+      ],
+    };
+  }
+
+  function prismaWithJobs(jobs: { repoFullName: string; lane: string }[], repoIds: string[] = ["web", "api"]) {
+    const scanJobFindMany = vi.fn(async () => jobs);
+    return {
+      scanJobFindMany,
+      prisma: {
+        organization: { findUnique: vi.fn(async () => ({ id: "org_1", plan: "enterprise", slug: "acme" })) },
+        repository: { findMany: vi.fn(async () => repoIds.map(repoRow)) },
+        scan: { findMany: vi.fn(async () => []) },
+        scanDigest: { findMany: vi.fn(async () => []) },
+        scanDimension: { findMany: vi.fn(async () => []) },
+        scanJob: { findMany: scanJobFindMany },
+      },
+    };
+  }
+
+  it("a rescore job flags queuedRescore, not queuedProbe", async () => {
+    const { prisma } = prismaWithJobs([{ repoFullName: "acme/web", lane: "rescore" }]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getOrgRollup("acme");
+    const web = res!.repos.find((r) => r.fullName === "acme/web")!.freshness;
+    const api = res!.repos.find((r) => r.fullName === "acme/api")!.freshness;
+
+    expect(web).toMatchObject({ queuedRescore: true, queuedProbe: false, queued: true });
+    expect(api).toMatchObject({ queuedRescore: false, queuedProbe: false, queued: false });
+  });
+
+  it("a probe job flags queuedProbe, not queuedRescore — the lumped boolean used to hide this", async () => {
+    const { prisma } = prismaWithJobs([{ repoFullName: "acme/api", lane: "probe" }]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getOrgRollup("acme");
+    const api = res!.repos.find((r) => r.fullName === "acme/api")!.freshness;
+
+    expect(api.queuedProbe).toBe(true);
+    expect(api.queuedRescore).toBe(false);
+    expect(api.queued).toBe(true);
+  });
+
+  it("a repo with both lanes queued flags both, and queued remains the OR", async () => {
+    const { prisma } = prismaWithJobs([
+      { repoFullName: "acme/web", lane: "rescore" },
+      { repoFullName: "acme/web", lane: "probe" },
+    ]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getOrgRollup("acme");
+    const web = res!.repos.find((r) => r.fullName === "acme/web")!.freshness;
+
+    expect(web.queuedRescore).toBe(true);
+    expect(web.queuedProbe).toBe(true);
+    expect(web.queued).toBe(true);
+    expect(web.queued).toBe(web.queuedRescore || web.queuedProbe);
+  });
+
+  it("selects ScanJob.lane and only unsettled states — the split is derived, not a new column", async () => {
+    const { prisma, scanJobFindMany } = prismaWithJobs([]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await getOrgRollup("acme");
+
+    const args = scanJobFindMany.mock.calls[0]![0] as {
+      where: { state: unknown };
+      select: Record<string, unknown>;
+    };
+    expect(args.where.state).toEqual({ in: ["queued", "claimed"] });
+    expect(args.select).toEqual({ repoFullName: true, lane: true });
+  });
+
+  it("an unreadable queue degrades to all-false, never throws", async () => {
+    const { prisma } = prismaWithJobs([]);
+    delete (prisma as { scanJob?: unknown }).scanJob;
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getOrgRollup("acme");
+    expect(res).toBeTruthy();
+    for (const r of res!.repos) {
+      expect(r.freshness).toMatchObject({ queuedRescore: false, queuedProbe: false, queued: false });
+    }
+  });
+});

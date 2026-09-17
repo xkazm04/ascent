@@ -267,7 +267,13 @@ export interface OrgRepoRow {
   freshness: {
     scoredAt: string | null;
     controlsAt: string | null;
-    /** An unsettled `ScanJob` exists for this repo — a rescan is owed, not lost. */
+    /** Unsettled paid rescore (`ScanJob.lane === "rescore"` in queued|claimed). Independent of
+     *  `queuedProbe` — a repo can owe both. Derived from the existing lane column, not a new field. */
+    queuedRescore: boolean;
+    /** Unsettled free control probe (`ScanJob.lane === "probe"` in queued|claimed). */
+    queuedProbe: boolean;
+    /** Any unsettled `ScanJob` for this repo (rescore OR probe). Kept so existing lumped tags still
+     *  work; surfaces that can name the lane should read the two fields above. */
     queued: boolean;
   };
   scanSchedule: string;
@@ -752,7 +758,12 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
   // the newest control observation per repo, and which repos have unsettled queue rows. Both degrade
   // to "nothing known" on failure — an empty map renders as "—", which is the honest answer, and is
   // also what an org that has never been probed genuinely looks like.
+  //
+  // Queued work is split by `ScanJob.lane` (already on the row: rescore | probe). A lumped boolean
+  // made a free probe render as a paid rescore; `queued` stays the OR so existing tags keep working.
   const controlsByRepo = new Map<string, string>();
+  const queuedRescoreRepos = new Set<string>();
+  const queuedProbeRepos = new Set<string>();
   const queuedRepos = new Set<string>();
   try {
     const grouped = await prisma.controlObservation.groupBy({
@@ -767,9 +778,13 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
   try {
     const pending = (await prisma.scanJob.findMany({
       where: { orgId: org.id, state: { in: ["queued", "claimed"] } },
-      select: { repoFullName: true },
-    })) as { repoFullName: string }[];
-    for (const p of pending) queuedRepos.add(p.repoFullName);
+      select: { repoFullName: true, lane: true },
+    })) as { repoFullName: string; lane: string }[];
+    for (const p of pending) {
+      queuedRepos.add(p.repoFullName);
+      if (p.lane === "probe") queuedProbeRepos.add(p.repoFullName);
+      else if (p.lane === "rescore") queuedRescoreRepos.add(p.repoFullName);
+    }
   } catch {
     // Same: an unreadable queue means "we don't know of any queued work", not "there is none".
   }
@@ -808,6 +823,8 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
       freshness: {
         scoredAt: s ? s.scannedAt.toISOString() : (r.lastScanAt?.toISOString() ?? null),
         controlsAt: controlsByRepo.get(r.fullName) ?? null,
+        queuedRescore: queuedRescoreRepos.has(r.fullName),
+        queuedProbe: queuedProbeRepos.has(r.fullName),
         queued: queuedRepos.has(r.fullName),
       },
       scanSchedule: r.scanSchedule,
