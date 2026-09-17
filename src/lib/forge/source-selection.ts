@@ -326,6 +326,7 @@ export function estimateCoverage(
   attempted: number,
   truncated: boolean,
   displaced = 0,
+  windowOmitted = 0,
 ): number {
   // Heuristic: how confident are we that we've seen the signal-bearing files?
   // Small repos -> high coverage; truncated giant repos -> lower.
@@ -349,9 +350,21 @@ export function estimateCoverage(
   // the same proportion it did when it sat in the old `attempted` denominator, so a repo whose picks
   // all fit scores its coverage unchanged — the number just stopped depending on network timing.
   // `displaced` defaults to 0 for the ingestion paths that cannot displace (a sequential reader).
+  // THE THIRD RESTRICTION, and the one this figure used to describe a different population than.
+  // `fetchRate` prices the network, `admitRate` prices the byte plan — both are measured at INGEST.
+  // The prompt's file window (scoring/prompt.ts) then drops fetched files a second time, after both
+  // of those succeeded, and it is the ONLY one of the three that bounds what the model whose judgment
+  // this number weights actually read. `effectiveBlend = SCORE_BLEND * coverage` (scoring/engine.ts)
+  // and the "only part of the repository could be inspected" caveat (scan-compose.ts) are both
+  // decisions about the MODEL's reach, so a figure that stops at the fetch overstates them by exactly
+  // the window's drop: a repository whose 31 picks all fetched scored 0.85 while the model was shown
+  // 14 of them. Disclosed as its own multiplicative term for the same reason `displaced` is — folded
+  // into `fetchRate` it would read as a network failure, and dropped it is a restriction nobody in the
+  // loop has seen stated. A repo whose files all FIT the window scores its coverage unchanged.
+  const windowRate = fetched > 0 ? Math.max(0, fetched - windowOmitted) / fetched : 1;
   const fetchRate = attempted > 0 ? fetched / attempted : 1;
   const admitRate = attempted + displaced > 0 ? attempted / (attempted + displaced) : 1;
-  const rate = fetchRate * admitRate;
+  const rate = fetchRate * admitRate * windowRate;
   let c = totalBlobs <= MAX_FILES ? 0.95 * rate : Math.min(0.9, 0.85 * rate);
   if (truncated) c = Math.min(c, 0.6);
   return Math.round(c * 100) / 100;

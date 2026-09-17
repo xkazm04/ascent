@@ -48,6 +48,7 @@ import { fetchGitlabPrStats } from "@/lib/forge/gitlab/merge-requests";
 import { fetchGitlabGovernance } from "@/lib/forge/gitlab/governance";
 import { fetchGitlabCiHealth } from "@/lib/forge/gitlab/pipelines";
 import { fetchGitlabDeployments } from "@/lib/forge/gitlab/deployments";
+import { fileWindowCoverage } from "@/lib/scoring/prompt";
 
 // Adapter-specific path recognition; numeric calibration limits are shared across sources.
 const CODEOWNERS_RE = /(^|\/)codeowners$/i;
@@ -244,6 +245,7 @@ export class GitLabSource implements RepoSource {
         Math.min(nonMemoryAttempted, MAX_FILES),
         treeRes.truncated,
         displacedNonMemory,
+        fileWindowCoverage(files).omitted,
       ),
       memoryFiles,
     };

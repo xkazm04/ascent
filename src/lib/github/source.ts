@@ -25,6 +25,7 @@ import { MEMORY_ENTRY_RE, capForPath, pickFilesToFetch, planFetchBudget, quarant
 import { mapPool } from "@/lib/pool";
 import { boundedFetchedFile } from "@/lib/forge/fetched-file";
 import { COMMIT_COUNT } from "@/lib/forge/ingestion-limits";
+import { fileWindowCoverage } from "@/lib/scoring/prompt";
 
 // FORGE EXTRACTION (moonshot #4). `ProgressFn` / `FetchOptions` / `ParsedRepo` / `GitHubError` /
 // `RepoSource` are DECLARED in `@/lib/forge/types` now — not a character of them changed, only the
@@ -579,12 +580,16 @@ export class GitHubPublicSource implements RepoSource {
     const { files: promptFiles, memoryFiles, nonMemoryAttempted } = quarantineMemoryFiles(files, admitted);
     const displacedNonMemory = displaced.filter((p) => !MEMORY_ENTRY_RE.test(p)).length;
 
+    // The PROMPT WINDOW is the third restriction on this evidence, and the only one measured against
+    // what the model reads. Computed here, from the same routine the prompt builder admits with, so the
+    // coverage figure and the block cannot disagree about which files the judgment rests on.
     const coverage = estimateCoverage(
       blobs.length,
       promptFiles.length,
       nonMemoryAttempted,
       treeRes.truncated,
       displacedNonMemory,
+      fileWindowCoverage(promptFiles).omitted,
     );
 
     return {
