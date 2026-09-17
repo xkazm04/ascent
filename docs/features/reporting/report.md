@@ -270,7 +270,12 @@ than no chart. Each of these is a load-bearing behavior, not a style choice:
   model-scored ones. `TrendChart` and `DimLine` draw them **hollow** (score-coloured stroke,
   surface fill; the mark changes, the value ramp does not), any series containing one shows
   the legend footnote, and the caveat is repeated in the SR table / point list rather than
-  living only in the hover tooltip. Predicates: `src/components/report/chartEngine.ts`.
+  living only in the hover tooltip. The same report-level fact paints the snapshot charts:
+  `ScoreRing` draws a dashed hollow arc (score length via a mask), `ScoreWaterfall` draws
+  hollow segments (surface fill, score-coloured inset stroke), and `RadarChart` vertices plus
+  the `PostureQuadrant` repo dot match that hollow mark. A live-scored report keeps every
+  dimension solid — including D9, whose signal-only provenance is a different claim from a
+  demo scan and is not painted as mock. Predicates: `src/components/report/chartEngine.ts`.
   The same `mixesEngines` predicate labels a **What Changed** pair that spans mock and a
   live model: the delta still draws, with a "Mixed engines" chip and caveat, so a
   demo-vs-live jump is not read as a maturity move. Same-kind pairs (both mock, or both

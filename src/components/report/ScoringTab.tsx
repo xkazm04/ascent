@@ -41,7 +41,7 @@ export function ScoringTab({
       <Surface radius="2xl" className="relative grid gap-6 overflow-hidden p-6 lg:grid-cols-[auto_1fr]">
         <div aria-hidden className="strata pointer-events-none absolute inset-0" />
         <div className="relative flex flex-col items-center justify-center">
-          <ScoreRing score={report.overallScore} level={level} />
+          <ScoreRing score={report.overallScore} level={level} engine={report.engine.provider} />
           {overallDelta !== null && <DeltaPill delta={overallDelta} suffix="since last scan" className="mt-3" />}
         </div>
         <div className="relative flex flex-col justify-center">

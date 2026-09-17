@@ -284,3 +284,39 @@ describe("RadarChart signal vs LLM hover ticks", () => {
     expect(container.querySelector('[data-tick="llm"]')).not.toBeNull();
   });
 });
+
+describe("RadarChart mock-scored hollow vertices", () => {
+  it("a live-scored radar keeps non-zero vertices solid, including D9", () => {
+    const { container } = render(<RadarChart dimensions={DIMS} engine="claude-cli" />);
+    expect(container.querySelectorAll("circle[data-mock]")).toHaveLength(0);
+    expect(screen.queryByText(/demo scan/i)).not.toBeInTheDocument();
+  });
+
+  it("a mock-scored radar draws non-zero vertices hollow; a zero stays the dashed-zero mark", () => {
+    const { container } = render(
+      <RadarChart
+        dimensions={[dim("D1", "AI Tooling", 0), dim("D2", "Testing", 55), dim("D9", "Security", 88)]}
+        engine="mock"
+      />,
+    );
+    expect(container.querySelectorAll("circle[data-zero]")).toHaveLength(1);
+    const hollow = Array.from(container.querySelectorAll("circle[data-mock]"));
+    expect(hollow).toHaveLength(2);
+    for (const c of hollow) {
+      expect(c.getAttribute("fill")).toBe("var(--color-surface-strong)");
+      expect(c.getAttribute("stroke")).toMatch(/^#[0-9a-f]{6}$/i);
+      expect(c.hasAttribute("data-zero")).toBe(false);
+    }
+    expect(screen.getByText(/demo scan: deterministic rubric, no model/i)).toBeInTheDocument();
+  });
+
+  it("does not fold mock into D9: a live D9 vertex with signal/LLM disagreement still names both", () => {
+    const dims = [
+      dim("D9", "Security", 78, { signalScore: 70, llmScore: 90 }),
+      dim("D2", "Testing", 50),
+      dim("D3", "Eval", 50),
+    ];
+    render(<RadarChart dimensions={dims} engine="claude-cli" />);
+    expect(screen.getByText(/78 · signal 70 · LLM 90/)).toBeInTheDocument();
+  });
+});

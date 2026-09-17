@@ -28,6 +28,7 @@ export function PosturePanel({
           rigor={report.rigorScore}
           posture={report.posture}
           prev={prev}
+          engine={report.engine.provider}
         />
       </div>
     </Surface>

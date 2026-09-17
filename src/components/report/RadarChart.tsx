@@ -10,6 +10,7 @@ import { ChartTooltip } from "@/components/report/chartHover";
 import { RadarFallback } from "@/components/report/RadarFallback";
 import { r2 } from "@/components/report/svgCoord";
 import { radarHoverTicks } from "@/lib/scoring/provenance";
+import { MOCK_HOLLOW_FILL, MOCK_SR_SUFFIX, isMockEngine } from "@/components/report/chartEngine";
 
 /** Fixed radius the zero MARKER is parked at. It is not a vertex — the polygon still closes through
  *  the true centre — only the place the "this dimension scored zero" ring is drawn so it is legible
@@ -21,6 +22,7 @@ export function RadarChart({
   size = 340,
   highlightId = null,
   onSelect,
+  engine,
 }: {
   dimensions: DimensionResult[];
   size?: number;
@@ -29,9 +31,12 @@ export function RadarChart({
   highlightId?: DimensionId | null;
   /** When provided, the radar becomes a picker: clicking near a vertex selects that dimension. */
   onSelect?: (id: DimensionId) => void;
+  /** Scan engine provider. A mock-scored report draws vertices hollow. D9 on a live scan stays solid. */
+  engine?: string | null;
 }) {
   const titleId = useId();
   const descId = useId();
+  const mock = isMockEngine(engine);
   // Hover: snap to the nearest data vertex (within a small radius) and show its exact
   // score + level — dependency-free, mirroring the time-series charts' tooltip.
   const [active, setActive] = useState<number | null>(null);
@@ -143,7 +148,8 @@ export function RadarChart({
           {`Scores across ${n} maturity dimensions on a 0 to 100 scale. Per-dimension values are listed in the adjacent table.` +
             (anyZero
               ? " Dimensions scoring zero plot at the centre and are marked with a hollow dashed ring rather than a plotted vertex."
-              : "")}
+              : "") +
+            (mock ? MOCK_SR_SUFFIX : "")}
         </desc>
         {/* grid rings */}
       {rings.map((rg) => (
@@ -162,14 +168,17 @@ export function RadarChart({
       })}
       {/* data polygon — follows the brand tokens (--color-accent + its soft tint) so a re-skin /
           white-label retunes the chart with the buttons instead of leaving it on the old azure. */}
-      <polygon points={dataPath} fill="var(--color-accent)" fillOpacity={0.22} stroke="var(--color-accent)" strokeWidth={2} />
+      <polygon points={dataPath} fill="var(--color-accent)" fillOpacity={mock ? 0.08 : 0.22} stroke="var(--color-accent)" strokeWidth={2} strokeDasharray={mock ? "4 4" : undefined} />
       {markPts.map(([x, y], i) => {
         const r = i === active || i === highlightIdx ? 4.5 : 3;
-        // Zero → a hollow dashed ring, never a filled dot. A filled dot at any radius asserts a
-        // measured magnitude; the open, broken outline reads as an absence, and the axis numeral
-        // beside it already says "0".
-        return dimensions[i]!.score === 0 ? (
-          <circle key={i} data-zero cx={x} cy={y} r={r + 1.5} fill="none" stroke={scoreHex(0)} strokeWidth={1.5} strokeDasharray="2 2" />
+        const d = dimensions[i]!;
+        // Zero → a hollow dashed ring, never a filled dot. A mock-scored report's non-zero vertices
+        // are also hollow (surface fill, score stroke) — engine identity, not D9 provenance.
+        if (d.score === 0) {
+          return <circle key={i} data-zero cx={x} cy={y} r={r + 1.5} fill="none" stroke={scoreHex(0)} strokeWidth={1.5} strokeDasharray="2 2" />;
+        }
+        return mock ? (
+          <circle key={i} data-mock cx={x} cy={y} r={r} fill={MOCK_HOLLOW_FILL} stroke={scoreHex(d.score)} strokeWidth={1.75} />
         ) : (
           <circle key={i} cx={x} cy={y} r={r} fill="var(--color-accent-soft)" />
         );

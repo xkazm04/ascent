@@ -7,15 +7,19 @@ import type { MaturityLevel } from "@/lib/types";
 import { LEVEL_GLYPH, scoreHex } from "@/lib/ui";
 import { clamp01to100 } from "@/components/report/chartScale";
 import { usePrefersReducedMotion } from "@/components/report/chartMotion";
+import { MOCK_RING_DASH, MOCK_SR_SUFFIX, isMockEngine } from "@/components/report/chartEngine";
 
 export function ScoreRing({
   score,
   level,
   size = 200,
+  engine,
 }: {
   score: number;
   level: MaturityLevel;
   size?: number;
+  /** Scan engine provider. A mock-scored report draws the arc hollow. */
+  engine?: string | null;
 }) {
   const stroke = 14;
   const r = (size - stroke) / 2;
@@ -33,6 +37,8 @@ export function ScoreRing({
   const cx = size / 2;
   const titleId = useId();
   const descId = useId();
+  const maskId = useId();
+  const mock = isMockEngine(engine);
   // Gate the arc sweep on reduced-motion. In RoadmapSandbox the score is driven LIVE by the
   // projection sliders, so an un-gated 0.8s transition re-animates the ring on every drag —
   // a WCAG 2.3.3 (Animation from Interactions) violation. Every sibling chart already gates its
@@ -49,7 +55,28 @@ export function ScoreRing({
     >
       {/* Screen-reader title/desc — the arc length already encodes the score without color. */}
       <title id={titleId}>Overall maturity score</title>
-      <desc id={descId}>{`Score ${displayScore} of 100. Level ${level.id} ${level.name}.`}</desc>
+      <desc id={descId}>
+        {`Score ${displayScore} of 100. Level ${level.id} ${level.name}.`}
+        {mock ? MOCK_SR_SUFFIX : ""}
+      </desc>
+      {mock && (
+        <defs>
+          <mask id={maskId}>
+            <circle
+              cx={cx}
+              cy={cx}
+              r={r}
+              fill="none"
+              stroke="white"
+              strokeWidth={stroke}
+              strokeLinecap="round"
+              strokeDasharray={c}
+              strokeDashoffset={offset}
+              transform={`rotate(-90 ${cx} ${cx})`}
+            />
+          </mask>
+        </defs>
+      )}
       <circle cx={cx} cy={cx} r={r} fill="none" stroke="var(--color-divider)" strokeWidth={stroke} />
       <circle
         cx={cx}
@@ -59,10 +86,12 @@ export function ScoreRing({
         stroke={color}
         strokeWidth={stroke}
         strokeLinecap="round"
-        strokeDasharray={c}
-        strokeDashoffset={offset}
+        strokeDasharray={mock ? MOCK_RING_DASH : c}
+        strokeDashoffset={mock ? undefined : offset}
         transform={`rotate(-90 ${cx} ${cx})`}
-        style={{ transition: reduced ? undefined : "stroke-dashoffset 0.8s ease" }}
+        mask={mock ? `url(#${maskId})` : undefined}
+        data-mock={mock || undefined}
+        style={{ transition: reduced || mock ? undefined : "stroke-dashoffset 0.8s ease" }}
       />
       <text x={cx} y={cx - 6} textAnchor="middle" className="fill-white" fontSize={size * 0.26} fontWeight={700}>
         {displayScore}
