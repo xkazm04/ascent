@@ -8,6 +8,7 @@ import { NextResponse } from "next/server";
 import { isDbConfigured, setRepoWatch } from "@/lib/db";
 import { isAppConfigured } from "@/lib/github/app";
 import { requireFleetOrg, requireOrgAccess } from "@/lib/authz";
+import { normalizeOrgSlug } from "@/lib/db/org-shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,14 +33,19 @@ export async function POST(request: Request) {
     );
   }
   const body = (await request.json().catch(() => ({}))) as RepoInput & { org?: string; watched?: boolean; repos?: RepoInput[] };
-  if (!body.org) return NextResponse.json({ error: "Missing org." }, { status: 400 });
+  // Canonicalize like the import/scan routes: the access gate normalizes internally, but
+  // setRepoWatch → ensureOrg used to upsert the raw slug — so a mixed-case `org` passed the
+  // gate yet minted a duplicate tenant that no reader (getOrgId) can reach. Whitespace-only
+  // is missing, not a blank-slug tenant.
+  const org = body.org ? normalizeOrgSlug(body.org) : "";
+  if (!org) return NextResponse.json({ error: "Missing org." }, { status: 400 });
   // Authorize: only a member of the org (or any caller on the shared "public" org / an auth-off
   // deploy) may change its watchlist. Without this, anyone could toggle watch flags for any org.
-  const denied = await requireOrgAccess(body.org);
+  const denied = await requireOrgAccess(org);
   if (denied) return denied;
   // Personal workspaces watch via /api/me/watch (public-repo verify + free-tier cap) — this fleet
   // path would bypass both and de-tenant the lens.
-  const notFleet = await requireFleetOrg(body.org);
+  const notFleet = await requireFleetOrg(org);
   if (notFleet) return notFleet;
 
   const watched = Boolean(body.watched);
@@ -55,7 +61,7 @@ export async function POST(request: Request) {
     const failed: string[] = [];
     for (const r of valid) {
       try {
-        await setRepoWatch(body.org, { owner: r.owner, name: r.name, fullName: r.fullName, url: r.url, isPrivate: r.private }, watched);
+        await setRepoWatch(org, { owner: r.owner, name: r.name, fullName: r.fullName, url: r.url, isPrivate: r.private }, watched);
         count += 1;
       } catch {
         failed.push(r.fullName);
@@ -70,7 +76,7 @@ export async function POST(request: Request) {
   }
   try {
     await setRepoWatch(
-      body.org,
+      org,
       { owner: body.owner, name: body.name, fullName: body.fullName, url: body.url, isPrivate: body.private },
       watched,
     );

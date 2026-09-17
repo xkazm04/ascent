@@ -30,6 +30,7 @@ vi.mock("@/lib/db/client", () => ({
 vi.mock("@/lib/db/org-shared", () => ({
   segmentScope: () => ({}),
   getOrgBySlug: vi.fn(async () => ({ id: "org_1" })),
+  normalizeOrgSlug: (s: string) => s.trim().toLowerCase(),
 }));
 
 import { setRepoWatch } from "./org-watch";
