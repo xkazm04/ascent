@@ -22,7 +22,7 @@
 import { useEffect, useRef } from "react";
 import type { ConfirmSpec, ConfirmTone } from "./confirmCopy";
 export { segmentDeleteConfirm, draftPrConfirm, batchPrConfirm, retestConfirm, goalDeleteConfirm, type ConfirmSpec, type ConfirmTone } from "./confirmCopy";
-import { Modal, ModalHeader, ModalBody, ModalFooter } from "@/components/ui";
+import { CONTROL_CLASS, Modal, ModalHeader, ModalBody, ModalFooter } from "@/components/ui";
 
 export interface ConfirmActionProps extends Partial<Pick<ConfirmSpec, "kicker" | "tone">> {
   open: boolean;
@@ -73,7 +73,8 @@ export function ConfirmActionContent({
             autoFocus
             onClick={onCancel}
             disabled={busy}
-            className="focus-ring rounded-lg border border-slate-700 px-4 py-2 type-mono-sm text-slate-200 transition hover:border-accent hover:text-white disabled:opacity-50"
+            // CONTROL_CLASS is the Field skin (`w-full`); max-w-max keeps the footer pair from stretching.
+            className={`${CONTROL_CLASS} max-w-max`}
           >
             Cancel
           </button>
@@ -81,7 +82,7 @@ export function ConfirmActionContent({
             type="button"
             onClick={onConfirm}
             disabled={busy}
-            className={`focus-ring rounded-lg px-4 py-2 type-mono-sm font-semibold transition disabled:opacity-50 ${CONFIRM_CLASS[tone]}`}
+            className={`focus-ring rounded-lg px-3 py-2 type-body font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${CONFIRM_CLASS[tone]}`}
           >
             {busy ? "Working…" : confirmLabel}
           </button>

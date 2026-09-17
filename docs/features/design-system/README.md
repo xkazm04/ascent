@@ -339,8 +339,10 @@ is identical.
 
 Adopted by `PlanEnquiryFields` (the `/pricing` Custom-plan dialog) and
 `CreateIssueModal`, the file the kit was extracted from, migrated in the same
-change so the standard didn't ship with exactly one user. The remaining hand-rolled
-inputs are unmigrated; move them as you touch them.
+change so the standard didn't ship with exactly one user. `ConfirmAction` skins its
+Cancel control with `CONTROL_CLASS` rather than a hand-rolled `border-slate-700`
+outline, so a one-off dialog button lands on the same tokens as Field. The remaining
+hand-rolled inputs are unmigrated; move them as you touch them.
 
 ## `InfoTip` (`src/components/ui/InfoTip.tsx`, 2026-09-17)
 
