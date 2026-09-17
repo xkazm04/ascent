@@ -1120,8 +1120,10 @@ white-label plan and at least one field is set. Those are the same three slots t
 bad logo or contrast before handing a client PDF or share link. OrgShell, the nav rail, and other
 tabs stay Ascent chrome; this is the briefing header only. `BrandingSettings` still prefills from
 the same row, and a live PDF-header mock on a light card beside the fields shows the current brand
-name, accent hex and logo URL against the white PDF surface (the same `accentContrastWarning` as
-the form). The form also has a **Download branded PDF** control (`DownloadButton` →
+name, accent hex and logo URL against the white PDF surface. `accentContrastWarning` checks the
+accent against both that white PDF and the dark share chrome (`#080d1a`), so a navy that reads on
+paper but vanishes on `/share/briefing/[token]` is flagged before save (non-blocking, same as the
+PDF check). The form also has a **Download branded PDF** control (`DownloadButton` →
 `GET /api/org/briefing/pdf?org=`), disabled while a save is in flight so the export cannot race
 the write.
 

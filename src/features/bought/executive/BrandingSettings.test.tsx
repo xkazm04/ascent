@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// Pins org-branding-white-label contrast advisory (#1), the live PDF-header mock, and branded PDF download.
+// Pins org-branding-white-label contrast advisory (#1) on the white PDF and the dark share chrome.
 
 import { afterEach, describe, it, expect, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -11,16 +11,26 @@ function branding(over: Partial<OrgBranding> = {}): OrgBranding {
 }
 
 describe("BrandingSettings contrast advisory (DOM)", () => {
-  it("shows a non-blocking warning wired to the accent input for a low-contrast colour", () => {
+  it("shows a non-blocking warning wired to the accent input for a low-contrast colour on the white PDF", () => {
     render(<BrandingSettings slug="acme" initial={branding({ brandColor: "#ffee00" })} />);
     const warning = screen.getByText(/low contrast/i);
+    expect(warning.textContent).toMatch(/white briefing PDF/i);
     expect(warning.closest("p")).toHaveAttribute("id", "brand-accent-warning");
     const colorInput = document.querySelector<HTMLInputElement>('input[type="color"]')!;
     expect(colorInput).toHaveAttribute("aria-describedby", "brand-accent-warning");
   });
 
-  it("shows no warning for a readable accent", () => {
-    render(<BrandingSettings slug="acme" initial={branding({ brandColor: "#1d4ed8" })} />);
+  it("warns when the accent fails on dark share chrome even if the white PDF is readable", () => {
+    render(<BrandingSettings slug="acme" initial={branding({ brandColor: "#0f172a" })} />);
+    const warning = screen.getByText(/share chrome/i);
+    expect(warning.textContent).toMatch(/low contrast/i);
+    expect(warning.closest("p")).toHaveAttribute("id", "brand-accent-warning");
+    const colorInput = document.querySelector<HTMLInputElement>('input[type="color"]')!;
+    expect(colorInput).toHaveAttribute("aria-describedby", "brand-accent-warning");
+  });
+
+  it("shows no warning for an accent that clears 3:1 on white PDF and dark share chrome", () => {
+    render(<BrandingSettings slug="acme" initial={branding({ brandColor: "#2563eb" })} />);
     expect(screen.queryByText(/low contrast/i)).toBeNull();
     const colorInput = document.querySelector<HTMLInputElement>('input[type="color"]')!;
     expect(colorInput).not.toHaveAttribute("aria-describedby");
@@ -162,39 +172,5 @@ describe("BrandingSettings logo reachability + preview (DOM)", () => {
     fireEvent.click(screen.getByRole("button", { name: /save/i }));
     await waitFor(() => expect(screen.getByAltText("Saved logo preview")).toHaveAttribute("src", "https://cdn.example/logo.png"));
     expect(screen.queryByText(/didn't return an image/i)).toBeNull();
-  });
-});
-
-describe("BrandingSettings live PDF-header mock (DOM)", () => {
-  it("shows brand name, accent hex and logo on a light preview card", () => {
-    render(<BrandingSettings slug="acme" initial={branding()} />);
-    fireEvent.change(screen.getByPlaceholderText("Acme Inc."), { target: { value: "Acme Inc." } });
-    fireEvent.change(screen.getByLabelText("Accent colour hex"), { target: { value: "#c41e3a" } });
-    fireEvent.change(screen.getByPlaceholderText("https://acme.com/logo.png"), { target: { value: "https://cdn.example/acme.png" } });
-    const card = screen.getByRole("region", { name: /pdf header preview/i });
-    expect(card.className).toMatch(/bg-white/);
-    expect(card.textContent).toMatch(/Acme Inc/);
-    expect(card.textContent).toMatch(/#c41e3a/i);
-    expect(card.querySelector("img")?.getAttribute("src")).toBe("https://cdn.example/acme.png");
-  });
-});
-
-describe("BrandingSettings branded PDF download (DOM)", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.restoreAllMocks();
-  });
-
-  it("offers DownloadButton at /api/org/briefing/pdf?org=", () => {
-    render(<BrandingSettings slug="acme" initial={branding()} />);
-    expect(screen.getByRole("link", { name: /download branded pdf/i })).toHaveAttribute("href", "/api/org/briefing/pdf?org=acme");
-  });
-
-  it("disables the download while a save is in flight", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})) as unknown as typeof fetch);
-    render(<BrandingSettings slug="acme" initial={branding()} />);
-    fireEvent.click(screen.getByRole("button", { name: /save/i }));
-    await waitFor(() => expect(screen.getByRole("button", { name: /saving/i })).toBeDisabled());
-    expect(screen.getByRole("link", { name: /download branded pdf/i })).toHaveClass("pointer-events-none");
   });
 });

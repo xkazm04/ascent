@@ -10,7 +10,7 @@ import { DownloadButton } from "@/components/report/DownloadButton";
 import { chipButtonClass } from "@/components/ui";
 import { BrandingPreview } from "./BrandingPreview";
 import { useBrandingSettings } from "./useBrandingSettings";
-export { accentContrastOnWhite, accentContrastWarning, MIN_ACCENT_CONTRAST } from "./brandingContrast";
+export { accentContrastOnWhite, accentContrastOnDark, accentContrastWarning, MIN_ACCENT_CONTRAST } from "./brandingContrast";
 import { accentContrastWarning } from "./brandingContrast";
 
 export function BrandingSettings({ slug, initial }: { slug: string; initial: OrgBranding }) {
@@ -25,7 +25,7 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
   } = useBrandingSettings(slug, initial);
 
   const field = "rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-body-sm text-slate-200 placeholder:text-slate-600";
-  // Live, non-blocking contrast advisory for the accent against the white PDF (org-branding #1).
+  // Live, non-blocking contrast advisory for the accent against the white PDF and the dark share chrome (org-branding #1).
   const contrastWarning = accentContrastWarning(brandColor);
 
   return (
@@ -128,9 +128,9 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
         </div>
         <BrandingPreview brandName={brandName} brandColor={brandColor} logoUrl={logoUrl} />
       </div>
-      {/* org-branding #1: WARN (never block) when the accent would be near-invisible on the white PDF.
-          Associated to the colour input via aria-describedby; not a live region, so dragging the
-          picker doesn't spam a screen reader. */}
+      {/* org-branding #1: WARN (never block) when the accent would be near-invisible on the white PDF
+          or the dark share chrome. Associated to the colour input via aria-describedby; not a live
+          region, so dragging the picker doesn't spam a screen reader. */}
       {contrastWarning && (
         <p id="brand-accent-warning" className="mt-2 flex items-start gap-1.5 type-mono-sm text-amber-300">
           <span aria-hidden>⚠</span>
