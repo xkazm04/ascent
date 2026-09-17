@@ -174,9 +174,19 @@ transaction is rejected and the route returns 400.
 
 ### Archive
 
-An admin can archive a memory (soft-delete: `archived: true`, never a hard
+An admin can archive a **hosted** memory (soft-delete: `archived: true`, never a hard
 delete) via `DELETE /api/org/memory/:id`. The UI removes it optimistically
 and rolls back on failure.
+
+A **registry-origin** row is a mirror of a file in a repo the customer owns. The
+Memory card already replaces archive with **Open in registry**; `PATCH` and
+`DELETE` on `/api/org/memory/:id` refuse those rows too (`409` with
+`code: "registry-origin"`), matching the reflect/apply origin gate. A write
+that reported `{ ok: true }` and was then reverted by the next index pass
+would be a lie on the wire. The author gate still wins: another author's
+private row answers `404`, not `409`, so origin cannot leak existence. The
+honest change path is a pull request (`POST /api/org/memory/reflect` with
+`proposePr`).
 
 ## Write-intelligence: the check verdict
 
@@ -775,7 +785,10 @@ distinguishes the two worlds, and the affordances follow it:
   registry repo (`memory/<kind>/<slug>.md` with `supersedes:` frontmatter, via
   `src/app/api/org/memory/reflect/proposePr.ts` + `src/lib/registry/memory-pr.ts`), tracked as an
   `OrgMemoryProposal` row whose status follows the PR; the merged file supersedes the mirror at the
-  next index pass. Hosted rows keep today's in-DB apply.
+  next index pass. Hosted rows keep today's in-DB apply. The UI hide is not the whole rule:
+  `PATCH` and `DELETE` on `/api/org/memory/[id]` refuse a registry-origin row with `409
+  registry-origin` (same code as reflect/apply), so a client that bypasses the card cannot
+  silently succeed.
 
 Before a registry is mapped the marker is not rendered at all — every row is hosted, and "hosted" is
 only news once the other world exists.
@@ -788,7 +801,7 @@ only news once the other world exists.
 | `src/app/api/org/memory/check/route.ts` | Write-intelligence verdict. |
 | `src/app/api/org/memory/recall/route.ts` | Scored, budget-packed recall. |
 | `src/app/api/org/memory/reflect/route.ts` | Propose/apply consolidation. |
-| `src/app/api/org/memory/[id]/route.ts` | Get/patch/archive one memory. |
+| `src/app/api/org/memory/[id]/route.ts` | Get/patch/archive one memory. PATCH/DELETE refuse `origin: "registry"` with `409 registry-origin`. |
 | `src/app/api/org/memory/[id]/recall/route.ts` | Record a single recall. |
 | `src/lib/memory/recall.ts` | Pure scoring + budget packing core. |
 | `src/lib/memory/decay.ts` | Forget-pass eligibility + selection. |
