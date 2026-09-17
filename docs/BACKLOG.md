@@ -290,3 +290,38 @@ signature failure class and outranks first-raised items of equal impact.
 | MC-M5 | **An org whose slug equals its repos' owner namespace** (seed `xkazm04`, not `kiro`), one repo at a derived tier ≥ T1 *or* `repoGate` taught to consult `listOrgAdmissions`, plus a claude-cli quota window. Closes `PRIYA-L1-701`'s remote half. A **cloud-shaped** deployment (`selfHosted()` false) with an org-owner session additionally closes `PRIYA-L1-703`. | arm C closing fixture, stated in full on the finding | open |
 | MC-M6 | **Overlay corrections applied in this drain** (recorded so the next `/uat update` knows what was and was not re-derived): Victor's character sheet repriced 500 → **150** credits/mo; `uat/env.md`'s "no seeded org can produce a forecast" gap **closed** (org `public` + `?range=custom` is the zero-write low-data fixture); `uat/env.md` §Grounding Surface A **marked stale, deliberately not re-derived** — the denominator is a scored instrument and `/uat update` owns it; a new §Arm construction rule pinning the anonymous-arm recipe. `uat/README.md` gained the missing `## Drain homes` section. | analysis doc §3 | done (2026-08-31) |
 | MC-M7 | **Overlay corrections applied in the FOLLOW-UP drain** (recertify passes 1+2), recorded so the next `/uat update` knows what was and was not changed: `drive-armB-gatepolicy.mjs` and `drive-armA-dimloop.mjs` now take their shot stem from `SHOT_PREFIX` (env) or a positional argument, **defaulting to the old names** — both had hard-coded stems and destroyed the arm they were reused from, twice, irrecoverably (`RC-M2`, `RC2-M2`); `uat/env.md` §Arm construction gained five standing rules — `rm -rf .next-empty` before an empty-database arm plus the one-instance constraint (`RC2-M1`, a near-miss false pass on `MC-B8d`), *move the source to certify a single-source claim* (`RC2-M3b`), the zero-residue gate probe with its same-origin note (`RC2-M3a`), the @react-pdf text-extraction recipe (`RC-M1`), and the reusable-driver stem rule. **Grounding denominators deliberately untouched** — `§Surface A` keeps its ⚠ STALE banner; re-deriving a scored instrument outside `/uat update` invalidates the cross-run trend. | analysis doc §Follow-up drain §3 | done (2026-08-31) |
+
+## scan-sweep `--develop` all-lenses (2026-09-17)
+
+Coordinator wave over **all 54 contexts**, 5 highest-impact cards each (270). Deep tier: feature-scout, innovation-catalyst, ux-reviewer, onboarding-designer, integration-planner, business-strategist, growth-hacker, monetization-advisor; remaining 20 lenses as a light pass. Full bodies live in `.personas/scan-sweep-20260917/findings/` (gitignored). Wave 1 built 11 disjoint S/M items (one per context-map group) on `docs/org-path-of-use-adr-20260914`.
+
+### Wave 1 shipped
+
+| Context | Item | SHA |
+| --- | --- | --- |
+| GitHub Repo Data Access | Honor GITHUB_SERVER_URL in parseRepoUrl so GHES pastes scan | `bb597822` |
+| CI Gate & Status Checks | Treat explicitly requested untestable gate bars as could-not-run, not pass | `bb9759f1` |
+| Fleet Alerts & Digests | Relink goal-at-risk digest pushes off the retired /plan URL | `437608ca` |
+| Org Branding & White-label | Apply stored brand name, logo and accent on the in-app briefing tab | `267d2a14` |
+| Org Memory | Stop agent recall from using the write-check namespace=NULL helper | `194a3cfc` |
+| Checkout & Plans (Polar) | Derive public-scan matrix cells from publicScanAllowance, not 'Unlimited' | `f67450df` |
+| Landing Page Prototypes | Retire the ROI-ranked plan card and its /plan href | `435da864` |
+| Follow-ups Ledger | Build get_fix_brief from held rows, not from openBatch's open-only picker | `893469c7` |
+| AI-Native Standard & Onboarding Skill | Commit the onboarding SKILL.md in the foundation PR | `80880225` |
+| PDF & LLM Export | Keep LLM-vs-detector discrepancies in PDF and markdown (G1) | `2b466e41` |
+| Data Retention & Purge | Reset every scan-derived Repository cache and evidence table on erase | `55a58aba` |
+
+### Escalated (human / architecture / irreversible / hot-file)
+
+| Context | Item | Size | Gate | Why |
+| --- | --- | --- | --- | --- |
+| Developer home (UC3 individual care) | Land C3 mentor-share so the care loop is not permanently an empty preview | L | architecture | architecture |
+| Scan Pipeline & Ingestion | Persist sensorFailures so cached and fleet gates keep scan honesty | M | contract | hot-file |
+| Checkout & Plans (Polar) | Add planAllows('seats') and enforce PlanFeature.seats on membership writes | M | irreversible | irreversible |
+| Database Client & Schema | Add @@unique([scanId, dimId]) on ScanDimension | S | contract | hot-file |
+| Maturity Model & Scoring Engine | Score D6 CI enforcement from gitlab-ci, Jenkinsfile, and lefthook, not only Actions | S | none | hot-file |
+| Provider Integrations | Ship the planned OpenAI Codex admin-pull connector behind the existing allocated tier | L | architecture | architecture |
+| First-Run Onboarding Wizard | Re-judge wizard-flows: mid-scan resume now re-attaches | S | contract | contract |
+| Live War Room | Surface drive/run outcome on the shared kiosk instead of standing-only LiveWarRoom | M | none | none |
+
+Remaining auto-buildable cards (254) stay in `.personas/scan-sweep-20260917/catalog.json` for later waves. Outbox ingest cap took 30 remaining findings (escalated first, then highest impact); the rest are unrecorded in the outbox and live in the catalog.
