@@ -11,10 +11,10 @@
 import { describe, it, expect } from "vitest";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { SecurityDocument } from "./security-document";
-import type { SecurityOverview } from "@/lib/org/security";
+import type { SecurityOverview, SecurityRegisterRow } from "@/lib/org/security";
 import type { OrgSupplyChain } from "@/lib/security/supply-chain";
 
-function overview(): SecurityOverview {
+function overview(overrides: Partial<SecurityOverview> = {}): SecurityOverview {
   return {
     org: "acme",
     periodTitle: "all time",
@@ -29,6 +29,22 @@ function overview(): SecurityOverview {
     unprotected: [],
     securityGate: { minSecurity: 40, passing: 2, failing: 0, failingRepos: [] },
     register: [],
+    ...overrides,
+  };
+}
+
+function registerRow(over: Partial<SecurityRegisterRow> = {}): SecurityRegisterRow {
+  return {
+    name: "web",
+    fullName: "acme/web",
+    score: 72,
+    measured: true,
+    gateReason: null,
+    rules: null,
+    checks: [],
+    issues: [],
+    summary: "",
+    ...over,
   };
 }
 
@@ -65,6 +81,34 @@ function collectText(node: ReactNode, out: string[] = []): string[] {
 
 function subjectOf(el: ReactElement): string {
   return String((el.props as Record<string, unknown>).subject);
+}
+
+function childList(el: ReactElement): ReactNode[] {
+  const c = (el.props as { children?: ReactNode }).children;
+  if (c == null) return [];
+  return Array.isArray(c) ? c : [c];
+}
+
+/** D9 cell text for a named risk-register row (second child of the row View). */
+function d9CellOf(root: ReactElement, repoName: string): string {
+  let found: string | null = null;
+  function walk(node: ReactNode): void {
+    if (found != null) return;
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+      return;
+    }
+    if (!isValidElement(node)) return;
+    const kids = childList(node).filter(isValidElement);
+    if (kids.length >= 2 && collectText(kids[0]).join("").trim() === repoName) {
+      found = collectText(kids[1]).join("").trim();
+      return;
+    }
+    kids.forEach(walk);
+  }
+  walk(root);
+  if (found == null) throw new Error(`no register row named ${repoName}`);
+  return found;
 }
 
 describe("SecurityDocument — honest supply-chain claims (audit-log 2026-07-16 #1)", () => {
@@ -107,5 +151,48 @@ describe("SecurityDocument — honest supply-chain claims (audit-log 2026-07-16 
     const text = collectText(el).join(" ");
     expect(text).toContain("Supply chain — UNKNOWN");
     expect(text).toContain("not evidence of a clean supply chain");
+  });
+});
+
+describe("SecurityDocument — unmeasured D9 is a void, never the fail-closed 0", () => {
+  it("1 of 1 unmeasured rows omit a numeral", () => {
+    const el = SecurityDocument({
+      overview: overview({
+        register: [
+          registerRow({
+            name: "legacy",
+            fullName: "acme/legacy",
+            score: 0,
+            measured: false,
+            gateReason: "D9 not measured",
+          }),
+        ],
+      }),
+    }) as ReactElement;
+    const unmeasured = ["legacy"];
+    const omitted = unmeasured.filter((name) => !/\d/.test(d9CellOf(el, name)));
+    expect(omitted).toEqual(unmeasured);
+    expect(unmeasured).toHaveLength(1);
+    // Gate still FAILS — fail-closed is untouched; only the fabricated reading is gone.
+    expect(collectText(el).join(" ")).toContain("FAIL — D9 not measured");
+  });
+
+  it("a measured reading still prints its score, including a genuine 0", () => {
+    const el = SecurityDocument({
+      overview: overview({
+        register: [
+          registerRow({ name: "web", fullName: "acme/web", score: 72, measured: true }),
+          registerRow({
+            name: "floor",
+            fullName: "acme/floor",
+            score: 0,
+            measured: true,
+            gateReason: "Security 0 < 40",
+          }),
+        ],
+      }),
+    }) as ReactElement;
+    expect(d9CellOf(el, "web")).toBe("72");
+    expect(d9CellOf(el, "floor")).toBe("0");
   });
 });

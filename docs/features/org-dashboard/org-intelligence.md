@@ -2386,8 +2386,9 @@ untouched. What was wrong is that the substitute was then *published as a readin
 clickable score cell, a gate verdict reading `Security 0 < 50`, and a line in the "Copy for LLM"
 brief reading `| legacy | 0/100 |` that invited a model to recommend remediation for a measurement
 that does not exist. `SecurityRegisterRow` now carries `measured: boolean`, the gate reason for such
-a repo is `D9 not measured` (still a FAIL), the brief prints `not measured`, and the register's D9
-cell is a void. This is the same defect class as the four in [One rule, four places it was not
+a repo is `D9 not measured` (still a FAIL), the brief prints `not measured`, the register's D9
+cell is a void, and the auditor PDF prints a void in that cell rather than the fail-closed `0`.
+This is the same defect class as the four in [One rule, four places it was not
 applied](#one-rule-four-places-it-was-not-applied-wave-2-postscript-2026-09-08), arrived at from the
 other direction: not an absence rendered as a pass, but an absence rendered as a **finding**.
 

@@ -70,7 +70,8 @@ export function SecurityDocument({ overview, supply }: { overview: SecurityOverv
             {o.register.slice(0, 20).map((r) => (
               <View key={r.fullName} style={styles.regRow} wrap={false}>
                 <Text style={styles.regRepo}>{latin1Safe(r.name)}</Text>
-                <Text style={{ ...styles.regScore, fontFamily: "Helvetica-Bold", color: scoreColor(r.score) }}>{r.score}</Text>
+                {/* `score` is the fail-closed 0 substitute when `measured` is false — never print it. */}
+                <Text style={{ ...styles.regScore, fontFamily: "Helvetica-Bold", color: r.measured ? scoreColor(r.score) : FAINT }}>{r.measured ? r.score : "—"}</Text>
                 <Text style={{ ...styles.regGate, color: r.gateReason ? "#dc2626" : "#16a34a" }}>
                   {r.gateReason ? `FAIL — ${latin1Safe(r.gateReason)}` : "pass"}
                 </Text>
