@@ -826,7 +826,11 @@ or containers. Explicit numeric zero and numeric strings remain valid counter up
 - **Headline strip** (`LiveWarRoomStat`): fleet score, adoption, rigor, with campaign deltas "since
   kickoff" when a goal exists.
 - **Goal banner** (`LiveWarRoomGoalBanner`): the first not-yet-achieved goal, its target meter, pace
-  and deadline countdown; its `createdAt` is the campaign baseline.
+  chip, and deadline countdown; its `createdAt` is the campaign baseline. The chip is gated on the
+  same `composeTrajectory` presentability rule as the briefing trajectory (G4): a presentable fit
+  prints the pace verdict; a real-but-thin fit **hatches** the slot and prints no pace number; no
+  fit at all **hides** the chip (absence, not a fabricated "Tracking"). TV standing (`TvStanding`,
+  `WallPaceChip`) uses the same gate so the wall never contradicts the briefing one click away.
 - **Fleet timetable** (`LiveWarRoomTimetable`, `buildFleetTimetable`): the repos × scan-days grid of
   overall score — the main wall's centerpiece.
 - **Leaderboard**, **movers ticker**, **posture mix**, **needs-attention strip** (watched repos whose
