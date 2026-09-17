@@ -20,6 +20,28 @@ import {
 } from "./fleetMapDerive";
 import { type Constellation, DENSE_FLEET_STARS } from "./fleetMapStars";
 
+/** Per-tab Find-a-repo query. A refresh keeps it; a new tab starts clean. `/launch` already
+ *  carries `?next=`, so this stays out of the URL (a live search must not rewrite the address
+ *  bar on every keystroke). */
+export const TRIAGE_QUERY_KEY = "ascent:fleet-map:triage-query:v1";
+
+export function readTriageQuery(): string {
+  try {
+    return sessionStorage.getItem(TRIAGE_QUERY_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function writeTriageQuery(query: string): void {
+  try {
+    if (query) sessionStorage.setItem(TRIAGE_QUERY_KEY, query);
+    else sessionStorage.removeItem(TRIAGE_QUERY_KEY);
+  } catch {
+    /* private mode / quota — persistence is best-effort */
+  }
+}
+
 export function FleetMap({
   installations,
   userName,
@@ -49,7 +71,18 @@ export function FleetMap({
 
   // Fleet triage controls (MAP-4): search, level-band filter, watched-only, and an org sort key.
   // Filters DIM non-matching stars (preserving each constellation's shape); sort reorders the org cards.
-  const [query, setQuery] = useState("");
+  // Search is session-backed so a refresh (or the OAuth bounce that lands here) keeps the filter.
+  // Restore goes through setQueryState so it cannot wipe the saved value on the first paint.
+  const [query, setQueryState] = useState("");
+  function setQuery(v: string) {
+    setQueryState(v);
+    writeTriageQuery(v);
+  }
+  useEffect(() => {
+    const saved = readTriageQuery();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot restore so a refresh keeps the filter
+    if (saved) setQueryState(saved);
+  }, []);
   const [levels, setLevels] = useState<Set<string>>(new Set());
   const [watchedOnly, setWatchedOnly] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("name");

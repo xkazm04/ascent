@@ -4,11 +4,12 @@
 // Each block below pins the explanation, because in every case the silent version was visually
 // indistinguishable from a different (and wrong) reading of the same pixels.
 
-import { describe, it, expect } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ConstellationField } from "./ConstellationField";
 import { EmptyFleet } from "./FleetMapChrome";
 import { FleetHeader } from "./FleetMap.Header";
+import { FleetMap, TRIAGE_QUERY_KEY, readTriageQuery, writeTriageQuery } from "./FleetMap";
 import { TriageControls } from "./FleetMap.TriageControls";
 import {
   TRIAGE_MIN_REPOS,
@@ -19,6 +20,15 @@ import {
   showTriageControls,
 } from "./fleetMapDerive";
 import type { Constellation } from "./fleetMapStars";
+
+vi.mock("./useFleetData", () => ({ useFleetData: () => {} }));
+vi.mock("next/link", () => ({
+  default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
+}));
 
 function fleet(logins: string[], reposPerOrg: number): Constellation[] {
   return logins.map((login, o) => ({
@@ -131,6 +141,85 @@ describe("TriageControls — / focuses Find a repo like the rest of the app", ()
     fireEvent.keyDown(sort, { key: "/" });
     expect(sort).toHaveFocus();
     expect(search).not.toHaveFocus();
+  });
+});
+
+describe("FleetMap — the triage query survives a refresh", () => {
+  // The query was useState("") with no backing store, so a refresh (or the OAuth bounce that
+  // lands here) wiped Find a repo. sessionStorage, not the URL: /launch already carries ?next=
+  // and a live search must not rewrite the address bar on every keystroke.
+  const installations = [
+    { id: 1, login: "acme" },
+    { id: 2, login: "globex" },
+  ];
+
+  beforeEach(() => sessionStorage.clear());
+  afterEach(() => {
+    sessionStorage.clear();
+    vi.restoreAllMocks();
+  });
+
+  function mount() {
+    return render(<FleetMap installations={installations} userName="Dana" next="/org/acme" />);
+  }
+
+  function searchBox() {
+    return screen.getByRole("searchbox", { name: "Filter repositories by name" });
+  }
+
+  it("writes the Find-a-repo query to sessionStorage as the user types", () => {
+    mount();
+    fireEvent.change(searchBox(), { target: { value: "payments" } });
+    expect(sessionStorage.getItem(TRIAGE_QUERY_KEY)).toBe("payments");
+    expect(readTriageQuery()).toBe("payments");
+  });
+
+  it("restores the saved query on remount (the refresh case)", async () => {
+    const { unmount } = mount();
+    fireEvent.change(searchBox(), { target: { value: "payments" } });
+    unmount();
+    mount();
+    await waitFor(() => expect(searchBox()).toHaveValue("payments"));
+  });
+
+  it("restores a query seeded before mount", async () => {
+    writeTriageQuery("payments");
+    mount();
+    await waitFor(() => expect(searchBox()).toHaveValue("payments"));
+  });
+
+  it("clears the persisted query when the user clears filters", async () => {
+    writeTriageQuery("payments");
+    mount();
+    await waitFor(() => expect(searchBox()).toHaveValue("payments"));
+    fireEvent.click(screen.getByRole("button", { name: "clear" }));
+    expect(searchBox()).toHaveValue("");
+    expect(sessionStorage.getItem(TRIAGE_QUERY_KEY)).toBeNull();
+  });
+
+  it("removes the key when the query is emptied", () => {
+    writeTriageQuery("payments");
+    writeTriageQuery("");
+    expect(sessionStorage.getItem(TRIAGE_QUERY_KEY)).toBeNull();
+    expect(readTriageQuery()).toBe("");
+  });
+
+  it("swallows a sessionStorage failure so the map still renders", () => {
+    const boom = () => {
+      throw new Error("quota");
+    };
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(boom);
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(boom);
+    vi.spyOn(Storage.prototype, "removeItem").mockImplementation(boom);
+    expect(() => mount()).not.toThrow();
+    expect(readTriageQuery()).toBe("");
+    expect(() => writeTriageQuery("x")).not.toThrow();
+    expect(screen.getByRole("link", { name: /Enter mission control/ }).getAttribute("href")).toBe("/org/acme");
+  });
+
+  it("still sends Enter mission control through missionControlHref", () => {
+    mount();
+    expect(screen.getByRole("link", { name: /Enter mission control/ }).getAttribute("href")).toBe("/org/acme");
   });
 });
 
