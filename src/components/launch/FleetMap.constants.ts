@@ -45,3 +45,18 @@ export interface Installation {
   id: number;
   login: string;
 }
+
+/**
+ * Href for FleetMap's "Enter mission control" CTA.
+ * An explicit safe `next` wins; the `/onboarding` default (missing or invalid `?next=`)
+ * becomes the first installation's org dashboard. Empty installations keep `/onboarding`
+ * so the page's empty-fleet redirect stays the only door into the wizard.
+ */
+export function missionControlHref(
+  next: string,
+  installations: readonly Installation[],
+): string {
+  if (next !== "/onboarding") return next;
+  const login = installations[0]?.login;
+  return login ? `/org/${encodeURIComponent(login)}` : next;
+}

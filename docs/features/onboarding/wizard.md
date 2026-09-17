@@ -308,7 +308,14 @@ checklist in a later lane) ships as two primitives, both deliberately server-own
 ## Launch / fleet map (`src/app/launch/page.tsx`, `src/components/launch/FleetMap.tsx`)
 
 `/launch?next=<safe-url>` is the post-OAuth entrance (the callback redirects here on first
-sign-in). It renders `FleetMap` when signed in, else a `SignInNotice`.
+sign-in). It renders `FleetMap` when signed in, else a `SignInNotice`. Signed in with no
+installations still redirects to `/onboarding` (the map has nothing to chart).
+
+The map's primary CTA, **Enter mission control**, is the handoff into the org dashboard.
+OAuth lands on `/launch` with no `?next=`. When `next` is missing or the `/onboarding`
+default and the viewer has installations, the CTA goes to `/org/{first installation login}`
+(the org landing URL; the dashboard picks the tab). An explicit safe `?next=` still wins
+(`safeNext`).
 
 `FleetMap` draws the user's App installations as animated **constellations**, each org a
 cluster, each repo a star:

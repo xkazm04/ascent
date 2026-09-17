@@ -6,7 +6,7 @@ import { readSSE } from "@/lib/sse";
 import { ConstellationField } from "./ConstellationField";
 import { EmptyFleet } from "./FleetMapChrome";
 import { FleetHeader } from "./FleetMap.Header";
-import { type Installation } from "./FleetMap.constants";
+import { missionControlHref, type Installation } from "./FleetMap.constants";
 import { TriageControls } from "./FleetMap.TriageControls";
 import { useFleetData } from "./useFleetData";
 import { applyScanEvent } from "./applyScanEvent";
@@ -172,6 +172,7 @@ export function FleetMap({
 
   // Order the org cards by the chosen key; loaded constellations rank ahead of loading/error ones.
   const ordered = useMemo(() => orderConstellations(constellations, sortKey), [constellations, sortKey]);
+  const missionHref = missionControlHref(next, installations);
 
   function toggleLevel(band: string) {
     setLevels((s) => {
@@ -241,7 +242,7 @@ export function FleetMap({
 
         <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
           <Link
-            href={next}
+            href={missionHref}
             className="focus-ring rounded-xl bg-accent px-6 py-2.5 type-body font-semibold text-on-accent transition hover:bg-accent-soft"
           >
             Enter mission control →
