@@ -46,7 +46,10 @@ org row plus a coordinated env edit on every deployment for no user-visible gain
 Every surface that shows a tier's name or price derives it from the model rather than re-typing it:
 `PlanControl` (the org plan switcher), the "Credits · Unlimited" chips (via the exported
 `UNLIMITED_PLAN_LABEL`), the `/pricing` cards, the credit matrix (`MATRIX_PLANS` is now *built from*
-`PLAN_FEATURES`, not a second copy of it), the `/pricing` SEO description and the landing FAQ.
+`PLAN_FEATURES`, not a second copy of it), the `/pricing` SEO description, the landing FAQ, and the
+site-wide SoftwareApplication JSON-LD (`src/lib/site-jsonld.ts`: paid `planPriceLabel()` amounts as
+an AggregateOffer; Free's `$0` and Custom's `Flexible` are omitted so a rich result cannot declare
+the product free).
 `src/lib/plans.test.ts` pins the id↔label split so a rename can't quietly become a data migration, and
 `price-drift.test.ts` derives its fixtures from `monthlyPrice` so a repricing can't break the drift
 tests. The 2026-08-14 repricing found the last two prose copies (the landing FAQ and the `/pricing`
@@ -112,6 +115,9 @@ Notes, all read directly from the model:
 - `planPriceLabel("enterprise")` is `{ amount: "Flexible", cadence: "scoped with you" }`. It used to be
   `"Custom" / "contact us"`: once the tier is *named* Custom, repeating the word as its price says nothing.
   `src/lib/price-drift.ts` still exempts the tier: `monthlyPrice` is null, so no number exists to drift.
+- Site-wide JSON-LD (`src/app/layout.tsx` via `siteStructuredData()`) emits an AggregateOffer of the
+  paid numeric `planPriceLabel()` amounts (G8). It omits Free's `$0` and Custom's `Flexible` so a rich
+  result cannot declare the product free.
 
 ## The hybrid charge model
 

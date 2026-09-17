@@ -354,6 +354,7 @@
       "doc": "docs/features/billing/billing.md",
       "sourceGlobs": [
         "src/lib/plans.ts",
+        "src/lib/site-jsonld.ts",
         "src/lib/polar.ts",
         "src/lib/env.ts",
         "src/lib/entitlement.ts",
