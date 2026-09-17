@@ -275,9 +275,11 @@ scanned or not (the number `RepoSegmentsPanel`'s tagging chips show). `SegmentSu
 comparison view) counts only the segment's repos in the **fleet-rollup universe** (watched OR
 has-scans), the same restriction `getOrgRollup` already applies everywhere else. A segment with
 tagged-but-unwatched/unscanned repos legitimately shows a smaller number on its rollup card than on
-its tagging chip; that is "tagged" vs "scored," not a bug, and both surfaces carry a tooltip saying
-which one they are. Since 2026-08-19 the two counts sit **on one screen** (chips above, cards
-below), so the labelling matters more, not less.
+its tagging chip; that is "tagged" vs "scored," not a bug. Chips, rollup cards, and compare tiles
+**label the two counts in the copy** (`N tagged` · `M scored`), not only in a tooltip. A slice with
+no average prints no scored count at all: never `0 scored` and never `0/N scanned`. Since 2026-08-19
+the two counts sit **on one screen** (chips above, cards below), so the labelling matters more, not
+less.
 
 ### Context half-life (the Repositories tab's context-layer lens, W4, real)
 
