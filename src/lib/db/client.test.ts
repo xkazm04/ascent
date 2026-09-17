@@ -61,12 +61,14 @@ import {
   isDbConfigured,
   isDbUnavailableError,
   isSerializationConflictError,
+  pgliteBootError,
   readDsqlConfig,
   reconnectDb,
   runWithReconnect,
   withDb,
   withRetry,
 } from "@/lib/db/client";
+import { reconcileColumnDrift } from "@/lib/db/pglite-boot";
 
 const ENV_KEYS = [
   "DSQL_ENDPOINT",
@@ -642,6 +644,8 @@ describe("getPrisma / dbHealthCheck / reconnectDb — cold-start + self-heal (mo
     __ascentPrismaRefresh?: Promise<unknown>;
     __ascentPrismaRefreshFailUntil?: number;
     __ascentPrismaRefreshFailCount?: number;
+    __ascentPgliteAdapter?: unknown;
+    __ascentPgliteBootError?: string;
   };
   const ENV = ["DATABASE_URL", "DSQL_ENDPOINT", "DSQL_REGION"] as const;
   const savedEnv: Record<string, string | undefined> = {};
@@ -655,6 +659,8 @@ describe("getPrisma / dbHealthCheck / reconnectDb — cold-start + self-heal (mo
     g.__ascentPrismaRefresh = undefined;
     g.__ascentPrismaRefreshFailUntil = undefined; // clear the #1 failure cooldown (globalThis-scoped)
     g.__ascentPrismaRefreshFailCount = undefined;
+    g.__ascentPgliteAdapter = undefined;
+    g.__ascentPgliteBootError = undefined;
     constructed.length = 0;
     fakeClientQueue = [];
     fakeClientSeq = 0;
@@ -669,6 +675,8 @@ describe("getPrisma / dbHealthCheck / reconnectDb — cold-start + self-heal (mo
     }
     g.__ascentPrisma = savedState;
     g.__ascentPrismaRefresh = undefined;
+    g.__ascentPgliteAdapter = undefined;
+    g.__ascentPgliteBootError = undefined;
     vi.restoreAllMocks();
   });
 
@@ -878,5 +886,115 @@ describe("getPrisma / dbHealthCheck / reconnectDb — cold-start + self-heal (mo
       ),
     ).rejects.toMatchObject({ code: "P2002" });
     expect(calls).toBe(1);
+  });
+
+  // A PGlite boot that finds a NOT-NULL-without-default column missing from the data dir used to
+  // install the adapter anyway; the next INSERT then 500'd against the incomplete schema. Fail
+  // loud at getPrisma() with the recorded boot cause instead of serving a dummy 127.0.0.1 client.
+  it("throws the recorded PGlite boot error instead of building a dummy client (NOT-NULL-without-default drift)", () => {
+    process.env.DATABASE_URL = "postgresql://pglite@127.0.0.1:5432/app";
+    g.__ascentPgliteBootError =
+      '[pglite] SCHEMA DRIFT needs a hand: "Organization"."requiredNew" (TEXT NOT NULL). These are NOT-NULL columns without a default';
+    expect(() => getPrisma()).toThrow(/SCHEMA DRIFT needs a hand/);
+    expect(() => getPrisma()).toThrow(/requiredNew/);
+    expect(constructed).toHaveLength(0); // never falls through to the dummy URL
+    expect(pgliteBootError()).toMatch(/requiredNew/);
+  });
+
+  it("still builds the PGlite adapter client when boot succeeded (adapter present)", () => {
+    process.env.DATABASE_URL = "postgresql://pglite@127.0.0.1:5432/app";
+    g.__ascentPgliteAdapter = { tag: "pglite-adapter" };
+    const client = getPrisma();
+    expect(constructed).toHaveLength(1);
+    expect(client).toBe(constructed[0]);
+  });
+});
+
+// Pins: a missing NOT-NULL-without-default column cannot be ALTER-added (no backfill value), so
+// reconcile must THROW rather than log-and-continue. Continuing used to install the PGlite adapter
+// against an incomplete schema; the next INSERT then 500'd. Nullable / DEFAULT'd columns stay
+// auto-repaired. Probe failures stay non-fatal (the original best-effort contract).
+describe("reconcileColumnDrift — NOT-NULL-without-default fails boot loud", () => {
+  const sql = `CREATE TABLE "Organization" (
+    "id" TEXT NOT NULL,
+    "name" TEXT,
+    "plan" TEXT NOT NULL DEFAULT 'free',
+    "requiredNew" TEXT NOT NULL
+);
+`;
+
+  function fakePglite(rows: Array<{ table_name: string; column_name: string }>) {
+    const queries: string[] = [];
+    return {
+      queries,
+      query: async (q: string) => {
+        queries.push(q);
+        if (/information_schema\.columns/i.test(q)) return { rows };
+        return { rows: [] };
+      },
+    };
+  }
+
+  it("throws naming the missing NOT-NULL-without-default column (does not ALTER it)", async () => {
+    const pglite = fakePglite([
+      { table_name: "Organization", column_name: "id" },
+      { table_name: "Organization", column_name: "name" },
+      { table_name: "Organization", column_name: "plan" },
+    ]);
+    await expect(reconcileColumnDrift(pglite, sql, "/tmp/pglite")).rejects.toThrow(
+      /SCHEMA DRIFT needs a hand/,
+    );
+    await expect(reconcileColumnDrift(pglite, sql, "/tmp/pglite")).rejects.toThrow(/requiredNew/);
+    expect(pglite.queries.some((q) => /ADD COLUMN/i.test(q) && /requiredNew/.test(q))).toBe(false);
+  });
+
+  it("ALTERs a missing nullable column and a NOT NULL DEFAULT column without throwing", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const pglite = fakePglite([{ table_name: "Organization", column_name: "id" }]);
+    // requiredNew is also missing — that still fails boot; pin the SAFE adds happen first by
+    // using a schema that only drifts the safe columns.
+    const safeSql = `CREATE TABLE "Organization" (
+    "id" TEXT NOT NULL,
+    "name" TEXT,
+    "plan" TEXT NOT NULL DEFAULT 'free'
+);
+`;
+    await expect(reconcileColumnDrift(pglite, safeSql, "/tmp/pglite")).resolves.toBeUndefined();
+    const alters = pglite.queries.filter((q) => /ADD COLUMN/i.test(q));
+    expect(alters.some((q) => /"name"/.test(q))).toBe(true);
+    expect(alters.some((q) => /"plan"/.test(q))).toBe(true);
+    warn.mockRestore();
+  });
+
+  it("repairs safe columns then throws on the remaining NOT-NULL-without-default drift", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const pglite = fakePglite([{ table_name: "Organization", column_name: "id" }]);
+    await expect(reconcileColumnDrift(pglite, sql, "/tmp/pglite")).rejects.toThrow(/requiredNew/);
+    const alters = pglite.queries.filter((q) => /ADD COLUMN/i.test(q));
+    expect(alters.some((q) => /"name"/.test(q))).toBe(true);
+    expect(alters.some((q) => /"plan"/.test(q))).toBe(true);
+    expect(alters.some((q) => /requiredNew/.test(q))).toBe(false);
+    warn.mockRestore();
+  });
+
+  it("does not throw when the missing table is new (re-exec CREATE TABLE IF NOT EXISTS handles it)", async () => {
+    const pglite = fakePglite([]); // no Organization table in the data dir
+    await expect(reconcileColumnDrift(pglite, sql, "/tmp/pglite")).resolves.toBeUndefined();
+    expect(pglite.queries.some((q) => /ADD COLUMN/i.test(q))).toBe(false);
+  });
+
+  it("swallows a probe failure (non-fatal) rather than taking down an otherwise-good boot", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const pglite = {
+      query: async () => {
+        throw new Error("information_schema unavailable");
+      },
+    };
+    await expect(reconcileColumnDrift(pglite, sql, "/tmp/pglite")).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("column-drift reconcile failed (non-fatal)"),
+      expect.any(Error),
+    );
+    warn.mockRestore();
   });
 });
