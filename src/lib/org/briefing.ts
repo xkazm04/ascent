@@ -106,7 +106,8 @@ export interface ExecBriefing {
      *  when the prior window scored nothing live, because a delta against a division guard is a
      *  fabricated movement, not a comparison. */
     realScoredCount: number;
-    /** Per-dimension now/prior/delta, biggest movers first (capped). */
+    /** Per-dimension now/prior/delta, biggest movers first (capped). A dimension the prior window
+     *  never scored is omitted — missing prior is null/absent, never a fabricated 0. */
     dims: { dimId: string; label: string; now: number; prior: number; delta: number }[];
   } | null;
   /** The projected trajectory sentence — set ONLY when the fit cleared the shared presentability gate
@@ -340,13 +341,18 @@ export async function buildExecBriefing(
             dRigor: rollup.avgRigor - priorRollup.avgRigor,
             realScoredCount: priorRollup.realScoredCount,
             dims: rollup.dimAverages
-              .map((d) => ({
-                dimId: d.dimId,
-                label: DIMENSION_BY_ID[d.dimId as DimensionId]?.name ?? d.dimId,
-                now: d.avg,
-                prior: priorBy.get(d.dimId) ?? 0,
-                delta: d.avg - (priorBy.get(d.dimId) ?? 0),
-              }))
+              .flatMap((d) => {
+                const prior = priorBy.get(d.dimId);
+                // Missing from the prior window is not a 0: `now - 0` would rank as a fabricated mover.
+                if (prior === undefined) return [];
+                return [{
+                  dimId: d.dimId,
+                  label: DIMENSION_BY_ID[d.dimId as DimensionId]?.name ?? d.dimId,
+                  now: d.avg,
+                  prior,
+                  delta: d.avg - prior,
+                }];
+              })
               .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
               .slice(0, 6),
           };

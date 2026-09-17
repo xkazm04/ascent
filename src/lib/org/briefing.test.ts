@@ -732,17 +732,43 @@ describe("buildExecBriefing — priorPeriod (vs previous equal-length window)", 
     expect(p.dims.map((d) => d.dimId)).toEqual(["D1", "D9", "D2"]);
   });
 
-  it("falls back to prior=0 for a dimension absent in the prior window (no NaN delta)", async () => {
+  it("omits a dimension the prior window never scored rather than fabricating prior=0", async () => {
+    const window: OrgWindow = { start: new Date("2026-06-01"), end: new Date("2026-06-15") };
+    mockRollup
+      .mockResolvedValueOnce(rollup({ dimAverages: [{ dimId: "D1", avg: 50 }, { dimId: "D2", avg: 40 }] }))
+      .mockResolvedValueOnce(rollup({ scannedCount: 4, dimAverages: [{ dimId: "D2", avg: 38 }] })); // prior has D2, never scored D1
+
+    const p = (await buildExecBriefing("acme", window))!.priorPeriod!;
+    const d1 = p.dims.find((d) => d.dimId === "D1");
+    // G4 — missing prior is omitted, not a fabricated 0 that would print as +50 movement.
+    expect(d1).toBeUndefined();
+    expect(p.dims.find((d) => d.dimId === "D2")).toMatchObject({ now: 40, prior: 38, delta: 2 });
+    expect(p.dims.every((d) => d.prior != null)).toBe(true);
+  });
+
+  it("keeps a measured prior of 0 — a scored floor is not a missing prior", async () => {
     const window: OrgWindow = { start: new Date("2026-06-01"), end: new Date("2026-06-15") };
     mockRollup
       .mockResolvedValueOnce(rollup({ dimAverages: [{ dimId: "D1", avg: 50 }] }))
-      .mockResolvedValueOnce(rollup({ scannedCount: 4, dimAverages: [] })); // prior has no D1
+      .mockResolvedValueOnce(rollup({ scannedCount: 4, dimAverages: [{ dimId: "D1", avg: 0 }] }));
 
     const p = (await buildExecBriefing("acme", window))!.priorPeriod!;
     const d1 = p.dims.find((d) => d.dimId === "D1")!;
     expect(d1.prior).toBe(0);
-    expect(d1.delta).toBe(50); // 50 - 0, not NaN
+    expect(d1.delta).toBe(50);
     expect(Number.isNaN(d1.delta)).toBe(false);
+  });
+
+  it("does not let an uncompared dimension steal a mover slot off a fabricated 0", async () => {
+    const window: OrgWindow = { start: new Date("2026-06-01"), end: new Date("2026-06-15") };
+    // D1 is new this window (no prior). D2 moved +1. The old `?? 0` ranked D1 as +50 and hid D2.
+    mockRollup
+      .mockResolvedValueOnce(rollup({ dimAverages: [{ dimId: "D1", avg: 50 }, { dimId: "D2", avg: 41 }] }))
+      .mockResolvedValueOnce(rollup({ scannedCount: 4, dimAverages: [{ dimId: "D2", avg: 40 }] }));
+
+    const p = (await buildExecBriefing("acme", window))!.priorPeriod!;
+    expect(p.dims.map((d) => d.dimId)).toEqual(["D2"]);
+    expect(p.dims[0]).toMatchObject({ now: 41, prior: 40, delta: 1 });
   });
 
   it("caps priorPeriod.dims at 6, biggest absolute mover first", async () => {
