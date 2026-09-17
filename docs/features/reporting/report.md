@@ -32,7 +32,7 @@ Two crawlable, unauthenticated surfaces built on one read module, `src/lib/regis
 | Route | What it is |
 | --- | --- |
 | `/leaderboard` | The **AI-native register**: every model-scored public repo, ranked, paginated via `?page=N`, with the full nine-dimension breakdown. Rows carry honesty qualifiers: `conf N` when the scan reported confidence below 0.75, `no PR signal` when the analysis window held no merged PR (mirrors, push-based workflows), and `rubric rNN` when the score was taken under an earlier rubric than the one in force — plus page copy stating every score is computed outside-in from public artifacts. |
-| `/scorecard/[owner]` | An owner's **public scorecard**: the aggregate score/level over that owner's public repos, with its own OG card. |
+| `/scorecard/[owner]` | An owner's **public scorecard**: the aggregate score/level over that owner's public repos, with its own OG card. An invalid owner segment (GitHub name grammar) is a 404. Persistence off, a thrown register read, and a valid owner with nothing in the public corpus are **not**: they render an honest unavailable or empty card. Failure is not "this owner does not exist", and absence is not a score of 0. |
 
 **Two invariants, both unit-pinned (`src/lib/register/data.test.ts`):**
 
@@ -57,6 +57,12 @@ Two crawlable, unauthenticated surfaces built on one read module, `src/lib/regis
    different claims — a mock score is not a rating at all, whereas a stale score is a real rating on
    an earlier instrument — and de-ranking every pre-bump row would empty the board on the day of each
    bump (r13→r14→r15 inside 48 hours) and publish a register that is *less* true.
+
+**A miss is not a 404.** `getPublicOrgScorecard` used to return `null` for persistence-off, a thrown
+query, an empty corpus, and an invalid owner prefix, and `/scorecard/[owner]` 404'd all of them. The
+tagged read (`ok` / `empty` / `unavailable`) keeps invalid owner grammar as the only 404. The other
+two render distinct non-404 bodies (H1 kept, no score of 0) so a register failure is not "this owner
+does not exist".
 
 Ranking happens in memory over a bounded candidate window (`REGISTER_CANDIDATE_CAP`, ordered by score
 at the DB), so neither surface needs a new column or index. `windowed` discloses when the corpus has
@@ -1025,13 +1031,14 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/features/standing/passports/controls/controlMatrixViz.ts` | Doctor checks as repo × check-family `MatrixGrid` rows. A family with no judged clause returns `not-judged`, which cannot render a value. |
 | `src/features/standing/passports/capabilityViz.ts` | The declared × proven × enforced grid, one row per capability, over assessed repos only. |
 | `src/features/standing/passports/autonomy/clearanceLadder.ts` | The clearance perimeter: nested `BandLadder` bands per tier, with placeholder-scanned clearances on the edge. |
-| `src/lib/register/data.ts` | The public register read layer: `getPublicRegister` / `getPublicOrgScorecard`. Public-org + `isPrivate:false` on every query; mock-engine scans carried as `verified:false` and never ranked; `rubricVersion` + `currentRubric` carried so a stale-rubric row is qualified. |
+| `src/lib/register/data.ts` | The public register read layer: `getPublicRegister` / `getPublicOrgScorecard`. Public-org + `isPrivate:false` on every query; mock-engine scans carried as `verified:false` and never ranked; `rubricVersion` + `currentRubric` carried so a stale-rubric row is qualified. `getPublicOrgScorecard` returns a tagged `{ kind: "ok" \| "empty" \| "unavailable" }` so a failed or empty read cannot collapse into a 404. |
 | `src/app/leaderboard/page.tsx` | The register page: server-rendered ranking, `?page=` pagination, per-page canonical + OG. |
 | `src/components/leaderboard/LeaderboardTable.tsx` | The ranked table. `ranked={false}` draws the unranked preview section; a `demo` chip marks every unverified row, a `rubric rNN` chip every stale-rubric one. |
 | `src/components/leaderboard/RegisterPager.tsx` | Anchor-based pager (`rel=prev/next`) + the shared scan CTA. |
-| `src/app/scorecard/[owner]/page.tsx` | Public org scorecard. |
+| `src/app/scorecard/[owner]/page.tsx` | Public org scorecard. Invalid owner grammar 404s; a failed or empty register read keeps the H1 and renders a distinct unavailable or empty body. |
+| `src/app/scorecard/[owner]/page.test.tsx` | Page-level gate: invalid owner 404s; persistence-off / thrown read / empty-but-valid owner do not, and those two non-404 bodies are distinct. |
 | `src/components/leaderboard/ScorecardSummary.tsx` | The scorecard headline; renders the refusal state when `verifiedCount === 0`. |
-| `src/app/scorecard/[owner]/opengraph-image.tsx` | Scorecard OG card, on the shared `og-brand` shell; falls back to the neutral card rather than drawing an average over previews. |
+| `src/app/scorecard/[owner]/opengraph-image.tsx` | Scorecard OG card, on the shared `og-brand` shell; falls back to the neutral card rather than drawing an average over previews (including `empty` / `unavailable` reads). |
 
 ## Failure states on the report page (2026-09-05)
 

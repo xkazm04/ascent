@@ -206,36 +206,72 @@ describe("getPublicOrgScorecard", () => {
       repoRow({ id: "b", name: "demo", overall: 20, engineProvider: "mock" }),
     ]);
 
-    const card = await getPublicOrgScorecard("ACME");
+    const read = await getPublicOrgScorecard("ACME");
 
     // Owner narrowing is expressed on the canonical lowercase fullName prefix.
     expect(scanFindMany.mock.calls[0]![0].where.repo.fullName).toEqual({ startsWith: "acme/" });
-    expect(card?.repoCount).toBe(2);
-    expect(card?.verifiedCount).toBe(1);
+    expect(read.kind).toBe("ok");
+    if (read.kind !== "ok") return;
+    expect(read.card.repoCount).toBe(2);
+    expect(read.card.verifiedCount).toBe(1);
     // 20 (mock) never drags the published average down — only the model-scored 80 counts.
-    expect(card?.avgOverall).toBe(80);
-    expect(card?.owner).toBe("acme");
+    expect(read.card.avgOverall).toBe(80);
+    expect(read.card.owner).toBe("acme");
   });
 
   it("reports verifiedCount 0 when every scan was a mock preview (no number to publish)", async () => {
     scanFindMany.mockResolvedValue([{ repoId: "a" }]);
     repoFindMany.mockResolvedValue([repoRow({ id: "a", engineProvider: "mock" })]);
 
-    const card = await getPublicOrgScorecard("acme");
-    expect(card?.verifiedCount).toBe(0);
-    expect(card?.avgOverall).toBe(0);
+    const read = await getPublicOrgScorecard("acme");
+    expect(read.kind).toBe("ok");
+    if (read.kind !== "ok") return;
+    expect(read.card.verifiedCount).toBe(0);
+    expect(read.card.avgOverall).toBe(0);
   });
 
   it("never returns a private repo for an owner", async () => {
     scanFindMany.mockResolvedValue([{ repoId: "a" }]);
     repoFindMany.mockResolvedValue([repoRow({ id: "a", name: "secret", isPrivate: true })]);
 
-    await expect(getPublicOrgScorecard("acme")).resolves.toBeNull();
+    // The read succeeded; this owner has nothing public to publish. That is empty, not a 0 card.
+    await expect(getPublicOrgScorecard("acme")).resolves.toEqual({ kind: "empty", owner: "acme" });
   });
 
   it("rejects a slash-bearing owner segment instead of prefix-matching across owners", async () => {
-    await expect(getPublicOrgScorecard("acme/api")).resolves.toBeNull();
+    await expect(getPublicOrgScorecard("acme/api")).resolves.toEqual({ kind: "empty", owner: "acme/api" });
     expect(scanFindMany).not.toHaveBeenCalled();
+  });
+
+  it("tags a valid owner with no public scans as empty, not a zeroed card", async () => {
+    scanFindMany.mockResolvedValue([]);
+    const read = await getPublicOrgScorecard("acme");
+    expect(read).toEqual({ kind: "empty", owner: "acme" });
+    expect(read).not.toHaveProperty("avgOverall");
+    expect(read).not.toHaveProperty("card");
+  });
+
+  it("tags persistence-off as unavailable rather than empty", async () => {
+    mockIsDbConfigured.mockReturnValue(false);
+    await expect(getPublicOrgScorecard("acme")).resolves.toEqual({ kind: "unavailable" });
+    expect(scanFindMany).not.toHaveBeenCalled();
+  });
+
+  it("tags an unresolvable public org as unavailable, not as this owner missing", async () => {
+    mockResolveOrgId.mockResolvedValue(null);
+    await expect(getPublicOrgScorecard("acme")).resolves.toEqual({ kind: "unavailable" });
+  });
+
+  it("tags a thrown register query as unavailable, not as a missing owner", async () => {
+    scanFindMany.mockRejectedValue(new Error("too many clients"));
+    await expect(getPublicOrgScorecard("acme")).resolves.toEqual({ kind: "unavailable" });
+  });
+
+  it("tags a Prisma init failure as unavailable", async () => {
+    const err = new Error("Can't reach database server");
+    err.name = "PrismaClientInitializationError";
+    scanFindMany.mockRejectedValue(err);
+    await expect(getPublicOrgScorecard("acme")).resolves.toEqual({ kind: "unavailable" });
   });
 });
 

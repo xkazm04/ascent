@@ -325,6 +325,21 @@ export async function getPublicRegister(
 }
 
 /**
+ * Tagged scorecard read. Callers MUST branch on `kind` — collapsing every miss to `null` made a
+ * failed register read, an empty corpus, and an invalid owner look like the same 404.
+ *
+ *  - `ok` — at least one public scan for this owner (averages still ignore mock previews).
+ *  - `empty` — the read succeeded and this owner has nothing public to publish. Absence, not a 0.
+ *  - `unavailable` — persistence off, the public org cannot be resolved, or the query threw.
+ */
+export type PublicOrgScorecardRead =
+  | { kind: "ok"; card: PublicOrgScorecard }
+  | { kind: "empty"; owner: string }
+  | { kind: "unavailable" };
+
+const SCORECARD_UNAVAILABLE: PublicOrgScorecardRead = { kind: "unavailable" };
+
+/**
  * The public scorecard for one owner: aggregated over that owner's PUBLIC repos in the PUBLIC org.
  *
  * This is deliberately a lens over the public corpus, NOT a view of the owner's Ascent tenant. It can
@@ -332,56 +347,66 @@ export async function getPublicRegister(
  * and it is structurally incapable of reaching a private repo or another tenant's org dashboard.
  *
  * Averages are computed over MODEL-SCORED repos only — a mock preview never moves the published
- * number. `verifiedCount === 0` means there is no number to publish, and callers must say so.
+ * number. `verifiedCount === 0` on an `ok` card means there is no number to publish (preview-only),
+ * and callers must say so. An `empty` result is the other honesty case: nothing public was found,
+ * which is not a score of 0 and not "this owner does not exist".
  */
-export async function getPublicOrgScorecard(owner: string): Promise<PublicOrgScorecard | null> {
-  if (!isDbConfigured()) return null;
+export async function getPublicOrgScorecard(owner: string): Promise<PublicOrgScorecardRead> {
+  if (!isDbConfigured()) return SCORECARD_UNAVAILABLE;
   const prefix = owner.trim().toLowerCase();
-  if (!prefix || prefix.includes("/")) return null;
+  if (!prefix || prefix.includes("/")) return { kind: "empty", owner: prefix };
 
-  return dbReadSafe(async () => {
-    const orgId = await resolveOrgId(DEFAULT_ORG_SLUG);
-    if (!orgId) return null;
-    const repos = await loadCandidates(orgId, prefix);
-    if (repos.length === 0) return null;
+  try {
+    return await dbReadSafe(async (): Promise<PublicOrgScorecardRead> => {
+      const orgId = await resolveOrgId(DEFAULT_ORG_SLUG);
+      if (!orgId) return SCORECARD_UNAVAILABLE;
+      const repos = await loadCandidates(orgId, prefix);
+      if (repos.length === 0) return { kind: "empty", owner: prefix };
 
-    const scored = repos.filter((e) => e.verified);
-    const mean = (pick: (e: RegisterEntry) => number) =>
-      scored.length ? Math.round(scored.reduce((n, e) => n + pick(e), 0) / scored.length) : 0;
+      const scored = repos.filter((e) => e.verified);
+      const mean = (pick: (e: RegisterEntry) => number) =>
+        scored.length ? Math.round(scored.reduce((n, e) => n + pick(e), 0) / scored.length) : 0;
 
-    const dimensions: Partial<Record<DimensionId, number>> = {};
-    for (const e of scored) {
-      for (const [dim, score] of Object.entries(e.dimensions)) {
-        const id = dim as DimensionId;
-        dimensions[id] = (dimensions[id] ?? 0) + (score ?? 0);
+      const dimensions: Partial<Record<DimensionId, number>> = {};
+      for (const e of scored) {
+        for (const [dim, score] of Object.entries(e.dimensions)) {
+          const id = dim as DimensionId;
+          dimensions[id] = (dimensions[id] ?? 0) + (score ?? 0);
+        }
       }
-    }
-    for (const id of Object.keys(dimensions) as DimensionId[]) {
-      dimensions[id] = Math.round((dimensions[id] ?? 0) / Math.max(1, scored.length));
-    }
+      for (const id of Object.keys(dimensions) as DimensionId[]) {
+        dimensions[id] = Math.round((dimensions[id] ?? 0) / Math.max(1, scored.length));
+      }
 
-    const avgOverall = mean((e) => e.overall);
-    const level = levelForScore(avgOverall);
-    const scannedAt = repos.reduce<string | null>(
-      (latest, e) => (latest && latest > e.scannedAt ? latest : e.scannedAt),
-      null,
-    );
+      const avgOverall = mean((e) => e.overall);
+      const level = levelForScore(avgOverall);
+      const scannedAt = repos.reduce<string | null>(
+        (latest, e) => (latest && latest > e.scannedAt ? latest : e.scannedAt),
+        null,
+      );
 
-    return {
-      // Display casing from the rows, not the caller's URL segment.
-      owner: repos[0]!.owner,
-      avgOverall,
-      avgAdoption: mean((e) => e.adoption),
-      avgRigor: mean((e) => e.rigor),
-      dimensions,
-      level: level.id,
-      levelName: level.name,
-      repoCount: repos.length,
-      verifiedCount: scored.length,
-      scannedAt,
-      repos,
-      rubricVersion: SCORING_RUBRIC_VERSION,
-      staleRubricCount: scored.filter((e) => !e.currentRubric).length,
-    };
-  }, null);
+      return {
+        kind: "ok",
+        card: {
+          // Display casing from the rows, not the caller's URL segment.
+          owner: repos[0]!.owner,
+          avgOverall,
+          avgAdoption: mean((e) => e.adoption),
+          avgRigor: mean((e) => e.rigor),
+          dimensions,
+          level: level.id,
+          levelName: level.name,
+          repoCount: repos.length,
+          verifiedCount: scored.length,
+          scannedAt,
+          repos,
+          rubricVersion: SCORING_RUBRIC_VERSION,
+          staleRubricCount: scored.filter((e) => !e.currentRubric).length,
+        },
+      };
+    }, SCORECARD_UNAVAILABLE);
+  } catch {
+    // A live-DB query error is not "this owner does not exist". Tag it so the page cannot 404 it.
+    return SCORECARD_UNAVAILABLE;
+  }
 }
