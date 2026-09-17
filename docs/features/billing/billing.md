@@ -163,12 +163,16 @@ degrade-to-mock run is never charged.
   shown live by the scan dialog's `QuotaMeter`. This gate applies to **every anonymous public
   scan**, on every plan — it is not `PLAN_FEATURES.free.includedCredits` (the hosted Free tier's
   private-scan allotment). **Never describe them as "unlimited" or "unmetered"** — a meter is
-  rendered on the same screen. Every surface that states the number derives it from that one
-  function: the Free card and blurb (`PLAN_SPECS.free`), `/pricing`'s metadata and footnote, the
-  landing FAQ's JSON-LD, the 429 body, and the credit-matrix public-scan row (`creditMatrixData.ts`:
-  all four tier cells plus the Scanning intro). `plans.test.ts` fails any plan copy that re-claims
-  "unlimited"/"unmetered" public scans; `creditMatrixData.test.ts` pins the matrix cells to
-  `publicScanAllowance().label`.
+  rendered on the same screen. Signing in does **not** raise that number unless
+  `PUBLIC_SCAN_MONTHLY_LIMIT_SIGNED_IN` is set above the anonymous cap
+  (`signInRaisesPublicScanLimit()` in the same module). The default pair is equal (both 5);
+  `QuotaMeter` and the report quota banners therefore never say "Sign in for more scans" unless
+  signing in actually grants more — the lever for more volume is a paid plan. Every surface that
+  states the number derives it from that one function: the Free card and blurb (`PLAN_SPECS.free`),
+  `/pricing`'s metadata and footnote, the landing FAQ's JSON-LD, the 429 body, and the
+  credit-matrix public-scan row (`creditMatrixData.ts`: all four tier cells plus the Scanning
+  intro). `plans.test.ts` fails any plan copy that re-claims "unlimited"/"unmetered" public scans;
+  `creditMatrixData.test.ts` pins the matrix cells to `publicScanAllowance().label`.
 - **Custom**: `unlimited: true`; never debited regardless of usage.
 
 ## Credit packs vs. plan products (Polar catalogs)

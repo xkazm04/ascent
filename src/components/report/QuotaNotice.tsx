@@ -9,6 +9,7 @@ import type { ReactNode } from "react";
 import { EmptyState } from "@/components/EmptyState";
 import { SupabaseSignInButton } from "@/components/SupabaseAuthButtons";
 import { shortDate, shortDateSafe } from "@/components/ui/format";
+import { signInRaisesPublicScanLimit } from "@/lib/public-scan-limit";
 
 /** Free monthly public-scan allowance attribution, from the x-ascent-quota-scope header. Canonical
  *  type now lives in @/lib/public-scan-quota (G8-30 — a shared type shouldn't live in a client
@@ -23,16 +24,17 @@ export type { QuotaScope };
 
 /**
  * Whether a "Sign in for more" CTA can actually do anything: only when this scan was ANONYMOUS
- * (scope "anon") AND Supabase auth is wired up client-side (the NEXT_PUBLIC_* envs are inlined at
- * build, so this is safe in a client component). A signed-in viewer is already at the elevated
- * tier, and without Supabase configured there's no sign-in to offer. Exported so the landing-page
- * QuotaMeter offers the SAME action hierarchy (sign in first, plans as fallback) as these banners —
- * matching only the link *style* while contradicting the action left the two quota surfaces giving
- * different "what do I do about the limit" answers.
+ * (scope "anon"), signing in actually raises the monthly limit (`signInRaisesPublicScanLimit()` —
+ * the default hosted pair is equal, so the lever is a paid plan), AND Supabase auth is wired up
+ * client-side (the NEXT_PUBLIC_* envs are inlined at build, so this is safe in a client component).
+ * A signed-in viewer is already at their per-user bucket; without Supabase configured there's no
+ * sign-in to offer; when the two limits match, "Sign in for more scans" is a user-facing untruth.
+ * Exported so the landing-page QuotaMeter offers the SAME action hierarchy as these banners.
  */
 export function canOfferSignIn(scope: QuotaScope): boolean {
   return (
     scope === "anon" &&
+    signInRaisesPublicScanLimit() &&
     Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
   );
 }
@@ -49,8 +51,9 @@ export function formatResetAt(resetAt: number | null): string {
 
 /**
  * The blocked state when the monthly public-scan limit is exhausted. No "Try again" (an immediate
- * retry just re-trips the gate); instead it surfaces when the window resets and, for an anonymous
- * caller, a sign-in CTA that lifts the limit to the elevated per-user tier.
+ * retry just re-trips the gate); instead it surfaces when the window resets and, when signing in
+ * actually raises the allowance, a sign-in CTA. When the signed-in and anonymous limits match, the
+ * paid-plan link is the primary action — "Sign in for more scans" would be a lie.
  */
 export function QuotaBlocked({
   message,
@@ -118,9 +121,10 @@ function QuotaBannerShell({
 }
 
 /**
- * The shared CTA tail: a "Sign in for more" button when the scan was anonymous and Supabase is wired,
- * otherwise a "See plans →" link. `fallbackLink` lets the quiet banner suppress the plans link except
- * on its last-scan state while the stale notice always shows it.
+ * The shared CTA tail: a "Sign in for more" button when canOfferSignIn is true (anonymous scan,
+ * Supabase wired, AND signing in raises the monthly limit), otherwise a "See plans →" link.
+ * `fallbackLink` lets the quiet banner suppress the plans link except on its last-scan state
+ * while the stale notice always shows it.
  */
 function quotaCta(scope: QuotaScope, signInNext: string, fallbackLink: boolean): ReactNode {
   if (canOfferSignIn(scope)) {
@@ -165,8 +169,8 @@ export function QuotaStaleNotice({
 /**
  * Subtle banner shown above a finished report for public scans, surfacing the free monthly allowance
  * left (from the x-ascent-quota-* response headers). Quiet by design — informs without alarming, and
- * only renders when the monthly gate counted this scan. For an anonymous caller it also offers a
- * "Sign in for more" CTA that lifts the limit to the elevated per-user tier.
+ * only renders when the monthly gate counted this scan. For an anonymous caller it offers a
+ * "Sign in for more" CTA only when signing in actually lifts the limit above the anonymous cap.
  */
 export function QuotaBanner({
   remaining,

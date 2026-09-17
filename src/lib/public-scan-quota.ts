@@ -31,6 +31,7 @@ import {
   PUBLIC_SCAN_WINDOW_DAYS,
   publicScanAllowance,
   publicScanMonthlyLimit,
+  signInRaisesPublicScanLimit,
   signedInScanMonthlyLimit,
 } from "@/lib/public-scan-limit";
 import { PLAN_FEATURES } from "@/lib/plans";
@@ -57,7 +58,7 @@ const WINDOW_MS = PUBLIC_SCAN_WINDOW_DAYS * 24 * 60 * 60 * 1000; // rolling 30-d
 // `publicScanAllowance` travels with them: it is the same allowance COMPOSED as the phrase the copy
 // prints ("1 free public scan" / "5 free public scans"), so a call site never appends its own plural
 // "s" to a number that may be 1 (MC-B38).
-export { publicScanAllowance, publicScanMonthlyLimit, signedInScanMonthlyLimit };
+export { publicScanAllowance, publicScanMonthlyLimit, signInRaisesPublicScanLimit, signedInScanMonthlyLimit };
 
 /** Kill switch — set PUBLIC_SCAN_QUOTA_DISABLED=1 to turn the monthly gate off (dev / incident). */
 export function publicScanQuotaDisabled(): boolean {

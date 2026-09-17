@@ -69,3 +69,13 @@ export function signedInScanMonthlyLimit(): number {
   const configured = Number.isFinite(n) && n > 0 ? Math.floor(n) : 5;
   return Math.max(configured, publicScanMonthlyLimit());
 }
+
+/**
+ * True when signing in actually grants a HIGHER monthly public-scan allowance than remaining
+ * anonymous. The default hosted pair is equal (both 5; the lever for more volume is a paid plan).
+ * Quota CTAs that promise more scans from signing in must ask this — promising more when the
+ * numbers match is a user-facing untruth on the quota surface.
+ */
+export function signInRaisesPublicScanLimit(): boolean {
+  return signedInScanMonthlyLimit() > publicScanMonthlyLimit();
+}

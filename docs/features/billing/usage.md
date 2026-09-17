@@ -316,6 +316,13 @@ anonymous limit), `PUBLIC_SCAN_QUOTA_SALT`, `PUBLIC_SCAN_QUOTA_DISABLED`. Raisin
 what `/pricing` and the FAQ **promise**, since that copy is derived. (`.env.example` documented these
 as `PUBLIC_SCAN_WEEKLY_LIMIT`/7 days for a while — a variable nothing read; corrected 2026-08-31.)
 
+**Signing in is not a volume lever by default.** `signedInScanMonthlyLimit()` defaults to the same 5
+as the anonymous cap (clamped never below it). `signInRaisesPublicScanLimit()` is the predicate the
+quota CTAs ask: `QuotaMeter`, `QuotaBlocked`, and the report banners only say "Sign in for more
+scans" when the signed-in number is actually higher. When the pair is equal, those surfaces fall
+through to the paid-plan upsell — promising more scans from a sign-in that does not raise the cap
+is a user-facing untruth on the quota surface.
+
 ### Reclaiming limiter memory
 
 The in-process window map is swept on a **declared cadence with a bounded budget**: at most one sweep
