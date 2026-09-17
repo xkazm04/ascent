@@ -946,9 +946,26 @@ describe("CreditLedger spend attribution (debit ↔ refund join)", () => {
     const { prisma, rows } = attributionPrisma(0);
     mockGetPrisma.mockReturnValue(prisma);
 
-    await grantCredits("acme", 50, { reason: "polar", actor: "polar", externalId: "polar:ord_1" });
+    await grantCredits("acme", 50, { reason: CREDIT_REASON.POLAR, actor: "polar", externalId: "polar:ord_1" });
 
-    expect(rows[0]).toMatchObject({ delta: 50, reason: "polar", repoFullName: null, scanId: null });
+    expect(rows[0]).toMatchObject({ delta: 50, reason: CREDIT_REASON.POLAR, repoFullName: null, scanId: null });
+  });
+
+  it("stamps Polar top-ups with CREDIT_REASON.POLAR, not a free-text reason (producer contract)", async () => {
+    // Polar pack fulfilment keys the row `polar:<orderId>`. Bind it to the shared constant so a
+    // free-text "polar" (the historical webhook string) and an omitted reason both land as POLAR,
+    // never GRANT — Polar purchases must not consume the manual-grant cap.
+    expect(CREDIT_REASON.POLAR).toBe("polar");
+
+    const { prisma, rows } = attributionPrisma(0);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await grantCredits("acme", 50, { reason: "polar", actor: "polar", externalId: "polar:ord_1" });
+    expect(rows[0]!.reason).toBe(CREDIT_REASON.POLAR);
+
+    await grantCredits("acme", 25, { actor: "polar", externalId: "polar:ord_2" });
+    expect(rows[1]!.reason).toBe(CREDIT_REASON.POLAR);
+    expect(rows[1]).toMatchObject({ delta: 25, reason: CREDIT_REASON.POLAR });
   });
 
   it("carries scanId onto both rows when the caller knows it, and joins them by it", async () => {

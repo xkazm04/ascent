@@ -24,6 +24,7 @@ export const CREDIT_REASON = {
   GRANT: "grant",
   ADJUSTMENT: "adjustment",
   REFUND: "refund",
+  POLAR: "polar",
   POLAR_REFUND: "polar-refund",
 } as const;
 
@@ -32,6 +33,15 @@ export const CREDIT_REASON = {
  *  lands in the reconciliation's `refunded` bucket and a non-refund reason can never leak into it. */
 export function isRefundReason(reason: string | null | undefined): boolean {
   return (reason ?? "").trim().toLowerCase() === CREDIT_REASON.REFUND;
+}
+
+/** Polar pack top-ups (`polar:<orderId>` webhook key, or reason "polar") stamp CREDIT_REASON.POLAR. */
+function grantLedgerReason(opts: { reason?: string; externalId?: string }, delta: number): string {
+  const polarTopup =
+    Boolean(opts.externalId?.startsWith("polar:")) ||
+    (opts.reason ?? "").trim().toLowerCase() === CREDIT_REASON.POLAR;
+  if (polarTopup) return CREDIT_REASON.POLAR;
+  return opts.reason ?? (delta > 0 ? CREDIT_REASON.GRANT : CREDIT_REASON.ADJUSTMENT);
 }
 
 export interface CreditState {
@@ -168,7 +178,7 @@ export async function grantCredits(
             orgId: org.id,
             delta: appliedDelta,
             balanceAfter,
-            reason: opts.reason ?? (delta > 0 ? CREDIT_REASON.GRANT : CREDIT_REASON.ADJUSTMENT),
+            reason: grantLedgerReason(opts, delta),
             actor: opts.actor ?? null,
             // SPEND ATTRIBUTION. A per-scan REFUND is a grant, so it used to be written with no repo
             // and no scan on it at all — leaving every `reason:"refund"` row unjoinable to the
@@ -415,9 +425,9 @@ export async function consumeScanCredit(
 /**
  * NET credits an org has ever minted through the MANUAL (self-serve, owner-gated) grant endpoint —
  * the persisted basis for its lifetime grant cap (`/api/org/credits/grant`). Sums the ledger rows the
- * manual path writes (`grant` / `adjustment`) and nothing else: Polar top-ups (`polar`), scan debits
- * (`scan`), scan refunds (`refund`) and Polar clawbacks (`polar-refund`) are all deliberately excluded,
- * so a paying org's purchases never consume its manual-grant headroom.
+ * manual path writes (`grant` / `adjustment`) and nothing else: Polar top-ups (`CREDIT_REASON.POLAR`),
+ * scan debits (`scan`), scan refunds (`refund`) and Polar clawbacks (`polar-refund`) are all
+ * deliberately excluded, so a paying org's purchases never consume its manual-grant headroom.
  *
  * NET, not gross: a negative `adjustment` is a genuine reversal of a manual grant (it can only remove
  * credits the org still holds — `grantCredits` clamps a debit to the balance), so it restores exactly
