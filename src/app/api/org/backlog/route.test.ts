@@ -3,6 +3,9 @@
 // the READ SCOPE it was asked for — segment, tech group, and whether closed rows are included — and
 // (c) it goes through the canonical csvTable assembler, so the formula-injection guard applies here
 // too and can't drift the way a hand-rolled copy once did.
+//
+// JSON GET pins the same tenant wall without format=csv: missing ?org 400, 503 when the database is
+// unset, requireOrgRead before getOrgBacklog, and includeClosed=1 as the G6-02 recovery view.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -18,15 +21,16 @@ vi.mock("next/server", () => ({
   },
 }));
 
-vi.mock("@/lib/db", () => ({ getOrgBacklog: vi.fn(), isDbConfigured: () => true }));
+vi.mock("@/lib/db", () => ({ getOrgBacklog: vi.fn(), isDbConfigured: vi.fn(() => true) }));
 vi.mock("@/lib/authz", () => ({ requireOrgRead: vi.fn(async () => null) }));
 
 import { GET } from "./route";
-import { getOrgBacklog } from "@/lib/db";
+import { getOrgBacklog, isDbConfigured } from "@/lib/db";
 import { requireOrgRead } from "@/lib/authz";
 
 const mockBacklog = vi.mocked(getOrgBacklog);
 const mockRead = vi.mocked(requireOrgRead);
+const mockIsDb = vi.mocked(isDbConfigured);
 
 function item(over: Record<string, unknown> = {}) {
   return {
@@ -86,6 +90,7 @@ function get(qs: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockIsDb.mockReturnValue(true);
   mockRead.mockResolvedValue(null as never);
   mockBacklog.mockResolvedValue(backlog([item()]) as never);
 });
@@ -134,5 +139,44 @@ describe("GET /api/org/backlog?format=csv", () => {
   it("leaves the default JSON read untouched", async () => {
     const res = await get("org=acme");
     expect(await (res as Response).json()).toHaveProperty("backlog.org", "acme");
+  });
+});
+
+describe("GET /api/org/backlog — JSON read", () => {
+  it("503s when the database is unset, before the gate", async () => {
+    mockIsDb.mockReturnValue(false);
+    const res = await get("org=acme");
+    expect((res as Response).status).toBe(503);
+    expect(await (res as Response).json()).toEqual({ error: "The backlog requires a database." });
+    expect(mockRead).not.toHaveBeenCalled();
+    expect(mockBacklog).not.toHaveBeenCalled();
+  });
+
+  it("400s without ?org and never gates or loads", async () => {
+    const res = await get("");
+    expect((res as Response).status).toBe(400);
+    expect(await (res as Response).json()).toEqual({ error: "Missing ?org." });
+    expect(mockRead).not.toHaveBeenCalled();
+    expect(mockBacklog).not.toHaveBeenCalled();
+  });
+
+  it("returns the org-read denial and never loads the backlog", async () => {
+    mockRead.mockResolvedValue(Response.json({ error: "no access" }, { status: 403 }) as never);
+    const res = await get("org=acme");
+    expect((res as Response).status).toBe(403);
+    expect(mockRead).toHaveBeenCalledWith("acme");
+    expect(mockBacklog).not.toHaveBeenCalled();
+  });
+
+  it("defaults includeClosed to false when the flag is absent", async () => {
+    const res = await get("org=acme");
+    expect(mockBacklog).toHaveBeenCalledWith("acme", null, expect.any(Date), null, { includeClosed: false });
+    expect(await (res as Response).json()).toHaveProperty("backlog.org", "acme");
+  });
+
+  it("forwards includeClosed=1 into getOrgBacklog (G6-02 recovery view)", async () => {
+    const res = await get("org=acme&includeClosed=1");
+    expect(mockBacklog).toHaveBeenCalledWith("acme", null, expect.any(Date), null, { includeClosed: true });
+    expect((res as Response).status).toBe(200);
   });
 });
