@@ -63,6 +63,28 @@ export interface PersistResult {
   // best-effort post-commit step (tech-group sync) logs its own failure inline instead.
 }
 
+/** Work-queue claim copied onto a carried in-progress row; nulled when the work closes. */
+type ClaimCarry = {
+  claimActor: string | null;
+  claimExecutor: string | null;
+  leaseUntil: Date | null;
+  needsHuman: boolean;
+};
+
+function claimCarry(row: Partial<ClaimCarry> | null | undefined): ClaimCarry {
+  return {
+    claimActor: row?.claimActor ?? null,
+    claimExecutor: row?.claimExecutor ?? null,
+    leaseUntil: row?.leaseUntil ?? null,
+    needsHuman: row?.needsHuman ?? false,
+  };
+}
+
+/** Status-event note with the previous row id so a trailer that named it can still be mapped. */
+function carryEventNote(note: string, prevId: string | undefined): string {
+  return prevId ? `${note} (previous id ${prevId})` : note;
+}
+
 /**
  * Persist a scan report (org -> repository -> scan -> dimensions + recommendations) and
  * write an audit entry. Returns a PersistResult, or null if persistence is disabled.
@@ -296,13 +318,15 @@ export async function persistScanReport(
       }
     }
 
-    // Carry forward recommendation status + ownership (assignee, due date) from this repo's previous
-    // scan, so neither progress nor the backlog's planning state is lost on re-scan. Matching runs
-    // through the shared tiered matcher (exact dim+title → dim+normalized title → unambiguous
-    // dimension): the raw LLM title is NOT stable across live scans (temperature, evidence drift,
-    // provider failover all rephrase it), and an exact-title miss used to silently reset a tracked
-    // item to open/unassigned. The per-row event timeline is anchored to the scan's recommendation
-    // rows, so it begins fresh each scan while the carried state persists.
+    // Carry forward recommendation status + ownership (assignee, due date) + the work-queue claim
+    // (claimActor / claimExecutor / leaseUntil / needsHuman) from this repo's previous scan, so
+    // neither progress nor a live lease is lost on re-scan. Matching runs through the shared tiered
+    // matcher (exact dim+title → dim+normalized title → unambiguous dimension): the raw LLM title is
+    // NOT stable across live scans (temperature, evidence drift, provider failover all rephrase it),
+    // and an exact-title miss used to silently reset a tracked item to open/unassigned. The per-row
+    // event timeline is anchored to the scan's recommendation rows, so it begins fresh each scan
+    // while the carried state persists. Recommendation.id is a global unique PK and previous-scan
+    // rows stay — a carried row is a NEW id, never the old one.
     //
     // The matcher still REFUSES to pair genuinely ambiguous items (two reworded gaps in one
     // dimension), and those rows are still written at open/unassigned below — that part is correct,
@@ -318,7 +342,7 @@ export async function persistScanReport(
       // createdAt then id break the tie to the genuinely-latest row.
       orderBy: [{ scannedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
       select: {
-        recommendations: { select: { id: true, dimId: true, title: true, status: true, assigneeLogin: true, targetDate: true, impact: true, effort: true, rationale: true, firstStep: true, explore: true, levelUnlock: true, kind: true, craftAxis: true } },
+        recommendations: { select: { id: true, dimId: true, title: true, status: true, assigneeLogin: true, targetDate: true, claimActor: true, claimExecutor: true, leaseUntil: true, needsHuman: true, impact: true, effort: true, rationale: true, firstStep: true, explore: true, levelUnlock: true, kind: true, craftAxis: true } },
         // The previous scan's dimension scores — the independent witness for an in-progress row's
         // fate (decideInProgress's `movement`). A gap that vanished while its number stood still is
         // rephrasing, not repair.
@@ -540,6 +564,9 @@ export async function persistScanReport(
                   status: carried?.status ?? "open",
                   assigneeLogin: carried?.assigneeLogin ?? null,
                   targetDate: carried?.targetDate ?? null,
+                  // Live claims ride only with in_progress. Dropping them here made a machine-held
+                  // lease read as a human take (`in_progress` + `leaseUntil: null`) on the new row.
+                  ...claimCarry(carried?.status === "in_progress" ? carried : null),
                 };
               }),
             },
@@ -568,11 +595,12 @@ export async function persistScanReport(
               status: "done",
               assigneeLogin: row.assigneeLogin,
               targetDate: row.targetDate,
+              ...claimCarry(null),
             },
             select: { id: true },
           });
           await tx.recommendationEvent.create({
-            data: { recommendationId: done.id, actor: null, kind: "status", fromValue: "in_progress", toValue: "done", note },
+            data: { recommendationId: done.id, actor: null, kind: "status", fromValue: "in_progress", toValue: "done", note: carryEventNote(note, row.id) },
           });
         }
 
@@ -603,12 +631,13 @@ export async function persistScanReport(
                   status: "in_progress",
                   assigneeLogin: row.assigneeLogin,
                   targetDate: row.targetDate,
+                  ...claimCarry(row),
                 },
                 select: { id: true },
               });
           if (!target) continue;
           await tx.recommendationEvent.create({
-            data: { recommendationId: target.id, actor: null, kind: "status", fromValue: "in_progress", toValue: "in_progress", note },
+            data: { recommendationId: target.id, actor: null, kind: "status", fromValue: "in_progress", toValue: "in_progress", note: carryEventNote(note, row.id) },
           });
         }
 

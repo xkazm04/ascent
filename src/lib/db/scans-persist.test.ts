@@ -5,8 +5,10 @@
 //     new sha persists exactly one new row (`deduped:false`). The cross-instance P2002 backstop reuses
 //     the winner; with no winner it re-throws.
 //  2. CARRY-FORWARD (tracking state): a re-scan must PRESERVE a prior recommendation's
-//     status / assigneeLogin / targetDate (matched through the tiered `matchRecommendations`, which is
-//     kept REAL here), and must default a brand-new (unmatched) roadmap item to open / null / null.
+//     status / assigneeLogin / targetDate / claimActor / claimExecutor / leaseUntil / needsHuman
+//     (matched through the tiered `matchRecommendations`, which is kept REAL here), and must default
+//     a brand-new (unmatched) roadmap item to open / null / null. Claim fields ride only on a carried
+//     in_progress row; a resolved-to-done copy nulls them. The previous id is NEVER reused.
 //
 // All DB seams are faked: client (withDb/withRetry/getPrisma/isDbConfigured), scans-read (the two
 // dedup lookups), scans-shared (org-id, repo-lock, upsert-race, P2002 classifier), and cache. The real
@@ -78,6 +80,10 @@ type PrevRec = {
   status: string;
   assigneeLogin: string | null;
   targetDate: Date | null;
+  claimActor?: string | null;
+  claimExecutor?: string | null;
+  leaseUntil?: Date | null;
+  needsHuman?: boolean;
 };
 
 /**
@@ -1149,6 +1155,109 @@ describe("persistScanReport — follow-up feedback on in-progress rows", () => {
     const recs = (createdScans[0] as { recommendations: { create: Array<Record<string, unknown>> } }).recommendations.create;
     expect(recs[0]).toMatchObject({ status: "open", assigneeLogin: "hubot" }); // lone-in-dimension pairing kept
     expect(createdResolved).toHaveLength(0);
+  });
+
+  // A live claim is a different fact from assigneeLogin. Dropping it at persist made a machine-held
+  // lease look like a human took the new row (`in_progress` + `leaseUntil: null`). Previous-scan
+  // rows stay (Recommendation.id is a global PK), so the carried row is a NEW id — never the old one.
+  it("copies claimActor/claimExecutor/leaseUntil/needsHuman onto a restated in_progress carry (new id)", async () => {
+    const { prisma, createdScans, createdResolved, createdEvents } = fakePrisma({
+      previousRecs: [
+        prevInProgress({
+          claimActor: "octocat",
+          claimExecutor: "human",
+          leaseUntil: null,
+          needsHuman: true,
+        }),
+      ],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(
+      makeReport({
+        headSha: "sha_claim_carry",
+        roadmap: [{ dimension: "D2", title: "No coverage threshold fails a run" }],
+        resolvedFollowUpIds: ["rec_ip"],
+      }),
+    );
+
+    const recs = (createdScans[0] as { recommendations: { create: Array<Record<string, unknown>> } }).recommendations.create;
+    expect(recs[0]).toMatchObject({
+      status: "in_progress",
+      claimActor: "octocat",
+      claimExecutor: "human",
+      leaseUntil: null,
+      needsHuman: true,
+    });
+    expect(recs[0]).not.toHaveProperty("id");
+    expect(createdResolved).toHaveLength(0);
+    expect(String(createdEvents[0]!.note)).toContain("previous id rec_ip");
+  });
+
+  it("copies the four claim fields onto an unpaired keep create (new id)", async () => {
+    const lease = new Date("2026-09-17T12:00:00.000Z");
+    const { prisma, createdResolved, createdEvents } = fakePrisma({
+      previousRecs: [
+        prevInProgress({
+          claimActor: "agent:ci",
+          claimExecutor: "remote-agent",
+          leaseUntil: lease,
+          needsHuman: false,
+        }),
+      ],
+      previousDims: [{ dimId: "D2", score: 61 }],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(
+      makeReport({
+        headSha: "sha_claim_keep",
+        roadmap: [{ dimension: "D2", title: "Tests exist but nothing gates a merge on them" }],
+        resolvedFollowUpIds: ["rec_ip"],
+        dimensions: [{ id: "D2", name: "Automated Testing", weight: 0.15, score: 61, signalScore: 61, llmScore: 61, summary: "", evidence: [], strengths: [], gaps: [] }],
+      }),
+    );
+
+    expect(createdResolved[0]).toMatchObject({
+      status: "in_progress",
+      claimActor: "agent:ci",
+      claimExecutor: "remote-agent",
+      leaseUntil: lease,
+      needsHuman: false,
+    });
+    expect(createdResolved[0]).not.toHaveProperty("id");
+    expect(String(createdEvents[0]!.note)).toContain("previous id rec_ip");
+  });
+
+  it("nulls the four claim fields on a resolved-to-done copy", async () => {
+    const { prisma, createdResolved, createdEvents } = fakePrisma({
+      previousRecs: [
+        prevInProgress({
+          claimActor: "agent:ci",
+          claimExecutor: "remote-agent",
+          leaseUntil: new Date("2026-09-17T12:00:00.000Z"),
+          needsHuman: true,
+        }),
+      ],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(
+      makeReport({ headSha: "sha_claim_done", roadmap: [{ dimension: "D2", title: "Snapshot tests can bless a regression wholesale" }] }),
+    );
+
+    expect(createdResolved[0]).toMatchObject({
+      status: "done",
+      claimActor: null,
+      claimExecutor: null,
+      leaseUntil: null,
+      needsHuman: false,
+    });
+    expect(createdResolved[0]).not.toHaveProperty("id");
+    expect(String(createdEvents[0]!.note)).toContain("previous id rec_ip");
   });
 });
 

@@ -45,10 +45,10 @@ all; if the scan does not say it again, the claim is honoured as resolved.
 ### Where resolution is written
 
 `persistScanReport` (`src/lib/db/scans-persist.ts`): resolved in-progress rows are copied onto
-the **new** scan as `done`, with a system `RecommendationEvent` (`fromValue in_progress →
-toValue done`, note naming the mechanism and the commit). So the archive reads off each repo's
-latest scan like every other rollup — no cross-scan query. The un-restated new item is a fresh
-`open` row (never inherits the claim).
+the **new** scan as `done` (claim fields nulled), with a system `RecommendationEvent` (`fromValue
+in_progress → toValue done`, note naming the mechanism, the commit, and the previous row id). So
+the archive reads off each repo's latest scan like every other rollup — no cross-scan query. The
+un-restated new item is a fresh `open` row (never inherits the claim).
 
 **Only default-branch scans persist.** A scoped scan (`ref`/`subPath`) is deliberately not
 written as the repo's standing (see [scan.md](../scanning/scan.md)), so resolution happens when
@@ -175,6 +175,14 @@ not take, instead of stealing rows and having two workers write into the same ga
 `assigneeLogin` is deliberately not reused for any of this. It is the human planning layer — who is
 *accountable*, over a sprint — and an agent holding a row for forty minutes is a different fact.
 Collapsing the two would let a lease expiry silently un-assign a person.
+
+A rescan copies all four onto the **new** in-progress row (the restated roadmap match and an
+unpaired keep). `Recommendation.id` is a global unique PK and previous-scan rows stay, so the
+carried row is a new id — the previous id is recorded on the status-event note so a trailer that
+named it can still be mapped. A resolved-to-done copy nulls the claim fields (the work is closed).
+There is no mapping table: a second place to ask "who holds this" is the race the claim path exists
+to prevent. Dropping the claim at persist made a machine-held lease read as a human take
+(`in_progress` + `leaseUntil: null`) on the new row.
 
 Leases expire **lazily**: `sweepExpiredLeases` runs at the top of a claim, the same precedent
 `markStaleRunsStopped` sets on `GET /api/org/loop`. No cron entry is needed, and a claim path that
