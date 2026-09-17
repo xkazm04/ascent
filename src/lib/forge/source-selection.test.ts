@@ -8,12 +8,14 @@ import type { RepoFile } from "@/lib/types";
 const blob = (path: string): RepoFile => ({ path, type: "blob" });
 
 const EXACT_NAMES = [
-  "readme.md", "readme.rst", "claude.md", "agents.md", "agent.md", ".cursorrules", ".windsurfrules",
+  "readme.md", "readme", "readme.rst", "claude.md", "agents.md", "agent.md", ".cursorrules", ".windsurfrules",
   ".aider.conf.yml", "package.json", "pyproject.toml", "go.mod", "cargo.toml", "pom.xml", "build.gradle",
   "gemfile", "composer.json", "tsconfig.json", "eslint.config.js", "eslint.config.mjs", ".eslintrc.json",
   ".eslintrc.js", "biome.json", "ruff.toml", ".pre-commit-config.yaml", "contributing.md", "security.md",
-  "changelog.md", "codeowners", ".github/dependabot.yml", "renovate.json", ".renovaterc.json", "dockerfile",
+  "changelog.md", "codeowners", ".github/codeowners", "docs/codeowners", ".github/copilot-instructions.md",
+  ".github/dependabot.yml", "renovate.json", ".renovaterc.json", "dockerfile",
   "docker-compose.yml", "openapi.yaml", "openapi.json", "vercel.json",
+  ".ai/manifest.yaml", ".ai/manifest.yml", ".ai/guardrails.yaml", ".ai/guardrails.yml",
 ];
 
 function saturated(extra: string[]): RepoFile[] {

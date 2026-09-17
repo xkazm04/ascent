@@ -10,9 +10,10 @@ import { publicBaseUrl, siteDescription } from "@/lib/site";
 /** Turn a planPriceLabel amount into a schema.org Offer price, or null when it is not a paid number. */
 export function jsonLdOfferPrice(amount: string): string | null {
   const m = /^\$(\d+(?:\.\d+)?)$/.exec(amount);
-  if (!m) return null;
-  if (Number(m[1]) === 0) return null;
-  return m[1];
+  const raw = m?.[1];
+  if (raw === undefined) return null;
+  if (Number(raw) === 0) return null;
+  return raw;
 }
 
 type JsonLdOffer = {

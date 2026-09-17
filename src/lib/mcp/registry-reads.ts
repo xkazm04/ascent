@@ -89,7 +89,9 @@ export async function findSkills(org: string, args: Args): Promise<ToolResult> {
   // after rankSkills had already sliced meant a skill that lost a term-overlap race never entered
   // the pack, so the live invoke channel could not change who an agent saw. An id missing from the
   // map is "no evidence", which is exactly the 0 the model treats as the term's absence.
-  const usage = await getOrgSkillUsage(org).catch(() => ({}));
+  const usage = await getOrgSkillUsage(org).catch(
+    (): Awaited<ReturnType<typeof getOrgSkillUsage>> => ({}),
+  );
   const ranked = rankSkills(
     task,
     rows.map((r) => ({ ...r, invokes: usage[r.id]?.invokes ?? 0 })),

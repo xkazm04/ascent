@@ -155,7 +155,12 @@ describe("rankSkills", () => {
   it("does not let invokes surface a skill that does not match the task", () => {
     // FAIL-BEFORE: invoke bonus sat on the same score as term overlap, so a popular unrelated skill
     // scored > 0 and leaked into every result.
-    const popular = skill({ id: "pop", name: "onboarding", invokes: 10_000 });
+    const popular = skill({
+      id: "pop",
+      name: "onboarding",
+      description: "How we welcome new hires.",
+      invokes: 10_000,
+    });
     const relevant = skill({ id: "rel", name: "release-checklist" });
     const ranked = rankSkills("release", [popular, relevant], { weakDims: null });
     expect(ranked.map((r) => r.id)).toEqual(["rel"]);

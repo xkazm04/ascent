@@ -198,6 +198,8 @@ export function fixtureRegistryView(slug: string, demo: string | undefined): Reg
     };
   }
 
+  if (demo === "indexed") return indexedBase(slug);
+
   if (demo === "error") {
     const v = indexedBase(slug);
     return {
