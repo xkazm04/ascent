@@ -455,4 +455,25 @@ describe("computeSecurityChecks — a FAILED sensor read is unknown, never zero"
     expect(get(blind, "sast").score).toBeNull();
     expect(get(blind, "sast").evidence).toContain("not measurable from a worktree");
   });
+
+  it("a failed securityExposure read keeps known-vulnerabilities n/a — never a 0 finding, never a clean 10", () => {
+    // The bug: lockfile/OSV throws, fetchSecurityExposure swallowed it into UNKNOWN (known:false),
+    // ingest never recorded the sensor, and this check published "no lockfile / no alert access"
+    // for a read that did not run. Score is already n/a for a null exposure; the honesty is that
+    // a failure must not be graded as empty findings (score 10, 0 advisories).
+    const failed = computeSecurityChecks(snap(wf), gov(), null, null, null, { failedSensors: ["securityExposure"] });
+    const check = get(failed, "known-vulnerabilities");
+    expect(check.score).toBeNull();
+    expect(failed.exposure).toBeNull();
+    expect(failed.d9).toBe(failed.posture);
+    expect(check.remediation).toBeUndefined();
+    expect(check.evidence).not.toContain("No known open vulnerabilities");
+  });
+
+  it("UNKNOWN exposure (no lockfile) is n/a; a successful empty OSV read is the clean 10", () => {
+    const unknown: SecurityExposure = { known: false, source: "none", critical: 0, high: 0, medium: 0, low: 0, scanned: 0 };
+    const clean: SecurityExposure = { known: true, source: "osv", critical: 0, high: 0, medium: 0, low: 0, scanned: 400 };
+    expect(get(computeSecurityChecks(snap(wf), gov(), null, unknown), "known-vulnerabilities").score).toBeNull();
+    expect(get(computeSecurityChecks(snap(wf), gov(), null, clean), "known-vulnerabilities").score).toBe(10);
+  });
 });

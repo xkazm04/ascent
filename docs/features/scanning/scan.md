@@ -576,6 +576,13 @@ threw on `IngestPhaseResult.sensorFailures` (typed `ScanSensorId[]`, carried on
   "not observable: <sensor> read failed" and are **excluded** from the blend, through the same
   `githubCanRefuteZero` path a structurally blind scan already uses. A sensor that ran and found
   nothing scores exactly as before.
+- **`fetchSecurityExposure` lets lockfile/OSV read failures throw.** A missing `package-lock.json`
+  (404) or a non-npm ecosystem is still `known:false` = UNKNOWN (neutral, never "clean"). A
+  non-404 GitHub lockfile status, an OSV `querybatch` that is not ok, a network blip, or a
+  parse error **throws**, so ingest records `securityExposure` on `sensorFailures` and degrades
+  the value to `null`. Until this, those failures were swallowed into the same UNKNOWN a missing
+  lockfile produces, so the scan published "no lockfile / no alert access" for a read that did
+  not run (G4: a failed read is not empty findings).
 - Governance and platform folds are not given partial credit; the caveat is the record. An absent
   `platformSignals` record **plus** `appInventory`/`ciHealth` in `sensorFailures` means
   *unmeasured*; an absent record with nothing listed means the scan looked and measured nothing.
@@ -872,7 +879,10 @@ three workflows shows its first three in pick order.
 - **Lockfiles are read for exposure, not for pinning.** `src/lib/security/exposure.ts` already
   fetches and parses `package-lock.json` out-of-band and grades open known vulns via OSV (a
   stronger signal than pinned-vs-floating). Other ecosystems (`pnpm-lock.yaml`, `Cargo.lock`,
-  `go.sum`, `poetry.lock`) return `known:false` = UNKNOWN, treated as neutral, never "clean".
+  `go.sum`, `poetry.lock`) and a missing npm lockfile (404) return `known:false` = UNKNOWN,
+  treated as neutral, never "clean". A lockfile or OSV *read* that fails throws so ingest
+  records `securityExposure` as failed rather than collapsing into that UNKNOWN (see
+  [A failed sensor read is unknown, never zero](#a-failed-sensor-read-is-unknown-never-zero-2026-09-05)).
   Lockfiles are deliberately **not** added to `pickFilesToFetch`: they are large, low-signal-
   per-byte, and would displace README/manifests/source from the prompt window.
 
