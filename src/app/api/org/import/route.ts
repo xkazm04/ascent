@@ -40,6 +40,7 @@ import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { isValidHandle, isValidRepoName, listOrgRepos } from "@/lib/github/list";
 import { forgeFullName, parseForgeUrl } from "@/lib/forge/registry";
 import { gitlabForge } from "@/lib/forge/gitlab/source";
+import { getForgeInstallation, hostFromBase } from "@/lib/db/forge-installations";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, getViewer } from "@/lib/access";
 import { canMintInstallationToken, requireFleetOrg, requireOrgAccess } from "@/lib/authz";
@@ -235,6 +236,12 @@ export async function POST(request: Request) {
     if (peek.enforced) publicScanCapacity = peek.remaining;
   }
 
+  // Self-managed GitLab web root, when this org has configured one. Permalinks (and URL routing)
+  // take it so an imported project is not rewritten as gitlab.com.
+  const gitlabHost = await getForgeInstallation(org, "gitlab")
+    .then((row) => (row?.host ? hostFromBase(row.host) : undefined))
+    .catch(() => undefined);
+
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const send = makeSseSend(controller);
@@ -247,13 +254,13 @@ export async function POST(request: Request) {
           // parsed exactly as before. The forge-prefixed `fullName` here is the SAME identity the
           // persist layer writes, so an imported GitLab project lands on one row, not two.
           fullNames = body.repos.map((fn) => {
-            const routed = parseForgeUrl(fn);
+            const routed = parseForgeUrl(fn, gitlabHost);
             if (routed && routed.forge === "gitlab") {
               return {
                 owner: routed.owner,
                 name: routed.repo,
                 fullName: forgeFullName("gitlab", routed.owner, routed.repo),
-                url: gitlabForge.permalink({ owner: routed.owner, repo: routed.repo }),
+                url: gitlabForge.permalink({ owner: routed.owner, repo: routed.repo }, undefined, gitlabHost),
                 forge: "gitlab" as const,
               };
             }

@@ -21,6 +21,13 @@ vi.mock("@/lib/scan", () => ({ scanRepository: vi.fn() }));
 // credit-cap suite below DOES enter it, so stub the alert glue to keep the test hermetic.
 vi.mock("@/lib/scan-alerts", () => ({ maybeAlertLowCredits: vi.fn(async () => {}) }));
 let claimCounter = 0;
+vi.mock("@/lib/db/forge-installations", () => ({
+  getForgeInstallation: vi.fn(async () => null),
+  hostFromBase: (base: string) => {
+    const web = base.replace(/\/+$/, "");
+    return { apiBase: `${web}/api/v4`, webBase: web };
+  },
+}));
 vi.mock("@/lib/db/scan-jobs", () => ({
   // A won claim by default: every existing money/flow case in this file predates the queue and must
   // keep asserting exactly what it did. The contention case overrides it with null.
@@ -108,7 +115,8 @@ import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled } from "@/lib/access";
 import { canMintInstallationToken, requireOrgAccess } from "@/lib/authz";
 import { getInstallationToken } from "@/lib/github/app";
-import { consumeScanCredit, getInstallationIdForOwner, grantCredits, isByomActive, persistScanReport, reconcileListedRepos } from "@/lib/db";
+import { consumeScanCredit, getInstallationIdForOwner, grantCredits, isByomActive, persistScanReport, reconcileListedRepos, setRepoWatch } from "@/lib/db";
+import { getForgeInstallation } from "@/lib/db/forge-installations";
 import { listOrgRepos } from "@/lib/github/list";
 import { checkScanEntitlement } from "@/lib/entitlement";
 import { consumePublicScanQuota, peekPublicScanQuota, refundPublicScanQuota } from "@/lib/public-scan-quota";
@@ -880,5 +888,40 @@ describe("POST /api/org/import — the run id is emitted, not just used internal
     const idOf = (evs: { event: string; data: unknown }[]) =>
       (evs.find((e) => e.event === "queued")?.data as { runId: string }).runId;
     expect(idOf(a)).not.toBe(idOf(b));
+  });
+});
+
+describe("POST /api/org/import — GitLab permalinks use the configured web host", () => {
+  beforeEach(() => {
+    mockScan.mockResolvedValue(report as ScanReport);
+    vi.mocked(rateLimitRequestShared).mockResolvedValue({ ok: true });
+    vi.mocked(getForgeInstallation).mockResolvedValue(null);
+  });
+
+  it("writes a gitlab.com permalink when no self-managed host is stored", async () => {
+    await runImport({ org: "acme", repos: ["gitlab:group/project"], mock: true });
+    expect(setRepoWatch).toHaveBeenCalledWith(
+      "acme",
+      expect.objectContaining({
+        fullName: "gitlab:group/project",
+        url: "https://gitlab.com/group/project",
+      }),
+      true,
+    );
+  });
+
+  it("writes permalinks on the stored self-managed web host", async () => {
+    vi.mocked(getForgeInstallation).mockResolvedValue({
+      host: "https://gitlab.acme.com",
+    } as Awaited<ReturnType<typeof getForgeInstallation>>);
+    await runImport({ org: "acme", repos: ["https://gitlab.acme.com/group/sub/project"], mock: true });
+    expect(setRepoWatch).toHaveBeenCalledWith(
+      "acme",
+      expect.objectContaining({
+        fullName: "gitlab:group/sub/project",
+        url: "https://gitlab.acme.com/group/sub/project",
+      }),
+      true,
+    );
   });
 });

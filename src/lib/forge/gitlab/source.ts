@@ -307,8 +307,8 @@ export const gitlabForge: Forge = {
       deployments: (owner, repo, token) => fetchGitlabDeployments(`${owner}/${repo}`, { token, host }),
     };
   },
-  permalink(repo: ParsedRepo, sha?: string): string {
-    const base = `${gitlabWebBase()}/${gitlabFullPath(repo)}`;
+  permalink(repo: ParsedRepo, sha?: string, host?: ForgeHost): string {
+    const base = `${gitlabWebBase(host)}/${gitlabFullPath(repo)}`;
     return sha ? `${base}/-/tree/${sha}` : base;
   },
 };

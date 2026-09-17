@@ -177,8 +177,9 @@ export interface Forge {
   source(host?: ForgeHost): RepoSource;
   /** The enrichment set, or undefined when this forge has none (`local`). */
   enrich?(host?: ForgeHost): EnrichmentSource;
-  /** A human-facing web link to the repo (optionally pinned to a commit). */
-  permalink(repo: ParsedRepo, sha?: string): string;
+  /** A human-facing web link to the repo (optionally pinned to a commit).
+   *  `host` is the self-managed web root; unset ⇒ the forge's public host. */
+  permalink(repo: ParsedRepo, sha?: string, host?: ForgeHost): string;
 }
 
 // ── The declarations lifted out of `src/lib/github/source.ts` ────────────────────────────────────

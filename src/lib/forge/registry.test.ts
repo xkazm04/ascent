@@ -140,4 +140,24 @@ describe("forge registry", () => {
     // A working copy has no web home; a fabricated github.com URL for unpushed code would be a lie.
     expect(localForge.permalink({ owner: "acme", repo: "app" })).toBe("local:acme/app");
   });
+
+  it("builds GitLab permalinks on the configured self-managed web host", () => {
+    const host = { apiBase: "https://gitlab.acme.com/api/v4", webBase: "https://gitlab.acme.com///" };
+    expect(gitlabForge.permalink({ owner: "g/s", repo: "p" }, undefined, host)).toBe(
+      "https://gitlab.acme.com/g/s/p",
+    );
+    expect(gitlabForge.permalink({ owner: "g/s", repo: "p" }, "abc", host)).toBe(
+      "https://gitlab.acme.com/g/s/p/-/tree/abc",
+    );
+    // Unset still means gitlab.com — a missing Installation.host must not invent a private origin.
+    expect(gitlabForge.permalink({ owner: "g/s", repo: "p" })).toBe("https://gitlab.com/g/s/p");
+  });
+
+  it("overlays a passed GitHub web host on permalinks", () => {
+    expect(githubForge.permalink(
+      { owner: "o", repo: "r" },
+      "abc",
+      { apiBase: "https://ghe.acme.com/api/v3", webBase: "https://ghe.acme.com" },
+    )).toBe("https://ghe.acme.com/o/r/tree/abc");
+  });
 });
