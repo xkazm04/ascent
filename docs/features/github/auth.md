@@ -9,9 +9,12 @@ no working sign-in.
 | **Supabase GitHub OAuth** | **ACTIVE** (the production login wall) | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `src/lib/access.ts`, `src/app/auth/callback` |
 | Custom GitHub OAuth | **Dormant** (kept, unconfigured in production) | `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`, `AUTH_SECRET` | `src/lib/auth.ts`, `src/app/api/auth/*` |
 
-Auth is **optional** in either case. With neither stack configured the whole app
-works anonymously: public scans, the gate, even DB-backed reads of public
-orgs. No GitHub access token is ever persisted to the client.
+Auth is **optional**. With the Supabase wall off — neither stack, or custom-OAuth
+only — the whole app works anonymously: public scans, the gate, even DB-backed
+reads of public orgs. Custom-OAuth-only is treated as auth-off because
+`GET /api/auth/login` redirects `auth_stack_retired` unless Supabase is also
+configured, so a GitHub OAuth button there cannot sign anyone in. No GitHub
+access token is ever persisted to the client.
 
 Supabase dashboard setup is a one-time manual prerequisite: Authentication →
 Providers → enable GitHub with a GitHub OAuth App's client ID/secret (its callback
@@ -86,10 +89,14 @@ mid-session would be silently signed out on the next navigation. It short-circui
 when `!authGateEnabled()`.
 
 **Sign-in prompt**: `src/lib/signin-gate.ts` decides *whether* to prompt and *which
-button* to show (`provider: "supabase" | "github"`), checking the active wall first.
-This exists because pages used to open-code `isAuthConfigured() && !session`, a
-predicate keyed on the dormant stack, so the prompt never fired, and where it did
-it offered the dormant button, which dead-ends at `/connect?error=not_configured`.
+button* to show, checking the active Supabase wall first. The dormant custom-OAuth
+button (`provider: "github"`) is never offered: `GET /api/auth/login` redirects
+`auth_stack_retired` unless Supabase is also configured, and even then the gate
+only offers `supabase`. A custom-OAuth-only env is treated as auth-off / demo
+(`needsSignIn: false`). This exists because pages used to open-code
+`isAuthConfigured() && !session`, a predicate keyed on the dormant stack, so the
+prompt never fired in production, and where it did it offered a button that
+cannot sign anyone in.
 
 **UI**: `src/components/SupabaseAuthButtons.tsx` (`SupabaseSignInButton` /
 sign-out) drives the browser → Supabase → GitHub → `/auth/callback` redirect. It's
@@ -104,7 +111,7 @@ identical either way. `SignInNotice.tsx` distinguishes "Your session expired" fr
 | `/auth/callback` | `GET` | **Supabase.** Exchanges the PKCE `?code=` for a session (setting auth cookies), then redirects to `?next=` (run through `safeNext()` so a tampered value can't bounce to an external origin). Defaults to `/launch`. Also **seeds the watchlist** from the exchange's GitHub `provider_token`, deferred via `after()` so sign-in latency is untouched (see [Org auto-discovery](#org-auto-discovery-srclibgithubdiscoverts)). |
 | `/api/auth/session` | `GET` | Dual-stack JSON session status for client components and "session expires in N minutes" nudges. Under the Supabase wall the Supabase viewer is reported, `installations` is always `[]` (App installs resolve per-org via `canReadOrg`), and `expiresAt` is null (Supabase refreshes its own tokens). Otherwise falls through to custom-OAuth state. No token is ever in the payload. |
 | `/api/auth/viewer` | `GET` | The *effective* viewer for client components (the scan form's notify control), honoring the dev bypass viewer, unlike a raw client-side Supabase call. Returns `{ signedIn, email, gated }`. |
-| `/api/auth/login` | `GET` | **Dormant stack.** CSRF `state` cookie + `next` cookie, redirect to `{githubWebBase()}/login/oauth/authorize` with scope `read:user read:org`. |
+| `/api/auth/login` | `GET` | **Dormant stack, retired as a sign-in path.** Requires `isAuthConfigured()`, then `supabaseAuthConfigured()`; otherwise redirects `/onboarding?error=auth_stack_retired`. The sign-in gate never offers this button when that bounce would fire, and still only offers `supabase` when both stacks are configured. Otherwise CSRF `state` cookie + `next` cookie, redirect to `{githubWebBase()}/login/oauth/authorize` with scope `read:user read:org`. |
 | `/api/auth/callback` | `GET` | **Dormant stack.** Verify `state`, exchange `code` at `{githubWebBase()}/login/oauth/access_token`, fetch user + App installations, `upsertInstallation()` each, auto-discover orgs, set the signed session. The GitHub token is used here and discarded. |
 | `/api/auth/logout` | `POST` | Same-origin check, bump the login's session version (server-side revocation), delete the cookie, redirect to `/`. |
 | `/api/auth/revoke-sessions` | `POST` | **Dual-stack** "sign out everywhere else". Under the wall: `supabase.auth.signOut({ scope: "others" })`, which revokes every other refresh token server-side and deliberately leaves *this* browser signed in; a failed revoke reports `?error=revoke` rather than claiming success. Dormant stack: bumps the session version so other devices and any leaked cookie copy are rejected, re-minting *this* cookie at the new version (best-effort: with no DB there is no revocation authority). POST-only + same-origin either way, mirroring logout's CSRF guard. |
@@ -113,9 +120,11 @@ identical either way. `SignInNotice.tsx` distinguishes "Your session expired" fr
 
 ## The dormant stack (`src/lib/auth.ts`)
 
-Still present and fully implemented; unconfigured in production. Documented because
-it remains the code path when `GITHUB_OAUTH_*` **is** configured (some local and
-e2e setups), and because `resolveViewerLogin()` still gives it precedence.
+Still present and fully implemented; unconfigured in production. The sign-in gate
+no longer treats `GITHUB_OAUTH_*` as a reason to prompt: a custom-only env is
+auth-off / demo, because `/api/auth/login` would bounce `auth_stack_retired`.
+Documented because the routes remain and `resolveViewerLogin()` still gives the
+custom session precedence.
 
 `buildAuthorizeUrl()` and `exchangeCodeForToken()` talk to the GitHub **web** host —
 `{githubWebBase()}/login/oauth/authorize` and `POST {githubWebBase()}/login/oauth/access_token`.
