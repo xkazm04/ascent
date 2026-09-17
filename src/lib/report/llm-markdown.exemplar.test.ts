@@ -12,7 +12,7 @@ import { exemplarMarkdownSection, reportLlmMarkdown } from "./llm-markdown";
 import { diffAcrossRepos, transferJoin, type ExemplarProfile } from "./exemplar";
 import type { ComparableDimension, ComparableScan } from "@/lib/db/scans";
 import type { MinedPractice } from "@/lib/org/practice-mining";
-import type { ScanReport } from "@/lib/types";
+import type { Discrepancy, ScanReport, ScoreIntegrity } from "@/lib/types";
 
 function report(): ScanReport {
   return {
@@ -157,5 +157,64 @@ describe("exemplarMarkdownSection", () => {
   it("states an ineligible subject in the basis instead of hiding the mismatch", () => {
     const d = diffAcrossRepos(subject([dim("D2")]), profile([dim("D2")]), { subjectEligible: false });
     expect(exemplarMarkdownSection({ diff: d })).toContain("measured differently");
+  });
+});
+
+// G1: a non-empty discrepancies list is LLM-vs-detector disagreement. The in-app panel already
+// names each flag and its outcome; the briefing a model acts on must too. Empty/absent stays
+// byte-identical to the pre-change fixture (the test above).
+describe("reportLlmMarkdown discrepancies (G1)", () => {
+  const flag = (dimension: Discrepancy["dimension"], claim: string): Discrepancy => ({ dimension, claim });
+  const integrity = (over: Partial<ScoreIntegrity> = {}): ScoreIntegrity => ({
+    d9Unmeasurable: false,
+    widenedDims: [],
+    effectiveBlend: 0.6,
+    ...over,
+  });
+
+  it("omits the section when discrepancies is empty or absent (byte-stable with PRE_CHANGE)", () => {
+    expect(reportLlmMarkdown(fixtureReport())).not.toContain("Flagged for review");
+    const empty = report();
+    (empty as ScanReport).discrepancies = [];
+    expect(reportLlmMarkdown(empty)).not.toContain("Flagged for review");
+  });
+
+  it("emits each flag and its recorded outcome when the list is non-empty", () => {
+    const r = report();
+    r.discrepancies = [
+      flag("D3", "Detector missed CI-inline lint enforced off-GitHub."),
+      flag("D9", "CodeQL runs via default setup; the file scan cannot see it."),
+      flag("D5", "README documents the harness the detector scored as absent."),
+    ];
+    r.scoreIntegrity = integrity({ widenedDims: ["D3"], d9Unmeasurable: true });
+    const md = reportLlmMarkdown(r);
+    expect(md).toContain("## Flagged for review");
+    expect(md).toContain("**D3**: Detector missed CI-inline lint enforced off-GitHub. · **widened**");
+    expect(md).toContain("**D9**: CodeQL runs via default setup; the file scan cannot see it. · **D9 dropped as unmeasurable**");
+    expect(md).toContain("**D5**: README documents the harness the detector scored as absent. · **structurally ineligible**");
+    expect(md).toContain("Do not treat the blended scores on these dimensions as uncontested");
+    expect(md).toContain("do not present their blended scores as uncontested");
+    // Lands with the score narrative, before the ask a model will execute.
+    expect(md.indexOf("## Flagged for review")).toBeGreaterThan(md.indexOf("## Risks"));
+    expect(md.indexOf("## Flagged for review")).toBeLessThan(md.indexOf("## Roadmap"));
+    expect(md.indexOf("## Flagged for review")).toBeLessThan(md.indexOf("## Ask"));
+  });
+
+  it("says lost to the budget when the audit blew the per-scan cap, and does not claim a widen", () => {
+    const r = report();
+    r.discrepancies = [flag("D3", "missed evidence"), flag("D9", "invisible control")];
+    r.scoreIntegrity = integrity({ widenCapped: true, d9Unmeasurable: true, widenedDims: [] });
+    const md = reportLlmMarkdown(r);
+    expect(md).toContain("**lost to the budget**");
+    expect(md).not.toContain("**widened**");
+    expect(md).not.toContain("**D9 dropped as unmeasurable**");
+  });
+
+  it("refuses to guess an outcome on a snapshot written before scoreIntegrity existed", () => {
+    const r = report();
+    r.discrepancies = [flag("D2", "A test.js file is present but D2 detected 0 tests.")];
+    r.scoreIntegrity = undefined;
+    const md = reportLlmMarkdown(r);
+    expect(md).toContain("**D2**: A test.js file is present but D2 detected 0 tests. · **outcome not recorded**");
   });
 });

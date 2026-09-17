@@ -155,7 +155,7 @@ fresh scan in place.
    verdicts (self-approval is normal in a single-maintainer repo).
 10. **Next-level path**: fastest dimensions to close, then either `RoadmapSteps` (no DB)
     or the interactive `RecommendationTracker` (DB-backed, see below).
-11. **Discrepancies**: claims where the LLM questioned a deterministic signal.
+11. **Discrepancies**: claims where the LLM questioned a deterministic signal. The paid PDF (`ReportDocument`) and the LLM briefing (`reportLlmMarkdown`, Copy-for-LLM / `GET /api/report/llm`) emit the same non-empty list with each row's recorded outcome; an empty array omits the section, matching this panel. G1: disagreement is not dropped or softened when the report leaves the page.
 
 `ReportView` also reconciles the live report against persisted history on mount: it fetches
 `/api/history` + `/api/recommendations`, builds the chronological trend points (appending
@@ -751,6 +751,8 @@ order mirrors the engine's own order of operations:
 | `structurally ineligible` | recorded, but it could not move this score (deterministic dimension, unmeasured, or never reached the blend). | No |
 | `outcome not recorded` | a snapshot written before `scoreIntegrity` existed. An absent record is not evidence the claim was ignored. | Unknown |
 
+The same rows travel with the report when it leaves the page. `reportLlmMarkdown()` and `ReportDocument` both emit every non-empty `discrepancies` entry with the outcome `discrepancyOutcome()` derived from `scoreIntegrity`, so the PDF and the Copy-for-LLM / `GET /api/report/llm` briefing cannot drop or soften LLM-vs-detector disagreement (G1). An empty array omits the section, matching the in-app panel.
+
 ## Share exports (`GET /api/report/llm`, `GET /api/report/share-card`)
 
 The shared Copy for LLM control removes its temporary legacy clipboard element even
@@ -764,7 +766,7 @@ read-gated by the owning org (`readableOrgForOwner` → `requireOrgRead`, gate b
 
 | Route | Output | Plan-gated? |
 | --- | --- | --- |
-| `/api/report/llm` | `text/markdown`, the LLM briefing (headline, dimension table, gaps, roadmap, "Ask"). | **No.** |
+| `/api/report/llm` | `text/markdown`, the LLM briefing (headline, dimension table, gaps, Flagged-for-review discrepancies when present, roadmap, "Ask"). | **No.** |
 | `/api/report/share-card` | `image/png` (attachment), the 1200×630 score card. | **No.** |
 | `/api/report/pdf` | `application/pdf` (attachment). | **Yes**, the lowest paid tier (`pro`, shown as Starter) and up. |
 
@@ -783,7 +785,10 @@ The PDF, by contrast, is a distinct rendered deliverable sold as an entitlement.
 
 Both carry the report's caveats, because both travel detached from the page that would otherwise
 explain them: the markdown leads with an `incomplete` warning, a mock-provenance block ("no language
-model contributed"), and the scan's `warnings`; the card **refuses to draw a number at all** for an
+model contributed"), and the scan's `warnings`; a non-empty `discrepancies` list becomes a **Flagged
+for review** section naming each claim and its recorded outcome (widened / lost to the budget / D9
+dropped as unmeasurable / structurally ineligible / outcome not recorded) so a model cannot treat
+those blended scores as uncontested (G1). The card **refuses to draw a number at all** for an
 `incomplete` scan (a renormalized 0/100 is not a measurement) and shows a DEMO badge for a
 mock-engine report.
 
@@ -975,11 +980,11 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/app/api/report/foundation/pr/route.ts` | Draft PR seeding the generated `.ai/` foundation. Admin-gated (see above). |
 | `src/app/api/report/conformance/route.ts` | `.ai/` conformance ingest: org-bound auth, clamping, ledger write. The legacy shared `CONFORMANCE_INGEST_TOKEN` is compared with `crypto.timingSafeEqual`, matching the per-org token path. |
 | `src/app/api/report/llm/route.ts` | Machine-readable markdown export: the "Copy for LLM" payload as a fetchable endpoint. |
-| `src/lib/report/llm-markdown.ts` | `reportLlmMarkdown()`: the single briefing generator behind both the copy chip and the endpoint. Pure/client-safe and deterministic. |
+| `src/lib/report/llm-markdown.ts` | `reportLlmMarkdown()`: the single briefing generator behind both the copy chip and the endpoint. Pure/client-safe and deterministic. Emits a Flagged-for-review section (claim + `discrepancyOutcome` label/hint) when `discrepancies` is non-empty (G1). |
 | `src/app/api/report/share-card/route.ts` | Downloadable PNG share card (attachment), rendered from the shared OG card. |
 | `src/lib/og/report-card.tsx` | `ReportShareCard`: the 1200×630 artwork shared by the permalink's `opengraph-image` and the share-card download. |
 | `src/app/api/report/pdf/route.ts` | Single-report PDF export. Read-gated by the owning org, then plan-gated (`planAllowsPdfExport`, the lowest paid tier `pro` and up); `PUBLIC_ORG` reports are exempt from the plan check, matching the unmetered public-scan model. |
-| `src/lib/pdf/report-document.tsx` | The exported PDF's layout (`@react-pdf/renderer`). Includes a "Roadmap & recommendations" section (title, impact/effort, rationale, sorted quick-wins-first, same ordering as the in-app roadmap), a caveat box surfacing `report.warnings` near the top, and a fallback "Incomplete scan" banner for a sparse/zero-dimension report so a degraded scan's PDF reads as caveated rather than a confident empty document. |
+| `src/lib/pdf/report-document.tsx` | The exported PDF's layout (`@react-pdf/renderer`). Includes a "Roadmap & recommendations" section (title, impact/effort, rationale, sorted quick-wins-first, same ordering as the in-app roadmap), a caveat box surfacing `report.warnings` near the top, a fallback "Incomplete scan" banner for a sparse/zero-dimension report so a degraded scan's PDF reads as caveated rather than a confident empty document, and a "Flagged for review" section listing each LLM-vs-detector discrepancy with its recorded outcome so a board PDF cannot hide disagreement the in-app report shows (G1). |
 | `src/components/report/ReportClient.tsx` | Live-scan orchestration: SSE stream, progress UI, validation. |
 | `src/components/report/ReportPermalinkShare.tsx` | The header's Permalink control: the canonical URL, the commit-pinned URL, and the README markdown carrying the level line. |
 | `src/components/report/discrepancyOutcome.ts` | Derives one outcome word per "Flagged for review" row from `report.scoreIntegrity` (pure; no stored second copy to drift). |

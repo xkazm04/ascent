@@ -19,7 +19,7 @@ import { describe, it, expect, vi } from "vitest";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { ReportDocument } from "./report-document";
-import type { ScanReport, DimensionResult, MaturityLevel, RepoMeta, Posture } from "@/lib/types";
+import type { ScanReport, DimensionResult, Discrepancy, MaturityLevel, RepoMeta, Posture, ScoreIntegrity } from "@/lib/types";
 
 // The `renderToBuffer` cases below drive the REAL @react-pdf pipeline (font registration, layout,
 // PDF serialization) rather than inspecting an element tree, so they are genuinely slow — they pass
@@ -350,6 +350,78 @@ describe("ReportDocument — roadmap & recommendations section (G5-09)", () => {
   });
 });
 
+// ── G1: LLM-vs-detector discrepancies must survive into the paid PDF ────────────────────────────────
+describe("ReportDocument — Flagged for review discrepancies (G1)", () => {
+  const flag = (dimension: Discrepancy["dimension"], claim: string): Discrepancy => ({ dimension, claim });
+  const integrity = (over: Partial<ScoreIntegrity> = {}): ScoreIntegrity => ({
+    d9Unmeasurable: false,
+    widenedDims: [],
+    effectiveBlend: 0.6,
+    ...over,
+  });
+
+  it("omits the section entirely when discrepancies is empty", () => {
+    const texts = tree(makeReport({ discrepancies: [] })).map(textOf);
+    expect(texts).not.toContain("Flagged for review");
+  });
+
+  it("emits each flag and its recorded outcome when the list is non-empty", () => {
+    const texts = tree(
+      makeReport({
+        discrepancies: [
+          flag("D3", "Detector missed CI-inline lint enforced off-GitHub."),
+          flag("D9", "CodeQL runs via default setup; the file scan cannot see it."),
+          flag("D5", "README documents the harness the detector scored as absent."),
+        ],
+        scoreIntegrity: integrity({ widenedDims: ["D3"], d9Unmeasurable: true }),
+      }),
+    ).map(textOf);
+    expect(texts).toContain("Flagged for review");
+    expect(texts).toContain("D3");
+    expect(texts).toContain("Detector missed CI-inline lint enforced off-GitHub.");
+    expect(texts).toContain("widened");
+    expect(texts).toContain("D9");
+    expect(texts).toContain("CodeQL runs via default setup; the file scan cannot see it.");
+    expect(texts).toContain("D9 dropped as unmeasurable");
+    expect(texts).toContain("D5");
+    expect(texts).toContain("README documents the harness the detector scored as absent.");
+    expect(texts).toContain("structurally ineligible");
+    expect(texts.some((t) => /uncontested/.test(t))).toBe(true);
+  });
+
+  it("says lost to the budget when the audit blew the per-scan cap, and does not claim a widen", () => {
+    const texts = tree(
+      makeReport({
+        discrepancies: [flag("D3", "missed evidence"), flag("D9", "invisible control")],
+        scoreIntegrity: integrity({ widenCapped: true, d9Unmeasurable: true, widenedDims: [] }),
+      }),
+    ).map(textOf);
+    expect(texts.filter((t) => t.trim() === "lost to the budget").length).toBe(2);
+    expect(texts).not.toContain("widened");
+    expect(texts).not.toContain("D9 dropped as unmeasurable");
+  });
+
+  it("refuses to guess an outcome on a snapshot written before scoreIntegrity existed", () => {
+    const texts = tree(
+      makeReport({
+        discrepancies: [flag("D2", "A test.js file is present but D2 detected 0 tests.")],
+        scoreIntegrity: undefined,
+      }),
+    ).map(textOf);
+    expect(texts).toContain("outcome not recorded");
+    expect(texts).toContain("A test.js file is present but D2 detected 0 tests.");
+  });
+
+  it("truncates a very long claim with an ellipsis instead of rendering it in full", () => {
+    const long = "x".repeat(1000);
+    const texts = tree(makeReport({ discrepancies: [flag("D3", long)] })).map(textOf);
+    const rendered = texts.find((t) => t.startsWith("xxxx"));
+    expect(rendered).toBeDefined();
+    expect(rendered!.length).toBeLessThan(long.length);
+    expect(rendered!.endsWith("…")).toBe(true);
+  });
+});
+
 // ── G5-22: long owner/name soft-break + auto-scale ──────────────────────────────────────────────────
 describe("ReportDocument — long ref title (G5-22)", () => {
   // Match the h1 <Text>'s OWN text exactly (stripping the soft-break zero-width space) rather than
@@ -436,6 +508,18 @@ describe("ReportDocument — full renderToBuffer never throws on edge reports", 
         { title: "Item B", dimension: "D2", impact: "medium", effort: "medium", rationale: "Short rationale." },
         { title: "Item C", dimension: "D3", impact: "low", effort: "high", rationale: "" },
       ],
+    });
+    const buf = await renderToBuffer(ReportDocument({ report }) as ReactElement);
+    expect(buf.length).toBeGreaterThan(0);
+  });
+
+  it("renders a report with flagged discrepancies without throwing", async () => {
+    const report = makeReport({
+      discrepancies: [
+        { dimension: "D3", claim: "Detector missed CI-inline lint enforced off-GitHub." },
+        { dimension: "D9", claim: "CodeQL runs via default setup." },
+      ],
+      scoreIntegrity: { d9Unmeasurable: true, widenedDims: ["D3"], effectiveBlend: 0.6 },
     });
     const buf = await renderToBuffer(ReportDocument({ report }) as ReactElement);
     expect(buf.length).toBeGreaterThan(0);

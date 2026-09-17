@@ -249,4 +249,25 @@ describe("reportLlmMarkdown honesty contract", () => {
   it("is deterministic — the same report renders the same bytes (what makes the equality test mean anything)", () => {
     expect(reportLlmMarkdown(REPORT)).toBe(reportLlmMarkdown(makeReport()));
   });
+
+  it("carries LLM-vs-detector discrepancies and their recorded outcomes (G1)", () => {
+    const md = reportLlmMarkdown(
+      makeReport({
+        discrepancies: [
+          { dimension: "D3", claim: "Detector missed the CI gate." },
+          { dimension: "D9", claim: "CodeQL runs via default setup." },
+        ],
+        scoreIntegrity: { d9Unmeasurable: true, widenedDims: ["D3"], effectiveBlend: 0.6 },
+      }),
+    );
+    expect(md).toContain("## Flagged for review");
+    expect(md).toContain("**D3**: Detector missed the CI gate. · **widened**");
+    expect(md).toContain("**D9**: CodeQL runs via default setup. · **D9 dropped as unmeasurable**");
+    expect(md).toContain("Do not treat the blended scores on these dimensions as uncontested");
+    expect(md.indexOf("## Flagged for review")).toBeLessThan(md.indexOf("## Ask"));
+  });
+
+  it("omits Flagged for review when the auditor flagged nothing", () => {
+    expect(reportLlmMarkdown(REPORT)).not.toContain("Flagged for review");
+  });
 });

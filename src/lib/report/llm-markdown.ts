@@ -12,7 +12,9 @@
 // chips the page renders around the number. So every caveat the report UI shows must survive into the
 // text: mock-vs-LLM provenance (`engine.provider === "mock"` means NO model contributed — the scores
 // are the deterministic rubric), `incomplete` (nothing could be scored; 0/L1 is not a measurement),
-// and the scan's own `warnings`. These lead the document rather than trail it.
+// the scan's own `warnings`, and LLM-vs-detector `discrepancies` (G1: disagreement is listed with its
+// recorded outcome, never dropped or softened). Incomplete/mock/warnings lead the document; flagged
+// claims sit with the score narrative so a model cannot treat a blended number as uncontested.
 
 import type { ScanReport } from "@/lib/types";
 import { isIncompleteReport } from "@/lib/scoring/gate";
@@ -20,6 +22,7 @@ import type { LiftDistribution } from "@/lib/outcomes/aggregate";
 import { expectedLiftClause } from "@/lib/outcomes/expected-lift";
 import { recommendationMatchKey } from "@/lib/report/rec-identity";
 import type { ExemplarDiff, TransferRow } from "@/lib/report/exemplar";
+import { discrepancyOutcome } from "@/components/report/discrepancyOutcome";
 
 /** Optional context a caller can fold into the briefing. Everything here is additive and omittable. */
 export interface ReportMarkdownOptions {
@@ -111,6 +114,29 @@ function roadmapMeta(item: ScanReport["roadmap"][number]): string {
 /** Collapse newlines/pipes so a model-written summary can't break out of a markdown table row. */
 function cell(s: string): string {
   return s.replace(/\s*\n\s*/g, " ").replace(/\|/g, "\\|").trim();
+}
+
+/**
+ * G1: the in-app "Flagged for review" panel (`ReportDiscrepancies`) must survive into the briefing a
+ * model will act on. Same outcome derivation the page uses (`discrepancyOutcome`), so an export cannot
+ * disagree with the chip about what a claim did. Omitted entirely when the array is empty or absent
+ * (legacy fixtures / mock scans) — that omission is what keeps the pre-change byte fixture stable.
+ */
+function discrepancySection(report: ScanReport): string[] {
+  const flags = report.discrepancies ?? [];
+  if (flags.length === 0) return [];
+  const lines = [
+    "## Flagged for review",
+    "",
+    "The AI auditor flagged these deterministic signals as possibly wrong. Each row records the claim and what it did to the score. Do not treat the blended scores on these dimensions as uncontested.",
+    "",
+  ];
+  for (const d of flags) {
+    const outcome = discrepancyOutcome(d, report.scoreIntegrity);
+    lines.push(`- **${d.dimension}**: ${d.claim} · **${outcome.label}** · ${outcome.hint}`);
+  }
+  lines.push("");
+  return lines;
 }
 
 /**
@@ -216,6 +242,10 @@ export function reportLlmMarkdown(report: ScanReport, options: ReportMarkdownOpt
     out.push("");
   }
 
+  // After the score narrative, before the roadmap a model might execute: contested dimensions must
+  // be named (and their recorded outcome stated) so blended scores cannot be read as uncontested.
+  out.push(...discrepancySection(report));
+
   if (report.roadmap.length > 0) {
     out.push("## Roadmap");
     out.push("");
@@ -244,6 +274,7 @@ export function reportLlmMarkdown(report: ScanReport, options: ReportMarkdownOpt
   // --- The ask. What the pasting developer wants the model to DO with all of the above. ---
   out.push("## Ask");
   out.push("");
+  const flagged = (report.discrepancies ?? []).length > 0;
   out.push(
     incomplete
       ? "This scan produced no usable measurement. Do not plan work from the scores above; say so, and " +
@@ -251,7 +282,11 @@ export function reportLlmMarkdown(report: ScanReport, options: ReportMarkdownOpt
       : "Using the report above, propose the smallest set of concrete changes to this repository that " +
           "would raise the weakest dimensions, in priority order. Ground every proposal in the gaps " +
           "named above, flag any that don't apply to this codebase and why, and don't invent findings " +
-          "the report doesn't contain." + (isMock ? " Note that these scores are deterministic signal readings, not model analysis." : ""),
+          "the report doesn't contain." +
+          (flagged
+            ? " Dimensions under Flagged for review are contested LLM-vs-detector disagreements; do not present their blended scores as uncontested."
+            : "") +
+          (isMock ? " Note that these scores are deterministic signal readings, not model analysis." : ""),
   );
   out.push("");
   out.push("---");

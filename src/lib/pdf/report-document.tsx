@@ -9,6 +9,7 @@ import { isIncompleteReport } from "@/lib/scoring/gate";
 import { IMPACT_RANK } from "@/lib/scoring/impact";
 import { ACCENT, FAINT, LINE, MUTED, baseStyles, scoreColor, Footer } from "./theme";
 import { latin1Safe } from "./latin1";
+import { discrepancyOutcome } from "@/components/report/discrepancyOutcome";
 
 // report-document keeps its own h1 (fontSize 22) and rule (marginVertical 16) — these legitimately
 // differ from the 24/14 used by briefing/security, so they are NOT hoisted into the shared theme.
@@ -95,6 +96,10 @@ export function ReportDocument({ report }: { report: ScanReport }) {
   const warnings = report.warnings ?? [];
   const hasIncompleteWarning = warnings.some((w) => /incomplete/i.test(w));
   const orderedRoadmap = [...report.roadmap].sort((a, b) => roadmapPriority(b) - roadmapPriority(a));
+  // G1: a non-empty discrepancies list is the machine-readable LLM-vs-detector disagreement the
+  // in-app panel already shows. Absent on reconstructed/legacy snapshots; treat that as empty so a
+  // sparse export never throws over a missing array.
+  const flags = report.discrepancies ?? [];
 
   return (
     <Document title={`Ascent maturity report — ${ref}`} author="Ascent" subject="AI-native engineering maturity">
@@ -234,6 +239,33 @@ export function ReportDocument({ report }: { report: ScanReport }) {
                 ) : null}
               </View>
             ))}
+          </View>
+        )}
+
+        {/* G1: Flagged-for-review must leave the building with the report. Same outcome words the
+            in-app panel derives (`discrepancyOutcome` from scoreIntegrity) so a board PDF cannot
+            present blended scores as uncontested. Omitted when empty, matching ReportDiscrepancies. */}
+        {flags.length > 0 && (
+          <View>
+            <View wrap={false} minPresenceAhead={28}>
+              <View style={styles.rule} />
+              <Text style={baseStyles.sectionH}>Flagged for review</Text>
+            </View>
+            <Text style={styles.dimSummary}>
+              The AI auditor flagged these deterministic signals as possibly wrong. Each row records the claim and what it did to the score. Do not treat blended scores on these dimensions as uncontested.
+            </Text>
+            {flags.map((d, i) => {
+              const outcome = discrepancyOutcome(d, report.scoreIntegrity);
+              return (
+                <View key={`${d.dimension}-${i}`} style={styles.dimRow} wrap={false}>
+                  <View style={styles.dimHead}>
+                    <Text style={styles.dimName}>{d.dimension}</Text>
+                    <Text style={{ fontFamily: "Helvetica-Bold", color: "#b45309" }}>{outcome.label}</Text>
+                  </View>
+                  <Text style={styles.dimSummary}>{latin1Safe(truncateText(d.claim, MAX_DIM_SUMMARY_CHARS))}</Text>
+                </View>
+              );
+            })}
           </View>
         )}
 
