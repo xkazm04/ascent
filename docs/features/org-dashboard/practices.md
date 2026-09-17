@@ -503,6 +503,19 @@ Playbook applies stamp the same ledger under `playbook:<uuid>` beside the existi
 the default branch is the merge evidence). Adoption rows and pattern versions are strictly
 org-internal: no public report, leaderboard, shared corpus or cross-org read.
 
+## Governance perimeter: advisory findings on the repo node (2026-09-17)
+
+The AI-stance apply path reuses this writer's `openArtifactDraftPr` (see *Shared write path* above).
+The published `AI_POLICY.md` is the committed form of the Governance perimeter, whose repo node is
+`RepoNode` in `src/features/standing/governance/stance/perimeterParts.tsx`.
+
+`evaluateStanceCompliance` already emits path-scoped no-AI zones as `advisory: true` findings
+(compliant stays true because every finding is advisory). The node used to drop them
+(`filter((f) => !f.advisory)`), so a declared-not-checked clause was invisible on the repo it binds.
+The node now shows those findings: a muted "N advisory" count, with the finding text on the node's
+title. Non-advisory findings stay on the danger count. The band header's "findings" tally remains
+contradictions only. See [org-intelligence.md](./org-intelligence.md) for the stance perimeter.
+
 ## Known gaps
 
 - (Closed; the entry was wrong, corrected 2026-09-05.) ~~Overwrites existing files~~: `openDraftPr`
