@@ -309,6 +309,12 @@ Scout) when containerized; SBOM (Syft, CycloneDX, SPDX); artifact signing + prov
 signing/protection folds in from the governance API.
 *LLM assessment:* do these run automatically and gate merges/releases, or just sit in
 the repo? This is the shift-left guardrail against vulnerable or secret-leaking AI output.
+**The D9 score field is ignored** (`dimensionScore(D9) = signalScore(D9)`). Growing the
+assessment prompt — the r14/r15 `firstStep` contract, a `TECH_STACK_PROMPT` DETECTED TECH
+STACK block — gives the model more to write, not a new way to move the number. A lying
+assessment that scores D9 at 100 against a battery of 40 still lands at 40 even when
+`firstStep` and `discrepancies` are populated (`engine.test.ts`). G5: the answer is not a
+wider guardband; D9 never enters the blend.
 
 *Platform (token-gated, additive, r7):* the battery also reads the **installed-App inventory**
 from the scored commit's check suites (`src/lib/github/check-suites.ts`): a code-scanning App
@@ -363,6 +369,8 @@ For each dimension D:
 
   # Exception — D9 (Supply Chain & Security) is fully deterministic: its check battery IS the
   # score. The LLM narrates it but never moves the number. dimensionScore(D9) = signalScore(D9).
+  # Prompt growth (TECH_STACK block, firstStep on the roadmap) is not a blend input: a lying
+  # llmScore(D9)=100 against signalScore(D9)=40 still yields 40. G5: do not widen the guardband.
 
 # Overall: a RENORMALIZED, archetype-lens-weighted MEAN over the dimensions actually present.
 # A dimension whose detector failed (or that a partial scan dropped) is EXCLUDED and the
@@ -392,7 +400,9 @@ Design principles:
   actually scored (lens weights renormalized), so a failed detector or partial scan
   can't silently deflate the headline. Deterministic D9 anchors security to the check
   battery alone; the LLM narrates but never re-scores it. Its only escape is the
-  *visibility blind-spot* path, which marks D9 `n/a` rather than raising it.
+  *visibility blind-spot* path, which marks D9 `n/a` rather than raising it. Extra prompt
+  text (`firstStep`, `TECH_STACK_PROMPT`) does not pull D9 into the blend — G5 forbids
+  answering a small LLM move with a wider band.
 - **Missing lens weight vs. a genuine zero:** `lensWeight(D)` for a dimension with no
   entry in the active archetype's lens (rubric drift: a dimension added to the base
   rubric without updating every `ARCHETYPE_WEIGHTS` lens) both fall back to 0 in the
