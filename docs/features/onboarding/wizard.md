@@ -366,6 +366,17 @@ cluster, each repo a star:
 | `src/app/api/org/getting-started/route.ts` | `GET` the derived checklist + the caller's stamp (polling-safe). |
 | `src/app/launch/page.tsx` | Post-OAuth cinematic entrance. |
 | `src/components/launch/FleetMap.tsx` | Animated constellation star-map of the fleet. |
+| `src/lib/onboarding/skill.ts` | Generated per-repo `ascent-onboard` SKILL.md (`POST /api/report/skill` and the foundation PR). Footer credits this deployment (`publicBaseUrl()`), never a hardcoded product domain; when that origin is set, one extra line names Standing › Passports as the org control matrix after `--json` doctor report-back. |
+
+## Generated onboarding skill footer (control matrix)
+
+`buildOnboardingSkill` (`src/lib/onboarding/skill.ts`) is the SKILL.md the scanned repo downloads and
+runs locally. The adopt loop ends with `node .ai/doctor.mjs --json` posting findings to
+`/api/report/conformance`, which Standing › Passports already renders as the fleet control matrix
+(`GET /api/report/conformance/matrix`). When `publicBaseUrl()` is set, the skill footer names that
+in-product matrix as `{origin}{orgTabHref(owner, "passports")}` so the agent's last step is
+observable in Ascent rather than stopping in CI logs. When no public origin is configured, that line
+is omitted, the same rule as the existing Ascent credit link.
 
 ## The stall watchdog and why it is 360s
 
