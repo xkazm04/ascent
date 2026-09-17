@@ -11,6 +11,7 @@ import {
   type ScanScopeValue,
 } from "@/components/scan/ScanScopeFields";
 import type { AuthMode } from "@/components/auth/SignInButtonFor";
+import { normalizeScanRepo, scanFormLooksLikeGitlab } from "@/components/scan/normalizeScanRepo";
 import { normalizeRepo, REPO_URL_LIKE, stripRepoRef } from "@/lib/repo-ref";
 import { isValidGitRef } from "@/lib/scan-scope";
 
@@ -111,9 +112,9 @@ export function ScanForm({
   }, []);
 
   function submit() {
-    const normalized = normalizeRepo(value);
+    const normalized = normalizeScanRepo(value);
     if (!normalized) {
-      setError("Enter a GitHub repo as owner/repo (or paste its URL).");
+      setError("Enter a GitHub or GitLab repo as owner/repo (or paste its URL).");
       // Retrigger the shake even on repeated invalid submits.
       setShake(false);
       requestAnimationFrame(() => setShake(true));
@@ -155,22 +156,25 @@ export function ScanForm({
         } ${shake ? "animate-shake" : ""}`}
         onAnimationEnd={() => setShake(false)}
       >
-        <span className="hidden items-center pl-4 font-mono type-body text-slate-400 sm:flex">
-          github.com/
-        </span>
+        {!scanFormLooksLikeGitlab(value) && (
+          <span className="hidden items-center pl-4 font-mono type-body text-slate-400 sm:flex">
+            github.com/
+          </span>
+        )}
         <input
           ref={inputRef}
           value={value}
           onPaste={(e) => {
             // Pasting a full GitHub link (URL or SSH) collapses to `owner/repo` in place, so the
             // visible value matches the `github.com/` prefix the field shows — e.g.
-            // "https://github.com/xkazm04/ascent" becomes "xkazm04/ascent". A bare owner/repo (no
-            // URL chrome) pastes normally. Prefer the validated owner/repo; fall back to the peeled
-            // string when the link is only a partial reference (owner with no repo yet).
+            // "https://github.com/xkazm04/ascent" becomes "xkazm04/ascent". A GitLab paste uses
+            // parseGitlabUrl (same parser scanRepository routes) and collapses to `gitlab:group/project`.
+            // A bare owner/repo (no URL chrome) pastes normally. Prefer the validated coordinate;
+            // fall back to the peeled string when the link is only a partial reference.
             const text = e.clipboardData.getData("text");
-            if (!REPO_URL_LIKE.test(text)) return;
+            if (!REPO_URL_LIKE.test(text) && !scanFormLooksLikeGitlab(text)) return;
             e.preventDefault();
-            setValue(normalizeRepo(text) ?? stripRepoRef(text));
+            setValue(normalizeScanRepo(text) ?? stripRepoRef(text));
             // A `/tree/<branch>` deep link says which branch the user was looking at — carry that
             // into the branch field instead of silently scanning the default branch. The field is
             // visible (ScanScopeFields opens itself when a value is present), so it stays correctable.
@@ -183,7 +187,7 @@ export function ScanForm({
             if (error) setError(null);
           }}
           placeholder="owner/repo"
-          aria-label="GitHub repository"
+          aria-label="GitHub or GitLab repository"
           aria-invalid={error ? true : undefined}
           aria-describedby={error ? errorId : undefined}
           className="flex-1 bg-transparent px-4 py-3.5 font-mono type-body text-slate-100 placeholder-slate-500 outline-none sm:px-2"
@@ -234,7 +238,7 @@ export function ScanForm({
 
       {/* Polite status for screen readers while the scan kicks off. */}
       <span role="status" aria-live="polite" className="sr-only">
-        {submitting ? `Scanning ${normalizeRepo(value) ?? value}…` : ""}
+        {submitting ? `Scanning ${normalizeScanRepo(value) ?? value}…` : ""}
       </span>
 
       {/* Optional scope: a branch/tag/commit and/or a monorepo sub-path. Collapsed by default. */}

@@ -27,7 +27,7 @@ capability manifest:
 | The contract (`Forge`, `ForgeCapabilities`, `EnrichmentSource`, `ParsedRepo`, `RepoSource`) | `src/lib/forge/types.ts` |
 | Resolution + the URL router (`resolveForge`, `parseForgeUrl`, `forgeFullName`) | `src/lib/forge/registry.ts` |
 | GitHub — **pointers only** | `src/lib/forge/github.ts` |
-| GitLab — the one real second adapter | `src/lib/forge/gitlab/{source,merge-requests,governance,pipelines,deployments,http}.ts` |
+| GitLab — the one real second adapter | `src/lib/forge/gitlab/{source,parse,merge-requests,governance,pipelines,deployments,http}.ts` |
 | Local working copy | `src/lib/forge/local.ts` |
 
 ### GitHub is wired by reference, and that is enforced
@@ -118,6 +118,7 @@ cross-forge percentile is published.
 | Surface | How the forge is named |
 | --- | --- |
 | `POST /api/scan` | a `gitlab:group/project` coordinate, or a `https://gitlab.com/...` URL |
+| Landing `ScanForm` | a pasted gitlab.com URL or `git@gitlab.com:…` SSH link collapses to `gitlab:group/project` via `parseGitlabUrl` (the same parser `parseForgeUrl` / `scanRepository` already use). A bare `owner/repo` stays GitHub. |
 | `POST /api/org/import` | forge-prefixed entries in `repos[]` |
 | `GET /api/gate/:owner/:repo` | `?forge=gitlab`. The **path stays two segments** — CI callers, the check-run path and every doc use it, and adding a segment would churn a public contract for no gain |
 | OTLP `git.repository` | a gitlab.com remote resolves to `gitlab:group/project`, the same identity the persist layer writes |

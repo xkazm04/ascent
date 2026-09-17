@@ -1,6 +1,6 @@
 # Scan pipeline
 
-The scan is Ascent's core engine. It takes a GitHub repo URL, reads the repository over
+The scan is Ascent's core engine. It takes a GitHub or GitLab repo URL, reads the repository over
 the REST/GraphQL API (**no git clone**), extracts deterministic maturity signals across
 **9 dimensions (D1–D9)**, asks an LLM to calibrate and explain, blends the two with
 guardbanding, and returns a `ScanReport`: overall score (0–100), maturity level (L1–L5),
@@ -18,8 +18,8 @@ pure, testable TypeScript.
 
 | Surface | Behavior | Implementation |
 | --- | --- | --- |
-| Landing scan box | `ScanForm` normalizes any input shape (`owner/repo`, full URL, SSH) via `normalizeRepo()` and routes to `/report?repo=<normalized>`. | `src/app/page.tsx`, `src/components/ScanForm.tsx` |
-| Branch &amp; sub-path | A collapsed "Branch &amp; sub-path" disclosure under the scan box adds an optional git ref and monorepo sub-path, appended as `&ref=` / `&path=`. Pasting a `github.com/o/r/tree/<branch>` link prefills the branch. See [Scan scope](#scan-scope-branch--sub-path). | `src/components/scan/ScanScopeFields.tsx` |
+| Landing scan box | `ScanForm` normalizes GitHub input (`owner/repo`, full URL, SSH) via `normalizeRepo()` and GitLab pastes (`https://gitlab.com/group/project`, `git@gitlab.com:…`, `gitlab:group/project`) via `parseGitlabUrl` (the same parser `scanRepository` already routes through `parseForgeUrl`) to `/report?repo=<normalized>` (`gitlab:group/project` for GitLab, subgroups kept whole). | `src/app/page.tsx`, `src/components/ScanForm.tsx`, `src/components/scan/normalizeScanRepo.ts` |
+| Branch &amp; sub-path | A collapsed "Branch &amp; sub-path" disclosure under the scan box adds an optional git ref and monorepo sub-path, appended as `&ref=` / `&path=`. Pasting a `github.com/o/r/tree/<branch>` or GitLab `/-/tree/<branch>` link prefills the branch. See [Scan scope](#scan-scope-branch--sub-path). | `src/components/scan/ScanScopeFields.tsx` |
 | Scan gallery | Curated/live examples on the landing page; live entries come from `getPublicScanGallery()`. | `src/components/landing/ScanGallery.tsx` |
 
 The report page then drives the actual scan over the streaming endpoint; see
@@ -36,7 +36,7 @@ The report page then drives the actual scan over the streaming endpoint; see
 
 ```jsonc
 {
-  "url": "owner/repo | https://github.com/owner/repo",
+  "url": "owner/repo | https://github.com/owner/repo | https://gitlab.com/group/project | gitlab:group/project",
   "token":          "optional GitHub token (private repos / PR signals)",
   "installationId": "optional GitHub App installation id",
   "mock":  true,    // force the deterministic provider
