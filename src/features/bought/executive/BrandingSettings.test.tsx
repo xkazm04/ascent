@@ -1,9 +1,6 @@
 // @vitest-environment jsdom
 //
-// Pins org-branding-white-label #1: the accent colour is validated for readability against the WHITE
-// briefing PDF and a NON-BLOCKING warning is shown (the value is still saved) when it falls below the
-// WCAG large-text / UI 3:1 ratio. Covers both the pure ratio helper and the rendered advisory wired to
-// the colour input via aria-describedby.
+// Pins org-branding-white-label contrast advisory (#1) and the live PDF-header mock (name, hex, logo).
 
 import { afterEach, describe, it, expect, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -185,5 +182,19 @@ describe("BrandingSettings logo reachability + preview (DOM)", () => {
     fireEvent.click(screen.getByRole("button", { name: /save/i }));
     await waitFor(() => expect(screen.getByAltText("Saved logo preview")).toHaveAttribute("src", "https://cdn.example/logo.png"));
     expect(screen.queryByText(/didn't return an image/i)).toBeNull();
+  });
+});
+
+describe("BrandingSettings live PDF-header mock (DOM)", () => {
+  it("shows brand name, accent hex and logo on a light preview card", () => {
+    render(<BrandingSettings slug="acme" initial={branding()} />);
+    fireEvent.change(screen.getByPlaceholderText("Acme Inc."), { target: { value: "Acme Inc." } });
+    fireEvent.change(screen.getByLabelText("Accent colour hex"), { target: { value: "#c41e3a" } });
+    fireEvent.change(screen.getByPlaceholderText("https://acme.com/logo.png"), { target: { value: "https://cdn.example/acme.png" } });
+    const card = screen.getByRole("region", { name: /pdf header preview/i });
+    expect(card.className).toMatch(/bg-white/);
+    expect(card.textContent).toMatch(/Acme Inc/);
+    expect(card.textContent).toMatch(/#c41e3a/i);
+    expect(card.querySelector("img")?.getAttribute("src")).toBe("https://cdn.example/acme.png");
   });
 });

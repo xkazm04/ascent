@@ -6,6 +6,7 @@
 
 import type { OrgBranding } from "@/lib/db/branding";
 import { DEFAULT_BRAND_ACCENT, HEX_COLOR_RE } from "@/lib/branding/color";
+import { BrandingPreview } from "./BrandingPreview";
 import { useBrandingSettings } from "./useBrandingSettings";
 export { accentContrastOnWhite, accentContrastWarning, MIN_ACCENT_CONTRAST } from "./brandingContrast";
 import { accentContrastWarning } from "./brandingContrast";
@@ -39,7 +40,8 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
         briefing links show your name and logo instead of Ascent&apos;s (the accent colours the PDF). This
         in-app dashboard keeps Ascent&apos;s look.
       </p>
-      <div className="mt-4 flex flex-wrap items-end gap-3">
+      <div className="mt-4 flex flex-col gap-4 lg:flex-row lg:items-start">
+        <div className="flex min-w-0 flex-1 flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1 type-mono-sm text-slate-500">
           Brand name
           <input value={brandName} onChange={(e) => setBrandName(e.target.value)} maxLength={80} placeholder="Acme Inc." className={`${field} w-44`} />
@@ -113,6 +115,8 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
         <button onClick={save} disabled={state === "saving"} aria-busy={state === "saving"} className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50">
           {state === "saving" ? "Saving…" : "Save"}
         </button>
+        </div>
+        <BrandingPreview brandName={brandName} brandColor={brandColor} logoUrl={logoUrl} />
       </div>
       {/* org-branding #1: WARN (never block) when the accent would be near-invisible on the white PDF.
           Associated to the colour input via aria-describedby; not a live region, so dragging the

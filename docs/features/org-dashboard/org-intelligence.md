@@ -1115,7 +1115,9 @@ white-label plan and at least one field is set. Those are the same three slots t
 (`BriefingDocument`) and the anonymous share page (`BrandMark`) already use, so an owner can catch a
 bad logo or contrast before handing a client PDF or share link. OrgShell, the nav rail, and other
 tabs stay Ascent chrome; this is the briefing header only. `BrandingSettings` still prefills from
-the same row.
+the same row, and a live PDF-header mock on a light card beside the fields shows the current brand
+name, accent hex and logo URL against the white PDF surface (the same `accentContrastWarning` as
+the form).
 
 **Two denominators, stated on all four surfaces (2026-09-05).** Coverage (`scanned/total`) answers
 "how much was looked at"; the score basis (`realScoredCount`, carried on `ExecBriefing` from the
