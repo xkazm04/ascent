@@ -82,17 +82,28 @@ function probes(snap: Snap) {
   }
   const hasDep = (n: string) => deps.includes(n);
   const hasDepPrefix = (p: string) => deps.some((d) => d === p || d.startsWith(p));
-  const workflowText = snap.files
-    .filter((f) => /^\.github\/workflows\/.+\.ya?ml$/i.test(f.path))
+  const fetchedWorkflows = snap.files.filter((f) => /^\.github\/workflows\/.+\.ya?ml$/i.test(f.path));
+  const workflowText = fetchedWorkflows
     .map((f) => f.content)
     .join("\n")
     .toLowerCase();
+  // HOW MUCH OF THE WORKFLOW EVIDENCE THIS SCAN ACTUALLY READ. The tree listing is complete; the
+  // CONTENT arrives through a bounded fetch — a reserved workflow quota, a per-file byte cap, and a
+  // byte plan that displaces picks (forge/source-selection.ts). So `workflowText` can be short of
+  // what the repository holds, and the detectors below cannot tell that from a repo that wires
+  // nothing. Counted here, once, because the shortfall is a coverage fact and every consumer of it
+  // has to read the same one (the dependency list's equivalent is `depsObservable`).
+  const listedWorkflows = lowerPaths.filter((x) => /^\.github\/workflows\/.+\.ya?ml$/.test(x)).length;
+  const truncatedWorkflow = fetchedWorkflows.some((f) => typeof f.bytes === "number" && f.bytes > Buffer.byteLength(f.content, "utf8"));
+  // Unread, not absent: fewer files read than listed, or one of them cut at its cap. Zero listed is
+  // NOT unread — that is an observed absence, and it must keep its blocker.
+  const workflowsUnread = listedWorkflows > 0 && (listedWorkflows > fetchedWorkflows.length || truncatedWorkflow);
   const scripts = (pkg?.scripts && typeof pkg.scripts === "object" ? (pkg.scripts as Record<string, string>) : {}) ?? {};
   // The two evidence sources a named field can be classified FROM. When one is missing the detectors
   // below must say `unknown`, not `null` — see UNKNOWN_CAPABILITY.
   const depsObservable = pkg !== null;
   const treeObservable = lowerPaths.length > 0;
-  return { get, hasPath, lowerPaths, pkg, deps, hasDep, hasDepPrefix, workflowText, scripts, depsObservable, treeObservable };
+  return { get, hasPath, lowerPaths, pkg, deps, hasDep, hasDepPrefix, workflowText, scripts, depsObservable, treeObservable, workflowsUnread };
 }
 
 /** The third value of every NAMED capability field (0.4.0). `null` means "the scan looked and this app
@@ -466,8 +477,24 @@ export function buildPassport(report: ScanReport, snap: Snap): AppPassport {
   } else if (observability.level === "none") {
     prod("zero-observability", "block", "Zero observability: no error tracking, structured logs, metrics, or tracing.");
   }
-  if (ci.level === "checks" || ci.level === "build" || ci.level === "none") prod("ci-not-gating", "block", "CI does not gate merges (no enforced required checks).");
-  if (security.level === "none" || security.level === "policy") prod("no-security-scanning", "block", "No dependency/secret/SAST scanning wired in.");
+  // The same rule one field over, for the evidence that arrives through a BOUNDED read. `hasPath`
+  // sees every workflow the repository lists; `workflowText` carries only the ones this scan's byte
+  // plan and caps let through. When those disagree, "no gates" and "no scanning" are claims about
+  // content nobody read, and they are minted at `block` — the severity a fleet rollup counts and an
+  // owner has to decline. The shortfall gets the info-level finding instead, and the blockers stay
+  // for the case the scan really did look: zero workflows listed, or every listed one read whole.
+  if (p.workflowsUnread) {
+    prod("ci-unassessable", "info", "CI gates could not be assessed: this scan read fewer workflow files than the repository lists (or read one only up to its byte cap), so their contents were never inspected.");
+  } else if (ci.level === "checks" || ci.level === "build" || ci.level === "none") {
+    prod("ci-not-gating", "block", "CI does not gate merges (no enforced required checks).");
+  }
+  if (security.level === "none" || security.level === "policy") {
+    if (p.workflowsUnread) {
+      prod("security-unassessable", "info", "Dependency/secret/SAST scanning could not be assessed: the scanning evidence lives in workflow files this scan did not read in full.");
+    } else {
+      prod("no-security-scanning", "block", "No dependency/secret/SAST scanning wired in.");
+    }
+  }
   if (tokenless) prod("enforcement-not-observable", "info", "Enforcement (branch protection) not observable on this scan. CI/security capped at their present rung.");
 
   const pp: AppPassport = {

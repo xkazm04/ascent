@@ -234,3 +234,68 @@ describe("a decline is re-confirmed when the repo it was made about changes", ()
     expect(bad?.["productionReadiness.ci"]).toEqual({});
   });
 });
+
+// ── the fourth conflation: "we read no CI gates" vs "we never read the workflows" ─────────────────
+//
+// Workflow CONTENT reaches `probes()` through a BOUNDED fetch — a reserved 24-file quota, a per-file
+// byte cap, and a byte plan that displaces picks (see forge/source-selection.ts) — while the tree
+// listing is complete. When the two disagree, `workflowText` is short of what the repository has, and
+// the CI/Security detectors read that shortfall as an absence. The same conflation UNKNOWN_CAPABILITY
+// un-picks for the dependency list, one field over.
+describe("bounded workflow reads are a coverage fact, not an absence", () => {
+  const wf = ".github/workflows/ci.yml";
+  const CLEAN_WF = "name: ci\njobs:\n  test:\n    steps:\n      - run: npm test\n";
+  const SAST_WF = "name: ci\njobs:\n  codeql:\n    steps:\n      - uses: github/codeql-action/analyze\n";
+  type F = { path: string; content: string; bytes: number };
+  const snapWf = (tree: string[], files: F[]): Snap => ({
+    meta: meta(),
+    tree: tree.map((p) => ({ path: p, type: "blob" as const })),
+    files,
+    commits: [],
+    coverage: 1,
+  });
+  const ids = (s: Snap) => (buildPassport(report(), s).productionReadiness.findings ?? []).map((f) => `${f.id}:${f.severity}`);
+
+  it("case 1 observed-real-gap: content read, nothing scanning — the blocks stand", () => {
+    const got = ids(snapWf(["package.json", wf], [{ path: wf, content: CLEAN_WF, bytes: CLEAN_WF.length }]));
+    expect(got).toContain("prod.ci-not-gating:block");
+    expect(got).toContain("prod.no-security-scanning:block");
+  });
+
+  it("case 2 unread: the tree lists a workflow the snapshot does not carry", () => {
+    const got = ids(snapWf(["package.json", wf], []));
+    expect(got).toContain("prod.ci-unassessable:info");
+    expect(got).toContain("prod.security-unassessable:info");
+    expect(got).not.toContain("prod.ci-not-gating:block");
+    expect(got).not.toContain("prod.no-security-scanning:block");
+  });
+
+  it("case 3 partial: three workflows listed, one read", () => {
+    const got = ids(
+      snapWf(["package.json", wf, ".github/workflows/release.yml", ".github/workflows/audit.yml"], [
+        { path: wf, content: CLEAN_WF, bytes: CLEAN_WF.length },
+      ]),
+    );
+    expect(got).toContain("prod.ci-unassessable:info");
+    expect(got).not.toContain("prod.no-security-scanning:block");
+  });
+
+  it("case 4 truncated: the one workflow read was cut at the per-file cap", () => {
+    const got = ids(snapWf(["package.json", wf], [{ path: wf, content: CLEAN_WF, bytes: CLEAN_WF.length + 4096 }]));
+    expect(got).toContain("prod.ci-unassessable:info");
+    expect(got).not.toContain("prod.ci-not-gating:block");
+  });
+
+  it("case 5 no-workflows: an OBSERVED absence still blocks (the rule must not swallow real gaps)", () => {
+    const got = ids(snapWf(["package.json", "main.py"], []));
+    expect(got).toContain("prod.ci-not-gating:block");
+    expect(got).toContain("prod.no-security-scanning:block");
+    expect(got).not.toContain("prod.ci-unassessable:info");
+  });
+
+  it("case 6 observed-clean: scanning found in read content — no security block either way", () => {
+    const got = ids(snapWf(["package.json", wf], [{ path: wf, content: SAST_WF, bytes: SAST_WF.length }]));
+    expect(got).not.toContain("prod.no-security-scanning:block");
+    expect(got).not.toContain("prod.security-unassessable:info");
+  });
+});
