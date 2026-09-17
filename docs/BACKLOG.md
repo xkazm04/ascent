@@ -329,6 +329,10 @@ Coordinator wave over **all 54 contexts**, 5 highest-impact cards each (270). De
 | Usage Metering | Return null from freeToPaidConversion when no Subscription row has ever been written | `82949da0` |
 | Data Retention & Purge | Erase remaining tenant ledgers: OrgMemory, BYOM creds, API tokens, alerts | `8f8edee1` |
 
+### Wave 3 shipped (lowest-risk 100)
+
+100 S-sized auto-buildable cards, risk 1–2, dispatched in 7 isolated-worktree batches then cherry-picked onto `docs/org-path-of-use-adr-20260914`. Plus one follow-up pin on the D9 PDF test walker (`4e1eeefa`). Range: `145d5487`..`3b085e47` (101 `fix(` commits). Full titles in `git log --oneline 0d976ffd..3b085e47`.
+
 ### Escalated (human / architecture / irreversible / hot-file)
 
 | Context | Item | Size | Gate | Why |
@@ -342,4 +346,4 @@ Coordinator wave over **all 54 contexts**, 5 highest-impact cards each (270). De
 | First-Run Onboarding Wizard | Re-judge wizard-flows: mid-scan resume now re-attaches | S | contract | contract |
 | Live War Room | Surface drive/run outcome on the shared kiosk instead of standing-only LiveWarRoom | M | none | none |
 
-Remaining auto-buildable cards (243) stay in `.personas/scan-sweep-20260917/catalog.json` for later waves. Outbox ingest cap took 30 remaining findings (escalated first, then highest impact); the rest are unrecorded in the outbox and live in the catalog.
+Remaining auto-buildable cards (143) stay in `.personas/scan-sweep-20260917/catalog.json` for later waves. Outbox ingest cap took 30 remaining findings (escalated first, then highest impact); the rest are unrecorded in the outbox and live in the catalog.
