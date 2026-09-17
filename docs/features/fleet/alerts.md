@@ -486,6 +486,8 @@ with no sink gets no extra work and no extra push.
 | **Goal at risk** (`buildGoalAtRiskMessage`) | Any goal `listGoals` already marks `pace: "behind"` and not achieved. | The org's alert sink. | At most once per weekly window (`org.alert.goal-at-risk` claim). |
 | **Spend anomaly** (`buildSpendAnomalyMessage`) | This week's billable scans ≥ `SPEND_ANOMALY_RATIO` × the trailing 3-week per-week average, with a floor of 10 scans so small fleets can't trip it. A spend *drop* never fires. | The org's alert sink. | At most once per weekly window (`org.alert.spend-anomaly` claim). |
 
+**The goal-at-risk CTA is a live org tab.** It is built with `orgTabHref(org, "executive")` plus the digest window (`range`/`from`/`to`). The Plan tab retired 2026-08-17 and is not an `OrgTabId`; `/org/<slug>/plan` only exists as a redirect to proposals, which does not list goals. Spend-anomaly still links `/usage`.
+
 **The spend figure is the ALL-LANE total.** Detection is still scan VOLUME (this week's billable
 scans vs the trailing average — that is what `daily` carries), but the dollar line in the message
 quotes `UsageSummary.allLanesCostUsd`, not `estimatedCostUsd`, which prices the scan lane alone. The
