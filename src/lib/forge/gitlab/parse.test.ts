@@ -15,8 +15,8 @@ describe("parseGitlabUrl", () => {
     ["https://www.gitlab.com/group/project.git", { owner: "group", repo: "project" }],
     ["git@gitlab.com:group/project.git", { owner: "group", repo: "project" }],
     ["gitlab.com/group/project", { owner: "group", repo: "project" }],
-    ["https://gitlab.com/g/p/-/merge_requests/7", { owner: "g", repo: "p" }],
-    ["https://gitlab.com/g/p/-/tree/main", { owner: "g", repo: "p" }],
+    ["https://gitlab.com/g/p/-/merge_requests/7", { owner: "g", repo: "p", prNumber: 7 }],
+    ["https://gitlab.com/g/p/-/tree/main", { owner: "g", repo: "p", ref: "main" }],
     ["group/sub/project", { owner: "group/sub", repo: "project" }],
   ])("parses %s", (input, expected) => {
     expect(parseGitlabUrl(input)).toEqual(expected);

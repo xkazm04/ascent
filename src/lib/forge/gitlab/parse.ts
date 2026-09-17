@@ -14,6 +14,13 @@ import { gitlabWebBase } from "@/lib/forge/gitlab/http";
  * and loses the path for a nested one; a lost subgroup is a 404 on every read, so the namespace path
  * is what is carried. The persisted identity is `gitlab:group/sub/project` either way
  * (`forgeFullName`), which is why the live `@@unique([orgId, fullName])` needs no migration.
+ *
+ * DELIBERATELY LENIENT about `/-/` deep links (parity with parseRepoUrl / github-repo-data-access
+ * 07-16 #4): a pasted `/-/merge_requests/7`, `/-/tree/my-branch`, or `/-/commit/<sha>` still parses
+ * to its owner/repo rather than being rejected. Unambiguous intent rides along as `prNumber` / `ref`
+ * so callers can pin `FetchOptions.ref` or tell the user. Ambiguous shapes stay unset: a
+ * multi-segment `/-/tree/a/b` (branch-with-slash vs subdirectory) and `/-/blob/<ref>/<path>` can't
+ * be split without the project's ref list.
  */
 export function parseGitlabUrl(input: string, host?: ForgeHost): ParsedRepo | null {
   if (!input) return null;
@@ -53,19 +60,36 @@ export function parseGitlabUrl(input: string, host?: ForgeHost): ParsedRepo | nu
     }
   }
 
-  // Strip GitLab's `/-/` route separator and everything after it (`/-/tree/main`, `/-/merge_requests`),
-  // then the trailing segments a pasted deep link carries.
-  const cut = path.split("/-/")[0] ?? path;
+  // Split on GitLab's `/-/` route separator: the project path is to the left, the deep-link
+  // (`tree/main`, `merge_requests/7`, `commit/<sha>`) to the right. Owner/repo still come only from
+  // the left, so a hostile deep-link cannot rewrite the coordinate — it is dropped, not rejected.
+  const splitAt = path.split("/-/");
+  const cut = splitAt[0] ?? path;
+  const extra = (splitAt[1] ?? "").split("/").filter(Boolean);
   const segments = cut.split("/").filter(Boolean);
   if (segments.length < 2) return null;
 
   const ok = /^[A-Za-z0-9_.-]{1,100}$/;
+  const clean = (s: string) => ok.test(s) && !s.startsWith(".") && !s.includes("..");
   for (const seg of segments) {
-    if (!ok.test(seg) || seg.startsWith(".") || seg.includes("..")) return null;
+    if (!clean(seg)) return null;
   }
   const repo = segments[segments.length - 1]!;
   const owner = segments.slice(0, -1).join("/");
-  return { owner, repo };
+
+  // Same charset/traversal guard as the coordinates — a hostile /-/tree/.. is dropped, not a ref.
+  let ref: string | undefined;
+  let prNumber: number | undefined;
+  const kind = extra[0]?.toLowerCase();
+  const arg = extra[1];
+  if (kind === "merge_requests" && arg && /^\d{1,9}$/.test(arg)) {
+    prNumber = Number(arg);
+  } else if (kind === "commit" && arg && /^[0-9a-fA-F]{7,40}$/.test(arg)) {
+    ref = arg.toLowerCase();
+  } else if (kind === "tree" && extra.length === 2 && arg && clean(arg)) {
+    ref = arg;
+  }
+  return { owner, repo, ...(ref !== undefined ? { ref } : {}), ...(prNumber !== undefined ? { prNumber } : {}) };
 }
 
 function safeHostname(base: string): string {

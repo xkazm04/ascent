@@ -78,11 +78,12 @@ describe("forge registry", () => {
       });
     });
 
-    it("strips GitLab's /-/ deep-link segments", () => {
+    it("keeps GitLab owner/repo and surfaces the /-/ merge-request number", () => {
       expect(parseForgeUrl("https://gitlab.com/g/p/-/merge_requests/7")).toEqual({
         forge: "gitlab",
         owner: "g",
         repo: "p",
+        prNumber: 7,
       });
     });
 

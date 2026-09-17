@@ -50,6 +50,8 @@ import { fetchGitlabGovernance } from "@/lib/forge/gitlab/governance";
 import { fetchGitlabCiHealth } from "@/lib/forge/gitlab/pipelines";
 import { fetchGitlabDeployments } from "@/lib/forge/gitlab/deployments";
 
+// Same function gitlabForge.parseUrl binds (including deep-link `ref` / `prNumber`). Client
+// surfaces import from `./parse` so this HTTP stack stays out of the browser bundle.
 export { parseGitlabUrl };
 
 // Adapter-specific path recognition; numeric calibration limits are shared across sources.
