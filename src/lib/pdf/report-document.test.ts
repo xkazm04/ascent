@@ -350,6 +350,84 @@ describe("ReportDocument — roadmap & recommendations section (G5-09)", () => {
   });
 });
 
+// ── G2: additive firstStep on the paid PDF roadmap ────────────────────────────────────────────────
+describe("ReportDocument — roadmap firstStep (G2)", () => {
+  const roadmapItem = (over: Partial<ScanReport["roadmap"][number]> = {}): ScanReport["roadmap"][number] => ({
+    title: "Add CI-enforced test coverage gates",
+    dimension: "D2",
+    impact: "high",
+    effort: "low",
+    rationale: "Coverage regressed twice this quarter with no gate to catch it.",
+    ...over,
+  });
+  const flag = (dimension: Discrepancy["dimension"], claim: string): Discrepancy => ({ dimension, claim });
+  const integrity = (over: Partial<ScoreIntegrity> = {}): ScoreIntegrity => ({
+    d9Unmeasurable: false,
+    widenedDims: [],
+    effectiveBlend: 0.6,
+    ...over,
+  });
+
+  function firstStepLines(report: ScanReport): string[] {
+    return tree(report)
+      .map((el) => textOf(el).trim())
+      .filter((t) => /^First step:/.test(t));
+  }
+
+  it("emits the recorded first step above the rationale when present", () => {
+    const els = tree(makeReport({ roadmap: [roadmapItem({ firstStep: "Open a PR adding CODEOWNERS." })] }));
+    const stepIdx = els.findIndex((el) => /^First step:\s/.test(textOf(el).trim()));
+    const rationaleIdx = els.findIndex((el) =>
+      textOf(el).trim() === "Coverage regressed twice this quarter with no gate to catch it.",
+    );
+    expect(textOf(els[stepIdx])).toContain("Open a PR adding CODEOWNERS.");
+    expect(stepIdx).toBeGreaterThanOrEqual(0);
+    expect(rationaleIdx).toBeGreaterThan(stepIdx);
+  });
+
+  it("omits the first-step line when the field is absent or blank", () => {
+    expect(firstStepLines(makeReport({ roadmap: [roadmapItem()] }))).toHaveLength(0);
+    expect(firstStepLines(makeReport({ roadmap: [roadmapItem({ firstStep: "   " })] }))).toHaveLength(0);
+  });
+
+  it("shows the first-step line only on the row that recorded it", () => {
+    const lines = firstStepLines(
+      makeReport({
+        roadmap: [
+          roadmapItem({ title: "Has a step", firstStep: "Open a PR adding CODEOWNERS." }),
+          roadmapItem({ title: "No step recorded", impact: "low", effort: "high" }),
+          roadmapItem({ title: "Blank step", firstStep: "   ", impact: "medium", effort: "medium" }),
+        ],
+      }),
+    );
+    expect(lines.filter((t) => t === "First step: Open a PR adding CODEOWNERS.")).toHaveLength(1);
+    expect(lines.some((t) => t.includes("No step recorded") || t.includes("Blank step"))).toBe(false);
+  });
+
+  it("truncates a very long first step instead of rendering it in full", () => {
+    const long = "step ".repeat(200);
+    const texts = tree(makeReport({ roadmap: [roadmapItem({ firstStep: long })] })).map(textOf);
+    const rendered = texts.find((t) => t.startsWith("First step: step step"));
+    expect(rendered).toBeDefined();
+    expect(rendered!.length).toBeLessThan(`First step: ${long}`.length);
+    expect(rendered!.endsWith("…")).toBe(true);
+  });
+
+  it("does not drop Flagged for review when a first step is also present", () => {
+    const texts = tree(
+      makeReport({
+        roadmap: [roadmapItem({ firstStep: "Open a PR adding CODEOWNERS." })],
+        discrepancies: [flag("D3", "Detector missed CI-inline lint enforced off-GitHub.")],
+        scoreIntegrity: integrity({ widenedDims: ["D3"] }),
+      }),
+    ).map(textOf);
+    expect(texts.some((t) => t.includes("First step:") && t.includes("Open a PR adding CODEOWNERS."))).toBe(true);
+    expect(texts).toContain("Flagged for review");
+    expect(texts).toContain("widened");
+    expect(texts).toContain("Detector missed CI-inline lint enforced off-GitHub.");
+  });
+});
+
 // ── G1: LLM-vs-detector discrepancies must survive into the paid PDF ────────────────────────────────
 describe("ReportDocument — Flagged for review discrepancies (G1)", () => {
   const flag = (dimension: Discrepancy["dimension"], claim: string): Discrepancy => ({ dimension, claim });
@@ -504,9 +582,9 @@ describe("ReportDocument — full renderToBuffer never throws on edge reports", 
       warnings: ["Pull-request data was incomplete (GitHub returned a truncated page)."],
       dimensions: [dim({ summary: "y".repeat(2000) })],
       roadmap: [
-        { title: "Item A", dimension: "D1", impact: "high", effort: "low", rationale: "z".repeat(2000) },
+        { title: "Item A", dimension: "D1", impact: "high", effort: "low", rationale: "z".repeat(2000), firstStep: "Open a PR adding CODEOWNERS." },
         { title: "Item B", dimension: "D2", impact: "medium", effort: "medium", rationale: "Short rationale." },
-        { title: "Item C", dimension: "D3", impact: "low", effort: "high", rationale: "" },
+        { title: "Item C", dimension: "D3", impact: "low", effort: "high", rationale: "", firstStep: "   " },
       ],
     });
     const buf = await renderToBuffer(ReportDocument({ report }) as ReactElement);

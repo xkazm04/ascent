@@ -46,6 +46,7 @@ const styles = StyleSheet.create({
   roadmapHead: { flexDirection: "row", justifyContent: "space-between", gap: 8 },
   roadmapTitle: { fontFamily: "Helvetica-Bold", flexShrink: 1 },
   roadmapMeta: { color: FAINT, fontSize: 9 },
+  roadmapFirstStep: { marginTop: 1 },
   roadmapRationale: { color: MUTED, marginTop: 1 },
 });
 
@@ -60,6 +61,7 @@ function truncateText(s: string, max: number): string {
 
 const MAX_DIM_SUMMARY_CHARS = 320;
 const MAX_ROADMAP_RATIONALE_CHARS = 280;
+const MAX_ROADMAP_FIRST_STEP_CHARS = 220;
 
 /** Quick-wins-first ordering for the PDF roadmap — same impact-dominates/effort-tiebreak contract as
  *  the in-app roadmap (roadmapPriority.tsx), reimplemented locally: that module lives under
@@ -216,8 +218,9 @@ export function ReportDocument({ report }: { report: ScanReport }) {
         {/* G5-09: the roadmap/recommendations — the actionable, paid-for part the export previously
             omitted entirely. Same quick-wins-first ordering as the in-app roadmap. Each row is
             wrap={false} (so a heading never orphans from its own row) but bounded in size (title +
-            a capped rationale), so a long/verbose roadmap can paginate freely across rows without any
-            single row risking an unsplittable block taller than a page (the G5-06/G5-08 failure mode). */}
+            a capped firstStep + a capped rationale), so a long/verbose roadmap can paginate freely
+            across rows without any single row risking an unsplittable block taller than a page
+            (the G5-06/G5-08 failure mode). */}
         {orderedRoadmap.length > 0 && (
           <View>
             <View wrap={false} minPresenceAhead={28}>
@@ -232,6 +235,11 @@ export function ReportDocument({ report }: { report: ScanReport }) {
                     {item.impact} impact · {item.effort} effort{item.levelUnlock ? ` · ${latin1Safe(item.levelUnlock)}` : ""}
                   </Text>
                 </View>
+                {item.firstStep?.trim() ? (
+                  <Text style={styles.roadmapFirstStep}>
+                    First step: {latin1Safe(truncateText(item.firstStep, MAX_ROADMAP_FIRST_STEP_CHARS))}
+                  </Text>
+                ) : null}
                 {item.rationale ? (
                   <Text style={styles.roadmapRationale}>
                     {latin1Safe(truncateText(item.rationale, MAX_ROADMAP_RATIONALE_CHARS))}

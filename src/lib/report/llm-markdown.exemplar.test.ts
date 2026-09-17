@@ -218,3 +218,54 @@ describe("reportLlmMarkdown discrepancies (G1)", () => {
     expect(md).toContain("**D2**: A test.js file is present but D2 detected 0 tests. · **outcome not recorded**");
   });
 });
+
+// G2: the additive first move must leave the building with the roadmap a model will act on.
+// Blank/absent stays omitted so the pre-change byte fixture remains stable.
+describe("reportLlmMarkdown firstStep (G2)", () => {
+  const flag = (dimension: Discrepancy["dimension"], claim: string): Discrepancy => ({ dimension, claim });
+  const integrity = (over: Partial<ScoreIntegrity> = {}): ScoreIntegrity => ({
+    d9Unmeasurable: false,
+    widenedDims: [],
+    effectiveBlend: 0.6,
+    ...over,
+  });
+
+  it("emits the recorded first step above the rationale when present", () => {
+    const r = report();
+    r.roadmap = [
+      {
+        title: "Add a coverage gate",
+        dimension: "D2",
+        impact: "high",
+        effort: "medium",
+        rationale: "Coverage is unmeasured.",
+        firstStep: "Open a PR adding CODEOWNERS.",
+        explore: [],
+      },
+    ];
+    const md = reportLlmMarkdown(r);
+    expect(md).toContain("**First step:** Open a PR adding CODEOWNERS.");
+    expect(md.indexOf("**First step:**")).toBeGreaterThan(md.indexOf("**Add a coverage gate**"));
+    expect(md.indexOf("**First step:**")).toBeLessThan(md.indexOf("Coverage is unmeasured."));
+  });
+
+  it("omits the first-step line when the field is absent or blank (byte-stable with PRE_CHANGE)", () => {
+    expect(reportLlmMarkdown(fixtureReport())).toBe(PRE_CHANGE);
+    expect(reportLlmMarkdown(fixtureReport())).not.toContain("First step:");
+    const r = report();
+    r.roadmap[0] = { ...r.roadmap[0], firstStep: "   " };
+    expect(reportLlmMarkdown(r)).not.toContain("First step:");
+  });
+
+  it("does not drop discrepancies when a first step is also present", () => {
+    const r = report();
+    r.roadmap[0] = { ...r.roadmap[0], firstStep: "Open a PR adding CODEOWNERS." };
+    r.discrepancies = [flag("D3", "Detector missed CI-inline lint enforced off-GitHub.")];
+    r.scoreIntegrity = integrity({ widenedDims: ["D3"] });
+    const md = reportLlmMarkdown(r);
+    expect(md).toContain("**First step:** Open a PR adding CODEOWNERS.");
+    expect(md).toContain("## Flagged for review");
+    expect(md).toContain("**D3**: Detector missed CI-inline lint enforced off-GitHub. · **widened**");
+    expect(md.indexOf("## Flagged for review")).toBeLessThan(md.indexOf("## Roadmap"));
+  });
+});

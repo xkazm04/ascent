@@ -15,6 +15,8 @@
 // the scan's own `warnings`, and LLM-vs-detector `discrepancies` (G1: disagreement is listed with its
 // recorded outcome, never dropped or softened). Incomplete/mock/warnings lead the document; flagged
 // claims sit with the score narrative so a model cannot treat a blended number as uncontested.
+// Roadmap rows carry the additive `firstStep` when the scan recorded one (G2: invitational voice
+// stays; the concrete move is not buried in the rationale, and a blank/absent field emits nothing).
 
 import type { ScanReport } from "@/lib/types";
 import { isIncompleteReport } from "@/lib/scoring/gate";
@@ -251,6 +253,10 @@ export function reportLlmMarkdown(report: ScanReport, options: ReportMarkdownOpt
     out.push("");
     report.roadmap.forEach((item, i) => {
       out.push(`${i + 1}. **${item.title}** · ${item.dimension} · ${roadmapMeta(item)}`);
+      // G2: the concrete first move is additive and invitational. Omit when the model left it
+      // blank so a pre-field scan stays byte-identical; never invent a step from the rationale.
+      const firstStep = item.firstStep?.trim();
+      if (firstStep) out.push(`   - **First step:** ${firstStep}`);
       if (item.rationale) out.push(`   - ${item.rationale}`);
       // The org's OWN measured basis for this gap, when it has one (moonshot #9). Emitted only when
       // the clause is non-null: the model reading this must never be handed "+0" where the honest
