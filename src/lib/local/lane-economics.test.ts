@@ -4,7 +4,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { driveModelBasis, laneEconomics, pickDriveModel, priceList } from "@/lib/local/lane-economics";
+import { driveModelBasis, fmtMicrosPerPoint, laneEconomics, pickDriveModel, priceList } from "@/lib/local/lane-economics";
 import type { LoopLaneOutcome, LoopLaneRecord } from "@/lib/db/loop-runs-types";
 
 const lane = (over: Partial<LoopLaneRecord> = {}): LoopLaneRecord => ({
@@ -204,8 +204,10 @@ describe("pickDriveModel — evidence-led, or nothing at all", () => {
       expect(basis).toContain("opus → sonnet");
       expect(basis).toContain("D3");
       // Both prices, each with the thinnest cell it rested on — never the fattest.
-      expect(basis).toContain("sonnet 0.00¢/pt (n≥4)");
-      expect(basis).toContain("opus 0.00¢/pt (n≥3)");
+      // 200 and 900 micro-cents are positive rates; two-decimal rounding would print them as 0.00¢.
+      expect(basis).toContain("sonnet <0.01¢/pt (n≥4)");
+      expect(basis).toContain("opus <0.01¢/pt (n≥3)");
+      expect(basis).not.toContain("0.00¢/pt");
       expect(basis).toContain("Minimum 3 lanes per cell");
     });
 
@@ -233,6 +235,30 @@ describe("pickDriveModel — evidence-led, or nothing at all", () => {
       expect(basis).not.toContain("haiku");
       expect(basis).not.toContain("sonnet 0");
     });
+  });
+});
+
+describe("fmtMicrosPerPoint — a positive micro-cent is never 0.00¢ (G19)", () => {
+  it("says not measured when there is no figure, never $0.00", () => {
+    expect(fmtMicrosPerPoint(null)).toBe("not measured");
+    expect(fmtMicrosPerPoint(null)).not.toContain("0.00");
+  });
+
+  it("prints a measured zero as 0.00¢", () => {
+    expect(fmtMicrosPerPoint(0)).toBe("0.00¢");
+  });
+
+  it("does not round a positive micro-cent rate to 0.00¢", () => {
+    expect(fmtMicrosPerPoint(1)).toBe("<0.01¢");
+    expect(fmtMicrosPerPoint(200)).toBe("<0.01¢");
+    expect(fmtMicrosPerPoint(4_999)).toBe("<0.01¢");
+    expect(fmtMicrosPerPoint(200)).not.toBe("0.00¢");
+  });
+
+  it("keeps two-decimal cents and the dollar threshold", () => {
+    expect(fmtMicrosPerPoint(5_000)).toBe("0.01¢");
+    expect(fmtMicrosPerPoint(4_230_000)).toBe("4.23¢");
+    expect(fmtMicrosPerPoint(1_019_000_000)).toBe("$10.19");
   });
 });
 
