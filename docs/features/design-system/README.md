@@ -34,8 +34,8 @@ input state. A newly mounted `Defer` instance still applies its own arrival poli
 
 `IndexLanding` renders the production landing as a scroll-snap deck. Section
 roster (also the right-edge `DeckNav`): **hero · org · fleet · local · gallery
-(when the register has data) · levels · dimensions**, each a `DeckSection` under
-`src/components/landing/prototypes/index/`.
+(when the register has data) · pricing · levels · dimensions**, each a
+`DeckSection` under `src/components/landing/prototypes/index/`.
 
 **Org edition (`IndexOrg`, deck id `org`)**: six use-case cards into the curated
 demo org. Copy names shipped tabs, not a retired Plan. The last card is
@@ -105,13 +105,22 @@ Two self-host surfaces added 2026-08-25, phrased in lockstep with `/pricing`'s
   that it is bounded and that a rescan, not the agent, decides whether anything
   landed — printing the numbers is what makes that checkable.
 
+**Pricing (`IndexPricing`, deck id `pricing`, after the register when present)**:
+a numeric, anonymous snap of the hosted plans (G8/G11). Amounts and cadences
+come from `planPriceLabel()` / `PLAN_FEATURES` — never typed dollar literals. A
+compact self-host band sits **above** the `HairlineGrid` and reuses
+`IndexLocal`'s `/pricing#self-host` anchor. Free / Starter / Team are one-click
+(`/` or `/onboarding`); Custom is `Flexible` plus `PlanEnquiryCta`. No "talk to
+sales" on Starter/Team.
+
 **Numbers in landing copy are imported, never typed.** The hero and
-`DimensionMatrix` already read `LEVELS` / `DIMENSIONS`; the scan dialog's duration
-now reads `scanDurationClaim()` (`src/components/report/scanEstimate.ts`), the same
-constants the live-scan progress bar and its abort backstop run on. The dialog
-promised "in about a minute" for a year — true of no provider the scanner has ever
-run on (~100 s hosted, a measured ~6 min median on a local CLI), and already
-retired in `ColdScanGate`'s copy while the hero went on printing it.
+`DimensionMatrix` already read `LEVELS` / `DIMENSIONS`; `IndexPricing` reads
+`planPriceLabel()`; the scan dialog's duration now reads `scanDurationClaim()`
+(`src/components/report/scanEstimate.ts`), the same constants the live-scan
+progress bar and its abort backstop run on. The dialog promised "in about a
+minute" for a year — true of no provider the scanner has ever run on (~100 s
+hosted, a measured ~6 min median on a local CLI), and already retired in
+`ColdScanGate`'s copy while the hero went on printing it.
 
 **The levels chart's dashed line marks a boundary that exists on its own axis.**
 `TrajectoryChart` drew it at `POSTURE_THRESHOLD` (50) labelled "AI-NATIVE" and
