@@ -46,14 +46,18 @@ function envInt(name: string, fallback: number): number {
 
 /**
  * CEILING DERIVATION — a limit tuned to "an API is usually quiet" would break a legitimate exporter,
- * so this is derived from the push cadence the connect snippet actually produces.
+ * so this is derived from Claude Code's flush cadence when both metrics and logs exporters are on.
+ * The connect snippet ships metrics only (`OTEL_LOGS_EXPORTER` is omitted until /v1/logs persists);
+ * leftover `OTEL_LOGS_EXPORTER=otlp` configs and operators who enable logs independently still
+ * produce this fan-in, and the ceiling has to pass that shape.
  *
  * Claude Code's OTel exporter flushes metrics on OTEL_METRIC_EXPORT_INTERVAL (60s by default) and
- * logs on OTEL_LOGS_EXPORT_INTERVAL (5s by default) — so ONE developer machine sends ~1 metrics push
- * + ~12 log pushes per minute, and all of them land on this limiter's namespace. A 200-seat
- * engineering org behind ONE office/VPN egress IP therefore produces ~2,600 requests/minute at the
- * defaults, and a team that lowers the metric interval to 10s produces more. The per-IP cap is set
- * to 3,000/min so that shape passes with headroom; the global per-instance ceiling is 20,000/min,
+ * logs on OTEL_LOGS_EXPORT_INTERVAL (5s by default) — so ONE developer machine that still exports
+ * logs sends ~1 metrics push + ~12 log pushes per minute, and all of them land on this limiter's
+ * namespace. A 200-seat engineering org behind ONE office/VPN egress IP therefore produces
+ * ~2,600 requests/minute at the defaults, and a team that lowers the metric interval to 10s
+ * produces more. The per-IP cap is set to 3,000/min so that shape passes with headroom; the
+ * global per-instance ceiling is 20,000/min,
  * which still bounds a flood (each request costs a JSON parse plus a small upsert batch) without
  * capping a plausible multi-tenant instance. Both env-overridable so an operator with an unusual
  * fan-in shape can raise them without a deploy.

@@ -29,10 +29,12 @@ describe("Claude Available catalog capabilities", () => {
     expect(claude.capabilities).toEqual(["Per-repo tokens & cost (OTel git.repository)"]);
   });
 
-  it("does not advertise per-user sessions/lines/commits/PRs or Admin Usage totals", () => {
+  it("does not advertise per-user sessions/lines/commits/PRs, Admin Usage totals, or OTLP logs", () => {
     const listed = claude.capabilities.join("\n");
     expect(listed).not.toMatch(/Per-user sessions, lines, commits, PRs/);
     expect(listed).not.toMatch(/Admin Usage\/Cost totals/);
+    // /v1/logs authenticates and 202-accepts without persisting — catalog must not claim logs.
+    expect(listed).not.toMatch(/logs/i);
   });
 
   it("has 0 listed bullets without a consumer", () => {
