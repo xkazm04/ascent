@@ -111,7 +111,7 @@ describe("GET /api/org/backlog?format=csv", () => {
     const csv = bodyOf(res);
     const lines = csv.trim().split("\n");
     expect(lines[0]).toBe(
-      "repo,title,dimId,dimension,impact,effort,status,owner,dueDate,dueBucket,overdue,projectedPoints,unlocks,lastActivityAt,claimActor,leaseUntil,needsHuman,recommendationId",
+      "repo,title,dimId,dimension,impact,effort,status,owner,dueDate,dueBucket,overdue,projectedPoints,unlocks,rationale,explore,lastActivityAt,claimActor,leaseUntil,needsHuman,recommendationId",
     );
     // Exactly one data row — byDue carries the same items and must not double them.
     expect(lines).toHaveLength(2);
@@ -148,10 +148,51 @@ describe("GET /api/org/backlog?format=csv", () => {
     expect(row[header.indexOf("needsHuman")]).toBe("true");
   });
 
+  it("exports rationale and explore so a downloaded batch can rebuild the fix prompt", async () => {
+    mockBacklog.mockResolvedValue(
+      backlog([
+        item({
+          rationale: "CI is the gate that makes later rungs cheap.",
+          explore: ["Which workflow is the source of truth?", "Who owns the required checks?"],
+        }),
+      ]) as never,
+    );
+    const csv = bodyOf(await get("org=acme&format=csv"));
+    const header = csv.trim().split("\n")[0]!.split(",");
+    const row = csv.trim().split("\n")[1]!.split(",");
+    expect(header).toEqual(expect.arrayContaining(["rationale", "explore"]));
+    expect(row[header.indexOf("rationale")]).toBe("CI is the gate that makes later rungs cheap.");
+    expect(row[header.indexOf("explore")]).toBe(
+      "Which workflow is the source of truth?; Who owns the required checks?",
+    );
+  });
+
+  it("leaves empty rationale and explore as empty cells, never 0", async () => {
+    const csv = bodyOf(await get("org=acme&format=csv"));
+    const header = csv.trim().split("\n")[0]!.split(",");
+    const row = csv.trim().split("\n")[1]!.split(",");
+    expect(row[header.indexOf("rationale")]).toBe("");
+    expect(row[header.indexOf("explore")]).toBe("");
+  });
+
   it("neutralizes a spreadsheet formula in a title (the shared csvTable guard)", async () => {
     mockBacklog.mockResolvedValue(backlog([item({ title: "=HYPERLINK(\"http://evil\")" })]) as never);
     const csv = bodyOf(await get("org=acme&format=csv"));
     expect(csv).toContain(`"'=HYPERLINK(""http://evil"")"`);
+  });
+
+  it("neutralizes a spreadsheet formula in rationale and explore", async () => {
+    mockBacklog.mockResolvedValue(
+      backlog([
+        item({
+          rationale: "=HYPERLINK(\"http://evil\")",
+          explore: ["=CMD()"],
+        }),
+      ]) as never,
+    );
+    const csv = bodyOf(await get("org=acme&format=csv"));
+    expect(csv).toContain(`"'=HYPERLINK(""http://evil"")"`);
+    expect(csv).toContain(`"'=CMD()"`);
   });
 
   it("404s rather than emitting a header-only 'successful' export when the org has no backlog", async () => {

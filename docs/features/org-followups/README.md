@@ -272,7 +272,7 @@ is exactly as much of a claim as the trailer it also wrote — and every claim a
 | `src/features/inflight/proposals/` | `ProposalsTab` (server; renders `PersonalBacklog` for a personal workspace) · `ProposalsWorklist` · `ProposalColumns` · `ProposalDetail` · `proposalsModel.ts` (+ `.test.ts`: the loop fold and the cross-source filters). |
 | `src/components/org/followups/` | The row vocabulary Proposals reuses: `FollowupsPromptModal` · `FollowupsFilterBar` (takes a `children` slot for extra menus) · `FollowupChips` · `FollowupHistory` · `followupsModel.ts` · `LocalRescanButton` (counts persist-closed rows, not trailer claims). |
 | `src/components/org/shared/DecisionTable.tsx` | The shared decision-ledger shape (selection, in-place expander, source-aware bulk bar) behind Proposals and Lessons. |
-| `src/app/api/org/backlog/route.ts` | The ledger's read API (`getOrgBacklog`), kept from the retired tab for automation. |
+| `src/app/api/org/backlog/route.ts` | The ledger's read API (`getOrgBacklog`), kept from the retired tab for automation. `?format=csv` flattens one row per item and includes `rationale` and `explore` (questions joined with `"; "`; an empty value stays an empty cell, never `0`) so a downloaded batch can rebuild `buildFixPrompt` without re-fetching JSON. |
 
 ## The resolve rule, tightened (2026-08-26)
 

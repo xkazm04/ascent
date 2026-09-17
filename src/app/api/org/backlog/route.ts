@@ -30,6 +30,10 @@ const CSV_HEADER = [
   "overdue",
   "projectedPoints",
   "unlocks",
+  // Scan-authored prompt fields. Without them an exported batch cannot rebuild
+  // buildFixPrompt without re-fetching JSON. Empty stays empty (never 0 / "[]").
+  "rationale",
+  "explore",
   "lastActivityAt",
   // Work-queue facts already on BacklogItem (MOONSHOT #3). A CSV without them makes a leased or
   // needs-human row look unclaimed once the download leaves the app — assigneeLogin is the planning
@@ -61,6 +65,9 @@ function backlogCsvRows(backlog: OrgBacklog): unknown[][] {
       i.overdue,
       i.projectedPoints ?? "",
       i.unlocks ?? "",
+      i.rationale,
+      // Same "; " join as other list cells (passport blockers). Empty array → empty cell, never 0.
+      i.explore.join("; "),
       i.lastActivityAt,
       i.claimActor ?? "",
       // ISO from getOrgBacklog. Empty = no lease: on an in_progress row that means a human took it,
