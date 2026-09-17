@@ -92,11 +92,18 @@ export function useReportScan(
   // Bumped by "Re-test" to re-run the scan in place; > 0 also implies fresh.
   const [retestNonce, setRetestNonce] = useState(0);
   const [rescan, setRescan] = useState<ReportScan["rescan"]>({ active: false, error: null, errorClass: {} });
-  const [persisted, setPersisted] = useState(false);
   // The report currently on screen, read at scan-start to decide whether a re-test can keep it mounted.
   const reportRef = useRef<ScanReport | null>(null);
   // `fresh` (a "Re-test" link, or a re-test below) forces a re-score that bypasses the report cache.
   const fresh = initialFresh || retestNonce > 0;
+  // Stored WITH the scan it answers so a stale `true` cannot outlive a new repo/fresh/ref/path run
+  // (and so we never setState(false) in the effect body — react-hooks/set-state-in-effect).
+  const persistKey = `${repo}|${String(fresh)}|${retestNonce}|${ref ?? ""}|${subPath ?? ""}`;
+  const [persistEntry, setPersistEntry] = useState<{ key: string; ok: boolean }>({
+    key: persistKey,
+    ok: false,
+  });
+  const persisted = persistEntry.key === persistKey && persistEntry.ok;
 
   useEffect(() => {
     if (state.status === "done") reportRef.current = state.report;
@@ -110,7 +117,6 @@ export function useReportScan(
     let cancelled = false;
     let timedOut = false;
     let durable = false;
-    setPersisted(false);
     // A re-test (retestNonce bumped) while a report is already shown keeps that report visible and
     // surfaces progress through `rescan`; a first load blanks to the full Loading checklist.
     const rescanMode = retestNonce > 0 && reportRef.current != null;
@@ -146,7 +152,7 @@ export function useReportScan(
     // banner updates; otherwise the page-level state machine drives Loading/error/done.
     const settleDone = (report: ScanReport, stale?: Stale) => {
       if (cancelled) return;
-      setPersisted(durable);
+      setPersistEntry({ key: persistKey, ok: durable });
       setState({ status: "done", report, stale });
       setRescan({ active: false, error: null, errorClass: {} });
     };
@@ -386,7 +392,7 @@ export function useReportScan(
     };
     // `ref`/`subPath` are dependencies: changing the branch or sub-path in the URL is a different
     // scan subject, so the effect must re-run rather than keep showing the previous subject's report.
-  }, [repo, fresh, retestNonce, ref, subPath, scoped]);
+  }, [repo, fresh, retestNonce, ref, subPath, scoped, persistKey]);
 
   return {
     state,
