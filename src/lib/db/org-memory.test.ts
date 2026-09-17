@@ -379,6 +379,21 @@ describe("lifecycleWorkingSet — the recall door, not the write-check helper", 
     expect(calls.findMany[1]!.where.namespace).toBeNull();
     expect(writeCheck).toEqual([]);
   });
+
+  it("exposes stored citation counters on the wire row without a second query", async () => {
+    const { prisma } = fakePrisma({
+      findManyRows: [{ ...scanPipelineRow, citedCount: 4, notUsefulCount: 1 }],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+    // Browse (MemoryTrust) and recall (lifecycleWorkingSet) share toRow — the counters already
+    // live on OrgMemory; this is the exposure, not a new recall helper.
+    expect(await listOrgMemories("acme")).toEqual([
+      expect.objectContaining({ citedCount: 4, notUsefulCount: 1 }),
+    ]);
+    expect(await lifecycleWorkingSet("acme")).toEqual([
+      expect.objectContaining({ id: "mem_scan", citedCount: 4, notUsefulCount: 1 }),
+    ]);
+  });
 });
 
 describe("recordMemoryRecall — best-effort counter", () => {

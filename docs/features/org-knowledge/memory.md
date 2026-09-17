@@ -51,12 +51,18 @@ as a write).
 
 `MemoryTrust` (`src/features/shared/memory/MemoryTrust.tsx`) is the panel's first
 element: a `Distribution` (quartile box) over the **confidence** of the rows
-currently listed. Confidence is the axis recall ranks on and the one no row
-reveals — a store whose median confidence is 0.3 hands agents a very different
-kind of knowledge than one at 1.0, and a bimodal store (verified decisions plus a
-pile of hunches) has a perfectly ordinary mean. It renders nothing at zero rows
-rather than a box parked at 0, which would read as "this org is certain of
-nothing".
+currently listed, and — when any listed row carries citation votes — a
+`BudgetPack` of **citation evidence**. Confidence is the axis recall ranks on and
+the one no row reveals — a store whose median confidence is 0.3 hands agents a
+very different kind of knowledge than one at 1.0, and a bimodal store (verified
+decisions plus a pile of hunches) has a perfectly ordinary mean. Citation votes
+are the other half of that profile: `citedCount` is the pack fill (an agent
+reported using the memory), `notUsefulCount` is a `declared` omission beside it,
+and the two counters are never netted. It renders nothing at zero rows rather
+than a box parked at 0, which would read as "this org is certain of nothing";
+zero citation votes is the same kind of silence (no evidence), not a pack at 0.
+The self-report caveat — a citation is an agent's claim it used a memory, not
+proof it helped — sits on a `WhyChip`.
 
 ### Why these surfaces are drawn rather than described
 
@@ -427,8 +433,9 @@ Below the pack:
   derived through the same exported constants the server scored with
   (`halfLifeDays`, `ACCESS_BONUS_WEIGHT`, `MAX_DELIVERY_BONUS`), so it cannot
   drift from the model by being re-typed. Zero deliveries is drawn as a counted
-  zero, not an absence. `citedCount` is deliberately absent from the bar: it is
-  not on the wire row, and drawing a factor from a field we do not have would be
+  zero, not an absence. `citedCount` now travels on `MemoryRow` (via `toRow()`)
+  and `MemoryTrust` draws the listed votes, but the per-row bar has not grown a
+  fourth segment yet — drawing a factor from geometry we have not built would be
   a fabricated measurement.
 - **"ranked but left out: budget"** and **"not recallable"**, each collapsed
   behind a summary carrying its group's real swatch, with the demoted sentence on
@@ -671,6 +678,8 @@ guessing an id from another org 404s rather than leaking existence via a
 | `version` | Starts at 1, incremented on edit or supersede. |
 | `archived` | Soft-delete flag; never a hard delete. |
 | `accessCount` | Denormalized recall/copy tally. |
+| `citedCount` | Denormalized count of agent `cite_memory` votes that said the memory was used. Surfaced on `MemoryRow` via `toRow()` and drawn on `MemoryTrust` when any listed row has votes. 0 is no evidence, never "found useless". |
+| `notUsefulCount` | Denormalized count of votes that said the memory did not help. Never netted against `citedCount`. |
 | `expiresAt` | Optional TTL for ephemeral memory. |
 | `createdBy` | GitHub login of the author, or `null` for scan-fed rows. |
 
@@ -735,14 +744,12 @@ by hand does not accumulate it by scan either.
 - **A repo removed from an org keeps its mirrored rows.** `onDelete: Cascade`
   covers deleting the whole org; an explicit per-repo delete belongs in
   `src/lib/db/retention.ts`, which this lane does not own.
-- **The per-row `RecallContribution` bar draws three factors, not four.** The
-  scoring core has carried a fourth term since `citedCount` shipped
-  (`min(MAX_COMBINED_BONUS, delivery × evidence)`), but `citedCount` is not a
-  field on `MemoryRow`, so it does not reach the recall response and the bar
-  cannot draw it without inventing a number. Adding it to `MemoryRow` +
-  `toRow()` is the fix; until then the bar draws trust · freshness · delivery
-  and says so, and the row's `score` — which does include the citation term —
-  stays the server's verbatim value.
+- **The per-row `RecallContribution` bar still draws three factors, not four.**
+  `MemoryRow` now carries `citedCount` / `notUsefulCount` (via `toRow()`), and
+  `MemoryTrust` draws those votes when any listed row has them. The recall bar
+  has not been wired to the new field yet; it still draws trust · freshness ·
+  delivery. The packed row's `score` includes the citation term and stays the
+  server's verbatim value.
 
 ## Registry-backed state (UC2, 2026-08-18)
 
@@ -793,7 +800,7 @@ only news once the other world exists.
 | `src/lib/db/org-memory-lifecycle.ts` | `lifecycleWorkingSet` (recall door), `applyReflection`, `archiveOrgMemories`. |
 | `src/lib/org/memory-kinds.ts` | Kind/visibility/confidence-band constants. |
 | `src/features/shared/memory/MemoryPanel.tsx` | Client orchestrator. |
-| `src/features/shared/memory/MemoryTrust.tsx` | Confidence quartiles of the listed rows (`Distribution`). |
+| `src/features/shared/memory/MemoryTrust.tsx` | Confidence quartiles of the listed rows (`Distribution`), plus citation evidence (`BudgetPack`) when any listed row has votes. |
 | `src/features/shared/memory/MemoryRecallPanel.tsx` | Value-ranked recall surface (opens on `BudgetPack`). |
 | `src/features/shared/memory/MemoryRecallControls.tsx` | Budget / namespace / kind / run row. |
 | `src/features/shared/memory/MemoryRecallRows.tsx` | Packed / omitted / ineligible rows. |

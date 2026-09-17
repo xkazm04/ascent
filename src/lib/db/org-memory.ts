@@ -42,6 +42,10 @@ export interface MemoryRow {
   supersededBy: string | null;
   version: number;
   accessCount: number;
+  /** Times an agent reported USING this memory (`cite_memory`). 0 = no evidence, never "found useless". */
+  citedCount: number;
+  /** Times an agent reported this memory did NOT help. Never netted against `citedCount`. */
+  notUsefulCount: number;
   expiresAt: string | null;
   /** WHERE THIS NOTE LIVES (UC2 registry mirror) — see `SkillRow.origin`. `"registry"` rows are
    *  a mirror of `memory/<kind>/<slug>.md` and are changed by pull request, not in ascent. */
@@ -140,6 +144,10 @@ export function toRow(m: OrgMemory): MemoryRow {
     supersededBy: m.supersededBy,
     version: m.version,
     accessCount: m.accessCount,
+    // Already stored on OrgMemory — the browse list and lifecycleWorkingSet share this mapper, so
+    // recall does not need a second query to rank on evidence. Absent on a partial mock is 0.
+    citedCount: m.citedCount ?? 0,
+    notUsefulCount: m.notUsefulCount ?? 0,
     expiresAt: m.expiresAt ? m.expiresAt.toISOString() : null,
     origin: m.origin === "registry" ? "registry" : "hosted",
     registryPath: m.registryPath ?? null,
