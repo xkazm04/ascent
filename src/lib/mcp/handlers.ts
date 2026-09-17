@@ -25,6 +25,7 @@ import { getOrgGatePolicy } from "@/lib/db/org-gate";
 import { getActiveOrgStance } from "@/lib/db/org-stance";
 import { getRepoAdmission } from "@/lib/db/org-admission";
 import { compileStance } from "@/lib/org/admission";
+import { scoreMemories } from "@/lib/memory/recall";
 import { defaultGatePolicy, describeGatePolicy, evaluateGateLite } from "@/lib/scoring/gate";
 import { PRACTICES } from "@/lib/practices";
 import { findSkills, getGoverningSubject, getSkill, getSkillLessons } from "@/lib/mcp/registry-reads";
@@ -294,28 +295,15 @@ async function recallMemory(org: string, args: Args): Promise<ToolResult> {
   // means IS NULL (org-wide only), which hides every scan-fed / repo-mirrored namespaced row.
   const rows = await lifecycleWorkingSet(org, { limit: limit * 4 }, null);
   const q = query.toLowerCase().split(/\s+/).filter(Boolean);
-  // Deliberately a plain term overlap, not a semantic search: this is a projection of stored rows,
-  // and inventing a relevance model here would put a second, divergent ranking beside the one the
-  // Memory tab shows.
-  const scored = rows
-    .map((r) => {
-      const hay = `${r.content} ${r.tags.join(" ")}`.toLowerCase();
-      return { r, score: q.filter((t) => hay.includes(t)).length };
-    })
-    .filter((x) => x.score > 0)
-    // Ties break by confidence then id — deterministic, so the same query returns the same order.
-    .sort((a, b) => b.score - a.score || b.r.confidence - a.r.confidence || a.r.id.localeCompare(b.r.id))
-    .slice(0, limit);
+  // Term overlap is a RELEVANCE FILTER, not a ranking. Ordering is the org's recall value model
+  // (`src/lib/memory/recall.ts`) — the same one the Memory tab packs with — so this door and that
+  // surface cannot disagree about which memory is worth the context.
+  const matched = rows.filter((r) => {
+    const hay = `${r.content} ${r.tags.join(" ")}`.toLowerCase();
+    return q.some((t) => hay.includes(t));
+  });
 
-  // USE EVIDENCE, folded in before the entries are handed over. `citedCount` lives on OrgMemory and
-  // `MemoryRow` does not carry it, so it is read here rather than inferred — and an id missing from
-  // the map is "no evidence", which is exactly the 0 the recall model treats as the term's absence.
-  const counts: Record<string, { citedCount: number; notUsefulCount: number }> = await citationCountsFor(
-    org,
-    scored.map((s) => s.r.id),
-  ).catch(() => ({}));
-
-  if (scored.length === 0) {
+  if (matched.length === 0) {
     return {
       structuredContent: {
         org,
@@ -326,17 +314,42 @@ async function recallMemory(org: string, args: Args): Promise<ToolResult> {
       },
     };
   }
+
+  // USE EVIDENCE as an INPUT TO PACKING, not a decoration on the packed set. Fetching counts after
+  // the slice meant a cited memory that lost a term-overlap race never entered the pack, so the
+  // citation term the recall model is built around could not change who an agent saw. An id missing
+  // from the map is "no evidence", which is exactly the 0 the model treats as the term's absence.
+  const counts: Record<string, { citedCount: number; notUsefulCount: number }> = await citationCountsFor(
+    org,
+    matched.map((r) => r.id),
+  ).catch(() => ({}));
+
+  const candidates = matched.map((r) => ({
+    ...r,
+    accessCount: r.accessCount ?? 0,
+    citedCount: counts[r.id]?.citedCount ?? r.citedCount ?? 0,
+    notUsefulCount: counts[r.id]?.notUsefulCount ?? r.notUsefulCount ?? 0,
+  }));
+  const byId = new Map(candidates.map((r) => [r.id, r]));
+  const packed = scoreMemories(candidates, Date.now())
+    .slice(0, limit)
+    .map((s) => byId.get(s.memory.id))
+    .filter((r): r is (typeof candidates)[number] => r != null);
+
   // DELIVERIES ARE NOW COUNTED AT THIS DOOR. They never were: the REST recall route bumped
   // `accessCount` and this handler did not, so every memory an agent read through MCP looked, to
   // decay.ts, like one nobody had ever asked for. Best-effort by contract, and only what was returned.
-  await bumpMemoryAccessCounts(org, scored.map(({ r }) => r.id)).catch(() => 0);
+  await bumpMemoryAccessCounts(
+    org,
+    packed.map((r) => r.id),
+  ).catch(() => 0);
 
   return {
     structuredContent: {
       org,
       query,
-      count: scored.length,
-      entries: scored.map(({ r }) => ({
+      count: packed.length,
+      entries: packed.map((r) => ({
         // THE ID IS THE POINT OF THIS FIELD: it is what `cite_memory` needs to report back which of
         // these actually helped. Without it the citation channel has no handle to name.
         id: r.id,
@@ -348,8 +361,8 @@ async function recallMemory(org: string, args: Args): Promise<ToolResult> {
         // see who recorded it and how confident the org was, not just the text.
         source: r.source,
         confidence: r.confidence,
-        citedCount: counts[r.id]?.citedCount ?? 0,
-        notUsefulCount: counts[r.id]?.notUsefulCount ?? 0,
+        citedCount: r.citedCount ?? 0,
+        notUsefulCount: r.notUsefulCount ?? 0,
       })),
       citing:
         "Report back with cite_memory using each entry's `id`. Whether a memory helped is something only you can know, and it is the only evidence this store has that a memory is worth keeping.",

@@ -61,6 +61,7 @@ vi.mock("@/lib/db/org-stance", () => ({
 vi.mock("@/lib/db/org-admission", () => ({ getRepoAdmission: vi.fn(async () => null) }));
 
 const { runTool } = await import("@/lib/mcp/handlers");
+const { citationCountsFor } = await import("@/lib/db/org-memory-citations");
 
 const rec = (title: string, repos: string[], impact = "high") => ({
   title,
@@ -80,6 +81,8 @@ beforeEach(() => {
   memories = [];
   stance = null;
   bumped.length = 0;
+  vi.mocked(citationCountsFor).mockReset();
+  vi.mocked(citationCountsFor).mockResolvedValue({});
 });
 
 describe("get_repo_standing", () => {
@@ -229,25 +232,49 @@ describe("get_practice_shape", () => {
 describe("recall_org_memory", () => {
   const memory = (id: string, content: string, confidence = 0.8) => ({
     id,
-    kind: "decision",
+    kind: "semantic",
     namespace: "eng",
     content,
     tags: [] as string[],
     source: "human",
     confidence,
+    accessCount: 0,
+    citedCount: 0,
+    notUsefulCount: 0,
+    updatedAt: "2026-09-01T00:00:00.000Z",
   });
 
-  it("ranks by term overlap, breaks ties deterministically, and counts the delivery", async () => {
+  it("returns query matches, packs by the recall value model, and counts the delivery", async () => {
     memories = [memory("m1", "We chose postgres for the ledger"), memory("m2", "Postgres and redis both run in dev", 0.9)];
     const out = (await runTool("recall_org_memory", "acme", { query: "postgres ledger" })).structuredContent as {
       count: number;
       entries: { id: string }[];
     };
-    expect(out.entries.map((e) => e.id)).toEqual(["m1", "m2"]);
+    // Term overlap is the filter; ORDERING is confidence × decay × evidence, so the 0.9 row leads.
+    expect(out.entries.map((e) => e.id)).toEqual(["m2", "m1"]);
     // A read through this door counts as a DELIVERY. It did not use to, so every memory an agent
     // reached over MCP looked to decay.ts like one nobody had ever asked for.
-    expect(bumped).toEqual([["m1", "m2"]]);
+    expect(bumped).toEqual([["m2", "m1"]]);
     expect(out.count).toBe(2);
+  });
+
+  it("scores citations on every match BEFORE packing, so a cited memory can win a tight slice", async () => {
+    memories = [memory("uncited", "We chose postgres", 0.9), memory("cited", "We chose postgres", 0.6)];
+    vi.mocked(citationCountsFor).mockResolvedValue({
+      cited: { citedCount: 4, notUsefulCount: 0 },
+      uncited: { citedCount: 0, notUsefulCount: 0 },
+    });
+    const out = (await runTool("recall_org_memory", "acme", { query: "postgres", limit: 1 })).structuredContent as {
+      entries: { id: string; citedCount: number }[];
+    };
+    // FAIL-BEFORE: citationCountsFor ran on the already-sliced ids, so packing ranked 0.9 over 0.6
+    // and `cited` never entered the pack. Four citations cap the evidence term at 1.6, which puts
+    // confidence 0.6 above an uncited 0.9.
+    expect(vi.mocked(citationCountsFor).mock.calls[0]?.[1]).toEqual(expect.arrayContaining(["uncited", "cited"]));
+    expect(vi.mocked(citationCountsFor).mock.calls[0]?.[1]).toHaveLength(2);
+    expect(out.entries.map((e) => e.id)).toEqual(["cited"]);
+    expect(out.entries[0]?.citedCount).toBe(4);
+    expect(bumped).toEqual([["cited"]]);
   });
 
   it("answers NO MATCH with the sentence that says it is not an endorsement", async () => {
@@ -260,6 +287,7 @@ describe("recall_org_memory", () => {
     expect(out.note).toMatch(/not that the approach is endorsed/);
     // Nothing was delivered, so nothing is counted as delivered.
     expect(bumped).toEqual([]);
+    expect(citationCountsFor).not.toHaveBeenCalled();
   });
 
   it("requires a query rather than dumping the store", async () => {
