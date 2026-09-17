@@ -1,40 +1,18 @@
 "use client";
 
 /**
- * Presentational chrome for {@link DevInspector} — highlight boxes, the
- * cursor-anchored source label, the breadcrumb HUD, and the nav-mode hint.
+ * Presentational chrome for {@link DevInspector} — the idle Inspect chip,
+ * cursor-anchored source label, breadcrumb HUD, and nav-mode hint.
  * Kept separate so the inspector component stays focused on state + wiring
  * (and so each file stays small). Dev-only; never ships to production.
  */
 
 import { useState, type CSSProperties } from "react";
 
+import { ACCENT, DIM, OK, Z } from "./devInspectorMarks";
 import { chipLeft, formatHudCopy, isLibraryPath, splitLoc, type LocEntry } from "./devLocate";
 
-export const Z = 2147483646;
-const ACCENT = "#38bdf8"; // cyan
-const DIM = "#a855f7"; // purple — secondary (pointed) outline
-const OK = "#34d399"; // green — copy confirmation
-
-function boxStyle(rect: DOMRect, color: string, dashed: boolean): CSSProperties {
-  return {
-    position: "fixed",
-    left: rect.left,
-    top: rect.top,
-    width: rect.width,
-    height: rect.height,
-    border: `${dashed ? 1 : 2}px ${dashed ? "dashed" : "solid"} ${color}`,
-    borderRadius: 3,
-    background: dashed ? "transparent" : `${color}1f`,
-    pointerEvents: "none",
-    boxSizing: "border-box",
-    zIndex: Z,
-  };
-}
-
-export function HighlightBox({ rect, variant }: { rect: DOMRect; variant: "target" | "pointer" }) {
-  return <div style={boxStyle(rect, variant === "target" ? ACCENT : DIM, variant === "pointer")} />;
-}
+export { HighlightBox, Z } from "./devInspectorMarks";
 
 // Chip layout invariants, named so the placement math and the CSS enforce the SAME numbers.
 // CHIP_H: rendered chip height (11px font × 1.4 line-height + 2×1px padding ≈ 17px, rounded up with
@@ -290,5 +268,31 @@ export function NavHint() {
         <b style={{ color: "#f1f5f9" }}>Esc</b> to cancel
       </span>
     </div>
+  );
+}
+
+/** Bottom-right idle/armed control: one-click arm, or the mapping-off hint. */
+export function InspectChip({ mappingOn, onArm }: { mappingOn: boolean; onArm: () => void }) {
+  const style: CSSProperties = {
+    ...PANEL,
+    left: "auto",
+    right: 12,
+    zIndex: Z,
+    pointerEvents: "auto",
+    fontWeight: 700,
+    color: mappingOn ? ACCENT : "#fca5a5",
+    cursor: mappingOn ? "pointer" : "default",
+  };
+  if (!mappingOn) {
+    return (
+      <div data-devinspector role="status" style={style}>
+        mapping off → npm run dev:inspect
+      </div>
+    );
+  }
+  return (
+    <button type="button" data-devinspector onClick={onArm} aria-label="Inspect ; i" className="focus-ring" style={style}>
+      Inspect `; i`
+    </button>
   );
 }

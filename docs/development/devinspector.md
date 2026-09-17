@@ -8,11 +8,13 @@ production builds.
 npm run dev:inspect   # dev server with source-location stamping on
 ```
 
-In the app, press **`;`** (enters keyboard mode) then **`i`** (Inspect) to arm it. Hover
-highlights the element under the cursor and pins a `File.tsx:line` chip; **right-click** copies
-the call-site path, **Alt+right-click** copies the innermost element, click a HUD row to copy
-any enclosing file, and **Esc** exits. A plain `npm run dev` works too, but the HUD will say
-source mapping is OFF until you relaunch with `npm run dev:inspect`.
+In the app, a bottom-right **Inspect `; i`** chip is visible at idle whenever the overlay is
+mounted. Click it to arm (or press **`;`** then **`i`**). Hover highlights the element under
+the cursor and pins a `File.tsx:line` chip; **right-click** copies the call-site path,
+**Alt+right-click** copies the innermost element, click a HUD row to copy any enclosing file,
+and **Esc** returns to the Inspect chip rather than hiding all chrome. A plain `npm run dev`
+works too, but the idle chip then reads `mapping off → npm run dev:inspect` until you relaunch
+with `npm run dev:inspect`.
 
 ## How it is wired
 

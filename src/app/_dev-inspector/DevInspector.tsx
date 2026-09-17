@@ -6,7 +6,7 @@
  * Usage (mirrors the personas desktop app):
  *   1. Launch with `npm run dev:inspect` (sets DEV_INSPECT=1 so the Turbopack
  *      loader stamps host elements with `data-loc`).
- *   2. Press `;` to enter keyboard mode, then `i` to arm the inspector.
+ *   2. Click the bottom-right Inspect chip (or press `;` then `i`) to arm.
  *   3. Hover highlights the element; RIGHT-CLICK copies a Claude-Code-friendly
  *      `src/.../File.tsx:LINE` to the clipboard (left-click is left untouched so
  *      you can keep operating the app). Default copy = the INNERMOST NON-LIBRARY
@@ -17,18 +17,18 @@
  *      copies the innermost element regardless; click a HUD row to copy any
  *      enclosing file. A HUD `code -g` action copies the editor CLI deep-link
  *      for the default target — Alt+right-click is not a format switch.
- *   4. `Esc` exits.
+ *   4. `Esc` returns to the Inspect chip.
  *
  * Mounted only behind `process.env.NODE_ENV === 'development'` in the root
  * layout, so the module is absent from production. Without `dev:inspect` there
- * are no `data-loc` attributes and the HUD says how to enable source mapping.
+ * are no `data-loc` attributes and the idle chip says how to enable mapping.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { buildChain, dedupeChain, formatHudCopy, pickDefaultIndex, type LocEntry } from "./devLocate";
-import { HighlightBox, InspectorHud, NavHint, SourceLabel, Z } from "./devInspectorUi";
+import { HighlightBox, InspectChip, InspectorHud, NavHint, SourceLabel, Z } from "./devInspectorUi";
 
 async function copyText(text: string): Promise<boolean> {
   try {
@@ -243,7 +243,20 @@ export function DevInspector() {
     [],
   );
 
-  if (!mounted || mode === "off") return null;
+  if (!mounted) return null;
+
+  const mappingOn = document.querySelector("[data-loc]") !== null;
+  const chip = (
+    <InspectChip
+      mappingOn={mappingOn}
+      onArm={() => {
+        modeRef.current = "armed";
+        setMode("armed");
+      }}
+    />
+  );
+
+  if (mode === "off") return createPortal(chip, document.body);
 
   if (mode === "nav") {
     return createPortal(
@@ -254,8 +267,7 @@ export function DevInspector() {
     );
   }
 
-  // armed
-  const mappingOn = document.querySelector("[data-loc]") !== null;
+  // armed — chip stays bottom-right, below / beside the HUD
   const defaultLoc =
     hover && hover.chain[hover.defaultIndex] ? hover.chain[hover.defaultIndex]!.loc : null;
   const crumbs = hover ? dedupeChain(hover.chain) : [];
@@ -280,6 +292,7 @@ export function DevInspector() {
         defaultLoc={defaultLoc}
         onCopy={doCopy}
       />
+      {chip}
     </div>,
     document.body,
   );
