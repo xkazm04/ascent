@@ -220,7 +220,8 @@ Guardrails, each load-bearing:
   per lane by the engine, so in a multi-repo run one stalled repo no longer ends the pass).
 - **One run per org**, enforced against the database, not a process `Map`. Phase, branch, log and
   outcome ids are durable; a `running` row left behind by a restart is reconciled to `stopped`
-  (`markStaleRunsStopped`) rather than being trusted or resumed.
+  (`markStaleRunsStopped`, on the band's GET the same way `GET /api/org/loop` does it) rather than
+  being trusted or resumed.
 
 UI: `AutopilotBand` (+ `AutopilotBandParts`) in `src/features/inflight/live/` — picker, cycle
 count, start/stop, live log; polls the job every 4s only while one runs, and refreshes the wall once

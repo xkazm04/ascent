@@ -1,6 +1,7 @@
 // LOCAL MODE autopilot control (self-hosted only, ASCENT_AUTOPILOT=1 only).
 //
-//   GET  ?org=…                                → the org's current/last job (the band's poll)
+//   GET  ?org=…                                → the org's current/last job (the band's poll;
+//                                                 reconciles stale loop runs first, like GET /api/org/loop)
 //   POST { org, action:"start", fullName, maxCycles? } → arm a run (owner-gated)
 //   POST { org, action:"stop" }                → cooperative stop (owner-gated)
 //
@@ -14,8 +15,10 @@ import { PUBLIC_ORG } from "@/lib/auth";
 import { requireOrgAccess, requireOrgRole } from "@/lib/authz";
 import { dbGuard } from "@/lib/api/orgPlan";
 import { selfHostGuard } from "@/lib/api/self-host";
+import { markStaleRunsStopped } from "@/lib/db/loop-runs";
 import { autopilotEnabled } from "@/lib/local/agent";
 import { MAX_CYCLES_CAP, getAutopilotJob, requestAutopilotStop, startAutopilot } from "@/lib/local/autopilot";
+import { isLoopRunLive } from "@/lib/local/loop-engine";
 import { getRepoLocalPath } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -28,6 +31,11 @@ export async function GET(request: Request) {
   if (!org || org === PUBLIC_ORG) return NextResponse.json({ error: "Missing 'org'." }, { status: 400 });
   const denied = await requireOrgAccess(org);
   if (denied) return denied;
+  // Reconcile before reading: a run left `running` by a process that died is not resumable, and
+  // rendering it as active would leave the band spinning on a job nobody is driving. A run THIS
+  // process is driving is not stale — without the predicate this GET would stop the run it was
+  // rendering (same 2026-08-26 bug as GET /api/org/loop).
+  await markStaleRunsStopped(org, isLoopRunLive).catch(() => 0);
   return NextResponse.json({ enabled: autopilotEnabled(), job: await getAutopilotJob(org) });
 }
 

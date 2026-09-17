@@ -21,8 +21,8 @@
 // projection onto that shape — naming `repos[0]` and flattening every lane's log would tell the
 // band the wrong repo is being worked. Multi-repo runs stay on the cockpit; this shim ignores them.
 
-import { LOOP_MAX_CYCLES_CAP, getActiveLoopRun, listLanes, listLoopRuns, getLoopRun, type LoopLaneRecord, type LoopRunRecord } from "@/lib/db/loop-runs";
-import { startLoopRun, stopLoopRun } from "@/lib/local/loop-engine";
+import { LOOP_MAX_CYCLES_CAP, getActiveLoopRun, listLanes, listLoopRuns, getLoopRun, markStaleRunsStopped, type LoopLaneRecord, type LoopRunRecord } from "@/lib/db/loop-runs";
+import { isLoopRunLive, startLoopRun, stopLoopRun } from "@/lib/local/loop-engine";
 import type { LaneDeps } from "@/lib/local/loop-lane";
 
 export const MAX_CYCLES_CAP = LOOP_MAX_CYCLES_CAP;
@@ -96,6 +96,10 @@ function projectPhase(run: LoopRunRecord, last: LoopLaneRecord | undefined): Aut
 /** The org's current (or most recent) single-repo autopilot job, or null.
  *  A live multi-repo run is skipped, not projected: the band must not look like it owns a fleet pass. */
 export async function getAutopilotJob(org: string): Promise<AutopilotJob | null> {
+  // Same sweep GET /api/org/loop runs before it reads. A `running` row this process does not own
+  // is a restart casualty; projecting it as the live job would leave the band spinning. Swallow a
+  // sweep failure — the read must still answer.
+  await markStaleRunsStopped(org, isLoopRunLive).catch(() => 0);
   const active = await getActiveLoopRun(org);
   const run = active && isSingleRepoRun(active) ? active : await mostRecentSingleRepoRun(org);
   if (!run) return null;

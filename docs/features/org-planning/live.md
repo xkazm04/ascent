@@ -437,13 +437,15 @@ construction, a restart casualty — a lie, not a resumable job. `markStaleRunsS
 runs `stopped` with `"Interrupted — the server restarted while this run was in flight."` and flips
 their non-terminal lanes to `error`.
 
-It runs at **three** moments: at **boot**, from `register()` in `src/instrumentation.ts` via
+It runs at **four** moments: at **boot**, from `register()` in `src/instrumentation.ts` via
 `sweepInterruptedWork()` (so a crashed run stops reading as `running`, and its lanes' backlog claims
 are released, whether or not anybody opens the tab); on `GET /api/org/loop` (so the cockpit never
-renders a job nobody is driving); and inside `startLoopRun`, *before* the one-run-per-org check —
-otherwise a single crash would bar the org from ever starting another run.
+renders a job nobody is driving); on `GET /api/org/local/autopilot` (the war-room band polls the same
+rows, and `getAutopilotJob` runs the same sweep so a direct lib read is not a second truth); and
+inside `startLoopRun`, *before* the one-run-per-org check — otherwise a single crash would bar the
+org from ever starting another run.
 
-The `isLive(id)` predicate is what separates the three. The two request-path callers pass
+The `isLive(id)` predicate is what separates the call sites. The request-path callers pass
 `isLoopRunLive`, because without it a poll during a run stops the run it is rendering (2026-08-26).
 The boot sweep passes nothing, and that default — "nothing is live" — is true there and only there.
 
@@ -1608,8 +1610,8 @@ Two causes, both now fixed:
 - **The stale-run reconcile consulted no liveness.** `markStaleRunsStopped` marked *every*
   `running` row stopped, and `GET /api/org/loop` calls it on every request — so any page load or
   poll during a run stopped the run it was rendering. It now takes an `isLive(id)` predicate
-  (defaulting to "nothing is live", which is right only for the boot sweep); the engine and the
-  loop route pass `isLoopRunLive`.
+  (defaulting to "nothing is live", which is right only for the boot sweep); the engine, the
+  loop route, and the autopilot GET / job read pass `isLoopRunLive`.
 - **The engine's `live` registry was per module instance, not per process.** Next bundles each
   API route into its own server chunk, so a module-level `Map` is instantiated once *per chunk*: a
   run started by the drive route was invisible to the loop route. Both registries (`live`, and

@@ -219,6 +219,16 @@ describe("autopilot shim — the shipped job contract", () => {
     expect((await getAutopilotJob("acme"))!.repo).toBe(REPO);
   });
 
+  it("reconciles stale runs WITH the engine's liveness before reading the job", async () => {
+    // Same contract GET /api/org/loop pins: a run this process drives is not stale.
+    const { markStaleRunsStopped } = await import("@/lib/db/loop-runs");
+    vi.mocked(markStaleRunsStopped).mockClear();
+    await getAutopilotJob("acme");
+    const call = vi.mocked(markStaleRunsStopped).mock.calls.at(-1)!;
+    expect(call[0]).toBe("acme");
+    expect(call[1]).toBe(isLoopRunLive);
+  });
+
   it("keeps the historical cycle cap", () => {
     expect(MAX_CYCLES_CAP).toBe(5);
   });
