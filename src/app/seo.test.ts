@@ -16,6 +16,8 @@
 //    indexable routes — no /api/, no per-tenant /org/ path ever leaks in.
 //  - robots' local baseUrl() and lib/site publicBaseUrl() resolve identically for the same env (they
 //    duplicate the trailing-slash-strip logic and would otherwise drift).
+//  - the PWA Web App Manifest start_url is /onboarding (the documented first-run door), not the
+//    marketing root. Installing the app must land on that funnel; /onboarding stays indexable.
 
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
@@ -23,6 +25,7 @@ import { resolve } from "node:path";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import robots from "./robots";
 import sitemap from "./sitemap";
+import manifest from "./manifest";
 import { publicBaseUrl } from "@/lib/site";
 
 const ENV_KEYS = ["ASCENT_PUBLIC_URL", "NEXT_PUBLIC_APP_URL", "VERCEL_PROJECT_PRODUCTION_URL"] as const;
@@ -232,6 +235,22 @@ describe("the SEO route lists are pinned to the real app tree", () => {
         : !existsSync(routeFileFor(d)),
     );
     expect(missing).toEqual([]);
+  });
+});
+
+describe("PWA manifest start_url is the documented first-run door", () => {
+  it("points start_url at /onboarding, not the marketing root", () => {
+    expect(manifest().start_url).toBe("/onboarding");
+  });
+
+  it("keeps /onboarding indexable (sitemap + not robots-disallowed)", () => {
+    process.env.ASCENT_PUBLIC_URL = "https://ascent.dev";
+    const rules = robots().rules;
+    const single = Array.isArray(rules) ? rules[0] : rules;
+    const disallow = single.disallow;
+    const list = Array.isArray(disallow) ? disallow : [disallow];
+    expect(list).not.toContain("/onboarding");
+    expect(sitemap().map((e) => new URL(e.url).pathname)).toContain("/onboarding");
   });
 });
 

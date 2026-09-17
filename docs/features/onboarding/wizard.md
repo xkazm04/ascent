@@ -10,7 +10,9 @@ sign-in).
 `/onboarding` is the ONE first-run destination — every "scan your org" CTA (landing hero and fleet
 section, `/about`, `/about-org`, the org-shell walls, the fleet-map empty state, the report
 conversion CTA, the header sign-in `next`, `safeNext()`'s fallback, `/me` and `/launch` bounces)
-lands here. The retired `/connect` page's jobs live here too (see
+lands here, and the PWA Web App Manifest `start_url` (`src/app/manifest.ts`) is `/onboarding` so
+an installed app opens this door rather than the marketing root. The route stays indexable
+(sitemap, not robots-disallowed). The retired `/connect` page's jobs live here too (see
 [github-app.md](../github/github-app.md#install-entry-the-connect-page-is-retired-2026-08-29)):
 `OnboardingErrorBanner` renders every `?error=` / `?resynced=` / `?revoked=` code the auth and App
 routes emit, `SessionControls` carries the dormant session's re-sync / revoke-others controls,
