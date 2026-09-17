@@ -89,7 +89,7 @@ function childList(el: ReactElement): ReactNode[] {
   return Array.isArray(c) ? c : [c];
 }
 
-/** D9 cell text for a named risk-register row (second child of the row View). */
+/** D9 cell text for a named risk-register row (the Text after the repo name). */
 function d9CellOf(root: ReactElement, repoName: string): string {
   let found: string | null = null;
   function walk(node: ReactNode): void {
@@ -99,9 +99,11 @@ function d9CellOf(root: ReactElement, repoName: string): string {
       return;
     }
     if (!isValidElement(node)) return;
-    const kids = childList(node).filter(isValidElement);
-    if (kids.length >= 2 && collectText(kids[0]).join("").trim() === repoName) {
-      found = collectText(kids[1]).join("").trim();
+    const kids = childList(node);
+    const texts = kids.map((k) => (isValidElement(k) ? collectText(k).join("").trim() : ""));
+    const i = texts.indexOf(repoName);
+    if (i >= 0 && i + 1 < texts.length) {
+      found = texts[i + 1];
       return;
     }
     kids.forEach(walk);
