@@ -23,8 +23,8 @@ export function DimensionTrends({
   annotations = [],
 }: {
   history: RepositoryHistory;
-  /** G5-18 event markers, derived from the FULL history by the page. Forwarded to the overall chart,
-   *  which resolves each one to a visible point by timestamp and drops those outside the range. */
+  /** G5-18 event markers, derived from the FULL history by the page. Forwarded to the overall chart
+   *  AND each DimLine, which resolve by timestamp and drop those outside the visible range. */
   annotations?: TrendAnnotation[];
 }) {
   const [range, setRange] = useState<RangeKey>("all");
@@ -244,7 +244,7 @@ export function DimensionTrends({
                         {r.delta !== null && <DeltaTag delta={r.delta} hideZero />}
                       </div>
                     </div>
-                    <DimLine values={r.series} meta={meta} name={r.name} current={r.current} />
+                    <DimLine values={r.series} meta={meta} name={r.name} current={r.current} annotations={annotations} />
                   </Surface>
                 ))}
               </div>
