@@ -16,7 +16,7 @@
 // accessor, so its shape must not move).
 
 import type { CreditPack } from "@/lib/polar";
-import { GrantSection, LedgerSection, PacksSection, UnlimitedChip } from "./CreditsControl.sections";
+import { GrantSection, LedgerSection, ManageBillingLink, PacksSection, UnlimitedChip } from "./CreditsControl.sections";
 import { creditPressure } from "./CreditsControl.autorecharge";
 import { AutoRechargeSection, LowBalanceNotice } from "./CreditsControl.autorechargeUi";
 import { useCreditsControl } from "./useCreditsControl";
@@ -151,6 +151,11 @@ export function CreditsControl({
           )}
 
           {buyEnabled && packs.length > 0 && <PacksSection org={org} packs={packs} />}
+          {buyEnabled && packs.length === 0 && (
+            <div className="mt-3">
+              <ManageBillingLink org={org} />
+            </div>
+          )}
 
           {grantsEnabled && <GrantSection buyEnabled={buyEnabled} busy={busy} grant={grant} />}
 

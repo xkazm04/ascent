@@ -108,6 +108,32 @@ describe("CreditsControl grant error resets on reopen (credits-entitlements #4)"
   });
 });
 
+describe("CreditsControl Polar portal (present vs absent)", () => {
+  it("shows Manage billing when Polar packs are offered", () => {
+    vi.stubGlobal("fetch", vi.fn());
+    render(
+      <CreditsControl
+        org="acme"
+        initialBalance={10}
+        unlimited={false}
+        grantsEnabled={false}
+        buyEnabled
+        packs={[{ productId: "prod_a", credits: 100, label: "100 credits" }]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "10 credits" }));
+    const link = screen.getByRole("link", { name: /manage billing/i });
+    expect(link).toHaveAttribute("href", "/api/billing/portal?org=acme");
+  });
+
+  it("omits Manage billing when Polar is not configured", () => {
+    vi.stubGlobal("fetch", vi.fn());
+    render(<CreditsControl org="acme" initialBalance={10} unlimited={false} grantsEnabled={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "10 credits" }));
+    expect(screen.queryByRole("link", { name: /manage billing/i })).toBeNull();
+  });
+});
+
 describe("CreditsControl paused state (not color-alone)", () => {
   it("marks the paused chip with text + an aria-label, beyond the amber tint", () => {
     // balance 0 AND no free allowance left → paused.

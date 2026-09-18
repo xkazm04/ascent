@@ -1,10 +1,31 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { creditPacks, creditsForProduct, planForProduct, planProducts, polarEnabled, polarServer } from "./polar";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const { mockCreate } = vi.hoisted(() => ({
+  mockCreate: vi.fn(async () => ({ customerPortalUrl: "https://polar.test/portal/sess" })),
+}));
+
+vi.mock("@polar-sh/sdk", () => ({
+  Polar: class Polar {
+    customerSessions = { create: mockCreate };
+  },
+}));
+
+import {
+  creditPacks,
+  creditsForProduct,
+  planForProduct,
+  planProducts,
+  polarCustomerPortalUrl,
+  polarEnabled,
+  polarHostedPortalUrl,
+  polarServer,
+} from "./polar";
 
 const PACKS = process.env.POLAR_CREDIT_PACKS;
 const PLAN_PRODUCTS = process.env.POLAR_PLAN_PRODUCTS;
 const SERVER = process.env.POLAR_SERVER;
 const TOKEN = process.env.POLAR_ACCESS_TOKEN;
+const ORG_SLUG = process.env.POLAR_ORGANIZATION_SLUG;
 
 afterEach(() => {
   // Restore whatever the runner started with (delete = was unset).
@@ -13,6 +34,7 @@ afterEach(() => {
     ["POLAR_PLAN_PRODUCTS", PLAN_PRODUCTS],
     ["POLAR_SERVER", SERVER],
     ["POLAR_ACCESS_TOKEN", TOKEN],
+    ["POLAR_ORGANIZATION_SLUG", ORG_SLUG],
   ] as const) {
     if (v === undefined) delete process.env[k];
     else process.env[k] = v;
@@ -119,5 +141,64 @@ describe("polarEnabled", () => {
     delete process.env.POLAR_CREDIT_PACKS;
     process.env.POLAR_PLAN_PRODUCTS = "prod_pro=pro";
     expect(polarEnabled()).toBe(true);
+  });
+});
+
+describe("polarHostedPortalUrl", () => {
+  it("builds Polar's documented hosted portal; production vs sandbox host", () => {
+    delete process.env.POLAR_SERVER;
+    expect(polarHostedPortalUrl("ascent")).toBe("https://sandbox.polar.sh/ascent/portal");
+    process.env.POLAR_SERVER = "production";
+    expect(polarHostedPortalUrl("ascent")).toBe("https://polar.sh/ascent/portal");
+  });
+
+  it("is null for a blank slug", () => {
+    expect(polarHostedPortalUrl("")).toBeNull();
+    expect(polarHostedPortalUrl("   ")).toBeNull();
+  });
+});
+
+describe("polarCustomerPortalUrl", () => {
+  beforeEach(() => {
+    mockCreate.mockReset();
+    mockCreate.mockResolvedValue({ customerPortalUrl: "https://polar.test/portal/sess" });
+    process.env.POLAR_ACCESS_TOKEN = "polar_sandbox_xxx";
+    process.env.POLAR_PLAN_PRODUCTS = "prod_pro=pro";
+    delete process.env.POLAR_CREDIT_PACKS;
+    delete process.env.POLAR_ORGANIZATION_SLUG;
+    delete process.env.POLAR_SERVER;
+  });
+
+  it("returns null when Polar is absent (free / self-host) and never mints a session", async () => {
+    delete process.env.POLAR_ACCESS_TOKEN;
+    delete process.env.POLAR_PLAN_PRODUCTS;
+    expect(await polarCustomerPortalUrl("acme")).toBeNull();
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("returns null for a blank external customer id even when Polar is present", async () => {
+    expect(await polarCustomerPortalUrl("  ")).toBeNull();
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("mints a Polar customer session keyed by the org's externalCustomerId when Polar is present", async () => {
+    expect(await polarCustomerPortalUrl("acme", { returnUrl: "https://ascent.test/org/acme" })).toBe(
+      "https://polar.test/portal/sess",
+    );
+    expect(mockCreate).toHaveBeenCalledWith({
+      externalCustomerId: "acme",
+      returnUrl: "https://ascent.test/org/acme",
+    });
+  });
+
+  it("falls back to the documented hosted portal when the session API fails and a Polar org slug is set", async () => {
+    mockCreate.mockRejectedValue(new Error("customer not found"));
+    process.env.POLAR_ORGANIZATION_SLUG = "ascent";
+    expect(await polarCustomerPortalUrl("acme")).toBe("https://sandbox.polar.sh/ascent/portal");
+  });
+
+  it("returns null when Polar is present but no session URL and no hosted-portal slug", async () => {
+    mockCreate.mockRejectedValue(new Error("customer not found"));
+    expect(await polarCustomerPortalUrl("acme")).toBeNull();
   });
 });
