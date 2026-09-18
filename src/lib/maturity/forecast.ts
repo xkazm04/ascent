@@ -197,6 +197,38 @@ export function forecastTrajectory(series: SeriesPoint[], horizonDays = 90, nowM
 }
 
 /**
+ * Days from `nowMs` until a ray from (`lastT`, `fromValue`) at `perDay` hits `toValue`.
+ * Null when the crossing is at/behind the present, beyond `capDays`, or uncomputable — a stale
+ * scan gap must not print a date that has already elapsed (G4 / investment-simulator-forecast #4).
+ */
+function daysUntilCrossing(
+  fromValue: number,
+  toValue: number,
+  perDay: number,
+  lastT: number,
+  nowMs: number,
+  capDays: number,
+): number | null {
+  if (perDay === 0) return null;
+  const exactDaysFromLast = (toValue - fromValue) / perDay;
+  if (!Number.isFinite(exactDaysFromLast)) return null;
+  const crossingMs = lastT + exactDaysFromLast * DAY_MS;
+  const daysFromNow = (crossingMs - nowMs) / DAY_MS;
+  if (!Number.isFinite(daysFromNow) || daysFromNow <= 0 || daysFromNow > capDays) return null;
+  return Math.round(daysFromNow);
+}
+
+/** Latest finite observation timestamp in `series`, or null if none parse. */
+function lastObservationMs(series: readonly SeriesPoint[]): number | null {
+  let last = Number.NEGATIVE_INFINITY;
+  for (const p of series) {
+    const t = Date.parse(p.date);
+    if (Number.isFinite(t) && t > last) last = t;
+  }
+  return Number.isFinite(last) ? last : null;
+}
+
+/**
  * The first band boundary the projection ray crosses. The ray is anchored at (`lastT`, `current`), but
  * the returned `days`/`date` are measured from `nowMs` — so when the latest scan is stale, a crossing
  * the ray places before `nowMs` is reported as "already reached" (null) rather than a bogus past ETA.
@@ -224,16 +256,8 @@ function etaToNextLevel(current: number, perDay: number, lastT: number, nowMs: n
     toLevel = LEVELS[i - 1]!.id; // safe: i-1 >= 0, guarded above
   }
 
-  const exactDaysFromLast = (boundary - score) / perDay;
-  if (!Number.isFinite(exactDaysFromLast)) return null;
-  // Absolute instant the ray crosses the boundary, then re-measured from `nowMs` (not `lastT`). A stale
-  // scan gap (nowMs ≫ lastT) shrinks the remaining distance; once the crossing is at/behind the present,
-  // daysFromNow ≤ 0 and we return null instead of a crossing date that has already passed. When nowMs is
-  // the last observation (the pure/back-compat default anchor) this reduces to the old from-last math.
-  const crossingMs = lastT + exactDaysFromLast * DAY_MS;
-  const daysFromNow = (crossingMs - nowMs) / DAY_MS;
-  if (!Number.isFinite(daysFromNow) || daysFromNow <= 0 || daysFromNow > MAX_ETA_DAYS) return null;
-  const days = Math.round(daysFromNow);
+  const days = daysUntilCrossing(score, boundary, perDay, lastT, nowMs, MAX_ETA_DAYS);
+  if (days == null) return null;
 
   return {
     kind: rising ? "promotion" : "demotion",
@@ -263,10 +287,11 @@ export interface GoalProjection {
   trajectory: Trajectory;
   /** R² of the underlying fit, 0..1 — how trustworthy the slope is. */
   fitQuality: number;
-  /** Whole days from now until the metric reaches the target at the current slope, or null when
-   *  the target is already met, the slope cannot cross it, or the fit is not projectable (G4). */
+  /** Whole days from `nowMs` until the metric reaches the target at the current slope, or null when
+   *  the target is already met, the slope cannot cross it, the crossing is at/behind now, or the
+   *  fit is not projectable (G4). */
   etaDays: number | null;
-  /** Absolute ISO date (YYYY-MM-DD) of the projected target crossing, or null. */
+  /** Absolute ISO date (YYYY-MM-DD) of the projected target crossing, measured forward from `nowMs`, or null. */
   etaDate: string | null;
   /** Weekly gain required to reach the target by the deadline, or null (no deadline / past due / reached). */
   requiredPerWeek: number | null;
@@ -281,9 +306,11 @@ export interface GoalProjection {
 const GOAL_ETA_CAP_DAYS = 1095;
 
 /**
- * Project a goal forward: fit the metric's trend, extend it from `current` to the `target` line,
- * and judge the pace against `targetDate`. Pure and deterministic — `nowMs` is injected (the
- * present), never read, so this stays unit-testable like the rest of this module.
+ * Project a goal forward: fit the metric's trend, extend a ray from (`lastT`, `current`) to the
+ * `target` line, and judge the pace against `targetDate`. Pure and deterministic — `nowMs` is
+ * injected (the present), never read, so this stays unit-testable like the rest of this module.
+ * The ETA's days/date are measured from `nowMs` (same lastT correction as etaToNextLevel)
+ * so a stale scan gap never prints a crossing that has already elapsed (G4).
  *
  * Verdict: `reached` once current ≥ target (a standing fact, no slope required). Otherwise a
  * pace/ETA is only emitted when the fit clears {@link isProjectable}: with a deadline, `on-pace`
@@ -308,11 +335,13 @@ export function projectGoal(opts: {
   const daysToDeadline = hasDeadline ? Math.round((deadlineMs - nowMs) / DAY_MS) : null;
 
   // Days/date to reach the target at the current (rising) slope. A sub-gate fit does not get a date.
+  // Ray at (`lastT`, `current`), remaining distance from `nowMs` — same as etaToNextLevel.
   let etaDays: number | null = null;
   let etaDate: string | null = null;
   if (projectable && current < target && perDay > 0) {
-    const d = Math.round((target - current) / perDay);
-    if (Number.isFinite(d) && d >= 0 && d <= GOAL_ETA_CAP_DAYS) {
+    const lastT = lastObservationMs(series);
+    const d = lastT != null ? daysUntilCrossing(current, target, perDay, lastT, nowMs, GOAL_ETA_CAP_DAYS) : null;
+    if (d != null) {
       etaDays = d;
       etaDate = new Date(nowMs + d * DAY_MS).toISOString().slice(0, 10);
     }

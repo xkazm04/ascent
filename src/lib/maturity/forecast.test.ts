@@ -195,7 +195,8 @@ describe("projectGoal", () => {
 
   // Consecutive daily points spanning the presentability gate (spanDays === MIN_FORECAST_SPAN_DAYS).
   // Slope is still +1/day / +7/wk; `current` is passed separately so ETA math stays (target − current).
-  const rising = series(50, 1, MIN_FORECAST_SPAN_DAYS + 1);
+  // Last obs lands on NOW — a fresh series — so the lastT correction is a no-op on these cases.
+  const rising = series(50, 1, MIN_FORECAST_SPAN_DAYS + 1, "2026-01-18");
 
   it("reports 'reached' (and no ETA) once current meets/exceeds target", () => {
     // current == target boundary.
@@ -358,6 +359,26 @@ describe("projectGoal", () => {
     expect(p.pace).toBe("reached");
     expect(p.etaDays).toBeNull();
     expect(p.etaDate).toBeNull();
+  });
+
+  it("anchors the goal ETA on nowMs, not the last scan — a stale gap never prints a past crossing (G4)", () => {
+    // Same presentability span and +1/day slope as `rising`. Crossing at lastT+20 ((80−60)/1).
+    const s = series(50, 1, MIN_FORECAST_SPAN_DAYS + 1);
+    const lastMs = atLast(s);
+
+    // Fresh (now == last obs): 20 days out, dated forward from now — the baseline.
+    const fresh = projectGoal({ series: s, current: 60, target: 80, targetDate: null, nowMs: lastMs });
+    expect(fresh.etaDays).toBe(20);
+    expect(fresh.etaDate).toBe(new Date(lastMs + 20 * DAY).toISOString().slice(0, 10));
+
+    // Stale by 30 days: the ray's crossing (lastT+20) is already 10 days behind the present, so the
+    // OLD code printed etaDays=20 dated from now — a fabricated future for a past crossing.
+    const staleNow = lastMs + 30 * DAY;
+    const stale = projectGoal({ series: s, current: 60, target: 80, targetDate: null, nowMs: staleNow });
+    expect(stale.etaDays).toBeNull();
+    expect(stale.etaDate).toBeNull();
+    const line = goalLine(stale.forecast, stale, { current: 60, target: 80, targetDate: null });
+    expect(line).not.toMatch(/\d{4}-\d{2}-\d{2}/);
   });
 });
 
