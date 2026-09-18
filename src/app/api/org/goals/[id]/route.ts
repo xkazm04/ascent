@@ -3,9 +3,9 @@
 // Update or remove a maturity goal.
 
 import { NextResponse } from "next/server";
-import { deleteGoal, getGoalOrgSlug, isDbConfigured, updateGoal } from "@/lib/db";
+import { deleteGoal, getGoalOrgSlug, updateGoal } from "@/lib/db";
 import { requireOrgAccess, requireOrgRole } from "@/lib/authz";
-import { invalidTargetDate } from "@/lib/api/orgPlan";
+import { invalidTargetDate, rowGate } from "@/lib/api/orgPlan";
 import { GOAL_STATUSES } from "@/lib/types";
 
 // Goal status whitelist — parity with the initiatives PATCH (which validates against REC_STATUSES).
@@ -16,20 +16,16 @@ const STATUSES = new Set<string>(GOAL_STATUSES);
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// DB + per-row tenant gate: the goal must exist and the caller must satisfy `authorize` for its org.
-// Returns the blocking response (503/404/401/403), or null when allowed. The authorization strength is
-// passed in so a non-destructive PATCH can stay at member-level (requireOrgAccess) while the
-// irreversible DELETE demands admin (requireOrgRole(org, "admin")) — see goals-initiatives #2.
-async function gate(id: string, authorize: (org: string) => Promise<NextResponse | null>): Promise<NextResponse | null> {
-  if (!isDbConfigured()) return NextResponse.json({ error: "Goals require a database." }, { status: 503 });
-  const org = await getGoalOrgSlug(id);
-  if (!org) return NextResponse.json({ error: "Goal not found." }, { status: 404 });
-  return authorize(org);
-}
-
 export async function PATCH(request: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  const blocked = await gate(id, requireOrgAccess);
+  // Member-level write: resolve the goal's true org, then requireOrgAccess (not a body-supplied org).
+  const blocked = await rowGate({
+    resourceLabel: "Goals",
+    notFound: "Goal not found.",
+    getOrgSlug: getGoalOrgSlug,
+    id,
+    authorize: requireOrgAccess,
+  });
   if (blocked) return blocked;
   // `expected` (optional) carries the values the editor last saw for the fields being changed, so
   // updateGoal can compare-and-set and reject a stale write with 409 instead of silently clobbering a
@@ -69,7 +65,13 @@ export async function DELETE(_request: Request, ctx: { params: Promise<{ id: str
   // A goal hard-delete drops the goal AND its achievedAt milestone history — irreversible, so require
   // admin (not merely member): a viewer-promoted-to-member must not be able to wipe another admin's
   // goals. Mirrors authz.ts's own "destructive deletes → requireOrgRole(admin)" guidance.
-  const blocked = await gate(id, (org) => requireOrgRole(org, "admin"));
+  const blocked = await rowGate({
+    resourceLabel: "Goals",
+    notFound: "Goal not found.",
+    getOrgSlug: getGoalOrgSlug,
+    id,
+    authorize: (org) => requireOrgRole(org, "admin"),
+  });
   if (blocked) return blocked;
   try {
     await deleteGoal(id);

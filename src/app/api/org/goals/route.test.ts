@@ -154,6 +154,8 @@ describe("PATCH/DELETE /api/org/goals/:id — per-row tenant gate keys on the go
     const res = await deleteGoalReq("goal-1");
     expect(res.status).toBe(403);
     expect(mockRole).toHaveBeenCalledWith("victim", "admin");
+    // rowGate must not fall back to member-level requireOrgAccess on DELETE.
+    expect(mockAccess).not.toHaveBeenCalled();
     expect(mockDelete).not.toHaveBeenCalled();
   });
 
@@ -165,6 +167,7 @@ describe("PATCH/DELETE /api/org/goals/:id — per-row tenant gate keys on the go
     const res = await deleteGoalReq("goal-1");
     expect(res.status).toBe(403);
     expect(mockRole).toHaveBeenCalledWith("acme", "admin");
+    expect(mockAccess).not.toHaveBeenCalled();
     expect(mockDelete).not.toHaveBeenCalled();
   });
 
@@ -172,6 +175,7 @@ describe("PATCH/DELETE /api/org/goals/:id — per-row tenant gate keys on the go
     const res = await deleteGoalReq("goal-1");
     expect(res.status).toBe(200);
     expect(mockRole).toHaveBeenCalledWith("acme", "admin");
+    expect(mockAccess).not.toHaveBeenCalled();
     expect(mockDelete).toHaveBeenCalledTimes(1);
   });
 
@@ -180,7 +184,22 @@ describe("PATCH/DELETE /api/org/goals/:id — per-row tenant gate keys on the go
     const res = await patchGoal("ghost", { label: "x" });
     expect(res.status).toBe(404);
     expect(mockAccess).not.toHaveBeenCalled();
+    expect(mockRole).not.toHaveBeenCalled();
     expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("returns 503 via rowGate/dbGuard when the database is unset, before the per-row lookup", async () => {
+    mockIsDb.mockReturnValue(false);
+    const patchRes = await patchGoal("goal-1", { label: "x" });
+    expect(patchRes.status).toBe(503);
+    expect(await patchRes.json()).toEqual({ error: "Goals require a database." });
+    const deleteRes = await deleteGoalReq("goal-1");
+    expect(deleteRes.status).toBe(503);
+    expect(mockGoalOrg).not.toHaveBeenCalled();
+    expect(mockAccess).not.toHaveBeenCalled();
+    expect(mockRole).not.toHaveBeenCalled();
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockDelete).not.toHaveBeenCalled();
   });
 
   it("rejects a non-ISO targetDate with 400 after the gate, DB untouched", async () => {
@@ -218,6 +237,8 @@ describe("PATCH/DELETE /api/org/goals/:id — per-row tenant gate keys on the go
   it("allows an authorized in-org update", async () => {
     const res = await patchGoal("goal-1", { label: "renamed", target: 90 });
     expect(res.status).toBe(200);
+    expect(mockAccess).toHaveBeenCalledWith("acme");
+    expect(mockRole).not.toHaveBeenCalled();
     expect(mockUpdate).toHaveBeenCalledTimes(1);
     expect(mockUpdate.mock.calls[0][0]).toBe("goal-1");
   });
