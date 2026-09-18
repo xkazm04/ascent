@@ -488,6 +488,7 @@ with a `status` ∈ `open | in_progress | done | dismissed`.
 | `/api/recommendations?repo=[&sort=measured]` | `GET` | `{ scanId, items[], sort }` for the repo's latest scan (503 without DB). Each item carries `expectedLift: string \| null` — see [Measured outcomes](#measured-outcomes-the-intervention-ledger). |
 | `/api/recommendations/orphans?repo=` | `GET` | `{ items[] }`: tracking the last re-scan couldn't carry forward. See below. |
 | `/api/recommendations/[id]` | `PATCH` | `{ status?, assigneeLogin?, targetDate?, note? }` → updated item. Validates against `REC_STATUSES`; 404 if not found, 503 without DB. |
+| `/api/recommendations/[id]/events` | `GET` | `{ events, truncated, limit }` for that item's append-only activity timeline, newest first, bounded at 200. The tracker fetches this when a row's activity disclosure is opened. |
 
 `RecommendationTracker` (inside `ReportView`) shows a progress bar + per-item status
 dropdowns with **optimistic updates**, a per-row `savingIds` set (overlapping saves each
@@ -506,8 +507,18 @@ render, reads the per-item clause `/api/recommendations` computes, while the per
 the distribution map, which wins when both are present. The sandbox commit writes a **signed**
 projection into the timeline (a projection rounding to zero omits the figure: "no projected gain") and
 reports "N of M marked in progress" with failures named, instead of a clamped `+0` and a saved-only
-count. `GET /api/recommendations/[id]/events` returns `{ events, truncated, limit }`, newest first,
-bounded at 200.
+count.
+
+**2026-09-18.** Each tracker row discloses that timeline on demand (`RecEventTrail` in
+`RecommendationRow`): `GET /api/recommendations/[id]/events`, newest first. The fetch waits until
+the row is opened, so a report does not fire one request per gap on load. Loading, error (with Retry)
+and empty are three distinct states; an error is never the empty copy. When the route reports
+`truncated: true`, the trail names the bound ("Showing the N most recent changes") rather than
+calling the page "the history"; the `limit` comes from the payload, not a client recount of the
+array. A successful PATCH bumps a per-row epoch so an *open* trail refetches after the event exists
+(an optimistic status change must not race the write). This is where a sandbox commit note and a
+dismissal reason actually appear on the report that wrote them. Follow-ups already rendered the same
+route on expand; the report tracker is the surface that made the change.
 
 Both renderings order through one contract, `sortRoadmap` (`roadmapPriority.tsx`). Its default
 `"priority"` mode is the long-standing label sort — impact↑/effort↓, quick wins first — derived from

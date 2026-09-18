@@ -39,6 +39,9 @@ export function RecommendationTracker({
   // Each row now owns its own role="status" region so overlapping saves are announced independently.
   const [announcements, setAnnouncements] = useState<Record<string, string>>({});
   const announce = (id: string, msg: string) => setAnnouncements((a) => ({ ...a, [id]: msg }));
+  // Per-row epoch the trail watches. Bumped only AFTER a successful PATCH so an in-flight optimistic
+  // status change cannot refetch the timeline before the event exists.
+  const [trailEpoch, setTrailEpoch] = useState<Record<string, number>>({});
   // The row whose "dismissed" pick is waiting on a reason. A dismissal is the one moment a team
   // volunteers the context the next scan lacks, so the PATCH is deferred until they answer (or
   // explicitly skip) — see recommendationRowUi.DismissReasonPrompt.
@@ -170,6 +173,7 @@ export function RecommendationTracker({
       const saved = (await res.json().catch(() => null)) as PersistedRecommendation | null;
       if (saved?.status) setItems((cur) => applyOptimisticStatus(cur, id, saved.status));
       announce(id, `“${title}” marked ${STATUS_LABEL[status]}.`);
+      setTrailEpoch((e) => ({ ...e, [id]: (e[id] ?? 0) + 1 }));
     } catch {
       rollback();
       setError(id, { status, kind: "transient", message: "Couldn’t save that change. Check your connection and retry.", reason });
@@ -210,6 +214,7 @@ export function RecommendationTracker({
           err={errors[item.id]}
           announcement={announcements[item.id] ?? ""}
           dismissing={pendingDismiss === item.id}
+          trailEpoch={trailEpoch[item.id] ?? 0}
           onPickStatus={(status) => pickStatus(item.id, status)}
           onBusySwallowed={() =>
             announce(item.id, "Still saving the previous change. Pick the status again in a moment.")
