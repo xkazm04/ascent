@@ -23,9 +23,10 @@
 export type Fidelity = "measured" | "allocated" | "seats-only";
 export type ProviderStatus = "available" | "planned";
 export type ConnectKind = "otel-push" | "admin-pull";
+export type ProviderId = "claude-code" | "copilot" | "openai";
 
 export interface ProviderDef {
-  id: "claude-code" | "copilot" | "openai";
+  id: ProviderId;
   name: string;
   /** One line for the card. */
   blurb: string;
@@ -40,6 +41,24 @@ export interface ProviderDef {
   /** A card sigil accent (kept off the brand azure so the three read as distinct). */
   accent: string;
 }
+
+/** Per-id connect panel. Distinct from `connectKind`: kind names the mechanism (OTel push vs admin
+ *  pull); this map names the surface, so an available admin-pull row cannot inherit Copilot's GitHub
+ *  App pull. Total over `ProviderId` — a new id is a compile error until it is mapped. `none` is the
+ *  explicit unshipped slot and requires a reason. */
+export type ConnectSetup =
+  | { panel: "claude-code" }
+  | { panel: "copilot" }
+  | { panel: "none"; reason: string };
+
+export const CONNECT_SETUP = {
+  "claude-code": { panel: "claude-code" },
+  copilot: { panel: "copilot" },
+  openai: {
+    panel: "none",
+    reason: "The OpenAI Codex Admin Costs connector is not shipped.",
+  },
+} as const satisfies Record<ProviderId, ConnectSetup>;
 
 export const FIDELITY_META: Record<Fidelity, { label: string; hex: string; note: string }> = {
   measured: { label: "Measured", hex: "#22c55e", note: "attributed to the exact repo by the provider" },
