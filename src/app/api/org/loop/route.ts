@@ -1,6 +1,7 @@
 // LOCAL-MODE IMPROVEMENT LOOP control (self-hosted only, ASCENT_AUTOPILOT=1 only).
 //
 //   GET  ?org=…                                              → { enabled, active, runs }
+//   GET  ?org=…&beforeSeq=<n>&limit=<k>                      → { runs }   (the ledger chronicle's page)
 //   POST { action:"start",  org, repos[], batches?, concurrency?, maxCycles?, curated?, model?, effort?,
 //          delivery?, batchSize?, agentTimeoutMs?, verifyMode?, verifyTimeoutMs? }  → { run }
 //   POST { action:"stop",   org, id }                        → { ok, run }
@@ -61,10 +62,16 @@ export async function GET(request: Request) {
   // hide the operator's own rows from them. What is still honest is `enabled`, which stays
   // `autopilotEnabled()` — the answer to "can this deployment run a LOCAL loop", which on cloud is
   // still no. The write path keeps the guard for exactly the executor that needs it.
-  const org = new URL(request.url).searchParams.get("org")?.trim().toLowerCase() ?? "";
+  const params = new URL(request.url).searchParams;
+  const org = params.get("org")?.trim().toLowerCase() ?? "";
   if (!org || org === PUBLIC_ORG) return NextResponse.json({ error: "Missing 'org'." }, { status: 400 });
   const denied = await requireOrgAccess(org);
   if (denied) return denied;
+  // THE CHRONICLE'S PAGE (spark theater-upgrade, 2026-09-18). `beforeSeq`/`limit` ask for a LEAN page of
+  // older runs — `{ runs }` and nothing else — so the ledger's "Older runs" does not re-derive the price
+  // list or reconcile stale runs on every click. Without either parameter the response below is exactly
+  // what every existing caller has always received.
+  if (params.has("beforeSeq") || params.has("limit")) return runsPage(org, params);
   // Reconcile before reading: a run left `running` by a process that died is not resumable, and
   // rendering it as active would leave the wall spinning on a job nobody is driving. A run THIS
   // process is driving is not stale — without the predicate this GET stopped the run it was
@@ -100,6 +107,22 @@ export async function GET(request: Request) {
     stopping,
     stopHorizonMs,
   });
+}
+
+/** `?beforeSeq=<n>&limit=<k>` → `{ runs }`: runs numbered below `n`, newest first, at most `k` (1–100,
+ *  default 20). A malformed parameter is a 400, never a silently different page. */
+async function runsPage(org: string, params: URLSearchParams) {
+  const int = (raw: string | null, min: number, max: number): number | null | false => {
+    if (raw == null || raw === "") return null;
+    const n = Number(raw);
+    return Number.isInteger(n) && n >= min && n <= max ? n : false;
+  };
+  const beforeSeq = int(params.get("beforeSeq"), 1, Number.MAX_SAFE_INTEGER);
+  const limit = int(params.get("limit"), 1, 100);
+  if (beforeSeq === false) return NextResponse.json({ error: "'beforeSeq' must be a positive whole number." }, { status: 400 });
+  if (limit === false) return NextResponse.json({ error: "'limit' must be a whole number from 1 to 100." }, { status: 400 });
+  const runs = await listLoopRuns(org, limit ?? 20, { beforeSeq });
+  return NextResponse.json({ runs });
 }
 
 type Body = {

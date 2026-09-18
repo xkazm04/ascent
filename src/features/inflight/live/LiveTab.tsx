@@ -1,9 +1,13 @@
-// Org dashboard "Live" tab. TWO views over the same fleet, chosen by `?view=`:
+// Org dashboard "Live" tab. Its views over the same fleet, chosen by `?view=` (`ledger/ledgerView.ts`):
 //
-//   default    → the LOOP COCKPIT: the observatory sky chart (adoption × rigor) as the dominant
-//                object, a mode-switching right rail (inspect ⇄ run ⇄ outcome), and the run history.
-//   ?view=wall → the original Fleet Command WAR ROOM, unchanged — AutopilotBand + stack selector +
-//                LiveWarRoom, with its SSE fold, TV mode, wake lock and share link all intact.
+//   ?view=ledger  → the LEDGER — the returning operator's view of the standing runner: what happened
+//                   since they last looked, what waits for them, the runner branch, the chronicle.
+//   ?view=cockpit → the LOOP COCKPIT: the observatory sky chart (adoption × rigor) as the dominant
+//                   object, a mode-switching right rail (inspect ⇄ run ⇄ outcome), and the run history.
+//   ?view=wall    → the original Fleet Command WAR ROOM, unchanged — AutopilotBand + stack selector +
+//                   LiveWarRoom, with its SSE fold, TV mode, wake lock and share link all intact.
+//   no view       → the Ledger when a standing runner exists (a continuous drive not yet ended), else
+//                   the Cockpit. The Theater is its own page (/theater/<slug>), linked from both.
 //
 // The wall is not deprecated and is not a fallback; it answers "what is the fleet doing right now",
 // which is a different question from "what should we improve next". Keeping it addressable by URL is
@@ -31,27 +35,22 @@ import { hasOrgRole } from "@/lib/authz";
 import { liveShareEnabled } from "@/lib/live-share";
 import type { GoalProgressView } from "@/components/org/shared/goalView";
 import type { ObservatorySeed } from "./observatory";
+import { liveViewHref } from "./LiveViewSwitch";
+import { LedgerTab } from "./ledger/LedgerTab";
+import { hasStandingRunner } from "./ledger/ledgerLoad";
+import { needsRunnerProbe, resolveLiveView } from "./ledger/ledgerView";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
-/** `?view=wall` with every other param preserved — a view switch must not drop the active stack. */
-function wallHref(sp: SearchParams): string {
-  const params = new URLSearchParams();
-  for (const [k, v] of Object.entries(sp)) {
-    if (k === "view") continue;
-    if (Array.isArray(v)) for (const one of v) params.append(k, one);
-    else if (v != null) params.set(k, v);
-  }
-  if (!params.has("tab")) params.set("tab", "live");
-  params.set("view", "wall");
-  return `?${params.toString()}`;
-}
-
 export async function LiveTab({ slug, sp }: { slug: string; sp: SearchParams }) {
+  const requested = typeof sp.view === "string" ? sp.view : "";
+  // The runner probe runs only when the URL leaves the choice open; the Ledger branches off BEFORE the
+  // fleet rollup, which it does not render.
+  const view = resolveLiveView(requested, needsRunnerProbe(requested) ? await hasStandingRunner(slug) : false);
+  if (view === "ledger") return <LedgerTab slug={slug} sp={sp} />;
   // Optional tech-stack scope (Feature 3b): a stack toggle on the live wall — scopes the seeded
   // standing AND the launched scan to that stack's repos, so "Frontend war room" runs only those.
   const { techGroups, activeStack, techGroupId } = await resolveStackScope(slug, sp);
-  const view = typeof sp.view === "string" ? sp.view : "";
   const local = selfHosted();
 
   // The goal the wall rallies around — the first not-yet-achieved goal, else the most recent. Its
@@ -88,9 +87,10 @@ export async function LiveTab({ slug, sp }: { slug: string; sp: SearchParams }) 
 
   // LOCAL MODE: the paired repos a lane can be dispatched into. Empty everywhere but a self-hosted
   // deployment with pairings — the cockpit turns that into its "pair a checkout first" setup state.
-  const pairedRepos = local
-    ? (await listLocalPairings(slug).catch(() => [])).filter((r) => r.localPath != null).map((r) => r.fullName)
-    : [];
+  const pairings = local ? await listLocalPairings(slug).catch(() => []) : [];
+  const pairedRepos = pairings.filter((r) => r.localPath != null).map((r) => r.fullName);
+  // The standing runner's default scope: WATCHED repos with a checkout (what the drive route resolves).
+  const runnerRepos = pairings.filter((r) => r.watched && r.localPath != null).map((r) => r.fullName);
 
   if (view === "wall") {
     return (
@@ -168,7 +168,10 @@ export async function LiveTab({ slug, sp }: { slug: string; sp: SearchParams }) 
         loopEnabled={autopilotEnabled()}
         selfHosted={local}
         isOwner={isOwner}
-        wallHref={wallHref(sp)}
+        wallHref={liveViewHref(sp, "wall")}
+        ledgerHref={liveViewHref(sp, "ledger")}
+        cockpitHref={liveViewHref(sp, "cockpit")}
+        runnerRepos={runnerRepos}
       />
     </div>
   );

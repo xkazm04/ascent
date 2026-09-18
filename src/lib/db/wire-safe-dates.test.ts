@@ -18,7 +18,7 @@ describe("wire-safe dates (structural guard)", () => {
     // 58 + the knowledge base rebuild's four (KnowledgeView, KnowledgeRepo, KnowledgeCell,
     // RegistryDispatchRow) + ScanDigestRow (MOONSHOT #32, barrel-exported with CompactedPoint)
     // + the standing runner's LoopPlanRecord and LoopDirectionRecord (spark theater-upgrade, WP3)
-    // + RunnerKeptLessonRow (WP5) and LoopPulse / LanePulse / RunnerPulse (WP4).
-    expect(Object.keys(WIRE_TYPES)).toHaveLength(69);
+    // + RunnerKeptLessonRow (WP5), LoopPulse / LanePulse / RunnerPulse (WP4), LoopRunChronicleEntry (WP6a).
+    expect(Object.keys(WIRE_TYPES)).toHaveLength(70);
   });
 });

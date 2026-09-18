@@ -147,6 +147,9 @@ import type { LanePulse, LoopDirectionRecord, LoopPlanRecord, LoopPulse, RunnerP
 // The runner-kept lessons the ledger lists (WP5) and the pulse the theater polls (WP4) — every
 // timestamp an ISO string.
 import type { RunnerKeptLessonRow } from "@/lib/db/loop-lessons-runner";
+// The ledger's chronicle row (WP6a) — a LoopRunSummary widened with seq, drive, plan mode and the
+// lanes' verified closes / landing times, all strings, numbers and nulls.
+import type { LoopRunChronicleEntry } from "@/lib/db/loop-runs-read";
 
 /** The keys of `T` whose (non-null) type is a `Date`. `never` when there are none. */
 export type DateBearingKeys<T> = {
@@ -236,6 +239,7 @@ export const WIRE_TYPES = {
   LoopPulse: true satisfies WireSafe<LoopPulse>,
   LanePulse: true satisfies WireSafe<LanePulse>,
   RunnerPulse: true satisfies WireSafe<RunnerPulse>,
+  LoopRunChronicleEntry: true satisfies WireSafe<LoopRunChronicleEntry>,
   MemoryRow: true satisfies WireSafe<MemoryRow>,
   OpsState: true satisfies WireSafe<OpsState>,
   OrgBranding: true satisfies WireSafe<OrgBranding>,

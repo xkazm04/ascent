@@ -4,6 +4,7 @@
 // Import from the `@/lib/db/loop-runs` barrel; this module is an implementation split.
 
 import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
+import { parseStringArray } from "@/lib/db/json-columns";
 import { dateRange, getOrgBySlug } from "@/lib/db/org-shared";
 import type { OrgWindow } from "@/lib/db/org-rollup";
 import { getScanComparison } from "@/lib/db/scans-read";
@@ -170,15 +171,48 @@ export async function getActiveLoopRun(orgSlug: string): Promise<LoopRunRecord |
   }, null);
 }
 
-export async function listLoopRuns(orgSlug: string, limit = 20): Promise<LoopRunSummary[]> {
+/**
+ * A run as the LEDGER'S CHRONICLE lists it (spark theater-upgrade, 2026-09-18) — the summary plus the
+ * facts a returning operator reads a run by. ADDITIVE: every field `LoopRunSummary` carried is still
+ * here with its meaning unchanged, so every caller typed against the summary keeps compiling.
+ *
+ * `verifiedCloses` is the sum of the lanes' `closedIds` — the rescan's ADJUDICATED set, never an
+ * agent's claim. `landedAt` lists when each lane that landed did (ISO), so "landed since you last
+ * looked" is a count over instants rather than a guess from the run's own end.
+ */
+export interface LoopRunChronicleEntry extends LoopRunSummary {
+  /** The run's stable number within its org; null only on a row the backfill never reached. */
+  seq: number | null;
+  /** The drive that dispatched it; null = a manual run. */
+  driveId: string | null;
+  planMode: "on" | null;
+  /** Lane rows the run wrote, every cycle counted. */
+  lanes: number;
+  verifiedCloses: number;
+  landedAt: string[];
+  error: string | null;
+}
+
+/**
+ * The org's runs, newest first. `opts.beforeSeq` PAGES the chronicle: only runs whose stable number is
+ * below it, newest number first — so "Older runs" never repeats or skips a run when a new one lands
+ * while the operator reads (a createdAt offset would). A run with no `seq` cannot be paged to and only
+ * appears on the first page; the backfill is what makes that set empty.
+ */
+export async function listLoopRuns(
+  orgSlug: string,
+  limit = 20,
+  opts: { beforeSeq?: number | null } = {},
+): Promise<LoopRunChronicleEntry[]> {
   if (!isDbConfigured()) return [];
-  return dbReadSafe<LoopRunSummary[]>(async () => {
+  return dbReadSafe<LoopRunChronicleEntry[]>(async () => {
     const org = await getOrgBySlug(orgSlug);
     if (!org) return [];
     const prisma = getPrisma();
+    const paged = opts.beforeSeq != null && Number.isFinite(opts.beforeSeq);
     const rows = await prisma.loopRun.findMany({
-      where: { orgId: org.id },
-      orderBy: { createdAt: "desc" },
+      where: { orgId: org.id, ...(paged ? { seq: { lt: Math.trunc(opts.beforeSeq as number) } } : {}) },
+      orderBy: paged ? { seq: "desc" } : { createdAt: "desc" },
       take: Math.max(1, Math.min(100, Math.trunc(limit) || 20)),
     });
     if (rows.length === 0) return [];
@@ -191,7 +225,9 @@ export async function listLoopRuns(orgSlug: string, limit = 20): Promise<LoopRun
       // green number here would have the history strip claim a lift the ledger refuses (L2-B-01).
       // `costMicros` rides along in the SAME batched read that folds the lift — the strip prints
       // both, and two queries for one row would be two chances for them to disagree.
-      select: { runId: true, beforeScanId: true, afterScanId: true, commits: true, costMicros: true },
+      // `closedIdsJson` and `landedAt` ride along for the ledger's chronicle — the same one read, so a
+      // run's closes and its landings cannot come from a different population than its lift.
+      select: { runId: true, beforeScanId: true, afterScanId: true, commits: true, costMicros: true, closedIdsJson: true, landedAt: true },
     });
     const ids = [
       ...new Set(lanes.flatMap((l) => [l.beforeScanId, l.afterScanId]).filter((x): x is string => !!x)),
@@ -213,7 +249,13 @@ export async function listLoopRuns(orgSlug: string, limit = 20): Promise<LoopRun
     // Note this fold does NOT answer to the attribution rule the lift does: money was spent whether
     // or not the movement it bought can be claimed, and hiding unattributable spend would flatter it.
     const costByRun = new Map<string, number>();
+    const tally = new Map<string, { lanes: number; closes: number; landedAt: string[] }>();
     for (const l of lanes) {
+      const t = tally.get(l.runId) ?? { lanes: 0, closes: 0, landedAt: [] };
+      t.lanes += 1;
+      t.closes += (parseStringArray(l.closedIdsJson) ?? []).length;
+      if (l.landedAt) t.landedAt.push(l.landedAt.toISOString());
+      tally.set(l.runId, t);
       if (l.costMicros != null) costByRun.set(l.runId, (costByRun.get(l.runId) ?? 0) + l.costMicros);
       const b = l.beforeScanId ? score.get(l.beforeScanId) : undefined;
       const a = l.afterScanId ? score.get(l.afterScanId) : undefined;
@@ -237,6 +279,13 @@ export async function listLoopRuns(orgSlug: string, limit = 20): Promise<LoopRun
         model: r.model,
         effort: r.effort,
         costMicros: costByRun.has(r.id) ? (costByRun.get(r.id) as number) : null,
+        seq: r.seq,
+        driveId: r.driveId,
+        planMode: r.planMode,
+        lanes: tally.get(r.id)?.lanes ?? 0,
+        verifiedCloses: tally.get(r.id)?.closes ?? 0,
+        landedAt: tally.get(r.id)?.landedAt ?? [],
+        error: r.error,
       };
     });
   }, []);
