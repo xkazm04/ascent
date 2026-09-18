@@ -129,8 +129,11 @@ export type PlanStatus =
 
 /** The statuses that mean "waiting on the operator" — the approval inbox's population. */
 export const PLAN_AWAITING: readonly PlanStatus[] = ["pending"];
-/** The statuses that keep a plan's items OUT of `openBatch` (their identity is spoken for). */
-export const PLAN_HOLDS_ITEMS: readonly PlanStatus[] = ["pending", "revise", "approved"];
+/** The statuses that keep a plan's items OUT of `openBatch` (their identity is spoken for). NOT
+ *  `revise`: a revise verdict SENDS THE ITEMS BACK — the next lane that picks them re-plans with the
+ *  operator's note in its brief and supersedes the revised plan. Holding them would make the note
+ *  unreadable and the plan undecidable (found by the WP3 builder). */
+export const PLAN_HOLDS_ITEMS: readonly PlanStatus[] = ["pending", "approved"];
 
 export type PlanDecision = "approve" | "revise" | "reject";
 export type DirectionStatus = "active" | "done" | "exhausted" | "revoked";

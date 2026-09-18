@@ -16,7 +16,8 @@ describe("wire-safe dates (structural guard)", () => {
 
   it("covers the audited set, so a silently-shrinking list is visible in a diff", () => {
     // 58 + the knowledge base rebuild's four (KnowledgeView, KnowledgeRepo, KnowledgeCell,
-    // RegistryDispatchRow) + ScanDigestRow (MOONSHOT #32, barrel-exported with CompactedPoint).
-    expect(Object.keys(WIRE_TYPES)).toHaveLength(63);
+    // RegistryDispatchRow) + ScanDigestRow (MOONSHOT #32, barrel-exported with CompactedPoint)
+    // + the standing runner's LoopPlanRecord and LoopDirectionRecord (spark theater-upgrade, WP3).
+    expect(Object.keys(WIRE_TYPES)).toHaveLength(65);
   });
 });
