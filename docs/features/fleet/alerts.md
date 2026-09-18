@@ -276,8 +276,9 @@ periodic push**: a leader relies on it instead of opening the app, so a flat wee
 silent rather than training the inbox filter.
 
 - **What it summarizes:** for each org with watched repos: the past-week fleet rollup
-  (`getOrgRollup(org, win)`: avg overall, level, scanned/repo counts, overall delta vs the
-  week's start), the **top movers** (`getOrgMovers`, up to 3 gainers + 3 regressers,
+  (`getOrgRollup(org, win)`: avg overall, level, scanned/repo counts, **cohort-matched
+  `rollup.movement`** — overall delta plus the `cohortSize` it was measured over; the
+  deprecated `rollup.deltas` triple is not read), the **top movers** (`getOrgMovers`, up to 3 gainers + 3 regressers,
   noise-filtered via `isWithinNoise` so within-jitter moves never appear under
   "Regressions:", plus the `held` and `onboarded` buckets on the same movement axis:
   held sit inside the noise band; onboarded are named lifetime deltas, with a
@@ -294,8 +295,11 @@ silent rather than training the inbox filter.
   `?range=custom&from=&to=` because that page's window is selectable.
 - **Movement gate:** `digestHasSignal()` (`src/lib/alerts.ts`) decides whether the week is
   worth sending at all: a level change, a beyond-noise regression, a beyond-noise gainer, a
-  non-zero overall delta, a low credit balance, a control that failed (`controlsFailed > 0`),
-  **or a standing concern** (`standingConcerns > 0`, which counts unestablished baselines too). An org with none of those is skipped
+  beyond-noise overall delta **over a positive `movement.cohortSize`**, a low credit balance, a control that failed (`controlsFailed > 0`),
+  **or a standing concern** (`standingConcerns > 0`, which counts unestablished baselines too). A null or empty cohort is unmeasurable
+  (G4): it is never a silent 0 and never fleet signal — the same rule the in-app digest already
+  keeps. Both cron readers (this gate and `buildFleetDigestMessage`) project `rollup.movement`
+  through `digestMovementFields`; neither reads `rollup.deltas`. An org with none of those is skipped
   (`skippedFlat`). A standing concern is re-stated every period it persists — on the same reasoning
   as the low-credit line: the reader needs to know it is *still* true, not only that it once
   happened. Every other condition is a movement, which is precisely why a decline that stopped
@@ -387,11 +391,14 @@ silent rather than training the inbox filter.
   gainers"/"Regressions" block, optional "Held within noise" and "Onboarded this week"
   blocks (omitted when the bucket was not measured or is empty — never "0 held" /
   "0 onboarded"; an unmeasured onboarded delta prints the name without a 0), a "Highest-leverage gap" block, an optional "Credits
-  remaining" line, and a link to the org's Weekly digest tab. A `null` `overallDelta` (no baseline exists for the
-  window at all, whether a freshly-onboarded org or a fleet whose entire scan history is younger
-  than the window boundary) renders as an explicit "not enough history yet for a
-  week-over-week comparison" clause, never a silently-dropped delta: an empty string there
-  used to be indistinguishable from "the fleet held exactly flat."
+  remaining" line, and a link to the org's Weekly digest tab. The headline delta is
+  **qualified with its cohort**: `+6 this week, measured over 8 repositories`. A `null`
+  `overallDelta` **or** a null/0 `cohortSize` (no baseline, no overlap — unmeasurable,
+  never a silent 0) renders as an explicit "not enough history yet for a week-over-week
+  comparison" clause, never a silently-dropped delta and never an unqualified `+N this
+  week` from deprecated `rollup.deltas`. A one-repo cohort still prints, singular
+  (`measured over 1 repository`), so a 1-repo artifact cannot read as a fleet-wide move.
+  An empty string there used to be indistinguishable from "the fleet held exactly flat."
 - **Shares webhook resolution with interactive alerts:** the digest resolves its sink
   through the exact same path as regression/promotion delivery: `getOrgAlertWebhook(org)` →
   the org's own `Organization.alertWebhookUrl` → falls back to the global

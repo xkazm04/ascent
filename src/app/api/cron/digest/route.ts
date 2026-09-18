@@ -37,7 +37,7 @@ import {
 import { claimOrgAuditOnce, releaseAuditClaim } from "@/lib/db/scans-audit";
 import { hasFleetGrade } from "@/lib/db/org-shared";
 import { requireCronAuth } from "@/lib/cron-auth";
-import { buildFleetDigestMessage, creditsAlertThreshold, digestHasSignal, dispatchAlert, isAlertConfigured, sinkKindForOrg } from "@/lib/alerts";
+import { buildFleetDigestMessage, creditsAlertThreshold, digestHasSignal, digestMovementFields, dispatchAlert, isAlertConfigured, sinkKindForOrg } from "@/lib/alerts";
 import { controlLabel } from "@/lib/controls/catalog";
 import { controlCoverage, listObservationsSince } from "@/lib/db/control-observations";
 import { dispatchExtraAlerts } from "./extra-alerts";
@@ -269,8 +269,12 @@ export async function GET(request: Request) {
       // for a live defect. Kept because the digest's silence-on-noise contract is its own to hold,
       // and a future change to that feed must not be able to break it silently.
       const regressersBeyondNoise = (movers?.regressers ?? []).filter((m) => !isWithinNoise(m.dOverall));
+      // Cohort-matched movement, not the deprecated `rollup.deltas` triple (no denominator). A
+      // null/0 cohort is unmeasurable — both readers below receive null, never a silent 0.
+      const { overallDelta, cohortSize } = digestMovementFields(rollup.movement);
       const hasSignal = digestHasSignal({
-        overallDelta: rollup.deltas?.overall ?? null,
+        overallDelta,
+        cohortSize,
         levelChanges: movers?.levelChanges?.filter((m) => m.levelDelta !== 0).length ?? 0,
         regressions: regressersBeyondNoise.length,
         gainersBeyondNoise: (movers?.gainers ?? []).filter((m) => !isWithinNoise(m.dOverall)).length,
@@ -296,7 +300,8 @@ export async function GET(request: Request) {
         scannedCount: rollup.scannedCount,
         avgOverall: rollup.avgOverall,
         level: `${level.id} · ${level.name}`,
-        overallDelta: rollup.deltas?.overall ?? null,
+        overallDelta,
+        cohortSize,
         gainers: (movers?.gainers ?? []).slice(0, 3).map((m) => ({ name: m.name, delta: m.dOverall })),
         // ALERTS #1: render the same beyond-noise set the signal gate counted above, so a within-noise
         // −1/−2 repo is never listed under "Regressions:" (which would train the inbox filter the gate

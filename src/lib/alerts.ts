@@ -20,7 +20,12 @@
 import type { ScanDiff } from "@/lib/report/compare";
 import { isWithinNoise } from "@/lib/maturity/noise";
 export { emailSinkAddress, resolveAlertWebhook, sinkKindForOrg, isAlertConfigured, validateAlertWebhookUrl, dispatchAlert } from "./alert-delivery";
-import type { AlertSeverity, RegressionVerdict, PromotionVerdict } from "./alerts-detection";
+import {
+  digestHasSignal as digestHasSignalFromDelta,
+  type AlertSeverity,
+  type RegressionVerdict,
+  type PromotionVerdict,
+} from "./alerts-detection";
 
 
 // --- Per-repo regression-alert cooldown (fleet-alerts-digests #4) ----------------------------------
@@ -119,6 +124,52 @@ function signed(n: number): string {
   return n >= 0 ? `+${n}` : String(n);
 }
 
+/** "1 repository" / "8 repositories" — a delta never travels next to a bare count. */
+function repositories(n: number): string {
+  return `${n} repositor${n === 1 ? "y" : "ies"}`;
+}
+
+/**
+ * A period delta is measurable only over a positive matched cohort. Null/0 is unmeasurable — never
+ * a silent 0, and never a fleet-wide "+N this week" (G4). Tiny n (≥ 1) is still a measurement and
+ * must be qualified with that n, not omitted and not inflated.
+ */
+export function isMeasurableDigestCohort(cohortSize: number | null | undefined): cohortSize is number {
+  return cohortSize != null && cohortSize > 0;
+}
+
+/**
+ * Project `rollup.movement` into the digest's delta pair. Reads movement, not the deprecated
+ * `rollup.deltas` triple (that shape has no denominator). Null/0 cohort → both fields null.
+ */
+export function digestMovementFields(
+  movement: { overall: number; cohortSize: number } | null | undefined,
+): { overallDelta: number | null; cohortSize: number | null } {
+  if (!movement || !isMeasurableDigestCohort(movement.cohortSize)) {
+    return { overallDelta: null, cohortSize: null };
+  }
+  return { overallDelta: movement.overall, cohortSize: movement.cohortSize };
+}
+
+/**
+ * Movement-gate for the weekly fleet digest. Wraps the delta/noise predicate with the cohort rule:
+ * an overall move without a positive `cohortSize` is unmeasurable and is not signal.
+ */
+export function digestHasSignal(s: {
+  overallDelta: number | null;
+  /** Matched-repo n behind `overallDelta`. Null/0/absent → the delta does not count. */
+  cohortSize?: number | null;
+  levelChanges: number;
+  regressions: number;
+  gainersBeyondNoise: number;
+  creditLow: boolean;
+  controlsFailed?: number;
+  standingConcerns?: number;
+}): boolean {
+  const overallDelta = isMeasurableDigestCohort(s.cohortSize) ? s.overallDelta : null;
+  return digestHasSignalFromDelta({ ...s, overallDelta });
+}
+
 /** English ordinal suffix for a non-negative integer (1st, 2nd, 3rd, 4th … 11th/12th/13th, 21st, 22nd).
  *  The digest percentile line hard-coded "th", so corpus percentiles ending in 1/2/3 (except the
  *  11–13 teens) rendered broken ordinals ("21th pctile") in the one artifact leaders read without
@@ -195,7 +246,13 @@ export interface FleetDigestInput {
   scannedCount: number;
   avgOverall: number;
   level: string; // e.g. "L3 · Defined"
-  overallDelta: number | null; // vs the week's start (null = no baseline)
+  overallDelta: number | null; // vs the week's start (null = no baseline / unmeasurable cohort)
+  /**
+   * Matched-repo n `overallDelta` was measured over (`rollup.movement.cohortSize`). Null/0 omits
+   * the numeral — a delta without its denominator is unmeasurable, never a silent 0. A tiny
+   * positive n still prints, qualified, so a 1-repo artifact cannot read as a fleet-wide move.
+   */
+  cohortSize?: number | null;
   gainers: { name: string; delta: number }[];
   regressers: { name: string; delta: number }[];
   /**
@@ -264,19 +321,21 @@ export interface FleetDigestInput {
  * opening the app — the habit loop org-analytics products live on.
  */
 export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
-  const delta =
-    d.overallDelta == null
-      // G4-04: an empty string here silently drops the "this week" number with zero indication why —
-      // indistinguishable from "the fleet held exactly flat" to a reader. A null delta means no baseline
-      // could be computed for the window at all (a freshly-onboarded org, or one whose entire scan
-      // history is younger than the window boundary), which is a DIFFERENT fact than "flat" and must
-      // read as one.
-      ? " (not enough history yet for a week-over-week comparison)"
-      : isWithinNoise(d.overallDelta)
-        ? d.overallDelta === 0
-          ? " (no change this week)"
-          : ` (${signed(d.overallDelta)}, within noise this week)`
-        : ` (${signed(d.overallDelta)} this week)`;
+  // G4: a delta without a positive cohort is unmeasurable — never a silent 0, never an unqualified
+  // "+N this week". Null overallDelta used to be the only "no baseline" path; a number arriving
+  // from deprecated `rollup.deltas` with no n is the same fact and must read as one.
+  const n = d.cohortSize;
+  let delta: string;
+  if (d.overallDelta == null || !isMeasurableDigestCohort(n)) {
+    delta = " (not enough history yet for a week-over-week comparison)";
+  } else {
+    const over = `, measured over ${repositories(n)}`;
+    delta = isWithinNoise(d.overallDelta)
+      ? d.overallDelta === 0
+        ? ` (no change this week${over})`
+        : ` (${signed(d.overallDelta)}, within noise this week${over})`
+      : ` (${signed(d.overallDelta)} this week${over})`;
+  }
   const headline = `📊 Ascent weekly digest: ${d.org}`;
   const pctile = d.percentile != null ? ` · ${ordinal(d.percentile)} pctile` : "";
   const summary = `Fleet maturity *${d.avgOverall}/100* · ${d.level}${delta} · ${d.scannedCount}/${d.repoCount} repos scanned${pctile}`;
@@ -690,7 +749,7 @@ export function buildTestAlertMessage(org: string): AlertMessage {
 export {
   type AlertSeverity, type RegressionReason, type RegressionVerdict, type RegressionThresholds,
   type PromotionReason, type PromotionVerdict, type StandingScanPoint, type StandingConcern,
-  DEFAULT_THRESHOLDS, digestHasSignal, detectRegression, detectPromotion,
+  DEFAULT_THRESHOLDS, detectRegression, detectPromotion,
   STANDING_REGRESSION_DROP, STANDING_REGRESSION_SCANS, STANDING_REGRESSION_LOOKBACK,
   detectStandingRegressions,
 } from "./alerts-detection";

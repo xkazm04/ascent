@@ -10,6 +10,8 @@ import {
   creditsAlertThreshold,
   dispatchAlert,
   digestHasSignal,
+  digestMovementFields,
+  isMeasurableDigestCohort,
   buildControlAlertMessage,
   controlAlertSeverity,
   controlCooldownKey,
@@ -316,6 +318,7 @@ describe("buildFleetDigestMessage credits line", () => {
     avgOverall: 60,
     level: "L3 · Defined",
     overallDelta: null,
+    cohortSize: null,
     gainers: [],
     regressers: [],
     topRecommendation: null,
@@ -538,7 +541,7 @@ describe("dispatchAlert (the one real side-effect: 2xx/non-2xx/throw outcome map
 });
 
 describe("digestHasSignal — the weekly-digest movement-gate", () => {
-  const flat = { overallDelta: 1, levelChanges: 0, regressions: 0, gainersBeyondNoise: 0, creditLow: false };
+  const flat = { overallDelta: 1, cohortSize: 8, levelChanges: 0, regressions: 0, gainersBeyondNoise: 0, creditLow: false };
 
   it("stays silent on a flat period (within-noise delta, no level/regression/gainer, credits fine)", () => {
     expect(digestHasSignal(flat)).toBe(false);
@@ -554,8 +557,38 @@ describe("digestHasSignal — the weekly-digest movement-gate", () => {
     expect(digestHasSignal({ ...flat, gainersBeyondNoise: 1 })).toBe(true);
   });
 
+  it("does not treat an overall move as signal when the cohort is unmeasurable (null/0/absent)", () => {
+    expect(digestHasSignal({ ...flat, overallDelta: 6, cohortSize: null })).toBe(false);
+    expect(digestHasSignal({ ...flat, overallDelta: 6, cohortSize: 0 })).toBe(false);
+    expect(digestHasSignal({ ...flat, overallDelta: 6, cohortSize: undefined })).toBe(false);
+    expect(
+      digestHasSignal({ overallDelta: 6, levelChanges: 0, regressions: 0, gainersBeyondNoise: 0, creditLow: false }),
+    ).toBe(false);
+  });
+
+  it("a one-repo cohort is still measurable — tiny is qualified, not dropped", () => {
+    expect(digestHasSignal({ ...flat, overallDelta: 6, cohortSize: 1 })).toBe(true);
+  });
+
   it("always fires when credits are low — a depleting balance is worth the push even on a flat week", () => {
     expect(digestHasSignal({ ...flat, creditLow: true })).toBe(true);
+  });
+});
+
+describe("digestMovementFields — rollup.movement, never a silent 0", () => {
+  it("projects a measurable cohort into the digest pair", () => {
+    expect(digestMovementFields({ overall: 6, cohortSize: 8 })).toEqual({ overallDelta: 6, cohortSize: 8 });
+    expect(digestMovementFields({ overall: 0, cohortSize: 4 })).toEqual({ overallDelta: 0, cohortSize: 4 });
+    expect(digestMovementFields({ overall: 6, cohortSize: 1 })).toEqual({ overallDelta: 6, cohortSize: 1 });
+  });
+
+  it("null/0/absent cohort is unmeasurable — both fields null, never 0", () => {
+    expect(digestMovementFields(null)).toEqual({ overallDelta: null, cohortSize: null });
+    expect(digestMovementFields(undefined)).toEqual({ overallDelta: null, cohortSize: null });
+    expect(digestMovementFields({ overall: 6, cohortSize: 0 })).toEqual({ overallDelta: null, cohortSize: null });
+    expect(isMeasurableDigestCohort(null)).toBe(false);
+    expect(isMeasurableDigestCohort(0)).toBe(false);
+    expect(isMeasurableDigestCohort(1)).toBe(true);
   });
 });
 
@@ -648,6 +681,7 @@ describe("the digest's Controls block", () => {
     avgOverall: 70,
     level: "L3 · Defined",
     overallDelta: 0,
+    cohortSize: 10,
     gainers: [],
     regressers: [],
     topRecommendation: null,
@@ -720,6 +754,7 @@ describe("buildFleetDigestMessage held and onboarded", () => {
     avgOverall: 70,
     level: "L3 · Defined",
     overallDelta: 0,
+    cohortSize: 10,
     gainers: [],
     regressers: [],
     topRecommendation: null,
@@ -755,5 +790,54 @@ describe("buildFleetDigestMessage held and onboarded", () => {
     expect(m.text).toContain("grown +12");
     expect(m.text).not.toMatch(/fresh \+0/);
     expect(m.text).not.toMatch(/fresh 0/);
+  });
+});
+
+describe("buildFleetDigestMessage qualifies the overall delta with movement.cohortSize", () => {
+  const base: FleetDigestInput = {
+    org: "acme",
+    repoCount: 10,
+    scannedCount: 10,
+    avgOverall: 70,
+    level: "L3 · Defined",
+    overallDelta: 6,
+    cohortSize: 8,
+    gainers: [],
+    regressers: [],
+    topRecommendation: null,
+  };
+
+  it("prints the numeral with its matched-repo n", () => {
+    const text = buildFleetDigestMessage(base).text;
+    expect(text).toContain("+6 this week, measured over 8 repositories");
+    expect(text).not.toContain("not enough history");
+  });
+
+  it("singularizes a one-repo cohort rather than dropping the number or inflating it", () => {
+    const text = buildFleetDigestMessage({ ...base, overallDelta: 6, cohortSize: 1 }).text;
+    expect(text).toContain("+6 this week, measured over 1 repository");
+    expect(text).not.toContain("repositories");
+  });
+
+  it("qualifies a measured zero — no change is not a silent omission", () => {
+    expect(buildFleetDigestMessage({ ...base, overallDelta: 0, cohortSize: 8 }).text).toContain(
+      "no change this week, measured over 8 repositories",
+    );
+  });
+
+  it("qualifies a within-noise move with its n, not as a confident +N", () => {
+    expect(buildFleetDigestMessage({ ...base, overallDelta: 1, cohortSize: 8 }).text).toContain(
+      "+1, within noise this week, measured over 8 repositories",
+    );
+  });
+
+  it("omits the numeral when the cohort is unmeasurable — never a silent 0, never an unqualified +6", () => {
+    for (const over of [{ cohortSize: null }, { cohortSize: 0 }, { cohortSize: undefined }, { overallDelta: null, cohortSize: 8 }]) {
+      const text = buildFleetDigestMessage({ ...base, ...over }).text;
+      expect(text).toContain("not enough history yet for a week-over-week comparison");
+      expect(text).not.toContain("+6 this week");
+      expect(text).not.toMatch(/\(0 this week/);
+      expect(text).not.toContain("no change this week");
+    }
   });
 });
