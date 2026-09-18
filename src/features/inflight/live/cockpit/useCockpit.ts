@@ -116,10 +116,11 @@ export function useCockpit(input: UseCockpitInput) {
     if (!(await loop.start(i))) setMode("inspect");
   };
 
+  // Returns the adopted drive (null on a refusal) — the setup dialog closes only on a started runner.
   const startDrive = async (i: StartDriveInput) => {
     setDrift(null);
     setDriveOutcome(null);
-    await drive.start(i);
+    return drive.start(i);
   };
 
   // The drive a restart orphaned, offered back to the operator. Only ever surfaced from `inspect`:

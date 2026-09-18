@@ -11,6 +11,10 @@
 // is this one run doing" — and it settles into the SAME outcome ledger a single run does, with a
 // verdict banner above it saying which of the three honest stops ended it.
 //
+// THE STANDING RUNNER (2026-09-18) is a drive too — a `continuous` one — and rides the same state:
+// started from the setup dialog (`CockpitSetupDialog`), watched in the rail (`CockpitRunnerPanel`),
+// stopped from the masthead, with a per-repo Resume in the rail beside the Ledger's.
+//
 // THE RAIL NEVER ENTERS OUTCOME MODE (wave-2). The outcome is a full-width SHEET under the grid
 // (`OutcomeSection`) — one row per gap, one column per run — which also absorbed the history strip's
 // job. A settled run still drifts the field and is still `setOutcome`'d; the rail simply keeps showing
@@ -22,14 +26,17 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Surface } from "@/components/ui";
 import { reportPermalink } from "@/lib/ui";
+import { liveViewHref } from "../LiveViewSwitch";
 import type { ObservatoryHistory, ObservatorySeed } from "../observatory";
 import { OutcomeSection } from "../outcome/OutcomeSection";
 import { CockpitBatchLedger } from "./CockpitBatchLedger";
 import { CockpitField } from "./CockpitField";
 import { CockpitHeader } from "./CockpitHeader";
 import { CockpitRail } from "./CockpitRail";
+import { CockpitSetupDialog } from "./CockpitSetupDialog";
 import { PriceListPanel } from "./PriceListPanel";
-import { RunSetupModal, dialsSummary } from "./RunSetupModal";
+import { dialsSummary } from "./RunSetupModal";
+import { driveHeaderCaption, isRunner, runnerStopHint } from "./runnerModel";
 import { useCockpit } from "./useCockpit";
 import type { LoopRunDetail, LoopRunRecord, LoopRunSummary } from "./loopTypes";
 
@@ -40,6 +47,10 @@ export interface LiveCockpitProps {
   histories: ObservatoryHistory[];
   /** Repos with a local pairing; empty on managed cloud. */
   pairedRepos: string[];
+  /** The standing runner's default scope — every WATCHED repo with a paired checkout, the list the
+   *  drive route resolves when no repos are sent. Absent = `pairedRepos` (which may include unwatched
+   *  repos the server will skip). */
+  runnerRepos?: string[];
   activeRun: LoopRunRecord | null;
   runs: LoopRunSummary[];
   /** The details of the listed runs (bounded), for the outcome matrix. Empty on managed cloud. */
@@ -50,6 +61,9 @@ export interface LiveCockpitProps {
   isOwner: boolean;
   /** `?view=wall`, with the tab's other params preserved. */
   wallHref: string;
+  /** The Live view switch's targets, the tab's other params preserved (`liveViewHref`). */
+  ledgerHref?: string;
+  cockpitHref?: string;
 }
 
 const NO_DETAILS: LoopRunDetail[] = [];
@@ -67,21 +81,28 @@ export function LiveCockpit(props: LiveCockpitProps) {
   // `outcome` is still a real mode of the state machine (it suppresses the interrupted-drive offer and
   // marks the opened run), but the RAIL has no panel for it: it shows the inspector instead.
   const railMode = c.mode === "outcome" ? "inspect" : c.mode;
+  const canDispatch = isOwner && loop.enabled;
+  const runner = drive.live && isRunner(drive.drive) ? drive.drive : null;
 
   return (
     <section aria-label="Loop cockpit" className="space-y-4">
       <CockpitHeader
+        slug={slug}
         fleetCount={seeds.length}
         active={loop.active}
         laneCount={c.laneCount}
         live={loop.live || drive.live}
-        driveCaption={drive.live && drive.drive ? `drive · run ${drive.drive.runs.length}/${drive.drive.maxRuns}` : null}
+        driveCaption={driveHeaderCaption(drive.drive, drive.live)}
         wallHref={wallHref}
+        ledgerHref={props.ledgerHref ?? liveViewHref({}, "ledger")}
+        cockpitHref={props.cockpitHref ?? liveViewHref({}, "cockpit")}
         // The gear arms the NEXT run, so it is offered only where a run could actually be started —
         // the same gate the CTA answers to.
-        onOpenSetup={isOwner && loop.enabled ? () => setSetupOpen(true) : undefined}
+        onOpenSetup={canDispatch ? () => setSetupOpen(true) : undefined}
         setupSummary={dialsSummary(c.dials)}
         onStop={c.stop}
+        stopLabel={runner ? "Stop runner" : undefined}
+        stopCaption={runner ? runnerStopHint(runner) : null}
         stopping={loop.busy || drive.busy}
         // The DRIVE's own flag counts here too: the header's Stop is `c.stop`, which stops whichever
         // of the two is pulling, so the state it reports has to cover both.
@@ -112,17 +133,22 @@ export function LiveCockpit(props: LiveCockpitProps) {
             runLive={loop.live}
             batch={c.batch}
             dials={c.dials}
-            canRun={isOwner && loop.enabled}
+            canRun={canDispatch}
             busy={loop.busy || drive.busy}
             loopError={loop.error}
             driveError={drive.error}
             onRun={(input) => void c.startRun(input)}
             onDrive={(input) => void c.startDrive(input)}
+            onOpenRunner={() => {
+              c.setDial("mode", "runner");
+              setSetupOpen(true);
+            }}
             onStopRun={() => loop.activeId && void loop.stop(loop.activeId)}
             onStopDrive={() => void drive.stop()}
             onResumeDrive={() => void c.resumeDrive()}
             onDismissDrive={c.dismissDrive}
             onRetryLane={(laneId) => void loop.retry(laneId)}
+            onResumeRepo={(repo) => void drive.resumeRepo(repo)}
           />
         </Surface>
       </div>
@@ -154,14 +180,7 @@ export function LiveCockpit(props: LiveCockpitProps) {
       {/* What a verified maturity point has cost, per model, per dimension — the standing summary
           the strip's individual runs add up to. */}
       <PriceListPanel slug={slug} />
-      <RunSetupModal
-        open={setupOpen}
-        onClose={() => setSetupOpen(false)}
-        dials={c.dials}
-        onChange={c.setDial}
-        dims={c.batch.dims}
-        prAvailable={loop.prAvailable}
-      />
+      <CockpitSetupDialog c={c} open={setupOpen} onClose={() => setSetupOpen(false)} runnerRepos={props.runnerRepos ?? props.pairedRepos} />
       {/* Lesson candidates left the cockpit on 2026-09-15: they are a review queue, and review queues
           live in the In flight group's own ledgers (Lessons, Proposals). */}
     </section>

@@ -1,12 +1,15 @@
 "use client";
 
-// THE INSPECTOR'S CALL TO ACTION — Run, Drive, or the one sentence saying why neither is offered.
+// THE INSPECTOR'S CALL TO ACTION — Run, Drive, the standing runner, or the one sentence saying why
+// none is offered.
 //
 // Extracted from CockpitInspector (pure relocation, no behaviour change) so that file stays what its
 // header claims: selection → proposal → CTA, with the proposal machinery in between and none of the
 // button markup. The ordering rule is unchanged and still deliberate: `blockedReason` (or a missing
-// owner role) REPLACES both buttons rather than disabling them, because a control that 403s on click
+// owner role) REPLACES every button rather than disabling it, because a control that 403s on click
 // is worse than one that is not there.
+
+import { RUNNER_BRANCH } from "@/lib/local/runner-types";
 
 export interface CockpitInspectorCtaProps {
   /** Selected repos that actually have a local pairing — the only ones a lane can run in. */
@@ -15,11 +18,33 @@ export interface CockpitInspectorCtaProps {
   maxRuns: number;
   onRun: () => void;
   onDrive: () => void;
+  /** Open the setup dialog in runner mode. Absent = no runner CTA. */
+  onRunner?: () => void;
   canRun: boolean;
   canDrive: boolean;
   blockedReason: string | null;
   busy: boolean;
   error: string | null;
+}
+
+/** The third CTA. It opens the dialog (hence the ellipsis): the runner starts there, ceiling in view. */
+export function RunnerCta({ onClick, busy }: { onClick: () => void; busy: boolean }) {
+  return (
+    <>
+      <button
+        type="button"
+        data-testid="runner-cta"
+        onClick={onClick}
+        disabled={busy}
+        className="focus-ring mt-2 w-full rounded-md border border-divider px-3 py-2 type-label tracking-[0.18em] text-slate-300 transition hover:border-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        Start standing runner…
+      </button>
+      <p className="mt-1.5 type-note leading-relaxed text-slate-500">
+        Runs until you stop it, landing verified work on each repo&apos;s {RUNNER_BRANCH} branch — never on yours.
+      </p>
+    </>
+  );
 }
 
 export function CockpitInspectorCta(p: CockpitInspectorCtaProps) {
@@ -57,6 +82,7 @@ export function CockpitInspectorCta(p: CockpitInspectorCtaProps) {
           </p>
         </>
       )}
+      {p.canDrive && p.onRunner && <RunnerCta onClick={p.onRunner} busy={p.busy} />}
       {p.error && <p className="mt-3 type-caption text-danger">{p.error}</p>}
     </>
   );

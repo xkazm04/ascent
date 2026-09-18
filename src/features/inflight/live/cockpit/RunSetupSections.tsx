@@ -24,6 +24,9 @@ export interface SetupSectionProps {
 export const minuteSteps = (capMs: number, step = 5): number[] =>
   Array.from({ length: Math.floor(capMs / 60_000 / step) }, (_, i) => (i + 1) * step);
 
+const RESCAN_INFO =
+  "When a multi-cycle run re-reads the repository. “After every cycle” is the default and what every run before this dial did. “Once per run” defers the intermediate cycles' reading to the run's last one, which adjudicates them all — measured at about a sixth of a cycle's time.";
+
 const minuteOptions = (capMs: number, defaultMs?: number): SegmentedOption<number>[] =>
   minuteSteps(capMs).map((m) => ({ value: m, label: `${m} min${defaultMs != null && m === defaultMs / 60_000 ? " — default" : ""}` }));
 
@@ -42,7 +45,7 @@ export function WorkSection({ dials, onChange, dims }: SetupSectionProps & { dim
     <SetupGroup title="The work">
       <SetupRow
         label="Focus"
-        info="Narrows every lane in this run to follow-ups on ONE dimension. The batch ledger under the sky filters with it, so what you see is what will be dispatched. A drive ignores it: a drive re-picks its own batch before every run."
+        info="Narrows every lane in this run to follow-ups on ONE dimension. The batch ledger under the sky filters with it, so what you see is what will be dispatched. A drive and the standing runner ignore it: each re-picks its own batch before every run."
       >
         <ChoiceList
           ariaLabel="Dimension focus"
@@ -103,19 +106,35 @@ export function SessionSection({ dials, onChange }: SetupSectionProps) {
           options={minuteOptions(AGENT_TIMEOUT_CAP_MS, AGENT_TIMEOUT_DEFAULT_MS)}
         />
       </SetupRow>
-      <SetupRow
-        label="Drive runs"
-        info="The drive's rope: how many runs “Drive to green” may spend before it stops on its own. Inert for a single run — one run is one run."
-      >
-        <NumberRow
-          ariaLabel="Drive runs"
-          testId="setup-max-runs"
-          value={dials.maxRuns}
-          cap={DRIVE_MAX_RUNS_CAP}
-          defaultValue={DRIVE_DEFAULT_MAX_RUNS}
-          onChange={(n) => onChange("maxRuns", n)}
-        />
-      </SetupRow>
+      {/* The rope only means something to a bounded drive: one run is one run, and a runner has none. */}
+      {dials.mode === "drive" && (
+        <SetupRow label="Drive runs" info="The drive's rope: how many runs “Drive to green” may spend before it stops on its own.">
+          <NumberRow
+            ariaLabel="Drive runs"
+            testId="setup-max-runs"
+            value={dials.maxRuns}
+            cap={DRIVE_MAX_RUNS_CAP}
+            defaultValue={DRIVE_DEFAULT_MAX_RUNS}
+            onChange={(n) => onChange("maxRuns", n)}
+          />
+        </SetupRow>
+      )}
+      {/* Offered where it is SENT — a drive's and the runner's dials. The manual run's request type
+          does not carry it yet, and a dial that silently does nothing is the failure mode it replaces. */}
+      {dials.mode !== "run" && (
+        <SetupRow label="Rescan" info={RESCAN_INFO}>
+          <Segmented
+            ariaLabel="Rescan cadence"
+            testId="setup-rescan"
+            value={dials.rescanCadence}
+            onChange={(v) => onChange("rescanCadence", v)}
+            options={[
+              { value: "cycle", label: "After every cycle" },
+              { value: "run", label: "Once per run" },
+            ]}
+          />
+        </SetupRow>
+      )}
     </SetupGroup>
   );
 }

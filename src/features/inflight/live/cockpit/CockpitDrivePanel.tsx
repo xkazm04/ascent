@@ -19,24 +19,36 @@
 // does not wait for the run: `waitForRun` (src/lib/local/drive.ts) stops the IN-FLIGHT run on the
 // next poll, whose lanes wind down cooperatively and are force-stopped after a grace. An operator told
 // "after this run" expects the run's work to complete, and it will not.
+//
+// A STANDING RUNNER (a `continuous` drive, 2026-09-18) is handed to `CockpitRunnerPanel`: it has no
+// rope and no target, so every line below — run N/M, debt burned, n/m green — would be a false claim.
+// The terminal banner lives in CockpitDriveVerdict.tsx and is re-exported from here.
 
 import { deltaHex, Kicker, signedDelta } from "@/components/ui";
 import { InlineEmpty, TILE_LEDGER } from "@/components/org/shared/ui";
 import { DriveRunRow } from "./CockpitDriveRunRow";
-import { driveProgress, driveVerdict, type DriveVerdictTone } from "./driveModel";
+import { CockpitRunnerPanel } from "./CockpitRunnerPanel";
+import { driveProgress } from "./driveModel";
 import type { DriveStatus } from "./driveTypes";
 import type { LoopRunDetail } from "./loopTypes";
+import { isRunner } from "./runnerModel";
+
+export { DriveVerdict } from "./CockpitDriveVerdict";
 
 export interface CockpitDrivePanelProps {
   drive: DriveStatus;
   /** The loop run the drive is waiting on, from useLoopRun's own poll — the per-lane detail. */
   runDetail: LoopRunDetail | null;
   onStop: () => void;
+  /** A runner only: lift one repo's pause. */
+  onResumeRepo?: (repo: string) => void;
   busy?: boolean;
   error?: string | null;
 }
 
-export function CockpitDrivePanel({ drive, runDetail, onStop, busy = false, error = null }: CockpitDrivePanelProps) {
+export function CockpitDrivePanel(props: CockpitDrivePanelProps) {
+  if (isRunner(props.drive)) return <CockpitRunnerPanel {...props} />;
+  const { drive, runDetail, onStop, busy = false, error = null } = props;
   const p = driveProgress(drive);
   const inFlight = p.currentRunId && runDetail?.run.id === p.currentRunId ? runDetail : null;
 
@@ -136,46 +148,6 @@ function DebtLine({
         <div aria-hidden className="mt-2 h-1 w-full overflow-hidden rounded-full bg-divider">
           <div className="h-full rounded-full bg-accent transition-[width] duration-700" style={{ width: `${Math.round(burned * 100)}%` }} />
         </div>
-      )}
-    </div>
-  );
-}
-
-const TONE_CLASS: Record<DriveVerdictTone, string> = {
-  green: "border-accent/60 text-accent",
-  warn: "border-warn/60 text-warn",
-  muted: "border-divider text-slate-400",
-  danger: "border-danger/60 text-danger",
-};
-
-/**
- * The terminal banner. It sits ABOVE the single run's outcome ledger rather than replacing it: the
- * ledger answers "what did the last run do", and this answers the different question "why did the
- * drive stop", which is the one that decides what the operator does next.
- */
-export function DriveVerdict({ drive, onBack }: { drive: DriveStatus; onBack?: () => void }) {
-  const v = driveVerdict(drive);
-  const p = driveProgress(drive);
-  return (
-    <div className={`mb-3 rounded-md border px-3 py-2.5 ${TONE_CLASS[v.tone]}`}>
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <Kicker tone="accent">Drive · {v.label}</Kicker>
-        <span className="type-caption tabular-nums text-slate-500">
-          {p.runsDone}/{p.maxRuns} runs · {p.greenCount}/{p.inScope} green
-        </span>
-      </div>
-      <p className="mt-1.5 type-body-sm leading-relaxed text-slate-400">{v.detail}</p>
-      {/* A terminal verdict has to disclose what it could not see. "Green" over six dimensions is a
-          real result and a different claim from "green" over nine. */}
-      {p.notMeasurable && <p className="mt-1 type-caption text-slate-500">{p.notMeasurable}</p>}
-      {onBack && (
-        <button
-          type="button"
-          onClick={onBack}
-          className="focus-ring mt-3 rounded-md border border-divider px-3 py-1.5 type-label tracking-[0.18em] text-slate-400 transition hover:border-accent hover:text-white"
-        >
-          Back to inspect
-        </button>
       )}
     </div>
   );

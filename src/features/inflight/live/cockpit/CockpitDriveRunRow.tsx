@@ -8,11 +8,26 @@
 // DEBT INVERTS THE HOUSE DELTA CONVENTION here exactly as it does in the panel: the colour takes the
 // size of the DROP, the text prints the signed change in the debt itself, and `signedDelta` is used
 // rather than `fmtDelta` so no ▲/▼ glyph contradicts the colour beside it.
+//
+// A STANDING RUNNER'S run (`runner`, 2026-09-18) is measured by what it DELIVERED rather than by debt:
+// lanes landed on the runner branch and closes a rescan verified. A figure the run has not counted yet
+// prints "—", never 0.
 
 import { deltaHex, signedDelta } from "@/components/ui";
 import type { DriveRunRecord } from "./driveTypes";
 
-export function DriveRunRow({ record, index }: { record: DriveRunRecord; index: number }) {
+const count = (n: number | null | undefined) => (n == null ? "—" : String(n));
+
+function RunnerCell({ record }: { record: DriveRunRecord }) {
+  if (record.endedAt == null) return <span className="text-slate-600">in flight</span>;
+  return (
+    <span className="text-slate-500">
+      {count(record.landed)} landed · {count(record.verifiedCloses)} verified
+    </span>
+  );
+}
+
+export function DriveRunRow({ record, index, runner = false }: { record: DriveRunRecord; index: number; runner?: boolean }) {
   const moved = record.debtAfter != null ? record.debtBefore - record.debtAfter : null;
   return (
     <li className="bg-ink px-4 py-2.5">
@@ -21,7 +36,9 @@ export function DriveRunRow({ record, index }: { record: DriveRunRecord; index: 
           run {index + 1} · {record.repos.length} {record.repos.length === 1 ? "repo" : "repos"}
         </span>
         <span className="type-caption tabular-nums">
-          {moved == null ? (
+          {runner ? (
+            <RunnerCell record={record} />
+          ) : moved == null ? (
             <span className="text-slate-600">in flight</span>
           ) : (
             <>
@@ -42,6 +59,8 @@ export function DriveRunRow({ record, index }: { record: DriveRunRecord; index: 
           that cannot show its evidence is indistinguishable from a guess (G18). Absent on a run that
           was NOT switched: silence here means "the model you configured stood". */}
       {record.modelBasis && <p className="mt-1 type-micro leading-relaxed text-slate-500">{record.modelBasis}</p>}
+      {/* A run that ended oddly ("interrupted by a restart") says so on its own row. */}
+      {record.note && <p className="mt-1 type-micro leading-relaxed text-warn">{record.note}</p>}
     </li>
   );
 }

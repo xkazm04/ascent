@@ -6,13 +6,23 @@
 // PREDICATE, not a percentage — so the honest progress bar is debt burned against the debt the drive
 // started with, and it is `null` (not 0, not 100) until there are two measurements to compare. A
 // drive that starts already-green has nothing to burn and reads as complete, which is also honest.
+//
+// A STANDING RUNNER (`mode: "continuous"`, 2026-09-18) reads through the same two functions, but it is
+// not a drive with a bigger rope: `paused` and `idle` are LIVE (waits, not ends), and its verdicts
+// never say green, dry or ceiling — those are a bounded drive's three stops, and a runner has none of
+// them. Its phase words come from `runnerModel.ts`, so the panel and the banner cannot disagree.
 
-import { driveRunsDone, resumeParams } from "./driveTypes";
+import { RUNNER_BRANCH } from "@/lib/local/runner-types";
+import { driveRunsDone, isDriveLive, resumeParams } from "./driveTypes";
 import type { DrivePhase, DriveStatus } from "./driveTypes";
+import { isRunner, pauseNote, runnerPhase } from "./runnerModel";
 
 export interface DriveProgressView {
   phase: DrivePhase;
+  /** Still being pulled — for a runner that includes `paused` and `idle`. */
   live: boolean;
+  /** The standing runner: no run cap, so `maxRuns` means nothing and no panel may print "of N". */
+  continuous: boolean;
   runsDone: number;
   maxRuns: number;
   /** The loop run the drive is currently waiting on — null between runs and after the last one. */
@@ -46,7 +56,8 @@ export function driveProgress(drive: DriveStatus): DriveProgressView {
   const debtDrop = debtStart != null && debtNow != null ? debtStart - debtNow : null;
   return {
     phase: drive.phase,
-    live: drive.endedAt == null && drive.phase === "running",
+    live: drive.endedAt == null && isDriveLive(drive.phase),
+    continuous: isRunner(drive),
     // The CHAIN's count, so a resumed drive reads "run 3/3", not "run 1/3" — the rope the operator
     // gave is spent across the whole chain and the panel must not suggest otherwise.
     runsDone: driveRunsDone(drive),
@@ -92,6 +103,7 @@ export interface DriveVerdictView {
  */
 export function driveVerdict(drive: DriveStatus): DriveVerdictView {
   const p = driveProgress(drive);
+  if (p.continuous) return runnerVerdict(drive, p.runsDone);
   const left = p.inScope - p.greenCount;
   switch (drive.phase) {
     case "green":
@@ -127,11 +139,41 @@ export function driveVerdict(drive: DriveStatus): DriveVerdictView {
 
 const runWord = (n: number) => `${n} ${n === 1 ? "run" : "runs"}`;
 
+/** The runner's reading. `stopped` is the only end a person chooses; the rest are waits or failures. */
+function runnerVerdict(drive: DriveStatus, runsDone: number): DriveVerdictView {
+  const label = runnerPhase(drive).label;
+  switch (drive.phase) {
+    case "stopped":
+      return {
+        label: "Stopped",
+        tone: "muted",
+        detail: `You stopped the standing runner after ${runWord(runsDone)}. Its verified work stays on each repo's ${RUNNER_BRANCH} branch until you merge it.`,
+      };
+    case "paused":
+      return { label, tone: "warn", detail: pauseNote(drive) ?? "A breaker paused the runner; it resumes by itself when the pause lifts." };
+    case "idle":
+      return { label, tone: "muted", detail: "Every repo is backing off after runs that closed nothing, or waits for you to resume it. The runner is still on." };
+    case "interrupted":
+      return {
+        label: "Interrupted",
+        tone: "warn",
+        detail: drive.error ?? `The server restarted while the runner was on, after ${runWord(runsDone)}. It was not re-attached on its own.`,
+      };
+    case "error":
+      return { label: "Failed", tone: "danger", detail: drive.error ?? "The runner failed." };
+    default:
+      return { label, tone: "muted", detail: `${runWord(runsDone)} so far — it runs until you stop it.` };
+  }
+}
+
 /**
  * What the "Resume drive" affordance needs, or null when there is nothing to offer. Derived from the
  * SERVER's own `resumeParams`, so the button appears exactly when the route would accept the request —
  * a drive that stopped for a reason a human chose (green/dry/ceiling/stopped) is not resumable, and
  * neither is an interrupted one whose chain already spent the whole budget.
+ *
+ * A STANDING RUNNER has no budget to count, so this is not its offer: the rail routes an interrupted
+ * runner to `CockpitRunnerResume`, which asks `resumeParams` directly.
  */
 export function driveResume(drive: DriveStatus): { runsDone: number; runsLeft: number; repos: number } | null {
   const params = resumeParams(drive);

@@ -18,7 +18,7 @@ import { DELIVERY_HINTS, DELIVERY_LABELS, MANUAL_LOOP_DELIVERIES, type LoopDeliv
 import { ChoiceList, Segmented, SetupRow } from "./RunSetupControls";
 import { SetupGroup, minuteSteps, type SetupSectionProps } from "./RunSetupSections";
 
-const VERIFY_LABELS: Record<VerifyMode, string> = { on: "Verify each lane", off: "Do not verify" };
+export const VERIFY_LABELS: Record<VerifyMode, string> = { on: "Verify each lane", off: "Do not verify" };
 
 const VERIFY_MECHANISM =
   "Ascent resolves this repository's own check (from .ai/manifest.yaml, its guidance files, or a package.json script), runs it on the untouched worktree, and runs it again after the agent. A pass that becomes a failure is discarded in the worktree — nothing is committed, landed or opened as a PR. A repo that declares no check is reported as unverified, never as verified.";
@@ -42,17 +42,24 @@ export function SafetySection({ dials, onChange }: SetupSectionProps) {
         />
       </SetupRow>
       <p className={`type-note leading-relaxed ${off ? "text-warn" : "text-slate-500"}`}>{VERIFY_CONSEQUENCE[dials.verifyMode]}</p>
-      <SetupRow label="Check budget" info="The ceiling on ONE run of the repository's own check. Past half an hour the guard costs more than the cycle it protects.">
-        <ChoiceList
-          ariaLabel="Check budget"
-          testId="setup-verify-minutes"
-          value={dials.verifyMinutes}
-          disabled={off}
-          onChange={(raw) => onChange("verifyMinutes", Number(raw))}
-          options={minuteSteps(VERIFY_TIMEOUT_CAP_MS).map((m) => ({ value: m, label: `${m} min` }))}
-        />
-      </SetupRow>
+      <CheckBudgetRow dials={dials} onChange={onChange} disabled={off} />
     </SetupGroup>
+  );
+}
+
+/** The guard's per-check budget — shared with the runner's forced section, where the guard is on. */
+export function CheckBudgetRow({ dials, onChange, disabled = false }: SetupSectionProps & { disabled?: boolean }) {
+  return (
+    <SetupRow label="Check budget" info="The ceiling on ONE run of the repository's own check. Past half an hour the guard costs more than the cycle it protects.">
+      <ChoiceList
+        ariaLabel="Check budget"
+        testId="setup-verify-minutes"
+        value={dials.verifyMinutes}
+        disabled={disabled}
+        onChange={(raw) => onChange("verifyMinutes", Number(raw))}
+        options={minuteSteps(VERIFY_TIMEOUT_CAP_MS).map((m) => ({ value: m, label: `${m} min` }))}
+      />
+    </SetupRow>
   );
 }
 

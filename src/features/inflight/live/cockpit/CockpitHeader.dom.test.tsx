@@ -41,7 +41,16 @@ const run = (o: Partial<LoopRunRecord> = {}): LoopRunRecord =>
     ...o,
   }) as LoopRunRecord;
 
-const base = { fleetCount: 4, active: run(), laneCount: 1, live: true, wallHref: "?view=wall" };
+const base = {
+  slug: "acme",
+  fleetCount: 4,
+  active: run(),
+  laneCount: 1,
+  live: true,
+  wallHref: "?view=wall",
+  ledgerHref: "?tab=live&view=ledger",
+  cockpitHref: "?tab=live&view=cockpit",
+};
 
 describe("stoppingCaption", () => {
   it("names the horizon when there is one, and refuses to invent one when there is not", () => {
