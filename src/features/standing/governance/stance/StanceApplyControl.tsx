@@ -3,16 +3,20 @@
 // "Open a policy PR" — HITL: preview the published stance as AI_POLICY.md bytes via
 // POST /api/org/ai-stance/apply { preview: true } (no write), then confirm to open the
 // draft PR through the shared practices apply machinery. Admin gate is the route's.
+// Fleet rollout lives in StanceApplyBatch → /api/org/ai-stance/apply-batch (mutually locked).
 
 import { useState } from "react";
+import { StanceApplyBatch } from "./StanceApplyBatch";
 
 type Preview = { repo: string; path: string; body: string; bytes: number };
 
 export function StanceApplyControl({ org, repos, version }: { org: string; repos: string[]; version: number }) {
   const [repo, setRepo] = useState(repos[0] ?? "");
   const [busy, setBusy] = useState<"preview" | "apply" | null>(null);
+  const [batchBusy, setBatchBusy] = useState(false);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [msg, setMsg] = useState<{ kind: "note" | "error"; text: string } | null>(null);
+  const locked = busy !== null || batchBusy;
 
   if (repos.length === 0) return null;
 
@@ -77,7 +81,7 @@ export function StanceApplyControl({ org, repos, version }: { org: string; repos
           <span className="sr-only">Repository for the policy PR</span>
           <select
             value={repo}
-            disabled={busy !== null}
+            disabled={locked}
             onChange={(e) => {
               setRepo(e.target.value);
               setPreview(null);
@@ -94,7 +98,7 @@ export function StanceApplyControl({ org, repos, version }: { org: string; repos
         </label>
         <button
           onClick={loadPreview}
-          disabled={busy !== null || !repo}
+          disabled={locked || !repo}
           className="focus-ring rounded-md border border-slate-700 px-3 py-1 font-mono type-micro uppercase tracking-[0.14em] text-slate-200 transition hover:border-accent hover:text-white disabled:opacity-50"
         >
           {busy === "preview" ? "Previewing…" : "Preview AI_POLICY.md"}
@@ -102,7 +106,7 @@ export function StanceApplyControl({ org, repos, version }: { org: string; repos
         {shown && (
           <button
             onClick={apply}
-            disabled={busy !== null}
+            disabled={locked}
             className="focus-ring rounded-md border border-accent/50 bg-accent/10 px-3 py-1 font-mono type-micro uppercase tracking-[0.14em] text-white transition hover:bg-accent/20 disabled:opacity-50"
           >
             {busy === "apply" ? "Opening…" : `Open AI_POLICY.md PR (v${version})`}
@@ -124,6 +128,15 @@ export function StanceApplyControl({ org, repos, version }: { org: string; repos
             {shown.body}
           </pre>
         </div>
+      )}
+      {repos.length > 1 && (
+        <StanceApplyBatch
+          org={org}
+          repos={repos}
+          version={version}
+          singleBusy={busy !== null}
+          onBusyChange={setBatchBusy}
+        />
       )}
     </div>
   );

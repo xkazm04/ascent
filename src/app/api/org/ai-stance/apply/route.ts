@@ -12,11 +12,15 @@
 // HITL: `preview: true` or `dryRun: true` returns the exact AI_POLICY.md bytes BEFORE
 // requirePrWriteContext / token mint / openArtifactDraftPr. The admin gate still runs — policy
 // bytes are org-authored, not public. Absent / false keeps the write path.
+//
+// The write sequence lives in applyStanceToRepo, shared with the fleet sibling
+// /api/org/ai-stance/apply-batch (admin, one org, MAX_BATCH 25, mapPool). This route owns gating,
+// HITL preview, and one-status error mapping.
 
 import { NextResponse } from "next/server";
-import { parseRepoUrl, fetchRepoContext } from "@/lib/github/source";
-import { openArtifactDraftPr } from "@/lib/practices/apply";
+import { parseRepoUrl } from "@/lib/github/source";
 import { buildStanceArtifact } from "@/lib/org/stance-artifact";
+import { applyStanceToRepo } from "@/lib/org/stance-apply";
 import { isAppConfigured } from "@/lib/github/app";
 import { getActiveOrgStance, getOrgId, isDbConfigured } from "@/lib/db";
 import { isAuthConfigured } from "@/lib/auth";
@@ -92,15 +96,16 @@ export async function POST(request: Request) {
     const ctx = await requirePrWriteContext(parsed.owner);
     if (ctx instanceof Response) return ctx;
     const orgId = (await getOrgId(org).catch(() => null)) ?? undefined;
-    const repoCtx = await fetchRepoContext(parsed, ctx.token);
-    const artifact = buildStanceArtifact(active.stance, meta, repoCtx);
-    const pr = await openArtifactDraftPr(ctx.token, parsed, artifact, body.base, {
-      action: "ai_stance.pr_opened",
+    const { pr, path } = await applyStanceToRepo({
+      token: ctx.token,
+      ref: parsed,
+      stance: active.stance,
+      meta,
+      base: body.base,
       orgId,
       actorId: actorLogin ?? undefined,
-      meta: { repo: repoCtx.fullName, stanceVersion: active.version },
     });
-    return NextResponse.json({ ...pr, path: artifact.path });
+    return NextResponse.json({ ...pr, path });
   } catch (err) {
     return mapPrWriteError(err, { tag: "ai-stance/apply", genericError: "Failed to open the policy PR." });
   }

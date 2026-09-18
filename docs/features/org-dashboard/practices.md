@@ -110,13 +110,17 @@ base branch").
 Both the single-repo and batch routes go through `applyPracticeToRepo()`, so the
 three behaviors below apply to either. Its inner write (openDraftPr + the uniform
 `path`/`pr`/`reused` audit envelope) is exported as `openArtifactDraftPr()`, which the
-AI-stance module reuses to open its `AI_POLICY.md` PR (`/api/org/ai-stance/apply`, see
-[org-intelligence.md](./org-intelligence.md)) instead of forking the customer-repo write path.
-That apply route is HITL: `preview: true` or `dryRun: true` returns the exact `AI_POLICY.md`
-bytes (`{ preview, path, body, bytes, version }`) without minting an installation token or
-calling `openDraftPr`. The **admin** role gate still runs (policy bytes are org-authored, not
-public). `StanceApplyControl` shows path, byte count, and body before the Open PR button;
-absent those flags, the write path is unchanged.
+AI-stance module reuses to open its `AI_POLICY.md` PR (`/api/org/ai-stance/apply` and
+`/api/org/ai-stance/apply-batch`, see [org-intelligence.md](./org-intelligence.md)) instead
+of forking the customer-repo write path. The single apply is HITL: `preview: true` or
+`dryRun: true` returns the exact `AI_POLICY.md` bytes (`{ preview, path, body, bytes, version }`)
+without minting an installation token or calling `openDraftPr`. The **admin** role gate still
+runs (policy bytes are org-authored, not public). `StanceApplyControl` shows path, byte count,
+and body before the Open PR button; absent those flags, the write path is unchanged. Fleet
+rollout is `POST /api/org/ai-stance/apply-batch` (`StanceApplyBatch`): the same admin / one-org /
+`MAX_BATCH = 25` / `mapPool` floors as practice apply-batch, through `applyStanceToRepo` →
+`openArtifactDraftPr`, returning `{ results, attempted, skipped }` (N ≤ 25). Confirm uses
+`batchPrConfirm`; one bad repo never aborts the rest.
 
 - **Generation is factored out (2026-08-28).** `buildPracticeArtifact()`
   (`src/lib/practices/artifact.ts`) owns the house-pattern lookup + `buildArtifact` call
@@ -530,9 +534,10 @@ org-internal: no public report, leaderboard, shared corpus or cross-org read.
 
 The AI-stance apply path reuses this writer's `openArtifactDraftPr` (see *Shared write path* above).
 The published `AI_POLICY.md` is the committed form of the Governance perimeter, whose repo node is
-`RepoNode` in `src/features/standing/governance/stance/perimeterParts.tsx`. Opening that PR is
+`RepoNode` in `src/features/standing/governance/stance/perimeterParts.tsx`. Opening a single PR is
 preview-then-confirm: the control posts `preview: true` first, renders the file bytes, and only
-then offers the write.
+then offers the write. Opening across the fleet is `StanceApplyBatch` →
+`POST /api/org/ai-stance/apply-batch` (admin, one org, cap 25, confirm, per-repo results).
 
 `evaluateStanceCompliance` already emits path-scoped no-AI zones as `advisory: true` findings
 (compliant stays true because every finding is advisory). The node used to drop them
@@ -547,12 +552,12 @@ contradictions only. See [org-intelligence.md](./org-intelligence.md) for the st
   (`src/lib/github/write.ts`, `existingFileSha`) reads the path on the **base** branch and refuses
   with a 409 rather than overwrite it with a starter artifact; it checks base, not the branch, so a
   re-seed of the draft branch stays idempotent. The 25-repo fan-out is the reason the guard exists.
-- **Batch apply is capped**: both `POST /api/practices/apply-batch` and
-  `POST /api/org/playbooks/[id]/apply-batch` are bounded to **25 repos per call** (a
-  deliberate bound, not a limitation to remove: one click must never become hundreds of
-  PRs); larger fleets need repeated, re-confirmed passes. Playbook apply-batch also
-  accepts `dryRun: true` so the operator can inspect the starter bytes and the capped
-  repo list before the write. The `base` override has no UI yet.
+- **Batch apply is capped**: `POST /api/practices/apply-batch`,
+  `POST /api/org/playbooks/[id]/apply-batch`, and `POST /api/org/ai-stance/apply-batch`
+  are bounded to **25 repos per call** (a deliberate bound, not a limitation to remove:
+  one click must never become hundreds of PRs); larger fleets need repeated, re-confirmed
+  passes. Playbook apply-batch also accepts `dryRun: true` so the operator can inspect the
+  starter bytes and the capped repo list before the write. The `base` override has no UI yet.
 - (Closed 2026-08-14.) ~~The rollout rollup is page-local.~~ The rollout proof now rides
   the executive briefing: `buildExecBriefing` folds `buildPracticeLibrarySummary(...)
   .rollout` onto `ExecBriefing.proof`, and one shared `briefingProofLine` renders it on the
