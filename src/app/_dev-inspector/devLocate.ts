@@ -102,6 +102,20 @@ export function dedupeChain(chain: LocEntry[]): LocEntry[] {
   return chain.filter((c, i) => i === 0 || c.loc !== chain[i - 1]?.loc);
 }
 
+/** HUD index of the default copy target in a (usually deduped) crumb list. */
+export function defaultCrumbIndex(crumbs: readonly { loc: string }[], defaultLoc: string | null): number {
+  if (!defaultLoc || crumbs.length === 0) return 0;
+  const i = crumbs.findIndex((c) => c.loc === defaultLoc);
+  return i === -1 ? 0 : i;
+}
+
+/** Wrap HUD crumb selection so ↑ on the first row lands on the last. */
+export function stepCrumbIndex(current: number, delta: number, length: number): number {
+  if (length <= 0) return 0;
+  const cur = ((current % length) + length) % length;
+  return (cur + (delta % length) + length) % length;
+}
+
 /**
  * Horizontal placement of the `File.tsx:LINE` chip, clamped to stay on screen.
  *

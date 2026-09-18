@@ -10,61 +10,21 @@
 import { useState, type CSSProperties } from "react";
 
 import { ACCENT, DIM, OK, Z } from "./devInspectorMarks";
-import { chipLeft, formatHudCopy, isLibraryPath, splitLoc, type LocEntry } from "./devLocate";
+import { formatHudCopy, isLibraryPath, splitLoc, type LocEntry } from "./devLocate";
 
-export { HighlightBox, Z } from "./devInspectorMarks";
-
-// Chip layout invariants, named so the placement math and the CSS enforce the SAME numbers.
-// CHIP_H: rendered chip height (11px font × 1.4 line-height + 2×1px padding ≈ 17px, rounded up with
-// margin) — drives the flip-above/below threshold and the vertical offsets. CHIP_MAX_W: the widest
-// the chip may render; maxWidth + ellipsis below ENFORCE it (previously the chip was nowrap with no
-// maxWidth, so a long `SomeVeryLongComponentName.tsx:1234` overflowed the right edge). The `left`
-// clamp uses the chip's ESTIMATED OWN width (chipLeft) rather than this ceiling — clamping a short
-// label against 260px pushed it far from the element it labels near the right edge.
-const CHIP_H = 20;
-const CHIP_MAX_W = 260;
-
-/** A compact `File.tsx:line` chip pinned to the cursor's element. */
-export function SourceLabel({ rect, loc }: { rect: DOMRect; loc: string }) {
-  const { file } = splitLoc(loc);
-  const above = rect.top > CHIP_H + 2; // room for the chip (+2px gap) above the box?
-  const top = above ? rect.top - CHIP_H : Math.min(rect.top + 2, window.innerHeight - (CHIP_H + 2));
-  const left = chipLeft(rect.left, file, window.innerWidth, { maxWidth: CHIP_MAX_W });
-  return (
-    <div
-      style={{
-        position: "fixed",
-        top,
-        left,
-        zIndex: Z,
-        pointerEvents: "none",
-        font: "11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace",
-        color: "#0b1220",
-        background: ACCENT,
-        borderRadius: 4,
-        padding: "1px 6px",
-        fontWeight: 700,
-        whiteSpace: "nowrap",
-        maxWidth: CHIP_MAX_W,
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        boxSizing: "border-box",
-        boxShadow: "0 2px 8px rgba(0,0,0,0.45)",
-      }}
-    >
-      {file}
-    </div>
-  );
-}
+export { HighlightBox, SourceLabel, Z } from "./devInspectorMarks";
 
 function CrumbRow({
   entry,
   isDefault,
+  isSelected,
   skipped,
   onCopy,
 }: {
   entry: LocEntry;
   isDefault: boolean;
+  /** Keyboard cursor (↑/↓). ▶ follows this, not the default loc. */
+  isSelected: boolean;
   /** True when this row sits ABOVE the default target in the chain — i.e. the default right-click
    *  deliberately skipped it as library code. Badged so the redirect is visible, not silent. */
   skipped: boolean;
@@ -75,11 +35,13 @@ function CrumbRow({
   // Hover affordance (inline styles can't carry a :hover): brighten the default row and give the
   // resting rows a faint fill on hover, so a crumb reads as clickable before you click it.
   const [hovered, setHovered] = useState(false);
-  const background = isDefault
-    ? `${ACCENT}${hovered ? "33" : "22"}`
-    : hovered
-      ? "rgba(255,255,255,0.06)"
-      : "transparent";
+  const background = isSelected
+    ? `${ACCENT}${hovered ? "44" : "33"}`
+    : isDefault
+      ? `${ACCENT}${hovered ? "33" : "22"}`
+      : hovered
+        ? "rgba(255,255,255,0.06)"
+        : "transparent";
   return (
     <button
       type="button"
@@ -87,6 +49,7 @@ function CrumbRow({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       aria-label={`Copy ${entry.loc}`}
+      aria-current={isSelected ? "true" : undefined}
       className="focus-ring"
       style={{
         display: "flex",
@@ -102,7 +65,7 @@ function CrumbRow({
         wordBreak: "break-all",
       }}
     >
-      <span style={{ color: ACCENT, opacity: isDefault ? 1 : 0 }}>▶</span>
+      <span style={{ color: ACCENT, opacity: isSelected ? 1 : 0 }}>▶</span>
       <span style={{ color: "#6b7280" }}>{dir}</span>
       <span style={{ color: lib ? "#9ca3af" : "#f1f5f9", fontWeight: 600 }}>{file}</span>
       {skipped && (
@@ -156,6 +119,7 @@ export function InspectorHud({
   crumbs,
   unstamped,
   defaultLoc,
+  selectedIndex,
   onCopy,
 }: {
   copied: string | null;
@@ -166,6 +130,7 @@ export function InspectorHud({
    *  hasn't moved yet). Two states that both produce an empty crumb list and must NOT look alike. */
   unstamped: boolean;
   defaultLoc: string | null;
+  selectedIndex: number;
   onCopy: (loc: string) => void;
 }) {
   // The fixed panel occludes whatever lives in its corner, and insideHud deliberately ignores events
@@ -233,6 +198,7 @@ export function InspectorHud({
               key={`${c.loc}-${i}`}
               entry={c}
               isDefault={defaultLoc !== null && c.loc === defaultLoc}
+              isSelected={i === selectedIndex}
               skipped={defaultIndex > 0 && i < defaultIndex}
               onCopy={onCopy}
             />
@@ -252,7 +218,7 @@ export function InspectorHud({
         <div style={{ color: "#9ca3af" }}>Hover a component…</div>
       )}
       <div style={{ color: "#6b7280", marginTop: 6, fontSize: 11 }}>
-        right-click: path:line · HUD: path:line or code -g · Alt+right-click: this element · click a row · Esc: exit
+        Enter/c: copy · ↑↓: crumbs · right-click: path:line · HUD: path:line or code -g · Alt+right-click: this element · click a row · Esc: exit
       </div>
     </div>
   );

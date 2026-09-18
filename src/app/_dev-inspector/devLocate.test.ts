@@ -10,12 +10,14 @@ import { resolve } from "node:path";
 import { describe, it, expect } from "vitest";
 import {
   chipLeft,
+  defaultCrumbIndex,
   formatHudCopy,
   HUD_COPY_FORMATS,
   isLibraryPath,
   LIBRARY_ROOTS,
   pickDefaultIndex,
   splitLoc,
+  stepCrumbIndex,
   type LocEntry,
 } from "./devLocate";
 
@@ -148,5 +150,33 @@ describe("chipLeft — the right-edge clamp uses the chip's own width", () => {
 
   it("never goes past the left margin", () => {
     expect(chipLeft(-50, "Hero.tsx:9", 320, MAX)).toBe(4);
+  });
+});
+
+describe("stepCrumbIndex — HUD ↑/↓ wrap", () => {
+  it("steps down and wraps from the last row to the first", () => {
+    expect(stepCrumbIndex(0, 1, 3)).toBe(1);
+    expect(stepCrumbIndex(2, 1, 3)).toBe(0);
+  });
+
+  it("steps up and wraps from the first row to the last", () => {
+    expect(stepCrumbIndex(0, -1, 3)).toBe(2);
+    expect(stepCrumbIndex(1, -1, 3)).toBe(0);
+  });
+
+  it("is a no-op on an empty list", () => {
+    expect(stepCrumbIndex(0, 1, 0)).toBe(0);
+  });
+});
+
+describe("defaultCrumbIndex — keyboard selection starts on the default loc", () => {
+  it("points at the call-site crumb when library rows sit above it", () => {
+    const crumbs = [entry("src/components/ui/Modal.tsx"), entry("src/app/page.tsx")];
+    expect(defaultCrumbIndex(crumbs, "src/app/page.tsx:1")).toBe(1);
+  });
+
+  it("falls back to 0 when the default loc is missing", () => {
+    expect(defaultCrumbIndex([entry("src/app/page.tsx")], null)).toBe(0);
+    expect(defaultCrumbIndex([], "src/app/page.tsx:1")).toBe(0);
   });
 });

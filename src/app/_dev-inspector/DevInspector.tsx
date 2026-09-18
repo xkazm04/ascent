@@ -15,8 +15,10 @@
  *      component that is the component's own file; it is only the page-level
  *      call site when the pointed-at element is library code. Alt+right-click
  *      copies the innermost element regardless; click a HUD row to copy any
- *      enclosing file. A HUD `code -g` action copies the editor CLI deep-link
- *      for the default target — Alt+right-click is not a format switch.
+ *      enclosing file. While armed, Enter or `c` copies the selected HUD crumb
+ *      (the default loc until ↑/↓ moves the selection). A HUD `code -g` action
+ *      copies the editor CLI deep-link for the default target — Alt+right-click
+ *      is not a format switch.
  *   4. `Esc` returns to the Inspect chip.
  *
  * Mounted only behind `process.env.NODE_ENV === 'development'` in the root
@@ -27,7 +29,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { buildChain, dedupeChain, formatHudCopy, pickDefaultIndex, type LocEntry } from "./devLocate";
+import { useInspectorKeys, type InspectorMode } from "./devInspectorKeys";
+import { buildChain, dedupeChain, defaultCrumbIndex, formatHudCopy, pickDefaultIndex, type LocEntry } from "./devLocate";
 import { HighlightBox, InspectChip, InspectorHud, NavHint, SourceLabel, Z } from "./devInspectorUi";
 
 async function copyText(text: string): Promise<boolean> {
@@ -54,24 +57,6 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-/**
- * Is this keystroke headed into an editing widget (so `;`/`i` must not be swallowed)? Resolves the
- * REAL target via composedPath() first — for a shadow-DOM editor `e.target` is the host element, and
- * the tag/contenteditable checks would miss it. Covers `<select>` (its type-to-select eats keys) and
- * `closest('[contenteditable]')` for the host-element case where `isContentEditable` doesn't inherit.
- * NOTE: `Escape` deliberately bypasses this guard in the handler — exiting must always work.
- */
-function isTypingTarget(e: KeyboardEvent): boolean {
-  const raw = (typeof e.composedPath === "function" ? e.composedPath()[0] : null) ?? e.target;
-  const el = raw instanceof Element ? raw : null;
-  if (!el) return false;
-  const tag = el.tagName;
-  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
-  return (el as HTMLElement).isContentEditable || el.closest("[contenteditable]") !== null;
-}
-
-type Mode = "off" | "nav" | "armed";
-
 interface HoverState {
   chain: LocEntry[];
   pointerRect: DOMRect;
@@ -80,7 +65,7 @@ interface HoverState {
 }
 
 export function DevInspector() {
-  const [mode, setMode] = useState<Mode>("off");
+  const [mode, setMode] = useState<InspectorMode>("off");
   const [hover, setHover] = useState<HoverState | null>(null);
   // "The pointer is over an element that carries no `data-loc` anywhere up its ancestry" — a DIFFERENT
   // state from "you haven't moved the mouse yet", and the HUD must say which. Collapsing them is the
@@ -90,11 +75,14 @@ export function DevInspector() {
   const [copied, setCopied] = useState<string | null>(null);
   const [copyOk, setCopyOk] = useState(true);
   const [mounted, setMounted] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   // Live mirror of `mode` so the (subscribe-once) keydown handler never reads a stale closure: written
   // synchronously on every keystroke transition below, and synced here as a backstop for the timer-driven
   // auto-off. A rapid ';'→'i' can't miss arming on a not-yet-committed render.
-  const modeRef = useRef<Mode>(mode);
+  const modeRef = useRef<InspectorMode>(mode);
+  const hoverRef = useRef<HoverState | null>(null);
+  const selectedRef = useRef(0);
   useEffect(() => {
     modeRef.current = mode;
   }, [mode]);
@@ -110,42 +98,7 @@ export function DevInspector() {
     copiedTimer.current = setTimeout(() => setCopied(null), 1800);
   }, []);
 
-  // `;` enters keyboard mode, then `i` arms the inspector; Esc exits. Subscribed once (no `mode` dep) and
-  // driven off `modeRef` so there's no add/remove gap between a `;` dispatch and a re-subscribe where the
-  // handler would still see the old `mode` — `modeRef` is updated synchronously on each transition.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      // Escape is the escape hatch: it must work even with focus in an input/textarea/editor —
-      // otherwise a developer armed mid-form-debugging has no keyboard way out (the exact workflow
-      // the tool targets). Only the mode-entry keys (';'/'i') defer to a typing target.
-      if (e.key === "Escape" && modeRef.current !== "off") {
-        modeRef.current = "off";
-        setMode("off");
-        return;
-      }
-      if (isTypingTarget(e)) return;
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
-
-      if (e.key === ";") {
-        e.preventDefault();
-        // nav→off, off→nav, armed unchanged. Computed from the live ref (not the setMode updater, so the
-        // reducer stays pure); the 2s auto-off is scheduled by the effect below keyed on mode === "nav".
-        const next: Mode = modeRef.current === "armed" ? "armed" : modeRef.current === "nav" ? "off" : "nav";
-        modeRef.current = next;
-        setMode(next);
-        return;
-      }
-
-      if ((e.key === "i" || e.key === "I") && modeRef.current === "nav") {
-        e.preventDefault();
-        modeRef.current = "armed";
-        setMode("armed");
-      }
-    };
-
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, []);
+  useInspectorKeys({ modeRef, setMode, hoverRef, selectedRef, setSelectedIndex, doCopy });
 
   // Auto-exit nav mode after 2s if the second key isn't pressed. Lives in an effect (not the setMode
   // updater) so the reducer stays pure: the timer is set on entering nav and cleared on cleanup, so it
@@ -170,18 +123,26 @@ export function DevInspector() {
       if (insideHud(e.target)) return; // keep last highlight while over the HUD
       const chain = buildChain(e.target as Element | null);
       if (chain.length === 0 || !chain[0]) {
+        hoverRef.current = null;
+        selectedRef.current = 0;
         setHover(null);
+        setSelectedIndex(0);
         setUnstamped(true);
         return;
       }
       setUnstamped(false);
       const di = pickDefaultIndex(chain);
-      setHover({
+      const next: HoverState = {
         chain,
         pointerRect: chain[0].el.getBoundingClientRect(),
         targetRect: (chain[di] ?? chain[0]).el.getBoundingClientRect(),
         defaultIndex: di,
-      });
+      };
+      hoverRef.current = next;
+      const sel = defaultCrumbIndex(dedupeChain(chain), next.chain[di]?.loc ?? null);
+      selectedRef.current = sel;
+      setSelectedIndex(sel);
+      setHover(next);
     };
 
     // Right-click copies (and suppresses the context menu). Left-click is left
@@ -208,13 +169,18 @@ export function DevInspector() {
         setHover((h) => {
           if (!h) return h;
           const pointerEl = h.chain[0]?.el;
-          if (!pointerEl || !pointerEl.isConnected) return null; // detached by a re-render → drop it
+          if (!pointerEl || !pointerEl.isConnected) {
+            hoverRef.current = null;
+            return null; // detached by a re-render → drop it
+          }
           const targetEl = h.chain[h.defaultIndex]?.el ?? pointerEl;
-          return {
+          const next = {
             ...h,
             pointerRect: pointerEl.getBoundingClientRect(),
             targetRect: targetEl.getBoundingClientRect(),
           };
+          hoverRef.current = next;
+          return next;
         });
       });
     };
@@ -231,6 +197,7 @@ export function DevInspector() {
       window.removeEventListener("scroll", reposition, true);
       window.removeEventListener("resize", reposition);
       cancelAnimationFrame(raf);
+      hoverRef.current = null;
       setHover(null);
       setUnstamped(false);
     };
@@ -290,6 +257,7 @@ export function DevInspector() {
         crumbs={crumbs}
         unstamped={unstamped}
         defaultLoc={defaultLoc}
+        selectedIndex={selectedIndex}
         onCopy={doCopy}
       />
       {chip}

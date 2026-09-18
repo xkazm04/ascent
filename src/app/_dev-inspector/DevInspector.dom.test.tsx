@@ -3,8 +3,8 @@
 // within two seconds. With DEV_INSPECT stamps present, a corner chip must
 // advertise the tool and one-click arm it; Esc returns to that chip.
 
-import { act, fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { DevInspector } from "./DevInspector";
 
 describe("DevInspector idle chip", () => {
@@ -54,5 +54,89 @@ describe("DevInspector idle chip", () => {
 
     expect(screen.queryByText("⌖ DevInspector")).toBeNull();
     expect(screen.getByRole("button", { name: /Inspect/i })).toBeTruthy();
+  });
+
+  it("still arms with ; then i", async () => {
+    render(
+      <>
+        <div data-loc="src/app/page.tsx:10:1">stamped</div>
+        <DevInspector />
+      </>,
+    );
+    await screen.findByRole("button", { name: /Inspect/i });
+    press(";");
+    expect(screen.getByText(/keyboard mode/)).toBeTruthy();
+    press("i");
+    expect(screen.getByText("⌖ DevInspector")).toBeTruthy();
+  });
+});
+
+function press(key: string) {
+  act(() => {
+    window.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+  });
+}
+
+function setClipboard(writeText: (t: string) => Promise<void>) {
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText },
+  });
+}
+
+function tree() {
+  return (
+    <>
+      <div data-loc="src/app/page.tsx:20:1">
+        <div data-loc="src/components/landing/Section.tsx:4:1">
+          <span data-loc="src/components/landing/Hero.tsx:8:1">hero</span>
+        </div>
+      </div>
+      <DevInspector />
+    </>
+  );
+}
+
+describe("DevInspector armed keyboard copy", () => {
+  afterEach(() => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+  });
+
+  async function armAndHover(writeText: (t: string) => Promise<void>) {
+    setClipboard(writeText);
+    render(tree());
+    fireEvent.click(await screen.findByRole("button", { name: /Inspect/i }));
+    fireEvent.mouseMove(screen.getByText("hero"));
+    // Unique vs the HUD `path:line` button, which shares the default loc's aria-label.
+    expect(
+      screen.getByRole("button", { current: true, name: "Copy src/components/landing/Hero.tsx:8" }),
+    ).toBeTruthy();
+  }
+
+  it("Enter copies the default loc", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    await armAndHover(writeText);
+    press("Enter");
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("src/components/landing/Hero.tsx:8"));
+  });
+
+  it("c copies the default loc", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    await armAndHover(writeText);
+    press("c");
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("src/components/landing/Hero.tsx:8"));
+  });
+
+  it("arrow keys move crumb selection then Enter copies that loc", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    await armAndHover(writeText);
+    press("ArrowDown");
+    expect(writeText).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("button", { current: true, name: "Copy src/components/landing/Section.tsx:4" }),
+    ).toBeTruthy();
+    press("Enter");
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    expect(writeText).toHaveBeenCalledWith("src/components/landing/Section.tsx:4");
   });
 });
