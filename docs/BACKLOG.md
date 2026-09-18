@@ -337,6 +337,10 @@ Coordinator wave over **all 54 contexts**, 5 highest-impact cards each (270). De
 
 50 auto-buildable cards (37 S / 13 M, risk 2–3), dispatched in isolated-worktree batches then cherry-picked onto `master`. Range: `304bddc0`..`faeaaa34` (50 `fix(` commits). Full titles in `git log --oneline f4e63fc6..faeaaa34`. ScoreRing's `context-map.json` edit was dropped at pick (hot-file).
 
+### Wave 5 shipped (lowest-risk 50)
+
+50 auto-buildable cards (all risk 3; packed 20 S / 30 M), dispatched in isolated-worktree batches then cherry-picked onto `master`. Range: `c7782518`..`95d54c59` (50 `fix(` commits). Full titles in `git log --oneline 7c7e113d..95d54c59`. One packed item was skipped as policy-loosen (roster GET widened from owner-only to viewer) and replaced with Polar customer-portal self-serve cancel. Launch triage tests were split under the 300-LOC `.tsx` cap after pick.
+
 ### Escalated (human / architecture / irreversible / hot-file)
 
 | Context | Item | Size | Gate | Why |
@@ -349,5 +353,6 @@ Coordinator wave over **all 54 contexts**, 5 highest-impact cards each (270). De
 | Provider Integrations | Ship the planned OpenAI Codex admin-pull connector behind the existing allocated tier | L | architecture | architecture |
 | First-Run Onboarding Wizard | Re-judge wizard-flows: mid-scan resume now re-attaches | S | contract | contract |
 | Live War Room | Surface drive/run outcome on the shared kiosk instead of standing-only LiveWarRoom | M | none | none |
+| Members & Access Control | Let viewers read the org roster; keep role writes owner-only | M | policy-loosen | catalog said policy-tighten; GET `/api/org/members` currently owner-only — widening it is a human call |
 
-Remaining auto-buildable cards (87) stay in `.personas/scan-sweep-20260917/catalog.json` for later waves. Outbox ingest cap took 30 remaining findings (escalated first, then highest impact); the rest are unrecorded in the outbox and live in the catalog.
+Remaining auto-buildable cards (37) stay in `.personas/scan-sweep-20260917/catalog.json` for later waves. Outbox ingest cap took 30 remaining findings (escalated first, then highest impact); the rest are unrecorded in the outbox and live in the catalog.

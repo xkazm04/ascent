@@ -623,8 +623,8 @@ async function loadComparableScan(
       name: d.name,
       score: d.score,
       signalScore: d.signalScore,
-      evidence: parseStringArray(d.evidence),
-      gaps: parseStringArray(d.gaps),
+      evidence: parseStringArray(d.evidence) ?? [],
+      gaps: parseStringArray(d.gaps) ?? [],
     })),
     recommendations: scan.recommendations.map((r) => ({
       id: r.id,
@@ -1107,7 +1107,10 @@ export async function getStandingRegressions(
     const evidenceBy = new Map<string, string[]>();
     for (const r of dimRows) {
       const key = `${r.scanId}|${r.dimId}`;
-      if (wanted.has(key)) evidenceBy.set(key, parseStringArray(r.evidence));
+      if (!wanted.has(key)) continue;
+      const parsed = parseStringArray(r.evidence);
+      // Unread JSON is not a measured empty evidence list — skip rather than diff against [].
+      if (parsed !== null) evidenceBy.set(key, parsed);
     }
 
     return top.map((c) => {
@@ -1237,18 +1240,14 @@ function parseNumberArray(s: string | null | undefined): number[] | null {
   return p.filter((n): n is number => typeof n === "number" && Number.isFinite(n));
 }
 
-/** Parse the persisted `discrepancies` JSON into validated Discrepancy[] (drops malformed rows). */
-function parseDiscrepancies(s: string | null | undefined): Discrepancy[] {
-  if (!s) return [];
-  try {
-    const p = JSON.parse(s);
-    if (!Array.isArray(p)) return [];
-    return p
-      .filter((d): d is { dimension: string; claim: string } => !!d && typeof d.dimension === "string" && typeof d.claim === "string")
-      .map((d) => ({ dimension: d.dimension as DimensionId, claim: d.claim }));
-  } catch {
-    return [];
-  }
+/** Parse the persisted `discrepancies` JSON into validated Discrepancy[]. JSON `[]` is a measured
+ *  empty list; null / malformed / non-array return null so unread is not "found none". */
+function parseDiscrepancies(s: string | null | undefined): Discrepancy[] | null {
+  const p = parseJson<unknown>(s);
+  if (!Array.isArray(p)) return null;
+  return p
+    .filter((d): d is { dimension: string; claim: string } => !!d && typeof d.dimension === "string" && typeof d.claim === "string")
+    .map((d) => ({ dimension: d.dimension as DimensionId, claim: d.claim }));
 }
 
 /**
@@ -1319,9 +1318,9 @@ async function loadScanReportByCommit(
     signalScore: d.signalScore,
     llmScore: d.llmScore,
     summary: d.summary,
-    evidence: parseStringArray(d.evidence),
-    strengths: parseStringArray(d.strengths),
-    gaps: parseStringArray(d.gaps),
+    evidence: parseStringArray(d.evidence) ?? [],
+    strengths: parseStringArray(d.strengths) ?? [],
+    gaps: parseStringArray(d.gaps) ?? [],
   }));
 
   const roadmap: LlmRoadmapItem[] = scan.recommendations.map((r) => ({
@@ -1331,7 +1330,7 @@ async function loadScanReportByCommit(
     effort: r.effort as Effort,
     rationale: r.rationale,
     ...(r.firstStep ? { firstStep: r.firstStep } : {}),
-    explore: parseStringArray(r.explore),
+    explore: parseStringArray(r.explore) ?? [],
     levelUnlock: r.levelUnlock ?? undefined,
     // Only the non-default kind is carried (an absent kind IS "gap"), and the axis rides only with
     // it — narrowed through the taxonomy so a stale or hand-edited column value cannot enter the
@@ -1368,7 +1367,7 @@ async function loadScanReportByCommit(
   // the warningsJson column existed. Deduped: a fresh row's persisted set already carries the stack-fit
   // caveat, so guard against doubling it.
   const stackFit = stackFitFromLanguage(repo.primaryLanguage);
-  const persistedWarnings = parseStringArray(scan.warningsJson);
+  const persistedWarnings = parseStringArray(scan.warningsJson) ?? [];
   const warnings =
     stackFit && !persistedWarnings.includes(stackFit.caveat)
       ? [...persistedWarnings, stackFit.caveat]
@@ -1444,10 +1443,10 @@ async function loadScanReportByCommit(
         : undefined,
     dimensions,
     headline: scan.headline,
-    strengths: parseStringArray(scan.strengths),
-    risks: parseStringArray(scan.risks),
+    strengths: parseStringArray(scan.strengths) ?? [],
+    risks: parseStringArray(scan.risks) ?? [],
     roadmap,
-    discrepancies: parseDiscrepancies(scan.discrepancies),
+    discrepancies: parseDiscrepancies(scan.discrepancies) ?? [],
     confidence: scan.confidence,
     ...(warnings.length ? { warnings } : {}),
     // The integrity record round-trips onto the reconstructed report, so a permalinked or reloaded

@@ -1,7 +1,8 @@
 // Polar (polar.sh) billing config — the one place that reads the POLAR_* env and turns it into a
-// configured client + the credit-pack catalog. Everything is env-driven and degrades to a clean no-op
-// when unconfigured: with no access token, polarEnabled() is false and the UI hides "Buy credits",
-// mirroring how the rest of Ascent treats optional integrations. Sandbox by default. See docs/features/billing/billing.md.
+// configured client + the credit-pack catalog + the owner customer-portal URL. Everything is env-driven
+// and degrades to a clean no-op when unconfigured: with no access token, polarEnabled() is false and
+// the UI hides "Buy credits" / "Manage billing", mirroring how the rest of Ascent treats optional
+// integrations. Sandbox by default. See docs/features/billing/billing.md.
 //
 // The grant AMOUNT is derived here from the PRODUCT purchased (server-authoritative, the pack map),
 // never from anything the client sends — so a crafted checkout can't pay for a small pack and then
@@ -103,4 +104,66 @@ export function getPolar(): Polar | null {
   const accessToken = polarToken();
   if (!accessToken) return null;
   return new Polar({ accessToken, server: polarServer() });
+}
+
+/** Polar's documented hosted customer portal (`https://polar.sh/<org-slug>/portal`). Sandbox uses
+ *  `sandbox.polar.sh`. Empty slug → null. This is the unauthenticated login page (email + one-time
+ *  code), not a per-customer session. */
+export function polarHostedPortalUrl(polarOrganizationSlug: string): string | null {
+  const slug = polarOrganizationSlug.trim();
+  if (!slug) return null;
+  const host = polarServer() === "production" ? "https://polar.sh" : "https://sandbox.polar.sh";
+  return `${host}/${encodeURIComponent(slug)}/portal`;
+}
+
+type PolarPortalSession = { customerPortalUrl?: string | null };
+
+/** `customerSessions.create` when this Polar SDK build exposes it; otherwise null (fall back to the
+ *  hosted URL builder). Checkout stamps `externalCustomerId` as the Ascent org slug, so the session
+ *  is keyed the same way. */
+function polarCustomerSessionsCreate(
+  polar: Polar,
+): ((body: { externalCustomerId: string; returnUrl?: string }) => Promise<PolarPortalSession>) | null {
+  const sessions = (
+    polar as Polar & {
+      customerSessions?: {
+        create?: (body: { externalCustomerId: string; returnUrl?: string }) => Promise<PolarPortalSession>;
+      };
+    }
+  ).customerSessions;
+  const create = sessions?.create;
+  if (typeof create !== "function") return null;
+  return (body) => create.call(sessions, body);
+}
+
+/**
+ * One-click Polar customer-portal URL for an Ascent org (the same `externalCustomerId` checkout
+ * stamps). Polar-unconfigured / self-host → null so the UI omits "Manage billing". Prefers a live
+ * `customerSessions.create` when the SDK has it; otherwise Polar's documented hosted portal page
+ * (`POLAR_ORGANIZATION_SLUG`). A session miss (org never checked out) also falls through to that
+ * page when the slug is set.
+ */
+export async function polarCustomerPortalUrl(
+  externalCustomerId: string,
+  opts?: { returnUrl?: string },
+): Promise<string | null> {
+  const id = externalCustomerId.trim();
+  if (!id || !polarEnabled()) return null;
+  const polar = getPolar();
+  if (!polar) return null;
+  const create = polarCustomerSessionsCreate(polar);
+  if (create) {
+    try {
+      const session = await create({
+        externalCustomerId: id,
+        ...(opts?.returnUrl ? { returnUrl: opts.returnUrl } : {}),
+      });
+      const url = session.customerPortalUrl?.trim();
+      if (url) return url;
+    } catch {
+      // Unknown Polar customer, or the OAT lacks customer_sessions:write — try the hosted page.
+    }
+  }
+  const slug = process.env.POLAR_ORGANIZATION_SLUG?.trim();
+  return slug ? polarHostedPortalUrl(slug) : null;
 }

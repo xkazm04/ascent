@@ -19,10 +19,13 @@ vi.mock("@/lib/db", () => ({
 }));
 vi.mock("@/lib/db/retention", () => ({ getOrgRetention: vi.fn(async () => null) }));
 vi.mock("@/lib/crypto/secret-box", () => ({ isEncryptionConfigured: () => true }));
+vi.mock("@/lib/polar", () => ({ polarEnabled: vi.fn(() => true) }));
 
 import { SettingsTab } from "./SettingsTab";
 import { DataErasureCard } from "./DataErasureCard";
 import { RetentionCard } from "./RetentionCard";
+import { PlanControl } from "./PlanControl";
+import { polarEnabled } from "@/lib/polar";
 
 function findType(node: React.ReactNode, type: unknown): React.ReactElement | null {
   if (!node || typeof node !== "object") return null;
@@ -44,6 +47,7 @@ async function renderTab() {
 
 beforeEach(() => {
   mockHasOrgRole.mockReset();
+  vi.mocked(polarEnabled).mockReturnValue(true);
 });
 
 describe("SettingsTab — data erasure placement", () => {
@@ -89,6 +93,39 @@ describe("SettingsTab — retention placement", () => {
     expect(findType(el, RetentionCard)).toBeNull();
     const html = renderToStaticMarkup(el);
     expect(html).not.toMatch(/retention/i);
+    expect(html).toMatch(/Owner only/i);
+  });
+});
+
+describe("SettingsTab — Polar portal placement", () => {
+  it("renders PlanControl for an owner with the Polar portal armed", async () => {
+    mockHasOrgRole.mockResolvedValue(true);
+
+    const control = findType(await renderTab(), PlanControl);
+
+    expect(control).not.toBeNull();
+    expect((control!.props as { org: string; portalEnabled: boolean }).org).toBe("acme");
+    expect((control!.props as { portalEnabled: boolean }).portalEnabled).toBe(true);
+  });
+
+  it("keeps the plan chip but disarms the portal when Polar is absent", async () => {
+    mockHasOrgRole.mockResolvedValue(true);
+    vi.mocked(polarEnabled).mockReturnValue(false);
+
+    const control = findType(await renderTab(), PlanControl);
+
+    expect(control).not.toBeNull();
+    expect((control!.props as { portalEnabled: boolean }).portalEnabled).toBe(false);
+  });
+
+  it("renders NO plan/portal control for a non-owner (absent, not disabled)", async () => {
+    mockHasOrgRole.mockResolvedValue(false);
+
+    const el = await renderTab();
+
+    expect(findType(el, PlanControl)).toBeNull();
+    const html = renderToStaticMarkup(el);
+    expect(html).not.toMatch(/manage billing/i);
     expect(html).toMatch(/Owner only/i);
   });
 });

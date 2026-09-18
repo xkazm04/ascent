@@ -12,7 +12,7 @@ import { exemplarMarkdownSection, reportLlmMarkdown } from "./llm-markdown";
 import { diffAcrossRepos, transferJoin, type ExemplarProfile } from "./exemplar";
 import type { ComparableDimension, ComparableScan } from "@/lib/db/scans";
 import type { MinedPractice } from "@/lib/org/practice-mining";
-import type { Discrepancy, ScanReport, ScoreIntegrity } from "@/lib/types";
+import type { AiChangeRecord, Discrepancy, Governance, ScanReport, ScoreIntegrity } from "@/lib/types";
 
 function report(): ScanReport {
   return {
@@ -343,6 +343,153 @@ describe("reportLlmMarkdown counted evidence (G2)", () => {
     expect(md).toContain("## Flagged for review");
     expect(md).toContain("**D3**: Detector missed CI-inline lint enforced off-GitHub. · **widened**");
     expect(md.indexOf("### Evidence by dimension")).toBeLessThan(md.indexOf("## Flagged for review"));
+    expect(md.indexOf("## Flagged for review")).toBeLessThan(md.indexOf("## Roadmap"));
+  });
+});
+
+// Additive scoreIntegrity / governance / aiChanges sections. Each heading appears when its field
+// is set and is omitted when the field is absent, so PRE_CHANGE stays byte-identical. G1
+// discrepancies stay listed when all three ride along — carrying these must not drop Flagged for review.
+describe("reportLlmMarkdown scoreIntegrity, governance, aiChanges", () => {
+  const flag = (dimension: Discrepancy["dimension"], claim: string): Discrepancy => ({ dimension, claim });
+  const integrity = (over: Partial<ScoreIntegrity> = {}): ScoreIntegrity => ({
+    d9Unmeasurable: false,
+    widenedDims: [],
+    effectiveBlend: 0.6,
+    ...over,
+  });
+  const gov = (over: Partial<Governance> = {}): Governance => ({
+    defaultBranch: "main",
+    protected: true,
+    requiresPullRequest: true,
+    requiredApprovals: 1,
+    requiresCodeOwnerReview: false,
+    requiresStatusChecks: true,
+    requiresSignatures: false,
+    linearHistory: false,
+    ruleCount: 3,
+    readable: true,
+    ...over,
+  });
+  const aiChange = (over: Partial<AiChangeRecord> = {}): AiChangeRecord => ({
+    prNumber: 42,
+    title: "feat: parser",
+    authorLogin: "alice",
+    authorIsBot: false,
+    aiSignal: "marked",
+    aiTools: ["Claude"],
+    state: "MERGED",
+    mergedAt: "2026-01-02T00:00:00Z",
+    approved: true,
+    approverLogin: "dave",
+    approvedAt: "2026-01-01T10:00:00Z",
+    reviewCount: 2,
+    createdAt: "2026-01-01T00:00:00Z",
+    revertedByPr: null,
+    revertedAt: null,
+    mergeCommitSha: "abc123",
+    ...over,
+  });
+
+  function withAllThree(): ScanReport {
+    const r = report();
+    r.scoreIntegrity = integrity({ d9Unmeasurable: true, widenedDims: ["D3"] });
+    r.governance = gov();
+    r.aiChanges = [
+      aiChange(),
+      aiChange({
+        prNumber: 7,
+        title: "feat: agent work",
+        aiSignal: "authored",
+        aiTools: ["Copilot"],
+        approved: false,
+        approverLogin: null,
+        reviewCount: 0,
+      }),
+    ];
+    return r;
+  }
+
+  it("emits all three headings when a fixture sets scoreIntegrity, governance and aiChanges", () => {
+    const md = reportLlmMarkdown(withAllThree());
+    expect(md).toContain("## Score integrity");
+    expect(md).toContain("**D9 renormalized out**");
+    expect(md).toContain("**widened D3**");
+    expect(md).toContain("## Governance");
+    expect(md).toContain("Branch protection (main): protected");
+    expect(md).toContain("required approvals 1");
+    expect(md).toContain("## AI-attributed changes");
+    expect(md).toContain("**#42** feat: parser · AI-marked · Claude · approved by dave");
+    expect(md).toContain("**#7** feat: agent work · agent-authored · Copilot · unreviewed");
+    // Chip-adjacent (qualifies the headline), then process evidence before the roadmap.
+    expect(md.indexOf("## Score integrity")).toBeGreaterThan(md.indexOf("Overall 61/100"));
+    expect(md.indexOf("## Score integrity")).toBeLessThan(md.indexOf("## Dimensions"));
+    expect(md.indexOf("## Governance")).toBeLessThan(md.indexOf("## AI-attributed changes"));
+    expect(md.indexOf("## AI-attributed changes")).toBeLessThan(md.indexOf("## Roadmap"));
+  });
+
+  it("omits each heading when its field is absent (byte-stable with PRE_CHANGE)", () => {
+    expect(reportLlmMarkdown(fixtureReport())).toBe(PRE_CHANGE);
+    expect(reportLlmMarkdown(fixtureReport())).not.toContain("## Score integrity");
+    expect(reportLlmMarkdown(fixtureReport())).not.toContain("## Governance");
+    expect(reportLlmMarkdown(fixtureReport())).not.toContain("## AI-attributed changes");
+    expect(reportLlmMarkdown(report())).not.toContain("## Score integrity");
+    expect(reportLlmMarkdown(report())).not.toContain("## Governance");
+    expect(reportLlmMarkdown(report())).not.toContain("## AI-attributed changes");
+  });
+
+  it("omits only the missing field's heading when the other two are set", () => {
+    const onlyIntegrity = report();
+    onlyIntegrity.scoreIntegrity = integrity({ widenedDims: ["D3"] });
+    const mdI = reportLlmMarkdown(onlyIntegrity);
+    expect(mdI).toContain("## Score integrity");
+    expect(mdI).not.toContain("## Governance");
+    expect(mdI).not.toContain("## AI-attributed changes");
+
+    const onlyGov = report();
+    onlyGov.governance = gov();
+    const mdG = reportLlmMarkdown(onlyGov);
+    expect(mdG).toContain("## Governance");
+    expect(mdG).not.toContain("## Score integrity");
+    expect(mdG).not.toContain("## AI-attributed changes");
+
+    const onlyAi = report();
+    onlyAi.aiChanges = [aiChange()];
+    const mdA = reportLlmMarkdown(onlyAi);
+    expect(mdA).toContain("## AI-attributed changes");
+    expect(mdA).not.toContain("## Score integrity");
+    expect(mdA).not.toContain("## Governance");
+  });
+
+  it("omits Governance on a null tokenless reading and AI-attributed changes on an empty list", () => {
+    const r = report();
+    r.governance = null;
+    r.aiChanges = [];
+    const md = reportLlmMarkdown(r);
+    expect(md).not.toContain("## Governance");
+    expect(md).not.toContain("## AI-attributed changes");
+    expect(md).not.toMatch(/0 AI-attributed/i);
+  });
+
+  it("names an unreadable governance read instead of fabricating unprotected", () => {
+    const r = report();
+    r.governance = gov({ readable: false, protected: false });
+    const md = reportLlmMarkdown(r);
+    expect(md).toContain("## Governance");
+    expect(md).toContain("could not be read (insufficient permission)");
+    expect(md).not.toContain("NOT protected");
+  });
+
+  it("does not drop Flagged for review when all three additive fields are also present (G1)", () => {
+    const r = withAllThree();
+    r.discrepancies = [flag("D3", "Detector missed CI-inline lint enforced off-GitHub.")];
+    const md = reportLlmMarkdown(r);
+    expect(md).toContain("## Score integrity");
+    expect(md).toContain("## Governance");
+    expect(md).toContain("## AI-attributed changes");
+    expect(md).toContain("## Flagged for review");
+    expect(md).toContain("**D3**: Detector missed CI-inline lint enforced off-GitHub. · **widened**");
+    expect(md.indexOf("## Flagged for review")).toBeLessThan(md.indexOf("## Governance"));
     expect(md.indexOf("## Flagged for review")).toBeLessThan(md.indexOf("## Roadmap"));
   });
 });

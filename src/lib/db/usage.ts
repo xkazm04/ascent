@@ -378,7 +378,8 @@ export async function getUsageSummary(
   // asked for 365 days must not query or emit days older than 30 (G4: do not fabricate older
   // history as measured zeros). The destructure happens after that floor.
   const win = window ?? usageWindow(periodDays);
-  let { since, before } = win;
+  const { before } = win;
+  let since = win.since;
 
   const empty: UsageSummary = {
     org: slug,

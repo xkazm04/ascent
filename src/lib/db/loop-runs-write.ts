@@ -457,7 +457,7 @@ export async function markStaleRunsStopped(
     });
     const recIds = [
       ...new Set(
-        lanes.flatMap((l) => parseStringArray(l.batchIdsJson)),
+        lanes.flatMap((l) => parseStringArray(l.batchIdsJson) ?? []),
       ),
     ];
     if (recIds.length > 0) {

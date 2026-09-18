@@ -2,7 +2,8 @@
 
 _Status: **implemented end-to-end**: four plan tiers (`src/lib/plans.ts`), a monthly-allowance-then-credit
 hybrid charge model, a Polar purchase flow for both credit packs and plan-tier upgrades (checkout route +
-a signature-verified, idempotent fulfilment webhook), and a refund/clawback flow that reverses credits and
+a signature-verified, idempotent fulfilment webhook), an owner-gated Polar customer portal so owners can
+cancel or update billing without a refund ticket, and a refund/clawback flow that reverses credits and
 downgrades a plan on a full refund. The accounting layer stays provider-agnostic: anything that calls
 `grantCredits`/`setOrgPlan` moves the org's entitlement, and the scan code never imports the billing SDK._
 
@@ -320,6 +321,30 @@ It replaces a CTA that was a `mailto:` when `ASCENT_CONTACT_EMAIL` happened to b
    `externalCustomerId` and `metadata.org`, and 303-redirects the browser to it. No credits or plan change
    happen here: the trust boundary for the actual grant is the webhook signature.
 
+## Customer portal (`GET /api/billing/portal?org=<slug>`)
+
+Owners cancel, update a payment method, or download invoices in Polar's hosted customer portal — one
+click, no refund ticket, no "talk to sales". G8 still holds: `/pricing` stays numeric, anonymous, and
+one-click; this link lives **inside** the org dashboard, owner-gated, and is omitted on free/self-host
+(`polarEnabled()` false). The control is `ManageBillingLink` (`CreditsControl.sections`) beside "Buy
+credits" and on the Settings plan chip (`PlanControl`).
+
+1. Same outer guards as checkout: billing unconfigured → 503, speculative prefetch → 204, cross-origin
+   → 403, missing org → 400. Owner-gated (`requireOrgRole(org, "owner")`) **before** any Polar call and
+   before the org-existence read. Auth-off deployments stay open, matching checkout.
+2. If a DB is configured, unknown slugs 404 with a uniform message (no slug echo). A DB-unavailable read
+   is a retryable 503.
+3. `polarCustomerPortalUrl(org)` (`src/lib/polar.ts`) mints a Polar customer session
+   (`polar.customerSessions.create` with the same `externalCustomerId` checkout stamps) and 303s to
+   `customerPortalUrl`. The Organization Access Token needs the `customer_sessions:write` scope.
+4. If this Polar SDK build has no session API, or the org has no Polar customer yet, it falls back to
+   Polar's documented hosted page `https://polar.sh/<POLAR_ORGANIZATION_SLUG>/portal` (sandbox host when
+   `POLAR_SERVER` is not production). Unset slug and no session → 503, not a dead button.
+
+Ascent does not invent a refund path here: Polar's portal is where the customer cancels; existing
+`order.refunded` / `subscription.canceled` / `subscription.revoked` webhooks still reconcile the
+entitlement.
+
 ## Webhook (`POST /api/billing/webhook`)
 
 Built on the `@polar-sh/nextjs` `Webhooks()` adapter, signature-verified against `POLAR_WEBHOOK_SECRET`.
@@ -473,11 +498,12 @@ purchase that would silently never happen. **The one genuinely recurring top-up 
 ## Env vars
 
 ```
-POLAR_ACCESS_TOKEN=          # server-side Polar Organization Access Token
+POLAR_ACCESS_TOKEN=          # server-side Polar Organization Access Token (portal needs customer_sessions:write)
 POLAR_WEBHOOK_SECRET=        # verifies POST /api/billing/webhook signatures; unset → webhook fails closed (503)
 POLAR_SERVER=sandbox         # sandbox (default) | production
 POLAR_CREDIT_PACKS=prod_abc=100,prod_def=500,prod_ghi=2000
 POLAR_PLAN_PRODUCTS=prod_pro=pro,prod_team=team,prod_ent=enterprise
+POLAR_ORGANIZATION_SLUG=     # optional Polar org slug for the documented hosted portal fallback (`https://polar.sh/<slug>/portal`)
 ASCENT_ALLOW_CREDIT_GRANTS=  # enables POST /api/org/credits/grant (owner-gated manual top-up); IGNORED under NODE_ENV=production
 ASCENT_ALLOW_PLAN_CHANGES=   # enables POST /api/org/plan to set a paid/unlimited tier directly (bypassing checkout)
 ASCENT_SALES_EMAIL=          # where Custom-plan enquiries are mailed; defaults to the operator address in src/lib/email/plan-enquiry.ts

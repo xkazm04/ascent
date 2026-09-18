@@ -158,7 +158,7 @@ function toRow(row: OutcomeRow): LaneOutcomeRow {
   // migration — all three are "nothing adjudicated this", which is the safe direction for a trust
   // flag. The `verdict` guard keeps the pair coherent even if a stamp ever outlived its verdict.
   const verifiedAt = row.verifiedAt ?? null;
-  const files = parseStringArray(row.filesJson);
+  const files = parseStringArray(row.filesJson) ?? [];
   return {
     id: row.id,
     runId: row.runId,

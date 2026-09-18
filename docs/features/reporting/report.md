@@ -21,7 +21,7 @@ All charts are **dependency-free inline SVG** (no D3/recharts) to keep the bundl
 | Route | Component | Type | Data source |
 | --- | --- | --- | --- |
 | `/report` | `src/app/report/page.tsx` | Client-driven | Live scan over `/api/scan/stream`; reads `?repo=` / `?fresh=1`, plus the optional scan scope `?ref=<branch\|tag\|sha>` / `?path=<sub-dir>` (see [scan.md](../scanning/scan.md#scan-scope-branch--sub-path)). A scoped scan skips the cache peek, always re-scans, is never persisted, and carries a warning that its score isn't comparable with default-branch scans. `Re-test` and the sign-in round-trip both preserve the scope. After an unscoped scan is **persisted**, the client rewrites the address bar from `/report?repo=` to the durable `/report/{owner}/{repo}` permalink via `history.replaceState` (not a router navigation — that would remount the force-dynamic tree). The rewrite is withheld when persist did not happen (DB off, scoped, degraded/low-coverage, in-memory cache only), so a reload cannot land on `ColdScanGate` under a URL that looks scored. A scoped live scan also does not copy that unscoped permalink — `/report/{owner}/{repo}` is a different (default-branch) artifact. |
-| `/report/[owner]/[repo]` | `src/app/report/[owner]/[repo]/page.tsx` | Hybrid | Server-renders a persisted scan (`getScanReportByCommit`, optional `@sha`); else `ColdScanGate` (no auto-scan). Shareable permalink. `generateMetadata` claims a score only when a snapshot exists. Permalink **Re-test** stays on this path with `?fresh=1` (does not bounce to `/report?repo=`); that query mounts the live scanner on the durable URL, keeps a pinned `@sha`, and is stripped from the bar after persist so a reload cannot re-fire. |
+| `/report/[owner]/[repo]` | `src/app/report/[owner]/[repo]/page.tsx` | Hybrid | Server-renders a persisted scan (`getScanReportByCommit`, optional `@sha`); a successful empty lookup is `ColdScanGate` (no auto-scan); a thrown lookup is `PermalinkReadError` (no Scan now). Shareable permalink. `generateMetadata` claims a score only when a snapshot exists. Permalink **Re-test** stays on this path with `?fresh=1` (does not bounce to `/report?repo=`); that query mounts the live scanner on the durable URL, keeps a pinned `@sha`, and is stripped from the bar after persist so a reload cannot re-fire. |
 | `/report/compare` | `src/app/report/compare/page.tsx` | Server | `getScanComparison()` (needs DB). **Two axes:** time (`?a=`/`?b=` — two scans of this repo) and exemplar (`?against=` — this repo vs a peer repo, the org's best, or the public cohort). |
 | `/trends` | `src/app/trends/page.tsx` | Server | `getRepositoryHistory()` (needs DB), to `HISTORY_SCAN_CAP`, the same depth the CSV export uses. Range-filtered chart, plus an all-time trajectory panel and timeline annotations. |
 | `/portfolio` | `src/app/portfolio/page.tsx` | Server | `buildPortfolio()` over `?orgs=` slugs the viewer `canReadOrg`. Cross-org fleet-of-fleets table. |
@@ -127,6 +127,13 @@ is not "never scanned", matching the PDF/LLM 503-vs-404 split. Only a persisted 
 score. The live-scan address-bar rewrite (below) is gated on the same fact: it never puts this URL
 in the bar until a snapshot exists, so an unfurl of the rewritten URL cannot be a cold miss.
 
+**A failed read is not an empty corpus (Wave 5, G4).** The permalink *body* used to
+`.catch(() => null)` then render `ColdScanGate`, so a persistence blip (token expiry, DSQL hiccup)
+invited a metered live scan of a repo that may already have a snapshot. A thrown
+`getScanReportByCommit` now renders `PermalinkReadError` (reload / home; no Scan now, no teaser). A
+successful empty lookup is still `ColdScanGate`. A snapshot still renders `ReportView`. Three
+outcomes, matching `generateMetadata` and the PDF/LLM 503-vs-404 split.
+
 Under the CTA, `ColdScanTeaser` shows **what a scan produces**, derived from the maturity model: the
 `DIMENSIONS` chips, the `LEVELS` ladder (all five, none marked), and the terms: free for public
 repos, no account, minutes not seconds, a capped free monthly allowance that ends in a sign-in prompt,
@@ -200,7 +207,9 @@ it names a different default-branch artifact, or ColdScanGate.
    *"blend weight 57% of 60%"*, the configured weight riding along as context — instead of printing
    the realized *share* of the configured weight ("blend 95%") beside tracks printing 57 % and
    reconciling the two only inside a tooltip (UAT `RC-N1`). The same track renders in the org heatmap's cell drill-in
-   (`RepoDimensionModal`), which is why `/api/org/repo-dimension` returns `scoreIntegrity`.
+   (`RepoDimensionModal`), which is why `/api/org/repo-dimension` returns `scoreIntegrity`. Those
+   `integrityNotes` also travel in the LLM briefing under **Score integrity** when the field is
+   present, so a model cannot miss a lever the chip disclosed.
 8. **Contributors**: login + AI-commit ratio bars.
 9. **PR signals**: `PrSignalsPanel` (review coverage, merge rate, small-PR rate, time to
    merge / first review, revert rate, tools detected) when `report.prStats.analyzed > 0`.
@@ -225,6 +234,8 @@ it names a different default-branch artifact, or ColdScanGate.
    unreviewed / unapproved. A revert stamp (`reverted by #N`) shows when the window matched
    one. An absent or empty list is omitted, never printed as a 0; a reconstructed snapshot
    that never ran ingestion leaves `aiChanges` undefined so stored rows are not implied empty.
+   The same rows travel in the LLM briefing (`reportLlmMarkdown`) under **AI-attributed changes**,
+   omitted when the field is absent or empty.
 10. **Next-level path**: fastest dimensions to close, then either `RoadmapSteps` (no DB)
     or the interactive `RecommendationTracker` (DB-backed, see below). Each row's recorded `firstStep` also travels with the paid PDF and the LLM briefing when present (G2); a blank or absent field omits the line, matching `RoadmapFirstStep`.
 11. **Discrepancies**: claims where the LLM questioned a deterministic signal. The paid PDF (`ReportDocument`) and the LLM briefing (`reportLlmMarkdown`, Copy-for-LLM / `GET /api/report/llm`) emit the same non-empty list with each row's recorded outcome; an empty array omits the section, matching this panel. G1: disagreement is not dropped or softened when the report leaves the page.
@@ -500,7 +511,11 @@ with a `status` ∈ `open | in_progress | done | dismissed`.
 `RecommendationTracker` (inside `ReportView`) shows a progress bar + per-item status
 dropdowns with **optimistic updates**, a per-row `savingIds` set (overlapping saves each
 disable only their own row), rollback on failure, and an `aria-live` region announcing
-each save. When the DB isn't configured it degrades to the read-only `RoadmapSteps`.
+each save. Each row also exposes the planning fields `PATCH /api/recommendations/[id]`
+already accepted: `assigneeLogin` and `targetDate`. Both render when set; a null field
+renders nothing (no "unassigned" / "no due date" copy). Edits PATCH that same route (no
+new endpoint); clearing a field sends `null`. When the DB isn't configured it degrades to
+the read-only `RoadmapSteps`.
 
 **2026-09-05.** Both renderings share one `RoadmapFirstStep` (the tracker used to drop `firstStep`
 while the anonymous fallback rendered it) and both receive the measured `lifts` map from the page.
@@ -526,6 +541,11 @@ array. A successful PATCH bumps a per-row epoch so an *open* trail refetches aft
 (an optimistic status change must not race the write). This is where a sandbox commit note and a
 dismissal reason actually appear on the report that wrote them. Follow-ups already rendered the same
 route on expand; the report tracker is the surface that made the change.
+
+**2026-09-18.** Tracker rows expose assignee and due date. `PATCH /api/recommendations/[id]` already
+accepted `assigneeLogin` and `targetDate`; the row now renders both when set and writes them through
+that same route. A null field renders nothing: no "unassigned" or "no due date" copy. Clearing a
+field sends `null`. The status dropdown is unchanged.
 
 Both renderings order through one contract, `sortRoadmap` (`roadmapPriority.tsx`). Its default
 `"priority"` mode is the long-standing label sort — impact↑/effort↓, quick wins first — derived from
@@ -882,7 +902,7 @@ read-gated by the owning org (`readableOrgForOwner` → `requireOrgRead`, gate b
 
 | Route | Output | Plan-gated? |
 | --- | --- | --- |
-| `/api/report/llm` | `text/markdown`, the LLM briefing (headline, dimension table, counted evidence lines, gaps, Flagged-for-review discrepancies when present, roadmap with `firstStep` when recorded, "Ask"). | **No.** |
+| `/api/report/llm` | `text/markdown`, the LLM briefing (headline, dimension table, counted evidence lines, gaps, Flagged-for-review discrepancies when present, `scoreIntegrity` / `governance` / `aiChanges` when recorded, roadmap with `firstStep` when recorded, "Ask"). | **No.** |
 | `/api/report/share-card` | `image/png` (attachment), the 1200×630 score card. | **No.** |
 | `/api/report/pdf` | `application/pdf` (attachment). | **Yes**, the lowest paid tier (`pro`, shown as Starter) and up. |
 
@@ -906,7 +926,13 @@ for review** section naming each claim and its recorded outcome (widened / lost 
 dropped as unmeasurable / structurally ineligible / outcome not recorded) so a model cannot treat
 those blended scores as uncontested (G1). Counted evidence lines (`dimension.evidence`) emit as
 their own bullets under Evidence by dimension (G2: they are not joined into the catalogue table).
-An empty list omits the section. Roadmap rows include the recorded `firstStep` when present (G2);
+An empty list omits the section. Three more fields the page already holds travel the same way, each
+as its own heading and omitted when the field is absent so a sparse snapshot stays short: **Score
+integrity** (`report.scoreIntegrity`, the same `integrityNotes` the header chip uses), **Governance**
+(default-branch protection / rulesets; a `null` tokenless reading is omitted, never printed as
+unprotected), and **AI-attributed changes** (`report.aiChanges`, the PR evidence rows behind the
+AI-involved rate, with the same signal / tools / approver / revert labels as `PrSignalsPanel`).
+Roadmap rows include the recorded `firstStep` when present (G2);
 a blank or absent field omits the line, matching the in-app `RoadmapFirstStep`. The paid PDF carries
 the same mock/engine-mix caveat in the **document body**, not the page footer (G9): a mock-engine
 report opens with a Demo scoring box ("no language model contributed") and a "Scored by … coverage
@@ -1162,13 +1188,14 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/app/api/report/foundation/pr/route.ts` | Draft PR seeding the generated `.ai/` foundation. Admin-gated (see above). |
 | `src/app/api/report/conformance/route.ts` | `.ai/` conformance ingest: org-bound auth, clamping, ledger write. The legacy shared `CONFORMANCE_INGEST_TOKEN` is compared with `crypto.timingSafeEqual`, matching the per-org token path. |
 | `src/app/api/report/llm/route.ts` | Machine-readable markdown export: the "Copy for LLM" payload as a fetchable endpoint. |
-| `src/lib/report/llm-markdown.ts` | `reportLlmMarkdown()`: the single briefing generator behind both the copy chip and the endpoint. Pure/client-safe and deterministic. Leads with the mock-provenance block when `engine.provider === "mock"` (G9: body, not the generated-by footer). Emits a Flagged-for-review section (claim + `discrepancyOutcome` label/hint) when `discrepancies` is non-empty (G1). Counted evidence lines emit as their own bullets, not flattened into the dimension table (G2). Roadmap rows include `firstStep` when the scan recorded one (G2). |
+| `src/lib/report/llm-markdown.ts` | `reportLlmMarkdown()`: the single briefing generator behind both the copy chip and the endpoint. Pure/client-safe and deterministic. Leads with the mock-provenance block when `engine.provider === "mock"` (G9: body, not the generated-by footer). Emits a Flagged-for-review section (claim + `discrepancyOutcome` label/hint) when `discrepancies` is non-empty (G1). Counted evidence lines emit as their own bullets, not flattened into the dimension table (G2). Additive **Score integrity**, **Governance**, and **AI-attributed changes** sections when `scoreIntegrity` / `governance` / `aiChanges` are recorded; each heading is omitted when its field is absent or empty. Roadmap rows include `firstStep` when the scan recorded one (G2). |
 | `src/app/api/report/share-card/route.ts` | Downloadable PNG share card (attachment), rendered from the shared OG card. |
 | `src/lib/og/report-card.tsx` | `ReportShareCard`: the 1200×630 artwork shared by the permalink's `opengraph-image` and the share-card download. |
 | `src/app/api/report/pdf/route.ts` | Single-report PDF export. Read-gated by the owning org, then plan-gated (`planAllowsPdfExport`, the lowest paid tier `pro` and up); `PUBLIC_ORG` reports are exempt from the plan check, matching the unmetered public-scan model. |
 | `src/lib/pdf/report-document.tsx` | The exported PDF's layout (`@react-pdf/renderer`). Includes a "Roadmap & recommendations" section (title, impact/effort, `firstStep` when present, rationale, sorted quick-wins-first, same ordering as the in-app roadmap), a caveat box surfacing `report.warnings` near the top, a fallback "Incomplete scan" banner for a sparse/zero-dimension report so a degraded scan's PDF reads as caveated rather than a confident empty document, a Demo scoring box plus "Scored by … coverage N%" line in the **body** when the engine is mock so provenance is not a footer footnote (G9), counted evidence as its own lines under each dimension (G2), and a "Flagged for review" section listing each LLM-vs-detector discrepancy with its recorded outcome so a board PDF cannot hide disagreement the in-app report shows (G1). |
 | `src/components/report/ReportClient.tsx` | Live-scan orchestration: SSE stream, progress UI, validation. |
-| `src/app/report/[owner]/[repo]/page.tsx` | Shareable permalink. Pinned snapshot or `ColdScanGate`. `generateMetadata` claims a score only for a persisted snapshot; a cold or failed lookup does not unfurl as a maturity report. |
+| `src/app/report/[owner]/[repo]/page.tsx` | Shareable permalink. Pinned snapshot, `ColdScanGate` on a true miss, or `PermalinkReadError` on a thrown read (G4: a blip is not never-scanned). `generateMetadata` claims a score only for a persisted snapshot; a cold or failed lookup does not unfurl as a maturity report. |
+| `src/components/report/ColdScanGate.tsx` | Cold-permalink `Scan now` gate, plus `PermalinkReadError` for a thrown snapshot read (reload / home, no live scan). |
 | `src/components/report/ReportPermalinkShare.tsx` | The header's Permalink control: the canonical URL, the commit-pinned URL, and the README markdown carrying the level line. |
 | `src/components/report/discrepancyOutcome.ts` | Derives one outcome word per "Flagged for review" row from `report.scoreIntegrity` (pure; no stored second copy to drift). |
 | `src/components/report/ReportView.tsx` | The full report render (all sections + trackers/panels). |

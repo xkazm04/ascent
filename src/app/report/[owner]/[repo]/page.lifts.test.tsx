@@ -39,7 +39,24 @@ vi.mock("@/components/report/ReportShell", () => ({ ReportShell: ({ children }: 
 vi.mock("@/components/report/ReportErrorBoundary", () => ({
   ReportErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
-vi.mock("@/components/report/ColdScanGate", () => ({ ColdScanGate: () => null }));
+let coldGateRepo: string | undefined;
+vi.mock("next/link", () => ({
+  default: ({ href, children, ...rest }: { href: unknown; children: React.ReactNode }) => (
+    <a href={typeof href === "string" ? href : "#"} {...rest}>
+      {children}
+    </a>
+  ),
+}));
+vi.mock("@/components/report/ColdScanGate", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/report/ColdScanGate")>();
+  return {
+    ...actual,
+    ColdScanGate: ({ repo }: { repo: string }) => {
+      coldGateRepo = repo;
+      return <div data-testid="cold-scan-gate">{repo}</div>;
+    },
+  };
+});
 vi.mock("@/features/standing/passports/PassportCard", () => ({ PassportCard: () => null }));
 
 let liveScanRepo: string | undefined;
@@ -59,6 +76,7 @@ import type { Metadata } from "next";
 async function renderPage(search: Record<string, string> = {}, repo = "web") {
   captured = {};
   liveScanRepo = undefined;
+  coldGateRepo = undefined;
   const shell = (await Page({
     params: Promise.resolve({ owner: "acme", repo }),
     searchParams: Promise.resolve(search),
@@ -154,6 +172,50 @@ describe("report permalink — generateMetadata does not advertise a cold report
     expect(text).not.toMatch(/has not been scanned/i);
     expect(text).not.toMatch(/never been scanned/i);
     expect(text).not.toMatch(SCORED_UNFURL);
+  });
+});
+
+describe("report permalink — a failed read is not a never-scanned repo", () => {
+  it("renders ReportView when a persisted snapshot exists", async () => {
+    await renderPage();
+    expect(captured.report).toBe(scanReport);
+    expect(screen.queryByTestId("cold-scan-gate")).toBeNull();
+    expect(screen.queryByTestId("permalink-read-error")).toBeNull();
+  });
+
+  it("renders ColdScanGate only on a successful empty lookup", async () => {
+    vi.mocked(getScanReportByCommit).mockResolvedValue(null);
+    await renderPage();
+    expect(screen.getByTestId("cold-scan-gate")).toBeInTheDocument();
+    expect(coldGateRepo).toBe("acme/web");
+    expect(screen.queryByTestId("permalink-read-error")).toBeNull();
+    expect(captured.report).toBeUndefined();
+  });
+
+  it("renders an error card when the lookup throws — not ColdScanGate, not a live scan", async () => {
+    vi.mocked(getScanReportByCommit).mockRejectedValue(new Error("token expired"));
+    await renderPage();
+    expect(screen.getByTestId("permalink-read-error")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /report unavailable for acme\/web/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^try again$/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /scan /i })).toBeNull();
+    expect(screen.queryByTestId("cold-scan-gate")).toBeNull();
+    expect(screen.queryByTestId("fresh-retest")).toBeNull();
+    expect(captured.report).toBeUndefined();
+    expect(getOrgExpectedLifts).not.toHaveBeenCalled();
+    const text = document.body.textContent ?? "";
+    expect(text).toMatch(/could not load a scan for acme\/web/i);
+    expect(text).not.toMatch(/no report yet/i);
+    expect(text).not.toMatch(/has not been scanned/i);
+    expect(text).not.toMatch(/scan acme\/web/i);
+  });
+
+  it("keeps a commit pin on the error card, still without inviting Scan now", async () => {
+    vi.mocked(getScanReportByCommit).mockRejectedValue(new Error("dsql blip"));
+    await renderPage({}, "web@deadbeef");
+    expect(screen.getByRole("heading", { name: /report unavailable for acme\/web$/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /scan /i })).toBeNull();
+    expect(coldGateRepo).toBeUndefined();
   });
 });
 
