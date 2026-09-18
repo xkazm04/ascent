@@ -1052,6 +1052,13 @@ itself on every scan, which is exactly what the overlay exists to prevent.
   `prod.observability-unassessable`, `prod.tests-unassessable`, `auto.self-verify-unassessable`)
   and an `unclassified` back-fill id get **no control at all**:
   declining one would silence a limit of *our* evidence rather than accept a real trade-off.
+- **Fleet DecisionControl.** The expanded-row `BlockerList` used to wrap every blocker in the org
+  accept/dismiss/snooze widget (`DecisionControl` → `/api/org/decision`). That is the same
+  entitlement as a decline: only a gap the scan actually saw. The list reuses
+  `isDeclinableFinding` / `DECLINABLE_BY_FINDING` (the `declineOffers` skip), so an evidence-limit
+  row (`prod.*-unassessable`, `auto.self-verify-unassessable`, `prod.enforcement-not-observable`)
+  stays informational — the sentence is still there; the control is not. Pinned on
+  `PassportDetailLists.keys.test.tsx` and `PassportRowDetail.dom.test.tsx`.
 - **What it sends.** `PATCH { repo, declined: { "<field.path>": { reason?, at, code, severity } } }`,
   and `{ "<field.path>": null }` to retract. The reason is optional and capped at
   `DECLINE_REASON_MAX` (280, the same constant the route parses with). `at`/`code`/`severity` are the
