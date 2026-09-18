@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -47,12 +48,14 @@ vi.mock("@/lib/rate-limit", () => ({
 }));
 
 import {
+  __resetPublicScanQuotaSaltWarning,
   consumePublicScanQuota,
   decideQuota,
   monthlyQuotaExceeded,
   parseHits,
   hashIp,
   hashKey,
+  peekPublicScanQuota,
   publicScanAllowance,
   publicScanMonthlyLimit,
   type QuotaResult,
@@ -217,6 +220,127 @@ describe("hashIp", () => {
     const v = "203.0.113.7";
     expect(hashIp(v)).toBe(hashKey(`ip:${v}`));
     expect(hashKey(`ip:${v}`)).not.toBe(hashKey(`u:${v}`));
+  });
+});
+
+const FALLBACK_SALT = "ascent-public-scan-quota";
+function digestWith(salt: string, value: string): string {
+  return createHash("sha256").update(`${salt}:${value}`).digest("hex");
+}
+
+// Production must refuse the committed fallback salt (a shared digest would make every stored
+// ipHash globally guessable). Dev/test keep the fallback so the gate still works out of the box.
+describe("production refuses the committed public-scan quota salt", () => {
+  const req = new Request("https://ascent.test/api/scan");
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsDbConfigured.mockReturnValue(true);
+    mockReadDsqlConfig.mockReturnValue(null);
+    delete process.env.PUBLIC_SCAN_QUOTA_DISABLED;
+    process.env.PUBLIC_SCAN_MONTHLY_LIMIT = "3";
+    __resetPublicScanQuotaSaltWarning();
+    errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    errorSpy.mockRestore();
+    vi.unstubAllEnvs();
+    delete process.env.PUBLIC_SCAN_MONTHLY_LIMIT;
+    __resetPublicScanQuotaSaltWarning();
+  });
+
+  it("outside production the committed fallback still hashes when the env salt is unset", () => {
+    for (const nodeEnv of ["development", "test"] as const) {
+      vi.stubEnv("NODE_ENV", nodeEnv);
+      vi.stubEnv("PUBLIC_SCAN_QUOTA_SALT", undefined);
+      const value = "ip:203.0.113.7";
+      expect(hashKey(value)).toBe(digestWith(FALLBACK_SALT, value));
+    }
+  });
+
+  it("production + unset salt does not produce a persistable hash", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("PUBLIC_SCAN_QUOTA_SALT", undefined);
+    expect(() => hashKey("ip:203.0.113.7")).toThrow(/PUBLIC_SCAN_QUOTA_SALT/);
+    expect(() => hashIp("203.0.113.7")).toThrow(/PUBLIC_SCAN_QUOTA_SALT/);
+  });
+
+  it("whitespace-only salt in production is treated as unset (refuse fallback)", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("PUBLIC_SCAN_QUOTA_SALT", "   ");
+    expect(() => hashKey("ip:1.1.1.1")).toThrow(/PUBLIC_SCAN_QUOTA_SALT/);
+  });
+
+  it("production with PUBLIC_SCAN_QUOTA_SALT set hashes with that salt, not the fallback", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("PUBLIC_SCAN_QUOTA_SALT", "prod-secret-salt");
+    const value = "ip:203.0.113.7";
+    expect(hashKey(value)).toBe(digestWith("prod-secret-salt", value));
+    expect(hashKey(value)).not.toBe(digestWith(FALLBACK_SALT, value));
+  });
+
+  it("production + unset salt: consume and peek fail open and do not persist a hash", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("PUBLIC_SCAN_QUOTA_SALT", undefined);
+    const { db, store } = makeFakeDb();
+    currentDb = db;
+    await expect(consumePublicScanQuota(req)).resolves.toMatchObject({
+      enforced: false,
+      allowed: true,
+      chargedAt: null,
+    });
+    await expect(peekPublicScanQuota(req)).resolves.toMatchObject({
+      enforced: false,
+      remaining: 3,
+      limit: 3,
+    });
+    expect(store.size).toBe(0);
+  });
+
+  it("logs the missing production salt exactly once across many consume/peek calls", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("PUBLIC_SCAN_QUOTA_SALT", undefined);
+    currentDb = makeFakeDb().db;
+    for (let i = 0; i < 10; i += 1) {
+      await consumePublicScanQuota(req);
+      await peekPublicScanQuota(req);
+    }
+    const saltLogs = errorSpy.mock.calls.filter((c) => String(c[0]).includes("PUBLIC_SCAN_QUOTA_SALT"));
+    expect(saltLogs).toHaveLength(1);
+  });
+
+  it("the production floor lives inside the salt function, and call sites never read the raw fallback", () => {
+    const src = readFileSync(join(process.cwd(), "src/lib/public-scan-quota.ts"), "utf8").replace(
+      /\/\*[\s\S]*?\*\//g,
+      "",
+    );
+    const start = src.indexOf("function publicScanQuotaSalt");
+    const end = src.indexOf("export function hashKey");
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const body = src.slice(start, end);
+    expect(body).toMatch(/NODE_ENV === ["']production["']/);
+    expect(body.indexOf("NODE_ENV")).toBeLessThan(body.indexOf("FALLBACK_QUOTA_SALT"));
+    const envReads = [...src.matchAll(/process\.env\.PUBLIC_SCAN_QUOTA_SALT/g)].map((m) => m.index ?? -1);
+    expect(envReads.length).toBe(2);
+    for (const i of envReads) {
+      expect(i).toBeGreaterThan(start);
+      expect(i).toBeLessThan(end);
+    }
+  });
+
+  it("production with a configured salt still hashes and enforces", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("PUBLIC_SCAN_QUOTA_SALT", "prod-secret-salt");
+    const { db, store } = makeFakeDb();
+    currentDb = db;
+    const r = await consumePublicScanQuota(req);
+    expect(r).toMatchObject({ enforced: true, allowed: true });
+    expect(store.size).toBe(1);
+    expect([...store.keys()][0]).toBe(hashIp("203.0.113.99"));
+    expect([...store.keys()][0]).not.toBe(digestWith(FALLBACK_SALT, "ip:203.0.113.99"));
   });
 });
 
