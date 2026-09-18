@@ -178,6 +178,18 @@ readiness. Scores in the playground are labelled as a study series, not live org
 or marketing figures. Empty level bands stay `missing` (`STATE_LABEL.missing`,
 "No measurement"), never a zero.
 
+## Async UI states study (`FeedbackPlayground`)
+
+The surface-library async-ui-states study (`src/features/shared/surfaces/FeedbackPlayground.tsx`)
+is driven from `Defer` (`@/components/ui/Defer`) and `VIZ_STATES` / `STATE_LABEL`
+(`@/components/org/viz`). It is not invented Ready / Loading / Empty / Error, and it
+does not teach a spinner or skeleton as the house async contract. `Defer` schedules a
+subtree's first appearance (strategies `next-frame`, `idle`, `visible`); once shown,
+the subtree stays mounted. That is not a loading state: children are ready, and the
+placeholder is a quiet gap (`.reveal-quiet`), never a fake page. Epistemic marks use
+the six `VIZ_STATES`; `missing` stays `STATE_LABEL.missing` ("No measurement"), never
+a zero.
+
 ## The deck reading scale (large-screen typography & measure)
 
 Marketing decks used to stop growing at `lg`: the container was pinned at
