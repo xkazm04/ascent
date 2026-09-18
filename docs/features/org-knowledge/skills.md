@@ -424,11 +424,24 @@ a registry sample. The badge says "invoked", "used" or "synced" for the three
 kinds rather than collapsing them.
 
 `SkillInvokeChip` shows how often a skill actually **ran**, beside how often it
-was read. It names both sinks and the window: sink A is all-time (the DB
-rollup has no window) and sink B is each contributor's declared window, so it
-is a volume, not a rate, and it is deliberately not labelled "30d". The
-windowed 30d claim lives on the neighbouring Registry tab (`invokes30d` /
-`invokesDirect30d`) and recency lives in the dormancy badge beside the chip.
+was read, and the **reporting client** of the last recorded event. It names both
+sinks and the window: sink A is all-time (the DB rollup has no window) and sink
+B is each contributor's declared window, so it is a volume, not a rate, and it
+is deliberately not labelled "30d". The windowed 30d claim lives on the
+neighbouring Registry tab (`invokes30d` / `invokesDirect30d`) and recency lives
+in the dormancy badge beside the chip.
+
+The source chip is the UI consumer of `skillEventSourceLabel`
+(`src/lib/org/skill-event-source.ts`). `SkillUsage.lastUsedSource` is the
+closed-set client (`cli | hook | ci | web | registry | mcp`) of the event that
+`lastUsedAt` came from; `getOrgSkillUsageRows` groups `OrgSkillEvent` by
+`(skill, type, source)` so the fold can name that client without shipping the
+ledger. Legacy `cli:diverged` strings normalize on read. An unrecognized or
+absent source renders as **Unattributed** — a reporting gap, not a guess about
+who reported. Registry `usage/` samples have no per-event client column and
+read as `registry`. A last-use source still renders when the skill has never
+*run* (a web copy is a use with a client and no invocation). `SkillCard`
+exposes the same value as `data-last-used-source` on the usage row.
 
 ### Outcome tracking (score movement since adoption)
 
@@ -573,6 +586,9 @@ role required) and adopt/unadopt (member role). All of `/api/org/tokens*`
 
 `OrgSkillEvent.source` is a validated closed set — `cli | hook | ci | web |
 registry | mcp` — normalized in `recordSkillEvents` (see *Usage telemetry*).
+The skill card surfaces the last event's source through `SkillUsage.lastUsedSource`
+and `SkillInvokeChip` (`skillEventSourceLabel`); the helper is not documentation
+alone.
 
 ## Tier gating
 
@@ -979,7 +995,7 @@ as Trace.
 | `src/features/shared/skills/SkillCard.tsx` | Per-skill detail, adopt actions. |
 | `src/features/shared/skills/SkillCardActions.tsx` | Copy / Download / Open-in-registry / archive — and the two CTA instructions. |
 | `src/features/shared/skills/SkillDormancyBadge.tsx` | Dormancy status chip, painted from `SkillUsage.state`. |
-| `src/features/shared/skills/SkillInvokeChip.tsx` | "N ran" — the invocation half of the use count; all-time volume, not a 30d rate. |
+| `src/features/shared/skills/SkillInvokeChip.tsx` | "N ran" plus the last-use source chip (`skillEventSourceLabel`); all-time volume, not a 30d rate. |
 | `src/features/shared/skills/SkillsLibraryTable.tsx` | Catalog table. **Uses** names sink A / sink B and the all-time window, distinct from Registry 30d. |
 | `src/features/shared/skills/SkillOutcomes.tsx` | Score-movement-since-adoption display. |
 | `src/features/shared/skills/ApiTokensPanel.tsx` | Token mint/list/revoke UI. |

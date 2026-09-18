@@ -357,6 +357,13 @@ export interface SkillEventStat {
    */
   lastAt: string | null;
   count: number;
+  /**
+   * Reporting client for this (skill, type, source) bucket, as stored (`cli | hook | ci | web |
+   * registry | mcp`, or a legacy `cli:diverged` string). Null = unattributed. Optional so a registry
+   * sample — which has no per-event client column — can omit it; the usage fold tags those `registry`.
+   * The fold normalizes on read (`normalizeEventSource`); this field is the raw column.
+   */
+  source?: string | null;
 }
 
 /** The raw material of the dormancy verdict (src/lib/org/skill-usage.ts): every live skill's birthday,
@@ -387,7 +394,10 @@ export async function getOrgSkillUsageRows(orgSlug: string): Promise<SkillUsageR
   const ids = skills.map((s) => s.id);
   const [grouped, adoptions, samples] = await Promise.all([
     prisma.orgSkillEvent.groupBy({
-      by: ["skillId", "type"],
+      // `source` is in the key so the card can name the last reporting client without shipping the
+      // ledger. Counts still fold back to (skill, type) in skillUsage; this grain only preserves
+      // which client owned the latest instant.
+      by: ["skillId", "type", "source"],
       where: { orgId, skillId: { in: ids } },
       _max: { createdAt: true },
       _count: { _all: true },
@@ -406,7 +416,13 @@ export async function getOrgSkillUsageRows(orgSlug: string): Promise<SkillUsageR
     })),
     events: grouped
       .filter((g) => g._max.createdAt)
-      .map((g) => ({ skillId: g.skillId, type: g.type, lastAt: g._max.createdAt!.toISOString(), count: g._count._all })),
+      .map((g) => ({
+        skillId: g.skillId,
+        type: g.type,
+        source: g.source,
+        lastAt: g._max.createdAt!.toISOString(),
+        count: g._count._all,
+      })),
     adoptions: adoptions.filter((a) => ids.includes(a.skillId)),
     samples,
   };

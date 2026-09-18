@@ -33,6 +33,7 @@ import type { SkillEventStat, SkillUsageRows } from "@/lib/db";
 // Pure module, safe for the client bundle — see its header.
 import { sampleEventStats } from "@/lib/registry/usage-samples";
 import { cadenceDaysFromFrontmatter } from "@/lib/org/skill-frontmatter";
+import { normalizeEventSource, type SkillEventSource } from "@/lib/org/skill-event-source";
 
 /** Per-skill extras the fold reads. `SkillUsageRows.skills` is id/name/createdAt; cadence is either
  *  already parsed (`cadenceDays`) or still sitting in the SKILL.md (`content`). */
@@ -140,6 +141,10 @@ export interface SkillUsage {
   /** Which event kind `lastUsedAt` came from. `invoke` and `download` are real uses; a `sync` is only
    *  a background pull and can never make a skill `active`. */
   lastUsedType: "invoke" | "download" | "sync" | null;
+  /** Reporting client of the event `lastUsedAt` came from (`cli | hook | ci | web | registry | mcp`).
+   *  Null when never used, or when the producer supplied no recognized source (unattributed). Registry
+   *  `usage/` samples have no per-event client column and read as `registry`. */
+  lastUsedSource: SkillEventSource | null;
   /** Whole days since `lastUsedAt` (null when never used). */
   daysSinceUse: number | null;
   /** Real uses — invocations plus downloads/copies, web UI and CLI alike; the same writes behind the
@@ -183,12 +188,33 @@ function laterOfNullable(a: string | null, b: string | null): string | null {
   return laterOf(a, b);
 }
 
+type UsedFold = { lastAt: string | null; count: number; source: SkillEventSource | null };
+
+/** Closed-set client, or null. Legacy `cli:diverged` strings normalize on read, matching the writer. */
+function eventSource(raw: string | null | undefined): SkillEventSource | null {
+  return normalizeEventSource(raw).source;
+}
+
+/**
+ * Which client owns the latest timestamped row. A recency-less row (a registry sample with a count
+ * and no `lastUsed`) cannot name the last reporter — that would stamp a known source onto a use
+ * whose instant we do not have. On an exact-instant tie, a known source wins over an unattributed one.
+ */
+function laterSource(prev: UsedFold | undefined, next: Pick<UsedFold, "lastAt" | "source">): SkillEventSource | null {
+  if (!next.lastAt) return prev?.source ?? null;
+  if (!prev?.lastAt) return next.source;
+  const delta = Date.parse(next.lastAt) - Date.parse(prev.lastAt);
+  if (delta > 0) return next.source;
+  if (delta < 0) return prev.source;
+  return prev.source ?? next.source;
+}
+
 export interface SkillUsageInput {
   skillId: string;
   /** When the skill was authored. */
   createdAt: string;
   /** Per-type event rollup for THIS skill (extra skills are ignored by the caller, not here). */
-  events: Pick<SkillEventStat, "type" | "lastAt" | "count">[];
+  events: Pick<SkillEventStat, "type" | "lastAt" | "count" | "source">[];
   /** Adoption timestamps for this skill (only the latest matters). */
   adoptedAt?: string[];
   /** Declared cadence in days ("this is a quarterly checklist"). Overrides the observed cadence in
@@ -222,13 +248,14 @@ export interface SkillUsageInput {
  * stops a skill from being simultaneously "new" (young) and "dormant" (silent).
  */
 export function skillUsage(input: SkillUsageInput, now: Date = new Date()): SkillUsage {
-  const byType = new Map<string, { lastAt: string | null; count: number }>();
+  const byType = new Map<string, UsedFold>();
   for (const e of input.events) {
     const prev = byType.get(e.type);
-    // Defensive fold: the DB rollup is already one row per (skill,type), but a caller-built list may not be.
+    // Defensive fold: the DB rollup is one row per (skill,type,source), so same-type buckets merge here.
     byType.set(e.type, {
       lastAt: laterOfNullable(prev?.lastAt ?? null, e.lastAt),
       count: (prev?.count ?? 0) + e.count,
+      source: laterSource(prev, { lastAt: e.lastAt, source: eventSource(e.source) }),
     });
   }
   const invoke = byType.get("invoke");
@@ -239,11 +266,11 @@ export function skillUsage(input: SkillUsageInput, now: Date = new Date()): Skil
   // A real use with an UNKNOWN instant is evidence that it happened, not evidence of when — so it is
   // excluded from the recency ranking while still counting toward `useCount` below. This is what keeps
   // a registry sample that reports `invokes` without a `lastUsed` from claiming the skill is `active`.
-  const real: [SkillUsage["lastUsedType"], { lastAt: string; count: number }][] = [];
-  if (invoke?.lastAt) real.push(["invoke", { lastAt: invoke.lastAt, count: invoke.count }]);
-  if (download?.lastAt) real.push(["download", { lastAt: download.lastAt, count: download.count }]);
+  const real: [SkillUsage["lastUsedType"], { lastAt: string; count: number; source: SkillEventSource | null }][] = [];
+  if (invoke?.lastAt) real.push(["invoke", { lastAt: invoke.lastAt, count: invoke.count, source: invoke.source }]);
+  if (download?.lastAt) real.push(["download", { lastAt: download.lastAt, count: download.count, source: download.source }]);
   const realUse = real.sort((a, b) => Date.parse(b[1].lastAt) - Date.parse(a[1].lastAt))[0];
-  const picked: [SkillUsage["lastUsedType"], { lastAt: string | null; count: number } | undefined] =
+  const picked: [SkillUsage["lastUsedType"], UsedFold | undefined] =
     realUse ?? (sync?.lastAt ? ["sync", sync] : [null, undefined]);
   const lastUsedAt = picked[1]?.lastAt ?? null;
   const daysSinceUse = lastUsedAt ? daysBetween(lastUsedAt, now) : null;
@@ -276,6 +303,7 @@ export function skillUsage(input: SkillUsageInput, now: Date = new Date()): Skil
     verdict: verdictOfState(state),
     lastUsedAt,
     lastUsedType: picked[0],
+    lastUsedSource: lastUsedAt ? (picked[1]?.source ?? null) : null,
     daysSinceUse,
     useCount,
     invokes: invoke?.count ?? 0,
@@ -305,7 +333,7 @@ export function skillUsageMap(rows: SkillUsageMapInput, now: Date = new Date()):
       generatedAt: s.generatedAt,
     })),
     rows.skills,
-  );
+  ).map((e) => (e.source != null ? e : { ...e, source: "registry" }));
   const events = new Map<string, SkillEventStat[]>();
   for (const e of [...rows.events, ...sampleStats]) {
     const list = events.get(e.skillId) ?? [];

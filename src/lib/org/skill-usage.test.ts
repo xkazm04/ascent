@@ -195,6 +195,105 @@ describe("skillUsage lastUsedAt ranking", () => {
   });
 });
 
+describe("skillUsage lastUsedSource", () => {
+  const evs = (type: string, days: number, source: string | null, count = 1) => ({
+    type,
+    lastAt: daysAgo(days),
+    count,
+    source,
+  });
+
+  it("names the reporting client of the last real use, normalizing on read", () => {
+    const u = skillUsage(
+      { skillId: "s", createdAt: daysAgo(200), events: [evs("invoke", 3, "cli:diverged", 2)] },
+      NOW,
+    );
+    expect(u.lastUsedType).toBe("invoke");
+    expect(u.lastUsedSource).toBe("cli");
+  });
+
+  it("follows recency: a newer download's source beats an older invoke's", () => {
+    const u = skillUsage(
+      {
+        skillId: "s",
+        createdAt: daysAgo(200),
+        events: [evs("invoke", 20, "hook"), evs("download", 2, "web")],
+      },
+      NOW,
+    );
+    expect(u.lastUsedType).toBe("download");
+    expect(u.lastUsedSource).toBe("web");
+  });
+
+  it("on an exact-instant invoke/download tie, keeps the invoke's source", () => {
+    const at = daysAgo(5);
+    const u = skillUsage(
+      {
+        skillId: "s",
+        createdAt: daysAgo(200),
+        events: [
+          { type: "download", lastAt: at, count: 1, source: "web" },
+          { type: "invoke", lastAt: at, count: 1, source: "mcp" },
+        ],
+      },
+      NOW,
+    );
+    expect(u.lastUsedType).toBe("invoke");
+    expect(u.lastUsedSource).toBe("mcp");
+  });
+
+  it("treats an unrecognized source as unattributed, not as a fabricated client", () => {
+    const u = skillUsage({ skillId: "s", createdAt: daysAgo(200), events: [evs("download", 1, "jenkins")] }, NOW);
+    expect(u.lastUsedSource).toBeNull();
+    expect(u.lastUsedAt).not.toBeNull();
+  });
+
+  it("is null when the skill has never been used", () => {
+    expect(skillUsage({ skillId: "s", createdAt: daysAgo(3), events: [] }, NOW).lastUsedSource).toBeNull();
+  });
+
+  it("does not let a recency-less row name the last client", () => {
+    const u = skillUsage(
+      {
+        skillId: "s",
+        createdAt: daysAgo(200),
+        events: [
+          { type: "invoke", lastAt: daysAgo(4), count: 1, source: "hook" },
+          { type: "invoke", lastAt: null, count: 6, source: "registry" },
+        ],
+      },
+      NOW,
+    );
+    expect(u.lastUsedSource).toBe("hook");
+    expect(u.invokes).toBe(7);
+  });
+
+  it("tags a registry usage sample as source `registry`", () => {
+    const map = skillUsageMap(
+      {
+        skills: [{ id: "s1", name: "deploy-check", createdAt: daysAgo(400) }],
+        events: [],
+        adoptions: [],
+        samples: [
+          {
+            registryId: "r",
+            orgId: "o",
+            contributor: "c",
+            skillName: "deploy-check",
+            invokes: 4,
+            windowDays: 30,
+            lastUsedAt: daysAgo(2),
+            generatedAt: daysAgo(0),
+          },
+        ],
+      },
+      NOW,
+    );
+    expect(map.s1.lastUsedType).toBe("invoke");
+    expect(map.s1.lastUsedSource).toBe("registry");
+  });
+});
+
 describe("skillUsageMap / usageSummary", () => {
   const rows = {
     skills: [
