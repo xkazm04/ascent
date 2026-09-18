@@ -1,9 +1,11 @@
-// LOCAL MODE autopilot control (self-hosted only, ASCENT_AUTOPILOT=1 only).
+// LOCAL MODE autopilot control (POST start is self-hosted + ASCENT_AUTOPILOT=1 only).
 //
-//   GET  ?org=…                                → the org's current/last job (the band's poll;
-//                                                 reconciles stale loop runs first, like GET /api/org/loop)
-//   POST { org, action:"start", fullName, maxCycles? } → arm a run (owner-gated)
-//   POST { org, action:"stop" }                → cooperative stop (owner-gated)
+//   GET  ?org=…                                → { enabled, job } (the band's poll; reconciles stale
+//                                                 loop runs first, like GET /api/org/loop). Served on
+//                                                 managed cloud too — a remote single-repo run is
+//                                                 visible here the same way the loop GET is.
+//   POST { org, action:"start", fullName, maxCycles? } → arm a LOCAL run (owner-gated, self-hosted)
+//   POST { org, action:"stop" }                → cooperative stop (owner-gated, self-hosted)
 //
 // OWNER for both writes: starting spawns an editing agent inside a paired working copy — the same
 // blast radius as pairing itself. The GET is member-visible like every other war-room read.
@@ -25,8 +27,13 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  const guard = selfHostGuard();
-  if (guard) return guard;
+  // THE READ IS NO LONGER SELF-HOSTED-ONLY (moonshot #3), and the old reasoning is what changed
+  // rather than being overruled. `selfHostGuard` 404'd here because on managed cloud the surface did
+  // not exist, and a 403 would have advertised a feature the deployment could not run. A cloud org
+  // can now arm a `remote-agent` run, so 404ing this poll would hide a remote single-repo job from
+  // the band that is supposed to render it. What is still honest is `enabled`, which stays
+  // `autopilotEnabled()` — the answer to "can this deployment run a LOCAL autopilot", which on cloud
+  // is still no. The write path keeps the guard for exactly the executor that needs it.
   const org = new URL(request.url).searchParams.get("org")?.trim().toLowerCase() ?? "";
   if (!org || org === PUBLIC_ORG) return NextResponse.json({ error: "Missing 'org'." }, { status: 400 });
   const denied = await requireOrgAccess(org);
@@ -40,6 +47,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  // START stays self-hosted: this route's only executor is the local one. Loop POST skips the
+  // guard for `remote-agent`; this door never arms that, so the guard stays on every write.
   const guard = selfHostGuard() ?? dbGuard("Autopilot", "The autopilot requires a database.");
   if (guard) return guard;
 

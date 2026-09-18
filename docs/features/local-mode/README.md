@@ -1,9 +1,11 @@
 # Local mode (self-hosted)
 
 _Status: **implemented** (2026-08-19, three phases in one wave): repo↔folder pairing, scan-from-disk
-ingestion with instant follow-up close, and the war-room autopilot. Everything here exists only on a
-**self-hosted** deployment (`selfHosted()`, `src/lib/env.ts`) — the routes answer 404 on managed
-cloud, and the rail hides the Pairing tab there._
+ingestion with instant follow-up close, and the war-room autopilot. Pairing, local rescan, drive, and
+the local-spawn writes exist only on a **self-hosted** deployment (`selfHosted()`, `src/lib/env.ts`)
+— those routes answer 404 on managed cloud, and the rail hides the Pairing tab there. The autopilot
+status read (`GET /api/org/local/autopilot`) is the exception: it is served on cloud the same way
+`GET /api/org/loop` is, with `enabled: false`._
 
 The premise: a self-hosted Ascent runs on the same machine as the code it scores, so the scan loop
 does not have to lead against GitHub. A paired repo scans from disk; an `Ascent-Resolves:` trailer
@@ -225,8 +227,11 @@ Guardrails, each load-bearing:
 
 UI: `AutopilotBand` (+ `AutopilotBandParts`) in `src/features/inflight/live/` — picker, cycle
 count, start/stop, live log; polls the job every 4s only while one runs, and refreshes the wall once
-per finished run. Routes: `GET/POST /api/org/local/autopilot` (start/stop owner-gated — same blast
-radius as pairing).
+per finished run. Routes: `GET/POST /api/org/local/autopilot`. GET is member-gated and served on
+managed cloud (`{ enabled: false, job }`, `job` null unless a remote single-repo run exists) so a
+cloud org is not 404'd out of its own rows. POST start/stop stay owner-gated and self-hosted — same
+blast radius as pairing; a start without `ASCENT_AUTOPILOT=1` is an honest 409, never a local spawn
+on cloud.
 
 ## Drive to green (`/api/org/local/drive`, 2026-08-26; reachable from the cockpit 2026-08-28)
 
