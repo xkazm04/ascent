@@ -67,6 +67,7 @@ import {
 // grace it is given and the watchdog handle that ends it when it does not take.
 import { LANE_STOP_GRACE_MS, LANE_STOP_TERMINAL_MS, type LaneWatchdog } from "@/lib/local/lane-watchdog";
 import { createLoopWorktree, removeLoopWorktree, runStamp, type LoopWorktree } from "@/lib/local/loop-worktree";
+import { RUNNER_BRANCH } from "@/lib/local/runner-types";
 
 /** One repo of a run: where it lives on disk, and what its FIRST cycle was armed to do. */
 interface LaneTargetPlan {
@@ -453,7 +454,9 @@ export async function retryLane(laneId: string, opts: { deps?: Partial<LaneDeps>
   void (async () => {
     let wt: LoopWorktree | null = null;
     try {
-      wt = await createLoopWorktree(path, lane.repoFullName, runStamp());
+      // A retried RUNNER lane is cut from the runner branch like its siblings — cut from HEAD, its
+      // delivery onto `ascent/runner` would be refused as a non-fast-forward.
+      wt = await createLoopWorktree(path, lane.repoFullName, runStamp(), undefined, run.delivery === "runner" ? RUNNER_BRANCH : "HEAD");
       const target = run.targets.find((t) => t.repo === lane.repoFullName);
       // A retry re-runs the SAME lane, which includes its KIND: re-deciding it against today's disk
       // would silently turn a failed foundation lane into an agent session (or the reverse) under the

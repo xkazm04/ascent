@@ -207,11 +207,10 @@ async function startRunner(
   agent: { model: string | null; effort: string | null },
 ): Promise<DriveStatus> {
   const spendCeilingMicros = spendCeilingMicrosFrom(input.spendCeilingUsd);
-  // Checked here as well as at the route: the column is a 32-bit Int, and a write that overflows it
-  // fails the WHOLE row write — which `saveDriveRow` swallows, so the runner would silently stop
-  // persisting (a stop included).
+  // Checked here as well as at the route: a sanity bound (the column is a BIGINT), so a typo with
+  // three extra zeros is refused rather than silently read as "no ceiling worth the name".
   if (spendCeilingMicros != null && spendCeilingMicros > SPEND_CEILING_STORABLE_MAX_MICROS) {
-    throw new Error("That daily spend ceiling is larger than this deployment can store.");
+    throw new Error("That daily spend ceiling is larger than the $1,000,000 sanity bound.");
   }
   const status: DriveStatus = {
     id: driveId(),

@@ -1592,7 +1592,7 @@ CREATE TABLE "LoopDrive" (
     "mode" TEXT NOT NULL DEFAULT 'bounded',
     "pausedReason" TEXT,
     "pausedUntil" TIMESTAMP(3),
-    "spendCeilingMicros" INTEGER,
+    "spendCeilingMicros" BIGINT,
     "repoStateJson" TEXT NOT NULL DEFAULT '[]',
     "dialsJson" TEXT,
     "lastBeatAt" TIMESTAMP(3),
@@ -1614,7 +1614,7 @@ ALTER TABLE "LoopDrive" ADD COLUMN IF NOT EXISTS "delivery" TEXT;
 ALTER TABLE "LoopDrive" ADD COLUMN IF NOT EXISTS "mode" TEXT NOT NULL DEFAULT 'bounded';
 ALTER TABLE "LoopDrive" ADD COLUMN IF NOT EXISTS "pausedReason" TEXT;
 ALTER TABLE "LoopDrive" ADD COLUMN IF NOT EXISTS "pausedUntil" TIMESTAMP(3);
-ALTER TABLE "LoopDrive" ADD COLUMN IF NOT EXISTS "spendCeilingMicros" INTEGER;
+ALTER TABLE "LoopDrive" ADD COLUMN IF NOT EXISTS "spendCeilingMicros" BIGINT;
 ALTER TABLE "LoopDrive" ADD COLUMN IF NOT EXISTS "repoStateJson" TEXT NOT NULL DEFAULT '[]';
 ALTER TABLE "LoopDrive" ADD COLUMN IF NOT EXISTS "dialsJson" TEXT;
 ALTER TABLE "LoopDrive" ADD COLUMN IF NOT EXISTS "lastBeatAt" TIMESTAMP(3);
@@ -1667,9 +1667,9 @@ CREATE TABLE "LoopDirection" (
     "fenceJson" TEXT NOT NULL DEFAULT '[]',
     "checkText" TEXT NOT NULL DEFAULT '',
     "budgetCycles" INTEGER NOT NULL DEFAULT 3,
-    "budgetMicros" INTEGER,
+    "budgetMicros" BIGINT,
     "usedCycles" INTEGER NOT NULL DEFAULT 0,
-    "usedMicros" INTEGER NOT NULL DEFAULT 0,
+    "usedMicros" BIGINT NOT NULL DEFAULT 0,
     "status" TEXT NOT NULL DEFAULT 'active',
     "originPlanId" TEXT NOT NULL,
     "approvedBy" TEXT,

@@ -26,7 +26,7 @@ vi.mock("@/lib/github/app", () => ({ isAppConfigured: () => true }));
 vi.mock("@/lib/local/agent", () => ({ autopilotEnabled: () => gates.autopilot }));
 vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn(async () => gates.role) }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: vi.fn(async () => "octocat") }));
-vi.mock("@/lib/db/drives", () => ({ SPEND_CEILING_STORABLE_MAX_MICROS: 2_147_483_647 }));
+vi.mock("@/lib/db/drives", () => ({ SPEND_CEILING_STORABLE_MAX_MICROS: 100_000_000_000_000 }));
 vi.mock("@/lib/local/loop-engine", () => ({ LOOP_CONCURRENCY_CAP: 4, LOOP_MAX_CYCLES_CAP: 5 }));
 vi.mock("@/lib/local/drive", () => ({
   DRIVE_MAX_RUNS_CAP: 8,
@@ -101,7 +101,7 @@ describe("the continuous start — the standing runner's door", () => {
     ["a non-object dials", { dials: "fast" }],
     ["an A/B policy without two models", { dials: { modelPolicy: "ab", models: ["opus"] } }],
     ["a negative ceiling", { mode: "continuous", spendCeilingUsd: -1 }],
-    ["a ceiling the column cannot store", { mode: "continuous", spendCeilingUsd: 50 }],
+    ["a ceiling past the $1,000,000 sanity bound", { mode: "continuous", spendCeilingUsd: 1_000_001 }],
   ])("400s %s — refused, never coerced", async (_label, body) => {
     expect((await start(body)).status).toBe(400);
     expect(startDrive).not.toHaveBeenCalled();

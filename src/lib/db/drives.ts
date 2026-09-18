@@ -29,9 +29,10 @@ export const DRIVE_INTERRUPTED_REASON =
 export const RUNNER_AUTOPILOT_OFF_REASON =
   "Interrupted — the server restarted with the loop switched off (ASCENT_AUTOPILOT), so the standing runner was not re-attached. Turn the loop back on and resume it.";
 
-/** The largest daily ceiling `LoopDrive.spendCeilingMicros` (a 32-bit `Int`) can hold: ~$21.47 in
- *  micro-cents. A larger write fails the whole row update, so the route and `startDrive` refuse one. */
-export const SPEND_CEILING_STORABLE_MAX_MICROS = 2_147_483_647;
+/** A SANITY ceiling on the daily ceiling: $1,000,000 in micro-cents. The column is a BIGINT, so this is
+ *  not a storage limit — it keeps a typo (an extra three zeros) from reading as "no ceiling at all",
+ *  and it stays far inside a JS number's exact-integer range. The route and `startDrive` refuse more. */
+export const SPEND_CEILING_STORABLE_MAX_MICROS = 100_000_000_000_000;
 
 /** The phases in which something is (or should be) pulling a drive. A continuous drive also waits in
  *  `paused` and `idle`, and a row left in either by a dead process is exactly as orphaned as `running`. */
@@ -57,7 +58,7 @@ type DriveRow = {
   mode?: string | null;
   pausedReason?: string | null;
   pausedUntil?: Date | null;
-  spendCeilingMicros?: number | null;
+  spendCeilingMicros?: bigint | number | null;
   repoStateJson?: string | null;
   dialsJson?: string | null;
   lastBeatAt?: Date | null;
@@ -125,7 +126,8 @@ export function toDriveStatus(row: DriveRow, orgSlug: string): DriveStatus {
           pausedReason:
             row.pausedReason === "spend-ceiling" || row.pausedReason === "session-limit" ? row.pausedReason : null,
           pausedUntil: row.pausedUntil ? row.pausedUntil.toISOString() : null,
-          spendCeilingMicros: row.spendCeilingMicros ?? null,
+          // BIGINT in the store, a plain number on the wire (exact to 2^53 — ~$90 billion).
+          spendCeilingMicros: row.spendCeilingMicros == null ? null : Number(row.spendCeilingMicros),
           repoState: parseJson<RepoRunnerState[]>(row.repoStateJson, []),
           lastBeatAt: row.lastBeatAt ? row.lastBeatAt.toISOString() : null,
         }
@@ -153,7 +155,7 @@ const rowData = (st: DriveStatus) => ({
   mode: st.mode ?? "bounded",
   pausedReason: st.pausedReason ?? null,
   pausedUntil: st.pausedUntil ? new Date(st.pausedUntil) : null,
-  spendCeilingMicros: st.spendCeilingMicros ?? null,
+  spendCeilingMicros: st.spendCeilingMicros == null ? null : BigInt(Math.round(st.spendCeilingMicros)),
   repoStateJson: JSON.stringify(st.repoState ?? []),
   dialsJson: st.dials ? JSON.stringify(st.dials) : null,
   lastBeatAt: st.lastBeatAt ? new Date(st.lastBeatAt) : null,

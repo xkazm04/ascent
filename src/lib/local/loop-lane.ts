@@ -1183,7 +1183,9 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       const verifyMs = verifyTimeoutMsOf(input.verify?.timeoutMs ?? null);
       let baseline: VerifyBaseline = NO_VERIFY_BASELINE;
       if (guardOn) {
-        await updateLane(laneId, { stage: "verifying" });
+        // `baseline`, not `verifying`: the pristine-tree run and the after-session check are two stages
+        // a passive screen tells apart (lane-phase.ts), and the stage clock (`stageAt`) times each.
+        await updateLane(laneId, { stage: "baseline" });
         // The `.catch` is INSIDE the raced work on purpose: a guard that fails is baseline data, and
         // a guard that never returns is a deadline — folding the two would swallow the watchdog's
         // rejection and let the lane walk on into the session it has no time left for.
@@ -1410,6 +1412,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       // whatever is dirty in it is this session's work. A session that DID manage to commit (a future
       // mode with a wider grant) leaves nothing behind and this is a no-op; anything left over is
       // residue and lands in one commit carrying the armed batch's `Ascent-Resolves:` trailers.
+      await updateLane(laneId, { stage: "committing" });
       const committed = await watch.stage("commit", () =>
         deps.commitWork({
           dir: worktree.dir,
@@ -1424,6 +1427,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         }),
       );
       await appendLaneLog(laneId, committed.summary);
+      await updateLane(laneId, { stage: null });
     }
 
     const countRes = await git(["rev-list", "--count", `${before}..HEAD`]);
@@ -1625,16 +1629,23 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       // brief carried a playbook for is the one case where "this repo now follows that playbook" is
       // supported by something other than hope — the agent read the steps and the verifier saw the
       // dimension move. A close under a playbook the brief never quoted stamps nothing.
-      // LESSONS, as CANDIDATES. The loop never writes Org Memory: a lesson is an unattended agent's
-      // claim about what this organization should believe, and the brief above reads memory as truth.
-      // A human keeps or discards it through the lessons inbox, which promotes through the same
-      // memory door the consolidation check lives behind.
+      // LESSONS, as CANDIDATES — with ONE exception. A lesson is an unattended agent's claim about what
+      // this organization should believe, and the brief above reads memory as truth, so a human keeps or
+      // discards it through the lessons inbox. The exception (spark theater-upgrade, operator decision):
+      // a RUNNER lane the guard VERIFIED has its lessons kept automatically, through the same memory door
+      // and its duplicate check, tagged runner-kept and revocable from the ledger (loop-lessons-runner.ts).
       if (report && report.lessons.length > 0) {
         const kept = await recordLoopLessons(org, repo, laneId, report.lessons, {
           autoKeep: runnerFlags?.autoKeepLessons === true && verdict === "verified",
         }).catch(() => []);
         if (kept.length > 0) {
-          await appendLaneLog(laneId, `${kept.length} lesson candidate(s) recorded for review — nothing was written into memory.`);
+          const auto = kept.filter((k) => k.status === "kept").length;
+          await appendLaneLog(
+            laneId,
+            auto > 0
+              ? `${auto} lesson(s) kept into ${repo}'s procedural memory by the runner (verified lane — revocable from the ledger)${kept.length > auto ? `; ${kept.length - auto} left for review` : ""}.`
+              : `${kept.length} lesson candidate(s) recorded for review — nothing was written into memory.`,
+          );
         }
       }
 

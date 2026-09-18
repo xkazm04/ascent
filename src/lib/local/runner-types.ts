@@ -337,8 +337,9 @@ export const PHASE_QUIET_MS = 90_000;
 export const REPO_FAILURE_STREAK = 3;
 /** The dry backoff ladder: 1 h, 4 h, 12 h (the last repeats). */
 export const DRY_BACKOFF_MS: readonly number[] = [3_600_000, 14_400_000, 43_200_000];
-/** The default daily spend ceiling, MICRO-CENTS ($100). `0`/null on a drive = no ceiling. */
-export const DEFAULT_SPEND_CEILING_MICROS = 100_000_000;
+/** The default daily spend ceiling in MICRO-CENTS (`round(usd * 100 * 1e6)`, so 1e8 per USD): $100.
+ *  `0`/null on a drive = no ceiling. Stored in a BIGINT column — a 32-bit Int tops out near $21.47. */
+export const DEFAULT_SPEND_CEILING_MICROS = 10_000_000_000;
 /** The theater's pulse cadence while visible. */
 export const THEATER_PULSE_MS = 2_000;
 /** The notifier's cadence — deliberately NOT visibility-gated (a hidden tab is when it matters). */

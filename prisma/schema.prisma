@@ -1992,7 +1992,7 @@ model LoopDrive {
   mode               String    @default("bounded")
   pausedReason       String?
   pausedUntil        DateTime?
-  spendCeilingMicros Int?
+  spendCeilingMicros BigInt? // micro-cents: $100 is 1e10, past a 32-bit Int (~$21.47)
   repoStateJson      String    @default("[]")
   dialsJson          String?
   lastBeatAt         DateTime?
@@ -2065,9 +2065,9 @@ model LoopDirection {
   fenceJson     String    @default("[]") // JSON string[] of module prefixes the direction may move
   checkText     String    @default("")
   budgetCycles  Int       @default(3)
-  budgetMicros  Int?
+  budgetMicros  BigInt? // micro-cents (1e8 per USD) — a 32-bit Int holds only ~$21.47
   usedCycles    Int       @default(0)
-  usedMicros    Int       @default(0)
+  usedMicros    BigInt    @default(0)
   status        String    @default("active")
   originPlanId  String
   approvedBy    String?

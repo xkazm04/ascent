@@ -2,7 +2,7 @@
 //   • a BOUNDED drive now hands every run it dispatches the operator's dials — five of them used to be
 //     silently dropped, so every drive run ran on the deployment defaults;
 //   • `mode: "continuous"` arms the standing runner: no rope, `runner` delivery, the daily ceiling, a
-//     fresh per-repo state — and a ceiling the row cannot store is refused before anything is armed.
+//     fresh per-repo state — and a ceiling past the sanity bound is refused before anything is armed.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DriveStatus } from "./drive-types";
@@ -19,7 +19,7 @@ vi.mock("@/lib/db/loop-runs-read", () => ({
   getOrgPriceList: vi.fn(async () => ({ rows: [] })),
 }));
 vi.mock("@/lib/db/drives", () => ({
-  SPEND_CEILING_STORABLE_MAX_MICROS: 2_147_483_647,
+  SPEND_CEILING_STORABLE_MAX_MICROS: 100_000_000_000_000,
   createDriveRow: vi.fn(async () => true),
   saveDriveRow: vi.fn(async () => undefined),
   getDriveRow: vi.fn(async () => null),
@@ -96,11 +96,12 @@ describe("mode: continuous arms the standing runner", () => {
     expect(startLoopRun).not.toHaveBeenCalled();
   });
 
-  it("an explicit 0 is no ceiling; a ceiling the row cannot store is refused before anything is armed", async () => {
+  it("an explicit 0 is no ceiling; a ceiling past the sanity bound is refused before anything is armed", async () => {
     const st = await startDrive({ org: "acme", repos: ["acme/a"], mode: "continuous", spendCeilingUsd: 0 });
     expect(st.spendCeilingMicros).toBeNull();
     drives.clear();
-    await expect(startDrive({ org: "acme", repos: ["acme/a"], mode: "continuous", spendCeilingUsd: 100 })).rejects.toThrow(/larger than/);
+    // $100 is the DEFAULT and must store (BIGINT micro-cents); only a typo-sized ceiling is refused.
+    await expect(startDrive({ org: "acme", repos: ["acme/a"], mode: "continuous", spendCeilingUsd: 1_000_001 })).rejects.toThrow(/larger than/);
     expect(launchRunner).toHaveBeenCalledTimes(1);
   });
 

@@ -32,7 +32,8 @@ ALTER TABLE "LoopRunLane" ADD COLUMN "landedAt" TIMESTAMP(3);
 ALTER TABLE "LoopDrive" ADD COLUMN "mode" TEXT NOT NULL DEFAULT 'bounded';
 ALTER TABLE "LoopDrive" ADD COLUMN "pausedReason" TEXT;
 ALTER TABLE "LoopDrive" ADD COLUMN "pausedUntil" TIMESTAMP(3);
-ALTER TABLE "LoopDrive" ADD COLUMN "spendCeilingMicros" INTEGER;
+-- BIGINT: costs are MICRO-CENTS (1e8 per USD), and a 32-bit INTEGER tops out near $21.47.
+ALTER TABLE "LoopDrive" ADD COLUMN "spendCeilingMicros" BIGINT;
 ALTER TABLE "LoopDrive" ADD COLUMN "repoStateJson" TEXT NOT NULL DEFAULT '[]';
 ALTER TABLE "LoopDrive" ADD COLUMN "dialsJson" TEXT;
 ALTER TABLE "LoopDrive" ADD COLUMN "lastBeatAt" TIMESTAMP(3);
@@ -77,9 +78,9 @@ CREATE TABLE "LoopDirection" (
     "fenceJson" TEXT NOT NULL DEFAULT '[]',
     "checkText" TEXT NOT NULL DEFAULT '',
     "budgetCycles" INTEGER NOT NULL DEFAULT 3,
-    "budgetMicros" INTEGER,
+    "budgetMicros" BIGINT,
     "usedCycles" INTEGER NOT NULL DEFAULT 0,
-    "usedMicros" INTEGER NOT NULL DEFAULT 0,
+    "usedMicros" BIGINT NOT NULL DEFAULT 0,
     "status" TEXT NOT NULL DEFAULT 'active',
     "originPlanId" TEXT NOT NULL,
     "approvedBy" TEXT,

@@ -64,7 +64,7 @@ export interface PulseDriveRow {
   lastBeatAt: Date | null;
   runsJson: string;
   runsBefore: number;
-  spendCeilingMicros: number | null;
+  spendCeilingMicros: bigint | number | null;
   repoStateJson: string | null;
 }
 
@@ -201,7 +201,7 @@ export function toRunnerPulse(drive: PulseDriveRow, spendTodayMicros: number): R
     lastBeatAt: iso(drive.lastBeatAt),
     runsDone: driveRunsDone({ runs: asRuns(drive.runsJson), runsBefore: drive.runsBefore }),
     spendTodayMicros,
-    spendCeilingMicros: drive.spendCeilingMicros ?? null,
+    spendCeilingMicros: drive.spendCeilingMicros == null ? null : Number(drive.spendCeilingMicros),
     repos: asRepoStates(drive.repoStateJson),
   };
 }
