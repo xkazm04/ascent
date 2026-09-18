@@ -9,6 +9,7 @@
 
 import type { LanePhase, LanePulse, LoopPulse, PulseEvent, RunnerPulse } from "@/lib/local/runner-types";
 import { MICROS_PER_USD } from "./theaterFormat";
+import { scriptedActivity } from "./theaterFixtureScript";
 
 /** The simulated clock's zero. Arbitrary but fixed — determinism is the point. */
 export const DEMO_EPOCH = Date.parse("2026-09-18T12:00:00.000Z");
@@ -93,19 +94,15 @@ const SCRIPT: readonly [until: number, phase: LanePhase][] = [
   [180, "landing"],
 ];
 const LANDS_AT = 170;
-const FILES = {
-  "acme/kp": { read: "src/scoring/engine.ts", edit: "src/scoring/claims.ts" },
-  "acme/systedo": { read: "app/api/cases/route.ts", edit: "app/api/cases/validate.ts" },
-} as const;
-
-function scriptedLane(repo: keyof typeof FILES, t: number, offset: number): LanePulse {
+function scriptedLane(repo: string, t: number, offset: number): LanePulse {
   const local = (((t + offset) % DEMO_CYCLE_S) + DEMO_CYCLE_S) % DEMO_CYCLE_S;
   const idx = SCRIPT.findIndex(([until]) => local < until);
   const [, phase] = SCRIPT[idx]!;
   const from = idx === 0 ? 0 : SCRIPT[idx - 1]![0];
   const cycleStart = DEMO_EPOCH + (t - local) * 1000;
-  const f = FILES[repo];
-  const editing = local >= 60;
+  // The session's activity comes from the script (theaterFixtureScript.ts): a real lane's cadence of
+  // reads and edits across modules, bounded exactly as the production pulse bounds it.
+  const act = scriptedActivity(repo, local, cycleStart);
   return fixtureLane({
     laneId: `lane-${repo.split("/")[1]}`,
     repo,
@@ -114,11 +111,9 @@ function scriptedLane(repo: keyof typeof FILES, t: number, offset: number): Lane
     heartbeatAt: iso(DEMO_EPOCH + t * 1000),
     startedAt: iso(cycleStart),
     deadlineAt: iso(cycleStart + 240_000),
-    planStep: local >= 20 ? { index: Math.min(4, 1 + Math.floor((local - 20) / 40)), total: 4 } : null,
-    filesRead: local >= 20 ? [f.read] : [],
-    filesEdited: editing ? [f.edit] : [],
-    diffStat: editing ? { files: 1, plus: Math.min(60, local - 50), minus: Math.min(14, Math.floor((local - 50) / 5)) } : null,
-    tail: local >= 20 ? [{ at: iso(cycleStart + 20_000), kind: editing ? "edit" : "read", path: editing ? f.edit : f.read, tool: editing ? "Edit" : "Read", note: null }] : [],
+    // The production stream never names a plan step, so the running demo does not either.
+    planStep: null,
+    ...act,
   });
 }
 
