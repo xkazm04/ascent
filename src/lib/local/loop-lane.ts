@@ -39,7 +39,7 @@ import { diffScans } from "@/lib/report/compare";
 import { installInWorktree } from "@/lib/local/lane-install";
 import { commitAgentWork } from "@/lib/local/lane-commit";
 import { deriveLaneDeliverables, parseClaimLines, type AgentClaim } from "@/lib/local/lane-deliverables";
-import { proposeLaneKind } from "@/lib/local/lane-kind";
+import { isAgentLaneKind, proposeLaneKind } from "@/lib/local/lane-kind";
 import { gapSlotsAtGreen, isReservationGreen, reserveCraftSlots } from "@/lib/local/lane-reservation";
 import { batchSizeOf, verifyTimeoutMsOf } from "@/lib/local/run-limits";
 // THE LIVENESS CEILING. Every awaited stage below runs inside a race against ONE deadline derived
@@ -1439,7 +1439,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     // THE LANE NOW COMMITS THAT WORK (lane-commit.ts), so reaching here dirty means the LANE's own
     // commit failed — a hook, a missing git identity, a locked index. This stays as the fallback,
     // and it is now the last thing standing between a failed commit and a silently deleted worktree.
-    if ((kind === "backlog" || kind === "direction") && commits === 0) {
+    if (isAgentLaneKind(kind) && commits === 0) {
       const dirty = await git(["status", "--porcelain"]);
       const changed = dirty.ok ? dirty.stdout.split("\n").filter((l) => l.trim()).length : 0;
       if (changed > 0) {
@@ -1609,7 +1609,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     // the agent said it SKIPPED is parked so the next cycle asks a different question instead of
     // spending another session on the same refusal. Nothing on the Recommendation row changes — a
     // deferral is advisory to `openBatch` alone.
-    if ((kind === "backlog" || kind === "direction") && batch.length > 0) {
+    if (isAgentLaneKind(kind) && batch.length > 0) {
       await recordLaneOutcomes({
         orgSlug: org,
         runId,
@@ -1781,7 +1781,7 @@ export async function settleDeferredCycles(args: {
         ? `${mine.length} follow-up(s) VERIFIED closed by the run's closing rescan — the gap is no longer raised and its dimension moved.`
         : "The run's closing rescan confirmed none of this cycle's items.",
     );
-    if ((d.kind === "backlog" || d.kind === "direction") && d.batch.length > 0) {
+    if (isAgentLaneKind(d.kind) && d.batch.length > 0) {
       await recordLaneOutcomes({
         orgSlug: org,
         runId: args.runId,

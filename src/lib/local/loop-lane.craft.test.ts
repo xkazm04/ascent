@@ -228,5 +228,10 @@ describe("a craft batch actually dispatches", () => {
     expect(prompt).toContain("RESOLVED: <id> - <what changed>");
     // The rung was CLAIMED, so the next rescan's trailer feedback applies to it.
     expect(lanePatches.some((p) => Array.isArray(p.batchIds) && (p.batchIds as string[]).includes("c1"))).toBe(true);
+    // …AND ADJUDICATED. A cycle-1 craft lane used to skip every tail (`kind === "backlog"`), so the rung
+    // it built was never closed, its lessons never recorded, and the next run re-offered it — the exact
+    // loop `closeBuiltCraftRungs` exists to stop, and one a standing runner would hit on every run.
+    const { recordLaneOutcomes } = await import("@/lib/db/lane-outcomes");
+    expect(vi.mocked(recordLaneOutcomes)).toHaveBeenCalledWith(expect.objectContaining({ batchIds: ["c1"] }));
   });
 });

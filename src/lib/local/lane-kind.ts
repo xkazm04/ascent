@@ -55,6 +55,16 @@ import { buildArtifact } from "@/lib/practice-artifact";
 import type { FollowUpItem } from "@/lib/org/followups";
 import type { LoopLaneKind } from "@/lib/db/loop-runs-types";
 
+/**
+ * The AGENT lanes — one editing session over one batch — as opposed to the deterministic installs
+ * (`foundation`, `practice`). Every agent lane owes the same tail after its rescan: per-item outcomes
+ * (which is also what closes a BUILT craft rung), lessons, and playbook stamps. One predicate, so a
+ * kind added later cannot be admitted to the session and forgotten by the tail — which is exactly what
+ * happened to `craft` (r12): its cycle-1 lanes ran the agent and skipped every tail, so a built rung
+ * was never closed and the next run re-offered it (found by spark theater-upgrade, 2026-09-18).
+ */
+export const isAgentLaneKind = (kind: LoopLaneKind): boolean => kind === "backlog" || kind === "craft" || kind === "direction";
+
 /** The manifest spine, in both spellings `src/lib/analyze/passport.ts:260` accepts. */
 export const FOUNDATION_SPINES = [".ai/manifest.yaml", ".ai/manifest.yml"] as const;
 
