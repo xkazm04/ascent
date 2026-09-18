@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, it, expect } from "vitest";
-import { buildOnboardingSkill } from "./skill";
+import { buildOnboardingSkill, ONBOARDING_SKILL_AGENTS_PATH, ONBOARDING_SKILL_PATH } from "./skill";
 import { selectTracks, WEAK_THRESHOLD } from "./tracks";
 import { DIMENSIONS, levelForScore } from "@/lib/maturity/model";
 import { orgTabHref } from "@/lib/org/orgTabs";
@@ -59,6 +59,32 @@ describe("buildOnboardingSkill", () => {
     expect(skill.body).toContain("acme/api");
     expect(skill.body).toContain("L3"); // baked level
     expect(skill.body).toContain("58/100"); // baked overall score
+  });
+
+  it("emits a vendor-neutral skill path beside the Claude file, same trackIds", () => {
+    const report = makeReport({ D4: 40, D9: 50 });
+    const skill = buildOnboardingSkill(report);
+    const tracks = selectTracks(report);
+    expect(skill.path).toBe(ONBOARDING_SKILL_PATH);
+    expect(skill.files.length).toBeGreaterThanOrEqual(2);
+    const paths = skill.files.map((f) => f.path);
+    expect(paths).toContain(ONBOARDING_SKILL_PATH);
+    expect(paths.some((p) => !p.startsWith(".claude/"))).toBe(true);
+    const claude = skill.files.find((f) => f.path === ONBOARDING_SKILL_PATH)!;
+    const agents = skill.files.find((f) => !f.path.startsWith(".claude/"))!;
+    expect(agents.path).toBe(ONBOARDING_SKILL_AGENTS_PATH);
+    expect(claude.body).toBe(skill.body);
+    expect(claude.body).not.toContain("Also linked from Claude's path");
+    expect(agents.body).toMatch(/^---\nname: ascent-onboard\n/);
+    expect(agents.body).toContain(`Also linked from Claude's path: \`${ONBOARDING_SKILL_PATH}\`.`);
+    expect(skill.trackIds).toEqual(tracks.map((t) => t.id));
+    expect(skill.trackIds.length).toBeGreaterThan(0);
+    for (const t of tracks) {
+      expect(claude.body).toContain(t.dimId);
+      expect(claude.body).toContain(t.title);
+      expect(agents.body).toContain(t.dimId);
+      expect(agents.body).toContain(t.title);
+    }
   });
 
   it("turns only weak dimensions (< threshold) into tracks by default", () => {

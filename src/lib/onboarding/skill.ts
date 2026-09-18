@@ -1,8 +1,10 @@
-// Render a ScanReport into the "ultimate onboarding skill" — a single, self-contained SKILL.md the
-// scanned repo drops into .claude/skills/ and runs with its own Claude Code CLI. Unlike the static
-// practice-artifact PRs, this hands the repo an interactive HARNESS its own agent drives: it
-// re-confirms each gap against the real code, adapts the deliverable to this repo, verifies before
-// proposing, and tracks progress. That makes the skill itself a unit of LLM-driven development.
+// Render a ScanReport into the "ultimate onboarding skill" — a self-contained SKILL.md the scanned
+// repo drops into TWO homes and runs with its own agent CLI. Claude Code still lives at
+// `.claude/skills/` (kept); a vendor-neutral copy is emitted beside it at `.agents/skills/` so the
+// path is not a brand. Unlike the static practice-artifact PRs, this hands the repo an interactive
+// HARNESS its own agent drives: it re-confirms each gap against the real code, adapts the deliverable
+// to this repo, verifies before proposing, and tracks progress. That makes the skill itself a unit of
+// LLM-driven development. Instruction files only — no agent runtime.
 //
 // Everything the running agent needs is BAKED IN, because the scanned repo has no access to
 // Ascent's database. Pure string assembly (no LLM, no I/O) — deterministic and testable.
@@ -27,18 +29,51 @@ import { selectTracks, WEAK_THRESHOLD, type OnboardingTrack, type SelectOpts } f
 export interface GeneratedSkill {
   /** Skill identifier / slash-command name. */
   name: string;
-  /** Repo-relative path the file should live at. */
+  /** Claude Code home — download and foundation PR still write this path. */
   path: string;
-  /** Full SKILL.md body to write. */
+  /** Full SKILL.md body for `path` (Claude's copy, no vendor-neutral header). */
   body: string;
   /** The practice/track ids this skill selected — persisted for the generation history (STD-6). */
   trackIds: string[];
+  /** Both homes: Claude's path first, then the vendor-neutral `.agents/skills/` copy. Same trackIds. */
+  files: GeneratedFile[];
 }
 
 const SKILL_NAME = "ascent-onboard";
 
 /** Repo-relative path the generated skill is written to (download and foundation PR share it). */
 export const ONBOARDING_SKILL_PATH = `.claude/skills/${SKILL_NAME}/SKILL.md`;
+
+/** Vendor-neutral skill home (agents registry), emitted beside the Claude path. */
+export const ONBOARDING_SKILL_AGENTS_PATH = `.agents/skills/${SKILL_NAME}/SKILL.md`;
+
+/** One-line header on the vendor-neutral copy pointing at Claude's path. */
+const CLAUDE_LINK_HEADER = `Also linked from Claude's path: \`${ONBOARDING_SKILL_PATH}\`.`;
+
+/** Keep YAML frontmatter at byte 0 so both copies remain valid SKILL.md. */
+function withClaudeLinkHeader(body: string): string {
+  const open = body.match(/^(---\n[\s\S]*?\n---\n)/);
+  if (!open) return `${CLAUDE_LINK_HEADER}\n\n${body}`;
+  return `${open[1]}\n${CLAUDE_LINK_HEADER}\n${body.slice(open[1].length)}`;
+}
+
+function skillFiles(body: string): GeneratedFile[] {
+  return [
+    {
+      path: ONBOARDING_SKILL_PATH,
+      body,
+      purpose:
+        "Personalized onboarding harness the repo's agent runs after merge — same tracks as the SKILL.md download.",
+      lang: "markdown",
+    },
+    {
+      path: ONBOARDING_SKILL_AGENTS_PATH,
+      body: withClaudeLinkHeader(body),
+      purpose: "Vendor-neutral onboarding harness — same tracks, also linked from Claude's path.",
+      lang: "markdown",
+    },
+  ];
+}
 
 /** How many refinement tracks an already-strong repo is offered when it has no weak dimension. */
 const REFINEMENT_COUNT = 3;
@@ -84,19 +119,14 @@ export function buildOnboardingSkill(report: ScanReport, opts?: SelectOpts, embe
     guardrails(),
     footer(report),
   ].join("\n\n"); // blank line between every section so headings/`---` aren't glued to prose
-  return { name: SKILL_NAME, path: ONBOARDING_SKILL_PATH, body, trackIds: tracks.map((t) => t.id) };
+  const trackIds = tracks.map((t) => t.id);
+  return { name: SKILL_NAME, path: ONBOARDING_SKILL_PATH, body, trackIds, files: skillFiles(body) };
 }
 
 /** The skill as a `GeneratedFile` so the foundation PR can commit it next to `.ai/` (later-file 409 skip). */
 export function buildOnboardingSkillFile(report: ScanReport, opts?: SelectOpts): GeneratedFile {
   const skill = buildOnboardingSkill(report, opts);
-  return {
-    path: skill.path,
-    body: skill.body,
-    purpose:
-      "Personalized onboarding harness the repo's agent runs after merge — same tracks as the SKILL.md download.",
-    lang: "markdown",
-  };
+  return skill.files.find((f) => f.path === ONBOARDING_SKILL_PATH) ?? skill.files[0]!;
 }
 
 // ---- sections -----------------------------------------------------------------

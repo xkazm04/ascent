@@ -1,10 +1,12 @@
-// GET /api/report/skill?repo=owner/name[@sha][&dims=D2,D9][&max=3]  -> text/markdown (an
-// "ascent-onboard" SKILL.md)
+// GET /api/report/skill?repo=owner/name[@sha][&dims=D2,D9][&max=3][&format=json]
+//   default      -> text/markdown (Claude's `.claude/skills/ascent-onboard/SKILL.md`)
+//   format=json  -> both homes: Claude's path plus the vendor-neutral `.agents/skills/` copy
 //
 // Emits the personalized onboarding skill for a persisted maturity report — a scan output the repo
-// drops into .claude/skills/ and runs with its own Claude Code CLI. Mirrors the PDF export route:
-// read-gated by the owning org (public reports are open; private require org read access), and 404
-// when the repo has no saved scan — this reflects an existing report, it never triggers a scan.
+// drops into `.claude/skills/` (Claude Code, kept) and `.agents/skills/` (vendor-neutral). Mirrors
+// the PDF export route: read-gated by the owning org (public reports are open; private require org
+// read access), and 404 when the repo has no saved scan — this reflects an existing report, it never
+// triggers a scan. Default download stays the Claude file so SkillDownload keeps working.
 //
 // `dims` / `max` are the MAINTAINER'S SELECTION: buildOnboardingSkill has always accepted a
 // SelectOpts include/max (so a session can be scoped to one dimension, or ask for a refinement track
@@ -104,13 +106,30 @@ export async function GET(request: Request) {
   ).catch(() => {});
   // Sanitize every interpolated segment before the Content-Disposition header (the sha is
   // caller-supplied and unvalidated): keep only filename-safe chars so it can't inject a header.
-  const filename = `ascent-onboard-${safeFilenameSegment(parsed.owner)}-${safeFilenameSegment(parsed.name)}${
+  const stem = `ascent-onboard-${safeFilenameSegment(parsed.owner)}-${safeFilenameSegment(parsed.name)}${
     parsed.sha ? "-" + safeFilenameSegment(parsed.sha.slice(0, 7)) : ""
-  }.SKILL.md`;
+  }`;
+  if (params.get("format") === "json") {
+    return NextResponse.json(
+      {
+        name: skill.name,
+        path: skill.path,
+        body: skill.body,
+        trackIds: skill.trackIds,
+        files: skill.files.map((f) => ({ path: f.path, body: f.body })),
+      },
+      {
+        headers: {
+          "content-disposition": `attachment; filename="${stem}.skill.json"`,
+          "cache-control": "private, max-age=300",
+        },
+      },
+    );
+  }
   return new NextResponse(skill.body, {
     headers: {
       "content-type": "text/markdown; charset=utf-8",
-      "content-disposition": `attachment; filename="${filename}"`,
+      "content-disposition": `attachment; filename="${stem}.SKILL.md"`,
       "cache-control": "private, max-age=300",
     },
   });

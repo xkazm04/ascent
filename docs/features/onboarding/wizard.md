@@ -173,7 +173,10 @@ duplicated the dashboard. What replaced it is narrower and does real work: `Foun
 (`OnboardingFoundationPanel.tsx`) offers **one click that opens a draft PR in every repo that just
 scanned successfully**, seeding the `.ai/` foundation Ascent generated from each scan
 (`POST /api/report/foundation/pr-batch`) **and** the personalized
-`.claude/skills/ascent-onboard/SKILL.md` (same tracks as `GET /api/report/skill`). A pre-existing
+`.claude/skills/ascent-onboard/SKILL.md` (same tracks as `GET /api/report/skill`; Claude's path is
+kept). The generator also emits a vendor-neutral copy at `.agents/skills/ascent-onboard/SKILL.md`
+(same body, one-line header that it is also linked from Claude's path). Default skill download is
+still the Claude file; `GET /api/report/skill?format=json` returns both. A pre-existing
 skill file is skipped (409), not overwritten.
 The panel renders on the App path only (`foundationOrg`, gated the
 same way as the invite panel: an installation id means a real org with a token behind it), offers a
@@ -384,12 +387,16 @@ cluster, each repo a star:
 | `src/app/launch/page.tsx` | Post-OAuth cinematic entrance. |
 | `src/components/launch/FleetMap.tsx` | Animated constellation star-map of the fleet. |
 | `src/components/report/SkillDownload.tsx` | Report-header SKILL.md pill + `SkillDownloadList` for the wizard done step (one pill per scored repo). |
-| `src/lib/onboarding/skill.ts` | Generated per-repo `ascent-onboard` SKILL.md (`GET /api/report/skill` and the foundation PR). Footer credits this deployment (`publicBaseUrl()`), never a hardcoded product domain; when that origin is set, one extra line names Standing › Passports as the org control matrix after `--json` doctor report-back. |
+| `src/lib/onboarding/skill.ts` | Generated per-repo `ascent-onboard` SKILL.md (`GET /api/report/skill` and the foundation PR). Emits two instruction files with the same trackIds: `.claude/skills/ascent-onboard/SKILL.md` (Claude Code, kept; default download) and `.agents/skills/ascent-onboard/SKILL.md` (vendor-neutral, plus a one-line "also linked from Claude's path" header). `?format=json` returns both. Footer credits this deployment (`publicBaseUrl()`), never a hardcoded product domain; when that origin is set, one extra line names Standing › Passports as the org control matrix after `--json` doctor report-back. |
 
 ## Generated onboarding skill footer (control matrix)
 
 `buildOnboardingSkill` (`src/lib/onboarding/skill.ts`) is the SKILL.md the scanned repo downloads and
-runs locally. The adopt loop ends with `node .ai/doctor.mjs --json` posting findings to
+runs locally. It returns `files[]` with **two instruction files and the same `trackIds`**: Claude
+Code's home (`.claude/skills/ascent-onboard/SKILL.md`, also `path`/`body` for the default download)
+and a vendor-neutral copy at `.agents/skills/ascent-onboard/SKILL.md` whose body is the same plus a
+one-line header that it is also linked from Claude's path. No agent runtime is generated — these are
+instruction files only. The adopt loop ends with `node .ai/doctor.mjs --json` posting findings to
 `/api/report/conformance`, which Standing › Passports already renders as the fleet control matrix
 (`GET /api/report/conformance/matrix`). When `publicBaseUrl()` is set, the skill footer names that
 in-product matrix as `{origin}{orgTabHref(owner, "passports")}` so the agent's last step is
