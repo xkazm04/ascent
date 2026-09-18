@@ -68,6 +68,8 @@ vi.mock("@/lib/cache", () => ({
 }));
 
 import { persistScanReport } from "./scans-persist";
+import { DEDUP_KEY_VERSION, scanContentKey } from "./scans-read";
+import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
 import { verifyAudit } from "./audit-integrity";
 
 // ── Fixtures ────────────────────────────────────────────────────────────────────────────────────
@@ -170,6 +172,8 @@ function makeReport(over: {
   scannedAt?: string;
   roadmap?: Array<{ dimension: string; title: string }>;
   engineProvider?: string;
+  /** Scoring-instrument stamp on the report (HistoryPoint identity). */
+  rubricVersion?: string;
   /** The mock floor FIRED (a model was requested and never answered) — the provenance flag. */
   engineDegraded?: boolean;
   /** The ScoreIntegrity record the engine computed for this scan. */
@@ -209,6 +213,7 @@ function makeReport(over: {
       provider: over.engineProvider ?? "anthropic",
       model: "claude",
       ...(over.engineDegraded === undefined ? {} : { degraded: over.engineDegraded }),
+      ...(over.rubricVersion === undefined ? {} : { rubricVersion: over.rubricVersion }),
     },
     ...(over.scoreIntegrity ? { scoreIntegrity: over.scoreIntegrity } : {}),
     headline: "ok",
@@ -226,11 +231,20 @@ function makeReport(over: {
 /**
  * The CONTENT identity `makeReport()` produces — the sha-less dedup path now compares this (not the
  * bare timestamp) before reusing a row, so a fake "existing row" must carry the matching key to model
- * "the same report was already persisted". Kept in sync with the fixture's scores/engine by hand
- * (the real key builder is exercised directly in scans-read.test.ts).
+ * "the same report was already persisted". Built by the real `scanContentKey` so a key-shape bump
+ * cannot silently desync the HIT fixtures from persist.
  */
 function fixtureContentKey(engineProvider = "anthropic"): string {
-  return `70|L3|60|80|${engineProvider}|claude|`;
+  return scanContentKey({
+    overallScore: 70,
+    level: "L3",
+    adoptionScore: 60,
+    rigorScore: 80,
+    engineProvider,
+    engineModel: "claude",
+    rubricVersion: SCORING_RUBRIC_VERSION,
+    dimensions: [],
+  });
 }
 
 beforeEach(() => {
@@ -888,6 +902,41 @@ describe("persistScanReport — sha-less findScanByScannedAt dedup fallback", ()
     expect(res).toMatchObject({ deduped: false });
   });
 
+  it("SAME scores, DIFFERENT rubricVersion at the same millisecond: both scans persist (two rows)", async () => {
+    // HistoryPoint already treats rubricVersion as instrument identity. Without it in scanContentKey,
+    // a sha-less persist of rubric A then same-ms rubric B with identical scores collapsed to one row.
+    const scannedAt = "2026-06-18T08:30:00.000Z";
+    const { prisma, scanCreate, createdScans } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const scores = {
+      overallScore: 70,
+      level: "L3",
+      adoptionScore: 60,
+      rigorScore: 80,
+      engineProvider: "anthropic",
+      engineModel: "claude",
+      dimensions: [] as Array<{ dimId: string; score: number }>,
+    };
+
+    mockFindScanByScannedAt.mockResolvedValueOnce(null);
+    const first = await persistScanReport(makeReport({ headSha: null, scannedAt, rubricVersion: "rA" }));
+    expect(first).toMatchObject({ scanId: "scan_new", deduped: false, headSha: null });
+
+    mockFindScanByScannedAt.mockResolvedValueOnce({
+      id: "scan_rA",
+      engineProvider: "anthropic",
+      contentKey: scanContentKey({ ...scores, rubricVersion: "rA" }),
+    });
+    const second = await persistScanReport(makeReport({ headSha: null, scannedAt, rubricVersion: "rB" }));
+
+    expect(second).toMatchObject({ scanId: "scan_new", deduped: false, headSha: null });
+    expect(scanCreate).toHaveBeenCalledTimes(2); // 1 of 1 rubric-mismatch same-score fixtures → two rows
+    expect(createdScans[0]!.dedupKey).not.toBe(createdScans[1]!.dedupKey);
+    expect(createdScans[0]!.dedupKey).toMatch(new RegExp(`^${DEDUP_KEY_VERSION}:[0-9a-f]{64}$`));
+    expect(createdScans[1]!.dedupKey).toMatch(new RegExp(`^${DEDUP_KEY_VERSION}:[0-9a-f]{64}$`));
+  });
+
   it("MISS: a genuinely new sha-less report persists EXACTLY ONE row (deduped:false, headSha:null)", async () => {
     // No prior row at this scannedAt → the fallback must NOT suppress a genuinely-new sha-less scan;
     // it persists once and the stored scan's headSha stays null.
@@ -944,7 +993,8 @@ describe("persistScanReport — sha-less cross-instance dedup key", () => {
     expect(createdScans[0]!.headSha).toBeNull();
     // The exact value is scanDedupKey's contract (pinned in scans-read.test.ts); here it must simply be
     // PRESENT and well-formed — a null would leave the row unconstrained, which is the whole defect.
-    expect(createdScans[0]!.dedupKey).toMatch(/^v1:[0-9a-f]{64}$/);
+    expect(DEDUP_KEY_VERSION).not.toBe("v1");
+    expect(createdScans[0]!.dedupKey).toMatch(/^v2:[0-9a-f]{64}$/);
   });
 
   it("leaves dedupKey NULL on a sha-BEARING row (one dedup identity per row, never two)", async () => {
@@ -975,7 +1025,7 @@ describe("persistScanReport — sha-less cross-instance dedup key", () => {
     expect(mockFindScanByCommit).not.toHaveBeenCalled();
     const [repoId, key] = mockFindScanByDedupKey.mock.calls[0] as [string, string];
     expect(repoId).toBe("repo_1");
-    expect(key).toMatch(/^v1:[0-9a-f]{64}$/);
+    expect(key).toMatch(/^v2:[0-9a-f]{64}$/);
   });
 
   it("sha-less P2002 with no recoverable winner re-throws (never silently swallows a lost scan)", async () => {

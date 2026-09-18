@@ -94,8 +94,11 @@ export async function findScanByCommit(
  *
  * Deliberately a plain canonical STRING, not a hash: dedup compares it for equality only, so a hash
  * would add collision risk and lose debuggability for nothing. Dimension scores are sorted by id so
- * the key is stable regardless of the order the detectors/LLM emitted them. Pure — the persist path
- * derives it from the in-memory report, the read path from the persisted row, and they must agree.
+ * the key is stable regardless of the order the detectors/LLM emitted them. `rubricVersion` rides
+ * with the engine — it is the same instrument identity `HistoryPoint` already carries, so identical
+ * scores under two rubrics are two results. A missing stamp canonicalizes to `""` so a legacy row
+ * and a stamped row never compare equal by accident. Pure — the persist path derives it from the
+ * in-memory report, the read path from the persisted row, and they must agree.
  */
 export function scanContentKey(input: {
   overallScore: number;
@@ -104,6 +107,7 @@ export function scanContentKey(input: {
   rigorScore: number;
   engineProvider: string;
   engineModel: string;
+  rubricVersion: string | null;
   dimensions: Array<{ dimId: string; score: number }>;
 }): string {
   const dims = [...input.dimensions]
@@ -117,6 +121,7 @@ export function scanContentKey(input: {
     input.rigorScore,
     input.engineProvider,
     input.engineModel,
+    input.rubricVersion ?? "",
     dims,
   ].join("|");
 }
@@ -160,6 +165,7 @@ export async function findScanByScannedAt(
       level: true,
       adoptionScore: true,
       rigorScore: true,
+      rubricVersion: true,
       dimensions: { select: { dimId: true, score: true } },
     },
   });
@@ -174,6 +180,7 @@ export async function findScanByScannedAt(
       rigorScore: row.rigorScore,
       engineProvider: row.engineProvider,
       engineModel: row.engineModel,
+      rubricVersion: row.rubricVersion,
       dimensions: row.dimensions,
     }),
   };
@@ -181,7 +188,7 @@ export async function findScanByScannedAt(
 
 /** Version prefix on {@link scanDedupKey}. Bump it if the identity inputs ever change: old and new keys
  *  then simply never collide, instead of two different definitions silently deduping against each other. */
-const DEDUP_KEY_VERSION = "v1";
+export const DEDUP_KEY_VERSION = "v2";
 
 /**
  * The persisted, indexed IDEMPOTENCY key for a SHA-LESS scan — the cross-instance half of the sha-less

@@ -286,9 +286,9 @@ export async function persistScanReport(
       // ways — two genuinely DIFFERENT sha-less scores computed in the same millisecond collided and the
       // second was silently dropped, and a reused/replayed clock value could suppress a legitimate
       // re-score. The timestamp is now only the cheap, indexed NARROWING step; the decision is made on
-      // the report's CONTENT identity (scanContentKey: score/level/axes/engine + per-dimension scores).
-      // Same timestamp AND same content ⇒ the same computed report ⇒ dedup. Same timestamp, different
-      // content ⇒ two distinct results ⇒ persist both.
+      // the report's CONTENT identity (scanContentKey: score/level/axes/engine/rubric + per-dimension
+      // scores). Same timestamp AND same content ⇒ the same computed report ⇒ dedup. Same timestamp,
+      // different content (including a rubric mismatch at identical scores) ⇒ persist both.
       const contentKey = scanContentKey({
         overallScore: report.overallScore,
         level: report.level.id,
@@ -296,6 +296,7 @@ export async function persistScanReport(
         rigorScore: report.rigorScore,
         engineProvider: report.engine.provider,
         engineModel: report.engine.model,
+        rubricVersion: report.engine.rubricVersion ?? SCORING_RUBRIC_VERSION,
         dimensions: report.dimensions.map((d) => ({ dimId: d.id, score: d.score })),
       });
       // The SAME identity, persisted: the read below is the fast path, and this key is what a CONCURRENT

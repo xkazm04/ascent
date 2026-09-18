@@ -103,6 +103,7 @@ vi.mock("@/lib/db/scans-shared", () => {
 });
 
 import {
+  DEDUP_KEY_VERSION,
   findScanByDedupKey,
   findScanByScannedAt,
   getLatestRecommendations,
@@ -513,11 +514,19 @@ describe("scanContentKey / findScanByScannedAt — content identity for sha-less
     rigorScore: 80,
     engineProvider: "anthropic",
     engineModel: "claude",
+    rubricVersion: "r10",
     dimensions: [
       { dimId: "D2", score: 55 },
       { dimId: "D1", score: 90 },
     ],
   };
+
+  it("pins the v2 key shape (rubricVersion is instrument identity) and forbids the v1 shape", () => {
+    // v2 folds rubricVersion in with the engine; v1 omitted it, so two same-score different-rubric
+    // reports hashed to one identity. The old canonical string must never be produced.
+    expect(scanContentKey(base)).toBe("70|L3|60|80|anthropic|claude|r10|D1:90,D2:55");
+    expect(scanContentKey(base)).not.toBe("70|L3|60|80|anthropic|claude|D1:90,D2:55");
+  });
 
   it("is STABLE across dimension ordering (detector/LLM emission order must not change identity)", () => {
     const reversed = { ...base, dimensions: [...base.dimensions].reverse() };
@@ -537,6 +546,14 @@ describe("scanContentKey / findScanByScannedAt — content identity for sha-less
     expect(scanContentKey({ ...base, engineProvider: "mock" })).not.toBe(scanContentKey(base));
   });
 
+  it("CHANGES when only rubricVersion changes (identical scores, different instrument)", () => {
+    expect(scanContentKey({ ...base, rubricVersion: "r11" })).not.toBe(scanContentKey(base));
+  });
+
+  it("treats a missing rubricVersion as distinct from a stamped one", () => {
+    expect(scanContentKey({ ...base, rubricVersion: null })).not.toBe(scanContentKey(base));
+  });
+
   it("findScanByScannedAt derives the key from the persisted row (same builder, so both sides agree)", async () => {
     const findFirst = vi.fn(async () => ({
       id: "scan_1",
@@ -546,6 +563,7 @@ describe("scanContentKey / findScanByScannedAt — content identity for sha-less
       level: "L3",
       adoptionScore: 60,
       rigorScore: 80,
+      rubricVersion: "r10",
       dimensions: [{ dimId: "D1", score: 90 }, { dimId: "D2", score: 55 }],
     }));
     mockGetPrisma.mockReturnValue({ scan: { findFirst } });
@@ -555,9 +573,10 @@ describe("scanContentKey / findScanByScannedAt — content identity for sha-less
 
     expect(row).toEqual({ id: "scan_1", engineProvider: "anthropic", contentKey: scanContentKey(base) });
     // Still narrowed by (repoId, exact scannedAt) with a deterministic tie-break — the cheap indexed step.
-    const args = findFirst.mock.calls[0][0] as { where: unknown; orderBy: unknown };
+    const args = findFirst.mock.calls[0][0] as { where: unknown; orderBy: unknown; select: { rubricVersion?: boolean } };
     expect(args.where).toEqual({ repoId: "repo_1", scannedAt: at });
     expect(args.orderBy).toEqual([{ createdAt: "desc" }, { id: "desc" }]);
+    expect(args.select.rubricVersion).toBe(true);
   });
 
   it("returns null when no row shares the timestamp, and when persistence is off", async () => {
@@ -578,7 +597,7 @@ describe("scanContentKey / findScanByScannedAt — content identity for sha-less
 // PERSISTED and constrained, so the database itself rejects the second insert.
 describe("scanDedupKey — persisted idempotency identity for sha-less scans", () => {
   const at = new Date("2026-06-18T09:30:00.000Z");
-  const contentKey = "70|L3|60|80|anthropic|claude|D1:90,D2:55";
+  const contentKey = "70|L3|60|80|anthropic|claude|r10|D1:90,D2:55";
 
   it("is DETERMINISTIC: the same (scannedAt, content) always yields the same key", () => {
     expect(scanDedupKey(at, contentKey)).toBe(scanDedupKey(new Date(at.getTime()), contentKey));
@@ -594,35 +613,40 @@ describe("scanDedupKey — persisted idempotency identity for sha-less scans", (
     expect(scanDedupKey(new Date(at.getTime() + 1), contentKey)).not.toBe(scanDedupKey(at, contentKey));
   });
 
-  it("is a bounded, versioned token — it lives in a UNIQUE INDEX, so its length must not grow with the report", () => {
+  it("is a bounded v2 token — v1 keys must not collide, and length must not grow with the report", () => {
+    expect(DEDUP_KEY_VERSION).toBe("v2");
+    expect(DEDUP_KEY_VERSION).not.toBe("v1");
     const short = scanDedupKey(at, "a");
     const long = scanDedupKey(at, "x".repeat(50_000));
-    expect(short).toMatch(/^v1:[0-9a-f]{64}$/);
+    expect(short).toMatch(/^v2:[0-9a-f]{64}$/);
+    expect(short.startsWith("v1:")).toBe(false);
     expect(long).toHaveLength(short.length);
+    // Same hash payload under the retired prefix is a different persisted token.
+    expect(`v1:${short.slice("v2:".length)}`).not.toBe(short);
   });
 
   it("never throws on an invalid Date (a malformed scannedAt must not break the persist path)", () => {
     expect(() => scanDedupKey(new Date("nope"), contentKey)).not.toThrow();
-    expect(scanDedupKey(new Date("nope"), contentKey)).toMatch(/^v1:[0-9a-f]{64}$/);
+    expect(scanDedupKey(new Date("nope"), contentKey)).toMatch(/^v2:[0-9a-f]{64}$/);
   });
 
   it("findScanByDedupKey recovers the race WINNER by (repoId, dedupKey) — the P2002 recovery read", () => {
     const findFirst = vi.fn(async () => ({ id: "scan_winner" }));
     mockGetPrisma.mockReturnValue({ scan: { findFirst } });
 
-    return findScanByDedupKey("repo_1", "v1:abc").then((row) => {
+    return findScanByDedupKey("repo_1", "v2:abc").then((row) => {
       expect(row).toEqual({ id: "scan_winner" });
       const args = findFirst.mock.calls[0][0] as { where: unknown };
-      expect(args.where).toEqual({ repoId: "repo_1", dedupKey: "v1:abc" });
+      expect(args.where).toEqual({ repoId: "repo_1", dedupKey: "v2:abc" });
     });
   });
 
   it("returns null when nothing matches, and when persistence is off", async () => {
     mockGetPrisma.mockReturnValue({ scan: { findFirst: vi.fn(async () => null) } });
-    await expect(findScanByDedupKey("repo_1", "v1:abc")).resolves.toBeNull();
+    await expect(findScanByDedupKey("repo_1", "v2:abc")).resolves.toBeNull();
 
     mockIsDbConfigured.mockReturnValue(false);
-    await expect(findScanByDedupKey("repo_1", "v1:abc")).resolves.toBeNull();
+    await expect(findScanByDedupKey("repo_1", "v2:abc")).resolves.toBeNull();
     mockIsDbConfigured.mockReturnValue(true);
   });
 });
