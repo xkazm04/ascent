@@ -35,7 +35,10 @@ archive), then, only for members, `ApiTokensPanel`.
 (250ms) a server-side refetch of `GET /api/org/skills` on search/category/sort
 changes — the debounce covers the timer and an `AbortController` covers the
 request it starts, so a superseded read cannot land its rows after a newer one —
-opens on `SkillsLifecycle` (below), then renders a filter bar and a table (Name /
+opens on `SkillsLifecycle` (below), then a ranked list of **registry usage not
+in this library** when sink B names skills this org has not mirrored (kept,
+not dropped; they never become table rows and they do not vote on the
+library's `unmeasured`/`unused` split), then a filter bar and a table (Name /
 Category / Status / Adoptions / Uses), and expands a `SkillCard` beneath a
 clicked row. **Uses** is `SkillUsage.useCount`, the same fold the status badge
 reads (web copies/downloads, hook-reported invokes and the registry `usage/`
@@ -276,6 +279,15 @@ as reported, never the Registry `invokes30d` / `invokesDirect30d` rates.
 When no index pass has read the `usage/` lane (`registry.lastIndexedAt` is
 absent) the list is hatched (`not-judged`) and prints no number, rather than a
 row of zeros.
+
+The Skills tab used to drop sink B samples whose name was not an `OrgSkill`
+in this org, which hid fleet activity for skills the library has not
+mirrored. `sampleEventStats` now keeps those samples under a synthetic
+`registry:<name>` id (a cuid `OrgSkill.id` cannot collide). `skillUsageMap`
+folds them onto the usage map so `SkillsPanel` can list them; they do **not**
+flip a silent library skill from `unmeasured` to `unused`, and
+`usageSummary` does not count them in the library totals. A recency-less
+unmirrored sample still cannot borrow `generatedAt` as a birthday.
 
 The Registry tab's fleet-sync meters (`RegistryFleetSync`) hatch pointing and
 30d-sync the same way until the adoption pass (R5) hashes each repo's
@@ -965,9 +977,9 @@ as Trace.
 | `src/app/api/org/tokens/route.ts`, `.../[id]/route.ts` | Mint/list/revoke org API tokens. |
 | `src/lib/org/skill-frontmatter.ts` | Frontmatter parse/backfill/reconcile contract. |
 | `src/lib/org/skill-promote.ts` | Promotion naming/description/tag derivation. |
-| `src/lib/org/skill-usage.ts` / `skill-usage-load.ts` | Dormancy classification (pure logic / Prisma read split). |
+| `src/lib/org/skill-usage.ts` / `skill-usage-load.ts` | Dormancy classification (pure logic / Prisma read split). Unmirrored sink B samples stay on the map via `unmirroredRegistryUsage`. |
 | `src/lib/org/skill-event-source.ts` | The closed `source` vocabulary + prefix normalizer. |
-| `src/lib/registry/usage-samples.ts` | Registry `usage/` samples → per-skill `invoke` stats (pure). |
+| `src/lib/registry/usage-samples.ts` | Registry `usage/` samples → per-skill `invoke` stats (pure). Unmirrored names are kept as `registry:<name>`, not dropped. |
 | `src/lib/db/org-skill-usage-samples.ts` | `OrgSkillUsageSample` snapshot read/upsert/purge. |
 | `scripts/ascent-skills.mjs` | The distributable: sync/push/list/status + `hooks` and `report`. |
 | `src/lib/org/registry-howto.ts` | Registry tab how-to lines: `report --to-registry` (no token) vs hosted push/events (token). |
@@ -987,7 +999,7 @@ as Trace.
 | `src/lib/db/org-skills.ts` | CRUD, `toRow()` read-time frontmatter resolution. |
 | `src/lib/db/org-api-tokens.ts` | Token mint/verify/revoke, hashing. |
 | `src/lib/api-token-auth.ts` | `authorizeOrgApi()`: token-or-session gate for skills routes. |
-| `src/features/shared/skills/SkillsPanel.tsx` | Client orchestrator. |
+| `src/features/shared/skills/SkillsPanel.tsx` | Client orchestrator. Lists sink B usage for skills this org has not mirrored. |
 | `src/features/shared/skills/SkillsLifecycle.tsx` | The tab's first sight: the reuse matrix + the use-over-time track. |
 | `src/features/shared/skills/skillLifecycleViz.ts` | Pure view model: usage state → `VizState`, badge word, evidence line, reuse rows, outcome states. |
 | `src/features/shared/skills/skillDormancyTrack.ts` | Pure view model: the use-over-time lanes and the derived observation instant. |

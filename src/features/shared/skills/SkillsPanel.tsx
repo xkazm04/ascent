@@ -15,7 +15,7 @@ import { SkillsFilterBar } from "@/features/shared/skills/SkillsFilterBar";
 import { SkillsLibraryTable } from "@/features/shared/skills/SkillsLibraryTable";
 import { SkillsLifecycle } from "@/features/shared/skills/SkillsLifecycle";
 import { useSkillsLibrary } from "@/features/shared/skills/useSkillsLibrary";
-import type { SkillUsage } from "@/lib/org/skill-usage";
+import { unmirroredRegistryUsage, type SkillUsage } from "@/lib/org/skill-usage";
 import type { SkillOutcome } from "@/lib/org/skill-outcomes";
 import type { SkillAdoption, SkillRow } from "@/lib/db";
 
@@ -45,6 +45,9 @@ export function SkillsPanel({
   registryBase: string | null;
 }) {
   const s = useSkillsLibrary({ slug, initial });
+  // Sink B samples whose name is not an OrgSkill: kept (not dropped) so a fleet running unmirrored
+  // skills is still visible here. Ranked by invoke volume; they never appear as library rows.
+  const unmirrored = unmirroredRegistryUsage(usage);
 
   return (
     <Card>
@@ -58,6 +61,32 @@ export function SkillsPanel({
 
       {/* First sight below the header is a shape, not a filter bar. */}
       <SkillsLifecycle skills={s.skills} usage={usage} fleetSize={repoOptions.length} />
+
+      {unmirrored.length > 0 && (
+        <div
+          data-unmirrored-registry-usage
+          className="mt-3 rounded-xl border border-slate-800 bg-slate-950/40 p-4"
+        >
+          <p
+            className="type-label tracking-[0.16em] text-slate-500"
+            title="Sink B samples whose skill name is not an OrgSkill in this org. The registry ran them; dropping the counts would hide that. They do not vote on whether this library's own skills are unmeasured."
+          >
+            Registry usage not in this library
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {unmirrored.map((row) => (
+              <li key={row.name} data-skill={row.name} className="flex items-baseline justify-between gap-3">
+                <span className="min-w-0 truncate type-mono-sm text-slate-400" title={row.name}>
+                  {row.name}
+                </span>
+                <span data-count className="type-mono-sm tabular-nums text-slate-200">
+                  {row.invokes.toLocaleString()}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <SkillsFilterBar
         search={s.search}

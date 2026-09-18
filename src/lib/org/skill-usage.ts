@@ -31,7 +31,11 @@
 // symbol into the browser bundle. The reads live in skill-usage-load.ts.
 import type { SkillEventStat, SkillUsageRows } from "@/lib/db";
 // Pure module, safe for the client bundle — see its header.
-import { sampleEventStats } from "@/lib/registry/usage-samples";
+import {
+  isUnmirroredSkillId,
+  sampleEventStats,
+  unmirroredSkillName,
+} from "@/lib/registry/usage-samples";
 import { cadenceDaysFromFrontmatter } from "@/lib/org/skill-frontmatter";
 import { normalizeEventSource, type SkillEventSource } from "@/lib/org/skill-event-source";
 
@@ -321,6 +325,11 @@ export function skillUsage(input: SkillUsageInput, now: Date = new Date()): Skil
  * `OrgSkillEvent` rows. The samples are a SNAPSHOT re-read on every index pass: materializing them as
  * ledger rows would double-count the second time the same head was indexed, and no de-duplication key
  * exists on the registry side to prevent it. Read-time folding is idempotent by construction.
+ *
+ * Samples for skills this org has not mirrored are kept under `registry:<name>` (see
+ * {@link unmirroredRegistryUsage}) so the Skills tab can still name what the fleet ran. They do not
+ * vote on the library's `unmeasured`/`unused` split: running a different skill is not instrumentation
+ * of an OrgSkill that was never mirrored.
  */
 export function skillUsageMap(rows: SkillUsageMapInput, now: Date = new Date()): Record<string, SkillUsage> {
   const sampleStats = sampleEventStats(
@@ -346,13 +355,15 @@ export function skillUsageMap(rows: SkillUsageMapInput, now: Date = new Date()):
     list.push(a.adoptedAt);
     adoptions.set(a.skillId, list);
   }
+  const mirroredIds = new Set(rows.skills.map((s) => s.id));
   // The org-wide instrumentation fact behind `unmeasured` (D24): if not one event of any type exists
   // for the whole library, the pathway is silent and NOTHING is known about any skill's use. One row
   // anywhere proves the pathway works, so a zero-event skill in that org is genuinely `unused`.
-  // A contributed sample proves the pathway reaches this org just as an event does — it is a report
-  // from an installation that ran something. Counting only `rows.events` would leave a registry-only
-  // fleet permanently `unmeasured` while its own usage lane was full.
-  const orgHasTelemetry = rows.events.length > 0 || sampleStats.length > 0;
+  // A contributed sample for a MIRRORED skill proves the pathway reaches this org just as an event
+  // does — it is a report from an installation that ran something. Counting only `rows.events` would
+  // leave a registry-only fleet permanently `unmeasured` while its own usage lane was full. Unmirrored
+  // samples stay out of this bit: they are kept on the map, they do not flip the library.
+  const orgHasTelemetry = rows.events.length > 0 || sampleStats.some((e) => mirroredIds.has(e.skillId));
   const out: Record<string, SkillUsage> = {};
   for (const s of rows.skills) {
     out[s.id] = skillUsage(
@@ -367,7 +378,37 @@ export function skillUsageMap(rows: SkillUsageMapInput, now: Date = new Date()):
       now,
     );
   }
+  // Unmirrored registry skills have no library birthday. Using `generatedAt` would re-trigger the
+  // age guard on every publish; an unknown arrival must not claim `new`.
+  const unmirroredAnchor = "1970-01-01T00:00:00.000Z";
+  const seenUnmirrored = new Set<string>();
+  for (const e of sampleStats) {
+    if (mirroredIds.has(e.skillId) || seenUnmirrored.has(e.skillId)) continue;
+    seenUnmirrored.add(e.skillId);
+    out[e.skillId] = skillUsage(
+      {
+        skillId: e.skillId,
+        createdAt: unmirroredAnchor,
+        events: events.get(e.skillId) ?? [],
+        orgHasTelemetry: true,
+      },
+      now,
+    );
+  }
   return out;
+}
+
+/** Sink B samples whose skill name is not an OrgSkill in this org, ranked by invoke volume. */
+export function unmirroredRegistryUsage(
+  usage: Record<string, SkillUsage>,
+): { name: string; invokes: number; lastUsedAt: string | null }[] {
+  const rows: { name: string; invokes: number; lastUsedAt: string | null }[] = [];
+  for (const u of Object.values(usage)) {
+    const name = unmirroredSkillName(u.skillId);
+    if (!name) continue;
+    rows.push({ name, invokes: u.invokes, lastUsedAt: u.lastUsedAt });
+  }
+  return rows.sort((a, b) => b.invokes - a.invokes || a.name.localeCompare(b.name));
 }
 
 export interface UsageSummary {
@@ -387,6 +428,9 @@ export interface UsageSummary {
 export function usageSummary(map: Record<string, SkillUsage>): UsageSummary {
   const out: UsageSummary = { total: 0, new: 0, active: 0, dormant: 0, abandoned: 0, unused: 0, unmeasured: 0 };
   for (const u of Object.values(map)) {
+    // Unmirrored registry rows are not in the library; counting them here would inflate "N dormant
+    // of M" with skills the org never mirrored.
+    if (isUnmirroredSkillId(u.skillId)) continue;
     out.total += 1;
     out[u.verdict] += 1;
     if (u.state === "abandoned" || u.state === "unused" || u.state === "unmeasured") out[u.state] += 1;
