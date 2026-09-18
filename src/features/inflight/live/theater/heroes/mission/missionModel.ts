@@ -8,8 +8,7 @@
 
 import type { LanePhase, LanePulse, PulseEvent } from "@/lib/local/runner-types";
 import { lanePhaseLabel, laneQuietForMs } from "@/lib/local/lane-phase";
-import { deadlineFraction } from "../../TheaterHero";
-import { fmtDuration, since, toMs } from "../../theaterFormat";
+import { deadlineFraction, fmtDuration, since, toMs } from "../../theaterFormat";
 import type { LaneAcc } from "./missionAccumulate";
 import { ACTIVITY_DECAY_MS, LANDED_HOLD_MS } from "./missionTokens";
 

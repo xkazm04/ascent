@@ -57,3 +57,12 @@ export function since(iso: string | null | undefined, now: number): number | nul
   const t = toMs(iso);
   return t == null ? null : Math.max(0, now - t);
 }
+
+/** 0..1 of the lane's time budget used, or null when either end is unknown. TIME USED, never work
+ *  done: a hero that draws this must label it as the clock it is (`motion` taste budgets). */
+export function deadlineFraction(lane: { startedAt: string | null; deadlineAt: string | null }, now: number): number | null {
+  const start = toMs(lane.startedAt);
+  const end = toMs(lane.deadlineAt);
+  if (start == null || end == null || end <= start) return null;
+  return Math.min(1, Math.max(0, (now - start) / (end - start)));
+}

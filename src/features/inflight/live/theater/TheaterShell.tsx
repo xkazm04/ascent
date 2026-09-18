@@ -5,8 +5,8 @@
 // /theater/[slug] (signed in), by /live/shared/[token] for a `view: "theater"` kiosk link, and by
 // `?demo=1` from the fixture on a simulated clock.
 //
-// Layout, top to bottom: the dateline + controls, the four-answer header (never changed by the
-// prototype round), the HERO SLOT (theaterHeroSlot.ts — `?hero=<id>` picks one), the latest rail, and
+// Layout, top to bottom: the dateline + controls, the four-answer header (which the hero never
+// changes), the HERO SLOT (theaterHeroSlot.ts — `?hero=<id>` picks one), the latest rail, and
 // the cue cards floating above it. The shell owns the transport choice and the clocks; every piece
 // below it is a rendering of `TheaterFeed` and the instant it is told to measure against — frozen at
 // last contact when the pulse is stale, so nothing on the page pretends to move.

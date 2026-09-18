@@ -2592,8 +2592,8 @@ own. On a large repository that costs real time inside the verify budget.
 The standing runner works for hours with nobody watching it. The theater is the screen for that: a
 chrome-less, full-screen page meant for a passive third monitor, so that a person glancing at it from
 across the room knows four things — **is it running, what is it doing right now, is it going well,
-does it need me**. It is a shell with a fixed four-answer header, a hero slot the prototype round
-fills later, a one-line "latest" rail, and rare celebrations. Everything lives in
+does it need me**. It is a shell with a fixed four-answer header, a **hero** filling the big middle,
+a one-line "latest" rail, and rare celebrations. Everything lives in
 `src/features/inflight/live/theater/`; the route is `src/app/theater/[slug]/page.tsx`.
 
 #### The route, and why it sits outside the org shell
@@ -2637,19 +2637,51 @@ it on a box with no database. It is labelled `demo · fixture data` in the datel
    the count first ("3 · 2 plans wait · 1 repo paused") and a link to the Ledger
    (`/org/<slug>?tab=live&view=ledger`, `ledgerHref`); neutral *Nothing waiting* otherwise.
 
-#### The hero slot contract (for the prototype round)
+#### The hero: Mission
 
 `theaterHeroSlot.ts` is the one seam: `THEATER_HEROES` maps an id to a component taking
 `TheaterHeroProps` — `{ pulse: LoopPulse; now: number; reducedMotion: boolean }` — and the shell renders
-`renderHero(id, props)`. A prototype adds **one registry entry and its own file**; the shell, header and
-transport do not change, and `?hero=<id>` selects it (an unknown id falls back to the placeholder). The
+`renderHero(id, props)`. A hero is **one registry entry and its own folder**; the shell, header and
+transport do not change, and `?hero=<id>` selects it (an unknown id falls back to `DEFAULT_HERO`). The
 contract a hero honours: `pulse` is never null (the shell owns the empty state); every elapsed figure is
 derived from `now`, which the shell **freezes at last contact** when the pulse is stale; under
-`reducedMotion` every animation resolves to its end state.
+`reducedMotion` every animation resolves to its end state; and because the pulse is a bounded **window**
+(8 files, 6 events), a hero that wants a session's whole picture accumulates it across pulses in its own
+state and says on screen what it has actually seen.
 
-The placeholder (`TheaterHero`) is deliberately plain and motionless: a grid of the lanes at work —
-repo, phase words, time in phase, a thin elapsed-vs-`deadlineAt` bar (`deadlineFraction`, amber past
-80 %), files touched, the diff so far — and the repos waiting for a slot.
+**Mission** (`heroes/MissionHero.tsx` + `heroes/mission/`) is the hero that seam was built to choose.
+Each working repo gets one wide band, stacked in a fixed order by repo name so a lane never moves under
+the reader's eye: the stage track (plan · baseline · agent · check · commit · land) from
+`deriveLanePhase`, then **the phase word in display type** (~80 px at 1080p, ~160 px at 2160p — sized by
+viewport, not by breakpoint) with the agent's own last line and a strip of file chips (read blue, edit
+amber), then the diff so far and a **time-used** ring against `deadlineAt` (`deadlineFraction`,
+`theaterFormat.ts`; amber past 75 %, red at the limit, green once the lane landed, and labelled *time
+used* because elapsed-vs-deadline is the clock, never work done). Every repo not at work gets a compact
+row underneath — waiting for a slot, paused with its reason, resting, or finished this cycle — and with
+no lane working at all the slot states why and when work resumes.
+
+The motion budget is in constants beside the components (`missionTokens.ts`), and every animation is
+tied to a real pulse event: a chip enters when a file appears for the first time, a read chip turns amber
+and moves to the front on its first edit, chips and the band's edge cool with time since their newest
+event, the phase word cross-fades on a phase change (held ≥ 6 s so reading/editing/thinking cannot
+flicker), the ring fills with the clock, and the band turns green when a `landed` event dated inside that
+lane's session arrives. A stale pulse freezes all of it; `reducedMotion` renders the end states.
+
+The file trail is accumulated per lane session (lane id + cycle + start time,
+`missionAccumulate.ts` — a pure reducer) and the band says how much it knows: *"11 files · 4 edited —
+since this screen opened"*.
+
+**The round that chose it (2026-09-18).** Three heroes were built in parallel against this seam and
+judged from live renders on the demo's deterministic clock: **mission**, **heatmap** (a treemap of the
+modules the lane had opened, warming on edits and cooling into silence) and **observatory** (three
+orbits, each working repo a comet whose tail was its activity, with one narrated sentence across the
+foot). Mission won on the job the screen exists for — the first thing read at three metres is *which
+repo is doing what*, it is useful within seconds of a reload where the other two need to accumulate
+before they say anything, and it is the only one that holds a twenty-repo fleet. The other two were
+**deleted with their tests**, not kept as dead alternatives; the seam and this section are what remain of
+them. Mission's own admitted limits: it has never been rendered with more than two working lanes (three
+or more shrink the type), and *"for 37 s"* is time in the **stage**, not in the sub-phase, so a long
+agent stretch can overstate how long it has been editing.
 
 #### Transport and staleness honesty
 

@@ -1,5 +1,5 @@
 // THE AWARENESS HEADER — four answers in large, high-contrast type, the part everyone reads from three
-// metres. The prototype round changes the hero below it, never this. Pure rendering of `HeaderModel`
+// metres. It answers the same four questions whatever the hero below it draws. Pure rendering of `HeaderModel`
 // (theaterHeaderModel.ts): no hooks, no clock, no fetch — so a server test or a DOM test can render
 // every state from a fixture.
 //
