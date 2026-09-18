@@ -333,6 +333,10 @@ Coordinator wave over **all 54 contexts**, 5 highest-impact cards each (270). De
 
 100 S-sized auto-buildable cards, risk 1–2, dispatched in 7 isolated-worktree batches then cherry-picked onto `docs/org-path-of-use-adr-20260914`. Plus one follow-up pin on the D9 PDF test walker (`4e1eeefa`). Range: `145d5487`..`3b085e47` (101 `fix(` commits). Full titles in `git log --oneline 0d976ffd..3b085e47`.
 
+### Wave 4 shipped (lowest-risk 50)
+
+50 auto-buildable cards (37 S / 13 M, risk 2–3), dispatched in isolated-worktree batches then cherry-picked onto `master`. Range: `304bddc0`..`faeaaa34` (50 `fix(` commits). Full titles in `git log --oneline f4e63fc6..faeaaa34`. ScoreRing's `context-map.json` edit was dropped at pick (hot-file).
+
 ### Escalated (human / architecture / irreversible / hot-file)
 
 | Context | Item | Size | Gate | Why |
@@ -346,4 +350,4 @@ Coordinator wave over **all 54 contexts**, 5 highest-impact cards each (270). De
 | First-Run Onboarding Wizard | Re-judge wizard-flows: mid-scan resume now re-attaches | S | contract | contract |
 | Live War Room | Surface drive/run outcome on the shared kiosk instead of standing-only LiveWarRoom | M | none | none |
 
-Remaining auto-buildable cards (143) stay in `.personas/scan-sweep-20260917/catalog.json` for later waves. Outbox ingest cap took 30 remaining findings (escalated first, then highest impact); the rest are unrecorded in the outbox and live in the catalog.
+Remaining auto-buildable cards (87) stay in `.personas/scan-sweep-20260917/catalog.json` for later waves. Outbox ingest cap took 30 remaining findings (escalated first, then highest impact); the rest are unrecorded in the outbox and live in the catalog.
