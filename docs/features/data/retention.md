@@ -38,7 +38,14 @@ deletes nothing; existing deployments keep all history until they ask for retent
 `RETENTION_MIN_AUDIT_DAYS` (7) is **refused** rather than applied: the org is skipped and an
 error is pushed (tripping the route's degraded-run status) unless the operator opts in with
 `RETENTION_FORCE=1`. This guards against a fat-fingered override irreversibly wiping an org's
-compliance evidence. `0` ("keep everything") is never floored.
+compliance evidence. `0` ("keep everything") is never floored. The owner Settings write uses the same
+floors on the stored override (`null` inherit and `0` are never floored) and does not lower them.
+
+**Owner settings:** organization owners read and write the four override columns from Settings
+(`RetentionCard` on the owner-gated Settings tab; `GET`/`POST /api/org/retention`). A value below
+the floors is refused with `400`. Save updates the columns only; it never purges. The card requires
+a dry-run preview of the proposed policy (the same counters as `?dryRun=1` on `/api/cron/purge`,
+scoped to this org, with fleet-wide orphan/queue/quota sweeps skipped) before Save is enabled.
 
 The on-demand erase path carries the same shape of floor over its own destructive reach — see
 [the audit-disposition table](#on-demand-erasure-dsr--right-to-erasure) and `ERASE_AUDIT_FORCE=1`.
@@ -370,14 +377,39 @@ The route (`src/app/api/cron/purge/route.ts`) returns this summary as `200` on a
 must never report a green `200`, since cron/uptime monitors only watch HTTP status), and
 `500` on a total failure.
 
+## Owner settings (`GET`/`POST /api/org/retention`)
+
+The four `Organization` columns are owner-readable and owner-writable:
+
+| Column | `null` | `0` | Non-zero |
+| --- | --- | --- | --- |
+| `retentionMaxScans` | inherit env | keep every scan | keep newest N per repo (floor 5) |
+| `retentionAuditDays` | inherit env | keep every audit row | drop older than N days (floor 7) |
+| `retentionCompact` | inherit `RETENTION_COMPACT` | — | `true` / `false` |
+| `retentionDigestMonths` | inherit env | keep digests forever | age digests after N months |
+
+```jsonc
+GET  /api/org/retention?org=acme
+POST /api/org/retention { "org": "acme", "retentionMaxScans": 10, "retentionAuditDays": 30, "retentionCompact": true, "retentionDigestMonths": 12, "preview": true }
+POST /api/org/retention { "org": "acme", "retentionMaxScans": 10, "retentionAuditDays": 30, "retentionCompact": true, "retentionDigestMonths": 12 }
+```
+
+Same org-API convention as `/api/org/erase` (tenant in the body / `?org=`, no `[slug]` segment). GET
+is owner-gated. POST is same-origin then owner. All four fields are required on POST (full replace).
+`preview: true` counts what the *proposed* policy would delete and writes nothing. A save writes the
+four columns, records `retention.updated` with `purged: false`, and does not run the purge.
+
 ## Key files
 
 | File | Role |
 | --- | --- |
 | `src/app/api/cron/purge/route.ts` | Route handler: auth, DB-configured gate, dry-run flag, degraded-status (207) mapping. |
 | `src/app/api/org/erase/route.ts` | On-demand DSR erasure: CSRF + typed-confirmation + owner gates, 207 degraded mapping. |
-| `src/lib/db/retention.ts` | `resolveRetention`, `purgeExpiredData` (batched, OCC-retrying, budgeted, rotated), `eraseOrgData`. |
+| `src/app/api/org/retention/route.ts` | Owner Settings read/write of the four override columns; dry-run preview; never purges. |
+| `src/lib/db/retention.ts` | `resolveRetention`, `purgeExpiredData` (batched, OCC-retrying, budgeted, rotated), `eraseOrgData`, `getOrgRetention` / `setOrgRetention` / `previewOrgRetention`. |
+| `src/lib/db/retention-policy.ts` | Floors, parse/validate of the four columns, purge contracts (no DB). |
 | `src/lib/db/retention.test.ts` | Policy + purge + erasure + compaction tests. |
+| `src/features/admin/settings/RetentionCard.tsx` | Owner Settings card: four fields, floor refusal, dry-run required before save. |
 | `src/lib/db/scan-digest.ts` | The digest fold (pure), the in-transaction upsert, the tail read, digest ageing, and `getCompactionCoverage`. |
 | `src/lib/db/scan-digest.test.ts` / `scan-digest-read.test.ts` | The pure fold's exactness + the persistence half. |
 | `src/components/report/TrendChart.CompactedBand.tsx` | The dashed-run path split, the legend, and the compacted tooltip lines. |

@@ -34,7 +34,10 @@ import {
   clampBatchSize,
   envRetentionDefaults,
   resolveRetention,
+  retentionFloorViolations,
   type OrgPurgeResult,
+  type OrgRetentionColumns,
+  type OrgRetentionView,
   type PurgeSummary,
   type PurgeOptions,
 } from "./retention-policy";
@@ -44,8 +47,12 @@ export {
   RETENTION_MIN_SCANS_PER_REPO, RETENTION_MIN_AUDIT_DAYS,
   SCAN_JOB_RETENTION_DAYS, SCAN_JOB_SETTLED_STATES,
   clampBatchSize, envRetentionDefaults, resolveRetention,
+  parseRetentionInt, parseRetentionBool, retentionFloorViolations, parseOrgRetentionBody,
 } from "./retention-policy";
-export type { RetentionPolicy, OrgPurgeResult, PurgeSummary, PurgeOptions } from "./retention-policy";
+export type {
+  RetentionPolicy, OrgPurgeResult, PurgeSummary, PurgeOptions,
+  OrgRetentionColumns, OrgRetentionView, ParseRetentionBody,
+} from "./retention-policy";
 import { getPrisma, isDbConfigured, withRetry } from "@/lib/db/client";
 import { recordAudit } from "@/lib/db/scans";
 import { redactAuditIdentity } from "@/lib/db/audit-integrity";
@@ -644,6 +651,69 @@ export function rotateForTick<T>(arr: T[], offset: number): void {
   for (let i = 0; i < n; i++) arr[i] = rotated[i]!;
 }
 
+const RETENTION_COLUMN_SELECT = {
+  retentionMaxScans: true,
+  retentionAuditDays: true,
+  retentionCompact: true,
+  retentionDigestMonths: true,
+} as const;
+
+function toRetentionView(stored: OrgRetentionColumns): OrgRetentionView {
+  const defaults = envRetentionDefaults();
+  const inherited = resolveCompaction({ retentionCompact: null, retentionDigestMonths: null });
+  return {
+    stored,
+    defaults,
+    effective: resolveRetention(defaults, stored),
+    compactDefault: inherited.compact,
+    digestMonthsDefault: inherited.digestMonths,
+    floors: { maxScansPerRepo: RETENTION_MIN_SCANS_PER_REPO, auditDays: RETENTION_MIN_AUDIT_DAYS },
+  };
+}
+
+/** Read the four per-org retention columns (null = inherit) plus the resolved policy the Settings card shows. */
+export async function getOrgRetention(orgSlug: string): Promise<OrgRetentionView | null> {
+  if (!isDbConfigured()) return null;
+  const org = await getPrisma().organization.findUnique({
+    where: { slug: orgSlug.toLowerCase() },
+    select: RETENTION_COLUMN_SELECT,
+  });
+  return org ? toRetentionView(org) : null;
+}
+
+export type SetOrgRetentionResult =
+  | { ok: true; view: OrgRetentionView }
+  | { ok: false; reason: "no-db" | "unknown-org" | "below-floor"; violations?: string[] };
+
+/**
+ * Write the four override columns. Refuses a configured-but-nonzero window below the floors.
+ * Does NOT purge: the nightly cron is what applies the policy. `0` and `null` are never floored.
+ */
+export async function setOrgRetention(orgSlug: string, stored: OrgRetentionColumns): Promise<SetOrgRetentionResult> {
+  if (!isDbConfigured()) return { ok: false, reason: "no-db" };
+  const violations = retentionFloorViolations(stored);
+  if (violations.length) return { ok: false, reason: "below-floor", violations };
+  const res = await getPrisma().organization.updateMany({
+    where: { slug: orgSlug.toLowerCase() },
+    data: {
+      retentionMaxScans: stored.retentionMaxScans,
+      retentionAuditDays: stored.retentionAuditDays,
+      retentionCompact: stored.retentionCompact,
+      retentionDigestMonths: stored.retentionDigestMonths,
+    },
+  });
+  if (res.count === 0) return { ok: false, reason: "unknown-org" };
+  return { ok: true, view: toRetentionView(stored) };
+}
+
+/**
+ * Count what the proposed policy would delete for one org. Always a dry run: nothing is written or
+ * deleted, including the four columns. Fleet-wide orphan/queue/quota sweeps are skipped.
+ */
+export async function previewOrgRetention(orgSlug: string, proposed: OrgRetentionColumns): Promise<PurgeSummary | null> {
+  return purgeExpiredData({ dryRun: true, onlyOrgSlug: orgSlug.toLowerCase(), proposed });
+}
+
 /**
  * Enforce the data-retention policy across every org: prune old scans (+ their dimensions and
  * recommendations) beyond the newest N per repo, and drop audit entries older than X days.
@@ -675,6 +745,7 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
   const startedAt = now();
 
   const orgs = await prisma.organization.findMany({
+    ...(opts.onlyOrgSlug ? { where: { slug: opts.onlyOrgSlug.toLowerCase() } } : {}),
     select: {
       id: true,
       slug: true,
@@ -735,11 +806,13 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
       break;
     }
     const org = orgs[i]!; // safe: i < orgs.length
-    const policy = resolveRetention(defaults, org);
+    // Proposed columns overlay ONLY on a dry run: a real purge must never apply unsaved Settings draft.
+    const columns = opts.dryRun && opts.proposed ? { ...org, ...opts.proposed } : org;
+    const policy = resolveRetention(defaults, columns);
     // MOONSHOT #32. Off unless this org (or the deployment) asked for it: with `compact: false` the
     // page SELECT, the transaction and the counts below are exactly what they were before compaction
     // existed — which is what makes "an existing deployment's purge is unchanged" a fact, not a hope.
-    const compaction = resolveCompaction(org);
+    const compaction = resolveCompaction(columns);
     // Nothing to enforce for this org — skip (don't write a no-op audit entry).
     if (policy.maxScansPerRepo <= 0 && policy.auditDays <= 0) continue;
 
@@ -1205,6 +1278,10 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
     }
   }
 
+  let scanJobsDeleted = 0;
+  // A one-org Settings preview must not count fleet-wide orphan/queue/quota sweeps: those are not
+  // governed by the four columns the owner is editing.
+  if (!opts.onlyOrgSlug) {
   // Org-less audit entries (e.g. anonymous public scans) can't carry a per-org policy — sweep
   // them under the global default window so AuditLog can't grow unbounded from that path.
   // Skipped when the run is already over its time budget (it runs on the next scheduled pass).
@@ -1264,7 +1341,6 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
   // policy, exactly like the PublicScanQuota sweep below) unless the run is already over budget, in
   // which case the next tick does it. Counted in the summary and traced with its own audit row when
   // it removed anything — a destructive act with no trace is what that gate exists to prevent.
-  let scanJobsDeleted = 0;
   if (overBudget()) {
     stoppedEarly = true;
   } else {
@@ -1304,6 +1380,7 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
     } catch (err) {
       errors.push(`(public-scan-quota): ${err instanceof Error ? err.message : "purge failed"}`);
     }
+  }
   }
 
   return {

@@ -142,7 +142,11 @@
       "doc": "docs/features/data/retention.md",
       "sourceGlobs": [
         "src/app/api/cron/purge/**",
+        "src/app/api/org/retention/**",
         "src/lib/db/retention.ts",
+        "src/lib/db/retention-policy*.ts",
+        "src/lib/db/retention-org.test.ts",
+        "src/features/admin/settings/RetentionCard*",
         "src/lib/db/scan-digest*.ts"
       ]
     },
