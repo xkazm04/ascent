@@ -8,10 +8,13 @@
 //   - width is disclosure: every column has a keyboard-operable resize separator, and there is NO
 //     "details" toggle anywhere.
 
-import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { OutcomeSheet } from "./OutcomeSheet";
-import { fixture } from "./outcome.fixture";
+import { cell, fixture } from "./outcome.fixture";
+import type { OutcomeMatrix } from "./outcomeMatrix";
+
+afterEach(cleanup);
 
 const sheet = (canReview = true) =>
   render(<OutcomeSheet matrix={fixture} slug="acme" selectedId="run-3" onOpen={vi.fn()} canReview={canReview} onReview={vi.fn()} />);
@@ -135,5 +138,40 @@ describe("the run column names its engine beside its model", () => {
     sheet();
     const engine = screen.getAllByText("claude CLI")[0]!;
     expect(engine.getAttribute("title")).toMatch(/spawned a headless claude CLI session/i);
+  });
+});
+
+describe("a close the rescan has not verified is Claimed, not Closed", () => {
+  const matrix: OutcomeMatrix = {
+    columns: fixture.columns.slice(2),
+    groups: [
+      {
+        repo: "acme/one",
+        lift: 4,
+        cells: {
+          "run-3": cell({
+            runId: "run-3",
+            repo: "acme/one",
+            commits: 2,
+            rows: [
+              { headline: "Added a coverage gate to CI", dimId: "D2", kind: "closed", covers: ["rec-1"], evidence: null, state: "committed", laneId: "l1", verified: true },
+              { headline: "Wrote CONTRIBUTING.md", dimId: "D5", kind: "closed", covers: ["rec-2"], evidence: null, state: "committed", laneId: "l1" },
+              { headline: "Phantom D4 entry", dimId: "D4", kind: "closed", covers: ["rec-3"], evidence: null, state: "committed", laneId: "l1", retired: true },
+            ],
+          }),
+        },
+      },
+    ],
+    latestId: "run-3",
+    totals: { lift: 4, runs: 1, gaps: 3, repos: 1 },
+  };
+
+  it("uses Claimed (muted italic) for the unverified row, Closed for the verified one, Retired for a retirement", () => {
+    render(<OutcomeSheet matrix={matrix} slug="acme" selectedId="run-3" onOpen={vi.fn()} />);
+    expect(screen.getByText(/Claimed, committed/)).toBeTruthy();
+    expect(screen.getByText(/Closed, committed/)).toBeTruthy();
+    expect(screen.getByText(/Retired, committed/)).toBeTruthy();
+    expect(screen.getByTitle(/^Claimed/).querySelector(".type-body-sm")?.className).toContain("italic");
+    expect(screen.getByTitle(/^Closed/).querySelector(".type-body-sm")?.className).not.toContain("italic");
   });
 });

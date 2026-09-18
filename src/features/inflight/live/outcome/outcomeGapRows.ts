@@ -40,6 +40,9 @@ export interface GapRow extends LaneDeliverable {
   state: DeliverableState;
   /** The lane this row belongs to — the review POST's address. */
   laneId: string;
+  /** True only when the rescan's adjudicated set (`closedFollowUpIds`) names this close.
+   *  Absent = unverified — the safe direction, matching CockpitVerdicts. */
+  verified?: true;
 }
 
 /** The review key a row is addressed by: its first covered id, else its headline. */
@@ -81,6 +84,7 @@ export function buildGapRows(lanes: readonly LoopLaneOutcome[], batchTitles?: Ba
       dup.evidence = dup.evidence ?? row.evidence;
       dup.review = dup.review ?? row.review;
       if (row.state === "committed") dup.state = "committed";
+      if (row.verified) dup.verified = true;
       return;
     }
     byKey.set(keyOf(row), row);
@@ -89,12 +93,22 @@ export function buildGapRows(lanes: readonly LoopLaneOutcome[], batchTitles?: Ba
 
   const markers: { cover: string; review: NonNullable<LaneDeliverable["review"]> }[] = [];
   for (const o of lanes) {
+    const closed = new Set(o.closedFollowUpIds);
     for (const d of o.deliverables ?? []) {
       if (isReviewMarker(d)) {
         if (d.review) markers.push({ cover: d.covers[0]!, review: d.review });
         continue;
       }
-      push({ ...d, covers: [...d.covers], state: stateOf(d, o), laneId: o.lane.id });
+      // A `closed` row is verified only when the rescan named it. Attributable movement is not
+      // a per-item close (G13): do not fold a claim into Closed.
+      const verified = d.kind === "closed" && !d.retired && d.covers.some((id) => closed.has(id));
+      push({
+        ...d,
+        covers: [...d.covers],
+        state: stateOf(d, o),
+        laneId: o.lane.id,
+        ...(verified ? { verified: true as const } : {}),
+      });
     }
   }
   // THE ARMED-BUT-UNRESOLVED BATCH ITEMS — proposed rows, titled from the follow-up itself.

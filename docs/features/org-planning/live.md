@@ -308,6 +308,12 @@ Three rules now hold, and they are the vocabulary the whole loop answers to:
    | A LANE's count of the rescan's adjudicated set | *N verified closed* | `LaneRail`, `AutopilotBandParts`, the lane log |
    | `diff.closedGapCount`, a scan-diff quantity | *N gaps no longer raised* | `OutcomeSection`, `takeaway()` |
 
+   The outcome sheet's gap cells had the same split still to make: `KIND_META.closed` labelled every
+   close *Closed*, including an agent claim the rescan had not named. Unverified closed rows now
+   read *Claimed* (muted italic, no tick); a close whose id is in `closedFollowUpIds` keeps
+   *Closed* / ✓; a `retired` row stays *Retired*. The word *Closed* on a gap cell is earned the
+   same way *closed by the rescan* is.
+
    *"closed by the rescan"* is now **reserved for the per-item verdict** and appears nowhere else.
    `cockpitVocabulary.test.ts` pins all four, positively and negatively — the scan-diff line is
    asserted not to contain the word "closed" at all.
@@ -572,12 +578,13 @@ observation, with no direction, no delta, and the evidence line dropped unless t
 attributable — the verdict gate below is not routed around. A lane that did **nothing** still derives
 nothing; totality is not a licence to invent a row.
 
-**Left for the UI owner** (`outcomeDeliverables.ts` is outside this change's write set): `KIND_META`
-has no label for a `retired` row (it renders as *"Closed"*, with the honest headline beside it) and
-`DELIVERABLE_KIND_ORDER` has no separate slot for one. A `retired` badge — or a `retired` branch on
-the `closed` label plus its own order slot — is a one-line follow-up there. Unknown kinds already
-degrade safely: `parseDeliverables` floors any unrecognised `kind` to `noted`, and
-`DELIVERABLE_KIND_ORDER.indexOf` returns `-1`, which sorts such a row first rather than dropping it.
+**The sheet now says which one it is.** `rowMeta` (`outcomeDeliverables.ts`) special-cases the two
+flags: `retired` → *Retired*; unverified `closed` → *Claimed* (muted italic, no tick); verified
+`closed` → *Closed* / ✓. `buildGapRows` stamps `verified` only when the lane's `closedFollowUpIds`
+(the adjudicated set) names the covered id, and a missing `verified` is unverified — the same
+under-claim CockpitVerdicts takes. Unknown kinds already degrade safely: `parseDeliverables` floors
+any unrecognised `kind` to `noted`, and `DELIVERABLE_KIND_ORDER.indexOf` returns `-1`, which sorts
+such a row first rather than dropping it.
 
 `deriveLaneDeliverables` (`src/lib/local/lane-deliverables.ts`, pure) builds the list from four
 sources, in order: the agent's own `RESOLVED: <id> - <what changed>` lines (the clause **is** the
@@ -995,7 +1002,7 @@ done, and by which run?*
 | --- | --- |
 | columns | one per run, chronological, latest emphasised, a live run marked. The header is a button: clicking a run opens it and drifts the field (this absorbed the history strip). |
 | rows | a **project header row** (`th scope="colgroup"`: the repo named once, its lane's PR link or the guarded *open a PR* action, its cumulative attributable lift, `bg-surface/60`), then a **dimension band** per group of gaps (collapsed; see below), then **one row per gap** (`th scope="row"`) — the project name never repeated. |
-| cells | that run's state for that gap: the tinted block (`committed` `bg-success/10` / `uncommitted` `bg-warn/10` / `proposed` `bg-accent/5`), a kind marker, the run's own headline, the dimension short label, and the owner's ✓/✕. **A blank cell is normal** and is the point. |
+| cells | that run's state for that gap: the tinted block (`committed` `bg-success/10` / `uncommitted` `bg-warn/10` / `proposed` `bg-accent/5`), a kind marker (*Closed* / ✓ only when the rescan verified the close; an unverified close reads *Claimed* in muted italic; *Retired* for a rescan-dropped row), the run's own headline, the dimension short label, and the owner's ✓/✕. **A blank cell is normal** and is the point. |
 
 A gap is identified **across runs** by its review key (`gapKey`, outcomeGapRows.ts: the first covered
 follow-up id, else `kind|dimId|headline`), so a gap worked in run 3 and revisited in run 7 is **one

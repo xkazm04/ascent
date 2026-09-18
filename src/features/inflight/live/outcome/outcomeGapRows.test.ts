@@ -7,6 +7,7 @@ import { diffScans } from "@/lib/report/compare";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import type { ComparableScan } from "@/lib/db/scans";
 import type { LoopLaneOutcome, LoopLaneRecord } from "../cockpit/loopTypes";
+import { rowMeta } from "./outcomeDeliverables";
 import { buildGapRows, rowCover, untitledBatchItem } from "./outcomeGapRows";
 
 const scan = (p: Partial<ComparableScan> & { id: string }): ComparableScan => ({
@@ -119,5 +120,49 @@ describe("buildGapRows — an armed item's title, when the lane has no scans", (
     expect(rows[0]!.headline).toContain("4f2c0b18");
     // The row is still addressable: the review POST keys on the id, which stays in `covers`.
     expect(rowCover(rows[0]!)).toBe(id);
+  });
+});
+
+describe("buildGapRows — a close is verified only by the rescan", () => {
+  it("leaves an agent claim unverified when closedFollowUpIds does not name it", () => {
+    expect(buildGapRows([outcome({ lane: lane({}), deliverables: [closedRow] })])[0]!.verified).toBeUndefined();
+  });
+
+  it("stamps verified when the adjudicated set names the covered id", () => {
+    const rows = buildGapRows([
+      outcome({ lane: lane({}), closedFollowUpIds: ["rec-1"], deliverables: [closedRow] }),
+    ]);
+    expect(rows[0]!.verified).toBe(true);
+  });
+
+  it("does not stamp a retired row verified, even when the id is in the adjudicated set", () => {
+    const rows = buildGapRows([
+      outcome({
+        lane: lane({}),
+        closedFollowUpIds: ["rec-1"],
+        deliverables: [{ ...closedRow, retired: true as const }],
+      }),
+    ]);
+    expect(rows[0]!.retired).toBe(true);
+    expect(rows[0]!.verified).toBeUndefined();
+  });
+});
+
+describe("rowMeta — Closed is earned by the rescan", () => {
+  it("says Claimed, not Closed, for an unverified close, in the muted italic tone", () => {
+    const meta = rowMeta({ kind: "closed" });
+    expect(meta.label).toBe("Claimed");
+    expect(meta.glyph).not.toBe("✓");
+    expect(meta.tone).toContain("italic");
+  });
+
+  it("says Closed / ✓ only when verified", () => {
+    expect(rowMeta({ kind: "closed", verified: true })).toMatchObject({ label: "Closed", glyph: "✓" });
+    expect(rowMeta({ kind: "closed", verified: true }).tone).toBeUndefined();
+  });
+
+  it("keeps Retired ahead of both Claimed and Closed", () => {
+    expect(rowMeta({ kind: "closed", retired: true }).label).toBe("Retired");
+    expect(rowMeta({ kind: "closed", retired: true, verified: true }).label).toBe("Retired");
   });
 });

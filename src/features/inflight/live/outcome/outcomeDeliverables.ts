@@ -57,16 +57,34 @@ export const KIND_META: Record<LaneDeliverableKind, { label: string; glyph: stri
   noted: { label: "Proposed", glyph: "·" },
 };
 
+/** Glyph, label, and optional tone/note a sheet cell leads with. */
+export type RowMeta = { label: string; glyph: string; tone?: string; note?: string };
+
 /**
- * How a row PRESENTS, once the `retired` flag is taken into account.
+ * How a row PRESENTS, once `retired` and `verified` are taken into account.
  *
- * `retired` is a flag rather than a sixth kind (`LaneDeliverable.retired`, widened into
- * `deliverablesJson` the way `parseTargets` widens its column), so it has to be resolved at render
- * time. It marks a row the RESCAN stopped raising rather than one the agent claimed — one run
+ * Both are flags rather than extra kinds (`LaneDeliverable.retired`, and `verified` stamped onto
+ * the gap row at fold time), so they have to be resolved at render time.
+ *
+ * `retired` marks a row the RESCAN stopped raising rather than one the agent claimed — one run
  * retired nine phantom follow-ups off a single commit, and printing those as "Closed" overstated
  * the run's output by an order of magnitude. A retirement is real bookkeeping and still earns a
  * row; it just must not wear the same tick as work someone did.
+ *
+ * `verified` is the same shape for a different split: a `closed` row is an agent's CLAIM until the
+ * rescan names it in `closedFollowUpIds`. Printing those as "Closed" is the sheet-side of the
+ * tautology CockpitVerdicts already split ("claimed resolved — awaiting the rescan" vs "closed by
+ * the rescan"). Missing `verified` is unverified — the safe direction for a trust flag.
  */
-export function rowMeta(d: Pick<LaneDeliverable, "kind" | "retired">): { label: string; glyph: string } {
-  return d.retired ? { label: "Retired", glyph: "–" } : KIND_META[d.kind];
+export function rowMeta(d: Pick<LaneDeliverable, "kind" | "retired"> & { verified?: boolean }): RowMeta {
+  if (d.retired) return { label: "Retired", glyph: "–" };
+  if (d.kind === "closed" && !d.verified) {
+    return {
+      label: "Claimed",
+      glyph: "~",
+      tone: "italic text-slate-400",
+      note: "The agent claimed this resolved. The rescan has not confirmed it.",
+    };
+  }
+  return KIND_META[d.kind];
 }
