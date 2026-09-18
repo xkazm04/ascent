@@ -4,7 +4,7 @@ import { Shell, Notice } from "./usageShell";
 import { UsageDashboard } from "./usageDashboard";
 import { countMeteredScansThisMonth, getCreditReconciliation, getCreditState, getQuotaEventTotals, getUsageSummary, isDbConfigured, type CreditReconciliation, type CreditState, type QuotaEventTotals, type UsageSummary } from "@/lib/db";
 import { creditNotice } from "./creditNotice";
-import { boundUsageDays, usageWindow } from "@/lib/db/usage";
+import { boundUsageDays, getOrgPlanForUsage, usageWindow } from "@/lib/db/usage";
 import { getActiveOrg, PUBLIC_ORG } from "@/lib/auth";
 import { resolveSignInState } from "@/lib/signin-gate";
 import { canReadOrg } from "@/lib/authz";
@@ -48,22 +48,7 @@ export default async function UsagePage({
     );
   }
 
-  // Bound the window AFTER the org is known, mirroring /api/usage via the shared boundUsageDays: the
-  // UNAUTHENTICATED public org is capped tighter (90d) so an anonymous caller can't force the 365-day
-  // full-window aggregate the API path refuses (this page computes the same summary directly). The
-  // helper FLOORS a fractional ?days= so `since`, the day axis, and the counts share one integer window
-  // (an un-floored 1.5 stepped the axis by half-days and silently dropped today from the chart/CSV).
-  const days = boundUsageDays(daysParam, org.toLowerCase() === PUBLIC_ORG);
-  // ONE window for both reads on this page. The reconciliation panel sits beside the billable-scan
-  // tile under a single "last {days}d" label, and used to be measured over a rolling wall-clock
-  // cutoff while the scans were counted over the UTC-day-anchored half-open window — up to a day of
-  // traffic apart, explained away in the panel's own copy as rows "straddling the window edge".
-  // Resolving the window HERE, once, and handing the same object to both makes them comparable.
-  const win = usageWindow(days);
-  // The picker's ceiling, asked OF `boundUsageDays` rather than restated beside it: the control and
-  // the bound that would clamp its links cannot drift, and the public funnel's tighter 90-day cap
-  // needs no second expression of itself here.
-  const maxDays = boundUsageDays("365", org.toLowerCase() === PUBLIC_ORG);
+  const isPublic = org.toLowerCase() === PUBLIC_ORG;
 
   // Cross-tenant IDOR guard — the canonical read-side tenant gate (the same canReadOrg the sibling
   // /api/usage route and the other org-scoped pages use). It opens PUBLIC_ORG to everyone, requires
@@ -87,6 +72,26 @@ export default async function UsagePage({
       </Notice>
     );
   }
+
+  // Bound the window AFTER the org is known, mirroring /api/usage via the shared boundUsageDays: the
+  // UNAUTHENTICATED public org is capped tighter (90d) so an anonymous caller can't force the 365-day
+  // full-window aggregate the API path refuses (this page computes the same summary directly). The
+  // helper FLOORS a fractional ?days= so `since`, the day axis, and the counts share one integer window
+  // (an un-floored 1.5 stepped the axis by half-days and silently dropped today from the chart/CSV).
+  // The plan cap (Free 30 / Starter 180 / Team 365) is applied here so the picker and both period
+  // reads share one window — a Free org cannot select or query older than retentionDays.
+  const plan = isPublic ? undefined : await getOrgPlanForUsage(org);
+  const days = boundUsageDays(daysParam, isPublic, plan);
+  // ONE window for both reads on this page. The reconciliation panel sits beside the billable-scan
+  // tile under a single "last {days}d" label, and used to be measured over a rolling wall-clock
+  // cutoff while the scans were counted over the UTC-day-anchored half-open window — up to a day of
+  // traffic apart, explained away in the panel's own copy as rows "straddling the window edge".
+  // Resolving the window HERE, once, and handing the same object to both makes them comparable.
+  const win = usageWindow(days);
+  // The picker's ceiling, asked OF `boundUsageDays` rather than restated beside it: the control and
+  // the bound that would clamp its links cannot drift. Public ignores `plan` (90-day DoS cap);
+  // a private org's ceiling is the plan's retentionDays.
+  const maxDays = boundUsageDays("365", isPublic, plan);
 
   // getUsageSummary returns null when the DB isn't configured and can throw on a transient
   // blip (deploy, dropped connection, env race) between the isDbConfigured() check above and

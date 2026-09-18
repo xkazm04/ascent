@@ -18,7 +18,7 @@
 
 import { NextResponse } from "next/server";
 import { getUsageSummary, isDbConfigured, type UsageSummary } from "@/lib/db";
-import { boundUsageDays } from "@/lib/db/usage";
+import { boundUsageDays, getOrgPlanForUsage } from "@/lib/db/usage";
 import { requireOrgRead } from "@/lib/authz";
 import { csvTable } from "@/lib/export/csv";
 import { safeFilenameSlug } from "@/lib/export/filename";
@@ -101,12 +101,6 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const org = searchParams.get("org") ?? "public";
   const orgLc = org.toLowerCase();
-  // Bound the window via the shared boundUsageDays (single-sourced with the /usage page so the two
-  // can't drift). A private (authenticated) org may request up to a year; the UNAUTHENTICATED public
-  // org is capped tighter (90d) so an anonymous caller can't repeatedly force a 365-day, ~10-aggregate
-  // full-window scan as a cheap DoS lever. Non-numeric input falls back to 30, and a FRACTIONAL ?days=
-  // is floored — an un-floored 1.5 dropped the newest day from the per-day CSV while the counts kept it.
-  const days = boundUsageDays(searchParams.get("days"), orgLc === "public");
   const format = searchParams.get("format");
 
   if (!isDbConfigured()) {
@@ -123,6 +117,18 @@ export async function GET(request: Request) {
   // honors the Supabase login wall + the ASCENT_OPEN_ORG_DASHBOARDS opt-in the inline copy missed.
   const denied = await requireOrgRead(org);
   if (denied) return denied;
+
+  // Bound the window via the shared boundUsageDays (single-sourced with the /usage page so the two
+  // can't drift). A private (authenticated) org may request up to a year, further capped at the
+  // plan's retentionDays (Free 30 · Starter 180 · Team 365) so a Free caller cannot return a window
+  // older than the advertised history. The UNAUTHENTICATED public org is capped tighter (90d) and
+  // ignores plan so its DoS cap cannot collapse to Free's 30. Non-numeric input falls back to 30,
+  // and a FRACTIONAL ?days= is floored — an un-floored 1.5 dropped the newest day from the per-day
+  // CSV while the counts kept it. A failed plan lookup omits `plan` (legacy 365 cap) rather than
+  // silently shrinking a Team org to 30 days; getUsageSummary still floors `since` to retentionCutoff.
+  const isPublic = orgLc === "public";
+  const plan = isPublic ? undefined : await getOrgPlanForUsage(org);
+  const days = boundUsageDays(searchParams.get("days"), isPublic, plan);
 
   try {
     const summary = await getUsageSummary(org, days);

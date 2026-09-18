@@ -1,11 +1,11 @@
 // The timeframe control for /usage.
 //
 // `?days=` has been honoured by the page and by GET /api/usage since they were built — bounded by
-// the shared `boundUsageDays` (default 30, up to 365 for a private org, capped at 90 for the shared
-// public funnel) — but nothing on the product ever rendered a control for it. Every reader therefore
-// got exactly 30 days, and `UsageTrend`'s weekly-bucket path (`BUCKET_THRESHOLD_DAYS = 120`) was
-// unreachable from the UI: code on the shipping path that no user could execute. The docs claimed a
-// picker existed. This is it.
+// the shared `boundUsageDays` (default 30, up to the plan's retentionDays for a private org, capped
+// at 90 for the shared public funnel) — but nothing on the product ever rendered a control for it.
+// Every reader therefore got exactly 30 days, and `UsageTrend`'s weekly-bucket path
+// (`BUCKET_THRESHOLD_DAYS = 120`) was unreachable from the UI: code on the shipping path that no
+// user could execute. The docs claimed a picker existed. This is it.
 //
 // SERVER COMPONENT, deliberately — no `"use client"`, no `useRouter`/`useSearchParams`. The page is
 // `force-dynamic` and reads its whole state from `searchParams` (`?org=`, `?days=`), so a plain
@@ -17,19 +17,20 @@
 import Link from "next/link";
 
 /** The offered windows. 7 and 90 are the two the product could not reach before; 365 exists so the
- *  weekly-bucket rendering has a way in. Each must survive `boundUsageDays` unchanged — a button
- *  that silently resolves to a different window is worse than no button. */
+ *  weekly-bucket rendering has a way in. Each must survive `boundUsageDays` unchanged for a caller
+ *  whose plan (or the public 90-day cap) actually allows it — a button that silently resolves to a
+ *  different window is worse than no button. Options above `maxDays` are dropped, not disabled:
+ *  Free's 30-day history must not offer 90d / 1y as if they were selectable. */
 export const TIMEFRAME_OPTIONS = [7, 30, 90, 365] as const;
 
 /**
  * Which options this caller may actually select.
  *
  * `maxDays` is not a second opinion about the cap: the page derives it by asking `boundUsageDays`
- * itself for the largest window (`boundUsageDays("365", isPublic)`), so the control and the query
- * bound can never drift. The shared public funnel is capped at 90 — an anonymous caller must not be
- * able to force the 365-day full-window aggregate — and 365 is rendered DISABLED rather than hidden
- * there, with the reason, because a silently absent option reads as a product that only offers three
- * windows rather than one that is withholding the fourth from this reader.
+ * itself for the largest window (`boundUsageDays("365", isPublic, plan)`), so the control and the
+ * query bound can never drift. Free maxes at 30, Starter at 180, Team at 365; Custom/self-host stay
+ * at the 365 query cap. The shared public funnel is capped at 90. Options above that ceiling are
+ * omitted so a Free reader cannot select a window older than the plan's retentionDays.
  */
 export function TimeframePicker({
   org,
@@ -53,23 +54,10 @@ export function TimeframePicker({
         aria-labelledby="usage-timeframe-label"
         className="inline-flex items-center rounded-lg border border-slate-800 bg-slate-900/40 p-0.5"
       >
-        {TIMEFRAME_OPTIONS.map((n) => {
+        {TIMEFRAME_OPTIONS.filter((n) => n <= maxDays).map((n) => {
           const current = n === days;
-          const allowed = n <= maxDays;
           const label = n === 365 ? "1y" : `${n}d`;
           const base = "focus-ring rounded-md px-2.5 py-1 type-body-sm transition";
-          if (!allowed) {
-            return (
-              <span
-                key={n}
-                aria-disabled="true"
-                title={`The shared public view is limited to ${maxDays} days. Sign in to an organization for the full year.`}
-                className={`${base} cursor-not-allowed text-slate-600`}
-              >
-                {label}
-              </span>
-            );
-          }
           return (
             <Link
               key={n}
