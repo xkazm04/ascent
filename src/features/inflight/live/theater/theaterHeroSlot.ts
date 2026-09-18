@@ -15,6 +15,10 @@
 import { createElement, type ComponentType, type ReactElement } from "react";
 import type { LoopPulse } from "@/lib/local/runner-types";
 import { TheaterHero } from "./TheaterHero";
+// THE PROTOTYPE ROUND (WP8): three directions behind `?hero=`, one file each under ./heroes/.
+import { HeatmapHero } from "./heroes/HeatmapHero";
+import { MissionHero } from "./heroes/MissionHero";
+import { ObservatoryHero } from "./heroes/ObservatoryHero";
 
 export interface TheaterHeroProps {
   pulse: LoopPulse;
@@ -24,6 +28,9 @@ export interface TheaterHeroProps {
 
 export const THEATER_HEROES: Readonly<Record<string, ComponentType<TheaterHeroProps>>> = {
   placeholder: TheaterHero,
+  heatmap: HeatmapHero,
+  mission: MissionHero,
+  observatory: ObservatoryHero,
 };
 
 export const DEFAULT_HERO = "placeholder";
