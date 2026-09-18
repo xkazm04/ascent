@@ -14,6 +14,11 @@
 // colour therefore takes the size of the DROP (lime when debt fell) while the text prints the signed
 // change in the debt itself ("-40"), and `signedDelta` is used rather than `fmtDelta` so no ▲/▼ glyph
 // contradicts the colour next to it.
+//
+// STOP SAYS WHAT IT DOES. The pressed button used to read "Stopping after this run…", but the drive
+// does not wait for the run: `waitForRun` (src/lib/local/drive.ts) stops the IN-FLIGHT run on the
+// next poll, whose lanes wind down cooperatively and are force-stopped after a grace. An operator told
+// "after this run" expects the run's work to complete, and it will not.
 
 import { deltaHex, Kicker, signedDelta } from "@/components/ui";
 import { InlineEmpty, TILE_LEDGER } from "@/components/org/shared/ui";
@@ -89,14 +94,20 @@ export function CockpitDrivePanel({ drive, runDetail, onStop, busy = false, erro
           type="button"
           onClick={onStop}
           disabled={busy || drive.stopRequested}
+          title={STOP_DRIVE_HINT}
           className="focus-ring mt-4 w-full rounded-md border border-danger/60 px-3 py-2 type-label tracking-[0.18em] text-danger transition hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {drive.stopRequested ? "Stopping after this run…" : "Stop drive"}
+          {drive.stopRequested ? STOPPING_DRIVE_LABEL : "Stop drive"}
         </button>
       )}
+      {p.live && drive.stopRequested && <p className="mt-1.5 type-caption text-slate-500">{STOP_DRIVE_HINT}</p>}
     </div>
   );
 }
+
+export const STOPPING_DRIVE_LABEL = "Stopping the drive and its in-flight run…";
+export const STOP_DRIVE_HINT =
+  "Stops the drive and the run it is waiting on: no further run is dispatched, and the in-flight run's lanes finish the stage they are in, then are force-stopped after a short grace.";
 
 function DebtLine({
   debtStart,

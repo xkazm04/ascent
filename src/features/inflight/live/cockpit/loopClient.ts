@@ -35,9 +35,11 @@ export async function fetchLoopDetail(slug: string, id: string): Promise<LoopRun
   return json<LoopRunDetail>(res, "Could not read that run");
 }
 
-export async function fetchLoopProposals(slug: string, repos: readonly string[]): Promise<LoopProposal[]> {
+/** `batchSize` is the run-setup dial; omitted = the engine's default, exactly as the run route reads it. */
+export async function fetchLoopProposals(slug: string, repos: readonly string[], batchSize?: number): Promise<LoopProposal[]> {
   if (repos.length === 0) return [];
-  const q = `org=${encodeURIComponent(slug)}&repos=${encodeURIComponent(repos.join(","))}`;
+  const size = batchSize != null ? `&batchSize=${encodeURIComponent(String(batchSize))}` : "";
+  const q = `org=${encodeURIComponent(slug)}&repos=${encodeURIComponent(repos.join(","))}${size}`;
   const res = await fetch(`/api/org/loop/propose?${q}`, { cache: "no-store" });
   const body = await json<{ proposals?: LoopProposal[] }>(res, "Could not propose a batch");
   return body.proposals ?? [];

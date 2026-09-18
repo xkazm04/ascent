@@ -30,6 +30,7 @@ const backlog = {
 vi.mock("@/lib/local/loop-lane", () => ({ openBatch: vi.fn(async () => backlog.items) }));
 
 import { GET } from "./route";
+import { openBatch } from "@/lib/local/loop-lane";
 
 const dirs: string[] = [];
 
@@ -69,6 +70,7 @@ afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
   backlog.items = [];
   delete paths["acme/web"];
+  vi.mocked(openBatch).mockClear();
 });
 
 describe("GET /api/org/loop/propose — the lane kind travels with the batch", () => {
@@ -118,5 +120,33 @@ describe("GET /api/org/loop/propose — the lane kind travels with the batch", (
     // tests cannot run, and claiming `foundation` would be a claim about a directory nobody read.
     expect(p!.kind).toBe("backlog");
     expect(p!.items).toHaveLength(1);
+  });
+});
+
+// THE BATCH-SIZE DIAL (2026-09-18). The route used to call `openBatch(org, repo)` — the default five —
+// while the engine sizes a lane by `batchSizeOf(run.batchSize)`, so an operator who armed a batch of
+// twelve could only ever see, and curate, five. It now takes the dial and validates it with the SAME
+// normalizer `POST /api/org/loop` uses, under the same convention: absent = default, sent-but-invalid
+// = a 400 naming the band, never a silent clamp.
+describe("GET /api/org/loop/propose — the batch-size dial", () => {
+  const get = (q: string) => GET(new Request(`https://x.test/api/org/loop/propose?org=acme&repos=acme/web${q}`));
+  const limits = () => vi.mocked(openBatch).mock.calls.map((c) => c[2]);
+
+  it("sizes the batch by the dial the cockpit sends", async () => {
+    const res = await get("&batchSize=12");
+    expect(res.status).toBe(200);
+    expect(limits()).toEqual([12]);
+  });
+
+  it("keeps the engine's default when the dial is absent — byte-identical to a pre-dial request", async () => {
+    await get("");
+    expect(limits()).toEqual([5]);
+  });
+
+  it.each(["0", "13", "5.5", "1e1", "", "abc", "-3"])("answers batchSize=%j with a 400 naming the band, and reads nothing", async (v) => {
+    const res = await get(`&batchSize=${encodeURIComponent(v)}`);
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toMatch(/batchSize must be a whole number 1–12/);
+    expect(openBatch).not.toHaveBeenCalled();
   });
 });

@@ -21,6 +21,10 @@
 // the rescan". A row from a payload with no `verified` field at all is treated as UNVERIFIED: the
 // safe direction for a trust flag is to under-claim.
 //
+// EACH ROW NAMES ITS ITEM. It used to print the first eight characters of the recommendation id,
+// although the run's detail already carries every dispatched item's title (`batchTitles`). The title
+// is printed now, the id kept on hover; the prefix is the fallback only for an id nothing titled.
+//
 // A DEFERRAL IS SHOWN AS WHAT IT IS: the loop will not re-offer this item for a while. Nothing on the
 // backlog row changed — every other surface still shows it open — and saying so here is what stops a
 // reader concluding the loop closed their item.
@@ -65,13 +69,20 @@ export function verdictChip(o: { verdict: string; verified?: boolean }): { label
   };
 }
 
+/** What a verdict row calls its item: the dispatched title, else the id's first eight characters. */
+export function verdictItemLabel(recommendationId: string, titles?: CockpitVerdictsProps["titles"]): string {
+  return titles?.[recommendationId]?.title.trim() || recommendationId.slice(0, 8);
+}
+
 export interface CockpitVerdictsProps {
   /** Defaulted, because a payload from a server older than this field is `undefined` rather than
    *  `[]` — and a cockpit that crashes on a stale poll is worse than one that says "none recorded". */
   outcomes?: LaneOutcomeRow[];
+  /** The run's `batchTitles` — every dispatched item's title, by id. Optional for the same reason. */
+  titles?: Readonly<Record<string, { title: string }>>;
 }
 
-export function CockpitVerdicts({ outcomes = [] }: CockpitVerdictsProps) {
+export function CockpitVerdicts({ outcomes = [], titles }: CockpitVerdictsProps) {
   return (
     <section aria-label="Per-item verdicts" className="mt-4">
       <Kicker tone="muted">Item verdicts</Kicker>
@@ -85,7 +96,7 @@ export function CockpitVerdicts({ outcomes = [] }: CockpitVerdictsProps) {
             <li key={o.id} className="bg-ink px-4 py-2.5">
               <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                 <span className="min-w-0 truncate type-caption text-slate-400" title={o.recommendationId}>
-                  {o.repoFullName} · {o.recommendationId.slice(0, 8)}
+                  {o.repoFullName} · {verdictItemLabel(o.recommendationId, titles)}
                 </span>
                 <span className={`shrink-0 type-caption ${chip.tone}`} title={chip.title || undefined}>
                   {chip.label}

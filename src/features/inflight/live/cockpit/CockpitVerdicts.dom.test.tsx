@@ -66,6 +66,19 @@ describe("CockpitVerdicts", () => {
     expect(screen.getAllByText("claimed resolved — awaiting the rescan")).toHaveLength(1);
   });
 
+  it("names each item by its dispatched title, keeping the id on hover", () => {
+    render(<CockpitVerdicts outcomes={[row()]} titles={{ "0eff00a8-1111-2222-3333-444444444444": { title: "Pin the CI action SHAs" } }} />);
+    const label = screen.getByText("acme/web · Pin the CI action SHAs");
+    expect(label.getAttribute("title")).toBe("0eff00a8-1111-2222-3333-444444444444");
+    expect(screen.queryByText(/0eff00a8$/)).toBeNull();
+  });
+
+  it("falls back to the id prefix only for an item nothing titled", () => {
+    render(<CockpitVerdicts outcomes={[row(), row({ id: "o2", recommendationId: "d5d90a60-aaaa" })]} titles={{ "d5d90a60-aaaa": { title: "  " } }} />);
+    expect(screen.getByText("acme/web · 0eff00a8")).toBeTruthy();
+    expect(screen.getByText("acme/web · d5d90a60")).toBeTruthy();
+  });
+
   it("still says so when a run recorded nothing", () => {
     render(<CockpitVerdicts outcomes={[]} />);
     expect(screen.getByText(/recorded no per-item verdicts/i)).toBeTruthy();

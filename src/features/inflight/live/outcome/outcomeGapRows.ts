@@ -24,6 +24,7 @@ import { isDimensionId } from "@/lib/maturity/model";
 import { laneAttribution } from "../cockpit/cockpitDrift";
 import type { LoopLaneOutcome } from "../cockpit/loopTypes";
 import { DELIVERABLE_KIND_ORDER } from "./outcomeDeliverables";
+import { recIdentityOf, recTitleIndex } from "./outcomeGapIdentity";
 
 export type DeliverableState = "proposed" | "committed" | "uncommitted";
 
@@ -43,18 +44,24 @@ export interface GapRow extends LaneDeliverable {
   /** True only when the rescan's adjudicated set (`closedFollowUpIds`) names this close.
    *  Absent = unverified — the safe direction, matching CockpitVerdicts. */
   verified?: true;
+  /** The DURABLE identity of the gap this row covers (`outcomeGapIdentity.ts`): dimension +
+   *  normalized recommendation title. Absent when nothing could title the covered id. */
+  identity?: string;
 }
 
 /** The review key a row is addressed by: its first covered id, else its headline. */
 export const rowCover = (d: Pick<LaneDeliverable, "covers" | "headline">): string => d.covers[0] ?? d.headline;
 
-/** THE IDENTITY OF A GAP, within a run and ACROSS runs. A covered follow-up id is the strong key —
- *  the same gap worked in run 3 and revisited in run 7 carries the same id, which is what lets the
- *  sheet give it ONE row with content in those two columns and blank cells between. Without an id
- *  the fallback is the shape the headline was derived from (kind + dimension + wording), which is
- *  also what stops two different gaps in one dimension collapsing into one row. */
-export const gapKey = (d: Pick<LaneDeliverable, "covers" | "headline" | "kind" | "dimId">): string =>
-  d.covers.length > 0 ? `id|${d.covers[0]}` : `${d.kind}|${d.dimId ?? ""}|${d.headline.toLowerCase()}`;
+/** THE IDENTITY OF A GAP, within a run and ACROSS runs — what lets the sheet give a gap worked in
+ *  run 3 and revisited in run 7 ONE row, with content in those two columns and blanks between.
+ *
+ *  The durable `identity` (dimension + normalized recommendation title) is the strong key, because the
+ *  recommendation ID is not durable: every rescan recreates the rows under new ids, so the same gap
+ *  reaches run 7 under a different id than it had in run 3. A covered id is the fallback when nothing
+ *  could title it (still right within one scan); without either, the shape the headline was derived
+ *  from (kind + dimension + wording), which stops two different gaps in one dimension collapsing. */
+export const gapKey = (d: Pick<LaneDeliverable, "covers" | "headline" | "kind" | "dimId"> & { identity?: string }): string =>
+  d.identity ?? (d.covers.length > 0 ? `id|${d.covers[0]}` : `${d.kind}|${d.dimId ?? ""}|${d.headline.toLowerCase()}`);
 
 function stateOf(d: LaneDeliverable, o: LoopLaneOutcome): DeliverableState {
   if (d.kind === "noted") return "proposed";
@@ -69,7 +76,7 @@ function stateOf(d: LaneDeliverable, o: LoopLaneOutcome): DeliverableState {
 
 /** A repo's gap rows across its lanes: every deliverable, PLUS a `proposed` row for every armed
  *  batch item no deliverable accounts for — all gaps get rows. Deduped only on a TRUE duplicate
- *  (the same covered id, or the same movement headline in one dimension, across cycles).
+ *  (the same gap identity or covered id, or the same movement headline in one dimension, across cycles).
  *
  *  `batchTitles` is the run's server-side id → title resolution (`LoopRunDetail.batchTitles`), and is
  *  optional because a payload from a server older than that field simply does not carry one. */
@@ -77,11 +84,18 @@ export function buildGapRows(lanes: readonly LoopLaneOutcome[], batchTitles?: Ba
   const out: GapRow[] = [];
   const keyOf = gapKey;
   const byKey = new Map<string, GapRow>();
+  // Every id the lanes can title, resolved ONCE — a row's identity is its covered recommendation's.
+  const index = recTitleIndex(lanes, batchTitles);
+  const identityOf = (id: string | undefined) => {
+    const identity = recIdentityOf(id, index);
+    return identity ? { identity } : {};
+  };
   const push = (row: GapRow) => {
     const dup = byKey.get(keyOf(row));
     if (dup) {
       dup.covers = [...new Set([...dup.covers, ...row.covers])];
       dup.evidence = dup.evidence ?? row.evidence;
+      dup.dimId = dup.dimId ?? row.dimId;
       dup.review = dup.review ?? row.review;
       if (row.state === "committed") dup.state = "committed";
       if (row.verified) dup.verified = true;
@@ -108,6 +122,7 @@ export function buildGapRows(lanes: readonly LoopLaneOutcome[], batchTitles?: Ba
         state: stateOf(d, o),
         laneId: o.lane.id,
         ...(verified ? { verified: true as const } : {}),
+        ...identityOf(d.covers[0]),
       });
     }
   }
@@ -133,7 +148,9 @@ export function buildGapRows(lanes: readonly LoopLaneOutcome[], batchTitles?: Ba
       for (const id of d.covers) if (!titles.has(id) && d.covers.length === 1) titles.set(id, d.headline);
     }
     for (const id of o.lane.batchIds) {
-      if (closed.has(id) || byKey.has(`id|${id}`)) continue;
+      // Accounted for = some row already covers this id. A row that shares its IDENTITY but not its id
+      // (the same gap re-armed after a rescan) is not skipped: `push` folds it into that row.
+      if (closed.has(id) || out.some((r) => r.covers.includes(id))) continue;
       const fromRun = batchTitles?.[id];
       const headline = titles.get(id) ?? fromRun?.title ?? untitledBatchItem(id);
       push({
@@ -144,6 +161,7 @@ export function buildGapRows(lanes: readonly LoopLaneOutcome[], batchTitles?: Ba
         evidence: null,
         state: "proposed",
         laneId: o.lane.id,
+        ...identityOf(id),
       });
     }
   }
