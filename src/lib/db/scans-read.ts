@@ -316,6 +316,14 @@ export interface HistoryPoint {
   scanCount?: number;
 }
 
+/** Prefix `digestToPoint` stamps on a compacted `HistoryPoint.id`. A period mean, not a Scan row. */
+export const COMPACTED_POINT_ID_PREFIX = "digest:";
+
+/** True when `id` names a compacted point — never a permalinkable Scan. */
+export function isCompactedPointId(id: string): boolean {
+  return id.startsWith(COMPACTED_POINT_ID_PREFIX);
+}
+
 export interface RepositoryHistory {
   repo: { owner: string; name: string; fullName: string };
   scans: HistoryPoint[];
@@ -376,9 +384,10 @@ function historyPointFrom(s: {
  *
  * `includeCompacted` (default **false**) appends the repo's compacted tail — the `ScanDigest` rows
  * retention wrote for periods whose scans it deleted (MOONSHOT #32) — after the real scans, as one
- * ordered newest-first series. Off by default on purpose: every existing caller (the compare picker,
- * `skill-outcomes-load`, `/api/history` without the param) keeps reading retained scans only, and a
- * consumer that would treat a period average as a scan never receives one by accident.
+ * ordered newest-first series. Off by default on purpose: a consumer that would treat a period
+ * average as a scan (the compare picker, `/api/history` without the param) never receives one by
+ * accident. Callers that opt in must skip or label `digest:` ids ({@link isCompactedPointId}) so a
+ * mean is never posted as a permalinked scan.
  */
 export async function getRepositoryHistory(
   owner: string,

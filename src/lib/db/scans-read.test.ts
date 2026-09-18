@@ -108,6 +108,7 @@ import {
   getLatestRecommendations,
   getRepositoryHistory,
   getScanReportByCommit,
+  isCompactedPointId,
   scanContentKey,
   scanDedupKey,
 } from "./scans-read";
@@ -765,5 +766,13 @@ describe("getRepositoryHistory — includeCompacted", () => {
     expect(history).toBeNull();
     expect(prisma.scanDigest.findMany).not.toHaveBeenCalled();
     expect(prisma.scan.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("isCompactedPointId", () => {
+  it("labels a digest: id and never a real scan id", () => {
+    expect(isCompactedPointId("digest:dg_0")).toBe(true);
+    expect(isCompactedPointId("scan_0")).toBe(false);
+    expect(isCompactedPointId("")).toBe(false);
   });
 });

@@ -158,18 +158,22 @@ is never counted twice. Each point carries `compacted: true`, a `scanCount`, an 
 `digest:<row.id>`, and **`headSha: null`** — the `Scan` row is gone, so a report permalink built from
 the stored sha would 404. Withholding the handle is what makes the point non-navigable in the chart
 and the CSV with no change to their link logic. `engineModel` reads `"mixed"` when more than one
-model scored the period. Default is **off**: the compare picker, the skill-outcome loader and
-`/api/history` without the param are unchanged.
+model scored the period. Default is **off**: the compare picker and `/api/history` without the param
+keep reading retained scans only. The skill-outcome loader **opts in** so a retained-after vs
+compacted-before pair can still measure when both sides share a rubric and engine; `digest:` ids stay
+labelled and are never mirrored into the outcome ledger as Scan bookends.
 
 **Where it surfaces.** `/trends` requests the tail; `TrendChart` draws the compacted run as a single
 dashed segment with hollow points and one legend line, and names it in the screen-reader table (the
 encoding is visual only). `/api/history?compacted=1` opts in over the API, and the CSV export gains
-`compacted` + `scans` columns so a spreadsheet is honest about which row is a summary.
-`forecastBasis(forecast)` states how many of a fit's days were compacted — since MC-B1 (2026-08-31)
-it reaches a reader, through `composeTrajectory` on every briefing/digest trajectory line (see
-`docs/features/org-dashboard/org-intelligence.md`); note the ORG rollup's series does not yet carry
-compacted points, so the clause is silent there until it does. `getCompactionCoverage(org)`
-reports how far the tail reaches beyond the retained scans (both degrade to `null`, never zeros).
+`compacted` + `scans` columns so a spreadsheet is honest about which row is a summary. Skill outcomes
+request the same tail: a compacted point is eligible as the *before* bookend when rubric and engine
+match the retained *after*. `forecastBasis(forecast)` states how many of a fit's days were compacted
+— since MC-B1 (2026-08-31) it reaches a reader, through `composeTrajectory` on every briefing/digest
+trajectory line (see `docs/features/org-dashboard/org-intelligence.md`); note the ORG rollup's series
+does not yet carry compacted points, so the clause is silent there until it does.
+`getCompactionCoverage(org)` reports how far the tail reaches beyond the retained scans (both degrade
+to `null`, never zeros).
 `MIN_FORECAST_POINTS` and the `lowData` rule are untouched — a compacted day counts as one day.
 
 **Erasure refuses to compact.** See below.
@@ -392,10 +396,9 @@ must never report a green `200`, since cron/uptime monitors only watch HTTP stat
   storage and history. On-demand erasure (above) does not depend on a policy.
 - **A compacted point is not a scan, and cannot be turned back into one.** It carries no permalink,
   no per-dimension evidence, no recommendations, no head sha, and its `overallMin`/`Max` are a range
-  within the period, **not** a measured noise band. Surfaces that read retained scans only — the org
-  rollup trend, the plan simulator, delivery trends, skill outcomes and the compare picker — still do;
-  wiring them to the tail is a follow-on, and the per-repo reader plus `getCompactionCoverage` are
-  what it needs.
+  within the period, **not** a measured noise band. Surfaces that still read retained scans only —
+  the org rollup trend, the plan simulator, delivery trends and the compare picker — have not been
+  wired yet; the per-repo reader plus `getCompactionCoverage` are what they need.
 - **The per-dimension small-multiples on `/trends` cover retained scans only.** The lazy
   `/api/history` fetch behind them does not request the tail (the client-side history validator does
   not yet carry the `compacted` flag through), so the page says so above the grid rather than letting
