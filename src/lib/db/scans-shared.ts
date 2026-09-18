@@ -216,7 +216,9 @@ export const resolveOrgId = cache(async (orgSlug: string): Promise<string | null
 
 /**
  * Map a persisted Recommendation row to the API-facing PersistedRecommendation shape — parsing the
- * stored `explore` JSON (dropping non-string entries) and normalizing nullable fields. Shared by the
+ * stored `explore` JSON (dropping non-string entries) and normalizing nullable fields. Unread
+ * explore JSON coalesces to [] here because `PersistedRecommendation.explore` is a list; the
+ * decoder itself returns null so other callers can tell corrupt from measured-empty. Shared by the
  * read path (getLatestRecommendations) and the mutation path (updateRecommendation).
  */
 export function toPersistedRec(r: {
@@ -241,7 +243,7 @@ export function toPersistedRec(r: {
     effort: r.effort as Effort,
     rationale: r.rationale,
     ...(r.firstStep ? { firstStep: r.firstStep } : {}),
-    explore: parseStringArray(r.explore),
+    explore: parseStringArray(r.explore) ?? [],
     levelUnlock: r.levelUnlock ?? undefined,
     status: r.status as RecStatus,
     assigneeLogin: r.assigneeLogin ?? null,

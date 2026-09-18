@@ -1,12 +1,14 @@
-/** Decode an optional JSON-in-TEXT string list using the existing read compatibility policy.
- * Null, malformed JSON and non-arrays yield []; non-strings are dropped. Order and duplicates stay.
- * This decoder does not distinguish corrupt data from an absent optional list. */
-export function parseStringArray(s: string | null | undefined): string[] {
-  if (!s) return [];
+/** Decode a JSON-in-TEXT string list.
+ * JSON `[]` is a measured empty list. Null, malformed JSON, and non-arrays return null so unread
+ * data is not counted as "found nothing". Non-strings are dropped; order and duplicates stay.
+ * Callers that want the old compatibility fallback coalesce with `?? []`. */
+export function parseStringArray(s: string | null | undefined): string[] | null {
+  if (s == null || s === "") return null;
   try {
     const p = JSON.parse(s);
-    return Array.isArray(p) ? p.filter((x): x is string => typeof x === "string") : [];
+    if (!Array.isArray(p)) return null;
+    return p.filter((x): x is string => typeof x === "string");
   } catch {
-    return [];
+    return null;
   }
 }

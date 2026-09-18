@@ -4,18 +4,19 @@
 // stored JSON columns. Four PURE, TOTAL guards stand between a malformed / legacy / hand-edited row
 // and a broken (crash / NaN-rendered) public report:
 //
-//   parseStringArray  → string[]            (non-strings dropped; never throws → [])
+//   parseStringArray  → string[] | null     (JSON [] stays []; unread/malformed/non-array → null)
 //   parseJsonObject   → object | null       (array / scalar / bad-JSON → null, never blind-cast)
 //   parseNumberArray  → number[] | null     (non-array → null; non-finite/non-number entries dropped)
-//   parseDiscrepancies→ Discrepancy[]       (drops rows missing dimension/claim; bad-JSON → [])
+//   parseDiscrepancies→ Discrepancy[] | null (JSON [] stays []; unread/malformed/non-array → null)
 //
 // These helpers are module-PRIVATE, so we exercise the REAL code (no copy that can drift, no source
 // change) through the only public seam that reaches them: getScanReportByCommit. We feed crafted
 // stored-JSON column values via a faked Prisma and assert what lands on the reconstructed report.
 //
 // THE RESILIENCE INVARIANT PINNED HERE: every helper is TOTAL — on valid-but-wrong-shape, malformed,
-// null, or undefined stored JSON it returns its documented default ([] / null) and NEVER throws, so a
-// single corrupt scan row can never crash or NaN-render the shareable report page.
+// null, or undefined stored JSON it returns its documented default (null, never a fabricated []) and
+// NEVER throws. Report reconstruction coalesces list fields with `?? []` so a single corrupt scan
+// row can never crash or NaN-render the shareable report page. JSON `[]` stays a measured empty list.
 //
 // Note on JS/JSON semantics (the finding's `[1,"x",NaN,2]→[1,2]` example is wrong): a literal `NaN`
 // token is INVALID JSON, so JSON.parse throws and parseNumberArray returns null (the catch default).
@@ -52,8 +53,8 @@ vi.mock("@/lib/db/client", () => ({
 // getScanReportByCommit routes its roadmap mapping through the canonical toPersistedRec, so it must be
 // real here (not an inert vi.fn) for the roadmap.explore resilience assertions to hold.
 vi.mock("@/lib/db/scans-shared", () => {
-  // The canonical JSON.parse-with-fallback primitive (null/empty/malformed → null). parseStringArray,
-  // toPersistedRec, and scans-read's object/number/discrepancy parsers all build on it.
+  // The canonical JSON.parse-with-fallback primitive (null/empty/malformed → null). parseStringArray
+  // matches json-columns: JSON [] stays []; unread → null. Report/rec callers coalesce with `?? []`.
   const parseJson = <T,>(s: string | null | undefined): T | null => {
     if (!s) return null;
     try {
@@ -62,9 +63,9 @@ vi.mock("@/lib/db/scans-shared", () => {
       return null;
     }
   };
-  const parseStringArray = (s: string | null | undefined): string[] => {
+  const parseStringArray = (s: string | null | undefined): string[] | null => {
     const p = parseJson<unknown>(s);
-    return Array.isArray(p) ? p.filter((x): x is string => typeof x === "string") : [];
+    return Array.isArray(p) ? p.filter((x): x is string => typeof x === "string") : null;
   };
   const toPersistedRec = (r: {
     id: string;
@@ -85,7 +86,7 @@ vi.mock("@/lib/db/scans-shared", () => {
     impact: r.impact,
     effort: r.effort,
     rationale: r.rationale,
-    explore: parseStringArray(r.explore),
+    explore: parseStringArray(r.explore) ?? [],
     levelUnlock: r.levelUnlock ?? undefined,
     status: r.status,
     assigneeLogin: r.assigneeLogin ?? null,
@@ -226,17 +227,22 @@ describe("getScanReportByCommit — parseStringArray resilience", () => {
     expect(r.strengths).toEqual(["a", "b", "c"]);
   });
 
-  it("a stored OBJECT (wrong type, not an array) defaults to [] (never throws)", async () => {
+  it("JSON [] is a measured empty list", async () => {
+    const r = await reportWith({ strengths: "[]" });
+    expect(r.strengths).toEqual([]);
+  });
+
+  it("a stored OBJECT (wrong type) is unread — report coalesces to [] (never throws)", async () => {
     const r = await reportWith({ strengths: '{"not":"an array"}' });
     expect(r.strengths).toEqual([]);
   });
 
-  it("malformed JSON defaults to [] (caught, report still renders)", async () => {
+  it("malformed JSON is unread — report coalesces to [] (never throws)", async () => {
     const r = await reportWith({ risks: '["unterminated' });
     expect(r.risks).toEqual([]);
   });
 
-  it("null and empty-string columns default to []", async () => {
+  it("null and empty-string columns are unread — report coalesces to []", async () => {
     const rNull = await reportWith({ strengths: null });
     expect(rNull.strengths).toEqual([]);
     const rEmpty = await reportWith({ strengths: "" });
@@ -246,7 +252,7 @@ describe("getScanReportByCommit — parseStringArray resilience", () => {
   it("guards nested array fields too: dimension.evidence and roadmap.explore", async () => {
     const r = await reportWith({
       dimEvidence: '["ev", 7, "ev2"]', // non-string dropped
-      recExplore: "{not json", // malformed → []
+      recExplore: "{not json", // malformed → unread → report coalesces to []
     });
     expect(r.dimensions[0].evidence).toEqual(["ev", "ev2"]);
     expect(r.roadmap[0].explore).toEqual([]);
@@ -332,12 +338,16 @@ describe("getScanReportByCommit — parseDiscrepancies resilience", () => {
     expect(r.discrepancies).toEqual([{ dimension: "ci", claim: "tests claimed but absent" }]);
   });
 
-  it("a non-array stored value defaults to [] (never throws)", async () => {
+  it("JSON [] is a measured empty list of discrepancies", async () => {
+    expect((await reportWith({ discrepancies: "[]" })).discrepancies).toEqual([]);
+  });
+
+  it("a non-array stored value is unread — report coalesces to [] (never throws)", async () => {
     const r = await reportWith({ discrepancies: '{"dimension":"ci","claim":"c"}' });
     expect(r.discrepancies).toEqual([]);
   });
 
-  it("malformed JSON and null columns default to [] (report still renders)", async () => {
+  it("malformed JSON and null columns are unread — report coalesces to [] (never throws)", async () => {
     expect((await reportWith({ discrepancies: "[{oops" })).discrepancies).toEqual([]);
     expect((await reportWith({ discrepancies: null })).discrepancies).toEqual([]);
   });
@@ -379,7 +389,7 @@ describe("getScanReportByCommit — corrupt-row resilience (the load-bearing inv
       dimEvidence: "}}}",
       recExplore: "[true,false", // malformed
     });
-    // Each helper fell back to its documented default — nothing crashed the render.
+    // Unread JSON is coalesced at the report boundary so reconstruction stays throw-free.
     expect(r.strengths).toEqual([]);
     expect(r.risks).toEqual([]);
     expect(r.prStats).toBeNull();
