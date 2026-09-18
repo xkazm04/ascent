@@ -382,7 +382,7 @@ anything that must distinguish an unresolvable active config uses `resolveByomSt
 
 | Provider | File | Model env | Notes |
 | --- | --- | --- | --- |
-| Gemini | `src/lib/llm/gemini.ts` | `GEMINI_MODEL` (default `gemini-3-flash-preview`) | `@google/genai`. Requires `GEMINI_API_KEY` or `GOOGLE_API_KEY`. Constrains decoding with `responseJsonSchema: ASSESSMENT_JSON_SCHEMA`. Timeout via `LLM_TIMEOUT_MS`. Pins `config.thinkingConfig.thinkingLevel` from `GEMINI_THINKING_LEVEL` (`low` \| `minimal` \| `high`, default `low`) on the structured `assess()` call so gemini-3.8-flash does not silently spend the vendor-default `high` reasoning tokens. |
+| Gemini | `src/lib/llm/gemini.ts` | `GEMINI_MODEL` (default `gemini-3-flash-preview`) | `@google/genai`. Requires `GEMINI_API_KEY` or `GOOGLE_API_KEY`. Constrains decoding with `responseJsonSchema: ASSESSMENT_JSON_SCHEMA`, then retries once without the schema (still `responseMimeType: application/json`) when that call is rejected or empty — the same one-shot fallback OpenAI uses for `json_object`. `finalizeAssessment()` still meters and parses the surviving reply. Timeout via `LLM_TIMEOUT_MS`. Pins `config.thinkingConfig.thinkingLevel` from `GEMINI_THINKING_LEVEL` (`low` \| `minimal` \| `high`, default `low`) on the structured `assess()` call so gemini-3.8-flash does not silently spend the vendor-default `high` reasoning tokens. |
 | Bedrock | `src/lib/llm/bedrock.ts` | `BEDROCK_MODEL_ID` (default `us.anthropic.claude-sonnet-4-6`) | `@aws-sdk/client-bedrock-runtime`, **lazy-imported** so non-Bedrock paths never pull the SDK. Region via `BEDROCK_REGION`/`AWS_REGION` (default `us-east-1`). Forces JSON via the Converse API's required-tool (function-calling) `inputSchema`; caches the stable system prefix with a `cachePoint`. Supports an optional extended-thinking budget (`LLM_THINKING_BUDGET`) and BYOM-injected static AWS credentials. Also exports `testBedrockConnection()` for the settings UI. |
 | OpenAI | `src/lib/llm/openai.ts` | `OPENAI_MODEL` (default `gpt-4o-mini`), `OPENAI_BASE_URL` (default `https://api.openai.com/v1`) | Fetch-based, no SDK. Requires `OPENAI_API_KEY`. Also serves Azure OpenAI and self-hosted OpenAI-compatible endpoints (vLLM, Ollama, LM Studio) via `OPENAI_BASE_URL`. Decodes against the strict `json_schema` derived from `ASSESSMENT_JSON_SCHEMA`, with a one-shot fallback to `json_object` when the target rejects strict schemas. `OPENAI_MAX_TOKENS` guards against small default completion caps (e.g. Ollama's `num_predict`) truncating the assessment JSON. |
 | OpenRouter | `src/lib/llm/openrouter.ts` | `OPENROUTER_MODEL` (default `openai/gpt-4o-mini`, always a `vendor/model` slug) | Fetch-based, same OpenAI-compatible `/chat/completions` contract, one key routes to any vendor's model. Requires `OPENROUTER_API_KEY`. This is the fleet/benchmark path `scripts/matrix/run.mts` measures. Same strict-schema-then-`json_object` fallback and `OPENROUTER_MAX_TOKENS` guard as OpenAI. Sends `HTTP-Referer`/`X-Title` attribution headers. Also exports `testOpenRouterConnection()`. |
@@ -442,7 +442,11 @@ a provider to the union without adding its label fails the build.
 - `ASSESSMENT_JSON_SCHEMA` (`schema.ts`) is the **single source of truth** for the
   assessment shape, derived from `DIMENSIONS` so it can never drift from the scoring
   rubric. Consumed three ways:
-  - Gemini's `responseJsonSchema` (native structured output).
+  - Gemini's `responseJsonSchema` (native structured output). The first `assess()` call
+    always sends the schema. A schema-rejected or empty reply retries once without
+    `responseJsonSchema`, still requesting `responseMimeType: application/json` — the same
+    one-shot fallback OpenAI/OpenRouter use for `json_object`. `finalizeAssessment()` is
+    still the terminal parse+meter step.
   - Bedrock's Converse `toolSpec.inputSchema`, forced via a required tool choice
     (function-calling JSON).
   - `STRICT_ASSESSMENT_JSON_SCHEMA`: a derived, OpenAI-`strict: true`-compatible dialect

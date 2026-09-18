@@ -1,6 +1,8 @@
 // Gemini provider (MVP / public repos). Uses @google/genai structured output
 // (responseJsonSchema) so the model is constrained to the assessment contract,
-// with defensive parsing as a safety net. Model is env-configurable via GEMINI_MODEL.
+// with a one-shot application/json retry when the schema call is rejected or empty
+// (the same fallback OpenAI uses for json_object), and defensive parsing as a
+// safety net. Model is env-configurable via GEMINI_MODEL.
 //
 // 2026-08-14: the default moved off `gemini-3-flash-preview` to the GA **gemini-3.7-flash**.
 // The preview default was the open engine-credibility item in `tiger/` (P2-6): the PUBLIC tier — the
@@ -32,6 +34,14 @@ import { ASSESSMENT_JSON_SCHEMA } from "@/lib/llm/schema";
 import { geminiThinkingLevel, llmTemperature, llmTimeoutMs, withLlmTimeout } from "@/lib/llm/config";
 
 export const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash";
+
+/** Does this error look like "I don't support responseJsonSchema"? Mirrors isResponseFormatRejection. */
+function isGeminiSchemaRejection(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  return /responseJsonSchema|response_schema|response_json_schema|json schema|structured output|responseMimeType/i.test(
+    msg,
+  );
+}
 
 export class GeminiProvider implements LLMProvider {
   readonly name = "gemini" as const;
@@ -66,18 +76,19 @@ export class GeminiProvider implements LLMProvider {
       llmTimeoutMs(),
       "Gemini request timed out.",
     );
-    let response;
-    try {
-      response = await client.models.generateContent({
+    // Constrain decoding to the assessment contract first (the same JSON Schema Bedrock forces as a
+    // tool). Some Gemini models/versions reject responseJsonSchema or return an empty candidate;
+    // retry ONCE without the schema, still asking for application/json — OpenAI's json_object
+    // fallback. First call always keeps the schema. finalizeAssessment remains the terminal step.
+    const generate = (withSchema: boolean) =>
+      client.models.generateContent({
         model: this.model,
         contents: user,
         config: {
           systemInstruction: system,
           temperature: llmTemperature(),
           responseMimeType: "application/json",
-          // Constrain decoding to the assessment contract (the same JSON Schema Bedrock forces as a
-          // tool); parseJsonLoose + validateAssessment below remain the safety net.
-          responseJsonSchema: ASSESSMENT_JSON_SCHEMA,
+          ...(withSchema ? { responseJsonSchema: ASSESSMENT_JSON_SCHEMA } : {}),
           // Pin thinking_level so gemini-3.8-flash does not silently use the vendor default `high`
           // (extra reasoning tokens billed as output). GEMINI_THINKING_LEVEL; unset → low.
           thinkingConfig: {
@@ -86,6 +97,23 @@ export class GeminiProvider implements LLMProvider {
           abortSignal,
         },
       });
+    let response!: Awaited<ReturnType<typeof generate>>;
+    try {
+      let retry = false;
+      try {
+        response = await generate(true);
+        retry = !response.text;
+      } catch (err) {
+        if (abortSignal.aborted || !isGeminiSchemaRejection(err)) throw err;
+        retry = true;
+      }
+      if (retry) {
+        console.warn(
+          `[llm/gemini] model "${this.model}" failed schema-constrained decoding; ` +
+            "retrying with application/json only (shape is then prompt-enforced only).",
+        );
+        response = await generate(false);
+      }
     } finally {
       clear();
     }
