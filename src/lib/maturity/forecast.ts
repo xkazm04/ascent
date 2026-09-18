@@ -436,8 +436,8 @@ export function forecastBasis(f: Forecast): string {
   return f.compactedPoints > 0 ? `${base}, ${f.compactedPoints} of them compacted` : base;
 }
 
-/** One-line, leader-facing read of a forecast — the headline for the trajectory GPS. */
-export function forecastHeadline(f: Forecast): string {
+/** Claim half of a trajectory line. Ungated — only {@link composeTrajectory} may publish it (G4). */
+function forecastHeadline(f: Forecast): string {
   const lvl = (id: LevelId) => `${id} · ${LEVEL_BY_ID[id].name}`;
   if (f.eta) {
     const when = humanizeDays(f.eta.days);

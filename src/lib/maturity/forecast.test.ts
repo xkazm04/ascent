@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import {
   MIN_FORECAST_POINTS,
@@ -7,7 +9,6 @@ import {
   forecastBasis,
   forecastInsufficiency,
   forecastTrajectory,
-  forecastHeadline,
   goalLine,
   goalNote,
   humanizeDays,
@@ -17,6 +18,7 @@ import {
   trajectoryNote,
   type SeriesPoint,
 } from "./forecast";
+import * as forecastApi from "./forecast";
 
 const DAY = 86_400_000;
 
@@ -134,7 +136,16 @@ describe("forecastTrajectory", () => {
     // OLD code printed "in ~5 days (≈ 2026-01-16)" — a past date. Now it's suppressed as already-reached.
     const stale = forecastTrajectory(s, 90, lastMs + 30 * DAY)!;
     expect(stale.eta).toBeNull();
-    expect(forecastHeadline(stale)).not.toMatch(/2026-01-16/);
+    expect(composeTrajectory(stale).headline).toBeNull();
+
+    // Presentable span, stale enough that the crossing is behind now: the public headline must not
+    // print the elapsed date (the ungated claim used to, via eta.date).
+    const long = series(50, 1, MIN_FORECAST_SPAN_DAYS + 1); // last=64, +1/day, crosses 65 at last+1
+    const longLast = atLast(long);
+    const staleLong = forecastTrajectory(long, 90, longLast + 30 * DAY)!;
+    expect(isProjectable(staleLong)).toBe(true);
+    expect(staleLong.eta).toBeNull();
+    expect(composeTrajectory(staleLong).headline).not.toMatch(/\d{4}-\d{2}-\d{2}/);
 
     // Stale but the crossing still lies ahead (crossing at last+40; now is last+10): the ETA is measured
     // from NOW (30 days) and dated forward from now, never a date in the past.
@@ -392,13 +403,34 @@ describe("humanizeDays", () => {
   });
 });
 
-describe("forecastHeadline", () => {
-  it("phrases promotion, demotion, and flat reads", () => {
-    const rise = series(50, 1, 11);
-    const fall = series(60, -1, 11);
-    expect(forecastHeadline(forecastTrajectory(rise, 90, atLast(rise))!)).toMatch(/On track to reach L4/);
-    expect(forecastHeadline(forecastTrajectory(fall, 90, atLast(fall))!)).toMatch(/At risk of slipping to L2/);
-    expect(forecastHeadline(forecastTrajectory(series(50, 0, 11))!)).toMatch(/Holding around/);
+describe("composeTrajectory.headline — the only public claim", () => {
+  it("does not export an ungated forecastHeadline (G4)", () => {
+    expect(forecastApi).not.toHaveProperty("forecastHeadline");
+  });
+
+  it("phrases promotion, demotion, and flat reads only when the fit is presentable", () => {
+    const rise = series(50, 1, MIN_FORECAST_SPAN_DAYS + 1);
+    const fall = series(60, -1, MIN_FORECAST_SPAN_DAYS + 1);
+    const flat = series(50, 0, MIN_FORECAST_SPAN_DAYS + 1);
+    expect(composeTrajectory(forecastTrajectory(rise, 90, atLast(rise))).headline).toMatch(/On track to reach L4/);
+    expect(composeTrajectory(forecastTrajectory(fall, 90, atLast(fall))).headline).toMatch(/At risk of slipping to L2/);
+    expect(composeTrajectory(forecastTrajectory(flat)).headline).toMatch(/Holding around/);
+  });
+
+  it("is null for a two-point fit", () => {
+    const two = forecastTrajectory([
+      { date: "2026-08-21", value: 60 },
+      { date: "2026-08-22", value: 65 },
+    ]);
+    expect(two).not.toBeNull();
+    expect(composeTrajectory(two).headline).toBeNull();
+  });
+
+  it("Overview Trajectory consumes composeTrajectory, not an ungated headline or fitQuality*100", () => {
+    const src = readFileSync(join(process.cwd(), "src/features/standing/overview/Trajectory.tsx"), "utf8");
+    expect(src).toContain("composeTrajectory(");
+    expect(src).not.toMatch(/\bforecastHeadline\b/);
+    expect(src).not.toMatch(/fitQuality\s*\*\s*100/);
   });
 });
 
@@ -489,7 +521,7 @@ describe("composeTrajectory — the hedge is replaced, never deleted", () => {
   it("carries BOTH halves of the hedge whenever it carries a headline — they are inseparable", () => {
     const f = forecastTrajectory(series(50, 0.3, 20))!;
     const t = composeTrajectory(f);
-    expect(t.headline).toBe(forecastHeadline(f));
+    expect(t.headline).toMatch(/On track to reach L4|Climbing at/);
     expect(t.confidence).toBe(Math.round(f.fitQuality * 100));
     expect(t.basis).toBe(forecastBasis(f)); // forecastBasis finally has a non-test caller (DANA-L1-013)
     expect(t.insufficiency).toBeNull();
