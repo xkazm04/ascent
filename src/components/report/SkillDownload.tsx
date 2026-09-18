@@ -12,10 +12,10 @@
 // Index chrome: a hairline-ruled dimension ledger inside the brand Modal, mono tabular-nums scores,
 // score color only ever from scoreHex. No hand-rolled overlay — Modal owns focus trap/Escape/scroll.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { DimensionId, DimensionResult } from "@/lib/types";
 import { scoreHex } from "@/lib/ui";
-import { Kicker, Modal, ModalBody, ModalFooter, ModalHeader } from "@/components/ui";
+import { Kicker, Modal, ModalBody, ModalFooter, ModalHeader, signedDelta } from "@/components/ui";
 import { pillClass } from "@/components/report/pill";
 
 /** Mirrors WEAK_THRESHOLD in @/lib/onboarding/tracks — the score at/above which a dimension is a
@@ -27,6 +27,40 @@ function skillHref(repoParam: string, dims?: DimensionId[]): string {
   const q = new URLSearchParams({ repo: repoParam });
   if (dims?.length) q.set("dims", dims.join(","));
   return `/api/report/skill?${q.toString()}`;
+}
+
+export type SkillLastRun = { verifiedDelta: number | null; trackIds: string[] };
+
+/** G4: null verifiedDelta is an em-dash, never a fabricated 0. A measured 0 stays "0". */
+export function lastRunLine(last: SkillLastRun): string {
+  const delta = last.verifiedDelta == null ? "—" : signedDelta(last.verifiedDelta);
+  const tracks = last.trackIds.length > 0 ? last.trackIds.join(", ") : "none";
+  return `last run: ${delta} overall after tracks ${tracks}`;
+}
+
+function useLastSkillRun(repoParam: string): SkillLastRun | null {
+  const [last, setLast] = useState<SkillLastRun | null>(null);
+  useEffect(() => {
+    let live = true;
+    fetch(`/api/report/skill?repo=${encodeURIComponent(repoParam)}&view=outcomes`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { last?: SkillLastRun | null } | null) => {
+        const next = data?.last ?? null;
+        if (!live || !next || !Array.isArray(next.trackIds)) return;
+        setLast({
+          verifiedDelta:
+            typeof next.verifiedDelta === "number" && Number.isFinite(next.verifiedDelta)
+              ? next.verifiedDelta
+              : null,
+          trackIds: next.trackIds.filter((t): t is string => typeof t === "string"),
+        });
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [repoParam]);
+  return last;
 }
 
 /** Dimensions Ascent would pick on its own (blended score below the strength line). */
@@ -45,6 +79,7 @@ export function SkillDownload({
   dimensions?: DimensionResult[];
 }) {
   const [open, setOpen] = useState(false);
+  const lastRun = useLastSkillRun(repoParam);
   const dims = useMemo(() => dimensions ?? [], [dimensions]);
   const autoIds = useMemo(() => autoPicked(dims), [dims]);
   const auto = useMemo(() => new Set(autoIds), [autoIds]);
@@ -68,6 +103,11 @@ export function SkillDownload({
       >
         <span aria-hidden>✦</span> Onboarding skill
       </a>
+      {lastRun && (
+        <span className="type-mono-sm text-slate-500" data-testid="skill-last-run">
+          {lastRunLine(lastRun)}
+        </span>
+      )}
       {dims.length > 0 && (
         <button
           type="button"

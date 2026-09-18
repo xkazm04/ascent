@@ -1,6 +1,8 @@
-// GET /api/report/skill?repo=owner/name[@sha][&dims=D2,D9][&max=3][&format=json]
-//   default      -> text/markdown (Claude's `.claude/skills/ascent-onboard/SKILL.md`)
-//   format=json  -> both homes: Claude's path plus the vendor-neutral `.agents/skills/` copy
+// GET /api/report/skill?repo=owner/name[@sha][&dims=D2,D9][&max=3][&format=json][&view=outcomes]
+//   default         -> text/markdown (Claude's `.claude/skills/ascent-onboard/SKILL.md`)
+//   format=json     -> both homes: Claude's path plus the vendor-neutral `.agents/skills/` copy
+//   view=outcomes   -> JSON last-run generation outcome (verifiedDelta + tracks); does not record
+//                      a generation and does not emit the skill file
 //
 // Emits the personalized onboarding skill for a persisted maturity report — a scan output the repo
 // drops into `.claude/skills/` (Claude Code, kept) and `.agents/skills/` (vendor-neutral). Mirrors
@@ -20,6 +22,7 @@ import { buildOnboardingSkill } from "@/lib/onboarding";
 import { isDimensionId } from "@/lib/maturity/model";
 import type { DimensionId } from "@/lib/types";
 import { getScanReportByCommit, isDbConfigured, recordSkillGeneration } from "@/lib/db";
+import { getLatestSkillGenerationOutcome, lastRunOutcomeLine } from "@/lib/db/skill-history";
 import { readableOrgForOwner } from "@/lib/auth";
 import { requireOrgRead } from "@/lib/authz";
 import { parseRepoParam } from "@/lib/report/repoParam";
@@ -68,13 +71,29 @@ export async function GET(request: Request) {
   if (!q) return NextResponse.json({ error: "Missing ?repo=owner/name." }, { status: 400 });
   const parsed = parseRepoParam(q);
   if (!parsed) return NextResponse.json({ error: "Invalid repo. Use owner/name." }, { status: 400 });
-  const selection = parseSelection(params);
-  if ("error" in selection) return NextResponse.json({ error: selection.error }, { status: 400 });
+
+  // Outcomes is a read of generation history, not a download. Skip selection parsing (and the
+  // generation write below) so the download control can poll without minting a history row.
+  const outcomesView = params.get("view") === "outcomes";
+  let selection: SelectParams = {};
+  if (!outcomesView) {
+    const parsedSelection = parseSelection(params);
+    if ("error" in parsedSelection) return NextResponse.json({ error: parsedSelection.error }, { status: 400 });
+    selection = parsedSelection;
+  }
 
   // Resolve the owning org and gate the read — a private report's skill is as sensitive as the report.
   const orgSlug = await readableOrgForOwner(parsed.owner);
   const denied = await requireOrgRead(orgSlug);
   if (denied) return denied;
+
+  if (outcomesView) {
+    const last = await getLatestSkillGenerationOutcome(`${parsed.owner}/${parsed.name}`, orgSlug).catch(() => null);
+    return NextResponse.json(
+      { last, line: last ? lastRunOutcomeLine(last) : null },
+      { headers: { "cache-control": "private, no-store" } },
+    );
+  }
 
   const report = await getScanReportByCommit(parsed.owner, parsed.name, {
     headSha: parsed.sha,

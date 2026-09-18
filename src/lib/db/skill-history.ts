@@ -176,6 +176,48 @@ export async function getSkillGenerationOutcomes(
   });
 }
 
+/** G4: a null or non-finite verifiedDelta is an em-dash. A measured 0 is the number 0. */
+export function formatVerifiedDelta(delta: number | null): string {
+  if (delta == null || !Number.isFinite(delta)) return "—";
+  return `${delta > 0 ? "+" : ""}${delta}`;
+}
+
+/** Copy the download control paints for one generation. Null delta stays "—", never a fabricated 0. */
+export function lastRunOutcomeLine(outcome: { verifiedDelta: number | null; trackIds: string[] }): string {
+  const tracks = outcome.trackIds.length > 0 ? outcome.trackIds.join(", ") : "none";
+  return `last run: ${formatVerifiedDelta(outcome.verifiedDelta)} overall after tracks ${tracks}`;
+}
+
+export type SkillLastRunOutcome = {
+  verifiedDelta: number | null;
+  trackIds: string[];
+  generatedAt: string;
+};
+
+/**
+ * Newest skill-generation outcome for the download control. `orgSlug` is resolved to an id here so
+ * the report route does not have to join tenants itself. Null when persistence is off, the org is
+ * unknown, or nothing has been generated yet — that absence is not a measured-zero delta.
+ */
+export async function getLatestSkillGenerationOutcome(
+  repoFullName: string,
+  orgSlug: string,
+): Promise<SkillLastRunOutcome | null> {
+  if (!isDbConfigured() || !repoFullName || !orgSlug) return null;
+  try {
+    const org = await getPrisma().organization.findUnique({
+      where: { slug: orgSlug.trim().toLowerCase() },
+      select: { id: true },
+    });
+    if (!org) return null;
+    const last = (await getSkillGenerationOutcomes(repoFullName, org.id))[0];
+    if (!last) return null;
+    return { verifiedDelta: last.verifiedDelta, trackIds: last.trackIds, generatedAt: last.generatedAt };
+  } catch {
+    return null;
+  }
+}
+
 /** Track-set diff between an older and newer generation: which tracks were added / dropped / kept. */
 export function diffTrackSets(older: string[], newer: string[]): { added: string[]; dropped: string[]; kept: string[] } {
   const a = new Set(older);
