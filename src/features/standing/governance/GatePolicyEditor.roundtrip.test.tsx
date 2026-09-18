@@ -18,7 +18,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MAX_REQUIRE_CHECKS } from "@/lib/scoring/gate";
 import { GatePolicyEditor } from "./GatePolicyEditor";
-import { normalizeRequireChecks, REQUIRE_CHECKS_CAP } from "./gatePolicyReconcile";
+import { normalizeRequireChecks, passthroughPolicyFields, REQUIRE_CHECKS_CAP } from "./gatePolicyReconcile";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
@@ -65,7 +65,7 @@ describe("GatePolicyEditor — fields the form does not render survive a save", 
     expect(sent.requireChecks).toEqual(["control.prepush.lint", "guardrail.never-commit"]);
   });
 
-  it("round-trips the other two unmodelled bars too — the same hole, different fields", async () => {
+  it("round-trips forbidAiAuthorship — the remaining unmodelled bar", async () => {
     const stored = { minOverall: 50, minAiGovernedRate: 100, forbidAiAuthorship: true };
     const fetchMock = stubSave({ policy: stored, sweep: NO_SWEEP });
     render(<GatePolicyEditor org="acme" initial={stored} />);
@@ -76,6 +76,7 @@ describe("GatePolicyEditor — fields the form does not render survive a save", 
     const sent = sentPolicy(fetchMock);
     expect(sent.minAiGovernedRate).toBe(100);
     expect(sent.forbidAiAuthorship).toBe(true);
+    expect(passthroughPolicyFields(stored)).toEqual({ forbidAiAuthorship: true });
   });
 
   it("still CLEARS a field it does render — round-trip must not become a merge", async () => {
@@ -177,5 +178,23 @@ describe("GatePolicyEditor — requireChecks is an owned control", () => {
     ).toEqual(["control.prepush.lint", "guardrail.never-commit"]);
     const extra = Array.from({ length: REQUIRE_CHECKS_CAP + 2 }, (_, i) => `control.prepush.c${String(i).padStart(3, "0")}`);
     expect(normalizeRequireChecks(extra)).toHaveLength(REQUIRE_CHECKS_CAP);
+  });
+});
+
+describe("GatePolicyEditor — minAiGovernedRate is an owned control", () => {
+  it("saves N=100 and drops the field on uncheck so passthrough cannot win", async () => {
+    const fetchMock = stubSave({ policy: { minOverall: 50, minAiGovernedRate: 100 }, sweep: NO_SWEEP });
+    render(<GatePolicyEditor org="acme" initial={{ minOverall: 50 }} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: /AI-governed/i }));
+    save();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(sentPolicy(fetchMock).minAiGovernedRate).toBe(100);
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Policy saved"));
+
+    const second = stubSave({ policy: { minOverall: 50 }, sweep: NO_SWEEP });
+    fireEvent.click(screen.getByRole("checkbox", { name: /AI-governed/i }));
+    save();
+    await waitFor(() => expect(second).toHaveBeenCalled());
+    expect(sentPolicy(second).minAiGovernedRate).toBeUndefined();
   });
 });

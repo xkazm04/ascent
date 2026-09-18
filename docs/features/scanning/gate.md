@@ -280,7 +280,7 @@ discredit both.
 | Gate API | `?min_ai_governed=100`, or `?no_ungoverned_ai=1` for the strict shorthand |
 | GitHub Action | `min-ai-governed: '100'`, or `no-ungoverned-ai: 'true'` |
 | CLI | `--min-ai-governed 100`, or `--no-ungoverned-ai` |
-| Org policy | persisted `minAiGovernedRate` (sanitized like every other numeric bar) |
+| Org policy | Governance editor (`AiGovernedRateRow`) persists `minAiGovernedRate` (sanitized like every other numeric bar) |
 
 A failure reads: *"62% of AI-attributed merged PRs carried an approving human review, below the
 required 100% (20 AI-attributed PRs sampled)."* Its `GateFailure.code` is `provenance`.
@@ -391,13 +391,14 @@ them and a param could not weaken them anyway.
 The Governance editor **round-trips every `GatePolicy` field it does not show**. `buildPolicy()`
 starts from `passthroughPolicyFields(stored)` — the stored policy minus `EDITED_POLICY_FIELDS` — and
 overwrites only the bars the form actually renders (`minLevel`, `minOverall`, `minDimension`,
-`minDimensionFor`, `forbidPostures`, `requireProtectedBranch`, and `requireChecks`), so
-`minAiGovernedRate` and `forbidAiAuthorship` survive a save byte-identical. The carried copy is
+`minDimensionFor`, `forbidPostures`, `requireProtectedBranch`, `requireChecks`, and
+`minAiGovernedRate`), so `forbidAiAuthorship` survives a save byte-identical. The carried copy is
 re-seeded from the server's **echo** on every save, never from the request, so it cannot drift from
 what is stored. `requireChecks` is owned by `RequireChecksRows`: owners add and remove doctor check
 ids, malformed ids are dropped client-side (`isValidCheckId`), the list is capped at
 `MAX_REQUIRE_CHECKS`, and a save POSTs the sorted ids (or omits the field when the last id is
-removed).
+removed). `minAiGovernedRate` is owned by `AiGovernedRateRow`: owners enable a 1–100 floor (100 when
+newly checked) and a save POSTs the number, or omits the field when the control is unchecked.
 
 This was live-proven broken (UAT 2026-08-30, `NADIA-L1-07` / `PRIYA-L1-01`): an owner set two
 required controls, changed **Min overall 50 → 55**, and the controls were gone. The payload was
@@ -475,6 +476,7 @@ all, so the new bar simply applies on each PR's next push or CI run.
 | `src/features/standing/governance/GatePolicyEditor.tsx` | The owner's policy form, incl. when the bar applies. |
 | `src/features/standing/governance/DimensionFloorRows.tsx` | Per-dimension floors (D1–D8) in that form. |
 | `src/features/standing/governance/RequireChecksRows.tsx` | Add/remove `requireChecks` doctor check ids in that form. |
+| `src/features/standing/governance/AiGovernedRateRow.tsx` | Enable/clear `minAiGovernedRate` (AI-review bar) in that form. |
 | `src/app/badge/gate-snippets.ts` | The public `/badge` curl + workflow snippets, from one policy. |
 | `action.yml` | Composite GitHub Action definition. |
 | `src/lib/db/org-rollup.ts` | `parseProvenanceLite`: the fleet gate's `aiGovernedRate` input. |

@@ -36,8 +36,8 @@ export function appliesWhen(sweep: SweepPlan | undefined): string | null {
  *
  * Why (UAT 2026-08-30, NADIA-L1-07 / PRIYA-L1-01): the form builds its payload field by field and the
  * POST replaces the stored policy wholesale, so an unrendered bar was DELETED on any unrelated edit.
- * `requireChecks` now has a control and lives here so a save can add or clear it. Remaining
- * passthrough: `minAiGovernedRate`, `forbidAiAuthorship`.
+ * `requireChecks` and `minAiGovernedRate` now have controls and live here so a save can add or clear
+ * them. Remaining passthrough: `forbidAiAuthorship`.
  *
  * The fix is round-trip, not server-side merge: a merging POST could never CLEAR a field, so
  * unchecking "Require a protected default branch" would stop working. The form owns exactly what it
@@ -54,6 +54,7 @@ export const EDITED_POLICY_FIELDS = [
   "forbidPostures",
   "requireProtectedBranch",
   "requireChecks",
+  "minAiGovernedRate",
 ] as const satisfies readonly (keyof GatePolicy)[];
 
 /**
@@ -104,6 +105,8 @@ export function buildEditedPolicy(input: {
   noUngoverned: boolean;
   requireProtection: boolean;
   requireChecks: readonly string[];
+  aiGoverned: boolean;
+  aiGovernedRate: string;
 }): GatePolicy {
   const p: GatePolicy = { ...input.passthrough };
   if (input.minLevel) p.minLevel = input.minLevel as LevelId;
@@ -120,6 +123,8 @@ export function buildEditedPolicy(input: {
   const checks = normalizeRequireChecks(input.requireChecks);
   if (checks.length) p.requireChecks = checks;
   else delete p.requireChecks;
+  if (input.aiGoverned) p.minAiGovernedRate = clampToDisplayRange(input.aiGovernedRate);
+  else delete p.minAiGovernedRate;
   return p;
 }
 
@@ -130,6 +135,27 @@ export function floorsExceptD9(p: GatePolicy | null): Record<string, string> {
     if (dim !== "D9" && floor != null) out[dim] = String(floor);
   }
   return out;
+}
+
+/** Form-owned snapshot — seeds `useState` and re-seeds from the server echo. */
+export function seedEditorFields(p: GatePolicy | null) {
+  const d9 = p?.minDimensionFor?.D9;
+  const air = p?.minAiGovernedRate;
+  return {
+    minLevel: p?.minLevel ?? "",
+    minOverall: p?.minOverall != null ? String(p.minOverall) : "",
+    minDimension: p?.minDimension != null ? String(p.minDimension) : "",
+    security: d9 != null,
+    // ci-gate-status-checks #2: seed D9 from the persisted value; default 50 when newly enabled.
+    securityFloor: d9 != null ? String(d9) : "50",
+    otherFloors: floorsExceptD9(p),
+    noUngoverned: Boolean(p?.forbidPostures?.includes("ungoverned")),
+    requireProtection: Boolean(p?.requireProtectedBranch),
+    requireChecks: normalizeRequireChecks(p?.requireChecks ?? []),
+    aiGoverned: air != null,
+    aiGovernedRate: air != null ? String(air) : "100",
+    passthrough: passthroughPolicyFields(p),
+  };
 }
 
 // Which requested fields did the server's sanitizer silently DROP? sanitizeGatePolicy discards any
@@ -150,6 +176,7 @@ export function droppedFields(req: GatePolicy, stored: GatePolicy | null): strin
     out.push(dim === "D9" ? "security floor (D9)" : `${dim} floor`);
   }
   if (req.requireProtectedBranch && !stored?.requireProtectedBranch) out.push("protected-branch requirement");
+  if (req.minAiGovernedRate != null && stored?.minAiGovernedRate !== req.minAiGovernedRate) out.push("AI-review bar");
   if (req.forbidPostures?.length && !req.forbidPostures.every((p) => stored?.forbidPostures?.includes(p)))
     out.push("forbidden postures");
   if (req.requireChecks?.length) {

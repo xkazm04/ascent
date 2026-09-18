@@ -18,9 +18,7 @@ import {
   appliesWhen,
   buildEditedPolicy,
   droppedFields,
-  floorsExceptD9,
-  normalizeRequireChecks,
-  passthroughPolicyFields,
+  seedEditorFields,
   type SweepPlan,
 } from "./gatePolicyReconcile";
 
@@ -29,28 +27,20 @@ export type { SweepPlan } from "./gatePolicyReconcile";
 
 export function useGatePolicyEditor(org: string, initial: GatePolicy | null) {
   const router = useRouter();
-  const [minLevel, setMinLevel] = useState<string>(initial?.minLevel ?? "");
-  const [minOverall, setMinOverall] = useState<string>(initial?.minOverall != null ? String(initial.minOverall) : "");
-  const [minDimension, setMinDimension] = useState<string>(initial?.minDimension != null ? String(initial.minDimension) : "");
-  const [security, setSecurity] = useState<boolean>(initial?.minDimensionFor?.D9 != null);
-  // Bug-fix (ci-gate-status-checks #2): seed the floor from the persisted value so a custom D9 bar
-  // (e.g. 70, set via the gate API / ciWith snippet) round-trips. The checkbox is only a lossy
-  // boolean projection — emitting a hardcoded 50 on save silently DOWNGRADED a stricter configured
-  // floor on any unrelated edit. Default to 50 when newly enabled.
-  const [securityFloor, setSecurityFloor] = useState<string>(
-    initial?.minDimensionFor?.D9 != null ? String(initial.minDimensionFor.D9) : "50",
-  );
-  // Floors on dimensions OTHER than D9, as raw input strings keyed by dim id. GatePolicy has always
-  // supported D1..D9 (sanitizeGatePolicy keeps every valid one) and the gate enforces them, but the form
-  // exposed only D9 — so "Testing ≥ 50" was reachable only by POSTing raw JSON to the API. D9 keeps its
-  // own dedicated control: it is the deterministic dimension, it is the only floor the gate URL / CI
-  // input expose, and enabling it also forbids the ungoverned posture. These carry none of that.
-  const [otherFloors, setOtherFloors] = useState<Record<string, string>>(() => floorsExceptD9(initial));
-  const [noUngoverned, setNoUngoverned] = useState<boolean>(Boolean(initial?.forbidPostures?.includes("ungoverned")));
-  const [requireProtection, setRequireProtection] = useState<boolean>(Boolean(initial?.requireProtectedBranch));
-  const [requireChecks, setRequireChecks] = useState<string[]>(() => normalizeRequireChecks(initial?.requireChecks ?? []));
-  // Unrendered bars (minAiGovernedRate, forbidAiAuthorship) carried through every save untouched.
-  const [passthrough, setPassthrough] = useState<GatePolicy>(() => passthroughPolicyFields(initial));
+  const init = seedEditorFields(initial);
+  const [minLevel, setMinLevel] = useState(init.minLevel);
+  const [minOverall, setMinOverall] = useState(init.minOverall);
+  const [minDimension, setMinDimension] = useState(init.minDimension);
+  const [security, setSecurity] = useState(init.security);
+  const [securityFloor, setSecurityFloor] = useState(init.securityFloor);
+  const [otherFloors, setOtherFloors] = useState(init.otherFloors);
+  const [noUngoverned, setNoUngoverned] = useState(init.noUngoverned);
+  const [requireProtection, setRequireProtection] = useState(init.requireProtection);
+  const [requireChecks, setRequireChecks] = useState(init.requireChecks);
+  const [aiGoverned, setAiGoverned] = useState(init.aiGoverned);
+  const [aiGovernedRate, setAiGovernedRate] = useState(init.aiGovernedRate);
+  // Unrendered bars (forbidAiAuthorship) carried through every save untouched.
+  const [passthrough, setPassthrough] = useState(init.passthrough);
   const [busy, setBusy] = useState<"save" | "reset" | null>(null);
   const [msg, setMsg] = useState<{ kind: "note" | "error"; text: string } | null>(null);
   // When the saved bar takes effect, from the server's sweep plan (never assumed).
@@ -68,22 +58,27 @@ export function useGatePolicyEditor(org: string, initial: GatePolicy | null) {
       noUngoverned,
       requireProtection,
       requireChecks,
+      aiGoverned,
+      aiGovernedRate,
     });
   }
 
   // Sync every form field to a policy (the server's sanitized echo, or null after a reset) so the UI
   // always shows what is actually stored, never what was merely requested. (ambiguity-ui ci-gate #3)
   function syncForm(p: GatePolicy | null) {
-    setMinLevel(p?.minLevel ?? "");
-    setMinOverall(p?.minOverall != null ? String(p.minOverall) : "");
-    setMinDimension(p?.minDimension != null ? String(p.minDimension) : "");
-    setSecurity(p?.minDimensionFor?.D9 != null);
-    setSecurityFloor(p?.minDimensionFor?.D9 != null ? String(p.minDimensionFor.D9) : "50");
-    setOtherFloors(floorsExceptD9(p));
-    setNoUngoverned(Boolean(p?.forbidPostures?.includes("ungoverned")));
-    setRequireProtection(Boolean(p?.requireProtectedBranch));
-    setRequireChecks(normalizeRequireChecks(p?.requireChecks ?? []));
-    setPassthrough(passthroughPolicyFields(p));
+    const s = seedEditorFields(p);
+    setMinLevel(s.minLevel);
+    setMinOverall(s.minOverall);
+    setMinDimension(s.minDimension);
+    setSecurity(s.security);
+    setSecurityFloor(s.securityFloor);
+    setOtherFloors(s.otherFloors);
+    setNoUngoverned(s.noUngoverned);
+    setRequireProtection(s.requireProtection);
+    setRequireChecks(s.requireChecks);
+    setAiGoverned(s.aiGoverned);
+    setAiGovernedRate(s.aiGovernedRate);
+    setPassthrough(s.passthrough);
   }
 
   async function post(policy: GatePolicy | null, kind: "save" | "reset") {
@@ -184,6 +179,10 @@ export function useGatePolicyEditor(org: string, initial: GatePolicy | null) {
     requireChecks,
     addRequireCheck: (id: string) => setRequireChecks((prev) => addRequireCheckId(prev, id)),
     removeRequireCheck: (id: string) => setRequireChecks((prev) => prev.filter((c) => c !== id)),
+    aiGoverned,
+    setAiGoverned,
+    aiGovernedRate,
+    setAiGovernedRate,
     busy,
     msg,
     applies,
