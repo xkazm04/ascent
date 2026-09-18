@@ -565,7 +565,7 @@ terms: *does this change what the operator would do, or is it maintenance she is
 quietly?* The rule lives in `src/lib/athena/cycle-signal.ts` — **pure, no database import**, so the
 most consequential rule in the cycle (when a machine may interrupt a person) is testable without one.
 
-Five ordered rules, each a property someone could check by hand:
+Six ordered rules, each a property someone could check by hand:
 
 1. **No prose is nothing to say.** An empty outcome cannot be news even if it moved a number.
 2. **Maintenance is absolute.** A consolidation or a housekeeping pass never initiates contact,
@@ -575,7 +575,11 @@ Five ordered rules, each a property someone could check by hand:
 4. **Movement beyond the org's noise band clears it.** The band is the org's own
    (`SCORE_NOISE_BAND` = 2 points, `src/lib/maturity/noise.ts`): inside it a `+1` is scan-to-scan
    wobble wearing a green arrow.
-5. **Everything else is absorbed**, and the reason distinguishes "she is repeating the dashboard"
+5. **An abandoned skill (tried, then quiet) clears it even when scores are flat.**
+   `abandonedCount >= 1` (`raisesForAbandonedSkill` in `cycle-signal.ts`) — the same prune-candidate
+   fold the Skills tab already shows. Staying quiet about a prune candidate is dropping the work on
+   the floor, the same as a waiting decision.
+6. **Everything else is absorbed**, and the reason distinguishes "she is repeating the dashboard"
    (`already_visible`) from "she had nothing" (`nothing_to_say`).
 
 **Absorbed outcomes still exist** — counted by reason, recorded on her own episode, carried in the
@@ -624,7 +628,9 @@ before a billable completion exists:
 Then **one metered call** — `runToolLoop` with `maxLegs: 1`, no tools, `legKind: "athena_cycle"`, so
 this spend is separable from her interactive turns in `/usage` and in the tracklight mirror. The
 standing (the trailing-week window the weekly digest resolves, so the two cannot disagree about where
-the week started) and her still-open asks are prefetched into the prompt.
+the week started, plus the Memory tab's `getMemoryCoverage` and the Skills tab's `skillUsageMap`
+abandoned fold) and her still-open asks are prefetched into the prompt. She does not call tools on
+this path: those facts are already in the standing.
 
 The briefing prompt (`src/lib/athena/cycle-prompt.ts`) reuses the identity and all three contracts
 *verbatim* — she is the same companion at 07:30 with nobody watching as she is mid-conversation. What
