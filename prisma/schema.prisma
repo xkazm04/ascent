@@ -1953,13 +1953,16 @@ model LoopRunLane {
 // is, so it gets the same treatment: the boot sweep reconciles it to `interrupted`, which is a phase
 // a human can act on rather than a job that looks alive forever.
 //
-// Deliberately NOT auto-resumed. A drive spends agent sessions and money; re-arming one is a
-// decision, so `interrupted` is terminal and `resumedFrom` records the chain the operator restarted.
+// Deliberately NOT auto-resumed — for a BOUNDED drive. A drive spends agent sessions and money; re-arming
+// one is a decision, so `interrupted` is terminal and `resumedFrom` records the chain the operator restarted.
+// The one exception is a CONTINUOUS drive (the standing runner, 2026-09-18): the boot sweep re-attaches it
+// on this same row while the loop is enabled, because it exists to run until the operator stops it.
 model LoopDrive {
   id              String    @id @default(uuid())
   orgId           String
   createdBy       String? // GitHub login that armed the drive
-  // running | green | dry | ceiling | stopped | interrupted | error
+  // running | green | dry | ceiling | stopped | interrupted | error — plus, for a CONTINUOUS drive (the
+  // standing runner), paused | idle: a runner waits on a breaker or a back-off; it never stops on green/dry.
   phase           String    @default("running")
   reposJson       String    @default("[]") // JSON string[] of "owner/name" — the drive's scope
   maxRuns         Int       @default(3) // the rope, spanning the whole resume chain

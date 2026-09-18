@@ -237,7 +237,7 @@ on cloud.
 
 | | |
 | --- | --- |
-| `POST { org, action:"start", repos?, maxRuns?, maxCycles?, concurrency? }` | start a drive over the watched, paired repos (or the given ones) — `202 { drive }` |
+| `POST { org, action:"start", repos?, maxRuns?, maxCycles?, concurrency?, model?, effort?, delivery?, dials?, mode?, spendCeilingUsd? }` | start a drive over the watched, paired repos (or the given ones) — `202 { drive }`. `dials` (batch size, session ceiling, guard, verify timeout, rescan cadence, model policy) now reach every run the drive dispatches; before 2026-09-18 they were dropped. `mode: "continuous"` arms the standing runner (below) |
 | `POST { org, action:"stop", id }` | cooperative stop: the current run finishes its phase, then the drive ends |
 | `GET ?org=<slug>` | every drive for the org with its phase, per-run debt before/after, and the latest measurement |
 
@@ -250,6 +250,25 @@ starts one over the selection, `CockpitDrivePanel` renders its progress and Stop
 verdict lands above the run's outcome ledger. The gate is not widened for it — the cockpit's
 `cockpitGate.ts` is one predicate serving both Run and Drive. It remains fully usable headlessly:
 `useDrive` adopts a drive started by curl on its next mount tick.
+
+## The standing runner (`mode: "continuous"`, 2026-09-18)
+
+| | |
+| --- | --- |
+| `POST { org, action:"start", mode:"continuous", repos?, maxCycles?, concurrency?, model?, effort?, spendCeilingUsd?, dials? }` | arm the standing runner. It has no run cap, never stops on green or dry, and pauses on breakers. `202 { drive }` |
+| `POST { org, action:"resume-repo", repo }` | lift one repo's pause (`repo-failures`, `branch-conflict`, `dry-backoff`) on the live runner |
+| `POST { org, action:"stop", id }` | stop it. A waiting runner notices within a minute |
+| `POST /api/org/local/runner/merge { org, repo }` | merge `ascent/runner` into the repo's base: `fast-forward` (base not checked out), `merged` (checked out and clean), or `commands` (diverged or dirty, nothing touched) |
+
+The runner accumulates verified work on each paired repo's `ascent/runner` branch, which is never
+checked out. It merges the base in before every run (a merge, never a rebase), and it never touches
+your working branch. Merging the runner branch is yours to do, through the merge route or the commands
+it returns (the merge route works with the loop switched off). A restart re-attaches a live runner on
+its same row, but only while `ASCENT_AUTOPILOT` is on. The daily spend ceiling defaults to $100
+(`spendCeilingUsd`; `0`/`null` = none; stored as BIGINT micro-cents); the session-limit breaker is
+always on. The runner forces `delivery: "runner"` and the guard on — the route refuses a continuous
+drive with another delivery or `verifyMode: "off"`. The details are in *The standing runner* in
+`docs/features/org-planning/live.md`.
 
 ## Proving it end to end
 
