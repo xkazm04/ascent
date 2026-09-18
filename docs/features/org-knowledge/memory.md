@@ -395,7 +395,9 @@ on this door.
   capped at ×1.6 (~four citations) so self-reports cannot outrank trust and
   recency. An unset or zero count is a factor of exactly 1 — "no evidence",
   never "found useless". `notUsefulCount` is deliberately absent from this
-  arithmetic. The product of delivery and evidence is itself clamped at ×2,
+  arithmetic — it belongs to the forget decision (`decay.ts` condition 5),
+  and netting it against citations here would let two agents disagreeing
+  cancel out into "never mentioned". The product of delivery and evidence is itself clamped at ×2,
   so adding the term cannot inflate scores past what delivery alone used to
   reach.
 - Age is computed from `updatedAt` against an injected "now" (never read from
@@ -479,12 +481,20 @@ running one (an empty state), never a bar drawn at zero.
 ## Decay (forgetting)
 
 `src/lib/memory/decay.ts` reuses the same scoring function as recall. A
-memory is archived only if **all four** hold:
+memory is archived only if **all five** hold:
 
 1. score < 0.15
 2. age > 60 days
 3. confidence ≤ 0.3 (the "low" band only)
 4. kind is not `procedural` (procedural memories are never auto-forgotten)
+5. `notUsefulCount` ≥ 2 (a small floor of explicit "did not help" votes).
+   Silence (`notUsefulCount` = 0) is not a verdict and the row survives.
+   `citedCount` is never subtracted from this number — the two counters stay
+   independent, matching recall's refusal to net them into ranking. A
+   cited-only row (`citedCount` > 0, `notUsefulCount` = 0) is untouched.
+   A high `citedCount` can still spare a row the honest way, by lifting the
+   score above the floor via the evidence term; it cannot veto a not-useful
+   count that has already cleared this floor once the score has fallen.
 
 Because the delivery term is part of the same score, a low-confidence memory
 that is still delivered often stays above the floor for longer — but only for
@@ -707,7 +717,7 @@ guessing an id from another org 404s rather than leaking existence via a
 | `archived` | Soft-delete flag; never a hard delete. |
 | `accessCount` | Denormalized recall/copy tally. |
 | `citedCount` | Denormalized count of agent `cite_memory` votes that said the memory was used. Surfaced on `MemoryRow` via `toRow()`, so REST `/api/org/memory/recall` ranks on the evidence term without a second query. Drawn on `MemoryTrust` when any listed row has votes. 0 is no evidence, never "found useless". |
-| `notUsefulCount` | Denormalized count of votes that said the memory did not help. Never netted against `citedCount`. |
+| `notUsefulCount` | Denormalized count of votes that said the memory did not help. Never netted against `citedCount`. Ranking (`recall.ts`) never reads it; forget (`decay.ts`) requires it to reach a small floor (2) before a row can be auto-archived. |
 | `expiresAt` | Optional TTL for ephemeral memory. |
 | `createdBy` | GitHub login of the author, or `null` for scan-fed rows. |
 

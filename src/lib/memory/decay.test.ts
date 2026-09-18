@@ -2,9 +2,11 @@
 // policy is pinned exactly without a database.
 //
 // The load-bearing guarantees pinned here — each is a way this could quietly destroy an org's knowledge:
-//   - all FOUR conditions are required; each boundary is tested from both sides;
+//   - all FIVE conditions are required; each boundary is tested from both sides;
 //   - procedural memory is never archived automatically, whatever it scores;
 //   - a confident memory is never archived by age alone;
+//   - silence (notUsefulCount = 0) is not a verdict — forget waits for a small floor of "did not help"
+//     votes, and never nets them against citedCount (two agents disagreeing must not cancel out);
 //   - a frequently DELIVERED memory survives a while longer, but only a while: the delivery bonus is
 //     capped, so retrieval buys a bounded stay of execution and never an exemption;
 //   - dryRun performs no write at all;
@@ -18,22 +20,24 @@ import {
   DECAY_MAX_CONFIDENCE,
   DECAY_MAX_PER_PASS,
   DECAY_MIN_AGE_DAYS,
+  DECAY_NOT_USEFUL_FLOOR,
   DECAY_SCORE_FLOOR,
   selectDecayed,
+  type DecayCandidate,
 } from "@/lib/memory/decay";
-import type { RecallCandidate } from "@/lib/memory/recall";
 
 const NOW = Date.parse("2026-07-01T00:00:00.000Z");
 const daysAgo = (d: number) => new Date(NOW - d * 86_400_000).toISOString();
 
-/** The archetype: old, low-confidence, unused semantic memory — the one thing forget exists to retire. */
-const rotten = (over: Partial<RecallCandidate> = {}): RecallCandidate => ({
+/** The archetype: old, low-confidence, unused, voted-not-useful semantic memory — the one thing forget exists to retire. */
+const rotten = (over: Partial<DecayCandidate> = {}): DecayCandidate => ({
   id: "rot",
   content: "some half-remembered hunch about the billing job",
   kind: "semantic",
   confidence: 0.3,
   updatedAt: daysAgo(900),
   accessCount: 0,
+  notUsefulCount: DECAY_NOT_USEFUL_FLOOR,
   ...over,
 });
 
@@ -43,6 +47,7 @@ describe("policy constants", () => {
     expect(DECAY_MIN_AGE_DAYS).toBe(60);
     expect(DECAY_MAX_CONFIDENCE).toBe(0.3);
     expect(DECAY_EXEMPT_KINDS).toEqual(["procedural"]);
+    expect(DECAY_NOT_USEFUL_FLOOR).toBe(2);
   });
 });
 
@@ -105,6 +110,35 @@ describe("decayVerdict", () => {
     expect(decayVerdict(rotten({ updatedAt: daysAgo(359), accessCount: 10_000_000 }), NOW).archive).toBe(false);
     expect(decayVerdict(rotten({ updatedAt: daysAgo(361), accessCount: 10_000_000 }), NOW).archive).toBe(true);
   });
+
+  // recall.ts: notUsefulCount belongs to the forget/curation decision, and netting it against
+  // citedCount would let two agents disagreeing cancel out into "never mentioned". Condition 5 is
+  // therefore a floor on the not-useful votes themselves — never a net, never a ranking term.
+  it("archives the archetype at the notUseful floor and spares the same row at 0", () => {
+    expect(decayVerdict(rotten({ notUsefulCount: DECAY_NOT_USEFUL_FLOOR }), NOW).archive).toBe(true);
+    const silent = decayVerdict(rotten({ notUsefulCount: 0 }), NOW);
+    expect(silent.archive).toBe(false);
+    expect(silent.sparedBy).toBe("notUseful");
+    // Boundary from both sides: floor-1 is silence, floor is a verdict.
+    expect(decayVerdict(rotten({ notUsefulCount: DECAY_NOT_USEFUL_FLOOR - 1 }), NOW).archive).toBe(false);
+    expect(decayVerdict(rotten({ notUsefulCount: undefined }), NOW).sparedBy).toBe("notUseful");
+  });
+
+  it("does not let citedCount cancel notUsefulCount, and leaves cited-only rows untouched", () => {
+    // Never net: a pile of citations cannot subtract the not-useful votes back under the floor.
+    expect(
+      decayVerdict(rotten({ citedCount: 50, notUsefulCount: DECAY_NOT_USEFUL_FLOOR }), NOW).archive,
+    ).toBe(true);
+    const citedOnly = decayVerdict(rotten({ citedCount: 50, notUsefulCount: 0 }), NOW);
+    expect(citedOnly.archive).toBe(false);
+    expect(citedOnly.sparedBy).toBe("notUseful");
+  });
+
+  it("keeps age, confidence and kind exemptions even when notUsefulCount is high", () => {
+    expect(decayVerdict(rotten({ kind: "procedural", notUsefulCount: 99 }), NOW).sparedBy).toBe("kind");
+    expect(decayVerdict(rotten({ confidence: 0.31, notUsefulCount: 99 }), NOW).sparedBy).toBe("confidence");
+    expect(decayVerdict(rotten({ updatedAt: daysAgo(59), notUsefulCount: 99 }), NOW).sparedBy).toBe("age");
+  });
 });
 
 describe("selectDecayed", () => {
@@ -132,6 +166,16 @@ describe("selectDecayed", () => {
       NOW,
     );
     expect(out.map((v) => v.id)).toEqual(["weaker", "stronger"]);
+  });
+
+  it("archives every old unused low-confidence row at the notUseful floor and leaves cited-only rows", () => {
+    const rows = [
+      rotten({ id: "n1", notUsefulCount: DECAY_NOT_USEFUL_FLOOR }),
+      rotten({ id: "n2", notUsefulCount: DECAY_NOT_USEFUL_FLOOR + 1 }),
+      rotten({ id: "cited-only", citedCount: 8, notUsefulCount: 0 }),
+      rotten({ id: "silent", notUsefulCount: 0 }),
+    ];
+    expect(selectDecayed(rows, NOW).map((v) => v.id)).toEqual(["n1", "n2"]);
   });
 });
 

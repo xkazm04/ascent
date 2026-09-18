@@ -6,7 +6,7 @@
 // somebody wrote that row, an audit may need it, and a wrong prune is unrecoverable. So forget = set
 // `archived = true`: the row leaves every default read and every recall, and stays in the table.
 //
-// FOUR CONDITIONS, ALL REQUIRED. Any one alone would be wrong, and the conjunction is what makes this
+// FIVE CONDITIONS, ALL REQUIRED. Any one alone would be wrong, and the conjunction is what makes this
 // safe enough to run unattended:
 //   1. decayed score < 0.15   — the same value model recall ranks by, so forgetting and remembering can
 //                               never disagree about what a memory is worth.
@@ -17,6 +17,17 @@
 //                               memory, and letting decay touch it would quietly erase the org's history.
 //   4. kind ≠ procedural      — runbooks are the longest-lived thing in the store and the most expensive
 //                               to lose. They are exempt from automatic forgetting, full stop.
+//   5. notUsefulCount ≥ 2     — recall.ts says this counter belongs here, not in ranking: "netting it
+//                               against citations would let two agents disagreeing cancel out into
+//                               'never mentioned'". So this is a floor on the not-useful votes
+//                               themselves, never a net against citedCount. citedCount can still spare
+//                               a row the honest way — by lifting the score above the floor via the
+//                               evidence term — but it cannot veto a not-useful count that has already
+//                               cleared this floor once the score has fallen. A row at 0 is silence,
+//                               not a verdict (the same reading recall.ts gives an unset citedCount),
+//                               and it survives. One self-report is not a verdict either; two
+//                               independent sessions saying it did not help is the smallest pattern
+//                               this pass will act on.
 //
 // Note what conditions 1+3 imply together: an old, low-confidence memory that is still being DELIVERED
 // keeps a score above the floor via the value model's delivery term, and survives a while longer.
@@ -29,12 +40,22 @@
 // at MAX_DELIVERY_BONUS (2×), so the arithmetic terminates — a confidence-0.3 memory falls under
 // DECAY_SCORE_FLOOR once its decay factor drops below 0.15/(0.3·2) = 0.25, i.e. after two half-lives,
 // however many times it has been delivered. Delivery buys a stay of execution, never an exemption; the
-// three real exemptions are the ones listed above, and each is a deliberate policy.
+// real exemptions remain kind, confidence and age, and each is a deliberate policy. notUsefulCount is
+// the fifth required condition, not a sixth exemption: silence keeps a row, and a cleared floor lets
+// the other four decide.
 //
 // Pure and framework-agnostic like recall.ts/reflection.ts: `now` is injected, and the actual write is
 // an injected archiver so the policy can be unit-tested without a database.
 
 import { isRecallable, memoryValue, type RecallCandidate } from "@/lib/memory/recall";
+
+/**
+ * The forget policy's row: recall's candidate plus the not-useful counter that ranking deliberately
+ * omits. Optional, and an absent value is read as 0 — "no evidence of uselessness", never a reason
+ * to archive. `MemoryRow` already carries the field; this alias is so decay can name it without
+ * pulling it into `memoryValue`.
+ */
+export type DecayCandidate = RecallCandidate & { notUsefulCount?: number };
 
 /** Below this decayed score a memory is no longer paying for the recall budget it occupies. */
 export const DECAY_SCORE_FLOOR = 0.15;
@@ -44,6 +65,11 @@ export const DECAY_MIN_AGE_DAYS = 60;
 export const DECAY_MAX_CONFIDENCE = 0.3;
 /** Kinds automatic forgetting may never touch. Procedural memory is the store's crown jewels. */
 export const DECAY_EXEMPT_KINDS: readonly string[] = ["procedural"];
+/**
+ * Small floor of explicit "did not help" votes before forget will act. Silence (0) is not a verdict.
+ * Never netted against `citedCount` — two agents disagreeing must not cancel into "never mentioned".
+ */
+export const DECAY_NOT_USEFUL_FLOOR = 2;
 /** Safety valve: one pass never archives more than this, so a bad policy edit can't empty a store in
  *  one call. The remainder is picked up by the next pass — and a human sees the count in between. */
 export const DECAY_MAX_PER_PASS = 50;
@@ -54,24 +80,28 @@ export interface DecayVerdict {
   id: string;
   score: number;
   ageDays: number;
-  /** True when all four conditions hold. */
+  /** True when all five conditions hold. */
   archive: boolean;
   /** The first condition that SPARED the memory — "" when it is being archived. For the audit line. */
   sparedBy: string;
 }
 
 /** Evaluate one memory against the forget policy. Pure; `nowMs` injected. */
-export function decayVerdict(m: RecallCandidate, nowMs: number): DecayVerdict {
+export function decayVerdict(m: DecayCandidate, nowMs: number): DecayVerdict {
   const t = Date.parse(m.updatedAt);
   const ageDays = Number.isFinite(t) ? Math.max(0, (nowMs - t) / MS_PER_DAY) : 0;
   const score = memoryValue(m, nowMs);
   const base = { id: m.id, score, ageDays: Number(ageDays.toFixed(2)) };
+  const notUseful = Math.max(0, m.notUsefulCount ?? 0);
 
-  // Order matters only for the explanation, not the outcome: all four must hold to archive.
+  // Order matters only for the explanation, not the outcome: all five must hold to archive.
   if (DECAY_EXEMPT_KINDS.includes(m.kind)) return { ...base, archive: false, sparedBy: "kind" };
   if (m.confidence > DECAY_MAX_CONFIDENCE) return { ...base, archive: false, sparedBy: "confidence" };
   if (ageDays <= DECAY_MIN_AGE_DAYS) return { ...base, archive: false, sparedBy: "age" };
   if (score >= DECAY_SCORE_FLOOR) return { ...base, archive: false, sparedBy: "score" };
+  // citedCount is deliberately unread here. Ranking already forbids netting the two counters;
+  // subtracting it from `notUseful` would be the same net under another name.
+  if (notUseful < DECAY_NOT_USEFUL_FLOOR) return { ...base, archive: false, sparedBy: "notUseful" };
   return { ...base, archive: true, sparedBy: "" };
 }
 
@@ -79,7 +109,7 @@ export function decayVerdict(m: RecallCandidate, nowMs: number): DecayVerdict {
  * The archive set for one pass: only ACTIVE rows (an already-archived, superseded or expired memory has
  * nothing left to forget), lowest score first so the weakest go first when the cap bites.
  */
-export function selectDecayed(items: RecallCandidate[], nowMs: number): DecayVerdict[] {
+export function selectDecayed(items: DecayCandidate[], nowMs: number): DecayVerdict[] {
   return items
     .filter((m) => isRecallable(m, nowMs))
     .map((m) => decayVerdict(m, nowMs))
@@ -108,7 +138,7 @@ export interface DecayReport {
  * UI that wants to show a human the list before it happens.
  */
 export async function archiveDecayed(
-  items: RecallCandidate[],
+  items: DecayCandidate[],
   nowMs: number,
   archive: ArchiveFn,
   opts: { dryRun?: boolean } = {},
