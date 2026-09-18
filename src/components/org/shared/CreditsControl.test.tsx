@@ -109,8 +109,18 @@ describe("CreditsControl grant error resets on reopen (credits-entitlements #4)"
 });
 
 describe("CreditsControl Polar portal (present vs absent)", () => {
+  function stubFetch() {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ balance: 10, unlimited: false, plan: "free", allowanceRemaining: 5, ledger: [] }),
+      }),
+    );
+  }
+
   it("shows Manage billing when Polar packs are offered", () => {
-    vi.stubGlobal("fetch", vi.fn());
+    stubFetch();
     render(
       <CreditsControl
         org="acme"
@@ -127,7 +137,7 @@ describe("CreditsControl Polar portal (present vs absent)", () => {
   });
 
   it("omits Manage billing when Polar is not configured", () => {
-    vi.stubGlobal("fetch", vi.fn());
+    stubFetch();
     render(<CreditsControl org="acme" initialBalance={10} unlimited={false} grantsEnabled={false} />);
     fireEvent.click(screen.getByRole("button", { name: "10 credits" }));
     expect(screen.queryByRole("link", { name: /manage billing/i })).toBeNull();

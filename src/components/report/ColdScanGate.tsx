@@ -70,7 +70,7 @@ export function ColdScanGate({ repo }: { repo: string }) {
 
   return (
     <div data-testid="cold-scan-gate">
-      <EmptyState>
+      <EmptyState
         icon="🛰️"
         // The old body claimed the scan "takes about a minute" and stores nothing. Both were untrue:
         // a live scan is dominated by the model call (scanEstimate.ts measures ~90s hosted to ~6 min
