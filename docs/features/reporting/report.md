@@ -207,7 +207,9 @@ it names a different default-branch artifact, or ColdScanGate.
    *"blend weight 57% of 60%"*, the configured weight riding along as context — instead of printing
    the realized *share* of the configured weight ("blend 95%") beside tracks printing 57 % and
    reconciling the two only inside a tooltip (UAT `RC-N1`). The same track renders in the org heatmap's cell drill-in
-   (`RepoDimensionModal`), which is why `/api/org/repo-dimension` returns `scoreIntegrity`.
+   (`RepoDimensionModal`), which is why `/api/org/repo-dimension` returns `scoreIntegrity`. Those
+   `integrityNotes` also travel in the LLM briefing under **Score integrity** when the field is
+   present, so a model cannot miss a lever the chip disclosed.
 8. **Contributors**: login + AI-commit ratio bars.
 9. **PR signals**: `PrSignalsPanel` (review coverage, merge rate, small-PR rate, time to
    merge / first review, revert rate, tools detected) when `report.prStats.analyzed > 0`.
@@ -232,6 +234,8 @@ it names a different default-branch artifact, or ColdScanGate.
    unreviewed / unapproved. A revert stamp (`reverted by #N`) shows when the window matched
    one. An absent or empty list is omitted, never printed as a 0; a reconstructed snapshot
    that never ran ingestion leaves `aiChanges` undefined so stored rows are not implied empty.
+   The same rows travel in the LLM briefing (`reportLlmMarkdown`) under **AI-attributed changes**,
+   omitted when the field is absent or empty.
 10. **Next-level path**: fastest dimensions to close, then either `RoadmapSteps` (no DB)
     or the interactive `RecommendationTracker` (DB-backed, see below). Each row's recorded `firstStep` also travels with the paid PDF and the LLM briefing when present (G2); a blank or absent field omits the line, matching `RoadmapFirstStep`.
 11. **Discrepancies**: claims where the LLM questioned a deterministic signal. The paid PDF (`ReportDocument`) and the LLM briefing (`reportLlmMarkdown`, Copy-for-LLM / `GET /api/report/llm`) emit the same non-empty list with each row's recorded outcome; an empty array omits the section, matching this panel. G1: disagreement is not dropped or softened when the report leaves the page.
@@ -889,7 +893,7 @@ read-gated by the owning org (`readableOrgForOwner` → `requireOrgRead`, gate b
 
 | Route | Output | Plan-gated? |
 | --- | --- | --- |
-| `/api/report/llm` | `text/markdown`, the LLM briefing (headline, dimension table, counted evidence lines, gaps, Flagged-for-review discrepancies when present, roadmap with `firstStep` when recorded, "Ask"). | **No.** |
+| `/api/report/llm` | `text/markdown`, the LLM briefing (headline, dimension table, counted evidence lines, gaps, Flagged-for-review discrepancies when present, `scoreIntegrity` / `governance` / `aiChanges` when recorded, roadmap with `firstStep` when recorded, "Ask"). | **No.** |
 | `/api/report/share-card` | `image/png` (attachment), the 1200×630 score card. | **No.** |
 | `/api/report/pdf` | `application/pdf` (attachment). | **Yes**, the lowest paid tier (`pro`, shown as Starter) and up. |
 
@@ -913,7 +917,13 @@ for review** section naming each claim and its recorded outcome (widened / lost 
 dropped as unmeasurable / structurally ineligible / outcome not recorded) so a model cannot treat
 those blended scores as uncontested (G1). Counted evidence lines (`dimension.evidence`) emit as
 their own bullets under Evidence by dimension (G2: they are not joined into the catalogue table).
-An empty list omits the section. Roadmap rows include the recorded `firstStep` when present (G2);
+An empty list omits the section. Three more fields the page already holds travel the same way, each
+as its own heading and omitted when the field is absent so a sparse snapshot stays short: **Score
+integrity** (`report.scoreIntegrity`, the same `integrityNotes` the header chip uses), **Governance**
+(default-branch protection / rulesets; a `null` tokenless reading is omitted, never printed as
+unprotected), and **AI-attributed changes** (`report.aiChanges`, the PR evidence rows behind the
+AI-involved rate, with the same signal / tools / approver / revert labels as `PrSignalsPanel`).
+Roadmap rows include the recorded `firstStep` when present (G2);
 a blank or absent field omits the line, matching the in-app `RoadmapFirstStep`. The paid PDF carries
 the same mock/engine-mix caveat in the **document body**, not the page footer (G9): a mock-engine
 report opens with a Demo scoring box ("no language model contributed") and a "Scored by … coverage
@@ -1169,7 +1179,7 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/app/api/report/foundation/pr/route.ts` | Draft PR seeding the generated `.ai/` foundation. Admin-gated (see above). |
 | `src/app/api/report/conformance/route.ts` | `.ai/` conformance ingest: org-bound auth, clamping, ledger write. The legacy shared `CONFORMANCE_INGEST_TOKEN` is compared with `crypto.timingSafeEqual`, matching the per-org token path. |
 | `src/app/api/report/llm/route.ts` | Machine-readable markdown export: the "Copy for LLM" payload as a fetchable endpoint. |
-| `src/lib/report/llm-markdown.ts` | `reportLlmMarkdown()`: the single briefing generator behind both the copy chip and the endpoint. Pure/client-safe and deterministic. Leads with the mock-provenance block when `engine.provider === "mock"` (G9: body, not the generated-by footer). Emits a Flagged-for-review section (claim + `discrepancyOutcome` label/hint) when `discrepancies` is non-empty (G1). Counted evidence lines emit as their own bullets, not flattened into the dimension table (G2). Roadmap rows include `firstStep` when the scan recorded one (G2). |
+| `src/lib/report/llm-markdown.ts` | `reportLlmMarkdown()`: the single briefing generator behind both the copy chip and the endpoint. Pure/client-safe and deterministic. Leads with the mock-provenance block when `engine.provider === "mock"` (G9: body, not the generated-by footer). Emits a Flagged-for-review section (claim + `discrepancyOutcome` label/hint) when `discrepancies` is non-empty (G1). Counted evidence lines emit as their own bullets, not flattened into the dimension table (G2). Additive **Score integrity**, **Governance**, and **AI-attributed changes** sections when `scoreIntegrity` / `governance` / `aiChanges` are recorded; each heading is omitted when its field is absent or empty. Roadmap rows include `firstStep` when the scan recorded one (G2). |
 | `src/app/api/report/share-card/route.ts` | Downloadable PNG share card (attachment), rendered from the shared OG card. |
 | `src/lib/og/report-card.tsx` | `ReportShareCard`: the 1200×630 artwork shared by the permalink's `opengraph-image` and the share-card download. |
 | `src/app/api/report/pdf/route.ts` | Single-report PDF export. Read-gated by the owning org, then plan-gated (`planAllowsPdfExport`, the lowest paid tier `pro` and up); `PUBLIC_ORG` reports are exempt from the plan check, matching the unmetered public-scan model. |

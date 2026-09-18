@@ -17,7 +17,7 @@
 // deliberately NOT mocked — that is the whole point of assertion (1).
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { ScanReport } from "@/lib/types";
+import type { AiChangeRecord, Governance, ScanReport } from "@/lib/types";
 
 vi.mock("next/server", () => ({
   // Extends Response so BOTH `NextResponse.json(...)` and `new NextResponse(body, { headers })` work.
@@ -99,6 +99,44 @@ function makeReport(over: Partial<ScanReport> = {}): ScanReport {
     engine: { provider: "bedrock", model: "claude-sonnet-4-6", rubricVersion: "r3" },
     ...over,
   } as unknown as ScanReport;
+}
+
+function gov(over: Partial<Governance> = {}): Governance {
+  return {
+    defaultBranch: "main",
+    protected: true,
+    requiresPullRequest: true,
+    requiredApprovals: 1,
+    requiresCodeOwnerReview: false,
+    requiresStatusChecks: true,
+    requiresSignatures: false,
+    linearHistory: false,
+    ruleCount: 3,
+    readable: true,
+    ...over,
+  };
+}
+
+function aiChange(over: Partial<AiChangeRecord> = {}): AiChangeRecord {
+  return {
+    prNumber: 42,
+    title: "feat: parser",
+    authorLogin: "alice",
+    authorIsBot: false,
+    aiSignal: "marked",
+    aiTools: ["Claude"],
+    state: "MERGED",
+    mergedAt: "2026-01-02T00:00:00Z",
+    approved: true,
+    approverLogin: "dave",
+    approvedAt: "2026-01-01T10:00:00Z",
+    reviewCount: 2,
+    createdAt: "2026-01-01T00:00:00Z",
+    revertedByPr: null,
+    revertedAt: null,
+    mergeCommitSha: "abc123",
+    ...over,
+  };
 }
 
 const REPORT = makeReport();
@@ -296,5 +334,59 @@ describe("reportLlmMarkdown honesty contract", () => {
     expect(md).toContain("**First step:** Open a PR adding CODEOWNERS.");
     expect(md).toContain("### Evidence by dimension");
     expect(md).toContain("0 of 8 Action references pinned to a SHA");
+  });
+
+  it("carries scoreIntegrity, governance and aiChanges when a fixture sets all three", () => {
+    const md = reportLlmMarkdown(
+      makeReport({
+        scoreIntegrity: { d9Unmeasurable: true, widenedDims: ["D3"], effectiveBlend: 0.6 },
+        governance: gov(),
+        aiChanges: [aiChange()],
+      }),
+    );
+    expect(md).toContain("## Score integrity");
+    expect(md).toContain("## Governance");
+    expect(md).toContain("## AI-attributed changes");
+    expect(md).toContain("**D9 renormalized out**");
+    expect(md).toContain("**widened D3**");
+    expect(md).toContain("Branch protection (main): protected");
+    expect(md).toContain("**#42** feat: parser · AI-marked · Claude · approved by dave");
+  });
+
+  it("omits those three headings when the fields are absent", () => {
+    const md = reportLlmMarkdown(REPORT);
+    expect(md).not.toContain("## Score integrity");
+    expect(md).not.toContain("## Governance");
+    expect(md).not.toContain("## AI-attributed changes");
+  });
+
+  it("does not drop Flagged for review when integrity, governance and AI changes ride along (G1)", () => {
+    const md = reportLlmMarkdown(
+      makeReport({
+        discrepancies: [{ dimension: "D3", claim: "Detector missed the CI gate." }],
+        scoreIntegrity: { d9Unmeasurable: false, widenedDims: ["D3"], effectiveBlend: 0.6 },
+        governance: gov(),
+        aiChanges: [aiChange()],
+      }),
+    );
+    expect(md).toContain("## Flagged for review");
+    expect(md).toContain("**D3**: Detector missed the CI gate. · **widened**");
+    expect(md).toContain("## Score integrity");
+    expect(md).toContain("## Governance");
+    expect(md).toContain("## AI-attributed changes");
+  });
+});
+
+describe("GET /api/report/llm — additive fields stay on the one generator", () => {
+  it("serves reportLlmMarkdown byte-for-byte when the report carries integrity, governance and AI changes", async () => {
+    const full = makeReport({
+      scoreIntegrity: { d9Unmeasurable: true, widenedDims: ["D3"], effectiveBlend: 0.6 },
+      governance: gov(),
+      aiChanges: [aiChange()],
+    });
+    mockGetReport.mockResolvedValue(full);
+    const res = await get("acme/api");
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe(reportLlmMarkdown(full));
   });
 });
