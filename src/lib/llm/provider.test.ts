@@ -132,9 +132,18 @@ function usageRecorder() {
   return { calls, onUsage };
 }
 
+/** thinkingConfig passed on the last mocked generateContent call. */
+function capturedThinkingConfig(): { thinkingLevel?: string } | undefined {
+  const req = genai.generateContent.mock.calls[0]?.[0] as {
+    config?: { thinkingConfig?: { thinkingLevel?: string } };
+  };
+  return req?.config?.thinkingConfig;
+}
+
 describe("provider usage attribution", () => {
   beforeEach(() => {
     vi.stubEnv("GEMINI_MODEL", "");
+    vi.stubEnv("GEMINI_THINKING_LEVEL", "");
     vi.stubEnv("OPENAI_MODEL", "");
     vi.stubEnv("OPENAI_BASE_URL", "");
     vi.stubEnv("LLM_TIMEOUT_MS", "60000");
@@ -187,6 +196,37 @@ describe("provider usage attribution", () => {
       await expect(provider.assess(usageInput, { onUsage })).rejects.toThrow();
       // No result produced ⇒ no tokens billed (onUsage fires only after a non-empty response).
       expect(calls).toHaveLength(0);
+    });
+
+    it("pins thinkingConfig.thinkingLevel to low when GEMINI_THINKING_LEVEL is unset", async () => {
+      const { GeminiProvider } = await import("./gemini");
+      genai.generateContent.mockResolvedValue({ text: USABLE_JSON });
+      await new GeminiProvider("test-key").assess(usageInput);
+      expect(capturedThinkingConfig()).toEqual({ thinkingLevel: "LOW" });
+    });
+
+    it("selects high when GEMINI_THINKING_LEVEL=high", async () => {
+      vi.stubEnv("GEMINI_THINKING_LEVEL", "high");
+      const { GeminiProvider } = await import("./gemini");
+      genai.generateContent.mockResolvedValue({ text: USABLE_JSON });
+      await new GeminiProvider("test-key").assess(usageInput);
+      expect(capturedThinkingConfig()).toEqual({ thinkingLevel: "HIGH" });
+    });
+
+    it("selects minimal when GEMINI_THINKING_LEVEL=minimal", async () => {
+      vi.stubEnv("GEMINI_THINKING_LEVEL", "minimal");
+      const { GeminiProvider } = await import("./gemini");
+      genai.generateContent.mockResolvedValue({ text: USABLE_JSON });
+      await new GeminiProvider("test-key").assess(usageInput);
+      expect(capturedThinkingConfig()).toEqual({ thinkingLevel: "MINIMAL" });
+    });
+
+    it("falls back to low on an unrecognized GEMINI_THINKING_LEVEL", async () => {
+      vi.stubEnv("GEMINI_THINKING_LEVEL", "medium");
+      const { GeminiProvider } = await import("./gemini");
+      genai.generateContent.mockResolvedValue({ text: USABLE_JSON });
+      await new GeminiProvider("test-key").assess(usageInput);
+      expect(capturedThinkingConfig()).toEqual({ thinkingLevel: "LOW" });
     });
   });
 

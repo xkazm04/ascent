@@ -382,7 +382,7 @@ anything that must distinguish an unresolvable active config uses `resolveByomSt
 
 | Provider | File | Model env | Notes |
 | --- | --- | --- | --- |
-| Gemini | `src/lib/llm/gemini.ts` | `GEMINI_MODEL` (default `gemini-3-flash-preview`) | `@google/genai`. Requires `GEMINI_API_KEY` or `GOOGLE_API_KEY`. Constrains decoding with `responseJsonSchema: ASSESSMENT_JSON_SCHEMA`. Timeout via `LLM_TIMEOUT_MS`. |
+| Gemini | `src/lib/llm/gemini.ts` | `GEMINI_MODEL` (default `gemini-3-flash-preview`) | `@google/genai`. Requires `GEMINI_API_KEY` or `GOOGLE_API_KEY`. Constrains decoding with `responseJsonSchema: ASSESSMENT_JSON_SCHEMA`. Timeout via `LLM_TIMEOUT_MS`. Pins `config.thinkingConfig.thinkingLevel` from `GEMINI_THINKING_LEVEL` (`low` \| `minimal` \| `high`, default `low`) on the structured `assess()` call so gemini-3.8-flash does not silently spend the vendor-default `high` reasoning tokens. |
 | Bedrock | `src/lib/llm/bedrock.ts` | `BEDROCK_MODEL_ID` (default `us.anthropic.claude-sonnet-4-6`) | `@aws-sdk/client-bedrock-runtime`, **lazy-imported** so non-Bedrock paths never pull the SDK. Region via `BEDROCK_REGION`/`AWS_REGION` (default `us-east-1`). Forces JSON via the Converse API's required-tool (function-calling) `inputSchema`; caches the stable system prefix with a `cachePoint`. Supports an optional extended-thinking budget (`LLM_THINKING_BUDGET`) and BYOM-injected static AWS credentials. Also exports `testBedrockConnection()` for the settings UI. |
 | OpenAI | `src/lib/llm/openai.ts` | `OPENAI_MODEL` (default `gpt-4o-mini`), `OPENAI_BASE_URL` (default `https://api.openai.com/v1`) | Fetch-based, no SDK. Requires `OPENAI_API_KEY`. Also serves Azure OpenAI and self-hosted OpenAI-compatible endpoints (vLLM, Ollama, LM Studio) via `OPENAI_BASE_URL`. Decodes against the strict `json_schema` derived from `ASSESSMENT_JSON_SCHEMA`, with a one-shot fallback to `json_object` when the target rejects strict schemas. `OPENAI_MAX_TOKENS` guards against small default completion caps (e.g. Ollama's `num_predict`) truncating the assessment JSON. |
 | OpenRouter | `src/lib/llm/openrouter.ts` | `OPENROUTER_MODEL` (default `openai/gpt-4o-mini`, always a `vendor/model` slug) | Fetch-based, same OpenAI-compatible `/chat/completions` contract, one key routes to any vendor's model. Requires `OPENROUTER_API_KEY`. This is the fleet/benchmark path `scripts/matrix/run.mts` measures. Same strict-schema-then-`json_object` fallback and `OPENROUTER_MAX_TOKENS` guard as OpenAI. Sends `HTTP-Referer`/`X-Title` attribution headers. Also exports `testOpenRouterConnection()`. |
@@ -424,6 +424,11 @@ silent all-scans-to-mock degrade:
   values include `nebius` (gated on both `NEBIUS_API_KEY` and `NEBIUS_MODEL`).
 - `LLM_THINKING_BUDGET` (Bedrock only, default 0 = off): extended-thinking token budget;
   helps the discrepancy-audit sub-task on complex repos at higher cost/latency.
+- `GEMINI_THINKING_LEVEL` (Gemini only, `low` | `minimal` | `high`, default `low`): thinking
+  depth on the structured `assess()` JSON call. Gemini 3.8-flash's vendor default is `high`,
+  which spends extra hidden reasoning tokens billed as output at the same `MODEL_PRICES` row.
+  Unset / blank / unrecognized → `low`. `high` remains selectable. Does not change the scoring
+  blend or the price table.
 - `TECH_STACK_PROMPT`: gated prompt-enrichment flag (Feature 3a) that adds a "DETECTED
   TECH STACK" block to the user message when set.
 

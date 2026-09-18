@@ -15,21 +15,21 @@
 //
 // 2026-09-02: the default moved to **gemini-3.8-flash** (GA, same introductory per-token price as
 // 3.7 and the same 2027-01-01 reversion). Two consequences the price row cannot express:
-//   1. Same rate, MORE tokens. The vendor states 3.8 "works harder" — extra reasoning steps and
-//      iterative tool calls, at thinking_level's default of `high`. Cost per SCAN rises even though
-//      cost per token does not; if /usage climbs after this change, that is the expected mechanism,
-//      not a metering bug. The efficiency-first alternative the vendor names is staying on 3.7.
+//   1. Same rate, MORE tokens if thinking_level stays at the vendor default of `high`. The vendor
+//      states 3.8 "works harder" — extra reasoning tokens billed as output. assess() pins
+//      GEMINI_THINKING_LEVEL to `low` so that inflation is opt-in (`high` remains selectable).
 //   2. This invalidates the score cache (keyed on model), so the first run after deploy re-scores
-//      every repo at the new, higher per-scan token count. Budget for one expensive sweep.
+//      every repo. Budget for one sweep; with thinking_level low the per-scan token count should
+//      not match the unpinned `high` path.
 // P2-6 is still open: the benchmark run has not been repeated against 3.8.
 
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, type ThinkingLevel } from "@google/genai";
 import type { AssessOptions, LLMProvider, LlmScoreInput } from "@/lib/llm/provider";
 import { finalizeAssessment } from "@/lib/llm/provider";
 import type { LlmAssessment } from "@/lib/types";
 import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
 import { ASSESSMENT_JSON_SCHEMA } from "@/lib/llm/schema";
-import { llmTemperature, llmTimeoutMs, withLlmTimeout } from "@/lib/llm/config";
+import { geminiThinkingLevel, llmTemperature, llmTimeoutMs, withLlmTimeout } from "@/lib/llm/config";
 
 export const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash";
 
@@ -78,6 +78,11 @@ export class GeminiProvider implements LLMProvider {
           // Constrain decoding to the assessment contract (the same JSON Schema Bedrock forces as a
           // tool); parseJsonLoose + validateAssessment below remain the safety net.
           responseJsonSchema: ASSESSMENT_JSON_SCHEMA,
+          // Pin thinking_level so gemini-3.8-flash does not silently use the vendor default `high`
+          // (extra reasoning tokens billed as output). GEMINI_THINKING_LEVEL; unset → low.
+          thinkingConfig: {
+            thinkingLevel: geminiThinkingLevel().toUpperCase() as ThinkingLevel,
+          },
           abortSignal,
         },
       });
