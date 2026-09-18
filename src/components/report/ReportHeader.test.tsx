@@ -13,6 +13,7 @@ const search = vi.hoisted(() => ({ current: "" }));
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(search.current),
 }));
+vi.mock("@/components/report/SkillDownload", () => ({ SkillDownload: () => null }));
 
 import { ReportHeader } from "./ReportHeader";
 
