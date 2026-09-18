@@ -358,16 +358,55 @@ async function enqueueControlProbe(
   fullName: string,
   event: string,
   deliveryId?: string,
+  action?: string,
 ): Promise<void> {
   const orgSlug = owner.toLowerCase();
   if (!(await installationMatchesOwner(installationId, orgSlug))) {
     await abandonDelivery(deliveryId);
     return;
   }
+  // repository.deleted is GitHub confirming this fullName is gone. Unwatch it with the same
+  // reconcileWatchedRepos drop used when a repo leaves the installation set — that fullName only.
+  // Do not take `deleted` from an unmatched owner (the gate above). Archived stays watched.
+  if (event === "repository" && action === "deleted") {
+    await unwatchDeletedFullName(installationId, orgSlug, fullName, deliveryId);
+  }
   await enqueueProbeJob(orgSlug, fullName, `webhook:${event}`, deliveryId).catch((err) => {
     console.warn(`[webhook] could not enqueue a control probe for ${fullName}`, err instanceof Error ? err.message : err);
     return null;
   });
+}
+
+/**
+ * Unwatch one gone repo. Only calls reconcileWatchedRepos when `fullName` is currently watched, so
+ * an empty remaining list means "that was the last watched repo" — never a failed listing passed
+ * off as "zero live repos" (which would unwatch the whole installation).
+ */
+async function unwatchDeletedFullName(
+  installationId: number,
+  orgSlug: string,
+  fullName: string,
+  deliveryId?: string,
+): Promise<void> {
+  try {
+    const gone = fullName.toLowerCase();
+    // The owner we already matched must own this fullName; do not unwatch a mismatched name.
+    if (!gone.startsWith(`${orgSlug}/`)) return;
+    const watched = await listWatchedRepos(orgSlug);
+    const remaining = watched.filter((r) => r.fullName.toLowerCase() !== gone).map((r) => r.fullName);
+    if (remaining.length === watched.length) return;
+    const dropped = await reconcileWatchedRepos(installationId, remaining);
+    if (dropped > 0) {
+      console.warn(`[webhook] installation ${installationId}: unwatched deleted ${fullName}`);
+    }
+  } catch (err) {
+    await abandonDelivery(deliveryId, () =>
+      console.warn(
+        `[webhook] could not unwatch deleted ${fullName}`,
+        err instanceof Error ? err.message : err,
+      ),
+    );
+  }
 }
 
 /**
@@ -877,7 +916,14 @@ export async function POST(request: Request) {
       if (installationId && owner && fullName) {
         const login = owner;
         after(async () => {
-          await enqueueControlProbe(installationId, login, fullName, event, delivery ?? undefined);
+          await enqueueControlProbe(
+            installationId,
+            login,
+            fullName,
+            event,
+            delivery ?? undefined,
+            payload.action,
+          );
           // MOONSHOT #1 — and, separately, record WHO. The probe re-reads the truth; only the
           // delivery knows the actor, and the attribution row asserts no state of its own.
           if (GOVERNANCE_EVENTS.includes(event)) {
