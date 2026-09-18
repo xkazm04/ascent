@@ -100,8 +100,8 @@ function probes(snap: Snap) {
   // NOT unread — that is an observed absence, and it must keep its blocker.
   const workflowsUnread = listedWorkflows > 0 && (listedWorkflows > fetchedWorkflows.length || truncatedWorkflow);
   const scripts = (pkg?.scripts && typeof pkg.scripts === "object" ? (pkg.scripts as Record<string, string>) : {}) ?? {};
-  // The two evidence sources a named field can be classified FROM. When one is missing the detectors
-  // below must say `unknown`, not `null` — see UNKNOWN_CAPABILITY.
+  // The evidence source a package.json-derived field can be classified FROM. When it is missing the
+  // detectors below must say unknown/unassessable, not a measured none — see UNKNOWN_CAPABILITY.
   const depsObservable = pkg !== null;
   const treeObservable = lowerPaths.length > 0;
   return { get, hasPath, lowerPaths, pkg, deps, hasDep, hasDepPrefix, workflowText, scripts, depsObservable, treeObservable, workflowsUnread };
@@ -325,6 +325,8 @@ function detectHooks(p: ReturnType<typeof probes>): boolean {
 const dimScore = (report: ScanReport, id: string): number => report.dimensions.find((d) => d.id === id)?.score ?? 0;
 
 function detectSelfVerify(p: ReturnType<typeof probes>): AppPassport["automationReadiness"]["selfVerify"] {
+  // Same probe as monitoring: unread package.json cannot support a "missing scripts" verdict.
+  if (!p.depsObservable) return { build: false, test: false, lint: false, typecheck: false };
   const s = p.scripts;
   const has = (...keys: string[]) => keys.some((k) => typeof s[k] === "string" && s[k].trim().length > 0);
   return {
@@ -369,6 +371,9 @@ function detectCi(p: ReturnType<typeof probes>, gov: Governance | null | undefin
 }
 
 function detectTests(report: ScanReport, p: ReturnType<typeof probes>): AppPassport["productionReadiness"]["tests"] {
+  // Same probe as monitoring: empty frameworks from an unread package.json is unread, not "no tests".
+  // Callers mint tests-unassessable (G4) instead of treating this none as a looked-and-found-none gap.
+  if (!p.depsObservable) return { level: "none", coveragePct: null, frameworks: [], criticalPathCovered: false };
   const frameworks = (["vitest", "jest", "playwright", "cypress", "mocha", "@playwright/test", "pytest"] as string[])
     .filter((f) => p.hasDep(f))
     .map((f) => f.replace("@playwright/test", "playwright"));
@@ -437,10 +442,10 @@ const mint = (axis: "auto" | "prod", code: string, severity: PassportFinding["se
   severity,
 });
 
-/** A finding that names a SCAN coverage hole, not an app gap. `prod.*-unassessable` and the tokenless
- *  `enforcement-not-observable` caveat stay on `findings[]` so a rung can still be classified
- *  unassessable; they are not scored blockers (G4). Ranked under Blockers they would make "we could
- *  not look" look like the org's most common problem. */
+/** A finding that names a SCAN coverage hole, not an app gap. `*-unassessable` (prod and auto) and
+ *  the tokenless `enforcement-not-observable` caveat stay on `findings[]` so a rung can still be
+ *  classified unassessable; they are not scored blockers (G4). Ranked under Blockers they would make
+ *  "we could not look" look like the org's most common problem. */
 export function isCoverageHoleFinding(f: Pick<PassportFinding, "code" | "id">): boolean {
   const code = f.code || (f.id.includes(".") ? f.id.slice(f.id.indexOf(".") + 1) : f.id);
   return code === "enforcement-not-observable" || code.endsWith("-unassessable");
@@ -483,9 +488,14 @@ export function buildPassport(report: ScanReport, snap: Snap): AppPassport {
   if (artifacts.memory === "none") auto("no-memory", "warn", "No agent memory (.ai/memory): decisions and gotchas aren't carried between sessions.");
   if (artifacts.skills === "none") auto("no-skills", "info", "No reusable agent skills library (.claude/skills), so repeated work is re-prompted each time.");
   if (!aiInWorkflow) auto("no-ai-in-workflow", "info", "No evidence AI is actually used (no AI co-author trailers / agent PRs).");
-  const selfVerifyGaps = (Object.entries(selfVerify) as [string, boolean][]).filter(([, v]) => !v).map(([k]) => k);
-  // block, not warn: without a self-check an agent cannot tell a working change from a broken one.
-  if (selfVerifyGaps.length) auto("self-verify-gaps", "block", `Agent can't self-verify: missing ${selfVerifyGaps.join(", ")} script(s).`);
+  // Unread package.json: missing scripts were never inspected. Do not mint self-verify-gaps at block (G4).
+  if (!p.depsObservable) {
+    auto("self-verify-unassessable", "info", "Self-verify scripts could not be assessed: no readable package.json on this scan, so package scripts were never inspected.");
+  } else {
+    const selfVerifyGaps = (Object.entries(selfVerify) as [string, boolean][]).filter(([, v]) => !v).map(([k]) => k);
+    // block, not warn: without a self-check an agent cannot tell a working change from a broken one.
+    if (selfVerifyGaps.length) auto("self-verify-gaps", "block", `Agent can't self-verify: missing ${selfVerifyGaps.join(", ")} script(s).`);
+  }
 
   const ci = detectCi(p, gov);
   const tests = detectTests(report, p);
@@ -502,6 +512,10 @@ export function buildPassport(report: ScanReport, snap: Snap): AppPassport {
     prod("observability-unassessable", "info", "Observability could not be assessed: no readable package.json on this scan, so monitoring dependencies were never inspected.");
   } else if (observability.level === "none") {
     prod("zero-observability", "block", "Zero observability: no error tracking, structured logs, metrics, or tracing.");
+  }
+  // Same depsObservable miss as monitoring: empty frameworks is unread, not "the app has no tests".
+  if (!p.depsObservable) {
+    prod("tests-unassessable", "info", "Tests could not be assessed: no readable package.json on this scan, so test frameworks were never inspected.");
   }
   // The same rule one field over, for the evidence that arrives through a BOUNDED read. `hasPath`
   // sees every workflow the repository lists; `workflowText` carries only the ones this scan's byte

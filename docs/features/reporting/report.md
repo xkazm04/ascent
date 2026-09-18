@@ -944,8 +944,10 @@ display now names them, from one helper (`rungHonesty` / `productionRungViews` i
   miss: CI stays at `checks · present`.
 - **absent**: the scan looked and found nothing (`none`). A real miss.
 - **unassessable**: `prod.ci-unassessable` / `prod.security-unassessable` /
-  `prod.observability-unassessable` on a `none` level. The scan could not look. **Unassessable is
-  not a 0** (G4) and is never painted as `none`.
+  `prod.observability-unassessable` / `prod.tests-unassessable` on a `none` level. The scan
+  could not look. **Unassessable is not a 0** (G4) and is never painted as `none`. An unread
+  package.json also mints `auto.self-verify-unassessable` (same coverage-hole shape) so missing
+  scripts are not reported as `auto.self-verify-gaps` at block.
 
 Pinned on `PassportCard.dom.test.tsx`. An evidence-limit finding on a *seen* present level (unread
 workflows, CI still at `checks`) stays **present**: we observed presence; we did not finish
@@ -953,8 +955,9 @@ assessing the gate.
 
 ## Coverage holes are not scored blockers (G4)
 
-`prod.ci-unassessable`, `prod.security-unassessable`, `prod.observability-unassessable`, and the
-tokenless `prod.enforcement-not-observable` caveat name a limit of *this scan*, not a gap in the
+`prod.ci-unassessable`, `prod.security-unassessable`, `prod.observability-unassessable`,
+`prod.tests-unassessable`, `auto.self-verify-unassessable`, and the tokenless
+`prod.enforcement-not-observable` caveat name a limit of *this scan*, not a gap in the
 app. They stay on `findings[]` so a rung can still be classified unassessable (and is never painted
 as `none` / 0). They are **excluded** from:
 
@@ -966,6 +969,14 @@ A coverage hole is not a scored blocker. Ranking it would make "we could not loo
 org's most common problem, and listing it under Blockers would present a scan limit as a gap the
 team must fix. The rungs already name the miss as **unassessable**. Pinned on
 `passport-findings.test.ts`, `passportBlockerAgg.test.ts`, and `PassportCard.dom.test.tsx`.
+
+The same G4 rule covers the two detectors that read package.json besides monitoring:
+`detectTests` and `detectSelfVerify`. An unread or unparseable package.json is the same
+`depsObservable` miss as `stack.monitoring.* === unknown`. Those detectors emit
+`prod.tests-unassessable` / `auto.self-verify-unassessable` (info) and do not treat empty
+frameworks or missing scripts as a looked-and-found-none gap (no `auto.self-verify-gaps` at
+block). When package.json *was* read and truly has no test frameworks or scripts, today's
+none/block behaviour stands.
 
 ## Passport autonomy tier (0.3.0)
 
@@ -1038,7 +1049,8 @@ itself on every scan, which is exactly what the overlay exists to prevent.
 - **Which blockers.** Only those whose minted finding id appears in `DECLINABLE_PATHS`, resolved
   through the exported `declinablePathForFinding(id)` — one copy of the allow-list, never a second in
   the UI. An **evidence limitation** (`prod.enforcement-not-observable`,
-  `prod.observability-unassessable`) and an `unclassified` back-fill id get **no control at all**:
+  `prod.observability-unassessable`, `prod.tests-unassessable`, `auto.self-verify-unassessable`)
+  and an `unclassified` back-fill id get **no control at all**:
   declining one would silence a limit of *our* evidence rather than accept a real trade-off.
 - **What it sends.** `PATCH { repo, declined: { "<field.path>": { reason?, at, code, severity } } }`,
   and `{ "<field.path>": null }` to retract. The reason is optional and capped at

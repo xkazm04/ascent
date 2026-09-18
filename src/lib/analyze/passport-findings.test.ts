@@ -310,3 +310,71 @@ describe("bounded workflow reads are a coverage fact, not an absence", () => {
     expect(got).not.toContain("prod.security-unassessable:info");
   });
 });
+
+// ── the fifth conflation: "we read no tests/scripts" vs "we never read package.json" ───────────────
+//
+// detectTests forces level none when frameworks.length===0; detectSelfVerify treats missing scripts
+// as false and mints auto.self-verify-gaps at block. Both read package.json. When the same
+// depsObservable probe monitoring uses is false, empty is unread, not absence (G4).
+describe("unread package.json is unassessable for tests and self-verify", () => {
+  const autoIds = (s: Snap, over: Partial<ScanReport> = {}) =>
+    (buildPassport(report(over), s).automationReadiness.findings ?? []).map((f) => `${f.id}:${f.severity}`);
+  const prodIds = (s: Snap, over: Partial<ScanReport> = {}) =>
+    (buildPassport(report(over), s).productionReadiness.findings ?? []).map((f) => `${f.id}:${f.severity}`);
+
+  it("2 of 2 detectors honor depsObservable: no package.json is unassessable, not none/block", () => {
+    const s = uninspected();
+    const highD2 = { dimensions: [{ id: "D2", score: 75 }] as unknown as ScanReport["dimensions"] };
+    const auto = autoIds(s);
+    const prod = prodIds(s, highD2);
+    expect(prod).toContain("prod.tests-unassessable:info");
+    expect(auto).toContain("auto.self-verify-unassessable:info");
+    expect(auto).not.toContain("auto.self-verify-gaps:block");
+    const pp = buildPassport(report(highD2), s);
+    expect(pp.productionReadiness.tests.frameworks).toEqual([]);
+    expect(pp.productionReadiness.blockers.some((b) => /could not be assessed/i.test(b))).toBe(false);
+    expect(pp.automationReadiness.blockers.some((b) => /self-verify/i.test(b))).toBe(false);
+    expect(isCoverageHoleFinding({ id: "prod.tests-unassessable", code: "tests-unassessable" })).toBe(true);
+    expect(isCoverageHoleFinding({ id: "auto.self-verify-unassessable", code: "self-verify-unassessable" })).toBe(true);
+  });
+
+  it("listed-but-unread package.json (tree has it, files do not) is the same coverage hole", () => {
+    const s = snap({ tree: ["package.json", "src/index.ts"] });
+    expect(prodIds(s)).toContain("prod.tests-unassessable:info");
+    expect(autoIds(s)).toContain("auto.self-verify-unassessable:info");
+    expect(autoIds(s)).not.toContain("auto.self-verify-gaps:block");
+  });
+
+  it("malformed package.json is unread, not an empty manifest", () => {
+    const s = snap({ tree: ["package.json"], files: { "package.json": "{not json" } });
+    expect(prodIds(s)).toContain("prod.tests-unassessable:info");
+    expect(autoIds(s)).not.toContain("auto.self-verify-gaps:block");
+  });
+
+  it("when package.json WAS read and truly has no tests/scripts, keep today's none/block", () => {
+    const s = inspected();
+    const highD2 = { dimensions: [{ id: "D2", score: 75 }] as unknown as ScanReport["dimensions"] };
+    const pp = buildPassport(report(highD2), s);
+    expect(pp.productionReadiness.tests.level).toBe("none");
+    expect(prodIds(s, highD2)).not.toContain("prod.tests-unassessable:info");
+    expect(autoIds(s)).toContain("auto.self-verify-gaps:block");
+    expect(autoIds(s)).not.toContain("auto.self-verify-unassessable:info");
+    expect(pp.automationReadiness.blockers.some((b) => /^Agent can't self-verify/.test(b))).toBe(true);
+  });
+
+  it("a readable package.json with frameworks and scripts keeps the measured level, not a hole", () => {
+    const s = inspected(
+      JSON.stringify({
+        scripts: { build: "next build", test: "vitest run", lint: "eslint .", typecheck: "tsc --noEmit" },
+        devDependencies: { vitest: "4" },
+      }),
+    );
+    const highD2 = { dimensions: [{ id: "D2", score: 75 }] as unknown as ScanReport["dimensions"] };
+    const pp = buildPassport(report(highD2), s);
+    expect(pp.productionReadiness.tests.level).toBe("substantial");
+    expect(pp.productionReadiness.tests.frameworks).toContain("vitest");
+    expect(prodIds(s, highD2)).not.toContain("prod.tests-unassessable:info");
+    expect(autoIds(s)).not.toContain("auto.self-verify-gaps:block");
+    expect(autoIds(s)).not.toContain("auto.self-verify-unassessable:info");
+  });
+});
