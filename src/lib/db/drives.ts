@@ -19,6 +19,7 @@ import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { normalizeDelivery } from "@/lib/local/delivery-options";
 import { getOrgBySlug } from "@/lib/db/org-shared";
 import type { DriveMeasurement, DriveRunRecord, DriveStatus } from "@/lib/local/drive-types";
+import type { DriveDials, RepoRunnerState } from "@/lib/local/runner-types";
 
 /** The reason written onto a row the sweep reconciles. Exported so the UI and its tests read one copy. */
 export const DRIVE_INTERRUPTED_REASON =
@@ -41,6 +42,13 @@ type DriveRow = {
   model?: string | null;
   effort?: string | null;
   delivery?: string | null;
+  mode?: string | null;
+  pausedReason?: string | null;
+  pausedUntil?: Date | null;
+  spendCeilingMicros?: number | null;
+  repoStateJson?: string | null;
+  dialsJson?: string | null;
+  lastBeatAt?: Date | null;
   startedAt: Date;
   endedAt: Date | null;
   error: string | null;
@@ -84,6 +92,22 @@ export function toDriveStatus(row: DriveRow, orgSlug: string): DriveStatus {
     endedAt: row.endedAt ? row.endedAt.toISOString() : null,
     error: row.error,
     stopRequested: row.stopRequested,
+    // THE DIALS every run inherits — carried on either mode, since a bounded drive dropped five of them.
+    ...(row.dialsJson ? { dials: parseJson<DriveDials | null>(row.dialsJson, null) } : {}),
+    // THE STANDING RUNNER's fields appear ONLY on a continuous drive, so a bounded drive's status is
+    // exactly the object it always was. An unrecognised mode is `bounded` — never a guess at the mode
+    // that runs forever — and a pause reason is kept only when it is one of the runner's own words.
+    ...(row.mode === "continuous"
+      ? {
+          mode: "continuous" as const,
+          pausedReason:
+            row.pausedReason === "spend-ceiling" || row.pausedReason === "session-limit" ? row.pausedReason : null,
+          pausedUntil: row.pausedUntil ? row.pausedUntil.toISOString() : null,
+          spendCeilingMicros: row.spendCeilingMicros ?? null,
+          repoState: parseJson<RepoRunnerState[]>(row.repoStateJson, []),
+          lastBeatAt: row.lastBeatAt ? row.lastBeatAt.toISOString() : null,
+        }
+      : {}),
   };
 }
 
@@ -101,6 +125,13 @@ const rowData = (st: DriveStatus) => ({
   model: st.model ?? null,
   effort: st.effort ?? null,
   delivery: st.delivery ?? null,
+  mode: st.mode ?? "bounded",
+  pausedReason: st.pausedReason ?? null,
+  pausedUntil: st.pausedUntil ? new Date(st.pausedUntil) : null,
+  spendCeilingMicros: st.spendCeilingMicros ?? null,
+  repoStateJson: JSON.stringify(st.repoState ?? []),
+  dialsJson: st.dials ? JSON.stringify(st.dials) : null,
+  lastBeatAt: st.lastBeatAt ? new Date(st.lastBeatAt) : null,
   endedAt: st.endedAt ? new Date(st.endedAt) : null,
   error: st.error,
 });

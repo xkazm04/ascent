@@ -76,6 +76,19 @@ import { laneReportContract, readLaneReport, type LaneReport } from "@/lib/local
 // orchestrator it reads as.
 import { excludeLaneReport, recordAgentCost } from "@/lib/local/lane-cost";
 import { takeDepNotes, type LoopWorktree } from "@/lib/local/loop-worktree";
+// THE STANDING RUNNER'S SEAMS (spark theater-upgrade, 2026-09-18). Each module below is owned by one
+// work package; every default here is that module's export, and every one of them is byte-identical to
+// the lane before the runner existed until its package fills it in (plan → skip, fence → land, directed
+// → none, activity → a no-op sink, poll → nothing armed, deps → unchanged). The lane's control flow —
+// WHERE each seam is consulted and what each outcome does to the claim, the batch and the row — lives
+// here and nowhere else.
+import { checkPlanFence, nextDirectedBatch, planLane, type DirectedBatch } from "@/lib/local/lane-plan";
+import { createLaneActivitySink } from "@/lib/local/lane-activity";
+import { startWorktreePoll } from "@/lib/local/worktree-poll";
+import { installChangedDependencies } from "@/lib/local/lane-deps-install";
+import { PLAN_TIMEOUT_MS, type ArchitectureMove } from "@/lib/local/runner-types";
+import { recommendationDecisionKey } from "@/lib/report/rec-identity";
+import type { ProposedBatch } from "@/lib/db/loop-runs-types";
 
 /**
  * The DEFAULT batch — how many follow-ups (or craft rungs) one cycle dispatches when a run names no
@@ -129,12 +142,7 @@ export interface LaneDeps {
   } | null>;
   /** Optional LLM polish of the derived headlines; returns the input unchanged when no model answers. */
   summarize: (list: LaneDeliverable[], orgSlug: string) => Promise<LaneDeliverable[]>;
-  openBatch: (
-    org: string,
-    repo: string,
-    limit?: number,
-    opts?: { includeDeferred?: boolean; reserveCraft?: boolean },
-  ) => Promise<FollowUpItem[]>;
+  openBatch: (org: string, repo: string, limit?: number, opts?: OpenBatchOptions) => Promise<FollowUpItem[]>;
   /** The org's own standard for this batch's dimensions — see src/lib/db/lane-brief-read.ts. */
   loadBrief: typeof loadLaneBriefInput;
   /** The agent's `.ascent/lane-report.json`, parsed. Never throws; a missing file is `parsed:false`. */
@@ -146,6 +154,20 @@ export interface LaneDeps {
    *  which shares the paired repository's object store (`lane-base.ts`). Injected so the rule is
    *  table-testable without a repository. */
   baseRelation: (cwd: string, before: BaseEnd | null, after: BaseEnd | null) => Promise<BaseRelation>;
+
+  // ── THE STANDING RUNNER (spark theater-upgrade, 2026-09-18) ──
+  /** The read-only planning session + classifier (lane-plan.ts). Consulted only on a plan-mode lane. */
+  planLane: typeof planLane;
+  /** The post-hoc check that the real diff kept the plan's word. Consulted only on a plan-mode lane. */
+  checkPlanFence: typeof checkPlanFence;
+  /** An approved major plan due on this repo — it replaces the batch pick for this cycle. */
+  nextDirected: typeof nextDirectedBatch;
+  /** The lane's live activity tail (the theater's "what is the agent doing now"). */
+  activitySink: typeof createLaneActivitySink;
+  /** The worktree diff poll that corroborates the stream. Returns its stop function. */
+  worktreePoll: typeof startWorktreePoll;
+  /** The engine's dependency install for a runner lane that changed a manifest. */
+  depsInstall: typeof installChangedDependencies;
 }
 
 export const defaultLaneDeps: LaneDeps = {
@@ -177,7 +199,31 @@ export const defaultLaneDeps: LaneDeps = {
   // verdict", which is what a first run genuinely has — never a failed lane.
   priorBaselines: async (org, repo) => (await import("@/lib/db/loop-baselines")).getRepoBaselineLanes(org, repo),
   baseRelation: baseRelationIn,
+  planLane,
+  checkPlanFence,
+  nextDirected: nextDirectedBatch,
+  activitySink: createLaneActivitySink,
+  worktreePoll: startWorktreePoll,
+  depsInstall: installChangedDependencies,
 };
+
+/** `openBatch`'s options. `onExcluded` reports what the pick passed over and why — the "proposed" end
+ *  of the ledger's proposed → armed → delivered, which was persisted nowhere before the runner. */
+export interface OpenBatchOptions {
+  includeDeferred?: boolean;
+  reserveCraft?: boolean;
+  onExcluded?: (excluded: Omit<ProposedBatch["excluded"], "heldByOtherWorker">) => void;
+}
+
+/** What a runner-grade lane does beyond an ordinary one. Absent = an ordinary lane, byte-identical. */
+export interface LaneRunnerFlags {
+  /** Open with a read-only planning session; only an architecture move waits for a human. */
+  plan: boolean;
+  /** Keep a VERIFIED lane's lessons into procedural memory without waiting for a human. */
+  autoKeepLessons: boolean;
+  /** Install the dependencies a session's manifest change needs, in the worktree, scripts off. */
+  installDeps: boolean;
+}
 
 export interface LaneRunInput {
   runId: string;
@@ -229,6 +275,8 @@ export interface LaneRunInput {
    *  know (drop-out is the ENGINE's decision), so the engine says. `true` — or any `"cycle"` lane —
    *  rescans here; anything else defers and hands its cycle back for the run to settle. */
   finalCycle?: boolean;
+  /** THE STANDING RUNNER's lane flags (spark theater-upgrade). Absent = an ordinary lane. */
+  runner?: LaneRunnerFlags | null;
 }
 
 /**
@@ -276,6 +324,8 @@ export interface DeferredCycle {
   report: LaneReport | null;
   briefedPlaybooks: { id: string; dimId: string }[];
   practiceId: string | null;
+  /** A runner lane whose guard VERIFIED it: its lessons are kept automatically at settle time. */
+  autoKeepLessons?: boolean;
 }
 
 export interface LaneRunResult {
@@ -386,6 +436,17 @@ async function latestRepoIsGreen(org: string, repo: string, unmeasurable: Readon
   }
 }
 
+/** The durable keys a plan currently holds on this repo. Lazy for the same reason `latestUnmeasurableDims`
+ *  is (the lane's unit tests mock the db barrel); a failed read is an EMPTY set, never "assume held". */
+async function heldByPlan(org: string, repo: string): Promise<ReadonlySet<string>> {
+  try {
+    const { heldPlanKeys } = await import("@/lib/db/loop-plans");
+    return await heldPlanKeys(org, repo);
+  } catch {
+    return new Set<string>();
+  }
+}
+
 /** The repo's open follow-ups, biggest projected gain first — the batch the next cycle works. */
 export async function openBatch(
   org: string,
@@ -395,10 +456,17 @@ export async function openBatch(
    *  `reserveCraft: false` turns the green reservation off, which the curated read needs: it asks
    *  for the WHOLE open list (limit 500) so a named id ranked 7th survives the filter, and capping
    *  gaps at two there would silently drop most of what the operator picked. */
-  opts: { includeDeferred?: boolean; reserveCraft?: boolean } = {},
+  opts: OpenBatchOptions = {},
 ): Promise<FollowUpItem[]> {
   const backlog = await getOrgBacklog(org, null, new Date(), null);
   if (!backlog) return [];
+  // ITEMS A PLAN IS HOLDING (spark theater-upgrade). A major plan waiting on the operator, a plan they
+  // asked to revise, or an approved plan not yet executed each speaks for its items — re-offering them
+  // would have a second lane plan the same work around the decision. Keyed on the DURABLE identity,
+  // because the rows are recreated on every scan. An empty set on any failure: never "assume held".
+  const held = await heldByPlan(org, repo);
+  const isHeld = (it: { dimId?: string | null; title: string }): boolean =>
+    held.size > 0 && held.has(recommendationDecisionKey(repo, it.dimId ?? "", it.title));
   // ITEMS A PREVIOUS LANE PARKED. An agent that skipped an item and said why has told us something a
   // rescan cannot: re-offering it next cycle spends a session to be told the same thing again. The
   // read is org- AND repo-scoped, and it changes nothing on the Recommendation row — every other
@@ -419,15 +487,14 @@ export async function openBatch(
   // detector prices highest, which is the shortest path to the score rather than to the practice
   // (docs/SCORING-VALIDITY.md); impact is the model's judgment of what matters.
   const rank: Record<string, number> = { high: 0, medium: 1, low: 2 };
-  const gaps = backlog.byOwner
-    .flatMap((g) => g.items)
-    .filter(
-      (it) =>
-        it.repo === repo &&
-        it.status === "open" &&
-        !deferred.has(it.id) &&
-        !(it.dimId && unmeasurable.has(it.dimId)),
-    )
+  const open = backlog.byOwner.flatMap((g) => g.items).filter((it) => it.repo === repo && it.status === "open");
+  opts.onExcluded?.({
+    deferred: open.filter((it) => deferred.has(it.id)).length,
+    heldByPlan: open.filter((it) => !deferred.has(it.id) && isHeld(it)).length,
+    unmeasurable: open.filter((it) => !deferred.has(it.id) && !isHeld(it) && it.dimId != null && unmeasurable.has(it.dimId)).length,
+  });
+  const gaps = open
+    .filter((it) => !deferred.has(it.id) && !isHeld(it) && !(it.dimId && unmeasurable.has(it.dimId)))
     .sort((a, b) => (rank[a.impact] ?? 1) - (rank[b.impact] ?? 1) || (b.projectedPoints ?? 0) - (a.projectedPoints ?? 0))
     .slice(0, Math.max(1, limit))
     .map((it) => ({
@@ -442,7 +509,7 @@ export async function openBatch(
       explore: it.explore,
       projectedPoints: it.projectedPoints,
     }));
-  if (gaps.length === 0) return craftBatch(org, repo, limit, deferred);
+  if (gaps.length === 0) return craftBatch(org, repo, limit, deferred, isHeld);
   // THE GREEN RESERVATION (see lane-reservation.ts for the campaign evidence).
   //
   // GAPS STILL OUTRANK CRAFT — they come first and they win the top slots — but on a GREEN repo they
@@ -462,7 +529,7 @@ export async function openBatch(
   // ladder. `gapSlotsAtGreen` keeps the 2/3 split at five and scales it, always leaving at least one
   // slot on each side of any batch of two or more.
   const reserved = Math.max(0, Math.max(1, limit) - gapSlotsAtGreen(Math.max(1, limit)));
-  const rungs = reserved > 0 ? await craftBatch(org, repo, reserved, deferred) : [];
+  const rungs = reserved > 0 ? await craftBatch(org, repo, reserved, deferred, isHeld) : [];
   return reserveCraftSlots(gaps, rungs, limit);
 }
 
@@ -489,12 +556,13 @@ async function craftBatch(
   repo: string,
   limit: number,
   deferred: ReadonlySet<string>,
+  isHeld: (it: { dimId?: string | null; title: string }) => boolean = () => false,
 ): Promise<FollowUpItem[]> {
   const [items, ledger] = await Promise.all([
     getCraftItems(org, repo, 200).catch(() => [] as FollowUpItem[]),
     getCraftLedger(org, repo).catch(() => ({ total: 0, byAxis: emptyAxisTally(), unaxised: 0 })),
   ]);
-  const open = items.filter((it) => !deferred.has(it.id));
+  const open = items.filter((it) => !deferred.has(it.id) && !isHeld(it));
   if (open.length === 0) return [];
   const order = axesByCoverage(ledger.byAxis);
   const axisRank = new Map(order.map((a, i) => [a, i]));
@@ -814,6 +882,10 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         agentMs: agentTimeoutMs(input.agent?.timeoutMs ?? null),
         verifyMs: verifyTimeoutMsOf(input.verify?.timeoutMs ?? null),
         verifyEnabled: input.verify?.enabled !== false,
+        // A lane that plans, or that may install dependencies, is PAID for that time — omitted on an
+        // ordinary lane, so its ceiling is exactly what it always was.
+        planMs: input.runner?.plan ? PLAN_TIMEOUT_MS : 0,
+        depsMs: input.runner?.installDeps ? verifyTimeoutMsOf(input.verify?.timeoutMs ?? null) : 0,
       }),
     });
   input.onWatchdog?.(watch);
@@ -823,6 +895,13 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
   /** The agent call this cycle dispatched, if it got that far — held so the force-fail path can say
    *  what happened to the PROCESS after the watchdog cut the lane loose from it. */
   let agentInFlight: Promise<AgentRunResult> | null = null;
+  // THE RUNNER'S PER-LANE STATE (spark theater-upgrade). All inert on an ordinary lane.
+  const runnerFlags = input.runner ?? null;
+  let planId: string | null = null;
+  let declaredMoves: ArchitectureMove[] = [];
+  let directionFence: string[] | null = null;
+  let directed: DirectedBatch | null = null;
+  let verdict: string | null = null;
 
   try {
     const beforeScanId = await getLatestScanIdForRepo(org, repo);
@@ -833,6 +912,9 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       startedAt: new Date(),
       error: null,
     });
+    // THE CEILING, PERSISTED, so a screen nobody is operating can count down to it instead of guessing.
+    // Only on a runner lane: an ordinary lane's row is written exactly as it always was.
+    if (runnerFlags) await updateLane(laneId, { deadlineAt: new Date(Date.now() + watch.deadlineMs) });
 
     // WHAT THE WORKTREE WAS GIVEN TO RUN WITH, said once. A git worktree carries tracked files only,
     // so `createLoopWorktree` links the paired checkout's dependency caches in (`worktree-deps.ts`) —
@@ -858,6 +940,13 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     // the top-5 slice would silently drop it. An uncurated cycle takes the top BATCH_SIZE, exactly as
     // the autopilot did.
     let batch: FollowUpItem[] = [];
+    // WHAT THE PICK PASSED OVER, for the proposed snapshot below (runner lanes only).
+    let excluded: ProposedBatch["excluded"] = { deferred: 0, heldByPlan: 0, unmeasurable: 0, heldByOtherWorker: 0 };
+    // AN APPROVED DIRECTION DUE ON THIS REPO replaces the pick: the operator approved a plan, and this
+    // cycle executes exactly that plan. Never on a curated batch — a named pick is the operator speaking.
+    if (runnerFlags?.plan && kind !== "foundation" && !input.batch) {
+      directed = await deps.nextDirected(org, repo).catch(() => null);
+    }
     if (kind !== "foundation") {
       const curated = input.batch;
       // A CURATED batch overrides deferrals: naming an id by hand is an explicit human instruction,
@@ -866,12 +955,16 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       // A curated read asks for the WHOLE open list and turns the green reservation off with it:
       // the cap exists to size a LANE, and applying it to a 500-item curation read would drop most
       // of what the operator named. An uncurated cycle takes the reserved batch.
-      const picked = await deps.openBatch(
-        org,
-        repo,
-        curated ? 500 : batchSizeOf(input.batchSize),
-        curated ? { includeDeferred: true, reserveCraft: false } : { includeDeferred: false },
-      );
+      const picked = directed
+        ? directed.items
+        : await deps.openBatch(
+            org,
+            repo,
+            curated ? 500 : batchSizeOf(input.batchSize),
+            curated
+              ? { includeDeferred: true, reserveCraft: false }
+              : { includeDeferred: false, ...(runnerFlags ? { onExcluded: (x) => void (excluded = { ...excluded, ...x }) } : {}) },
+          );
       batch = curated ? picked.filter((it) => curated.includes(it.id)) : picked;
       if (curated) {
         const parked = await getActiveDeferrals(org, repo).catch(() => new Set<string>());
@@ -939,6 +1032,24 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         // this lane's verdict.
         await updateLane(laneId, { batchIds: batch.map((b) => b.id), dimId: dominantDimId(batch) });
       }
+      if (runnerFlags) {
+        // THE PROPOSED END OF THE LEDGER — the batch as offered, with what the pick passed over and
+        // why. Written once, after the claim, so "held by another worker" is counted too.
+        excluded = { ...excluded, heldByOtherWorker: lost.length };
+        await updateLane(laneId, {
+          proposed: {
+            items: batch.map((it) => ({
+              id: it.id,
+              title: it.title,
+              dimId: it.dimId ?? null,
+              kind: it.kind === "craft" ? "craft" : "gap",
+              craftAxis: it.craftAxis ?? null,
+            })),
+            excluded,
+            curated: Boolean(input.batch),
+          },
+        });
+      }
       if (batch.length === 0) {
         await appendLaneLog(laneId, "Every follow-up in this batch is held by another worker — nothing to dispatch.");
         await updateLane(laneId, { phase: "done", stage: null, endedAt: new Date() });
@@ -974,7 +1085,12 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         return { laneId, progressed: false, commits: 0, closed: 0, error: null };
       }
     } else {
-      await appendLaneLog(laneId, `Cycle ${cycle}: dispatching ${batch.length} follow-up(s) to a local agent…`);
+      await appendLaneLog(
+        laneId,
+        directed
+          ? `Cycle ${cycle}: executing an APPROVED direction — ${batch.length} item(s), the plan the operator read.`
+          : `Cycle ${cycle}: dispatching ${batch.length} follow-up(s) to a local agent…`,
+      );
       // THE ORGANIZATION'S OWN STANDARD, assembled for exactly this batch's dimensions and recorded
       // on the row as provenance before the session starts. Every remediation vendor applies generic
       // best practice; the differentiator is that this one applies the org's versioned playbooks, the
@@ -994,6 +1110,68 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         briefedPlaybooks = briefInput.playbooks
           .filter((p) => rendered.has(`${p.id}@${p.version}`))
           .map((p) => ({ id: p.id, dimId: p.dimId }));
+      }
+      // ── PLAN FIRST (spark theater-upgrade). A runner lane opens with a READ-ONLY planning session
+      // over the batch it just won; the classifier splits it. Items whose plan moves architecture are
+      // parked as ONE pending major plan — their claims released here, their durable keys keeping them
+      // out of `openBatch` — and the rest execute now, fenced to the plan they declared. An approved
+      // direction skips planning: its plan is the one the operator read.
+      const activity = deps.activitySink(laneId);
+      let planBlock = "";
+      let resumeSessionId: string | null = null;
+      if (directed) {
+        planId = directed.planId;
+        planBlock = directed.planBlock;
+        declaredMoves = directed.declaredMoves;
+        directionFence = directed.directionFence;
+        await updateLane(laneId, { planId });
+      } else if (runnerFlags?.plan) {
+        await updateLane(laneId, { stage: "planning" });
+        const planned = await watch.stage("plan", () =>
+          deps.planLane({
+            org,
+            repo,
+            runId,
+            laneId,
+            cycle,
+            worktree,
+            batch,
+            briefText: brief?.text ?? null,
+            agent: { model: input.agent?.model ?? null, effort: input.agent?.effort ?? null },
+            runAgent: deps.runAgent,
+            onEvent: (e) => activity.onEvent(e),
+            signal: watch.signal,
+          }),
+        );
+        await updateLane(laneId, { stage: null });
+        if (planned.mode === "failed") return fail(planned.message, "plan");
+        if (planned.mode === "execute") {
+          planId = planned.planId;
+          planBlock = planned.planBlock;
+          resumeSessionId = planned.resumeSessionId;
+          declaredMoves = planned.declaredMoves;
+          directionFence = planned.directionFence;
+          if (planId) await updateLane(laneId, { planId });
+          if (planned.parked.length > 0) {
+            const parked = new Set(planned.parked.map((p) => p.id));
+            const toRelease = claimedIds.filter((id) => parked.has(id));
+            if (toRelease.length > 0) {
+              await releaseFollowups(toRelease, "parked: its plan moves architecture and waits for the operator's approval", LANE_ACTOR).catch(() => 0);
+            }
+            claimedIds = claimedIds.filter((id) => !parked.has(id));
+            batch = planned.execute;
+            await updateLane(laneId, { batchIds: batch.map((b) => b.id), dimId: dominantDimId(batch) });
+            await appendLaneLog(
+              laneId,
+              `${planned.parked.length} item(s) need an architecture move — parked as a plan waiting for approval; this lane works the other ${batch.length}.`,
+            );
+          }
+          if (batch.length === 0) {
+            await activity.flush().catch(() => undefined);
+            await updateLane(laneId, { phase: "done", stage: null, endedAt: new Date() });
+            return { laneId, progressed: false, commits: 0, closed: 0, error: null };
+          }
+        }
       }
       await excludeLaneReport(worktree.dir);
       // ── A: THE BASELINE, measured BEFORE the session touches anything (and recalled from cache on
@@ -1081,6 +1259,9 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         // The org's standard, then the report contract. In that order deliberately: the standard is
         // what the work should look like, and the contract is how the session reports on it.
         (brief ? `\n\nYOUR ORGANIZATION'S STANDARD:\n${brief.text}\n` : "") +
+        // THE PLAN, when this lane planned (or executes an approved direction): the route the session
+        // committed to and the fence it may not leave. After the standard, before the contract.
+        (planBlock ? `\n\n${planBlock}\n` : "") +
         laneReportContract(batch.map((b) => b.id));
       // THE STOP REACHES THE PROCESS. The call is held in `agentInFlight` before it is raced: the
       // race rejects the moment the watchdog fires, long before a `taskkill` can answer, so the
@@ -1099,9 +1280,22 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         // before this parameter used. Passing an explicit null would say the same thing, but a lane
         // that sends the key on every call is one refactor away from sending a 0.
         ...(input.agent?.timeoutMs ? { timeoutMs: input.agent.timeoutMs } : {}),
+        // THE LIVE SIGNAL (spark theater-upgrade): every stream event into the lane's activity tail,
+        // and a minor plan's execution resumes its planning session.
+        onEvent: (e) => activity.onEvent(e),
+        ...(resumeSessionId ? { resumeSessionId } : {}),
       });
       agentInFlight = agentCall;
-      const result = await watch.stage("agent", () => agentCall);
+      // The worktree poll runs only while the session does, and is stopped on EVERY exit — including a
+      // watchdog cut, which is exactly when a leaked timer would outlive the lane.
+      const stopPoll = deps.worktreePoll(worktree.dir, laneId);
+      let result: AgentRunResult;
+      try {
+        result = await watch.stage("agent", () => agentCall);
+      } finally {
+        stopPoll();
+        await activity.flush().catch(() => undefined);
+      }
       await appendLaneLog(
         laneId,
         `${result.ok ? "Agent finished" : "Agent failed"}: ${firstLine(result.summary, AGENT_SUMMARY_CHARS)}`,
@@ -1126,6 +1320,28 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
             : "No lane report was written — the agent's per-item verdicts are unknown for this cycle.",
         );
       }
+      // ── THE DEPENDENCY INSTALL (spark theater-upgrade), runner lanes only. A session that changed a
+      // manifest is verified against the NEW dependencies, installed by the engine with scripts off —
+      // or, when that fails, held: the implementation has already discarded the edits, and the lane
+      // commits nothing, exactly like a guard rejection.
+      if (runnerFlags?.installDeps) {
+        await updateLane(laneId, { stage: "installing" });
+        const depsOut = await watch.stage("deps", () =>
+          deps.depsInstall({ dir: worktree.dir, before, laneId, timeoutMs: verifyMs, signal: watch.signal }),
+        );
+        await updateLane(laneId, { stage: null });
+        if (depsOut.changed) {
+          await appendLaneLog(laneId, depsOut.note);
+          if (!depsOut.ok) {
+            await updateLane(laneId, {
+              deliverables: [{ headline: "Held — dependency install failed", dimId: null, kind: "noted", covers: [], evidence: depsOut.note }],
+            });
+            await releaseClaims(`loop cycle ${cycle}'s dependency change could not be installed, so nothing adjudicated the claim`);
+            await updateLane(laneId, { phase: "done", commits: 0, stage: null, endedAt: new Date() });
+            return { laneId, progressed: false, commits: 0, closed: 0, error: null };
+          }
+        }
+      }
       // ── B: THE RESULT RUN, after the session and BEFORE the commit. Before, because the whole
       // point of the guard is that a rejected cycle leaves no commit and no branch to explain away.
       //
@@ -1144,6 +1360,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         // never settled; this race is what makes that a force-failed cycle instead of an eight-hour
         // silence, and `verify` is what lands in the row's `stage`.
         const outcome = await watch.stage("verify", () => verifyResult(worktree.dir, baseline, verifyMs));
+        verdict = outcome.verdict;
         await updateLane(laneId, {
           stage: null,
           verifyVerdict: outcome.verdict,
@@ -1222,7 +1439,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     // THE LANE NOW COMMITS THAT WORK (lane-commit.ts), so reaching here dirty means the LANE's own
     // commit failed — a hook, a missing git identity, a locked index. This stays as the fallback,
     // and it is now the last thing standing between a failed commit and a silently deleted worktree.
-    if (kind === "backlog" && commits === 0) {
+    if ((kind === "backlog" || kind === "direction") && commits === 0) {
       const dirty = await git(["status", "--porcelain"]);
       const changed = dirty.ok ? dirty.stdout.split("\n").filter((l) => l.trim()).length : 0;
       if (changed > 0) {
@@ -1230,6 +1447,25 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
           laneId,
           `${changed} change(s) are still uncommitted in the worktree and the lane could not commit them either — that work is NOT on ${worktree.branch} and is discarded with the worktree. Check the commit failure and the agent summary above for the reason.`,
         );
+      }
+    }
+
+    // ── THE FENCE (spark theater-upgrade). A plan-mode lane's REAL diff is checked against the plan's
+    // declared moves (and an approved direction's fence). An architecture move nobody declared is not
+    // landed: the implementation has already parked the commits on a held branch for the reviewer and
+    // reset this lane's branch, so the next cycle does not build on held work.
+    if ((runnerFlags?.plan || directed) && commits > 0) {
+      const fence = await watch.stage("git", () =>
+        deps.checkPlanFence({ org, repo, laneId, worktree, before, planId, declaredMoves, directionFence }),
+      );
+      if (fence.verdict === "held") {
+        await appendLaneLog(laneId, fence.reason);
+        await updateLane(laneId, {
+          deliverables: [{ headline: "Held — an architecture move the plan did not declare", dimId: null, kind: "noted", covers: [], evidence: fence.reason }],
+        });
+        await releaseClaims(`loop cycle ${cycle}'s diff moved architecture its plan did not declare, so it waits for the operator`);
+        await updateLane(laneId, { phase: "done", commits: 0, stage: null, endedAt: new Date() });
+        return { laneId, progressed: false, commits: 0, closed: 0, error: null };
       }
     }
 
@@ -1277,6 +1513,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         report,
         briefedPlaybooks,
         practiceId: input.practiceId ?? null,
+        autoKeepLessons: runnerFlags?.autoKeepLessons === true && verdict === "verified",
       };
       // Ownership of the claim transfers with the entry — see `DeferredCycle`. Clearing it here is
       // what stops this lane's own failure paths from releasing rows the settle step is now holding.
@@ -1372,7 +1609,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     // the agent said it SKIPPED is parked so the next cycle asks a different question instead of
     // spending another session on the same refusal. Nothing on the Recommendation row changes — a
     // deferral is advisory to `openBatch` alone.
-    if (kind === "backlog" && batch.length > 0) {
+    if ((kind === "backlog" || kind === "direction") && batch.length > 0) {
       await recordLaneOutcomes({
         orgSlug: org,
         runId,
@@ -1393,7 +1630,9 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       // A human keeps or discards it through the lessons inbox, which promotes through the same
       // memory door the consolidation check lives behind.
       if (report && report.lessons.length > 0) {
-        const kept = await recordLoopLessons(org, repo, laneId, report.lessons).catch(() => []);
+        const kept = await recordLoopLessons(org, repo, laneId, report.lessons, {
+          autoKeep: runnerFlags?.autoKeepLessons === true && verdict === "verified",
+        }).catch(() => []);
         if (kept.length > 0) {
           await appendLaneLog(laneId, `${kept.length} lesson candidate(s) recorded for review — nothing was written into memory.`);
         }
@@ -1542,7 +1781,7 @@ export async function settleDeferredCycles(args: {
         ? `${mine.length} follow-up(s) VERIFIED closed by the run's closing rescan — the gap is no longer raised and its dimension moved.`
         : "The run's closing rescan confirmed none of this cycle's items.",
     );
-    if (d.kind === "backlog" && d.batch.length > 0) {
+    if ((d.kind === "backlog" || d.kind === "direction") && d.batch.length > 0) {
       await recordLaneOutcomes({
         orgSlug: org,
         runId: args.runId,
@@ -1554,7 +1793,7 @@ export async function settleDeferredCycles(args: {
         report: d.report,
       }).catch(() => []);
       if (d.report && d.report.lessons.length > 0) {
-        await recordLoopLessons(org, repo, d.laneId, d.report.lessons).catch(() => []);
+        await recordLoopLessons(org, repo, d.laneId, d.report.lessons, { autoKeep: d.autoKeepLessons === true }).catch(() => []);
       }
       const closedDims = new Set(d.batch.filter((b) => mine.includes(b.id)).map((b) => b.dimId));
       const earned = d.briefedPlaybooks.filter((p) => closedDims.has(p.dimId)).map((p) => p.id);

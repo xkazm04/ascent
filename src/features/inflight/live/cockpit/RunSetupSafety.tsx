@@ -14,7 +14,7 @@
 // route refuses it there too, so this is a courtesy rather than the enforcement.
 
 import { VERIFY_MODES, VERIFY_TIMEOUT_CAP_MS, type VerifyMode } from "@/lib/local/run-limits";
-import { DELIVERY_HINTS, DELIVERY_LABELS, LOOP_DELIVERIES, type LoopDelivery } from "@/lib/local/delivery-options";
+import { DELIVERY_HINTS, DELIVERY_LABELS, MANUAL_LOOP_DELIVERIES, type LoopDelivery } from "@/lib/local/delivery-options";
 import { ChoiceList, Segmented, SetupRow } from "./RunSetupControls";
 import { SetupGroup, minuteSteps, type SetupSectionProps } from "./RunSetupSections";
 
@@ -68,7 +68,7 @@ export function DeliverySection({ dials, onChange, prAvailable = true }: SetupSe
           testId="setup-delivery"
           value={dials.delivery}
           onChange={(v) => onChange("delivery", v as LoopDelivery)}
-          options={LOOP_DELIVERIES.map((d) => ({
+          options={MANUAL_LOOP_DELIVERIES.map((d) => ({
             value: d,
             label: DELIVERY_LABELS[d],
             disabled: d === "pr" && !prAvailable,

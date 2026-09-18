@@ -80,6 +80,11 @@ const WAVE1_LEDGERS = [
   // ERROR rather than a failure, which is how a whole table quietly stops being erased.
   "laneItemOutcome",
   "orgMemoryCandidate",
+  // THE STANDING RUNNER (spark theater-upgrade) — plans, directions, and the drives the loop-history
+  // erase never reached. Same array, same reason: a missing delegate is a throw caught as an ERROR.
+  "loopPlan",
+  "loopDirection",
+  "loopDrive",
   "practiceAdoption",
   "housePatternVersion",
   "orgMemoryCitation",
@@ -2735,6 +2740,9 @@ function fakeWave1ErasePrisma() {
     // pass both while never being erased at all.
     laneItemOutcome: ["lo_1", "lo_2"],
     orgMemoryCandidate: ["mc_1"],
+    loopPlan: ["lp_1", "lp_2"],
+    loopDirection: ["ld_1"],
+    loopDrive: ["dr_1"],
     practiceAdoption: ["pa_1", "pa_2"],
     housePatternVersion: ["hp_1"],
     orgMemoryCitation: ["ct_1", "ct_2", "ct_3"],

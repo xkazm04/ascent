@@ -148,6 +148,19 @@ export interface StartLoopRunInput {
    *  Held on the run's input rather than persisted on the row: a retry re-runs one lane in isolation,
    *  where there is no "rest of the run" to defer to, so a retry is always `"cycle"`. */
   rescanCadence?: RescanCadence | null;
+  // ── THE STANDING RUNNER (spark theater-upgrade, 2026-09-18). All optional; omitted = a manual run,
+  // byte-identical to every run before the runner existed.
+  /** The drive that dispatched this run — persisted on the row so the ledger can group runs by drive. */
+  driveId?: string | null;
+  /** `on` = every lane opens with a read-only planning session and only architecture moves wait for a
+   *  human. Persisted (`LoopRun.planMode`) so a retry plans exactly as the original did. */
+  planMode?: "on" | null;
+  /** What every lane's branch is cut from. Omitted = `HEAD`; the runner passes its runner branch. */
+  baseRef?: string | null;
+  /** RUNNER-GRADE LANES: lessons from a verified lane are kept automatically, and a lane that changed a
+   *  manifest has its dependencies installed by the engine. NOT persisted — a retry is a manual act and
+   *  gets neither. */
+  runnerLane?: { autoKeepLessons: boolean; installDeps: boolean } | null;
   /** Test seam + the autopilot shim's legacy branch naming. */
   deps?: Partial<LaneDeps>;
   branchFor?: (repo: string, stamp: string) => string;
@@ -246,6 +259,8 @@ export async function startLoopRun(input: StartLoopRunInput): Promise<LoopRunRec
     agentTimeoutMs: input.agentTimeoutMs ?? null,
     verifyMode: input.verifyMode ?? null,
     verifyTimeoutMs: input.verifyTimeoutMs ?? null,
+    driveId: input.driveId ?? null,
+    planMode: input.planMode === "on" ? "on" : null,
     phase: "running",
   });
   if (!run) throw new Error("The loop requires a database.");
@@ -464,6 +479,9 @@ export async function retryLane(laneId: string, opts: { deps?: Partial<LaneDeps>
         batchSize: run.batchSize,
         verify: { enabled: verifyModeOf(run.verifyMode) === "on", timeoutMs: run.verifyTimeoutMs },
         abPairKey: lane.abPairKey,
+        // A retry plans as the original run did (the row says so); the runner-grade flags are not
+        // persisted, so a retry — a manual act — gets neither.
+        runner: { plan: run.planMode === "on", autoKeepLessons: false, installDeps: false },
       });
       // A retry is the same lane run again, which includes how its work is delivered — the run's
       // recorded mode, read off the row rather than re-derived, exactly like its agent configuration.
@@ -557,7 +575,7 @@ async function drive(
           try {
             // Same stamp for both arms: `createLoopWorktree` suffixes a name collision, so the two
             // branches are visibly siblings of one run rather than unrelated timestamps.
-            wt = await createLoopWorktree(t.path, t.repo, stamp, branchFor);
+            wt = await createLoopWorktree(t.path, t.repo, stamp, branchFor, input.baseRef ?? "HEAD");
             state.worktrees.set(wtKey, wt);
           } catch (err) {
             await recordLaneSetupFailure(run.id, t.repo, cycle, err);
@@ -613,6 +631,13 @@ async function drive(
           // loop's judgment (the drop-out rule), not the lane's.
           rescanCadence: cadence,
           finalCycle: cycle >= run.maxCycles,
+          // THE STANDING RUNNER. Read off the ROW for planning (a property of what the run IS); the
+          // runner-grade flags ride on the input, since only the drive that armed the run knows them.
+          runner: {
+            plan: run.planMode === "on",
+            autoKeepLessons: input.runnerLane?.autoKeepLessons === true,
+            installDeps: input.runnerLane?.installDeps === true,
+          },
           // THE DRY-LANE PERMIT (see `DryLaneRefresh`). Only the driver can hand this over: it is the
           // only place that holds a pairing verified at arm time, the run's start, and the per-run
           // memo that keeps the refresh to one scan per repo. A lane WITH work never reads it.

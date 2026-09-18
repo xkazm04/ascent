@@ -152,6 +152,7 @@ import type { LaneEconomics } from "@/lib/local/lane-economics";
 // "equivalent" declaration here is how a field silently stops arriving.
 import type { LaneBriefProvenance } from "@/lib/org/lane-brief";
 import type { LaneReport } from "@/lib/local/lane-report";
+import type { LaneActivity } from "@/lib/local/runner-types";
 import type { LaneOutcomeRow } from "@/lib/db/lane-outcomes";
 
 /** Lanes in flight at once. 4 local `claude -p` sessions already saturate a developer box. */
@@ -216,7 +217,11 @@ export type LoopLanePhase = "queued" | "dispatching" | "rescanning" | "done" | "
  * Note what a craft lane still is NOT: it moves no score, adds no debt, and closes nothing on the
  * ledger except its own rungs.
  */
-export type LoopLaneKind = "backlog" | "foundation" | "practice" | "craft";
+//
+// `direction` (spark theater-upgrade, 2026-09-18) — an agent lane executing an APPROVED major plan: the
+// operator approved a direction (a fenced, budgeted grant), and this lane runs the plan they read, in a
+// fresh session, with that plan as its fixed tier. Same agent machinery as `backlog`.
+export type LoopLaneKind = "backlog" | "foundation" | "practice" | "craft" | "direction";
 
 /** One repo in a run, with the kind of lane its FIRST cycle was armed for. */
 export interface LoopTarget {
@@ -226,7 +231,20 @@ export interface LoopTarget {
   practiceId: string | null;
 }
 
-export const LANE_KINDS: readonly LoopLaneKind[] = ["backlog", "foundation", "practice", "craft"];
+export const LANE_KINDS: readonly LoopLaneKind[] = ["backlog", "foundation", "practice", "craft", "direction"];
+
+/**
+ * THE BATCH AS OFFERED, before the claim and the plan (spark theater-upgrade, 2026-09-18) — the
+ * "proposed" end of proposed → armed → delivered. Before this the pre-run batch was stored nowhere, so
+ * the ledger could never say what the loop considered and passed over. Counts carry their predicate:
+ * each `excluded` figure is "items of this repo's open list that `openBatch` dropped for this reason".
+ */
+export interface ProposedBatch {
+  items: { id: string; title: string; dimId: string | null; kind: "gap" | "craft"; craftAxis: string | null }[];
+  excluded: { deferred: number; heldByPlan: number; unmeasurable: number; heldByOtherWorker: number };
+  /** True when the operator named the rows by hand (a curated cycle-1 batch). */
+  curated: boolean;
+}
 
 const asKind = (v: unknown): LoopLaneKind =>
   typeof v === "string" && (LANE_KINDS as readonly string[]).includes(v) ? (v as LoopLaneKind) : "backlog";
@@ -273,6 +291,12 @@ export interface LoopRunRecord {
   verifyMode: VerifyMode | null;
   /** Budget for ONE run of the repository's verification command, ms. `null` = 10 minutes. */
   verifyTimeoutMs: number | null;
+  /** The run's STABLE number within its org (#1, #2, …). Null only on a row the backfill never reached. */
+  seq: number | null;
+  /** The drive (bounded or continuous) that dispatched this run; null for a manual run. */
+  driveId: string | null;
+  /** `on` when every lane of this run opened with a read-only planning session; null = off. */
+  planMode: "on" | null;
   startedAt: string;
   endedAt: string | null;
   error: string | null;
@@ -369,6 +393,31 @@ export interface LoopLaneRecord {
   /** ISO. When the current claim lapses; null = no lease held, which for a remote lane means nobody
    *  has claimed into it yet, and is never read as "expired". */
   leaseUntil: string | null;
+
+  // ── THE STANDING RUNNER + THE THEATER (spark theater-upgrade, 2026-09-18). Null on older lanes.
+  /** The LoopPlan this lane planned (or executed, for a `direction` lane). */
+  planId: string | null;
+  /** ISO. The last evidence of life from the lane's agent (a stream event, a worktree change). */
+  heartbeatAt: string | null;
+  /** ISO. When the lane entered its CURRENT phase/stage. */
+  stageAt: string | null;
+  /** ISO. The watchdog's ceiling for this cycle. */
+  deadlineAt: string | null;
+  /** The bounded tail of what the agent did, newest last. Empty on a lane that recorded none. */
+  activity: LaneActivity[];
+  /** The batch as offered, before claim and plan. Null on a lane written before the column. */
+  proposed: ProposedBatch | null;
+  /** The worktree's diff while the agent worked, measured by git. Null = not polled. */
+  diffStat: LaneDiffStat | null;
+  /** ISO. When the lane's branch was delivered into a branch the next lane builds on; null = not landed. */
+  landedAt: string | null;
+}
+
+/** What the worktree poll measured: files changed, lines added, lines removed. */
+export interface LaneDiffStat {
+  files: number;
+  plus: number;
+  minus: number;
 }
 
 /** Who runs a lane's work. A remote lane deliberately carries NO cost envelope: #27's figures come
@@ -515,6 +564,9 @@ type RunRow = {
   agentTimeoutMs?: number | null;
   verifyMode?: string | null;
   verifyTimeoutMs?: number | null;
+  seq?: number | null;
+  driveId?: string | null;
+  planMode?: string | null;
   startedAt: Date;
   endedAt: Date | null;
   error: string | null;
@@ -563,7 +615,54 @@ type LaneRow = {
   verifyCommand?: string | null;
   verifyNote?: string | null;
   verifyRung?: string | null;
+  planId?: string | null;
+  heartbeatAt?: Date | null;
+  stageAt?: Date | null;
+  deadlineAt?: Date | null;
+  activityJson?: string | null;
+  proposedJson?: string | null;
+  diffStatJson?: string | null;
+  landedAt?: Date | null;
 };
+
+/** `diffStatJson` → the stat, or null when absent or malformed. */
+export function parseDiffStatColumn(raw: string | null | undefined): LaneDiffStat | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw) as Partial<LaneDiffStat> | null;
+    const ok = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n) && n >= 0;
+    return v && ok(v.files) && ok(v.plus) && ok(v.minus) ? { files: v.files, plus: v.plus, minus: v.minus } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** `activityJson` → the tail, newest last. Malformed = empty (never a crash in a React tree). */
+export function parseActivityColumn(raw: string | null | undefined): LaneActivity[] {
+  if (!raw) return [];
+  try {
+    const v: unknown = JSON.parse(raw);
+    if (!Array.isArray(v)) return [];
+    return v.filter(
+      (e): e is LaneActivity =>
+        e != null && typeof e === "object" && typeof (e as LaneActivity).at === "string" && typeof (e as LaneActivity).kind === "string",
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** `proposedJson` → the offered batch, or null when absent or malformed. */
+export function parseProposedColumn(raw: string | null | undefined): ProposedBatch | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw) as Partial<ProposedBatch> | null;
+    if (!v || !Array.isArray(v.items) || typeof v.excluded !== "object" || v.excluded == null) return null;
+    return { items: v.items, excluded: v.excluded, curated: v.curated === true } as ProposedBatch;
+  } catch {
+    return null;
+  }
+}
 
 /** `briefJson` → provenance, or null. A malformed column is `null` (unknown), never a crash three
  *  layers up in a React tree — the same posture `parseTargets` takes. */
@@ -632,6 +731,10 @@ export function toRunRecord(row: RunRow): LoopRunRecord {
     agentTimeoutMs: row.agentTimeoutMs ?? null,
     verifyMode: normalizeVerifyMode(row.verifyMode),
     verifyTimeoutMs: row.verifyTimeoutMs ?? null,
+    seq: row.seq ?? null,
+    driveId: row.driveId ?? null,
+    // Anything but the explicit "on" is OFF — a stale or hand-written value never turns planning on.
+    planMode: row.planMode === "on" ? "on" : null,
     startedAt: row.startedAt.toISOString(),
     endedAt: row.endedAt ? row.endedAt.toISOString() : null,
     error: row.error,
@@ -689,6 +792,15 @@ export function toLaneRecord(row: LaneRow): LoopLaneRecord {
     // Same posture: an unreadable rung is `null` ("we do not know which command this verdict is
     // about"), which is what every lane written before the ladder genuinely carries.
     verifyRung: asVerifyRung(row.verifyRung),
+    // Liveness crosses as ISO STRINGS, never Dates (the wire-safe rule).
+    planId: row.planId ?? null,
+    heartbeatAt: row.heartbeatAt ? row.heartbeatAt.toISOString() : null,
+    stageAt: row.stageAt ? row.stageAt.toISOString() : null,
+    deadlineAt: row.deadlineAt ? row.deadlineAt.toISOString() : null,
+    activity: parseActivityColumn(row.activityJson),
+    proposed: parseProposedColumn(row.proposedJson),
+    diffStat: parseDiffStatColumn(row.diffStatJson),
+    landedAt: row.landedAt ? row.landedAt.toISOString() : null,
   };
 }
 

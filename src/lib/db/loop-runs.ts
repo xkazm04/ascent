@@ -26,7 +26,10 @@ export {
   asModelPolicy,
   boundLog,
   laneKindOf,
+  parseActivityColumn,
   parseDeliverables,
+  parseDiffStatColumn,
+  parseProposedColumn,
   parseTargets,
   isReviewMarker,
   toLaneRecord,
@@ -44,6 +47,8 @@ export {
   type LoopRunRecord,
   type LoopRunSummary,
   type LoopTarget,
+  type LaneDiffStat,
+  type ProposedBatch,
 } from "@/lib/db/loop-runs-types";
 
 export {

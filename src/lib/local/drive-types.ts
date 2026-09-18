@@ -9,9 +9,15 @@
 // `interrupted` is the phase a drive acquires WITHOUT anybody deciding it: the boot sweep finds a
 // `running` row no live process is driving and reconciles it. It is terminal — a drive spends agent
 // sessions inside real working copies, so re-arming one is a human decision, never a boot-time one.
-export type DrivePhase = "running" | "green" | "dry" | "ceiling" | "stopped" | "interrupted" | "error";
+//
+// `paused` and `idle` (spark theater-upgrade, 2026-09-18) belong to a CONTINUOUS drive — the standing
+// runner — and neither is terminal: `paused` = a runner-wide breaker fired (spend ceiling, session
+// limit); `idle` = every repo is backing off after dry runs and nothing is due yet. A bounded drive
+// never enters either.
+export type DrivePhase = "running" | "paused" | "idle" | "green" | "dry" | "ceiling" | "stopped" | "interrupted" | "error";
 
 import type { LoopDelivery } from "@/lib/local/delivery-options";
+import type { DriveDials, DriveMode, RepoRunnerState, RunnerPauseReason } from "@/lib/local/runner-types";
 
 export type { LoopDelivery };
 
@@ -79,6 +85,19 @@ export interface DriveStatus {
   endedAt: string | null;
   error: string | null;
   stopRequested: boolean;
+
+  // ── THE STANDING RUNNER (spark theater-upgrade, 2026-09-18). Optional so every bounded drive, and
+  // every status assembled before the fields existed, keeps type-checking and meaning what it meant.
+  /** `bounded` (absent = bounded) or `continuous` — the runner. */
+  mode?: DriveMode;
+  pausedReason?: RunnerPauseReason | null;
+  pausedUntil?: string | null;
+  /** Daily ceiling in MICRO-CENTS; null = none. */
+  spendCeilingMicros?: number | null;
+  repoState?: RepoRunnerState[];
+  /** The dials every run this drive dispatches is armed with. */
+  dials?: DriveDials | null;
+  lastBeatAt?: string | null;
 }
 
 export interface DriveInput {
@@ -97,6 +116,12 @@ export interface DriveInput {
   effort?: string | null;
   /** The operator's delivery pick, normalized by the route. Inherited by every run in the chain. */
   delivery?: LoopDelivery | null;
+  /** `continuous` arms the standing runner; omitted = `bounded`, byte-identical to every drive before. */
+  mode?: DriveMode;
+  /** The runner's daily ceiling in USD; null/0 = none. Ignored by a bounded drive. */
+  spendCeilingUsd?: number | null;
+  /** The run dials every dispatched run inherits. */
+  dials?: DriveDials | null;
 }
 
 /** The rope. A drive is bounded by construction — this is the most it may pull. */
@@ -105,8 +130,10 @@ export const DRIVE_DEFAULT_MAX_RUNS = 3;
 /** How often the driver looks at a run it is waiting on. Runs take minutes; this is not a hot loop. */
 export const DRIVE_POLL_MS = 5_000;
 
-/** A drive is PULLING (something is armed to poll it) versus finished. `running` is the only live phase. */
-export const isDriveLive = (phase: DrivePhase | null | undefined): boolean => phase === "running";
+/** A drive is PULLING (something is armed to poll it) versus finished. A continuous drive is also live
+ *  while `paused` or `idle` — it is waiting, not over. */
+export const isDriveLive = (phase: DrivePhase | null | undefined): boolean =>
+  phase === "running" || phase === "paused" || phase === "idle";
 
 /**
  * Runs the CHAIN has spent: the ones this segment finished plus the ones it inherited. A run still in

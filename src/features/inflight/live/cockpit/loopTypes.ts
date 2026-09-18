@@ -130,7 +130,9 @@ export const laneKindTag = (kind: LoopLaneKind): string | null =>
       ? "practice starter"
       : kind === "craft"
         ? "craft rung"
-        : null;
+        : kind === "direction"
+          ? "approved direction"
+          : null;
 
 /** GET /api/org/loop?org=… */
 export interface LoopStatusPayload {

@@ -1761,6 +1761,9 @@ async function eraseOrgLedgers(
   registryLedger: number;
   laneOutcomes: number;
   memoryCandidates: number;
+  loopPlans: number;
+  loopDirections: number;
+  loopDrives: number;
   practiceAdoptions: number;
   housePatterns: number;
   scanJobs: number;
@@ -1785,6 +1788,9 @@ async function eraseOrgLedgers(
     registryLedger: 0,
     laneOutcomes: 0,
     memoryCandidates: 0,
+    loopPlans: 0,
+    loopDirections: 0,
+    loopDrives: 0,
     practiceAdoptions: 0,
     housePatterns: 0,
     scanJobs: 0,
@@ -1941,6 +1947,31 @@ async function eraseOrgLedgers(
     () => prisma.orgMemoryCandidate.count({ where }),
     async (ids) => (await prisma.orgMemoryCandidate.deleteMany({ where: { id: { in: ids } } })).count,
     "erase.memory-candidates",
+  );
+
+  // THE STANDING RUNNER (spark theater-upgrade, 2026-09-18). A LoopPlan is an agent's plan for this
+  // organization's code, verbatim, plus the operator's ruling on it; a LoopDirection is the grant that
+  // ruling created. Both are standalone (denormalized orgId, no FK), so nothing removes them but this.
+  totals.loopPlans = await drain(
+    (take) => prisma.loopPlan.findMany(page(take)),
+    () => prisma.loopPlan.count({ where }),
+    async (ids) => (await prisma.loopPlan.deleteMany({ where: { id: { in: ids } } })).count,
+    "erase.loop-plans",
+  );
+  totals.loopDirections = await drain(
+    (take) => prisma.loopDirection.findMany(page(take)),
+    () => prisma.loopDirection.count({ where }),
+    async (ids) => (await prisma.loopDirection.deleteMany({ where: { id: { in: ids } } })).count,
+    "erase.loop-directions",
+  );
+  // THE DRIVES THEMSELVES, which the loop-history erase never reached. A LoopDrive names the repos it
+  // worked and carries the per-run debt ledger of this tenant's fleet, and until this line an erased
+  // organization's drives survived it (found by the same spark; the run rows went, the drive rows did not).
+  totals.loopDrives = await drain(
+    (take) => prisma.loopDrive.findMany(page(take)),
+    () => prisma.loopDrive.count({ where }),
+    async (ids) => (await prisma.loopDrive.deleteMany({ where: { id: { in: ids } } })).count,
+    "erase.loop-drives",
   );
 
   // #33 — the adoption ledger. Each row names a repo, a file path inside it and the content hashes

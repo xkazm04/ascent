@@ -102,9 +102,15 @@ export function laneDeadlineMs(p: {
   verifyMs: number;
   /** False when the run's guard is off — then neither verification run happens, and neither is paid for. */
   verifyEnabled?: boolean;
+  /** THE PLANNING SESSION's ceiling, when this lane plans first (a plan-mode run). Omitted = 0, which
+   *  is byte-identical to every lane before planning existed — a lane that does not plan pays nothing. */
+  planMs?: number;
+  /** The engine's dependency install, when a runner lane changed a manifest. Omitted = 0, same rule. */
+  depsMs?: number;
 }): number {
   const guardMs = p.verifyEnabled === false ? 0 : 2 * p.verifyMs;
-  return Math.max(1, Math.round(p.agentMs + guardMs + LANE_RESCAN_ALLOWANCE_MS + LANE_GIT_ALLOWANCE_MS));
+  const extraMs = Math.max(0, p.planMs ?? 0) + Math.max(0, p.depsMs ?? 0);
+  return Math.max(1, Math.round(p.agentMs + guardMs + extraMs + LANE_RESCAN_ALLOWANCE_MS + LANE_GIT_ALLOWANCE_MS));
 }
 
 /**
@@ -127,7 +133,7 @@ export const LANE_STOP_GRACE_MS = 120_000;
 export const LANE_STOP_TERMINAL_MS = 30_000;
 
 /** The stages of a lane cycle a watchdog can be waiting on. Recorded on the row when one is cut. */
-export const LANE_STAGES = ["baseline", "agent", "install", "verify", "commit", "rescan", "refresh", "git"] as const;
+export const LANE_STAGES = ["plan", "baseline", "agent", "deps", "install", "verify", "commit", "rescan", "refresh", "git"] as const;
 export type LaneStage = (typeof LANE_STAGES)[number];
 
 /** What each stage IS, in a sentence a lane log or an outcome sheet can print verbatim. */
@@ -144,6 +150,11 @@ export const LANE_STAGE_LABEL: Record<LaneStage, string> = {
   // the cycle ceiling already carries — a dry lane does nothing else, so it cannot exceed it.
   refresh: "refreshing this repository's reading from the paired checkout",
   git: "a git command in the worktree",
+  // THE STANDING RUNNER (spark theater-upgrade, 2026-09-18). A plan-mode lane opens with a read-only
+  // planning session, and a runner lane that changed a manifest has its dependencies installed by the
+  // ENGINE (never the agent) before the result check. Both are paid for out of `planMs` / `depsMs`.
+  plan: "the read-only planning session",
+  deps: "the engine's dependency install",
 };
 
 /** Why a lane was cut short: its own ceiling, or an operator's stop. */

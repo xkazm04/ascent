@@ -66,6 +66,10 @@ export async function createLoopWorktree(
   stamp: string,
   /** Overrides the branch name — the autopilot shim keeps its historical `ascent/autopilot-<stamp>`. */
   branchFor: (repo: string, stamp: string) => string = branchNameFor,
+  /** WHAT THE LANE'S BRANCH IS CUT FROM. `HEAD` (the paired checkout's current commit) is what every
+   *  lane before the standing runner used, and stays the default. The runner passes its long-lived
+   *  `ascent/runner` branch, so each lane builds on the verified work the last one landed there. */
+  baseRef: string = "HEAD",
 ): Promise<LoopWorktree> {
   const base = branchFor(repo, stamp);
   const dir = await mkdtemp(join(tmpdir(), "ascent-loop-"));
@@ -74,10 +78,10 @@ export async function createLoopWorktree(
   // is retried: every other git failure (a corrupt repo, a missing HEAD, no disk) still throws on the
   // first attempt, because retrying those would just produce the same error N times more slowly.
   let branch = base;
-  let added = await runGit(pairedPath, ["worktree", "add", "-b", branch, dir, "HEAD"], { timeoutMs: WORKTREE_GIT_TIMEOUT_MS });
+  let added = await runGit(pairedPath, ["worktree", "add", "-b", branch, dir, baseRef], { timeoutMs: WORKTREE_GIT_TIMEOUT_MS });
   for (let n = 2; !added.ok && BRANCH_EXISTS.test(added.stderr || added.stdout) && n <= BRANCH_SUFFIX_CAP; n += 1) {
     branch = `${base}-${n}`;
-    added = await runGit(pairedPath, ["worktree", "add", "-b", branch, dir, "HEAD"], { timeoutMs: WORKTREE_GIT_TIMEOUT_MS });
+    added = await runGit(pairedPath, ["worktree", "add", "-b", branch, dir, baseRef], { timeoutMs: WORKTREE_GIT_TIMEOUT_MS });
   }
   if (!added.ok) {
     // No links exist yet on this path — they are made below, only after the add succeeded — so a

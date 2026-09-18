@@ -27,6 +27,7 @@ import { normalizeAgentEffort, normalizeAgentModel, type AgentConfig } from "@/l
 import { agentTimeoutMs } from "@/lib/local/lane-watchdog";
 import { parseAgentEnvelope, type AgentEnvelope } from "@/lib/local/agent-envelope";
 import { detachForKillTree, killProcessTree } from "@/lib/local/kill-tree";
+import type { AgentStreamEvent } from "@/lib/local/runner-types";
 
 export { agentTimeoutMs };
 
@@ -66,6 +67,8 @@ export function resolveAgentConfig(choice: AgentConfig | null | undefined): { mo
 }
 
 const MAX_STDOUT = 4 * 1024 * 1024; // mirror claude-cli.ts's runaway-subprocess caps
+/** A CLI session id: a UUID, and nothing a shell could re-parse into a second argument. */
+const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_STDERR = 16 * 1024;
 
 /**
@@ -81,6 +84,42 @@ export interface AgentRunResult extends Partial<Omit<AgentEnvelope, "ok" | "summ
   ok: boolean;
   /** The session's final text (claude -p json envelope `.result`), or the failure reason. */
   summary: string;
+  /** THE CLI'S OWN ERROR TEXT on a failed session, verbatim and bounded — what the runner's
+   *  session-limit breaker classifies ("You've hit your session limit · resets 3pm"). Absent on
+   *  success, and absent on a runner that has not been taught to carry it. */
+  errorText?: string | null;
+}
+
+/**
+ * How one session is armed. Everything past `prompt` is optional and ABSENT means exactly what every
+ * session before the field existed did — the argv below only grows when a caller asks.
+ */
+export interface ClaudeAgentOptions {
+  cwd: string;
+  prompt: string;
+  model?: string;
+  effort?: string | null;
+  /** Per-run session ceiling, already normalized by the route. Omitted/null keeps the deployment's
+   *  own `ASCENT_AUTOPILOT_TIMEOUT_MS`, which is what every session before this parameter used. */
+  timeoutMs?: number | null;
+  /** THE STOP'S REACH INTO THE PROCESS. When this aborts — the lane's watchdog fires it on a run stop
+   *  and on the lane deadline alike (`LaneWatchdog.signal`) — the spawned process TREE is killed and
+   *  this call settles. Absent means nobody outside is watching, which is what every caller before
+   *  the parameter existed did: the session then ends only on its own timer. */
+  signal?: AbortSignal;
+  /** `edit` (the default — `--permission-mode acceptEdits`, the editing session every lane has always
+   *  run) or `plan`: `--permission-mode plan` plus a Read/Grep/Glob allowlist, for the read-only
+   *  planning session. BOTH ARE TOOL POLICY, NOT A SANDBOX — the caller proves the worktree is
+   *  untouched afterwards (see lane-plan.ts). */
+  permission?: "edit" | "plan";
+  /** A session id the ENGINE mints (`--session-id <uuid>`), so it can resume the session later. */
+  sessionId?: string | null;
+  /** Continue an earlier session (`--resume <uuid>`) — the minor execution resumes its planning
+   *  session, whose context already holds the files it read. */
+  resumeSessionId?: string | null;
+  /** Each parsed stream event, as it happens — the lane's live activity tail. Called synchronously
+   *  from the stdout handler; a sink that throws is the sink's problem and never ends the session. */
+  onEvent?: (e: AgentStreamEvent) => void;
 }
 
 /**
@@ -101,20 +140,7 @@ function abortSummary(signal: AbortSignal | undefined): string {
 
 /** Run one editing session in `cwd`. Resolves (never rejects) — the autopilot treats every outcome
  *  as cycle data: a failed session ends the cycle with its reason in the log, not a stack. */
-export function runClaudeAgent(opts: {
-  cwd: string;
-  prompt: string;
-  model?: string;
-  effort?: string | null;
-  /** Per-run session ceiling, already normalized by the route. Omitted/null keeps the deployment's
-   *  own `ASCENT_AUTOPILOT_TIMEOUT_MS`, which is what every session before this parameter used. */
-  timeoutMs?: number | null;
-  /** THE STOP'S REACH INTO THE PROCESS. When this aborts — the lane's watchdog fires it on a run stop
-   *  and on the lane deadline alike (`LaneWatchdog.signal`) — the spawned process TREE is killed and
-   *  this call settles. Absent means nobody outside is watching, which is what every caller before
-   *  the parameter existed did: the session then ends only on its own timer. */
-  signal?: AbortSignal;
-}): Promise<AgentRunResult> {
+export function runClaudeAgent(opts: ClaudeAgentOptions): Promise<AgentRunResult> {
   return new Promise((resolve) => {
     const limitMs = agentTimeoutMs(opts.timeoutMs);
     if (opts.signal?.aborted) {
@@ -143,8 +169,18 @@ export function runClaudeAgent(opts: {
     const bin = process.env.CLAUDE_CLI_PATH || "claude";
     // `--effort` is appended ONLY when a level was chosen, so a `claude` build that has never heard of
     // the flag runs exactly the argv it always did.
-    const args = ["-p", "--output-format", "json", "--permission-mode", "acceptEdits", "--model", model];
+    // THE PLANNING SESSION is read-only by tool policy: plan mode plus an explicit allowlist. The list is
+    // ONE argv token with no spaces, because `shell: true` re-parses argv on Windows.
+    const args =
+      opts.permission === "plan"
+        ? ["-p", "--output-format", "json", "--permission-mode", "plan", "--allowedTools", "Read,Grep,Glob", "--model", model]
+        : ["-p", "--output-format", "json", "--permission-mode", "acceptEdits", "--model", model];
     if (effort) args.push("--effort", effort);
+    // Session ids reach the same re-parsing shell as the model, so they get the same treatment: a UUID
+    // or nothing. An invalid id DROPS the flag rather than failing the session — a resume that cannot
+    // be honoured degrades to a fresh session, which is what every lane before resuming existed ran.
+    if (opts.resumeSessionId && SESSION_ID.test(opts.resumeSessionId)) args.push("--resume", opts.resumeSessionId);
+    else if (opts.sessionId && SESSION_ID.test(opts.sessionId)) args.push("--session-id", opts.sessionId);
     const child = spawn(bin, args, {
       shell: true,
       cwd: opts.cwd,

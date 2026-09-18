@@ -131,6 +131,8 @@ model Organization {
   // FLAG is the one the product surface reads by name — so the relation is the one that pluralizes.
   repoMemoryMirrors   RepoMemoryMirror[]
   loopDrives          LoopDrive[]
+  loopPlans           LoopPlan[]
+  loopDirections      LoopDirection[]
   // MOONSHOT WAVE 3. ControlLedgerSeal is deliberately NOT here: a seal outlives the observations it
   // sealed (retention purges rows, never seals), so it is standalone like every other hand-cascaded
   // ledger in this schema and is removed only by the org-erase sweep in src/lib/db/retention.ts.
@@ -239,6 +241,12 @@ model Membership {
   // date) so no live org/dev DB gets ambushed — only memberships created after W6a start null.
   onboardingCompletedAt DateTime?
   onboardingSkippedAt   DateTime?
+  // THE LIVE LEDGER'S "SINCE YOU LAST LOOKED" ANCHOR — the `alertsSeenAt` pattern, one surface over.
+  // Advanced only after the ledger has been VISIBLE for a few seconds (a presence stamp gated on
+  // visibility), so opening the tab in a background window does not silently zero the briefing.
+  // Nullable: a member who has never looked has no anchor, and the briefing falls back to a bounded
+  // recent window rather than replaying the org's whole loop history.
+  liveSeenAt            DateTime?
 
   org  Organization @relation(fields: [orgId], references: [id])
   user User         @relation(fields: [userId], references: [id])
@@ -1801,6 +1809,16 @@ model LoopRun {
   agentTimeoutMs  Int?
   verifyMode      String?
   verifyTimeoutMs Int?
+  // ── THE STANDING RUNNER (spark theater-upgrade, 2026-09-18).
+  // `seq` — the run's stable number WITHIN ITS ORG (#1, #2, …), assigned at create. The ledger used to
+  // label a run by its position in a 12-column window, so every label shifted when a 13th run landed.
+  // Nullable so PGlite's boot-time drift repair can add it in place; the migration backfills it.
+  // `driveId` — the drive (bounded or continuous) that dispatched this run; null for a manual run.
+  // `planMode` — "on" when every lane of this run opens with a read-only planning session and only
+  // plans that move architecture wait for a human. NULL MEANS OFF, byte-identical to every run before.
+  seq             Int?
+  driveId         String?
+  planMode        String?
   startedAt   DateTime  @default(now())
   endedAt     DateTime?
   error       String?
@@ -1899,6 +1917,29 @@ model LoopRunLane {
   // NULL is a lane written before the ladder: unknown, and never silently read as "primary".
   verifyRung    String?
 
+  // ── THE STANDING RUNNER + THE THEATER (spark theater-upgrade, 2026-09-18). All nullable; null on
+  // every lane written before them, which each reader treats as "not recorded", never as a value.
+  // `planId` — the LoopPlan this lane's planning session produced (or the approved plan it executed).
+  // `heartbeatAt` — the last moment ANY evidence of life arrived from the lane's agent (a stream event,
+  // a worktree change). A liveness claim with a timestamp, so a silent lane reads as silent.
+  // `stageAt` — when the lane entered its CURRENT phase/stage. `startedAt` only says when it began.
+  // `deadlineAt` — the watchdog's computed ceiling for this cycle, persisted so a screen can count down.
+  // `activityJson` — JSON LaneActivity[] (TEXT, never jsonb), the bounded tail of what the agent did.
+  // `proposedJson` — JSON of the batch AS OFFERED at dispatch, including what was excluded and why, so
+  // the ledger can show proposed → armed → delivered instead of only the last two.
+  planId        String?
+  heartbeatAt   DateTime?
+  stageAt       DateTime?
+  deadlineAt    DateTime?
+  activityJson  String?
+  proposedJson  String?
+  // `diffStatJson` — JSON {files, plus, minus} from the worktree poll while the agent works: the live
+  // "how much has changed" a theater shows, measured from git rather than claimed by the agent.
+  // `landedAt` — when this lane's branch was DELIVERED into a branch the next lane builds on (the runner
+  // branch, or the operator's own under `land`). Null = not landed; the pulse counts "landed today" on it.
+  diffStatJson  String?
+  landedAt      DateTime?
+
   run LoopRun @relation(fields: [runId], references: [id])
 
   @@index([runId])
@@ -1940,6 +1981,21 @@ model LoopDrive {
   // the chain on a different delivery mode would change what the drive does to the operator's disk
   // halfway through.
   delivery        String?
+  // ── THE STANDING RUNNER (spark theater-upgrade, 2026-09-18) — a `continuous` drive never stops on
+  // green, dry or a run cap; it pauses. `mode` defaults to `bounded`, so every existing row keeps
+  // exactly its meaning. `pausedReason`/`pausedUntil` — a runner-wide breaker (spend ceiling, session
+  // limit) and when it lifts. `spendCeilingMicros` — the daily ceiling in MICRO-CENTS, null = none.
+  // `repoStateJson` — JSON RepoRunnerState[]: per-repo pauses, streaks, runner-branch bookkeeping.
+  // `dialsJson` — the run dials EVERY run this drive dispatches is armed with (batch size, timeouts,
+  // verify, cadence, model policy); before it, a drive silently dropped five of them.
+  // `lastBeatAt` — the last time the driver loop proved it was alive.
+  mode               String    @default("bounded")
+  pausedReason       String?
+  pausedUntil        DateTime?
+  spendCeilingMicros Int?
+  repoStateJson      String    @default("[]")
+  dialsJson          String?
+  lastBeatAt         DateTime?
   startedAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   endedAt         DateTime?
@@ -1948,6 +2004,77 @@ model LoopDrive {
   org Organization @relation(fields: [orgId], references: [id])
 
   @@index([orgId, startedAt])
+}
+
+// A LANE'S PLAN — written by the read-only planning session every lane of a plan-mode run opens with
+// (spark theater-upgrade, 2026-09-18). EVERY plan is a row, minor ones too: this table IS the
+// persisted proposals ledger ("what the loop meant to do"), where before a pre-run batch was stored
+// nowhere at all.
+//
+// `cls` — minor | major | minor-under-direction. Only a plan that moves ARCHITECTURE (a module
+// created, removed, split or merged, or code moved across module boundaries) is major; contract,
+// dependency and footprint changes are auto-approved by operator decision, because they land on the
+// runner branch and merging that branch is itself the human gate. A plan the engine cannot read is
+// major, with `clsReason = "unreadable"` — the loud default, never the quiet one.
+// `status` — executing | landed | held | pending | approved | revise | rejected | superseded | failed.
+// A `pending` plan never times out into proceeding.
+// `itemKeysJson` — the items' DURABLE identities (`recommendationDecisionKey`), because Recommendation
+// ids are recreated on every scan and a decision keyed on one dies at the next rescan.
+model LoopPlan {
+  id            String    @id @default(uuid())
+  orgId         String
+  repo          String // "owner/name"
+  runId         String?
+  laneId        String?
+  directionId   String?
+  itemKeysJson  String    @default("[]")
+  recIdsJson    String    @default("[]")
+  planJson      String    @default("{}") // the parsed LanePlan (JSON-in-TEXT)
+  planText      String    @default("") // the planner's prose, verbatim, for the reviewer
+  partitionJson String? // the module partition the plan was classified against
+  cls           String    @default("minor")
+  clsReason     String?
+  status        String    @default("executing")
+  sessionId     String? // the planning session's CLI id — the minor execution resumes it
+  heldBranch    String? // a lane held for an undeclared move keeps its commits here, for the review
+  decidedBy     String?
+  decidedAt     DateTime?
+  decisionNote  String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@index([orgId, status])
+  @@index([orgId, repo])
+}
+
+// AN APPROVED DIRECTION — what approving a major plan creates (spark theater-upgrade, 2026-09-18). It is a
+// FENCED, BUDGETED grant: later plans whose architecture moves stay inside `fenceJson` and whose cost
+// stays inside the budget run without asking; a plan that needs the fence moved asks again.
+// `status` — active | done | exhausted | revoked.
+model LoopDirection {
+  id            String    @id @default(uuid())
+  orgId         String
+  repo          String
+  title         String
+  fenceJson     String    @default("[]") // JSON string[] of module prefixes the direction may move
+  checkText     String    @default("")
+  budgetCycles  Int       @default(3)
+  budgetMicros  Int?
+  usedCycles    Int       @default(0)
+  usedMicros    Int       @default(0)
+  status        String    @default("active")
+  originPlanId  String
+  approvedBy    String?
+  approvedAt    DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  endedAt       DateTime?
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@index([orgId, status])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────

@@ -23,6 +23,8 @@ import {
   type LoopRunPhase,
   type LoopRunRecord,
   type LoopTarget,
+  type LaneDiffStat,
+  type ProposedBatch,
   type VerifyMode,
   type VerifyRung,
   type VerifyVerdict,
@@ -30,6 +32,7 @@ import {
 
 import type { LaneBriefProvenance } from "@/lib/org/lane-brief";
 import type { LaneReport } from "@/lib/local/lane-report";
+import type { LaneActivity } from "@/lib/local/runner-types";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(n)));
 
@@ -66,17 +69,41 @@ export interface CreateLoopRunInput {
   agentTimeoutMs?: number | null;
   verifyMode?: VerifyMode | null;
   verifyTimeoutMs?: number | null;
+  /** The drive that dispatched this run; omitted/null for a manual run. */
+  driveId?: string | null;
+  /** `on` = every lane plans first (a runner run, or an operator's plan-mode run). Omitted = off. */
+  planMode?: "on" | null;
   /** Defaults to "running" — `start` arms a run; "curating" is for a run parked for hand-editing. */
   phase?: LoopRunPhase;
+}
+
+/**
+ * The org's next STABLE run number. Safe without a lock because an org holds one run slot at a time
+ * (the engine refuses a second concurrent run), and a remote run is armed from the same single path.
+ * An org whose legacy rows were never backfilled counts them, so the first new number continues the
+ * history rather than restarting it at #1.
+ */
+async function nextRunSeq(orgId: string): Promise<number | null> {
+  const prisma = getPrisma();
+  const top = await prisma.loopRun
+    .findFirst({ where: { orgId, seq: { not: null } }, orderBy: { seq: "desc" }, select: { seq: true } })
+    .catch(() => null);
+  if (top?.seq != null) return top.seq + 1;
+  const count = await prisma.loopRun.count({ where: { orgId } }).catch(() => null);
+  return count == null ? null : count + 1;
 }
 
 export async function createLoopRun(input: CreateLoopRunInput): Promise<LoopRunRecord | null> {
   if (!isDbConfigured()) return null;
   const org = await getOrgBySlug(input.orgSlug);
   if (!org) return null;
+  const seq = await nextRunSeq(org.id);
   const row = await getPrisma().loopRun.create({
     data: {
       orgId: org.id,
+      seq,
+      driveId: input.driveId ?? null,
+      planMode: input.planMode === "on" ? "on" : null,
       createdBy: input.createdBy ?? null,
       phase: input.phase ?? "running",
       reposJson: JSON.stringify(input.targets ?? input.repos),
@@ -259,12 +286,28 @@ export interface LoopLanePatch {
   /** WHICH RUNG the command was — `primary`, or `typecheck` / `lint` when the guard narrowed because
    *  the declared command could not establish a baseline in the worktree. */
   verifyRung?: VerifyRung | null;
+
+  // ── THE STANDING RUNNER + THE THEATER (spark theater-upgrade, 2026-09-18).
+  planId?: string | null;
+  heartbeatAt?: Date | null;
+  stageAt?: Date | null;
+  deadlineAt?: Date | null;
+  /** The bounded activity tail — serialized into `activityJson`. */
+  activity?: LaneActivity[];
+  /** The batch as offered — serialized into `proposedJson`. */
+  proposed?: ProposedBatch;
+  /** The worktree poll's measurement — serialized into `diffStatJson`. */
+  diffStat?: LaneDiffStat;
+  landedAt?: Date | null;
 }
 
 export async function updateLane(id: string, patch: LoopLanePatch): Promise<LoopLaneRecord | null> {
   if (!isDbConfigured()) return null;
-  const { batchIds, closedIds, deliverables, brief, report, ...rest } = patch;
+  const { batchIds, closedIds, deliverables, brief, report, activity, proposed, diffStat, ...rest } = patch;
   const data: Record<string, unknown> = { ...rest };
+  if (activity) data.activityJson = JSON.stringify(activity);
+  if (proposed) data.proposedJson = JSON.stringify(proposed);
+  if (diffStat) data.diffStatJson = JSON.stringify(diffStat);
   if (batchIds) data.batchIdsJson = JSON.stringify(batchIds);
   if (closedIds) data.closedIdsJson = JSON.stringify(closedIds);
   if (deliverables) data.deliverablesJson = JSON.stringify(deliverables);

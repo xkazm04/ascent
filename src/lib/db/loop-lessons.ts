@@ -91,6 +91,11 @@ export async function recordLoopLessons(
   repoFullName: string,
   laneId: string,
   lessons: readonly string[],
+  /** THE STANDING RUNNER (spark theater-upgrade, 2026-09-18): `autoKeep` is set on a RUNNER lane whose
+   *  guard VERIFIED it — its lessons are kept into the repo's procedural memory automatically, tagged
+   *  "kept by runner" and revocable from the ledger. Every other lane's lessons stay pending exactly as
+   *  before. (WP5 implements the keep; until then the option is accepted and ignored.) */
+  _opts: { autoKeep?: boolean } = {},
 ): Promise<LoopLessonRow[]> {
   if (!isDbConfigured()) return [];
   const clean = lessons.map((l) => l.trim()).filter(Boolean).slice(0, MAX_PER_LANE);
