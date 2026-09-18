@@ -6,6 +6,8 @@
 //
 // JSON GET pins the same tenant wall without format=csv: missing ?org 400, 503 when the database is
 // unset, requireOrgRead before getOrgBacklog, and includeClosed=1 as the G6-02 recovery view.
+// A null getOrgBacklog is unavailable (404, both formats) — not an empty ledger of zeros. A real
+// empty OrgBacklog (all-zero counts) still 200s { backlog }.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -199,6 +201,7 @@ describe("GET /api/org/backlog?format=csv", () => {
     mockBacklog.mockResolvedValue(null as never);
     const res = await get("org=acme&format=csv");
     expect((res as Response).status).toBe(404);
+    expect(await (res as Response).json()).toEqual({ error: "No backlog for this org yet." });
   });
 
   it("leaves the default JSON read untouched", async () => {
@@ -243,5 +246,20 @@ describe("GET /api/org/backlog — JSON read", () => {
     const res = await get("org=acme&includeClosed=1");
     expect(mockBacklog).toHaveBeenCalledWith("acme", null, expect.any(Date), null, { includeClosed: true });
     expect((res as Response).status).toBe(200);
+  });
+
+  it("404s with the same error body when getOrgBacklog is null", async () => {
+    mockBacklog.mockResolvedValue(null as never);
+    const res = await get("org=acme");
+    expect((res as Response).status).toBe(404);
+    expect(await (res as Response).json()).toEqual({ error: "No backlog for this org yet." });
+  });
+
+  it("200s { backlog } for a real empty OrgBacklog (all-zero counts)", async () => {
+    const empty = { ...backlog([]), repos: 0 };
+    mockBacklog.mockResolvedValue(empty as never);
+    const res = await get("org=acme");
+    expect((res as Response).status).toBe(200);
+    expect(await (res as Response).json()).toEqual({ backlog: empty });
   });
 });

@@ -1,5 +1,6 @@
 // GET /api/org/backlog?org=slug[&segment=segmentId][&techGroup=techGroupId][&includeClosed=1][&format=csv]
-//   -> { backlog: OrgBacklog | null }   (or a CSV download when format=csv)
+//   -> { backlog: OrgBacklog }   (or a CSV download when format=csv)
+//   -> 404 { error: "No backlog for this org yet." } when getOrgBacklog is null (both formats)
 // The org-wide recommendation backlog (owners + due dates), grouped by owner and by due-date
 // bucket. Read-only; lets the client panel refresh after a status/assignee/due-date change.
 // `segment`/`techGroup` mirror the page's ?segment=/?stack= scope (backlog-management 07-16 #2) so a
@@ -93,11 +94,11 @@ export async function GET(request: Request) {
   // unchanged by it. It also widens the CSV export the same way — the download mirrors the read scope.
   const includeClosed = searchParams.get("includeClosed") === "1";
   const backlog = await getOrgBacklog(org, segment, new Date(), techGroup, { includeClosed });
+  // A null backlog means the org/lookup is unavailable — distinct from an org with an empty ledger of
+  // zeros. JSON 200 { backlog: null } or a header-only CSV 200 is success theater; both formats 404.
+  if (!backlog) return NextResponse.json({ error: "No backlog for this org yet." }, { status: 404 });
 
   if (searchParams.get("format") === "csv") {
-    // A null backlog means the org/lookup is unavailable — distinct from an org with an empty backlog.
-    // Returning a header-only 200 for the former is success theater (the org/export contract).
-    if (!backlog) return NextResponse.json({ error: "No backlog for this org yet." }, { status: 404 });
     // Encode the scope in the filename: a CSV carries no scope marker once it leaves the app, so a
     // segment/stack-scoped download must be distinguishable from a whole-fleet one.
     const scope =
