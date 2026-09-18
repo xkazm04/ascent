@@ -2029,6 +2029,10 @@ model LoopPlan {
   directionId   String?
   itemKeysJson  String    @default("[]")
   recIdsJson    String    @default("[]")
+  // The items' titles AS THEY READ when the plan was written, aligned with `itemKeysJson` — the key is a
+  // hash and the rec id dies at the next rescan, so without this an approval inbox could not name what
+  // it asks the operator to approve (`audit-logging/decision-records`: persist the title at decision time).
+  itemTitlesJson String   @default("[]")
   planJson      String    @default("{}") // the parsed LanePlan (JSON-in-TEXT)
   planText      String    @default("") // the planner's prose, verbatim, for the reviewer
   partitionJson String? // the module partition the plan was classified against

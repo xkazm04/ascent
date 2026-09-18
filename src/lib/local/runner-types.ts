@@ -152,6 +152,8 @@ export interface LoopPlanRecord {
   directionId: string | null;
   itemKeys: string[];
   recIds: string[];
+  /** The items' titles as they read when the plan was written, aligned with `itemKeys`. */
+  itemTitles: string[];
   plan: LanePlan | null;
   planText: string;
   partition: ModulePartition | null;

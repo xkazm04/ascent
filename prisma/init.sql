@@ -1634,6 +1634,7 @@ CREATE TABLE "LoopPlan" (
     "directionId" TEXT,
     "itemKeysJson" TEXT NOT NULL DEFAULT '[]',
     "recIdsJson" TEXT NOT NULL DEFAULT '[]',
+    "itemTitlesJson" TEXT NOT NULL DEFAULT '[]',
     "planJson" TEXT NOT NULL DEFAULT '{}',
     "planText" TEXT NOT NULL DEFAULT '',
     "partitionJson" TEXT,
