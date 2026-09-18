@@ -927,6 +927,30 @@ override side or are read-time projections, so no stored row changed shape. The 
 `$schema` pointer derives from `PASSPORT_VERSION` (`PASSPORT_SCHEMA_URL`), pinned against the schema
 document's own `$id`; it used to hard-code 0.2 under a 0.4.0 body.
 
+## Passport rungs: present vs enforced vs unassessable
+
+The production sub-rungs on `PassportCard` and the fleet `PassportTable` used to paint anything that
+was not a gate as a miss: `checks` wore the same warn tone as `none`, and a
+`prod.observability-unassessable` finding still rendered the rung as `none`. The builder already
+distinguishes those facts (present-vs-enforced on the CI/security ladders; `prod.*-unassessable`
+instead of `prod.zero-observability` / `prod.ci-not-gating` when the scan could not look). The
+display now names them, from one helper (`rungHonesty` / `productionRungViews` in
+`src/lib/org/passport-display.ts`):
+
+- **enforced** (`gated` / `delivery` / `progressive` on CI; `gated` / `supply-chain` on security): a
+  failing check blocks the merge or release.
+- **present** (`build` / `checks`; `policy` / `scanning`; mid test and observability rungs): the
+  control exists and is not a gate. Tokenless `prod.enforcement-not-observable` is this cap, not a
+  miss: CI stays at `checks · present`.
+- **absent**: the scan looked and found nothing (`none`). A real miss.
+- **unassessable**: `prod.ci-unassessable` / `prod.security-unassessable` /
+  `prod.observability-unassessable` on a `none` level. The scan could not look. **Unassessable is
+  not a 0** (G4) and is never painted as `none`.
+
+Pinned on `PassportCard.dom.test.tsx`. An evidence-limit finding on a *seen* present level (unread
+workflows, CI still at `checks`) stays **present**: we observed presence; we did not finish
+assessing the gate.
+
 ## Passport autonomy tier (0.3.0)
 
 The App Readiness Passport (`src/lib/analyze/passport.ts`, exported at `/api/report/passport`)

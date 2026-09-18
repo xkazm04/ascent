@@ -10,7 +10,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { OrgTable } from "@/components/org/shared/ui";
-import { bandColor, bandLabel } from "@/lib/org/passport-display";
+import {
+  bandColor,
+  bandLabel,
+  rungDisplayValue,
+  rungHonesty,
+  RUNG_HONESTY_COLOR,
+  RUNG_HONESTY_HINT,
+  type ProductionRung,
+  type RungHonesty,
+} from "@/lib/org/passport-display";
 import { PassportRowDetail, type PassportDetail } from "@/features/standing/passports/PassportRowDetail";
 import { PassportTableHead } from "@/features/standing/passports/PassportTableHead";
 import { PlaceholderMark } from "@/features/standing/passports/PlaceholderMark";
@@ -122,10 +131,10 @@ export function PassportTable({
             <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: bandColor(r.band) }}>
               {bandLabel(r.band)} <span className="text-slate-500">·</span> {r.prodScore}
             </td>
-            <td className="px-3 py-2 type-mono-sm" style={{ color: r.ci === "gated" || r.ci === "delivery" || r.ci === "progressive" ? "#84cc16" : "#94a3b8" }}>{r.ci}</td>
-            <td className="px-3 py-2 type-mono-sm text-slate-400">{r.tests}</td>
-            <td className="px-3 py-2 type-mono-sm" style={{ color: r.security === "gated" || r.security === "supply-chain" ? "#84cc16" : "#94a3b8" }}>{r.security}</td>
-            <td className="px-3 py-2 type-mono-sm" style={{ color: r.observability === "none" ? "#f97316" : "#94a3b8" }}>{r.observability}</td>
+            <RungTd rung="ci" level={r.ci} honesty={rungHonesty("ci", r.ci, r.detail.prodFindings)} />
+            <RungTd rung="tests" level={r.tests} honesty={rungHonesty("tests", r.tests, r.detail.prodFindings)} />
+            <RungTd rung="security" level={r.security} honesty={rungHonesty("security", r.security, r.detail.prodFindings)} />
+            <RungTd rung="observability" level={r.observability} honesty={rungHonesty("observability", r.observability, r.detail.prodFindings)} />
             <td className="px-2 py-2 text-center">
               <button
                 type="button"
@@ -162,5 +171,18 @@ export function PassportTable({
         ];
       })}
     </OrgTable>
+  );
+}
+
+function RungTd({ rung, level, honesty }: { rung: ProductionRung; level: string; honesty: RungHonesty }) {
+  return (
+    <td
+      className="px-3 py-2 type-mono-sm"
+      data-honesty={honesty}
+      title={RUNG_HONESTY_HINT[honesty]}
+      style={{ color: RUNG_HONESTY_COLOR[honesty] }}
+    >
+      {rungDisplayValue(rung, level, honesty)}
+    </td>
   );
 }
