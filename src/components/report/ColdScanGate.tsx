@@ -6,6 +6,7 @@
 // never asked for that. So gate it: show a calm "not scanned yet" card with an explicit "Scan now"
 // that mounts ReportClient (which then runs the live scan with its full progress checklist). The
 // scan-form flow is unaffected — it routes through /report?repo=…, an explicit "I asked to scan" action.
+// A thrown permalink read is NOT this gate — see PermalinkReadError (G4: a blip is not a true miss).
 
 // G6-26: the gate is also the highest-intent moment in the funnel, so below the CTA it now carries
 // ColdScanTeaser — what a scan PRODUCES (the rubric, the ladder, the honest terms), never a
@@ -15,6 +16,33 @@ import { Suspense, useState } from "react";
 import { ReportClient } from "@/components/report/ReportClient";
 import { ColdScanTeaser } from "@/components/report/ColdScanTeaser";
 import { EmptyState } from "@/components/EmptyState";
+
+/** Persistence-blip card for `/report/{owner}/{repo}`. A thrown `getScanReportByCommit` is not a
+ *  never-scanned repo (G4): offering "Scan now" here would spend a metered live scan on a hiccup.
+ *  True misses still use `ColdScanGate`. */
+export function PermalinkReadError({ repo }: { repo: string }) {
+  const at = repo.indexOf("@");
+  const display = at < 0 ? repo : repo.slice(0, at);
+
+  return (
+    <div data-testid="permalink-read-error">
+      <EmptyState
+        icon="📡"
+        title={`Report unavailable for ${display}`}
+        body={`Ascent could not load a scan for ${display} right now. Try again in a moment.`}
+        actions={[{ label: "← Back home", href: "/" }]}
+      >
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="focus-ring rounded-xl bg-accent px-5 py-2.5 type-body font-medium text-on-accent transition hover:bg-accent-soft"
+        >
+          Try again
+        </button>
+      </EmptyState>
+    </div>
+  );
+}
 
 export function ColdScanGate({ repo }: { repo: string }) {
   const [scanning, setScanning] = useState(false);
@@ -41,8 +69,8 @@ export function ColdScanGate({ repo }: { repo: string }) {
   }
 
   return (
-    <div>
-      <EmptyState
+    <div data-testid="cold-scan-gate">
+      <EmptyState>
         icon="🛰️"
         // The old body claimed the scan "takes about a minute" and stores nothing. Both were untrue:
         // a live scan is dominated by the model call (scanEstimate.ts measures ~90s hosted to ~6 min

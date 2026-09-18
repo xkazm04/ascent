@@ -1,12 +1,12 @@
 // Stable, shareable permalink: /report/{owner}/{repo} or /report/{owner}/{repo}@{headSha}.
-// When the snapshot is persisted it's served pinned (server-rendered, no re-scan); otherwise
-// we fall back to a fresh live scan so the link always resolves. The co-located
+// A persisted snapshot is served pinned (no re-scan). A true miss is ColdScanGate. A thrown
+// read is PermalinkReadError — never a live scan on a persistence blip. The co-located
 // opengraph-image.tsx makes it unfurl richly in Slack / X / GitHub.
 
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { ReportShell } from "@/components/report/ReportShell";
-import { ColdScanGate } from "@/components/report/ColdScanGate";
+import { ColdScanGate, PermalinkReadError } from "@/components/report/ColdScanGate";
 import { ReportClient } from "@/components/report/ReportClient";
 import { ReportView } from "@/components/report/ReportView";
 import { PassportCard } from "@/features/standing/passports/PassportCard";
@@ -41,6 +41,14 @@ async function resolveReportOrg(owner: string, sp: { org?: string | string[] | u
   return readableOrgForOwner(owner);
 }
 
+/** Successful empty = never scanned. A throw = unavailable, not cold (G4). */
+async function readPermalinkReport(owner: string, name: string, sha: string | undefined, orgSlug: string) {
+  try {
+    const report = await getScanReportByCommit(owner, name, { headSha: sha, orgSlug });
+    return report ? ({ kind: "ok" as const, report }) : ({ kind: "empty" as const });
+  } catch { return { kind: "unavailable" as const }; }
+}
+
 export async function generateMetadata({
   params,
   searchParams,
@@ -52,16 +60,9 @@ export async function generateMetadata({
   const { name, sha } = parseRepoParam(repo);
   const ref = `${owner}/${name}`;
   const orgSlug = await resolveReportOrg(owner, await searchParams);
-  // A successful empty lookup is cold (never scanned). A thrown read is unavailable. Collapsing
-  // either into the old "See {ref}'s AI-native maturity" unfurl advertised a scored report when
-  // none is on the page, and a blip as "never scanned" (the PDF/LLM 503-vs-404 split).
-  let report: Awaited<ReturnType<typeof getScanReportByCommit>> = null;
-  let lookupFailed = false;
-  try {
-    report = await getScanReportByCommit(owner, name, { headSha: sha, orgSlug });
-  } catch {
-    lookupFailed = true;
-  }
+  const read = await readPermalinkReport(owner, name, sha, orgSlug);
+  const report = read.kind === "ok" ? read.report : null;
+  const lookupFailed = read.kind === "unavailable";
 
   const title = report
     ? `${ref}: ${report.level.id} ${report.level.name} · Ascent`
@@ -131,14 +132,12 @@ async function ReportPermalinkBody({
   // Permalink Re-test stays here (`?fresh=1` only). Bouncing to `/report?repo=` dropped the durable URL.
   if (sp.fresh === "1" || sp.fresh === "true") return <ReportClient repo={sha ? `${repoRef}@${sha}` : repoRef} />;
   const orgSlug = await resolveReportOrg(owner, sp);
-  const pinned = await getScanReportByCommit(owner, name, { headSha: sha, orgSlug }).catch(() => null);
-
-  // No persisted snapshot: confirm before launching a multi-minute live scan, so a shared / example
-  // permalink doesn't auto-scan a repo the visitor only meant to view. Keep the pinned `@sha` on the
-  // ref handed to the gate — dropping it made "Scan now" score HEAD while the browser URL still read
-  // …@{sha}, presenting a HEAD report under a commit-pinned permalink (the same bug FreshnessControl
-  // was fixed for; the scan flow accepts the owner/name@sha grammar). (repo-report-shell-tabs 07-16 #1)
-  if (!pinned) return <ColdScanGate repo={sha ? `${repoRef}@${sha}` : repoRef} />;
+  const read = await readPermalinkReport(owner, name, sha, orgSlug);
+  const scanRef = sha ? `${repoRef}@${sha}` : repoRef;
+  // G4: a thrown read is not an empty corpus — do not invite a metered live scan on a blip.
+  if (read.kind === "unavailable") return <PermalinkReadError repo={scanRef} />;
+  if (read.kind === "empty") return <ColdScanGate repo={scanRef} />;
+  const pinned = read.report;
 
   // STD-6 skill history, the App Readiness Passport (P2), and the two series ReportView used to fetch
   // AFTER hydration (scan history / persisted recommendations) are independent of each other, so fetch
