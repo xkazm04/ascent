@@ -951,6 +951,22 @@ Pinned on `PassportCard.dom.test.tsx`. An evidence-limit finding on a *seen* pre
 workflows, CI still at `checks`) stays **present**: we observed presence; we did not finish
 assessing the gate.
 
+## Coverage holes are not scored blockers (G4)
+
+`prod.ci-unassessable`, `prod.security-unassessable`, `prod.observability-unassessable`, and the
+tokenless `prod.enforcement-not-observable` caveat name a limit of *this scan*, not a gap in the
+app. They stay on `findings[]` so a rung can still be classified unassessable (and is never painted
+as `none` / 0). They are **excluded** from:
+
+- `automationReadiness.blockers` / `productionReadiness.blockers` (the scored-blocker projection)
+- the per-repo **Blockers** list on `PassportCard`
+- the fleet **Top blockers** Pareto (`aggregateBlockers`)
+
+A coverage hole is not a scored blocker. Ranking it would make "we could not look" look like the
+org's most common problem, and listing it under Blockers would present a scan limit as a gap the
+team must fix. The rungs already name the miss as **unassessable**. Pinned on
+`passport-findings.test.ts`, `passportBlockerAgg.test.ts`, and `PassportCard.dom.test.tsx`.
+
 ## Passport autonomy tier (0.3.0)
 
 The App Readiness Passport (`src/lib/analyze/passport.ts`, exported at `/api/report/passport`)

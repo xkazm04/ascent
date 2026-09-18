@@ -14,6 +14,7 @@ import {
   UNKNOWN_CAPABILITY,
   applyPassportOverrides,
   buildPassport,
+  isCoverageHoleFinding,
   parseDeclined,
   parsePassportJson,
 } from "@/lib/analyze/passport";
@@ -82,10 +83,13 @@ describe("named capability fields are three-valued (absent vs could-not-classify
     const blind = buildPassport(report(), uninspected()).productionReadiness;
     expect(blind.findings?.map((f) => f.id)).toContain("prod.observability-unassessable");
     expect(blind.findings?.map((f) => f.id)).not.toContain("prod.zero-observability");
+    // G4: a coverage hole is not a scored blocker — the rung names it; Blockers does not.
+    expect(blind.blockers.some((b) => /could not be assessed/i.test(b))).toBe(false);
 
     const seen = buildPassport(report(), inspected()).productionReadiness;
     expect(seen.findings?.map((f) => f.id)).toContain("prod.zero-observability");
     expect(seen.findings?.map((f) => f.id)).not.toContain("prod.observability-unassessable");
+    expect(seen.blockers.some((b) => /^Zero observability/.test(b))).toBe(true);
   });
 });
 
@@ -124,9 +128,12 @@ describe("evidence.fields — per-field detection strength", () => {
 describe("blockers carry a minted id that survives a rewording", () => {
   const base = buildPassport(report(), inspected());
 
-  it("mints the CAUSE, not the wording — blockers[] stays the rendered projection of findings[]", () => {
-    expect(base.productionReadiness.blockers).toEqual(base.productionReadiness.findings!.map((f) => f.text));
+  it("mints the CAUSE, not the wording — blockers[] is the scored projection of findings[]", () => {
+    const scored = base.productionReadiness.findings!.filter((f) => !isCoverageHoleFinding(f)).map((f) => f.text);
+    expect(base.productionReadiness.blockers).toEqual(scored);
     expect(base.automationReadiness.findings!.map((f) => f.id)).toContain("auto.no-memory");
+    expect(base.productionReadiness.findings!.map((f) => f.id)).toContain("prod.enforcement-not-observable");
+    expect(base.productionReadiness.blockers.some((b) => /not observable/i.test(b))).toBe(false);
   });
 
   it("a REWORDED blocker keeps its decline — the join is on the id, not the sentence", () => {
@@ -146,7 +153,9 @@ describe("blockers carry a minted id that survives a rewording", () => {
   it("retires the line from findings[] and blockers[] together, so they never drift", () => {
     const pp = applyPassportOverrides(base, { declined: { "productionReadiness.ci": {} } });
     expect(pp.productionReadiness.findings!.map((f) => f.id)).not.toContain("prod.ci-not-gating");
-    expect(pp.productionReadiness.blockers).toEqual(pp.productionReadiness.findings!.map((f) => f.text));
+    expect(pp.productionReadiness.blockers).toEqual(
+      pp.productionReadiness.findings!.filter((f) => !isCoverageHoleFinding(f)).map((f) => f.text),
+    );
   });
 
   it("back-fills ids for a stored pre-0.4.0 row so an existing decline is not orphaned by the fix", () => {
@@ -263,11 +272,13 @@ describe("bounded workflow reads are a coverage fact, not an absence", () => {
   });
 
   it("case 2 unread: the tree lists a workflow the snapshot does not carry", () => {
-    const got = ids(snapWf(["package.json", wf], []));
+    const s = snapWf(["package.json", wf], []);
+    const got = ids(s);
     expect(got).toContain("prod.ci-unassessable:info");
     expect(got).toContain("prod.security-unassessable:info");
     expect(got).not.toContain("prod.ci-not-gating:block");
     expect(got).not.toContain("prod.no-security-scanning:block");
+    expect(buildPassport(report(), s).productionReadiness.blockers.some((b) => /could not be assessed/i.test(b))).toBe(false);
   });
 
   it("case 3 partial: three workflows listed, one read", () => {

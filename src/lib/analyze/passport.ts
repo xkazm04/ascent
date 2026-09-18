@@ -6,8 +6,9 @@
 //
 // PRESENT vs ENFORCED is the design's core distinction and the token boundary: the "gated" rungs of CI
 // and Security require branch protection (report.governance), which is null on a tokenless scan. When
-// governance is absent we HONESTLY CAP ci/security at the present rung and say so in evidence/blockers —
-// never claim an enforcement we couldn't observe. See docs/archive/2026-concepts/2026-06-22-app-passport-scan-integration.md.
+// governance is absent we HONESTLY CAP ci/security at the present rung and say so on findings + rungs —
+// never claim an enforcement we couldn't observe, and never score the coverage hole as a blocker (G4).
+// See docs/archive/2026-concepts/2026-06-22-app-passport-scan-integration.md.
 //
 // This file is the BUILDER + the barrel. The themed pieces live beside it and are re-exported here so no
 // caller's import path changes: passport-grades.ts (the 0.2.0 memory/skills ladders), passport-score.ts
@@ -436,6 +437,31 @@ const mint = (axis: "auto" | "prod", code: string, severity: PassportFinding["se
   severity,
 });
 
+/** A finding that names a SCAN coverage hole, not an app gap. `prod.*-unassessable` and the tokenless
+ *  `enforcement-not-observable` caveat stay on `findings[]` so a rung can still be classified
+ *  unassessable; they are not scored blockers (G4). Ranked under Blockers they would make "we could
+ *  not look" look like the org's most common problem. */
+export function isCoverageHoleFinding(f: Pick<PassportFinding, "code" | "id">): boolean {
+  const code = f.code || (f.id.includes(".") ? f.id.slice(f.id.indexOf(".") + 1) : f.id);
+  return code === "enforcement-not-observable" || code.endsWith("-unassessable");
+}
+
+/** Pre-0.4.0 fallback: the tokenless caveat was the only coverage hole in the prose list.
+ *  `*-unassessable` findings did not exist before minted ids. */
+export function isCoverageHoleText(text: string): boolean {
+  return /could not be assessed|enforcement \(branch protection\) not observable/i.test(text);
+}
+
+/** Scored-blocker sentences for a list. Prefers `findings` when present (coverage holes dropped);
+ *  otherwise filters the legacy prose list. */
+export function scoredBlockerTexts(
+  findings: readonly PassportFinding[] | null | undefined,
+  blockers: readonly string[],
+): string[] {
+  if (findings) return findings.filter((f) => !isCoverageHoleFinding(f)).map((f) => f.text);
+  return blockers.filter((t) => !isCoverageHoleText(t));
+}
+
 /**
  * Build the App Readiness Passport for a finished scan. Pure + deterministic over (report, snapshot).
  */
@@ -520,9 +546,9 @@ export function buildPassport(report: ScanReport, snap: Snap): AppPassport {
       artifacts,
       selfVerify,
       aiInWorkflow,
-      // `blockers` stays the rendered projection so every pre-0.4.0 reader is untouched; `findings`
-      // is the machine list, and it is what a decline or a rollup bucket must key on.
-      blockers: autoFindings.map((f) => f.text),
+      // `blockers` is the scored-blocker projection of `findings` (coverage holes stay on findings
+      // only — G4). A decline or a rollup bucket keys on the minted id, never the sentence.
+      blockers: scoredBlockerTexts(autoFindings, []),
       findings: autoFindings,
     },
     productionReadiness: {
@@ -533,7 +559,7 @@ export function buildPassport(report: ScanReport, snap: Snap): AppPassport {
       security,
       observability,
       delivery,
-      blockers: prodFindings.map((f) => f.text),
+      blockers: scoredBlockerTexts(prodFindings, []),
       findings: prodFindings,
     },
     links: {

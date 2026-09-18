@@ -8,6 +8,7 @@ import { PassportOverridePin } from "@/components/report/PassportOverridePin";
 import { PassportCardDeclined } from "@/features/standing/passports/PassportCardDeclined";
 import { PassportDeclineControl } from "@/features/standing/passports/PassportDeclineControl";
 import { PassportOwnerControls } from "@/features/standing/passports/PassportOwnerControls";
+import { scoredBlockerTexts } from "@/lib/analyze/passport";
 import {
   bandColor,
   bandLabel,
@@ -51,7 +52,11 @@ export function PassportCard({
   const auto = pp.automationReadiness;
   const prod = pp.productionReadiness;
   const chips = passportStackChips(pp);
-  const allBlockers = [...auto.blockers, ...prod.blockers];
+  // Coverage holes stay on findings (rungs name them unassessable) and are not scored blockers (G4).
+  const allBlockers = [
+    ...scoredBlockerTexts(auto.findings, auto.blockers),
+    ...scoredBlockerTexts(prod.findings, prod.blockers),
+  ];
   const blockers = allBlockers.slice(0, 6);
   const hidden = allBlockers.length - blockers.length;
 

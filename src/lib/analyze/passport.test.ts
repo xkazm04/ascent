@@ -123,7 +123,8 @@ describe("buildPassport — PRESENT vs ENFORCED honesty cap (tokenless scan)", (
     expect(pp.productionReadiness.ci.level).toBe("checks"); // cannot prove enforcement without a token
     expect(pp.productionReadiness.ci.gates).toEqual([]);
     expect(pp.evidence.source).toContain("no branch-protection visibility");
-    expect(pp.productionReadiness.blockers.some((b) => /not observable/i.test(b))).toBe(true);
+    expect(pp.productionReadiness.findings?.some((f) => f.id === "prod.enforcement-not-observable")).toBe(true);
+    expect(pp.productionReadiness.blockers.some((b) => /not observable/i.test(b))).toBe(false);
   });
 
   it("the SAME repo reaches 'gated' once a token sees branch protection", () => {

@@ -160,4 +160,20 @@ describe("PassportCard", () => {
     }));
     expect(screen.getByTestId("passport-rung-ci")).toHaveAttribute("data-honesty", "present");
   });
+
+  it("does not list a coverage-hole finding under Blockers", () => {
+    const hole = "Observability could not be assessed.";
+    const gap = "Zero observability: no error tracking.";
+    show(withProd({
+      observability: { level: "none" },
+      blockers: [hole, gap],
+      findings: [
+        { id: "prod.observability-unassessable", code: "observability-unassessable", text: hole, severity: "info" },
+        { id: "prod.zero-observability", code: "zero-observability", text: gap, severity: "block" },
+      ],
+    }));
+    expect(screen.queryByText(hole)).toBeNull();
+    expect(screen.getByText(gap)).toBeInTheDocument();
+    expect(screen.getByTestId("passport-rung-observability")).toHaveAttribute("data-honesty", "unassessable");
+  });
 });
