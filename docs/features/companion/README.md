@@ -146,13 +146,14 @@ runtime (`actions.test.ts`, "the wire catalog and the executors carry the EXACT 
 
 ### What this build carries
 
-Both actions dispatch machinery that already exists. **Neither reaches outside Ascent and neither
-spends money** — that is the bar for being in the catalog at all.
+Every action dispatches machinery that already exists. **None of them reach outside Ascent and none
+of them spend money** — that is the bar for being in the catalog at all.
 
 | Action | Required role | What accepting it does |
 | --- | --- | --- |
 | `handoff_followups` | `member` | Claims follow-up items: `open → in_progress`, with a timeline note. Reuses the semantics of `POST /api/org/followups/handoff` — per-id tenancy re-check with a **whole-action refusal** on any foreign id (so ids cannot be enumerated), idempotent, and `done` / `dismissed` are never reopened. It records the claim and nothing else: the fix is a prompt a human runs, and the boundary ends at a string. |
 | `rule_on_finding` | `member` | Records the team's ruling on one finding — accept, dismiss, or snooze until a date — carrying the rationale. Reuses `decide()` (`src/lib/db/org-decisions.ts`): a sparse upsert on `(orgId, module, itemKey)`, write-through to Shared Org Memory, already audited. Athena's own findings use the `athena` decision module, added the way `roadmap` was — **one constant, no second store**. |
+| `record_memory` | `member` | Writes one Shared Org Memory row through `createOrgMemory` after `workspaceAllowsMemory`. Params: content, kind, optional namespace, confidence band. Provenance is `source: "athena"`. A namespace that already holds **registry-origin** notes is refused — those files live in the customer's repo, and the honest path is `POST /api/org/memory/reflect` with `proposePr`. No agent runtime: the click records the note; it does not open the PR. |
 
 ### How this list stays true
 

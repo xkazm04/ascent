@@ -16,6 +16,13 @@ import { describe, it, expect, vi } from "vitest";
 // The executor table pulls in the db layer; the client is the one module that must not be real for an
 // import to be cheap. Nothing below calls an executor — this file is about the catalog's shape.
 vi.mock("@/lib/db/client", () => ({ isDbConfigured: () => true, getPrisma: () => ({}) }));
+vi.mock("@/lib/db/org-memory", () => ({ createOrgMemory: async () => null }));
+vi.mock("@/lib/db/personal", () => ({
+  workspaceAllowsMemory: async () => true,
+  personalMemoryCapReached: async () => false,
+  PERSONAL_MEMORY_LIMIT: 100,
+}));
+vi.mock("@/lib/db/credits", () => ({ getCreditState: async () => ({ plan: "team" }) }));
 
 import {
   ATHENA_ACTIONS,
@@ -31,6 +38,7 @@ import {
 import { ATHENA_ACTION_EXECUTORS } from "@/lib/athena/actions-execute";
 import { isDecisionModule, isDecisionStatus } from "@/lib/db/org-decisions";
 import { isOrgRole } from "@/lib/db/members";
+import { CONFIDENCE_BANDS, isMemoryKind } from "@/lib/org/memory-kinds";
 
 const F = "```";
 const fence = (body: string) => `${F}athena:action\n${body}\n${F}`;
@@ -118,6 +126,25 @@ describe("ONE array, four derivations", () => {
     }
     // Reopening is not something she offers.
     expect(paramOf("rule_on_finding", "ruling").values).not.toContain("open");
+
+    for (const v of paramOf("record_memory", "kind").values ?? []) {
+      expect(isMemoryKind(v)).toBe(true);
+    }
+    expect(paramOf("record_memory", "confidence").values).toEqual(CONFIDENCE_BANDS.map((b) => b.id));
+  });
+
+  it("record_memory's worked example is one the validator actually accepts", () => {
+    const spec = athenaActionSpec("record_memory");
+    expect(spec?.requiredRole).toBe("member");
+    expect(spec?.example).toEqual({
+      content: "We ship on Fridays; Monday deploys need a named rollback owner.",
+      kind: "semantic",
+      namespace: "platform",
+      confidence: "high",
+    });
+    const r = coerceAthenaAction({ action: "record_memory", params: spec?.example });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.action.id).toBe("record_memory");
   });
 });
 
@@ -205,6 +232,16 @@ describe("the summary is resolved from the spec, never stored", () => {
     expect(
       athenaActionSummary("rule_on_finding", { module: "security", itemKey: "k", ruling: "dismissed" }),
     ).toBe("Dismiss k (security)");
+    expect(
+      athenaActionSummary("record_memory", {
+        content: "We ship on Fridays.",
+        kind: "semantic",
+        namespace: "platform",
+      }),
+    ).toBe("Record a semantic memory in platform: We ship on Fridays.");
+    expect(athenaActionSummary("record_memory", { content: "Keep the runbook.", kind: "procedural" })).toBe(
+      "Record a procedural memory: Keep the runbook.",
+    );
   });
 
   it("returns null for a retired action rather than inventing a line", () => {
