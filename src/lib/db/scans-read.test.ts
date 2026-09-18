@@ -800,3 +800,132 @@ describe("isCompactedPointId", () => {
     expect(isCompactedPointId("")).toBe(false);
   });
 });
+
+// ── getRepositoryHistory — skipped join is not a measured empty set ──────────────────────────────
+// `includeDimensions: false` must OMIT `dimensions` (the ScanDimension join never ran). `[]` is
+// reserved for "the join ran and found none". Serializing skip as `[]` made overall-only callers
+// indistinguishable from a scan that genuinely stored no dimension rows.
+
+describe("getRepositoryHistory — includeDimensions", () => {
+  function prismaWith(dims: { dimId: string; score: number }[] | undefined, digest = false) {
+    const scan = {
+      id: "scan_0",
+      headSha: "sha_0",
+      overallScore: 70,
+      level: "L3",
+      levelName: "Practicing",
+      confidence: 0.9,
+      engineProvider: "bedrock",
+      engineModel: "sonnet",
+      rubricVersion: "r9",
+      scannedAt: new Date("2026-06-20T00:00:00.000Z"),
+      ...(dims !== undefined ? { dimensions: dims } : {}),
+    };
+    return {
+      organization: { findUnique: vi.fn(async () => ({ id: "org_1" })) },
+      repository: {
+        findUnique: vi.fn(async () => ({
+          id: "repo_1",
+          owner: "acme",
+          name: "widget",
+          isPrivate: false,
+        })),
+      },
+      scan: { findMany: vi.fn(async () => [scan]) },
+      scanDigest: {
+        findMany: vi.fn(async () =>
+          digest
+            ? [
+                {
+                  id: "dg_0",
+                  repoId: "repo_1",
+                  period: "2026-03",
+                  rubricVersion: "r8",
+                  engineProvider: "bedrock",
+                  scanCount: 4,
+                  overallSum: 200,
+                  adoptionSum: 180,
+                  rigorSum: 220,
+                  overallMin: 40,
+                  overallMax: 60,
+                  overallLast: 55,
+                  adoptionLast: 45,
+                  rigorLast: 60,
+                  confidenceSum: 2.8,
+                  levelLast: "L2",
+                  levelNameLast: "Emerging",
+                  postureLast: "balanced",
+                  firstScannedAt: new Date(Date.UTC(2026, 2, 1)),
+                  lastScannedAt: new Date(Date.UTC(2026, 2, 28)),
+                  firstHeadSha: "sha_old",
+                  lastHeadSha: "sha_older",
+                  enginesJson: '["sonnet"]',
+                  dimensionsJson: '{"ci":{"sum":200,"n":4,"last":55,"signalSum":0,"llmSum":0}}',
+                  recsOpened: 4,
+                  recsClosed: 2,
+                },
+              ]
+            : [],
+        ),
+      },
+    };
+  }
+
+  it("omits the key when includeDimensions is false (skipped join is not [])", async () => {
+    const prisma = prismaWith(undefined);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const history = await getRepositoryHistory("acme", "widget", {
+      orgSlug: "acme-corp",
+      includeDimensions: false,
+    });
+
+    expect(history!.scans).toHaveLength(1);
+    expect(history!.scans[0]!.dimensions).toBeUndefined();
+    expect("dimensions" in history!.scans[0]!).toBe(false);
+    expect(JSON.parse(JSON.stringify(history!.scans[0]!))).not.toHaveProperty("dimensions");
+    const args = prisma.scan.findMany.mock.calls[0]![0] as { select: { dimensions?: unknown } };
+    expect(args.select.dimensions).toBeUndefined();
+  });
+
+  it("keeps [] when the join ran and found none", async () => {
+    const prisma = prismaWith([]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const history = await getRepositoryHistory("acme", "widget", {
+      orgSlug: "acme-corp",
+      includeDimensions: true,
+    });
+
+    expect(history!.scans[0]!.dimensions).toEqual([]);
+    expect("dimensions" in history!.scans[0]!).toBe(true);
+    expect(JSON.parse(JSON.stringify(history!.scans[0]!)).dimensions).toEqual([]);
+    const args = prisma.scan.findMany.mock.calls[0]![0] as { select: { dimensions?: unknown } };
+    expect(args.select.dimensions).toEqual({ select: { dimId: true, score: true } });
+  });
+
+  it("returns joined scores when the join ran and found rows", async () => {
+    const prisma = prismaWith([{ dimId: "D1", score: 90 }]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const history = await getRepositoryHistory("acme", "widget", { orgSlug: "acme-corp" });
+
+    expect(history!.scans[0]!.dimensions).toEqual([{ dimId: "D1", score: 90 }]);
+  });
+
+  it("strips digest dimensions when the ScanDimension join was skipped", async () => {
+    const prisma = prismaWith(undefined, true);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const history = await getRepositoryHistory("acme", "widget", {
+      orgSlug: "acme-corp",
+      includeDimensions: false,
+      includeCompacted: true,
+      limit: 10,
+    });
+
+    expect(history!.scans.length).toBeGreaterThan(1);
+    expect(history!.scans.every((s) => !("dimensions" in s))).toBe(true);
+    expect(history!.scans[1]!.compacted).toBe(true);
+  });
+});

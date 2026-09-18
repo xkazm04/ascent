@@ -312,7 +312,10 @@ export interface HistoryPoint {
    *  evidence of comparability, so null reads as not-comparable rather than as a match. */
   rubricVersion: string | null;
   scannedAt: string;
-  dimensions: { dimId: string; score: number }[];
+  /** Per-dimension scores. Present when the ScanDimension join ran (`[]` = joined and found none).
+   *  Omitted when `includeDimensions` skipped the join — a skipped join is not a measured empty set,
+   *  and consumers must not treat absence as zeros. */
+  dimensions?: { dimId: string; score: number }[];
   /** MOONSHOT #32 — set only on a COMPACTED point: one period's summary served in place of scans
    *  retention already deleted. Absent (not `false`) on a real scan, so an existing consumer that
    *  never heard of compaction reads exactly what it always did. A compacted point carries
@@ -351,20 +354,24 @@ const HISTORY_POINT_SELECT = {
   scannedAt: true,
 } as const;
 
-/** Map a selected Scan row (with optional `dimensions`) to the wire `HistoryPoint`. */
-function historyPointFrom(s: {
-  id: string;
-  headSha: string | null;
-  overallScore: number;
-  level: string;
-  levelName: string;
-  confidence: number;
-  engineProvider: string;
-  engineModel: string;
-  rubricVersion?: string | null;
-  scannedAt: Date;
-  dimensions?: { dimId: string; score: number }[];
-}): HistoryPoint {
+/** Map a selected Scan row to the wire `HistoryPoint`. `includeDimensions` is whether the
+ *  ScanDimension join ran — a skipped join omits the key; a join that found none keeps `[]`. */
+function historyPointFrom(
+  s: {
+    id: string;
+    headSha: string | null;
+    overallScore: number;
+    level: string;
+    levelName: string;
+    confidence: number;
+    engineProvider: string;
+    engineModel: string;
+    rubricVersion?: string | null;
+    scannedAt: Date;
+    dimensions?: { dimId: string; score: number }[];
+  },
+  includeDimensions: boolean,
+): HistoryPoint {
   return {
     id: s.id,
     headSha: s.headSha,
@@ -376,8 +383,15 @@ function historyPointFrom(s: {
     engineModel: s.engineModel,
     rubricVersion: s.rubricVersion ?? null,
     scannedAt: s.scannedAt.toISOString(),
-    dimensions: s.dimensions ?? [],
+    ...(includeDimensions ? { dimensions: s.dimensions ?? [] } : {}),
   };
+}
+
+/** Drop `dimensions` so a skipped join is not serialized as `[]`. */
+function withoutDimensions(p: HistoryPoint): HistoryPoint {
+  const rest = { ...p };
+  delete rest.dimensions;
+  return rest;
 }
 
 /**
@@ -386,8 +400,9 @@ function historyPointFrom(s: {
  * `includeDimensions` (default true) controls the eager per-dimension fan-out: a full history of
  * `limit` scans pulls up to `limit × |dimensions|` ScanDimension rows, but a caller that only charts
  * the OVERALL line (a first paint, an embed, the /api/history `?dims=0` mode) doesn't need them.
- * Passing `false` skips that select entirely and returns empty `dimensions` arrays — a lighter query
- * for the overall-only path, with the by-dimension data fetched separately when actually shown.
+ * Passing `false` skips that select entirely and omits `dimensions` — a lighter query for the
+ * overall-only path. `[]` is reserved for "the join ran and found none"; a skipped join is not a
+ * measured empty set. By-dimension data is fetched separately when actually shown.
  *
  * `includeCompacted` (default **false**) appends the repo's compacted tail — the `ScanDigest` rows
  * retention wrote for periods whose scans it deleted (MOONSHOT #32) — after the real scans, as one
@@ -448,8 +463,10 @@ async function loadRepositoryHistory(
           ...args,
           select: { ...HISTORY_POINT_SELECT, dimensions: { select: { dimId: true, score: true } } },
         })
-      ).map(historyPointFrom)
-    : (await prisma.scan.findMany({ ...args, select: HISTORY_POINT_SELECT })).map(historyPointFrom);
+      ).map((s) => historyPointFrom(s, true))
+    : (await prisma.scan.findMany({ ...args, select: HISTORY_POINT_SELECT })).map((s) =>
+        historyPointFrom(s, false),
+      );
 
   // MOONSHOT #32 — the compacted tail, appended AFTER the retained scans so the array stays one
   // newest-first series. `before` is the oldest RETAINED scan: a period straddling the retention
@@ -461,7 +478,10 @@ async function loadRepositoryHistory(
       before: oldestRetained ? new Date(oldestRetained.scannedAt) : undefined,
       limit: limit - scans.length,
     });
-    for (const row of tail) scans.push(digestToPoint(row));
+    for (const row of tail) {
+      const point = digestToPoint(row);
+      scans.push(includeDimensions ? point : withoutDimensions(point));
+    }
   }
 
   return {
@@ -669,7 +689,7 @@ async function loadScanComparison(
     select: { ...HISTORY_POINT_SELECT, dimensions: { select: { dimId: true, score: true } } },
   });
 
-  const scans: HistoryPoint[] = list.map(historyPointFrom);
+  const scans: HistoryPoint[] = list.map((s) => historyPointFrom(s, true));
 
   const repoInfo = { owner: repo.owner, name: repo.name, fullName };
   if (scans.length === 0) return { repo: repoInfo, scans, before: null, after: null };
