@@ -9,12 +9,21 @@
 //   • `land`   — `landLaneBranch`: fast-forward the branch into the paired checkout's CURRENT branch.
 //                Every attempt is logged on the lane; a refusal also records a lesson candidate, so
 //                the operator learns WHY without reading a diff.
+//   • `runner` — `landOnRunner`: fast-forward the repo's long-lived `ascent/runner` branch (never checked
+//                out anywhere) to the lane's tip, with a compare-and-swap `update-ref`. Armed only by the
+//                standing runner (a continuous drive), whose lanes are cut FROM that branch — so a clean
+//                lane is a fast-forward of it, and a non-fast-forward (two arms racing) is refused, never
+//                forced. The operator's own branch is not touched; merging the runner branch is theirs.
 //   • `pr`     — `openPrForLane`, the SAME path the outcome sheet's one-click action uses. Not a
 //                second PR implementation: it pushes the real branch with git and POSTs `/pulls`,
 //                reuses an already-open PR on GitHub's 422, and writes the `ImprovementPr` ledger row
 //                and the lane's denormalized `prNumber`/`prUrl`. The only thing this skips is the
 //                typed repo-name confirmation, and it skips it because the operator already gave that
 //                consent when they armed the run with `pr` — an unattended loop cannot be asked.
+//
+// `landedAt` MEANS "DELIVERED INTO A BRANCH THE NEXT LANE BUILDS ON" — the runner branch under `runner`,
+// the operator's own branch under `land`. It is stamped on the lane only when that actually happened
+// (never on a refusal, never on an `already`), and the theater's "landed today" counts it.
 //
 // NOTHING HERE CAN FAIL A RUN. A lane's real work is committed and safe on its branch before delivery
 // is even considered; a delivery that cannot happen is information for the operator, never a reason
@@ -41,9 +50,11 @@
 
 import { deliveryOf, type LoopDelivery } from "@/lib/local/delivery-options";
 import { landLaneBranch, type LandOutcome } from "@/lib/local/loop-land";
+import { landOnRunner, type RunnerBranchResult } from "@/lib/local/runner-branch";
+import { RUNNER_BRANCH } from "@/lib/local/runner-types";
 import { openPrForLane } from "@/lib/local/loop-pr";
 import { isAppConfigured } from "@/lib/github/app";
-import { appendLaneLog, getLane } from "@/lib/db/loop-runs";
+import { appendLaneLog, getLane, updateLane } from "@/lib/db/loop-runs";
 import { recordLandRefusalLesson, recordUnverifiedRefusalLesson } from "@/lib/db/loop-lessons";
 import { unverifiedDeliveryReason } from "@/lib/local/verify-options";
 import { verifyModeOf } from "@/lib/local/run-limits";
@@ -78,6 +89,10 @@ export interface DeliverDeps {
    *  from `noteRefusal` because the two say different things: one is about your checkout, this one is
    *  about the repository's own gate. */
   noteUnverified: (orgSlug: string, repo: string, reason: string) => Promise<unknown>;
+  /** `runner` delivery: fast-forward the runner branch to the lane's tip. */
+  landRunner: (pairedPath: string, laneBranch: string) => Promise<RunnerBranchResult>;
+  /** Stamp the lane's `landedAt` — delivered into a branch the next lane builds on. */
+  markLanded: (laneId: string) => Promise<unknown>;
 }
 
 export const defaultDeliverDeps: DeliverDeps = {
@@ -88,6 +103,8 @@ export const defaultDeliverDeps: DeliverDeps = {
   log: appendLaneLog,
   noteRefusal: recordLandRefusalLesson,
   noteUnverified: recordUnverifiedRefusalLesson,
+  landRunner: landOnRunner,
+  markLanded: (laneId) => updateLane(laneId, { landedAt: new Date() }),
 };
 
 export interface DeliverResult {
@@ -96,6 +113,8 @@ export interface DeliverResult {
   /** The line written to the lane log, or null when nothing was attempted. */
   reason: string | null;
   land?: LandOutcome;
+  /** The runner-branch outcome, under `runner`. */
+  runner?: RunnerBranchResult;
 }
 
 export async function deliverLane(input: DeliverLaneInput, overrides: Partial<DeliverDeps> = {}): Promise<DeliverResult> {
@@ -143,12 +162,28 @@ export async function deliverLane(input: DeliverLaneInput, overrides: Partial<De
       }),
     );
     await deps.log(input.laneId, outcome.reason).catch(() => null);
+    if (outcome.landed) await deps.markLanded(input.laneId).catch(() => null);
     // `already` is a no-op, not a refusal to explain: it is what a second land of the same branch
     // looks like, and a lesson about it would be noise.
     if (outcome.refusal && outcome.refusal !== "already") {
       await deps.noteRefusal(input.orgSlug, lane.repoFullName, refusalCause(outcome)).catch(() => null);
     }
     return { mode, delivered: outcome.landed, reason: outcome.reason, land: outcome };
+  }
+
+  if (mode === "runner") {
+    // No lesson on a refusal: a non-fast-forward of the runner branch is a fact about two lanes (two
+    // A/B arms, say), not about the operator's checkout — the lane log carries it, and the work stays
+    // on the lane's own branch.
+    const outcome = await deps.landRunner(input.pairedPath, lane.branch).catch(
+      (err: unknown): RunnerBranchResult => ({
+        ok: false,
+        note: `Could not land ${lane.branch} on ${RUNNER_BRANCH}: ${err instanceof Error ? err.message : String(err)}`,
+      }),
+    );
+    await deps.log(input.laneId, outcome.note).catch(() => null);
+    if (outcome.ok) await deps.markLanded(input.laneId).catch(() => null);
+    return { mode, delivered: outcome.ok, reason: outcome.note, runner: outcome };
   }
 
   // `pr` — HONESTLY UNAVAILABLE rather than silently downgraded. A run armed for PRs that quietly

@@ -18,12 +18,24 @@
 import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { normalizeDelivery } from "@/lib/local/delivery-options";
 import { getOrgBySlug } from "@/lib/db/org-shared";
-import type { DriveMeasurement, DriveRunRecord, DriveStatus } from "@/lib/local/drive-types";
+import type { DriveEventRecord, DriveMeasurement, DriveRunRecord, DriveStatus } from "@/lib/local/drive-types";
 import type { DriveDials, RepoRunnerState } from "@/lib/local/runner-types";
 
 /** The reason written onto a row the sweep reconciles. Exported so the UI and its tests read one copy. */
 export const DRIVE_INTERRUPTED_REASON =
   "Interrupted — the server restarted while this drive was pulling. Resume it to continue against the same run budget.";
+
+/** The reason a STANDING RUNNER is interrupted instead of re-attached at boot: the loop is off. */
+export const RUNNER_AUTOPILOT_OFF_REASON =
+  "Interrupted — the server restarted with the loop switched off (ASCENT_AUTOPILOT), so the standing runner was not re-attached. Turn the loop back on and resume it.";
+
+/** The largest daily ceiling `LoopDrive.spendCeilingMicros` (a 32-bit `Int`) can hold: ~$21.47 in
+ *  micro-cents. A larger write fails the whole row update, so the route and `startDrive` refuse one. */
+export const SPEND_CEILING_STORABLE_MAX_MICROS = 2_147_483_647;
+
+/** The phases in which something is (or should be) pulling a drive. A continuous drive also waits in
+ *  `paused` and `idle`, and a row left in either by a dead process is exactly as orphaned as `running`. */
+export const LIVE_DRIVE_PHASES = ["running", "paused", "idle"] as const;
 
 type DriveRow = {
   id: string;
@@ -65,12 +77,22 @@ function parseJson<T>(raw: string | null | undefined, fallback: T): T {
   }
 }
 
+/** `runsJson` carries the runs AND (for a continuous drive) its events, told apart by `event`. */
+function splitLedger(raw: string | null | undefined): { runs: DriveRunRecord[]; events: DriveEventRecord[] } {
+  const all = parseJson<unknown[]>(raw, []);
+  const list = Array.isArray(all) ? all : [];
+  const isEvent = (e: unknown): e is DriveEventRecord =>
+    typeof e === "object" && e !== null && typeof (e as { event?: unknown }).event === "string";
+  return { runs: list.filter((e) => !isEvent(e)) as DriveRunRecord[], events: list.filter(isEvent) };
+}
+
 /**
  * Row → the SAME `DriveStatus` the in-memory registry hands out, so a status read cannot tell whether
  * it came from this process or from the database. `org` is carried on the status but stored as
  * `orgId`, so the caller supplies the slug it already resolved.
  */
 export function toDriveStatus(row: DriveRow, orgSlug: string): DriveStatus {
+  const ledger = splitLedger(row.runsJson);
   return {
     id: row.id,
     org: orgSlug,
@@ -79,7 +101,7 @@ export function toDriveStatus(row: DriveRow, orgSlug: string): DriveStatus {
     maxRuns: row.maxRuns,
     maxCycles: row.maxCycles,
     concurrency: row.concurrency,
-    runs: parseJson<DriveRunRecord[]>(row.runsJson, []),
+    runs: ledger.runs,
     measurement: parseJson<DriveMeasurement | null>(row.measurementJson, null),
     runsBefore: row.runsBefore,
     resumedFrom: row.resumedFrom,
@@ -108,6 +130,7 @@ export function toDriveStatus(row: DriveRow, orgSlug: string): DriveStatus {
           lastBeatAt: row.lastBeatAt ? row.lastBeatAt.toISOString() : null,
         }
       : {}),
+    ...(ledger.events.length > 0 ? { events: ledger.events } : {}),
   };
 }
 
@@ -119,7 +142,9 @@ const rowData = (st: DriveStatus) => ({
   concurrency: st.concurrency,
   runsBefore: st.runsBefore,
   resumedFrom: st.resumedFrom,
-  runsJson: JSON.stringify(st.runs),
+  // Events ride in the same ledger (see `splitLedger`); with none, the column is byte-identical to
+  // every drive before them.
+  runsJson: JSON.stringify(st.events && st.events.length > 0 ? [...st.runs, ...st.events] : st.runs),
   measurementJson: st.measurement ? JSON.stringify(st.measurement) : null,
   stopRequested: st.stopRequested,
   model: st.model ?? null,
@@ -184,7 +209,8 @@ export async function listDriveRows(orgSlug: string, limit = 20): Promise<DriveS
 }
 
 /**
- * Reconcile `running` drive rows that no live process is pulling. Exactly the contract
+ * Reconcile live-phase (`running`, and a runner's `paused`/`idle`) drive rows that no live process is
+ * pulling. Exactly the contract
  * markStaleRunsStopped has, and the `isLive` predicate is load-bearing for the same reason: this is
  * called from the boot sweep (where a fresh process drives nothing, so the default is right) AND
  * potentially from a request path, where treating every running row as orphaned would end the drive
@@ -208,7 +234,7 @@ export async function markStaleDrivesInterrupted(
     orgId = org.id;
   }
   const running = await prisma.loopDrive
-    .findMany({ where: { phase: "running", ...(orgId ? { orgId } : {}) }, select: { id: true } })
+    .findMany({ where: { phase: { in: [...LIVE_DRIVE_PHASES] }, ...(orgId ? { orgId } : {}) }, select: { id: true } })
     .catch(() => []);
   const stale = running.filter((d) => !isLive(d.id));
   if (stale.length === 0) return 0;
@@ -219,4 +245,31 @@ export async function markStaleDrivesInterrupted(
     })
     .catch(() => null);
   return stale.length;
+}
+
+/**
+ * THE STANDING RUNNERS a fresh process should re-attach: continuous drives whose row still says
+ * `running`, `paused` or `idle`. Read by the boot sweep BEFORE `markStaleDrivesInterrupted`, so the
+ * sweep can spare them — a continuous drive is resumed on its SAME row, never interrupted (operator
+ * decision, 2026-09-18). `createdBy` rides along because every run the runner dispatches is audited
+ * against the person who armed it.
+ */
+export async function listRunnerDrivesToResume(): Promise<{ drive: DriveStatus; createdBy: string | null }[]> {
+  if (!isDbConfigured()) return [];
+  return dbReadSafe(async () => {
+    const rows = await getPrisma().loopDrive.findMany({
+      where: { mode: "continuous", phase: { in: [...LIVE_DRIVE_PHASES] }, endedAt: null },
+      include: { org: { select: { slug: true } } },
+    });
+    return rows.map((row) => ({ drive: toDriveStatus(row, row.org.slug), createdBy: row.createdBy }));
+  }, []);
+}
+
+/** Mark ONE drive interrupted with a specific reason — the runner the boot sweep may not re-attach. */
+export async function markDriveInterrupted(id: string, reason: string): Promise<boolean> {
+  if (!isDbConfigured()) return false;
+  const done = await getPrisma()
+    .loopDrive.update({ where: { id }, data: { phase: "interrupted", endedAt: new Date(), error: reason } })
+    .catch(() => null);
+  return done != null;
 }
