@@ -34,6 +34,19 @@ function validOwner(s: string): boolean {
   return s.length <= 39 && validRepoNamePart(s);
 }
 
+function scorecardDescription(owner: string, read: PublicOrgScorecardRead | null): string {
+  if (read?.kind === "ok" && read.card.verifiedCount > 0 && read.card.avgOverall != null) {
+    return `How AI-native ${owner}'s public repositories are: an aggregate maturity score across nine dimensions, with every underlying report open to read.`;
+  }
+  if (read?.kind === "ok") {
+    return `No published score yet for ${owner}. All scanned public repositories were scored by the deterministic preview rubric; no model contributed a judgement.`;
+  }
+  if (read?.kind === "empty") {
+    return `None of ${owner}'s public repositories are on the AI-native register. That absence is not a score of 0.`;
+  }
+  return `Public scorecard for ${owner} on the AI-native register. A score is published only when a model scored at least one public repository.`;
+}
+
 export async function generateMetadata({
   params,
 }: {
@@ -41,7 +54,10 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { owner } = await params;
   const title = `${owner}'s public AI-native scorecard | Ascent`;
-  const description = `How AI-native ${owner}'s public repositories are: an aggregate maturity score across nine dimensions, with every underlying report open to read.`;
+  const read = validOwner(owner)
+    ? await getPublicOrgScorecard(owner).catch((): PublicOrgScorecardRead => ({ kind: "unavailable" }))
+    : null;
+  const description = scorecardDescription(owner, read);
   return {
     title,
     description,
@@ -85,6 +101,29 @@ function registerLede(owner: string, scannedAt: string | null) {
         AI-native register
       </Link>
       .{scannedAt ? ` Last scan ${timeAgo(scannedAt)}.` : ""}
+    </>
+  );
+}
+
+/** Matches ScorecardSummary's refuse-to-draw: no "how AI-native" claim when nothing is model-scored. */
+function unpublishedLede(owner: string, repoCount: number) {
+  return (
+    <>
+      No published score yet. All {repoCount} scanned public {repoCount === 1 ? "repository" : "repositories"}{" "}
+      for {owner} were scored by the deterministic preview rubric. No model contributed a judgement.
+      Ascent will not publish a maturity number a model never produced.
+    </>
+  );
+}
+
+function missLede(owner: string) {
+  return (
+    <>
+      Public repositories for {owner} on the{" "}
+      <Link href="/leaderboard" className="focus-ring rounded-sm text-slate-200 underline decoration-dotted underline-offset-2 hover:text-accent">
+        AI-native register
+      </Link>
+      . A score is published only when a model scored at least one of them.
     </>
   );
 }
@@ -133,7 +172,7 @@ export default async function ScorecardPage({ params }: { params: Promise<{ owne
 
   if (read.kind !== "ok") {
     return (
-      <ScorecardChrome owner={raw} lede={registerLede(raw, null)}>
+      <ScorecardChrome owner={raw} lede={missLede(raw)}>
         {read.kind === "unavailable" ? <UnavailableCard owner={raw} /> : <EmptyCard owner={raw} />}
       </ScorecardChrome>
     );
@@ -142,9 +181,13 @@ export default async function ScorecardPage({ params }: { params: Promise<{ owne
   const card = read.card;
   const ranked = card.repos.filter((r) => r.verified);
   const preview = card.repos.filter((r) => !r.verified);
+  const published = card.verifiedCount > 0 && card.avgOverall != null;
 
   return (
-    <ScorecardChrome owner={card.owner} lede={registerLede(card.owner, card.scannedAt)}>
+    <ScorecardChrome
+      owner={card.owner}
+      lede={published ? registerLede(card.owner, card.scannedAt) : unpublishedLede(card.owner, card.repoCount)}
+    >
       <ScorecardSummary card={card} />
 
       {ranked.length > 0 && (

@@ -108,12 +108,13 @@ export interface PublicRegister {
 export interface PublicOrgScorecard {
   /** Display casing, as recorded on the repository rows. */
   owner: string;
-  /** Mean overall score across MODEL-SCORED public repos (0 when none). */
-  avgOverall: number;
-  avgAdoption: number;
-  avgRigor: number;
-  /** Mean per-dimension score across model-scored public repos. */
+  /** Mean overall score across MODEL-SCORED public repos. Null when none — a null grade is not 0/100. */
+  avgOverall: number | null;
+  avgAdoption: number | null;
+  avgRigor: number | null;
+  /** Mean per-dimension score across model-scored public repos. Empty when none were model-scored. */
   dimensions: Partial<Record<DimensionId, number>>;
+  /** Fleet level at `avgOverall`, or "" when there is no published average (not L1-from-zero). */
   level: string;
   levelName: string;
   /** Public repos with at least one scan. */
@@ -347,9 +348,10 @@ const SCORECARD_UNAVAILABLE: PublicOrgScorecardRead = { kind: "unavailable" };
  * and it is structurally incapable of reaching a private repo or another tenant's org dashboard.
  *
  * Averages are computed over MODEL-SCORED repos only — a mock preview never moves the published
- * number. `verifiedCount === 0` on an `ok` card means there is no number to publish (preview-only),
- * and callers must say so. An `empty` result is the other honesty case: nothing public was found,
- * which is not a score of 0 and not "this owner does not exist".
+ * number. `verifiedCount === 0` on an `ok` card means there is no number to publish (preview-only):
+ * `avgOverall` / `avgAdoption` / `avgRigor` are `null`, not `0`, and callers must say so. An `empty`
+ * result is the other honesty case: nothing public was found, which is not a score of 0 and not
+ * "this owner does not exist".
  */
 export async function getPublicOrgScorecard(owner: string): Promise<PublicOrgScorecardRead> {
   if (!isDbConfigured()) return SCORECARD_UNAVAILABLE;
@@ -364,8 +366,10 @@ export async function getPublicOrgScorecard(owner: string): Promise<PublicOrgSco
       if (repos.length === 0) return { kind: "empty", owner: prefix };
 
       const scored = repos.filter((e) => e.verified);
-      const mean = (pick: (e: RegisterEntry) => number) =>
-        scored.length ? Math.round(scored.reduce((n, e) => n + pick(e), 0) / scored.length) : 0;
+      // Mean of an empty verified set is null, not 0: absence is not a grade (G4) and a null
+      // grade is not 0/100 L1 (G19). Callers already refuse to draw on `verifiedCount === 0`.
+      const mean = (pick: (e: RegisterEntry) => number): number | null =>
+        scored.length ? Math.round(scored.reduce((n, e) => n + pick(e), 0) / scored.length) : null;
 
       const dimensions: Partial<Record<DimensionId, number>> = {};
       for (const e of scored) {
@@ -379,7 +383,7 @@ export async function getPublicOrgScorecard(owner: string): Promise<PublicOrgSco
       }
 
       const avgOverall = mean((e) => e.overall);
-      const level = levelForScore(avgOverall);
+      const level = avgOverall == null ? null : levelForScore(avgOverall);
       const scannedAt = repos.reduce<string | null>(
         (latest, e) => (latest && latest > e.scannedAt ? latest : e.scannedAt),
         null,
@@ -394,8 +398,8 @@ export async function getPublicOrgScorecard(owner: string): Promise<PublicOrgSco
           avgAdoption: mean((e) => e.adoption),
           avgRigor: mean((e) => e.rigor),
           dimensions,
-          level: level.id,
-          levelName: level.name,
+          level: level?.id ?? "",
+          levelName: level?.name ?? "",
           repoCount: repos.length,
           verifiedCount: scored.length,
           scannedAt,

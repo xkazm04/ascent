@@ -227,7 +227,13 @@ describe("getPublicOrgScorecard", () => {
     expect(read.kind).toBe("ok");
     if (read.kind !== "ok") return;
     expect(read.card.verifiedCount).toBe(0);
-    expect(read.card.avgOverall).toBe(0);
+    // G19/G4: a null grade is not 0/100, and absence is not L1-from-zero.
+    expect(read.card.avgOverall).toBeNull();
+    expect(read.card.avgAdoption).toBeNull();
+    expect(read.card.avgRigor).toBeNull();
+    expect(read.card.dimensions).toEqual({});
+    expect(read.card.level).toBe("");
+    expect(read.card.levelName).toBe("");
   });
 
   it("never returns a private repo for an owner", async () => {

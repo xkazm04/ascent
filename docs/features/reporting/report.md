@@ -33,7 +33,7 @@ Two crawlable, unauthenticated surfaces built on one read module, `src/lib/regis
 | Route | What it is |
 | --- | --- |
 | `/leaderboard` | The **AI-native register**: every model-scored public repo, ranked, paginated via `?page=N`, with the full nine-dimension breakdown. Rows carry honesty qualifiers: `conf N` when the scan reported confidence below 0.75, `no PR signal` when the analysis window held no merged PR (mirrors, push-based workflows), and `rubric rNN` when the score was taken under an earlier rubric than the one in force — plus page copy stating every score is computed outside-in from public artifacts. A `null` register (persistence off or a failed read) omits that ranking lede and names the miss; a readable empty-verified mock-only board is not an outage. Absence is never printed as `0 public repos rated`. |
-| `/scorecard/[owner]` | An owner's **public scorecard**: the aggregate score/level over that owner's public repos, with its own OG card. An invalid owner segment (GitHub name grammar) is a 404. Persistence off, a thrown register read, and a valid owner with nothing in the public corpus are **not**: they render an honest unavailable or empty card. Failure is not "this owner does not exist", and absence is not a score of 0. |
+| `/scorecard/[owner]` | An owner's **public scorecard**: the aggregate score/level over that owner's public repos, with its own OG card. An invalid owner segment (GitHub name grammar) is a 404. Persistence off, a thrown register read, and a valid owner with nothing in the public corpus are **not**: they render an honest unavailable or empty card. Failure is not "this owner does not exist", and absence is not a score of 0. Preview-only owners (`verifiedCount === 0`) publish `avgOverall: null` and "No published score yet", not `0/100` and not a "how AI-native" lede. |
 
 **Two invariants, both unit-pinned (`src/lib/register/data.test.ts`):**
 
@@ -44,7 +44,7 @@ Two crawlable, unauthenticated surfaces built on one read module, `src/lib/regis
    ranked**. It is carried out as `verified: false`, rendered in a separate "Preview scans (not
    ranked)" section with the same `demo` qualifier every unverified row carries, and excluded from every
    scorecard average. An owner whose public scans are *all* previews gets an explicit "No published
-   score yet" state, not an average over previews.
+   score yet" state, not an average over previews, and not `avgOverall: 0`.
 
    **The rubric is the second half of that same claim.** `model.ts` states in writing that numbers
    from two rubric versions are not comparable, a bump invalidates the cache **without re-scanning**,
@@ -73,6 +73,13 @@ scan, and not a count of 0. `0 public repos rated` is never printed; absence is 
 readable register whose verified set is empty but that still carries mock-engine rows is **not** an
 outage: that is the existing "Nothing model-scored yet" branch, unchanged. A readable register with
 nothing at all says "No public scans yet" and still does not print a zero.
+
+**A null grade is not 0/100.** `getPublicOrgScorecard` used to publish `avgOverall: 0` (and L1 via
+`levelForScore(0)`) when `verifiedCount === 0` — every public scan was a mock preview, so there was
+no model number. Absence is not a 0 (G4); a null grade is not 0/100 (G19). The averages are now
+`null` and omitted from the headline; `ScorecardSummary` already refused to draw a ring on that card.
+The page lede and metadata no longer claim "how AI-native" an owner is when nothing was model-scored
+— that copy matches the summary's "No published score yet".
 
 Ranking happens in memory over a bounded candidate window (`REGISTER_CANDIDATE_CAP`, ordered by score
 at the DB), so neither surface needs a new column or index. `windowed` discloses when the corpus has
@@ -1203,13 +1210,13 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/features/standing/passports/controls/controlMatrixViz.ts` | Doctor checks as repo × check-family `MatrixGrid` rows. A family with no judged clause returns `not-judged`, which cannot render a value. |
 | `src/features/standing/passports/capabilityViz.ts` | The declared × proven × enforced grid, one row per capability, over assessed repos only. |
 | `src/features/standing/passports/autonomy/clearanceLadder.ts` | The clearance perimeter: nested `BandLadder` bands per tier, with placeholder-scanned clearances on the edge. |
-| `src/lib/register/data.ts` | The public register read layer: `getPublicRegister` / `getPublicOrgScorecard`. Public-org + `isPrivate:false` on every query; mock-engine scans carried as `verified:false` and never ranked; `rubricVersion` + `currentRubric` carried so a stale-rubric row is qualified. `getPublicOrgScorecard` returns a tagged `{ kind: "ok" \| "empty" \| "unavailable" }` so a failed or empty read cannot collapse into a 404. |
+| `src/lib/register/data.ts` | The public register read layer: `getPublicRegister` / `getPublicOrgScorecard`. Public-org + `isPrivate:false` on every query; mock-engine scans carried as `verified:false` and never ranked; `rubricVersion` + `currentRubric` carried so a stale-rubric row is qualified. `getPublicOrgScorecard` returns a tagged `{ kind: "ok" \| "empty" \| "unavailable" }` so a failed or empty read cannot collapse into a 404. `avgOverall` / `avgAdoption` / `avgRigor` are `null` when `verifiedCount === 0` (not `0`). |
 | `src/app/leaderboard/page.tsx` | The register page: server-rendered ranking, `?page=` pagination, per-page canonical + OG. A null register omits the ranking lede and names persistence-off / read-failure; mock-only empty-verified stays the preview branch; never prints `0 public repos rated`. |
 | `src/components/leaderboard/LeaderboardTable.tsx` | The ranked table. `ranked={false}` draws the unranked preview section; a `demo` chip marks every unverified row, a `rubric rNN` chip every stale-rubric one. |
 | `src/components/leaderboard/RegisterPager.tsx` | Anchor-based pager (`rel=prev/next`) + the shared scan CTA. |
-| `src/app/scorecard/[owner]/page.tsx` | Public org scorecard. Invalid owner grammar 404s; a failed or empty register read keeps the H1 and renders a distinct unavailable or empty body. |
+| `src/app/scorecard/[owner]/page.tsx` | Public org scorecard. Invalid owner grammar 404s; a failed or empty register read keeps the H1 and renders a distinct unavailable or empty body. The "how AI-native" lede and metadata fire only when a model scored at least one public repo; preview-only copy matches `ScorecardSummary`. |
 | `src/app/scorecard/[owner]/page.test.tsx` | Page-level gate: invalid owner 404s; persistence-off / thrown read / empty-but-valid owner do not, and those two non-404 bodies are distinct. |
-| `src/components/leaderboard/ScorecardSummary.tsx` | The scorecard headline; renders the refusal state when `verifiedCount === 0`. |
+| `src/components/leaderboard/ScorecardSummary.tsx` | The scorecard headline; renders the refusal state when `verifiedCount === 0` or the averages are null, and never draws `0/100` for an unpublished grade. |
 | `src/app/scorecard/[owner]/opengraph-image.tsx` | Scorecard OG card, on the shared `og-brand` shell; falls back to the neutral card rather than drawing an average over previews (including `empty` / `unavailable` reads). |
 
 ## Failure states on the report page (2026-09-05)
