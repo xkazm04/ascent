@@ -244,19 +244,22 @@ cooldown claim, so an interactive rescan can't double-alert with the cron.
 
 ## What moved since you last looked (in-app unread state)
 
-The dashboard's Alerts chip carries a movement count. It is a **read** over records the scan
-pipeline already persists (Shared Org Memory: regressions, level changes, closed gaps), not a
-new event system:
+The dashboard's Alerts chip carries a movement count. It is a **read** over records that already
+exist — not a new event system or a write path that could fail a scan. Two sources, same window:
 
 - **Watermark:** `Membership.alertsSeenAt` (nullable, per-user-per-org). Never opened it? The
   window falls back to the member's join date. Advanced by `POST /api/org/alerts { seen: true }`
   when the popover opens.
-- **Count:** `getOrgMovementSince(orgSlug, since)` (`src/lib/db/org-movement.ts`): ONE bounded
-  `OrgMemory` query with `take: MOVEMENT_CAP + 1`, so ">9" costs no second query. Hidden at zero.
+- **Count:** `getOrgMovementSince(orgSlug, since)` (`src/lib/db/org-movement.ts`) unions two
+  bounded reads (`take: MOVEMENT_CAP + 1` each, so ">9" costs no count query), merged newest-first:
+  scan-pipeline `OrgMemory` (regressions, level changes, closed gaps) **and** control-failed
+  `AlertEvent` rows (`kind: "control"`, `severity: "critical"`). A control flip is ledger-sourced
+  and never a memory row — counting only scan-memory left the badge silent after branch protection
+  came off. Hidden at zero.
 - **Rows:** repo + event label + age, and under each, the persisted one-line summary the memory
-  record carries (2026-09-04). Without it every row read "acme/api regressed 1h ago", identical for a
-  3-point wobble and a two-band demotion, while the sentence that separates them was already on the
-  client.
+  record (or the AlertEvent title) carries (2026-09-04). Without it every row read "acme/api
+  regressed 1h ago", identical for a 3-point wobble and a two-band demotion, while the sentence that
+  separates them was already on the client. A `control-failed` row labels as "control failed".
 - **Degrades:** auth-off deployments, the public org, a viewer with no membership, or any read
   failure answer `{ movement: null }` and the chip renders exactly as it did before.
 
