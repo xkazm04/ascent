@@ -70,6 +70,24 @@ export function scoreProvenance(
   return { kind: "blended", clampBand, widened, blend, reach };
 }
 
+/** One-word tag a chart prints next to a dimension. Clean blended rows return null. */
+export type ScoreProvenanceMark = "widened" | "unmeasured" | "signal-only" | "claim-scored";
+
+/**
+ * Itemization tag for one dimension. G5: disclose the integrity that already fired — never invent a
+ * widening. Unmeasured outranks mechanism (an unobserved number is not a blend or a claim score).
+ * A clean blended dimension stays unlabeled.
+ */
+export function scoreProvenanceMark(
+  d: { id: DimensionId; signalScore: number; score: number },
+  integrity?: ScoreIntegrity | null,
+): ScoreProvenanceMark | null {
+  if (integrity?.unmeasuredDims?.includes(d.id)) return "unmeasured";
+  const p = scoreProvenance(d, integrity);
+  if (p.kind === "blended") return p.widened ? "widened" : null;
+  return p.kind;
+}
+
 // ── ONE UNIT for the blend weight ───────────────────────────────────────────────────────────────
 //
 // The report page carries the weight twice: the header's integrity chip and every blended dimension's

@@ -3,7 +3,8 @@
 // Dependency-free SVG charts (keeps the bundle small and the build fast).
 
 import { useId } from "react";
-import type { MaturityLevel } from "@/lib/types";
+import type { MaturityLevel, ScoreIntegrity } from "@/lib/types";
+import { integrityNotes } from "@/lib/maturity/attribution";
 import { LEVEL_GLYPH, scoreHex } from "@/lib/ui";
 import { clamp01to100 } from "@/components/report/chartScale";
 import { usePrefersReducedMotion } from "@/components/report/chartMotion";
@@ -14,12 +15,15 @@ export function ScoreRing({
   level,
   size = 200,
   engine,
+  integrity,
 }: {
   score: number;
   level: MaturityLevel;
   size?: number;
   /** Scan engine provider. A mock-scored report draws the arc hollow. */
   engine?: string | null;
+  /** Existing scoreIntegrity only. Caption/aria-desc name notes when any fired; a clean run stays unlabeled. */
+  integrity?: ScoreIntegrity | null;
 }) {
   const stroke = 14;
   const r = (size - stroke) / 2;
@@ -44,8 +48,11 @@ export function ScoreRing({
   // a WCAG 2.3.3 (Animation from Interactions) violation. Every sibling chart already gates its
   // transitions on this hook; ScoreRing was the un-gated exception.
   const reduced = usePrefersReducedMotion();
+  // Same wording as the header chip. G5: disclose what already fired; do not widen the band here.
+  const notes = integrityNotes(integrity);
+  const noteLine = notes.length ? notes.map((n) => n.label).join(" · ") : "";
 
-  return (
+  const ring = (
     <svg
       width={size}
       height={size}
@@ -57,6 +64,7 @@ export function ScoreRing({
       <title id={titleId}>Overall maturity score</title>
       <desc id={descId}>
         {`Score ${displayScore} of 100. Level ${level.id} ${level.name}.`}
+        {noteLine ? ` Integrity: ${noteLine}.` : ""}
         {mock ? MOCK_SR_SUFFIX : ""}
       </desc>
       {mock && (
@@ -100,5 +108,20 @@ export function ScoreRing({
         {LEVEL_GLYPH[level.id]} {level.id} · {level.name}
       </text>
     </svg>
+  );
+
+  if (!noteLine) return ring;
+
+  return (
+    <figure className="m-0 flex flex-col items-center">
+      {ring}
+      <figcaption
+        className="mt-2 max-w-[16rem] text-center type-body-sm text-amber-300/90"
+        title={notes.map((n) => n.hint).join(" ")}
+        data-testid="score-ring-integrity"
+      >
+        {noteLine}
+      </figcaption>
+    </figure>
   );
 }

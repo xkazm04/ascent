@@ -8,6 +8,7 @@ import {
   blendWeightPercent,
   radarHoverTicks,
   scoreProvenance,
+  scoreProvenanceMark,
 } from "@/lib/scoring/provenance";
 import { integrityNotes } from "@/lib/maturity/attribution";
 import type { ScoreIntegrity } from "@/lib/types";
@@ -55,6 +56,26 @@ describe("scoreProvenance", () => {
     const p = scoreProvenance({ id: "D3", signalScore: 50, score: 53 }, undefined);
     expect(p.kind === "blended" && p.blend).toBeNull();
     expect(p.kind === "blended" && p.reach).toBe(LLM_GUARDBAND);
+  });
+});
+
+describe("scoreProvenanceMark — itemization tags, G5 unlabeled clean blend", () => {
+  it("marks a widened blended dimension and leaves its neighbour unlabeled", () => {
+    const si: ScoreIntegrity = { ...CLEAN, widenedDims: ["D2"] };
+    expect(scoreProvenanceMark({ id: "D2", signalScore: 50, score: 56 }, si)).toBe("widened");
+    expect(scoreProvenanceMark({ id: "D3", signalScore: 50, score: 53 }, si)).toBeNull();
+  });
+
+  it("returns null on a clean blended dimension — nothing to disclose", () => {
+    expect(scoreProvenanceMark({ id: "D2", signalScore: 50, score: 52 }, CLEAN)).toBeNull();
+    expect(scoreProvenanceMark({ id: "D2", signalScore: 50, score: 52 }, undefined)).toBeNull();
+  });
+
+  it("labels unmeasured before claim-scored, and names signal-only / claim-scored", () => {
+    const si: ScoreIntegrity = { ...CLEAN, unmeasuredDims: ["D4"] };
+    expect(scoreProvenanceMark({ id: "D4", signalScore: 40, score: 47 }, si)).toBe("unmeasured");
+    expect(scoreProvenanceMark({ id: "D1", signalScore: 40, score: 47 }, CLEAN)).toBe("claim-scored");
+    expect(scoreProvenanceMark({ id: "D9", signalScore: 30, score: 30 }, CLEAN)).toBe("signal-only");
   });
 });
 

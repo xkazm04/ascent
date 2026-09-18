@@ -41,3 +41,29 @@ describe("ScoreRing mock-scored hollow arc", () => {
     expect(screen.getByText(/demo scan: deterministic rubric, no model/i)).toBeInTheDocument();
   });
 });
+
+describe("ScoreRing scoreIntegrity caption (G5: disclose, never widen)", () => {
+  it("names widened D2 in the aria-desc and the visible caption", () => {
+    const { container } = render(
+      <ScoreRing
+        score={72}
+        level={L3}
+        integrity={{ d9Unmeasurable: false, widenedDims: ["D2"], effectiveBlend: 0.6 }}
+      />,
+    );
+    expect(container.querySelector("desc")?.textContent).toMatch(/widened D2/);
+    expect(screen.getByTestId("score-ring-integrity")).toHaveTextContent("widened D2");
+  });
+
+  it("stays unlabeled on a clean run", () => {
+    const { container } = render(
+      <ScoreRing
+        score={72}
+        level={L3}
+        integrity={{ d9Unmeasurable: false, widenedDims: [], effectiveBlend: 0.6 }}
+      />,
+    );
+    expect(container.querySelector("[data-testid=score-ring-integrity]")).toBeNull();
+    expect(container.querySelector("desc")?.textContent).not.toMatch(/Integrity:/);
+  });
+});
