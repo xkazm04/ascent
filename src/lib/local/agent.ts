@@ -18,6 +18,7 @@
 //   is the second belt.
 
 import { spawn } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 import { cliProviderAllowed } from "@/lib/llm/config";
 import { envBool } from "@/lib/env";
 import { normalizeAgentEffort, normalizeAgentModel, type AgentConfig } from "@/lib/local/agent-options";
@@ -25,8 +26,10 @@ import { normalizeAgentEffort, normalizeAgentModel, type AgentConfig } from "@/l
 // unchanged so every existing caller — the route's stop horizon, this module's own spawn — keeps
 // importing it from here, and so the two numbers can never drift apart into two answers.
 import { agentTimeoutMs } from "@/lib/local/lane-watchdog";
-import { parseAgentEnvelope, type AgentEnvelope } from "@/lib/local/agent-envelope";
+import { agentErrorText, parseAgentEnvelope, type AgentEnvelope } from "@/lib/local/agent-envelope";
+import { createStreamParser } from "@/lib/local/agent-stream";
 import { detachForKillTree, killProcessTree } from "@/lib/local/kill-tree";
+import { sanitizeAgentStderr } from "@/lib/local/agent-stderr";
 import type { AgentStreamEvent } from "@/lib/local/runner-types";
 
 export { agentTimeoutMs };
@@ -66,7 +69,30 @@ export function resolveAgentConfig(choice: AgentConfig | null | undefined): { mo
   };
 }
 
-const MAX_STDOUT = 4 * 1024 * 1024; // mirror claude-cli.ts's runaway-subprocess caps
+/**
+ * The environment a spawned agent session gets: the server's own, minus what must never reach it.
+ *
+ *   • `ANTHROPIC_API_KEY` — subscription auth, like every local CLI call.
+ *   • `CLAUDECODE` / `CLAUDE_CODE_ENTRYPOINT` — the markers a Claude Code session sets in the
+ *     environment of everything it starts. A self-hosted Ascent launched from inside a Claude Code
+ *     session hands them to every agent it spawns, and a nested `claude` that inherits them produces
+ *     NOTHING, silently (live.md L2-F-02). Stripped here, at the one spawn site, so no launch path can
+ *     reintroduce it.
+ *
+ * Pure (a copy is returned; the input is not touched), so the strip is a table test, not a spawn.
+ */
+export function agentSpawnEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const env = { ...base };
+  delete env.ANTHROPIC_API_KEY;
+  delete env.CLAUDECODE;
+  delete env.CLAUDE_CODE_ENTRYPOINT;
+  return env;
+}
+
+// mirror claude-cli.ts's runaway-subprocess caps. Since streaming it bounds ONE stdout line (and the
+// verbatim copy kept for a non-stream output), not the whole session: a long session's stream is parsed
+// and let go line by line, and only the final `result` line is retained.
+const MAX_STDOUT = 4 * 1024 * 1024;
 /** A CLI session id: a UUID, and nothing a shell could re-parse into a second argument. */
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_STDERR = 16 * 1024;
@@ -163,18 +189,20 @@ export function runClaudeAgent(opts: ClaudeAgentOptions): Promise<AgentRunResult
     // value drops the flag instead of failing the run — a session that would have worked must not die
     // because a stale caller sent a level this build does not know.
     const effort = normalizeAgentEffort(opts.effort);
-    const env = { ...process.env };
-    delete env.ANTHROPIC_API_KEY; // subscription auth, like every local CLI call
+    const env = agentSpawnEnv(process.env);
 
     const bin = process.env.CLAUDE_CLI_PATH || "claude";
     // `--effort` is appended ONLY when a level was chosen, so a `claude` build that has never heard of
     // the flag runs exactly the argv it always did.
     // THE PLANNING SESSION is read-only by tool policy: plan mode plus an explicit allowlist. The list is
     // ONE argv token with no spaces, because `shell: true` re-parses argv on Windows.
+    // STREAMED (spark theater-upgrade): `stream-json` needs `--verbose` under `-p`. The final `result`
+    // line carries the same fields the one-shot `json` object did, so the envelope reads identically.
+    const output = ["--output-format", "stream-json", "--verbose"];
     const args =
       opts.permission === "plan"
-        ? ["-p", "--output-format", "json", "--permission-mode", "plan", "--allowedTools", "Read,Grep,Glob", "--model", model]
-        : ["-p", "--output-format", "json", "--permission-mode", "acceptEdits", "--model", model];
+        ? ["-p", ...output, "--permission-mode", "plan", "--allowedTools", "Read,Grep,Glob", "--model", model]
+        : ["-p", ...output, "--permission-mode", "acceptEdits", "--model", model];
     if (effort) args.push("--effort", effort);
     // Session ids reach the same re-parsing shell as the model, so they get the same treatment: a UUID
     // or nothing. An invalid id DROPS the flag rather than failing the session — a resume that cannot
@@ -193,7 +221,12 @@ export function runClaudeAgent(opts: ClaudeAgentOptions): Promise<AgentRunResult
       detached: detachForKillTree(),
     });
 
-    let out = "";
+    // THE STREAM, parsed line by line as it arrives — each event into the lane's activity tail. The
+    // decoder keeps a multi-byte character split across two chunks whole; the parser swallows a sink
+    // that throws, so telemetry can never end the session it is watching.
+    const decoder = new StringDecoder("utf8");
+    const onEvent = opts.onEvent;
+    const parser = createStreamParser((e) => onEvent?.(e), { cwd: opts.cwd, maxFrameChars: MAX_STDOUT });
     let err = "";
     let settled = false;
     const settle = (r: AgentRunResult) => {
@@ -230,8 +263,8 @@ export function runClaudeAgent(opts: ClaudeAgentOptions): Promise<AgentRunResult
     opts.signal?.addEventListener("abort", onAbort, { once: true });
     const disarm = (): void => opts.signal?.removeEventListener("abort", onAbort);
 
-    child.stdout.on("data", (d: Buffer) => {
-      if (out.length < MAX_STDOUT) out += d.toString("utf8").slice(0, MAX_STDOUT - out.length);
+    child.stdout.on("data", (d: Buffer | string) => {
+      parser.push(typeof d === "string" ? d : decoder.write(d));
     });
     child.stderr.on("data", (d: Buffer) => {
       if (err.length < MAX_STDERR) err += d.toString("utf8").slice(0, MAX_STDERR - err.length);
@@ -244,10 +277,19 @@ export function runClaudeAgent(opts: ClaudeAgentOptions): Promise<AgentRunResult
     child.on("close", (code) => {
       clearTimeout(timer);
       disarm();
+      parser.push(decoder.end());
       // THE WHOLE ENVELOPE, not just `.result`. The parse is pure and lives in agent-envelope.ts so
       // it can be table-tested without a subprocess; `{ok, summary}` are byte-for-byte what they
-      // were, and the measurements ride alongside them.
-      settle(parseAgentEnvelope(out, { fallbackModel: model, exitCode: code, stderr: err }));
+      // were, and the measurements ride alongside them. The text parsed is the stream's final
+      // `result` line, or — for output that never was a stream — the stdout verbatim, as before; a
+      // stream that ended without a `result` parses "" into today's no-JSON failure sentence.
+      const raw = parser.end() ?? parser.raw();
+      const errorHint = parser.errorHint();
+      // STDERR IS SANITIZED BEFORE IT CAN REACH A STORED TEXT (agent-stderr.ts): a failing user hook's
+      // echoed command line — token included — is exactly what the live check found in it.
+      const stderr = sanitizeAgentStderr(err);
+      const env = parseAgentEnvelope(raw, { fallbackModel: model, exitCode: code, stderr, errorHint });
+      settle(env.ok ? env : { ...env, errorText: agentErrorText(raw, { stderr, errorHint }) });
     });
 
     child.stdin.write(opts.prompt);
