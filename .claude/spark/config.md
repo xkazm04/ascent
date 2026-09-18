@@ -108,9 +108,43 @@ Pasted verbatim into every builder brief:
   is exactly what happened on the naming question.
 - 2026-08-25: takes the FULL ladder when offered a cumulative scope question. Size the brief
   for it — this one came out at six work packages, not the method's nominal four.
+- **2026-09-18 (theater-upgrade): gates the MINIMUM.** Asked which classes of change an unattended
+  runner should stop and ask about, the operator answered with an "Other" doctrine — *"Contract,
+  Dependency, Large footprints can be autoapproved"* — leaving **architecture moves alone** as the
+  major class, because merging the runner's branch is itself the human gate. It was the most
+  consequential answer of the session. **When a question offers a ladder of things to gate, make
+  "only the narrowest rung" an explicit option**, and say what the later human checkpoint is; this
+  operator will take it.
+- 2026-09-18: took the recommendation on every question but that one, and chose "prototype before
+  choosing" when offered a decision it could defer to built evidence. **Offer the prototype round as
+  an option wherever a look-and-feel choice is genuinely undecidable on paper** — but scope it: three
+  heroes behind ONE seam cost three parallel builders and produced a real pick.
+- 2026-09-18: the artifact-with-screenshots pattern (2026-08-22's lesson) worked again for the
+  prototype pick — the comparison page carried each option's own admitted weaknesses, the question
+  carried the link, and the answer came back in one round.
 
 ## Skill improvement log
 
+- 2026-09-18 (theater-upgrade): **a builder killed by a 429 is not resumable by name** — `SendMessage`
+  answers "no agent named …" and the transcript is gone. What survives is its work on disk and its
+  last message, which (both times) named the exact item it still owed. Respawn a *finisher* pointed at
+  the folder with that item as its scope, not a rebuild pointed at the original brief: both closed
+  inside 20 minutes, gates and shots included.
+- 2026-09-18 (theater-upgrade): **a package's doc section goes stale inside the same session** when
+  the Director fixes a contract after the package lands. Five of eight sections here asserted
+  something the merged code no longer did (an Int ceiling, a `revise` hold, missing settle seams, a
+  stderr leak, dials the cockpit "does not send yet"). Re-read every claim against the committed code
+  before merging the doc, or ask each package for a one-line "what changed after my section".
+- 2026-09-18 (theater-upgrade): **run `node scripts/context-map/check-map-drift.mjs` before the final
+  commit of any spark that adds a subsystem.** This one added 214 files; unmapped drift had reached
+  18.6% (budget 10%) and an unmapped directory is one no sweep skill ever visits. Mapping them took
+  one scripted pass and brought it to 11.6%.
+- 2026-09-18 (theater-upgrade): **`vitest --repeat` is rejected by vitest 4.1.9** — two builders hit
+  it independently. Tell builders to loop the run instead when they want repetition.
+- 2026-09-18 (theater-upgrade): the **stubs-before-fan-out** rule (commit wire types + compilable
+  stubs so no two packages share a file) held for EIGHT parallel packages, not the method's nominal
+  four, and the prototype round's one registry seam let three heroes be built and two deleted with no
+  change to the shell around them. Both patterns scale; keep them.
 - 2026-09-06 (ui-surfaces-showcase): **`npm run lint` is part of the pre-push master gate (`npm run verify`)
   and the React Compiler rules (`react-hooks/refs|purity|set-state-in-effect|immutability`) are ERRORS** —
   the overlay's `## Gates` never listed lint, so 15 builders shipped 37 lint errors past tsc + vitest and the
