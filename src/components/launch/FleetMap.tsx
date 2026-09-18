@@ -51,20 +51,21 @@ export function FleetMap({
   const pathname = usePathname() ?? "/launch";
   const searchParams = useSearchParams();
   const urlKey = searchParams.toString();
-  const urlTriage = useMemo(() => resolveLaunchTriage(searchParams, triageProp), [urlKey, triageProp, searchParams]);
+  const urlTriage = useMemo(() => resolveLaunchTriage(searchParams, triageProp), [searchParams, triageProp]);
   const [query, setQuery] = useState(urlTriage.q);
   const [levels, setLevels] = useState(() => new Set(urlTriage.levels));
   const [watchedOnly, setWatched] = useState(urlTriage.watchedOnly);
   const [sortKey, setSort] = useState<SortKey>(urlTriage.sortKey);
   const lastWritten = useRef<string | null>(null);
   const draftRef = useRef({ query, levels, watchedOnly, sortKey });
-  draftRef.current = { query, levels, watchedOnly, sortKey };
+  useEffect(() => {
+    draftRef.current = { query, levels, watchedOnly, sortKey };
+  });
 
   useEffect(() => {
     const href = `${pathname}${urlKey ? `?${urlKey}` : ""}`;
     if (lastWritten.current === href) return;
     const parsed = resolveLaunchTriage(searchParams, triageProp);
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- URL is the source of truth
     setQuery(parsed.q);
     setLevels(new Set(parsed.levels));
     setWatched(parsed.watchedOnly);

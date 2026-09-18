@@ -9,7 +9,7 @@
 // decision the next scan's prompt reads. Skipping is a first-class choice: a dismissal with no reason
 // is still a dismissal, it just doesn't speak for the team in the next scan.
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { REC_NOTE_MAX_LENGTH, type DimensionId, type RecStatus } from "@/lib/types";
 import { reconcileDoneRec, type ReconciliationState } from "@/lib/report/compare";
 
@@ -207,13 +207,8 @@ export function RowPlanningFields({
   saving: boolean;
   onPatch: (patch: RecPlanningPatch) => void;
 }) {
-  const [login, setLogin] = useState(assigneeLogin ?? "");
-  useEffect(() => {
-    setLogin(assigneeLogin ?? "");
-  }, [assigneeLogin]);
-
-  function commitLogin() {
-    const next = login.trim().replace(/^@+/, "") || null;
+  function commitLogin(raw: string) {
+    const next = raw.trim().replace(/^@+/, "") || null;
     if (next === (assigneeLogin || null)) return;
     onPatch({ assigneeLogin: next });
   }
@@ -229,15 +224,15 @@ export function RowPlanningFields({
       <label className="inline-flex items-center gap-1.5 type-body-sm text-slate-400">
         <span className="type-caption text-slate-500">owner</span>
         <input
+          key={assigneeLogin ?? ""}
           type="text"
-          value={login}
+          defaultValue={assigneeLogin ?? ""}
           maxLength={39}
           autoComplete="off"
           spellCheck={false}
           aria-busy={saving || undefined}
           aria-label="Assignee"
-          onChange={(e) => setLogin(e.target.value)}
-          onBlur={commitLogin}
+          onBlur={(e) => commitLogin(e.currentTarget.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") e.currentTarget.blur();
           }}
