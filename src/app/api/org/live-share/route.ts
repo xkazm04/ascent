@@ -1,13 +1,15 @@
-// POST /api/org/live-share { org } -> { token, path, expiresAt }   (owner)
+// POST /api/org/live-share { org, view? } -> { token, path, expiresAt, view }   (owner)
 // Mint a signed, expiring, revocable read-only share link for the org's live war-room (WAR-4). Owner-gated
 // + same-origin: only an owner can publish their fleet wall to an unauthenticated screen. The link
 // (/live/shared/[token]) is read-only — it can't trigger scans (that path stays session-gated).
+// `view` (spark theater-upgrade): "wall" (the default — the request every existing caller sends) or
+// "theater", which makes the same kiosk URL render the standing runner's theater instead of the wall.
 
 import { NextResponse } from "next/server";
 import { requireOrgRole, canReadOrg } from "@/lib/authz";
 import { requireSameOrigin } from "@/lib/auth";
 import { authGateEnabled, getViewer } from "@/lib/access";
-import { liveShareEnabled, signLiveShareToken } from "@/lib/live-share";
+import { liveShareEnabled, normalizeLiveShareView, signLiveShareToken } from "@/lib/live-share";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,8 +23,10 @@ export async function POST(request: Request) {
   }
   const crossOrigin = requireSameOrigin(request);
   if (crossOrigin) return crossOrigin;
-  const body = (await request.json().catch(() => ({}))) as { org?: string };
+  const body = (await request.json().catch(() => ({}))) as { org?: string; view?: unknown };
   if (!body.org) return NextResponse.json({ error: "Provide { org }." }, { status: 400 });
+  const view = normalizeLiveShareView(body.view);
+  if (!view) return NextResponse.json({ error: 'view must be "wall" or "theater".' }, { status: 400 });
   // live-war-room #2: the mint gate must be AT LEAST AS STRICT as the READ gate, and fail closed.
   // requireOrgRole is OPEN in an auth-off deployment — its owner check is unreachable when
   // !isAuthConfigured() (authz.ts returns null before it) — but the sibling read path canReadOrg stays
@@ -41,7 +45,7 @@ export async function POST(request: Request) {
   // Set only under the enforced Supabase wall, the authoritative membership source; other modes leave it
   // unset and keep the prior unbound behavior.
   const mintedBy = authGateEnabled() ? (await getViewer())?.login : undefined;
-  const minted = signLiveShareToken(body.org, { mintedBy });
+  const minted = signLiveShareToken(body.org, { mintedBy, view });
   if (!minted) return NextResponse.json({ error: "Could not mint a share link." }, { status: 503 });
-  return NextResponse.json({ token: minted.token, path: `/live/shared/${minted.token}`, expiresAt: minted.expiresAt });
+  return NextResponse.json({ token: minted.token, path: `/live/shared/${minted.token}`, expiresAt: minted.expiresAt, view });
 }

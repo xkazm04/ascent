@@ -1,6 +1,6 @@
 // Signed, expiring, REVOCABLE read-only share tokens for the live war-room (WAR-4) — so an owner can put
 // their fleet wall on an unauthenticated TV/kiosk without exposing a session. The token IS the capability:
-// an HMAC-signed `{aud, org, jti, exp, mintedBy?}` payload. The shared page (/live/shared/[token]) verifies
+// an HMAC-signed `{aud, org, jti, exp, mintedBy?, view?}` payload (`view` picks wall or theater). The shared page (/live/shared/[token]) verifies
 // it and renders the wall READ-ONLY (no scan trigger — /api/org/scan stays session-gated), exposing only the
 // same org rollup the dashboard shows. Inert (mint returns null / verify fails) without a signing secret.
 //
@@ -47,12 +47,28 @@ export function liveShareEnabled(): boolean {
   return shareSecret() !== null;
 }
 
+/**
+ * What the kiosk link RENDERS (spark theater-upgrade, 2026-09-18): `wall` — the live war-room, every link
+ * minted before this claim existed — or `theater`, the standing runner's theater. Only a `theater` link
+ * may read the runner's pulse (/api/live/pulse): a wall link was granted to show the fleet rollup, and
+ * widening what an already-issued capability can read is not something a deploy should do silently.
+ */
+export type LiveShareView = "wall" | "theater";
+
+/** A request's `view` → the view, `wall` when absent, null when it is not one of ours (the route 400s). */
+export function normalizeLiveShareView(v: unknown): LiveShareView | null {
+  if (v === undefined || v === null || v === "wall") return "wall";
+  return v === "theater" ? "theater" : null;
+}
+
 export interface LiveShareClaims {
   org: string;
   /** Per-link id — the handle the per-link kill switch (org-share.ts) revokes. */
   jti: string;
   /** GitHub login of the minting owner (owner-binding revocation lever); set only under the Supabase wall. */
   mintedBy?: string;
+  /** What the link renders. Absent from the payload = `wall`, so every existing token keeps its wall. */
+  view: LiveShareView;
 }
 
 export interface SignLiveShareOptions {
@@ -60,6 +76,8 @@ export interface SignLiveShareOptions {
   ttlMs?: number;
   /** Bind the link to this owner login so losing owner access revokes it (see page enforcement). */
   mintedBy?: string;
+  /** `theater` stamps the claim; `wall`/omitted leaves the payload exactly as it always was. */
+  view?: LiveShareView;
 }
 
 // The HMAC is over `${DOMAIN}.${payload}` — the domain prefix is what makes a session cookie's HMAC (same
@@ -85,7 +103,14 @@ export function signLiveShareToken(
   const expiresAt = Date.now() + ttl;
   const jti = randomUUID();
   const payload = Buffer.from(
-    JSON.stringify({ aud: DOMAIN, org: org.toLowerCase(), jti, mintedBy: opts.mintedBy, exp: expiresAt }),
+    JSON.stringify({
+      aud: DOMAIN,
+      org: org.toLowerCase(),
+      jti,
+      mintedBy: opts.mintedBy,
+      exp: expiresAt,
+      view: opts.view === "theater" ? "theater" : undefined,
+    }),
   ).toString("base64url");
   return { token: `${payload}.${sign(payload, secret)}`, expiresAt, jti };
 }
@@ -119,6 +144,7 @@ export function verifyLiveShareToken(
       jti?: unknown;
       mintedBy?: unknown;
       exp?: unknown;
+      view?: unknown;
     };
     // Audience check — belt-and-braces over the HMAC domain prefix: a signature-valid token minted for a
     // DIFFERENT purpose (or a pre-domain-separation legacy live-share token) carries no/other `aud` and is
@@ -128,7 +154,13 @@ export function verifyLiveShareToken(
     const now = opts.now ?? Date.now();
     if (typeof p.exp !== "number" || p.exp < now) return null; // exp enforced HERE, on every read
     if (opts.revoked?.(p.jti)) return null; // per-link kill switch — no global secret rotation needed
-    return { org: p.org, jti: p.jti, mintedBy: typeof p.mintedBy === "string" ? p.mintedBy : undefined };
+    return {
+      org: p.org,
+      jti: p.jti,
+      mintedBy: typeof p.mintedBy === "string" ? p.mintedBy : undefined,
+      // Anything but the literal `theater` is the wall — the view a link was always going to render.
+      view: p.view === "theater" ? "theater" : "wall",
+    };
   } catch {
     return null;
   }

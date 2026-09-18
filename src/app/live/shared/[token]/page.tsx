@@ -2,15 +2,15 @@
 // signed expiring token (WAR-4) instead of a session, so the wall can run on an unauthenticated TV.
 // Outside the /org layout (no session gate); the token is the capability. Read-only: it renders the
 // org's current standing but can't trigger scans (/api/org/scan stays session-gated). Exposes only the
-// same rollup the dashboard shows. noindex so a leaked link isn't crawled.
+// same rollup the dashboard shows. noindex so a leaked link isn't crawled. A `view: "theater"` link renders
+// the standing runner's theater instead (spark theater-upgrade) — the wall below is unchanged for all others.
 
 import { LiveWarRoom } from "@/features/inflight/live/LiveWarRoom";
 import { toLiveRepoSeeds } from "@/components/org/shared/liveWarRoomShared";
 import { buildFleetTimetable } from "@/features/inflight/live/fleetTimetable";
-import { getOrgRepoHistories, getOrgRollup, isDbConfigured } from "@/lib/db";
-import { verifyLiveShareToken } from "@/lib/live-share";
-import { isLiveShareRevoked } from "@/lib/db/org-share";
-import { getMembershipRole, roleAtLeast } from "@/lib/db/members";
+import { getOrgRepoHistories, getOrgRollup } from "@/lib/db";
+import { resolveLiveShare } from "@/lib/live-share-access";
+import { TheaterShell } from "@/features/inflight/live/theater/TheaterShell";
 // Shared with /share/briefing/[token] — the other capability-link surface. Its default min-h-screen is
 // this page's framing: the wall is a full-viewport kiosk with no header/footer chrome around it.
 import { TokenNotice as Notice } from "@/components/TokenNotice";
@@ -20,27 +20,29 @@ export const metadata = { robots: { index: false, follow: false } };
 
 export default async function SharedLivePage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  // Decode first: signature + domain (aud) + EXPIRY are all enforced here, on read — a leaked link dies at
-  // exp even though the recipient never re-mints it.
-  const verified = verifyLiveShareToken(token);
-  if (!verified) {
+  // ONE verification for every kiosk surface (src/lib/live-share-access.ts), in this order:
+  //   • decode first: signature + domain (aud) + EXPIRY are all enforced on read — a leaked link dies at
+  //     exp even though the recipient never re-mints it;
+  //   • no database → nothing to show;
+  //   • revocation on READ via two levers, NEITHER of which rotates the global secret (which would sign
+  //     out every user), both failing CLOSED: per-link (#1) — this exact link's jti was killed via
+  //     revokeLiveShareLink — and owner-binding — a link bound to its minter is honored only while that
+  //     owner still holds owner access. The theater's pulse route (/api/live/pulse) calls the same function.
+  const access = await resolveLiveShare(token);
+  if (!access.ok && access.reason === "invalid") {
     return <Notice title="Link expired or invalid" body="This shared war-room link is no longer valid. Ask an org owner for a fresh one." />;
   }
-  if (!isDbConfigured()) {
+  if (!access.ok && access.reason === "no-db") {
     return <Notice title="No data" body="This deployment has no database configured." />;
   }
-  // Revocation is enforced on READ via two levers, NEITHER of which rotates the global secret (which would
-  // sign out every user). Both fail CLOSED — a lookup error is treated as revoked rather than serving
-  // private fleet data on a blip:
-  //   • per-link (#1): this exact link's jti was killed via revokeLiveShareLink (src/lib/db/org-share.ts).
-  //   • owner-binding (like briefing-share): a link bound to its minter is honored only while that owner
-  //     still holds owner access, so removing/demoting them kills their links. Unbound (legacy) links skip.
-  const linkRevoked = await isLiveShareRevoked(verified.jti).catch(() => true);
-  const minterLostAccess =
-    verified.mintedBy != null &&
-    !roleAtLeast(await getMembershipRole(verified.org, verified.mintedBy).catch(() => null), "owner");
-  if (linkRevoked || minterLostAccess) {
+  if (!access.ok) {
     return <Notice title="Link revoked" body="This shared war-room link has been revoked. Ask an org owner for a fresh one." />;
+  }
+  const verified = access.claims;
+  // A `view: "theater"` link renders the standing runner's theater, fed by /api/live/pulse with this same
+  // token. Every other link — including every one minted before the claim existed — renders the wall below.
+  if (verified.view === "theater") {
+    return <TheaterShell source={{ kind: "kiosk", slug: verified.org, token }} />;
   }
   const rollup = await getOrgRollup(verified.org);
   if (!rollup || rollup.repoCount === 0) {

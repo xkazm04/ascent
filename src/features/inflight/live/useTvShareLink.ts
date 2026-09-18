@@ -10,7 +10,9 @@ export interface TvShareState {
   manualUrl: string | null;
 }
 
-export function useTvShareLink(slug: string) {
+/** `view` picks what the kiosk link renders: omitted = the wall (the request body is exactly what it
+ *  always was), `"theater"` = the standing runner's theater (theater/, spark theater-upgrade). */
+export function useTvShareLink(slug: string, view?: "theater") {
   const [share, setShare] = useState<TvShareState>({ busy: false, copied: false, error: null, manualUrl: null });
 
   async function shareTvLink() {
@@ -21,7 +23,7 @@ export function useTvShareLink(slug: string) {
       const res = await fetch("/api/org/live-share", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ org: slug }),
+        body: JSON.stringify(view ? { org: slug, view } : { org: slug }),
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok || !d.path) throw new Error(d.error ?? "Couldn't create a share link.");
