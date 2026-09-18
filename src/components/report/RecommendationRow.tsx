@@ -18,7 +18,9 @@ import {
   DismissReasonPrompt,
   DoneReconciliation,
   RowErrorNotice,
+  RowPlanningFields,
   RowSpinner,
+  type RecPlanningPatch,
   type RowError,
 } from "@/components/report/recommendationRowUi";
 import { Kicker } from "@/components/ui";
@@ -162,6 +164,7 @@ export function RecommendationRow({
   onCancelDismiss,
   onRetry,
   onDismissError,
+  onPatchPlanning,
 }: {
   item: PersistedRecommendation;
   /** Position in the CURRENT ordering — the row's displayed priority number. */
@@ -184,6 +187,7 @@ export function RecommendationRow({
   onCancelDismiss: () => void;
   onRetry: () => void;
   onDismissError: () => void;
+  onPatchPlanning: (patch: RecPlanningPatch) => void;
 }) {
   const muted = item.status === "done" || item.status === "dismissed";
   // Non-retryable kinds (config, stale) render informational amber; only transient is red+Retry.
@@ -235,6 +239,12 @@ export function RecommendationRow({
           persistence-enabled org saw a strictly poorer row than the anonymous fallback. Absent ⇒
           nothing renders; nothing is ever invented to fill the line. */}
       <RoadmapFirstStep firstStep={item.firstStep} />
+      <RowPlanningFields
+        assigneeLogin={item.assigneeLogin}
+        targetDate={item.targetDate}
+        saving={saving}
+        onPatch={onPatchPlanning}
+      />
       {item.rationale && <p className="mt-2 type-body leading-relaxed text-slate-400">{item.rationale}</p>}
       {item.status === "done" && (
         <DoneReconciliation dimension={item.dimension} prevScore={prevScore} currentScore={currentScore} />

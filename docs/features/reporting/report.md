@@ -511,7 +511,11 @@ with a `status` ∈ `open | in_progress | done | dismissed`.
 `RecommendationTracker` (inside `ReportView`) shows a progress bar + per-item status
 dropdowns with **optimistic updates**, a per-row `savingIds` set (overlapping saves each
 disable only their own row), rollback on failure, and an `aria-live` region announcing
-each save. When the DB isn't configured it degrades to the read-only `RoadmapSteps`.
+each save. Each row also exposes the planning fields `PATCH /api/recommendations/[id]`
+already accepted: `assigneeLogin` and `targetDate`. Both render when set; a null field
+renders nothing (no "unassigned" / "no due date" copy). Edits PATCH that same route (no
+new endpoint); clearing a field sends `null`. When the DB isn't configured it degrades to
+the read-only `RoadmapSteps`.
 
 **2026-09-05.** Both renderings share one `RoadmapFirstStep` (the tracker used to drop `firstStep`
 while the anonymous fallback rendered it) and both receive the measured `lifts` map from the page.
@@ -537,6 +541,11 @@ array. A successful PATCH bumps a per-row epoch so an *open* trail refetches aft
 (an optimistic status change must not race the write). This is where a sandbox commit note and a
 dismissal reason actually appear on the report that wrote them. Follow-ups already rendered the same
 route on expand; the report tracker is the surface that made the change.
+
+**2026-09-18.** Tracker rows expose assignee and due date. `PATCH /api/recommendations/[id]` already
+accepted `assigneeLogin` and `targetDate`; the row now renders both when set and writes them through
+that same route. A null field renders nothing: no "unassigned" or "no due date" copy. Clearing a
+field sends `null`. The status dropdown is unchanged.
 
 Both renderings order through one contract, `sortRoadmap` (`roadmapPriority.tsx`). Its default
 `"priority"` mode is the long-standing label sort — impact↑/effort↓, quick wins first — derived from
