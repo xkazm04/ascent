@@ -622,7 +622,7 @@ export function toRunRecord(row: RunRow): LoopRunRecord {
     model: row.model ?? null,
     effort: row.effort ?? null,
     modelPolicy: asModelPolicy(row.modelPolicy),
-    models: parseStringArray(row.modelsJson),
+    models: parseStringArray(row.modelsJson) ?? [],
     // An unrecognised string parses as null — "unchosen" — and never as a guess at a mode that would
     // write into the operator's working copy. Same posture `normalizeAgentModel` takes at the route.
     delivery: normalizeDelivery(row.delivery),
@@ -647,8 +647,8 @@ export function toLaneRecord(row: LaneRow): LoopLaneRecord {
     cycle: row.cycle,
     phase: row.phase as LoopLanePhase,
     branch: row.branch,
-    batchIds: parseStringArray(row.batchIdsJson),
-    closedIds: parseStringArray(row.closedIdsJson),
+    batchIds: parseStringArray(row.batchIdsJson) ?? [],
+    closedIds: parseStringArray(row.closedIdsJson) ?? [],
     commits: row.commits,
     beforeScanId: row.beforeScanId,
     afterScanId: row.afterScanId,

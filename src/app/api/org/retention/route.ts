@@ -73,7 +73,12 @@ export async function POST(request: Request) {
   if (gate instanceof NextResponse) return gate;
   const { org, body } = gate;
 
-  const parsed = parseOrgRetentionBody(body);
+  const parsed = parseOrgRetentionBody({
+    retentionMaxScans: body.retentionMaxScans,
+    retentionAuditDays: body.retentionAuditDays,
+    retentionCompact: body.retentionCompact,
+    retentionDigestMonths: body.retentionDigestMonths,
+  });
   if (!parsed.ok) {
     return NextResponse.json(
       {

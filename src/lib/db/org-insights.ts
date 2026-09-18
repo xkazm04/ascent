@@ -382,7 +382,7 @@ export async function getOrgRecommendations(
     const recs = scan?.recommendations ?? [];
     for (const rec of recs) {
       const key = `${rec.dimId}::${rec.title}`;
-      const g = groups.get(key) ?? { title: rec.title, dimId: rec.dimId, impact: rec.impact, rationale: rec.rationale, explore: parseStringArray(rec.explore), repos: new Set<string>() };
+      const g = groups.get(key) ?? { title: rec.title, dimId: rec.dimId, impact: rec.impact, rationale: rec.rationale, explore: parseStringArray(rec.explore) ?? [], repos: new Set<string>() };
       g.repos.add(r.name);
       // keep the strongest impact seen for this rec
       if ((IMPACT_WEIGHT[rec.impact] ?? 0) > (IMPACT_WEIGHT[g.impact] ?? 0)) g.impact = rec.impact;
@@ -798,7 +798,7 @@ export async function getOrgBacklog(
         projectedPoints: gain ? gain.points : null,
         unlocks: gain ? gain.unlocks : null,
         rationale: r.rationale,
-        explore: parseStringArray(r.explore),
+        explore: parseStringArray(r.explore) ?? [],
       });
     }
   }

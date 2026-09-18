@@ -53,8 +53,9 @@ const CLAUDE_LINK_HEADER = `Also linked from Claude's path: \`${ONBOARDING_SKILL
 /** Keep YAML frontmatter at byte 0 so both copies remain valid SKILL.md. */
 function withClaudeLinkHeader(body: string): string {
   const open = body.match(/^(---\n[\s\S]*?\n---\n)/);
-  if (!open) return `${CLAUDE_LINK_HEADER}\n\n${body}`;
-  return `${open[1]}\n${CLAUDE_LINK_HEADER}\n${body.slice(open[1].length)}`;
+  const fm = open?.[1];
+  if (!fm) return `${CLAUDE_LINK_HEADER}\n\n${body}`;
+  return `${fm}\n${CLAUDE_LINK_HEADER}\n${body.slice(fm.length)}`;
 }
 
 function skillFiles(body: string): GeneratedFile[] {
