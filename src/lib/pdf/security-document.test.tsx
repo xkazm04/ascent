@@ -22,6 +22,7 @@ function overview(overrides: Partial<SecurityOverview> = {}): SecurityOverview {
     dimLabel: "Supply Chain & Security",
     avgSecurity: 61,
     securityDelta: null,
+    securityCohortSize: null,
     scanned: 2,
     band: { critical: 0, weak: 1, ok: 1, strong: 0 },
     weakest: [],

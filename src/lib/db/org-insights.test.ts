@@ -71,6 +71,8 @@ interface FakeScan {
   /** Scan provenance. Defaults to a live engine; "mock" is the deterministic floor. */
   engineProvider?: string;
 }
+
+const scanIdOf = (s: FakeScan): string => `${s.repoId}@${s.scannedAt.toISOString()}`;
 interface FakeRepo {
   id: string;
   fullName: string;
@@ -111,11 +113,19 @@ function fakeOrgPrisma(repos: FakeRepo[], scans: FakeScan[], plan = "enterprise"
       // NOT retention-clamped; the retention-floor tests pass "free" explicitly.
       findUnique: vi.fn(async () => ({ id: orgId, slug: "acme", plan })),
     },
-    // The rollup's baseline path fetches the baseline scans' dimension rows (dimDeltas). These
-    // movers-vs-rollup tests only assert the overall/adoption/rigor deltas, so an empty dim set
-    // (dimDeltas: []) is the honest minimal stub.
+    // Baseline dim rows for computeDimDeltas. Tests that don't pass `dimensions` still get an empty
+    // set (honest: no paired readings). Tests that do get real dimDeltas, including per-dim n.
     scanDimension: {
-      findMany: vi.fn(async () => []),
+      findMany: vi.fn(async (args: { where?: { scanId?: { in?: string[] } } } = {}) => {
+        const ids = new Set(args.where?.scanId?.in ?? []);
+        const out: { scanId: string; dimId: string; score: number }[] = [];
+        for (const s of scans) {
+          const scanId = scanIdOf(s);
+          if (!ids.has(scanId)) continue;
+          for (const d of s.dimensions ?? []) out.push({ scanId, dimId: d.dimId, score: d.score });
+        }
+        return out;
+      }),
     },
     scan: {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- prisma query-arg shape on a test double
@@ -129,6 +139,7 @@ function fakeOrgPrisma(repos: FakeRepo[], scans: FakeScan[], plan = "enterprise"
         return rows.map((s) => {
           const repo = repoById.get(s.repoId)!;
           return {
+            id: scanIdOf(s),
             repoId: s.repoId,
             overallScore: s.overallScore,
             adoptionScore: s.adoptionScore,
@@ -349,6 +360,30 @@ describe("getOrgMovers vs getOrgRollup — period-window baseline pick", () => {
     expect(rollup!.baseline!.repos).toBe(1);
     expect(rollup!.baseline!.avgOverall).toBe(50); // alpha's pre-start baseline only
     expect(rollup!.deltas).toEqual({ overall: 10, adoption: 10, rigor: 10 });
+  });
+});
+
+describe("getOrgRollup — dimDeltas carry per-dimension cohortSize", () => {
+  it("measures only paired repos per dim and ships n beside the delta", async () => {
+    const repos = [repo("r1", "acme/alpha"), repo("r2", "acme/bravo"), repo("r3", "acme/charlie")];
+    const scans = [
+      // alpha: D1 + D9 on both sides. bravo: D9 on both sides, D1 current-only. charlie: onboarded.
+      scan("r1", "2026-03-01T00:00:00.000Z", 50, { dimensions: [{ dimId: "D1", score: 40 }, { dimId: "D9", score: 20 }] }),
+      scan("r1", "2026-05-01T00:00:00.000Z", 60, { dimensions: [{ dimId: "D1", score: 50 }, { dimId: "D9", score: 40 }] }),
+      scan("r2", "2026-03-01T00:00:00.000Z", 50, { dimensions: [{ dimId: "D9", score: 30 }] }),
+      scan("r2", "2026-05-01T00:00:00.000Z", 60, { dimensions: [{ dimId: "D1", score: 90 }, { dimId: "D9", score: 50 }] }),
+      scan("r3", "2026-05-01T00:00:00.000Z", 10, { dimensions: [{ dimId: "D1", score: 5 }, { dimId: "D9", score: 5 }] }),
+    ];
+    mockGetPrisma.mockReturnValue(fakeOrgPrisma(repos, scans) as never);
+    const rollup = await getOrgRollup("acme", WINDOW);
+
+    // D1: only alpha is paired (40→50); bravo has no baseline D1; charlie is after-only. n=1, +10.
+    // D9: alpha 20→40 and bravo 30→50; charlie after-only. n=2, avg 45-25 = +20.
+    expect(rollup!.dimDeltas).toEqual([
+      { dimId: "D1", delta: 10, cohortSize: 1 },
+      { dimId: "D9", delta: 20, cohortSize: 2 },
+    ]);
+    expect(rollup!.dimDeltas![0]).not.toEqual({ dimId: "D1", delta: 10 });
   });
 });
 

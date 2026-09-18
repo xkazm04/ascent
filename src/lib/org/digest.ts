@@ -133,12 +133,25 @@ export async function buildWeeklyDigest(orgSlug: string, now: Date = new Date())
   const level = levelForScore(rollup.avgOverall);
   const movement = rollup.movement;
 
-  const deltaByDim = new Map((rollup.dimDeltas ?? []).map((d) => [d.dimId, d.delta] as const));
+  const recByDim = new Map((rollup.dimDeltas ?? []).map((d) => [d.dimId, d] as const));
   const dims: DigestDimDelta[] = [...rollup.dimAverages]
     .sort((a, b) => a.dimId.localeCompare(b.dimId))
     .map((d) => {
-      const delta = deltaByDim.has(d.dimId) ? (deltaByDim.get(d.dimId) as number) : null;
-      return { dimId: d.dimId, label: dimLabel(d.dimId), now: d.avg, delta, band: bandFor(delta) };
+      // Missing n is unmeasured. A delta without its denominator is not a measurement, and a
+      // 0-size cohort is the empty-intersection case computeDimDeltas already returns as
+      // null/omitted — never as "0 repos, delta 0".
+      const rec = recByDim.get(d.dimId);
+      const n = rec?.cohortSize;
+      const delta = rec != null && n != null && n > 0 ? rec.delta : null;
+      const cohortSize = rec != null && n != null && n > 0 ? n : null;
+      return {
+        dimId: d.dimId,
+        label: dimLabel(d.dimId),
+        now: d.avg,
+        delta,
+        cohortSize,
+        band: bandFor(delta),
+      };
     });
 
   const followups = buildFollowups(closed, opened, scanned, notes);

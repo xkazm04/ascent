@@ -92,8 +92,12 @@ export async function SecurityTab({ slug, sp }: { slug: string; sp: SearchParams
           label="Avg Security (D9)"
           value={sec.avgSecurity ?? "—"}
           color={sec.avgSecurity != null ? scoreHex(sec.avgSecurity) : undefined}
-          delta={sec.securityDelta}
-          deltaLabel={period.comparisonLabel}
+          delta={sec.securityCohortSize != null ? sec.securityDelta : null}
+          deltaLabel={
+            sec.securityCohortSize != null
+              ? `${period.comparisonLabel} · ${sec.securityCohortSize} repo${sec.securityCohortSize === 1 ? "" : "s"}`
+              : period.comparisonLabel
+          }
         />
         <Tile
           label="Branch protection"

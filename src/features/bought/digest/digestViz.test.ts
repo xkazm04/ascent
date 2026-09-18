@@ -38,7 +38,7 @@ describe("deltaExtent", () => {
 
 describe("dimBars", () => {
   it("drops the delta of an unmeasured dimension rather than carrying a number nothing may print", () => {
-    const bars = dimBars([{ dimId: "D4", label: "Security Posture", now: 66, delta: 3, band: "unmeasured" }]);
+    const bars = dimBars([{ dimId: "D4", label: "Security Posture", now: 66, delta: 3, cohortSize: null, band: "unmeasured" }]);
     expect(bars[0]).toMatchObject({ delta: null, state: "missing", withinNoise: false });
   });
 

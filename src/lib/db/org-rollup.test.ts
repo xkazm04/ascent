@@ -156,8 +156,8 @@ function dsnap(repoId: string, ...dims: [string, number][]): RepoDimSnap {
 
 describe("computeDimDeltas — cohort matching per dimension", () => {
   it.each([
-    { current: [dsnap("A", ["D9", 20]), dsnap("B", ["D9", 100])], baseline: [dsnap("A", ["D9", 20]), dsnap("B")], expected: [{ dimId: "D9", delta: 0 }] },
-    { current: [dsnap("A", ["D9", 20]), dsnap("B")], baseline: [dsnap("A", ["D9", 20]), dsnap("B", ["D9", 100])], expected: [{ dimId: "D9", delta: 0 }] },
+    { current: [dsnap("A", ["D9", 20]), dsnap("B", ["D9", 100])], baseline: [dsnap("A", ["D9", 20]), dsnap("B")], expected: [{ dimId: "D9", delta: 0, cohortSize: 1 }] },
+    { current: [dsnap("A", ["D9", 20]), dsnap("B")], baseline: [dsnap("A", ["D9", 20]), dsnap("B", ["D9", 100])], expected: [{ dimId: "D9", delta: 0, cohortSize: 1 }] },
     { current: [dsnap("A", ["D9", 20]), dsnap("B")], baseline: [dsnap("A"), dsnap("B", ["D9", 100])], expected: [] },
   ])("does not turn changing dimension coverage into movement: %j", ({ current, baseline, expected }) => {
     expect(computeDimDeltas(current, baseline)).toEqual(expected);
@@ -165,12 +165,12 @@ describe("computeDimDeltas — cohort matching per dimension", () => {
 
   it("measures only repos present in BOTH windows, per dimId", () => {
     // Cohort A,B: D1 moves avg(80,90)=85 - avg(70,80)=75 = +10; D9 moves avg(40,60)=50 - avg(20,40)=30 = +20.
-    // C is after-only and must not vote.
+    // C is after-only and must not vote. Both dims are paired on the same two repos, so n=2.
     const current = [dsnap("A", ["D1", 80], ["D9", 40]), dsnap("B", ["D1", 90], ["D9", 60]), dsnap("C", ["D1", 10], ["D9", 5])];
     const baseline = [dsnap("A", ["D1", 70], ["D9", 20]), dsnap("B", ["D1", 80], ["D9", 40])];
     expect(computeDimDeltas(current, baseline)).toEqual([
-      { dimId: "D1", delta: 10 },
-      { dimId: "D9", delta: 20 },
+      { dimId: "D1", delta: 10, cohortSize: 2 },
+      { dimId: "D9", delta: 20, cohortSize: 2 },
     ]);
   });
 
@@ -178,7 +178,7 @@ describe("computeDimDeltas — cohort matching per dimension", () => {
     // D9 was added to the rubric after the baseline scans — no before-side, so no movement claim.
     const current = [dsnap("A", ["D1", 80], ["D9", 50])];
     const baseline = [dsnap("A", ["D1", 70])];
-    expect(computeDimDeltas(current, baseline)).toEqual([{ dimId: "D1", delta: 10 }]);
+    expect(computeDimDeltas(current, baseline)).toEqual([{ dimId: "D1", delta: 10, cohortSize: 1 }]);
   });
 
   it("a cohort repo missing a dim doesn't vote on it (no zero-fill drag)", () => {
@@ -186,8 +186,8 @@ describe("computeDimDeltas — cohort matching per dimension", () => {
     const current = [dsnap("A", ["D9", 60]), dsnap("B", ["D1", 80])];
     const baseline = [dsnap("A", ["D9", 20]), dsnap("B", ["D1", 80])];
     expect(computeDimDeltas(current, baseline)).toEqual([
-      { dimId: "D1", delta: 0 },
-      { dimId: "D9", delta: 40 },
+      { dimId: "D1", delta: 0, cohortSize: 1 },
+      { dimId: "D9", delta: 40, cohortSize: 1 },
     ]);
   });
 
@@ -201,7 +201,34 @@ describe("computeDimDeltas — cohort matching per dimension", () => {
     // now avg(70,71)=70.5->71 ; before avg(70,70)=70 ; delta +1.
     const current = [dsnap("A", ["D9", 70]), dsnap("B", ["D9", 71])];
     const baseline = [dsnap("A", ["D9", 70]), dsnap("B", ["D9", 70])];
-    expect(computeDimDeltas(current, baseline)).toEqual([{ dimId: "D9", delta: 1 }]);
+    expect(computeDimDeltas(current, baseline)).toEqual([{ dimId: "D9", delta: 1, cohortSize: 2 }]);
+  });
+
+  it("carries the per-dimension paired-repo n, and refuses the old {dimId, delta} shape", () => {
+    // D1 is paired on A and B (n=2); D9 is paired on A only (B has no baseline D9), so n=1.
+    // The two denominators are different facts — collapsing them into the headline cohortSize
+    // would make D9 look as widely measured as D1.
+    const current = [dsnap("A", ["D1", 80], ["D9", 40]), dsnap("B", ["D1", 90], ["D9", 60])];
+    const baseline = [dsnap("A", ["D1", 70], ["D9", 20]), dsnap("B", ["D1", 80])];
+    const out = computeDimDeltas(current, baseline);
+    expect(out).toEqual([
+      { dimId: "D1", delta: 10, cohortSize: 2 },
+      { dimId: "D9", delta: 20, cohortSize: 1 },
+    ]);
+    for (const row of out!) {
+      expect(Object.keys(row).sort()).toEqual(["cohortSize", "delta", "dimId"]);
+      expect(row.cohortSize).toBeGreaterThan(0);
+      // Exact equality, not toMatchObject: the old pair must not satisfy the contract.
+      expect(row).not.toEqual({ dimId: row.dimId, delta: row.delta });
+    }
+    // Type-level: the new shape is required, the old pair is not assignable.
+    type Row = NonNullable<ReturnType<typeof computeDimDeltas>>[number];
+    type HasN = Row extends { dimId: string; delta: number; cohortSize: number } ? true : false;
+    const hasN: HasN = true;
+    type OldFits = { dimId: string; delta: number } extends Row ? true : false;
+    const oldFits: OldFits = false;
+    expect(hasN).toBe(true);
+    expect(oldFits).toBe(false);
   });
 });
 
@@ -335,6 +362,19 @@ describe("getOrgRollup — baseline query shape + local-day trend", () => {
     // One repo (r1) on both sides: baseline 50 -> current 70.
     expect(res!.movement).toEqual({ overall: 20, adoption: 10, rigor: 30, cohortSize: 1, onboarded: 0, departed: 0 });
     expect(res!.deltas).toEqual({ overall: 20, adoption: 10, rigor: 30 });
+  });
+
+  it("surfaces dimDeltas with the per-dimension cohort size (never the old {dimId, delta} pair)", async () => {
+    // Current repoRow is D1=70; baseline scan is s_base at overall 50. Pairing D1 at 50→70 gives
+    // +20 over n=1 — the same single-repo cohort the movement test above pins on the headlines.
+    const { prisma } = fakePrisma([{ scannedAt: new Date("2026-05-12T12:00:00Z"), overallScore: 70 }]);
+    prisma.scanDimension.findMany = vi.fn(async () => [{ scanId: "s_base", dimId: "D1", score: 50 }]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getOrgRollup("acme", { start: new Date("2026-05-01T00:00:00Z") });
+
+    expect(res!.dimDeltas).toEqual([{ dimId: "D1", delta: 20, cohortSize: 1 }]);
+    expect(res!.dimDeltas![0]).not.toEqual({ dimId: "D1", delta: 20 });
   });
 
   it("excludes the deterministic mock floor from the fleet averages, and carries the count it excluded", async () => {

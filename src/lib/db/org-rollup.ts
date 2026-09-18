@@ -421,8 +421,10 @@ export interface OrgRollup {
    * surface rendering a period delta should render the cohort size beside it. */
   movement: CohortMovement | null;
   /** Cohort-matched per-dimension movement over the window (computeDimDeltas) — e.g. the Security
-   * tab's "D9 vs 90d ago" tile delta. Null without a baseline (or no overlap). */
-  dimDeltas: { dimId: string; delta: number }[] | null;
+   * tab's "D9 vs 90d ago" tile delta. Null without a baseline (or no overlap). Each row carries
+   * `cohortSize` (paired repos that voted on that dimension); a delta without its denominator
+   * cannot be read, same as {@link movement}. */
+  dimDeltas: DimDelta[] | null;
 }
 
 /** One repo's score snapshot on one side of the window — input to `computeWindowDeltas`. */
@@ -530,17 +532,34 @@ export interface RepoDimSnap {
 }
 
 /**
+ * Cohort-matched per-dimension movement: the delta TOGETHER WITH the size of the cohort it was
+ * measured over. A count travels with its predicate — "+6 D9" over 2 paired repos of 60 is a
+ * different claim than "+6" over 58, and without `cohortSize` a reader cannot tell them apart.
+ *
+ * `cohortSize` is the number of matched repos that carried this dimension on BOTH sides (an old
+ * scan predating a new dimension simply doesn't vote). Always >= 1 on an emitted row; dimensions
+ * with no paired readings are omitted rather than reported as "0 repos, delta 0".
+ */
+export interface DimDelta {
+  dimId: string;
+  delta: number;
+  /** Repos that carried this dimension on BOTH sides of the window — the denominator of `delta`. */
+  cohortSize: number;
+}
+
+/**
  * Cohort-matched per-DIMENSION movement over the window — the same cohort semantics as
  * computeWindowDeltas (only repos present on both sides count), applied per dimId so a tab can show
  * "Security (D9) +6 vs 90d ago" without composition change bleeding into the number. Each side is
  * averaged over the matched repos that carry that dimension on BOTH sides (an old scan predating a
  * new dimension simply doesn't vote); dimensions with no paired readings are omitted. Null when
- * repo cohorts don't overlap.
+ * repo cohorts don't overlap. Each emitted row carries `cohortSize` — the n the average was taken
+ * over — so a surface never has to guess the denominator, or invent a 0.
  */
 export function computeDimDeltas(
   current: readonly RepoDimSnap[],
   baseline: readonly RepoDimSnap[],
-): { dimId: string; delta: number }[] | null {
+): DimDelta[] | null {
   const before = new Map(baseline.map((s) => [s.repoId, new Map(s.dims.map((d) => [d.dimId, d.score]))]));
   if (!current.some((s) => before.has(s.repoId))) return null;
   const paired = new Map<string, { now: number; before: number; n: number }>();
@@ -559,7 +578,7 @@ export function computeDimDeltas(
   }
   return [...paired.keys()].sort().map((dimId) => {
     const acc = paired.get(dimId)!;
-    return { dimId, delta: Math.round(acc.now / acc.n) - Math.round(acc.before / acc.n) };
+    return { dimId, delta: Math.round(acc.now / acc.n) - Math.round(acc.before / acc.n), cohortSize: acc.n };
   });
 }
 

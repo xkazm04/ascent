@@ -30,6 +30,7 @@ const fixture: SecurityOverview = {
   dimLabel: "Supply Chain & Security",
   avgSecurity: 48,
   securityDelta: null,
+  securityCohortSize: null,
   scanned: 10,
   band: { critical: 2, weak: 3, ok: 4, strong: 1 },
   weakest: [
@@ -132,6 +133,18 @@ describe("securityMarkdown", () => {
     expect(md).toContain('Policy: Security (D9) >= 50, no "ungoverned" posture');
     expect(md).toContain("5 of 10 repos FAIL the gate");
     expect(md).toContain("legacy-api: Security 22 < 50");
+  });
+
+  it("prints D9 movement with its cohort size, and omits the line when n is missing", () => {
+    expect(securityMarkdown({ ...fixture, securityDelta: 6, securityCohortSize: 8 })).toContain(
+      "- Movement: +6 D9 over last 90 days (cohort-matched, 8 repositories)",
+    );
+    expect(securityMarkdown({ ...fixture, securityDelta: -3, securityCohortSize: 1 })).toContain(
+      "- Movement: -3 D9 over last 90 days (cohort-matched, 1 repository)",
+    );
+    // A delta without n (or n=0) is unmeasured — omit, never "over 0 repositories".
+    expect(securityMarkdown({ ...fixture, securityDelta: 6, securityCohortSize: null })).not.toContain("Movement:");
+    expect(securityMarkdown({ ...fixture, securityDelta: 0, securityCohortSize: 0 })).not.toContain("Movement:");
   });
 
   it("ends with a remediation ASK", () => {
@@ -400,6 +413,27 @@ describe("buildSecurityOverview — null / empty fleet", () => {
     mockRollup.mockResolvedValue(rollup([repo("a", 70)], { dimAverages: [{ dimId: "D2", avg: 80 }] }));
     const o = (await buildSecurityOverview("acme"))!;
     expect(o.avgSecurity).toBeNull();
+  });
+
+  it("carries D9 movement with its cohort size, and nulls both when n is missing", async () => {
+    mockRollup.mockResolvedValue(rollup([repo("a", 70)], { dimDeltas: [{ dimId: "D9", delta: 6, cohortSize: 4 }] }));
+    const o = (await buildSecurityOverview("acme"))!;
+    expect(o.securityDelta).toBe(6);
+    expect(o.securityCohortSize).toBe(4);
+
+    mockRollup.mockResolvedValue(
+      rollup([repo("a", 70)], { dimDeltas: [{ dimId: "D9", delta: 6, cohortSize: 0 }] }),
+    );
+    const zeroN = (await buildSecurityOverview("acme"))!;
+    expect(zeroN.securityDelta).toBeNull();
+    expect(zeroN.securityCohortSize).toBeNull();
+
+    mockRollup.mockResolvedValue(
+      rollup([repo("a", 70)], { dimDeltas: [{ dimId: "D9", delta: 6 }] as never }),
+    );
+    const missingN = (await buildSecurityOverview("acme"))!;
+    expect(missingN.securityDelta).toBeNull();
+    expect(missingN.securityCohortSize).toBeNull();
   });
 });
 

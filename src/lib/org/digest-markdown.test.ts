@@ -33,9 +33,9 @@ const base: WeeklyDigest = {
     total: 12,
   },
   dims: [
-    { dimId: "D1", label: "AI Tooling & Conventions", now: 52, delta: 6, band: "up" },
-    { dimId: "D3", label: "CI/CD & Delivery", now: 44, delta: null, band: "unmeasured" },
-    { dimId: "D9", label: "Supply Chain & Security", now: 70, delta: 1, band: "flat" },
+    { dimId: "D1", label: "AI Tooling & Conventions", now: 52, delta: 6, cohortSize: 8, band: "up" },
+    { dimId: "D3", label: "CI/CD & Delivery", now: 44, delta: null, cohortSize: null, band: "unmeasured" },
+    { dimId: "D9", label: "Supply Chain & Security", now: 70, delta: 1, cohortSize: 8, band: "flat" },
   ],
   followups: {
     closed: 2,
@@ -109,15 +109,28 @@ describe("weeklyDigestMarkdown", () => {
 
   it("gives the noise band and the unmeasured cell WORDS, not numbers", () => {
     const l = lines(digest());
-    expect(l).toContain("| D1 AI Tooling & Conventions | 52 | +6 |");
+    expect(l).toContain("| D1 AI Tooling & Conventions | 52 | +6 over 8 repositories |");
     expect(l).toContain("| D3 CI/CD & Delivery | 44 | — |");
     // +1 is inside the band. A reader must not be able to mistake it for a real move.
-    expect(l).toContain("| D9 Supply Chain & Security | 70 | flat (within noise) |");
+    expect(l).toContain("| D9 Supply Chain & Security | 70 | flat (within noise) over 8 repositories |");
   });
 
   it("never writes +0 for a zero delta", () => {
-    const d = digest({ dims: [{ dimId: "D1", label: "AI Tooling & Conventions", now: 52, delta: 0, band: "up" }] });
-    expect(lines(d)).toContain("| D1 AI Tooling & Conventions | 52 | 0 |");
+    const d = digest({ dims: [{ dimId: "D1", label: "AI Tooling & Conventions", now: 52, delta: 0, cohortSize: 8, band: "up" }] });
+    expect(lines(d)).toContain("| D1 AI Tooling & Conventions | 52 | 0 over 8 repositories |");
+  });
+
+  it("omits the dimension delta (and does not print n=0) when the cohort size is missing", () => {
+    const d = digest({
+      dims: [
+        { dimId: "D1", label: "AI Tooling & Conventions", now: 52, delta: 6, cohortSize: null, band: "up" },
+        { dimId: "D3", label: "CI/CD & Delivery", now: 44, delta: 0, cohortSize: 0, band: "flat" },
+      ],
+    });
+    const l = lines(d);
+    expect(l).toContain("| D1 AI Tooling & Conventions | 52 | — |");
+    expect(l).toContain("| D3 CI/CD & Delivery | 44 | — |");
+    expect(l.some((x) => x.includes("over 0 repositor"))).toBe(false);
   });
 
   it("reports closed and dismissed separately, and splits closures by how they happened", () => {
