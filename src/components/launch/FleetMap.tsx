@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { readSSE } from "@/lib/sse";
 import { ConstellationField } from "./ConstellationField";
@@ -11,45 +12,21 @@ import { TriageControls } from "./FleetMap.TriageControls";
 import { useFleetData } from "./useFleetData";
 import { applyScanEvent } from "./applyScanEvent";
 import {
-  type SortKey,
-  countMatches,
-  fleetStats,
-  makeMatcher,
-  orderConstellations,
-  showTriageControls,
+  type LaunchTriage, type SortKey, TRIAGE_QUERY_DEBOUNCE_MS, countMatches, fleetStats,
+  launchTriageHref, makeMatcher, orderConstellations, resolveLaunchTriage, showTriageControls,
 } from "./fleetMapDerive";
 import { type Constellation, DENSE_FLEET_STARS } from "./fleetMapStars";
-
-/** Per-tab Find-a-repo query. A refresh keeps it; a new tab starts clean. `/launch` already
- *  carries `?next=`, so this stays out of the URL (a live search must not rewrite the address
- *  bar on every keystroke). */
-export const TRIAGE_QUERY_KEY = "ascent:fleet-map:triage-query:v1";
-
-export function readTriageQuery(): string {
-  try {
-    return sessionStorage.getItem(TRIAGE_QUERY_KEY) ?? "";
-  } catch {
-    return "";
-  }
-}
-
-export function writeTriageQuery(query: string): void {
-  try {
-    if (query) sessionStorage.setItem(TRIAGE_QUERY_KEY, query);
-    else sessionStorage.removeItem(TRIAGE_QUERY_KEY);
-  } catch {
-    /* private mode / quota — persistence is best-effort */
-  }
-}
 
 export function FleetMap({
   installations,
   userName,
   next,
+  triage: triageProp,
 }: {
   installations: Installation[];
   userName: string;
   next: string;
+  triage?: LaunchTriage;
 }) {
   const [constellations, setConstellations] = useState<Constellation[]>(() =>
     installations.map((i) => ({ id: i.id, login: i.login, status: "loading" as const })),
@@ -69,23 +46,49 @@ export function FleetMap({
   // org until its fresh scores have propagated (SCAN_SETTLE_MS) rather than dimming it back down.
   const recentScan = useRef<Map<string, number>>(new Map());
 
-  // Fleet triage controls (MAP-4): search, level-band filter, watched-only, and an org sort key.
-  // Filters DIM non-matching stars (preserving each constellation's shape); sort reorders the org cards.
-  // Search is session-backed so a refresh (or the OAuth bounce that lands here) keeps the filter.
-  // Restore goes through setQueryState so it cannot wipe the saved value on the first paint.
-  const [query, setQueryState] = useState("");
-  function setQuery(v: string) {
-    setQueryState(v);
-    writeTriageQuery(v);
-  }
+  // URL is source of truth for q/levels/watched/sort; Find-a-repo is a debounced draft.
+  const router = useRouter();
+  const pathname = usePathname() ?? "/launch";
+  const searchParams = useSearchParams();
+  const urlKey = searchParams.toString();
+  const urlTriage = useMemo(() => resolveLaunchTriage(searchParams, triageProp), [urlKey, triageProp, searchParams]);
+  const [query, setQuery] = useState(urlTriage.q);
+  const [levels, setLevels] = useState(() => new Set(urlTriage.levels));
+  const [watchedOnly, setWatched] = useState(urlTriage.watchedOnly);
+  const [sortKey, setSort] = useState<SortKey>(urlTriage.sortKey);
+  const lastWritten = useRef<string | null>(null);
+  const draftRef = useRef({ query, levels, watchedOnly, sortKey });
+  draftRef.current = { query, levels, watchedOnly, sortKey };
+
   useEffect(() => {
-    const saved = readTriageQuery();
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot restore so a refresh keeps the filter
-    if (saved) setQueryState(saved);
-  }, []);
-  const [levels, setLevels] = useState<Set<string>>(new Set());
-  const [watchedOnly, setWatchedOnly] = useState(false);
-  const [sortKey, setSortKey] = useState<SortKey>("name");
+    const href = `${pathname}${urlKey ? `?${urlKey}` : ""}`;
+    if (lastWritten.current === href) return;
+    const parsed = resolveLaunchTriage(searchParams, triageProp);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- URL is the source of truth
+    setQuery(parsed.q);
+    setLevels(new Set(parsed.levels));
+    setWatched(parsed.watchedOnly);
+    setSort(parsed.sortKey);
+  }, [urlKey]); // eslint-disable-line react-hooks/exhaustive-deps -- urlKey is the address-bar identity
+
+  function commit(patch?: Partial<{ q: string; levels: Set<string>; watchedOnly: boolean; sortKey: SortKey }>) {
+    const d = draftRef.current;
+    const href = launchTriageHref(pathname, searchParams, {
+      q: patch?.q ?? d.query, levels: [...(patch?.levels ?? d.levels)],
+      watchedOnly: patch?.watchedOnly ?? d.watchedOnly, sortKey: patch?.sortKey ?? d.sortKey,
+    });
+    const current = `${pathname}${urlKey ? `?${urlKey}` : ""}`;
+    if (href === current) return;
+    lastWritten.current = href;
+    router.replace(href, { scroll: false });
+  }
+
+  useEffect(() => {
+    if (query.trim() === urlTriage.q) return;
+    const t = setTimeout(() => commit({ q: query }), TRIAGE_QUERY_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce the Find-a-repo draft only
+  }, [query]);
 
   // Scan an org's watched repos straight from the map — reuses the dashboard's SSE bulk scan and
   // brightens each star in place as results land, so a near-empty grey field can be lit up on the
@@ -210,12 +213,11 @@ export function FleetMap({
   const triageShown = showTriageControls(constellations.length, stats.repos);
 
   function toggleLevel(band: string) {
-    setLevels((s) => {
-      const next = new Set(s);
-      if (next.has(band)) next.delete(band);
-      else next.add(band);
-      return next;
-    });
+    const nextLevels = new Set(levels);
+    if (nextLevels.has(band)) nextLevels.delete(band);
+    else nextLevels.add(band);
+    setLevels(nextLevels);
+    commit({ levels: nextLevels });
   }
 
   return (
@@ -243,15 +245,16 @@ export function FleetMap({
             levels={levels}
             toggleLevel={toggleLevel}
             watchedOnly={watchedOnly}
-            setWatchedOnly={setWatchedOnly}
+            setWatchedOnly={(v) => { setWatched(v); commit({ watchedOnly: v }); }}
             sortKey={sortKey}
-            setSortKey={setSortKey}
+            setSortKey={(v) => { setSort(v); commit({ sortKey: v }); }}
             filterActive={filterActive}
             matchCount={matchCount}
             onClear={() => {
               setQuery("");
               setLevels(new Set());
-              setWatchedOnly(false);
+              setWatched(false);
+              commit({ q: "", levels: new Set(), watchedOnly: false });
             }}
           />
         )}

@@ -8,6 +8,11 @@ import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { SignInNotice } from "@/components/SignInNotice";
 import { FleetMap } from "@/components/launch/FleetMap";
 import { missionControlHref } from "@/components/launch/FleetMap.constants";
+import {
+  type LaunchPageSearch,
+  launchSignInNext,
+  parseLaunchTriage,
+} from "@/components/launch/fleetMapDerive";
 import { safeNext } from "@/lib/auth";
 import { resolveSignInState } from "@/lib/signin-gate";
 import { viewerDisplayName, viewerInstallations } from "@/lib/viewer-installations";
@@ -27,9 +32,10 @@ export const metadata: Metadata = {
 export default async function LaunchPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string }>;
+  searchParams: Promise<LaunchPageSearch>;
 }) {
-  const { next: nextParam } = await searchParams;
+  const sp = await searchParams;
+  const nextParam = Array.isArray(sp.next) ? sp.next[0] : sp.next;
   // Re-validate the carried-along destination (defense in depth — the value rode in on a
   // query param). Missing/invalid next sanitizes to /onboarding; once the viewer has a
   // fleet, that default becomes the first org dashboard rather than the wizard.
@@ -53,7 +59,7 @@ export default async function LaunchPage({
           <p className="mt-2 max-w-xl text-slate-400">
             Sign in to chart your orgs and repositories as a living star-map of engineering maturity.
           </p>
-          <SignInNotice next="/launch" provider={provider} expired={expired} />
+          <SignInNotice next={launchSignInNext(sp)} provider={provider} expired={expired} />
         </main>
         <SiteFooter />
       </>
@@ -66,13 +72,14 @@ export default async function LaunchPage({
   // actual fleet rather than on a session object that production never creates.
   if (!installations.length) redirect("/onboarding");
   const next = missionControlHref(requested, installations);
+  const triage = parseLaunchTriage(sp);
 
   const viewerName = await viewerDisplayName();
 
   return (
     <>
       <SiteHeader />
-      <FleetMap installations={installations} userName={viewerName} next={next} />
+      <FleetMap installations={installations} userName={viewerName} next={next} triage={triage} />
       <SiteFooter />
     </>
   );

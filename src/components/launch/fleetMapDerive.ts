@@ -227,3 +227,118 @@ export function orderConstellations(constellations: Constellation[], sortKey: So
     return metric(b) - metric(a); // maturity / repos / movement: high to low
   });
 }
+
+/** Find-a-repo writes `q` through this delay so typing does not spam `router.replace`. */
+export const TRIAGE_QUERY_DEBOUNCE_MS = 250;
+
+const LEVEL_TOKEN = /^(L[1-5]|unscanned)$/;
+const LEVEL_ORDER = ["L1", "L2", "L3", "L4", "L5", "unscanned"] as const;
+const SORT_TOKEN: ReadonlySet<string> = new Set(["name", "maturity", "repos", "movement"]);
+
+export interface LaunchTriage {
+  q: string;
+  levels: string[];
+  watchedOnly: boolean;
+  sortKey: SortKey;
+}
+
+export const EMPTY_LAUNCH_TRIAGE: LaunchTriage = {
+  q: "",
+  levels: [],
+  watchedOnly: false,
+  sortKey: "name",
+};
+
+/** `/launch` search keys the page and the map both read. Values may be repeated (Next.js). */
+export type LaunchPageSearch = {
+  next?: string | string[];
+  q?: string | string[];
+  levels?: string | string[];
+  watched?: string | string[];
+  sort?: string | string[];
+};
+
+export type LaunchSearchInput =
+  | { getAll: (name: string) => string[] }
+  | LaunchPageSearch
+  | null
+  | undefined;
+
+function paramValues(source: LaunchSearchInput, key: string): string[] {
+  if (!source) return [];
+  if (typeof (source as { getAll?: unknown }).getAll === "function") {
+    return (source as { getAll: (name: string) => string[] }).getAll(key);
+  }
+  const v = (source as LaunchPageSearch)[key as keyof LaunchPageSearch];
+  if (v == null || v === "") return [];
+  return Array.isArray(v) ? v.filter((s) => s !== "") : [v];
+}
+
+/** Valid bands in LEVEL_BANDS order, unique. Unknown tokens dropped. */
+export function canonicalizeLevels(levels: Iterable<string>): string[] {
+  const set = new Set<string>();
+  for (const raw of levels) {
+    if (LEVEL_TOKEN.test(raw)) set.add(raw);
+  }
+  return LEVEL_ORDER.filter((b) => set.has(b));
+}
+
+function levelTokens(source: LaunchSearchInput): string[] {
+  return paramValues(source, "levels").flatMap((v) => v.split(",")).map((s) => s.trim()).filter(Boolean);
+}
+
+/** Parse `q` / `levels` / `watched` / `sort` from `/launch` search. Unknown values fall back to empty. */
+export function parseLaunchTriage(source: LaunchSearchInput): LaunchTriage {
+  const q = (paramValues(source, "q")[0] ?? "").trim();
+  const levels = canonicalizeLevels(levelTokens(source));
+  const watchedRaw = (paramValues(source, "watched")[0] ?? "").toLowerCase();
+  const watchedOnly = watchedRaw === "1" || watchedRaw === "true";
+  const sortRaw = paramValues(source, "sort")[0] ?? "";
+  const sortKey: SortKey = SORT_TOKEN.has(sortRaw) ? (sortRaw as SortKey) : "name";
+  return { q, levels, watchedOnly, sortKey };
+}
+
+function triageIsActive(t: LaunchTriage): boolean {
+  return t.q !== "" || t.levels.length > 0 || t.watchedOnly || t.sortKey !== "name";
+}
+
+/** URL wins when it carries any triage key; otherwise `fallback` (server snapshot / tests). */
+export function resolveLaunchTriage(source: LaunchSearchInput, fallback?: LaunchTriage): LaunchTriage {
+  const parsed = parseLaunchTriage(source);
+  if (triageIsActive(parsed)) return parsed;
+  return fallback ?? parsed;
+}
+
+/**
+ * Patch triage onto the current search (keeps `next` and any other keys). Defaults are omitted:
+ * empty `q`, no bands, watched off, sort `name`. Path-only when the result is empty.
+ */
+export function launchTriageHref(
+  pathname: string,
+  currentSearch: string | { toString(): string },
+  triage: LaunchTriage,
+): string {
+  const params = new URLSearchParams(
+    typeof currentSearch === "string" ? currentSearch : currentSearch.toString(),
+  );
+  const q = triage.q.trim();
+  if (q) params.set("q", q);
+  else params.delete("q");
+  const levels = canonicalizeLevels(triage.levels);
+  if (levels.length) params.set("levels", levels.join(","));
+  else params.delete("levels");
+  if (triage.watchedOnly) params.set("watched", "1");
+  else params.delete("watched");
+  if (triage.sortKey !== "name") params.set("sort", triage.sortKey);
+  else params.delete("sort");
+  const qs = params.toString();
+  return qs ? `${pathname}?${qs}` : pathname;
+}
+
+/** Sign-in `next` so a signed-out `/launch?levels=L1` returns to the same filter after OAuth. */
+export function launchSignInNext(source: LaunchSearchInput): string {
+  const next = paramValues(source, "next")[0];
+  const seed = new URLSearchParams();
+  if (next) seed.set("next", next);
+  return launchTriageHref("/launch", seed, parseLaunchTriage(source));
+}

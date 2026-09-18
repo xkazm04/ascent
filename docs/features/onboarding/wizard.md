@@ -327,8 +327,10 @@ checklist in a later lane) ships as two primitives, both deliberately server-own
 ## Launch / fleet map (`src/app/launch/page.tsx`, `src/components/launch/FleetMap.tsx`)
 
 `/launch?next=<safe-url>` is the post-OAuth entrance (the callback redirects here on first
-sign-in). It renders `FleetMap` when signed in, else a `SignInNotice`. Signed in with no
-installations still redirects to `/onboarding` (the map has nothing to chart).
+sign-in). It renders `FleetMap` when signed in, else a `SignInNotice` (whose `next` keeps
+any triage already on the URL, so `/launch?levels=L1` survives the auth bounce). Signed in
+with no installations still redirects to `/onboarding` (the map has nothing to chart).
+robots.txt already disallows `/launch`.
 
 The map's primary CTA, **Enter mission control**, is the handoff into the org dashboard.
 OAuth lands on `/launch` with no `?next=`. When `next` is missing or the `/onboarding`
@@ -352,6 +354,11 @@ cluster, each repo a star:
   done or a new error message). Scan stays hidden until the org is `done`.
 - A live fleet-wide tally (orgs / repos / scanned / avg maturity) updates as each org
   streams in.
+- Fleet triage (Find a repo, level bands, watched-only, org sort) lives in the URL:
+  `q`, `levels`, `watched`, `sort`. The address is the source of truth, so a refresh,
+  a share, or `/launch?levels=L1` restores the L1 band. Find-a-repo writes `q` through
+  a short debounce and `router.replace` (no history spam); the other controls write
+  immediately. `?next=` is preserved. Defaults are omitted (`sort=name`, empty filters).
 
 ## Key files
 
