@@ -174,7 +174,7 @@ export function FleetMap({
   }
 
   // Initial per-org fetch + the MAP-6 ~90s visible-tab live refresh (see useFleetData).
-  useFleetData(installations, setConstellations, scanCtrl, scanGen, recentScan);
+  const { onRetry } = useFleetData(installations, setConstellations, scanCtrl, scanGen, recentScan);
 
   // Fleet-wide tallies that visibly climb as each org's data streams in.
   const stats = useMemo(() => fleetStats(constellations), [constellations]);
@@ -267,6 +267,7 @@ export function FleetMap({
                 matcher={matcher}
                 animateStars={animateStars}
                 onScan={() => scanOrg(c.login)}
+                onRetry={onRetry}
                 scanning={scanning === c.login}
                 scanDisabled={scanning !== null && scanning !== c.login}
                 scanError={scanError[c.login]}

@@ -21,7 +21,7 @@ import {
 } from "./fleetMapDerive";
 import type { Constellation } from "./fleetMapStars";
 
-vi.mock("./useFleetData", () => ({ useFleetData: () => {} }));
+vi.mock("./useFleetData", () => ({ useFleetData: () => ({ onRetry: () => {} }) }));
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
     <a href={href} {...rest}>

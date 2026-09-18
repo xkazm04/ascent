@@ -6,8 +6,8 @@
 // 320px phone) without touching the painted star (`look.r`). These pin: every hit circle ≥6 units, and
 // the visible star radius is left small (paint not grown).
 
-import { describe, it, expect } from "vitest";
-import { render } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
 import { ConstellationField } from "./ConstellationField";
 import { MAX_STARS, type Constellation } from "./fleetMapStars";
 
@@ -166,5 +166,28 @@ describe("ConstellationField accessible name", () => {
     const label = fieldLabel({ id: 1, login: "acme", status: "done", repos });
     expect(label).toContain(String(MAX_STARS + 20)); // the org is this big...
     expect(label).toContain(`${MAX_STARS} brightest shown`); // ...and this much of it is drawn
+  });
+});
+
+describe("ConstellationField — Retry on an unreachable org", () => {
+  const errored: Constellation = { id: 7, login: "acme", status: "error", message: "Failed (502)" };
+
+  it("offers one Retry control on an error card and hides Scan", () => {
+    const onRetry = vi.fn();
+    render(<ConstellationField c={errored} onRetry={onRetry} onScan={() => {}} />);
+    expect(screen.getAllByRole("button", { name: /retry/i })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: /scan/i })).toBeNull();
+    screen.getByRole("button", { name: /retry acme/i }).click();
+    expect(onRetry).toHaveBeenCalledWith(7);
+  });
+
+  it("does not offer Retry while loading or done", () => {
+    const onRetry = vi.fn();
+    const { rerender } = render(
+      <ConstellationField c={{ id: 7, login: "acme", status: "loading" }} onRetry={onRetry} />,
+    );
+    expect(screen.queryByRole("button", { name: /retry/i })).toBeNull();
+    rerender(<ConstellationField c={doneConstellation()} onRetry={onRetry} />);
+    expect(screen.queryByRole("button", { name: /retry/i })).toBeNull();
   });
 });

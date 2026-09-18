@@ -343,7 +343,10 @@ cluster, each repo a star:
 - Each constellation hydrates independently via
   `fetch(/api/app/repos?org=<login>&installation_id=<id>)`, mapping the response to
   `RepoStar[]`; skeleton stars animate while loading, with per-constellation
-  loading/done/error status.
+  loading/done/error status. An unreachable org keeps the ~90s auto-refresh (with
+  per-org backoff, up to 15 min) and also offers **Retry**, which immediately
+  re-fetches that installation (clears backoff, shows the loading skeleton, then
+  done or a new error message). Scan stays hidden until the org is `done`.
 - A live fleet-wide tally (orgs / repos / scanned / avg maturity) updates as each org
   streams in.
 
