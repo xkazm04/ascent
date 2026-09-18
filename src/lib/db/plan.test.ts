@@ -595,13 +595,16 @@ describe("dailyAvg (via listGoals trend) — collapses same-day points to a per-
 
   it("a clear rising day-over-day mean yields a positive trend (perWeek > 0, an ETA exists)", async () => {
     // Day 1 mean ≈ 50, then a strictly rising mean each day across the presentability span
-    // (MIN_FORECAST_SPAN_DAYS = 14) so projectGoal may emit an ETA.
+    // (MIN_FORECAST_SPAN_DAYS = 14) so projectGoal may emit an ETA. Anchor the series on now so
+    // the nowMs-corrected projector does not null a past crossing (Wave 5 goal-ETA gate).
+    const dayMs = 86_400_000;
+    const origin = Date.now() - 14 * dayMs;
     const scans = Array.from({ length: 15 }, (_, d) => ({
-      at: `2026-05-${String(d + 1).padStart(2, "0")}T06:00:00.000Z`,
+      at: new Date(origin + d * dayMs).toISOString(),
       overall: 50 + d * 2, // rises 2/day across distinct days
     }));
     // add a same-day duplicate on day 1 that must be averaged in (50 and 54 → mean 52, still rising)
-    scans.push({ at: "2026-05-01T20:00:00.000Z", overall: 54 });
+    scans.push({ at: new Date(origin + 14 * 3600_000).toISOString(), overall: 54 });
     const prisma = fakeTrendPrisma(scans);
     (prisma.goal as { update?: unknown }).update = vi.fn(async () => ({ id: "g1" }));
     mockGetPrisma.mockReturnValue(prisma);

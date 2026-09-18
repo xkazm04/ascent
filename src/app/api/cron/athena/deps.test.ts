@@ -34,7 +34,7 @@ vi.mock("@/lib/db/athena", () => ({
   listOpenAthenaProposals: vi.fn(),
   writeAthenaEpisode: vi.fn(),
 }));
-vi.mock("@/lib/llm/tool-loop", () => ({ runToolLoop: vi.fn() }));
+vi.mock("@/lib/llm/tool-loop", () => ({ runToolLoop: vi.fn(), ATHENA_TOTAL_BUDGET_MS: 60_000 }));
 
 import { buildOrgCycleDeps } from "./deps";
 
