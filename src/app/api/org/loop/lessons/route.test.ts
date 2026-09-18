@@ -48,6 +48,9 @@ vi.mock("@/lib/db/loop-lessons", () => ({
     const c = store.get(id);
     return c && c.org === org ? { ...c, promotedMemoryId: null } : null;
   }),
+  // The runner's surface (route.runner.test.ts covers it); inert here.
+  listRunnerKeptLessons: vi.fn(async () => []),
+  revokeRunnerKeptLesson: vi.fn(async () => ({ ok: false, reason: "not-found" })),
   settleLoopLesson: vi.fn(async (org: string, id: string, action: string, _by: string | null, promotedMemoryId: string | null) => {
     const c = store.get(id);
     if (!c || c.org !== org) return null;
@@ -124,6 +127,13 @@ describe("keep / discard", () => {
     expect(created).toEqual([]);
     expect(settled[0]).toMatchObject({ action: "discard", promotedMemoryId: null });
     expect(store.get("c-acme")!.status).toBe("discarded");
+  });
+
+  it("409s a discard of an already-KEPT candidate — its memory would stay live under a 'discarded' row", async () => {
+    store.get("c-acme")!.status = "kept";
+    const res = await post({ org: "acme", id: "c-acme", action: "discard" });
+    expect(res.status).toBe(409);
+    expect(settled).toEqual([]);
   });
 
   it("409s a second keep rather than writing the memory twice", async () => {

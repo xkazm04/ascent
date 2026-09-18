@@ -9,70 +9,44 @@
 // and promotion is a human action through the existing `POST /api/org/memory` door, which runs the
 // duplicate/consolidation check that direct writes here would bypass.
 //
+// ONE OPERATOR-APPROVED EXCEPTION (spark theater-upgrade, Q10): a STANDING RUNNER lane whose guard
+// VERIFIED its work keeps its own lessons without waiting — otherwise an unattended runner could never
+// learn from itself, because the next lane's brief reads only kept memory. The exception is narrow and
+// lives in `loop-lessons-runner.ts`: the candidate is still recorded first, the keep goes through the
+// same `createOrgMemory` door, a near-duplicate is left pending for a human, and every runner keep is
+// stamped, audited and revocable. Every other lane's lessons obey the rule above unchanged.
+//
 // `discard` is SOFT. A discarded candidate keeps its row with `status: "discarded"` — knowing that a
 // lesson was proposed and rejected is worth as much as knowing it was kept, and a delete would make
 // the same proposal look novel the next time an agent had it.
 
 import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
+import { autoKeepRunnerLessons } from "@/lib/db/loop-lessons-runner";
+import {
+  LOOP_LESSON_SOURCE,
+  toLessonRow as toRow,
+  type CandidateRow,
+  type LessonStatus,
+  type LoopLessonRow,
+} from "@/lib/db/loop-lessons-row";
 import { legacyUnverifiedCycleLessonKey, unverifiedCycleLessonKey } from "@/lib/local/lane-baseline";
 
-/** Where a candidate came from. One value today; the column is `String` so #36's skill-lessons
- *  channel can reuse this table without a migration. */
-export const LOOP_LESSON_SOURCE = "loop-lesson";
-
-export type LessonStatus = "pending" | "kept" | "discarded";
-
-const STATUSES: readonly LessonStatus[] = ["pending", "kept", "discarded"];
-
-export const isLessonStatus = (v: unknown): v is LessonStatus =>
-  typeof v === "string" && (STATUSES as readonly string[]).includes(v);
-
-/** A lesson candidate as a client reads it. Timestamps are STRINGS — see wire-safe.ts. */
-export interface LoopLessonRow {
-  id: string;
-  namespace: string | null;
-  content: string;
-  kind: string;
-  source: string;
-  laneId: string | null;
-  status: string;
-  /** The OrgMemory row a kept candidate became; null until a human keeps it. */
-  promotedMemoryId: string | null;
-  reviewedBy: string | null;
-  reviewedAt: string | null;
-  createdAt: string;
-}
-
-type CandidateRow = {
-  id: string;
-  namespace: string | null;
-  content: string;
-  kind: string;
-  source: string;
-  laneId: string | null;
-  status: string;
-  promotedMemoryId: string | null;
-  reviewedBy: string | null;
-  reviewedAt: Date | null;
-  createdAt: Date;
-};
-
-function toRow(row: CandidateRow): LoopLessonRow {
-  return {
-    id: row.id,
-    namespace: row.namespace,
-    content: row.content,
-    kind: row.kind,
-    source: row.source,
-    laneId: row.laneId,
-    status: row.status,
-    promotedMemoryId: row.promotedMemoryId,
-    reviewedBy: row.reviewedBy,
-    reviewedAt: row.reviewedAt ? row.reviewedAt.toISOString() : null,
-    createdAt: row.createdAt.toISOString(),
-  };
-}
+// THE ROW SHAPE lives in `loop-lessons-row.ts` (so the runner's sibling reads a row without an import
+// cycle back into this module) and is re-exported here, so every existing caller and the
+// `db/index.ts` barrel are unchanged.
+export { LOOP_LESSON_SOURCE, isLessonStatus, type LessonStatus, type LoopLessonRow } from "@/lib/db/loop-lessons-row";
+// The standing runner's keep / revoke / ledger read (spark theater-upgrade) — `loop-lessons-runner.ts`.
+export {
+  RUNNER_KEEPER,
+  RUNNER_KEPT_CONFIDENCE,
+  RUNNER_KEPT_TAG,
+  listRunnerKeptLessons,
+  revokeRunnerKeptLesson,
+  type RevokeRunnerLessonOutcome,
+  type RunnerKeptLessonRow,
+  type RunnerKeptState,
+} from "@/lib/db/loop-lessons-runner";
 
 /** Ceiling per lane, matching the report parser's own cap — a session that produced fifty "lessons"
  *  produced none, and a review queue nobody can finish is a review queue nobody reads. */
@@ -84,7 +58,8 @@ const LESSON_MAX_CHARS = 600;
  *
  * Deliberately NOT deduplicated against existing memory here: that check belongs to the promotion
  * door, which runs the real consolidation analysis. Skipping a candidate because it looked similar
- * would silently drop the one a human might have wanted to supersede with.
+ * would silently drop the one a human might have wanted to supersede with. (The runner's auto-keep
+ * does check — and a near-duplicate is then left PENDING for that human, never dropped.)
  */
 export async function recordLoopLessons(
   orgSlug: string,
@@ -92,10 +67,11 @@ export async function recordLoopLessons(
   laneId: string,
   lessons: readonly string[],
   /** THE STANDING RUNNER (spark theater-upgrade, 2026-09-18): `autoKeep` is set on a RUNNER lane whose
-   *  guard VERIFIED it — its lessons are kept into the repo's procedural memory automatically, tagged
-   *  "kept by runner" and revocable from the ledger. Every other lane's lessons stay pending exactly as
-   *  before. (WP5 implements the keep; until then the option is accepted and ignored.) */
-  _opts: { autoKeep?: boolean } = {},
+   *  guard VERIFIED it — the candidates are recorded exactly as below, then each is kept into the
+   *  repo's procedural memory through the same door a human keep uses (`autoKeepRunnerLessons`),
+   *  stamped as kept by the runner and revocable from the ledger. Every other lane's lessons stay
+   *  pending exactly as before: with `autoKeep` false or absent this function is unchanged. */
+  opts: { autoKeep?: boolean } = {},
 ): Promise<LoopLessonRow[]> {
   if (!isDbConfigured()) return [];
   const clean = lessons.map((l) => l.trim()).filter(Boolean).slice(0, MAX_PER_LANE);
@@ -120,6 +96,10 @@ export async function recordLoopLessons(
       .catch(() => null);
     if (row) written.push(toRow(row as CandidateRow));
   }
+  // The keep runs AFTER every candidate is on disk, so a promotion that fails part-way leaves the rest
+  // of the lane's lessons pending rather than unwritten. `autoKeepRunnerLessons` never throws and
+  // returns each row as it now stands — `kept` when it reached memory, still `pending` when it did not.
+  if (opts.autoKeep === true && written.length > 0) return autoKeepRunnerLessons(orgSlug, org.id, written);
   return written;
 }
 
