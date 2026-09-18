@@ -68,9 +68,11 @@ retirement candidate; when that happens those four readers lose a branch each, n
 **A goal ETA is gated the same way a trajectory is.** `listGoals` carries the OLS `forecast` next to
 pace/ETA; presenters must run it through `composeGoal` (`src/lib/maturity/forecast.ts`) so an
 unmeasurable fit cannot print a bare "behind, ETA ~120d". The briefing markdown, board PDF and Goals
-card all read the composed line (`briefingGoalLine` / `briefingGoalStats`); a sub-gate fit renders
-`forecastInsufficiency` verbatim and drops the ETA. A reached target is a standing fact and needs no
-hedge. See [org-intelligence.md](../org-dashboard/org-intelligence.md).
+card all read one composed line (`briefingGoalLine` / `briefingGoalStats`): current/target, `pct` only
+with its `pctLabel`, pace only when that read is presentable, and ETA omitted when the fit fails
+`isProjectable` or there is no fit (absence, never a leftover `etaDays`). A sub-gate fit renders
+`forecastInsufficiency` verbatim. A reached target is a standing fact and needs no hedge. See
+[org-intelligence.md](../org-dashboard/org-intelligence.md).
 
 ## Transition programme
 

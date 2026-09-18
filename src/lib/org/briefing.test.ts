@@ -1,9 +1,13 @@
 // The "Copy for LLM" payload is a product contract — a dev pastes it into Claude Code. Lock its
 // shape: standing headline, benchmark, strengths/weaknesses, movement, and a trailing actionable ASK.
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { benchmarkCaption, briefingGoalLine, briefingHasScore, briefingLevelCaption, briefingLoopProofLine, briefingMarkdown, briefingProofLine, briefingTrajectoryNote, buildLoopProof, coverageLine, engineMixCaveat, fleetAdoptionRate, mockDisclosure, movementLine, noScoreLine, scoreBasisLine, scoreValue, valueRealizedHeading, valueRealizedLine, type ExecBriefing } from "./briefing";
-import { forecastTrajectory } from "@/lib/maturity/forecast";
+import { benchmarkCaption, briefingGoalLine, briefingGoalStats, briefingHasScore, briefingLevelCaption, briefingLoopProofLine, briefingMarkdown, briefingProofLine, briefingTrajectoryNote, buildLoopProof, coverageLine, engineMixCaveat, fleetAdoptionRate, mockDisclosure, movementLine, noScoreLine, scoreBasisLine, scoreValue, valueRealizedHeading, valueRealizedLine, type BriefingGoal, type ExecBriefing } from "./briefing";
+import { composeGoal, forecastTrajectory, isProjectable, projectGoal } from "@/lib/maturity/forecast";
+import { GOAL_PCT_LABEL } from "@/lib/db/plan";
+import { briefing as pdfBriefing, text as pdfText } from "../pdf/briefing-document.test-helpers";
 
 // `buildExecBriefing` is pure assembly over five @/lib/db reads (rollup/benchmark/movers/goals +
 // a prior-window rollup it derives itself). Mock the db boundary so we can drive the assembly math
@@ -70,7 +74,16 @@ const fixture: ExecBriefing = {
   security: { dimId: "D9", label: "Security", avg: 41 },
   topGainers: [{ name: "api", dOverall: 9, levelFrom: "L2", levelTo: "L3" }],
   topRegressions: [{ name: "legacy", dOverall: -5, levelFrom: "L3", levelTo: "L3" }],
-  goals: [{ label: "Lift security", current: 41, target: 70, pct: 22, pace: "behind", etaDays: 120 }],
+  goals: [{
+    label: "Lift security",
+    current: 41,
+    target: 70,
+    pct: 22,
+    pctBasis: "progress",
+    pctLabel: GOAL_PCT_LABEL.progress,
+    pace: "behind",
+    etaDays: 120,
+  }],
   regressionCount: 1,
   recommendations: [
     {
@@ -371,8 +384,10 @@ describe("briefingMarkdown", () => {
     expect(md).toMatch(/▼ legacy: -5(?!\s*\()/); // no level transition shown when from === to
   });
 
-  it("renders goals with progress + ETA", () => {
-    expect(md).toContain("Lift security: 41/70 (22%, behind, ETA ~120d)");
+  it("renders goals with labelled pct, not an ungated ETA", () => {
+    expect(md).toContain(`Lift security: 41/70 (22% · ${GOAL_PCT_LABEL.progress})`);
+    expect(md).not.toMatch(/ETA ~/);
+    expect(md).not.toMatch(/behind, ETA/);
   });
 
   it("records the scoring provenance and flags a mock-degraded period (engine mix in the durable artifact)", () => {
@@ -990,7 +1005,7 @@ describe("buildExecBriefing — benchmark / movers / goals pass-through", () => 
         target: 70,
         pct: 22,
         pace: "behind",
-        etaDays: 120,
+        etaDays: null,
         headline: null,
         confidence: null,
         basis: null,
@@ -1014,6 +1029,8 @@ describe("buildExecBriefing — benchmark / movers / goals pass-through", () => 
         current: 41,
         target: 70,
         pct: 22,
+        pctBasis: "progress",
+        pctLabel: GOAL_PCT_LABEL.progress,
         pace: "behind",
         perWeek: 35,
         etaDays: 120,
@@ -1031,7 +1048,9 @@ describe("buildExecBriefing — benchmark / movers / goals pass-through", () => 
     expect(g.insufficiency).toContain("2 distinct scan days");
     const line = briefingGoalLine(g);
     expect(line).toContain("Not enough history to project");
+    expect(line).toContain(GOAL_PCT_LABEL.progress);
     expect(line).not.toMatch(/ETA/);
+    expect(line).not.toMatch(/behind/i);
     expect(briefingMarkdown(b)).toContain("Not enough history to project");
     expect(briefingMarkdown(b)).not.toMatch(/ETA ~/);
   });
@@ -1049,6 +1068,8 @@ describe("buildExecBriefing — benchmark / movers / goals pass-through", () => 
         current: 60,
         target: 80,
         pct: 50,
+        pctBasis: "progress",
+        pctLabel: GOAL_PCT_LABEL.progress,
         pace: "tracking",
         perWeek: fit.perWeek,
         etaDays: 20,
@@ -1067,6 +1088,8 @@ describe("buildExecBriefing — benchmark / movers / goals pass-through", () => 
     expect(g.etaDays).toBe(20);
     const line = briefingGoalLine(g);
     expect(line).toContain("ETA ~20d");
+    expect(line).toContain(GOAL_PCT_LABEL.progress);
+    expect(line).toContain("50%");
     expect(line).toContain("trend confidence");
     expect(line).toContain("fit over 20 scan days across 19 days");
   });
@@ -1240,11 +1263,21 @@ describe("briefingMarkdown — partially-populated briefing renders only present
   it("renders a goal without an ETA clause when etaDays is null", () => {
     const md = briefingMarkdown({
       ...emptyBriefing,
-      goals: [{ label: "Raise rigor", current: 30, target: 60, pct: 50, pace: "on track", etaDays: null }],
+      goals: [{
+        label: "Raise rigor",
+        current: 30,
+        target: 60,
+        pct: 50,
+        pctBasis: "progress",
+        pctLabel: GOAL_PCT_LABEL.progress,
+        pace: "on track",
+        etaDays: null,
+      }],
     });
     expect(md).toContain("## Goals");
-    expect(md).toContain("Raise rigor: 30/60 (50%, on track)");
+    expect(md).toContain(`Raise rigor: 30/60 (50% · ${GOAL_PCT_LABEL.progress})`);
     expect(md).not.toMatch(/ETA/);
+    expect(md).not.toMatch(/on track/);
     expect(md).not.toMatch(/undefined|null|NaN/);
   });
 
@@ -1482,5 +1515,121 @@ describe("buildExecBriefing — the trajectory consults the shared presentabilit
     mockRollup.mockResolvedValue(rollup({ forecast: forecastTrajectory(pts) }));
     const b = (await buildExecBriefing("acme"))!;
     expect(b.forecastBasis).toContain("4 of them compacted");
+  });
+});
+
+// Gate: one composer for the three board surfaces. A 2-day / leftover-ETA fixture must not print
+// on-pace + ETA; a 14-day fit may; an attainment-only goal must label pct and invent no progress/ETA.
+const DAY_MS = 86_400_000;
+function dailySeries(points: number, step = 1, startVal = 50) {
+  return Array.from({ length: points }, (_, i) => ({
+    date: new Date(Date.parse("2026-01-01") + i * DAY_MS).toISOString().slice(0, 10),
+    value: startVal + step * i,
+  }));
+}
+function fitGoal(points: number, over: Partial<BriefingGoal> = {}): BriefingGoal {
+  const series = dailySeries(points);
+  const current = series[series.length - 1]!.value;
+  const target = 80;
+  const nowMs = Date.parse(series[series.length - 1]!.date);
+  const p = projectGoal({ series, current, target, targetDate: null, nowMs });
+  const read = composeGoal(p.forecast, p, { current, target, targetDate: null });
+  return {
+    label: "Lift security",
+    current,
+    target,
+    pct: 50,
+    pctBasis: "progress",
+    pctLabel: GOAL_PCT_LABEL.progress,
+    pace: p.pace,
+    etaDays: read.confidence != null ? p.etaDays : null,
+    headline: read.headline,
+    confidence: read.confidence,
+    basis: read.basis,
+    insufficiency: read.insufficiency,
+    ...over,
+  };
+}
+function assertPctLabelWheneverPct(text: string, g: BriefingGoal) {
+  if (text.includes(`${g.pct}%`)) expect(text).toContain(g.pctLabel);
+}
+
+describe("briefingGoalLine — 2-day fit, 14-day fit, attainment-only (G4/G12)", () => {
+  const twoDay = fitGoal(2, { pace: "on-pace", etaDays: 40 });
+  const fourteenDay = fitGoal(15);
+  const attainment: BriefingGoal = {
+    label: "Fleet to 70",
+    current: 63,
+    target: 70,
+    pct: 90,
+    pctBasis: "attainment",
+    pctLabel: GOAL_PCT_LABEL.attainment,
+    pace: "on-pace",
+    etaDays: 12,
+  };
+
+  it("a 2-day fit is not projectable: leftover on-pace + ETA are dropped, insufficiency is the line", () => {
+    expect(isProjectable(forecastTrajectory(dailySeries(2)))).toBe(false);
+    expect(twoDay.insufficiency).toContain("2 distinct scan days");
+    const line = briefingGoalLine(twoDay);
+    expect(line).toContain("Not enough history to project");
+    expect(line).not.toMatch(/ETA/);
+    expect(line).not.toMatch(/on-pace/i);
+    assertPctLabelWheneverPct(line, twoDay);
+    const md = briefingMarkdown({ ...emptyBriefing, goals: [twoDay] });
+    expect(md).toContain(line);
+    expect(md).not.toMatch(/ETA ~/);
+    const pdf = pdfText(pdfBriefing({ goals: [twoDay] }));
+    expect(pdf).toContain("Not enough history to project");
+    expect(pdf).toContain(GOAL_PCT_LABEL.progress);
+    expect(pdf).not.toMatch(/ETA ~/);
+  });
+
+  it("a 14-day fit is projectable: pace + ETA ride with the hedge and labelled pct", () => {
+    expect(isProjectable(forecastTrajectory(dailySeries(15)))).toBe(true);
+    expect(fourteenDay.headline).toBeTruthy();
+    expect(fourteenDay.etaDays).not.toBeNull();
+    const line = briefingGoalLine(fourteenDay);
+    expect(line).toMatch(/ETA ~/);
+    expect(line).toContain(fourteenDay.pace);
+    expect(line).toContain("trend confidence");
+    expect(line).toContain("fit over 15 scan days across 14 days");
+    assertPctLabelWheneverPct(line, fourteenDay);
+    expect(briefingMarkdown({ ...emptyBriefing, goals: [fourteenDay] })).toContain(line);
+    const pdf = pdfText(pdfBriefing({ goals: [fourteenDay] }));
+    expect(pdf).toMatch(/ETA ~/);
+    expect(pdf).toContain(GOAL_PCT_LABEL.progress);
+    expect(pdf).toContain("fit over 15 scan days across 14 days");
+  });
+
+  it("an attainment-only goal labels pct and invents no progress or ETA (no fit → absence)", () => {
+    const line = briefingGoalLine(attainment);
+    expect(line).toContain(`${attainment.pct}%`);
+    expect(line).toContain(GOAL_PCT_LABEL.attainment);
+    expect(line).toMatch(/not progress/i);
+    expect(line).not.toMatch(/ETA/);
+    expect(line).not.toMatch(/on-pace/i);
+    expect(line).not.toMatch(/Progress since this goal was set/);
+    assertPctLabelWheneverPct(line, attainment);
+    expect(briefingMarkdown({ ...emptyBriefing, goals: [attainment] })).toContain(line);
+    const pdf = pdfText(pdfBriefing({ goals: [attainment] }));
+    expect(pdf).toContain(GOAL_PCT_LABEL.attainment);
+    expect(pdf).toContain("90%");
+    expect(pdf).not.toMatch(/ETA ~/);
+  });
+
+  it("markdown, PDF and the Goals card all read briefingGoalLine/Stats — none inline g.etaDays", () => {
+    const root = process.cwd();
+    const card = readFileSync(join(root, "src/features/bought/executive/briefingCardsMovement.tsx"), "utf8");
+    const mdSrc = readFileSync(join(root, "src/lib/org/briefing-markdown.ts"), "utf8");
+    const pdf = readFileSync(join(root, "src/lib/pdf/briefing-document.tsx"), "utf8");
+    expect(card).toMatch(/briefingGoalStats\(/);
+    expect(card).toMatch(/briefingGoalLine\(/);
+    expect(card).not.toMatch(/g\.etaDays/);
+    expect(mdSrc).toMatch(/briefingGoalLine\(/);
+    expect(pdf).toMatch(/briefingGoalStats\(/);
+    expect(briefingGoalStats(twoDay)).not.toMatch(/ETA/);
+    expect(briefingGoalStats(fourteenDay)).toMatch(/ETA ~/);
+    expect(briefingGoalStats(attainment)).not.toMatch(/ETA/);
   });
 });

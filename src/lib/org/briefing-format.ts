@@ -62,17 +62,25 @@ export function briefingGoal(g: BriefingGoal): GoalRead {
   };
 }
 
-/** Standing + pace/ETA as one line, with the unmeasurable hedge attached. Used by the markdown
- *  export; the PDF splits label from stats via {@link briefingGoalStats}. Older fixtures with no
- *  composed fields keep the historical "pct%, pace, ETA ~Nd" shape (absence, not a fabricated hedge). */
+/** Pct clause: the meter figure only with its basis caption. An unlabelled `pct` is the original
+ *  defect (plan.md); missing `pctLabel` degrades to absence, never a guessed basis (G4). */
+function briefingGoalPct(g: BriefingGoal): string | null {
+  return g.pctLabel ? `${g.pct}% · ${g.pctLabel}` : null;
+}
+
+/** Standing + labelled pct + pace/ETA only when {@link briefingGoal} is presentable.
+ *  Markdown uses {@link briefingGoalLine}; the PDF and Goals card split the label off and read
+ *  this. Leftover `pace`/`etaDays` on a fixture with no composeGoal read are not printed. */
 export function briefingGoalStats(g: BriefingGoal): string {
   const read = briefingGoal(g);
+  const presentable = read.headline != null;
+  const inner: string[] = [];
+  const pct = briefingGoalPct(g);
+  if (pct) inner.push(pct);
+  if (presentable) inner.push(g.etaDays != null ? `${g.pace}, ETA ~${g.etaDays}d` : g.pace);
+  const core = inner.length > 0 ? `${g.current}/${g.target} (${inner.join(", ")})` : `${g.current}/${g.target}`;
+  if (read.insufficiency) return `${core} · ${read.insufficiency}`;
   const note = goalNote(read);
-  if (read.insufficiency) {
-    return `${g.current}/${g.target} (${g.pct}%) · ${read.insufficiency}`;
-  }
-  const eta = g.etaDays != null ? `, ETA ~${g.etaDays}d` : "";
-  const core = `${g.current}/${g.target} (${g.pct}%, ${g.pace}${eta})`;
   return note ? `${core} (${note})` : core;
 }
 

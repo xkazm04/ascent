@@ -4,12 +4,8 @@
 // see the header comment in briefingCards.tsx.
 
 import { Card, InlineEmpty, Meter, SectionHeader } from "@/components/org/shared/ui";
-// From goalViewLogic (the pure module), not the goalView barrel: this card also renders on the
-// public share page, and the wording must have one source across every goal surface.
-import { GOAL_ATTAINMENT_MARKER } from "@/components/org/shared/goalViewLogic";
 import { MoveRow } from "./briefingShared";
-import { briefingGoal, movementLine } from "@/lib/org/briefing";
-import { goalNote } from "@/lib/maturity/forecast";
+import { briefingGoalLine, briefingGoalStats, movementLine } from "@/lib/org/briefing";
 import { scoreHex } from "@/lib/ui";
 import type { BriefingGoal, BriefingMove, ExecBriefing } from "@/lib/org/briefing";
 
@@ -104,35 +100,18 @@ export function BriefingGoalsCard({
       ) : (
         <div className="mt-3 space-y-2.5">
           {goals.map((g) => {
-            const read = briefingGoal(g);
+            const stats = briefingGoalStats(g);
             return (
               <div key={g.label} className="flex items-center gap-3 type-body">
                 <span className="min-w-0 flex-1 truncate text-slate-300">{g.label}</span>
-                {/* The meter's basis rides in the tooltip and, when a goal can only report
-                    attainment, as a visible marker: an attainment bar opens near-full and a
-                    progress bar opens empty, so two goals side by side are not comparable
-                    unless the reader is told which is which. */}
                 <Meter
                   className="w-32 shrink-0"
                   value={g.pct}
                   color={scoreHex(g.pct)}
-                  ariaLabel={`${g.label}: ${g.pct}% — ${g.pctLabel}`}
+                  ariaLabel={briefingGoalLine(g)}
                 />
-                <span
-                  className="min-w-0 shrink-0 text-right type-mono-sm text-slate-400"
-                  title={read.insufficiency ?? goalNote(read) ?? g.pctLabel}
-                >
-                  {g.current}/{g.target}
-                  {g.pctBasis === "attainment" ? (
-                    <span className="text-slate-500"> · {GOAL_ATTAINMENT_MARKER}</span>
-                  ) : null}
-                  {read.insufficiency ? (
-                    <span className="text-slate-500"> · not enough history</span>
-                  ) : g.etaDays != null ? (
-                    ` · ~${g.etaDays}d`
-                  ) : (
-                    ""
-                  )}
+                <span className="min-w-0 max-w-[50%] shrink truncate text-right type-mono-sm text-slate-400" title={stats}>
+                  {stats}
                 </span>
               </div>
             );

@@ -428,8 +428,8 @@ export async function buildExecBriefing(
     goals: (goals ?? []).map((g) => {
       // ONE composition, shared with the GoalCard readout: the presentability gate decides whether
       // this briefing may state a pace/ETA at all, and when it may, the hedge travels WITH the claim.
-      // Fixtures that predate `forecast` compose as "no fit" and keep their raw etaDays; a real
-      // listGoals row always carries the fit, so a sub-gate slope cannot leak onto the board PDF (G4).
+      // `etaDays` copies only beside a projection (`confidence` set). No fit, a sub-gate fit, or a
+      // reached target degrades to absence — leftover row ETAs are not a basis (G4).
       const read = composeGoal(g.forecast ?? null, g, {
         current: g.current,
         target: g.target,
@@ -443,7 +443,7 @@ export async function buildExecBriefing(
         pctBasis: g.pctBasis,
         pctLabel: g.pctLabel,
         pace: g.pace,
-        etaDays: read.insufficiency ? null : g.etaDays,
+        etaDays: read.confidence != null ? g.etaDays : null,
         headline: read.headline,
         confidence: read.confidence,
         basis: read.basis,
