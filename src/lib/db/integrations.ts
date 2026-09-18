@@ -1,7 +1,7 @@
 // AI-usage storage for the provider integrations (increment 2). recordUsage() ingests normalized
 // records (idempotent by the (org, source, scope, scopeKey, period) unique key); getOrgUsageRollup()
-// aggregates a recent window into the shape the /delivery AI ROI resolver consumes — measured per-repo
-// spend (scope=repo) and allocated org totals (scope=org). Guarded by DATABASE_URL.
+// aggregates the caller's org window into the shape the /delivery AI ROI resolver consumes — measured
+// per-repo spend (scope=repo) and allocated org totals (scope=org). Guarded by DATABASE_URL.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
@@ -194,16 +194,25 @@ export interface OrgUsageRollup {
   sources: string[]; // distinct provider sources present
 }
 
-/** Aggregate an org's AI usage over the trailing `windowDays` into the resolver's rollup shape.
- *  Null when the DB is off / org is unknown; an org with no records returns an empty-but-present rollup. */
-export async function getOrgUsageRollup(orgSlug: string, windowDays = 35): Promise<OrgUsageRollup | null> {
+/** Inclusive `[start, end]` the delivery tab already hands unit/outcomes. A null bound is open. */
+export type UsageWindow = { start: Date | null; end: Date | null };
+
+/** Aggregate an org's AI usage over `window` into the resolver's rollup shape.
+ *  Null when the DB is off / org is unknown; an org with no records returns an empty-but-present rollup.
+ *  Callers with a ResolvedWindow pass `{ start: period.start, end: period.end }` so 30d/90d spend
+ *  the same calendar start as trend/unit/outcomes — not a trailing 35-day wall-clock. */
+export async function getOrgUsageRollup(orgSlug: string, window: UsageWindow = { start: null, end: null }): Promise<OrgUsageRollup | null> {
   if (!isDbConfigured()) return null;
   const org = await getOrgBySlug(orgSlug);
   if (!org) return null;
   const prisma = getPrisma();
 
-  const since = new Date(Date.now() - windowDays * 86_400_000);
-  const rows = await prisma.aiUsageRecord.findMany({ where: { orgId: org.id, periodStart: { gte: since } } });
+  const periodStart: { gte?: Date; lte?: Date } = {};
+  if (window.start) periodStart.gte = window.start;
+  if (window.end) periodStart.lte = window.end;
+  const rows = await prisma.aiUsageRecord.findMany({
+    where: { orgId: org.id, ...(periodStart.gte || periodStart.lte ? { periodStart } : {}) },
+  });
 
   const perRepo: Record<string, RepoUsage> = {};
   const orgAgg = new Map<string, { costCents: number; seats: number; tokens: number }>();

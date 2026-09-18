@@ -24,10 +24,8 @@ export async function DeliveryCorePanel({
   scope,
   // Passed down from DeliveryTab (which already resolved it for the trend) rather than re-resolved
   // here: this panel has no `sp`, so a local resolve would silently drop an explicit `?range=` and
-  // name the cookie's period on a shared link. Used ONLY to name the window in the notice below —
-  // DeliveryTab's header has documented since G7-09 that the trend is the tab's one windowed read
-  // while everything in this panel comes off each repo's LATEST scan, and nothing on screen said so,
-  // under a period control sitting right above.
+  // name the cookie's period on a shared link. The usage rollup takes the same `{start,end}` as
+  // unit/outcomes so 30d/90d spend bounds match; PR/governance/activity stay latest-scan snapshots.
   period,
 }: {
   slug: string;
@@ -49,7 +47,7 @@ export async function DeliveryCorePanel({
     // Finding A: getOrgUsageRollup is WHOLE-ORG and takes no scope arg. Its measured layer is per-repo
     // (so buildAiDeliveryModel's per-repo lookups already honor the filtered set), but its ALLOCATED
     // layer is a single org-level total with no per-repo breakdown — it genuinely cannot be filtered.
-    getOrgUsageRollup(slug),
+    getOrgUsageRollup(slug, { start: period.start, end: period.end }),
   ]);
   const { value: pr, failed: prFailed } = settle(prSettled);
   const { value: gov, failed: govFailed } = settle(govSettled);
@@ -112,8 +110,9 @@ export async function DeliveryCorePanel({
         scope="partial"
         detail={
           <>
-            The <span className="text-slate-200">trend</span>, unit economics and outcomes are period-scoped.
-            Everything below this line is a <span className="text-slate-200">scan-time snapshot</span>.{" "}
+            The <span className="text-slate-200">trend</span>, unit economics, outcomes and AI spend are period-scoped.
+            Pull request signals, branch governance and commit activity below this line are a{" "}
+            <span className="text-slate-200">scan-time snapshot</span>.{" "}
             <WhyChip
               hint="Pull request signals, branch governance and commit activity are read off each repo's most recent scan. Scan.prStats is a pre-computed aggregate with no dated PR population to re-cut, so no range can re-scope it — read these as 'the fleet as of its most recent scans'."
               label="why this half is not period-scoped"
