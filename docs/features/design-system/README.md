@@ -169,6 +169,15 @@ and `LEVEL_HEX` from `@/lib/ui` — not a picker of Ascent / Mint / Amber appear
 [BRAND.md](../../../src/components/ui/BRAND.md) is one azure on cold ink. Mint and amber
 are not peer accents; `warn` / `success` are status, and `LEVEL_HEX` is the score ramp only.
 
+## Data-viz study (`DataCharts`)
+
+The surface-library data-viz study (`src/features/shared/surfaces/DataCharts.tsx`)
+renders the org viz kit — `Distribution` and `BandLadder` from `@/components/org/viz`,
+with `STATE_LABEL` and `scoreHex` (`@/lib/ui`) — not CSS `<i>` bars of hardcoded
+readiness. Scores in the playground are labelled as a study series, not live org
+or marketing figures. Empty level bands stay `missing` (`STATE_LABEL.missing`,
+"No measurement"), never a zero.
+
 ## The deck reading scale (large-screen typography & measure)
 
 Marketing decks used to stop growing at `lg`: the container was pinned at

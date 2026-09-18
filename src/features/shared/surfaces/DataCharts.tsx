@@ -1,45 +1,92 @@
 "use client";
 
 import { useState } from "react";
+import {
+  BandLadder,
+  Distribution,
+  Legend,
+  STATE_LABEL,
+  VIZ_STATES,
+  type LadderBand,
+  type VizState,
+} from "@/components/org/viz";
+import { LEVELS, levelForScore } from "@/lib/maturity/model";
+import { scoreHex } from "@/lib/ui";
 import { projects } from "./sampleProjects";
 import styles from "./playground.module.css";
 
-export function DataCharts({ slug }: { slug: string }) {
-  const [period, setPeriod] = useState("Week");
-  const [node, setNode] = useState("web-platform");
-  if (slug === "data-viz") {
-    const values = period === "Week" ? [42, 57, 48, 70, 63, 82, 94] : [32, 45, 60, 78];
-    return (
-      <div className={styles.demo}>
-        <div className={styles.demoToolbar}>
-          <h3>Readiness over time</h3>
-          <div className={styles.segmented}>
-            {["Week", "Month"].map((p) => (
-              <button key={p} aria-pressed={period === p} onClick={() => setPeriod(p)}>
-                {p}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className={styles.bigMetric}>
-          {values.at(-1)}
-          <span>/ 100</span>
-          <small>{period === "Week" ? "+52 this week" : "+46 this month"}</small>
-        </div>
-        <div className={styles.chart} role="img" aria-label={`${period} readiness scores: ${values.join(", ")}`}>
-          {values.map((v, i) => (
-            <div key={i}>
-              <span>{v}</span>
-              <i style={{ height: `${v * 2}px` }} />
-              <small>
-                {period === "Week" ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][i] : `Week ${i + 1}`}
-              </small>
-            </div>
+/** Invented playground series — labelled as a study, never as live org data. */
+const STUDY = {
+  Week: [42, 57, 48, 70, 63, 82, 94],
+  Month: [32, 45, 60, 78],
+} as const;
+
+type Period = keyof typeof STUDY;
+
+function five(values: readonly number[]) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const pick = (p: number) => sorted[Math.round((sorted.length - 1) * p)]!;
+  return { min: sorted[0]!, q1: pick(0.25), median: pick(0.5), q3: pick(0.75), max: sorted[sorted.length - 1]! };
+}
+
+function levelBands(values: readonly number[]): LadderBand[] {
+  return LEVELS.map((level) => {
+    const count = values.filter((v) => levelForScore(v).id === level.id).length;
+    const state: VizState = count > 0 ? "measured" : "missing";
+    const [lo, hi] = level.band;
+    return {
+      id: level.id,
+      label: `${level.id} · ${level.name}`,
+      state,
+      count,
+      color: scoreHex((lo + hi) / 2),
+    };
+  });
+}
+
+function DataVizStudy() {
+  const [period, setPeriod] = useState<Period>("Week");
+  const values = STUDY[period];
+  const latest = values.at(-1)!;
+  const bands = levelBands(values);
+  const states = VIZ_STATES.filter((s) => bands.some((b) => b.state === s));
+  return (
+    <div className={styles.demo}>
+      <div className={styles.demoToolbar}>
+        <h3>Playground readiness</h3>
+        <div className={styles.segmented}>
+          {(["Week", "Month"] as const).map((p) => (
+            <button key={p} aria-pressed={period === p} onClick={() => setPeriod(p)}>
+              {p}
+            </button>
           ))}
         </div>
       </div>
-    );
-  }
+      <div className={styles.bigMetric} style={{ color: scoreHex(latest) }}>
+        {latest}
+        <span>/ 100</span>
+        <small>{STATE_LABEL.measured} · study score</small>
+      </div>
+      <Distribution
+        {...five(values)}
+        you={latest}
+        n={values.length}
+        digits={0}
+        label={`${period} playground readiness`}
+      />
+      <BandLadder bands={bands} title={`${period} playground level bands`} />
+      <Legend states={states} />
+      <p className={styles.hint} role="status">
+        Playground study series — not live org data. Empty bands are {STATE_LABEL.missing.toLowerCase()}, never a
+        zero.
+      </p>
+    </div>
+  );
+}
+
+export function DataCharts({ slug }: { slug: string }) {
+  const [node, setNode] = useState("web-platform");
+  if (slug === "data-viz") return <DataVizStudy />;
   if (slug === "canvas-graph")
     return (
       <div className={styles.demo}>
