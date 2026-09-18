@@ -13,12 +13,13 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { GatePolicy } from "@/lib/scoring/gate";
-import { clampToDisplayRange } from "@/lib/scoring/gate-numeric";
-import type { DimensionId, LevelId } from "@/lib/types";
 import {
+  addRequireCheckId,
   appliesWhen,
+  buildEditedPolicy,
   droppedFields,
   floorsExceptD9,
+  normalizeRequireChecks,
   passthroughPolicyFields,
   type SweepPlan,
 } from "./gatePolicyReconcile";
@@ -47,11 +48,8 @@ export function useGatePolicyEditor(org: string, initial: GatePolicy | null) {
   const [otherFloors, setOtherFloors] = useState<Record<string, string>>(() => floorsExceptD9(initial));
   const [noUngoverned, setNoUngoverned] = useState<boolean>(Boolean(initial?.forbidPostures?.includes("ungoverned")));
   const [requireProtection, setRequireProtection] = useState<boolean>(Boolean(initial?.requireProtectedBranch));
-  // Bars this form does NOT render, carried through every save untouched (NADIA-L1-07 / PRIYA-L1-01).
-  // `requireChecks` is the live case: enforced by the gate, printed read-only in the Active-policy
-  // summary six rows above, and — because buildPolicy assembled the payload field by field and the
-  // POST replaces wholesale — silently DELETED by any unrelated edit. Held in state rather than read
-  // off `initial` so it stays in step with the server echo across successive saves in one session.
+  const [requireChecks, setRequireChecks] = useState<string[]>(() => normalizeRequireChecks(initial?.requireChecks ?? []));
+  // Unrendered bars (minAiGovernedRate, forbidAiAuthorship) carried through every save untouched.
   const [passthrough, setPassthrough] = useState<GatePolicy>(() => passthroughPolicyFields(initial));
   const [busy, setBusy] = useState<"save" | "reset" | null>(null);
   const [msg, setMsg] = useState<{ kind: "note" | "error"; text: string } | null>(null);
@@ -59,24 +57,18 @@ export function useGatePolicyEditor(org: string, initial: GatePolicy | null) {
   const [applies, setApplies] = useState<string | null>(null);
 
   function buildPolicy(): GatePolicy {
-    // Start from the bars this form does not model, so a save replaces only what it actually shows.
-    const p: GatePolicy = { ...passthrough };
-    if (minLevel) p.minLevel = minLevel as LevelId;
-    if (minOverall.trim()) p.minOverall = Number(minOverall);
-    if (minDimension.trim()) p.minDimension = Number(minDimension);
-    // One map for every per-dimension floor: D9 from its dedicated control, the rest from the
-    // dimension-floor rows. Assembled here (rather than D9 overwriting the key) so adding a Testing
-    // floor can't silently drop a configured Security floor, or vice versa.
-    const floors: Partial<Record<DimensionId, number>> = {};
-    for (const [dim, raw] of Object.entries(otherFloors)) {
-      if (raw.trim()) floors[dim as DimensionId] = clampToDisplayRange(raw);
-    }
-    // Preserve the configured floor (clamped 0..100) instead of overwriting it with a fixed 50.
-    if (security) floors.D9 = clampToDisplayRange(securityFloor);
-    if (Object.keys(floors).length) p.minDimensionFor = floors;
-    if (noUngoverned || security) p.forbidPostures = ["ungoverned"];
-    if (requireProtection) p.requireProtectedBranch = true;
-    return p;
+    return buildEditedPolicy({
+      passthrough,
+      minLevel,
+      minOverall,
+      minDimension,
+      otherFloors,
+      security,
+      securityFloor,
+      noUngoverned,
+      requireProtection,
+      requireChecks,
+    });
   }
 
   // Sync every form field to a policy (the server's sanitized echo, or null after a reset) so the UI
@@ -90,6 +82,7 @@ export function useGatePolicyEditor(org: string, initial: GatePolicy | null) {
     setOtherFloors(floorsExceptD9(p));
     setNoUngoverned(Boolean(p?.forbidPostures?.includes("ungoverned")));
     setRequireProtection(Boolean(p?.requireProtectedBranch));
+    setRequireChecks(normalizeRequireChecks(p?.requireChecks ?? []));
     setPassthrough(passthroughPolicyFields(p));
   }
 
@@ -188,6 +181,9 @@ export function useGatePolicyEditor(org: string, initial: GatePolicy | null) {
     setNoUngoverned,
     requireProtection,
     setRequireProtection,
+    requireChecks,
+    addRequireCheck: (id: string) => setRequireChecks((prev) => addRequireCheckId(prev, id)),
+    removeRequireCheck: (id: string) => setRequireChecks((prev) => prev.filter((c) => c !== id)),
     busy,
     msg,
     applies,

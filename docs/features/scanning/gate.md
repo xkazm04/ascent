@@ -390,9 +390,14 @@ them and a param could not weaken them anyway.
 
 The Governance editor **round-trips every `GatePolicy` field it does not show**. `buildPolicy()`
 starts from `passthroughPolicyFields(stored)` — the stored policy minus `EDITED_POLICY_FIELDS` — and
-overwrites only the six bars the form actually renders, so `requireChecks`, `minAiGovernedRate` and
-`forbidAiAuthorship` survive a save byte-identical. The carried copy is re-seeded from the server's
-**echo** on every save, never from the request, so it cannot drift from what is stored.
+overwrites only the bars the form actually renders (`minLevel`, `minOverall`, `minDimension`,
+`minDimensionFor`, `forbidPostures`, `requireProtectedBranch`, and `requireChecks`), so
+`minAiGovernedRate` and `forbidAiAuthorship` survive a save byte-identical. The carried copy is
+re-seeded from the server's **echo** on every save, never from the request, so it cannot drift from
+what is stored. `requireChecks` is owned by `RequireChecksRows`: owners add and remove doctor check
+ids, malformed ids are dropped client-side (`isValidCheckId`), the list is capped at
+`MAX_REQUIRE_CHECKS`, and a save POSTs the sorted ids (or omits the field when the last id is
+removed).
 
 This was live-proven broken (UAT 2026-08-30, `NADIA-L1-07` / `PRIYA-L1-01`): an owner set two
 required controls, changed **Min overall 50 → 55**, and the controls were gone. The payload was
@@ -469,6 +474,7 @@ all, so the new bar simply applies on each PR's next push or CI run.
 | `src/lib/scoring/gate-diff.ts` | Field-level diff of a policy write, in `describeGatePolicy`'s wording — the audit `status` clause and the editor's removal warning. |
 | `src/features/standing/governance/GatePolicyEditor.tsx` | The owner's policy form, incl. when the bar applies. |
 | `src/features/standing/governance/DimensionFloorRows.tsx` | Per-dimension floors (D1–D8) in that form. |
+| `src/features/standing/governance/RequireChecksRows.tsx` | Add/remove `requireChecks` doctor check ids in that form. |
 | `src/app/badge/gate-snippets.ts` | The public `/badge` curl + workflow snippets, from one policy. |
 | `action.yml` | Composite GitHub Action definition. |
 | `src/lib/db/org-rollup.ts` | `parseProvenanceLite`: the fleet gate's `aiGovernedRate` input. |
@@ -483,14 +489,6 @@ all, so the new bar simply applies on each PR's next push or CI run.
   deployment with no persisted org bar (self-hosted, DB-less, and every org that never set one). It is
   now written as an explicit-wins spread over the whole object so the next field cannot repeat it, and
   `gate-policy-sources.test.ts` asserts every field `explicitPolicyFromParams` can parse survives.
-- **`requireChecks` has no editor CONTROL yet.** It is a real `GatePolicy` field with all four places
-  and is enforced whenever it appears in a persisted org policy — but the Governance form offers no
-  input for it, so today it can only be *set* by writing `Organization.gatePolicy` directly (or by
-  `POST /api/org/gate-policy`). The evaluator half is what #16 needed; the input is not built.
-  Scoped: the *destructive* half of this gap closed 2026-08-31 — a stored `requireChecks` is rendered
-  read-only in the Active-policy summary, round-trips untouched through every save, and any write that
-  does drop it is named in the audit row and in the editor's own message (see "The form replaces only
-  what it renders" and "A write that drops a bar says so").
 - The gate API scores via **mock** by default; pass `?mock=0` / `live: true` for an
   LLM-scored verdict (slower, needs a key, and a provider outage then surfaces as a `503`
   rather than a silent floor score). **That inference is not debited** (there is no org to
