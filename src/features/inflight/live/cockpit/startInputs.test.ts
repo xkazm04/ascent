@@ -28,6 +28,8 @@ describe("runStartInput", () => {
       agentTimeoutMs: 1_800_000,
       verifyMode: "on",
       verifyTimeoutMs: 600_000,
+      // Since 2026-09-18 a manual run carries the rescan cadence too — the dial is offered in every mode.
+      rescanCadence: "cycle",
     });
     expect(runStartInput(dials(), { runnable: ["acme/a"], batches: {} }).batches).toBeUndefined();
   });

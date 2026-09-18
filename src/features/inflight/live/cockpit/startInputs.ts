@@ -48,6 +48,7 @@ export function runStartInput(d: RunDials, batch: Pick<ProposalBatch, "runnable"
     agentTimeoutMs: d.sessionMinutes * 60_000,
     verifyMode: d.verifyMode,
     verifyTimeoutMs: d.verifyMinutes * 60_000,
+    rescanCadence: d.rescanCadence,
   };
 }
 

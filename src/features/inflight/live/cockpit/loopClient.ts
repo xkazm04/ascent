@@ -113,6 +113,8 @@ export interface StartLoopInput {
   verifyMode?: VerifyMode;
   /** Budget for ONE run of the repository's own check, MILLISECONDS. Omitted = 10 minutes. */
   verifyTimeoutMs?: number;
+  /** When the run rescans: after every cycle, or once per run. Omitted = `cycle`. */
+  rescanCadence?: "cycle" | "run";
 }
 
 export const startLoop = (slug: string, input: StartLoopInput): Promise<{ run: LoopRunRecord }> =>

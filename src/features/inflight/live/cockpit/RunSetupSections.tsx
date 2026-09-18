@@ -119,22 +119,20 @@ export function SessionSection({ dials, onChange }: SetupSectionProps) {
           />
         </SetupRow>
       )}
-      {/* Offered where it is SENT — a drive's and the runner's dials. The manual run's request type
-          does not carry it yet, and a dial that silently does nothing is the failure mode it replaces. */}
-      {dials.mode !== "run" && (
-        <SetupRow label="Rescan" info={RESCAN_INFO}>
-          <Segmented
-            ariaLabel="Rescan cadence"
-            testId="setup-rescan"
-            value={dials.rescanCadence}
-            onChange={(v) => onChange("rescanCadence", v)}
-            options={[
-              { value: "cycle", label: "After every cycle" },
-              { value: "run", label: "Once per run" },
-            ]}
-          />
-        </SetupRow>
-      )}
+      {/* Offered in every mode — each of the three start bodies now sends it (a manual run's since
+          2026-09-18), and a dial that silently does nothing is the failure mode this row replaced. */}
+      <SetupRow label="Rescan" info={RESCAN_INFO}>
+        <Segmented
+          ariaLabel="Rescan cadence"
+          testId="setup-rescan"
+          value={dials.rescanCadence}
+          onChange={(v) => onChange("rescanCadence", v)}
+          options={[
+            { value: "cycle", label: "After every cycle" },
+            { value: "run", label: "Once per run" },
+          ]}
+        />
+      </SetupRow>
     </SetupGroup>
   );
 }

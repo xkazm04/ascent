@@ -41,10 +41,10 @@ describe("the mode choice", () => {
     expect(onChange).toHaveBeenCalledWith("mode", "runner");
   });
 
-  it("shows the rope only for a drive, and rescan cadence only where it is sent", () => {
+  it("shows the rope only for a drive, and rescan cadence in every mode (each start body sends it)", () => {
     open({ mode: "run" });
     expect(screen.queryByTestId("setup-max-runs")).toBeNull();
-    expect(screen.queryByTestId("setup-rescan")).toBeNull();
+    expect(screen.getByTestId("setup-rescan")).toBeTruthy();
     cleanup();
     open({ mode: "drive" });
     expect(screen.getByTestId("setup-max-runs")).toBeTruthy();
