@@ -249,6 +249,31 @@ export async function enqueueDueRescans(limit?: number): Promise<number> {
 }
 
 /**
+ * Seed the probe lane from the watchlist. Analogous to {@link enqueueDueRescans}: every watched
+ * non-personal repo is enqueued, the drain takes what fits, and the ISO-date bucket makes a second
+ * pass the same day a no-op. Without this, `/api/cron/probe` only drains webhook-enqueued jobs and
+ * App-installed orgs never get a `missingSince` stamp for a silent 404.
+ */
+export async function enqueueDueProbes(limit?: number): Promise<number> {
+  if (!isDbConfigured()) return 0;
+  const { listDueProbeCandidates } = await import("@/lib/db/org-watch");
+  const due = await listDueProbeCandidates(limit);
+  let created = 0;
+  for (const r of due) {
+    const res = await enqueueScanJob({
+      orgSlug: r.orgSlug,
+      repoFullName: r.fullName,
+      repoId: r.repoId,
+      lane: "probe",
+      reason: "cadence",
+      priority: JOB_PRIORITY.cadence,
+    }).catch(() => null);
+    if (res?.created) created += 1;
+  }
+  return created;
+}
+
+/**
  * Claim the highest-priority eligible job in a lane, or null when the lane is empty.
  *
  * The claim is a CONDITIONAL `updateMany` on `{ id, state: "queued" }` — the same DB-serialized

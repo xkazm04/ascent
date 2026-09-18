@@ -350,6 +350,47 @@ export async function listDueRescanCandidates(limit?: number): Promise<DueRescan
   return out;
 }
 
+export interface DueProbe {
+  orgSlug: string;
+  fullName: string;
+  repoId: string;
+}
+
+/**
+ * The probe lane's SEEDER read: every watched repo that is not in a personal workspace.
+ *
+ * Unlike {@link listDueRescanCandidates} there is no `nextScanAt` / schedule predicate — a probe is
+ * free, and this list is how App-installed orgs ever refresh `missingSince` (`reconcileListedRepos`
+ * never runs for them; they never call `listOrgRepos`). Cadence lives on the job row's ISO-date
+ * idempotency bucket, not a column here: re-seeding the same day is a no-op. Same round-robin
+ * interleave as the rescore seeder so one large fleet cannot starve the rest of a pass.
+ */
+export async function listDueProbeCandidates(limit?: number): Promise<DueProbe[]> {
+  if (!isDbConfigured()) return [];
+  const prisma = getPrisma();
+  const watched = await prisma.repository.findMany({
+    where: { watched: true, org: { kind: { not: "personal" } } },
+    select: { id: true, fullName: true, org: { select: { slug: true } } },
+    orderBy: { fullName: "asc" },
+    ...(limit ? { take: limit * 4 } : {}),
+  });
+  const byOrg = new Map<string, DueProbe[]>();
+  for (const r of watched) {
+    const item: DueProbe = { orgSlug: r.org.slug, fullName: r.fullName, repoId: r.id };
+    const q = byOrg.get(item.orgSlug);
+    if (q) q.push(item);
+    else byOrg.set(item.orgSlug, [item]);
+  }
+  const queues = [...byOrg.values()];
+  const cap = limit ?? watched.length;
+  const out: DueProbe[] = [];
+  for (let i = 0; out.length < cap && queues.some((q) => q.length > 0); i++) {
+    const next = queues[i % queues.length]!.shift();
+    if (next) out.push(next);
+  }
+  return out;
+}
+
 // How far a claim leases a repo. Long enough to block an overlapping pass from re-claiming the same
 // repo mid-run, short enough that a repo whose run DIED/timed out between claim and scan re-qualifies on
 // the next cron pass rather than waiting a whole cadence (a month, for `monthly`).

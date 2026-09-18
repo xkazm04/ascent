@@ -37,11 +37,13 @@ vi.mock("@/lib/db/org-shared", () => ({
 import {
   advanceToFullCadence,
   claimRescan,
+  listDueProbeCandidates,
   listDueRescans,
   nextSlotFrom,
   recordConformance,
   reconcileListedRepos,
   seedWatchlist,
+  setRepoMissing,
   setRepoWatch,
   setWatchedSchedule,
 } from "./org-watch";
@@ -295,6 +297,89 @@ describe("listDueRescans round-robin fairness (no org starves another)", () => {
   it("returns [] (no DB call) when persistence is unconfigured", async () => {
     mockIsDbConfigured.mockReturnValue(false);
     expect(await listDueRescans()).toEqual([]);
+    expect(mockGetPrisma).not.toHaveBeenCalled();
+  });
+});
+
+// ── listDueProbeCandidates: cadence seed without a GitHub listing ────────────────────────────
+// App-installed orgs never call listOrgRepos, so reconcileListedRepos cannot stamp missingSince.
+// The probe seeder lists WATCHED repos (no nextScanAt / schedule gate — a paused cadence still
+// needs a presence check) and round-robins across orgs the same way the rescore seeder does.
+
+describe("listDueProbeCandidates — watched repos, no listing required", () => {
+  it("selects watched non-personal repos with NO due-rescan predicate", async () => {
+    const { prisma, getArgs } = fakePrismaWithDue([{ id: "a1", fullName: "acme/api", org: "acme" }]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await listDueProbeCandidates();
+
+    const where = getArgs()!.where as Record<string, unknown>;
+    expect(where.watched).toBe(true);
+    expect(where.org).toEqual({ kind: { not: "personal" } });
+    // A probe is not a rescan: schedule-off and not-yet-due repos still need missingSince.
+    expect(where).not.toHaveProperty("nextScanAt");
+    expect(where).not.toHaveProperty("scanSchedule");
+    expect(getArgs()!.take).toBeUndefined();
+    expect(getArgs()!.orderBy).toEqual({ fullName: "asc" });
+  });
+
+  it("interleaves across orgs so one large fleet cannot starve the rest of a pass", async () => {
+    const { prisma } = fakePrismaWithDue([
+      { id: "a1", fullName: "orgA/r1", org: "orgA" },
+      { id: "a2", fullName: "orgA/r2", org: "orgA" },
+      { id: "b1", fullName: "orgB/r1", org: "orgB" },
+      { id: "c1", fullName: "orgC/r1", org: "orgC" },
+    ]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const out = await listDueProbeCandidates(3);
+    expect(out).toHaveLength(3);
+    expect(new Set(out.map((r) => r.orgSlug))).toEqual(new Set(["orgA", "orgB", "orgC"]));
+  });
+
+  it("returns [] (no DB call) when persistence is unconfigured", async () => {
+    mockIsDbConfigured.mockReturnValue(false);
+    expect(await listDueProbeCandidates()).toEqual([]);
+    expect(mockGetPrisma).not.toHaveBeenCalled();
+  });
+});
+
+// ── setRepoMissing: first-sight stamp from a DIRECT observation (the probe 404) ──────────────
+// reconcileListedRepos can only run for orgs we can LIST. The probe stamps the same column from
+// GET /repos/{o}/{r}: first-sight (never overwrite), clear on reappearance, never unwatch.
+
+describe("setRepoMissing — first-sight stamp, never an eviction", () => {
+  it("stamps only a currently-unstamped row (the displayed date stays the first 404)", async () => {
+    const updateMany = vi.fn(async () => ({ count: 1 }));
+    mockGetPrisma.mockReturnValue({ repository: { updateMany } });
+
+    await setRepoMissing("repo_1", true);
+
+    const arg = updateMany.mock.calls[0]![0] as {
+      where: { id: string; missingSince: null };
+      data: { missingSince: Date };
+    };
+    expect(arg.where).toEqual({ id: "repo_1", missingSince: null });
+    expect(arg.data.missingSince).toBeInstanceOf(Date);
+    expect(arg.data).not.toHaveProperty("watched");
+    expect(arg.data).not.toHaveProperty("scanSchedule");
+  });
+
+  it("clears only a currently-stamped row when the repo is present again", async () => {
+    const updateMany = vi.fn(async () => ({ count: 1 }));
+    mockGetPrisma.mockReturnValue({ repository: { updateMany } });
+
+    await setRepoMissing("repo_1", false);
+
+    expect(updateMany.mock.calls[0]![0]).toMatchObject({
+      where: { id: "repo_1", missingSince: { not: null } },
+      data: { missingSince: null },
+    });
+  });
+
+  it("writes nothing when persistence is off", async () => {
+    mockIsDbConfigured.mockReturnValue(false);
+    await setRepoMissing("repo_1", true);
     expect(mockGetPrisma).not.toHaveBeenCalled();
   });
 });

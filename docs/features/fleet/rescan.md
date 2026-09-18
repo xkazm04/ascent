@@ -111,9 +111,20 @@ than a number this invocation guessed at.
 
 ## Flow — the probe lane (free)
 
-`GET /api/cron/probe` drains the `probe` lane at `PROBE_CONCURRENCY = 8` — higher than the scan lane
-because the bound is GitHub's rate limit, not model throughput. Per job, `probeRepository`
-(`src/lib/scan-probe.ts`):
+`GET /api/cron/probe` is a **seeder plus a worker**, same shape as the rescore lane, at
+`PROBE_CONCURRENCY = 8` — higher than the scan lane because the bound is GitHub's rate limit, not
+model throughput. Two phases:
+
+1. **`enqueueDueProbes()`** seeds every watched repo that is not in a personal workspace
+   (`listDueProbeCandidates`). There is no `nextScanAt` predicate: a probe is free, and this seed is
+   how App-installed orgs ever refresh `Repository.missingSince` — `reconcileListedRepos` never runs
+   for them because they never call `listOrgRepos`, and `enqueueProbeJob` is otherwise webhook-only.
+   The queue, not the invocation, holds the backlog. Enqueue is idempotent on
+   `idempotencyKey = "<orgId>|<repoFullName>|probe|<bucket>"` (bucket = the ISO date), so the hourly
+   cron re-seeds nothing the same UTC day, and two overlapping invocations add nothing.
+2. **`drainLane("probe", …)`** claims and runs jobs until `fleetDeadlineAt(invokedAt, 60)`.
+
+Per job, `probeRepository` (`src/lib/scan-probe.ts`):
 
 1. reads `GET /repos/{owner}/{repo}` (visibility, archived, default branch). A **404 is an
    observation**: the repo was renamed, deleted, or put beyond the token, and `Repository.missingSince`
@@ -327,7 +338,7 @@ that WAS read still gets its own sentence, because on a page about cadence "noth
 measurement worth stating.
 
 `GET /api/cron/probe` returns the same shape narrowed to its lane:
-`{ lane: "probe", claimed, done, failed, skipped, truncated, queueDepth, errors }`.
+`{ lane: "probe", seeded, claimed, done, failed, skipped, truncated, queueDepth, errors }`.
 
 `POST /api/org/scan` (SSE) ends with `result { runId, scanned, total, skippedForCredits,
 skippedInProgress, queued }`, preceded by `queued { runId, queued, total }` when the budget stopped
@@ -351,13 +362,13 @@ through the calendar (a flat 30-day step fires 12.2 times a year, one day earlie
 | File | Role |
 | --- | --- |
 | `src/app/api/cron/rescan/route.ts` | The rescore lane's seeder + worker. |
-| `src/app/api/cron/probe/route.ts` | The free control lane's worker (`maxDuration = 60`, hourly). |
-| `src/lib/db/scan-jobs.ts` | The queue: `enqueueScanJob`, `enqueueDueRescans`, `enqueueProbeJob`, `claimJob`, `claimJobById`, `claimRepoWork`, `markJobCredit`, `settleJob`, `reapExpiredLeases` (requeues without clearing `creditCharged`), `queueDepth`, `orgQueueDepth` (the null-honest read the Repositories tab renders), `listJobsForRun`. |
+| `src/app/api/cron/probe/route.ts` | The free control lane's seeder + worker (`maxDuration = 60`, hourly). |
+| `src/lib/db/scan-jobs.ts` | The queue: `enqueueScanJob`, `enqueueDueRescans`, `enqueueDueProbes`, `enqueueProbeJob`, `claimJob`, `claimJobById`, `claimRepoWork`, `markJobCredit`, `settleJob`, `reapExpiredLeases` (requeues without clearing `creditCharged`), `queueDepth`, `orgQueueDepth` (the null-honest read the Repositories tab renders), `listJobsForRun`. |
 | `src/lib/scan-queue-worker.ts` | `drainLane` — the money loop for the cron and the bulk scan. Import keeps its own loop but stamps `creditCharged` the same way, so a reaped import row is carried, not re-reserved. |
 | `src/lib/scan-probe.ts` · `src/lib/scan-probe-controls.ts` | The credit-free runner and its pure `Governance`/`SecurityPosture`/repo-meta → control samplers. |
 | `src/lib/db/control-observations.ts` | `recordObservations`, `latestObservations`, `listObservationsSince` — the ledger's write side. |
 | `src/lib/cron-auth.ts` | Shared `requireCronAuth` gate for all cron routes. |
-| `src/lib/db/org-watch.ts` | `listDueRescans` / `listDueRescanCandidates`, `claimRescan`, `advanceToFullCadence`, `advanceScheduleAfterFailure`, `getRepoSchedule`, `setRepoMissing`, `recordScanOutcome`. |
+| `src/lib/db/org-watch.ts` | `listDueRescans` / `listDueRescanCandidates` / `listDueProbeCandidates`, `claimRescan`, `advanceToFullCadence`, `advanceScheduleAfterFailure`, `getRepoSchedule`, `setRepoMissing`, `recordScanOutcome`. |
 | `src/lib/scan-credit.ts` | `reserveScanCredit`, `refundScanCredit`, `shouldRefundScan`: shared credit reserve/refund core also used by `/api/org/scan` and `/api/org/import`. |
 | `src/lib/db/org-llm.ts` | `isByomActive`: BYOM detection to skip platform billing. |
 | `src/lib/pool.ts` | `mapPoolUntilDeadline` (array fan-out), `drainUntilDeadline` (supplier fan-out, for the queue), `fleetDeadlineAt`, `SCAN_CONCURRENCY`, `PROBE_CONCURRENCY`. |
