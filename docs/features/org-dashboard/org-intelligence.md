@@ -1452,21 +1452,30 @@ Org membership and role enforcement are wired end to end, backed by the `User` /
   canonicalized, so while `requireOrgRole` normalizes internally (the gate was safe), the raw
   casing reached the reads, the mutations and the `meta.org` of every invite audit row.
 - **Invites**: `GET`/`POST`/`DELETE /api/org/invites` (owner-only, `src/app/api/org/invites/route.ts`)
-  list, create, and revoke single-use invite tokens (role capped at `admin`; `owner` can
+  list, create, **resend**, and revoke single-use invite tokens (role capped at `admin`; `owner` can
   only be conferred by promoting an existing member, not minted as a link). Acceptance is a
   same-origin, signed-in-only `POST /api/org/invites/accept` (`src/app/api/org/invites/accept/route.ts`),
   deliberately not a GET-on-render, since a GET would let link-prefetch/unfurlers burn the
   invite. `src/app/invite/[token]/page.tsx` is the UI that collects the token and fires the
-  accept POST. All three transitions are recorded to the audit log —
-  `org.member.invited` (create), `org.member.invite_accepted` (the grant) and
+  accept POST. Transitions are recorded to the audit log —
+  `org.member.invited` (create), `org.member.invite_accepted` (the grant),
   `org.member.invite_revoked` (withdrawal, added 2026-09-06; the revoke row names the target,
-  not just the invite id, and `revokeInvite` returns `{ revoked, target }` to supply it).
+  not just the invite id, and `revokeInvite` returns `{ revoked, target }` to supply it) and
+  `org.member.invite_resent` (owner resend).
+- **Resend rotates the token in place** (`POST /api/org/invites` with `{ org, id, action: "resend" }`,
+  `resendInvite` in `src/lib/db/invites.ts`). The same pending row gets a new token and a refreshed
+  7-day TTL in one transaction, so two live links cannot both grant: `peekInvite` / `acceptInvite`
+  on the old token fail closed. The pin does not grow a second pending row. `listPendingInvites`
+  still omits the token (it is the capability, shown once on the create/resend response). The
+  Members roster (`InviteList`) is a one-click **resend** — owners who lost the link no longer
+  have to revoke and re-create.
 - **The invite is now delivered** (G7-02): creating an invite with an `email` sends **one**
   transactional message to that address via the shared email transport (`src/lib/email/invite.ts`).
-  *Trigger*: an owner's `POST /api/org/invites` with `email` set. *Recipient*: only that address.
+  *Trigger*: an owner's `POST /api/org/invites` with `email` set, or the same route with
+  `action: "resend"` (another explicit owner click, not a drip). *Recipient*: only that address.
   *Opt-out*: `notify: false` in the same request; deployment-wide, `EMAIL_INVITES=off`, and the whole
-  path is inert with no email provider (`SES_FROM_EMAIL` unset). There is no list and no repeat send,
-  so there is nothing to unsubscribe from; the mail says exactly that.
+  path is inert with no email provider (`SES_FROM_EMAIL` unset). There is no mailing list, so there
+  is nothing to unsubscribe from; a further message is sent only if an owner clicks resend.
   The address is **not verified** (an owner typed it), so the mail discloses only the org slug, the
   role, the inviting login, the link and the expiry (no scores, repos, or member list), and accepting
   still requires the accepter's Supabase-**confirmed** email to match the pin (`acceptInvite`), so a
@@ -1481,12 +1490,13 @@ Org membership and role enforcement are wired end to end, backed by the `User` /
 - **The owner's pending-invite roster** (`src/features/admin/members/InviteList.tsx`, split out of
   `MemberInvites.tsx` under the 200-LOC cap) shows, per invite: the target, the role, **who sent it**
   (`invitedBy`, previously stored on every row and dropped on the way to the panel), the copy-link
-  affordance only for invites minted in this session, and the expiry **as a countdown** —
-  "expires in 3 days", the same sentence the invite mail sends, with the exact moment on the hover
-  title (registry `software-engineering/status-vocabulary` → `timestamp-display`: relative by
-  default, absolute one hover away). The roster has a real empty state, and revoking is a two-step
-  `Revoke? → confirm / cancel`, matching the roster's Remove a row above — re-issuing mints a NEW
-  token, so an accidental revoke costs a re-send rather than an undo.
+  affordance only for invites minted in this session (create or resend), a one-click **resend**,
+  and the expiry **as a countdown** — "expires in 3 days", the same sentence the invite mail sends,
+  with the exact moment on the hover title (registry `software-engineering/status-vocabulary` →
+  `timestamp-display`: relative by default, absolute one hover away). The roster has a real empty
+  state, and revoking is a two-step `Revoke? → confirm / cancel`, matching the roster's Remove a
+  row above. Resend rotates the live token without dropping the row; revoke still asks first
+  because it removes the pending invite.
 
 ### Delivery outcomes — the AI-vs-human failure split (W4, 2026-08-14)
 

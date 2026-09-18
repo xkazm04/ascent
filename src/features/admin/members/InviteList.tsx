@@ -15,16 +15,28 @@ export function InviteList({
   copied,
   onCopy,
   onRevoke,
+  onResend,
 }: {
   invites: InviteRow[];
   copied: string | null;
   onCopy: (token: string) => void;
   onRevoke: (id: string) => void;
+  onResend: (id: string) => void | Promise<void>;
 }) {
-  // Two-step, matching the roster's Remove a row above. Re-issuing an invite mints a NEW token, so
-  // the link the owner already emailed dies either way — an accidental revoke costs a re-send, not
-  // an undo, and two adjacent destructive controls should not disagree about whether they ask.
+  // Two-step, matching the roster's Remove a row above. Resend rotates the token without asking;
+  // revoke still asks, because it drops the pending row rather than replacing the live link.
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [resending, setResending] = useState<string | null>(null);
+
+  async function resend(id: string) {
+    if (resending) return;
+    setResending(id);
+    try {
+      await onResend(id);
+    } finally {
+      setResending(null);
+    }
+  }
   // Rendering nothing left the owner unable to tell "nobody is waiting" from "the list didn't
   // load" — and the copy directly above promises a list. An empty state is the third state this
   // component can be in, so it says which one it is.
@@ -45,10 +57,17 @@ export function InviteList({
               {copied === i.token ? "copied ✓" : "copy link"}
             </button>
           ) : (
-            <span className="text-slate-600" title="The invite link is shown only when it's created. Revoke and re-issue to get a fresh link.">
+            <span className="text-slate-600" title="The invite link is shown only when it's created or resent.">
               link shared at creation
             </span>
           )}
+          <button
+            onClick={() => void resend(i.id)}
+            disabled={resending === i.id}
+            className="text-slate-600 transition hover:text-white disabled:opacity-50"
+          >
+            {resending === i.id ? "resending…" : "resend"}
+          </button>
           {confirming === i.id ? (
             <span className="inline-flex items-center gap-2">
               <span className="text-slate-400">Revoke?</span>

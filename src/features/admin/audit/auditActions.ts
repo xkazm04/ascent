@@ -76,6 +76,9 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   // a capability back (briefing.share.revoked, integrations.token.rotate) rather than red, which is
   // reserved here for a grant being destroyed outright (org.member.removed).
   { value: "org.member.invite_revoked", label: "Invite revoked", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
+  // Token rotation on the same pending row (owner resend). Amber like the other capability-rotate
+  // acts: the previous link dies the moment the new token commits.
+  { value: "org.member.invite_resent", label: "Invite resent", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
   { value: "org.plan", label: "Plan change", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
   // A briefing share link is a per-grant capability: minting one is the act that lets a document
   // leave the org, and opening one is the only record a stateless token could never give. Both are

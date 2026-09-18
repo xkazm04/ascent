@@ -8,11 +8,12 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockIsDbConfigured, mockGetPrisma, mockGetMembershipRole, mockSetMembershipRole } = vi.hoisted(() => ({
+const { mockIsDbConfigured, mockGetPrisma, mockGetMembershipRole, mockSetMembershipRole, mockGetOrgId } = vi.hoisted(() => ({
   mockIsDbConfigured: vi.fn(),
   mockGetPrisma: vi.fn(),
   mockGetMembershipRole: vi.fn(),
   mockSetMembershipRole: vi.fn(),
+  mockGetOrgId: vi.fn(async () => "org_1"),
 }));
 
 vi.mock("@/lib/db/client", () => ({
@@ -31,8 +32,11 @@ vi.mock("@/lib/db/members", async (orig) => {
     setMembershipRole: mockSetMembershipRole,
   };
 });
+vi.mock("@/lib/db/org-rollup", () => ({
+  getOrgId: mockGetOrgId,
+}));
 
-import { acceptInvite } from "./invites";
+import { acceptInvite, listPendingInvites, peekInvite, resendInvite } from "./invites";
 
 /** Fake prisma for the invite rows: a pending, unexpired, unpinned invite for org "acme". */
 function fakeInvitePrisma(opts: { role?: string; email?: string | null } = {}) {
@@ -60,6 +64,7 @@ function fakeInvitePrisma(opts: { role?: string; email?: string | null } = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockIsDbConfigured.mockReturnValue(true);
+  mockGetOrgId.mockResolvedValue("org_1");
 });
 
 describe("acceptInvite — never downgrade an existing member", () => {
@@ -176,5 +181,128 @@ describe("acceptInvite — last_owner policy refusal is its own reason", () => {
     const res = await acceptInvite("tok", { login: "alice" });
 
     expect(res).toEqual({ ok: false, reason: "db" });
+  });
+});
+
+/** In-memory pending invite used to pin resend's in-place token rotate. */
+function fakePendingPrisma(opts: { status?: string; token?: string; expired?: boolean; orgId?: string } = {}) {
+  const store = {
+    id: "inv_1",
+    orgId: opts.orgId ?? "org_1",
+    email: "invitee@example.test",
+    githubLogin: null as string | null,
+    role: "member",
+    token: opts.token ?? "old_tok",
+    status: opts.status ?? "pending",
+    invitedBy: "octocat",
+    createdAt: new Date("2026-07-01T00:00:00.000Z"),
+    expiresAt: opts.expired ? new Date(Date.now() - 60_000) : new Date(Date.now() + 6 * 86_400_000),
+  };
+  const invite = {
+    create: vi.fn(),
+    findFirst: vi.fn(async ({ where }: { where: { id?: string; orgId?: string; status?: string } }) => {
+      if (where.id && where.id !== store.id) return null;
+      if (where.orgId && where.orgId !== store.orgId) return null;
+      if (where.status && where.status !== store.status) return null;
+      return { ...store };
+    }),
+    findUnique: vi.fn(async ({ where }: { where: { token?: string } }) => {
+      if (where.token !== store.token) return null;
+      return {
+        status: store.status,
+        expiresAt: store.expiresAt,
+        role: store.role,
+        githubLogin: store.githubLogin,
+        email: store.email,
+        org: { slug: "acme" },
+      };
+    }),
+    findMany: vi.fn(async () => [{ ...store }]),
+    updateMany: vi.fn(
+      async ({
+        where,
+        data,
+      }: {
+        where: { id?: string; orgId?: string; status?: string; expiresAt?: { gt: Date } };
+        data: Partial<typeof store>;
+      }) => {
+        if (where.id && where.id !== store.id) return { count: 0 };
+        if (where.orgId && where.orgId !== store.orgId) return { count: 0 };
+        if (where.status && where.status !== store.status) return { count: 0 };
+        if (where.expiresAt?.gt && store.expiresAt.getTime() <= where.expiresAt.gt.getTime()) return { count: 0 };
+        Object.assign(store, data);
+        return { count: 1 };
+      },
+    ),
+  };
+  const prisma = {
+    invite,
+    $transaction: vi.fn(async (fn: (tx: { invite: typeof invite }) => unknown) => fn({ invite })),
+  };
+  return { prisma, store, invite };
+}
+
+describe("resendInvite — rotate in place, old token fails peekInvite", () => {
+  it("overwrites the token in one transaction, mails nothing here, and leaves exactly one pending row", async () => {
+    const { prisma, store, invite } = fakePendingPrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const out = await resendInvite("acme", "inv_1");
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(invite.create).not.toHaveBeenCalled();
+    expect(out).not.toBeNull();
+    expect(out!.id).toBe("inv_1");
+    expect(out!.token).not.toBe("old_tok");
+    expect(out!.token).toBe(store.token);
+    expect(store.status).toBe("pending");
+
+    const listed = await listPendingInvites("acme");
+    expect(listed).toHaveLength(1);
+    expect(listed[0]).not.toHaveProperty("token");
+    expect(listed[0]!.id).toBe("inv_1");
+  });
+
+  it("old token peekInvite fails; the rotated token still peeks", async () => {
+    const { prisma, store } = fakePendingPrisma({ token: "old_tok" });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const out = await resendInvite("acme", "inv_1");
+    expect(out?.token).toBeTruthy();
+    expect(out!.token).not.toBe("old_tok");
+
+    expect(await peekInvite("old_tok")).toEqual({ ok: false, reason: "not_found" });
+    expect(await peekInvite(store.token)).toMatchObject({ ok: true, org: "acme", role: "member" });
+  });
+
+  it("does not rotate an already-consumed or expired invite", async () => {
+    const used = fakePendingPrisma({ status: "accepted" });
+    mockGetPrisma.mockReturnValue(used.prisma);
+    expect(await resendInvite("acme", "inv_1")).toBeNull();
+    expect(used.store.token).toBe("old_tok");
+
+    const expired = fakePendingPrisma({ expired: true });
+    mockGetPrisma.mockReturnValue(expired.prisma);
+    expect(await resendInvite("acme", "inv_1")).toBeNull();
+    expect(expired.store.token).toBe("old_tok");
+  });
+
+  it("returns null when the org is unknown or the db is off", async () => {
+    mockGetOrgId.mockResolvedValueOnce(null);
+    expect(await resendInvite("ghost", "inv_1")).toBeNull();
+
+    mockIsDbConfigured.mockReturnValueOnce(false);
+    expect(await resendInvite("acme", "inv_1")).toBeNull();
+  });
+});
+
+describe("listPendingInvites never re-broadcasts the token", () => {
+  it("strips token from every row even when prisma selected it", async () => {
+    const { prisma } = fakePendingPrisma({ token: "secret_capability" });
+    mockGetPrisma.mockReturnValue(prisma);
+    const listed = await listPendingInvites("acme");
+    expect(listed).toHaveLength(1);
+    expect(listed[0]).not.toHaveProperty("token");
+    expect(JSON.stringify(listed)).not.toContain("secret_capability");
   });
 });
