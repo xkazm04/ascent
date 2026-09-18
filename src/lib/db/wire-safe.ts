@@ -143,7 +143,10 @@ import type { ForgeInstallationRow } from "@/lib/db/forge-installations";
 // cockpit read them. Declared in the dependency-free runner-types.ts (the browser imports them), built
 // by `toPlanRecord` / `toDirectionRecord` out of Prisma rows whose five `DateTime` columns
 // (`decidedAt`, `approvedAt`, `endedAt`, `createdAt`, `updatedAt`) are all `.toISOString()`-mapped.
-import type { LoopDirectionRecord, LoopPlanRecord } from "@/lib/local/runner-types";
+import type { LanePulse, LoopDirectionRecord, LoopPlanRecord, LoopPulse, RunnerPulse } from "@/lib/local/runner-types";
+// The runner-kept lessons the ledger lists (WP5) and the pulse the theater polls (WP4) — every
+// timestamp an ISO string.
+import type { RunnerKeptLessonRow } from "@/lib/db/loop-lessons-runner";
 
 /** The keys of `T` whose (non-null) type is a `Date`. `never` when there are none. */
 export type DateBearingKeys<T> = {
@@ -229,6 +232,10 @@ export const WIRE_TYPES = {
   LoopLessonRow: true satisfies WireSafe<LoopLessonRow>,
   LoopPlanRecord: true satisfies WireSafe<LoopPlanRecord>,
   LoopDirectionRecord: true satisfies WireSafe<LoopDirectionRecord>,
+  RunnerKeptLessonRow: true satisfies WireSafe<RunnerKeptLessonRow>,
+  LoopPulse: true satisfies WireSafe<LoopPulse>,
+  LanePulse: true satisfies WireSafe<LanePulse>,
+  RunnerPulse: true satisfies WireSafe<RunnerPulse>,
   MemoryRow: true satisfies WireSafe<MemoryRow>,
   OpsState: true satisfies WireSafe<OpsState>,
   OrgBranding: true satisfies WireSafe<OrgBranding>,

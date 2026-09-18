@@ -82,7 +82,14 @@ import { takeDepNotes, type LoopWorktree } from "@/lib/local/loop-worktree";
 // → none, activity → a no-op sink, poll → nothing armed, deps → unchanged). The lane's control flow —
 // WHERE each seam is consulted and what each outcome does to the claim, the batch and the row — lives
 // here and nowhere else.
-import { checkPlanFence, nextDirectedBatch, planLane, type DirectedBatch } from "@/lib/local/lane-plan";
+import {
+  chargeLanePlanCost,
+  checkPlanFence,
+  nextDirectedBatch,
+  planLane,
+  settleLanePlan,
+  type DirectedBatch,
+} from "@/lib/local/lane-plan";
 import { createLaneActivitySink } from "@/lib/local/lane-activity";
 import { startWorktreePoll } from "@/lib/local/worktree-poll";
 import { installChangedDependencies } from "@/lib/local/lane-deps-install";
@@ -168,6 +175,11 @@ export interface LaneDeps {
   worktreePoll: typeof startWorktreePoll;
   /** The engine's dependency install for a runner lane that changed a manifest. */
   depsInstall: typeof installChangedDependencies;
+  /** An executing plan whose lane ended WITHOUT reaching the fence check is settled `failed` — else the
+   *  proposals ledger would show it `executing` forever. Never throws. */
+  settlePlan: typeof settleLanePlan;
+  /** The session's metered cost, charged to the direction the lane's plan ran under. Never throws. */
+  chargePlanCost: typeof chargeLanePlanCost;
 }
 
 export const defaultLaneDeps: LaneDeps = {
@@ -205,6 +217,8 @@ export const defaultLaneDeps: LaneDeps = {
   activitySink: createLaneActivitySink,
   worktreePoll: startWorktreePoll,
   depsInstall: installChangedDependencies,
+  settlePlan: settleLanePlan,
+  chargePlanCost: chargeLanePlanCost,
 };
 
 /** `openBatch`'s options. `onExcluded` reports what the pick passed over and why — the "proposed" end
@@ -860,6 +874,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
   };
   const fail = async (message: string, stage: string | null = null): Promise<LaneRunResult> => {
     await releaseClaims(`loop cycle ${cycle} failed before its rescan could adjudicate (${firstLine(message)})`);
+    await deps.settlePlan(planId);
     if (laneId) {
       await appendLaneLog(laneId, message);
       // `stage` IS THE FORENSICS. On an ordinary failure it stays null, exactly as it was. On a
@@ -1052,6 +1067,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       }
       if (batch.length === 0) {
         await appendLaneLog(laneId, "Every follow-up in this batch is held by another worker — nothing to dispatch.");
+        if (directed) await deps.settlePlan(directed.planId);
         await updateLane(laneId, { phase: "done", stage: null, endedAt: new Date() });
         return { laneId, progressed: false, commits: 0, closed: 0, error: null };
       }
@@ -1309,6 +1325,9 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       // half of the ledger that cannot be reconstructed from git afterwards. A FAILED session is
       // recorded too: a failure that burned two dollars is the most important row in the price list.
       await recordAgentCost(laneId, org, repo, result, input);
+      // …and charged to the direction the plan ran under — the half of a direction's budget its cycle
+      // count cannot measure.
+      await deps.chargePlanCost(planId, result.costMicros);
       // THE AGENT'S OWN ACCOUNT, read before the commit and the rescan so a lane that dies later
       // still carries it. A missing or malformed report is `parsed: false` — which is not the same
       // fact as "it skipped nothing", and the ledger renders the difference.
@@ -1339,6 +1358,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
               deliverables: [{ headline: "Held — dependency install failed", dimId: null, kind: "noted", covers: [], evidence: depsOut.note }],
             });
             await releaseClaims(`loop cycle ${cycle}'s dependency change could not be installed, so nothing adjudicated the claim`);
+            await deps.settlePlan(planId);
             await updateLane(laneId, { phase: "done", commits: 0, stage: null, endedAt: new Date() });
             return { laneId, progressed: false, commits: 0, closed: 0, error: null };
           }
@@ -1393,6 +1413,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
             ],
           });
           await releaseClaims(`loop cycle ${cycle} was reversed by the degradation guard, so nothing adjudicated the claim`);
+          await deps.settlePlan(planId);
           await updateLane(laneId, { phase: "done", commits: 0, stage: null, endedAt: new Date() });
           return { laneId, progressed: false, commits: 0, closed: 0, error: null };
         }
@@ -1475,6 +1496,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
 
     if (input.shouldStop?.()) {
       await releaseClaims(`loop cycle ${cycle} was stopped before its rescan could adjudicate`);
+      await deps.settlePlan(planId);
       await updateLane(laneId, { phase: "done", commits, stage: null, endedAt: new Date() });
       await appendLaneLog(laneId, "Stop requested — winding this lane down before the rescan; the batch is released.");
       return { laneId, progressed: false, commits, closed: 0, error: null };
@@ -1492,6 +1514,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     // because the rows written before this gate existed are still in the database.)
     if (commits === 0) {
       await releaseClaims(`loop cycle ${cycle} committed nothing, so there was nothing for a rescan to adjudicate`);
+      await deps.settlePlan(planId);
       await appendLaneLog(
         laneId,
         "No commits, so no rescan: scanning a worktree that nothing landed in would make it this repository's latest reading and credit the repo with work that does not exist.",
