@@ -61,6 +61,20 @@ const SKILL: GeneratedSkill = {
   path: ".claude/skills/ascent-onboard/SKILL.md",
   body: "---\nname: ascent-onboard\n---\n# Onboard acme/api",
   trackIds: ["D4", "D9"],
+  files: [
+    {
+      path: ".claude/skills/ascent-onboard/SKILL.md",
+      body: "---\nname: ascent-onboard\n---\n# Onboard acme/api",
+      purpose: "claude",
+      lang: "markdown",
+    },
+    {
+      path: ".agents/skills/ascent-onboard/SKILL.md",
+      body: "---\nname: ascent-onboard\n---\n\nAlso linked from Claude's path: `.claude/skills/ascent-onboard/SKILL.md`.\n# Onboard acme/api",
+      purpose: "agents",
+      lang: "markdown",
+    },
+  ],
 };
 
 const deny = (status: number) =>
@@ -394,5 +408,38 @@ describe("GET /api/report/skill — history records the report's head sha", () =
     expect(res.headers.get("content-disposition")).toBe(
       'attachment; filename="ascent-onboard-acme-api-abcdef1.SKILL.md"',
     );
+  });
+});
+
+// ── Vendor-neutral second home (`?format=json`) ───────────────────────────────────────────────────
+// The generator emits Claude's path AND `.agents/skills/ascent-onboard/SKILL.md`. The default
+// download stays the Claude markdown file (SkillDownload). `format=json` is the opt-in that returns
+// both instruction files so a vendor-neutral consumer can write the agents-registry copy.
+describe("GET /api/report/skill — vendor-neutral files via format=json", () => {
+  it("returns both skill homes, one not under .claude/, with the same trackIds", async () => {
+    const res = await get("acme/api", "&format=json");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toMatch(/application\/json/);
+    expect(res.headers.get("content-disposition")).toBe(
+      'attachment; filename="ascent-onboard-acme-api.skill.json"',
+    );
+    const payload = (await res.json()) as {
+      path: string;
+      trackIds: string[];
+      files: { path: string; body: string }[];
+    };
+    expect(payload.path).toBe(".claude/skills/ascent-onboard/SKILL.md");
+    expect(payload.trackIds).toEqual(SKILL.trackIds);
+    expect(payload.files.length).toBeGreaterThanOrEqual(2);
+    expect(payload.files.some((f) => f.path.startsWith(".claude/"))).toBe(true);
+    expect(payload.files.some((f) => !f.path.startsWith(".claude/"))).toBe(true);
+    expect(payload.files.map((f) => f.path)).toContain(".agents/skills/ascent-onboard/SKILL.md");
+    expect(mockRecord).toHaveBeenCalledWith("acme/api", "cafebabe0000", SKILL.trackIds);
+  });
+
+  it("does not change the default markdown download when format is omitted", async () => {
+    const res = await get("acme/api");
+    expect(res.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
+    expect(await res.text()).toBe(SKILL.body);
   });
 });

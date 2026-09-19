@@ -30,7 +30,7 @@ vi.mock("@/lib/db/client", () => ({ getPrisma: mockGetPrisma, isDbConfigured: mo
 
 import { dateRange, upperBound } from "@/lib/db/org-shared";
 import { getOrgRollup, type OrgWindow } from "@/lib/db/org-rollup";
-import { getOrgMovers } from "@/lib/db/org-insights";
+import { getOrgMovers, readOnboardedRepos } from "@/lib/db/org-insights";
 import { getOrgTeamRollup } from "@/lib/db/org-teams";
 import { inclusiveEnd, resolveWindow } from "@/lib/window";
 import { orgWindowBounds } from "@/lib/org/period";
@@ -235,6 +235,81 @@ describe("what 'now' means differs BY READER — the same bounds, different endp
 
     const inWindow = scanWheres.find((w) => (w.scannedAt as { gte?: Date })?.gte)!;
     expect(inWindow.scannedAt).toEqual({ gte: PERIOD.start, lt: PERIOD.endExclusive });
+  });
+});
+
+// ── OrgMovers.onboarded: named repos, same fleet under both dialects ──────────────────────────────
+// A count without names is not a fleet of onboarded repos. getOrgMovers is the production reader of
+// who joined; `readOnboardedRepos` projects the names. Both dialects must name the SAME repos.
+
+function moversDataPrisma(
+  rows: { repoId: string; fullName: string; name: string; scannedAt: Date; overall: number }[],
+) {
+  return {
+    organization: { findUnique: vi.fn(async () => ({ id: "org_1", plan: "enterprise", slug: "acme" })) },
+    repository: { findMany: vi.fn(async () => []) },
+    scanDimension: { findMany: vi.fn(async () => []) },
+    scan: {
+      findMany: vi.fn(async (args: { where?: { scannedAt?: { gte?: Date; lt?: Date; lte?: Date } }; orderBy?: { scannedAt?: "asc" | "desc" }; distinct?: string[] } = {}) => {
+        const t = args.where?.scannedAt;
+        const dir = args.orderBy?.scannedAt ?? "desc";
+        let matched = rows.filter((s) => matches(t, s.scannedAt));
+        matched.sort((a, b) =>
+          dir === "asc" ? a.scannedAt.getTime() - b.scannedAt.getTime() : b.scannedAt.getTime() - a.scannedAt.getTime(),
+        );
+        if (args.distinct?.includes("repoId")) {
+          const seen = new Set<string>();
+          matched = matched.filter((s) => (seen.has(s.repoId) ? false : (seen.add(s.repoId), true)));
+        }
+        return matched.map((s) => ({
+          repoId: s.repoId,
+          overallScore: s.overall,
+          adoptionScore: s.overall,
+          rigorScore: s.overall,
+          level: "L2",
+          posture: "developing",
+          scannedAt: s.scannedAt,
+          engineProvider: "anthropic",
+          repo: { fullName: s.fullName, name: s.name },
+        }));
+      }),
+    },
+  };
+}
+
+describe("getOrgMovers onboarded names the same repos under both dialects", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsDbConfigured.mockReturnValue(true);
+  });
+
+  it("readOnboardedRepos returns fullName, not a count, and agrees inclusive vs half-open", async () => {
+    const rows = [
+      // alpha: pre-start baseline — period gainer, not onboarded
+      { repoId: "r1", fullName: "acme/alpha", name: "alpha", scannedAt: new Date("2025-12-01T00:00:00.000Z"), overall: 50 },
+      { repoId: "r1", fullName: "acme/alpha", name: "alpha", scannedAt: new Date("2026-02-01T00:00:00.000Z"), overall: 60 },
+      // bravo: two in-window scans — onboarded, lifetime +40
+      { repoId: "r2", fullName: "acme/bravo", name: "bravo", scannedAt: new Date("2026-01-15T00:00:00.000Z"), overall: 30 },
+      { repoId: "r2", fullName: "acme/bravo", name: "bravo", scannedAt: new Date("2026-03-01T00:00:00.000Z"), overall: 70 },
+      // charlie: single in-window scan — named, not a phantom move
+      { repoId: "r3", fullName: "acme/charlie", name: "charlie", scannedAt: new Date("2026-02-14T00:00:00.000Z"), overall: 55 },
+    ];
+
+    mockGetPrisma.mockReturnValue(moversDataPrisma(rows));
+    const before = await getOrgMovers("acme", INCLUSIVE);
+    mockGetPrisma.mockReturnValue(moversDataPrisma(rows));
+    const after = await getOrgMovers("acme", HALF_OPEN);
+
+    const namedBefore = readOnboardedRepos(before!);
+    const namedAfter = readOnboardedRepos(after!);
+    expect(namedAfter).toEqual(namedBefore);
+    expect(namedAfter.map((r) => r.fullName)).toEqual(["acme/bravo", "acme/charlie"]);
+    expect(namedAfter).toEqual([
+      { fullName: "acme/bravo", name: "bravo", overall: 70, dOverall: 40, sinceDays: 45 },
+      { fullName: "acme/charlie", name: "charlie", overall: 55, dOverall: 0, sinceDays: 0 },
+    ]);
+    expect(after!.comparedRepos).toBe(1);
+    expect(after!.gainers.map((m) => m.fullName)).toEqual(["acme/alpha"]);
   });
 });
 

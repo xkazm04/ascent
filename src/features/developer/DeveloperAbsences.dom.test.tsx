@@ -12,7 +12,9 @@ import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
 import { CareShapeRow } from "./CareShapeRow";
 import { CareSessionShape } from "./CareSessionShape";
+import { CareRepoGaps } from "./CareRepoGaps";
 import { DeveloperActivityStrip } from "./DeveloperActivityStrip";
+import { DeveloperCompanion } from "./DeveloperCompanion";
 import { emptyDeveloperView, type DeveloperView } from "@/lib/org/developer-view";
 
 const BAND = { p25: 4, p50: 10, p75: 20 };
@@ -112,6 +114,34 @@ describe("DeveloperActivityStrip — four reasons `activity` is null", () => {
       <DeveloperActivityStrip view={{ ...emptyDeveloperView(null) }} slug="acme" />,
     );
     expect(container.textContent).toContain("Sign in");
+  });
+});
+
+describe("CareRepoGaps — withheld empty is not a watch-nudge", () => {
+  const WATCH = "Watch the repositories";
+
+  it("reuses the withheld sentence and never asks them to watch repos", () => {
+    const { container } = render(<CareRepoGaps repos={[]} activityState="withheld" />);
+    expect(container.textContent).toContain("Your commits exist");
+    expect(container.textContent).not.toContain(WATCH);
+    expect(container.textContent).not.toContain("No repos linked yet");
+  });
+
+  it("reuses the unreadable sentence the same way", () => {
+    const { container } = render(<CareRepoGaps repos={[]} activityState="unreadable" />);
+    expect(container.textContent).toContain("could not be read");
+    expect(container.textContent).not.toContain(WATCH);
+  });
+
+  it("keeps the scan/watch nudge when the viewer is genuinely absent", () => {
+    const { container } = render(<CareRepoGaps repos={[]} activityState="absent" />);
+    expect(container.textContent).toContain(WATCH);
+  });
+
+  it("a withheld companion view never says Watch the repositories", () => {
+    const { container } = render(<DeveloperCompanion view={view({ activityState: "withheld" })} slug="acme" />);
+    expect(container.textContent).not.toContain(WATCH);
+    expect(container.textContent).toContain("Your commits exist");
   });
 });
 

@@ -7,7 +7,7 @@
 
 import { NextResponse } from "next/server";
 import { isDbConfigured } from "@/lib/db";
-import { requireOrgAccess, requireOrgRead } from "@/lib/authz";
+import { requireOrgRead } from "@/lib/authz";
 
 /**
  * The 503 db-guard shared by every planning handler (and, via the optional `message` override, by
@@ -64,18 +64,22 @@ export function createdResponse(created: { id: string } | null, resource: string
 
 /**
  * The per-row tenant gate for the [id] mutation routes: db-guard → resolve the row's TRUE owning org
- * (never a body-supplied value) → 404 when the id is unknown → require write access on that org.
+ * (never a body-supplied value) → 404 when the id is unknown → `authorize` that org.
  * Returns the blocking response (503/404/401/403), or null when the caller may act.
+ *
+ * `authorize` is the authorization strength — member-level writes pass `requireOrgAccess`; an
+ * irreversible DELETE passes `(org) => requireOrgRole(org, "admin")`. rowGate does not pick the role.
  */
 export async function rowGate(opts: {
   resourceLabel: string;
   notFound: string;
   getOrgSlug: (id: string) => Promise<string | null>;
   id: string;
+  authorize: (org: string) => Promise<NextResponse | null>;
 }): Promise<NextResponse | null> {
   const guard = dbGuard(opts.resourceLabel);
   if (guard) return guard;
   const org = await opts.getOrgSlug(opts.id);
   if (!org) return NextResponse.json({ error: opts.notFound }, { status: 404 });
-  return requireOrgAccess(org);
+  return opts.authorize(org);
 }

@@ -4,9 +4,12 @@
 //                                 scaffold PR.
 //
 // POST body: { fullName?: "owner/repo", create?: boolean, name?: string, canonical?: boolean,
-//              mode?: "git_native"|"hosted_mirror", telemetrySink?: "api"|"registry"|"off" }
+//              mode?: "git_native"|"hosted_mirror"|"git-native"|"hosted-mirror",
+//              telemetrySink?: "api"|"registry"|"off" }
 //   `create: true` creates `<slug>/<name ?? "ai-registry">` (organization accounts only) and then
 //   scaffolds it; otherwise `fullName` must name a repo the App can already see.
+//   `mode` and `telemetrySink` are optional (schema defaults git_native / off). YAML spellings
+//   (`git-native`, `hosted-mirror`) are accepted; anything else is 400, never silently dropped.
 //
 // Every failure is `{ error, code }` with a real status — never a bare 500 — so the tab can say what
 // went wrong. The mapping row is persisted BEFORE the PR attempt, so a GitHub failure leaves a
@@ -15,13 +18,7 @@
 import { NextResponse } from "next/server";
 import { resolveViewerLogin } from "@/lib/access";
 import { getRegistryView } from "@/lib/org/registry-view";
-import {
-  REGISTRY_MODES,
-  TELEMETRY_SINKS,
-  upsertOrgRegistry,
-  type RegistryModeValue,
-  type TelemetrySinkValue,
-} from "@/lib/db/org-registry";
+import { upsertOrgRegistry, type RegistryModeValue, type TelemetrySinkValue } from "@/lib/db/org-registry";
 import { setRegistryStatus } from "@/lib/db/org-registry-write";
 import { githubErrorResponse, guardRegistryRead, guardRegistryWrite, registryError } from "@/lib/registry/api";
 import { DEFAULT_REGISTRY_NAME, parseFullName } from "@/lib/registry/layout";
@@ -32,8 +29,26 @@ export const dynamic = "force-dynamic";
 
 const REPO_NAME_RE = /^[A-Za-z0-9._-]{1,100}$/;
 
-const pick = <T extends string>(allowed: readonly string[], raw: unknown): T | undefined =>
-  typeof raw === "string" && allowed.includes(raw) ? (raw as T) : undefined;
+const MODE_IN: Record<string, RegistryModeValue> = {
+  git_native: "git_native",
+  "git-native": "git_native",
+  hosted_mirror: "hosted_mirror",
+  "hosted-mirror": "hosted_mirror",
+};
+const SINK_IN: Record<string, TelemetrySinkValue> = { api: "api", registry: "registry", off: "off" };
+
+function parseClosed<T extends string>(
+  raw: unknown,
+  aliases: Record<string, T>,
+  field: string,
+  allowed: string,
+): { value?: T; error?: ReturnType<typeof registryError> } {
+  if (raw === undefined) return {};
+  const key = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  const value = key ? aliases[key] : undefined;
+  if (!value) return { error: registryError("invalid-input", `${field} must be ${allowed}.`, 400) };
+  return { value };
+}
 
 export async function GET(_request: Request, ctx: { params: Promise<{ slug: string }> }) {
   const { slug } = await ctx.params;
@@ -48,8 +63,10 @@ export async function POST(request: Request, ctx: { params: Promise<{ slug: stri
   if (gate instanceof NextResponse) return gate;
 
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-  const mode = pick<RegistryModeValue>(REGISTRY_MODES, body.mode);
-  const telemetrySink = pick<TelemetrySinkValue>(TELEMETRY_SINKS, body.telemetrySink);
+  const mode = parseClosed(body.mode, MODE_IN, "mode", "git_native or hosted_mirror");
+  if (mode.error) return mode.error;
+  const telemetrySink = parseClosed(body.telemetrySink, SINK_IN, "telemetrySink", "api, registry, or off");
+  if (telemetrySink.error) return telemetrySink.error;
   const canonical = body.canonical === undefined ? true : body.canonical === true;
 
   // ── resolve the target repo ─────────────────────────────────────────────────────────────────
@@ -78,8 +95,8 @@ export async function POST(request: Request, ctx: { params: Promise<{ slug: stri
     fullName,
     defaultBranch,
     canonical,
-    mode,
-    telemetrySink,
+    mode: mode.value,
+    telemetrySink: telemetrySink.value,
     status: "scaffolding",
     createdBy: await resolveViewerLogin().catch(() => null),
   });

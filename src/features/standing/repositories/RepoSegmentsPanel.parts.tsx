@@ -5,8 +5,8 @@
 // className strings, comments, and handlers — just parameterized by props the panel already had in
 // scope. No behavior change; all state still lives in RepoSegmentsPanel.
 
-import { readableTextOn } from "@/lib/ui";
-import type { SegmentItem, RepoItem } from "@/features/standing/repositories/RepoSegmentsPanel";
+import type { SegmentItem } from "@/features/standing/repositories/RepoSegmentsPanel";
+import { TAGGED_COUNT_HINT, taggedScoredLabel } from "./segmentCounts";
 
 // Mirrors SEGMENT_NAME_MAX in src/lib/db/segments.ts — the server now REJECTS (400) longer names
 // instead of silently truncating, so the inputs must stop the user at the same bound.
@@ -35,12 +35,8 @@ export function SegmentChips({
           <span className="text-slate-200" onDoubleClick={() => startEdit(s)} title="Double-click to rename">
             {s.name}
           </span>
-          {/* G4-08: this is the TAGGED count (every repo ever added to the segment, watched or not,
-              scanned or not) — a different universe than the "N/M scanned" count on the segment
-              maturity cards below, which only counts watched-or-scanned repos. The title spells that
-              out so the two counts don't read as disagreeing. */}
-          <span className="type-mono-sm text-slate-500" title={`${s.repoCount} repo${s.repoCount === 1 ? "" : "s"} tagged`}>
-            {s.repoCount}
+          <span className="type-mono-sm text-slate-500" title={TAGGED_COUNT_HINT}>
+            {taggedScoredLabel(s.repoCount, null)}
           </span>
           <button
             type="button"

@@ -16,7 +16,7 @@ import { isByomActive, isDbConfigured, listWatchedRepos, persistTeamStandings } 
 import { enqueueScanJob, JOB_PRIORITY, listJobsForRun } from "@/lib/db/scan-jobs";
 import { isAppConfigured } from "@/lib/github/app";
 import { requireFleetOrg, requireOrgAccess } from "@/lib/authz";
-import { checkScanEntitlement, paymentRequired } from "@/lib/entitlement";
+import { checkScanEntitlement, orgNotFound, paymentRequired } from "@/lib/entitlement";
 import { drainLane } from "@/lib/scan-queue-worker";
 import { fleetDeadlineAt, SCAN_CONCURRENCY } from "@/lib/pool";
 import { SSE_HEADERS, makeSseSend } from "@/lib/sse-server";
@@ -79,6 +79,7 @@ export async function POST(request: Request) {
   let skippedForCredits = 0;
   if (metered) {
     const ent = await checkScanEntitlement(org);
+    if (ent.orgExists === false) return orgNotFound();
     if (!ent.allowed) return paymentRequired(ent.balance);
     if (!ent.unlimited) {
       // Optimistic cap from a point-in-time read: don't enqueue repos beyond what's free+prepaid. The

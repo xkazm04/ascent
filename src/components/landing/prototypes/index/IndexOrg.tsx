@@ -6,7 +6,8 @@
 import Link from "next/link";
 import { DeckSection } from "@/components/deck/DeckSection";
 import { Kicker } from "@/components/ui";
-import { DEMO_ORG_NAME, demoOrgHref } from "@/lib/site";
+import { orgTabHref } from "@/lib/org/orgTabs";
+import { DEMO_ORG_NAME, DEMO_ORG_SLUG, demoOrgHref } from "@/lib/site";
 
 interface OrgUseCase {
   title: string;
@@ -43,9 +44,10 @@ const ORG_USE_CASES: OrgUseCase[] = [
     href: demoOrgHref("security"),
   },
   {
-    title: "Improvement plan",
-    blurb: "A prioritized, ROI-ranked backlog to raise the org to the next level.",
-    href: demoOrgHref("plan"),
+    // Proposals is born-migrated (`?tab=`); demoOrgHref("proposals") 404s (no /proposals stub).
+    title: "Follow-ups & proposals",
+    blurb: "Scan follow-ups and loop proposals in one ledger, waiting on a decision.",
+    href: orgTabHref(DEMO_ORG_SLUG, "proposals"),
   },
 ];
 

@@ -10,7 +10,7 @@
 
 import { attributeDimension, type Attribution } from "@/lib/maturity/attribution";
 import { closedTitles, groupDeliverables } from "./outcomeDeliverables";
-import { buildGapRows } from "./outcomeGapRows";
+import { buildGapRows, type BatchTitles } from "./outcomeGapRows";
 import { cellEconomics } from "./outcomeEconomics";
 import type { CellNarrowedVerify, CellRedBaseline, OutcomeCell, OutcomeDim } from "./outcomeMatrixTypes";
 import { asVerifyVerdict, narrowedRungTag } from "@/lib/local/verify-options";
@@ -39,6 +39,9 @@ export function foldCell(
   lanes: readonly LoopLaneOutcome[],
   /** The run's per-lane economics, in the shape the detail route ships. Empty on an older payload. */
   economics: readonly LaneEconomics[] = [],
+  /** The run's id → title resolution, so an armed item never renders as a raw uuid (see
+   *  `outcomeGapRows.ts`). Absent on a payload from a server older than the field. */
+  batchTitles?: BatchTitles,
 ): OutcomeCell {
   const verdict = combineVerdicts(lanes.map(laneAttribution));
   const last = [...lanes].reverse().find((o) => o.diff) ?? lanes[lanes.length - 1]!;
@@ -82,7 +85,7 @@ export function foldCell(
     kind: first.kind,
     installed: tag ? `${tag} installed` : null,
     deliverables: groupDeliverables(lanes),
-    rows: buildGapRows(lanes),
+    rows: buildGapRows(lanes, batchTitles),
     prNumber: withPr?.prNumber ?? null,
     prUrl: withPr?.prUrl ?? null,
     lane: withPr ?? tail,

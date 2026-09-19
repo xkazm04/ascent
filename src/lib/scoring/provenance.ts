@@ -70,6 +70,24 @@ export function scoreProvenance(
   return { kind: "blended", clampBand, widened, blend, reach };
 }
 
+/** One-word tag a chart prints next to a dimension. Clean blended rows return null. */
+export type ScoreProvenanceMark = "widened" | "unmeasured" | "signal-only" | "claim-scored";
+
+/**
+ * Itemization tag for one dimension. G5: disclose the integrity that already fired — never invent a
+ * widening. Unmeasured outranks mechanism (an unobserved number is not a blend or a claim score).
+ * A clean blended dimension stays unlabeled.
+ */
+export function scoreProvenanceMark(
+  d: { id: DimensionId; signalScore: number; score: number },
+  integrity?: ScoreIntegrity | null,
+): ScoreProvenanceMark | null {
+  if (integrity?.unmeasuredDims?.includes(d.id)) return "unmeasured";
+  const p = scoreProvenance(d, integrity);
+  if (p.kind === "blended") return p.widened ? "widened" : null;
+  return p.kind;
+}
+
 // ── ONE UNIT for the blend weight ───────────────────────────────────────────────────────────────
 //
 // The report page carries the weight twice: the header's integrity chip and every blended dimension's
@@ -91,4 +109,19 @@ export function blendWeightPercent(blend: number): number {
 /** The chip's short form: the same percent the tracks print, with the configured weight as context. */
 export function blendWeightLabel(blend: number): string {
   return `blend weight ${blendWeightPercent(blend)}% of ${blendWeightPercent(SCORE_BLEND)}%`;
+}
+
+// ── Radar hover ticks (signal vs LLM) ─────────────────────────────────────────
+//
+// RadarChart plots the blended `score` as the polygon (the headline). Hover and the
+// SR table must still name the two witnesses when either disagrees with that number
+// (G1: LLM-vs-detector disagreement is never collapsed into the blend). When all
+// three match there is nothing to disclose, so the hover stays one number.
+
+export type RadarHoverTicks = { signal: number; llm: number; line: string };
+
+/** Signal + LLM ticks for a radar vertex, or null when they equal the plotted score. */
+export function radarHoverTicks(d: { score: number; signalScore: number; llmScore: number }): RadarHoverTicks | null {
+  if (d.signalScore === d.score && d.llmScore === d.score) return null;
+  return { signal: d.signalScore, llm: d.llmScore, line: `signal ${d.signalScore} · LLM ${d.llmScore}` };
 }

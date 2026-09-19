@@ -2,9 +2,12 @@
 //
 // POST { org, fullName } → resolve the pairing, re-verify the folder (it may have moved since it was
 // saved), run the full scan pipeline with LocalFsSource injected, persist under the org. The commits
-// `git log` reads are LOCAL — an `Ascent-Resolves:` trailer closes its follow-up here, before any
-// push, which is the whole reason this route exists: the ledger's resolve→verify loop collapses from
-// "push and wait for the next GitHub scan" to one immediate round trip.
+// `git log` reads are LOCAL, so an `Ascent-Resolves:` trailer is visible here before any push — which
+// is why this route exists: the ledger's resolve→verify loop collapses from "push and wait for the
+// next GitHub scan" to one immediate round trip. The trailer is a CLAIM; `persistScanReport`'s
+// `closedFollowUpIds` is the verdict (same split `rescanWorktree` already makes). `closedFollowUps`
+// on the JSON body is that adjudicated set; `claimedFollowUps` is the trailer set and is never a
+// close count.
 //
 // No credit ceremony: this route exists only behind selfHostGuard, where isMeteredScan() is false by
 // construction — there is no allowance to count and no credit to reserve, so mirroring the fleet
@@ -78,13 +81,22 @@ export async function POST(request: Request) {
     });
     const persisted = await persistScanReport(report, { orgSlug: org });
     await recordScanOutcome(org, fullName, { ok: true }).catch(() => {});
+    // THE CLAIM AND THE VERDICT ARE TWO SETS — same rule as `rescanWorktree` (UAT `PRIYA-L1-702`).
+    // `report.resolvedFollowUpIds` is `parseResolvedIds` over local commit messages. Returning it as
+    // `resolvedFollowUps` made Local Rescan its own verifier: the button printed trailer claims as
+    // "N follow-ups closed" while persist's movement witness may have kept every row in_progress.
+    const closedFollowUps = persisted?.closedFollowUpIds ?? [];
     return NextResponse.json({
       ok: true,
       dirty,
       level: report.level.id,
       overall: report.overallScore,
       headSha: report.repo.headSha ?? null,
-      resolvedFollowUps: report.resolvedFollowUpIds ?? [],
+      closedFollowUps,
+      claimedFollowUps: report.resolvedFollowUpIds ?? [],
+      // Same adjudicated set under the field the button used to count as trailers, so a stale client
+      // cannot print a claim as a close.
+      resolvedFollowUps: closedFollowUps,
       deduped: persisted?.deduped ?? false,
     });
   } catch (err) {

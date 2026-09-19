@@ -14,19 +14,26 @@
 // most quotable number on this page and the one a leader is most likely to repeat in a room; it does
 // not get to be manufactured from a two-day blip.
 //
-// Below the gate this renders NOTHING, which is where it deliberately parts company with
-// PersonalOverview: there, a tracked repo whose neighbours have a card needs the verbatim refusal to
-// explain the hole in the grid. Here there is no grid and no comparison — one absent card in a
-// single-column ledger reads as "not yet", and a paragraph explaining an absence nobody noticed would
-// spend the top of the fleet's front page saying we have nothing to say.
+// A sub-gate fit is NOT dropped in silence and is NOT drawn as a 0 slope (G4). `composeTrajectory`
+// hands back the refusal in the same words PersonalOverview, the /trends panel and the Delivery
+// readout print, and it is rendered verbatim. No fit at all is still absence — the card stays off.
 
+import { Card, SectionHeader } from "@/components/org/shared/ui";
 import { Trajectory } from "./Trajectory";
 import { composeTrajectory, type Forecast } from "@/lib/maturity/forecast";
 
 export function OverviewTrajectoryCard({ forecast }: { forecast: Forecast | null }) {
-  // `composeTrajectory(null)` is all-nulls, so the null case falls out of the same predicate — but
-  // keep the early return: it says the "no fit at all" case is expected, not an edge.
-  if (!forecast) return null;
-  if (composeTrajectory(forecast).headline === null) return null;
-  return <Trajectory forecast={forecast} />;
+  const read = composeTrajectory(forecast);
+  if (read.headline && forecast) return <Trajectory forecast={forecast} />;
+  if (read.insufficiency === null) return null;
+  return (
+    <Card>
+      <SectionHeader size="sm" title="Trajectory" />
+      <p className="mt-3 type-body text-slate-300">{read.insufficiency}</p>
+      <p className="mt-2 type-body-sm text-slate-500">
+        Scan again over the coming weeks. The projection appears once there is enough spread to read a
+        trend rather than noise.
+      </p>
+    </Card>
+  );
 }

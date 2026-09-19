@@ -25,8 +25,8 @@ export function SelectStep({
   loading: boolean;
   sourceLabel: string;
   sourceInstallId: string | null;
-  /** True when the public listing stopped before the end of the account (/api/org/repos `truncated`) —
-   *  the list is then a recent slice, not the whole org, and must say so. */
+  /** True when the listing stopped before the end of the account (`truncated` from `/api/org/repos`
+   *  or `/api/app/repos`) — the list is then a slice, not the whole org, and must say so. */
   listTruncated?: boolean;
   /** Prepaid balance for the source org (App path only) — null hides the balance half.
    *  `allowanceRemaining` is the org's INCLUDED free monthly scans. canRunReal counts it as headroom,
@@ -62,13 +62,15 @@ export function SelectStep({
           : "Listed most-recently-pushed; the most-starred are preselected."}
         {sourceLabel && <> Source: {sourceLabel}</>}
       </p>
-      {/* The listing walks a bounded number of pages, so a big/fork-heavy account can be cut short. The
-          route has always reported that as `truncated`; saying it here is the difference between "these
-          are the recent ones" and silently presenting a slice as the whole account. */}
+      {/* Both listings walk a bounded number of pages, so a large account can be cut short. The
+          routes report that as `truncated`; saying it here is the difference between "these are
+          the ones we could load" and silently presenting a slice as the whole account. */}
       {listTruncated && !listing && repos.length > 0 && (
         <p className="mt-1 type-caption text-slate-500">
-          Showing the {repos.length} most recently pushed. {sourceLabel || "this account"} has more than this
-          listing reaches. Scan these now; add the rest from the dashboard.
+          {sourceInstallId
+            ? `Showing ${repos.length} repositories this installation can see. ${sourceLabel || "this account"} has more than this listing reaches.`
+            : `Showing the ${repos.length} most recently pushed. ${sourceLabel || "this account"} has more than this listing reaches.`}{" "}
+          Scan these now; add the rest from the dashboard.
         </p>
       )}
 

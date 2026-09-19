@@ -6,6 +6,9 @@
 // authz + plan DB boundaries are mocked; handlers are imported from the production ./route and
 // ./[id]/route modules. (The initiatives routes this file also pinned retired with the Plan tab,
 // 2026-08-17.)
+//
+// GET /api/org/goals is the read that stamps achievedAt (listGoals). Pins: missing ?org 400;
+// requireOrgRead before listGoals; 503 via dbGuard; 200 {goals:[]} when listGoals returns [].
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -17,7 +20,7 @@ vi.mock("next/server", () => ({
   },
 }));
 vi.mock("@/lib/db", () => ({
-  isDbConfigured: () => true,
+  isDbConfigured: vi.fn(() => true),
   // Real validator parity: overall | adoption | rigor | D1..D9 (the route trusts this).
   isGoalMetric: (m: string) => m === "overall" || m === "adoption" || m === "rigor" || /^D[1-9]$/.test(m),
   listGoals: vi.fn(async () => []),
@@ -32,18 +35,23 @@ vi.mock("@/lib/authz", () => ({
   requireOrgRole: vi.fn(async () => null),
 }));
 
-import { POST } from "./route";
+import { GET, POST } from "./route";
 import { PATCH as GOAL_PATCH, DELETE as GOAL_DELETE } from "./[id]/route";
-import { requireOrgAccess, requireOrgRole } from "@/lib/authz";
+import { requireOrgAccess, requireOrgRead, requireOrgRole } from "@/lib/authz";
 import {
   createGoal,
   getGoalOrgSlug,
+  isDbConfigured,
+  listGoals,
   updateGoal,
   deleteGoal,
 } from "@/lib/db";
 
 const mockAccess = vi.mocked(requireOrgAccess);
+const mockRead = vi.mocked(requireOrgRead);
 const mockRole = vi.mocked(requireOrgRole);
+const mockIsDb = vi.mocked(isDbConfigured);
+const mockList = vi.mocked(listGoals);
 const mockCreate = vi.mocked(createGoal);
 const mockGoalOrg = vi.mocked(getGoalOrgSlug);
 const mockUpdate = vi.mocked(updateGoal);
@@ -51,6 +59,9 @@ const mockDelete = vi.mocked(deleteGoal);
 
 const FORBIDDEN = () => Response.json({ error: "You don't have access to this organization." }, { status: 403 });
 
+function getGoals(qs = "") {
+  return GET(new Request(`http://localhost/api/org/goals${qs}`));
+}
 function postGoals(body: Record<string, unknown>) {
   return POST(
     new Request("http://localhost/api/org/goals", {
@@ -77,8 +88,11 @@ function deleteGoalReq(id: string) {
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  mockIsDb.mockReturnValue(true);
   mockAccess.mockResolvedValue(null);
+  mockRead.mockResolvedValue(null);
   mockRole.mockResolvedValue(null); // admin gate passes by default (DELETE)
+  mockList.mockResolvedValue([]);
   mockCreate.mockResolvedValue({ id: "goal-new" } as Awaited<ReturnType<typeof createGoal>>);
   mockGoalOrg.mockResolvedValue("acme");
   mockUpdate.mockResolvedValue(undefined as Awaited<ReturnType<typeof updateGoal>>);
@@ -140,6 +154,8 @@ describe("PATCH/DELETE /api/org/goals/:id — per-row tenant gate keys on the go
     const res = await deleteGoalReq("goal-1");
     expect(res.status).toBe(403);
     expect(mockRole).toHaveBeenCalledWith("victim", "admin");
+    // rowGate must not fall back to member-level requireOrgAccess on DELETE.
+    expect(mockAccess).not.toHaveBeenCalled();
     expect(mockDelete).not.toHaveBeenCalled();
   });
 
@@ -151,6 +167,7 @@ describe("PATCH/DELETE /api/org/goals/:id — per-row tenant gate keys on the go
     const res = await deleteGoalReq("goal-1");
     expect(res.status).toBe(403);
     expect(mockRole).toHaveBeenCalledWith("acme", "admin");
+    expect(mockAccess).not.toHaveBeenCalled();
     expect(mockDelete).not.toHaveBeenCalled();
   });
 
@@ -158,6 +175,7 @@ describe("PATCH/DELETE /api/org/goals/:id — per-row tenant gate keys on the go
     const res = await deleteGoalReq("goal-1");
     expect(res.status).toBe(200);
     expect(mockRole).toHaveBeenCalledWith("acme", "admin");
+    expect(mockAccess).not.toHaveBeenCalled();
     expect(mockDelete).toHaveBeenCalledTimes(1);
   });
 
@@ -166,7 +184,22 @@ describe("PATCH/DELETE /api/org/goals/:id — per-row tenant gate keys on the go
     const res = await patchGoal("ghost", { label: "x" });
     expect(res.status).toBe(404);
     expect(mockAccess).not.toHaveBeenCalled();
+    expect(mockRole).not.toHaveBeenCalled();
     expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("returns 503 via rowGate/dbGuard when the database is unset, before the per-row lookup", async () => {
+    mockIsDb.mockReturnValue(false);
+    const patchRes = await patchGoal("goal-1", { label: "x" });
+    expect(patchRes.status).toBe(503);
+    expect(await patchRes.json()).toEqual({ error: "Goals require a database." });
+    const deleteRes = await deleteGoalReq("goal-1");
+    expect(deleteRes.status).toBe(503);
+    expect(mockGoalOrg).not.toHaveBeenCalled();
+    expect(mockAccess).not.toHaveBeenCalled();
+    expect(mockRole).not.toHaveBeenCalled();
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockDelete).not.toHaveBeenCalled();
   });
 
   it("rejects a non-ISO targetDate with 400 after the gate, DB untouched", async () => {
@@ -204,8 +237,46 @@ describe("PATCH/DELETE /api/org/goals/:id — per-row tenant gate keys on the go
   it("allows an authorized in-org update", async () => {
     const res = await patchGoal("goal-1", { label: "renamed", target: 90 });
     expect(res.status).toBe(200);
+    expect(mockAccess).toHaveBeenCalledWith("acme");
+    expect(mockRole).not.toHaveBeenCalled();
     expect(mockUpdate).toHaveBeenCalledTimes(1);
     expect(mockUpdate.mock.calls[0][0]).toBe("goal-1");
+  });
+});
+
+describe("GET /api/org/goals — the read that stamps achievedAt", () => {
+  it("rejects a missing ?org with 400 and never gates or lists", async () => {
+    const res = await getGoals();
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "Missing ?org." });
+    expect(mockRead).not.toHaveBeenCalled();
+    expect(mockList).not.toHaveBeenCalled();
+  });
+
+  it("calls requireOrgRead before listGoals (a denied reader never loads)", async () => {
+    mockRead.mockResolvedValue(FORBIDDEN());
+    const res = await getGoals("?org=acme");
+    expect(res.status).toBe(403);
+    expect(mockRead).toHaveBeenCalledWith("acme");
+    expect(mockList).not.toHaveBeenCalled();
+  });
+
+  it("returns 503 via dbGuard when the database is unset, before the gate", async () => {
+    mockIsDb.mockReturnValue(false);
+    const res = await getGoals("?org=acme");
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "Goals require a database." });
+    expect(mockRead).not.toHaveBeenCalled();
+    expect(mockList).not.toHaveBeenCalled();
+  });
+
+  it("returns 200 {goals:[]} when listGoals returns []", async () => {
+    mockList.mockResolvedValue([]);
+    const res = await getGoals("?org=acme");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ goals: [] });
+    expect(mockRead).toHaveBeenCalledWith("acme");
+    expect(mockList).toHaveBeenCalledWith("acme");
   });
 });
 

@@ -5,6 +5,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createHmac, generateKeyPairSync } from "crypto";
 import {
+  appInstallUrl,
   verifyWebhook,
   createAppJwt,
   getInstallation,
@@ -24,6 +25,28 @@ const BODY = JSON.stringify({ action: "created", installation: { id: 42 } });
 
 beforeEach(() => vi.stubEnv("GITHUB_APP_WEBHOOK_SECRET", SECRET));
 afterEach(() => vi.unstubAllEnvs());
+
+// appInstallUrl is the user-facing install link. GitHub.com keeps /apps/<slug>/installations/new;
+// a GHES web host (GITHUB_SERVER_URL whose hostname is not github.com) uses /github-apps/<slug>/….
+describe("appInstallUrl — github.com default vs GHES GITHUB_SERVER_URL", () => {
+  it("builds https://github.com/apps/<slug>/installations/new when GITHUB_SERVER_URL is unset", () => {
+    vi.stubEnv("GITHUB_APP_SLUG", "ascent");
+    vi.stubEnv("GITHUB_SERVER_URL", "");
+    expect(appInstallUrl()).toBe("https://github.com/apps/ascent/installations/new");
+  });
+
+  it("builds /github-apps/<slug>/installations/new on a GHES GITHUB_SERVER_URL host", () => {
+    vi.stubEnv("GITHUB_APP_SLUG", "ascent");
+    vi.stubEnv("GITHUB_SERVER_URL", "https://ghe.acme.com");
+    expect(appInstallUrl()).toBe("https://ghe.acme.com/github-apps/ascent/installations/new");
+  });
+
+  it("returns null when GITHUB_APP_SLUG is missing", () => {
+    vi.stubEnv("GITHUB_APP_SLUG", "");
+    vi.stubEnv("GITHUB_SERVER_URL", "https://ghe.acme.com");
+    expect(appInstallUrl()).toBeNull();
+  });
+});
 
 describe("verifyWebhook", () => {
   it("accepts a correctly signed body", () => {

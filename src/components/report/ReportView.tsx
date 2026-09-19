@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { AppPassport, PersistedRecommendation, ScanReport } from "@/lib/types";
 import type { RepositoryHistory } from "@/lib/db/scans";
@@ -15,6 +15,7 @@ import type { RoadmapLifts } from "@/components/report/roadmapPriority";
 import { ReportConversionCta } from "@/components/report/ReportConversionCta";
 import { ReportWarnings, ReportDiscrepancies } from "@/components/report/ReportNotices";
 import { SideNav, type SideNavGroup } from "@/components/ui";
+import { reportSectionUrl } from "@/components/report/liveScanPermalink";
 
 // Report body section ids. (Previously lived in the now-deleted ReportTabBar, whose only
 // surviving consumer was this type import — the tab switcher itself migrated to SideNav.)
@@ -182,7 +183,6 @@ export function ReportView({
   // its scope in the URL. `scoring` is the default and stays clean (no param). An unknown or unavailable
   // tab (e.g. ?tab=contributors on a scan with no activity) falls back to scoring.
   const params = useSearchParams();
-  const pathname = usePathname();
   // Both the URL-param whitelist and the rendered nav derive from the one ALL_TABS list, filtered
   // once on the activity gate.
   const tabs = ALL_TABS.filter((t) => !t.needsActivity || showActivity);
@@ -190,16 +190,12 @@ export function ReportView({
   const tabParam = params.get("tab") as ReportTab | null;
   const tab: ReportTab = tabParam && validTabs.includes(tabParam) ? tabParam : "scoring";
   const setTab = (t: ReportTab) => {
-    const next = new URLSearchParams(params.toString());
-    if (t === "scoring") next.delete("tab");
-    else next.set("tab", t);
-    const qs = next.toString();
-    // Use the native History API rather than router.replace(): the /report page is `force-dynamic`, so
-    // a router navigation on every section click refetched the entire server tree (ReportShell's
-    // SiteHeader/SiteFooter auth reads) even though the panels are 100% client-rendered off this `tab`.
-    // history.replaceState updates the shareable URL with ZERO server work and still syncs useSearchParams
-    // in Next's App Router (so `tab` above recomputes on the next render). (report-report-shell-tabs #4)
-    window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname);
+    // window.location.pathname, not usePathname(): after a live-scan persist the address bar is
+    // rewritten to `/report/{owner}/{repo}` via replaceState, and Next's router pathname stays
+    // `/report`. Building the tab href off the stale router path would revert the durable URL.
+    // Native History API rather than router.replace(): `/report` is `force-dynamic`, so a router
+    // navigation on every section click refetched the entire server tree. (report-report-shell-tabs #4)
+    window.history.replaceState(null, "", reportSectionUrl(window.location.pathname, params.toString(), t));
   };
   // After an in-place re-test the new report may drop a tab the user was on (e.g. the fresh scan
   // surfaces no activity, removing "Contributors"). The selection would then point at a tab that

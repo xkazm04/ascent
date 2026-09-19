@@ -4,7 +4,7 @@
 // add/untrack controls. No scan rows exist under the personal org itself (see src/lib/db/personal.ts).
 
 import Link from "next/link";
-import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { Card, SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
 import { Sparkline } from "@/features/standing/repositories/Sparkline";
 import { Trajectory } from "@/features/standing/overview/Trajectory";
 import { composeTrajectory } from "@/lib/maturity/forecast";
@@ -12,6 +12,7 @@ import { AddRepoForm, UntrackButton } from "@/components/org/PersonalWatchContro
 import { PassportCard } from "@/features/standing/passports/PassportCard";
 import { EmptyState } from "@/components/EmptyState";
 import { getPersonalPassports, getPersonalUsage, getPersonalWatchlist, PERSONAL_WATCH_LIMIT, type PersonalMeter, type PersonalRepo } from "@/lib/db";
+import { settle } from "@/features/bought/delivery/deliveryLoad";
 import { LEVEL_GLYPH, scoreHex } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
 
@@ -97,11 +98,31 @@ function UsageChip({ label, meter }: { label: string; meter: PersonalMeter }) {
 }
 
 export async function PersonalOverview({ slug }: { slug: string }) {
-  const [repos, usage, passports] = await Promise.all([
+  // G4-10: Promise.all rejects on the first throw, which discarded the watchlist — a passport
+  // blip used to blank the whole personal landing. allSettled isolates each read so passports
+  // and usage degrade on their own; the repo list still renders when the watchlist succeeded.
+  const [reposSettled, usageSettled, passportsSettled] = await Promise.allSettled([
     getPersonalWatchlist(slug),
     getPersonalUsage(slug),
     getPersonalPassports(slug),
   ]);
+  const { value: repos, failed: reposFailed } = settle(reposSettled);
+  const { value: usage, failed: usageFailed } = settle(usageSettled);
+  const { value: passports, failed: passportsFailed } = settle(passportsSettled);
+  for (const [label, r] of [
+    ["getPersonalWatchlist", reposSettled],
+    ["getPersonalUsage", usageSettled],
+    ["getPersonalPassports", passportsSettled],
+  ] as const) {
+    if (r.status === "rejected") console.error(`[personal/${slug}] ${label} failed:`, r.reason);
+  }
+  if (reposFailed) {
+    return (
+      <SectionEmpty>
+        Your repositories couldn&apos;t load right now (a query failed). Try refreshing this page.
+      </SectionEmpty>
+    );
+  }
   if (repos === null) {
     return (
       <EmptyState
@@ -135,7 +156,9 @@ export async function PersonalOverview({ slug }: { slug: string }) {
           title="Your repositories"
           description="Public repos you track: scores and history come from the shared public corpus, so every scan of these repos (yours or anyone's) grows the same trend."
           right={
-            usage ? (
+            usageFailed ? (
+              <span className="type-mono-sm text-slate-500">Usage meters couldn&apos;t load right now</span>
+            ) : usage ? (
               // The free workspace's meters — the honest readout beside the 402s the write APIs
               // return at each cap (repos here; memories/skills on their own pages).
               <span className="flex flex-wrap items-center gap-2">
@@ -188,6 +211,9 @@ export async function PersonalOverview({ slug }: { slug: string }) {
         </section>
       )}
 
+      {passportsFailed && (
+        <SectionEmpty>App Readiness Passports couldn&apos;t load right now. Try refreshing this page.</SectionEmpty>
+      )}
       {/* App Readiness Passports — the same cards the repo's own org (and the report hero) show,
           via the public-corpus lens. Read-only here: overrides belong to the repo's owning org. */}
       {passports && passports.length > 0 && (

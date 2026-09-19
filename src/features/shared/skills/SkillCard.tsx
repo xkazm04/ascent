@@ -127,7 +127,10 @@ export function SkillCard({
         </pre>
       </details>
 
-      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-800 pt-3 type-body-sm">
+      <div
+        className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-800 pt-3 type-body-sm"
+        data-last-used-source={usage?.lastUsedAt ? (usage.lastUsedSource ?? "unattributed") : undefined}
+      >
         <span className="font-mono text-slate-400">
           Adopted by <span className="text-white">{applied.length}</span> repo{applied.length === 1 ? "" : "s"}
         </span>
@@ -136,8 +139,7 @@ export function SkillCard({
         <span className="font-mono text-slate-500" title="Copies, downloads, hook-reported invokes and the registry usage lane, summed">
           {usage?.useCount ?? s.downloadCount} use{(usage?.useCount ?? s.downloadCount) === 1 ? "" : "s"}
         </span>
-        {/* Beside the use count, never merged into it: reading a skill and running it are different
-            facts, and only one of them is evidence the skill does its job. */}
+        {/* Beside the use count: how often it RAN, and which client last reported (OrgSkillEvent.source). */}
         <SkillInvokeChip usage={usage} />
         {usage && (
           <span className="inline-flex items-center gap-1.5 font-mono text-slate-500">

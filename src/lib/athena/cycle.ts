@@ -243,8 +243,10 @@ export async function runOrgCycle(input: OrgCycleInput): Promise<OrgCycleResult>
       id: "briefing",
       kind: "briefing",
       text: prose,
-      // The standing is already on the dashboard: her saying it again is not news unless it MOVED.
+      // The standing is already on the dashboard: her saying it again is not news unless it MOVED
+      // or a skill was abandoned (a prune candidate even when scores are flat).
       delta: standing.overallDelta,
+      abandonedCount: standing.abandoned.count,
       alreadyVisible: true,
     },
     ...actions.map<CycleOutcome>((a) => ({

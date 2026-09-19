@@ -82,6 +82,8 @@ export interface SecurityOverview {
   avgSecurity: number | null; // org D9 average
   /** Cohort-matched D9 movement over the window (rollup dimDeltas), or null (all-time / no overlap). */
   securityDelta: number | null;
+  /** Denominator of `securityDelta` (paired repos that voted on D9); null exactly when the delta is. */
+  securityCohortSize: number | null;
   scanned: number;
   /** Repo counts by D9 band: critical <40, weak 40–59, ok 60–79, strong 80+. */
   band: { critical: number; weak: number; ok: number; strong: number };
@@ -111,7 +113,12 @@ export async function buildSecurityOverview(
   const dimLabel = DIMENSION_BY_ID.D9?.name ?? "Security";
   const avgSecurity = rollup.dimAverages.find((d) => d.dimId === "D9")?.avg ?? null;
   // `?.` on dimDeltas: older callers/fixtures may hand a rollup predating the field.
-  const securityDelta = rollup.dimDeltas?.find((d) => d.dimId === "D9")?.delta ?? null;
+  // Missing n is unmeasured — a D9 delta without its denominator is not a movement, and a
+  // 0-size cohort would read as "no change over 0 repos" rather than "nothing measurable".
+  const d9Move = rollup.dimDeltas?.find((d) => d.dimId === "D9");
+  const d9N = d9Move?.cohortSize;
+  const securityDelta = d9Move != null && d9N != null && d9N > 0 ? d9Move.delta : null;
+  const securityCohortSize = d9Move != null && d9N != null && d9N > 0 ? d9N : null;
   const govByRepo = new Map((gov?.perRepo ?? []).map((g) => [g.fullName, g]));
 
   // All scanned repos with their Security (D9) score, posture, and branch-protection state.
@@ -180,6 +187,7 @@ export async function buildSecurityOverview(
     dimLabel,
     avgSecurity,
     securityDelta,
+    securityCohortSize,
     scanned: repos.length,
     band,
     weakest: repos.slice(0, 8).map((r) => ({ name: r.name, fullName: r.fullName, score: r.score, protected: r.protected })),
@@ -209,6 +217,36 @@ export async function buildSecurityOverview(
 /** How many gate-failing repos the display surfaces (tiles/cards) list — a UI bound, NOT a data cap. */
 export const FAILING_DISPLAY_CAP = 8;
 
+/** Display caps for the auditor PDF / LLM "What to fix" block (failing rows only). */
+export const WHAT_TO_FIX_REPO_CAP = 8;
+export const WHAT_TO_FIX_ISSUE_CAP = 4;
+
+/** One failing register row as the PDF and the LLM brief render it under "What to fix". */
+export interface SecurityFixItem {
+  name: string;
+  fullName: string;
+  summary: string;
+  issues: string[];
+  moreIssues: number;
+}
+
+/**
+ * Capped "What to fix" for the auditor PDF and the LLM brief. Failing rows only; reads `r.issues` /
+ * `r.summary` as they already sit on the register — does not re-derive from `r.checks`. Both fields
+ * travel so an LLM headline cannot silently replace the detector gaps (G1).
+ */
+export function securityWhatToFix(register: SecurityRegisterRow[]): { items: SecurityFixItem[]; moreRepos: number } {
+  const eligible = register.filter((r) => r.gateReason && (r.summary || r.issues.length > 0));
+  const items = eligible.slice(0, WHAT_TO_FIX_REPO_CAP).map((r) => ({
+    name: r.name,
+    fullName: r.fullName,
+    summary: r.summary,
+    issues: r.issues.slice(0, WHAT_TO_FIX_ISSUE_CAP),
+    moreIssues: Math.max(0, r.issues.length - WHAT_TO_FIX_ISSUE_CAP),
+  }));
+  return { items, moreRepos: eligible.length - items.length };
+}
+
 /**
  * The paste-ready CI gate snippet ("Copy CI gate snippet") — one curl per gate-failing repo, built
  * from the FULL register, never the display-capped `securityGate.failingRepos`: an org with 20
@@ -226,6 +264,7 @@ export function buildGateSnippet(o: SecurityOverview): string {
 }
 
 /** A security-focused markdown brief for the "Copy for LLM" action — ends with a remediation ASK.
+ *  Failing register rows append a capped "What to fix" from `r.issues` / `r.summary` (not from checks).
  *  `supply` (optional) appends the Dependabot supply-chain signal when scanning is enabled. */
 export function securityMarkdown(o: SecurityOverview, supply?: OrgSupplyChain | null): string {
   const out: string[] = [];
@@ -234,7 +273,10 @@ export function securityMarkdown(o: SecurityOverview, supply?: OrgSupplyChain | 
   out.push("");
   out.push("## Security standing");
   out.push(`- Average Security (${o.dimLabel}, D9): ${o.avgSecurity ?? "—"}/100 across ${o.scanned} repos`);
-  if (o.securityDelta != null) out.push(`- Movement: ${o.securityDelta >= 0 ? "+" : ""}${o.securityDelta} D9 over ${o.periodTitle} (cohort-matched)`);
+  if (o.securityDelta != null && o.securityCohortSize != null && o.securityCohortSize > 0) {
+    const n = `${o.securityCohortSize} repositor${o.securityCohortSize === 1 ? "y" : "ies"}`;
+    out.push(`- Movement: ${o.securityDelta >= 0 ? "+" : ""}${o.securityDelta} D9 over ${o.periodTitle} (cohort-matched, ${n})`);
+  }
   out.push(`- Distribution: ${o.band.critical} critical (<40) · ${o.band.weak} weak (40–59) · ${o.band.ok} ok (60–79) · ${o.band.strong} strong (80+)`);
   if (o.governance) {
     const g = o.governance;
@@ -263,6 +305,17 @@ export function securityMarkdown(o: SecurityOverview, supply?: OrgSupplyChain | 
     out.push(`| ${r.name} | ${r.measured ? `${r.score}/100` : "not measured"} | ${gate} | ${rules} |${adv != null ? ` ${adv} |` : ""}`);
   }
   if (o.register.length > REGISTER_CAP) out.push(`…and ${o.register.length - REGISTER_CAP} more repos (see the dashboard's risk register).`);
+  const { items: fixItems, moreRepos: moreFix } = securityWhatToFix(o.register);
+  if (fixItems.length) {
+    out.push("");
+    out.push("## What to fix");
+    for (const r of fixItems) {
+      out.push(`- ${r.name}${r.summary ? `: ${r.summary}` : ""}`);
+      for (const issue of r.issues) out.push(`  - ${issue}`);
+      if (r.moreIssues) out.push(`  - …and ${r.moreIssues} more issues`);
+    }
+    if (moreFix) out.push(`…and ${moreFix} more failing repos (see the dashboard's risk register).`);
+  }
   if (o.unprotected.length) {
     out.push("");
     out.push("## Repos with no default-branch protection");

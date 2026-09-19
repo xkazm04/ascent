@@ -1,6 +1,6 @@
 # Scan pipeline
 
-The scan is Ascent's core engine. It takes a GitHub repo URL, reads the repository over
+The scan is Ascent's core engine. It takes a GitHub or GitLab repo URL, reads the repository over
 the REST/GraphQL API (**no git clone**), extracts deterministic maturity signals across
 **9 dimensions (D1–D9)**, asks an LLM to calibrate and explain, blends the two with
 guardbanding, and returns a `ScanReport`: overall score (0–100), maturity level (L1–L5),
@@ -18,8 +18,8 @@ pure, testable TypeScript.
 
 | Surface | Behavior | Implementation |
 | --- | --- | --- |
-| Landing scan box | `ScanForm` normalizes any input shape (`owner/repo`, full URL, SSH) via `normalizeRepo()` and routes to `/report?repo=<normalized>`. | `src/app/page.tsx`, `src/components/ScanForm.tsx` |
-| Branch &amp; sub-path | A collapsed "Branch &amp; sub-path" disclosure under the scan box adds an optional git ref and monorepo sub-path, appended as `&ref=` / `&path=`. Pasting a `github.com/o/r/tree/<branch>` link prefills the branch. See [Scan scope](#scan-scope-branch--sub-path). | `src/components/scan/ScanScopeFields.tsx` |
+| Landing scan box | `ScanForm` normalizes GitHub input (`owner/repo`, full URL, SSH) via `normalizeRepo()` and GitLab pastes (`https://gitlab.com/group/project`, `git@gitlab.com:…`, `gitlab:group/project`) via `parseGitlabUrl` (the same parser `scanRepository` already routes through `parseForgeUrl`) to `/report?repo=<normalized>` (`gitlab:group/project` for GitLab, subgroups kept whole). | `src/app/page.tsx`, `src/components/ScanForm.tsx`, `src/components/scan/normalizeScanRepo.ts` |
+| Branch &amp; sub-path | A collapsed "Branch &amp; sub-path" disclosure under the scan box adds an optional git ref and monorepo sub-path, appended as `&ref=` / `&path=`. Pasting a `github.com/o/r/tree/<branch>` or GitLab `/-/tree/<branch>` link prefills the branch. See [Scan scope](#scan-scope-branch--sub-path). | `src/components/scan/ScanScopeFields.tsx` |
 | Scan gallery | Curated/live examples on the landing page; live entries come from `getPublicScanGallery()`. | `src/components/landing/ScanGallery.tsx` |
 
 The report page then drives the actual scan over the streaming endpoint; see
@@ -36,7 +36,7 @@ The report page then drives the actual scan over the streaming endpoint; see
 
 ```jsonc
 {
-  "url": "owner/repo | https://github.com/owner/repo",
+  "url": "owner/repo | https://github.com/owner/repo | https://gitlab.com/group/project | gitlab:group/project",
   "token":          "optional GitHub token (private repos / PR signals)",
   "installationId": "optional GitHub App installation id",
   "mock":  true,    // force the deterministic provider
@@ -63,6 +63,7 @@ quota is consumed, so a typo can never burn one of the free tier's monthly scan 
 ```
 rate limit  →  sign-in wall  →  monthly quota                   →  credit reserve
    429            401              429 { code: "monthly_quota" }     402 INSUFFICIENT_CREDITS
+                                                                     404 NOT_FOUND (missing org)
 ```
 
 The **credit reserve** (`scanCreditGate`) is the last gate because it is the only one that mutates
@@ -76,8 +77,9 @@ share the one gate. Both also answer `x-ascent-credits-remaining`: on `/api/scan
 post-refund balance; on the SSE route the headers flush before `start()` can refund, so it is the
 **pre-refund** figure (the same soft-header caveat the `x-ascent-quota-*` fields carry). The report
 client renders the 402 as its own out-of-credits wall (see
-[report.md](../reporting/report.md#failure-states-on-the-report-page-2026-09-05)). A GitHub network
-failure inside `ghJson` now crosses back as a fixed sentence; the raw error is logged server-side.
+[report.md](../reporting/report.md#failure-states-on-the-report-page-2026-09-05)). A missing org
+(`orgExists: false` from `reserveScanCredit`) is `404 { code: "NOT_FOUND" }`, never that 402. A GitHub
+network failure inside `ghJson` now crosses back as a fixed sentence; the raw error is logged server-side.
 
 ### The anonymous public scan is exempt from the sign-in wall
 
@@ -125,6 +127,11 @@ passing `installationId` while throttled gets `401` there and `429` on the strea
 
 - `progress`: `{ stage, message, pct, provider?, region?, fallback? }` where `stage` ∈
   `fetch | tree | files | analyze | score | compose | done`.
+- `persisted`: `{ ok: boolean }`, emitted **before** `result`. `ok` is true only when this
+  scan is in the durable store (new row or commit dedup). The live-scan page rewrites
+  `/report?repo=` to `/report/{owner}/{repo}` only then — a persist miss (DB off, scoped,
+  degraded/low-coverage) leaves the job URL in the address bar so a reload cannot unfurl a
+  cold permalink as a scored report. See [report.md](../reporting/report.md).
 - `result`: the final `ScanReport`.
 - `error`: `{ error, code? }`.
 - A `: ping` comment is emitted every ~15s so idle proxies don't drop the connection.
@@ -569,6 +576,13 @@ threw on `IngestPhaseResult.sensorFailures` (typed `ScanSensorId[]`, carried on
   "not observable: <sensor> read failed" and are **excluded** from the blend, through the same
   `githubCanRefuteZero` path a structurally blind scan already uses. A sensor that ran and found
   nothing scores exactly as before.
+- **`fetchSecurityExposure` lets lockfile/OSV read failures throw.** A missing `package-lock.json`
+  (404) or a non-npm ecosystem is still `known:false` = UNKNOWN (neutral, never "clean"). A
+  non-404 GitHub lockfile status, an OSV `querybatch` that is not ok, a network blip, or a
+  parse error **throws**, so ingest records `securityExposure` on `sensorFailures` and degrades
+  the value to `null`. Until this, those failures were swallowed into the same UNKNOWN a missing
+  lockfile produces, so the scan published "no lockfile / no alert access" for a read that did
+  not run (G4: a failed read is not empty findings).
 - Governance and platform folds are not given partial credit; the caveat is the record. An absent
   `platformSignals` record **plus** `appInventory`/`ciHealth` in `sensorFailures` means
   *unmeasured*; an absent record with nothing listed means the scan looked and measured nothing.
@@ -865,7 +879,10 @@ three workflows shows its first three in pick order.
 - **Lockfiles are read for exposure, not for pinning.** `src/lib/security/exposure.ts` already
   fetches and parses `package-lock.json` out-of-band and grades open known vulns via OSV (a
   stronger signal than pinned-vs-floating). Other ecosystems (`pnpm-lock.yaml`, `Cargo.lock`,
-  `go.sum`, `poetry.lock`) return `known:false` = UNKNOWN, treated as neutral, never "clean".
+  `go.sum`, `poetry.lock`) and a missing npm lockfile (404) return `known:false` = UNKNOWN,
+  treated as neutral, never "clean". A lockfile or OSV *read* that fails throws so ingest
+  records `securityExposure` as failed rather than collapsing into that UNKNOWN (see
+  [A failed sensor read is unknown, never zero](#a-failed-sensor-read-is-unknown-never-zero-2026-09-05)).
   Lockfiles are deliberately **not** added to `pickFilesToFetch`: they are large, low-signal-
   per-byte, and would displace README/manifests/source from the prompt window.
 

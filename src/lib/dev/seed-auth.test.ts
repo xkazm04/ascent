@@ -1,11 +1,12 @@
-// Pins the ASCENT_SEED_SECRET gate shared by the four /api/dev/seed-* routes. Two properties are
-// load-bearing and neither was covered before this file existed:
+// Pins the ASCENT_SEED_SECRET gate shared by the four /api/dev/seed-* routes. Three properties are
+// load-bearing:
 //   (1) FAIL-CLOSED IN PRODUCTION with no secret configured — this is the only thing stopping an
 //       anonymous caller from reseeding a deployed instance's fleet;
 //   (2) the credential is compared with crypto.timingSafeEqual, never `===` — the four routes each
 //       open-coded `provided === secret`, and the secret is reachable over the network by design
 //       (it exists so a seeder can be run once against a deployment). Mirrors the same assertion in
-//       src/lib/cron-auth.test.ts.
+//       src/lib/cron-auth.test.ts;
+//   (3) ASCENT_EMPTY refuses seed writes even with a valid secret — the empty tenant stays empty.
 import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
 
 const crypto = vi.hoisted(() => ({ timingSafeEqual: vi.fn() }));
@@ -15,7 +16,7 @@ vi.mock("node:crypto", async (importOriginal) => {
   return { ...actual, timingSafeEqual: crypto.timingSafeEqual };
 });
 
-const { seedRequestAuthorized, SEED_SECRET_HEADER } = await import("./seed-auth");
+const { seedRequestAuthorized, seedForbiddenMessage, SEED_SECRET_HEADER } = await import("./seed-auth");
 
 const SECRET = "s3ed-secret-value";
 
@@ -26,16 +27,24 @@ function req(opts: { header?: string; query?: string } = {}) {
   return { url, headers } as unknown as import("next/server").NextRequest;
 }
 
-const ORIGINAL_ENV = { secret: process.env.ASCENT_SEED_SECRET, node: process.env.NODE_ENV };
+const ORIGINAL_ENV = {
+  secret: process.env.ASCENT_SEED_SECRET,
+  node: process.env.NODE_ENV,
+  empty: process.env.ASCENT_EMPTY,
+};
 afterAll(() => {
   if (ORIGINAL_ENV.secret === undefined) delete process.env.ASCENT_SEED_SECRET;
   else process.env.ASCENT_SEED_SECRET = ORIGINAL_ENV.secret;
+  if (ORIGINAL_ENV.empty === undefined) delete process.env.ASCENT_EMPTY;
+  else process.env.ASCENT_EMPTY = ORIGINAL_ENV.empty;
   vi.stubEnv("NODE_ENV", ORIGINAL_ENV.node ?? "test");
 });
 
 beforeEach(() => {
   crypto.timingSafeEqual.mockClear();
   delete process.env.ASCENT_SEED_SECRET;
+  delete process.env.ASCENT_EMPTY;
+  vi.stubEnv("ASCENT_EMPTY", "");
   vi.stubEnv("NODE_ENV", "development");
 });
 
@@ -97,5 +106,32 @@ describe("seedRequestAuthorized — secret configured", () => {
   it("skips timingSafeEqual on a LENGTH mismatch (it throws on unequal buffers) and still refuses", () => {
     expect(seedRequestAuthorized(req({ header: "short" }))).toBe(false);
     expect(crypto.timingSafeEqual).not.toHaveBeenCalled();
+  });
+});
+
+describe("seedRequestAuthorized — ASCENT_EMPTY", () => {
+  it("REFUSES when the empty-tenant flag is on, even outside production", () => {
+    vi.stubEnv("ASCENT_EMPTY", "1");
+    expect(seedRequestAuthorized(req())).toBe(false);
+    expect(seedForbiddenMessage()).toBe("forbidden: seed writes are refused while ASCENT_EMPTY is on");
+  });
+
+  it("REFUSES even with a valid secret, so a seeder pointed at the empty tenant cannot populate it", () => {
+    process.env.ASCENT_SEED_SECRET = SECRET;
+    vi.stubEnv("ASCENT_EMPTY", "1");
+    expect(seedRequestAuthorized(req({ header: SECRET }))).toBe(false);
+    expect(crypto.timingSafeEqual).not.toHaveBeenCalled();
+  });
+
+  it("REFUSES in production too (restriction, not an escape hatch — no production floor)", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("ASCENT_EMPTY", "1");
+    process.env.ASCENT_SEED_SECRET = SECRET;
+    expect(seedRequestAuthorized(req({ header: SECRET }))).toBe(false);
+  });
+
+  it("still allows outside production when the flag is off", () => {
+    expect(seedRequestAuthorized(req())).toBe(true);
+    expect(seedForbiddenMessage()).toMatch(/ASCENT_SEED_SECRET/);
   });
 });

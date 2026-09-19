@@ -7,6 +7,7 @@ import { isDbConfigured, setRepoSchedule, setWatchedSchedule } from "@/lib/db";
 import { isAppConfigured } from "@/lib/github/app";
 import { requireFleetOrg, requireOrgAccess } from "@/lib/authz";
 import { SCHEDULES } from "@/lib/org/repo-schedule";
+import { normalizeOrgSlug } from "@/lib/db/org-shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,7 +27,11 @@ export async function POST(request: Request) {
     schedule?: string;
     segmentId?: string;
   };
-  if (!body.org || !body.schedule || !VALID.has(body.schedule)) {
+  // Canonicalize like import/scan: requireOrgAccess normalizes internally, but setWatchedSchedule
+  // looked up the raw slug and missed the canonical org row. Whitespace-only is missing, not a
+  // blank-slug lookup.
+  const org = body.org ? normalizeOrgSlug(body.org) : "";
+  if (!org || !body.schedule || !VALID.has(body.schedule)) {
     return NextResponse.json(
       { error: `Missing org or invalid schedule (off|daily|weekly|monthly).` },
       { status: 400 },
@@ -34,21 +39,21 @@ export async function POST(request: Request) {
   }
   // Authorize: only an org member (or any caller on "public" / an auth-off deploy) may change
   // autoscan cadence — otherwise anyone could schedule token-spending scans for any org.
-  const denied = await requireOrgAccess(body.org);
+  const denied = await requireOrgAccess(org);
   if (denied) return denied;
   // Autoscans persist scans UNDER the org — for a personal workspace that would fork the shared
   // public series (the lens invariant), so cadence stays a fleet capability.
-  const notFleet = await requireFleetOrg(body.org);
+  const notFleet = await requireFleetOrg(org);
   if (notFleet) return notFleet;
   try {
     if (body.fullName) {
-      await setRepoSchedule(body.org, body.fullName, body.schedule);
+      await setRepoSchedule(org, body.fullName, body.schedule);
       return NextResponse.json({ ok: true, fullName: body.fullName, schedule: body.schedule });
     }
     // No fullName → fleet-level cadence over the whole watched set (optionally a segment). Return the
     // exact fullNames persisted (not just a count) so the client can revert any optimistically-patched
     // row the server didn't actually save (e.g. a watch toggle that was still in flight or rolled back).
-    const fullNames = await setWatchedSchedule(body.org, body.schedule, body.segmentId ?? null);
+    const fullNames = await setWatchedSchedule(org, body.schedule, body.segmentId ?? null);
     return NextResponse.json({ ok: true, schedule: body.schedule, updated: fullNames.length, fullNames });
   } catch (err) {
     console.error("[org/schedule] failed", err);

@@ -52,6 +52,7 @@ describe("costHeadline", () => {
     const h = costHeadline({ ...base, allLanesCostUsd: 25.9, allLanesUnpricedCalls: 12, byomScans: 12, byLane: [{ lane: "scan" }] });
     expect(h.sub).toContain("floor: +12 calls unpriced");
     expect(h.sub).toContain("12 BYOM scans, unpriced");
+    expect(h.sub).not.toContain("LLM_*_COST_PER_MTOK");
   });
 
   it("singularizes the BYOM note and says nothing at all when there are none", () => {
@@ -62,12 +63,30 @@ describe("costHeadline", () => {
   it("still names the BYOM scans when the whole window was BYOM and nothing priced", () => {
     const h = costHeadline({ ...base, costBasis: null, allLanesCostUsd: null, allLanesUnpricedCalls: 4, byomScans: 4, byLane: [{ lane: "scan" }] });
     expect(h.value).toBe("—");
+    expect(h.value).not.toBe("$0.00");
+    expect(h.sub).toBe("4 BYOM scans, unpriced");
+    expect(h.sub).not.toContain("LLM_*_COST_PER_MTOK");
+  });
+
+  it("does not tell operators to set LLM_*_COST_PER_MTOK when every unpriced call is BYOM", () => {
+    const h = costHeadline({ ...base, costBasis: null, allLanesCostUsd: null, allLanesUnpricedCalls: 1, byomScans: 1, byLane: [{ lane: "scan" }] });
+    expect(h.value).toBe("—");
+    expect(h.sub).toBe("1 BYOM scan, unpriced");
+    expect(h.sub).not.toContain("LLM_*_COST_PER_MTOK");
+  });
+
+  it("still hints at LLM_*_COST_PER_MTOK when some unpriced calls are not BYOM", () => {
+    const h = costHeadline({ ...base, costBasis: null, allLanesCostUsd: null, allLanesUnpricedCalls: 7, byomScans: 4, byLane: [{ lane: "scan" }] });
+    expect(h.value).toBe("—");
+    expect(h.sub).toContain("7 calls unpriced");
     expect(h.sub).toContain("4 BYOM scans, unpriced");
+    expect(h.sub).toContain("LLM_*_COST_PER_MTOK");
   });
 
   it("shows the em dash with the unpriced volume when nothing could be priced", () => {
     const h = costHeadline({ ...base, costBasis: null, allLanesCostUsd: null, allLanesUnpricedCalls: 7, byLane: [{ lane: "local" }] });
     expect(h.value).toBe("—");
+    expect(h.value).not.toBe("$0.00");
     expect(h.sub).toContain("7 calls unpriced");
     expect(h.sub).toContain("LLM_*_COST_PER_MTOK");
   });

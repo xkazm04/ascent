@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GitLabSource } from "./source";
+import { GitLabSource, parseGitlabUrl } from "./source";
 
 const parsed = { owner: "group/sub", repo: "project", forge: "gitlab" as const };
 const sha = "a".repeat(40);
@@ -95,5 +95,56 @@ describe("GitLabSource snapshot ingestion", () => {
   it("reports an empty tree as EMPTY, rather than an empty successful scan", async () => {
     server({ contents: {} });
     await expect(new GitLabSource().fetchSnapshot(parsed)).rejects.toMatchObject({ code: "EMPTY" });
+  });
+});
+
+describe("parseGitlabUrl — deep-link intent is surfaced, not silently discarded (github-repo-data-access 07-16 #4)", () => {
+  // GitHub's parseRepoUrl keeps unambiguous /pull/<n>, /tree/<ref>, /commit/<sha> on ParsedRepo.
+  // GitLab's /-/ separator used to throw that intent away; callers (scan route copies routed.ref /
+  // routed.prNumber) then silently scored the default branch.
+
+  it("extracts the MR number from a pasted /-/merge_requests/<n> URL", () => {
+    expect(parseGitlabUrl("https://gitlab.com/g/p/-/merge_requests/7")).toEqual({
+      owner: "g",
+      repo: "p",
+      prNumber: 7,
+    });
+    expect(parseGitlabUrl("https://gitlab.com/group/sub/project/-/merge_requests/12")).toEqual({
+      owner: "group/sub",
+      repo: "project",
+      prNumber: 12,
+    });
+    expect(parseGitlabUrl("g/p/-/merge_requests/7")).toEqual({ owner: "g", repo: "p", prNumber: 7 });
+    expect(parseGitlabUrl("https://gitlab.com/g/p/-/merge_requests/7/diffs")).toEqual({
+      owner: "g",
+      repo: "p",
+      prNumber: 7,
+    });
+  });
+
+  it("extracts a single-segment /-/tree/<ref>, lowercases a /-/commit/<sha>", () => {
+    expect(parseGitlabUrl("https://gitlab.com/g/p/-/tree/my-branch")).toEqual({
+      owner: "g",
+      repo: "p",
+      ref: "my-branch",
+    });
+    expect(parseGitlabUrl(`https://gitlab.com/g/p/-/commit/${"ABC1234".padEnd(40, "0")}`)).toEqual({
+      owner: "g",
+      repo: "p",
+      ref: "abc1234".padEnd(40, "0"),
+    });
+  });
+
+  it("leaves AMBIGUOUS shapes unset: multi-segment /-/tree/a/b, /-/blob/<ref>/<path>, non-numeric MR, unknown segments", () => {
+    expect(parseGitlabUrl("https://gitlab.com/g/p/-/tree/main/src")).toEqual({ owner: "g", repo: "p" });
+    expect(parseGitlabUrl("https://gitlab.com/g/p/-/blob/main/README.md")).toEqual({ owner: "g", repo: "p" });
+    expect(parseGitlabUrl("https://gitlab.com/g/p/-/merge_requests/abc")).toEqual({ owner: "g", repo: "p" });
+    expect(parseGitlabUrl("https://gitlab.com/g/p/-/issues/7")).toEqual({ owner: "g", repo: "p" });
+  });
+
+  it("never lets a hostile deep-link segment become a ref (same charset/traversal guard as the coordinates)", () => {
+    expect(parseGitlabUrl("https://gitlab.com/g/p/-/tree/..")).toEqual({ owner: "g", repo: "p" });
+    expect(parseGitlabUrl("https://gitlab.com/g/p/-/commit/deadbeef;rm")).toEqual({ owner: "g", repo: "p" });
+    expect(parseGitlabUrl("https://gitlab.com/g/p/-/tree/foo;rm")).toEqual({ owner: "g", repo: "p" });
   });
 });

@@ -5,8 +5,10 @@
 //     new sha persists exactly one new row (`deduped:false`). The cross-instance P2002 backstop reuses
 //     the winner; with no winner it re-throws.
 //  2. CARRY-FORWARD (tracking state): a re-scan must PRESERVE a prior recommendation's
-//     status / assigneeLogin / targetDate (matched through the tiered `matchRecommendations`, which is
-//     kept REAL here), and must default a brand-new (unmatched) roadmap item to open / null / null.
+//     status / assigneeLogin / targetDate / claimActor / claimExecutor / leaseUntil / needsHuman
+//     (matched through the tiered `matchRecommendations`, which is kept REAL here), and must default
+//     a brand-new (unmatched) roadmap item to open / null / null. Claim fields ride only on a carried
+//     in_progress row; a resolved-to-done copy nulls them. The previous id is NEVER reused.
 //
 // All DB seams are faked: client (withDb/withRetry/getPrisma/isDbConfigured), scans-read (the two
 // dedup lookups), scans-shared (org-id, repo-lock, upsert-race, P2002 classifier), and cache. The real
@@ -66,6 +68,8 @@ vi.mock("@/lib/cache", () => ({
 }));
 
 import { persistScanReport } from "./scans-persist";
+import { DEDUP_KEY_VERSION, scanContentKey } from "./scans-read";
+import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
 import { verifyAudit } from "./audit-integrity";
 
 // ── Fixtures ────────────────────────────────────────────────────────────────────────────────────
@@ -78,6 +82,10 @@ type PrevRec = {
   status: string;
   assigneeLogin: string | null;
   targetDate: Date | null;
+  claimActor?: string | null;
+  claimExecutor?: string | null;
+  leaseUntil?: Date | null;
+  needsHuman?: boolean;
 };
 
 /**
@@ -131,6 +139,9 @@ function fakePrisma(opts: {
       findFirst: vi.fn(async () => ({ id: "rec_carried" })),
     },
     scanDimension: { deleteMany: vi.fn(async () => ({})) },
+    // Moonshot #9 bookends: no Prisma relation, so the upgrade path must delete them explicitly
+    // (same subgraph pruneRepoScans drains) or the mock Scan delete leaves unfalsifiable lift.
+    interventionOutcome: { deleteMany: vi.fn(async () => ({})) },
     repoContributor: { deleteMany: vi.fn(async () => ({})), createMany: vi.fn(async () => ({})) },
     repoTeam: { deleteMany: vi.fn(async () => ({})), createMany: vi.fn(async () => ({})) },
     aiChange: { upsert: vi.fn(async () => ({})) },
@@ -161,6 +172,8 @@ function makeReport(over: {
   scannedAt?: string;
   roadmap?: Array<{ dimension: string; title: string }>;
   engineProvider?: string;
+  /** Scoring-instrument stamp on the report (HistoryPoint identity). */
+  rubricVersion?: string;
   /** The mock floor FIRED (a model was requested and never answered) — the provenance flag. */
   engineDegraded?: boolean;
   /** The ScoreIntegrity record the engine computed for this scan. */
@@ -200,6 +213,7 @@ function makeReport(over: {
       provider: over.engineProvider ?? "anthropic",
       model: "claude",
       ...(over.engineDegraded === undefined ? {} : { degraded: over.engineDegraded }),
+      ...(over.rubricVersion === undefined ? {} : { rubricVersion: over.rubricVersion }),
     },
     ...(over.scoreIntegrity ? { scoreIntegrity: over.scoreIntegrity } : {}),
     headline: "ok",
@@ -217,11 +231,20 @@ function makeReport(over: {
 /**
  * The CONTENT identity `makeReport()` produces — the sha-less dedup path now compares this (not the
  * bare timestamp) before reusing a row, so a fake "existing row" must carry the matching key to model
- * "the same report was already persisted". Kept in sync with the fixture's scores/engine by hand
- * (the real key builder is exercised directly in scans-read.test.ts).
+ * "the same report was already persisted". Built by the real `scanContentKey` so a key-shape bump
+ * cannot silently desync the HIT fixtures from persist.
  */
 function fixtureContentKey(engineProvider = "anthropic"): string {
-  return `70|L3|60|80|${engineProvider}|claude|`;
+  return scanContentKey({
+    overallScore: 70,
+    level: "L3",
+    adoptionScore: 60,
+    rigorScore: 80,
+    engineProvider,
+    engineModel: "claude",
+    rubricVersion: SCORING_RUBRIC_VERSION,
+    dimensions: [],
+  });
 }
 
 beforeEach(() => {
@@ -293,7 +316,13 @@ describe("persistScanReport — commit-SHA dedup (no second metered Scan row)", 
     expect(tx.recommendationEvent.deleteMany).toHaveBeenCalledWith({ where: { recommendation: { scanId: "scan_mock" } } });
     expect(tx.recommendation.deleteMany).toHaveBeenCalledWith({ where: { scanId: "scan_mock" } });
     expect(tx.scanDimension.deleteMany).toHaveBeenCalledWith({ where: { scanId: "scan_mock" } });
+    expect(tx.interventionOutcome.deleteMany).toHaveBeenCalledWith({
+      where: { OR: [{ beforeScanId: "scan_mock" }, { afterScanId: "scan_mock" }] },
+    });
     expect(tx.scan.delete).toHaveBeenCalledWith({ where: { id: "scan_mock" } });
+    expect(tx.interventionOutcome.deleteMany.mock.invocationCallOrder[0]!).toBeLessThan(
+      tx.scan.delete.mock.invocationCallOrder[0]!,
+    );
     expect(scanCreate).toHaveBeenCalledTimes(1);
     expect(res).toMatchObject({ scanId: "scan_new", deduped: false, upgraded: true, headSha: null });
   });
@@ -369,7 +398,13 @@ describe("persistScanReport — mock → live engine upgrade", () => {
     expect(tx.recommendationEvent.deleteMany).toHaveBeenCalledWith({ where: { recommendation: { scanId: "scan_mock" } } });
     expect(tx.recommendation.deleteMany).toHaveBeenCalledWith({ where: { scanId: "scan_mock" } });
     expect(tx.scanDimension.deleteMany).toHaveBeenCalledWith({ where: { scanId: "scan_mock" } });
+    expect(tx.interventionOutcome.deleteMany).toHaveBeenCalledWith({
+      where: { OR: [{ beforeScanId: "scan_mock" }, { afterScanId: "scan_mock" }] },
+    });
     expect(tx.scan.delete).toHaveBeenCalledWith({ where: { id: "scan_mock" } });
+    expect(tx.interventionOutcome.deleteMany.mock.invocationCallOrder[0]!).toBeLessThan(
+      tx.scan.delete.mock.invocationCallOrder[0]!,
+    );
     // …and the live scan is written into the freed slot (a real, billable row — not deduped).
     expect(scanCreate).toHaveBeenCalledTimes(1);
     expect(res).toMatchObject({ scanId: "scan_new", deduped: false, upgraded: true, headSha: "sha_x" });
@@ -385,6 +420,7 @@ describe("persistScanReport — mock → live engine upgrade", () => {
     expect(res).toMatchObject({ scanId: "scan_live", deduped: true, headSha: "sha_x" });
     expect(scanCreate).not.toHaveBeenCalled();
     expect(tx.scan.delete).not.toHaveBeenCalled();
+    expect(tx.interventionOutcome.deleteMany).not.toHaveBeenCalled();
   });
 
   it("a MOCK re-scan never replaces an existing mock (mock does not upgrade mock)", async () => {
@@ -397,6 +433,7 @@ describe("persistScanReport — mock → live engine upgrade", () => {
     expect(res).toMatchObject({ scanId: "scan_mock", deduped: true, headSha: "sha_x" });
     expect(scanCreate).not.toHaveBeenCalled();
     expect(tx.scan.delete).not.toHaveBeenCalled();
+    expect(tx.interventionOutcome.deleteMany).not.toHaveBeenCalled();
   });
 });
 
@@ -865,6 +902,41 @@ describe("persistScanReport — sha-less findScanByScannedAt dedup fallback", ()
     expect(res).toMatchObject({ deduped: false });
   });
 
+  it("SAME scores, DIFFERENT rubricVersion at the same millisecond: both scans persist (two rows)", async () => {
+    // HistoryPoint already treats rubricVersion as instrument identity. Without it in scanContentKey,
+    // a sha-less persist of rubric A then same-ms rubric B with identical scores collapsed to one row.
+    const scannedAt = "2026-06-18T08:30:00.000Z";
+    const { prisma, scanCreate, createdScans } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const scores = {
+      overallScore: 70,
+      level: "L3",
+      adoptionScore: 60,
+      rigorScore: 80,
+      engineProvider: "anthropic",
+      engineModel: "claude",
+      dimensions: [] as Array<{ dimId: string; score: number }>,
+    };
+
+    mockFindScanByScannedAt.mockResolvedValueOnce(null);
+    const first = await persistScanReport(makeReport({ headSha: null, scannedAt, rubricVersion: "rA" }));
+    expect(first).toMatchObject({ scanId: "scan_new", deduped: false, headSha: null });
+
+    mockFindScanByScannedAt.mockResolvedValueOnce({
+      id: "scan_rA",
+      engineProvider: "anthropic",
+      contentKey: scanContentKey({ ...scores, rubricVersion: "rA" }),
+    });
+    const second = await persistScanReport(makeReport({ headSha: null, scannedAt, rubricVersion: "rB" }));
+
+    expect(second).toMatchObject({ scanId: "scan_new", deduped: false, headSha: null });
+    expect(scanCreate).toHaveBeenCalledTimes(2); // 1 of 1 rubric-mismatch same-score fixtures → two rows
+    expect(createdScans[0]!.dedupKey).not.toBe(createdScans[1]!.dedupKey);
+    expect(createdScans[0]!.dedupKey).toMatch(new RegExp(`^${DEDUP_KEY_VERSION}:[0-9a-f]{64}$`));
+    expect(createdScans[1]!.dedupKey).toMatch(new RegExp(`^${DEDUP_KEY_VERSION}:[0-9a-f]{64}$`));
+  });
+
   it("MISS: a genuinely new sha-less report persists EXACTLY ONE row (deduped:false, headSha:null)", async () => {
     // No prior row at this scannedAt → the fallback must NOT suppress a genuinely-new sha-less scan;
     // it persists once and the stored scan's headSha stays null.
@@ -921,7 +993,8 @@ describe("persistScanReport — sha-less cross-instance dedup key", () => {
     expect(createdScans[0]!.headSha).toBeNull();
     // The exact value is scanDedupKey's contract (pinned in scans-read.test.ts); here it must simply be
     // PRESENT and well-formed — a null would leave the row unconstrained, which is the whole defect.
-    expect(createdScans[0]!.dedupKey).toMatch(/^v1:[0-9a-f]{64}$/);
+    expect(DEDUP_KEY_VERSION).not.toBe("v1");
+    expect(createdScans[0]!.dedupKey).toMatch(/^v2:[0-9a-f]{64}$/);
   });
 
   it("leaves dedupKey NULL on a sha-BEARING row (one dedup identity per row, never two)", async () => {
@@ -952,7 +1025,7 @@ describe("persistScanReport — sha-less cross-instance dedup key", () => {
     expect(mockFindScanByCommit).not.toHaveBeenCalled();
     const [repoId, key] = mockFindScanByDedupKey.mock.calls[0] as [string, string];
     expect(repoId).toBe("repo_1");
-    expect(key).toMatch(/^v1:[0-9a-f]{64}$/);
+    expect(key).toMatch(/^v2:[0-9a-f]{64}$/);
   });
 
   it("sha-less P2002 with no recoverable winner re-throws (never silently swallows a lost scan)", async () => {
@@ -1149,6 +1222,162 @@ describe("persistScanReport — follow-up feedback on in-progress rows", () => {
     const recs = (createdScans[0] as { recommendations: { create: Array<Record<string, unknown>> } }).recommendations.create;
     expect(recs[0]).toMatchObject({ status: "open", assigneeLogin: "hubot" }); // lone-in-dimension pairing kept
     expect(createdResolved).toHaveLength(0);
+  });
+
+  // A live claim is a different fact from assigneeLogin. Dropping it at persist made a machine-held
+  // lease look like a human took the new row (`in_progress` + `leaseUntil: null`). Previous-scan
+  // rows stay (Recommendation.id is a global PK), so the carried row is a NEW id — never the old one.
+  it("copies claimActor/claimExecutor/leaseUntil/needsHuman onto a restated in_progress carry (new id)", async () => {
+    const { prisma, createdScans, createdResolved, createdEvents } = fakePrisma({
+      previousRecs: [
+        prevInProgress({
+          claimActor: "octocat",
+          claimExecutor: "human",
+          leaseUntil: null,
+          needsHuman: true,
+        }),
+      ],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(
+      makeReport({
+        headSha: "sha_claim_carry",
+        roadmap: [{ dimension: "D2", title: "No coverage threshold fails a run" }],
+        resolvedFollowUpIds: ["rec_ip"],
+      }),
+    );
+
+    const recs = (createdScans[0] as { recommendations: { create: Array<Record<string, unknown>> } }).recommendations.create;
+    expect(recs[0]).toMatchObject({
+      status: "in_progress",
+      claimActor: "octocat",
+      claimExecutor: "human",
+      leaseUntil: null,
+      needsHuman: true,
+    });
+    expect(recs[0]).not.toHaveProperty("id");
+    expect(createdResolved).toHaveLength(0);
+    expect(String(createdEvents[0]!.note)).toContain("previous id rec_ip");
+  });
+
+  it("copies the four claim fields onto an unpaired keep create (new id)", async () => {
+    const lease = new Date("2026-09-17T12:00:00.000Z");
+    const { prisma, createdResolved, createdEvents } = fakePrisma({
+      previousRecs: [
+        prevInProgress({
+          claimActor: "agent:ci",
+          claimExecutor: "remote-agent",
+          leaseUntil: lease,
+          needsHuman: false,
+        }),
+      ],
+      previousDims: [{ dimId: "D2", score: 61 }],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(
+      makeReport({
+        headSha: "sha_claim_keep",
+        roadmap: [{ dimension: "D2", title: "Tests exist but nothing gates a merge on them" }],
+        resolvedFollowUpIds: ["rec_ip"],
+        dimensions: [{ id: "D2", name: "Automated Testing", weight: 0.15, score: 61, signalScore: 61, llmScore: 61, summary: "", evidence: [], strengths: [], gaps: [] }],
+      }),
+    );
+
+    expect(createdResolved[0]).toMatchObject({
+      status: "in_progress",
+      claimActor: "agent:ci",
+      claimExecutor: "remote-agent",
+      leaseUntil: lease,
+      needsHuman: false,
+    });
+    expect(createdResolved[0]).not.toHaveProperty("id");
+    expect(String(createdEvents[0]!.note)).toContain("previous id rec_ip");
+  });
+
+  it("nulls the four claim fields on a resolved-to-done copy", async () => {
+    const { prisma, createdResolved, createdEvents } = fakePrisma({
+      previousRecs: [
+        prevInProgress({
+          claimActor: "agent:ci",
+          claimExecutor: "remote-agent",
+          leaseUntil: new Date("2026-09-17T12:00:00.000Z"),
+          needsHuman: true,
+        }),
+      ],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(
+      makeReport({ headSha: "sha_claim_done", roadmap: [{ dimension: "D2", title: "Snapshot tests can bless a regression wholesale" }] }),
+    );
+
+    expect(createdResolved[0]).toMatchObject({
+      status: "done",
+      claimActor: null,
+      claimExecutor: null,
+      leaseUntil: null,
+      needsHuman: false,
+    });
+    expect(createdResolved[0]).not.toHaveProperty("id");
+    expect(String(createdEvents[0]!.note)).toContain("previous id rec_ip");
+  });
+});
+
+// ── ScanDimension last-wins de-dupe (writer half of a future (scanId, dimId) unique) ──────────────
+//
+// Nested create used to map report.dimensions 1:1. Two D1 entries persist as two rows; history and
+// reconstructed reports then double-count, while standing evidence last-wins in a Map. Collapse here
+// so the writer matches how readers already key. Schema unique is a separate item.
+
+describe("persistScanReport — ScanDimension last-wins de-dupe by dimId", () => {
+  type Dim = ScanReport["dimensions"][number];
+  function dim(id: Dim["id"], score: number, over: Partial<Dim> = {}): Dim {
+    return {
+      id,
+      name: over.name ?? id,
+      weight: over.weight ?? 0.1,
+      score,
+      signalScore: over.signalScore ?? score,
+      llmScore: over.llmScore ?? score,
+      summary: over.summary ?? "",
+      evidence: over.evidence ?? [],
+      strengths: over.strengths ?? [],
+      gaps: over.gaps ?? [],
+    };
+  }
+
+  it("collapses duplicate dimId rows to one nested create (last write wins)", async () => {
+    const { prisma, createdScans } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(
+      makeReport({
+        headSha: "sha_dup_dim",
+        dimensions: [
+          dim("D1", 40, { summary: "first", evidence: ["old"] }),
+          dim("D2", 70, { name: "Automated Testing" }),
+          dim("D1", 55, { summary: "last", evidence: ["new"] }),
+        ],
+      }),
+    );
+
+    const created = (createdScans[0] as { dimensions: { create: Array<Record<string, unknown>> } })
+      .dimensions.create;
+    expect(created).toHaveLength(2);
+    expect(created.map((d) => d.dimId)).toEqual(["D1", "D2"]);
+    expect(created[0]).toMatchObject({
+      dimId: "D1",
+      score: 55,
+      summary: "last",
+      evidence: JSON.stringify(["new"]),
+    });
+    expect(created[1]).toMatchObject({ dimId: "D2", score: 70, name: "Automated Testing" });
   });
 });
 

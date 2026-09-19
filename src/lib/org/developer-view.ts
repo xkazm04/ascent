@@ -19,7 +19,7 @@
 // PURE module — no `@/lib/db` import, because every Developer component is a client component (see
 // the "build not in the gate" note: a db import here would break `next build` with tsc still green).
 
-import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
+import { CHAMPION_MIN_POP } from "@/lib/org/champions";
 import type { DimensionId } from "@/lib/types";
 import type { CareShapeDeclaredReason } from "./care-shape-contract";
 
@@ -158,7 +158,7 @@ export interface DeveloperView {
 // ── The org's anonymized care aggregate (rendered inside Contributors) ────────────────────────────
 
 export interface CareOrgView {
-  /** Developers in the workspace who could opt in — the floor denominator. */
+  /** Git contributor count for this workspace — the naming-floor denominator, not a share or opt-in. */
   population: number;
   /** True when `population < CHAMPION_MIN_POP`: aggregates are suppressed, not merely thin. Bands also need `CARE_BAND_MIN_SHARERS`. */
   belowFloor: boolean;
@@ -253,7 +253,7 @@ export function careNeverSent(row: { field: string; note?: string }): boolean {
   return CARE_NEVER_SENT_FIELDS.has(row.field) || Boolean(row.note && /never|unrepresentable/i.test(row.note));
 }
 
-/** The pre-C3 org state: the floor decides, and with no opt-ins the population is zero. */
+/** The pre-C3 org state: the floor decides, and with no git contributors the population is zero. */
 export function emptyOrgView(population = 0): CareOrgView {
   return {
     population,

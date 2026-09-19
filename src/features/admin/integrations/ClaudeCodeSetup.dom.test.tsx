@@ -60,6 +60,7 @@ describe("ClaudeCodeSetup — the ingest token mask covers every rendered surfac
     expect(env).toContain(`Authorization=Bearer asc_otel.${SLUG}.`);
     expect(env).not.toContain(MAC);
     expect(env).toContain("•");
+    expect(env).not.toMatch(/OTEL_LOGS_EXPORTER\s*=\s*otlp/);
     // The non-secret prefix stays legible so the owner can tell which org the token belongs to.
     expect(dom).toContain(`asc_otel.${SLUG}.`);
   });
@@ -88,6 +89,8 @@ describe("ClaudeCodeSetup — the ingest token mask covers every rendered surfac
     await click(copies[2]);
     expect(clipboard.at(-1)).toContain(`Authorization=Bearer ${TOKEN}`);
     expect(clipboard.at(-1)).not.toContain("•");
+    // Logs are accepted-and-discarded, not persisted — the shipped snippet must not enable them.
+    expect(clipboard.at(-1)).not.toMatch(/OTEL_LOGS_EXPORTER\s*=\s*otlp/);
 
     // …and the page still shows nothing.
     expect(container.textContent ?? "").not.toContain(MAC);

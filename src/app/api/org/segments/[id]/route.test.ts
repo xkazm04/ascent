@@ -18,6 +18,7 @@ vi.mock("@/lib/db", async () => ({
   getSegmentOrgSlug: vi.fn(async () => "acme"),
   updateSegment: vi.fn(async () => {}),
   deleteSegment: vi.fn(async () => {}),
+  recordOrgAudit: vi.fn(async () => true),
   // The REAL validator (pure) so the 400 contract below exercises production rules, not a stub.
   segmentInputError: (await vi.importActual<typeof import("@/lib/db/segments")>("@/lib/db/segments")).segmentInputError,
 }));
@@ -25,14 +26,18 @@ vi.mock("@/lib/authz", () => ({
   requireOrgAccess: vi.fn(async () => null),
   requireOrgRole: vi.fn(async () => null),
 }));
+vi.mock("@/lib/access", () => ({
+  resolveViewerLogin: vi.fn(async () => "alice"),
+}));
 
 import { PATCH, DELETE } from "./route";
-import { getSegmentOrgSlug, updateSegment, deleteSegment } from "@/lib/db";
+import { getSegmentOrgSlug, updateSegment, deleteSegment, recordOrgAudit } from "@/lib/db";
 import { requireOrgAccess, requireOrgRole } from "@/lib/authz";
 
 const mockOrgSlug = vi.mocked(getSegmentOrgSlug);
 const mockUpdate = vi.mocked(updateSegment);
 const mockDelete = vi.mocked(deleteSegment);
+const mockAudit = vi.mocked(recordOrgAudit);
 const mockAccess = vi.mocked(requireOrgAccess);
 const mockRole = vi.mocked(requireOrgRole);
 
@@ -75,6 +80,7 @@ describe("PATCH /api/org/segments/:id — member-gated, segment-derived tenant",
     expect(res.status).toBe(404);
     expect(mockAccess).not.toHaveBeenCalled();
     expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
   });
 
   it("DENIES a non-member and never writes", async () => {
@@ -82,6 +88,17 @@ describe("PATCH /api/org/segments/:id — member-gated, segment-derived tenant",
     const res = await patch("seg-1", { name: "x" });
     expect(res.status).toBe(403);
     expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+
+  it("audits `segment.updated` on success with the changed fields", async () => {
+    const res = await patch("seg-1", { name: "Renamed" });
+    expect(res.status).toBe(200);
+    expect(mockAudit).toHaveBeenCalledTimes(1);
+    expect(mockAudit.mock.calls[0][0]).toBe("segment.updated");
+    expect(mockAudit.mock.calls[0][1]).toBe("acme");
+    expect(mockAudit.mock.calls[0][2]).toEqual({ segmentId: "seg-1", changed: ["name"] });
+    expect(mockAudit.mock.calls[0][3]).toBe("alice");
   });
 
   it("maps P2002 (name clash) to 409 and P2025 (missing) to 404", async () => {
@@ -89,6 +106,7 @@ describe("PATCH /api/org/segments/:id — member-gated, segment-derived tenant",
     expect((await patch("seg-1", { name: "dup" })).status).toBe(409);
     mockUpdate.mockRejectedValueOnce({ code: "P2025" } as never);
     expect((await patch("seg-1", { name: "x" })).status).toBe(404);
+    expect(mockAudit).not.toHaveBeenCalled();
   });
 
   // repositories-segments 2026-07-16 #5: PATCH { color: "rebeccapurple" } previously recolored the
@@ -97,6 +115,7 @@ describe("PATCH /api/org/segments/:id — member-gated, segment-derived tenant",
     expect((await patch("seg-1", { color: "rebeccapurple" })).status).toBe(400);
     expect((await patch("seg-1", { name: "x".repeat(61) })).status).toBe(400);
     expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
   });
 });
 
@@ -117,6 +136,17 @@ describe("DELETE /api/org/segments/:id — admin-gated destructive op", () => {
     const res = await del("seg-1");
     expect(res.status).toBe(403);
     expect(mockDelete).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+
+  it("audits `segment.deleted` on success against the segment's true owner", async () => {
+    const res = await del("seg-1");
+    expect(res.status).toBe(200);
+    expect(mockAudit).toHaveBeenCalledTimes(1);
+    expect(mockAudit.mock.calls[0][0]).toBe("segment.deleted");
+    expect(mockAudit.mock.calls[0][1]).toBe("acme");
+    expect(mockAudit.mock.calls[0][2]).toEqual({ segmentId: "seg-1" });
+    expect(mockAudit.mock.calls[0][3]).toBe("alice");
   });
 
   it("404s an unknown segment id before any admin check or delete", async () => {
@@ -125,5 +155,6 @@ describe("DELETE /api/org/segments/:id — admin-gated destructive op", () => {
     expect(res.status).toBe(404);
     expect(mockRole).not.toHaveBeenCalled();
     expect(mockDelete).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
   });
 });

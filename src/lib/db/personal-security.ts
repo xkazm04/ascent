@@ -72,8 +72,8 @@ export async function getPersonalSecurityRows(personalSlug: string): Promise<Per
       name: r.name,
       fullName: r.fullName,
       score: dim.score,
-      evidence: parseStringArray(dim.evidence),
-      gaps: parseStringArray(dim.gaps),
+      evidence: parseStringArray(dim.evidence) ?? [],
+      gaps: parseStringArray(dim.gaps) ?? [],
       summary: dim.summary ?? "",
       scannedAt: scan.scannedAt.toISOString(),
     });

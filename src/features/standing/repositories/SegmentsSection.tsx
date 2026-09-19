@@ -120,7 +120,13 @@ export async function SegmentsSection({
       </div>
 
       {/* Side-by-side comparison */}
-      <SegmentsComparePanel options={options} aId={aId} bId={bId} comparison={comparison} />
+      <SegmentsComparePanel
+        options={options}
+        aId={aId}
+        bId={bId}
+        comparison={comparison}
+        taggedById={Object.fromEntries(segments.map((s) => [s.id, s.repoCount]))}
+      />
     </>
   );
 }

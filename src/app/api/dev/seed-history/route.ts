@@ -5,13 +5,13 @@
 // gently UP to the repo's CURRENT overall, anchored ~1 week back so the real latest scan stays the
 // newest column. Idempotent: the SHAs derive from (repo, index), so re-running dedups instead of piling.
 //
-// Gating mirrors /api/dev/seed-fleet: with ASCENT_SEED_SECRET set the caller must present it; with no
-// secret it's allowed only outside production.
+// Gating mirrors /api/dev/seed-fleet: ASCENT_EMPTY refuses; with ASCENT_SEED_SECRET set the caller
+// must present it; with no secret it's allowed only outside production.
 //
 //   curl -X POST http://localhost:3000/api/dev/seed-history -d '{"org":"vercel"}'
 
 import { NextResponse, type NextRequest } from "next/server";
-import { seedRequestAuthorized } from "@/lib/dev/seed-auth";
+import { seedForbiddenMessage, seedRequestAuthorized } from "@/lib/dev/seed-auth";
 import { getPrisma, isDbConfigured, persistScanReport } from "@/lib/db";
 import { reportsForRepo } from "@/lib/dev/fleet-seed";
 import type { RepoArchetype } from "@/lib/types";
@@ -27,7 +27,7 @@ function clampInt(v: unknown, dflt: number, min: number, max: number): number {
 
 export async function POST(req: NextRequest) {
   if (!seedRequestAuthorized(req)) {
-    return NextResponse.json({ error: "forbidden: set ASCENT_SEED_SECRET and pass it via x-seed-secret or ?secret=" }, { status: 403 });
+    return NextResponse.json({ error: seedForbiddenMessage() }, { status: 403 });
   }
   if (!isDbConfigured()) {
     return NextResponse.json({ error: "persistence is disabled: set DATABASE_URL first" }, { status: 400 });

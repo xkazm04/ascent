@@ -13,17 +13,23 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-const { mockIsDbConfigured, mockGetPrisma, mockGetOrgId } = vi.hoisted(() => ({
+const { mockIsDbConfigured, mockGetPrisma, mockGetOrgId, mockListDueProbeCandidates } = vi.hoisted(() => ({
   mockIsDbConfigured: vi.fn(),
   mockGetPrisma: vi.fn(),
   mockGetOrgId: vi.fn(),
+  mockListDueProbeCandidates: vi.fn(),
 }));
 
 vi.mock("@/lib/db/client", () => ({ isDbConfigured: mockIsDbConfigured, getPrisma: mockGetPrisma }));
 vi.mock("@/lib/db/org-rollup", () => ({ getOrgId: mockGetOrgId }));
+vi.mock("@/lib/db/org-watch", () => ({
+  listDueProbeCandidates: mockListDueProbeCandidates,
+  listDueRescanCandidates: vi.fn(async () => []),
+}));
 
 import {
   claimJobById,
+  enqueueDueProbes,
   enqueueScanJob,
   idempotencyKeyFor,
   MAX_JOB_ATTEMPTS,
@@ -37,6 +43,7 @@ beforeEach(() => {
   mockIsDbConfigured.mockReset().mockReturnValue(true);
   mockGetPrisma.mockReset();
   mockGetOrgId.mockReset().mockResolvedValue("org_1");
+  mockListDueProbeCandidates.mockReset().mockResolvedValue([]);
 });
 
 const repoFind = () => vi.fn(async () => ({ id: "repo_1" }));
@@ -77,6 +84,43 @@ describe("enqueue idempotency", () => {
       notBefore: new Date("2026-08-30T06:00:00.000Z"),
     });
     expect(create.mock.calls[0]![0].data.idempotencyKey).toBe("org_1|acme/api|rescore|2026-08-30");
+  });
+});
+
+describe("enqueueDueProbes — cadence seed so App-installed orgs get missingSince", () => {
+  it("enqueues a probe/cadence job per watched candidate and counts only NEW rows", async () => {
+    mockListDueProbeCandidates.mockResolvedValue([
+      { orgSlug: "acme", fullName: "acme/api", repoId: "repo_1" },
+      { orgSlug: "acme", fullName: "acme/gone", repoId: "repo_2" },
+    ]);
+    const create = vi
+      .fn()
+      .mockResolvedValueOnce({ id: "job_1" })
+      .mockRejectedValueOnce(new Error("Unique constraint failed on the fields: (`idempotencyKey`)"));
+    const findUnique = vi.fn(async (args: { where: { idempotencyKey?: string } }) =>
+      args.where.idempotencyKey ? { id: "job_2" } : { id: "repo_1" },
+    );
+    mockGetPrisma.mockReturnValue({
+      repository: { findUnique },
+      scanJob: { create, findUnique },
+    });
+
+    expect(await enqueueDueProbes()).toBe(1);
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(create.mock.calls[0]![0].data).toMatchObject({
+      lane: "probe",
+      reason: "cadence",
+      repoFullName: "acme/api",
+      repoId: "repo_1",
+      priority: 0,
+    });
+    expect(create.mock.calls[0]![0].data.idempotencyKey).toMatch(/^org_1\|acme\/api\|probe\|\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("returns 0 without a database and never lists candidates", async () => {
+    mockIsDbConfigured.mockReturnValue(false);
+    expect(await enqueueDueProbes()).toBe(0);
+    expect(mockListDueProbeCandidates).not.toHaveBeenCalled();
   });
 });
 

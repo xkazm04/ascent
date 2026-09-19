@@ -1,15 +1,15 @@
 "use client";
 
-// WAR-1/2: the goal the wall rallies around — target meter, pace chip, deadline countdown, and
-// movement since the campaign kicked off. Extracted from LiveWarRoomHeader.tsx (300-LOC rule);
-// pure relocation, behaviour unchanged.
+// WAR-1/2: the goal the wall rallies around — target meter, pace chip (gated on composeTrajectory),
+// deadline countdown, and movement since the campaign kicked off.
 
 import Link from "next/link";
 import { Meter } from "@/components/org/shared/ui";
-import { PaceChip, goalBasisMarker, goalMeterAriaLabel, type GoalProgressView } from "@/components/org/shared/goalView";
+import { goalBasisMarker, goalMeterAriaLabel, type GoalProgressView } from "@/components/org/shared/goalView";
 import { scoreHex } from "@/lib/ui";
 import { DIRECTION_TONE, deltaHex, signedDelta, toneFor } from "@/components/ui";
 import { orgTabHref } from "@/lib/org/orgTabs";
+import { WallPaceChip } from "@/features/inflight/live/WallPaceChip";
 
 /** An attained goal is not a score — it is a reached target, so it takes the brand success token
  *  rather than a hand-picked emerald. Below attainment the meter keeps the score ramp. */
@@ -53,7 +53,7 @@ export function GoalBanner({
         <div className="flex flex-wrap items-center gap-2">
           <span className="type-mono-sm uppercase tracking-widest text-accent">Goal</span>
           <span className="font-medium text-white">{goal.label}</span>
-          <PaceChip pace={goal.pace} />
+          <WallPaceChip goal={goal} />
         </div>
         <Link href={orgTabHref(slug, "executive")} className="type-mono-sm text-accent hover:text-white">
           briefing →

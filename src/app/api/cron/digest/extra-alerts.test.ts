@@ -27,6 +27,7 @@ import { dispatchExtraAlerts, GOAL_RISK_ACTION, SPEND_ANOMALY_ACTION, splitSpend
 import { listGoals, getUsageSummary } from "@/lib/db";
 import { claimOrgAuditOnce, releaseAuditClaim } from "@/lib/db/scans-audit";
 import { dispatchAlert } from "@/lib/alerts";
+import { isOrgTabId, orgTabHref } from "@/lib/org/orgTabs";
 
 const mockGoals = vi.mocked(listGoals);
 const mockUsage = vi.mocked(getUsageSummary);
@@ -99,6 +100,21 @@ describe("a real trigger fires exactly once, through the org's own sink", () => 
     expect(mockClaim).toHaveBeenCalledWith(GOAL_RISK_ACTION, "acme", ctx.windowStart, expect.objectContaining({ goals: 1 }));
     const [, opts] = mockDispatch.mock.calls[0] as [unknown, { webhookUrl: string; org: string }];
     expect(opts).toEqual({ webhookUrl: "https://hooks.example/acme", org: "acme" });
+  });
+
+  it("goal-at-risk CTA is a live OrgTabId (executive), not the retired /plan path", async () => {
+    mockGoals.mockResolvedValue([behind] as never);
+    await dispatchExtraAlerts(ctx);
+    const [msg] = mockDispatch.mock.calls[0] as [{ text: string }];
+    expect(msg.text).not.toMatch(/\/plan(?:\?|$|\s)/);
+    const href = orgTabHref(ctx.org, "executive");
+    expect(msg.text).toContain(`${ctx.base}${href}`);
+    expect(msg.text).toContain(ctx.periodQs);
+    const urlLine = msg.text.split("\n").find((line) => line.startsWith("http"));
+    expect(urlLine).toBeDefined();
+    const tab = new URL(urlLine!).searchParams.get("tab");
+    expect(isOrgTabId(tab)).toBe(true);
+    expect(tab).toBe("executive");
   });
 
   it("a spend spike (this week vs the prior 3 weeks) fires under its own key", async () => {

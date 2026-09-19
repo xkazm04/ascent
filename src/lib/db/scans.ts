@@ -27,6 +27,7 @@ export {
   getStandingRegressions,
   PLATFORM_FOLD_LOOKBACK,
   reportPermalink,
+  // `dimensions` is omitted when the ScanDimension join was skipped — not serialized as `[]`.
   type HistoryPoint,
   type RepositoryHistory,
   type ComparableDimension,

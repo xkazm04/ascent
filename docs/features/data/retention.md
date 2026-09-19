@@ -38,7 +38,14 @@ deletes nothing; existing deployments keep all history until they ask for retent
 `RETENTION_MIN_AUDIT_DAYS` (7) is **refused** rather than applied: the org is skipped and an
 error is pushed (tripping the route's degraded-run status) unless the operator opts in with
 `RETENTION_FORCE=1`. This guards against a fat-fingered override irreversibly wiping an org's
-compliance evidence. `0` ("keep everything") is never floored.
+compliance evidence. `0` ("keep everything") is never floored. The owner Settings write uses the same
+floors on the stored override (`null` inherit and `0` are never floored) and does not lower them.
+
+**Owner settings:** organization owners read and write the four override columns from Settings
+(`RetentionCard` on the owner-gated Settings tab; `GET`/`POST /api/org/retention`). A value below
+the floors is refused with `400`. Save updates the columns only; it never purges. The card requires
+a dry-run preview of the proposed policy (the same counters as `?dryRun=1` on `/api/cron/purge`,
+scoped to this org, with fleet-wide orphan/queue/quota sweeps skipped) before Save is enabled.
 
 The on-demand erase path carries the same shape of floor over its own destructive reach — see
 [the audit-disposition table](#on-demand-erasure-dsr--right-to-erasure) and `ERASE_AUDIT_FORCE=1`.
@@ -79,12 +86,15 @@ too large to drain in one tick still reaches every org within a bounded number o
 of the same prefix winning every run.
 
 **Dry run:** `?dryRun=1` (or `true`) on the route counts what every effective policy *would*
-delete (per-repo stale-scan totals, in-window audit rows) without deleting anything or writing
-an audit entry; the summary carries `dryRun: true`. The safety floor above is not enforced in
-a dry run. With compaction on it also reports `digestsWouldWrite` — or **`null`** once the stale
-window passes `DIGEST_PREVIEW_MAX_SCANS` (5000), because past that an estimate would be a guess
-wearing a number's clothes. The **scan** count is unaffected: it still comes from the one shared
-`where`, so "the number you were shown is the number that dies" still holds.
+delete (per-repo stale-scan totals, their dependent dimension / recommendation / recommendation-event
+/ outcome rows, in-window audit rows, and conformance findings of aged reports) without deleting
+anything or writing an audit entry; the summary carries `dryRun: true`. Dependents are counted
+over the same stale-id window / report predicate the delete uses, so a **0 is measured**, not an
+unenumerated placeholder (G4). The safety floor above is not enforced in a dry run. With
+compaction on it also reports `digestsWouldWrite` — or **`null`** once the stale window passes
+`DIGEST_PREVIEW_MAX_SCANS` (5000), because past that an estimate would be a guess wearing a
+number's clothes. The **scan** count is unaffected: it still comes from the one shared `where`,
+so "the number you were shown is the number that dies" still holds.
 
 ## The control ledger, and the seal that must beat the purge
 
@@ -155,18 +165,22 @@ is never counted twice. Each point carries `compacted: true`, a `scanCount`, an 
 `digest:<row.id>`, and **`headSha: null`** — the `Scan` row is gone, so a report permalink built from
 the stored sha would 404. Withholding the handle is what makes the point non-navigable in the chart
 and the CSV with no change to their link logic. `engineModel` reads `"mixed"` when more than one
-model scored the period. Default is **off**: the compare picker, the skill-outcome loader and
-`/api/history` without the param are unchanged.
+model scored the period. Default is **off**: the compare picker and `/api/history` without the param
+keep reading retained scans only. The skill-outcome loader **opts in** so a retained-after vs
+compacted-before pair can still measure when both sides share a rubric and engine; `digest:` ids stay
+labelled and are never mirrored into the outcome ledger as Scan bookends.
 
 **Where it surfaces.** `/trends` requests the tail; `TrendChart` draws the compacted run as a single
 dashed segment with hollow points and one legend line, and names it in the screen-reader table (the
 encoding is visual only). `/api/history?compacted=1` opts in over the API, and the CSV export gains
-`compacted` + `scans` columns so a spreadsheet is honest about which row is a summary.
-`forecastBasis(forecast)` states how many of a fit's days were compacted — since MC-B1 (2026-08-31)
-it reaches a reader, through `composeTrajectory` on every briefing/digest trajectory line (see
-`docs/features/org-dashboard/org-intelligence.md`); note the ORG rollup's series does not yet carry
-compacted points, so the clause is silent there until it does. `getCompactionCoverage(org)`
-reports how far the tail reaches beyond the retained scans (both degrade to `null`, never zeros).
+`compacted` + `scans` columns so a spreadsheet is honest about which row is a summary. Skill outcomes
+request the same tail: a compacted point is eligible as the *before* bookend when rubric and engine
+match the retained *after*. `forecastBasis(forecast)` states how many of a fit's days were compacted
+— since MC-B1 (2026-08-31) it reaches a reader, through `composeTrajectory` on every briefing/digest
+trajectory line (see `docs/features/org-dashboard/org-intelligence.md`); note the ORG rollup's series
+does not yet carry compacted points, so the clause is silent there until it does.
+`getCompactionCoverage(org)` reports how far the tail reaches beyond the retained scans (both degrade
+to `null`, never zeros).
 `MIN_FORECAST_POINTS` and the `lowData` rule are untouched — a compacted day counts as one day.
 
 **Erasure refuses to compact.** See below.
@@ -208,10 +222,13 @@ conflict retries.
 
 - **Scope.** Scans + dimensions + recommendations + recommendation events for the org's repos, plus
   the *scan-derived caches* denormalized onto `Repository` (`techStackJson`, `passportJson`,
-  `headSha`/`headEtag`, `lastScan*`); otherwise an "erased" repo would still render its cached
-  passport. Owner-authored configuration (watch flag, schedule, segment tags, passport overrides) and
-  the `Organization` / `Repository` / `Membership` rows themselves are **kept**: erasure removes the
-  data, it does not unconfigure or delete the tenant.
+  `contextHealthJson`, `manifestJson`, `guidanceGraphJson`, `aiConformance*`, `headSha`/`headEtag`,
+  `lastScan*`) and the latest-scan evidence tables persist writes beside them (`AiChange`,
+  `RepoContributor`, `RepoTeam`, `Deployment`); otherwise an "erased" repo would still render its
+  cached passport, contributor/AI-change ledgers, CODEOWNERS teams and deployments. Owner-authored
+  configuration (watch flag, schedule, segment tags, passport overrides) and the `Organization` /
+  `Repository` / `Membership` rows themselves are **kept**: erasure removes the data, it does not
+  unconfigure or delete the tenant.
 - **Improvement-loop history (org scope only).** `LoopRunLane` then `LoopRun`
   ([org-planning/live.md](../org-planning/live.md)) — the runs name the repos that were worked, the
   branch each lane produced, the follow-up ids it dispatched and closed, and the agent's log, so they
@@ -243,31 +260,47 @@ conflict retries.
   Counts are reported separately as `auditRedacted` and `auditDeleted`.
 - **Preview (`preview: true`).** Runs the whole request as a count — nothing deleted, redacted, or
   audited — and returns the same result shape with `dryRun: true`. The scan count comes from the
-  *same* `where` predicate inside `pruneRepoScans` that the delete selection pages over, and the audit
-  count from the same `{ orgId }` sweep predicate: a preview built from a second, separately written
-  query is worse than none, because it licenses an irreversible act with a number that can drift.
-  Like the cron dry run, the disposition floor is **not** enforced in a preview — seeing what a
-  `delete` would cost is the input to that decision, not the decision.
+  *same* `where` predicate inside `pruneRepoScans` that the delete selection pages over, and dependent
+  dimension / recommendation / recommendation-event rows (and, on the repo-scoped path, outcomes
+  whose bookends die with those scans) are counted over that same stale-id set — a 0 is measured,
+  not an unenumerated placeholder (G4). Org-scope outcomes are counted once by `eraseOrgLedgers`
+  over `{ orgId }`, not added again from the per-repo bookend count (nothing has been deleted, so
+  the two sets still overlap). The audit count uses the same `{ orgId }` sweep predicate: a preview
+  built from a second, separately written query is worse than none, because it licenses an
+  irreversible act with a number that can drift. Like the cron dry run, the disposition floor is
+  **not** enforced in a preview — seeing what a `delete` would cost is the input to that decision,
+  not the decision.
 - **The confirmation shows the count before it asks for the name.** The org-settings dialog fetches
   the preview when it opens, and **again whenever the audit disposition changes** (the audit
-  casualties differ between keeping the trail and redacting it), then renders scans, repositories and
-  audit rows affected beside the confirm field. The destructive button stays **disabled until a count
-  has actually rendered**: echo-to-confirm only means anything if the operator was told what they are
+  casualties differ between keeping the trail and redacting it), then renders the **full blast
+  radius** beside the confirm field — not scans, repositories and audit rows alone. Every family
+  `eraseOrgData` already counted is listed when the body carries it: scan graph (scans, dimensions,
+  recommendations, events, compacted digests), repositories walked, improvement-loop runs/lanes,
+  Athena, org memory, the registry ledger, governance ledgers, leftover secrets (installations, BYOM
+  configs, API tokens) and alert events, plus audit rows affected. Families the body omitted are
+  **omitted, never shown as zero** — inventing a 0 for a counter nobody returned is the same lie as
+  rendering a failed preview as "0 scans". The UI does not delete extra tables; it only displays
+  counters the route already returns. The destructive button stays **disabled until a count has
+  actually rendered**: echo-to-confirm only means anything if the operator was told what they are
   confirming. A preview that FAILS renders **unknown** and leaves the button disabled — it never
   falls back to zeros, because a failed count displayed as "0 scans" is reassurance that was never
   received, and is precisely what would talk an owner into an erasure whose size nobody measured. A
   preview stopped by its own time budget (`complete: false`) is labelled "at least N" rather than
-  presented as a total.
+  presented as a total. The matrix above the list draws the same radius as kinds (loop, Athena,
+  memory, registry, governance, secrets) rather than only scan history and repo caches; settings and
+  the tenant stay void in the Erased column.
 - **The dialog and the receipt describe the SAME disposition.** The manifest calls the audit opt-in
   what it is — redaction — and puts a row in *both* columns, because that is what redaction does:
   the actor and every `meta` payload move to "Erased, permanently", while *what happened and when*
   moves to "Kept, untouched". After the act, the receipt reads `auditDisposition` off the response
   and reports it in the same words the preview used ("redacted to identifier-only" / "destroyed" /
-  "trail kept"), counting `auditDeleted + auditRedacted`. Until 2026-08-29 it read `auditDeleted`
-  alone — which is 0 on every path the UI can reach, since `includeAudit: true` resolves to
-  `"redact"` — so redacting an entire trail was reported as "Audit rows 0 · audit trail kept", and
-  the arming manifest above it promised that only the `data.erased` entry would survive. Both are
-  pinned by `DataErasureCard.outcomes.test.tsx`.
+  "trail kept"), counting `auditDeleted + auditRedacted`. The receipt also reuses the preview's
+  family list (`EraseBlastList`), accumulated across resumed passes, so leftover ledgers counted on
+  the way in are counted on the way out. Until 2026-08-29 it read `auditDeleted` alone — which is 0
+  on every path the UI can reach, since `includeAudit: true` resolves to `"redact"` — so redacting
+  an entire trail was reported as "Audit rows 0 · audit trail kept", and the arming manifest above
+  it promised that only the `data.erased` entry would survive. Both are pinned by
+  `DataErasureCard.outcomes.test.tsx`.
 - **Bounded + resumable.** Never one mega-transaction: every delete is a small batched transaction,
   the repo enumeration is cursor-paged, and a wall-clock budget (`ERASE_MAX_DURATION_S` − headroom,
   mirroring the cron's derivation and pinned to the route's `maxDuration` by a test) is polled
@@ -293,6 +326,29 @@ conflict retries.
 (2026-09-05), `RegistryDispatch` — a dispatch names the repo, the branch, the PR URL, the subjects a
 brief cited and a local run's summary or error text, which is tenant data. Batched and retried like
 every other drain, resumable, and the preview counts it without deleting.
+
+### Remaining tenant ledgers (OrgMemory, BYOM, API tokens, alerts)
+
+`eraseOrgAthena` still deletes only the `OrgMemory` rows Athena wrote (`source: "athena"`, counted as
+`athenaMemoriesDeleted`). An org-scoped erase then drains the rest of that store — human-authored
+notes, the scan-pipeline feed, registry-mirrored notes, and rows with a null source — as
+`orgMemoriesDeleted`. The remaining-memory predicate is `{ orgId, OR: [{ source: { not: "athena" } },
+{ source: null }] }`, the same `where` the delete pages over: `source: { not: "athena" }` alone would
+miss the human rows `cleanSource` stored as null, and sharing `{ orgId }` with Athena's sweep would
+make a **preview double-count** her episodes.
+
+The same org-scoped pass drains three other leftover tables the cron does not age:
+
+| Table | Why it is tenant data | Counter |
+| --- | --- | --- |
+| `OrgLlmConfig` | BYOM ciphertext (`credentialsEncrypted`). Deleting the row destroys the secret. | `llmConfigsDeleted` |
+| `OrgApiToken` | SHA-256 of a live capability (revoked rows too — still a hash of a tenant secret). | `apiTokensDeleted` |
+| `AlertEvent` | The body a sink got, or would have gotten, about this tenant. | `alertEventsDeleted` |
+
+All four use the existing batched `pruneAgedLedger` drain (`orgId` only — never a bare `deleteMany`
+over the table, never another org). The repo-scoped variant never reaches them. A preview counts
+each family over the delete's own predicate and deletes nothing; the number shown equals the number
+the confirmed run removes. Schema is not dropped; the `Organization` row stays.
 
 ## Return shape (`PurgeSummary`)
 
@@ -321,20 +377,46 @@ The route (`src/app/api/cron/purge/route.ts`) returns this summary as `200` on a
 must never report a green `200`, since cron/uptime monitors only watch HTTP status), and
 `500` on a total failure.
 
+## Owner settings (`GET`/`POST /api/org/retention`)
+
+The four `Organization` columns are owner-readable and owner-writable:
+
+| Column | `null` | `0` | Non-zero |
+| --- | --- | --- | --- |
+| `retentionMaxScans` | inherit env | keep every scan | keep newest N per repo (floor 5) |
+| `retentionAuditDays` | inherit env | keep every audit row | drop older than N days (floor 7) |
+| `retentionCompact` | inherit `RETENTION_COMPACT` | — | `true` / `false` |
+| `retentionDigestMonths` | inherit env | keep digests forever | age digests after N months |
+
+```jsonc
+GET  /api/org/retention?org=acme
+POST /api/org/retention { "org": "acme", "retentionMaxScans": 10, "retentionAuditDays": 30, "retentionCompact": true, "retentionDigestMonths": 12, "preview": true }
+POST /api/org/retention { "org": "acme", "retentionMaxScans": 10, "retentionAuditDays": 30, "retentionCompact": true, "retentionDigestMonths": 12 }
+```
+
+Same org-API convention as `/api/org/erase` (tenant in the body / `?org=`, no `[slug]` segment). GET
+is owner-gated. POST is same-origin then owner. All four fields are required on POST (full replace).
+`preview: true` counts what the *proposed* policy would delete and writes nothing. A save writes the
+four columns, records `retention.updated` with `purged: false`, and does not run the purge.
+
 ## Key files
 
 | File | Role |
 | --- | --- |
 | `src/app/api/cron/purge/route.ts` | Route handler: auth, DB-configured gate, dry-run flag, degraded-status (207) mapping. |
 | `src/app/api/org/erase/route.ts` | On-demand DSR erasure: CSRF + typed-confirmation + owner gates, 207 degraded mapping. |
-| `src/lib/db/retention.ts` | `resolveRetention`, `purgeExpiredData` (batched, OCC-retrying, budgeted, rotated), `eraseOrgData`. |
+| `src/app/api/org/retention/route.ts` | Owner Settings read/write of the four override columns; dry-run preview; never purges. |
+| `src/lib/db/retention.ts` | `resolveRetention`, `purgeExpiredData` (batched, OCC-retrying, budgeted, rotated), `eraseOrgData`, `getOrgRetention` / `setOrgRetention` / `previewOrgRetention`. |
+| `src/lib/db/retention-policy.ts` | Floors, parse/validate of the four columns, purge contracts (no DB). |
 | `src/lib/db/retention.test.ts` | Policy + purge + erasure + compaction tests. |
+| `src/features/admin/settings/RetentionCard.tsx` | Owner Settings card: four fields, floor refusal, dry-run required before save. |
 | `src/lib/db/scan-digest.ts` | The digest fold (pure), the in-transaction upsert, the tail read, digest ageing, and `getCompactionCoverage`. |
 | `src/lib/db/scan-digest.test.ts` / `scan-digest-read.test.ts` | The pure fold's exactness + the persistence half. |
 | `src/components/report/TrendChart.CompactedBand.tsx` | The dashed-run path split, the legend, and the compacted tooltip lines. |
 | `src/features/admin/settings/DataErasureCard.tsx` | Org-settings entry point: owns the erase request, and the preview hook that arms the confirmation. |
 | `src/features/admin/settings/DataErasureDialog.tsx` | The arming dialog: destroyed/kept manifest, typed confirmation, preview-gated confirm button. |
 | `src/features/admin/settings/DataErasurePreview.tsx` | `preview: true` fetch (re-run on disposition change) + the counts panel; unknown-on-failure, never zeros. |
+| `src/features/admin/settings/ErasePreviewPanel.tsx` | Blast-radius picture + family list: every `EraseResult` counter the body carried, not scans+repos+audit only. |
 | `src/lib/db/audit-integrity.ts` | Per-row HMAC signing, and `redactAuditIdentity` — the identifier-only rewrite an erasure applies. |
 
 ## Known gaps
@@ -346,10 +428,9 @@ must never report a green `200`, since cron/uptime monitors only watch HTTP stat
   storage and history. On-demand erasure (above) does not depend on a policy.
 - **A compacted point is not a scan, and cannot be turned back into one.** It carries no permalink,
   no per-dimension evidence, no recommendations, no head sha, and its `overallMin`/`Max` are a range
-  within the period, **not** a measured noise band. Surfaces that read retained scans only — the org
-  rollup trend, the plan simulator, delivery trends, skill outcomes and the compare picker — still do;
-  wiring them to the tail is a follow-on, and the per-repo reader plus `getCompactionCoverage` are
-  what it needs.
+  within the period, **not** a measured noise band. Surfaces that still read retained scans only —
+  the org rollup trend, the plan simulator, delivery trends and the compare picker — have not been
+  wired yet; the per-repo reader plus `getCompactionCoverage` are what they need.
 - **The per-dimension small-multiples on `/trends` cover retained scans only.** The lazy
   `/api/history` fetch behind them does not request the tail (the client-side history validator does
   not yet carry the `compacted` flag through), so the page says so above the grid rather than letting

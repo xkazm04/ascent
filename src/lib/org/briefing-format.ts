@@ -1,10 +1,10 @@
 // Pure presentation rules shared by briefing surfaces and exports.
-import type { ExecBriefing } from './briefing';
+import type { BriefingGoal, ExecBriefing } from './briefing';
 import type { OrgRec } from '@/lib/db';
 import type { EngineMixEntry } from '@/lib/db/org';
 import type { DimensionId } from '@/lib/types';
 import { DIMENSION_BY_ID } from '@/lib/maturity/model';
-import { trajectoryNote, type TrajectoryRead } from '@/lib/maturity/forecast';
+import { goalNote, trajectoryNote, type GoalRead, type TrajectoryRead } from '@/lib/maturity/forecast';
 import { providerLabel as engineLabel } from '@/lib/llm/config';
 
 
@@ -50,6 +50,42 @@ export function briefingTrajectory(b: ExecBriefing): TrajectoryRead {
  *  days across 84 days". Null only when there is no headline to hedge. */
 export function briefingTrajectoryNote(b: ExecBriefing): string | null {
   return trajectoryNote(briefingTrajectory(b));
+}
+
+/** The composed goal read a briefing renderer must present — claim, hedge, or refusal. */
+export function briefingGoal(g: BriefingGoal): GoalRead {
+  return {
+    headline: g.headline ?? null,
+    confidence: g.confidence ?? null,
+    basis: g.basis ?? null,
+    insufficiency: g.insufficiency ?? null,
+  };
+}
+
+/** Pct clause: the meter figure only with its basis caption. An unlabelled `pct` is the original
+ *  defect (plan.md); missing `pctLabel` degrades to absence, never a guessed basis (G4). */
+function briefingGoalPct(g: BriefingGoal): string | null {
+  return g.pctLabel ? `${g.pct}% · ${g.pctLabel}` : null;
+}
+
+/** Standing + labelled pct + pace/ETA only when {@link briefingGoal} is presentable.
+ *  Markdown uses {@link briefingGoalLine}; the PDF and Goals card split the label off and read
+ *  this. Leftover `pace`/`etaDays` on a fixture with no composeGoal read are not printed. */
+export function briefingGoalStats(g: BriefingGoal): string {
+  const read = briefingGoal(g);
+  const presentable = read.headline != null;
+  const inner: string[] = [];
+  const pct = briefingGoalPct(g);
+  if (pct) inner.push(pct);
+  if (presentable) inner.push(g.etaDays != null ? `${g.pace}, ETA ~${g.etaDays}d` : g.pace);
+  const core = inner.length > 0 ? `${g.current}/${g.target} (${inner.join(", ")})` : `${g.current}/${g.target}`;
+  if (read.insufficiency) return `${core} · ${read.insufficiency}`;
+  const note = goalNote(read);
+  return note ? `${core} (${note})` : core;
+}
+
+export function briefingGoalLine(g: BriefingGoal): string {
+  return `${g.label}: ${briefingGoalStats(g)}`;
 }
 
 /** One-line value-realization summary ("3 recommendations completed · fleet +6 pts · 2 repos leveled

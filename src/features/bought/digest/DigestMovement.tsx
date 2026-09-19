@@ -1,14 +1,13 @@
 // Which repositories actually moved this week — the one section a lead is asked to name names in.
 //
-// The header used to say *"Repos whose overall score crossed the noise band between the two ends of
-// the week."* `DigestMoveAxis` draws that band, so the rule is visible rather than asserted, and the
-// two-column gainers/slippers lists are gone with it: their numbers are now positions on the axis,
-// and what a list still owns — a mover is a lead, and its stored report is where WHAT moved is
-// legible — survives as the report links under the chart.
+// `DigestMoveAxis` draws the noise band: beyond-noise gainers/slippers sit clear of it, `held` sits
+// inside it, and `onboarded` is a lifetime mark (or a name at the origin with no numeral when the
+// repo has no comparable pair). Report links under the chart still own "what moved".
 //
 // Two empties, kept distinct: a null `movement` means the comparison could not be READ (a degraded
-// query, already printed in provenance), while an empty axis means it was read and nothing crossed
-// the band. Collapsing them would turn a failed read into a calm week.
+// query, already printed in provenance), while an empty axis means it was read and nothing was in
+// any bucket. Collapsing them would turn a failed read into a calm week. Never print "0 held" or
+// "0 onboarded" — omit those clauses when the bucket is empty or unmeasured.
 
 import Link from "next/link";
 import { Card, InlineEmpty, SectionHeader } from "@/components/org/shared/ui";

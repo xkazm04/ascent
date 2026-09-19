@@ -10,7 +10,7 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { ContributorsYouStrip } from "./ContributorsYouPointer";
-import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
+import { CHAMPION_MIN_POP } from "@/lib/org/champions";
 
 describe("ContributorsYouStrip", () => {
   it("above the floor, a viewer genuinely off the roster is told so", () => {

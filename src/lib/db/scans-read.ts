@@ -94,8 +94,11 @@ export async function findScanByCommit(
  *
  * Deliberately a plain canonical STRING, not a hash: dedup compares it for equality only, so a hash
  * would add collision risk and lose debuggability for nothing. Dimension scores are sorted by id so
- * the key is stable regardless of the order the detectors/LLM emitted them. Pure — the persist path
- * derives it from the in-memory report, the read path from the persisted row, and they must agree.
+ * the key is stable regardless of the order the detectors/LLM emitted them. `rubricVersion` rides
+ * with the engine — it is the same instrument identity `HistoryPoint` already carries, so identical
+ * scores under two rubrics are two results. A missing stamp canonicalizes to `""` so a legacy row
+ * and a stamped row never compare equal by accident. Pure — the persist path derives it from the
+ * in-memory report, the read path from the persisted row, and they must agree.
  */
 export function scanContentKey(input: {
   overallScore: number;
@@ -104,6 +107,7 @@ export function scanContentKey(input: {
   rigorScore: number;
   engineProvider: string;
   engineModel: string;
+  rubricVersion: string | null;
   dimensions: Array<{ dimId: string; score: number }>;
 }): string {
   const dims = [...input.dimensions]
@@ -117,6 +121,7 @@ export function scanContentKey(input: {
     input.rigorScore,
     input.engineProvider,
     input.engineModel,
+    input.rubricVersion ?? "",
     dims,
   ].join("|");
 }
@@ -160,6 +165,7 @@ export async function findScanByScannedAt(
       level: true,
       adoptionScore: true,
       rigorScore: true,
+      rubricVersion: true,
       dimensions: { select: { dimId: true, score: true } },
     },
   });
@@ -174,6 +180,7 @@ export async function findScanByScannedAt(
       rigorScore: row.rigorScore,
       engineProvider: row.engineProvider,
       engineModel: row.engineModel,
+      rubricVersion: row.rubricVersion,
       dimensions: row.dimensions,
     }),
   };
@@ -181,7 +188,7 @@ export async function findScanByScannedAt(
 
 /** Version prefix on {@link scanDedupKey}. Bump it if the identity inputs ever change: old and new keys
  *  then simply never collide, instead of two different definitions silently deduping against each other. */
-const DEDUP_KEY_VERSION = "v1";
+export const DEDUP_KEY_VERSION = "v2";
 
 /**
  * The persisted, indexed IDEMPOTENCY key for a SHA-LESS scan — the cross-instance half of the sha-less
@@ -305,7 +312,10 @@ export interface HistoryPoint {
    *  evidence of comparability, so null reads as not-comparable rather than as a match. */
   rubricVersion: string | null;
   scannedAt: string;
-  dimensions: { dimId: string; score: number }[];
+  /** Per-dimension scores. Present when the ScanDimension join ran (`[]` = joined and found none).
+   *  Omitted when `includeDimensions` skipped the join — a skipped join is not a measured empty set,
+   *  and consumers must not treat absence as zeros. */
+  dimensions?: { dimId: string; score: number }[];
   /** MOONSHOT #32 — set only on a COMPACTED point: one period's summary served in place of scans
    *  retention already deleted. Absent (not `false`) on a real scan, so an existing consumer that
    *  never heard of compaction reads exactly what it always did. A compacted point carries
@@ -314,6 +324,14 @@ export interface HistoryPoint {
   /** How many scans a compacted point summarises. Absent on a real scan (where it would be 1 and
    *  therefore noise). */
   scanCount?: number;
+}
+
+/** Prefix `digestToPoint` stamps on a compacted `HistoryPoint.id`. A period mean, not a Scan row. */
+export const COMPACTED_POINT_ID_PREFIX = "digest:";
+
+/** True when `id` names a compacted point — never a permalinkable Scan. */
+export function isCompactedPointId(id: string): boolean {
+  return id.startsWith(COMPACTED_POINT_ID_PREFIX);
 }
 
 export interface RepositoryHistory {
@@ -336,20 +354,24 @@ const HISTORY_POINT_SELECT = {
   scannedAt: true,
 } as const;
 
-/** Map a selected Scan row (with optional `dimensions`) to the wire `HistoryPoint`. */
-function historyPointFrom(s: {
-  id: string;
-  headSha: string | null;
-  overallScore: number;
-  level: string;
-  levelName: string;
-  confidence: number;
-  engineProvider: string;
-  engineModel: string;
-  rubricVersion?: string | null;
-  scannedAt: Date;
-  dimensions?: { dimId: string; score: number }[];
-}): HistoryPoint {
+/** Map a selected Scan row to the wire `HistoryPoint`. `includeDimensions` is whether the
+ *  ScanDimension join ran — a skipped join omits the key; a join that found none keeps `[]`. */
+function historyPointFrom(
+  s: {
+    id: string;
+    headSha: string | null;
+    overallScore: number;
+    level: string;
+    levelName: string;
+    confidence: number;
+    engineProvider: string;
+    engineModel: string;
+    rubricVersion?: string | null;
+    scannedAt: Date;
+    dimensions?: { dimId: string; score: number }[];
+  },
+  includeDimensions: boolean,
+): HistoryPoint {
   return {
     id: s.id,
     headSha: s.headSha,
@@ -361,8 +383,15 @@ function historyPointFrom(s: {
     engineModel: s.engineModel,
     rubricVersion: s.rubricVersion ?? null,
     scannedAt: s.scannedAt.toISOString(),
-    dimensions: s.dimensions ?? [],
+    ...(includeDimensions ? { dimensions: s.dimensions ?? [] } : {}),
   };
+}
+
+/** Drop `dimensions` so a skipped join is not serialized as `[]`. */
+function withoutDimensions(p: HistoryPoint): HistoryPoint {
+  const rest = { ...p };
+  delete rest.dimensions;
+  return rest;
 }
 
 /**
@@ -371,14 +400,16 @@ function historyPointFrom(s: {
  * `includeDimensions` (default true) controls the eager per-dimension fan-out: a full history of
  * `limit` scans pulls up to `limit × |dimensions|` ScanDimension rows, but a caller that only charts
  * the OVERALL line (a first paint, an embed, the /api/history `?dims=0` mode) doesn't need them.
- * Passing `false` skips that select entirely and returns empty `dimensions` arrays — a lighter query
- * for the overall-only path, with the by-dimension data fetched separately when actually shown.
+ * Passing `false` skips that select entirely and omits `dimensions` — a lighter query for the
+ * overall-only path. `[]` is reserved for "the join ran and found none"; a skipped join is not a
+ * measured empty set. By-dimension data is fetched separately when actually shown.
  *
  * `includeCompacted` (default **false**) appends the repo's compacted tail — the `ScanDigest` rows
  * retention wrote for periods whose scans it deleted (MOONSHOT #32) — after the real scans, as one
- * ordered newest-first series. Off by default on purpose: every existing caller (the compare picker,
- * `skill-outcomes-load`, `/api/history` without the param) keeps reading retained scans only, and a
- * consumer that would treat a period average as a scan never receives one by accident.
+ * ordered newest-first series. Off by default on purpose: a consumer that would treat a period
+ * average as a scan (the compare picker, `/api/history` without the param) never receives one by
+ * accident. Callers that opt in must skip or label `digest:` ids ({@link isCompactedPointId}) so a
+ * mean is never posted as a permalinked scan.
  */
 export async function getRepositoryHistory(
   owner: string,
@@ -432,8 +463,10 @@ async function loadRepositoryHistory(
           ...args,
           select: { ...HISTORY_POINT_SELECT, dimensions: { select: { dimId: true, score: true } } },
         })
-      ).map(historyPointFrom)
-    : (await prisma.scan.findMany({ ...args, select: HISTORY_POINT_SELECT })).map(historyPointFrom);
+      ).map((s) => historyPointFrom(s, true))
+    : (await prisma.scan.findMany({ ...args, select: HISTORY_POINT_SELECT })).map((s) =>
+        historyPointFrom(s, false),
+      );
 
   // MOONSHOT #32 — the compacted tail, appended AFTER the retained scans so the array stays one
   // newest-first series. `before` is the oldest RETAINED scan: a period straddling the retention
@@ -445,7 +478,10 @@ async function loadRepositoryHistory(
       before: oldestRetained ? new Date(oldestRetained.scannedAt) : undefined,
       limit: limit - scans.length,
     });
-    for (const row of tail) scans.push(digestToPoint(row));
+    for (const row of tail) {
+      const point = digestToPoint(row);
+      scans.push(includeDimensions ? point : withoutDimensions(point));
+    }
   }
 
   return {
@@ -587,8 +623,8 @@ async function loadComparableScan(
       name: d.name,
       score: d.score,
       signalScore: d.signalScore,
-      evidence: parseStringArray(d.evidence),
-      gaps: parseStringArray(d.gaps),
+      evidence: parseStringArray(d.evidence) ?? [],
+      gaps: parseStringArray(d.gaps) ?? [],
     })),
     recommendations: scan.recommendations.map((r) => ({
       id: r.id,
@@ -653,7 +689,7 @@ async function loadScanComparison(
     select: { ...HISTORY_POINT_SELECT, dimensions: { select: { dimId: true, score: true } } },
   });
 
-  const scans: HistoryPoint[] = list.map(historyPointFrom);
+  const scans: HistoryPoint[] = list.map((s) => historyPointFrom(s, true));
 
   const repoInfo = { owner: repo.owner, name: repo.name, fullName };
   if (scans.length === 0) return { repo: repoInfo, scans, before: null, after: null };
@@ -1071,7 +1107,10 @@ export async function getStandingRegressions(
     const evidenceBy = new Map<string, string[]>();
     for (const r of dimRows) {
       const key = `${r.scanId}|${r.dimId}`;
-      if (wanted.has(key)) evidenceBy.set(key, parseStringArray(r.evidence));
+      if (!wanted.has(key)) continue;
+      const parsed = parseStringArray(r.evidence);
+      // Unread JSON is not a measured empty evidence list — skip rather than diff against [].
+      if (parsed !== null) evidenceBy.set(key, parsed);
     }
 
     return top.map((c) => {
@@ -1201,18 +1240,14 @@ function parseNumberArray(s: string | null | undefined): number[] | null {
   return p.filter((n): n is number => typeof n === "number" && Number.isFinite(n));
 }
 
-/** Parse the persisted `discrepancies` JSON into validated Discrepancy[] (drops malformed rows). */
-function parseDiscrepancies(s: string | null | undefined): Discrepancy[] {
-  if (!s) return [];
-  try {
-    const p = JSON.parse(s);
-    if (!Array.isArray(p)) return [];
-    return p
-      .filter((d): d is { dimension: string; claim: string } => !!d && typeof d.dimension === "string" && typeof d.claim === "string")
-      .map((d) => ({ dimension: d.dimension as DimensionId, claim: d.claim }));
-  } catch {
-    return [];
-  }
+/** Parse the persisted `discrepancies` JSON into validated Discrepancy[]. JSON `[]` is a measured
+ *  empty list; null / malformed / non-array return null so unread is not "found none". */
+function parseDiscrepancies(s: string | null | undefined): Discrepancy[] | null {
+  const p = parseJson<unknown>(s);
+  if (!Array.isArray(p)) return null;
+  return p
+    .filter((d): d is { dimension: string; claim: string } => !!d && typeof d.dimension === "string" && typeof d.claim === "string")
+    .map((d) => ({ dimension: d.dimension as DimensionId, claim: d.claim }));
 }
 
 /**
@@ -1283,9 +1318,9 @@ async function loadScanReportByCommit(
     signalScore: d.signalScore,
     llmScore: d.llmScore,
     summary: d.summary,
-    evidence: parseStringArray(d.evidence),
-    strengths: parseStringArray(d.strengths),
-    gaps: parseStringArray(d.gaps),
+    evidence: parseStringArray(d.evidence) ?? [],
+    strengths: parseStringArray(d.strengths) ?? [],
+    gaps: parseStringArray(d.gaps) ?? [],
   }));
 
   const roadmap: LlmRoadmapItem[] = scan.recommendations.map((r) => ({
@@ -1295,7 +1330,7 @@ async function loadScanReportByCommit(
     effort: r.effort as Effort,
     rationale: r.rationale,
     ...(r.firstStep ? { firstStep: r.firstStep } : {}),
-    explore: parseStringArray(r.explore),
+    explore: parseStringArray(r.explore) ?? [],
     levelUnlock: r.levelUnlock ?? undefined,
     // Only the non-default kind is carried (an absent kind IS "gap"), and the axis rides only with
     // it — narrowed through the taxonomy so a stale or hand-edited column value cannot enter the
@@ -1332,7 +1367,7 @@ async function loadScanReportByCommit(
   // the warningsJson column existed. Deduped: a fresh row's persisted set already carries the stack-fit
   // caveat, so guard against doubling it.
   const stackFit = stackFitFromLanguage(repo.primaryLanguage);
-  const persistedWarnings = parseStringArray(scan.warningsJson);
+  const persistedWarnings = parseStringArray(scan.warningsJson) ?? [];
   const warnings =
     stackFit && !persistedWarnings.includes(stackFit.caveat)
       ? [...persistedWarnings, stackFit.caveat]
@@ -1408,10 +1443,10 @@ async function loadScanReportByCommit(
         : undefined,
     dimensions,
     headline: scan.headline,
-    strengths: parseStringArray(scan.strengths),
-    risks: parseStringArray(scan.risks),
+    strengths: parseStringArray(scan.strengths) ?? [],
+    risks: parseStringArray(scan.risks) ?? [],
     roadmap,
-    discrepancies: parseDiscrepancies(scan.discrepancies),
+    discrepancies: parseDiscrepancies(scan.discrepancies) ?? [],
     confidence: scan.confidence,
     ...(warnings.length ? { warnings } : {}),
     // The integrity record round-trips onto the reconstructed report, so a permalinked or reloaded

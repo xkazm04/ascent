@@ -493,11 +493,13 @@ requiring admin to *propose* would lock out the people who write the memory.
 
 ## Known gaps
 
-- **Fleet SYNC adoption is not measured.** `fleet.reposPointing`, `reposSynced30d` and the adoption
-  breakdown are reported as **zero**, not estimated (R5) — the pass that hashes each repo's
-  `.claude/skills` against the catalog does not exist yet. *(Narrowed 2026-08-30: `telemetry.invokes30d`
-  is now real, from the registry's `usage/` lane and this org's own events API, and CONFORMANCE
-  adoption is measured — see the conformance ledger above.)*
+- **Fleet SYNC adoption is not measured.** `fleet.reposPointing` and `reposSynced30d` are **omitted**
+  until R5, and `RegistryFleetSync` hatches those meters (`not-judged`) rather than painting 0%. The
+  adoption breakdown still arrives as zeros and reads as "No adoption measured yet". The pass that
+  hashes each repo's `.claude/skills` against the catalog does not exist yet. *(Narrowed 2026-09-17:
+  pointing/synced are no longer reported as a measured zero. 2026-08-30: `telemetry.invokes30d` is
+  real, from the registry's `usage/` lane and this org's own events API, and CONFORMANCE adoption is
+  measured — see the conformance ledger above.)*
 - **Lessons do not reach Memory yet.** The mapping (`lesson-memory.ts`: the skill as namespace,
   `procedural`, confidence 0.6, ten newest per pass) is written and tested, but the insert goes
   through the one ingest door in `src/lib/memory/scan-feed.ts` and that door's generalized form

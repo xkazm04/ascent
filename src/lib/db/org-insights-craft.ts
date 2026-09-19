@@ -102,7 +102,7 @@ export async function getCraftItems(
     impact: r.impact,
     effort: r.effort,
     rationale: r.rationale,
-    explore: parseStringArray(r.explore),
+    explore: parseStringArray(r.explore) ?? [],
     projectedPoints: null,
     kind: "craft" as const,
     craftAxis: asCraftAxis(r.craftAxis),

@@ -23,8 +23,8 @@ export function DimensionTrends({
   annotations = [],
 }: {
   history: RepositoryHistory;
-  /** G5-18 event markers, derived from the FULL history by the page. Forwarded to the overall chart,
-   *  which resolves each one to a visible point by timestamp and drops those outside the range. */
+  /** G5-18 event markers, derived from the FULL history by the page. Forwarded to the overall chart
+   *  AND each DimLine, which resolve by timestamp and drop those outside the visible range. */
   annotations?: TrendAnnotation[];
 }) {
   const [range, setRange] = useState<RangeKey>("all");
@@ -35,7 +35,7 @@ export function DimensionTrends({
   // heavier per-dimension rows, so they're lazy-loaded client-side only when the "By dimension"
   // section approaches the viewport. If the caller already passed a full history (dimensions
   // present), skip the fetch and render immediately — back-compatible with full-history callers.
-  const serverHasDims = history.scans.some((s) => s.dimensions.length > 0);
+  const serverHasDims = history.scans.some((s) => (s.dimensions?.length ?? 0) > 0);
   const [full, setFull] = useState<RepositoryHistory | null>(serverHasDims ? history : null);
   const [dimState, setDimState] = useState<"idle" | "loading" | "error" | "done">(
     serverHasDims ? "done" : "idle",
@@ -69,7 +69,7 @@ export function DimensionTrends({
       // straight to "done", rendering all 8 dimension cards as "—" as though the load had
       // succeeded — real data loss presented as a finished, empty result, right beside an overall
       // chart that plainly has data. Treat that as a load failure and offer the existing retry.
-      const hasDims = parsed.scans.some((s) => s.dimensions.length > 0);
+      const hasDims = parsed.scans.some((s) => (s.dimensions?.length ?? 0) > 0);
       if (parsed.scans.length > 0 && !hasDims) {
         setDimState("error");
         return;
@@ -149,9 +149,9 @@ export function DimensionTrends({
   const prev = dimScans[1];
   const rows = DIMENSIONS.map((def) => {
     // null (not 0) for scans where this dimension is absent — see DimLine.
-    const series = dimChrono.map((s) => s.dimensions.find((d) => d.dimId === def.id)?.score ?? null);
-    const current = latest?.dimensions.find((d) => d.dimId === def.id)?.score;
-    const prevScore = prev?.dimensions.find((d) => d.dimId === def.id)?.score;
+    const series = dimChrono.map((s) => s.dimensions?.find((d) => d.dimId === def.id)?.score ?? null);
+    const current = latest?.dimensions?.find((d) => d.dimId === def.id)?.score;
+    const prevScore = prev?.dimensions?.find((d) => d.dimId === def.id)?.score;
     // Delta only when BOTH scans actually contain the dimension — otherwise it's not a
     // real change (current-minus-0 would invent a huge false drop/gain).
     const delta = current !== undefined && prevScore !== undefined ? current - prevScore : null;
@@ -244,7 +244,7 @@ export function DimensionTrends({
                         {r.delta !== null && <DeltaTag delta={r.delta} hideZero />}
                       </div>
                     </div>
-                    <DimLine values={r.series} meta={meta} name={r.name} current={r.current} />
+                    <DimLine values={r.series} meta={meta} name={r.name} current={r.current} annotations={annotations} />
                   </Surface>
                 ))}
               </div>

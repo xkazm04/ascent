@@ -38,10 +38,12 @@ export interface TeamStanding {
   /** vs fleet mean aiCommitShare — null whenever `aiCommitShare` is, because a distance from a
    *  baseline is undefined for a team that has no reading to measure the distance from. */
   aiShareDelta: number | null;
-  avgDelta: number; // momentum: mean overall delta (period-scoped when the rollup was windowed; since last scan otherwise)
+  avgDelta: number; // momentum: mean overall delta (period-scoped when the rollup was windowed; since last scan otherwise). In-band deltas already folded to 0 by the producer.
   comparedRepos: number;
   improving: number;
   declining: number;
+  /** Compared repos that moved only within SCORE_NOISE_BAND — pass-through of `TeamRollup.held`. */
+  held: number;
   /** Team contributor population — the renderer must gate champion naming on CHAMPION_MIN_POP
    *  (the same floor Contributors/Adoption/TeamsMatrixDetail apply), so a 1-person team's sole AI
    *  user is never crowned a champion here. (ambiguity-ui 2026-07-16 #3) */
@@ -175,6 +177,7 @@ export function explainTeamStandings(teams: TeamRollup[]): TeamStandings | null 
     comparedRepos: t.comparedRepos,
     improving: t.improving,
     declining: t.declining,
+    held: t.held,
     contributors: t.contributors,
     champions: t.champions,
   });

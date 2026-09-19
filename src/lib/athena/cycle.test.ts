@@ -24,6 +24,14 @@ const standing = (over: Partial<CycleStanding> = {}): CycleStanding => ({
   overallDelta: 0,
   cohortSize: 12,
   movers: [],
+  coverage: {
+    coveragePct: 100,
+    reposWithFreshMemory: 12,
+    totalTrackedRepos: 12,
+    windowDays: 30,
+    staleRepos: [],
+  },
+  abandoned: { count: 0, names: [] },
   ...over,
 });
 
@@ -156,6 +164,16 @@ describe("report-or-absorb decides contact", () => {
     expect(h.landed[0]!.content).toContain("D9 slid 7 points");
     expect(h.landed[0]!.threadId).toBe("th_1");
     expect(h.landed[0]!.meta).toMatchObject({ cycle: true, engine: "openai", raised: 1 });
+  });
+
+  it("lands a briefing when a skill was abandoned even if scores are flat", async () => {
+    const h = harness({
+      standing: async () => standing({ overallDelta: 0, abandoned: { count: 1, names: ["old-linter"] } }),
+      completion: "old-linter was used, then went quiet — a prune candidate.",
+    });
+    const result = await runOrgCycle({ orgSlug: "acme", deps: h.deps });
+    expect(result.landed).toBe(true);
+    expect(h.landed[0]!.content).toContain("old-linter");
   });
 
   it("treats her declared silence as silence, and discards any offer attached to it", async () => {

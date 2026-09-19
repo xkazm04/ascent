@@ -26,6 +26,7 @@ import {
   sinkKindForOrg,
   type GoalRisk,
 } from "@/lib/alerts";
+import { orgTabHref, type OrgTabId } from "@/lib/org/orgTabs";
 
 /** Audit actions doubling as the per-window at-most-once keys (same pattern as DIGEST_SENT_ACTION). */
 export const GOAL_RISK_ACTION = "org.alert.goal-at-risk";
@@ -34,6 +35,9 @@ export const SPEND_ANOMALY_ACTION = "org.alert.spend-anomaly";
 /** Trailing window for the spend baseline: the current 7 days measured against the prior 21. */
 const SPEND_PERIOD_DAYS = 7;
 const SPEND_BASELINE_DAYS = 21;
+
+/** Goals are read on the executive briefing; the Plan tab retired 2026-08-17 (`ORG_TAB_IDS` has no `plan`). */
+const GOAL_AT_RISK_TAB: OrgTabId = "executive";
 
 export interface ExtraAlertContext {
   org: string;
@@ -51,6 +55,13 @@ export interface ExtraAlertResult {
   goalAlerts: number;
   spendAlerts: number;
   errors: string[];
+}
+
+/** `orgTabHref` already carries `?tab=`; window params join with `&`. */
+function extraAlertTabUrl(ctx: ExtraAlertContext, tab: OrgTabId): string | undefined {
+  if (!ctx.base) return undefined;
+  const href = orgTabHref(ctx.org, tab);
+  return `${ctx.base}${href}${href.includes("?") ? "&" : "?"}${ctx.periodQs}`;
 }
 
 /**
@@ -126,7 +137,7 @@ export async function dispatchExtraAlerts(ctx: ExtraAlertContext): Promise<Extra
         () =>
           buildGoalAtRiskMessage({
             org: ctx.org,
-            url: ctx.base ? `${ctx.base}/org/${encodeURIComponent(ctx.org)}/plan?${ctx.periodQs}` : undefined,
+            url: extraAlertTabUrl(ctx, GOAL_AT_RISK_TAB),
             goals,
           }),
         { goals: goals.length, weekStart: ctx.windowStart.toISOString() },

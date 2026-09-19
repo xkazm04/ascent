@@ -287,8 +287,10 @@ export interface SegmentComparison {
    *  against a scope nobody scanned is not a delta. (`a.avgOverall` alone is not enough to tell:
    *  a comparison needs both ends.) */
   deltas: { overall: number | null; adoption: number | null; rigor: number | null };
-  /** Per-dimension a/b/delta over the union of dimensions either side is scored on. */
-  dimDeltas: { dimId: string; a: number; b: number; delta: number }[];
+  /** Per-dimension a/b/delta over the union of dimensions either side is scored on.
+   *  A side with no average for that dimension is **null**, never 0 — absence is not a floor.
+   *  `delta` is null when either end is, same rule as the headline deltas. */
+  dimDeltas: { dimId: string; a: number | null; b: number | null; delta: number | null }[];
 }
 
 /**
@@ -325,9 +327,11 @@ export function buildSegmentComparison(a: SegmentSummary, b: SegmentSummary): Se
       rigor: subtractMeasured(a.avgRigor, b.avgRigor),
     },
     dimDeltas: dimIds.map((dimId) => {
-      const av = aDim.get(dimId) ?? 0;
-      const bv = bDim.get(dimId) ?? 0;
-      return { dimId, a: av, b: bv, delta: av - bv };
+      // `?? null`, not `?? 0`: Map.get is undefined when the side never scored this
+      // dimension, and a measured 0 is a real grade that must survive (0 is not nullish).
+      const av = aDim.get(dimId) ?? null;
+      const bv = bDim.get(dimId) ?? null;
+      return { dimId, a: av, b: bv, delta: subtractMeasured(av, bv) };
     }),
   };
 }

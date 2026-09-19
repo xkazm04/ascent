@@ -1,8 +1,11 @@
-// Soft MONTHLY quota for public scans — the Free plan's 5 scans/month applied to the public funnel,
-// as a persistent per-IP (anon) / per-user (signed-in) allowance on top of the per-minute in-memory
-// burst limiter (src/lib/rate-limit.ts). A single public scan = a GitHub ingest + an LLM completion
-// (real $), and the public funnel is free + no-signup, so without a longer-horizon cap a casual user
-// (or a cheap script) can graze indefinitely. This caps that at N scans per rolling 30-day window.
+// Soft MONTHLY quota for public scans — publicScanAllowance() / publicScanMonthlyLimit() applied to
+// every anonymous public scan (and the elevated signed-in sibling via signedInScanMonthlyLimit()), as
+// a persistent per-IP (anon) / per-user (signed-in) allowance on top of the per-minute in-memory
+// burst limiter (src/lib/rate-limit.ts). Not PLAN_FEATURES.free.includedCredits (the hosted Free
+// tier's private-scan allotment): this gate runs for the public funnel regardless of plan. A single
+// public scan = a GitHub ingest + an LLM completion (real $), and the public funnel is free +
+// no-signup, so without a longer-horizon cap a casual user (or a cheap script) can graze indefinitely.
+// This caps that at N scans per rolling 30-day window.
 // Beyond the allowance the caller hits the upgrade / add-credits wall (monthlyQuotaExceeded) — the
 // same allowance-then-pay shape private scans get (src/lib/entitlement.ts).
 //
@@ -14,7 +17,8 @@
 //     makes many users share one bucket. That's accepted — this is a friction/cost nudge, not a
 //     security control. The burst limiter remains the per-request abuse backstop.
 //   - FAILS OPEN: enforced only when persistence is configured, and any store error lets the scan
-//     proceed (a quota hiccup must never take down the free funnel).
+//     proceed (a quota hiccup must never take down the free funnel). Production without
+//     PUBLIC_SCAN_QUOTA_SALT also fails open — the committed fallback is never hashed there.
 //   - No per-VISITOR wallet: anonymous scanners have no credit balance, so overflow is a paywall
 //     (sign up / upgrade), not a literal credit debit — credits are per-organization.
 //
@@ -28,6 +32,7 @@ import {
   PUBLIC_SCAN_WINDOW_DAYS,
   publicScanAllowance,
   publicScanMonthlyLimit,
+  signInRaisesPublicScanLimit,
   signedInScanMonthlyLimit,
 } from "@/lib/public-scan-limit";
 import { PLAN_FEATURES } from "@/lib/plans";
@@ -54,21 +59,59 @@ const WINDOW_MS = PUBLIC_SCAN_WINDOW_DAYS * 24 * 60 * 60 * 1000; // rolling 30-d
 // `publicScanAllowance` travels with them: it is the same allowance COMPOSED as the phrase the copy
 // prints ("1 free public scan" / "5 free public scans"), so a call site never appends its own plural
 // "s" to a number that may be 1 (MC-B38).
-export { publicScanAllowance, publicScanMonthlyLimit, signedInScanMonthlyLimit };
+export { publicScanAllowance, publicScanMonthlyLimit, signInRaisesPublicScanLimit, signedInScanMonthlyLimit };
 
 /** Kill switch — set PUBLIC_SCAN_QUOTA_DISABLED=1 to turn the monthly gate off (dev / incident). */
 export function publicScanQuotaDisabled(): boolean {
   return envBool("PUBLIC_SCAN_QUOTA_DISABLED");
 }
 
+const FALLBACK_QUOTA_SALT = "ascent-public-scan-quota";
+
+/** Warn-once latch: missing production salt is a misconfig, not a per-request event. */
+let missingProdSaltLogged = false;
+
+function logMissingProdSaltOnce(): void {
+  if (missingProdSaltLogged) return;
+  missingProdSaltLogged = true;
+  console.error(
+    "[public-scan-quota] PUBLIC_SCAN_QUOTA_SALT is unset in production — refusing the committed fallback; monthly gate fails open",
+  );
+}
+
 /**
- * Salted SHA-256 of a bucket key, hex. The salt (PUBLIC_SCAN_QUOTA_SALT) makes the stored hashes
- * non-reversible without it; a fixed fallback keeps the gate working out of the box (it's a soft
- * gate, not a secret), but production should set a real salt so buckets aren't predictable. The key
- * carries a namespace prefix ("ip:" / "u:") so an IP bucket and a user bucket can never collide.
+ * Salt used to hash quota bucket keys. The production floor lives HERE, before any fallback is
+ * read — never at a call site — so a missing PUBLIC_SCAN_QUOTA_SALT cannot mint a guessable
+ * digest on a real deployment. Dev/test keep the committed fallback so the gate works out of the box.
+ * Returns null in production when unset (callers fail open; hashKey refuses to hash).
+ */
+function publicScanQuotaSalt(): string | null {
+  if (process.env.NODE_ENV === "production") {
+    const salt = process.env.PUBLIC_SCAN_QUOTA_SALT?.trim();
+    if (salt) return salt;
+    logMissingProdSaltOnce();
+    return null;
+  }
+  return process.env.PUBLIC_SCAN_QUOTA_SALT?.trim() || FALLBACK_QUOTA_SALT;
+}
+
+/** Test seam: reset the missing-prod-salt log-once latch. Not used in production code. */
+export function __resetPublicScanQuotaSaltWarning(): void {
+  missingProdSaltLogged = false;
+}
+
+/**
+ * Salted SHA-256 of a bucket key, hex. PUBLIC_SCAN_QUOTA_SALT makes the stored hashes
+ * non-reversible without it. Dev/test fall back to a committed constant so the gate works out of
+ * the box (it's a soft gate, not a secret). Production refuses that fallback — a shared salt would
+ * make every stored ipHash globally guessable. The key carries a namespace prefix ("ip:" / "u:")
+ * so an IP bucket and a user bucket can never collide.
  */
 export function hashKey(value: string): string {
-  const salt = process.env.PUBLIC_SCAN_QUOTA_SALT?.trim() || "ascent-public-scan-quota";
+  const salt = publicScanQuotaSalt();
+  if (salt === null) {
+    throw new Error("[public-scan-quota] PUBLIC_SCAN_QUOTA_SALT is required in production");
+  }
   return createHash("sha256").update(`${salt}:${value}`).digest("hex");
 }
 
@@ -195,18 +238,18 @@ function retryAfterSec(resetAt: number | null, now: number): number {
  * concurrent consumers of the same bucket genuinely conflict — one aborts with a serialization error
  * that withRetry retries against the updated window. (As separate statements each auto-committed,
  * neither Postgres nor DSQL would ever raise a conflict and parallel clients could overrun the gate.)
- * Returns `enforced: false` (allow) when persistence is unconfigured, the gate is disabled, or the
- * store errors — the free funnel never fails because the quota store did.
+ * Returns `enforced: false` (allow) when persistence is unconfigured, the gate is disabled, production
+ * has no PUBLIC_SCAN_QUOTA_SALT, or the store errors — the free funnel never fails because the quota store did.
  */
 export async function consumePublicScanQuota(
   req: Request,
   identity: QuotaIdentity = {},
 ): Promise<QuotaResult> {
-  const { signedIn, ipHash, unidentifiable } = bucketContext(req, identity);
+  const signedIn = Boolean(identity.viewerId);
   const limit = signedIn ? signedInScanMonthlyLimit() : publicScanMonthlyLimit();
-  // `unidentifiable` (anonymous caller with no usable client IP) can't be bucketed without collapsing
-  // every such visitor into one shared monthly bucket, so the monthly gate is unenforceable here — allow.
-  if (!isDbConfigured() || publicScanQuotaDisabled() || unidentifiable) {
+  // Missing production salt: refuse the committed fallback (no persistable hash) and fail open —
+  // same posture as a store error / unconfigured DB. Never 500 a user scan over a misconfig.
+  if (!isDbConfigured() || publicScanQuotaDisabled() || publicScanQuotaSalt() === null) {
     return { enforced: false, allowed: true, remaining: limit, retryAfterSec: 0, resetAt: null, signedIn, chargedAt: null };
   }
 
@@ -214,6 +257,12 @@ export async function consumePublicScanQuota(
   // against a fresh window, but the slot it charges (chargedAt) stays this request's stable key.
   const now = Date.now();
   try {
+    const { ipHash, unidentifiable } = bucketContext(req, identity);
+    // `unidentifiable` (anonymous caller with no usable client IP) can't be bucketed without collapsing
+    // every such visitor into one shared monthly bucket, so the monthly gate is unenforceable here — allow.
+    if (unidentifiable) {
+      return { enforced: false, allowed: true, remaining: limit, retryAfterSec: 0, resetAt: null, signedIn, chargedAt: null };
+    }
     // One read-decide-write transaction in the data layer (see transactPublicScanQuota for the
     // isolation + retry story); the decide callback is PURE — safe to re-run on a conflict retry.
     const result = await transactPublicScanQuota<QuotaResult>(ipHash, "public-scan-quota", (raw) => {
@@ -270,18 +319,23 @@ export interface QuotaPeek {
  * Read-only quota check — how many free scans are left for this caller, WITHOUT consuming a slot
  * (the read-only sibling of consumePublicScanQuota). Powers a "scans left this month" meter shown
  * BEFORE the user commits to a scan. Fails open (returns the full limit) when persistence is
- * unconfigured / disabled / errors, exactly like consume.
+ * unconfigured / disabled / missing production salt / errors, exactly like consume.
  */
 export async function peekPublicScanQuota(req: Request, identity: QuotaIdentity = {}): Promise<QuotaPeek> {
-  const { signedIn, ipHash, scope, unidentifiable } = bucketContext(req, identity);
+  const signedIn = Boolean(identity.viewerId);
+  const scope: QuotaScope = signedIn ? "user" : "anon";
   const limit = signedIn ? signedInScanMonthlyLimit() : publicScanMonthlyLimit();
-  // Same carve-out as consume: an anonymous caller with no usable client IP isn't gated monthly (the
-  // meter reports the full allowance) rather than reading a shared "unknown" bucket's depleted count.
-  if (!isDbConfigured() || publicScanQuotaDisabled() || unidentifiable) {
+  if (!isDbConfigured() || publicScanQuotaDisabled() || publicScanQuotaSalt() === null) {
     return { enforced: false, remaining: limit, limit, resetAt: null, scope };
   }
   const now = Date.now();
   try {
+    const { ipHash, unidentifiable } = bucketContext(req, identity);
+    // Same carve-out as consume: an anonymous caller with no usable client IP isn't gated monthly (the
+    // meter reports the full allowance) rather than reading a shared "unknown" bucket's depleted count.
+    if (unidentifiable) {
+      return { enforced: false, remaining: limit, limit, resetAt: null, scope };
+    }
     return await withDb(async (db) => {
       const row = await db.publicScanQuota.findUnique({ where: { ipHash } });
       const { remaining, resetAt } = windowState(parseHits(row?.hits), now, limit);
@@ -327,15 +381,15 @@ export async function refundPublicScanQuota(
   identity: QuotaIdentity = {},
   chargedAt?: number | null,
 ): Promise<void> {
-  if (!isDbConfigured() || publicScanQuotaDisabled()) return;
+  if (!isDbConfigured() || publicScanQuotaDisabled() || publicScanQuotaSalt() === null) return;
   // Refund is value-keyed ONLY: without the exact charged timestamp there is no safe slot to remove
   // (the racy "drop newest" fallback was removed), so an absent chargedAt is a no-op, never a guess.
   if (typeof chargedAt !== "number") return;
-  const { ipHash, unidentifiable } = bucketContext(req, identity);
-  // An unidentifiable caller was never charged (consume returned enforced:false / chargedAt:null), so
-  // there's nothing to refund — and touching the shared "unknown" bucket here could drop a real slot.
-  if (unidentifiable) return;
   try {
+    const { ipHash, unidentifiable } = bucketContext(req, identity);
+    // An unidentifiable caller was never charged (consume returned enforced:false / chargedAt:null), so
+    // there's nothing to refund — and touching the shared "unknown" bucket here could drop a real slot.
+    if (unidentifiable) return;
     // Same one-transaction read-modify-write as consume (same data-layer boundary): a refund racing
     // a concurrent consume must not silently drop the consume's freshly-recorded hit.
     await transactPublicScanQuota<void>(ipHash, "public-scan-quota-refund", (raw) => {
@@ -355,11 +409,14 @@ export async function refundPublicScanQuota(
 export function monthlyQuotaExceeded(result: QuotaResult): Response {
   const scope = result.signedIn ? "user" : "anon";
   // DERIVE the allowance from the scope that actually tripped — the SAME limit consumePublicScanQuota
-  // charged against (signed-in viewers get the elevated per-user tier). The old copy hardcoded "5",
-  // which lied on any PUBLIC_SCAN_MONTHLY_LIMIT / *_SIGNED_IN override or the elevated signed-in tier —
-  // a user-facing untruth about how many scans they get, on the exact upgrade prompt that must be
-  // trustworthy. Pluralize so a limit of 1 doesn't read "1 free scans".
-  const limit = result.signedIn ? signedInScanMonthlyLimit() : publicScanMonthlyLimit();
+  // charged against (signed-in viewers get the elevated per-user tier). Anonymous callers read
+  // publicScanAllowance().limit (publicScanMonthlyLimit()); signed-in callers read
+  // signedInScanMonthlyLimit(). This window is every public scan's, not a Free-plan entitlement.
+  // The old copy hardcoded "5", which lied on any PUBLIC_SCAN_MONTHLY_LIMIT / *_SIGNED_IN override
+  // or the elevated signed-in tier — a user-facing untruth about how many scans they get, on the
+  // exact upgrade prompt that must be trustworthy. Pluralize so a limit of 1 doesn't read "1 free scans".
+  const allowance = publicScanAllowance();
+  const limit = result.signedIn ? signedInScanMonthlyLimit() : allowance.limit;
   // Beyond the free monthly allowance the next scan needs a paid plan (which bundles more scans) or
   // prepaid scan credits — the same allowance-then-pay shape as a private scan.
   //

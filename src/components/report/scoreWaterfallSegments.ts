@@ -23,6 +23,8 @@ export interface WaterfallContribution {
   score: number;
   points: number;
   normalizedWeight: number;
+  /** Provenance/integrity tag from `scoreProvenanceMark`. Itemization draws it; titles mention it. */
+  mark?: string | null;
 }
 
 export interface WaterfallSegment {
@@ -35,6 +37,8 @@ export interface WaterfallSegment {
   title: string;
   /** How many contributions this segment stands for — `> 1` only for the aggregate. */
   count: number;
+  /** Per-dimension mark; unset on the aggregate sliver. */
+  mark?: string | null;
 }
 
 /**
@@ -66,8 +70,9 @@ export function waterfallSegments(ranked: readonly WaterfallContribution[]): Wat
       key: c.dimension,
       points: c.points,
       score: c.score,
-      title: `${c.dimension} ${c.name}: ${c.score}/100 × ${Math.round(c.normalizedWeight * 100)}% weight = +${fmtPts(c.points)} pts`,
+      title: `${c.dimension} ${c.name}: ${c.score}/100 × ${Math.round(c.normalizedWeight * 100)}% weight = +${fmtPts(c.points)} pts${c.mark ? ` · ${c.mark}` : ""}`,
       count: 1,
+      mark: c.mark ?? null,
     });
   }
 

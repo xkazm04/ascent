@@ -2,9 +2,12 @@
 //
 // Pins the "honest no-cost-source verdicts" UI gate on the Map view's action rail. The rail turns the
 // concern cohorts into work lists; two of them are money- & plan-framed ("Reclaim seats on" for idle,
-// "Bring under a plan" for shadow). Those dollars are a placeholder until a provider is connected, so in
-// no-cost-source mode the rail must WITHHOLD them and offer a connect prompt instead — while still showing
-// the git-real governance cohort ("Require review on" for ungoverned). measured mode shows them all.
+// "Bring under a plan" for shadow). Those dollars rest on spend Ascent cannot see, so in no-cost-source
+// mode the rail must WITHHOLD them and offer a connect prompt instead — while still showing the git-real
+// governance cohort ("Require review on" for ungoverned). measured mode shows them all.
+//
+// Also pins the leftover-copy retirement: table and map used to call the empty spend layer a
+// "deterministic sample". Fidelity `none` is absence, labelled "no cost source", never a sample.
 //
 // The model is built by hand (not via buildAiDeliveryModel) with idle/shadow repos PRESENT even in the
 // no-cost-source fixture, so the assertion proves the presentation layer suppresses them independent of the
@@ -12,8 +15,9 @@
 
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
+import { AiRoiLedger } from "./AiRoiLedger";
 import { AiRoiQuadrant } from "./AiRoiQuadrant";
-import type { AiDeliveryModel, AiRepoRoi, ModelFidelity, Verdict } from "./aiDeliveryModel";
+import { provenanceOf, type AiDeliveryModel, type AiRepoRoi, type ModelFidelity, type Verdict } from "./aiDeliveryModel";
 
 function repo(over: Partial<AiRepoRoi> & { name: string; verdict: Verdict }): AiRepoRoi {
   return {
@@ -42,6 +46,7 @@ function model(fidelity: ModelFidelity): AiDeliveryModel {
   const counts: Record<Verdict, number> = { working: 1, ungoverned: 1, idle: 1, shadow: 1, starter: 0 };
   return {
     fidelity,
+    provenance: provenanceOf(fidelity),
     tools: [{ name: "Claude", count: 4 }],
     repos,
     summary: {
@@ -90,5 +95,22 @@ describe("AiRoiQuadrant action rail — measured mode (unchanged)", () => {
     expect(screen.getByText(/Bring under a plan/i)).toBeInTheDocument();
     // The measured rail shows real spend and no connect prompt.
     expect(screen.queryByText(/reclaimable seats and unplanned AI/i)).toBeNull();
+  });
+});
+
+describe("no-cost ROI copy — spend is absent, not a sample", () => {
+  it("table takeaway names no cost source and never a deterministic sample", () => {
+    const { container } = render(<AiRoiLedger model={model("none")} slug="acme" />);
+    expect(container.textContent).not.toMatch(/deterministic sample/i);
+    expect(container.textContent).toMatch(/no cost source/i);
+    expect(screen.getByRole("link", { name: /connect a provider/i })).toBeInTheDocument();
+  });
+
+  it("map note and overlay name no cost source and never a sample", () => {
+    const { container } = render(<AiRoiQuadrant model={model("none")} slug="acme" />);
+    expect(container.textContent).not.toMatch(/deterministic sample/i);
+    expect(container.textContent).not.toMatch(/sample spend/i);
+    expect(container.textContent).not.toMatch(/spend is a sample/i);
+    expect(container.textContent).toMatch(/no cost source/i);
   });
 });

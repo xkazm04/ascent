@@ -13,8 +13,9 @@
 //     model that knows the bar writes fewer things that fail it, and a rejected paragraph is a billed
 //     completion that reached nobody.
 //   • NO TOOLS. The cycle is ONE metered call: the standing and the open asks are prefetched into the
-//     prompt below. A tool loop here would spend an unbounded number of legs on a question nobody
-//     asked.
+//     prompt below — including the Memory tab's coverage and the Skills tab's abandoned-skill fold,
+//     so she does not need a tool to see a prune candidate or a fleet that has gone quiet. A tool
+//     loop here would spend an unbounded number of legs on a question nobody asked.
 //
 // The identity and the three contracts are reused VERBATIM from the interactive prompt. She is the
 // same companion at 08:00 with nobody watching as she is mid-conversation; a second tone contract
@@ -30,6 +31,27 @@ import { ATHENA_BLOCK_CONTRACT, ATHENA_TONE_CONTRACT } from "@/lib/athena/prompt
  */
 export const CYCLE_SILENCE_TOKEN = "NOTHING TO REPORT";
 
+/** How many stale repos / abandoned skills the standing names. The count is the full reading. */
+export const CYCLE_STANDING_NAMED_LIMIT = 5;
+
+/** Memory-tab coverage, prefetched — the same instrument `getMemoryCoverage` computes. */
+export interface CycleMemoryCoverage {
+  coveragePct: number;
+  reposWithFreshMemory: number;
+  totalTrackedRepos: number;
+  windowDays: number;
+  /** A handful of names, never-covered first — the tab's own stale order. */
+  staleRepos: string[];
+}
+
+/** Skills-tab abandoned fold, prefetched — the same `skillUsageMap` prune candidates. */
+export interface CycleAbandonedSkills {
+  /** Full prune-candidate count, not the named handful. */
+  count: number;
+  /** A handful of names, longest-quiet first. */
+  names: string[];
+}
+
 /** The org's standing, prefetched — the evidence half of the briefing. */
 export interface CycleStanding {
   repoCount: number;
@@ -43,6 +65,53 @@ export interface CycleStanding {
   cohortSize: number | null;
   /** At most a handful, biggest absolute mover first. */
   movers: { name: string; delta: number }[];
+  /** Same coverage the Memory tab shows. Honest zeros when the read failed or the org tracks nothing. */
+  coverage: CycleMemoryCoverage;
+  /** Same abandoned (tried, then quiet) fold the Skills tab shows. */
+  abandoned: CycleAbandonedSkills;
+}
+
+const emptyCoverage = (): CycleMemoryCoverage => ({
+  coveragePct: 0,
+  reposWithFreshMemory: 0,
+  totalTrackedRepos: 0,
+  windowDays: 0,
+  staleRepos: [],
+});
+
+/**
+ * Fold the Memory-tab coverage and the Skills-tab abandoned list into the standing extras. Pure —
+ * the hosted cycle prefetches `getMemoryCoverage` / `skillUsageMap` and hands the results here, so
+ * this file never imports a database.
+ */
+export function cycleStandingExtras(
+  coverage: {
+    coveragePct: number;
+    reposWithFreshMemory: number;
+    totalTrackedRepos: number;
+    windowDays: number;
+    staleRepos: readonly { fullName: string }[];
+  } | null,
+  abandoned: readonly { name: string; daysSinceUse: number | null }[],
+): { coverage: CycleMemoryCoverage; abandoned: CycleAbandonedSkills } {
+  const sorted = [...abandoned].sort(
+    (a, b) => (b.daysSinceUse ?? -1) - (a.daysSinceUse ?? -1) || a.name.localeCompare(b.name),
+  );
+  return {
+    coverage: coverage
+      ? {
+          coveragePct: coverage.coveragePct,
+          reposWithFreshMemory: coverage.reposWithFreshMemory,
+          totalTrackedRepos: coverage.totalTrackedRepos,
+          windowDays: coverage.windowDays,
+          staleRepos: coverage.staleRepos.slice(0, CYCLE_STANDING_NAMED_LIMIT).map((r) => r.fullName),
+        }
+      : emptyCoverage(),
+    abandoned: {
+      count: abandoned.length,
+      names: sorted.slice(0, CYCLE_STANDING_NAMED_LIMIT).map((s) => s.name),
+    },
+  };
 }
 
 /** One offer of hers a human has not answered yet. */
@@ -74,13 +143,26 @@ export function isCycleSilence(completion: string): boolean {
   return completion.trim().toUpperCase().startsWith(CYCLE_SILENCE_TOKEN);
 }
 
+function namedList(names: readonly string[], total: number): string {
+  if (names.length === 0) return "";
+  const extra = total > names.length ? ` (+${total - names.length} more)` : "";
+  return `${names.join(", ")}${extra}`;
+}
+
 function standingSection(s: CycleStanding): string {
+  const cov = s.coverage;
+  const stale = namedList(cov.staleRepos, cov.totalTrackedRepos - cov.reposWithFreshMemory);
+  const abandoned = s.abandoned;
   const lines = [
     `Repositories: ${s.repoCount} (${s.scannedCount} scanned)`,
     `Fleet average: ${s.avgOverall} of 100 — ${s.level}`,
     s.overallDelta === null
       ? "Period movement: not measurable (no comparable baseline)"
       : `Period movement: ${s.overallDelta > 0 ? "+" : ""}${s.overallDelta} points over ${s.cohortSize ?? 0} repositories present on both sides of the window`,
+    `Memory coverage: ${cov.coveragePct}% (${cov.reposWithFreshMemory} of ${cov.totalTrackedRepos} tracked repos with fresh memory in ${cov.windowDays}d)${stale ? `. Going quiet: ${stale}` : ""}`,
+    abandoned.count === 0
+      ? "Abandoned skills (tried, then quiet): none"
+      : `Abandoned skills (tried, then quiet): ${abandoned.count} — ${namedList(abandoned.names, abandoned.count)}`,
   ];
   if (s.movers.length > 0) {
     lines.push(
@@ -109,7 +191,7 @@ function proposalsSection(open: CycleOpenProposal[]): string | null {
 function unattendedContract(periodLabel: string, silenceToken: string): string {
   return `THIS IS AN UNATTENDED BRIEFING. Nobody asked you anything. Nobody is waiting for this. It covers ${periodLabel}.
 
-Write ONLY what changes what this team would do next. A restatement of the standing they can already read on their dashboard is not that. Neither is an encouraging summary of a period in which nothing moved.
+Write ONLY what changes what this team would do next. A restatement of the standing they can already read on their dashboard is not that. Neither is an encouraging summary of a period in which nothing moved. An abandoned skill listed below is a prune candidate: it changes what they would do next even when scores did not move. Write it. Memory coverage they can already read on the Memory tab is not that unless the gap itself is the next action.
 
 If nothing in ${periodLabel} changes what they would do, reply with exactly this on the first line and stop:
 

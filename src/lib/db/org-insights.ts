@@ -18,6 +18,7 @@ import { PRACTICES } from "@/lib/practices";
 import { projectedGain } from "@/lib/scoring/engine";
 import type { DimensionId } from "@/lib/types";
 import { getOrgBySlug, IMPACT_WEIGHT, LEVEL_RANK, isBot, segmentScope, techGroupScope, upperBound } from "@/lib/db/org-shared";
+import { sweepExpiredLeases } from "@/lib/db/followup-claims";
 import { retentionCutoff } from "@/lib/plans";
 // The canonical noise band — the same primitive alerts/digest/format already share, so a movers tile
 // and a digest line can never disagree about whether a delta was real.
@@ -30,7 +31,7 @@ import { isMockScore, type OrgWindow } from "@/lib/db/org-rollup";
 import { parseStringArray } from "@/lib/db/json-columns";
 // The one "due soon" window (rolling days) shared with the UI tiles/labels — single-sourced in the
 // client-safe backlogShared module so both layers stay in sync (backlog-management 07-16 #4).
-import { DUE_MONTH_DAYS, DUE_SOON_DAYS } from "@/components/org/shared/backlogShared";
+import { DUE_MONTH_DAYS, DUE_SOON_DAYS } from "@/lib/backlog-due";
 // The canonical org time-zone policy — ONE reference frame for every calendar-day decision on the
 // dashboard (window presets, custom-range parsing, due-date bucketing). See its header for the policy
 // and for the per-org-timezone blocker. (G4-07)
@@ -69,12 +70,37 @@ export interface OrgMovers {
   levelChanges: RepoMove[]; // promotions + demotions
   /** Repos onboarded mid-period (`baselineKind: "onboarded"`) — their first-scan→now move, kept OUT of
    *  gainers/regressers/held/levelChanges/comparedRepos so a fleet's onboarding wave can't read as this
-   *  period's improvement. Sorted like gainers (largest climb first) so "new this period" is still
-   *  visible to any caller that wants it, without corrupting the period comparison (G4-06). */
+   *  period's improvement. Sorted like gainers (largest climb first). Production readers must go
+   *  through {@link readOnboardedRepos}: a count without names is not a fleet of onboarded repos. */
   onboarded: RepoMove[];
   /** Count of repos with a REAL period-baseline comparison (baselineKind === "period"). Excludes
    *  onboarded repos — see `onboarded` above. */
   comparedRepos: number;
+}
+
+/** One onboarded repo as production must quote it: a NAME, never a count. */
+export interface OnboardedRepo {
+  fullName: string;
+  name: string;
+  overall: number;
+  /** Lifetime delta since first in-window scan; 0 when the repo has only that one scan. */
+  dOverall: number;
+  sinceDays: number;
+}
+
+/**
+ * Production read of `OrgMovers.onboarded`. `CohortMovement.onboarded` is a composition COUNT;
+ * quoting that number as "who joined" is a fleet with no members. This projects the named list
+ * (fullName + name) so a caller cannot collapse the fleet to `.length` and still type-check.
+ */
+export function readOnboardedRepos(movers: OrgMovers): OnboardedRepo[] {
+  return movers.onboarded.map((m) => ({
+    fullName: m.fullName,
+    name: m.name,
+    overall: m.overall,
+    dOverall: m.dOverall,
+    sinceDays: m.sinceDays,
+  }));
 }
 
 interface ScanLite {
@@ -206,11 +232,18 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
       // score → now) within the window. That fallback move is tagged `baselineKind: "onboarded"` below
       // and kept OUT of gainers/regressers/comparedRepos (G4-06): it's a LIFETIME delta since the
       // repo's first scan, not a period delta, and reporting it as a period gain would inflate the
-      // mover list and comparedRepos exactly when an org is growing. A repo with a single in-window
-      // scan and no baseline collapses to prev === now and is skipped below.
+      // mover list and comparedRepos exactly when an org is growing. A single in-window scan with no
+      // pre-start baseline is still onboarded this period: NAME it (a count without names is not a
+      // fleet) but do not treat now===prev as a period move.
       const realBaseline = baselineByRepo.get(repoId);
       const prev = realBaseline ?? arr[arr.length - 1];
-      if (!now || !prev || prev === now) continue; // no baseline, or nothing moved within the window
+      if (!now || !prev) continue;
+      if (prev === now) {
+        if (!realBaseline && !isMockScore(now.engineProvider)) {
+          moves.push(buildMove(now.repo.fullName, now.repo.name, now, prev, "onboarded"));
+        }
+        continue;
+      }
       if (!isRealPair(now, prev)) continue; // an engine transition is not repo movement
       moves.push(buildMove(now.repo.fullName, now.repo.name, now, prev, realBaseline ? "period" : "onboarded"));
     }
@@ -349,7 +382,7 @@ export async function getOrgRecommendations(
     const recs = scan?.recommendations ?? [];
     for (const rec of recs) {
       const key = `${rec.dimId}::${rec.title}`;
-      const g = groups.get(key) ?? { title: rec.title, dimId: rec.dimId, impact: rec.impact, rationale: rec.rationale, explore: parseStringArray(rec.explore), repos: new Set<string>() };
+      const g = groups.get(key) ?? { title: rec.title, dimId: rec.dimId, impact: rec.impact, rationale: rec.rationale, explore: parseStringArray(rec.explore) ?? [], repos: new Set<string>() };
       g.repos.add(r.name);
       // keep the strongest impact seen for this rec
       if ((IMPACT_WEIGHT[rec.impact] ?? 0) > (IMPACT_WEIGHT[g.impact] ?? 0)) g.impact = rec.impact;
@@ -557,6 +590,12 @@ export interface OrgBacklog extends BacklogCounts {
  * rows are grouped too, so their status control is reachable again and the item can be set back to Open.
  * The headline counts never change with the flag — they always describe the ACTIVE backlog.
  *
+ * Expired leases are released HERE, before the rows are assembled. `sweepExpiredLeases` already
+ * runs at the top of a claim; without the same pass on this read a crashed agent's rows stay
+ * "handed off" on every Proposals load until something else happens to claim. A sweep failure
+ * must not blank the tab (best-effort, same `.catch` `claimFollowups` uses). Human hand-offs
+ * (`leaseUntil: null`) are invisible to the sweep. Claim columns still carry across persist.
+ *
  * ── Why this reads in six flat queries instead of one nested `include` (measured 2026-08-03) ──
  * The obvious shape — repository → scans(take 1) → recommendations → events(take 1) — is NOT an N+1.
  * Prisma 6.19 with `engineType = "client"` (the wasm query compiler, see the generator block in
@@ -593,6 +632,10 @@ export async function getOrgBacklog(
   const prisma = getPrisma();
   const org = await getOrgBySlug(orgSlug);
   if (!org) return null;
+  // Reclaim what lapsed BEFORE assembling the ledger, so a crashed agent's rows read as open
+  // rather than staying "handed off" until the next claim. Best-effort: a sweep failure must
+  // not blank the tab. Human hand-offs (null lease) are invisible to the sweep.
+  await sweepExpiredLeases(orgSlug, now).catch(() => 0);
   // "Overdue" must mean overdue in THIS org's calendar, not the deployment's: the org's stored zone when
   // it has one, else ASCENT_ORG_TZ, else UTC (resolveOrgTimeZone owns that order). G4-07.
   const tz = resolveOrgTimeZone(org.timezone);
@@ -755,7 +798,7 @@ export async function getOrgBacklog(
         projectedPoints: gain ? gain.points : null,
         unlocks: gain ? gain.unlocks : null,
         rationale: r.rationale,
-        explore: parseStringArray(r.explore),
+        explore: parseStringArray(r.explore) ?? [],
       });
     }
   }
@@ -1028,7 +1071,7 @@ const HEALTHY_AVG = 50; // …while the org generally handles that dimension
 
 /**
  * Minimum scanned repos before the org-vs-repo split is a real reading rather than an artifact of a
- * tiny fleet. Chosen as 3 to match CHAMPION_MIN_POP (`@/components/org/shared/champions`) — the
+ * tiny fleet. Chosen as 3 to match CHAMPION_MIN_POP (`@/lib/org/champions`) — the
  * codebase's floor for "is this pattern real WITHIN one org's own population". The other floors,
  * CORPUS_MIN / COHORT_MIN = 5, gate ranking a fleet against OTHER ORGS, which is a different (and
  * larger) sampling problem; borrowing 5 here would mute the decomposition for most real fleets.

@@ -3,12 +3,19 @@ export interface RepoRef {
   fullName: string;
 }
 
+/** Wire `shape` from POST /api/practices/generate — which starter the preview actually is. */
+export type PracticePreviewShape =
+  | { kind: "house"; exemplars: number }
+  | { kind: "generic" };
+
 export interface Artifact {
   path: string;
   body: string;
   /** The repo this artifact was previewed for. Apply must target THIS repo, not whatever the dropdown
    *  reads now — otherwise a stale preview response can be applied to a different repo (see preview()). */
   repo: string;
+  /** House vs generic: the one-line kicker above the previewed artifact. */
+  shape: PracticePreviewShape;
 }
 
 /**

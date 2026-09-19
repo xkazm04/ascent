@@ -1,13 +1,35 @@
 "use client";
 
 import { useState } from "react";
+import { LEVEL_HEX } from "@/lib/ui";
 import { useReducedMotion } from "@/components/ui/useReducedMotion";
 import styles from "./playground.module.css";
 
+const TOKENS = [
+  { name: "accent", paint: "var(--color-accent)", use: "the one azure" },
+  { name: "ink", paint: "var(--color-ink)", use: "page canvas" },
+  { name: "surface", paint: "var(--color-surface)", use: "panel base" },
+  { name: "divider", paint: "var(--color-divider)", use: "hairline" },
+  { name: "danger", paint: "var(--color-danger)", use: "error" },
+  { name: "warn", paint: "var(--color-warn)", use: "warning" },
+  { name: "success", paint: "var(--color-success)", use: "success notices" },
+] as const;
+
+const LEVEL_IDS = Object.keys(LEVEL_HEX) as (keyof typeof LEVEL_HEX)[];
+
+function chip(paint: string) {
+  return {
+    display: "inline-block",
+    width: 16,
+    height: 16,
+    borderRadius: 3,
+    background: paint,
+    boxShadow: "inset 0 0 0 1px var(--color-divider)",
+    verticalAlign: "middle",
+  } as const;
+}
+
 export function AppearanceStudy({ slug }: { slug: string }) {
-  const [state, setState] = useState("Ready");
-  const [accent, setAccent] = useState("Ascent");
-  const [compact, setCompact] = useState(false);
   const [position, setPosition] = useState(false);
   const [motion, setMotion] = useState(true);
   const [quality, setQuality] = useState("Balanced");
@@ -16,51 +38,47 @@ export function AppearanceStudy({ slug }: { slug: string }) {
     return (
       <div className={styles.demo}>
         <div className={styles.demoToolbar}>
-          <h3>Appearance</h3>
-          <label>
-            <input
-              type="checkbox"
-              checked={compact}
-              onChange={(e) => {
-                setCompact(e.target.checked);
-                setState("Ready");
-              }}
-            />{" "}
-            Compact
-          </label>
+          <h3>Token table</h3>
         </div>
-        <div className={styles.swatches}>
-          {["Ascent", "Mint", "Amber"].map((name, i) => (
-            <button
-              key={name}
-              aria-label={name}
-              aria-pressed={accent === name}
-              style={{ background: ["var(--kb-accent)", "var(--kb-green)", "var(--kb-warn)"][i] }}
-              onClick={() => {
-                setAccent(name);
-                setState("Ready");
-              }}
-            >
-              {accent === name ? "✓" : ""}
-            </button>
-          ))}
-        </div>
-        <div
-          className={styles.themeCard}
-          style={
-            {
-              "--demo-accent": { Ascent: "var(--kb-accent)", Mint: "var(--kb-green)", Amber: "var(--kb-warn)" }[accent],
-              padding: compact ? 20 : 38,
-            } as React.CSSProperties
-          }
-        >
-          <span>YOUR WORKSPACE</span>
-          <h3>A little more you.</h3>
-          <p>Good defaults. Room to make it yours.</p>
-          <button onClick={() => setState("Applied")}>{state === "Applied" ? "✓ Applied" : "Apply appearance"}</button>
+        <div className={styles.tableScroll}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Token</th>
+                <th>Use</th>
+                <th>Swatch</th>
+              </tr>
+            </thead>
+            <tbody>
+              {TOKENS.map((token) => (
+                <tr key={token.name}>
+                  <td>
+                    <strong>{token.name}</strong>
+                  </td>
+                  <td>{token.use}</td>
+                  <td>
+                    <i aria-hidden style={chip(token.paint)} />
+                  </td>
+                </tr>
+              ))}
+              <tr>
+                <td>
+                  <strong>LEVEL_HEX</strong>
+                </td>
+                <td>level/score color, only</td>
+                <td>
+                  {LEVEL_IDS.map((id) => (
+                    <span key={id} style={{ marginRight: 10 }}>
+                      <i aria-hidden style={chip(LEVEL_HEX[id])} /> {id}
+                    </span>
+                  ))}
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
         <p className={styles.hint} role="status">
-          {accent} · {compact ? "Compact" : "Comfortable"} spacing
+          One azure on cold ink. LEVEL_HEX for levels and scores, nothing else.
         </p>
       </div>
     );

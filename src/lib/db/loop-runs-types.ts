@@ -373,11 +373,23 @@ export interface LoopLaneRecord {
 
 /** Who runs a lane's work. A remote lane deliberately carries NO cost envelope: #27's figures come
  *  from a `claude -p` session Ascent spawned, and there is no such session here. `costMicros` stays
- *  null on one — unknown, never zero. */
-export type LoopLaneExecutor = "local" | "remote-agent";
+ *  null on one — unknown, never zero.
+ *
+ *  `hosted-worker` (ADR-0001) is a THIRD value rather than a flavour of `remote-agent`, and the
+ *  distinction is load-bearing in both directions: Ascent's own dispatcher must never hand a lane to
+ *  a worker when the customer armed that lane for their own harness, and a customer's agent must not
+ *  find Ascent's hosted lanes when it claims. Both are `remote` in the sense that matters to the
+ *  liveness sweep — no process here drives either — and both carry a null cost envelope until the
+ *  metering ADR-0001 calls a precondition exists. */
+export type LoopLaneExecutor = "local" | "remote-agent" | "hosted-worker";
 
 export const asLaneExecutor = (v: string | null | undefined): LoopLaneExecutor =>
-  v === "remote-agent" ? "remote-agent" : "local";
+  v === "remote-agent" ? "remote-agent" : v === "hosted-worker" ? "hosted-worker" : "local";
+
+/** True for every executor whose work happens outside this process. The liveness sweep, the lane-kind
+ *  tag and the claim path all mean THIS rather than `=== "remote-agent"`, and each said the latter
+ *  before `hosted-worker` existed. */
+export const isExternalExecutor = (e: LoopLaneExecutor): boolean => e !== "local";
 
 export interface LoopRunSummary {
   id: string;
@@ -424,6 +436,20 @@ export interface LoopRunDetail {
   /** One row per item the run's lanes dispatched — the agent's account beside the rescan's ruling.
    *  Empty on a run that predates the contract, which is not the same as "nothing was skipped". */
   itemOutcomes: LaneOutcomeRow[];
+  /**
+   * EVERY DISPATCHED ITEM'S TITLE, BY ID — so a proposal never renders as a raw uuid.
+   *
+   * The outcome sheet gives an armed-but-unresolved batch item its own row, and titled it by looking
+   * the id up in the lane's own before/after scans. That lookup fails for exactly the lanes that most
+   * need a row: a FORCE-FAILED or still-queued lane has no `afterScanId` and often no `beforeScanId`,
+   * so it has no scan to look anything up in — and the row fell back to printing the id. A ledger
+   * whose left column reads `4f2c0b18-…` tells a reader nothing about what the loop was asked to do.
+   *
+   * The titles exist, in the `Recommendation` table, and this read is where a database is reachable.
+   * One query per detail, not one per row. Absent on a payload from a server older than this field,
+   * which is why every consumer treats it as optional and keeps its own fallbacks.
+   */
+  batchTitles?: Record<string, { title: string; dimId: string | null }>;
 }
 
 
@@ -608,7 +634,7 @@ export function toRunRecord(row: RunRow): LoopRunRecord {
     model: row.model ?? null,
     effort: row.effort ?? null,
     modelPolicy: asModelPolicy(row.modelPolicy),
-    models: parseStringArray(row.modelsJson),
+    models: parseStringArray(row.modelsJson) ?? [],
     // An unrecognised string parses as null — "unchosen" — and never as a guess at a mode that would
     // write into the operator's working copy. Same posture `normalizeAgentModel` takes at the route.
     delivery: normalizeDelivery(row.delivery),
@@ -633,8 +659,8 @@ export function toLaneRecord(row: LaneRow): LoopLaneRecord {
     cycle: row.cycle,
     phase: row.phase as LoopLanePhase,
     branch: row.branch,
-    batchIds: parseStringArray(row.batchIdsJson),
-    closedIds: parseStringArray(row.closedIdsJson),
+    batchIds: parseStringArray(row.batchIdsJson) ?? [],
+    closedIds: parseStringArray(row.closedIdsJson) ?? [],
     commits: row.commits,
     beforeScanId: row.beforeScanId,
     afterScanId: row.afterScanId,

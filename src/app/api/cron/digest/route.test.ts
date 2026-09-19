@@ -95,6 +95,12 @@ vi.mock("@/lib/alerts", () => ({
   // The movement-gate. Default to "has signal" so the routing/auth tests behave as before; one test
   // flips it to false to assert the route SKIPS a flat org (skippedFlat++) without building/dispatching.
   digestHasSignal: vi.fn(() => true),
+  // Same projection the real helper keeps: movement, not deltas; null/0 cohort → both fields null.
+  digestMovementFields: (movement: { overall: number; cohortSize: number } | null | undefined) => {
+    const n = movement?.cohortSize;
+    if (movement == null || n == null || n <= 0) return { overallDelta: null, cohortSize: null };
+    return { overallDelta: movement.overall, cohortSize: n };
+  },
 }));
 
 import { GET } from "./route";
@@ -142,15 +148,19 @@ const SECRET = "digest-secret-xyz";
 // All THREE averages, because a real rollup carries them together or not at all — they share one
 // population (`realScoredCount`). The route's `hasFleetGrade` gate reads all three, so a fixture that
 // claims a graded fleet has to look like one.
-const rollupWith = () =>
+const rollupWith = (over: Record<string, unknown> = {}) =>
   ({
     repoCount: 4,
     scannedCount: 4,
     avgOverall: 72,
     avgAdoption: 68,
     avgRigor: 76,
-    deltas: { overall: 1 },
+    // Deprecated triple kept on the fixture ON PURPOSE with a value that disagrees with
+    // `movement.overall`. Either cron reader still reading `deltas` would leak 99 into the payload.
+    deltas: { overall: 99, adoption: 99, rigor: 99 },
+    movement: { overall: 1, adoption: 1, rigor: 1, cohortSize: 4, onboarded: 0, departed: 0 },
     forecast: null,
+    ...over,
   }) as unknown as Awaited<ReturnType<typeof getOrgRollup>>;
 
 function req(opts: { auth?: string; key?: string } = {}) {
@@ -507,6 +517,51 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     // The flat org must NOT train the inbox filter — no message built, nothing dispatched.
     expect(mockBuild).not.toHaveBeenCalled();
     expect(mockDispatch).not.toHaveBeenCalled();
+  });
+
+  // ---- movement.cohortSize, not deprecated rollup.deltas (G4) --------------------------------
+
+  it("feeds the gate and the message from rollup.movement, never the deprecated deltas triple", async () => {
+    mockListOrgs.mockResolvedValue(["orgMove"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/M");
+    mockRollup.mockResolvedValue(rollupWith());
+
+    await GET(req({ auth: `Bearer ${SECRET}` }));
+    const payload = { overallDelta: 1, cohortSize: 4 };
+    expect(mockHasSignal).toHaveBeenCalledWith(expect.objectContaining(payload));
+    expect(mockBuild).toHaveBeenCalledWith(expect.objectContaining(payload));
+  });
+
+  it("omits the overall delta when the cohort is unmeasurable (null/0), never a silent 0 from deltas", async () => {
+    mockListOrgs.mockResolvedValue(["orgNone", "orgZero"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/U");
+    mockRollup.mockImplementation(async (org: string) =>
+      org === "orgNone"
+        ? rollupWith({ movement: null })
+        : rollupWith({ movement: { overall: 6, adoption: 6, rigor: 6, cohortSize: 0, onboarded: 0, departed: 0 } }),
+    );
+
+    await GET(req({ auth: `Bearer ${SECRET}` }));
+    expect(mockHasSignal).toHaveBeenCalledTimes(2);
+    expect(mockBuild).toHaveBeenCalledTimes(2);
+    for (const [call] of [...mockHasSignal.mock.calls, ...mockBuild.mock.calls]) {
+      expect(call).toEqual(expect.objectContaining({ overallDelta: null, cohortSize: null }));
+    }
+  });
+
+  it("qualifies a one-repo cohort with its n rather than dropping the number or reading deltas", async () => {
+    mockListOrgs.mockResolvedValue(["orgTiny"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/T");
+    mockRollup.mockResolvedValue(
+      rollupWith({
+        movement: { overall: 6, adoption: 6, rigor: 6, cohortSize: 1, onboarded: 0, departed: 0 },
+      }),
+    );
+
+    await GET(req({ auth: `Bearer ${SECRET}` }));
+    const payload = { overallDelta: 6, cohortSize: 1 };
+    expect(mockHasSignal).toHaveBeenCalledWith(expect.objectContaining(payload));
+    expect(mockBuild).toHaveBeenCalledWith(expect.objectContaining(payload));
   });
 
   it("passes a standing concern to the gate and the message — the flat week that must NOT stay silent", async () => {

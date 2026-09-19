@@ -35,16 +35,17 @@ import {
 // merge. This is the DB-serialized claim (moonshot #10) that replaced the process-local advisory Map —
 // the queue keys on the repo's FULL NAME precisely because an import's repos may have no Repository
 // row yet (they are created mid-scan), which is what made a row-based claim impossible before.
-import { claimRepoWork, settleJob } from "@/lib/db/scan-jobs";
+import { claimRepoWork, markJobCredit, settleJob, type JobOutcome } from "@/lib/db/scan-jobs";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { isValidHandle, isValidRepoName, listOrgRepos } from "@/lib/github/list";
 import { forgeFullName, parseForgeUrl } from "@/lib/forge/registry";
 import { gitlabForge } from "@/lib/forge/gitlab/source";
+import { getForgeInstallation, hostFromBase } from "@/lib/db/forge-installations";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, getViewer } from "@/lib/access";
 import { canMintInstallationToken, requireFleetOrg, requireOrgAccess } from "@/lib/authz";
 import { normalizeOrgSlug } from "@/lib/db/org-shared";
-import { checkScanEntitlement, paymentRequired } from "@/lib/entitlement";
+import { checkScanEntitlement, orgNotFound, paymentRequired } from "@/lib/entitlement";
 import {
   consumePublicScanQuota,
   peekPublicScanQuota,
@@ -216,6 +217,7 @@ export async function POST(request: Request) {
   let scanCapacity = 0;
   if (metered) {
     const ent = await checkScanEntitlement(org);
+    if (ent.orgExists === false) return orgNotFound();
     if (!ent.allowed) return paymentRequired(ent.balance);
     unlimited = ent.unlimited;
     scanCapacity = ent.balance + ent.allowanceRemaining;
@@ -234,6 +236,12 @@ export async function POST(request: Request) {
     if (peek.enforced) publicScanCapacity = peek.remaining;
   }
 
+  // Self-managed GitLab web root, when this org has configured one. Permalinks (and URL routing)
+  // take it so an imported project is not rewritten as gitlab.com.
+  const gitlabHost = await getForgeInstallation(org, "gitlab")
+    .then((row) => (row?.host ? hostFromBase(row.host) : undefined))
+    .catch(() => undefined);
+
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const send = makeSseSend(controller);
@@ -246,13 +254,13 @@ export async function POST(request: Request) {
           // parsed exactly as before. The forge-prefixed `fullName` here is the SAME identity the
           // persist layer writes, so an imported GitLab project lands on one row, not two.
           fullNames = body.repos.map((fn) => {
-            const routed = parseForgeUrl(fn);
+            const routed = parseForgeUrl(fn, gitlabHost);
             if (routed && routed.forge === "gitlab") {
               return {
                 owner: routed.owner,
                 name: routed.repo,
                 fullName: forgeFullName("gitlab", routed.owner, routed.repo),
-                url: gitlabForge.permalink({ owner: routed.owner, repo: routed.repo }),
+                url: gitlabForge.permalink({ owner: routed.owner, repo: routed.repo }, undefined, gitlabHost),
                 forge: "gitlab" as const,
               };
             }
@@ -379,6 +387,10 @@ export async function POST(request: Request) {
             send("progress", { stage: "scan", repo: r.fullName, index: processed, total: fullNames.length });
             return;
           }
+          // Default: a throw after claim (reserveScanCredit, which mapPool rethrows) must not lie
+          // `done`. A hard process kill never reaches finally — the reaper returns the row, and
+          // `creditCharged` (stamped below after reserve) is what stops the retry from buying twice.
+          let outcome: JobOutcome = { state: "failed", error: "import interrupted" };
           try {
             // RESERVE the credit BEFORE scanning (metered, non-unlimited, non-mock imports). The atomic
             // conditional decrement enforces the prepaid balance even under concurrency, so two in-flight
@@ -393,9 +405,13 @@ export async function POST(request: Request) {
                 processed += 1;
                 send("repo", { repo: r.fullName, skipped: "insufficient_credits" });
                 send("progress", { stage: "scan", repo: r.fullName, index: processed, total: fullNames.length });
+                outcome = { state: "skipped", error: "insufficient credits" };
                 return; // finally releases the claim
               }
               reserved = reservation.reserved;
+              // Stamp BEFORE inference so a 300s kill + reap cannot reserve again: the worker reads
+              // creditCharged on the requeued row and carries it.
+              if (reserved) await markJobCredit(claim.id, true);
             }
             // The public path's equivalent of reserving a credit: consume one monthly free-scan slot
             // BEFORE the ingest, value-keyed so the refund below removes exactly this lane's slot.
@@ -407,6 +423,7 @@ export async function POST(request: Request) {
                 processed += 1;
                 send("repo", { repo: r.fullName, skipped: "monthly_quota" });
                 send("progress", { stage: "scan", repo: r.fullName, index: processed, total: fullNames.length });
+                outcome = { state: "skipped", error: "monthly quota" };
                 return; // finally releases the claim
               }
               quotaChargedAt = q.chargedAt;
@@ -420,12 +437,14 @@ export async function POST(request: Request) {
             };
             // One refund verb for both meters: whichever one this run charged, "nothing chargeable was
             // produced" must give it back. A caller that remembered only credits would silently burn a
-            // free public slot on a deduped or degraded scan.
+            // free public slot on a deduped or degraded scan. Returns whether an overflow credit was
+            // actually held, so settleJob can clear creditCharged only on a real refund.
             const refundCredit = async () => {
               // Stamped with the SAME repo and actor as the debit above, so the reversal is joinable to
               // the row it reverses instead of landing as an anonymous +1.
               await refundScanCredit(org, reserved, { actor: importActor, repoFullName: r.fullName });
               await refundQuota();
+              return reserved;
             };
             send("progress", { stage: "scan", repo: r.fullName, index: processed, total: fullNames.length });
             // Set the moment `scanRepository` returns a REAL (non-mock) report: the inference is
@@ -440,7 +459,8 @@ export async function POST(request: Request) {
               // Refund the reservation when nothing billable was produced: either the scan degraded to
               // mock (no real inference) OR the commit was unchanged since the last scan (`deduped` — no
               // new scored row). Mirrors the cron rescan's refund policy: a dedup run is free.
-              if (shouldRefundScan(report, persisted)) await refundCredit();
+              let refunded = false;
+              if (shouldRefundScan(report, persisted)) refunded = await refundCredit();
               // Watchlist + schedule writes are bookkeeping AFTER a billable, persisted scan, so keep them
               // in their OWN best-effort try: a failure here must NOT reach the outer catch (which refunds
               // the credit and reports the repo as { error }). The notable failure is the lazy Organization
@@ -467,26 +487,28 @@ export async function POST(request: Request) {
               // Only record an outcome once the repo row exists (watch=true upserts it above); the
               // public funnel (watch=false) may not have persisted a Repository row, so skip then.
               if (watch) await recordScanOutcome(org, r.fullName, { ok: true }).catch(() => {});
+              outcome = { state: "done", creditRefunded: refunded };
             } catch (err) {
               // Refund a PRE-inference failure only. Once scanRepository has returned a real report the
               // inference is paid for; refunding a persist failure would let a transient DB error hand
               // back a credit for work that really ran (and the retry re-bills it). Report `charged` so
               // the importer can see it paid for a repo whose report didn't land.
-              if (!inferenceBilled) await refundCredit();
+              const refunded = inferenceBilled ? false : await refundCredit();
               const msg = err instanceof Error ? err.message : "scan failed";
               if (watch) await recordScanOutcome(org, r.fullName, { ok: false, error: msg }).catch(() => {});
               send("repo", { repo: r.fullName, error: msg, charged: inferenceBilled && reserved });
+              outcome = { state: "failed", error: msg, creditRefunded: refunded };
             }
             scanned += 1; // a scan actually ran for this repo (scored or failed) — never a skip
             processed += 1;
             send("progress", { stage: "scan", repo: r.fullName, index: processed, total: fullNames.length });
           } finally {
-            // SETTLE on EVERY exit — normal completion, the insufficient-credits early return, or a
-            // throw from reserveScanCredit (which mapPool rethrows). A claim left unsettled would bar
-            // this repo from re-import until its lease expires; only a hard process kill relies on the
-            // reaper. Best-effort by design: the settle is bookkeeping, and a failure here must not
-            // take down an import whose scans already landed.
-            await settleJob(claim.id, { state: "done" }).catch(() => {});
+            // SETTLE on EVERY exit — billed done, pre-inference skip/failure, or a throw from
+            // reserveScanCredit (which mapPool rethrows). A claim left unsettled would bar this repo
+            // from re-import until its lease expires; only a hard process kill relies on the reaper.
+            // Best-effort by design: the settle is bookkeeping, and a failure here must not take down
+            // an import whose scans already landed.
+            await settleJob(claim.id, outcome).catch(() => {});
           }
         });
         // Capture the team-standings decomposition as a durable output of this full org import

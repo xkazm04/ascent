@@ -36,8 +36,10 @@ export interface ScanSpendAttribution {
 /** Outcome of a per-repo credit reservation. */
 export interface ScanCreditReservation {
   /**
-   * True when the balance was exhausted and this repo must be SKIPPED rather than scanned for free.
-   * Callers surface the skip in their own way (SSE `repo`/`progress` events vs a counter increment).
+   * True when this repo must be SKIPPED rather than scanned for free. Two causes: the prepaid
+   * balance was exhausted, or consumeScanCredit confirmed the org does not exist (`orgExists:false`).
+   * Callers that 402 a skip MUST check `orgExists === false` first and 404 that instead of
+   * INSUFFICIENT_CREDITS.
    */
   skip: boolean;
   /**
@@ -54,14 +56,22 @@ export interface ScanCreditReservation {
    * different answer. Batch callers ignore it, exactly as before.
    */
   balance: number | null;
+  /**
+   * `false` when consumeScanCredit confirmed the slug matches no org row. Callers that 402 a skip
+   * must branch on this first — a missing org is 404/not-found, not INSUFFICIENT_CREDITS.
+   * Omitted unless confirmed missing (same contract as consumeScanCredit).
+   */
+  orgExists?: boolean;
 }
 
 /**
  * RESERVE one prepaid credit for a repo BEFORE scanning. `consumeScanCredit` is an atomic conditional
  * decrement (WHERE scanCredits > 0), so two concurrent batches can't both spend the same credit — the
  * reservation, not a point-in-time balance read, is the real gate. A failed reservation (`skip:true`)
- * means the balance was exhausted (often by another in-flight batch); the caller skips this repo rather
- * than scan it for free. On a successful overflow debit it also fires the proactive low-credit alert.
+ * means either the balance was exhausted (often by another in-flight batch) or the org does not exist
+ * (`orgExists:false` — callers that 402 a skip must 404 that instead of INSUFFICIENT_CREDITS). The
+ * caller skips this repo rather than scan it for free. On a successful overflow debit it also fires
+ * the proactive low-credit alert.
  *
  * Refund the reservation later (degrade-to-mock / dedup / throw) via `refundScanCredit`.
  */
@@ -74,7 +84,15 @@ export async function reserveScanCredit(
     () => null,
   );
   if (!res || (!res.unlimited && !res.ok)) {
-    return { skip: true, reserved: false, balance: res?.balance ?? null };
+    // A missing org is not an empty wallet. Thread orgExists:false so scanCreditGate 404s instead of
+    // 402 INSUFFICIENT_CREDITS; omit the field on a real paywall / consume throw (same contract as
+    // consumeScanCredit — treat `orgExists === false` as confirmed missing).
+    return {
+      skip: true,
+      reserved: false,
+      balance: res?.balance ?? null,
+      ...(res?.orgExists === false ? { orgExists: false as const } : {}),
+    };
   }
   const reserved = res.charged; // true only on an overflow credit debit (within-allowance is free)
   // Proactive lifecycle push when this debit CROSSED the low-water mark (or depletion). The debit

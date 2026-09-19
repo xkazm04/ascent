@@ -19,8 +19,9 @@
 /** The rolling window the public-scan allowance is counted over, in days. */
 export const PUBLIC_SCAN_WINDOW_DAYS = 30;
 
-/** Max free public scans per ANONYMOUS IP per rolling 30-day window — the Free plan's 5 scans/month
- *  applied to the public funnel. Env-overridable (PUBLIC_SCAN_MONTHLY_LIMIT); default 5. */
+/** Max free public scans per ANONYMOUS IP per rolling 30-day window. Applies to every anonymous
+ *  public scan, not a Free-plan entitlement. Env-overridable (PUBLIC_SCAN_MONTHLY_LIMIT); default 5.
+ *  Copy asks publicScanAllowance() for the phrase around this number. */
 export function publicScanMonthlyLimit(): number {
   const n = Number(process.env.PUBLIC_SCAN_MONTHLY_LIMIT);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 5;
@@ -58,7 +59,7 @@ export function publicScanAllowance(): PublicScanAllowance {
 
 /**
  * Monthly allowance for a SIGNED-IN viewer, keyed per-user (IP-independent) so a signed-in user gets
- * their OWN bucket (uncoupled from a shared IP). Defaults to the same 5/month Free allowance — under
+ * their OWN bucket (uncoupled from a shared IP). Defaults to publicScanMonthlyLimit() — under
  * the subscription model the lever for more volume is a paid plan, not merely signing in.
  * Env-overridable (PUBLIC_SCAN_MONTHLY_LIMIT_SIGNED_IN); clamped to be no lower than the anonymous
  * limit (never grant *less*).
@@ -67,4 +68,14 @@ export function signedInScanMonthlyLimit(): number {
   const n = Number(process.env.PUBLIC_SCAN_MONTHLY_LIMIT_SIGNED_IN);
   const configured = Number.isFinite(n) && n > 0 ? Math.floor(n) : 5;
   return Math.max(configured, publicScanMonthlyLimit());
+}
+
+/**
+ * True when signing in actually grants a HIGHER monthly public-scan allowance than remaining
+ * anonymous. The default hosted pair is equal (both 5; the lever for more volume is a paid plan).
+ * Quota CTAs that promise more scans from signing in must ask this — promising more when the
+ * numbers match is a user-facing untruth on the quota surface.
+ */
+export function signInRaisesPublicScanLimit(): boolean {
+  return signedInScanMonthlyLimit() > publicScanMonthlyLimit();
 }

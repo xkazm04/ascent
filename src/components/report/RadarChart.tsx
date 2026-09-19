@@ -9,6 +9,8 @@ import { DIMENSION_SHORT, scoreHex } from "@/lib/ui";
 import { ChartTooltip } from "@/components/report/chartHover";
 import { RadarFallback } from "@/components/report/RadarFallback";
 import { r2 } from "@/components/report/svgCoord";
+import { radarHoverTicks } from "@/lib/scoring/provenance";
+import { MOCK_HOLLOW_FILL, MOCK_SR_SUFFIX, isMockEngine } from "@/components/report/chartEngine";
 
 /** Fixed radius the zero MARKER is parked at. It is not a vertex — the polygon still closes through
  *  the true centre — only the place the "this dimension scored zero" ring is drawn so it is legible
@@ -20,6 +22,7 @@ export function RadarChart({
   size = 340,
   highlightId = null,
   onSelect,
+  engine,
 }: {
   dimensions: DimensionResult[];
   size?: number;
@@ -28,9 +31,12 @@ export function RadarChart({
   highlightId?: DimensionId | null;
   /** When provided, the radar becomes a picker: clicking near a vertex selects that dimension. */
   onSelect?: (id: DimensionId) => void;
+  /** Scan engine provider. A mock-scored report draws vertices hollow. D9 on a live scan stays solid. */
+  engine?: string | null;
 }) {
   const titleId = useId();
   const descId = useId();
+  const mock = isMockEngine(engine);
   // Hover: snap to the nearest data vertex (within a small radius) and show its exact
   // score + level — dependency-free, mirroring the time-series charts' tooltip.
   const [active, setActive] = useState<number | null>(null);
@@ -96,6 +102,9 @@ export function RadarChart({
   // dropping the non-null assertions.
   const actPt = active != null ? markPts[active] : undefined;
   const actDim = active != null ? dimensions[active] : undefined;
+  const ticks = actDim ? radarHoverTicks(actDim) : null;
+  const sigPt = active != null && ticks ? point(active, ticks.signal / 100) : undefined;
+  const llmPt = active != null && ticks ? point(active, ticks.llm / 100) : undefined;
   const dataPath = polyPts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
   function onPointerMove(e: PointerEvent<SVGSVGElement>) {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -139,7 +148,8 @@ export function RadarChart({
           {`Scores across ${n} maturity dimensions on a 0 to 100 scale. Per-dimension values are listed in the adjacent table.` +
             (anyZero
               ? " Dimensions scoring zero plot at the centre and are marked with a hollow dashed ring rather than a plotted vertex."
-              : "")}
+              : "") +
+            (mock ? MOCK_SR_SUFFIX : "")}
         </desc>
         {/* grid rings */}
       {rings.map((rg) => (
@@ -158,14 +168,17 @@ export function RadarChart({
       })}
       {/* data polygon — follows the brand tokens (--color-accent + its soft tint) so a re-skin /
           white-label retunes the chart with the buttons instead of leaving it on the old azure. */}
-      <polygon points={dataPath} fill="var(--color-accent)" fillOpacity={0.22} stroke="var(--color-accent)" strokeWidth={2} />
+      <polygon points={dataPath} fill="var(--color-accent)" fillOpacity={mock ? 0.08 : 0.22} stroke="var(--color-accent)" strokeWidth={2} strokeDasharray={mock ? "4 4" : undefined} />
       {markPts.map(([x, y], i) => {
         const r = i === active || i === highlightIdx ? 4.5 : 3;
-        // Zero → a hollow dashed ring, never a filled dot. A filled dot at any radius asserts a
-        // measured magnitude; the open, broken outline reads as an absence, and the axis numeral
-        // beside it already says "0".
-        return dimensions[i]!.score === 0 ? (
-          <circle key={i} data-zero cx={x} cy={y} r={r + 1.5} fill="none" stroke={scoreHex(0)} strokeWidth={1.5} strokeDasharray="2 2" />
+        const d = dimensions[i]!;
+        // Zero → a hollow dashed ring, never a filled dot. A mock-scored report's non-zero vertices
+        // are also hollow (surface fill, score stroke) — engine identity, not D9 provenance.
+        if (d.score === 0) {
+          return <circle key={i} data-zero cx={x} cy={y} r={r + 1.5} fill="none" stroke={scoreHex(0)} strokeWidth={1.5} strokeDasharray="2 2" />;
+        }
+        return mock ? (
+          <circle key={i} data-mock cx={x} cy={y} r={r} fill={MOCK_HOLLOW_FILL} stroke={scoreHex(d.score)} strokeWidth={1.75} />
         ) : (
           <circle key={i} cx={x} cy={y} r={r} fill="var(--color-accent-soft)" />
         );
@@ -177,6 +190,15 @@ export function RadarChart({
       {/* hovered vertex highlight */}
       {actPt && actDim && (
         <circle cx={actPt[0]} cy={actPt[1]} r={8} fill="none" stroke={scoreHex(actDim.score)} strokeWidth={2} />
+      )}
+      {/* Signal vs LLM ticks on the hovered spoke. Same marks as ProvenanceTrack (hollow
+          slate tick = detector, filled pale dot = model). Drawn only when they disagree
+          with the blend so a single fact stays one number (G1: never hide disagreement). */}
+      {sigPt && llmPt && (
+        <g data-hover-ticks>
+          <circle data-tick="signal" cx={sigPt[0]} cy={sigPt[1]} r={3} fill="none" stroke="#94a3b8" strokeWidth={1.5} />
+          <circle data-tick="llm" cx={llmPt[0]} cy={llmPt[1]} r={3} fill="#cbd5e1" stroke="var(--color-surface)" strokeWidth={1} />
+        </g>
       )}
       {/* labels */}
       {dimensions.map((d, i) => {
@@ -219,6 +241,7 @@ export function RadarChart({
                 {levelForScore(actDim.score).id} {levelForScore(actDim.score).name}
               </span>
             </div>
+            {ticks && <div className="mt-0.5 type-body-sm text-slate-400">{ticks.line}</div>}
           </div>
         </ChartTooltip>
       )}
@@ -248,6 +271,7 @@ export function RadarChart({
         <tbody>
           {dimensions.map((d) => {
             const lvl = levelForScore(d.score);
+            const rowTicks = radarHoverTicks(d);
             return (
               <tr key={d.id}>
                 <th scope="row">
@@ -259,7 +283,7 @@ export function RadarChart({
                     d.name
                   )}
                 </th>
-                <td>{d.score}</td>
+                <td>{rowTicks ? `${d.score} · ${rowTicks.line}` : d.score}</td>
                 <td>{`${lvl.id} ${lvl.name}`}</td>
               </tr>
             );

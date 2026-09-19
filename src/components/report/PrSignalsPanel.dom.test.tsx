@@ -5,10 +5,16 @@
 // low-contrast reader gets the cue without perceiving the tint. Below the threshold there is no marker.
 
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { PrSignalsPanel } from "./PrSignalsPanel";
-import { qualifiedRate, RATE_BASIS, REVERT_RATE_ELEVATED, SMALL_PR_MAX_LINES } from "@/lib/analyze/pr-thresholds";
-import type { PrStats } from "@/lib/types";
+import {
+  qualifiedRate,
+  RATE_BASIS,
+  REVIEW_INTEGRITY_MIN_SAMPLE,
+  REVERT_RATE_ELEVATED,
+  SMALL_PR_MAX_LINES,
+} from "@/lib/analyze/pr-thresholds";
+import type { AiChangeRecord, PrStats } from "@/lib/types";
 
 const base: PrStats = {
   analyzed: 40,
@@ -118,5 +124,138 @@ describe("PrSignalsPanel qualified rates", () => {
     render(<PrSignalsPanel stats={base} />); // no `rates`
     expect(screen.queryByText(/Review integrity/i)).toBeNull();
     expect(screen.getByText("72%")).toBeInTheDocument(); // falls back to the historical scalar
+  });
+});
+
+// Merge rate is still a scalar (decided = merged + closed-unmerged) until it joins the rate book.
+// Every other tile goes through rateReading, which publishes null under the sample floor; without
+// the same floor here a 1-of-1 100% merge is colored as a mature process (score-charts-visuals).
+
+function mergeTile(): HTMLElement {
+  const parent = screen.getByText("Merge rate").parentElement;
+  if (!parent) throw new Error("Merge rate tile missing");
+  return parent;
+}
+
+describe("PrSignalsPanel merge-rate sample floor", () => {
+  it("renders n/a — never a colored 100% — when only one decided PR exists", () => {
+    // `analyzed` stays at 40 on purpose: the floor is the decided denominator, not the window.
+    render(<PrSignalsPanel stats={{ ...base, merged: 1, closedUnmerged: 0, mergeRate: 100 }} />);
+    expect(within(mergeTile()).getByText("n/a")).toBeInTheDocument();
+    expect(within(mergeTile()).queryByText("100%")).toBeNull();
+    expect(
+      within(mergeTile()).getAllByText(new RegExp(`below the ${REVIEW_INTEGRITY_MIN_SAMPLE}-sample floor`)).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("still shows the percent when decided PRs meet the sample floor", () => {
+    render(
+      <PrSignalsPanel
+        stats={{ ...base, merged: REVIEW_INTEGRITY_MIN_SAMPLE, closedUnmerged: 0, mergeRate: 100 }}
+      />,
+    );
+    expect(within(mergeTile()).getByText("100%")).toBeInTheDocument();
+    expect(within(mergeTile()).queryByText("n/a")).toBeNull();
+  });
+});
+
+// The analyzer already emits `aiChanges` (extractAiChanges) as the evidence rows behind the AI
+// rates. A rate cannot answer "which PRs, and who approved each one" — so the panel lists them
+// when the scan carries the population, and omits the block (never a fabricated 0) when it does not.
+
+function aiChange(over: Partial<AiChangeRecord> = {}): AiChangeRecord {
+  return {
+    prNumber: 42,
+    title: "feat: parser",
+    authorLogin: "alice",
+    authorIsBot: false,
+    aiSignal: "marked",
+    aiTools: ["Claude"],
+    state: "MERGED",
+    mergedAt: "2026-01-02T00:00:00Z",
+    approved: true,
+    approverLogin: "dave",
+    approvedAt: "2026-01-01T10:00:00Z",
+    reviewCount: 2,
+    createdAt: "2026-01-01T00:00:00Z",
+    revertedByPr: null,
+    revertedAt: null,
+    mergeCommitSha: "abc123",
+    ...over,
+  };
+}
+
+function aiChangesList(): HTMLElement {
+  return screen.getByRole("list", { name: /AI-attributed pull requests/i });
+}
+
+describe("PrSignalsPanel AI-change population", () => {
+  it("lists the analyzer's aiChanges under the rates, with signal, tools, and approver", () => {
+    render(
+      <PrSignalsPanel
+        stats={base}
+        aiChanges={[
+          aiChange(),
+          aiChange({
+            prNumber: 7,
+            title: "feat: agent work",
+            aiSignal: "authored",
+            aiTools: ["Copilot"],
+            approved: false,
+            approverLogin: null,
+            approvedAt: null,
+            reviewCount: 0,
+          }),
+        ]}
+      />,
+    );
+    const list = aiChangesList();
+    expect(within(list).getByText("#42")).toBeInTheDocument();
+    expect(within(list).getByText("feat: parser")).toBeInTheDocument();
+    expect(within(list).getByText(/AI-marked/)).toBeInTheDocument();
+    expect(within(list).getByText(/Claude/)).toBeInTheDocument();
+    expect(within(list).getByText(/approved by dave/)).toBeInTheDocument();
+    expect(within(list).getByText("#7")).toBeInTheDocument();
+    expect(within(list).getByText("feat: agent work")).toBeInTheDocument();
+    expect(within(list).getByText(/agent-authored/)).toBeInTheDocument();
+    expect(within(list).getByText(/unreviewed/)).toBeInTheDocument();
+  });
+
+  it("omits the list — never a fabricated 0 — when aiChanges is absent or empty", () => {
+    const { unmount } = render(<PrSignalsPanel stats={base} />);
+    expect(screen.queryByRole("list", { name: /AI-attributed pull requests/i })).toBeNull();
+    expect(screen.queryByText(/AI-attributed changes/i)).toBeNull();
+    unmount();
+    render(<PrSignalsPanel stats={base} aiChanges={[]} />);
+    expect(screen.queryByRole("list", { name: /AI-attributed pull requests/i })).toBeNull();
+    expect(screen.queryByText(/0 AI-attributed/i)).toBeNull();
+    expect(screen.queryByText(/AI-attributed changes/i)).toBeNull();
+  });
+
+  it("names an unapproved-but-reviewed change separately from unreviewed, and stamps a revert", () => {
+    render(
+      <PrSignalsPanel
+        stats={base}
+        aiChanges={[
+          aiChange({
+            prNumber: 8,
+            title: "claude code: refactor",
+            approved: false,
+            approverLogin: null,
+            reviewCount: 1,
+          }),
+          aiChange({
+            prNumber: 9,
+            title: "feat: rolled back",
+            revertedByPr: 12,
+            revertedAt: "2026-01-03T00:00:00Z",
+          }),
+        ]}
+      />,
+    );
+    const list = aiChangesList();
+    expect(within(list).getByText(/unapproved/)).toBeInTheDocument();
+    expect(within(list).queryByText(/unreviewed/)).toBeNull();
+    expect(within(list).getByText(/reverted by #12/)).toBeInTheDocument();
   });
 });

@@ -1,7 +1,10 @@
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 // Import the concrete module (not the org barrel) so this pure-transform test doesn't pull in the
 // whole db family it never touches.
 import { rollupTeams, type TeamRollupRepoInput } from "@/lib/db/org-teams";
+import { SCORE_NOISE_BAND } from "@/lib/maturity/noise";
 
 // Pure aggregation behind getOrgTeamRollup — buckets repos into their CODEOWNERS teams and rolls
 // each up (maturity, dimension shape, AI-knowledge, movers) with no DB. Mirrors discover.test's
@@ -136,6 +139,7 @@ describe("rollupTeams", () => {
   it("computes since-last-scan movers from each repo's two latest scans", () => {
     expect(frontend.comparedRepos).toBe(1);
     expect(frontend.improving).toBe(1);
+    expect(frontend.held).toBe(0);
     expect(frontend.avgDelta).toBe(10); // 80 - 70
     expect(data.comparedRepos).toBe(0); // api has a single scan
   });
@@ -223,6 +227,7 @@ describe("rollupTeams — period-scoped movers via windowDelta (fleet-rollups-in
     expect(t.avgDelta).toBe(-5);
     expect(t.improving).toBe(0);
     expect(t.declining).toBe(1);
+    expect(t.held).toBe(0);
   });
 
   it("windowDelta: null EXCLUDES the repo from movers (no silent since-last-scan fallback mixing scopes)", () => {
@@ -240,6 +245,101 @@ describe("rollupTeams — period-scoped movers via windowDelta (fleet-rollups-in
     const out = rollupTeams("acme", [repo("acme/web", { ...team, scans: [scan(80), scan(70)] })]);
     expect(out.teams[0]!.comparedRepos).toBe(1);
     expect(out.teams[0]!.avgDelta).toBe(10);
+  });
+});
+
+// ── G4: ±1 wobble is not a gainer. Partition on classifyDelta, not raw sign ──────────────────────
+// getOrgMovers already buckets on the noise band (SCORE_NOISE_BAND = 2); this rollup still used
+// `d > 0` / `d < 0`, so a +1 on the Teams tab was an "improving" repo the movers tile called held.
+// Contract: pin the new buckets AND forbid the raw-sign count, in both windowed and since-last-scan
+// paths. Held is counted in comparedRepos (and folds to 0 in avgDelta) rather than dropped.
+describe("rollupTeams — improving/declining/avgDelta use classifyDelta, not raw sign", () => {
+  const team = { teams: [{ slug: "@acme/frontend" }] };
+  const scan = (overall: number) => ({ overall, adoption: overall, rigor: overall, dims: [] as Dim[] });
+  const SRC = fs.readFileSync(path.resolve(__dirname, "org-teams.ts"), "utf8");
+
+  it("partitions with classifyDelta — the producer must not filter on raw sign", () => {
+    expect(SRC).toMatch(/classifyDelta/);
+    expect(SRC).not.toMatch(/filter\(\(?d\)?\s*=>\s*d\s*>\s*0\)/);
+    expect(SRC).not.toMatch(/filter\(\(?d\)?\s*=>\s*d\s*<\s*0\)/);
+  });
+
+  it("a +1 windowed wobble is held, not improving — and avgDelta folds it to 0", () => {
+    const out = rollupTeams("acme", [repo("acme/web", { ...team, scans: [scan(71)], windowDelta: 1, windowBaselineKind: "period" })]);
+    const t = out.teams[0]!;
+    const rawSignImproving = 1; // d > 0 would have counted this
+    expect(t.comparedRepos).toBe(1); // held counted in the denominator
+    expect(t.improving).toBe(0);
+    expect(t.declining).toBe(0);
+    expect(t.held).toBe(1);
+    expect(t.avgDelta).toBe(0);
+    expect(t.improving).not.toBe(rawSignImproving);
+  });
+
+  it("a −1 windowed wobble is held, not declining", () => {
+    const out = rollupTeams("acme", [repo("acme/web", { ...team, scans: [scan(69)], windowDelta: -1, windowBaselineKind: "period" })]);
+    const t = out.teams[0]!;
+    expect(t.comparedRepos).toBe(1);
+    expect(t.improving).toBe(0);
+    expect(t.declining).toBe(0);
+    expect(t.held).toBe(1);
+    expect(t.avgDelta).toBe(0);
+    expect(t.declining).not.toBe(1); // raw sign
+  });
+
+  it("a ±1 since-last-scan wobble is held, not improving (G4)", () => {
+    const out = rollupTeams("acme", [repo("acme/web", { ...team, scans: [scan(71), scan(70)] })]);
+    const t = out.teams[0]!;
+    expect(t.comparedRepos).toBe(1);
+    expect(t.improving).toBe(0);
+    expect(t.declining).toBe(0);
+    expect(t.held).toBe(1);
+    expect(t.avgDelta).toBe(0);
+    expect(t.improving).not.toBe(1);
+  });
+
+  it("the band boundary is 2 (still noise / held) vs 3 (real) in both directions", () => {
+    const out = rollupTeams("acme", [
+      repo("acme/at-band-up", { ...team, scans: [scan(70)], windowDelta: SCORE_NOISE_BAND, windowBaselineKind: "period" }),
+      repo("acme/past-band-up", { teams: [{ slug: "@acme/frontend" }], scans: [scan(70)], windowDelta: SCORE_NOISE_BAND + 1, windowBaselineKind: "period" }),
+      repo("acme/at-band-down", { teams: [{ slug: "@acme/frontend" }], scans: [scan(70)], windowDelta: -SCORE_NOISE_BAND, windowBaselineKind: "period" }),
+      repo("acme/past-band-down", { teams: [{ slug: "@acme/frontend" }], scans: [scan(70)], windowDelta: -(SCORE_NOISE_BAND + 1), windowBaselineKind: "period" }),
+    ]);
+    const t = out.teams[0]!;
+    expect(t.comparedRepos).toBe(4);
+    expect(t.improving).toBe(1); // only +3
+    expect(t.declining).toBe(1); // only −3
+    expect(t.held).toBe(2); // ±2
+    // Signal is +3 and −3; in-band ±2 fold to 0; denominator is all four compared repos.
+    expect(t.avgDelta).toBe(0);
+    expect(t.improving).not.toBe(2); // raw sign would count +2 as well
+    expect(t.declining).not.toBe(2);
+  });
+
+  it("an exact-0 delta is compared but not held — held is 'moved, not measurably', not 'did not move'", () => {
+    const out = rollupTeams("acme", [repo("acme/web", { ...team, scans: [scan(70)], windowDelta: 0, windowBaselineKind: "period" })]);
+    const t = out.teams[0]!;
+    expect(t.comparedRepos).toBe(1);
+    expect(t.improving).toBe(0);
+    expect(t.declining).toBe(0);
+    expect(t.held).toBe(0);
+    expect(t.avgDelta).toBe(0);
+  });
+
+  it("a real climb beside a +1 wobble: improving is 1 (not 2) and avgDelta folds the wobble to 0", () => {
+    const out = rollupTeams("acme", [
+      repo("acme/real", { ...team, scans: [scan(80)], windowDelta: 8, windowBaselineKind: "period" }),
+      repo("acme/wobble", { teams: [{ slug: "@acme/frontend" }], scans: [scan(71)], windowDelta: 1, windowBaselineKind: "period" }),
+    ]);
+    const t = out.teams[0]!;
+    expect(t.comparedRepos).toBe(2);
+    expect(t.improving).toBe(1);
+    expect(t.held).toBe(1);
+    expect(t.declining).toBe(0);
+    // Raw mean would be round((8+1)/2) = 5; folding the wobble keeps comparedRepos as denominator.
+    expect(t.avgDelta).toBe(4);
+    expect(t.avgDelta).not.toBe(Math.round((8 + 1) / 2));
+    expect(t.improving).not.toBe(2);
   });
 });
 

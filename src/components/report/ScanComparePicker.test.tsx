@@ -15,7 +15,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push, replace: vi.fn(), refresh: vi.fn(), prefetch: vi.fn() }),
 }));
 
-function scan(id: string, scannedAt: string, overallScore = 50): HistoryPoint {
+function scan(id: string, scannedAt: string, overallScore = 50, engineProvider = "claude-cli"): HistoryPoint {
   return {
     id,
     headSha: null,
@@ -23,8 +23,8 @@ function scan(id: string, scannedAt: string, overallScore = 50): HistoryPoint {
     level: "L3",
     levelName: "Established",
     confidence: 80,
-    engineProvider: "claude-cli",
-    engineModel: "sonnet",
+    engineProvider,
+    engineModel: engineProvider === "mock" ? "deterministic" : "sonnet",
     scannedAt,
     dimensions: [],
   };
@@ -54,6 +54,32 @@ describe("ScanComparePicker — chronological-order hint", () => {
     render(<ScanComparePicker repo="acme/widget" scans={same} beforeId="a" afterId="b" />);
 
     expect(screen.queryByText(/baseline is newer than the compared scan/i)).toBeNull();
+  });
+});
+
+describe("ScanComparePicker — mixed-engine pair is labelled", () => {
+  it("labels a mock vs live selection", () => {
+    const mixed: HistoryPoint[] = [
+      scan("live", "2026-07-20T00:00:00.000Z", 70, "claude-cli"),
+      scan("demo", "2026-07-01T00:00:00.000Z", 50, "mock"),
+    ];
+    render(<ScanComparePicker repo="acme/widget" scans={mixed} beforeId="demo" afterId="live" />);
+    expect(screen.getByTestId("mixed-engine-pair")).toHaveTextContent(/mixed engines/i);
+  });
+
+  it("stays quiet when both selected scans are live-model scored", () => {
+    render(<ScanComparePicker repo="acme/widget" scans={scans} beforeId="older" afterId="newer" />);
+    expect(screen.queryByTestId("mixed-engine-pair")).toBeNull();
+  });
+
+  it("still labels the mix when the pair is also inverted in time", () => {
+    const mixed: HistoryPoint[] = [
+      scan("live", "2026-07-20T00:00:00.000Z", 70, "claude-cli"),
+      scan("demo", "2026-07-01T00:00:00.000Z", 50, "mock"),
+    ];
+    render(<ScanComparePicker repo="acme/widget" scans={mixed} beforeId="live" afterId="demo" />);
+    expect(screen.getByText(/baseline is newer than the compared scan/i)).toBeInTheDocument();
+    expect(screen.getByTestId("mixed-engine-pair")).toBeInTheDocument();
   });
 });
 

@@ -96,8 +96,8 @@ describe("buildDrawerItems", () => {
     expect(buildDrawerItems(payload(), { includeTeach: false }).some((i) => i.kind === "teach")).toBe(false);
   });
 
-  it("degrades to the teach rail alone when there is no payload", () => {
-    expect(buildDrawerItems(null, { includeTeach: true }).every((i) => i.kind === "teach")).toBe(true);
+  it("does not invent a teach rail when there is no payload (a miss is not teaching)", () => {
+    expect(buildDrawerItems(null, { includeTeach: true })).toEqual([]);
     expect(buildDrawerItems(null, { includeTeach: false })).toEqual([]);
   });
 });
@@ -176,8 +176,20 @@ describe("decidePosture — entry intensity by stamp", () => {
     expect(decidePosture(p, { isDemoOrg: false })).toBe("teaching");
   });
 
-  it("degrades to teaching with no payload at all (a failed or DB-less read)", () => {
+  it("uses teaching only as a loading hold when there is no payload and no failed read", () => {
     expect(decidePosture(null, { isDemoOrg: false })).toBe("teaching");
+  });
+
+  it("does not treat a failed read as teaching, even on the demo org", () => {
+    expect(decidePosture(null, { isDemoOrg: false, failed: true })).toBe("unavailable");
+    expect(decidePosture(null, { isDemoOrg: true, failed: true })).toBe("unavailable");
+  });
+
+  it("keeps the last-good posture when a later read fails", () => {
+    expect(decidePosture(payload(), { isDemoOrg: false, failed: true })).toBe("companion");
+    expect(
+      decidePosture(payload({ allDone: true }), { isDemoOrg: false, failed: true }),
+    ).toBe("teaching");
   });
 });
 

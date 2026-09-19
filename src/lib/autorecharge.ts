@@ -1,4 +1,4 @@
-// Low-balance / "auto-recharge" preference — the PURE half, shared by the client popover
+// Low-balance warning preference — the PURE half, shared by the client popover
 // (CreditsControl.tsx) and the server route (src/app/api/billing/autorecharge/route.ts).
 //
 // WHAT THIS IS, HONESTLY. Polar is integrated here as a HOSTED CHECKOUT + signed webhook
@@ -12,8 +12,10 @@
 //   2. a PRE-EMPTIVE low-balance warning while the balance is still positive, and
 //   3. a one-click top-up prompt (the existing /api/billing/checkout link) at that threshold.
 //
-// The only automatic thing is the WARNING. The UI must never claim money moves by itself; see
-// `AUTO_RECHARGE_CHARGES_AUTOMATICALLY`.
+// The only automatic thing is the WARNING. Owner-facing chrome labels this "Low-balance warning"
+// and must never claim money moves by itself; see `AUTO_RECHARGE_CHARGES_AUTOMATICALLY`. The
+// `/api/billing/autorecharge` path and `billing.autorecharge` action id stay as machine names so
+// existing clients and audit rows keep working.
 //
 // No React, no next/server, no Prisma — importable from both a "use client" component and a route
 // handler without dragging the server bundle into the browser.
@@ -28,6 +30,35 @@ export const AUTO_RECHARGE_ACTION = "billing.autorecharge";
  *  method / off-session charge exists in this deployment's Polar integration. Flip this only when a
  *  real off-session charge path lands — every "we will top up for you" string must be gated on it. */
 export const AUTO_RECHARGE_CHARGES_AUTOMATICALLY = false;
+
+/** Owner-facing name of this preference. Polar cannot charge off-session, so this is never
+ *  "auto-recharge" — that phrase reads as a purchase that already happened. */
+export const LOW_BALANCE_WARNING_LABEL = "Low-balance warning";
+
+/** Checkbox copy in the credits popover. */
+export const LOW_BALANCE_WARNING_TOGGLE = "Warn me before I run out";
+
+/**
+ * The stronger copy — a promise that money moves by itself. Returned by `lowBalanceHelpCopy` ONLY
+ * when `AUTO_RECHARGE_CHARGES_AUTOMATICALLY` is true. Keep this sentence out of the live UI until a
+ * real off-session Polar charge path exists.
+ */
+export const LOW_BALANCE_HELP_AUTOMATIC = "Credits are topped up automatically at this balance.";
+
+/** Honest copy while Polar is hosted-checkout-only. */
+export const LOW_BALANCE_HELP_MANUAL =
+  "Ascent can't charge a saved card, so this warns you and offers a one-click top-up; it doesn't buy credits for you.";
+
+/** The help sentence owners actually read. The automatic-purchase string is unreachable while the
+ *  honesty flag is false. */
+export function lowBalanceHelpCopy(): string {
+  return AUTO_RECHARGE_CHARGES_AUTOMATICALLY ? LOW_BALANCE_HELP_AUTOMATIC : LOW_BALANCE_HELP_MANUAL;
+}
+
+/** Every static owner-facing string this feature renders. The honesty tests walk this list. */
+export function lowBalanceOwnerFacingCopy(): string[] {
+  return [LOW_BALANCE_WARNING_LABEL, LOW_BALANCE_WARNING_TOGGLE, lowBalanceHelpCopy()];
+}
 
 /** Matches the default of CREDITS_ALERT_THRESHOLD in lib/alerts (the Slack low-credit line), so the
  *  in-app warning and the pushed alert agree out of the box. */

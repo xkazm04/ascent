@@ -2,9 +2,10 @@
 // and the nine-dimension strip. Presentational + pure (no hooks, no handlers) so the scorecard page
 // stays a server component and its numbers are in the crawled HTML.
 //
-// It draws a number ONLY when a model actually produced one. `verifiedCount === 0` renders the refusal
-// state instead — the same rule the share card applies to an incomplete scan and the badge applies via
-// its `demo` qualifier. There is no code path here that renders an average over mock scores.
+// It draws a number ONLY when a model actually produced one. `verifiedCount === 0` (or a null
+// average) renders the refusal state instead — the same rule the share card applies to an incomplete
+// scan and the badge applies via its `demo` qualifier. There is no code path here that renders an
+// average over mock scores, and a null grade is never drawn as 0/100.
 
 import type { PublicOrgScorecard } from "@/lib/register/data";
 import type { DimensionId, LevelId } from "@/lib/types";
@@ -14,7 +15,9 @@ import { DIMENSION_SHORT, LEVEL_GLYPH, LEVEL_HEX, scoreHex } from "@/lib/ui";
 const DIMS: DimensionId[] = DIMENSIONS.map((d) => d.id);
 
 export function ScorecardSummary({ card }: { card: PublicOrgScorecard }) {
-  if (card.verifiedCount === 0) {
+  // Refuse to draw when nothing is model-scored. `avgOverall == null` is the same fact as
+  // `verifiedCount === 0` (G19: a null grade is not 0/100); do not fall through to `/100`.
+  if (card.verifiedCount === 0 || card.avgOverall == null || card.avgAdoption == null || card.avgRigor == null) {
     return (
       <div className="mt-8 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-8">
         <p className="type-lede font-semibold text-white">No published score yet</p>

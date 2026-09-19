@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { MCP_TOOLS, TOOLS_CACHE_SCOPE, toolsForScopes, toWireTool } from "./tools";
+import {
+  MCP_TOOLS,
+  TOOLS_CACHE_SCOPE,
+  TOOLS_LIST_SCOPE_COPY,
+  TOOLS_LIST_SCOPE_META_KEY,
+  toolsForScopes,
+  toolsListEnvelope,
+  toWireTool,
+} from "./tools";
 import type { SkillTokenScope } from "@/lib/db";
+import { META } from "./protocol";
 
 describe("the tool catalog", () => {
   // The revision asks servers to return tools deterministically so clients can cache the list and
@@ -135,5 +144,57 @@ describe("caching hints", () => {
   // serving it to another would leak which tools that org's token reaches.
   it("marks the tool list private, never public", () => {
     expect(TOOLS_CACHE_SCOPE).toBe("private");
+  });
+});
+
+describe("tools/list scope-model copy", () => {
+  function readOnlyListPayload() {
+    return toolsListEnvelope(1, toolsForScopes(["mcp:read"]));
+  }
+
+  // FAIL-BEFORE: a door-only list was tools + ttlMs + cacheScope + a nameless serverInfo, so an
+  // agent holding only mcp:read could not tell that memory:read / skills:read exist.
+  it("documents on an mcp:read-only list that memory:read and skills:read exist", () => {
+    const payload = JSON.stringify(readOnlyListPayload());
+    expect(payload).toContain("memory:read");
+    expect(payload).toContain("skills:read");
+    expect(TOOLS_LIST_SCOPE_COPY).toContain("memory:read");
+    expect(TOOLS_LIST_SCOPE_COPY).toContain("skills:read");
+    expect(TOOLS_LIST_SCOPE_COPY).toMatch(/recall_org_memory/);
+    expect(TOOLS_LIST_SCOPE_COPY).toMatch(/find_skills/);
+    expect(TOOLS_LIST_SCOPE_COPY).toMatch(/telemetry:write/);
+  });
+
+  it("stamps the copy on _meta and serverInfo.description, not as per-tool scopes", () => {
+    const result = readOnlyListPayload().result as {
+      tools: Record<string, unknown>[];
+      _meta: Record<string, unknown>;
+    };
+    expect(result._meta[TOOLS_LIST_SCOPE_META_KEY]).toBe(TOOLS_LIST_SCOPE_COPY);
+    expect(result._meta[META.serverInfo]).toMatchObject({
+      name: "ascent",
+      description: TOOLS_LIST_SCOPE_COPY,
+    });
+    for (const t of result.tools) expect(t).not.toHaveProperty("scopes");
+  });
+
+  it("still withholds recall and skills tools from a door-only list", () => {
+    const names = toolsForScopes(["mcp:read"]).map((t) => t.name);
+    expect(names).not.toContain("recall_org_memory");
+    expect(names).not.toContain("find_skills");
+    const listed = (
+      readOnlyListPayload().result as { tools: { name: string }[] }
+    ).tools.map((t) => t.name);
+    expect(listed).toEqual(names);
+    expect(listed).toContain("get_repo_standing");
+  });
+
+  it("uses the same catalog-level copy for every caller, not a per-token leak", () => {
+    const door = JSON.stringify(toolsListEnvelope(1, toolsForScopes(["mcp:read"])));
+    const full = JSON.stringify(
+      toolsListEnvelope(1, toolsForScopes(["mcp:read", "memory:read", "skills:read", "telemetry:write", "followups:write"])),
+    );
+    expect(door).toContain(TOOLS_LIST_SCOPE_COPY);
+    expect(full).toContain(TOOLS_LIST_SCOPE_COPY);
   });
 });

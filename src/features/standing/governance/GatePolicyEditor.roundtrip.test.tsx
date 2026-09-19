@@ -16,7 +16,9 @@
 
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { MAX_REQUIRE_CHECKS } from "@/lib/scoring/gate";
 import { GatePolicyEditor } from "./GatePolicyEditor";
+import { normalizeRequireChecks, passthroughPolicyFields, REQUIRE_CHECKS_CAP } from "./gatePolicyReconcile";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
@@ -31,6 +33,10 @@ function stubSave(body: Record<string, unknown>, ok = true) {
 const save = () => fireEvent.click(screen.getByRole("button", { name: "Save policy" }));
 const sentPolicy = (m: ReturnType<typeof stubSave>) =>
   JSON.parse(String((m.mock.calls[0][1] as RequestInit).body)).policy;
+function addCheck(id: string) {
+  fireEvent.change(screen.getByRole("textbox", { name: /doctor check id/i }), { target: { value: id } });
+  fireEvent.click(screen.getByRole("button", { name: /add required control/i }));
+}
 
 beforeEach(() => vi.clearAllMocks());
 afterEach(() => {
@@ -59,7 +65,7 @@ describe("GatePolicyEditor — fields the form does not render survive a save", 
     expect(sent.requireChecks).toEqual(["control.prepush.lint", "guardrail.never-commit"]);
   });
 
-  it("round-trips the other two unmodelled bars too — the same hole, different fields", async () => {
+  it("round-trips forbidAiAuthorship — the remaining unmodelled bar", async () => {
     const stored = { minOverall: 50, minAiGovernedRate: 100, forbidAiAuthorship: true };
     const fetchMock = stubSave({ policy: stored, sweep: NO_SWEEP });
     render(<GatePolicyEditor org="acme" initial={stored} />);
@@ -70,6 +76,7 @@ describe("GatePolicyEditor — fields the form does not render survive a save", 
     const sent = sentPolicy(fetchMock);
     expect(sent.minAiGovernedRate).toBe(100);
     expect(sent.forbidAiAuthorship).toBe(true);
+    expect(passthroughPolicyFields(stored)).toEqual({ forbidAiAuthorship: true });
   });
 
   it("still CLEARS a field it does render — round-trip must not become a merge", async () => {
@@ -121,5 +128,73 @@ describe("GatePolicyEditor — fields the form does not render survive a save", 
     await waitFor(() => expect(screen.getByRole("status").textContent).toContain("REMOVED"));
     expect(screen.getByRole("status").textContent).toContain("required controls");
     expect(screen.getByRole("status").textContent).toContain("control.prepush.lint");
+  });
+});
+
+describe("GatePolicyEditor — requireChecks is an owned control", () => {
+  it("adds two valid ids and POSTs them sorted", async () => {
+    const fetchMock = stubSave({
+      policy: { minOverall: 50, requireChecks: ["control.prepush.lint", "guardrail.never-commit"] },
+      sweep: NO_SWEEP,
+    });
+    render(<GatePolicyEditor org="acme" initial={{ minOverall: 50 }} />);
+    addCheck("guardrail.never-commit");
+    addCheck("control.prepush.lint");
+    save();
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(sentPolicy(fetchMock).requireChecks).toEqual(["control.prepush.lint", "guardrail.never-commit"]);
+  });
+
+  it("omits the field when the last id is removed", async () => {
+    const fetchMock = stubSave({ policy: { minOverall: 50 }, sweep: NO_SWEEP });
+    render(<GatePolicyEditor org="acme" initial={{ minOverall: 50, requireChecks: ["control.prepush.lint"] }} />);
+    fireEvent.click(screen.getByRole("button", { name: /remove required control control\.prepush\.lint/i }));
+    save();
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(sentPolicy(fetchMock).requireChecks).toBeUndefined();
+  });
+
+  it("drops a malformed id client-side so it never reaches the POST", async () => {
+    const fetchMock = stubSave({
+      policy: { minOverall: 50, requireChecks: ["control.prepush.lint"] },
+      sweep: NO_SWEEP,
+    });
+    render(<GatePolicyEditor org="acme" initial={{ minOverall: 50 }} />);
+    addCheck("NOT A CHECK");
+    addCheck("control.prepush.lint");
+    save();
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(sentPolicy(fetchMock).requireChecks).toEqual(["control.prepush.lint"]);
+    expect(screen.queryByText("NOT A CHECK")).toBeNull();
+  });
+
+  it("caps and validates ids the same way sanitizeGatePolicy does", () => {
+    expect(REQUIRE_CHECKS_CAP).toBe(MAX_REQUIRE_CHECKS);
+    expect(
+      normalizeRequireChecks(["NOT VALID", "guardrail.never-commit", "control.prepush.lint", "guardrail.never-commit"]),
+    ).toEqual(["control.prepush.lint", "guardrail.never-commit"]);
+    const extra = Array.from({ length: REQUIRE_CHECKS_CAP + 2 }, (_, i) => `control.prepush.c${String(i).padStart(3, "0")}`);
+    expect(normalizeRequireChecks(extra)).toHaveLength(REQUIRE_CHECKS_CAP);
+  });
+});
+
+describe("GatePolicyEditor — minAiGovernedRate is an owned control", () => {
+  it("saves N=100 and drops the field on uncheck so passthrough cannot win", async () => {
+    const fetchMock = stubSave({ policy: { minOverall: 50, minAiGovernedRate: 100 }, sweep: NO_SWEEP });
+    render(<GatePolicyEditor org="acme" initial={{ minOverall: 50 }} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: /AI-governed/i }));
+    save();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(sentPolicy(fetchMock).minAiGovernedRate).toBe(100);
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Policy saved"));
+
+    const second = stubSave({ policy: { minOverall: 50 }, sweep: NO_SWEEP });
+    fireEvent.click(screen.getByRole("checkbox", { name: /AI-governed/i }));
+    save();
+    await waitFor(() => expect(second).toHaveBeenCalled());
+    expect(sentPolicy(second).minAiGovernedRate).toBeUndefined();
   });
 });

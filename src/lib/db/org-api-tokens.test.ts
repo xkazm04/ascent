@@ -11,6 +11,7 @@ vi.mock("@/lib/db/client", () => ({ getPrisma: mockGetPrisma, isDbConfigured: ()
 vi.mock("@/lib/db/org-rollup", () => ({ getOrgId: async (slug: string) => (slug === "acme" ? "org_acme" : null) }));
 
 import {
+  cleanScopes,
   createOrgApiToken,
   ensureOrgApiToken,
   revokeOrgApiTokensByName,
@@ -39,12 +40,24 @@ describe("createOrgApiToken", () => {
     expect(res!.summary.scopes).toEqual(["skills:read", "skills:write"]);
   });
 
-  it("never mints an empty-scope token (defaults to skills:read)", async () => {
+  it("never mints an empty-scope token (defaults to mcp:read)", async () => {
     mockGetPrisma.mockReturnValue({
       orgApiToken: { create: vi.fn(async (a: { data: Record<string, unknown> }) => ({ id: "t", ...a.data, lastUsedAt: null, createdAt: new Date() })) },
     });
     const res = await createOrgApiToken("acme", { name: "x", scopes: [] });
-    expect(res!.summary.scopes).toEqual(["skills:read"]);
+    expect(res!.summary.scopes).toEqual(["mcp:read"]);
+  });
+});
+
+describe("cleanScopes", () => {
+  it("defaults empty or invalid lists to mcp:read (the MCP door, not leftover skills:read)", () => {
+    expect(cleanScopes([])).toContain("mcp:read");
+    expect(cleanScopes(undefined)).toEqual(["mcp:read"]);
+    expect(cleanScopes(["not-a-scope"])).toEqual(["mcp:read"]);
+  });
+
+  it("keeps an explicit skills:read opt-in without adding mcp:read", () => {
+    expect(cleanScopes(["skills:read"])).toEqual(["skills:read"]);
   });
 });
 

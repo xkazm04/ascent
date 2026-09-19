@@ -23,9 +23,10 @@
 export type Fidelity = "measured" | "allocated" | "seats-only";
 export type ProviderStatus = "available" | "planned";
 export type ConnectKind = "otel-push" | "admin-pull";
+export type ProviderId = "claude-code" | "copilot" | "openai";
 
 export interface ProviderDef {
-  id: "claude-code" | "copilot" | "openai";
+  id: ProviderId;
   name: string;
   /** One line for the card. */
   blurb: string;
@@ -33,13 +34,31 @@ export interface ProviderDef {
   /** Best per-repo fidelity this provider can reach once connected. */
   fidelity: Fidelity;
   connectKind: ConnectKind;
-  /** What connecting it brings, shown as a short list on the card. */
+  /** What connecting it brings, shown as a short list on the card. Available rows list only stored facts. */
   capabilities: string[];
   /** The honest per-repo attribution note. */
   perRepo: string;
   /** A card sigil accent (kept off the brand azure so the three read as distinct). */
   accent: string;
 }
+
+/** Per-id connect panel. Distinct from `connectKind`: kind names the mechanism (OTel push vs admin
+ *  pull); this map names the surface, so an available admin-pull row cannot inherit Copilot's GitHub
+ *  App pull. Total over `ProviderId` — a new id is a compile error until it is mapped. `none` is the
+ *  explicit unshipped slot and requires a reason. */
+export type ConnectSetup =
+  | { panel: "claude-code" }
+  | { panel: "copilot" }
+  | { panel: "none"; reason: string };
+
+export const CONNECT_SETUP = {
+  "claude-code": { panel: "claude-code" },
+  copilot: { panel: "copilot" },
+  openai: {
+    panel: "none",
+    reason: "The OpenAI Codex Admin Costs connector is not shipped.",
+  },
+} as const satisfies Record<ProviderId, ConnectSetup>;
 
 export const FIDELITY_META: Record<Fidelity, { label: string; hex: string; note: string }> = {
   measured: { label: "Measured", hex: "#22c55e", note: "attributed to the exact repo by the provider" },
@@ -59,11 +78,9 @@ export const PROVIDERS: ProviderDef[] = [
     fidelity: "measured",
     connectKind: "otel-push",
     blurb: "Per-session token & cost telemetry, pushed to Ascent over OpenTelemetry.",
-    capabilities: [
-      "Per-repo tokens & cost (OTel git.repository)",
-      "Per-user sessions, lines, commits, PRs",
-      "Admin Usage/Cost totals (optional, next)",
-    ],
+    // Honest catalog: Test + OTel metrics persist per-repo tokens & cost via git.repository.
+    // Do not list per-user sessions/lines/commits/PRs or Admin Usage totals; those are not stored.
+    capabilities: ["Per-repo tokens & cost (OTel git.repository)"],
     perRepo: "Measured: OTel resource attributes carry the repository, so spend lands on the exact repo.",
     accent: "#d97757",
   },

@@ -13,7 +13,7 @@ import { resolveScanScope } from "@/lib/scan-scope-server";
 import { tooManyRequests } from "@/lib/rate-limit";
 import { cacheAndPersistScan, classifyScanResult, consumeScanQuota } from "@/lib/scan-finalize";
 import { scanAuthGate, scanCreditGate, scanRateLimitGate } from "@/lib/scan-gates";
-import { paymentRequired } from "@/lib/entitlement";
+import { scanCreditRefusal } from "@/lib/entitlement";
 import { getViewer } from "@/lib/access";
 import { publicBaseUrl } from "@/lib/site";
 import { reportPermalink } from "@/lib/ui";
@@ -144,7 +144,7 @@ export async function POST(request: Request) {
   // Credit RESERVATION for a metered (private / installed-org) scan — the fourth and last pre-scan
   // gate, shared with /api/scan via scanCreditGate and sequenced there identically (rate limit →
   // sign-in wall → quota → credit). Reserved HERE, before the stream opens and before any inference,
-  // so a 402 is a plain JSON response rather than an SSE `error` frame, and so two concurrent scans
+  // so a 402/404 is a plain JSON response rather than an SSE `error` frame, and so two concurrent scans
   // cannot both pass a point-in-time balance read and both run paid inference. Public (token-less)
   // and mock scans are never charged — `isMeteredScan` inside the gate short-circuits them, so the
   // public funnel still pays only the monthly quota consumed above.
@@ -155,7 +155,7 @@ export async function POST(request: Request) {
     // so the thunk just hands it back — the ledger row names the person whose scan spent the credit.
     resolveActor: () => viewer?.login ?? null,
   });
-  if (!credit.ok) return paymentRequired(credit.balance);
+  if (!credit.ok) return scanCreditRefusal(credit);
   // Refund the reservation from the same in-stream no-delivery paths `refundQuota` fires on (cached
   // hit, coalesce join, degrade-to-mock, dedup, throw/abort): the credit meter, like the free tier,
   // meters on commit, not attempt. Idempotent — at most one refund per reservation.
@@ -337,7 +337,7 @@ export async function POST(request: Request) {
         // scored produced no new scored row, so the reservation is handed back — "a dedup run is free",
         // the same rule /api/scan and the fleet paths apply.
         // Pass the whole guard object so a new poisoning vector (e.g. partialPrSlice) can't be dropped.
-        const { deduped } = await cacheAndPersistScan(report, resultClass, {
+        const { deduped, durable } = await cacheAndPersistScan(report, resultClass, {
           tag: "scan/stream",
           repo: parsed ? `${parsed.owner}/${parsed.repo}` : url,
           orgSlug,
@@ -367,6 +367,11 @@ export async function POST(request: Request) {
               : { message: "Email isn't configured on this deployment, so we can't send the report link." }),
           });
         }
+        // BEFORE `result`: the client settles on that frame and stops reading. `ok` is the same
+        // durable-store fact cacheAndPersistScan just computed — the live-scan page rewrites
+        // `/report?repo=` to `/report/{owner}/{repo}` only when this is true, so a reload cannot
+        // land on ColdScanGate under a URL whose metadata would claim a scored report.
+        send("persisted", { ok: durable });
         send("result", report);
 
         // "Email me when it's done" (opt-in). Sent AFTER the result frame so the report appears

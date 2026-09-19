@@ -9,12 +9,14 @@
 // another tab ticks a row live. Doneness is DERIVED: no click in here records progress, and no door
 // elsewhere in the product is second-class.
 //
-// THREE POSTURES, ONE CHANNEL (the whole entry-intensity rule):
+// THREE POSTURES, ONE CHANNEL (the whole entry-intensity rule), plus a failed-read hold:
 //  - `companion` — a member whose onboarding is unstamped and unfinished. The drawer opens itself,
 //    promotes ONE next task with its primary CTA + "Show me", keeps the rest as a thin rail, and
 //    offers "Skip setup" (which STAMPS — collapsing does not).
 //  - `teaching`  — stamped, complete, the demo org, or anyone with no membership row. Exactly the old
 //    behaviour: collapsed pull tab, discoverable, with the teach steps no task claimed.
+//  - `unavailable` — the getting-started read failed and there is no last-good payload. Not teaching
+//    (a miss is not "setup is done") and not an empty checklist (a miss is not "nothing to derive").
 //  - `athena`    — the member switched the drawer to the resident companion. NOT derived; an explicit
 //    choice. She ABSORBED into this drawer rather than arriving as a second floating thing: one
 //    right-edge channel was the rule before her and still is.
@@ -71,7 +73,7 @@ export function TourChecklist({ slug }: { slug: string }) {
   const [athenaOn, setAthenaOn] = useState(false);
   const [athenaMounted, setAthenaMounted] = useState(false);
 
-  const { payload, loaded } = useGettingStarted(slug);
+  const { payload, loaded, failed } = useGettingStarted(slug);
 
   // Snapshot the stored drawer state on mount. This effect is declared ABOVE useTourEngine on purpose:
   // effects run in declaration order, and the engine's persist effect writes the same record — read
@@ -88,7 +90,7 @@ export function TourChecklist({ slug }: { slug: string }) {
   }, [slug]);
 
   const isDemoOrg = slug.trim().toLowerCase() === PUBLIC_ORG;
-  const derived = skipped ? "teaching" : decidePosture(payload, { isDemoOrg });
+  const derived = skipped ? "teaching" : decidePosture(payload, { isDemoOrg, failed });
   const posture = resolveDrawerPosture(derived, athenaOn);
   const items = useMemo(
     () => buildDrawerItems(payload, { includeTeach: derived === "teaching" }),
@@ -108,7 +110,10 @@ export function TourChecklist({ slug }: { slug: string }) {
   // navigation. With nothing stored, the posture decides — that IS the entry-intensity rule.
   useEffect(() => {
     if (!loaded || !snapshotTakenRef.current || restored) return;
+    // A failed read is not a settled posture: don't consume the one-shot restore, so a later
+    // success can still auto-open the companion. A stored decision may still apply.
     const saved = savedRef.current;
+    if (derived === "unavailable" && !saved) return;
     setOpen(saved ? saved.open : derived === "companion");
     setRestored(true);
   }, [loaded, restored, derived]);
@@ -229,7 +234,12 @@ export function TourChecklist({ slug }: { slug: string }) {
               </div>
             )}
 
-            {!athena && (
+            {!athena && derived === "unavailable" && (
+              <p className="px-4 py-3 type-body-sm leading-relaxed text-slate-400">
+                The setup list could not be loaded. It will appear once the read succeeds.
+              </p>
+            )}
+            {!athena && derived !== "unavailable" && (
               <>
                 <TourChecklistBody
                   slug={slug}

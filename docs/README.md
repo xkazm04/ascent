@@ -20,6 +20,7 @@ playbooks, passports, a CI gate). Docs from the hackathon period live in
 | --- | --- |
 | [`features/`](features/README.md) | **The implemented product surface**, one folder per `context-map.json` group. Start here for "how does X work today, and where is it in the code?" |
 | `*.md` (this level) | Cross-cutting docs: the *why*, the *model*, and the operational setup |
+| [`adr/`](adr/README.md) | **Architecture decision records** — one file per consequential choice, with the alternatives that lost. Never edited to look current; superseded, not rewritten |
 | [`archive/`](archive/) | Dated, point-in-time artifacts. Append-only; never edited to look current |
 | `harness/` | Gitignored local scan-run output. Not part of the corpus |
 

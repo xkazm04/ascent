@@ -6,6 +6,9 @@ import { describe, it, expect, vi } from "vitest";
 
 const { mockHistory, mockAdoptions } = vi.hoisted(() => ({ mockHistory: vi.fn(), mockAdoptions: vi.fn() }));
 vi.mock("@/lib/db", () => ({ getRepositoryHistory: mockHistory, listOrgSkillAdoptionRows: mockAdoptions }));
+vi.mock("@/lib/db/scans-read", () => ({
+  isCompactedPointId: (id: string) => id.startsWith("digest:"),
+}));
 
 import { getOrgSkillOutcomes } from "./skill-outcomes-load";
 import {

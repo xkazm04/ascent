@@ -7,7 +7,8 @@
 // memory, PDF export) were missing from the table altogether, sold nowhere and enforced anyway.
 
 import { describe, it, expect } from "vitest";
-import { PLAN_CAPABILITIES, PLAN_CAPABILITY_ORDER, PLAN_FEATURES, PLAN_ORDER, planAllows } from "@/lib/plans";
+import { PLAN_CAPABILITIES, PLAN_LISTED_CAPABILITY_ORDER, PLAN_FEATURES, PLAN_ORDER, planAllows } from "@/lib/plans";
+import { PUBLIC_SCAN_WINDOW_DAYS, publicScanAllowance } from "@/lib/public-scan-limit";
 import { CREDIT_RULE, MATRIX_GROUPS, MATRIX_PLANS, PLANNED_ROW_LABELS } from "./creditMatrixData";
 
 const capabilitiesGroup = MATRIX_GROUPS.find((g) => g.key === "capabilities")!;
@@ -17,7 +18,7 @@ const anyRow = (label: string) => MATRIX_GROUPS.flatMap((g) => g.rows).find((r) 
 
 describe("credit matrix — the capability rows are the gate, rendered", () => {
   it("lists every gated capability, once, under its model label", () => {
-    for (const cap of PLAN_CAPABILITY_ORDER) {
+    for (const cap of PLAN_LISTED_CAPABILITY_ORDER) {
       const label = PLAN_CAPABILITIES[cap].label;
       const matches = capabilitiesGroup.rows.filter((r) => r.label === label);
       expect(matches, label).toHaveLength(1);
@@ -27,7 +28,7 @@ describe("credit matrix — the capability rows are the gate, rendered", () => {
   it("every cell agrees with planAllows() for that tier — the page cannot oversell the gate", () => {
     // The suite runs with ASCENT_SELF_HOSTED=0 pinned (vitest.config.js), so this is the CLOUD matrix,
     // which is the one /pricing is describing. A self-hosted build has no pricing page to contradict.
-    for (const cap of PLAN_CAPABILITY_ORDER) {
+    for (const cap of PLAN_LISTED_CAPABILITY_ORDER) {
       const row = rowFor(PLAN_CAPABILITIES[cap].label)!;
       for (const plan of PLAN_ORDER) {
         expect(row.cells[plan], `${cap} @ ${plan}`).toBe(planAllows(cap, plan));
@@ -37,7 +38,7 @@ describe("credit matrix — the capability rows are the gate, rendered", () => {
 
   it("marks capability rows as included-in-plan, never as credit-metered", () => {
     // The whole point of the matrix: credits buy exactly one thing (a scan past the allowance).
-    for (const cap of PLAN_CAPABILITY_ORDER) expect(rowFor(PLAN_CAPABILITIES[cap].label)!.tag).toBe("plan");
+    for (const cap of PLAN_LISTED_CAPABILITY_ORDER) expect(rowFor(PLAN_CAPABILITIES[cap].label)!.tag).toBe("plan");
   });
 
   it("still carries the ungated rows the model deliberately does not gate", () => {
@@ -52,18 +53,26 @@ describe("credit matrix — the capability rows are the gate, rendered", () => {
   });
 });
 
-// The scanning group used to open with "Every scan, public or private, draws on one monthly
-// allowance", three lines under a file header that says the opposite and directly above a table that
-// shows the opposite. `plans.ts` (PlanFeature.includedCredits doc), `db/credits.ts:3` and
-// `/pricing`'s own page header all agree: an anonymous PUBLIC scan is never metered.
-describe("credit matrix — public scans are never metered, and the copy says so", () => {
+// Public scans never draw on the plan allowance (credits.ts) AND they are not Unlimited: the same
+// visitor's QuotaMeter counts down from publicScanAllowance(). MC-B5 derived the Free card; this
+// group still printed Unlimited in every cell. Cells and intro now read the same phrase (G8).
+describe("credit matrix — public-scan volume is publicScanAllowance, not Unlimited", () => {
   it("gives public and private scans their own rows, with only the private one drawing credits", () => {
     const pub = scanningGroup.rows.find((r) => r.label === "Public repository scan")!;
     const priv = scanningGroup.rows.find((r) => r.label === "Private repository scan")!;
     expect(pub.tag).toBe("free");
     expect(priv.tag).toBe("credit");
-    // Free on EVERY tier, with no per-tier number to overrun.
-    for (const plan of PLAN_ORDER) expect(pub.cells[plan], `public @ ${plan}`).toBe("Unlimited");
+    // Same phrase the quota gate composes, on every tier — not Unlimited.
+    expect(PLAN_ORDER).toHaveLength(4);
+    for (const plan of PLAN_ORDER) {
+      expect(pub.cells[plan], `public @ ${plan}`).toBe(publicScanAllowance().label);
+    }
+  });
+
+  it("states the public-scan allowance in the scanning intro, never Unlimited or unmetered", () => {
+    expect(scanningGroup.intro).toContain(publicScanAllowance().label);
+    expect(scanningGroup.intro).toContain(`rolling ${PUBLIC_SCAN_WINDOW_DAYS}-day window`);
+    expect(scanningGroup.intro.toLowerCase()).not.toMatch(/unlimited|unmetered|never metered/);
   });
 
   it("never lumps public in with private, and names public scans in both summary sentences", () => {
@@ -108,7 +117,7 @@ describe("credit matrix — an unenforced tier boundary is marked, not asserted"
   });
 
   it("never flags a row derived from PLAN_CAPABILITIES — those cells ARE the gate", () => {
-    for (const cap of PLAN_CAPABILITY_ORDER) {
+    for (const cap of PLAN_LISTED_CAPABILITY_ORDER) {
       expect(rowFor(PLAN_CAPABILITIES[cap].label)!.planned, cap).toBeUndefined();
     }
   });

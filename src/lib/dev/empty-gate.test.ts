@@ -29,4 +29,8 @@ describe("emptyTenantEnabled", () => {
     // Even if the real process env had the flag on, an explicit empty bag must win.
     expect(emptyTenantEnabled({ OTHER: "1" })).toBe(false);
   });
+
+  it("is not floored in production — the flag restricts writes, it is not an escape hatch", () => {
+    expect(emptyTenantEnabled({ ASCENT_EMPTY: "1", NODE_ENV: "production" })).toBe(true);
+  });
 });

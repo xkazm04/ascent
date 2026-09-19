@@ -14,6 +14,7 @@ const { mockIsDbConfigured, mockGetPrisma } = vi.hoisted(() => ({
 
 vi.mock("@/lib/db/client", () => ({ getPrisma: mockGetPrisma, isDbConfigured: mockIsDbConfigured }));
 
+import { retentionCutoff } from "@/lib/plans";
 import {
   boundUsageDays,
   buildDailySeries,
@@ -487,6 +488,44 @@ describe("boundUsageDays", () => {
     expect(boundUsageDays("91", true)).toBe(90);
     expect(boundUsageDays("1000", false)).toBe(365);
   });
+
+  it("caps Free at 30 days when plan is passed", () => {
+    expect(boundUsageDays("365", false, "free")).toBe(30);
+    expect(boundUsageDays("90", false, "free")).toBe(30);
+    expect(boundUsageDays("7", false, "free")).toBe(7);
+    expect(boundUsageDays("30", false, "free")).toBe(30);
+  });
+
+  it("caps Starter at 180 and leaves Team at 365", () => {
+    expect(boundUsageDays("365", false, "pro")).toBe(180);
+    expect(boundUsageDays("90", false, "pro")).toBe(90);
+    expect(boundUsageDays("365", false, "team")).toBe(365);
+  });
+
+  it("leaves Custom/unlimited at the 365 query cap (no retention floor)", () => {
+    expect(boundUsageDays("1000", false, "enterprise")).toBe(365);
+    expect(boundUsageDays("365", false, "enterprise")).toBe(365);
+  });
+
+  it("does not apply the plan cap on the public funnel (90-day DoS cap still wins)", () => {
+    expect(boundUsageDays("365", true, "free")).toBe(90);
+    expect(boundUsageDays("1000", true, "free")).toBe(90);
+  });
+
+  it("does not apply the plan cap when plan is omitted (legacy 90/365)", () => {
+    expect(boundUsageDays("365", false)).toBe(365);
+    expect(boundUsageDays("365", true)).toBe(90);
+  });
+
+  it("does not apply the plan cap on self-host even for Free", () => {
+    vi.stubEnv("ASCENT_SELF_HOSTED", "1");
+    try {
+      expect(boundUsageDays("365", false, "free")).toBe(365);
+    } finally {
+      vi.unstubAllEnvs();
+      vi.stubEnv("ASCENT_SELF_HOSTED", "0");
+    }
+  });
 });
 
 describe("the newest day only survives on an INTEGER window (the fractional-days fix)", () => {
@@ -811,10 +850,10 @@ describe("clampDailySeries — the zero-fill stops at the org's first scan (Dire
 
 describe("getUsageSummary — echoes the window it actually covered (Direction 9)", () => {
   const NOW = Date.UTC(2026, 6, 28, 12, 0, 0);
-  function stub(firstScan: Date | null) {
+  function stub(firstScan: Date | null, plan = "enterprise") {
     mockIsDbConfigured.mockReturnValue(true);
     mockGetPrisma.mockReturnValue({
-      organization: { findUnique: vi.fn(async () => ({ id: "org1", kind: "org" })) },
+      organization: { findUnique: vi.fn(async () => ({ id: "org1", kind: "org", plan })) },
       scan: {
         count: vi.fn(async () => 1),
         groupBy: vi.fn(async () => []),
@@ -830,7 +869,11 @@ describe("getUsageSummary — echoes the window it actually covered (Direction 9
     vi.setSystemTime(NOW);
     mockGetPrisma.mockReset();
   });
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+    vi.stubEnv("ASCENT_SELF_HOSTED", "0");
+  });
 
   it("returns the half-open window and names the timezone, so no reader rebuilds it from a local clock", async () => {
     stub(new Date(Date.UTC(2020, 0, 1)));
@@ -843,10 +886,18 @@ describe("getUsageSummary — echoes the window it actually covered (Direction 9
     expect(s.daily).toHaveLength(30);
   });
 
+  it("does not shrink a Free 30-day window that already sits inside retention", async () => {
+    stub(new Date(Date.UTC(2020, 0, 1)), "free");
+    const s = (await getUsageSummary("acme", 30))!;
+    expect(s.windowSince).toBe("2026-06-29T00:00:00.000Z");
+    expect(s.periodDays).toBe(30);
+    expect(s.effectiveSince).toBe(s.windowSince);
+  });
+
   it("clamps a 365-day window on a five-day-old org instead of exporting 360 measured zeros", async () => {
     stub(new Date(Date.UTC(2026, 6, 24, 8, 0)));
     const s = (await getUsageSummary("acme", 365))!;
-    expect(s.periodDays).toBe(365); // what was asked for, unchanged
+    expect(s.periodDays).toBe(365); // Custom: retention is unbounded, requested window stands
     expect(s.daily).toHaveLength(5); // …what was actually measured
     expect(s.effectiveDays).toBe(5);
     expect(s.effectiveSince).toBe("2026-07-24T00:00:00.000Z");
@@ -855,11 +906,48 @@ describe("getUsageSummary — echoes the window it actually covered (Direction 9
     expect(s.daily.at(-1)!.date).toBe("2026-07-28");
   });
 
-  it("accepts a caller-supplied window verbatim, so a sibling read can share it exactly", async () => {
+  it("accepts a caller-supplied window verbatim on Custom, so a sibling read can share it exactly", async () => {
     stub(new Date(Date.UTC(2020, 0, 1)));
     const win = usageWindow(7, Date.UTC(2026, 0, 10, 6, 0));
     const s = (await getUsageSummary("acme", 7, win))!;
     expect(s.windowSince).toBe(win.since.toISOString());
     expect(s.windowBefore).toBe(win.before.toISOString());
+  });
+
+  it("clamps a Free org's 365-day request to retentionCutoff so older history cannot leak", async () => {
+    stub(new Date(Date.UTC(2020, 0, 1)), "free");
+    const s = (await getUsageSummary("acme", 365))!;
+    const cutoff = retentionCutoff("free", NOW)!;
+    expect(new Date(s.windowSince).getTime()).toBeGreaterThanOrEqual(cutoff.getTime());
+    expect(new Date(s.effectiveSince).getTime()).toBeGreaterThanOrEqual(cutoff.getTime());
+    expect(s.daily.every((d) => d.date >= cutoff.toISOString().slice(0, 10))).toBe(true);
+    // UTC-day rounding of a noon cutoff can span 30 or 31 calendar days; never the requested year.
+    expect(s.periodDays).toBeLessThanOrEqual(31);
+    expect(s.periodDays).toBeGreaterThanOrEqual(30);
+    expect(s.daily).toHaveLength(s.periodDays);
+  });
+
+  it("does not clamp Custom/unlimited retention: a 365-day window stays 365 days back", async () => {
+    stub(new Date(Date.UTC(2020, 0, 1)), "enterprise");
+    const s = (await getUsageSummary("acme", 365))!;
+    expect(s.windowSince).toBe("2025-07-29T00:00:00.000Z");
+    expect(s.periodDays).toBe(365);
+    expect(s.effectiveSince).toBe(s.windowSince);
+  });
+
+  it("does not clamp on self-host even for Free — retentionCutoff is null", async () => {
+    vi.stubEnv("ASCENT_SELF_HOSTED", "1");
+    stub(new Date(Date.UTC(2020, 0, 1)), "free");
+    const s = (await getUsageSummary("acme", 365))!;
+    expect(retentionCutoff("free", NOW)).toBeNull();
+    expect(s.windowSince).toBe("2025-07-29T00:00:00.000Z");
+    expect(s.periodDays).toBe(365);
+  });
+
+  it("does not clamp the public funnel to Free's 30-day floor (90-day DoS cap is the bound)", async () => {
+    stub(new Date(Date.UTC(2020, 0, 1)), "free");
+    const s = (await getUsageSummary("public", 90))!;
+    expect(s.windowSince).toBe(usageWindow(90, NOW).since.toISOString());
+    expect(s.periodDays).toBe(90);
   });
 });

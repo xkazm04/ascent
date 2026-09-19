@@ -41,12 +41,15 @@ It still renders the full dashboard chrome:
 
 Sub-view switching inside the module is **React state, never a search param** (§5.3). The old `?demo=`
 mechanism is gone: a "Preview as" control lives in `useState` inside the client `DeveloperHome`, and it
-appears **only while the real view is blank** — a fixture is a dev/preview affordance, not a shareable
-URL, and it always stamps a visible `preview · <state>` chip **and**, since 2026-09-05, holds a sticky
-"Sample data - not your activity" banner (`CarePreviewBanner`) for the whole scroll with a way back
-to the empty view, so the fixture cannot be mistaken for the viewer's own activity once the masthead
-is out of view. The fixture module is imported on demand at the moment a preview is chosen; it is not
-in the initial client bundle.
+appears **only on a true empty view** — `activityState` is `absent` or `signed-out`, and nothing of the
+viewer's own has landed (no attributed activity, nothing shared, no moves, no repos). `withheld` and
+`unreadable` still have `activity: null`, but they are not invitations: Preview-as is hidden, and the
+page never says "Nothing of yours has landed here yet" for those states (the activity strip already
+names them). A fixture is a dev/preview affordance, not a shareable URL, and it always stamps a
+visible `preview · <state>` chip **and**, since 2026-09-05, holds a sticky "Sample data - not your
+activity" banner (`CarePreviewBanner`) for the whole scroll with a way back to the empty view, so the
+fixture cannot be mistaken for the viewer's own activity once the masthead is out of view. The fixture
+module is imported on demand at the moment a preview is chosen; it is not in the initial client bundle.
 
 ## What the page shows
 
@@ -68,7 +71,9 @@ One render, the Companion direction: a private notebook a calm colleague keeps f
 - **Session shape (30 days)** — one `Distribution` per shared count, with **your own value marked**
   against the org's p25→p75. See the four outcomes below; they are all visually distinct.
 - **The repos you commit to** — and their open recommendations. A repo with no scan shows the `missing`
-  void ("no scan"), never a "—" that could read as a floor score.
+  void ("no scan"), never a "—" that could read as a floor score. An empty list is not a watch-nudge
+  when `activityState` is `withheld` or `unreadable`: those reuse the activity-strip sentences (they
+  never say "Watch the repositories you commit to"). A genuine `absent` keeps the scan/watch nudge.
 - **Journal** · **Setup + the privacy ledger** — see below. The ledger is now a picture.
 
 ### The privacy guarantee is drawn, not promised
@@ -118,7 +123,10 @@ Every one of these is about the viewer themself, which is why the page cares mor
 `activity: null` carried all four and the page narrated them with one paragraph, so a **suppression**
 read exactly like "you have never committed here". `DeveloperView.activityState` now names which, set
 in `getDeveloperView` from `ContributorInsights.namingAllowed` — the same typed-state discipline as
-`RepoConcentration.topLoginState` ("withheld" vs "unknown").
+`RepoConcentration.topLoginState` ("withheld" vs "unknown"). Preview-as follows the same split: it is
+an invitation for `absent` and `signed-out` only; `withheld` and `unreadable` keep the real view and
+hide the chrome. The repos empty state follows the same split: `withheld` and `unreadable` reuse those
+sentences rather than asking the viewer to watch repositories so their gaps appear.
 
 The session-shape strip carries the same discipline on four outcomes:
 
@@ -156,6 +164,11 @@ The line between them is enforced in two directions:
   anonymized asks, shape bands and outcomes — all under `CHAMPION_MIN_POP`, suppressed rather than
   thinned below it. The guarantee is structural: `CareOrgView` has **no field that could hold a
   person**, and nothing per-person crosses from this page except through an explicit `share`.
+- **The git contributor count is not an opt-in.** `CareOrgView.population` is
+  `getContributorInsights().totalContributors` — how many people the snapshot counted, the same
+  denominator the naming floor uses. Sharing a care aggregate is a later, separate choice
+  (`adoption.sharing`). The Care section names that git count as the git snapshot (`CareOrgSuppressed`,
+  the Developers tile); it does not call it an opt-in.
 - **Shape bands have their own floor, on sharers** (2026-09-15). `careBandFromSharers` computes a
   field's p25/p50/p75 only when at least `CARE_BAND_MIN_SHARERS` (5) people **shared that field**; the
   population floor was the wrong key. With 3 sharers [10, 40, 90] the population floor showed

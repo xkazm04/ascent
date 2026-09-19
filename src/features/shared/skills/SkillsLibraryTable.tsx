@@ -3,11 +3,14 @@
 // The Skills catalog table — extracted from SkillsPanel per the 200-LOC .tsx cap. List state and the
 // archive mutation stay in useSkillsLibrary and are passed in as props.
 //
-// "Uses" is the FOLDED total (`SkillUsage.useCount`): web copies/downloads, hook-reported invokes, AND
-// the registry `usage/` lane every project writes its own counter into (`ascent-skills report
-// --to-registry`, no token). It falls back to the denormalized `downloadCount` only when no verdict
-// was computed for the row (persistence off, or a skill that arrived after the page loaded), so the
-// column can never disagree with the status badge beside it — both read the same fold.
+// "Uses" is the FOLDED total (`SkillUsage.useCount`) across both sinks, and it NAMES them plus the
+// window: sink A (events API: copies, downloads, hook/CI/MCP invokes) is all-time (the DB groupBy
+// has no window); sink B is the registry `usage/` lane every project writes its own counter into
+// (`ascent-skills report --to-registry`, no token) over each contributor's declared window. That is
+// a volume. The neighbouring Registry tab's `invokes30d` / `invokesDirect30d` are the 30d rates;
+// this column must not borrow that label. It falls back to the denormalized `downloadCount` only
+// when no verdict was computed for the row (persistence off, or a skill that arrived after the page
+// loaded), so the column can never disagree with the status badge beside it — both read the same fold.
 
 import { Fragment } from "react";
 import { OrgTable } from "@/components/org/shared/ui";
@@ -18,6 +21,15 @@ import { skillCategoryLabel } from "@/lib/org/skill-categories";
 import type { SkillUsage } from "@/lib/org/skill-usage";
 import type { SkillOutcome } from "@/lib/org/skill-outcomes";
 import type { SkillAdoption, SkillRow } from "@/lib/db";
+
+/** Sink A all-time + sink B as reported. Not the Registry tab's 30d invoke rate. */
+export const USES_COLUMN_WINDOW = "all-time";
+
+export const USES_COLUMN_TITLE =
+  "All-time volume: sink A (events API: copies, downloads, hook, CI and MCP invokes) plus sink B (registry usage/ over each contributor's declared window). Distinct from the Registry tab's 30d invoke rate.";
+
+export const USES_TABLE_CAPTION =
+  "Org skills: name, category, use status, adoptions and all-time uses (sink A events API and sink B registry usage/, not the Registry 30d rate)";
 
 export function SkillsLibraryTable({
   slug,
@@ -69,7 +81,7 @@ export function SkillsLibraryTable({
 
   return (
     <OrgTable
-      caption="Org skills: name, category, use status, adoptions and uses (web, hooks and registry counters)"
+      caption={USES_TABLE_CAPTION}
       minWidth={660}
       head={
         <tr>
@@ -77,8 +89,14 @@ export function SkillsLibraryTable({
           <th className="px-3 py-2 text-left">Category</th>
           <th className="px-3 py-2 text-left">Status</th>
           <th className="px-3 py-2 text-right">Adoptions</th>
-          <th className="px-3 py-2 text-right" title="Copies, downloads, hook-reported invokes and the registry usage lane, summed">
-            Uses
+          <th
+            className="px-3 py-2 text-right"
+            data-uses-window={USES_COLUMN_WINDOW}
+            data-uses-sinks="A B"
+            title={USES_COLUMN_TITLE}
+          >
+            Uses{" "}
+            <span className="font-normal normal-case tracking-normal text-slate-600">{USES_COLUMN_WINDOW}</span>
           </th>
         </tr>
       }

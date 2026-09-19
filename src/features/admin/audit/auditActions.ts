@@ -34,6 +34,8 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   { value: "followup.claim", label: "Follow-up claimed", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
   { value: "followup.attempt", label: "Follow-up attempt", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
   { value: "loop.remote_run_started", label: "Remote run armed", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
+  // ADR-0001 — a run Ascent Cloud dispatches. Its detail carries the credit reservation it paid.
+  { value: "loop.hosted_run_started", label: "Hosted run armed", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
   // G6-06: `org.gate_policy`/`playbook.updated` are genuinely recorded (see the route files below) but
   // were missing from this hand-maintained list, so they rendered as an unlabeled grey badge AND could
   // not be selected in the Action filter. See AuditLogCells.actions.test.ts, which walks every
@@ -63,6 +65,11 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   { value: "ai_stance.pr_opened", label: "AI policy PR", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
   { value: "playbook.updated", label: "Playbook updated", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
   { value: "playbook.deleted", label: "Playbook deleted", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
+  // Segment fleet-slice mutations — create / rename / delete / bulk tag previously left no trail.
+  { value: "segment.created", label: "Segment created", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
+  { value: "segment.updated", label: "Segment updated", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
+  { value: "segment.deleted", label: "Segment deleted", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
+  { value: "segment.bulk_tag", label: "Segment bulk tag", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
   { value: "org.member.role", label: "Member role", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
   { value: "org.member.removed", label: "Member removed", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
   { value: "org.member.invited", label: "Member invited", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
@@ -71,6 +78,9 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   // a capability back (briefing.share.revoked, integrations.token.rotate) rather than red, which is
   // reserved here for a grant being destroyed outright (org.member.removed).
   { value: "org.member.invite_revoked", label: "Invite revoked", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
+  // Token rotation on the same pending row (owner resend). Amber like the other capability-rotate
+  // acts: the previous link dies the moment the new token commits.
+  { value: "org.member.invite_resent", label: "Invite resent", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
   { value: "org.plan", label: "Plan change", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
   // A briefing share link is a per-grant capability: minting one is the act that lets a document
   // leave the org, and opening one is the only record a stateless token could never give. Both are
@@ -82,6 +92,9 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   { value: "briefing.share.revoked", label: "Briefing link revoked", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
   { value: "org.llm_provider.updated", label: "LLM provider updated", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
   { value: "org.llm_provider.disabled", label: "LLM provider disabled", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
+  // White-label briefing branding. Sky like the other org-config writes: it changes client-facing
+  // PDFs/share chrome, but it is not a grant/revoke (those are amber/red).
+  { value: "org.branding.updated", label: "Branding updated", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
   { value: "integrations.token.rotate", label: "Ingest token rotated", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
   { value: "integrations.copilot.sync", label: "Copilot synced", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
   { value: "org_api_token.created", label: "API token created", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
@@ -117,7 +130,7 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   { value: "foundation.reportback_provisioned", label: "Report-back provisioned", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
   { value: "foundation.reportback_revoked", label: "Report-back revoked", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
   { value: "issue.create", label: "Issue created", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
-  { value: "billing.autorecharge", label: "Auto-recharge", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
+  { value: "billing.autorecharge", label: "Low-balance warning", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
   { value: "conformance.reported", label: "Conformance report", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
   { value: "outcomes.backfill", label: "Outcome backfill", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
   // W2 — an evidence pack leaving the building. Amber, not sky: this is a governance-relevant EGRESS
@@ -130,6 +143,7 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   { value: "controls.verify", label: "Ledger integrity verified", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
   { value: "data.erased", label: "Data erased", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
   { value: "retention.purged", label: "Retention purge", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
+  { value: "retention.updated", label: "Retention policy updated", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
   // The ledger's own correction record: a once-per-window claim (a digest send, an Athena cycle) whose
   // guarded side effect FAILED is cancelled by appending this row rather than by deleting the claim, so
   // the trail keeps both the attempt and its withdrawal. Slate: nothing happened to the org — the point

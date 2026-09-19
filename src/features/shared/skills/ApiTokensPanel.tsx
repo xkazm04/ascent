@@ -12,6 +12,7 @@
 import { useState } from "react";
 import { Card, SectionHeader } from "@/components/org/shared/ui";
 import type { ApiTokenSummary, SkillTokenScope } from "@/lib/db";
+import { DEFAULT_PICKED_SCOPES } from "./apiTokenDefaults";
 
 const SCOPE_LABEL: Record<SkillTokenScope, string> = {
   "skills:read": "Read / download hosted skills (a registry-linked org needs no token for this)",
@@ -33,7 +34,7 @@ export function ApiTokensPanel({
 }) {
   const [tokens, setTokens] = useState<ApiTokenSummary[]>(initial);
   const [name, setName] = useState("");
-  const [picked, setPicked] = useState<Set<SkillTokenScope>>(new Set(["skills:read"]));
+  const [picked, setPicked] = useState<Set<SkillTokenScope>>(new Set<SkillTokenScope>(DEFAULT_PICKED_SCOPES));
   const [revealed, setRevealed] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,7 +63,7 @@ export function ApiTokensPanel({
       setRevealed(json.token);
       setTokens((t) => [json.summary, ...t]);
       setName("");
-      setPicked(new Set(["skills:read"]));
+      setPicked(new Set<SkillTokenScope>(DEFAULT_PICKED_SCOPES));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed.");
     } finally {

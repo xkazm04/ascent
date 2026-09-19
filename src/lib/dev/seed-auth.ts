@@ -8,14 +8,23 @@
 // exists specifically so the seeders can be run ONCE against a DEPLOYED instance, so the comparison is
 // reachable over the network by an unauthenticated caller.
 //
-// Behaviour is otherwise unchanged from the four copies: a configured secret must be presented (header
-// or query param); with NO secret configured the routes are allowed only outside production, so a bare
-// prod deploy cannot be seeded by anyone.
+// Empty-tenant refuse: `ASCENT_EMPTY` (`emptyTenantEnabled`) is a restriction, not an escape hatch —
+// it keeps `npm run dev:empty`'s throwaway tenant empty by construction. It is checked FIRST and
+// honored even in production and even when a valid seed secret is presented, so a seed script pointed
+// at :3005 cannot populate the empty tenant. There is no production floor on the empty flag: flooring
+// it to false would re-open seed writes. The production floor that DOES belong here is the existing
+// one on the secret-less path: with no `ASCENT_SEED_SECRET` the routes are allowed only outside
+// production, so a bare prod deploy cannot be seeded by anyone.
 import type { NextRequest } from "next/server";
 import { timingSafeEqual } from "node:crypto";
+import { emptyTenantEnabled } from "./empty-gate";
 
 /** The header the seed scripts send. The `?secret=` query form is accepted too (curl convenience). */
 export const SEED_SECRET_HEADER = "x-seed-secret";
+
+const SECRET_REFUSAL =
+  "forbidden: set ASCENT_SEED_SECRET and pass it via the x-seed-secret header or ?secret=";
+const EMPTY_TENANT_REFUSAL = "forbidden: seed writes are refused while ASCENT_EMPTY is on";
 
 /**
  * Constant-time string compare. A length mismatch returns false WITHOUT calling timingSafeEqual
@@ -29,12 +38,22 @@ function secretMatches(presented: string, expected: string): boolean {
 }
 
 /**
+ * 403 body for a refused seed write. Distinguishes the empty-tenant refuse from a missing/wrong
+ * secret so an operator hitting :3005 is not told to set a secret they already have.
+ */
+export function seedForbiddenMessage(): string {
+  return emptyTenantEnabled() ? EMPTY_TENANT_REFUSAL : SECRET_REFUSAL;
+}
+
+/**
  * May this request run a dev seeder?
  *
+ * - `ASCENT_EMPTY` on → refused (empty tenant stays empty; not an escape hatch, no production floor).
  * - `ASCENT_SEED_SECRET` set → the caller must present it (constant-time compare).
  * - unset → allowed only outside production.
  */
 export function seedRequestAuthorized(req: NextRequest): boolean {
+  if (emptyTenantEnabled()) return false;
   const secret = process.env.ASCENT_SEED_SECRET?.trim();
   if (secret) {
     const provided =

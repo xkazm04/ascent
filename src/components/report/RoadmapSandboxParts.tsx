@@ -16,7 +16,7 @@ import {
   scoreHex,
 } from "@/lib/ui";
 import { DeltaTag } from "@/components/report/deltas";
-import { RoadmapMeta } from "@/components/report/roadmapPieces";
+import { RoadmapFirstStep, RoadmapMeta } from "@/components/report/roadmapPieces";
 import { Kicker } from "@/components/ui";
 
 export type Overrides = Partial<Record<DimensionId, number>>;
@@ -274,6 +274,7 @@ export function RoadmapSimulators({
                     </span>
                   )}
                 </div>
+                <RoadmapFirstStep firstStep={item.firstStep} />
                 <RoadmapMeta item={item} compact className="mt-1 flex items-center gap-1.5 type-body-sm" />
               </div>
               <button

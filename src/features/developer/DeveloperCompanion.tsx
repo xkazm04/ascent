@@ -81,7 +81,7 @@ export function DeveloperCompanion({ view, slug }: { view: DeveloperView; slug: 
 
       <section>
         <SectionHeader title="The repos you commit to" />
-        <CareRepoGaps repos={view.myRepos} />
+        <CareRepoGaps repos={view.myRepos} activityState={view.activityState} />
       </section>
 
       <section>

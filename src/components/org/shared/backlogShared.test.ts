@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { dueLabel, eventValue, STATUS_LABEL } from "@/components/org/shared/backlogShared";
+import * as backlogShared from "@/components/org/shared/backlogShared";
+import { dueLabel, eventValue, STATUS_ACCENT, STATUS_LABEL } from "@/components/org/shared/backlogShared";
+import type { RecStatus } from "@/lib/types";
 import type { BacklogItem } from "@/lib/db";
 
 // Pure, table-driven display helpers shared by every backlog row + history entry. No DOM needed.
@@ -107,5 +109,21 @@ describe("eventValue", () => {
     expect(eventValue("target_date", "2026-06-19")).toBe("2026-06-19");
     // a value that happens to match a status id is NOT relabeled for a non-status kind.
     expect(eventValue("assignee", "in_progress")).toBe("in_progress");
+  });
+});
+
+describe("STATUS_ACCENT", () => {
+  it("covers every STATUS_LABEL id with a defined hex", () => {
+    for (const id of Object.keys(STATUS_LABEL) as RecStatus[]) {
+      expect(STATUS_ACCENT[id]).toMatch(/^#[0-9a-f]{6}$/);
+    }
+  });
+});
+
+describe("backlogShared export surface", () => {
+  it("does not export unused PatchOutcome, statusAccent, or OVERDUE_ACCENT", () => {
+    expect(backlogShared).not.toHaveProperty("PatchOutcome");
+    expect(backlogShared).not.toHaveProperty("statusAccent");
+    expect(backlogShared).not.toHaveProperty("OVERDUE_ACCENT");
   });
 });

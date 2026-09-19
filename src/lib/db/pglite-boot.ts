@@ -48,10 +48,10 @@ export async function bootPglite(dataDir: string): Promise<void> {
     // back to the dummy DATABASE_URL — a totally misleading `P1001 Can't reach database server at
     // 127.0.0.1:5432`. Probing first means the cause is named even when the exec dies.
     // It now REPAIRS the drift it can (nullable / defaulted columns) instead of only naming it, and
-    // still reports NOT-NULL-without-default columns for a human — those are the ones a blind ALTER
-    // would fail on, which was the original reason to detect only. Running before the exec also means
-    // the repair lands ahead of the index that would otherwise throw 42703.
-    // Best-effort: a reconcile failure never breaks boot.
+    // FAILS BOOT on NOT-NULL-without-default columns — those are the ones a blind ALTER would fail
+    // on, and installing the adapter anyway 500s the next INSERT against the incomplete schema.
+    // Running before the exec also means the repair lands ahead of the index that would otherwise
+    // throw 42703. Probe failures inside reconcile stay non-fatal; unsafe drift does not.
     if (!firstBoot) await reconcileColumnDrift(pglite, rawSql, dir);
 
     await pglite.exec(sql);
@@ -72,10 +72,10 @@ export async function bootPglite(dataDir: string): Promise<void> {
     // console. (NOTE: a NEW COLUMN added to init.sql does NOT reach an existing .pglite dir through this
     // exec — the boot rewrites CREATE TABLE → CREATE TABLE IF NOT EXISTS, which skips the existing table.
     // reconcileColumnDrift above now ADDs the nullable/defaulted ones for you; a NOT-NULL-without-default
-    // column still needs a data-dir wipe or a hand-written ALTER, and says so by name.)
+    // column fails this boot (no adapter) so the next INSERT cannot 500 against a half-applied schema.)
     const message = err instanceof Error ? err.message : String(err);
     g.__ascentPgliteBootError = message;
-    console.error("[pglite] embedded DB init FAILED — running as NO-DB (reads will be empty):", err);
+    console.error("[pglite] embedded DB init FAILED — driver adapter not installed:", err);
   }
 }
 
@@ -94,19 +94,19 @@ export async function bootPglite(dataDir: string): Promise<void> {
  * database it is already connected to.
  *
  * SAFE means nullable, or NOT NULL with a DEFAULT — the two shapes Postgres can add to a populated
- * table without inventing values. A NOT-NULL-without-default column is left alone and reported: there
- * is no correct value to backfill, and guessing one would put fabricated data in a dev DB. That was
- * the original objection to reconciling here, and it is still right — it just doesn't apply to the
- * nullable columns that are the overwhelming majority of what drifts.
- *
- * Best-effort by contract: any failure inside is swallowed with a warning rather than taking down a
- * boot that would otherwise have succeeded.
+ * table without inventing values. A NOT-NULL-without-default column is left alone and FAILS this
+ * boot: there is no correct value to backfill, and guessing one would put fabricated data in a
+ * dev DB. Logging-and-continuing used to install the adapter against an incomplete schema, so the
+ * next INSERT 500'd instead of the boot naming the column. Probe failures (can't read
+ * information_schema) stay non-fatal; unsafe drift does not.
  */
-async function reconcileColumnDrift(
+export async function reconcileColumnDrift(
   pglite: { query: (sql: string) => Promise<{ rows: unknown[] }> },
   rawSql: string,
   dir: string,
 ): Promise<void> {
+  const added: string[] = [];
+  const manual: string[] = [];
   try {
     // name → the rest of its declaration (type + modifiers), so a missing column can be re-declared
     // verbatim rather than guessed at.
@@ -127,8 +127,6 @@ async function reconcileColumnDrift(
       set.add(row.column_name);
     }
 
-    const added: string[] = [];
-    const manual: string[] = [];
     for (const [table, cols] of expected) {
       const have = actual.get(table);
       if (!have) continue; // a missing table is the class the re-exec already handles
@@ -152,16 +150,16 @@ async function reconcileColumnDrift(
     if (added.length) {
       console.warn(`[pglite] schema drift repaired — added ${added.join(", ")} to ${dir}.`);
     }
-    if (manual.length) {
-      console.error(
-        `[pglite] SCHEMA DRIFT needs a hand: ${manual.join("; ")}. These are NOT-NULL columns without a ` +
-          `default, so there is no value to backfill on an existing row. Apply the pending migration(s) ` +
-          `under prisma/migrations/ to ${dir} yourself, or wipe the data dir and re-seed. Until then the ` +
-          `boot may abort on an index over the missing column (42703), which surfaces as a misleading ` +
-          `"P1001 Can't reach database server".`,
-      );
-    }
   } catch (probeErr) {
     console.warn("[pglite] column-drift reconcile failed (non-fatal):", probeErr);
+    return;
+  }
+  if (manual.length) {
+    throw new Error(
+      `[pglite] SCHEMA DRIFT needs a hand: ${manual.join("; ")}. These are NOT-NULL columns without a ` +
+        `default, so there is no value to backfill on an existing row. Apply the pending migration(s) ` +
+        `under prisma/migrations/ to ${dir} yourself, or wipe the data dir and re-seed. Until then the ` +
+        `driver adapter is not installed — a silent install used to 500 on INSERT against the missing column.`,
+    );
   }
 }

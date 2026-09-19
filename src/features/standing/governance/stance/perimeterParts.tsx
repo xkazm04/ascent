@@ -9,6 +9,9 @@
 //
 // The checkpoint and the sealed zones now live in their own co-located files (200-LOC cap) and are
 // re-exported here, so this module stays the one import site for the whole perimeter.
+//
+// RepoNode renders advisory findings that evaluateStanceCompliance already emits (path-scoped no-AI
+// zones). Filtering them off left a declared-not-checked clause invisible on the repo it binds.
 
 import { Kicker } from "@/components/ui";
 import { StateSwatch, WhyChip, stateTitle } from "@/components/org/viz";
@@ -35,11 +38,14 @@ export function RepoNode({
   canAck: boolean;
 }) {
   const levelHex = LEVEL_HEX[repo.level as LevelId] ?? "#64748b";
-  const findings = repo.findings.filter((f) => !f.advisory);
+  // Blocking = observed contradiction (danger). Advisory = declared, not checked (muted). Both are
+  // already on `repo.findings`; dropping advisory made a path-zone clause invisible on this node.
+  const blocking = repo.findings.filter((f) => !f.advisory);
+  const advisory = repo.findings.filter((f) => f.advisory);
   return (
     <div
       className="rounded-lg border border-divider bg-ink/80 px-3 py-2 transition hover:border-accent/60"
-      title={findings.map((f) => f.message).join("\n") || repo.fullName}
+      title={repo.findings.map((f) => f.message).join("\n") || repo.fullName}
     >
       <div className="flex items-center gap-2">
         <a href={reportPermalink(repo.fullName, null, org)} className="focus-ring truncate type-mono-sm text-slate-100 hover:text-white">
@@ -57,9 +63,14 @@ export function RepoNode({
         {repo.provenancePct != null && (
           <span className="font-mono type-micro tabular-nums text-slate-500">prov {repo.provenancePct}%</span>
         )}
-        {findings.length > 0 && (
+        {blocking.length > 0 && (
           <span className="font-mono type-micro tabular-nums text-danger">
-            {findings.length} finding{findings.length === 1 ? "" : "s"}
+            {blocking.length} finding{blocking.length === 1 ? "" : "s"}
+          </span>
+        )}
+        {advisory.length > 0 && (
+          <span className="font-mono type-micro tabular-nums text-slate-500">
+            {advisory.length} advisory
           </span>
         )}
         {canAck && repo.ack !== "current" && (

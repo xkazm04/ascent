@@ -1,7 +1,7 @@
-// POST /api/integrations/ingest/v1/logs — Claude Code also exports OTLP logs (prompt/tool events) when
-// OTEL_LOGS_EXPORTER=otlp. We authenticate and 202-accept them so the exporter doesn't error-loop, but
-// don't yet fold them into usage (the token/cost signal lives in /v1/metrics). Parsing log events into
-// usage/attribution is a later step.
+// POST /api/integrations/ingest/v1/logs — Claude Code exports OTLP logs (prompt/tool events) only when
+// OTEL_LOGS_EXPORTER=otlp. The connect snippet does not set that (logs are not persisted). This route
+// still authenticates and 202-accepts leftover or independently enabled exporters so they don't
+// error-loop. Token/cost lives in /v1/metrics; parsing log events into usage is a later step.
 
 import { NextResponse, type NextRequest } from "next/server";
 import { guardIngest, payloadTooLarge, readCappedBody } from "@/lib/integrations/ingest-guard";

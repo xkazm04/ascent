@@ -1,27 +1,55 @@
-// "N ran" — the invocation half of a skill's use count (#19), extracted rather than appended so
-// SkillCard.tsx stays under the 200-LOC features cap.
+// "N ran" plus the last reporting client — extracted so SkillCard.tsx stays under the 200-LOC cap.
 //
-// WHY IT IS NOT LABELLED "30d". `SkillUsage.invokes` is the ALL-TIME rollup of `invoke` events plus
-// whatever the registry's `usage/` samples report — the DB rollup is a groupBy with no window, and
-// each contributor counts over a window it chose for itself. Calling that "invokes 30d" on a card
-// would be a precise-sounding number nobody computed. The recency claim lives in the dormancy badge
-// beside it, which IS windowed; this is a volume, and it says so.
+// WHY IT IS NOT LABELLED "30d". `SkillUsage.invokes` is volume across two sinks with two windows:
+// sink A (events API: hook / CI / MCP) is an all-time groupBy with no window; sink B (registry
+// `usage/`) is each contributor's declared window. The neighbouring Registry tab's `invokes30d` and
+// `invokesDirect30d` ARE 30d rates. Calling this chip "invokes 30d" would paste that window onto a
+// number nobody computed as a 30d rate. The title names both sinks and both windows; the dormancy
+// badge beside it carries recency; the source chip names who last reported (`OrgSkillEvent.source`).
 //
 // Server-safe (no hooks): pure presentation over a server-computed verdict.
 
+import { skillEventSourceLabel } from "@/lib/org/skill-event-source";
 import type { SkillUsage } from "@/lib/org/skill-usage";
 
+/** Sink A all-time; sink B per contributor. Not the Registry tab's 30d rate. */
+export const INVOKE_CHIP_WINDOW = "all-time";
+
+export const INVOKE_CHIP_TITLE =
+  "Times this skill ran. Sink A (events API: Skill hook, CI, MCP) is all-time; sink B (registry usage/) uses each contributor's declared window. A volume, not the Registry tab's 30d rate.";
+
+export const SOURCE_CHIP_TITLE =
+  "Reporting client of the last recorded event. Closed set: CLI, Hook, CI, Web, Registry, MCP. Unattributed is a reporting gap, not a guess.";
+
 export function SkillInvokeChip({ usage }: { usage: SkillUsage | undefined }) {
-  // Zero is not rendered. A skill with no invocations is either uninstrumented or genuinely unrun,
-  // and the badge next to this already carries that distinction honestly — a bare "0 ran" would read
-  // as a measurement when it is an absence.
-  if (!usage || usage.invokes <= 0) return null;
+  // Zero invokes is not rendered as "0 ran" — that would read as a measurement when it is an absence.
+  // A last-use source still renders on its own: a web copy is a use with a client and no invocation.
+  if (!usage) return null;
+  const ran = usage.invokes > 0;
+  const showSource = Boolean(usage.lastUsedAt);
+  if (!ran && !showSource) return null;
+  const source = usage.lastUsedSource ?? null;
   return (
-    <span
-      className="font-mono text-slate-500"
-      title="Times this skill actually RAN — the Skill hook, a CI job, the MCP tool path, and whatever the registry's usage lane reports. Counted over each reporter's own window, so it is a volume, not a rate."
-    >
-      {usage.invokes.toLocaleString()} ran
-    </span>
+    <>
+      {ran ? (
+        <span
+          className="font-mono text-slate-500"
+          data-invoke-window={INVOKE_CHIP_WINDOW}
+          data-invoke-sinks="A B"
+          title={INVOKE_CHIP_TITLE}
+        >
+          {usage.invokes.toLocaleString()} ran
+        </span>
+      ) : null}
+      {showSource ? (
+        <span
+          className="rounded border border-slate-800 px-1.5 py-0.5 type-caption text-slate-400"
+          data-event-source={source ?? "unattributed"}
+          title={SOURCE_CHIP_TITLE}
+        >
+          {skillEventSourceLabel(source)}
+        </span>
+      ) : null}
+    </>
   );
 }

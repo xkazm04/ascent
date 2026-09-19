@@ -1,6 +1,8 @@
 // One provider row on the Integrations page: a sigil, name, fidelity + status badges, blurb, the
 // capabilities it brings, and the honest per-repo attribution note. Available providers pass their
 // connect surface as children (rendered below a hairline); planned ones don't. Server-safe.
+// Capability bullets are the registry as-is. Available copy must be what ingest stores; this card
+// does not filter or pad the list.
 
 import { Surface } from "@/components/ui";
 import { FIDELITY_META, type ProviderDef } from "@/lib/integrations/providers";

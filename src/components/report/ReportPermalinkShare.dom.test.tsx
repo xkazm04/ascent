@@ -6,9 +6,13 @@
 // canonical `/report/{owner}/{repo}` address is ON the report, it is copyable, and it carries the level
 // line that answers the job the retired README badge used to.
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import { ReportPermalinkShare, levelLine } from "./ReportPermalinkShare";
+
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(),
+}));
 
 const open = () => fireEvent.click(screen.getByRole("button", { name: /permalink/i }));
 

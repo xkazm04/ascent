@@ -14,6 +14,9 @@ interface RecTemplate {
   rationale: string;
   /** Invitational questions — inputs to explore the gap, not steps to execute. */
   explore: string[];
+  /** One sentence, stated as what the move IS — never an order (G2). Copied onto fallback and
+   *  guaranteed follow-up rows so those surfaces are not the only roadmap without a first step. */
+  firstStep: string;
 }
 
 // Each entry frames a *gap in the level of trust*: what's thin, why it matters for AI-driven
@@ -29,6 +32,8 @@ const CATALOG: Record<DimensionId, RecTemplate> = {
       "What would an AI agent need to know to make a safe change here: commands, architecture, the constraints it must never break?",
       "Where do new contributors (human or AI) get stuck today for lack of written context?",
     ],
+    firstStep:
+      "A CLAUDE.md or AGENTS.md that names the build/test commands and the rules a change must never break would give an agent something to go on.",
   },
   D2: {
     title: "Few tests vouch for behavior: little catches a bad change",
@@ -40,6 +45,7 @@ const CATALOG: Record<DimensionId, RecTemplate> = {
       "If an agent proposed a change tomorrow, what would catch a regression before it merged?",
       "Which critical behaviors currently have no test to vouch for them?",
     ],
+    firstStep: "A vitest config with one passing test would give CI something to run.",
   },
   D3: {
     title: "Little gates what reaches main: trust rests on who reviewed",
@@ -51,6 +57,8 @@ const CATALOG: Record<DimensionId, RecTemplate> = {
       "What stops an untrusted change from reaching main today?",
       "Could every PR's checks run automatically, so trust isn't a function of who looked?",
     ],
+    firstStep:
+      "A GitHub Actions workflow that runs the test command on every pull request would put a gate in front of main.",
   },
   D4: {
     title: "AI isn't in the loop yet: it's at most at the keyboard",
@@ -62,6 +70,7 @@ const CATALOG: Record<DimensionId, RecTemplate> = {
       "Where could an agent take the first pass (review, triage, codegen) with a human just confirming?",
       "What would you need in place to trust an agent's output without reading every line?",
     ],
+    firstStep: "A review-bot workflow would let an agent take the first pass with a human confirming.",
   },
   D5: {
     title: "Sparse docs/ADRs: context lives in people's heads",
@@ -73,6 +82,8 @@ const CATALOG: Record<DimensionId, RecTemplate> = {
       "What context do you re-explain often that could live in docs an agent can read?",
       "Which past decisions would a newcomer (or agent) misjudge for lack of an ADR?",
     ],
+    firstStep:
+      "An ADR folder with one decision record would give the next agent the context that currently lives in heads.",
   },
   D6: {
     title: "Conventions held by habit, not enforced by tooling",
@@ -84,6 +95,8 @@ const CATALOG: Record<DimensionId, RecTemplate> = {
       "Which conventions are kept by habit rather than enforced automatically?",
       "Where would strict types or a linter catch a slip earliest?",
     ],
+    firstStep:
+      "A linter config that fails CI on the conventions the team already keeps by habit would catch a slip at the earliest point.",
   },
   D7: {
     title: "AI's footprint in history is hard to see or measure",
@@ -95,6 +108,8 @@ const CATALOG: Record<DimensionId, RecTemplate> = {
       "Can you tell which changes were AI-assisted, and whether they held up?",
       "What would make your change history legible to downstream automation?",
     ],
+    firstStep:
+      "A Co-authored-by trailer that marks AI-assisted changes would make the history attributable.",
   },
   D8: {
     title: "AI use is ad hoc: no shared process or harness",
@@ -106,6 +121,8 @@ const CATALOG: Record<DimensionId, RecTemplate> = {
       "How do you know an AI-generated change is good before it ships? Is there an eval or golden test?",
       "Which prompts/agents have worked, and where do they live so the team can reuse them?",
     ],
+    firstStep:
+      "A prompts folder with one versioned prompt and an eval that fails when the output drifts would turn ad-hoc prompting into a harness.",
   },
   D9: {
     title: "Little scans what AI ships for vulnerabilities or secrets",
@@ -117,6 +134,8 @@ const CATALOG: Record<DimensionId, RecTemplate> = {
       "If an agent pulled in a vulnerable dependency or committed a secret, what would catch it before release?",
       "Can you prove what's in a build and that it wasn't tampered with: SBOM, signing, provenance?",
     ],
+    firstStep:
+      "A Dependabot config plus a CodeQL workflow would give the battery two more checks to grade.",
   },
 };
 
@@ -154,7 +173,8 @@ function effortFactor(effort: string): number {
  *  by up to the LLM guardband (G3-09: a dimension the blend lifted could otherwise be surfaced as the
  *  #1 gap with a rationale citing a number never shown next to it). Omitted (or missing an id) falls
  *  back to that dimension's raw `signalScore`, so existing callers (the mock provider, which has no
- *  separate blend — signalScore IS its score) are unaffected. */
+ *  separate blend — signalScore IS its score) are unaffected. Each emitted row copies the catalog
+ *  `firstStep` (G2) so the keyless/degraded path is not the only roadmap without a concrete move. */
 export function buildFallbackRoadmap(
   signals: DimensionSignals[],
   overallScore: number,
@@ -195,6 +215,7 @@ export function buildFallbackRoadmap(
         impact: t.impact,
         effort: t.effort,
         rationale: `${DIMENSION_BY_ID[s.id].name} scored ${scoreFor(s)}/100. ${t.rationale}`,
+        firstStep: t.firstStep,
         explore: t.explore,
         levelUnlock: unlock,
       };
@@ -216,8 +237,10 @@ export function buildFallbackRoadmap(
  * before and a partly-covered one grows at the tail. Each synthesised entry is grounded in the
  * dimension's OWN gaps when the model supplied them (the first gap becomes the title, in the
  * catalog's invitational voice), falling back to the catalog template only when it did not.
- * Pure in its RESULT (the caller supplies the blended scores); its one side effect is the
- * invitational-framing lint, which reports what it finds and changes nothing. Exported for the tests.
+ * Synthesised entries copy the catalog `firstStep` (G2); a model-written row that omitted the
+ * field is not backfilled. Pure in its RESULT (the caller supplies the blended scores); its one
+ * side effect is the invitational-framing lint, which reports what it finds and changes nothing.
+ * Exported for the tests.
  *
  * UNOBSERVABLE DIMENSIONS ARE OWED NOTHING. `unobservableDims` names the dimensions this scan could
  * not see at all (dimensionObservability, src/lib/analyze/platform-carry.ts — typically D2/D3/D4 on a
@@ -273,6 +296,7 @@ export function buildDimensionFollowUps(
         impact: t.impact,
         effort: t.effort,
         rationale: `${DIMENSION_BY_ID[d.id].name} scored ${d.score}/100, below the green band (${FOLLOW_UP_BELOW}). ${t.rationale}`,
+        firstStep: t.firstStep,
         explore: t.explore,
         levelUnlock: unlock,
       };

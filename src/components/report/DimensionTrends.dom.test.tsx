@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import type { TrendAnnotation } from "@/app/trends/annotations";
 import type { RepositoryHistory } from "@/lib/db/scans";
 import { DimensionTrends } from "./DimensionTrends";
 
@@ -113,5 +114,44 @@ describe("DimensionTrends mock-engine legend", () => {
     render(<DimensionTrends history={serverHistory()} />);
     await waitFor(() => expect(screen.getByText("AI Tooling & Conventions")).toBeInTheDocument());
     expect(screen.queryByText(/hollow points are demo scans/i)).not.toBeInTheDocument();
+  });
+});
+
+// G5-18, small-multiples half: the page already derives markers and DimensionTrends forwards them
+// to the overall TrendChart. They must land on each DimLine too — otherwise a promotion visible on
+// overall is invisible on the cards that actually localize the movement.
+const PROMOTION: TrendAnnotation = {
+  at: "2026-07-02T09:00:00.000Z",
+  scanId: "s2",
+  kind: "promotion",
+  label: "L3 → L4",
+  detail: "Promoted from L3 to L4 · Managed (+8 points).",
+  delta: 8,
+  sha: null,
+  commitSha: null,
+};
+
+function historyWithDims(): RepositoryHistory {
+  return {
+    repo: { owner: "acme", name: "app", fullName: "acme/app" },
+    scans: [scan(2, 68, [{ dimId: "D1", score: 70 }]), scan(1, 60, [{ dimId: "D1", score: 65 }])],
+  } as unknown as RepositoryHistory;
+}
+
+describe("DimensionTrends forwards annotations onto DimLine", () => {
+  it("draws the same marker on the overall chart AND the per-dimension chart that has data", () => {
+    render(<DimensionTrends history={historyWithDims()} annotations={[PROMOTION]} />);
+    const overall = screen.getByRole("img", { name: /overall score over time/i });
+    const dim = screen.getByRole("img", { name: /AI Tooling & Conventions score trend/i });
+    expect(within(overall).getByText("L3 → L4")).toBeInTheDocument();
+    expect(within(dim).getByText("L3 → L4")).toBeInTheDocument();
+    // Empty-state cards have no chart, so they must not duplicate the mark.
+    expect(screen.getAllByText("L3 → L4")).toHaveLength(2);
+  });
+
+  it("drops a marker whose scan is not in the visible slice, on both overall and DimLine", () => {
+    const outside: TrendAnnotation = { ...PROMOTION, at: "2025-01-01T00:00:00.000Z", scanId: "s-out" };
+    render(<DimensionTrends history={historyWithDims()} annotations={[outside]} />);
+    expect(screen.queryByText("L3 → L4")).not.toBeInTheDocument();
   });
 });

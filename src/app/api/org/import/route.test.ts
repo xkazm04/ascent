@@ -21,10 +21,18 @@ vi.mock("@/lib/scan", () => ({ scanRepository: vi.fn() }));
 // credit-cap suite below DOES enter it, so stub the alert glue to keep the test hermetic.
 vi.mock("@/lib/scan-alerts", () => ({ maybeAlertLowCredits: vi.fn(async () => {}) }));
 let claimCounter = 0;
+vi.mock("@/lib/db/forge-installations", () => ({
+  getForgeInstallation: vi.fn(async () => null),
+  hostFromBase: (base: string) => {
+    const web = base.replace(/\/+$/, "");
+    return { apiBase: `${web}/api/v4`, webBase: web };
+  },
+}));
 vi.mock("@/lib/db/scan-jobs", () => ({
   // A won claim by default: every existing money/flow case in this file predates the queue and must
   // keep asserting exactly what it did. The contention case overrides it with null.
   claimRepoWork: vi.fn(async (_org: string, repo: string) => ({ id: `job_${++claimCounter}`, repoFullName: repo })),
+  markJobCredit: vi.fn(async () => {}),
   settleJob: vi.fn(async () => {}),
 }));
 vi.mock("@/lib/db", () => ({
@@ -69,6 +77,7 @@ vi.mock("@/lib/authz", () => ({
 vi.mock("@/lib/entitlement", () => ({
   checkScanEntitlement: vi.fn(async () => ({ allowed: true, unlimited: true, balance: 0 })),
   paymentRequired: vi.fn(),
+  orgNotFound: vi.fn(),
 }));
 // `rateLimitRequestShared` is a vi.fn so the refusal suite below can make it deny, and
 // `tooManyRequests` is the REAL helper (not a stub) so that suite asserts the response this route
@@ -106,7 +115,8 @@ import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled } from "@/lib/access";
 import { canMintInstallationToken, requireOrgAccess } from "@/lib/authz";
 import { getInstallationToken } from "@/lib/github/app";
-import { consumeScanCredit, getInstallationIdForOwner, grantCredits, isByomActive, persistScanReport, reconcileListedRepos } from "@/lib/db";
+import { consumeScanCredit, getInstallationIdForOwner, grantCredits, isByomActive, persistScanReport, reconcileListedRepos, setRepoWatch } from "@/lib/db";
+import { getForgeInstallation } from "@/lib/db/forge-installations";
 import { listOrgRepos } from "@/lib/github/list";
 import { checkScanEntitlement } from "@/lib/entitlement";
 import { consumePublicScanQuota, peekPublicScanQuota, refundPublicScanQuota } from "@/lib/public-scan-quota";
@@ -115,7 +125,7 @@ import { rateLimitRequestShared } from "@/lib/rate-limit";
 // the queue's own answer — `claimRepoWork` returning null — rather than by taking a process-local
 // lock in the test. That IS the behavioural change: the old Map could only refuse a second run on the
 // SAME instance, which on a serverless deploy is not where the second tab usually lands.
-import { claimRepoWork, settleJob } from "@/lib/db/scan-jobs";
+import { claimRepoWork, markJobCredit, settleJob } from "@/lib/db/scan-jobs";
 
 const mockScan = vi.mocked(scanRepository);
 const mockAuthOn = vi.mocked(isAuthConfigured);
@@ -496,9 +506,90 @@ describe("POST /api/org/import — per-repo in-flight claim (no double-scan/char
     expect(mockScan).toHaveBeenCalledTimes(1);
     // A claim left unsettled would bar this repo until its lease expired. The settle is what frees it.
     expect(vi.mocked(settleJob)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(settleJob)).toHaveBeenCalledWith(
+      expect.stringMatching(/^job_/),
+      expect.objectContaining({ state: "done", creditRefunded: false }),
+    );
     const events = await collectImport({ org: "acme", repos: ["acme/again"], mock: false, watch: false });
     expect(mockScan).toHaveBeenCalledTimes(2);
     expect(events.find((e) => e.event === "repo")?.data).not.toMatchObject({ skipped: "in_progress" });
+  });
+});
+
+// Stamp creditCharged after reserve (parity with runRescoreJob) so a 300s kill + reapExpiredLeases
+// cannot debit a second credit for the same import job. Settle skipped/failed/done honestly:
+// creditRefunded on a pre-inference refund, left standing on billed inference.
+describe("POST /api/org/import — creditCharged on the job row (killed-import double-debit)", () => {
+  beforeEach(() => {
+    mockEntitlement.mockResolvedValue({ allowed: true, unlimited: false, balance: 5, allowanceRemaining: 0 });
+    mockConsume.mockResolvedValue({ ok: true, balance: 4, unlimited: false, charged: true });
+    mockScan.mockResolvedValue(realReport);
+    mockGrant.mockResolvedValue(0);
+  });
+
+  it("records creditCharged on the ScanJob BEFORE inference, so a 300s kill leaves it attributable", async () => {
+    await collectImport({ org: "acme", repos: ["acme/ok"], mock: false, watch: false });
+    const mark = vi.mocked(markJobCredit);
+    expect(mark).toHaveBeenCalledTimes(1);
+    expect(mark).toHaveBeenCalledWith(expect.stringMatching(/^job_/), true);
+    expect(mark.mock.invocationCallOrder[0]!).toBeLessThan(mockScan.mock.invocationCallOrder[0]!);
+  });
+
+  it("does not stamp creditCharged when the reservation charged nothing (within-allowance)", async () => {
+    mockConsume.mockResolvedValue({ ok: true, balance: 4, unlimited: false, charged: false });
+    await collectImport({ org: "acme", repos: ["acme/ok"], mock: false, watch: false });
+    expect(vi.mocked(markJobCredit)).not.toHaveBeenCalled();
+  });
+
+  it("settles skipped — not done — when the reservation is refused mid-run", async () => {
+    mockConsume.mockResolvedValue({ ok: false, unlimited: false, charged: false, balance: 0 });
+    const events = await collectImport({ org: "acme", repos: ["acme/skip"], mock: false, watch: false });
+    expect(mockScan).not.toHaveBeenCalled();
+    expect(vi.mocked(markJobCredit)).not.toHaveBeenCalled();
+    expect(vi.mocked(settleJob)).toHaveBeenCalledWith(
+      expect.stringMatching(/^job_/),
+      expect.objectContaining({ state: "skipped", error: "insufficient credits" }),
+    );
+    expect(events.find((e) => e.event === "repo")?.data).toMatchObject({ skipped: "insufficient_credits" });
+  });
+
+  it("settles failed + creditRefunded on a pre-inference throw", async () => {
+    mockScan.mockRejectedValueOnce(new Error("github 500"));
+    await collectImport({ org: "acme", repos: ["acme/boom"], mock: false, watch: false });
+    expect(mockGrant).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(settleJob)).toHaveBeenCalledWith(
+      expect.stringMatching(/^job_/),
+      expect.objectContaining({ state: "failed", error: "github 500", creditRefunded: true }),
+    );
+  });
+
+  it("settles done and KEEPS creditCharged after billed inference", async () => {
+    await collectImport({ org: "acme", repos: ["acme/ok"], mock: false, watch: false });
+    expect(mockGrant).not.toHaveBeenCalled();
+    expect(vi.mocked(settleJob)).toHaveBeenCalledWith(
+      expect.stringMatching(/^job_/),
+      expect.objectContaining({ state: "done", creditRefunded: false }),
+    );
+  });
+
+  it("settles done + creditRefunded when a mock-degraded scan refunds", async () => {
+    mockScan.mockResolvedValue(report);
+    await collectImport({ org: "acme", repos: ["acme/deg"], mock: false, watch: false });
+    expect(mockGrant).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(settleJob)).toHaveBeenCalledWith(
+      expect.stringMatching(/^job_/),
+      expect.objectContaining({ state: "done", creditRefunded: true }),
+    );
+  });
+
+  it("settles failed WITHOUT refunding after a post-inference persist throw — the credit was kept", async () => {
+    mockPersist.mockRejectedValueOnce(new Error("could not serialize access"));
+    await collectImport({ org: "acme", repos: ["acme/ok"], mock: false, watch: false });
+    expect(mockGrant).not.toHaveBeenCalled();
+    expect(vi.mocked(settleJob)).toHaveBeenCalledWith(
+      expect.stringMatching(/^job_/),
+      expect.objectContaining({ state: "failed", creditRefunded: false }),
+    );
   });
 });
 
@@ -797,5 +888,40 @@ describe("POST /api/org/import — the run id is emitted, not just used internal
     const idOf = (evs: { event: string; data: unknown }[]) =>
       (evs.find((e) => e.event === "queued")?.data as { runId: string }).runId;
     expect(idOf(a)).not.toBe(idOf(b));
+  });
+});
+
+describe("POST /api/org/import — GitLab permalinks use the configured web host", () => {
+  beforeEach(() => {
+    mockScan.mockResolvedValue(report as ScanReport);
+    vi.mocked(rateLimitRequestShared).mockResolvedValue({ ok: true });
+    vi.mocked(getForgeInstallation).mockResolvedValue(null);
+  });
+
+  it("writes a gitlab.com permalink when no self-managed host is stored", async () => {
+    await runImport({ org: "acme", repos: ["gitlab:group/project"], mock: true });
+    expect(setRepoWatch).toHaveBeenCalledWith(
+      "acme",
+      expect.objectContaining({
+        fullName: "gitlab:group/project",
+        url: "https://gitlab.com/group/project",
+      }),
+      true,
+    );
+  });
+
+  it("writes permalinks on the stored self-managed web host", async () => {
+    vi.mocked(getForgeInstallation).mockResolvedValue({
+      host: "https://gitlab.acme.com",
+    } as Awaited<ReturnType<typeof getForgeInstallation>>);
+    await runImport({ org: "acme", repos: ["https://gitlab.acme.com/group/sub/project"], mock: true });
+    expect(setRepoWatch).toHaveBeenCalledWith(
+      "acme",
+      expect.objectContaining({
+        fullName: "gitlab:group/sub/project",
+        url: "https://gitlab.acme.com/group/sub/project",
+      }),
+      true,
+    );
   });
 });

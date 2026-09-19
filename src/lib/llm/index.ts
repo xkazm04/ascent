@@ -281,6 +281,8 @@ export function providerByName(name: string | undefined | null): LLMProvider | n
       return providerAvailable("openrouter") ? new OpenRouterProvider() : null;
     case "local":
       return providerAvailable("local") ? new LocalProvider() : null;
+    case "nebius":
+      return providerAvailable("nebius") ? new NebiusProvider() : null;
     case "claude-cli":
       return providerAvailable("claude-cli") ? new LazyClaudeCliProvider() : null;
     case "codex-cli":

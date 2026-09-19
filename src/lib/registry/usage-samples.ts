@@ -65,11 +65,32 @@ export interface UsageSample {
 }
 
 /**
+ * Synthetic `skillId` for a registry skill this org has not mirrored. The two sides share only a
+ * NAME; a real `OrgSkill.id` is a cuid (`c…`) so this prefix cannot collide with one.
+ */
+export const UNMIRRORED_SKILL_PREFIX = "registry:";
+
+export function unmirroredSkillId(skillName: string): string {
+  return `${UNMIRRORED_SKILL_PREFIX}${skillName}`;
+}
+
+export function isUnmirroredSkillId(skillId: string): boolean {
+  return skillId.startsWith(UNMIRRORED_SKILL_PREFIX);
+}
+
+/** Inverse of {@link unmirroredSkillId}. Null when `skillId` is a real OrgSkill id. */
+export function unmirroredSkillName(skillId: string): string | null {
+  return isUnmirroredSkillId(skillId) ? skillId.slice(UNMIRRORED_SKILL_PREFIX.length) : null;
+}
+
+/**
  * Fold samples into per-skill `invoke` stats keyed by `OrgSkill.id`.
  *
- * Matches on skill NAME because that is the only identifier the two sides share; a sample naming a
- * skill this org does not mirror is silently ignored rather than warned about, since a registry may
- * legitimately hold skills an org has not adopted.
+ * Matches on skill NAME because that is the only identifier the two sides share. A sample naming a
+ * skill this org does not mirror is KEPT under {@link unmirroredSkillId} rather than dropped: the
+ * registry ran it, and throwing the count away hid that from the Skills tab. `skillUsageMap` still
+ * refuses to let those rows vote on the library's `unmeasured`/`unused` split — they are not
+ * instrumentation of a mirrored skill.
  *
  * `lastAt` is null when no contributing sample reported a `lastUsed` — the count is real, the recency
  * is unknown, and the verdict downstream treats them as exactly that.
@@ -89,8 +110,8 @@ export function sampleEventStats(
   }
   const byId = new Map<string, { count: number; lastAt: string | null }>();
   for (const s of samples) {
-    const id = idByName.get(s.skillName);
-    if (!id) continue;
+    if (!s.skillName) continue;
+    const id = idByName.get(s.skillName) ?? unmirroredSkillId(s.skillName);
     const n = bounded.get(s) ?? 0;
     const prev = byId.get(id) ?? { count: 0, lastAt: null };
     const at = s.lastUsed && Number.isFinite(Date.parse(s.lastUsed)) ? s.lastUsed : null;

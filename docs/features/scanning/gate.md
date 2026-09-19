@@ -36,8 +36,9 @@ model can mark D9 n/a this way; it can never raise a measured D9 sub-check score
 ## Gate API (`src/app/api/gate/[owner]/[repo]/route.ts`)
 
 `GET /api/gate/:owner/:repo` scores the repo and evaluates a policy, returning **`200` on
-pass**, **`422` on fail**, and **`503` when degraded** (see below) so `curl --fail` / CI can
-branch on the status alone.
+pass**, **`422` on fail**, and **`503` when the grade could not run** (degraded LLM fallback,
+or an explicitly requested skippable bar this token-less scan could not measure — see below)
+so `curl --fail` / CI can branch on the status alone.
 
 | Query param | Effect |
 | --- | --- |
@@ -59,7 +60,7 @@ Flow: normalize names → if `?ref` scan that ref fresh, else resolve HEAD and u
 LLM/mock cache → resolve the policy → `evaluateGate(report, policy)` → return a `GateResult`:
 
 ```jsonc
-{ "repo", "ref", "pass", "degraded", "level", "overallScore", "posture", "archetype",
+{ "repo", "ref", "pass", "degraded", "unmeasured", "level", "overallScore", "posture", "archetype",
   "policy": { … }, "failures": [ … ], "skipped": [ … ], "caveats": [ … ],
   "engine", "confidence", "warnings" }
 ```
@@ -74,7 +75,12 @@ measured on this run"), the API body, the Action's `skipped` step output and its
 stays complete, with each untested bar marked "(not measured)". Two consequences worth knowing:
 on **this public endpoint** the scan runs without a token, so `require_protection`,
 `min_ai_governed` and `no_ungoverned_ai` are always skipped here and only the App-mode check run
-can enforce them; and a non-finite score is still a **failure**, never a skip. A scan whose
+can *enforce* them. When the **caller named** one of those bars as a query param
+(`explicitPolicyFromParams`), the route returns **`503` with `unmeasured: true`** so
+`curl --fail` cannot merge on a bar nobody tested — the same honesty a degraded LLM grade
+already gets. Org-policy-only skips (the org stored `requireProtectedBranch`, the request did
+not name it) stay **`200` + `skipped[]`**; drop the parameters to follow server policy alone.
+And a non-finite score is still a **failure**, never a skip. A scan whose
 governance or pull-request **sensor read failed** (today's `sensorFailures`) skips the same bars
 with "read failed" as the reason; failures of score-feeding sensors become `caveats` rather than
 skips, because a security floor on an understated D9 must still bite. `caveats[]` (the report's own
@@ -157,16 +163,20 @@ check and releases the delivery for GitHub to redeliver.
 ### Incomplete scans fail closed (one honest failure)
 
 A scan where **every** detector failed produces no dimensions, so the renormalized roll-up floors at
-`0 / L1`, numerically identical to a genuinely manual repo. `evaluateGate` short-circuits on it
-(`isIncompleteReport`: the report's `incomplete` flag, or an empty `dimensions` array on a legacy /
-reconstructed report) and returns a single failure with code **`incomplete`** instead of running the
-criteria. Two reasons: the gate must not certify a repository it could not read, and it must not emit
-a wall of "D1 scored 0" failures that read as findings *about the repository* when the only true
-statement is that nothing was measured. Fail-closed, like every other criterion here.
+`0 / L1`, numerically identical to a genuinely manual repo. Both evaluators short-circuit on that
+and return a single failure with code **`incomplete`** instead of running the criteria:
 
-> Fleet parity note: `evaluateGateLite` (the org rollup) does not yet carry an incompleteness signal
-> in `GateSnapshot`; such a repo currently fails the fleet view via its `0 / L1` numbers, with a
-> less precise reason.
+- `evaluateGate` (`isIncompleteReport`: the report's `incomplete` flag, or an empty `dimensions`
+  array on a legacy / reconstructed report).
+- `evaluateGateLite` (`isIncompleteSnapshot`: the snapshot's `incomplete` flag, or empty / **missing**
+  `dims` — not a full scan). Empty dims used to *pass* every dimension floor by absence (the sweep
+  iterates present rows); that is closed. An empty policy cannot certify an unscored snapshot either.
+
+Two reasons: the gate must not certify a repository it could not read, and it must not emit a wall
+of "D1 scored 0" failures that read as findings *about the repository* when the only true statement
+is that nothing was measured. Fail-closed, like every other criterion here. The fleet overview still
+buckets those repos as `incomplete` before scoring so they never enter the pass-rate; MCP and any
+other lite caller get the honest `incomplete` failure rather than a vacuous pass.
 
 ### Degraded scans fail closed (`503`)
 
@@ -188,6 +198,14 @@ landed under the `::llm` key, so every retry for that commit was a cache *hit* t
 the floor and 503'd again without re-scanning: the gate stayed wedged for the full 15-minute
 TTL while the response told the operator to retry. Skipping the write is what makes "retry
 the gate" actually true.
+
+### Explicit unmeasured bars fail closed (`503`)
+
+A skip in `evaluateGate` is not a pass on this endpoint when the **query named** the bar.
+`?require_protection=1` or `?min_ai_governed=100` on a token-less scan returns **`503` with
+`unmeasured: true`** (the skip stays in `skipped[]`). Org-policy-only skips stay 200+`skipped`
+so an org that stores `requireProtectedBranch` does not 503 every default Action call that
+sends no params; the App-mode check run is the surface that can actually read those bars.
 
 ### Private repositories
 
@@ -262,7 +280,7 @@ discredit both.
 | Gate API | `?min_ai_governed=100`, or `?no_ungoverned_ai=1` for the strict shorthand |
 | GitHub Action | `min-ai-governed: '100'`, or `no-ungoverned-ai: 'true'` |
 | CLI | `--min-ai-governed 100`, or `--no-ungoverned-ai` |
-| Org policy | persisted `minAiGovernedRate` (sanitized like every other numeric bar) |
+| Org policy | Governance editor (`AiGovernedRateRow`) persists `minAiGovernedRate` (sanitized like every other numeric bar) |
 
 A failure reads: *"62% of AI-attributed merged PRs carried an approving human review, below the
 required 100% (20 AI-attributed PRs sampled)."* Its `GateFailure.code` is `provenance`.
@@ -276,8 +294,10 @@ AI-attributed PRs in the window. Failing those would block repositories for havi
 activity, inverting the intent of a policy that exists to govern repositories with a lot of it.
 
 So a null rate **skips** the criterion, exactly as `requireProtectedBranch` skips when governance was
-unreadable. The practical consequence worth knowing: the anonymous gate endpoint can never enforce
-this bar. It lands where the data lives: the App-mode Check Run and the fleet governance view.
+unreadable. The practical consequence: the anonymous gate endpoint can never *enforce* this bar. Naming
+it on the query (`?min_ai_governed=100`) returns **`503` `unmeasured`**, not a green merge; an
+org-policy-only skip stays 200+`skipped`. The bar lands where the data lives: the App-mode Check Run
+and the fleet governance view.
 
 `OrgRepoRow.latest` now carries `aiGovernedRate`/`aiPrSample` (parsed from the same persisted
 `prStats` blob the activity columns already read, so no extra query), and `buildGovernanceOverview`
@@ -370,9 +390,15 @@ them and a param could not weaken them anyway.
 
 The Governance editor **round-trips every `GatePolicy` field it does not show**. `buildPolicy()`
 starts from `passthroughPolicyFields(stored)` — the stored policy minus `EDITED_POLICY_FIELDS` — and
-overwrites only the six bars the form actually renders, so `requireChecks`, `minAiGovernedRate` and
-`forbidAiAuthorship` survive a save byte-identical. The carried copy is re-seeded from the server's
-**echo** on every save, never from the request, so it cannot drift from what is stored.
+overwrites only the bars the form actually renders (`minLevel`, `minOverall`, `minDimension`,
+`minDimensionFor`, `forbidPostures`, `requireProtectedBranch`, `requireChecks`, and
+`minAiGovernedRate`), so `forbidAiAuthorship` survives a save byte-identical. The carried copy is
+re-seeded from the server's **echo** on every save, never from the request, so it cannot drift from
+what is stored. `requireChecks` is owned by `RequireChecksRows`: owners add and remove doctor check
+ids, malformed ids are dropped client-side (`isValidCheckId`), the list is capped at
+`MAX_REQUIRE_CHECKS`, and a save POSTs the sorted ids (or omits the field when the last id is
+removed). `minAiGovernedRate` is owned by `AiGovernedRateRow`: owners enable a 1–100 floor (100 when
+newly checked) and a save POSTs the number, or omits the field when the control is unchecked.
 
 This was live-proven broken (UAT 2026-08-30, `NADIA-L1-07` / `PRIYA-L1-01`): an owner set two
 required controls, changed **Min overall 50 → 55**, and the controls were gone. The payload was
@@ -449,6 +475,8 @@ all, so the new bar simply applies on each PR's next push or CI run.
 | `src/lib/scoring/gate-diff.ts` | Field-level diff of a policy write, in `describeGatePolicy`'s wording — the audit `status` clause and the editor's removal warning. |
 | `src/features/standing/governance/GatePolicyEditor.tsx` | The owner's policy form, incl. when the bar applies. |
 | `src/features/standing/governance/DimensionFloorRows.tsx` | Per-dimension floors (D1–D8) in that form. |
+| `src/features/standing/governance/RequireChecksRows.tsx` | Add/remove `requireChecks` doctor check ids in that form. |
+| `src/features/standing/governance/AiGovernedRateRow.tsx` | Enable/clear `minAiGovernedRate` (AI-review bar) in that form. |
 | `src/app/badge/gate-snippets.ts` | The public `/badge` curl + workflow snippets, from one policy. |
 | `action.yml` | Composite GitHub Action definition. |
 | `src/lib/db/org-rollup.ts` | `parseProvenanceLite`: the fleet gate's `aiGovernedRate` input. |
@@ -463,14 +491,6 @@ all, so the new bar simply applies on each PR's next push or CI run.
   deployment with no persisted org bar (self-hosted, DB-less, and every org that never set one). It is
   now written as an explicit-wins spread over the whole object so the next field cannot repeat it, and
   `gate-policy-sources.test.ts` asserts every field `explicitPolicyFromParams` can parse survives.
-- **`requireChecks` has no editor CONTROL yet.** It is a real `GatePolicy` field with all four places
-  and is enforced whenever it appears in a persisted org policy — but the Governance form offers no
-  input for it, so today it can only be *set* by writing `Organization.gatePolicy` directly (or by
-  `POST /api/org/gate-policy`). The evaluator half is what #16 needed; the input is not built.
-  Scoped: the *destructive* half of this gap closed 2026-08-31 — a stored `requireChecks` is rendered
-  read-only in the Active-policy summary, round-trips untouched through every save, and any write that
-  does drop it is named in the audit row and in the editor's own message (see "The form replaces only
-  what it renders" and "A write that drops a bar says so").
 - The gate API scores via **mock** by default; pass `?mock=0` / `live: true` for an
   LLM-scored verdict (slower, needs a key, and a provider outage then surfaces as a `503`
   rather than a silent floor score). **That inference is not debited** (there is no org to

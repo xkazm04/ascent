@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { artifactFingerprint } from "@/lib/practices/fingerprint";
 import { type Artifact, type OpenPrRef, type RepoRef } from "./practiceApplyShared";
 import { PracticeApplyBatch } from "./PracticeApplyBatch";
+import { PracticePreviewKicker, previewShapeFromPayload } from "./PracticePreviewKicker";
 
 /**
  * The "systematic apply" action on a practice card: pick a gap repo, preview the leak-free
@@ -53,7 +54,14 @@ export function PracticeApply({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to generate.");
       // Stamp the artifact with the repo it was generated for, so apply can't post a different one.
-      setArtifact({ path: data.artifact.path, body: data.artifact.body, repo: target });
+      // `shape` is the generate payload's house-vs-generic mark: the kicker above the body.
+      // `body` is `buildPracticeArtifact`'s output — the same bytes apply fingerprints and commits.
+      setArtifact({
+        path: data.artifact.path,
+        body: data.artifact.body,
+        repo: target,
+        shape: previewShapeFromPayload(data),
+      });
       setOpen(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to generate.");
@@ -163,6 +171,7 @@ export function PracticeApply({
 
       {artifact && (
         <div className="mt-3">
+          <PracticePreviewKicker shape={artifact.shape} />
           <button onClick={() => setOpen((o) => !o)} aria-expanded={open} className="type-mono-sm text-slate-400 hover:text-white">
             {open ? "▾" : "▸"} {artifact.path}
           </button>

@@ -25,6 +25,16 @@ export default function GlobalError({
     Sentry.captureException(error);
   }, [error]);
 
+  // "Try again" recovery: reset() alone only re-renders the boundary with the SAME, still-cached
+  // server output, so a SERVER-thrown shell error re-throws immediately and looks unrecoverable —
+  // the RouteError dead-button failure. RouteError can call router.refresh() first; this boundary
+  // replaces the document and has no Next router, so a hard reload is the equivalent refresh, then
+  // reset() re-renders the boundary.
+  const retry = () => {
+    window.location.reload();
+    reset();
+  };
+
   return (
     <html lang="en">
       <body
@@ -75,7 +85,7 @@ export default function GlobalError({
             style={{ marginTop: 28, display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}
           >
             <button
-              onClick={() => reset()}
+              onClick={retry}
               style={{
                 cursor: "pointer",
                 border: 0,

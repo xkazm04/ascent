@@ -164,3 +164,35 @@ export function BriefingDimensionCards({
   );
 }
 
+type BriefingBrand = { brandName: string | null; brandColor: string | null; logoUrl: string | null };
+
+/** True when at least one stored brand slot is set (the in-app header hides otherwise). */
+export function hasBriefingBrand(b: BriefingBrand | null | undefined): b is BriefingBrand {
+  return Boolean(b && (b.brandName || b.brandColor || b.logoUrl));
+}
+
+/**
+ * Compact in-app brand strip for the authenticated briefing. Same three slots as `BriefingDocument`
+ * (PDF) and share-page `BrandMark`: logo, brand name, accent kicker. Exec-only — the share page
+ * keeps `BrandMark`. Renders only the fields that are set.
+ */
+export function BriefingBrandHeader({ branding }: { branding: BriefingBrand }) {
+  const { brandName, brandColor, logoUrl } = branding;
+  return (
+    <div className="flex flex-wrap items-center gap-2.5">
+      {logoUrl && (
+        // eslint-disable-next-line @next/next/no-img-element -- owner-supplied remote logo; next/image needs domain allowlisting
+        <img src={logoUrl} alt="" className="h-6 w-6 object-contain" />
+      )}
+      {brandName && (
+        <span className="font-mono type-body font-semibold uppercase tracking-[0.22em] text-white">{brandName}</span>
+      )}
+      {brandColor && (
+        <span className="type-label tracking-widest" style={{ color: brandColor }}>
+          Executive briefing
+        </span>
+      )}
+    </div>
+  );
+}
+

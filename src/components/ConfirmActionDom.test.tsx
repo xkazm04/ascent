@@ -7,6 +7,7 @@
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { CONTROL_CLASS } from "@/components/ui";
 import { ConfirmActionContent } from "./ConfirmAction";
 
 afterEach(() => vi.restoreAllMocks());
@@ -50,6 +51,24 @@ describe("ConfirmActionContent (DOM)", () => {
     expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
     // The confirm swaps to a progress label while busy.
     expect(screen.getByRole("button", { name: "Working…" })).toBeDisabled();
+  });
+
+  it("skins Cancel with CONTROL_CLASS, not an ad-hoc border-slate-700 outline", () => {
+    renderContent();
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    const confirm = screen.getByRole("button", { name: "Delete segment" });
+    expect(cancel.className).toContain(CONTROL_CLASS);
+    expect(cancel.className).not.toContain("border-slate-700");
+    expect(confirm.className).not.toContain("border-slate-700");
+    expect(confirm.className).toContain("bg-danger");
+  });
+
+  it("keeps the recoverable confirm on the accent fill, still without border-slate-700", () => {
+    renderContent({ tone: "default", confirmLabel: "Open draft PR" });
+    const confirm = screen.getByRole("button", { name: "Open draft PR" });
+    expect(confirm.className).toContain("bg-accent");
+    expect(confirm.className).not.toContain("border-slate-700");
+    expect(screen.getByRole("button", { name: "Cancel" }).className).toContain(CONTROL_CLASS);
   });
 
   it("routes clicks to the right handler", async () => {

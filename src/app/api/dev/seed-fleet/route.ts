@@ -4,12 +4,13 @@
 // local embedded PGlite database AND a production Aurora DSQL cluster alike (a standalone script can't
 // reach the in-process PGlite). Idempotent: the generator's deterministic head SHAs dedup on re-run.
 //
-// Gating: when ASCENT_SEED_SECRET is set, the caller must present it (x-seed-secret header or ?secret=)
-// — so this can be run once safely against a deployed instance. With no secret configured it is allowed
-// only outside production (local dev / preview), never on a bare prod deploy.
+// Gating: ASCENT_EMPTY refuses outright (empty tenant stays empty). When ASCENT_SEED_SECRET is set,
+// the caller must present it (x-seed-secret header or ?secret=) — so this can be run once safely
+// against a deployed instance. With no secret configured it is allowed only outside production
+// (local dev / preview), never on a bare prod deploy.
 
 import { NextResponse, type NextRequest } from "next/server";
-import { seedRequestAuthorized } from "@/lib/dev/seed-auth";
+import { seedForbiddenMessage, seedRequestAuthorized } from "@/lib/dev/seed-auth";
 import { isDbConfigured, persistScanReport } from "@/lib/db";
 import type { ScanReport } from "@/lib/types";
 import { curatedPublicSpecs, fleetSpecs, reportsForRepo } from "@/lib/dev/fleet-seed";
@@ -48,10 +49,7 @@ async function persistAll(reports: ScanReport[], orgSlug: string): Promise<{ ins
 
 export async function POST(req: NextRequest) {
   if (!seedRequestAuthorized(req)) {
-    return NextResponse.json(
-      { error: "forbidden: set ASCENT_SEED_SECRET and pass it via the x-seed-secret header or ?secret=" },
-      { status: 403 },
-    );
+    return NextResponse.json({ error: seedForbiddenMessage() }, { status: 403 });
   }
   if (!isDbConfigured()) {
     return NextResponse.json(

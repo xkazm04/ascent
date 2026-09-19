@@ -1,13 +1,16 @@
 // GET    /api/org/invites?org=slug                         -> { invites[] }   list pending invites
-// POST   /api/org/invites { org, role, email?, githubLogin?, notify? } -> { invite, emailed }  create an invite
+// POST   /api/org/invites { org, role, email?, githubLogin?, notify? } -> { invite, emailed }  create
+// POST   /api/org/invites { org, id, action: "resend", notify? } -> { invite, emailed }  rotate + re-mail
 // DELETE /api/org/invites?org=slug&id=inviteId              -> { ok }          revoke a pending invite
 //
-// All three member-lifecycle acts on an invite are audited: org.member.invited (create),
-// org.member.invite_accepted (the grant, from the accept route) and org.member.invite_revoked
-// (withdrawal). The revoke row names the target, not just the opaque invite id.
+// Member-lifecycle acts on an invite are audited: org.member.invited (create),
+// org.member.invite_accepted (the grant, from the accept route), org.member.invite_revoked
+// (withdrawal; names the target, not just the opaque invite id) and org.member.invite_resent
+// (token rotation + re-mail, same pending row).
 //
-// Owner-only: inviting/revoking is an ownership-level action (mirrors /api/org/members). An invite
-// carries a single-use token returned to the owner so they can share the /invite/[token] link.
+// Owner-only: inviting/revoking/resending is an ownership-level action (mirrors /api/org/members).
+// An invite carries a single-use token returned to the owner so they can share the /invite/[token]
+// link. Resend overwrites that token in place so two live links cannot both grant.
 //
 // G7-02 — DELIVERY. When the invite pins an `email`, the invitee is now MAILED the link instead of the
 // owner having to copy it out of the UI. Exactly one transactional message per created invite, to the
@@ -20,6 +23,7 @@
 
 import { NextResponse } from "next/server";
 import { createInvite, isDbConfigured, listPendingInvites, recordOrgAudit, revokeInvite } from "@/lib/db";
+import { resendInvite, type PendingInvite } from "@/lib/db/invites";
 import { requireOrgRole } from "@/lib/authz";
 import { isOrgRole } from "@/lib/db/members";
 import { requireSameOrigin } from "@/lib/auth";
@@ -59,18 +63,58 @@ export async function GET(request: Request) {
   return NextResponse.json({ invites: await listPendingInvites(org) });
 }
 
+type InviteEmailed = "sent" | "skipped" | "failed" | null;
+
+async function deliverInvite(
+  invite: Pick<PendingInvite, "email" | "role" | "token" | "expiresAt">,
+  org: string,
+  actor: string | null,
+  notify: boolean | undefined,
+): Promise<InviteEmailed> {
+  if (!invite.email || notify === false) return null;
+  const base = publicBaseUrl();
+  const res = await dispatchInviteEmail(invite.email, {
+    org,
+    role: invite.role,
+    url: base ? `${base}/invite/${encodeURIComponent(invite.token)}` : null,
+    invitedBy: actor,
+    expiresAt: invite.expiresAt,
+    nowMs: Date.now(),
+  });
+  return res.ok ? (res.skipped ? "skipped" : "sent") : "failed";
+}
+
 export async function POST(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Invites require a database." }, { status: 503 });
   const crossOriginPost = requireSameOrigin(request);
   if (crossOriginPost) return crossOriginPost;
   const body = (await request.json().catch(() => ({}))) as {
     org?: string;
+    id?: string;
+    action?: string;
     role?: string;
     email?: string;
     githubLogin?: string;
     /** Opt OUT of the invite mail (default: mail an email-pinned invite). Ignored without an email. */
     notify?: boolean;
   };
+  if (body.action === "resend") {
+    if (!body.org || !body.id) return NextResponse.json({ error: "Provide { org, id }." }, { status: 400 });
+    const org = normalizeOrgSlug(body.org);
+    const denied = await requireOrgRole(org, "owner");
+    if (denied) return denied;
+    const actor = await resolveViewerLogin();
+    const invite = await resendInvite(org, body.id);
+    if (!invite) return NextResponse.json({ error: "No such pending invite." }, { status: 404 });
+    const emailed = await deliverInvite(invite, org, actor, body.notify);
+    await recordOrgAudit(
+      "org.member.invite_resent",
+      org,
+      { org, inviteId: invite.id, target: invite.githubLogin ?? invite.email, emailed },
+      actor ?? undefined,
+    ).catch(() => {});
+    return NextResponse.json({ invite, emailed });
+  }
   if (!body.org || !body.role || !isOrgRole(body.role)) {
     return NextResponse.json({ error: "Provide { org, role: admin|member|viewer }." }, { status: 400 });
   }
@@ -112,19 +156,7 @@ export async function POST(request: Request) {
   // Deliver the link. Only ever to the address the owner just typed on THIS request, only when they
   // didn't opt out, and never fatal: a failed/absent send still returns the invite + token, so the
   // owner's manual copy/paste path is untouched.
-  let emailed: "sent" | "skipped" | "failed" | null = null;
-  if (invite.email && body.notify !== false) {
-    const base = publicBaseUrl();
-    const res = await dispatchInviteEmail(invite.email, {
-      org,
-      role: invite.role,
-      url: base ? `${base}/invite/${encodeURIComponent(invite.token)}` : null,
-      invitedBy: actor,
-      expiresAt: invite.expiresAt,
-      nowMs: Date.now(),
-    });
-    emailed = res.ok ? (res.skipped ? "skipped" : "sent") : "failed";
-  }
+  const emailed = await deliverInvite(invite, org, actor, body.notify);
   await recordOrgAudit(
     "org.member.invited",
     org,

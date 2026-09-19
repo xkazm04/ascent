@@ -90,7 +90,9 @@ export function ContributorsPanel({ report }: { report: ScanReport }) {
         </Surface>
       )}
 
-      {report.prStats && report.prStats.analyzed > 0 && <PrSignalsPanel stats={report.prStats} />}
+      {report.prStats && report.prStats.analyzed > 0 && (
+        <PrSignalsPanel stats={report.prStats} aiChanges={report.aiChanges} />
+      )}
     </div>
   );
 }

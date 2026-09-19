@@ -89,9 +89,11 @@ export function registryVerdict(v: RegistryView): string {
   if (v.status === "error") return v.error?.message ?? "The last index attempt failed.";
   if (v.registry?.mode === "hosted_mirror") return "Hosted mirror — ascent stays the writer; the repo is a read-only copy.";
   const { moved, total } = migratedTotals(v);
+  const pointing = v.fleet.reposPointing;
+  if (typeof pointing !== "number") return `${moved}/${total} artifacts in the registry · fleet pointing not measured yet`;
   const behind = v.fleet.adoption.stale + v.fleet.adoption.diverged;
   const tail = behind > 0 ? ` · ${behind} repo${behind === 1 ? "" : "s"} behind the catalog` : " · every pointing repo in sync";
-  return `${moved}/${total} artifacts in the registry · ${v.fleet.reposPointing}/${v.fleet.reposTotal} repos pointing${tail}`;
+  return `${moved}/${total} artifacts in the registry · ${pointing}/${v.fleet.reposTotal} repos pointing${tail}`;
 }
 
 /**
@@ -106,8 +108,10 @@ export function registrySteps(v: RegistryView): RegistryStep[] {
   const { moved, total } = migratedTotals(v);
   const migrateDone = total > 0 && moved >= total;
   const migrateOpen = ARTIFACTS.some((a) => v.migration[a].state === "pr-open");
-  const pointing = v.fleet.reposPointing > 0;
-  const verified = indexed && !!v.registry?.catalogSha && v.fleet.reposSynced30d > 0 && v.telemetry.invokes30d > 0;
+  const pointingN = v.fleet.reposPointing;
+  const syncedN = v.fleet.reposSynced30d;
+  const pointing = typeof pointingN === "number" && pointingN > 0;
+  const verified = indexed && !!v.registry?.catalogSha && typeof syncedN === "number" && syncedN > 0 && v.telemetry.invokes30d > 0;
   // Self-hosted pairing: the checkout is the read source, so the App steps are OPTIONAL, not blocking.
   const local = v.registry?.localPath ?? null;
   const appOptional = !!local && !v.permission.contentsWrite;
@@ -163,8 +167,8 @@ export function registrySteps(v: RegistryView): RegistryStep[] {
       5,
       "Point the fleet",
       "Each repo names its registry in .ai/manifest.yaml — or a developer just runs the sync command.",
-      pointing && v.fleet.reposPointing >= v.fleet.reposTotal ? "done" : pointing ? "active" : indexed ? "active" : "pending",
-      `${v.fleet.reposPointing}/${v.fleet.reposTotal} repos carry the pointer`,
+      pointing && typeof pointingN === "number" && pointingN >= v.fleet.reposTotal ? "done" : pointing ? "active" : indexed ? "active" : "pending",
+      typeof pointingN === "number" ? `${pointingN}/${v.fleet.reposTotal} repos carry the pointer` : "Not measured yet — the adoption pass has not run",
     ),
     step(
       "verify",
@@ -173,7 +177,7 @@ export function registrySteps(v: RegistryView): RegistryStep[] {
       "First catalog.json written, first repo synced, first invoke recorded. Then it runs itself.",
       verified ? "done" : indexed ? "active" : "pending",
       indexed
-        ? `catalog ${v.registry?.catalogSha ? "written" : "pending"} · ${v.fleet.reposSynced30d} synced · ${v.telemetry.invokes30d.toLocaleString()} invokes`
+        ? `catalog ${v.registry?.catalogSha ? "written" : "pending"} · ${typeof syncedN === "number" ? `${syncedN} synced` : "sync unmeasured"} · ${v.telemetry.invokes30d.toLocaleString()} invokes`
         : "Nothing to verify yet",
     ),
   ];

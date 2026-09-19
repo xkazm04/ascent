@@ -1,4 +1,4 @@
-import { test, expect, type APIRequestContext } from "@playwright/test";
+import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
 import { FIXTURE_NAME, FIXTURE_REPO, createFixtureRepo, git, removeFixtureRepo, theLoopBranch } from "./fixture";
 
 // THE COCKPIT LOOP, END TO END — the UC1 journey as one spec: map a repo → scan it from disk → open
@@ -7,14 +7,14 @@ import { FIXTURE_NAME, FIXTURE_REPO, createFixtureRepo, git, removeFixtureRepo, 
 // WHAT IS DRIVEN FOR REAL (everything except the agent session):
 //   • local-mode mapping + pairing, through the real `/api/org/local/projects` door;
 //   • a real scan of a real git repository on disk (LocalFsSource, deterministic mock engine);
-//   • the real cockpit UI — observatory selection, the propose panel, the model/effort dials, Run;
+//   • the real cockpit UI — observatory selection, the propose panel, the run-setup dialog, Run;
 //   • the real loop engine: a real `git worktree`, a real FOUNDATION lane that writes the generated
 //     `.ai/` tree and commits it, a real rescan of that worktree, real persistence;
 //   • the real attribution rule, the real outcome ledger, the real branch left behind.
 //
 // WHAT IS NOT: no `claude -p` session ever runs. The fixture repo has no `.ai/manifest.yaml`, so
 // rule 1 of `proposeLaneKind` gives it a FOUNDATION lane — a deterministic install, no agent — and
-// `Cycles` is pinned to 1 so cycle 2 (which would fall back to the agent lane) never happens. That
+// Cycles is pinned to 1 (via the masthead's run-setup dialog) so cycle 2 never happens. That
 // is a deliberate scoping choice, not an accident: an e2e spec that spends a real model session per
 // run is neither fast nor repeatable, and the foundation lane exercises every part of the loop
 // *around* the agent.
@@ -61,7 +61,7 @@ test.afterAll(async () => {
 });
 
 /** Open the cockpit and select the fixture repo, leaving the inspector's proposal on screen. */
-async function selectFixture(page: import("@playwright/test").Page) {
+async function selectFixture(page: Page) {
   await page.goto(COCKPIT);
   const cockpit = page.getByRole("region", { name: "Loop cockpit" });
   await expect(cockpit).toBeVisible();
@@ -74,6 +74,18 @@ async function selectFixture(page: import("@playwright/test").Page) {
   return cockpit;
 }
 
+/** Pin Cycles=1, haiku, low via the masthead setup dialog so cycle 2 cannot start an agent session. */
+async function armBoundedFoundationRun(page: Page) {
+  await page.getByTestId("cockpit-setup-gear").click();
+  const setup = page.getByRole("dialog", { name: "Run setup" });
+  await expect(setup).toBeVisible();
+  await setup.getByTestId("setup-cycles").getByRole("radio", { name: "1", exact: true }).click();
+  await setup.getByTestId("setup-model").getByRole("radio", { name: "haiku" }).click();
+  await setup.getByTestId("setup-effort").getByRole("radio", { name: "low" }).click();
+  await setup.getByRole("button", { name: "Done" }).click();
+  await expect(setup).toHaveCount(0);
+}
+
 test("the cockpit's gate is open on this deployment, and the fleet plots the paired repo", async ({ page }) => {
   await page.goto(COCKPIT);
   const cockpit = page.getByRole("region", { name: "Loop cockpit" });
@@ -84,7 +96,7 @@ test("the cockpit's gate is open on this deployment, and the fleet plots the pai
   // The rail is the INSPECTOR, which means `cockpitSetupState` returned null: self-hosted, repos in
   // scope, owner, ASCENT_AUTOPILOT on, and a paired working copy. If any of the five were missing we
   // would be looking at a CockpitSetup block instead — so this assertion IS the gate assertion.
-  await expect(cockpit.getByText(/Lasso or click bodies/)).toBeVisible();
+  await expect(cockpit.getByText(/Lasso or click bodies/).first()).toBeVisible();
   await expect(page.getByText("Three steps to your first run")).toHaveCount(0);
   await expect(page.getByText("Loop disabled on this deployment")).toHaveCount(0);
   await expect(page.getByText("Loops run where your code is")).toHaveCount(0);
@@ -125,40 +137,39 @@ test("a bounded run installs the foundation, and the ledger refuses to call a mo
   await expect(cockpit.getByText(".ai/ foundation", { exact: true })).toBeVisible();
 
   // ONE cycle. Cycle 2 would drop back to the backlog lane and spawn a real `claude -p` session.
-  await cockpit.getByLabel("Cycles").selectOption("1");
-  await cockpit.getByTestId("cockpit-model").selectOption("haiku");
-  await cockpit.getByTestId("cockpit-effort").selectOption("low");
+  // The dials live in the masthead gear's dialog (they left the inspector rail 2026-09-17).
+  await armBoundedFoundationRun(page);
 
   await cockpit.getByRole("button", { name: "Run (1 repo)" }).click();
-  await expect(cockpit.getByText(/Run · (running|done)/)).toBeVisible();
 
-  // The run: worktree → install → commit → rescan. The rail switches to the outcome when it settles.
-  await expect(cockpit.getByText(/Outcome · done/)).toBeVisible({ timeout: 300_000 });
+  // The run: worktree → install → commit → rescan. There is no outcome RAIL any more (wave-2): the
+  // run lands as a column of the full-width outcome SHEET under the grid, and the rail goes back to
+  // the inspector. The in-flight "Run · running" panel is not asserted — a foundation lane can
+  // settle before the first poll, so that panel may never paint (it did not, in CI run 34870857552).
+  const outcome = cockpit.getByRole("region", { name: "Loop outcome" });
+  const column = outcome.getByRole("button", { name: /^Run 1 .*· done/ });
+  await expect(column).toBeVisible({ timeout: 300_000 });
 
-  // WHAT THE LIFT WAS PRODUCED UNDER. Resolved at arm time and persisted on the row, so the ledger
-  // can say it long after the process that drove the run is gone.
-  // It renders in two places, which is the design: beside the outcome's timestamp AND under the run's
-  // row in the history strip, because comparing two lifts means comparing two setups.
-  await expect(cockpit.getByText("haiku · low effort").first()).toBeVisible();
+  // WHAT THE LIFT WAS PRODUCED UNDER. Resolved at arm time and persisted on the row, so the sheet
+  // can say it long after the process that drove the run is gone — on the run's own column header,
+  // because comparing two runs means comparing two setups.
+  await expect(column).toContainText("haiku · low effort");
 
   // The headline refuses to claim anything: every scan here is a mock scan, so nothing is
-  // attributable and the one lane is reported as excluded rather than as zero movement.
-  await expect(cockpit.getByText("attributable lift")).toBeVisible();
-  await expect(cockpit.getByText(/excluded: 1 mock scan/)).toBeVisible();
+  // attributable and the takeaway says so rather than reporting zero movement as a result.
+  await expect(outcome.getByRole("heading", { name: /no attributable lift yet/ })).toBeVisible();
 
-  // The ledger row: the lane's kind, the refusal in place of a coloured delta, and the provenance.
-  // Anchored on the refusal itself, which nothing but the ledger row renders — the fleet list on the
-  // left also carries the repo's name.
-  const row = cockpit.locator("li").filter({ hasText: "not attributable: mock scan" }).first();
-  await expect(row).toContainText(FIXTURE_REPO);
-  await expect(row.getByText(".ai/ foundation", { exact: true })).toBeVisible();
-  await expect(row.getByText(/engine mock/)).toBeVisible();
-  // A local rescan cannot observe the GitHub-side platform fold and there is nothing to carry, so
-  // D2/D3/D4 are declared unmeasurable rather than scored at a floor the repo cannot raise.
-  await expect(row.getByText(/not measurable locally/)).toBeVisible();
+  // The project row: the refusal word in place of a coloured delta, and the commit footnote.
+  // Scoped to the outcome region — the fleet list on the left also carries the repo's name.
+  const project = outcome.getByRole("row", { name: new RegExp(FIXTURE_REPO) });
+  await expect(project.getByText("mock scan", { exact: true })).toBeVisible();
   // Real work landed: a commit on a real branch.
-  await expect(row.getByText(/[1-9]\d* commits/)).toBeVisible();
-  await expect(row.getByText(/ascent\/loop-/)).toBeVisible();
+  await expect(project.getByText(/[1-9]\d* commits? · /)).toBeVisible();
+  // The lane's deliverable is its own gap row, and it is COMMITTED, not merely claimed.
+  await expect(outcome.getByRole("rowheader", { name: "Installed the .ai/ foundation" })).toBeVisible();
+  await expect(outcome.getByRole("cell", { name: /Installed, committed/ })).toBeVisible();
+  // (D2/D3/D4 "not measurable locally" is no longer printed in the cockpit; the last spec asserts it
+  // on the mapping door's `green.repos[].unmeasurable`.)
 
   // THE BRANCH IS THE DELIVERABLE — verified in the repository itself, not from the screen.
   const branch = await theLoopBranch(fixtureDir);
@@ -168,9 +179,8 @@ test("a bounded run installs the foundation, and the ledger refuses to call a mo
   const mainTree = await git(fixtureDir, ["ls-tree", "-r", "--name-only", "main"]);
   expect(mainTree).not.toContain(".ai/manifest.yaml");
 
-  // ITERATE: back to the inspector with the selection intact — the run you just watched is the
-  // selection you want to run again.
-  await cockpit.getByRole("button", { name: "Back to inspect" }).click();
+  // ITERATE: the rail never left the inspector, and the selection is intact — the run you just watched
+  // is the selection you want to run again.
   // Two counters read "1 selected" (the fleet list's and the inspector's) — either proves the point.
   await expect(cockpit.getByText("1 selected").first()).toBeVisible();
   await expect(cockpit.getByRole("button", { name: "Run (1 repo)" })).toBeEnabled();

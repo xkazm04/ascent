@@ -53,7 +53,9 @@ export const ABOUT_FEATURES: AboutFeatureData[] = [
       "In /org, leverage ranking surfaces fix-once, apply-fleet-wide moves",
       "Skip the low-impact initiative that moves two repos, not twenty",
     ],
-    value: "Turn “we think this will help” into “this moves 6 of 8 repos to L3 by Q3.”",
+    // Money line names the demo tiles. A dated "6 of 8 repos to L3 by Q3" was a
+    // count the sliders never compute (GOLDEN-TRIO: do not lead with ROI).
+    value: "Turn a guess about a fix into live promotions, average gain, and repos in scope.",
   },
   {
     id: "adoption",

@@ -354,7 +354,7 @@ function fakePrismaForReconciliation(rows: Array<{ delta: number; reason: string
   return { prisma, getArgs: () => lastFindManyArgs };
 }
 
-import { getCreditLedger, getCreditReconciliation, CREDIT_REASON, isRefundReason } from "./credits";
+import { getCreditLedger, getCreditReconciliation, CREDIT_REASON, isRefundReason, isPolarRefundReason } from "./credits";
 import { usageWindow } from "./usage";
 
 /**
@@ -489,6 +489,17 @@ describe("consumeScanCredit plan-resolution + casing contract", () => {
     expect(updateMany).not.toHaveBeenCalled();
     expect(ledger).toHaveLength(0);
   });
+
+  it("a real org at zero credits denies WITHOUT orgExists:false — that is a paywall, not a 404", async () => {
+    const { prisma, ledger } = fakePrismaForPlanResolution({ scanCredits: 0, plan: "free" });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await consumeScanCredit("acme");
+
+    expect(res).toEqual({ ok: false, balance: 0, unlimited: false, charged: false });
+    expect(res.orgExists).not.toBe(false);
+    expect(ledger).toHaveLength(0);
+  });
 });
 
 describe("getCreditReconciliation refund-vs-grant classification", () => {
@@ -564,6 +575,48 @@ describe("getCreditReconciliation refund-vs-grant classification", () => {
     const rec = await getCreditReconciliation("acme", lastDays(30));
     expect(rec!.refunded).toBe(4);
     expect(rec!.granted).toBe(7);
+  });
+
+  it("classifies clawbacks on CREDIT_REASON.POLAR_REFUND, NOT a /refund/i substring", async () => {
+    // Producers stamp CREDIT_REASON.POLAR_REFUND on Polar pack reversals (negative delta). The reader
+    // must accept that exact constant and reject look-alikes: a negative whose reason merely contains
+    // "refund" is still scan-spend / adjustment, not a billing clawback.
+    expect(isPolarRefundReason(CREDIT_REASON.POLAR_REFUND)).toBe(true);
+    expect(isPolarRefundReason("POLAR-REFUND")).toBe(true); // trim/case-tolerant
+    expect(isPolarRefundReason(" polar-refund ")).toBe(true);
+    expect(isPolarRefundReason(CREDIT_REASON.REFUND)).toBe(false);
+    expect(isPolarRefundReason("order refund")).toBe(false); // substring no longer matches
+    expect(isPolarRefundReason("refunded-pack")).toBe(false);
+
+    const { prisma } = fakePrismaForReconciliation([
+      { delta: -5, reason: CREDIT_REASON.SCAN, createdAt: daysAgo(1) },
+      { delta: -20, reason: CREDIT_REASON.POLAR_REFUND, createdAt: daysAgo(1) }, // clawback → not debited
+      { delta: -7, reason: "order refund", createdAt: daysAgo(1) }, // look-alike substring → still debited
+      { delta: 3, reason: CREDIT_REASON.REFUND, createdAt: daysAgo(1) },
+      { delta: 50, reason: CREDIT_REASON.GRANT, createdAt: daysAgo(1) },
+    ]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const rec = await getCreditReconciliation("acme", lastDays(30));
+    expect(rec!.debited).toBe(12); // |−5| + |−7|; the −20 clawback is excluded
+    expect(rec!.refunded).toBe(3);
+    expect(rec!.granted).toBe(50);
+    expect(rec!.net).toBe(21); // −5 −20 −7 +3 +50
+    expect(rec!.entries).toBe(5);
+  });
+
+  it("a Polar clawback (negative POLAR_REFUND) is not scan spend — it still nets", async () => {
+    const { prisma } = fakePrismaForReconciliation([
+      { delta: -40, reason: CREDIT_REASON.POLAR_REFUND, createdAt: daysAgo(1) },
+    ]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const rec = await getCreditReconciliation("acme", lastDays(30));
+    expect(rec!.debited).toBe(0);
+    expect(rec!.refunded).toBe(0);
+    expect(rec!.granted).toBe(0);
+    expect(rec!.net).toBe(-40);
+    expect(rec!.entries).toBe(1);
   });
 
   it("a negative/adjustment delta is bucketed into `debited` (abs), never into granted/refunded", async () => {
@@ -946,9 +999,26 @@ describe("CreditLedger spend attribution (debit ↔ refund join)", () => {
     const { prisma, rows } = attributionPrisma(0);
     mockGetPrisma.mockReturnValue(prisma);
 
-    await grantCredits("acme", 50, { reason: "polar", actor: "polar", externalId: "polar:ord_1" });
+    await grantCredits("acme", 50, { reason: CREDIT_REASON.POLAR, actor: "polar", externalId: "polar:ord_1" });
 
-    expect(rows[0]).toMatchObject({ delta: 50, reason: "polar", repoFullName: null, scanId: null });
+    expect(rows[0]).toMatchObject({ delta: 50, reason: CREDIT_REASON.POLAR, repoFullName: null, scanId: null });
+  });
+
+  it("stamps Polar top-ups with CREDIT_REASON.POLAR, not a free-text reason (producer contract)", async () => {
+    // Polar pack fulfilment keys the row `polar:<orderId>`. Bind it to the shared constant so a
+    // free-text "polar" (the historical webhook string) and an omitted reason both land as POLAR,
+    // never GRANT — Polar purchases must not consume the manual-grant cap.
+    expect(CREDIT_REASON.POLAR).toBe("polar");
+
+    const { prisma, rows } = attributionPrisma(0);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await grantCredits("acme", 50, { reason: "polar", actor: "polar", externalId: "polar:ord_1" });
+    expect(rows[0]!.reason).toBe(CREDIT_REASON.POLAR);
+
+    await grantCredits("acme", 25, { actor: "polar", externalId: "polar:ord_2" });
+    expect(rows[1]!.reason).toBe(CREDIT_REASON.POLAR);
+    expect(rows[1]).toMatchObject({ delta: 25, reason: CREDIT_REASON.POLAR });
   });
 
   it("carries scanId onto both rows when the caller knows it, and joins them by it", async () => {

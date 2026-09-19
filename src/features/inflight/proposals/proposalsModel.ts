@@ -59,7 +59,9 @@ export function pendingLoopProposals(details: readonly LoopRunDetail[]): LoopPro
     const byRepo = new Map<string, LoopLaneOutcome[]>();
     for (const o of d.outcomes) byRepo.set(o.lane.repoFullName, [...(byRepo.get(o.lane.repoFullName) ?? []), o]);
     for (const [repo, lanes] of byRepo) {
-      for (const row of buildGapRows(lanes)) {
+      // The run's server-side id → title resolution travels with the detail, so a proposal armed by a
+      // lane that never rescanned lands here with its real title instead of its uuid.
+      for (const row of buildGapRows(lanes, d.batchTitles)) {
         const key = `${repo}|${gapKey(row)}`;
         if (seen.has(key)) continue;
         seen.add(key);

@@ -31,7 +31,7 @@ vi.mock("@/lib/db/client", () => ({
 }));
 
 import { getContributorInsights, computeOrgResilience } from "./org-contributors";
-import { topContributorLabel } from "@/components/org/shared/champions";
+import { topContributorLabel } from "@/lib/org/champions";
 
 /** One row as repoContributor.findMany returns it for getContributorInsights. */
 interface Row {
