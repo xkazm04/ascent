@@ -83,10 +83,12 @@ const OFF_RAIL = new Set<string>(ORG_TABS_NOT_IN_NAV);
 /** Follow-ups is the designed hand-off point to a local agent; it ends the path on purpose. */
 const DESIGNED_DEAD_ENDS = new Set(["followups"]);
 
-/** Tabs whose only entrance is the rail. Measured 2026-09-14 on master 3c49b90b: 9. */
-const NO_INBOUND = ["digest", "tech-stacks", "passports", "security", "registry", "memory", "members", "governance", "audit"];
-/** Tabs that link to no sibling, beyond the designed dead ends. Measured 2026-09-14: 7. */
-const NO_OUTBOUND = ["security", "practices", "skills", "memory", "surfaces", "members", "audit"];
+/** Tabs whose only entrance is the rail. Measured 2026-09-19 on master 9cfc541c2: 9 (`lessons`, newly
+ *  added and not yet cross-linked, replaces `registry`, which gained a sibling link since). */
+const NO_INBOUND = ["digest", "tech-stacks", "passports", "lessons", "security", "memory", "members", "governance", "audit"];
+/** Tabs that link to no sibling, beyond the designed dead ends. Measured 2026-09-19: 7 (`lessons`
+ *  replaces `surfaces`, which gained an outbound link since). */
+const NO_OUTBOUND = ["lessons", "security", "practices", "skills", "memory", "members", "audit"];
 
 /**
  * Non-literal helper calls, each one a decision rather than an edge. Overview's Fix-first slot links
