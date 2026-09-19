@@ -123,6 +123,13 @@ export async function attachRemoteClaim(args: {
     .findFirst({ where: { orgId: org.id, phase: { in: ["curating", "running"] } }, orderBy: { createdAt: "desc" } })
     .catch(() => null);
   if (!run) return false;
+  // DELIBERATELY `remote-agent` ONLY, not every external executor. A `hosted-worker` lane (ADR-0001)
+  // was armed for a worker ASCENT dispatches, and the claim path here authenticates a caller as
+  // "some agent holding a followups:write token" — which is every customer harness on the deployment.
+  // Widening this filter would let one org's own agent claim the lane Ascent is paying to have
+  // worked, and the reverse. Hosted lanes become claimable when the per-run scoped token that
+  // identifies Ascent's own worker exists (ADR-0001 T8); until then they are armed and unclaimable,
+  // which is the honest state rather than a wrongly-open door.
   const lane = await prisma.loopRunLane
     .findFirst({ where: { runId: run.id, repoFullName: args.repoFullName, executor: "remote-agent" } })
     .catch(() => null);
@@ -326,8 +333,11 @@ export async function appendLaneLog(id: string, line: string): Promise<void> {
   await prisma.loopRunLane.update({ where: { id }, data: { log: next } }).catch(() => null);
 }
 
-/** The lane executors this process does NOT drive, and whose runs the liveness sweep must not judge. */
-const EXTERNAL_EXECUTORS = ["remote-agent", "human"];
+/** The lane executors this process does NOT drive, and whose runs the liveness sweep must not judge.
+ *  `hosted-worker` (ADR-0001) joins them for exactly the reason the ADR names: a hosted lane's expiry
+ *  is decided by `leaseUntil`, never by whether this process happens to hold a registry entry — and
+ *  without this row a cockpit READ would stop every healthy hosted run on the deployment. */
+const EXTERNAL_EXECUTORS = ["remote-agent", "hosted-worker", "human"];
 
 /**
  * Reconcile `running` rows left behind by a process that died. The engine's live handles only ever

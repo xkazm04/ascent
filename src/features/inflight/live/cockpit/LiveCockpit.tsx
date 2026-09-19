@@ -106,13 +106,14 @@ export function LiveCockpit(props: LiveCockpitProps) {
             slug={slug}
             mode={railMode}
             setup={c.setup}
+            setupMessage={c.setupMessage}
             liveDrive={drive.live ? drive.drive : null}
             interruptedDrive={c.interruptedDrive}
             runDetail={loop.detail}
             runLive={loop.live}
             batch={c.batch}
             dials={c.dials}
-            canRun={isOwner && loop.enabled}
+            canRun={c.canRun}
             busy={loop.busy || drive.busy}
             loopError={loop.error}
             driveError={drive.error}

@@ -111,6 +111,13 @@ export interface StartLoopInput {
   verifyMode?: VerifyMode;
   /** Budget for ONE run of the repository's own check, MILLISECONDS. Omitted = 10 minutes. */
   verifyTimeoutMs?: number;
+  /** WHO WORKS THE LANES (ADR-0001). Omitted/`local` is what every caller before it meant: this
+   *  server spawns `claude -p` in a paired checkout. `hosted` arms a run Ascent Cloud dispatches —
+   *  no worktree here, no process here — and the route answers it with its own gate table (plan,
+   *  credit headroom, per-repo admission, pr-only delivery) rather than the self-hosted checks.
+   *  `remote-agent` is deliberately NOT offered here: that run is armed by the customer's own
+   *  harness against the API, and the cockpit has no claimant to hand it to. */
+  executor?: "local" | "hosted";
 }
 
 export const startLoop = (slug: string, input: StartLoopInput): Promise<{ run: LoopRunRecord }> =>
