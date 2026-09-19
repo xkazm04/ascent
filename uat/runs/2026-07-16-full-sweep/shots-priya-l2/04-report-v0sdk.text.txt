@@ -1,0 +1,261 @@
+Skip to content
+ASCENT
+LEADERBOARD
+PRICING
+ABOUT
+vercel
+→
+developer
+Sign out
+REPOSITORY REPORT
+vercel/v0-sdk
+TypeScript
+★ 506
+updated unknown
+HOW SCORING WORKS
+→
+Team / product
+AI usage detected · 47% commits
+Demo · deterministic rubric
+confidence 85%
+Scanned
+1h ago
+Re-test
+↓
+Export PDF
+✦
+Onboarding skill
+APP READINESS PASSPORT
+vercel/v0-sdk
+
+INSTRUMENT READOUT · 2026-07-16
+
+AUTOMATION
+L3
+50/100
+READY FOR AGENTS
+PRODUCTION
+PROTOTYPE
+16/100
+TRUSTED IN PROD
+PRODUCTION RUNGS
+CI
+checks
+TESTS
+none
+SECURITY
+policy
+OBSERV.
+none
+DELIVERY
+migrations none
+STACK
+TypeScript
+
+static-scan · confidence 85% · as of 2026-07-16 · Other
+
+↓ passport.json
+SECTIONS
+Scoring
+Dimensions
+Roadmap
+Sandbox
+Contributors
+50
+◑ L3 · Augmented
+◑
+L3 — Augmented
+
+vercel/v0-sdk sits at L3 — Augmented: AI is part of the standard workflow.
+
+Scores are computed from deterministic signals, not LLM-written analysis.
+
+AI is part of the team's standard workflow. Shared agent guidance exists and guardrails are solid (real test suite, CI gates, enforced types/lint), so AI-generated code is safe to merge.
+
+○
+L1
+◔
+L2
+◑
+L3
+◕
+L4
+●
+L5
+WHY THIS SCORE
+Score waterfall
+
+Every point attributed — each dimension contributes its weight × score, and the parts sum to your headline.
+
+= 50/100
+CI/CD
+90 × 11%
++9.9
+▲+4.4
+Testing
+56 × 17%
++9.5
+▲+1
+Commits
+98 × 8%
++7.8
+▲+3.8
+Quality
+87 × 9%
++7.8
+▲+3.3
+Docs
+65 × 10%
++6.5
+▲+1.5
+AI Process
+28 × 13%
++3.6
+▼2.9
+Security
+44 × 7%
++3.1
+▼0.4
+Agentic
+15 × 9%
++1.3
+▼3.2
+AI Tooling
+0 × 16%
++0
+▼8
+POSTURE
+Solid but Manual
+
+Strong engineering foundations with untapped AI leverage — operationalize AI tooling.
+
+AI Adoption
+◔
+28
+TOOLING · AGENTIC · COMMIT SIGNALS
+Engineering Rigor
+◑
+60
+TESTS · CI/CD · DOCS · QUALITY
+MANUAL
+AI-NATIVE
+GETTING STARTED
+UNGOVERNED
+AI ADOPTION →
+RIGOR →
+Maturity over time
+
+Baseline established — re-scan later to track progress.
+
+L5
+L4
+L3
+L2
+L1
+0
+25
+45
+65
+85
+100
+Jul 16
+50
+Overall maturity score over time
+Scan date	Score	Level	Report
+Jul 16	50	L3 Augmented	—
+DIMENSION-LEVEL TRENDS →
+Strengths
+▲
+Commit & Velocity Signals is a relative strength (98/100).
+▲
+CI/CD & Delivery is a relative strength (90/100).
+▲
+Code Quality & Guardrails is a relative strength (87/100).
+▲
+Documentation & Knowledge is a relative strength (65/100).
+Risks & gaps
+▼
+AI Tooling & Conventions is underdeveloped (0/100).
+▼
+Agentic Workflows is underdeveloped (15/100).
+▼
+AI Process & Harness is underdeveloped (28/100).
+▼
+Supply Chain & Security is underdeveloped (44/100).
+GO FLEET-WIDE
+
+Scan your whole org in one shot to see this repo ranked against the rest — common gaps to fix once, and the repo-specific ones.
+
+Scan your org
+→
+Track this repo
+← Scan another repo
+App Readiness Passport
+
+The portfolio scorecard — how ready this app is for full LLM-automated development, and for production. Names the stack on purpose.
+
+↓ passport.json
+AUTOMATION READINESS
+L3
+50
+/100 · ready for agents
+self-verify: build · test · lint · typecheck · AI in workflow
+PRODUCTION READINESS
+Prototype
+16
+/100 · trusted in prod
+CI
+checks
+TESTS
+none
+SECURITY
+policy
+OBSERVABILITY
+none
+DELIVERY
+migrations: none
+BLOCKERS
+▸
+No in-repo .ai/manifest.yaml (agent-facing capability contract).
+▸
+No machine-readable context graph (context-map.json / CONTEXT.md).
+▸
+Zero observability: no error tracking, structured logs, metrics, or tracing.
+▸
+CI does not gate merges (no enforced required checks).
+▸
+No dependency/secret/SAST scanning wired in.
+
+static-scan · confidence 85% · as of 2026-07-16
+
+OWNER SETTINGS
+
+Fields a scan can't infer — these frame how to read the scores and (rollback) lift the production score.
+
+criticality
+unset
+experimental
+internal
+business
+mission-critical
+lifecycle
+unset
+prototype
+alpha
+beta
+ga
+maintenance
+deprecated
+tested rollback
+Save
+Commit .ai/passport.json →
+ASCENT
+
+THE MATURITY INDEX FOR AI-NATIVE ENGINEERING
+
+LEADERBOARD
+BADGE
+CONNECT
+USAGE
+
+Built on Vercel + Aurora DSQL · #H0Hackathon

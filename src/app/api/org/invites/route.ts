@@ -1,0 +1,192 @@
+// GET    /api/org/invites?org=slug                         -> { invites[] }   list pending invites
+// POST   /api/org/invites { org, role, email?, githubLogin?, notify? } -> { invite, emailed }  create
+// POST   /api/org/invites { org, id, action: "resend", notify? } -> { invite, emailed }  rotate + re-mail
+// DELETE /api/org/invites?org=slug&id=inviteId              -> { ok }          revoke a pending invite
+//
+// Member-lifecycle acts on an invite are audited: org.member.invited (create),
+// org.member.invite_accepted (the grant, from the accept route), org.member.invite_revoked
+// (withdrawal; names the target, not just the opaque invite id) and org.member.invite_resent
+// (token rotation + re-mail, same pending row).
+//
+// Owner-only: inviting/revoking/resending is an ownership-level action (mirrors /api/org/members).
+// An invite carries a single-use token returned to the owner so they can share the /invite/[token]
+// link. Resend overwrites that token in place so two live links cannot both grant.
+//
+// G7-02 — DELIVERY. When the invite pins an `email`, the invitee is now MAILED the link instead of the
+// owner having to copy it out of the UI. Exactly one transactional message per created invite, to the
+// address the owner just typed, containing only the org slug / role / inviter / link (see
+// src/lib/email/invite.ts for the disclosure rationale). `notify: false` in the body suppresses it
+// (the per-request opt-out, for an owner who wants to deliver the link privately); the whole path is a
+// silent no-op on a deploy with no email provider or with EMAIL_INVITES=off. The response reports
+// `emailed` honestly — "sent" | "skipped" (no provider) | "failed" | null (not requested / no email) —
+// so the UI can tell the owner to share the link manually rather than implying a delivery.
+
+import { NextResponse } from "next/server";
+import { createInvite, isDbConfigured, listPendingInvites, recordOrgAudit, revokeInvite } from "@/lib/db";
+import { resendInvite, type PendingInvite } from "@/lib/db/invites";
+import { requireOrgRole } from "@/lib/authz";
+import { isOrgRole } from "@/lib/db/members";
+import { requireSameOrigin } from "@/lib/auth";
+import { resolveViewerLogin } from "@/lib/access";
+import { dispatchInviteEmail } from "@/lib/email/invite";
+import { publicBaseUrl } from "@/lib/site";
+import { normalizeOrgSlug } from "@/lib/db/org-shared";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+// Same shape contract as /api/org/members so an invite can't pin a garbage/typo'd login (which would
+// only ever sit un-acceptable in the pending list — acceptInvite requires the pin to match a real
+// logged-in identity). GitHub logins are 1–39 chars of alphanumerics and single hyphens.
+//
+// This is also a SECURITY boundary, not just a typo guard (G2-31): `@` is outside the character class,
+// so an owner who types an EMAIL address into the GitHub-login field is refused rather than storing a
+// pin that an unconfirmed Supabase account at that address could satisfy via acceptInvite's login
+// comparison. The other half of that pair lives in getViewer (src/lib/access.ts), which no longer lets
+// an unconfirmed address become `viewer.login`. Route tests pin both.
+const GITHUB_LOGIN = /^[A-Za-z0-9-]{1,39}$/;
+// Minimal email shape: a single @ with non-empty, space-free local and domain parts (the domain has a dot).
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export async function GET(request: Request) {
+  if (!isDbConfigured()) return NextResponse.json({ error: "Invites require a database." }, { status: 503 });
+  const rawOrg = new URL(request.url).searchParams.get("org");
+  if (!rawOrg) return NextResponse.json({ error: "Missing ?org." }, { status: 400 });
+  // Canonicalize once, exactly as /api/org/members does — the sibling privilege surface, whose own
+  // comment records that case-divergence between the gate, the data read and the audit line was a real
+  // IDOR/audit risk. This route was the half of the pair that never got it: requireOrgRole normalizes
+  // internally, so the GATE was safe, but the raw string went on to the reads, the mutations and — the
+  // part nothing else corrects — the `meta.org` of every invite audit row.
+  const org = normalizeOrgSlug(rawOrg);
+  const denied = await requireOrgRole(org, "owner");
+  if (denied) return denied;
+  return NextResponse.json({ invites: await listPendingInvites(org) });
+}
+
+type InviteEmailed = "sent" | "skipped" | "failed" | null;
+
+async function deliverInvite(
+  invite: Pick<PendingInvite, "email" | "role" | "token" | "expiresAt">,
+  org: string,
+  actor: string | null,
+  notify: boolean | undefined,
+): Promise<InviteEmailed> {
+  if (!invite.email || notify === false) return null;
+  const base = publicBaseUrl();
+  const res = await dispatchInviteEmail(invite.email, {
+    org,
+    role: invite.role,
+    url: base ? `${base}/invite/${encodeURIComponent(invite.token)}` : null,
+    invitedBy: actor,
+    expiresAt: invite.expiresAt,
+    nowMs: Date.now(),
+  });
+  return res.ok ? (res.skipped ? "skipped" : "sent") : "failed";
+}
+
+export async function POST(request: Request) {
+  if (!isDbConfigured()) return NextResponse.json({ error: "Invites require a database." }, { status: 503 });
+  const crossOriginPost = requireSameOrigin(request);
+  if (crossOriginPost) return crossOriginPost;
+  const body = (await request.json().catch(() => ({}))) as {
+    org?: string;
+    id?: string;
+    action?: string;
+    role?: string;
+    email?: string;
+    githubLogin?: string;
+    /** Opt OUT of the invite mail (default: mail an email-pinned invite). Ignored without an email. */
+    notify?: boolean;
+  };
+  if (body.action === "resend") {
+    if (!body.org || !body.id) return NextResponse.json({ error: "Provide { org, id }." }, { status: 400 });
+    const org = normalizeOrgSlug(body.org);
+    const denied = await requireOrgRole(org, "owner");
+    if (denied) return denied;
+    const actor = await resolveViewerLogin();
+    const invite = await resendInvite(org, body.id);
+    if (!invite) return NextResponse.json({ error: "No such pending invite." }, { status: 404 });
+    const emailed = await deliverInvite(invite, org, actor, body.notify);
+    await recordOrgAudit(
+      "org.member.invite_resent",
+      org,
+      { org, inviteId: invite.id, target: invite.githubLogin ?? invite.email, emailed },
+      actor ?? undefined,
+    ).catch(() => {});
+    return NextResponse.json({ invite, emailed });
+  }
+  if (!body.org || !body.role || !isOrgRole(body.role)) {
+    return NextResponse.json({ error: "Provide { org, role: admin|member|viewer }." }, { status: 400 });
+  }
+  // Owner must be conferred by an explicit owner-to-owner promotion via the audited member route, not
+  // minted as a shareable invite link: combined with an unpinned link (consumable by whoever opens it
+  // first), an owner-role invite could silently seed a second org owner. Cap invites at admin.
+  if (body.role === "owner") {
+    return NextResponse.json(
+      { error: "Owner can't be granted by invite. Promote an existing member to owner instead." },
+      { status: 400 },
+    );
+  }
+  const githubLogin = body.githubLogin?.trim();
+  const email = body.email?.trim();
+  if (!email && !githubLogin) {
+    return NextResponse.json({ error: "Provide an email or a GitHub login to invite." }, { status: 400 });
+  }
+  // Validate the target shape (mirrors /api/org/members) so a typo'd login/email can't be stored as a
+  // permanently un-acceptable ghost invite that pollutes the owner's pending list.
+  if (githubLogin && !GITHUB_LOGIN.test(githubLogin)) {
+    return NextResponse.json({ error: "githubLogin must be a valid GitHub login." }, { status: 400 });
+  }
+  if (email && !EMAIL_SHAPE.test(email)) {
+    return NextResponse.json({ error: "email must be a valid email address." }, { status: 400 });
+  }
+  const org = normalizeOrgSlug(body.org);
+  const denied = await requireOrgRole(org, "owner");
+  if (denied) return denied;
+  // resolveViewerLogin, not getSession: the dormant custom-OAuth session is null under the ACTIVE
+  // Supabase wall, so both `invitedBy` and the audit actor were recorded as null in production.
+  const actor = await resolveViewerLogin();
+  const invite = await createInvite(org, {
+    role: body.role,
+    email: body.email,
+    githubLogin: body.githubLogin,
+    invitedBy: actor,
+  });
+  if (!invite) return NextResponse.json({ error: "Unknown organization." }, { status: 404 });
+  // Deliver the link. Only ever to the address the owner just typed on THIS request, only when they
+  // didn't opt out, and never fatal: a failed/absent send still returns the invite + token, so the
+  // owner's manual copy/paste path is untouched.
+  const emailed = await deliverInvite(invite, org, actor, body.notify);
+  await recordOrgAudit(
+    "org.member.invited",
+    org,
+    { org, role: body.role, target: body.githubLogin?.toLowerCase() ?? body.email ?? null, emailed },
+    actor ?? undefined,
+  ).catch(() => {});
+  return NextResponse.json({ invite, emailed });
+}
+
+export async function DELETE(request: Request) {
+  if (!isDbConfigured()) return NextResponse.json({ error: "Invites require a database." }, { status: 503 });
+  const crossOriginDelete = requireSameOrigin(request);
+  if (crossOriginDelete) return crossOriginDelete;
+  const { searchParams } = new URL(request.url);
+  const org = normalizeOrgSlug(searchParams.get("org") ?? "");
+  const id = searchParams.get("id");
+  if (!org || !id) return NextResponse.json({ error: "Provide ?org=&id=." }, { status: 400 });
+  const denied = await requireOrgRole(org, "owner");
+  if (denied) return denied;
+  const { revoked, target } = await revokeInvite(org, id);
+  if (!revoked) return NextResponse.json({ error: "No such pending invite." }, { status: 404 });
+  // Withdrawing a granted capability is on the record, like every other member-lifecycle act
+  // (org.member.invited / .invite_accepted / .role / .removed). The trail used to stop at the
+  // withdrawal: "this invite was cancelled, by whom, and when" was unanswerable from the log.
+  const revokedBy = await resolveViewerLogin();
+  await recordOrgAudit(
+    "org.member.invite_revoked",
+    org,
+    { org, inviteId: id, target },
+    revokedBy ?? undefined,
+  ).catch(() => {});
+  return NextResponse.json({ ok: true });
+}

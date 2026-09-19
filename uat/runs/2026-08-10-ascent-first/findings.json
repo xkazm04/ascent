@@ -1,0 +1,1166 @@
+[
+  {
+    "id": "DANA-L1-001",
+    "journey": "prove-and-track-fleet-maturity",
+    "character": "Dana (VP Engineering)",
+    "cert_level": "L2",
+    "type": "trust",
+    "severity": "major",
+    "impact": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "high"
+    },
+    "dimension": "trust",
+    "recurrence": 2,
+    "title": "Stripping the confidence figure while keeping the dated ETA made the low-data briefing MORE confident, not less — and it is bare on every export path",
+    "expected": "On a low-data fit the board-facing briefing either refuses to project (the behaviour /trends already ships via forecastInsufficiency) or renders the ETA WITH an explicit low-data caveat (the behaviour the org Trajectory card already ships: 'trend confidence — low data (n=2)'). A dated commitment on a board slide must carry its own basis.",
+    "got": "briefing.ts:283 renders forecastHeadline unconditionally WITH RESPECT TO DATA SUFFICIENCY — the only guard anywhere on this path is `rollup.forecast != null` (:283) and the mirroring `if (b.forecastHeadline)` (:391), which skip the line when there is NO forecast at all but never when there is an untrustworthy one. briefing.ts:288-289 suppresses forecastConfidence when forecast.lowData. Because forecastConfidenceNote(null) returns null (briefing.ts:46-49), the hedge is not replaced by a caveat — it is DELETED, and every downstream renderer's hedge is guarded on it being non-null. A 2-scan-day fit therefore prints 'On track to reach L4 · Integrated in ~3 days (≈ 2026-08-13).' with no qualifier of any kind. Before the partial fix it printed '(trend confidence 100%)' — an absurd figure that invited the scrutiny it deserved. The fix removed the tell and kept the claim. The in-code comment concedes the design: 'the trajectory headline still renders, just without a bogus confidence.'",
+    "evidence": [
+      "src/lib/org/briefing.ts:283 — forecastHeadline rendered unconditionally, no isProjectable/lowData guard",
+      "src/lib/org/briefing.ts:284-289 — the partial fix: confidence suppressed on lowData, headline untouched; comment admits it",
+      "src/lib/org/briefing.ts:46-49 — forecastConfidenceNote(null) → null, so 'suppressed' means 'absent', never 'caveated'",
+      "src/lib/org/briefing.ts:391-393 — 'Copy for LLM' markdown: hedge guarded on forecastConfidence != null → bare",
+      "src/lib/pdf/briefing-document.tsx:122-125 — board PDF: same guard → bare",
+      "src/app/share/briefing/[token]/page.tsx:216-220 — anonymous board share link: same guard → bare (the reader least equipped to know a caveat is missing)",
+      "src/components/org/intelligence/executive/ExecutiveTrajectoryCard.tsx:15,17 — in-app Briefing tab: same guard → bare",
+      "src/app/api/cron/digest/route.ts:201 — weekly leader digest email: carries `trajectory` with NO confidence field at all, in any branch",
+      "src/lib/org/briefing-narrative.ts:123 — deterministicNarrative pushes the bare headline into prose, no hedge in any branch",
+      "src/lib/maturity/forecast.ts:58-62 — forecast.ts's own warning: 'Consumers must not render fitQuality as a hard confidence % when this is set — surface a low data caveat instead'",
+      "src/app/trends/TrajectoryPanel.tsx:41-57 — the honest comparison: refuses to render the card at all and prints the reason",
+      "src/components/org/overview/Trajectory.tsx:89-95 — the other honest branch: renders 'trend confidence — low data (n=2)'"
+    ],
+    "code_check": "present-broken",
+    "verdict": "uncertain",
+    "reproduction": "npx tsx --tsconfig ./tsconfig.json <script importing the real forecast.ts + briefing.ts>, series [{2026-08-01,58},{2026-08-08,62}], nowMs=2026-08-10T12:00Z → points=2 spanDays=7 lowData=true fitQuality=1. /trends TrajectoryPanel → 'Not enough history to project — 2 distinct scan days (a line through <=2 points fits perfectly no matter how noisy the data).'  overview Trajectory.tsx → headline + 'trend confidence — low data (n=2)'.  BRIEFING md/PDF/share/exec → '- Trajectory: On track to reach L4 · Integrated in ~3 days (≈ 2026-08-13).' with NO hedge emitted.",
+    "branch_audit": "Every consumer of ExecBriefing.forecastHeadline enumerated (convergence is not coverage). BARE on low data (6): ExecutiveTrajectoryCard.tsx:15; share/briefing/[token]/page.tsx:216; briefing-document.tsx:122; briefing.ts:391 (Copy for LLM); briefing-narrative.ts:123 (deterministic narrative); digest/route.ts:201 (no confidence field in ANY branch — worst case, no fix possible without a schema change). CLEAN (3): trends/TrajectoryPanel.tsx:41 (full suppression + reason); overview/Trajectory.tsx:89-95 (explicit low-data caveat); org-delivery-trend.ts:260 + DeliveryTrendSection.tsx:69 (renders forecastInsufficiency copy verbatim). PARTIAL (1): portfolio.ts:100 nulls confidence but still emits etaLabel — same defect class at lower stakes.",
+    "l2_priority": "NOT ANSWERABLE ON THIS HOST — precondition unsatisfiable, and the reason is now precisely known. L2 generated SIX board PDFs (org=vercel|acme x range=30d|90d|180d, all HTTP 200) and extracted every one: not a single 'Trajectory:' line exists, because briefing.ts:283 nulls forecastHeadline when rollup.forecast is null, and forecastTrajectory returns null below 2 distinct calendar days while seed-org.mjs scans the whole org in ONE pass. The fixtures therefore cannot produce a forecast at all, let alone a low-data one. Per the v1.2 environment-precondition rule this is 'uncertain — not reproducible on this host', NEVER refuted; the L1 finding remains confirmed at L1 on directly executed modules. TO CLOSE THIS a future run needs a seeded org with >=3 scans of one repo spread across >=2 calendar days (and, for DANA-L1-002, a >=14-day span) — this is now a concrete, actionable fixture gap for env.md rather than a vague one.",
+    "reachable": true,
+    "live_reproducibility": "NOT reproducible on the 2026-08-10 fixtures. The live board PDF for /org/vercel (uat/runs/2026-08-10-ascent-first/_l2-briefing-vercel.txt) contains no Trajectory line at all, consistent with rollup.forecast === null: forecastTrajectory returns null below two distinct calendar days (forecast.ts:124,130) and scripts/seed-org.mjs scans an org in one pass, so a freshly-seeded fixture has a single scan day. L2 must seed multi-day history (or wait out two scan days) to exercise this; if it cannot, the verdict is 'uncertain — not reproducible on this host', NEVER refuted. Note the shape: the defect is invisible on the demo fixture and fires only for a customer who has been scanning for a fortnight.",
+    "scope_note": "The 2026-07-16 sweep raised this against 14 of 20 Characters. Its subject, quoted from the run brief, was 'renders a confident dated ETA/trajectory with NO LOW-DATA confidence caveat'. The fix (EXEC-BRIEFING-0716-1, filed above as `fixed`) delivers a hedge for the well-supported case and nothing for the low-data case — the exact case named. The orchestrator mid-run proposed treating this as `resolved` rather than a recurrence; I re-checked every consumer of forecastHeadline/forecastConfidence and hold the recurrence call, because no briefing surface renders a low-data caveat string the way Trajectory.tsx:89-95 does. v1.2 ranks recurrence above convergence and above impact arithmetic: recurrence 2. Overturning evidence would be a caveat string on the briefing path; there is none.",
+    "resolution": "open",
+    "evidence_l2": [
+      "LIVE: 6 board PDFs generated, all HTTP 200 (4793-6553b), zero Trajectory lines",
+      "uat/runs/2026-08-10-ascent-first/_l2-briefing-vercel.txt · _l2-briefing-acme-30d.txt — full extracted text",
+      "src/lib/org/briefing.ts:283 — forecastHeadline null when rollup.forecast is null"
+    ]
+  },
+  {
+    "id": "DANA-L1-002",
+    "journey": "prove-and-track-fleet-maturity",
+    "character": "Dana (VP Engineering)",
+    "cert_level": "L2",
+    "type": "trust",
+    "severity": "major",
+    "impact": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "high"
+    },
+    "dimension": "trust",
+    "title": "The shared forecast presentability gate (isProjectable — 3 scan days AND 14 days of span) is never applied on the briefing path, so a 4-day sample prints 'trend confidence 99%' on the board PDF",
+    "expected": "The briefing path calls the same shared gate every other forecast surface calls. forecast.ts:326-332 states the gate's own purpose: 'n alone is not enough — five scans inside one busy afternoon are still one afternoon… This is the shared gate for every surface that renders a forecast, so \"we don't project from a 5-day sample\" means the same thing on the repo trends page and on the org rollup.'",
+    "got": "isProjectable / forecastInsufficiency are imported by exactly two consumers — trends/TrajectoryPanel.tsx:18 and db/org-delivery-trend.ts:31 — and by nothing on the briefing or org-overview path. briefing.ts imports only forecastHeadline (:17). The span condition therefore never fires for the board document, and the lowData 'fix' does not cover it either: 5 scan days inside 4 calendar days gives lowData=false, so the briefing prints a confidence figure of 99% computed off a 4-day sample. This is strictly worse than DANA-L1-001's case, because the number is not merely unhedged — it is affirmatively reassuring.",
+    "evidence": [
+      "src/lib/maturity/forecast.ts:335,338,341-353 — MIN_FORECAST_POINTS=3, MIN_FORECAST_SPAN_DAYS=14, forecastInsufficiency, isProjectable",
+      "src/lib/maturity/forecast.ts:323-332 — the module's own statement that this is 'the shared gate for every surface that renders a forecast'",
+      "src/lib/org/briefing.ts:17 — imports forecastHeadline only; neither isProjectable nor forecastInsufficiency",
+      "src/lib/org/briefing.ts:283 — no gate applied at the assembly point",
+      "src/components/org/overview/Trajectory.tsx:26-44 — the org trajectory card is also ungated (it caveats lowData but not span)",
+      "src/app/trends/TrajectoryPanel.tsx:41-57 — the gate correctly applied",
+      "src/lib/db/org-delivery-trend.ts:260 — the gate correctly applied",
+      "src/lib/db/org-rollup.ts:427 — rollup.forecast = forecastTrajectory(trend) with no presentability filter before it reaches the briefing"
+    ],
+    "code_check": "present-but-missed",
+    "verdict": "uncertain",
+    "reproduction": "Same harness. Case B, 5 scan days inside 4 calendar days [08-04:58, 08-05:59, 08-06:61, 08-07:62, 08-08:64] → points=5 spanDays=4 lowData=FALSE fitQuality=0.99 perWeek=10.5. /trends → 'Not enough history to project — this fit spans 4 days; a trajectory needs at least 14.'  BRIEFING → '- Trajectory: Climbing at +10.5/wk, staying within L3 · Augmented for now. (trend confidence 99%)'. Case C, 3 scan days over 4 days, R²=0.06 → /trends refuses; BRIEFING prints 'On track to reach L4 · Integrated in ~9 days (≈ 2026-08-19). (trend confidence 6%, noisy)' — a dated board ETA off a fit explaining 6% of variance. Case D (8 days / 89-day span) is the only one of four where the briefing and /trends agree.",
+    "branch_audit": "Three of four realistic fixture shapes are misrepresented on the briefing path and correctly refused on /trends. Only the healthy case (>=3 points AND >=14 days span) agrees across surfaces.",
+    "l2_priority": "NOT ANSWERABLE ON THIS HOST, same fixture gap as DANA-L1-001 — no fixture yields a forecast, so the divergence between isProjectable (used by /trends) and the briefing path cannot be demonstrated live. The L1 execution stands: 5 scans across 4 days yields lowData=false, so the briefing would print 'trend confidence 99%' off a 4-day sample while /trends refuses the identical fit. Resolve on a multi-day fixture.",
+    "reachable": true,
+    "live_reproducibility": "NOT reproducible on the 2026-08-10 fixtures — same cause as DANA-L1-001: rollup.forecast is null for /org/vercel (single-day seed), so the live board PDF has no Trajectory line (_l2-briefing-vercel.txt). L2 must seed >=5 scans across <14 calendar days to exercise this branch specifically; failing that the verdict is 'uncertain — not reproducible on this host', NEVER refuted.",
+    "scope_note": "Distinct from DANA-L1-001: that finding is about the lowData branch losing its hedge; this one is about the span branch never being consulted at all, so the 'fix' cannot fire. Same root (briefing.ts:283 does not gate), two separate failure modes, and this one produces a falsely REASSURING figure rather than an absent one."
+  },
+  {
+    "id": "DANA-L1-003",
+    "journey": "prove-and-track-fleet-maturity",
+    "character": "Dana (VP Engineering)",
+    "cert_level": "L2",
+    "type": "trust",
+    "severity": "major",
+    "impact": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "high"
+    },
+    "dimension": "trust",
+    "recurrence": 2,
+    "title": "/usage's low-balance banner ignores the monthly plan allowance entirely, so it declares '402 on your next scan' as the DEFAULT state of every org while the panel below says 'Comfortably within your allotment'",
+    "expected": "The banner reflects whether the next private scan will actually be refused. The codebase already computes exactly that, purely, in one function: resolveScanCharge({plan, usageThisMonth, balance}) → 'denied' only when the monthly allowance is spent AND the prepaid balance is zero.",
+    "got": "Confirmed live, unchanged, for the SECOND consecutive cycle. Driving /usage?org=vercel captured both sentences on ONE page: 'Out of private-scan credits — the next private scan will be refused (402) until you top up.' (usage.text.txt:16) and 'Comfortably within your 5/mo Free allotment.' (:117), with 'Monthly allotment · Free plan · 5 credits / mo' and '0% of your 5 / mo allotment' between them — the contradicting copy coming from a different component (AllotmentPanel.tsx), which is why the two never reconcile. L2 executed every branch of src/app/usage/page.tsx:142 and the table exposes a property neither the L1 read nor the prior run recorded: THE CONDITION IS NON-MONOTONIC. (creditBalance=0, billable=0) fires the harshest message in the component; (creditBalance=1, billable=0) fires NOTHING. Topping up by a single credit silences the alarm without changing anything real. Combined with the L1 walker's finding that scanCredits is DEFAULT 0, this means the false '402' alarm is THE DEFAULT STATE OF EVERY NEWLY CREATED ORG — it is not an edge case reached by unusual usage, it is what every org sees before it does anything at all.",
+    "evidence": [
+      "src/app/usage/page.tsx:138 — creditBalance = credit && !credit.unlimited ? credit.balance : null",
+      "src/app/usage/page.tsx:141-142 — the condition; comment 'Low = the balance wouldn't cover another period at the current burn (or is already 0)' — the allowance is not in the model",
+      "src/app/usage/usageDashboard.tsx:46-52 — the banner and its two-branch message map",
+      "src/app/usage/AllotmentPanel.tsx:59-64 — the contradicting copy ('Comfortably within your {included}/mo {label} allotment.')",
+      "src/lib/db/credits.ts:91 — balance = org.scanCredits (prepaid pool only)",
+      "prisma/schema.prisma:45 + prisma/init.sql:22 — scanCredits Int @default(0): the false-alarm state is the default state",
+      "src/lib/plans.ts:136-143 — decideScanCharge: allowance is consumed BEFORE credits; 'denied' requires allowance spent AND balance 0",
+      "src/lib/plans.ts:146-165 — resolveScanCharge, the ready-made correct predicate the banner does not call"
+    ],
+    "code_check": "present-broken",
+    "verdict": "confirmed",
+    "reproduction": "npx tsx --tsconfig ./tsconfig.json <script importing the real plans.ts + AllotmentPanel.ts + the verbatim page.tsx:138/142 expressions>, 7 org shapes:\nfree  bal=0   billable=0   | BANNER: OUT OF CREDITS—next scan refused (402) | REAL: allowance  | ALLOTMENT: Comfortably within your 5/mo Free allotment.   <<< CONTRADICTION\nfree  bal=0   billable=3   | BANNER: OUT OF CREDITS                        | REAL: allowance  | ALLOTMENT: Comfortably within your 5/mo Free allotment.   <<< CONTRADICTION\nteam  bal=0   billable=60  | BANNER: OUT OF CREDITS                        | REAL: allowance  | ALLOTMENT: using ~12% — a smaller tier may fit            <<< CONTRADICTION\nteam  bal=40  billable=60  | BANNER: Low balance: 40 left vs 60 scans      | REAL: allowance  | ALLOTMENT: using ~12% — a smaller tier may fit            <<< CONTRADICTION\nteam  bal=900 billable=60  | BANNER: (none)                                | REAL: allowance  | ALLOTMENT: using ~12%\nteam  bal=0   billable=600 | BANNER: OUT OF CREDITS                        | REAL: denied     | ALLOTMENT: at ~120% — top up or move up a tier\nenterprise bal=0 billable=60 | BANNER: (none)                              | REAL: unlimited  | ALLOTMENT: (no panel)\n→ 4 of 7 contradict; the only honest firing is the one where the allowance is genuinely spent.",
+    "branch_audit": "Every branch of the lowBalance condition and of the banner's message map enumerated. (1) creditBalance == null — unlimited/Enterprise or no credit row → suppressed: CLEAN (verified, enterprise row). (2) creditBalance === 0 → fires with the hard '402' copy REGARDLESS of allowance: BROKEN, and this is the schema default. (3) billable > 0 && creditBalance <= billable → fires with the 'Low balance' copy: BROKEN whenever the allowance still covers the burn (row 4); also compares a stock against a period flow, so balance=40/billable=60 fires despite ~20 days of runway. (4) billable === 0 && creditBalance > 0 → suppressed: CLEAN. Message map: the `=== 0` branch is the one making the falsifiable 402 claim; the else-branch is softer but still allowance-blind. The prior run's report scoped this to branch (2) only; branch (3) is equally broken and was not previously named.",
+    "l2_priority": "ANSWERED LIVE AND WIDENED TWICE. Precondition (DB on + a populated org) satisfied.",
+    "reachable": true,
+    "scope_note": "Recurrence lead #2 from the 2026-07-16 sweep, re-verified live in code and unchanged in substance → recurrence 2. Outside Dana's core fleet read (journey §Out of scope excludes transacting) but explicitly in-journey as a spend-vs-value sanity check, and it costs trust on the surface that gates her renewal conversation.",
+    "impact_l1": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "med"
+    },
+    "resolution": "open",
+    "evidence_l2": [
+      "LIVE: shots/usage.{png,text.txt} driven at /usage?org=vercel",
+      "usage.text.txt:16 vs :117 — the two contradicting sentences on one page",
+      "EXECUTED branch table: (null,0)->none | (0,0)->'REFUSED' | (0,5)->'REFUSED' | (3,5)->'Low balance' | (10,5)->none | (1,0)->NONE",
+      "src/app/usage/page.tsx:142 · usageDashboard.tsx:50 · AllotmentPanel.tsx"
+    ]
+  },
+  {
+    "id": "DANA-L1-004",
+    "journey": "prove-and-track-fleet-maturity",
+    "character": "Dana (VP Engineering)",
+    "cert_level": "L1",
+    "type": "missing-feature",
+    "severity": "minor",
+    "impact": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "low"
+    },
+    "dimension": "completion",
+    "title": "The fleet Overview has no trajectory/ETA at all — and the ONE trajectory component that carries the low-data caveat is not rendered on any fleet surface",
+    "expected": "Dana's criterion 1: from /org/[slug] she reads a single headline maturity level + trajectory/ETA + posture distribution in ~2 minutes. Her definition of done leads with 'a single headline fleet maturity level + trajectory/ETA-to-next-level'.",
+    "got": "OverviewFleetPanel renders exactly five regions (headline badges, posture+dimensions, category rollup, heatmap, period chrome) — no forecast, no ETA, no recommended move. The Trajectory card lives one tab over on 'Briefing' (executive), which is the adjacent item in the SAME nav group, so the navigation cost is one click and the label is board-appropriate — hence minor, not major. The compounding fact is the one that matters: Trajectory.tsx is imported by exactly two call sites, /trends (TrajectoryPanel) and PersonalOverview (a personal workspace). It is therefore the ONE forecast renderer that carries an explicit low-data caveat (:89-95) and it appears on NO fleet surface. That is the mechanical reason the caveat 'stops short of the highest-stakes surface' in DANA-L1-001: the honest component was never wired to the fleet at all.",
+    "evidence": [
+      "src/components/org/overview/OverviewFleetPanel.tsx:86-116 — the complete Overview render tree; no forecast",
+      "src/components/org/overview/overviewStanding.ts:36-51 — buildScoreBadges returns four badges, none of them a trajectory",
+      "src/lib/org/orgTabs.ts:93-97 — nav group 'Overview' = [overview, executive('Briefing')]; one adjacent click",
+      "src/components/org/intelligence/executive/ExecutiveTab.tsx:133 — ExecutiveTrajectoryCard, the only fleet-level trajectory",
+      "grep of `overview/Trajectory` importers: src/app/trends/TrajectoryPanel.tsx:17 and src/components/org/PersonalOverview.tsx:9 only — no fleet surface"
+    ],
+    "code_check": "confirmed-absent",
+    "verdict": "confirmed",
+    "l2_priority": "Time the real path: land on /org/vercel cold, and measure whether headline + posture + trajectory + the one move are assembled inside ~2 minutes with one tab switch. Confirm the 'Briefing' label is discoverable to someone who did not read the code (does she find it, or does she look for 'Trajectory'/'Forecast'?). ENVIRONMENT PRECONDITION: populated org fixture (/org/vercel or /org/acme), auth bypass on, DB on. Deterministic path.",
+    "reachable": true
+  },
+  {
+    "id": "DANA-L1-005",
+    "journey": "prove-and-track-fleet-maturity",
+    "character": "Dana (VP Engineering)",
+    "cert_level": "L1",
+    "type": "trust",
+    "severity": "major",
+    "impact": {
+      "frequency": "low",
+      "reachability": "low",
+      "trust_erosion": "high"
+    },
+    "dimension": "trust",
+    "title": "The Executive Briefing narrative bypasses src/lib/llm/ and POSTs the fleet briefing straight to api.anthropic.com — so it is covered by neither BYOM nor the Bedrock 'code never leaves the AWS boundary' claim the product makes to enterprises",
+    "expected": "Every LLM call the product makes for an org routes through src/lib/llm/, so the org's provider choice governs it: BYOM fails closed and never falls back to the platform (llm/index.ts:243-249), and a Bedrock-configured enterprise gets the privacy boundary it was sold. An enterprise buyer's single hardest question is 'where does our data go', and the briefing is the payload with the most sensitive aggregate content in the product.",
+    "got": "briefing-narrative.ts:33,164,175-176 — a raw fetch to https://api.anthropic.com/v1/messages with process.env.ANTHROPIC_API_KEY, model claude-opus-5, 20s timeout. It imports nothing from src/lib/llm/ except the shared timeout helper (:30). It therefore ignores LLM_PROVIDER entirely, and the payload it sends is the ENTIRE briefing markdown minus the Ask block (:53-56) — fleet maturity, per-dimension scores, named repositories, named movers, goals, and the ranked next move. env.md records the same conclusion independently. Compounding: llm/text-org.ts:28 (resolveTextRunnerForOrg) exists to route org text surfaces through the org's provider and has NO production caller, so the seam that would have fixed this is dead code.",
+    "evidence": [
+      "src/lib/org/briefing-narrative.ts:33 — ANTHROPIC_MESSAGES_URL constant",
+      "src/lib/org/briefing-narrative.ts:164,175-176 — raw fetch with x-api-key from process.env.ANTHROPIC_API_KEY",
+      "src/lib/org/briefing-narrative.ts:30 — the only src/lib/llm import is withLlmTimeout",
+      "src/lib/org/briefing-narrative.ts:53-56 — narrativeFacts: the whole briefing markdown is the payload",
+      "src/lib/org/briefing.ts:366-458 — what that markdown contains: named repos, per-dimension scores, movers, goals",
+      "uat/env.md §Surface B — 'It also bypasses src/lib/llm/ entirely… It therefore ignores LLM_PROVIDER and is not covered by BYOM or the Bedrock code never leaves the AWS boundary path'",
+      "uat/env.md §Provider/failover — 'dead seam: resolveTextRunnerForOrg (llm/text-org.ts:28) has no production caller'",
+      "src/app/api/org/briefing/pdf/route.ts:67 — the sole caller (the board PDF path)"
+    ],
+    "code_check": "confirmed-absent",
+    "verdict": "confirmed",
+    "l2_priority": "Verify the egress empirically: enable the surface and capture the outbound request (or assert the absence of any call when LLM_PROVIDER=bedrock is set — the finding is that the provider setting has NO effect on this path). ENVIRONMENT PRECONDITION — THIS SURFACE IS GATED OFF ON THIS HOST: requires BRIEFING_NARRATIVE=1 AND ANTHROPIC_API_KEY (briefing-narrative.ts:43-46); neither is in .env.local per env.md. With the gate closed, deterministicNarrative (:112) runs and there is no LLM at all. If L2 cannot set both, the verdict is 'uncertain — not reproducible on this host', NEVER refuted. Additionally requires DB on + a populated org (the PDF route is the sole caller).",
+    "reachable": false,
+    "scope_note": "reachable:false on THIS host — the surface is flag-gated off by default, which is why frequency and reachability are scored low and the impact rank sits below the three confirmed-live findings. But trust_erosion is high and the audience is exactly Dana's segment: she signs the tooling invoice and answers to a CTO and board. Whether the marketing/docs actually make the Bedrock boundary claim is outside this journey's code surface — Tomáš's buyer journey should confirm the claim exists before this is treated as a contradiction rather than a gap."
+  },
+  {
+    "id": "DANA-L1-006",
+    "journey": "prove-and-track-fleet-maturity",
+    "character": "Dana (VP Engineering)",
+    "cert_level": "L1",
+    "type": "trust",
+    "severity": "polish",
+    "impact": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "low"
+    },
+    "dimension": "senior-quality",
+    "title": "STRENGTH — the 'one move' is a decision, not a backlog: engine-true projected gain, named affected repos, one ranked source shared by screen, PDF and LLM export",
+    "expected": "Dana's criterion 4: one or two highest-leverage fleet moves tied to specific dimensions/teams and to cited evidence — not a generic 'add more tests'.",
+    "got": "Fully met, and by the mechanism a senior would have chosen. getOrgRecommendations groups open recommendations across the fleet by dimId::title, ranks by reach × impact × dimension weight, and computes an engine-true projected gain per affected repo from that repo's persisted dimension rows and archetype — skipping repos with no persisted dims rather than inventing a number (OrgLeverageMoves.tsx:12-18). The card names the gap, its dimension, '≈ +N maturity pts on each of M repos if closed', how many would advance a level, the named repos that share it, a rationale and a question. G5-02 moved this list ONTO the briefing so the screen, the board PDF and the Copy-for-LLM markdown read literally the same rows and cannot name different moves — replacing a `risks[0] ?? security` heuristic that could label the fleet's STRONGEST dimension as its weakest in a board document. It also labels its own scope honestly ('current state · not period-scoped') while the rest of the page is period-scoped.",
+    "evidence": [
+      "src/components/org/intelligence/executive/OrgLeverageMoves.tsx:12-18 — gainPhrase returns null rather than inventing a number",
+      "src/components/org/intelligence/executive/OrgLeverageMoves.tsx:20-22,28-53 — reach() names the affected repos; the card's full content",
+      "src/components/org/intelligence/executive/OrgLeverageMoves.tsx:32 — 'current state · not period-scoped' self-labelled seam",
+      "src/lib/db/org-insights.ts:255-320 — grouping, IMPACT_WEIGHT, projectedGain, liftsRepos",
+      "src/lib/org/briefing.ts:148-158 — the G5-02 rationale, including the named prior defect it fixed",
+      "src/lib/org/briefing.ts:343-359 — briefingNextMove + nextMoveLine: deliberately NO dimension fallback, no qualifying rec ⇒ no section"
+    ],
+    "code_check": "n-a",
+    "verdict": "confirmed",
+    "l2_priority": "Confirm the live top move on /org/vercel?tab=executive is specific and non-generic against a real fleet, and that the PDF + Copy-for-LLM name the SAME move as the screen. ENVIRONMENT PRECONDITION: populated org with persisted per-repo recommendations + dimension rows (seeded via seed-org.mjs; a mock-LLM seed still produces recommendation rows), DB on, auth bypass on.",
+    "reachable": true,
+    "scope_note": "Strength → do-not-touch guardrail: any future change to the trajectory/forecast honesty must preserve this pattern — ONE ranked source read by every renderer, and refusal to emit a number the data cannot support. The trajectory path is the same product's counter-example to its own best instinct."
+  },
+  {
+    "id": "DANA-L1-007",
+    "journey": "prove-and-track-fleet-maturity",
+    "character": "Dana (VP Engineering)",
+    "cert_level": "L1",
+    "type": "trust",
+    "severity": "polish",
+    "impact": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "low"
+    },
+    "dimension": "clarity",
+    "title": "STRENGTH — adoption and rigor are separated structurally, not rhetorically, with per-axis posture thresholds and Dana's own vocabulary",
+    "expected": "Dana's criterion 3 + DORA 2025: adoption is near-universal and the gains live or die on downstream rigor, so 'everyone uses Copilot' must not masquerade as 'we're AI-native'.",
+    "got": "Met at the model layer, not just in copy. Adoption and Rigor are two independent headline badges. posture() asserts each axis independently against POSTURE_THRESHOLD=50, with an in-code note that 'a quadrant claim like AI-Native off a sub-half [axis]' is exactly what the independent assertion prevents. The four quadrants are labelled 'AI-Native' and 'Fast & Ungoverned' — Dana's exact vocabulary from her JTBD. The briefing's adoptionRate counts only high-adoption postures (ai-native + ungoverned) over scannedCount, so the fleet-adoption number is explicitly a posture share, not a seat count. Period deltas are cohort-matched so an onboarding wave cannot read as improvement.",
+    "evidence": [
+      "src/lib/maturity/model.ts:408-418 — POSTURE_THRESHOLD=50, per-axis assertion + the note on sub-half quadrant claims",
+      "src/lib/maturity/model.ts:449-454 — POSTURE_META labels 'AI-Native', 'Fast & Ungoverned'",
+      "src/components/org/overview/overviewStanding.ts:45-46 — Adoption and Rigor as separate badges",
+      "src/components/org/overview/PostureDimensionsPanel.tsx:45-76 — posture share bar, each segment a filtered deep link",
+      "src/lib/org/briefing.ts:291-294 — adoptionRate as a posture share over scannedCount",
+      "src/components/org/overview/overviewStanding.ts:31-34 — cohort-matched deltas, documented rationale"
+    ],
+    "code_check": "n-a",
+    "verdict": "confirmed",
+    "l2_priority": "Confirm the live posture distribution on /org/vercel is non-degenerate (not all repos in one quadrant) — a clone-stamped fixture would hide whether the separation is meaningful. ENVIRONMENT PRECONDITION: populated org, DB on, auth bypass on.",
+    "reachable": true
+  },
+  {
+    "id": "DANA-L1-008",
+    "journey": "prove-and-track-fleet-maturity",
+    "character": "Dana (VP Engineering)",
+    "cert_level": "L1",
+    "type": "trust",
+    "severity": "polish",
+    "impact": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "low"
+    },
+    "dimension": "trust",
+    "title": "STRENGTH — the fleet → team → dimension → cited repo evidence drill exists end to end, with no dead links and an explicit mock-engine provenance caveat",
+    "expected": "Dana's criterion 2 and her pet peeve 'a confident score with no provenance — if I can't drill to the evidence, I can't put it in a deck.'",
+    "got": "All four hops exist and are linked. Heatmap cell → RepoDimensionModal (score, evaluation, next steps for that repo × dimension); heatmap repo name → /report/{fullName}; category-rollup row → reportPermalink; movement card → per-mover report permalinks; briefing dimension rows → the practice that addresses them; briefing tiles → the tab that explains each number; teams standings decompose leader vs laggard against the fleet mean with the spread stated. Every legacy /org/[slug]/{adoption,delivery,executive,teams} path is a clean redirect() into the ?tab= shell, so links in digest emails and alert pushes do not dead-end. Separately, engineMixCaveat fires for ANY mock presence including the all-mock case, with an in-code note that an all-mock quarter used to be 'the one case the honesty machinery stayed silent on' — so a degraded quarter is auditable in the durable briefing.",
+    "evidence": [
+      "src/components/org/overview/RepoDimensionHeatmap.tsx:105-120,160 — cell → modal, repo → /report",
+      "src/components/org/overview/RepoCategoryRollupRow.tsx:15-22 — row → reportPermalink",
+      "src/components/org/intelligence/executive/ExecutiveTab.tsx:157 — BriefingMovementCard reportLinks",
+      "src/components/org/intelligence/executive/briefingCards.tsx:59-78,108-139 — tile hrefs + practice hrefs per dimension",
+      "src/lib/org/teamStandings.ts:63-142 — leader/laggard decomposition vs fleet mean, spread",
+      "src/app/org/[slug]/{adoption,delivery,executive,teams}/page.tsx:1-12 — all clean redirects, no dead links",
+      "src/lib/org/briefing.ts:27-41 — engineMixCaveat incl. the all-mock branch"
+    ],
+    "code_check": "n-a",
+    "verdict": "confirmed",
+    "l2_priority": "THE reconciliation question L1 cannot answer: walk fleet number → team → dimension → repo report and assert the VALUES agree at every layer, not just that the links resolve. The 2026-07-16 sweep's lead #5 (vercel/next.js D4 = 92 from a stale cached discovery register vs 15 on a fresh scan) is the standing risk that this drill reconciles structurally but not numerically. ENVIRONMENT PRECONDITION: populated org with real per-repo dimension rows and at least one repo whose report is independently loadable at /report/{owner}/{repo}; DB on; auth bypass on.",
+    "reachable": true
+  },
+  {
+    "id": "DANA-L1-009",
+    "journey": "prove-and-track-fleet-maturity",
+    "character": "Dana (VP Engineering)",
+    "cert_level": "L1",
+    "type": "quality-gap",
+    "severity": "minor",
+    "impact": {
+      "frequency": "low",
+      "reachability": "low",
+      "trust_erosion": "high"
+    },
+    "dimension": "senior-quality",
+    "title": "The narrative prompt instructs the model to say plainly when the data is thin — but the facts payload has already deleted the only signal that it is",
+    "expected": "A prompt rule the model is asked to obey is backed by a fact in the payload that lets it obey. 'if the data is thin, say so plainly' requires the payload to carry the thinness.",
+    "got": "briefing-narrative.ts:151 instructs 'Be direct and unhedged, but never overstate: if the data is thin, say so plainly.' The FACTS block is briefingMarkdown cut at '## Ask' (:53-56), and briefing.ts:391-393 emits the trajectory line with the confidence parenthetical ONLY when forecastConfidence != null — which is precisely null on low data. The model is therefore handed 'Trajectory: On track to reach L4 · Integrated in ~3 days (≈ 2026-08-13).' with no thinness signal at all, told to be 'direct and unhedged', and forbidden from computing anything of its own (:145-147). It cannot flag what it was not told, and the rules actively push it toward the confident reading. The partial fix at briefing.ts:284-289 thus degrades the LLM surface too, not only the deterministic renderers.",
+    "evidence": [
+      "src/lib/org/briefing-narrative.ts:151 — 'if the data is thin, say so plainly'",
+      "src/lib/org/briefing-narrative.ts:145-147 — 'Use ONLY figures that appear verbatim… never compute a new one'",
+      "src/lib/org/briefing-narrative.ts:53-56 — narrativeFacts = briefingMarkdown minus the Ask block",
+      "src/lib/org/briefing.ts:391-393 — the confidence parenthetical is conditional on forecastConfidence != null",
+      "src/lib/org/briefing.ts:288-289 — forecastConfidence is null exactly when lowData",
+      "src/lib/org/briefing-narrative.ts:123 — deterministicNarrative has the same hole in the no-LLM path"
+    ],
+    "code_check": "present-broken",
+    "verdict": "confirmed",
+    "l2_priority": "Generate the narrative on a low-data fixture and assert whether the prose hedges the trajectory. Run the CONTROL ARM: re-generate with a synthetic FACTS block that DOES carry a low-data marker on the trajectory line, and compare — that converts 'the model could not have known' into a causal demonstration. ENVIRONMENT PRECONDITION — GATED OFF ON THIS HOST: requires BRIEFING_NARRATIVE=1 AND ANTHROPIC_API_KEY (briefing-narrative.ts:43-46); if unsatisfiable the verdict is 'uncertain — not reproducible on this host', NEVER refuted. The deterministic half (briefing-narrative.ts:123) IS reproducible with the gate closed and should be checked regardless. Also needs DB on + a populated org + a period scoped to <3 scan days.",
+    "reachable": false,
+    "scope_note": "Scoped to the LLM narrative path only; the deterministic fallback carries the same hole and IS reachable on this host. Folded under DANA-L1-001's root cause but filed separately because the code location, the mechanism (a prompt rule with no backing fact) and the fix are distinct."
+  },
+  {
+    "id": "DANA-L1-010",
+    "journey": "prove-and-track-fleet-maturity",
+    "character": "Dana (VP Engineering)",
+    "cert_level": "L2",
+    "type": "trust",
+    "severity": "major",
+    "impact": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "high"
+    },
+    "dimension": "trust",
+    "title": "A fleet REGRESSION is printed under the heading 'Value this period' — the live board PDF reads 'Value this period: 1 recommendation completed · fleet -6 pts'",
+    "expected": "A section headed 'Value this period', rendered in an accent-highlighted callout and documented in code as 'the renewal-justification… answers did anyone use it, and did it move the number?', reports value. A period in which the fleet went DOWN 6 points is not value; it is the opposite, and a VP reading it to a board needs it framed as such — or omitted, the way the same function already omits an empty '0 · 0 · 0'.",
+    "got": "valueRealizedLine (briefing.ts:54-61) pushes pointsMoved whenever it is non-null and non-ZERO — sign-blind: `if (vr.pointsMoved != null && vr.pointsMoved !== 0) parts.push(...)`. The '+' is applied conditionally so a negative renders as 'fleet -6 pts', concatenated after '1 recommendation completed' under the 'Value this period' heading. Confirmed live on the board PDF. The function already demonstrates the correct instinct one line below, returning null rather than printing an empty line — it just never considered that the number could be negative. The in-app view renders the same string inside an accent-bordered callout (ExecutiveTab.tsx:123-128), i.e. the fleet's worst news gets the page's most positive visual treatment.",
+    "evidence": [
+      "src/lib/org/briefing.ts:54-61 — valueRealizedLine; :58 is the sign-blind push",
+      "src/lib/org/briefing.ts:51-53 — the docstring: 'so the renewal line only appears when there's value to show, never as an empty 0 · 0 · 0'",
+      "src/lib/org/briefing.ts:123-133 — the valueRealized docstring: 'the renewal-justification'",
+      "src/lib/org/briefing.ts:300-305 — pointsMoved = rollup.avgOverall - rollup.baseline.avgOverall, unsigned-agnostic",
+      "src/components/org/intelligence/executive/ExecutiveTab.tsx:123-128 — accent-bordered callout treatment",
+      "src/lib/pdf/briefing-document.tsx:138-140 — the PDF line",
+      "uat/runs/2026-08-10-ascent-first/_l2-briefing-vercel.txt — LIVE: 'Value this period: 1 recommendation completed · fleet -6 pts'"
+    ],
+    "code_check": "present-broken",
+    "verdict": "confirmed",
+    "l2_priority": "ANSWERED LIVE — this finding was PRODUCED BY the live extract, then code-confirmed by the L1 walker.",
+    "reachable": true,
+    "scope_note": "Found from the orchestrator's live L2 PDF extract, not from my L1 surface model — a genuine L1 surface-model gap on my side: I read valueRealizedLine's guard as an emptiness guard and did not test it with a negative. Worth recording as a methodology note.",
+    "resolution": "open",
+    "evidence_l2": [
+      "LIVE: uat/runs/2026-08-10-ascent-first/_l2-briefing-vercel.txt — verbatim: 'Value this period: 1 recommendation completed · fleet -6 pts'",
+      "LIVE: shots/org-executive.text.txt — 'VALUE THIS PERIOD 1 recommendation completed · fleet -6 pts' rendered in-app"
+    ]
+  },
+  {
+    "id": "DANA-L1-011",
+    "journey": "prove-and-track-fleet-maturity",
+    "character": "Dana (VP Engineering)",
+    "cert_level": "L2",
+    "type": "confusion",
+    "severity": "minor",
+    "impact": {
+      "frequency": "med",
+      "reachability": "high",
+      "trust_erosion": "med"
+    },
+    "dimension": "clarity",
+    "title": "The board PDF's Percentile tile prints its corpus size even when the percentile itself was correctly suppressed — live it reads 'PERCENTILE / — / vs 1 repos'",
+    "expected": "When the benchmark refuses to compute a percentile because the corpus is too small, the tile says so rather than advertising the corpus size beside an em-dash. A board reader seeing 'vs 1 repos' on a maturity deck learns the product benchmarks against a corpus of one — which is not what happened, and is worse than what happened.",
+    "got": "The MATH is correct and this is worth stating: percentileOf(..., CORPUS_MIN) enforces a floor on peer ORGS and returned null, so the value renders as '—' (briefing-document.tsx:113-116). But the sub-label is guarded independently on `b.benchmark.corpusRepos > 0` (:114-115), so it renders 'vs 1 repos' next to the suppressed value. The two guards disagree: one knows the comparison is not credible, the other advertises its size. The 'no corpus' fallback string already exists at :115 and is simply never reached for corpusRepos === 1.",
+    "evidence": [
+      "src/lib/pdf/briefing-document.tsx:112-117 — value guarded on percentile != null, sub guarded independently on corpusRepos > 0, with the unreachable 'no corpus' fallback",
+      "src/lib/db/org-insights.ts:933-936 — corpusRepos = corpus.length (raw count), overallPercentile = percentileOf(orgMeans(...), myAvgOverall, CORPUS_MIN) (floored)",
+      "src/lib/db/org-insights.ts:917-928 — the cohort DOES carry a proper minimum (COHORT_MIN) and nulls out; the corpus sub-label has no equivalent",
+      "src/lib/org/briefing.ts:382-384 — the Copy-for-LLM markdown is CLEAN here: the whole Benchmark line is guarded on `b.benchmark?.percentile != null`, so it omits rather than half-renders",
+      "uat/runs/2026-08-10-ascent-first/_l2-briefing-vercel.txt — LIVE: 'PERCENTILEvs 1 repos' with no value"
+    ],
+    "code_check": "present-broken",
+    "verdict": "confirmed",
+    "branch_audit": "Three renderers of the benchmark, all enumerated. BROKEN (1): briefing-document.tsx:112-117 (PDF) — independent guards, half-rendered tile. CLEAN (2): briefing.ts:382-384 (Copy-for-LLM markdown) omits the entire line when percentile is null; briefing.ts:385-390 (peer cohort line) likewise guards on `cohort.overallPercentile != null`. So the export path the model reads is honest and the one the board reads is not.",
+    "l2_priority": "ANSWERED LIVE.",
+    "reachable": true,
+    "resolution": "open",
+    "evidence_l2": [
+      "LIVE: _l2-briefing-vercel.txt — 'PERCENTILE' tile renders the value as an em dash but the sub-label as 'vs 1 repos'",
+      "LIVE: shots/org-executive.text.txt — 'CORPUS PERCENTILE — vs 1 repos' in-app"
+    ]
+  },
+  {
+    "id": "DANA-L1-012",
+    "journey": "prove-and-track-fleet-maturity",
+    "character": "Dana (VP Engineering)",
+    "cert_level": "L2",
+    "type": "trust",
+    "severity": "major",
+    "impact": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "high"
+    },
+    "dimension": "trust",
+    "title": "The board PDF carries four different unlabelled 'repositories' denominators, and states 'down 6 points over the period' beside '0 improved and 0 regressed' — a fleet-wide delta juxtaposed with a cohort-matched movement count",
+    "expected": "The one-page board deliverable either reconciles its repo counts or labels what each is counting. Dana's criterion 2 requires the numbers to agree at each layer with no contradiction she can't explain, and her pet peeve is 'numbers that contradict reality and don't explain themselves'. The Overview tab already establishes the correct convention: overviewStanding.ts:31-34 documents that its deltas are COHORT-MATCHED specifically 'so a mid-period onboarding wave never reads as improvement'.",
+    "got": "One page states: 'Across 6 of 6 repositories scanned' / 'Coverage: 6/6 repositories scanned' (coverage.scanned/total, briefing.ts:280) · 'Of 2 repositories comparable across the period' (movement.compared = movers.comparedRepos, :295-299 — repos with a scan on BOTH sides of the window) · 'vs 1 repos' (benchmark.corpusRepos — OTHER orgs' repos, org-insights.ts:754) · 'shared by 3 repositories' (rec.repoCount, :353). Four distinct populations, all rendered as bare 'repositories'. Worse, two of them are placed in direct contradiction: the narrative says 'down 6 points over the period' and 'Of 2 repositories comparable across the period, 0 improved and 0 regressed'. Both are true and they use different denominators — periodDelta (briefing.ts:281) is FLEET-WIDE against rollup.baseline and therefore moves when the scanned SET changes composition, while the movement counts are cohort-matched. Nothing on the page says so. A VP is left holding a 6-point drop that no repository accounts for, in front of a board.",
+    "evidence": [
+      "src/lib/org/briefing.ts:280 — coverage.scanned/total",
+      "src/lib/org/briefing.ts:295-299 — movement.compared = movers.comparedRepos (cohort-matched)",
+      "src/lib/org/briefing.ts:281,300-305 — periodDelta AND valueRealized.pointsMoved both = avgOverall - baseline.avgOverall (fleet-wide, composition-sensitive)",
+      "src/lib/db/org-insights.ts:754 — corpusRepos: 'repos in the comparison corpus (other orgs)'",
+      "src/lib/org/briefing.ts:351-358 — nextMoveLine's repoCount ('shared by N repositories')",
+      "src/components/org/overview/overviewStanding.ts:31-34 — the Overview uses the OTHER convention (cohort-matched deltas) and documents why, so the two surfaces answer 'did we improve' differently",
+      "src/lib/org/briefing.ts:419-420 — the markdown DOES qualify its movement line ('N of M compared repos moved'); the deterministic narrative at briefing-narrative.ts:118-122 qualifies it too — it is the JUXTAPOSITION with the unqualified fleet delta that breaks",
+      "uat/runs/2026-08-10-ascent-first/_l2-briefing-vercel.txt — LIVE, all four on one page: 'Across 6 of 6 repositories scanned… down 6 points over the period… Of 2 repositories comparable across the period, 0 improved and 0 regressed… PERCENTILEvs 1 repos… shared by 3 repositories'"
+    ],
+    "code_check": "present-broken",
+    "verdict": "confirmed",
+    "l2_priority": "ANSWERED LIVE — produced by the RECONCILIATION SWEEP over the live board artifact, a class no single character-journey walkthrough generates. Reproduced independently on org=acme.",
+    "reachable": true,
+    "scope_note": "Cross-surface reconciliation finding, per the v1.2 reconciliation sweep — 'repository count' is the shared concept traced across coverage / movement / benchmark / recommendation. Sourced from the orchestrator's live PDF extract; the code trace and the denominator attribution are mine.",
+    "impact_l1": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "high"
+    },
+    "resolution": "open",
+    "evidence_l2": [
+      "LIVE: _l2-briefing-vercel.txt — one page states 'Across 6 of 6 repositories scanned' · 'Coverage: 6/6 repositories scanned' · 'Of 2 repositories comparable across the period, 0 improved and 0 regressed' · 'PERCENTILE vs 1 repos' · 'shared by 3 repositories'",
+      "LIVE: _l2-briefing-acme-30d.txt — same shape, 'shared by 11 repositories', 2 pages",
+      "LIVE: shots/org-executive.text.txt — the same four denominators on the web executive tab"
+    ]
+  },
+  {
+    "id": "EXEC-BRIEFING-0716-1",
+    "journey": "prove-and-track-fleet-maturity",
+    "character": "Dana (VP Engineering)",
+    "cert_level": "L2",
+    "type": "trust",
+    "severity": "major",
+    "impact": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "high"
+    },
+    "dimension": "trust",
+    "title": "CARRY-FORWARD from 2026-07-16 (14 of 20 Characters): Executive Briefing trajectory rendered with no confidence hedge on the board PDF / share link / Copy-for-LLM",
+    "expected": "The trend-confidence hedge shown under the on-screen Trajectory card reaches the export surfaces, so a board PDF cannot present a noisy low-R2 projection as a firm headline.",
+    "got": "FIXED for the case where a confidence figure exists. forecastConfidenceNote (briefing.ts:46-49) was introduced and is now rendered alongside the headline by all four briefing renderers: ExecutiveTrajectoryCard.tsx:17, share/briefing/[token]/page.tsx:220, briefing-document.tsx:125-126, and the Copy-for-LLM markdown at briefing.ts:393. The PDF's own comment states the intent: 'so the board PDF can't present a noisy, low-R2 projection as a firm headline'. Verified in code across every consumer.",
+    "evidence": [
+      "src/lib/org/briefing.ts:46-49 — forecastConfidenceNote introduced",
+      "src/lib/pdf/briefing-document.tsx:125-126 — rendered on the board PDF, with the intent comment",
+      "src/app/share/briefing/[token]/page.tsx:220 — rendered on the anonymous board link",
+      "src/components/org/intelligence/executive/ExecutiveTrajectoryCard.tsx:17 — rendered in-app",
+      "src/lib/org/briefing.ts:393 — rendered in the Copy-for-LLM markdown"
+    ],
+    "code_check": "by-design",
+    "verdict": "confirmed",
+    "resolution": "fixed",
+    "ceiling": "Only the ENGINE-MIX caveat is live-verified. The FORECAST caveat — the actual subject of the 2026-07-16 finding — could not be exercised on any available fixture, so it is unverified, not fixed. Worse, the L1 code read shows the remaining seam is real and arguably inverted: forecastConfidenceNote renders only when forecastConfidence != null, and briefing.ts:288-289 nulls it EXACTLY when lowData — so the hedge appears when the fit is well-supported and vanishes when it is thin, which is the opposite of what the prior finding asked for. And isProjectable, the shared presentability gate /trends already uses, is imported by nothing on the briefing path. Dana can trust that the board PDF will tell her WHICH ENGINE scored her fleet; she still cannot trust that it will tell her when the trend under her ETA is too thin to project.",
+    "reachable": true,
+    "scope_note": "Filed as a carry-forward row per the v1.2 resolution rule so the drain reads it from findings.json rather than reconstructing it from prose. Its ceiling is the input to DANA-L1-001 and DANA-L1-002.",
+    "l2_priority": "PARTIALLY ANSWERED LIVE. The forecast half is unverifiable here (see DANA-L1-001) — so this row stays 'fixed' and does NOT graduate to 'resolved-verified', which v1.2 reserves for a fix proven reachable and job-unblocking with live evidence. What WAS verified live is the sibling propagation the prior run complained about in the same breath: the engine-mix caveat now reaches the board export verbatim — 'Scored by Claude CLI x5, Mock (deterministic) x4 · some scores this period used the deterministic mock engine, not the live model' appears in the generated PDF body AND on the web executive tab. The prior run's panel verdict was that a correct caveat computed somewhere in the app silently fails to reach the artifact a user forwards unedited; for the engine-mix caveat, that is now false."
+  },
+  {
+    "id": "L2-NEW-01",
+    "journey": "scan-my-repo-get-a-roadmap",
+    "character": "Sam (Staff Engineer)",
+    "cert_level": "L2",
+    "type": "trust",
+    "severity": "major",
+    "impact": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "med"
+    },
+    "dimension": "trust",
+    "title": "A 193-second live model call moves the headline score by about two points — the LLM's real contribution is the prose, not the number the product sells",
+    "expected": "If the product's own README says the LLM 'calibrates the signal scores', a live scan should differ materially from the free deterministic path. Sam paid the wait for calibration.",
+    "got": "CONTROL ARM, and an unusually clean one — the app ships both arms inside every response, so this is a measurement rather than an inference: each dimension carries signalScore (detector, no LLM) beside llmScore (the model's own number) and the blended score actually displayed. On the real 193-second claude-cli/sonnet scan of vercel/swr the model moved off the detector in 7 of 9 dimensions, but never by more than 6 points and by <=3 in five of them; D6 and D9 came back byte-identical. The guardband permits +/-25; the model used at most 24% of it. Net effect on the 0-100 headline: roughly +/-2 points. The README's two claims therefore do not hold equally. 'Calibrates the signal scores' is weakly supported. 'Writes the roadmap' is strongly supported, and is where the value actually sits: the roadmap cites '0 of 8 Action references pinned to a SHA' and '56% of sampled merged PRs carry an approving review', and the discrepancies block has the model CORRECTING the app's own D9 detector (the 'Signed releases 0/10' result is a false negative, because trigger-release.yml sets permissions id-token:write and installs npm >=11.5.1 for OIDC trusted publishing, which does emit Sigstore provenance). This is not a defect in the engineering — it is a mismatch between what the product asks the user to wait for and where the value is produced.",
+    "evidence": [
+      "uat/runs/2026-08-10-ascent-first/_l2-warm-scan-swr.json — signalScore/llmScore/score per dimension",
+      "uat/runs/2026-08-10-ascent-first/_L2-control-arm-llm-vs-signal.md — full table",
+      "deltas D1 +6, D2 -3, D3 +2, D4 +5, D5 +3, D6 0, D7 -2, D8 +1, D9 0; scoreIntegrity effectiveBlend 0.51",
+      "README.md:34, README.md:83-85"
+    ],
+    "code_check": "by-design",
+    "verdict": "confirmed",
+    "resolution": "open",
+    "l2_priority": "ANSWERED LIVE. Precondition: LLM_PROVIDER=claude-cli with the binary on PATH — satisfied (engine.provider 'claude-cli', model 'sonnet'). Worth re-running on a repo with weak deterministic signals to see whether the model's contribution grows where detectors are blind.",
+    "recurrence": 1
+  },
+  {
+    "id": "L2-NEW-02",
+    "journey": "scan-my-repo-get-a-roadmap",
+    "character": "Sam (Staff Engineer)",
+    "cert_level": "L2",
+    "type": "trust",
+    "severity": "minor",
+    "impact": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "med"
+    },
+    "dimension": "clarity",
+    "title": "The report shows a detected tech stack the scoring model never received, with nothing distinguishing it from what the model actually read",
+    "expected": "On a product whose pitch is auditable provenance, a fact shown inside the assessment readout should be one the assessment used — or should be marked as not.",
+    "got": "SECOND CONTROL ARM, using a source the model provably never saw. TECH_STACK_PROMPT is unset here, so techStackPromptEnabled() is false (src/lib/llm/config.ts:106-109) and source #7 never enters the prompt (scan-score-input.ts:118) — which is also why this run's grounding denominator is N/11 rather than N/12. Yet the live response carries techStack {languages:[TypeScript], frameworks:[React], confidence:0.53} and the anonymous report renders 'STACK / TypeScript / React' inside the APP READINESS PASSPORT readout, adjacent to scores the model did produce. The gating is deliberate and well-reasoned (config.ts:100-105 holds it back so prompt changes cannot move calibrated scores until a bench shows median drift under 2 points), so this is not sloppy engineering — it is invisible to the user. Nothing separates 'the model considered this' from 'we detected this separately'. The same class covers contributors and aiChanges, both resolved for the report only (scan.ts:280-281). For Sam, whose stated automatic trust failure is an unsourced claim, a provenance product that is itself ambiguous about provenance is the sharpest available own-goal.",
+    "evidence": [
+      "shots/report-anon.text.txt — 'STACK / TypeScript / React' in the passport readout",
+      "_l2-warm-scan-swr.json — techStack present in the payload",
+      "src/lib/llm/config.ts:106-109 · src/lib/scan-score-input.ts:118 · src/lib/scan.ts:280-281"
+    ],
+    "code_check": "by-design",
+    "verdict": "confirmed",
+    "resolution": "open",
+    "l2_priority": "ANSWERED LIVE. Precondition: TECH_STACK_PROMPT unset — satisfied and verified. With the flag ON this dissolves for techStack but persists for contributors/aiChanges.",
+    "recurrence": 1
+  },
+  {
+    "id": "PRIOR-2026-07-16-03",
+    "journey": "scan-my-repo-get-a-roadmap",
+    "character": "Sam (Staff Engineer)",
+    "cert_level": "L2",
+    "type": "broken-flow",
+    "severity": "major",
+    "impact": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "high"
+    },
+    "dimension": "completion",
+    "title": "CARRY-FORWARD from 2026-07-16 — a public-funnel scan no longer vanishes on reload",
+    "expected": "The prior run's third-ranked finding, in Oliver's words: 'I came back to the same report five minutes later... the tool told me the repo had never been scanned... That's the artifact I need to walk into my VP's office with — gone, on reload.'",
+    "got": "RESOLVED AND VERIFIED LIVE on the data half. A real claude-cli scan of vercel/swr was run through POST /api/scan; 26 minutes later /report/vercel/swr was driven ANONYMOUSLY, on a server that had been restarted in between, and rendered the full persisted report — 'L3 Augmented', score 47, 'Scanned 26m ago', engine provenance 'engine: claude-cli · sonnet', confidence 85%, the passport, and the Scoring/Dimensions/Roadmap/Sandbox/Contributors sections. The artifact survives reload, survives a restart, and needs no session. Sam's L1 corroborates the mechanism: persistScanReport + commit-SHA dedup + peek re-hydrate all work on the DB path, and the stale comment at src/lib/db/improvement.ts:513 ('scan row may never exist') no longer describes the behaviour.",
+    "evidence": [
+      "LIVE: shots/report-anon.text.txt — 272-line render, 'Scanned 26m ago', anonymous, post-restart",
+      "LIVE: GET /report/vercel/swr -> 200 on the bypass-off server",
+      "_l2-warm-scan-swr.json — the originating scan",
+      "src/lib/db/scans-persist.test.ts — dedup + mock->live upgrade invariants"
+    ],
+    "code_check": "present-but-missed",
+    "verdict": "confirmed",
+    "resolution": "resolved-verified",
+    "ceiling": "Verified only on the DB-ON path. Persistence is what makes the artifact durable, so a deployment with DATABASE_URL unset — which the README explicitly supports as the app's own MVP posture — necessarily still loses the scan on reload; that branch was not driven. And the DISCOVERABILITY half is NOT closed: SAM-L1-04 (recurrence 2) records that a scan still ends on /report?repo=... and the durable permalink is never surfaced. The artifact survives, but the user is not handed its address — so the reason Oliver could not find his report is only half addressed."
+  },
+  {
+    "id": "SAM-L1-01",
+    "journey": "scan-my-repo-get-a-roadmap",
+    "character": "Sam (Staff Engineer)",
+    "cert_level": "L1",
+    "type": "trust",
+    "severity": "major",
+    "impact": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "high"
+    },
+    "dimension": "trust",
+    "title": "Per-dimension evidence lines are unsourced labels — the file detectors never emit the path they matched, though Signal.detail exists for exactly that",
+    "expected": "Every dimension score cites concrete, re-traceable evidence — file:line / PR / commit / governance fact — so a skeptic can re-check it himself. Sam's scored criterion #2, and his stated automatic trust failure: 'Unsourced claims: a dimension score with no file:line, no PR, no commit behind it. Where's this coming from?'",
+    "got": "File-derived evidence renders as bare labels: 'Found 138 test files', 'Test framework configured', 'GitHub Actions CI present', 'Formatter configured'. The `Signal` type carries an optional `detail` for 'path, count, etc.' (types.ts:326-331) and `Scorer.add/note` both accept it (analyze/index.ts:93-99), but across all of analyze/index.ts it is populated exactly ONCE — on the detector-FAILURE placeholder at :844. The detectors match by regex against the repo index (`idx.has(/(^|\\/)claude\\.md$/)` at :190) and discard the matched path. Only pulls.ts (D6/D7 PR + governance) and the D9 security battery produce substantive evidence strings.",
+    "evidence": [
+      "src/lib/analyze/index.ts:190-211 — D1 detectors: `s.add(22, \"Found CLAUDE.md (Claude Code guidance)\")`, no path",
+      "src/lib/analyze/index.ts:252-299 — D2 detectors: `s.add(base, `Found ${n} test file${…}`)`, no paths",
+      "src/lib/analyze/index.ts:363-386 — D3 detectors: 'GitHub Actions CI present', 'CI runs tests', no workflow filename",
+      "src/lib/types.ts:326-337 — `Signal { label; detail?: /* path, count, etc. */ }` + formatSignal",
+      "src/lib/analyze/index.ts:844 — the ONLY `detail:` in the file, and it is the failure placeholder",
+      "src/lib/analyze/pulls.ts:214,229,243,267,271 — the contrast: five populated details, which is why D6/D9 evidence reads substantively",
+      "src/components/report/DimensionDetail.tsx:44-56 — the render site; it prints whatever formatSignal produced, nothing more",
+      "reproduction: `grep -c 'label:' src/lib/analyze/index.ts` -> 25 ; `grep -c 'detail:'` -> 1",
+      "uat/runs/2026-08-10-ascent-first/_l2-warm-scan-swr.json — live D2 evidence array, all five entries pathless (L2-grade evidence)"
+    ],
+    "code_check": "confirmed-absent",
+    "verdict": "confirmed",
+    "l2_priority": "Open the Dimensions tab on a live claude-cli scan and read D1/D2/D3/D5/D8 evidence lists in the rendered DOM; confirm no path/line appears and that no tooltip or expander reveals one. PRECONDITION: LLM_PROVIDER=claude-cli (or mock — the detector layer is provider-independent, so this reproduces on either), DATABASE_URL either, anonymous viewer, GITHUB_TOKEN present (absent only removes D6/D9, which are the two that PASS).",
+    "reachable": true
+  },
+  {
+    "id": "SAM-L1-02",
+    "journey": "scan-my-repo-get-a-roadmap",
+    "character": "Sam (Staff Engineer)",
+    "cert_level": "L1",
+    "type": "trust",
+    "severity": "major",
+    "impact": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "med"
+    },
+    "dimension": "trust",
+    "title": "The provenance track hides both of its own parameters: it draws a fixed ±25 band even where the engine used ±50, and never shows the blend weight — while scoreIntegrity, which records exactly this, is rendered by nothing",
+    "expected": "The signal→LLM→blended provenance track is the affordance that converts Sam. To re-trace a score he needs the two numbers that produce it: the guardband actually applied to THAT dimension, and the blend weight. Where a discrepancy doubled the band, the picture must say so.",
+    "got": "ProvenanceTrack computes its shaded zone from the module constant LLM_GUARDBAND (=25) unconditionally (DimensionDetail.tsx:92-93). The engine uses `band = widenedDims.has(id) ? LLM_GUARDBAND * 2 : LLM_GUARDBAND` (engine.ts:205) and blends `round(effectiveBlend*guarded + (1-effectiveBlend)*signal)` where `effectiveBlend = SCORE_BLEND * coverage` (engine.ts:153,211). Neither the widening nor the weight reaches the screen. `scoreIntegrity {widenedDims, widenCapped?, effectiveBlend}` is built at engine.ts:339-346, typed at types.ts:631, persisted — and `grep -rn scoreIntegrity src --include=*.tsx` returns ZERO component hits. In the live swr scan D3 was widened to ±50 and effectiveBlend was 0.51, and the UI would draw ±25 and imply nothing about the weight.",
+    "evidence": [
+      "src/components/report/DimensionDetail.tsx:92-93 — `bandLo/bandHi` from the constant LLM_GUARDBAND, no per-dimension input",
+      "src/lib/scoring/engine.ts:205 — `const band = widenedDims.has(s.id) ? LLM_GUARDBAND * 2 : LLM_GUARDBAND`",
+      "src/lib/scoring/engine.ts:153,211 — effectiveBlend = SCORE_BLEND * coverage; the blend expression",
+      "src/lib/maturity/model.ts:50,57 — SCORE_BLEND = 0.6, LLM_GUARDBAND = 25",
+      "src/lib/scoring/engine.ts:339-346 — scoreIntegrity assembled (widenedDims, widenCapped, effectiveBlend)",
+      "src/lib/types.ts:631 — `scoreIntegrity?: ScoreIntegrity` on ScanReport",
+      "grep -rn 'scoreIntegrity' src --include=*.tsx --include=*.ts | grep -v test -> only engine.ts:339 and types.ts:631 — no renderer",
+      "reproduction R1: all 9 live dimensions reconstruct from round(0.51*clamp(llm, signal±band) + 0.49*signal); a naive 50/50-at-±25 reading gets D2 wrong (99 vs 98). effectiveBlend/coverage = 0.51/0.85 = 0.6000 = SCORE_BLEND exactly",
+      "uat/runs/2026-08-10-ascent-first/_l2-warm-scan-swr.json — scoreIntegrity: {widenedDims:['D3'], effectiveBlend:0.51} (L2-grade evidence)"
+    ],
+    "code_check": "present-broken",
+    "verdict": "confirmed",
+    "scope_note": "The arithmetic is honest and fully reproducible — this is a disclosure gap in the audit surface, not a wrong number. Ranked on trust_erosion because the provenance track is the single affordance this Character's adoption turns on.",
+    "l2_priority": "On a live scan whose scoreIntegrity.widenedDims is non-empty, hover/inspect that dimension's ProvenanceTrack and confirm the SVG band width corresponds to ±25 rather than ±50, and that no surface anywhere shows effectiveBlend or the widening. PRECONDITION: LLM_PROVIDER=claude-cli (mock produces no discrepancies at all, so widenedDims is always empty and this is NOT reproducible on the mock path), anonymous, GITHUB_TOKEN present.",
+    "reachable": true
+  },
+  {
+    "id": "SAM-L1-03",
+    "journey": "scan-my-repo-get-a-roadmap",
+    "character": "Sam (Staff Engineer)",
+    "cert_level": "L1",
+    "type": "missing-feature",
+    "severity": "major",
+    "impact": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "med"
+    },
+    "dimension": "missing",
+    "title": "No badge affordance anywhere on the report, and /badge won't accept the repo just scanned — one of Sam's three jobs-to-be-done has no path through the product",
+    "expected": "Sam's JTBD #3 verbatim: 'Hand me a badge and a level I'd stake my name on in the README without getting roasted in the next standup.' Scored criterion #6. The report is the moment he'd do it, and the badge generator already exists and already emits Markdown/HTML/AsciiDoc plus CI-gate snippets.",
+    "got": "src/components/report/** contains ZERO references to /badge. The report header offers Export PDF, Share card (PNG), Copy for LLM, SKILL.md — no badge snippet. The foot CTA offers 'Scan your org' / 'Track this repo' / 'Sign in'. The only routes to /badge in the whole app are the site footer, the leaderboard pager and a landing gallery. And /badge itself takes no searchParams (app/badge/page.tsx has no searchParams prop; BadgeGenerator sources the repo from a typed <input> at :132-139), so a visitor who finds it by footer retypes the repo he just scanned.",
+    "evidence": [
+      "reproduction R4: `grep -rn '\"/badge\\|href={`/badge\\|/badge?' src --include=*.tsx` -> src/app/sitemap.ts:32, src/components/landing/prototypes/index/IndexGallery.tsx:124, src/components/leaderboard/RegisterPager.tsx:46, src/components/SiteFooterCore.tsx:19 — none under src/components/report/",
+      "src/components/report/ReportHeader.tsx:141-184 — the full export row: FreshnessControl, PDF, Share card, CopyForLlm, SkillDownload, FoundationPrButton",
+      "src/components/report/ReportConversionCta.tsx — the foot-of-report CTA; org scan / track / sign-in only",
+      "src/app/badge/page.tsx:11-40 — no searchParams parameter",
+      "src/components/badge/BadgeGenerator.tsx:132-139 — repo is a typed input; no useSearchParams anywhere in the file"
+    ],
+    "code_check": "confirmed-absent",
+    "verdict": "confirmed",
+    "scope_note": "The badge GENERATOR is built and good (Markdown/HTML/AsciiDoc + CI gate snippets, /api/badge/[owner]/[repo] live SVG). This is purely the missing link from the report plus the missing ?repo= prefill — small work, and it unblocks a whole declared job.",
+    "l2_priority": "Complete a live scan, then sweep the rendered report DOM (all five tabs + header + footer) for any control whose text or href mentions badge/README/embed. Then open /badge?repo=<the scanned repo> and confirm the field is empty. PRECONDITION: any provider, DB on or off (badge is DB-independent), anonymous viewer.",
+    "reachable": true
+  },
+  {
+    "id": "SAM-L1-04",
+    "journey": "scan-my-repo-get-a-roadmap",
+    "character": "Sam (Staff Engineer)",
+    "cert_level": "L1",
+    "type": "confusion",
+    "severity": "minor",
+    "impact": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "low"
+    },
+    "dimension": "clarity",
+    "title": "The scan flow ends on /report?repo=… and never surfaces the permalink — the durable artifact is written but never handed to the person who paid for it",
+    "expected": "After a three-minute scan Sam has the shareable, commit-pinned URL — the thing he pastes into Slack or the PR — either in the address bar or behind an obvious copy control.",
+    "got": "ScanForm pushes to /report?repo=… (ScanForm.tsx:142) and ReportClient renders the report in place with no redirect (ReportClient.tsx:85). reportPermalink() has 20+ call sites across trends, launch, org, live, register, practice-artifact, scan-alerts and pr-gate — and exactly ONE in the scan path: the completion EMAIL (stream/route.ts:342), which only fires for a signed-in opt-in. Nothing on the live-scan report links to, displays, or copies /report/{owner}/{repo}@{sha}.",
+    "evidence": [
+      "src/components/ScanForm.tsx:142 — `router.push(`/report?repo=…`)`",
+      "src/components/report/ReportClient.tsx:85 — renders ReportView; no navigation on settle",
+      "src/lib/ui.ts:42 — reportPermalink",
+      "src/app/api/scan/stream/route.ts:342 — the sole scan-path caller, inside the notify-email branch",
+      "grep of reportPermalink call sites: no consumer under src/components/report/ other than DimensionTrends.tsx:124,138 (history points, not this scan)",
+      "src/lib/db/scans-persist.ts:69-73 — persistence is real when isDbConfigured(); the artifact exists, it is just never named to the user",
+      "src/app/report/[owner]/[repo]/page.tsx:116-123 — the permalink resolves the pinned report when persisted, else ColdScanGate"
+    ],
+    "code_check": "confirmed-absent",
+    "verdict": "confirmed",
+    "recurrence": 2,
+    "scope_note": "NARROWED from the 2026-07-16 finding 'public-funnel scan forgotten on reload'. The DATA half is closed: persistScanReport dedups per commit SHA, upgrades mock->live, and the peek (peek=1&recent=1) re-hydrates a reload instantly on the DB path — improvement.ts:513's 'a scan row may never exist' comment is stale for this flow. What returns unchanged is the DISCOVERABILITY half: the user is never given the URL. Second run, same gap.",
+    "l2_priority": "Complete a live scan; record the address bar; reload; then sweep for any copy-link/permalink control. Then run the SAME scan with DATABASE_URL unset and confirm the divergence: reload re-scans, /report/{owner}/{repo} shows ColdScanGate, and SkillDownload/Export PDF 404. PRECONDITION: needs TWO arms — (a) DB ON (this host, PGlite) and (b) DB OFF, which this host cannot serve without a restart; if arm (b) is not run, resolve it `uncertain — not reproducible on this host`, never refuted. Provider: any. Anonymous viewer both arms.",
+    "reachable": true
+  },
+  {
+    "id": "SAM-L1-05",
+    "journey": "scan-my-repo-get-a-roadmap",
+    "character": "Sam (Staff Engineer)",
+    "cert_level": "L1",
+    "type": "quality-gap",
+    "severity": "minor",
+    "impact": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "low"
+    },
+    "dimension": "senior-quality",
+    "title": "The roadmap's mandated invitational voice buries the concrete move inside a rationale paragraph — the specifics are there and are excellent, but Sam has to extract his own ticket",
+    "expected": "Scored criterion #4: the roadmap names a specific, evidence-grounded, highest-leverage next move Sam would put in the next sprint — e.g. 'pin the 3 unpinned GitHub Actions to SHAs; gate the advisory 70% coverage check in CI'.",
+    "got": "prompt.ts:144-153 mandates the opposite shape: titles must be observations not imperatives ('Agent guidance is thin', explicitly NOT 'Add a CLAUDE.md'), and the actionable field is `explore` — '2-3 invitational questions', 'open questions, not steps'. The live output honours it: title 'Supply-chain automation hasn't caught up to the project's exposure'; the actual move ('pinning the 8 GitHub Action references to SHAs') appears once inside the rationale and once as a question. The surrounding machinery is strong — numbered quick-wins-first ordering, a Fastest-path projection, payoff chips — so the ranking Sam needs IS there; only the imperative sentence is withheld by design.",
+    "evidence": [
+      "src/lib/scoring/prompt.ts:144-153 — 'IMPORTANT — Ascent is a transition COMPANION, not a boss … NOT an imperative … open questions, not steps … invitational throughout'",
+      "src/components/report/roadmapPieces.tsx:140-184 — RoadmapSteps renders title + rationale + ExploreList + ExemplarPointer + chips",
+      "src/components/report/roadmapPriority.tsx:13-19 — priorityScore + isQuickWin (the ranking that DOES land)",
+      "src/components/report/roadmapPieces.tsx:120-138 — NextLevelPath 'Fastest path' projection",
+      "reproduction R3: ordering resolves to D1(29,QW) > D4(28,QW) = D9(28,QW) > D6(19) > D8(18)",
+      "uat/runs/2026-08-10-ascent-first/_l2-warm-scan-swr.json — roadmap[2].rationale contains '0 of 8 Action references are pinned to a SHA'; roadmap[2].explore[0] asks whether pinning them would be a first move (L2-grade evidence)"
+    ],
+    "code_check": "by-design",
+    "verdict": "confirmed",
+    "scope_note": "This is a deliberate product-voice decision (documented in the prompt itself), not a defect — recorded because it costs THIS Character time on every run and is the one place where the product's stated philosophy and a staff engineer's scored bar pull against each other. A per-item 'concrete first step' field would satisfy both without abandoning the companion framing.",
+    "l2_priority": "Read the live Roadmap tab and time how long it takes to extract a sprint-ready ticket from item #1. Check whether any UI element (not the model prose) states an imperative next step. PRECONDITION: LLM_PROVIDER=claude-cli — on mock the roadmap comes from buildFallbackRoadmap (engine.ts:311-315), a different code path with different phrasing, so this is NOT reproducible on the mock path.",
+    "reachable": true
+  },
+  {
+    "id": "SAM-L1-06",
+    "journey": "scan-my-repo-get-a-roadmap",
+    "character": "Sam (Staff Engineer)",
+    "cert_level": "L1",
+    "type": "trust",
+    "severity": "minor",
+    "impact": {
+      "frequency": "med",
+      "reachability": "high",
+      "trust_erosion": "med"
+    },
+    "dimension": "trust",
+    "title": "'Flagged for review' lists the auditor's claims but never says what each one did — a flag on a deterministic dimension moved nothing, and the reader can't tell that from a flag that doubled a guardband",
+    "expected": "Sam can see where the model and the deterministic detector disagreed AND what the system did about it — the disagreement is only half the information; the disposition is the half that tells him whether the number in front of him was affected.",
+    "got": "ReportDiscrepancies renders `{dimension} {claim}` with the blanket caption 'may be wrong — worth verifying'. The engine meanwhile makes three distinct dispositions: (a) an ELIGIBLE flag doubles that dimension's guardband to ±50; (b) a flag on a deterministic dimension (D9) or a dropped/unknown one is INELIGIBLE and widens nothing; (c) more than MAX_FLAGGED_DIMENSIONS=2 eligible flags blows the budget so NONE widen and a warning is pushed. In the live swr scan the D9 claim was case (b) and the D3 claim was case (a) — the panel presents them identically.",
+    "evidence": [
+      "src/components/report/ReportNotices.tsx:22-41 — the whole renderer; dimension + claim, no disposition",
+      "src/lib/scoring/discrepancy-policy.ts:20,36-41 — MAX_FLAGGED_DIMENSIONS=2, all-or-nothing budget",
+      "src/lib/scoring/engine.ts:105-110 — the budget is applied to ELIGIBLE dims only (deterministic/failed/unknown excluded)",
+      "src/lib/scoring/engine.ts:122-125 — the capped case pushes a warning naming the count",
+      "src/lib/scoring/engine.ts:205 — the payoff a widened flag buys (±25 -> ±50)",
+      "src/lib/scan-score-input.ts:74-78 — D9 is flagged `deterministic`, so a D9 discrepancy can never widen anything",
+      "uat/runs/2026-08-10-ascent-first/_l2-warm-scan-swr.json — discrepancies[0].dimension='D9' (ineligible), discrepancies[1].dimension='D3'; scoreIntegrity.widenedDims=['D3'] (L2-grade evidence)"
+    ],
+    "code_check": "present-but-missed",
+    "verdict": "confirmed",
+    "scope_note": "Shares a root cause with SAM-L1-02 (scoreIntegrity has no renderer) but is a separate user-facing surface with its own copy; kept distinct so it can be fixed or declined independently.",
+    "l2_priority": "On a live scan carrying >=1 discrepancy, confirm the panel shows no disposition, and cross-check the response's scoreIntegrity.widenedDims against what was rendered. PRECONDITION: LLM_PROVIDER=claude-cli — MockProvider emits no discrepancies, so the panel does not render at all on the mock path and this is NOT reproducible there.",
+    "reachable": true
+  },
+  {
+    "id": "SAM-L1-07",
+    "journey": "scan-my-repo-get-a-roadmap",
+    "character": "Sam (Staff Engineer)",
+    "cert_level": "L1",
+    "type": "quality-gap",
+    "severity": "minor",
+    "impact": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "low"
+    },
+    "dimension": "senior-quality",
+    "title": "~8% of the ingested repo reaches the model, and neither the report nor the prompt tells the model (or Sam) what was left out",
+    "expected": "Either the sampling is wide enough that the auditor's judgement is well-founded, or the report is explicit about what the model did not see — Sam judges an audit by what it looked at.",
+    "got": "Ingestion fetches up to MAX_TOTAL_BYTES=280_000 (github/source.ts:73). The prompt caps file excerpts at PER_FILE=2200 chars and hard-`break`s the accumulator at OUTER=22000 (prompt.ts:210-211,219), and commits at 15 messages x 120 chars (scan-score-input.ts:104, prompt.ts:224). That is ~7.9% of the fetched bytes. The remainder legitimately serves the deterministic detectors — the comment at prompt.ts:206-209 says so, and 'don't align them by shrinking the fetch budget' is correct advice. But no file-tree manifest accompanies the excerpts, so the model has no map of its own blind spot, and the report's only coverage signal is the `confidence` chip (85% here), which measures fetch coverage, not prompt coverage.",
+    "evidence": [
+      "src/lib/scoring/prompt.ts:210-211 — PER_FILE = 2200, OUTER = 22000",
+      "src/lib/scoring/prompt.ts:219 — `if (joined.length >= OUTER) break;`",
+      "src/lib/scan-score-input.ts:104 — `commitSample: snapshot.commits.map(c => c.message).slice(0, 15)`",
+      "src/lib/scoring/prompt.ts:224 — each commit further sliced to 120 chars",
+      "src/lib/github/source.ts:73 — MAX_TOTAL_BYTES = 280_000",
+      "src/components/report/ReportHeader.tsx:28-29,133-139 — CONFIDENCE_HINT describes FETCH coverage ('the share of the repository's signal-bearing files the scan could actually read'), not prompt coverage",
+      "env.md §grounding names this cap explicitly as 'findings-in-waiting'"
+    ],
+    "code_check": "by-design",
+    "verdict": "confirmed",
+    "scope_note": "Deliberate and defensible (context economics; detectors read the full bytes). Recorded as a grounding-cap finding per env.md's instruction to cite these, and because a file-tree manifest is the cheap half of the fix — it costs a few hundred tokens and lets the auditor say 'I did not see X' instead of inferring from one workflow file, which is exactly what the live D9 discrepancy did.",
+    "l2_priority": "Control arm: run the same repo twice and check whether the auditor's discrepancies/roadmap cite files that fall outside the first 22 KB of the excerpt block. PRECONDITION: LLM_PROVIDER=claude-cli, GITHUB_TOKEN present, and a repo large enough for the OUTER break to fire (vercel/swr qualifies).",
+    "reachable": true
+  },
+  {
+    "id": "SAM-L1-08",
+    "journey": "scan-my-repo-get-a-roadmap",
+    "character": "Sam (Staff Engineer)",
+    "cert_level": "L1",
+    "type": "quality-gap",
+    "severity": "polish",
+    "impact": {
+      "frequency": "low",
+      "reachability": "low",
+      "trust_erosion": "low"
+    },
+    "dimension": "clarity",
+    "title": "scoreLabel covers 4 of 6 providers — openai and openrouter scans show the generic 'Scoring against the rubric' through the longest wait in the product",
+    "expected": "The provider-aware progress label — the thing that turns a three-minute wait from latency theater into a legible operation — works for every provider the app can be configured with.",
+    "got": "The switch names gemini, claude-cli, bedrock and mock; ProviderName has six members and PROVIDER_CHOICES confirms openai and openrouter are selectable. Those two fall through to the default arm, which is also the correct label for `undefined` (pre-first-frame) — so on an openai/openrouter deployment the score step never stops looking like it hasn't started resolving a provider.",
+    "evidence": [
+      "src/components/report/ReportClientStatus.tsx:37-51 — the switch; four cases + default",
+      "src/lib/types.ts:8 — ProviderName = gemini | bedrock | openai | openrouter | mock | claude-cli",
+      "src/lib/llm/index.ts:67 — PROVIDER_CHOICES includes openai and openrouter",
+      "src/lib/llm/index.ts:106-108,147-148 — both are fully wired provider branches",
+      "branch audit (all six enumerated in the report body): gemini CLEAN, claude-cli CLEAN, bedrock CLEAN (region-aware), mock CLEAN, undefined CLEAN-by-design, openai UNCOVERED, openrouter UNCOVERED"
+    ],
+    "code_check": "confirmed-absent",
+    "verdict": "confirmed",
+    "scope_note": "Emitted to discharge the enumerate-every-branch duty. Unreachable on this host.",
+    "l2_priority": "Not worth browser time on this host. PRECONDITION: would require LLM_PROVIDER=openai or openrouter with a working key — NOT satisfiable on this host (LLM_PROVIDER=claude-cli). If not run, resolve `uncertain — not reproducible on this host`, never refuted.",
+    "reachable": false
+  },
+  {
+    "id": "SAM-L1-STR-01",
+    "journey": "scan-my-repo-get-a-roadmap",
+    "character": "Sam (Staff Engineer)",
+    "cert_level": "L1",
+    "type": "quality-gap",
+    "severity": "polish",
+    "impact": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "low"
+    },
+    "dimension": "trust",
+    "title": "STRENGTH — the D2 detector samples test BODIES and docks 15 points for assertion theater, which is this Character's exact scar tissue answered in code",
+    "expected": "n/a — positive finding.",
+    "got": "analyze/index.ts:329-336 samples test file bodies and, when substantive assertions are absent, applies `s.add(-15, 'Sampled tests assert nothing', '<n> sampled test file(s), ~<cases> cases, 0 substantive assertions — counting files, not behavior')`; the positive branch credits 'Sampled tests assert behavior' with the substantive count. Sam's background names precisely this failure ('a coverage number that was 80% and meant nothing because the assertions were expect(true).toBe(true)') and his top pet peeve is 'scoring on the PRESENCE of a file instead of whether it's real and followed'. This is the one place the product refuses to grade on presence — and note it is also one of the only two `detail:` fields on this path, i.e. it is more re-traceable than its neighbours.",
+    "evidence": [
+      "src/lib/analyze/index.ts:329-336 — the negative and positive branches with their detail strings",
+      "uat/characters/sam-staff-engineer.md:17 — the coverage-theater burn",
+      "uat/characters/sam-staff-engineer.md:31 — 'Scoring on the presence of a file … instead of whether it's real and followed'"
+    ],
+    "code_check": "n-a",
+    "verdict": "confirmed",
+    "scope_note": "Do-not-touch guardrail: any future rework of the D2 detector or its evidence rendering must preserve the assertion-substance sample AND its detail string. It is the single highest-trust line this Character will read.",
+    "l2_priority": "Optional. Confirm the line renders verbatim on a repo with hollow tests. PRECONDITION: any provider (deterministic detector); needs a fixture repo with assertion-free tests.",
+    "reachable": true
+  },
+  {
+    "id": "SAM-L1-STR-02",
+    "journey": "scan-my-repo-get-a-roadmap",
+    "character": "Sam (Staff Engineer)",
+    "cert_level": "L1",
+    "type": "quality-gap",
+    "severity": "polish",
+    "impact": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "low"
+    },
+    "dimension": "effort",
+    "title": "STRENGTH — the scan wait is a six-stage, provider-named, monotonic, elapsed-clocked progress surface, not a spinner",
+    "expected": "n/a — positive finding.",
+    "got": "Named stages fetch/tree/files/analyze/score/compose; the score step reads 'Asking Claude' on this host; a mount-anchored elapsed clock; a bar blending server pct with a provider-CALIBRATED time curve via max() so it only advances; a 15 s server heartbeat keeping proxies from dropping the SSE; a client backstop re-pinned per provider that can lengthen on failover but never shorten mid-scan; and a coalescing joiner told immediately that it attached to a run already in progress. Sam's pet peeve list ends with 'latency theater: a spinner with no streamed progress while a scan pretends to do deep work' — this is the direct refutation, and it is what makes the 193 s live scan tolerable.",
+    "evidence": [
+      "src/components/report/ReportClientStatus.tsx:27-34 — SCAN_STEPS",
+      "src/components/report/ReportClientStatus.tsx:37-57 — provider-aware + fallback-aware score label",
+      "src/components/report/ReportClientStatus.tsx:78-107 — useElapsed, displayProgressPct (max-blend, monotonic)",
+      "src/app/api/scan/stream/route.ts:147-153 — 15s SSE heartbeat",
+      "src/components/report/useReportScan.ts:98-116 — re-pinnable backstop (asymmetric: may lengthen, never shorten)",
+      "src/app/api/scan/stream/route.ts:271-276 — the joiner is told it attached mid-run",
+      "uat/characters/sam-staff-engineer.md:37 — the latency-theater pet peeve"
+    ],
+    "code_check": "n-a",
+    "verdict": "confirmed",
+    "scope_note": "Do-not-touch guardrail: any change to the scan wait must preserve named stages, the resolved-provider label, and bar monotonicity.",
+    "l2_priority": "Confirm live that the checklist advances through all six stages and the bar never regresses across a ~190s claude-cli scan. PRECONDITION: LLM_PROVIDER=claude-cli (the mock path completes too fast to exercise the time curve).",
+    "reachable": true
+  },
+  {
+    "id": "SAM-L1-STR-03",
+    "journey": "scan-my-repo-get-a-roadmap",
+    "character": "Sam (Staff Engineer)",
+    "cert_level": "L1",
+    "type": "trust",
+    "severity": "polish",
+    "impact": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "low"
+    },
+    "dimension": "senior-quality",
+    "title": "STRENGTH — the score is structurally defended against its own model: a guardband, a discrepancy budget the repo can't farm, a deterministic D9, and a persist path that refuses to cache a degraded run",
+    "expected": "n/a — positive finding.",
+    "got": "The LLM may move a dimension at most ±25 from the deterministic signal (engine.ts:205); D9 is computed by a graded OpenSSF-style battery and the prompt tells the model its D9 score field is IGNORED (prompt.ts:241, scan-score-input.ts:73-78); a discrepancy doubles the band but at most 2 per scan and all-or-nothing if the model over-claims (discrepancy-policy.ts:20,36-41), explicitly reasoned as removing the PAYOFF of a prompt injection rather than only its authority; repo content is fenced in an untrusted block with the authority denial stated twice (prompt.ts:81-83,244-251) and org decision notes are neutralize()d because agents write them (prompt.ts:118-131); and a degrade-to-mock / low-coverage / partial-PR-slice report is refunded, not cached, and not persisted (scan-finalize.ts:104-110, stream/route.ts:284-310). The header additionally discloses stochasticity ('AI estimate · may vary between runs') rather than hiding it. This is a threat model, not marketing — and it is why the number survives Sam's first re-check.",
+    "evidence": [
+      "src/lib/scoring/engine.ts:200-211 — guardband + blend",
+      "src/lib/scoring/discrepancy-policy.ts:1-41 — the budget and its stated reasoning",
+      "src/lib/scan-score-input.ts:73-78 — D9 replaced by the deterministic battery, flagged `deterministic`",
+      "src/lib/scoring/prompt.ts:81-83,244-251 — untrusted boundary stated in SYSTEM and repeated at the block",
+      "src/lib/scoring/prompt.ts:118-131 — decision notes neutralized because agents author them",
+      "src/lib/scan-finalize.ts:104-110 and src/app/api/scan/stream/route.ts:284-310 — the four persist guards",
+      "src/components/report/ReportHeader.tsx:33-34,122-130 — AI_ESTIMATE_HINT disclosure"
+    ],
+    "code_check": "n-a",
+    "verdict": "confirmed",
+    "scope_note": "Do-not-touch guardrail: any 'let the model have more latitude' change must keep the budget all-or-nothing and D9 deterministic.",
+    "l2_priority": "n/a — structural, fully verifiable at L1.",
+    "reachable": true
+  },
+  {
+    "id": "TOMAS-L1-01",
+    "journey": "evaluate-whether-to-adopt",
+    "character": "Tomáš (prospective buyer)",
+    "cert_level": "L2",
+    "type": "broken-flow",
+    "severity": "blocker",
+    "impact": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "high"
+    },
+    "dimension": "completion",
+    "title": "The advertised free, no-signup public scan returns 401 when the auth gate is on — and the README claims the opposite",
+    "expected": "Per the site's own copy ('Unlimited free public scans', 'public scans are always free', 'Public scans never need an account'), an anonymous visitor pastes a repo and gets a report with no signup. This is the single non-negotiable for a dev-tools economic buyer: the self-serve trial IS the proving ground.",
+    "got": "L1 predicted this from code and correctly declared it unreachable on a host running ASCENT_AUTH_BYPASS=1. Rather than resolve it uncertain, L2 BUILT THE MISSING ARM: the dev server was restarted with ASCENT_AUTH_BYPASS=0 / ASCENT_OPEN_ORG_DASHBOARDS=0 (Supabase vars are present in .env.local, so authGateEnabled() is true — the production shape; the header flipped from 'vercel / developer / Sign out' to 'ORG DEMO / Sign in', proving the arm was real). POST /api/scan then returns HTTP 401 {\"error\":\"Sign in to run a scan.\",\"code\":\"auth_required\"}. L2 WIDENED the finding: everything READ-ONLY stays open anonymously — GET /report/vercel/swr -> 200 (full 272-line render), GET /api/badge/vercel/swr -> 200, GET /api/gate/vercel/swr?min_level=L3 -> 422 (the gate works) — and only RUNNING a scan is walled. Tomas's scored criterion is specifically 'run one public scan MYSELF on a repo I know', because a self-serve trial is the only proof he trusts over vendor self-claims. So the product leaves open every surface that would not convince him and walls the single one that would, while the hero CTA still reads 'Scan a repository' and README.md:94-98 states under the heading 'Free & public — no signup': 'Everything here works anonymously' and 'Scan any public repo -> a full, auditable report.'",
+    "evidence": [
+      "src/lib/env.ts:24-33,55-57 — authGateEnabled composition; bypass hard-disabled in production",
+      "src/app/page.tsx:81 — const gated = authGateEnabled(), passed into the hero",
+      "src/components/landing/prototypes/index/ScanModal.tsx:140-142,215-227 — the `locked` branch replaces ScanForm with a sign-in wall",
+      "src/lib/scan-gates.ts:77-83 — scanAuthGate returns auth_required when the gate is on and no viewer",
+      "src/app/api/scan/route.ts:258-261 — 401 { code: 'auth_required' }",
+      "src/app/api/scan/stream/route.ts:79-92 — same wall before the stream opens",
+      ".env.production / .env.vercel (committed) — NEXT_PUBLIC_SUPABASE_URL + ANON_KEY present, ASCENT_AUTH_BYPASS absent",
+      "REPRODUCTION (/tmp/uat-check.mjs, env.ts logic verbatim): authGateEnabled(prod, bypass even forced on) = true; authGateEnabled(this UAT host, dev+bypass=1) = false"
+    ],
+    "code_check": "present-broken",
+    "verdict": "confirmed",
+    "l2_priority": "ANSWERED LIVE — precondition satisfied by rebuilding the production-shaped auth arm.",
+    "reachable": true,
+    "impact_l1": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "high"
+    },
+    "resolution": "open",
+    "evidence_l2": [
+      "LIVE: POST /api/scan {\"url\":\"sindresorhus/is-odd\"} on the bypass-off server -> HTTP 401 auth_required",
+      "LIVE: GET /report/vercel/swr -> 200, GET /api/badge/vercel/swr -> 200, GET /api/gate/vercel/swr -> 422",
+      "shots/landing-anon.text.txt:7-8 — anonymous header 'ORG DEMO / Sign in'; :21 — hero CTA 'Scan a repository'",
+      "README.md:94-98"
+    ]
+  },
+  {
+    "id": "TOMAS-L1-02",
+    "journey": "evaluate-whether-to-adopt",
+    "character": "Tomáš (prospective buyer)",
+    "cert_level": "L1",
+    "type": "trust",
+    "severity": "major",
+    "impact": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "high"
+    },
+    "dimension": "trust",
+    "title": "'Unlimited free public scans' is contradicted by the code in two independent ways — a 5/month cap and (in production) a login wall",
+    "expected": "A pricing claim a buyer can rely on. Tomáš's file: 'Pricing that's vague or theatrical' is a listed friction trigger, and hidden conditions on a free tier are the exact pattern he screens for.",
+    "got": "Three surfaces make three different, mutually inconsistent claims about the same thing. (a) plans.ts:54 lists 'Unlimited free public scans' as a Free-plan feature, rendered verbatim on /pricing (pricing/page.tsx:135-141). (b) pricing/page.tsx:100-101 says public scans are 'always free'. (c) public-scan-quota.ts:57-60 caps anonymous public scans at 5 per rolling 30 days, and the 429 body (\\u003a394-395) reads 'You've used your 5 free scans this month. Upgrade to Pro for more monthly scans, or add scan credits.' The landing FAQ JSON-LD adds a fourth phrasing — '5 scans a month free, for public or private repos' (page.tsx:56) — which contradicts (a) while agreeing with (c). plans.ts:23-24's own comment concedes the seam: 'Anonymous PUBLIC scans are never metered ... they are quota-limited separately'. 'Never metered' and 'unlimited' are not the same claim, and only one of them is on the price card.",
+    "evidence": [
+      "src/lib/plans.ts:54 — features: [... 'Unlimited free public scans' ...]",
+      "src/lib/plans.ts:23-24 — the comment that concedes public scans ARE quota-limited separately",
+      "src/app/pricing/page.tsx:100-101 — 'public scans are always free'",
+      "src/app/page.tsx:56 — FAQ JSON-LD: '5 scans a month free, for public or private repos'",
+      "src/lib/public-scan-quota.ts:53-60 — WINDOW_MS 30d, publicScanMonthlyLimit() default 5",
+      "src/lib/public-scan-quota.ts:391-395 — the user-facing 429 copy naming the 5-scan limit",
+      "REPRODUCTION (decideQuota, all branches, limit=5): prior=[] -> allowed:true remaining:4 | 4 in-window -> true | 5 in-window -> FALSE (wall) | 5 aged past 30d -> true"
+    ],
+    "code_check": "confirmed-absent",
+    "verdict": "confirmed",
+    "l2_priority": "PRECONDITION: DB configured (isDbConfigured() true — the quota is a no-op without it, public-scan-quota.ts:224) and PUBLIC_SCAN_QUOTA_DISABLED unset. NOTE the 2026-08-10 UAT host sets PUBLIC_SCAN_QUOTA_DISABLED=1 in .env.local, so the wall CANNOT fire there — unset it for this check or resolve 'uncertain — not reproducible on this host'. Verify: does /pricing still read 'Unlimited free public scans' while a 6th public scan in 30 days 429s with the 'used your 5 free scans' copy?",
+    "reachable": true
+  },
+  {
+    "id": "TOMAS-L1-03",
+    "journey": "evaluate-whether-to-adopt",
+    "character": "Tomáš (prospective buyer)",
+    "cert_level": "L1",
+    "type": "quality-gap",
+    "severity": "major",
+    "impact": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "med"
+    },
+    "dimension": "time-saved",
+    "title": "The scan dialog promises 'about a minute'; the app's own measured calibration says 100s–360s, and the live run took 193s — the proof step alone consumes his entire evaluation budget",
+    "expected": "A latency promise the product keeps, or an honest one up front. Tomáš gives the whole evaluation two to three minutes; whatever the scan costs comes out of that.",
+    "got": "ScanModal.tsx:200-201 tells him 'Paste any public GitHub repo. In about a minute, Ascent reads it and returns:' — in BOTH the gated and ungated copy branches. The app's own time model disagrees with itself two files away: scanEstimate.ts:13-16 records a MEASURED claude-cli calibration of 272/337/357/367/397/486s (median ~360s, p90 ~490s), sets HOSTED_ESTIMATE_MS = 100_000 for the production gemini path (:28), and the loading screen's own copy says 'this usually takes a few minutes' (:104). The live L2-grade scan of vercel/swr took 193s wall (usage.latencyMs 187174). At 180s — the moment his budget expires — the progress bar reads 94.6% (gemini) or 73.8% (claude-cli) and there is no report on screen. Mitigating: the waiting UI is genuinely good (6-stage provider-aware checklist, forward-only time-driven bar, escalating honest copy at 1x and 5/3x the estimate) — this is a broken PROMISE, not a broken wait.",
+    "evidence": [
+      "src/components/landing/prototypes/index/ScanModal.tsx:198-202 — 'In about a minute' in both branches",
+      "src/components/report/scanEstimate.ts:13-16 — the measured claude-cli calibration comment (272-486s)",
+      "src/components/report/scanEstimate.ts:20-30 — CLAUDE_CLI_ESTIMATE_MS 360_000, HOSTED_ESTIMATE_MS 100_000, MOCK 8_000",
+      "src/components/report/scanEstimate.ts:96-105 — expectationCopy: 'this usually takes a few minutes'",
+      "uat/runs/2026-08-10-ascent-first/_l2-warm-scan-swr.json — usage.latencyMs 187174, engine.provider claude-cli (L2-grade evidence arriving early; says nothing about how the UI rendered)",
+      "REPRODUCTION (timeProgressPct verbatim): gemini est 100000ms -> 94.6% at 180s; claude-cli est 360000ms -> 73.8% at 180s"
+    ],
+    "code_check": "present-broken",
+    "verdict": "confirmed",
+    "l2_priority": "PRECONDITION: provider-dependent — run BOTH arms if possible. Production is LLM_PROVIDER=gemini (.env.production) => expect ~100s; the UAT host is LLM_PROVIDER=claude-cli => expect ~193-360s. Requires a repo NOT already cached (a cache hit returns instantly and would falsely refute this). Measure wall-clock from Scan click to a rendered score, and screenshot the progress bar at t=60s to check it against the modal's 'about a minute'.",
+    "reachable": true
+  },
+  {
+    "id": "TOMAS-L1-04",
+    "journey": "evaluate-whether-to-adopt",
+    "character": "Tomáš (prospective buyer)",
+    "cert_level": "L1",
+    "type": "missing-feature",
+    "severity": "major",
+    "impact": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "med"
+    },
+    "dimension": "missing",
+    "title": "No quantified customer proof anywhere in the public funnel; /about's ROI simulator is eight invented repos at a self-declared non-production weighting, unlabeled as a demo",
+    "expected": "Per the B2B trust research in his references: a specific, quantified, outcome-anchored customer result ('cut audit prep from 3 weeks to 2 days at <company>'). His acceptance criterion allows the live scan output to substitute — but that substitute is only available AFTER a 100-360s wait, and (in production) only after signing in.",
+    "got": "The funnel contains zero customer names, zero case studies, zero quantified outcomes and — to its credit — zero logo wall. /about's centerpiece 'ROI simulator' (the section the DeckNav labels 'ROI simulator', AboutLanding.tsx:60) computes over eight fabricated repos (RoiSimulator.tsx:21-30: web-app, api-gateway, mobile-client, design-system, billing, data-pipeline, auth-service, docs-site) using const W = 0.16, which the source itself annotates 'Deliberately NOT the production weighting ... rounded up to 0.16 so the three sliders here produce visible movement and level promotions at demo scale' (:31-36). Nothing in the rendered copy tells the visitor these repos and this weighting are illustrative. The paired feature copy promises 'Turn \"we think this will help\" into \"this moves 6 of 8 repos to L3 by Q3\"' (features.ts:43) — a number the demo manufactures. Tomáš has been burned by exactly this: 'a security scanner whose demo dazzled and whose real output was a wall of false positives.' NOT a fabrication defect — the code is honest with itself and the /org simulator it mirrors is real — but the UI does not pass that honesty to the visitor.",
+    "evidence": [
+      "src/components/about/RoiSimulator.tsx:21-30 — the eight invented repos",
+      "src/components/about/RoiSimulator.tsx:31-36 — 'Deliberately NOT the production weighting', W = 0.16",
+      "src/components/about/features.ts:43 — 'this moves 6 of 8 repos to L3 by Q3'",
+      "src/components/about/AboutCost.tsx:7-12 — the problem framing is four unquantified qualitative cards",
+      "src/components/about/AboutLanding.tsx:55-64 — the full /about section list: no case-study section exists",
+      "src/components/landing/prototypes/index/IndexGallery.tsx:36-110 — the live register IS the substitute proof, and a good one (branch C only)"
+    ],
+    "code_check": "confirmed-absent",
+    "verdict": "confirmed",
+    "l2_priority": "PRECONDITION: DB configured AND populated with public scans (branch C) — on branch A the register is absent and this finding widens to 'no proof of any kind before the scan'; on branch B it widens further (see TOMAS-L1-05). Verify live: (a) does any visible label on /about mark the ROI simulator's repos/weighting as illustrative, (b) does the rendered register carry enough recognizable repos that a buyer can spot-check a score he already has an opinion about.",
+    "reachable": true
+  },
+  {
+    "id": "TOMAS-L1-05",
+    "journey": "evaluate-whether-to-adopt",
+    "character": "Tomáš (prospective buyer)",
+    "cert_level": "L1",
+    "type": "trust",
+    "severity": "major",
+    "impact": {
+      "frequency": "low",
+      "reachability": "med",
+      "trust_erosion": "high"
+    },
+    "dimension": "trust",
+    "title": "On a configured-but-empty database the landing renders a ranking table with zero rows under a '0 public repos rated' heading — reads as a dead product",
+    "expected": "A page whose entire proposition is 'now it has an index' should never show an index with nothing in it. Either hide the section (as it already does when the DB is off) or show a seeded/curated set.",
+    "got": "Three branches of getPublicScanGallery, enumerated — convergence is not coverage, so all three are stated. (A) !isDbConfigured() or DB unreachable -> null (scans-read.ts:785,794,803) -> IndexLanding.tsx:23 drops the section entirely AND IndexHero.tsx:31,96 drops the 'See a sample report' link: honest, but he loses both zero-commitment proofs. CLEAN. (B) DB configured, zero public scans -> the section renders with its heading, its column labels, a 'N public repos rated' counter reading 0, and the body 'No public scans yet — scan a repository below to be the first on the register' (IndexGallery.tsx:82-86). NOT CLEAN — an empty leaderboard is the strongest possible negative signal to a buyer evaluating whether anyone uses this. (C) DB configured + populated -> ranked register with provenance and freshness: the funnel's best asset. CLEAN — and this is what production serves, since .env.production carries DATABASE_URL. Note the code already handles a related sub-branch well: when topAiNative is empty but recent is not, `ranked` goes false, rank badges become '·' and the kicker swaps to 'Latest public scans' so a recency list is never numbered as a ranking (IndexGallery.tsx:42-49,95) — that branch is CLEAN and is good work.",
+    "evidence": [
+      "src/lib/db/scans-read.ts:782-804 — all three null paths",
+      "src/app/page.tsx:72-73 — gallery + exampleRepos derivation",
+      "src/components/landing/prototypes/IndexLanding.tsx:23 — section present only when gallery is non-null",
+      "src/components/landing/prototypes/index/IndexHero.tsx:31,96 — sample-report link omitted when the corpus is empty",
+      "src/components/landing/prototypes/index/IndexGallery.tsx:53-54,82-86 — the '0 public repos rated' + zero-row empty state",
+      "src/components/landing/prototypes/index/IndexGallery.tsx:42-49,95 — the ranked/recency branch, verified CLEAN"
+    ],
+    "code_check": "present-broken",
+    "verdict": "confirmed",
+    "l2_priority": "PRECONDITION: requires a host with DATABASE_URL set and NO persisted public scans (branch B) — deliberately hard to reach on a seeded host. The 2026-08-10 UAT host is branch C (seeded), so this resolves 'uncertain — not reproducible on this host' unless a clean DB is stood up. Production is also branch C. LOW live frequency; recorded because trust_erosion is high on the one visitor who hits it.",
+    "reachable": true,
+    "scope_note": "Branch B is a fresh-deployment / post-purge state, not the steady state."
+  },
+  {
+    "id": "TOMAS-L1-06",
+    "journey": "evaluate-whether-to-adopt",
+    "character": "Tomáš (prospective buyer)",
+    "cert_level": "L1",
+    "type": "broken-flow",
+    "severity": "minor",
+    "impact": {
+      "frequency": "med",
+      "reachability": "high",
+      "trust_erosion": "med"
+    },
+    "dimension": "completion",
+    "title": "The Enterprise tier — the only tier that fits a 150-250 engineer org — has no way to reach a human; its CTA degrades to 'Learn more' → /about",
+    "expected": "The one tier priced 'Custom · contact us' should let him contact someone. He is precisely the buyer that tier exists for.",
+    "got": "ctaFor's enterprise branch (pricing/page.tsx:38-42) returns a real mailto ONLY when process.env.ASCENT_CONTACT_EMAIL is set. It is set in NEITHER .env.production NOR .env.vercel, so the card reads 'Custom / contact us' above a button labeled 'Learn more' that navigates to /about — a marketing page with no contact affordance. The only human-reachable link in the whole funnel is the footer's GitHub-issues link (SiteFooterCore.tsx:22), which is a bug tracker, not a sales channel. Every branch of ctaFor enumerated for an anonymous visitor: free -> {'/', 'Scan a repo free'} CLEAN; pro -> {'/onboarding','Get started'} CLEAN (a real destination); team -> {'/onboarding','Get started'} CLEAN; enterprise -> {'/about','Learn more'} NOT CLEAN. Ironically this is the mirror image of his pet peeve: not a contact-wall blocking the price, but a price with no contact behind it.",
+    "evidence": [
+      "src/app/pricing/page.tsx:30 — const CONTACT_EMAIL = process.env.ASCENT_CONTACT_EMAIL?.trim()",
+      "src/app/pricing/page.tsx:38-42 — the enterprise branch and its /about fallback",
+      "src/lib/plans.ts:101 — planPriceLabel('enterprise') -> { amount: 'Custom', cadence: 'contact us' }",
+      ".env.production / .env.vercel — ASCENT_CONTACT_EMAIL absent",
+      "src/components/SiteFooterCore.tsx:22 — the only human channel is the GitHub issue tracker",
+      "REPRODUCTION (ctaFor, anonymous, all four branches): free->/ | pro->/onboarding | team->/onboarding | enterprise->/about 'Learn more'"
+    ],
+    "code_check": "present-broken",
+    "verdict": "confirmed",
+    "l2_priority": "PRECONDITION: ASCENT_CONTACT_EMAIL unset (true for both committed production env files; set it and this finding vanishes — check the live Vercel env, which may differ from the committed file). Verify live on /pricing: does the Enterprise card's button say 'Contact us' with a mailto, or 'Learn more' pointing at /about?",
+    "reachable": true
+  },
+  {
+    "id": "TOMAS-L1-07",
+    "journey": "evaluate-whether-to-adopt",
+    "character": "Tomáš (prospective buyer)",
+    "cert_level": "L1",
+    "type": "confusion",
+    "severity": "polish",
+    "impact": {
+      "frequency": "med",
+      "reachability": "high",
+      "trust_erosion": "low"
+    },
+    "dimension": "clarity",
+    "title": "The landing deck has no pricing section, and the header comment claiming pricing lives in the deck's section nav is stale",
+    "expected": "A buyer scrolling the primary marketing deck expects to hit price without leaving it. Minor, because the header nav's 'Pricing' link solves it in one click.",
+    "got": "IndexLanding.tsx:19-27 defines exactly six deck sections — hero, org, fleet, [gallery], levels, dimensions — none of which is pricing, and DeckNav therefore lists none. Brand.tsx:158-159 comments 'section links (Levels / Method / Pricing) live inside the deck's right-edge section nav now, not the topbar', which is false for Pricing (and for 'Method'). A scroll-only visitor reaches the footer without ever seeing a number. Not a wall — StaticNav.tsx:53 puts Pricing in the top nav — so it costs him one click, not the decision.",
+    "evidence": [
+      "src/components/landing/prototypes/IndexLanding.tsx:19-27 — the six-section list",
+      "src/components/Brand.tsx:158-159 — the stale comment",
+      "src/components/StaticNav.tsx:50-58 — MARKETING_NAV, where Pricing actually lives"
+    ],
+    "code_check": "confirmed-absent",
+    "verdict": "confirmed",
+    "l2_priority": "PRECONDITION: none (static, any environment). Verify the deck's right-edge DeckNav rendering has no pricing entry and that scrolling the full deck never surfaces a price.",
+    "reachable": true
+  },
+  {
+    "id": "TOMAS-L1-S1",
+    "journey": "evaluate-whether-to-adopt",
+    "character": "Tomáš (prospective buyer)",
+    "cert_level": "L1",
+    "type": "trust",
+    "severity": "polish",
+    "impact": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "low"
+    },
+    "dimension": "senior-quality",
+    "title": "STRENGTH — the public scan output clears the senior bar outright: it reconciles with a repo he knows, cites countable evidence, names a specific next move, and publishes where its own scorer disagreed with its own model",
+    "expected": "n/a (positive finding — this is the thing that makes the product real for this Character)",
+    "got": "vercel/swr -> 47, L3 Augmented, confidence 0.85, per-dimension D1:3 D2:98 D3:76 D4:3 D5:47 D6:75 D7:79 D8:22 D9:40. The shape — world-class testing and CI, near-zero AI tooling and agentic automation — is exactly what a staff engineer who knows SWR would say, so the score RECONCILES. Evidence is countable, not hand-wavy: '138 test files', '1.04 test-to-source ratio', '0 of 8 Action references pinned by SHA', '1 of 30 recent commits', '17.6h median time-to-first-review'. The #1 roadmap item is 'no CLAUDE.md/AGENTS.md' (D1, high impact / LOW effort, levelUnlock L3->L4) with three probing questions attached — not 'add more tests'. Risk #4 catches a governance bypass ('56% of sampled merged PRs lack a recorded approving review despite a required-approval branch-protection rule'). And the report ships a discrepancies[] array in which the model ARGUES AGAINST the app's own D9 check ('the check appears not to have credited' npm OIDC trusted publishing) plus scoreIntegrity {widenedDims:['D3'], effectiveBlend:0.51}. A build that names its own seams is one this Character trusts MORE, not less. This is the strength to protect: any future edit to the report surface must preserve the discrepancy/integrity disclosure and the countable evidence lines.",
+    "evidence": [
+      "uat/runs/2026-08-10-ascent-first/_l2-warm-scan-swr.json — headline, strengths[], risks[], roadmap[5], discrepancies[], scoreIntegrity, dimensions[] (L2-grade evidence arriving early; it does not tell us how the UI renders any of it)",
+      "src/lib/scan-score-input.ts:74-79 — the deterministic D9 battery whose number the LLM may not re-derive",
+      "src/components/report/ReportView.tsx:226,257 — ReportWarnings and ReportDiscrepancies are rendered, not buried"
+    ],
+    "code_check": "n-a",
+    "verdict": "confirmed",
+    "l2_priority": "PRECONDITION: LLM_PROVIDER must be a REAL provider (claude-cli on the UAT host, gemini in production) — under LLM_PROVIDER=mock the deterministic floor runs and this strength is NOT reproducible; that arm resolves 'uncertain — not reproducible on this host'. Verify live that the rendered report surfaces the evidence lines, the roadmap rationale/explore blocks, and the discrepancies section without requiring a click into a collapsed panel.",
+    "reachable": true
+  },
+  {
+    "id": "TOMAS-L1-S2",
+    "journey": "evaluate-whether-to-adopt",
+    "character": "Tomáš (prospective buyer)",
+    "cert_level": "L1",
+    "type": "trust",
+    "severity": "polish",
+    "impact": {
+      "frequency": "high",
+      "reachability": "high",
+      "trust_erosion": "low"
+    },
+    "dimension": "clarity",
+    "title": "STRENGTH — pricing is numeric, one click from the landing page, and no tier routes an anonymous visitor into a form",
+    "expected": "n/a (positive finding)",
+    "got": "Per G2 2025 only ~4% of B2B products publish a price; Ascent publishes three of four tiers with a dollar figure ($0 / $10 / $20) plus per-tier scan allowances and a full operation x credit x plan ledger (CreditMatrixLedger), reachable in ONE click from the header nav. Every anonymous ctaFor branch lands on a real working destination — no 'request a quote' interstitial exists anywhere in the funnel, and the free tier's CTA is literally 'Scan a repo free'. The price cards are DERIVED from PLAN_FEATURES, the same source the entitlement layer reads, so the displayed number cannot drift from the gate (plans.ts:99-104; pricing/page.tsx:81-83) — and plans.ts:6-12 explicitly documents the one remaining drift risk (Polar is the real price book) with an automated detector at src/lib/price-drift.ts. Protect this: any future 'talk to sales' experiment on the Pro/Team cards would forfeit the single strongest conversion asset the funnel has for this Character.",
+    "evidence": [
+      "src/app/pricing/page.tsx:110-158 — the four cards; src/lib/plans.ts:43-92 — the single source",
+      "src/lib/plans.ts:99-104 — planPriceLabel; src/app/pricing/page.tsx:81-83 — derived SEO copy",
+      "src/components/StaticNav.tsx:53 — Pricing in the top nav, one click from anywhere",
+      "REPRODUCTION: planPriceLabel over all four PLAN_ORDER branches -> $0 / $10 / $20 / Custom"
+    ],
+    "code_check": "n-a",
+    "verdict": "confirmed",
+    "l2_priority": "PRECONDITION: none (static; DB only affects the signed-in Subscribe variant, which is out of scope for an anonymous buyer). Verify /pricing renders all four cards above the fold on a laptop viewport and that no tier opens a lead form.",
+    "reachable": true
+  },
+  {
+    "id": "TOMAS-L1-S3",
+    "journey": "evaluate-whether-to-adopt",
+    "character": "Tomáš (prospective buyer)",
+    "cert_level": "L1",
+    "type": "trust",
+    "severity": "polish",
+    "impact": {
+      "frequency": "med",
+      "reachability": "high",
+      "trust_erosion": "low"
+    },
+    "dimension": "effort",
+    "title": "STRENGTH — the long scan wait is handled with unusual honesty: a provider-aware estimate, a forward-only bar, and copy that owns the delay instead of faking progress",
+    "expected": "n/a (positive finding — it is the mitigation that keeps TOMAS-L1-03 at major rather than blocker)",
+    "got": "SCAN_STEPS renders six named stages so the wait is a determinate-feeling checklist, and the score step is provider-aware ('Asking Claude' / 'Querying Bedrock in us-east-1' / 'Running deterministic rubric') rather than a generic spinner (ReportClientStatus.tsx:27-56). scanEstimateMs keys the curve off the RESOLVED provider from the SSE frame and defaults to the SLOWEST provider before the first frame, so resolving it can only speed the bar up — never rewind it (scanEstimate.ts:38-53). timeProgressPct asymptotes toward 95 and never claims 100 until the result lands (:76-80). expectationCopy escalates honestly at 1x and 5/3x the estimate: 'This is taking longer than usual ... Still working' (:96-105). And if the model degrades to mock, the step label switches to 'Running deterministic rubric' rather than continuing to name a provider that bailed (:57). This is the opposite of vendor theatre and it is why the wait is survivable at all.",
+    "evidence": [
+      "src/components/report/ReportClientStatus.tsx:27-34,37-57,68-73",
+      "src/components/report/scanEstimate.ts:38-53,64-66,76-80,96-105",
+      "src/components/report/ReportClient.tsx:44-46 — Loading receives live progress"
+    ],
+    "code_check": "n-a",
+    "verdict": "confirmed",
+    "l2_priority": "PRECONDITION: a real (non-mock) provider AND an uncached repo, so the SSE stream actually runs long enough to observe. Verify live that the checklist advances, the bar never goes backward when the provider resolves, and the >1x-estimate copy actually appears.",
+    "reachable": true
+  }
+]

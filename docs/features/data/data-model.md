@@ -1,0 +1,347 @@
+# Persistence & data model
+
+Ascent's MVP is stateless. A scan needs no database. Everything Phase 2+ (history, org
+rollups, recommendations tracking, usage, audit, planning, memory, skills, integrations)
+layers on the **optional** Prisma persistence layer in `prisma/schema.prisma` + `src/lib/db/`.
+When `DATABASE_URL` is unset, `isDbConfigured()` returns false and DB-backed features degrade
+to empty/notice states rather than erroring.
+
+The schema now defines **83 models**. It is **DSQL-safe by design** so the same migrations run
+on local Postgres and Amazon Aurora DSQL (see the header comment in `prisma/schema.prisma`):
+
+- `relationMode = "prisma"`: **no foreign-key constraints** emitted (DSQL has none);
+  relations enforced at the Prisma layer, so relation scalar fields carry manual `@@index`.
+- **UUID primary keys** (`@default(uuid())`), not `SERIAL`/sequences.
+- Bulky string arrays/objects stored as **serialized JSON in text columns** (no `jsonb`
+  dependency); queryable fields (scores, level, timestamps) stay real columns so
+  trend/history queries remain relational.
+- On DSQL, indexes are created asynchronously (`CREATE INDEX ASYNC ...`); see
+  [ARCHITECTURE.md](../../ARCHITECTURE.md).
+
+## Models by feature area
+
+Grouped by the owning context in `context-map.json`, not schema declaration order. Field
+lists are the notable/queryable ones. See `prisma/schema.prisma` for the full definition and
+inline comments (most models carry a multi-line design-rationale comment there).
+
+### Tenancy, membership & billing
+
+| Model | Purpose | Notable fields |
+| --- | --- | --- |
+| `Organization` | Tenant root (also the GitHub App installation record). `kind` distinguishes an `org` fleet from a `personal` workspace (a lens over the shared public corpus, never a copy). | `slug` (unique), `plan` (free\|pro\|team\|enterprise), `kind` (org\|personal), `scanCredits`, `retentionMaxScans?`/`retentionAuditDays?`, `alertWebhookUrl?`, `alertOverallDrop?`/`alertDimensionDrop?`, `gatePolicy?` (JSON), `brandName?`/`brandColor?`/`logoUrl?`, `timezone?` (this org's canonical calendar zone; null = inherit `ASCENT_ORG_TZ`, else UTC), `autoRechargeJson?` (the low-balance preference, JSON-in-TEXT), `ingestTokenEpoch` (per-org OTel ingest-token revocation counter, same version-bump shape as `SessionRevocation.version`; the token embeds the epoch it was minted at and is refused below the stored value, so a leaked token dies without rotating the server-wide secret), `githubInstallId?` |
+| `User` | A known login (GitHub-OAuth/App identity), bridged to `Membership` for RBAC. | `email` (unique), `githubLogin?` (unique) |
+| `Membership` | Org ↔ user ↔ role. | `role` (owner\|admin\|member\|viewer), `alertsSeenAt?` (per-user "last looked at the fleet" watermark), `onboardingCompletedAt?` / `onboardingSkippedAt?` (per-member onboarding stamp: either silences the guided flow forever; the add migration backfilled pre-existing rows as completed, so only new memberships start null); `@@unique([orgId, userId])` |
+| `Invite` | A single-use pending invitation to join at a role, consumed by `acceptInvite`. | `token` (unique), `githubLogin?`/`email?` (optional pin), `role`, `status` (pending\|accepted\|revoked), `expiresAt` |
+| `Subscription` | Billing stub with Stripe field names (Polar is the active checkout; see below). | `orgId` (unique), `stripeId?`, `status` |
+| `CreditLedger` | Append-only ledger behind `Organization.scanCredits`: one row per grant or per-scan debit, each stamping the resulting balance. | `delta`, `balanceAfter`, `reason` (scan\|grant\|polar\|adjustment\|refund), `repoFullName?`, `scanId?`, `externalId?` (unique, Polar order-id idempotency key) |
+
+### Repositories, scans & scoring
+
+| Model | Purpose | Notable fields |
+| --- | --- | --- |
+| `Repository` | A tracked repo within an org. | `fullName` (unique per org), `isPrivate`, `primaryLanguage?`, `techStackJson?`/`passportJson?`/`contextHealthJson?` (latest cached, display-only; contextHealthJson = W4 Context Health: null until the first post-W4 scan, read as "not assessed"), `passportOverridesJson?` (owner overlay), `stars`, `headSha?`/`headEtag?` (conditional-request scan cache), `watched`, `scanSchedule` (off\|daily\|weekly\|monthly), `lastScanAt?`/`nextScanAt?`/`scanSlotAt?` (the cadence anchor `nextScanAt` cannot hold, since it doubles as the claim lease), `lastScanStatus?`/`lastScanError?`/`lastScanAttemptAt?`, `aiConformance?` + related fields (`.ai/` doctor report), `missingSince?` (flag only; reconciliation never unwatches) |
+| `Scan` | **The metered unit**: one persisted report. | `headSha?`, `overallScore`, `level`/`levelName`, `archetype`, `adoptionScore`/`rigorScore`, `posture`, `confidence`, `engineProvider`/`engineModel`, `headline`, JSON `strengths`/`risks`/`discrepancies`, nullable JSON `prStats`/`governance`/`commitActivity`/`techStackJson`/`passportJson`/`contextHealthJson`/`warningsJson`/`aiUsageJson`, `rubricVersion?` (self-invalidation), `engineByom?` (whose AWS account ran inference), `inputTokens?`/`outputTokens?`/`llmLatencyMs?` (cost/usage metering), `scannedAt`, `dedupKey?` (sha-less idempotency key); `@@unique([repoId, headSha])` and `@@unique([repoId, dedupKey])` are the two cross-instance dedup backstops, plus `@@index([scannedAt])` for the org-rollup window scan |
+| `ScanDimension` | Per-scan D1–D9 breakdown. | `dimId`, `name`, `weight`, `score`, `signalScore`, `llmScore`, `summary`, JSON `evidence`/`strengths`/`gaps` |
+| `RepoContributor` | Recent committers + AI attribution: a per-repo latest-scan snapshot (replaced wholesale each scan, not accumulated). | `login`, `commits`, `aiCommits`, `lastActiveAt?`; `@@unique([repoId, login])` |
+| `AiChange` | One AI-attributed pull request as an **evidence row**, not a rate: the population behind `prStats.aiInvolvedRate` / `aiGovernedRate`. Answers "show me the AI-assisted changes in the period and who approved each one", which a percentage structurally cannot. Extracted from the PR nodes ingest already fetches (no extra GitHub calls). | `prNumber`, `authorLogin?`, `authorIsBot`, `aiSignal` (`authored`\|`marked`\|`trailer`), `aiTools`, `state`, `approved`, `approverLogin?`, `approvedAt?`, `reviewCount`, `revertedByPr?`/`revertedAt?` (W5 revert-linkage stamp, the merged revert PR that rolled this change back, matched within the scanned window; a **lower bound**: null = "no revert matched", never "never reverted". The update path only writes the pair when a revert matched, so a stamp survives the window sliding past its revert); `@@unique([repoId, prNumber])`. **Upserted, not replaced**: a sliding PR window must not discard evidence that aged out of the latest page. Empty on tokenless scans (PRs aren't observable), which never means "no AI changes". Logins are internal; customer-facing exports pseudonymize unless the org opts into named evidence. |
+| `Deployment` | One GitHub deployment ingested as an evidence row, **not** "this change caused an incident" (that claim is not observable here). Join key to `AiChange` is lower-cased `sha`. MTTR is derived as time to the next successful deployment in the same environment and labelled as a proxy. | `externalId` (GitHub's id; `@@unique([repoId, externalId])`), `environment`, `sha`, `ref?`, `state` (success\|failure\|error\|inactive\|in_progress\|queued\|pending — a deployment with no status is stored as `pending`, not dropped), `createdAt`, `statusAt?` (the clock MTTR is measured on); indexed `[orgId, createdAt]` and `[orgId, sha]` |
+| `RepoTeam` | A team owning part of a repo, parsed from CODEOWNERS at scan time; backs the org team rollup. | `slug` (normalized `@org/team`), `ownedPaths`, `isDefaultOwner`, `source` (codeowners\|github_teams); `@@unique([repoId, slug])`. The latest scan replaces the repo's whole set. |
+| `TeamStandingSnapshot` | Team-standings snapshot captured as a durable output of a full org scan, so the leader/laggard decomposition can be trended over time (fully deterministic, no LLM). | `teamCount`, `fleetAvgOverall`, `spread`, `leaderSlug`/`leaderScore`, `laggardSlug`/`laggardScore`, `standingsJson` |
+| `TechStackGroup` | Auto-derived tech-stack grouping (frontend/backend:\<lang\>/mobile/data_ml/infra/library), maintained per scan, parallel to the user-owned `Segment` yet deliberately kept separate. | `key`, `label`; `@@unique([orgId, key])` |
+| `TechStackGroupMember` | Repo ↔ tech-stack-group join (multi-membership: a fullstack repo can be in several groups). | `@@unique([groupId, repoId])` |
+| `ScanDigest` | A compacted month of one repo's scan history (retention #32). SUMS, not means: an upsert folds a later page exactly. `rubricVersion` is non-null with an `"unknown"` sentinel for legacy rows because it is part of the identity key (NULLs are distinct). | `period` (`YYYY-MM` UTC), `rubricVersion`, `engineProvider`, `scanCount`, `overallSum`/`adoptionSum`/`rigorSum`, min/max/last, JSON `dimensionsJson`/`enginesJson`, `recsOpened`/`recsClosed`; `@@unique([repoId, period, rubricVersion, engineProvider])` |
+| `ScanJob` | One unit of queued scan work (moonshot #10). Survives the cron invocation so queued, claimed-by-a-dead-invocation, and settled are distinguishable. `idempotencyKey` (`<orgId>\|<repoFullName>\|<lane>\|<bucket>`) is the enqueue contract: two producers racing on the same repo in the same bucket collide and the second enqueue is a no-op. `claimedBy` is diagnostics only; the lease (`leaseUntil`) holds the claim. | `lane` (rescore\|probe), `reason`, `state` (queued\|claimed\|done\|failed\|skipped), `priority`, `runId?`, `idempotencyKey` (`@@unique`), `notBefore`, `leaseUntil?`, `attempts`, `creditCharged`, JSON `resultJson?`, `settledAt?` |
+
+### Recommendations & backlog
+
+| Model | Purpose | Notable fields |
+| --- | --- | --- |
+| `Recommendation` | Per-scan roadmap item, tracked as a backlog entry. | `title`, `dimId`, `impact`/`effort`, `rationale`, JSON `explore`, `levelUnlock?`, `status` (open\|in_progress\|done\|dismissed), `assigneeLogin?`, `targetDate?` (the last three carry forward across re-scans, matched by dimId+title) |
+| `RecommendationEvent` | Append-only activity timeline for a recommendation (status/assignee/due-date changes, who + from→to + note): the backlog's audit trail, written in the same transaction as the mutation. | `actor?`, `kind` (status\|assignee\|target_date), `fromValue?`/`toValue?`, `note?` |
+| `RecommendationOverlay` | A **personal-workspace** overlay on a shared public-corpus recommendation (individual tier): one viewer's private status/note on a public repo's rec, keyed by stable identity (`repoFullName`+`dimId`+`title`) so it survives re-scans without pointing at a scan-bound row. | `orgId` (the personal org), `repoFullName`, `dimId`, `title`, `status`, `targetDate?`, `note`; `@@unique([orgId, repoFullName, dimId, title])` |
+| `SandboxScenario` | A **saved Roadmap Sandbox what-if** for one repo: the per-dimension overrides, the roadmap gaps it selected (as `recommendationDecisionKey` identities, so they survive a re-scan rewording), the baseline it was modeled against, and the projection as NUMBERS, which is what makes projected-vs-actual answerable after the next scan instead of a delta rounded into an event note. One row per author per repo; saving replaces. | `orgId`, `repoFullName`, `authorLogin` (`""` = no resolvable login), `baselineScore`/`baselineLevel`/`baselineScanAt`, `overridesJson`, `itemKeysJson`, `projectedScore`/`projectedLevel`/`projectedDelta`; `@@unique([orgId, repoFullName, authorLogin])` |
+| `ImprovementPr` | One improvement PR opened from the live-wall ship loop after an owner accepted a triaged recommendation; carries identify→triage→PR→merge→rescan→impact through to a score verification. | `repoFullName`, `practiceId`, `dimId`, `recommendationId?`, `prNumber`/`prUrl`, `state` (open\|merged\|closed), `baselineScanId?`/`verifiedScanId?`, `impactDim?`/`impactOverall?`; `@@unique([orgId, repoFullName, practiceId])` |
+| `InterventionOutcome` | Measured lift per intervention (moonshot #9). A row exists only when both scan bookends exist **and** `rubricVersion` + `engineProvider` matched on both sides — an unmeasured case produces no row, never a fabricated zero. | `kind` (practice\|skill\|recommendation\|scenario), `identityKey`, `dimId?` (null = whole-scan), `beforeScanId`/`afterScanId`, `overallDelta`/`dimDelta?`, `rubricVersion`, `engineProvider`, `gapDays`, `withinBound`, `sourceRowId?`; `@@unique([orgId, kind, identityKey, beforeScanId, afterScanId])` |
+
+### Segments, playbooks & planning
+
+| Model | Purpose | Notable fields |
+| --- | --- | --- |
+| `Segment` | A user-defined, uniquely-named repo tag within an org (e.g. "platform", "mobile"); every org aggregate accepts an optional segment filter. | `name`, `color`; `@@unique([orgId, name])` |
+| `RepoSegment` | Repo ↔ segment join. | `@@unique([segmentId, repoId])` |
+| `Goal` | A maturity target an org is steering toward. Current standing is derived at read time from the fleet's latest scans, but the metric's value **at creation** is stored (`baselineValue`/`baselineAt`) because it is not recoverable later — without it the meter can only report attainment (`current/target`), which reads nearly-full on a brand-new goal. Nullable and never backfilled: a null baseline means the goal predates the column (or was created against an unscanned fleet), and `listGoals` renders those as attainment explicitly labelled as such rather than inventing a starting point. | `label`, `metric` (overall\|adoption\|rigor\|D1–D9), `target`, `targetDate?`, `status` (active\|achieved\|archived), `achievedAt?`, `baselineValue?`, `baselineAt?` |
+| `TransitionProgram` | The org's named, dated transition programme (W1c): one row per org (`orgId` unique), the thread that outlives onboarding. `baselineJson` is frozen at creation and never rewritten; a programme created before the first scan stores a null baseline rather than a zeroed one. | `name`, `targetLevel` (L1–L5), `targetDate?`, `cadence` (weekly\|biweekly\|monthly), `baselineAt`, `baselineJson?`, `status` (active\|paused\|achieved), `startedBy?` |
+| `Initiative` | A tracked, scoped program of work, typically "bring these N repos up to \<target\> on \<dimension\>". | `title`, `dimId`, `practiceId?`, `targetScore`, JSON `repos` (fullNames), `status`, `assigneeLogin?`, `targetDate?`, `goalId?`, `playbookId?` |
+| `Playbook` | An org-authored best-practice standard for a dimension (distinct from the derived Practice Library, which is inferred from scans). | `title`, `dimId`, `summary`, JSON `steps`, `archived`, `version` (bumped on content edit) |
+| `PlaybookApplication` | Records a playbook applied to a repo: the explicit adoption signal for lift analytics. | `playbookId`, `repoFullName`, `appliedVersion?`; `@@unique([playbookId, repoFullName])` |
+
+### Audit, security & decisions
+
+| Model | Purpose | Notable fields |
+| --- | --- | --- |
+| `AuditLog` | Compliance trail. Tamper-**evident**: every write folds a per-row HMAC into `meta._sig`, and every read recomputes it (see below). | `orgId?` (null for anonymous public scans), `actorId?`, `action`, JSON `meta` (incl. `_sig`), `at`; indexed `[orgId, at]` for keyset pagination |
+| `AlertEvent` | The in-app alert history: one row per alert the product decided to raise, delivered or not. Deliberately NOT `AuditLog`: the audit trail is purged by `retentionAuditDays`, so alert history would not outlive it. (Until 2026-09-05 a second reason applied: audit claim rows were *deleted* on failed dispatch; `releaseAuditClaim` now appends a `claim.released` row instead.) Written even with no sink configured (`suppressedReason="no-sink"`). Writers in `scan-alerts.ts`, the digest cron, and `extra-alerts.ts`; read by `GET /api/org/alerts?history=1`. | `orgId`, `kind` (regression\|promotion\|security\|low-credits\|digest\|goal-at-risk\|spend-anomaly), `severity`, `repoFullName?`, `title`, `body`, `delivered`, `sinkKind?` (webhook\|email), `suppressedReason?` (no-sink\|cooldown\|dispatch-failed), `createdAt`; indexed `[orgId, createdAt]` |
+| `OrgDecision` | A human decision on a derived, recomputed-every-render finding (a failing check, a solo-maintained repo, a passport blocker): the state layer that lets a rail badge's count actually go down. Upsert on `(orgId, module, itemKey)`; `itemKey` must be the finding's deterministic identity. | `module` (security\|teams\|passports\|contributors), `itemKey`, `status` (open\|accepted\|dismissed\|snoozed), `rationale`, `title`, `decidedBy?`, `memoryId?` (the `OrgMemory` row it writes through to), `snoozedUntil?`; `@@unique([orgId, module, itemKey])` |
+| `OrgAiStance` | The org's published **AI stance** (W3) as **versioned rows**: each publish appends version N+1 and marks the prior published row `superseded`, so history is complete and an acknowledgement can pin the exact text a repo adopted. At most one `draft` and one `published` row per org. `stanceJson` is the serialized `AiStance` (permitted tools/models, no-AI zones, review tiers per autonomy tier, provenance requirements; JSON-in-TEXT, sanitized on write AND read by `sanitizeStance`). Compliance against it is derived at read time from existing scan data, never stored. | `version`, `status` (draft\|published\|superseded), `stanceJson`, `publishedBy?`, `publishedAt?`; `@@unique([orgId, version])`, indexed `[orgId, status]` |
+| `OrgArtifactAck` | A repo's acknowledgement of an org-level **artifact version**: the repo ⇄ stance-version link nothing recorded before (the Perimeter prototype's named schema gap). Sparse upsert per `(orgId, artifact, repoFullName)` (the `OrgDecision` shape: re-acknowledging updates; unacked = no row). `artifact` is `"ai-stance"` today; the column exists so a later org artifact can reuse the primitive without a second table. | `artifact`, `version`, `repoFullName`, `ackedBy?`, `ackedAt`; `@@unique([orgId, artifact, repoFullName])` |
+| `ControlObservation` | Append-only evidence: "control X on repo Y was in state S at time T, and here is how we know". Never a current-state cache — posture surfaces read the newest row per `(repoFullName, controlId)`. `unmeasurable` is never coerced to `fail`. `occurredAt` is when the state held; `observedAt` is when this deployment learned it. | `controlId`, `state` (pass\|fail\|unmeasurable), `value?`/`prevValue?`/`prevState?`, JSON `evidenceJson`, `source` (scan\|probe\|webhook\|baseline), `actorLogin?` (webhook only, never fabricated), `transition`, `occurredAt`/`observedAt`, `deliveryId?`, `sig?`; `@@unique([deliveryId, controlId, repoFullName])` |
+| `ControlLedgerSeal` | One seal per `(org, UTC day)`: a hash chain over **days**, not rows. Retention purge removes aged observations but never their seal, so a sealed day whose surviving rows no longer reproduce its root is visibly incomplete. | `day` (`YYYY-MM-DD` UTC), `rowCount`, `root`, `prevRoot?`, `sealedAt`, `sig?`; `@@unique([orgId, day])` |
+| `RepoAdmission` | Compiled admission decision for one repo: what tier the org's AI stance derives vs what tier was granted. `derivedTier` vs `grantedTier` are separate columns so an override does not destroy the evidence it overrode. `decidedBy`/`decidedAt` null means the row was seeded from the derived tier, never decided. | `repoFullName`, `stanceVersion`, `derivedTier?` (T0–T3; null = not assessed, never T0), `grantedTier`, `mode` (agents-allowed\|assisted-only\|blocked), `decidedBy?`/`decidedAt?`, `rationale`, `rulesetId?`; `@@unique([orgId, repoFullName])` |
+
+#### Audit-trail tamper-evidence (sign on write, verify on read)
+
+`src/lib/db/audit-integrity.ts` is the whole mechanism; it is migration-free (no new column) and
+inert when no `AUDIT_SIGNING_SECRET` / `AUTH_SECRET` is set.
+
+1. **Write**: `recordAudit` / `claimOrgAuditOnce` stamp `at` explicitly, then `withAuditSignature()`
+   folds an HMAC-SHA256 over the canonical `(action, orgId, actorId, createdAt, meta)` into
+   `meta._sig`. The secret never leaves the server; each row is independently verifiable (no chain,
+   so concurrent writers can't fork it).
+2. **Read**: `getAuditLog` recomputes the HMAC per row and attaches an `integrity` verdict to every
+   `AuditLogEntry`. One HMAC over a few hundred bytes per row, so a 25-row page stays a cheap read
+   and the 10k-row CSV cap costs single-digit milliseconds.
+3. **Surface**, in both consumers of that one verdict: the org dashboard viewer
+   (`components/org/audit/`) renders an Integrity badge per row plus a banner when any row is
+   `tampered`, and `/api/audit?format=csv` exports an `integrity` column alongside the raw `_sig`
+   and `orgId`, so the filed artifact states its own verdict *and* stays independently re-verifiable.
+
+| Verdict | Meaning |
+| --- | --- |
+| `ok` | Recomputed signature matched: the row is unchanged since it was written. |
+| `tampered` | Signature MISMATCH: the row was altered at rest (e.g. edited directly in the DB). |
+| `unsigned` | No `_sig` at all: a row written before signing landed. **Expected, not an alarm**; rendering these as `tampered` would fire on every legacy row and train reviewers to ignore the badge. Until 2026-09-05 the in-transaction `scan.created` and `recommendation.updated` writers also produced these; they are signed now, so a fresh `unsigned` row is a genuine finding. |
+| `no-secret` | The deployment configures no signing secret, so nothing can be verified. The UI hides the column entirely rather than showing a column of non-answers. |
+
+A file-level SHA-256 of the CSV bytes also ships in the `x-ascent-content-sha256` response header.
+That proves the *download* wasn't edited; the per-row `_sig` proves the *rows* weren't.
+
+#### `GET /api/audit/verify` — the control ledger's day chain
+
+A separate mechanism from the per-row `_sig` above: `ControlLedgerSeal` holds one sha256 root per
+`(org, closed UTC day)` over that day's observation digests plus the previous day's root. The route
+recomputes every root in the window, checks the day-to-day links, and ships `SEAL_RECIPE` — the exact
+field order and construction — so an examiner repeats the check from an export with no key from us.
+The stored HMAC is never returned.
+
+**It is a pure READ (changed 2026-08-31, MC-B14).** It used to seal lazily as a side effect of being
+called, which made an org's tamper-evidence a function of who curled the URL. Sealing moved to the
+daily `/api/cron/rescan` pass; `sealedOnThisRequest` is gone from the response and
+`sealBacklogRemaining` — closed unsealed days beyond what the next scheduled pass can take — is new.
+`unsealedDays` is now derived from a DISTINCT-day aggregate rather than from a capped page of rows,
+which used to hide exactly the older unsealed days approaching the retention horizon. The rows the
+chain is computed over are exported by `GET /api/org/controls?org=…&format=csv`, columns in
+`DIGEST_FIELD_ORDER`. Full treatment in
+[`org-dashboard/org-intelligence.md`](../org-dashboard/org-intelligence.md).
+
+### Org knowledge & skills
+
+| Model | Purpose | Notable fields |
+| --- | --- | --- |
+| `OrgMemory` | Shared, agent-readable org knowledge store (Memory-as-a-Service). Anti-poisoning triad: `source`+`createdBy` (provenance), `confidence` (trust score), `supersededBy` (a correction writes a new row, never overwrites). | `namespace?`, `content` (≤20KB), `kind` (episodic\|semantic\|procedural\|summary), `visibility` (shared\|private), `confidence` (0..1), JSON `tags`, `supersededBy?`, `version`, `archived`, `accessCount`, `expiresAt?` |
+| `OrgMemoryCandidate` | A lesson a lane (or another channel) proposed for org memory, held in review rather than written straight into `OrgMemory`. An agent's summary of its own work is a claim; promoting it unreviewed would let a loop teach the org something no human agreed to. | `content`, `kind`, `source` (`loop-lesson`\|`skill-lessons`\|…), `laneId?`, `status` (pending\|kept\|discarded), `promotedMemoryId?`, `reviewedBy?` |
+| `OrgMemoryCitation` | An agent telling ascent what it actually used. One row per (memory, session) so `citedCount` counts sessions, not calls. `used = false` is a first-class fact. Written only through the plan-gated MCP write door. | `memoryId`, `tokenId?`, `actor`, `sessionId`, `used`, `note?`, `source` (mcp\|web\|cli); `@@unique([memoryId, sessionId])` |
+| `OrgMemoryProposal` | A reflection that must land as a PR (git-native registry: ascent may propose a consolidated memory but never writes one directly). | `slug`, `kind`, `summaryContent`, JSON `memberIdsJson`/`memberPathsJson`, `status` (proposed\|pr_open\|merged\|closed), `prUrl?`; `@@unique([orgId, slug])` |
+| `RepoMemoryMirror` | One entry mirrored out of a repo's `.ai/memory/`. Quarantined, repo-authored: `body` is capped and never scored; `skipReason` records why an entry did not reach `OrgMemory` rather than dropping it silently. | `path`, `contentHash`, `mappedKind`, `body`, `orgMemoryId?`, `skipReason?` (malformed\|capped\|deduped); `@@unique([orgId, repoFullName, path, contentHash])` |
+| `OrgSkill` | Org Skills Library: a categorized catalog of reusable Claude/LLM skill assets authored in-app. Distinct from `SkillGeneration` (the per-repo onboarding generator). | `name` (unique per org, ≤200 chars), `description`, `content` (≤50KB), `category`, JSON `tags`, `version`, `contentHash` (sha256, sync-manifest diff key), `archived`, `downloadCount` |
+| `OrgSkillAdoption` | Records a repo adopting a skill: the explicit reuse signal (mirrors `PlaybookApplication`). | `skillId`, `repoFullName`, `adoptedBy?`; `@@unique([skillId, repoFullName])` |
+| `OrgSkillDownload` | One rolling download/use tally row per skill: the denormalized hot sort key for "most used". | `count`, `lastSeen`; `@@unique([skillId])` |
+| `OrgSkillEvent` | Append-only per-use event (download\|sync\|invoke) for slicing use rate by repo/type/source. | `type`, `repo?`, `source?` (cli\|hook\|ci\|web) |
+| `OrgApiToken` | Org-scoped API token for machine access to the Skills Library and org-memory recall. Only the SHA-256 hash is stored; the raw value is shown once at creation. Scopes: `skills:read` \| `skills:write` \| `telemetry:write` \| `memory:read`. | `name`, `tokenHash`, `tokenPrefix`, `scopes` (comma-joined), `revokedAt?` (soft-revoke) |
+| `OrgRegistry` | The org's mapped registry repo: onboarding state machine plus a denormalized index header so the Registry tab renders without re-counting mirror rows. `localPath` is the self-hosted working copy (Admin → Pairing); null = read via GitHub. | `fullName`, `localPath?`, `mode` (git_native\|hosted_mirror), `status` (unmapped\|scaffolding\|scaffold_pr_open\|indexed\|error), `canonical`, skill/practice/memory/lesson/subject counts, `usageInvokes30d`/`usageContributors`, JSON `bundlesJson`; `@@unique([orgId, fullName])` |
+| `OrgPracticeShape` | The org's chosen, published practice shapes mirrored from `practices/<slug>/PRACTICE.md` (leak-free). Distinct from the per-scan `Scan.practiceShape` blob, which is mined structure from a repo. | `slug`, `practiceId`, `dimension`, `title`, `content`, `contentHash`, `origin` (hosted\|registry), `archived`; `@@unique([orgId, slug])` |
+| `OrgSkillUsageSample` | Registry `usage/<contributor>.json` lane, one row per (contributor, skill), upserted each index pass (a snapshot, never an append). Constitutionally repo-free: that lane forbids repository names. | `contributor`, `skillName`, `invokes`, `windowDays`, `lastUsedAt?`; `@@unique([registryId, contributor, skillName])` |
+| `OrgSkillLesson` | One `## ` entry in `skills/<name>/LESSONS.md`. Heading slots are stored verbatim (unparsed stays `""`); `headingRaw` keeps the whole line. | `skillName`, `registryPath`, `versionUsed`, `learnedOn?`, `headingRaw`, `body`, `entryHash`, `memoryId?`; `@@unique([registryId, registryPath, entryHash])` |
+| `OrgSkillTrace` | Per-skill git timeline cache; one row per registry path, upserted. `headSha` is the cache key: a trace built at a different head is stale and rebuilt. | `skillName`, `registryPath`, `headSha`, JSON `entriesJson`, `truncated`; `@@unique([registryId, registryPath])` |
+| `PracticeAdoption` | One practice artifact proposed to a repo, and what happened afterwards. `proposedHash` vs `adoptedHash` makes `drifted` a measured divergence; `adoptedHash` stays null until the first post-merge scan ("not yet observed", never "unchanged"). | `practiceId`, `source` (generic\|house\|registry\|playbook), `patternVersion?`, `artifactPath`, `proposedHash`/`adoptedHash?`, `state` (proposed\|adopted\|drifted\|removed\|superseded); `@@unique([orgId, repoFullName, practiceId, artifactPath])` |
+| `HousePatternVersion` | An immutable version of an org's mined house pattern. Versioned rather than overwritten because an adoption row cites the version it was measured against — re-mining must not retroactively turn previously-conformant repos into drifted ones. | `practiceId`, `version`, JSON `linesJson`/`exemplarsJson`, `patternHash`; `@@unique([orgId, practiceId, version])` and `@@unique([orgId, practiceId, patternHash])` |
+| `OrgKnowledgeSubject` | One subject per registry bundle, mirrored from the bundle's generated `index.json` on every index pass (soft-archived when it leaves the corpus — a conformance row may still cite it). | `bundle`, `slug`, `category?`, `subcategory?`, `status?`, `file` (verbatim), `techniqueCount`, JSON `useWhen`, JSON `laws`, `digest?` (NULL = index predates the mirror), `revision?` / `changedAt?` (the subject's derived revision and `YYYY-MM-DD` of its last change, from the index; NULL = the index predates revisions — unknown, never r0), `archived`; `@@unique([registryId, bundle, slug])` |
+| `RepoConformanceMap` | One row per SWEPT repo (mapped or not): the header of its `.ai/registry-map.json` plus the foundation the sweep probed. `mapSha` NULL = no map; counts then 0. | `mapSha?`, `contexts`, `pairs`, `judged`, `deviations`, JSON `weaklyGovernedJson` (context names), `hasContextMap`, `hasManifest`, JSON `scopeJson`, JSON `directionsJson` (latest decision per subject), JSON `domainsJson`, `consults30d?`, JSON `warningsJson`, `orphanedVerdicts` / `arrivedContexts` / `renamedContexts` (the map's own churn stats; 0 for a map from an older builder — "0 known", not "none"), `contextMapRevision?` (the `context-map.json` revision the map was built from) / `repoContextMapRevision?` (the one the sweep read at the root; NULL when it could not); `@@unique([repositoryId])` |
+| `RepoConformance` | One judged (context × subject) pair from a repo's map, as its own `/conform` wrote it. | `state` (conformant\|deviation\|not-applicable\|unjudged), `evidence?`, `evaluatedAt?`, `evaluatedAgainst?` (digest → stale detection), `evaluatedRevision?` (the subject revision `/conform` judged at) / `revision?` (the subject's revision when the map was built; both NULL for pre-revision verdicts), `arrived` (the context was not in the previous map), `source?` (the builder's word: match \| retained \| conform \| renamed), `mapSha`; `@@unique([repositoryId, contextName, subjectSlug])` |
+| `ConformanceReport` | One doctor run (`node .ai/doctor.mjs --json`). The denormalized summary already lives on `Repository.aiConformance*`; this is the per-check ledger behind it. | `headSha?`, `score`, `fails`/`warns`/`unchecked`/`scored`, `specVersion?`, `runShape`, `summaryOnly`; `@@unique([orgId, repoFullName, headSha, runShape])` |
+| `ConformanceFinding` | One check inside a `ConformanceReport`. One of the schema's only `onDelete: Cascade` declarations (Prisma-emulated under `relationMode = "prisma"`; retention still deletes by hand). | `check`, `level` (pass\|warn\|fail\|unchecked), `message` |
+| `RegistrySignal` | The registry's `signals/` lane as one contributor published it; every count nullable (absent ≠ zero). | `contributor`, `bundle`, `subjectSlug`, `consults?`, `deviations?`, `cit*?`, `windowDays` |
+| `RegistrySignalContribution` | Append-only audit of one signals contribution opened back to the registry. Deliberately without a unique key beyond `id` — the same payload may legitimately be contributed twice. | `contributor`, `prUrl?`, `commitSha?`, `payloadDigest`, JSON `bundlesJson`, `subjects`, `deviations`, `actor` |
+| `RegistryDispatch` | One hand-off of registry work for a fleet repo — a populate / map / conform brief given to an operator or run by the local agent. Ascent writes only this ledger; the map changes through the PR a dispatch produces, and the sweep closes the row. | `stage`, `mode` (brief\|local), `status` (handed_off\|running\|proposed\|done\|failed\|superseded), JSON `subjectsJson`, `briefDigest`, `actor`, `branch?`, `prUrl?`, `mapShaBefore?`, `mapShaAfter?`, the local run's receipt (`model?`, `costMicros?`, `turns?`, `agentDurationMs?`, `summary?`, `error?`); indexes `(orgId, repositoryId)`, `(orgId, createdAt)` |
+
+### LLM configuration & AI usage
+
+| Model | Purpose | Notable fields |
+| --- | --- | --- |
+| `OrgLlmConfig` | Per-org connected LLM (BYOM): one row per org, the org's own Bedrock provider so inference runs in their AWS account. Credentials only ever live encrypted. | `provider` (default "bedrock"), `enabled`, `modelId`, `region?`, `authMode`, `credentialsEncrypted?` (AES-256-GCM), `lastValidatedAt?`/`lastValidationError?`; `@@unique([orgId])` |
+| `AiUsageRecord` | Normalized AI-usage records feeding the `/delivery` AI-ROI resolver. `scope=repo` carries measured per-repo spend (Claude Code OTel); `scope=org` an allocated total (Copilot/OpenAI) distributed to repos by git evidence. | `source` (claude-code\|copilot\|openai), `scope` (repo\|user\|team\|org), `scopeKey`, `periodStart`, `tokens`, `costCents`, `sessions`, `seats`, `fidelity` (measured\|allocated); `@@unique([orgId, source, scope, scopeKey, periodStart])` |
+| `AgentSession` | One Claude Code (today) agent session as an **attempt**, not a rate: re-exported counters UPDATE the row (`@@unique([orgId, source, sessionId])`). No `outcome` enum — a session with no commit is often a question or a debug pass, and calling it "failed" would over-claim the most common kind of session. | `source`, `sessionId`, `repoFullName`, `userKey?`, `startedAt`/`lastSeenAt`, `tokens`/`costCents`, `commits`/`pullRequests`, `linesAdded`/`linesRemoved` |
+| `UsageEvent` | Every model call this deployment served, one row per metered leg (standalone, like `QuotaEvent`). The `scan` lane keeps its ledger on `Scan` and is UNIONed on read; this table carries the lanes that had none. Token/cost columns are nullable — a provider that reported nothing is UNKNOWN, never 0. | `lane` (scan\|athena\|memory\|briefing\|local), `legKind?`, `refId?`, `provider`/`model`, `byom?`, token/cost/`latencyMs?`, `status`, `idemKey?` (`@@unique`); indexed `[orgId, createdAt]` |
+
+### Sessions, webhooks & quotas
+
+| Model | Purpose | Notable fields |
+| --- | --- | --- |
+| `SessionRevocation` | Server-side session revocation: the signed cookie embeds a session version (`sv`) checked against this row; bumping it invalidates every outstanding token for a login immediately (logout, installation removal). | `login` (PK, lowercased GitHub login), `version` |
+| `WebhookDelivery` | Cross-instance GitHub webhook replay/idempotency store: a row is a "claimed" mark for a delivery id, kept until `expiresAt`, deleted on a failed deferred process so GitHub can retry. | `id` (PK, `X-GitHub-Delivery`), `expiresAt` |
+| `PublicScanQuota` | Soft weekly quota for anonymous public scans, keyed by a salted hash of the client IP (never the raw IP). Fails open if persistence hiccups. | `ipHash` (PK), `hits` (JSON epoch-ms array, trimmed to the rolling window) |
+| `QuotaEvent` | Public-funnel abuse observability: a running tally bumped when a quota denial or rate-limit trip fires. | `kind` (quota_deny\|rate_limit), `scope`, `count`; `@@unique([kind, scope])` |
+| `SkillGeneration` | A record of each onboarding-skill (SKILL.md) generation: which tracks targeted a repo's skill, at which commit, when. | `repoFullName`, `headSha?`, JSON `trackIds` |
+| `PlanEnquiry` | A Custom-plan enquiry from the `/pricing` form. The tier has no checkout, so **this row is the lead** and the operator mail is only a notification about it, persisted first so a mail-provider outage can't lose a prospect. Standalone (a prospect has no `Organization` yet). | `plan` (default `enterprise`), `name`, `email`, `company`, `fleetSize`, `areasJson` (JSON string[] of hosting/scans/support/customization/sso), `message`, `viewerLogin?`/`orgSlug?` (server-resolved), `emailStatus` (pending\|sent\|skipped\|failed) |
+| `Installation` | One org's credential + capability record for one forge account (a GitLab group token, a GHES app). `Organization.githubInstallId` is deliberately untouched and remains the GitHub read path. `credentialRef` holds `encryptSecret()` ciphertext, never plaintext — the secret dies with the row. | `forge` (github\|gitlab), `externalId`, `host?` (null = the forge's public host), `credentialRef?`, JSON `capabilitiesJson?`; `@@unique([orgId, forge, externalId])` |
+
+### Loop runs & local autopilot
+
+| Model | Purpose | Notable fields |
+| --- | --- | --- |
+| `LoopRun` | Durable spine of the war room's autopilot (self-hosted). Process-Map state died with the node; a `running` row with no live handle is reconciled to `stopped`. JSON-in-TEXT (`reposJson`, `modelsJson`) follows the no-jsonb DSQL contract. | `phase` (curating\|running\|done\|stopped\|error), `reposJson`, `concurrency`, `maxCycles`/`cycle`, `model?`/`effort?`, `modelPolicy` (single\|ab), `modelsJson`, `delivery?` (branch\|land\|pr; null = branch), `batchSize?`, `verifyMode?` |
+| `LoopRunLane` | One repo's work for one cycle of a run: the unit of parallelism, retry, and the UI's row. Cost columns are nullable (unknown ≠ $0). A `rejected` verify verdict committed nothing and must not be landed. | `repoFullName`, `cycle`, `phase`, `branch?`, JSON `batchIdsJson`/`closedIdsJson`, `beforeScanId?`/`afterScanId?`, `costMicros?`, JSON `briefJson`/`reportJson`, `verifyVerdict?`/`verifyRung?`, `executor`, `leaseUntil?` |
+| `LoopDrive` | Sequence of loop runs that pulls a fleet toward green. Intent used to live in a `globalThis` Map; a `running` row with no process is reconciled to `interrupted` (terminal — not auto-resumed; a drive spends money). | `phase` (running\|green\|dry\|ceiling\|stopped\|interrupted\|error), `reposJson`, `maxRuns`/`maxCycles`, `runsBefore`, `resumedFrom?`, JSON `runsJson`/`measurementJson?`, `stopRequested`, `delivery?` |
+| `LaneItemOutcome` | What the lane's agent did with one recommendation, as reported in `.ascent/lane-report.json`. `absent` (never mentioned) is distinct from `skipped` (mentioned and declined). `verifiedAt` is stamped from `persistScanReport`'s movement witness; null on every other row is unverified. | `runId`/`laneId`, `recommendationId`, `verdict` (resolved\|skipped\|needs_human\|attempted\|absent), `reason`, JSON `filesJson`, `deferUntil?`, `verifiedAt?`; `@@unique([laneId, recommendationId])` |
+
+### Athena companion
+
+| Model | Purpose | Notable fields |
+| --- | --- | --- |
+| `AthenaThread` | One conversation with Athena. Titles are derived from the first user message and never typed. Episodes reuse `OrgMemory` (namespace `athena`); they are not duplicated here. | `title` (`""` until the first user turn), `updatedAt`; indexed `[orgId, updatedAt]` |
+| `AthenaTurn` | One message in a thread. `metaJson` carries everything needed to replay the turn as rendered (blocks, chips, proposal ids, grounding). Token counts are nullable — a provider that reports no usage is UNKNOWN, never 0. | `role` (user\|assistant), `content`, JSON `metaJson`, `inputTokens?`/`outputTokens?`, `legs?` |
+| `AthenaProposal` | Something Athena asked for that a human has not yet answered. The outcome of a resolution is merged into `payloadJson` (kind-shaped) rather than given its own column. | `kind`, JSON `payloadJson`, `status` (open\|accepted\|declined), `resolvedAt?`/`resolvedBy?`; indexed `[orgId, status]` |
+| `AthenaIdentity` | Athena's identity in two tiers, one row each per org: `constitution` (written once by a human path; there is no exported updater) and `self_model` (mutable only through the anchored-diff engine after a human accepts). Own table because `OrgMemory` can be patched, coerced to `semantic`, and decayed. | `tier`, `content` (markdown with stable `## ` sections), `version`, `updatedBy?`; `@@unique([orgId, tier])` |
+
+## Dedup & carry-forward (`src/lib/db/scans-persist.ts`)
+
+`scans.ts` is a thin barrel: the actual persist implementation lives in
+`src/lib/db/scans-persist.ts` (with `scans-read.ts`, `scans-recommendations.ts`,
+`scans-audit.ts`, `scans-shared.ts` as sibling themed modules). `persistScanReport()` upserts
+the full graph (Organization → Repository → Scan → ScanDimension + Recommendation +
+RepoContributor + RepoTeam) and is the heart of the data layer:
+
+- **Dedup by `(repoId, headSha)`, or by `(repoId, dedupKey)` when there is no commit**:
+  re-scanning the same commit reuses the existing `Scan`
+  and returns `deduped: true` (so [usage](../billing/usage.md) never double-counts). A
+  sha-less report (head resolution failed, or a reconstructed snapshot) has no commit to key
+  on, so it falls back to `scannedAt` **plus a content check**: the timestamp narrows the
+  candidate row, and the row is only reused when its content identity (`scanContentKey`:
+  score, level, axes, engine, and the per-dimension scores) matches the incoming report. Two
+  genuinely different sha-less results computed in the same millisecond are therefore both
+  persisted, and a replayed/reused clock value can't suppress a real re-score. That same identity
+  is also PERSISTED as `Scan.dedupKey` (`scanDedupKey` = a hash of `scannedAt` + the content key)
+  under `@@unique([repoId, dedupKey])`, so the cross-instance case (two instances that both read
+  "nothing there yet") is caught by the database and the loser re-reads the winner, exactly as the
+  sha path does. `dedupKey` is set only on sha-less rows; a sha-bearing row leaves it NULL.
+- **Engine upgrade (mock → live)**: if the only existing scan for a commit is the
+  deterministic `mock`-engine floor and the new report is a real graded scan, the mock row is
+  deleted and replaced in the same transaction (`upgraded: true`), rather than being kept
+  forever or silently discarded.
+- **Recommendation carry-forward**: `status`, `assigneeLogin`, and `targetDate` from the
+  prior scan are matched onto the new scan's items via a tiered matcher (`matchRecommendations`:
+  exact dim+title → dim+normalized title → unambiguous dimension), so marking a rec "done",
+  assigning an owner, or setting a due date all survive a re-scan even though the raw LLM
+  title isn't stable across live scans. The per-item `RecommendationEvent` timeline is
+  anchored to the scan's rows, so it begins fresh each scan while the carried state persists.
+- **Head pointer discipline**: `Repository.headSha`/`headEtag`/`lastScanAt` only advance once
+  a scan is durably persisted (post-commit, or after a resolved race), and only when the new
+  report is newer, never rolled back by a delayed/replayed older scan.
+- **Atomic & race-safe**: the org id is resolved once per process and cached (`ensureOrgId`)
+  rather than upserting the shared `public` org row on every scan; the repo upsert runs
+  through `upsertRacing` so a concurrent create loses with a `P2002` and re-reads the winner;
+  every write is wrapped in `withRetry` so a DSQL serialization/OCC conflict is retried with
+  exponential backoff + full jitter; the dedup + carry-forward read + write run under a
+  process-local per-repo lock (`withRepoLock`); and the scan graph, `RepoContributor` replace,
+  `RepoTeam` replace, and `AuditLog` entry commit in one interactive `$transaction` (no
+  half-written scan on a mid-way crash). A cross-instance same-commit race that still slips
+  past the lock is caught by `@@unique([repoId, headSha])`, or, for a sha-less report, by
+  `@@unique([repoId, dedupKey])` (`P2002` → re-read the winner and treat it as a dedup).
+- Returns a `PersistResult { scanId, deduped, upgraded?, headSha }`.
+
+Other key functions (from the sibling modules, re-exported through the `scans.ts` barrel):
+
+| Function | Role |
+| --- | --- |
+| `findScanByCommit` / `getScanReportByCommit` | Dedup lookup / reconstruct a full `ScanReport` from rows (used by cache, diff, alerts). |
+| `getHeadHint` | Durable `headSha`/`headEtag` for cross-instance conditional requests. |
+| `getRepositoryHistory` | Recent scans + per-dimension scores for trend charts. |
+| `getScanComparison` | Diffs two scans' dimensions/recommendations for the compare view. |
+| `getPublicScanGallery` | Public-corpus scan cards for the leaderboard/gallery. |
+| `recordAudit` / `recordOrgAudit` / `getAuditLog` | Append an audit entry (signing it) / read the paginated audit log (verifying each row). |
+| `getLatestRecommendations` / `updateRecommendation` / `getRecommendationEvents` | Recommendations API backing: read, apply a status/assignee/due-date patch (recording a `RecommendationEvent`), and read an item's activity timeline. |
+| `getOrgBacklog` (`org.ts`) | The org-wide recommendation backlog: actionable items from the fleet's latest scans grouped by owner and by due-date bucket, with overdue/due-soon counts. |
+
+Org/plan/usage/retention/installation/memory/skills queries live in sibling modules under
+`src/lib/db/` (`org.ts`, `plan.ts`, `usage.ts`, `retention.ts`, `installations.ts`,
+`org-memory.ts`, `org-skills.ts`, and others); `src/lib/db/index.ts` is the barrel that
+re-exports them. `src/lib/db/client.ts` provides the lazy `getPrisma()` singleton +
+`isDbConfigured()`, plus the DSQL token-refresh helpers `withDb()` / `reconnectDb()` /
+`dbHealthCheck()`. `src/lib/db/mode.ts` reports which backend is actually live
+(`getDbMode()`: `pglite` (local dev, in-process) → `dsql` → `postgres` → `disabled`, checked
+in that precedence) for an honest "served live from …" UI indicator.
+
+> On Aurora DSQL the connection password is a **short-lived IAM token** (~15 min TTL), so a
+> client cached from one static URL goes dead minutes after deploy. Setting `DSQL_ENDPOINT`
+> switches `client.ts` into a connection factory: it mints the token (via
+> `@aws-sdk/dsql-signer`), rebuilds the client from a fresh token before the TTL elapses
+> (`getPrisma()` kicks a background refresh inside the refresh margin), and reconnects on an
+> auth-expiry error: `withDb(op)` retries the op once after a reconnect and also retries a
+> DSQL optimistic-concurrency/serialization conflict (`40001`/`P2034`/`OC###`) with backoff,
+> and `GET /api/health` (`dbHealthCheck()`) self-heals an expired-token client. A swapped-out
+> client is retired (not disconnected) after `RETIRE_CLIENT_GRACE_MS` (300s) so in-flight
+> queries can drain. Static/local Postgres is unchanged (one client, never expires); local dev
+> can instead run an embedded in-process PGlite via a driver adapter (`instrumentation.ts`),
+> which overrides the datasource URL entirely. See [ARCHITECTURE.md](../../ARCHITECTURE.md) §3-4.
+
+## Key files
+
+| File | Role |
+| --- | --- |
+| `prisma/schema.prisma` | The 83-model schema (DSQL-safe). |
+| `src/lib/db/client.ts` | Lazy Prisma singleton, DSQL token refresh/retry, `isDbConfigured()`. |
+| `src/lib/db/mode.ts` | Reports the live backend (`dsql`\|`postgres`\|`pglite`\|`disabled`). |
+| `src/lib/db/index.ts` | Barrel re-export of the data layer. |
+| `src/lib/db/scans.ts` | Thin barrel re-exporting the scans-* sub-modules. |
+| `src/lib/db/scans-persist.ts` | Persist/dedup/carry-forward (the module documented above). |
+| `src/lib/db/scans-read.ts` / `scans-recommendations.ts` / `scans-audit.ts` / `scans-shared.ts` | History/comparison reads, recommendation patching, audit log, shared row↔report mapping. |
+| `src/lib/db/{org,plan,usage,retention,installations,org-memory,org-skills}.ts` | Feature-specific queries (linked from their docs). |
+
+## `Recommendation.kind` (r10, 2026-08-26)
+
+`kind TEXT NOT NULL DEFAULT 'gap'` — `gap` is a shortfall below the band (a follow-up the loop may
+work); `craft` is what would make an already-strong dimension exemplary. Craft rows are shown on the
+report roadmap and **nowhere else**: the backlog (`getOrgBacklog`) and the loop's batch read
+`kind: "gap"`, so a craft entry is never debt, never a batch, never auto-closed. Additive with a
+default, so every pre-r10 row is a `gap`. Migration `20260826120000_add_recommendation_kind`;
+`init.sql` mirrored; PGlite picks it up on boot via the defaulted-column reconcile.
+
+`persistScanReport` also now reads the previous scan's `dimensions` alongside its recommendations:
+the per-dimension score movement is the independent witness for an in-progress row's fate (see
+`docs/features/org-followups/README.md`). Kept rows that matched nothing on the new scan are copied
+forward as `in_progress` with a same-status `RecommendationEvent` carrying the reason.
+
+## Revision-aware conformance columns (knowledge-context-matrix, 2026-09-06)
+
+Eleven additive columns across the three `#18` knowledge tables, every one nullable or defaulted so
+a pre-existing row reads as "unknown" rather than as a fabricated value:
+
+- `OrgKnowledgeSubject.revision INTEGER` / `changedAt TEXT` — the subject's derived revision and
+  `YYYY-MM-DD` of its last change, read beside `digest` from the bundle's `index.json`
+  (`src/lib/registry/subjects.ts`). `digest` is identity; `revision` is order.
+- `RepoConformance.evaluatedRevision INTEGER` / `revision INTEGER` / `arrived BOOLEAN DEFAULT
+  false` / `source TEXT` — per pair, from `.ai/registry-map.json` (`src/lib/registry/conformance-map.ts`).
+- `RepoConformanceMap.orphanedVerdicts` / `arrivedContexts` / `renamedContexts INTEGER DEFAULT 0`,
+  `contextMapRevision TEXT`, `repoContextMapRevision TEXT` — the map's own churn stats and the two
+  context-map revisions (the map's `contextMapRevision`; the `revision` the sweep read from the repo's
+  root `context-map.json`). `mapBehind` is NOT a column: `buildKnowledgeFleet` derives it as "both
+  known and different", so a failed read is never evidence of drift.
+
+**Migration convention followed:** the `#18` tables (`OrgKnowledgeSubject`, `RepoConformanceMap`,
+`RepoConformance`) have no `prisma/migrations/*` entry — they were created in `prisma/init.sql`
+only (commit `d6538af8`), and their later columns (`digest`, `hasContextMap`, `weaklyGovernedJson`)
+landed the same way: in the `CREATE TABLE` block **and** as `ALTER TABLE … ADD COLUMN IF NOT
+EXISTS` beside it, so a fresh bootstrap and an existing data dir both converge. These columns follow
+that exactly; PGlite picks them up on boot via the defaulted-column reconcile, and `init-sql.test.ts`
+holds the mirror to the schema.
+
+## Known gaps
+
+- **No FK cascades** (`relationMode = "prisma"`): children must be deleted before parents
+  (the [purge](./retention.md) job does this explicitly; `scans-persist.ts`
+  does the same in-transaction for a mock→live scan upgrade).
+- **Stripe billing is a stub**: `Subscription` exists with Stripe-shaped fields, but Polar is
+  the actually-wired checkout/webhook path (`CreditLedger.externalId` carries the `polar:`
+  idempotency prefix).
+- Not verified in this pass: row counts/production data volumes, whether every model listed
+  above has a corresponding `src/lib/db/*.ts` accessor module (several, e.g. `WebhookDelivery`,
+  `PublicScanQuota`, are documented in-schema as accessed via raw SQL / no typed accessor).

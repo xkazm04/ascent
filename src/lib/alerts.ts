@@ -1,0 +1,755 @@
+// Regression detection + alert dispatch — the "live intelligence" layer. After an autoscan or a
+// push-triggered re-scan, we diff the fresh report against the previously persisted one
+// (engine.diffReports → ScanDiff) and decide whether it crossed a line worth interrupting a human
+// for: a maturity demotion, a slide into "ungoverned", or a material score/dimension drop.
+//
+// The detector + message builder are PURE (unit-tested). dispatchAlert() is the only side-effect:
+// it POSTs a Slack-compatible payload to the resolved sink — the org's own webhook
+// (Organization.alertWebhookUrl, threaded in by the caller) when set, else the global
+// ALERT_WEBHOOK_URL — and is otherwise a graceful no-op so the feature degrades cleanly with no
+// configuration. Per-org routing keeps one tenant's fleet intelligence out of another's channel.
+//
+// EMAIL SINKS (G7-01). The same sink field also accepts `mailto:someone@example.com`, in which case
+// dispatchAlert renders the message as mail and sends it through the ONE existing transport
+// (src/lib/email) instead of POSTing. That is the whole email channel: no per-feature toggle, no second
+// recipient list, and no send to anyone who wasn't deliberately configured as this org's sink by an
+// admin. It is off in three independent ways by default — no sink stored, no global ALERT_WEBHOOK_URL,
+// and no email provider (SES_FROM_EMAIL) — and each alert mail carries the unsubscribe link that clears
+// the sink (see src/lib/email/alert-sink.ts + /api/email/unsubscribe).
+
+import type { ScanDiff } from "@/lib/report/compare";
+import { isWithinNoise } from "@/lib/maturity/noise";
+export { emailSinkAddress, resolveAlertWebhook, sinkKindForOrg, isAlertConfigured, validateAlertWebhookUrl, dispatchAlert } from "./alert-delivery";
+import {
+  digestHasSignal as digestHasSignalFromDelta,
+  type AlertSeverity,
+  type RegressionVerdict,
+  type PromotionVerdict,
+} from "./alerts-detection";
+
+
+// --- Per-repo regression-alert cooldown (fleet-alerts-digests #4) ----------------------------------
+// A repo whose overall score oscillates ACROSS the regression threshold (a flapping test, a noisy LLM
+// re-grade, a dependency that lands then reverts) fires a fresh Slack alert on EVERY autoscan/push
+// re-scan — the pager fatigue that trains a team to mute the exact channel the alert layer exists to
+// keep credible. Suppress a repeat regression alert for the SAME repo inside a cooldown window.
+// Best-effort + in-memory: a cooldown is spam-suppression, not a correctness guarantee, so a cold
+// serverless start (empty map) at worst re-sends once — never drops a distinct new regression. Keyed by
+// repo fullName; the map is globalThis-pinned so it survives Next.js HMR and a warm serverless instance.
+//
+// ONE CLAIM POOL, AND A PROMOTION CONSUMES IT (fleet-alerts promotions). The promotion push shares this
+// map rather than getting its own: a repo oscillating across a band edge (L3→L4→L3 as an LLM re-grade
+// or a reverted dependency moves it a point) is EXACTLY the flapping the cooldown exists to mute, and a
+// separate pool would let it alternate "🎉 leveled up" / "🔻 regressed" every scan — each pool
+// individually within its window, the channel unreadable. Consuming (stamping) rather than merely
+// reading also means the two directions can't double-fire inside one window. The cost is real and
+// accepted: a genuine demotion within 6h of a genuine promotion for the same repo is suppressed to a
+// Slack push — but it is still detected, audited and remembered (the audit row + memory feed are
+// written before the claim), so nothing is lost from the record, only from the pager.
+const DEFAULT_REGRESSION_COOLDOWN_MINUTES = 360; // 6h between repeat alerts for one repo
+
+/** Cooldown window (ms) between regression alerts for the SAME repo. REGRESSION_COOLDOWN_MINUTES
+ *  (non-negative integer minutes), default 360 (6h); an explicit 0 disables the cooldown (every
+ *  regression alerts). Blank/missing → default, never 0 (same blank-vs-zero rule as the cost rates). */
+export function regressionCooldownMs(): number {
+  const raw = process.env.REGRESSION_COOLDOWN_MINUTES;
+  if (raw == null || raw.trim() === "") return DEFAULT_REGRESSION_COOLDOWN_MINUTES * 60_000;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.trunc(n) * 60_000 : DEFAULT_REGRESSION_COOLDOWN_MINUTES * 60_000;
+}
+
+// globalThis-pinned so the cooldown survives HMR (dev) and a warm serverless instance (prod) — a plain
+// module const would reset on every reload and defeat the throttle.
+const cooldownGlobal = globalThis as typeof globalThis & { __ascentRegressionCooldownAt?: Map<string, number> };
+const regressionCooldownAt: Map<string, number> = (cooldownGlobal.__ascentRegressionCooldownAt ??= new Map());
+
+/**
+ * Check-and-STAMP the per-repo regression cooldown as ONE indivisible step (JS's single-threaded event
+ * loop makes the read+write atomic): returns true when an alert may be sent now — and records `now` as
+ * the last-sent time so the NEXT call within the window is suppressed — or false when the repo is still
+ * inside its cooldown window. Stamping at the claim (not after a successful POST) also collapses the rare
+ * overlapping-rescan case to a single alert. A cooldown of 0 always allows (feature disabled). Pure given
+ * its args; `now` is injectable for tests.
+ */
+export function claimRegressionAlert(
+  repoFullName: string,
+  cooldownMs: number = regressionCooldownMs(),
+  now: number = Date.now(),
+): boolean {
+  if (cooldownMs <= 0) return true; // disabled → never throttle
+  const last = regressionCooldownAt.get(repoFullName);
+  if (last != null && now - last < cooldownMs) return false; // still cooling down
+  regressionCooldownAt.set(repoFullName, now);
+  return true;
+}
+
+/** Test-only: clear the in-memory cooldown map so a suite's cases don't leak stamps into each other. */
+export function __resetRegressionCooldowns(): void {
+  regressionCooldownAt.clear();
+}
+
+export interface RepoAlertRef {
+  fullName: string;
+  /** Absolute or relative link to the report/what-changed view. */
+  url?: string;
+}
+
+export interface AlertMessage {
+  /** Plain-text fallback (Slack `text`). */
+  text: string;
+  /** Slack Block Kit blocks for a richer card; safe to ignore by non-Slack sinks. */
+  blocks: unknown[];
+}
+
+const SEV_EMOJI: Record<AlertSeverity, string> = { critical: "🔻", warning: "⚠️", celebration: "🎉" };
+
+/** A Slack Block-Kit `section` block with an `mrkdwn` text body — the shape the four message builders
+ *  restated inline ~7 times. Pure; returns a fresh object each call. */
+function mrkdwnSection(text: string): { type: "section"; text: { type: "mrkdwn"; text: string } } {
+  return { type: "section", text: { type: "mrkdwn", text } };
+}
+
+/** A Slack Block-Kit `context` block carrying a single `<url|label>` mrkdwn link — the footer the
+ *  builders restated 3 times. Pure. */
+function linkContext(url: string, label: string): { type: "context"; elements: { type: "mrkdwn"; text: string }[] } {
+  return { type: "context", elements: [{ type: "mrkdwn", text: `<${url}|${label}>` }] };
+}
+
+/** Format a signed integer with an explicit leading sign for non-negatives (`+5`, `-3`, `0` → `+0`).
+ *  Single-sources the `${n > 0 ? "+" : ""}${n}` idiom buildFleetDigestMessage restated three times.
+ *  The boundary is `>= 0` to match the `gain` site; the two delta sites are only reached for a NONZERO
+ *  move (a 0 overall delta renders as "no change" before this is called), so they never observe 0 —
+ *  unifying on `>= 0` reproduces every previously-emitted string byte-for-byte. */
+function signed(n: number): string {
+  return n >= 0 ? `+${n}` : String(n);
+}
+
+/** "1 repository" / "8 repositories" — a delta never travels next to a bare count. */
+function repositories(n: number): string {
+  return `${n} repositor${n === 1 ? "y" : "ies"}`;
+}
+
+/**
+ * A period delta is measurable only over a positive matched cohort. Null/0 is unmeasurable — never
+ * a silent 0, and never a fleet-wide "+N this week" (G4). Tiny n (≥ 1) is still a measurement and
+ * must be qualified with that n, not omitted and not inflated.
+ */
+export function isMeasurableDigestCohort(cohortSize: number | null | undefined): cohortSize is number {
+  return cohortSize != null && cohortSize > 0;
+}
+
+/**
+ * Project `rollup.movement` into the digest's delta pair. Reads movement, not the deprecated
+ * `rollup.deltas` triple (that shape has no denominator). Null/0 cohort → both fields null.
+ */
+export function digestMovementFields(
+  movement: { overall: number; cohortSize: number } | null | undefined,
+): { overallDelta: number | null; cohortSize: number | null } {
+  if (!movement || !isMeasurableDigestCohort(movement.cohortSize)) {
+    return { overallDelta: null, cohortSize: null };
+  }
+  return { overallDelta: movement.overall, cohortSize: movement.cohortSize };
+}
+
+/**
+ * Movement-gate for the weekly fleet digest. Wraps the delta/noise predicate with the cohort rule:
+ * an overall move without a positive `cohortSize` is unmeasurable and is not signal.
+ */
+export function digestHasSignal(s: {
+  overallDelta: number | null;
+  /** Matched-repo n behind `overallDelta`. Null/0/absent → the delta does not count. */
+  cohortSize?: number | null;
+  levelChanges: number;
+  regressions: number;
+  gainersBeyondNoise: number;
+  creditLow: boolean;
+  controlsFailed?: number;
+  standingConcerns?: number;
+}): boolean {
+  const overallDelta = isMeasurableDigestCohort(s.cohortSize) ? s.overallDelta : null;
+  return digestHasSignalFromDelta({ ...s, overallDelta });
+}
+
+/** English ordinal suffix for a non-negative integer (1st, 2nd, 3rd, 4th … 11th/12th/13th, 21st, 22nd).
+ *  The digest percentile line hard-coded "th", so corpus percentiles ending in 1/2/3 (except the
+ *  11–13 teens) rendered broken ordinals ("21th pctile") in the one artifact leaders read without
+ *  opening the app — a sent Slack message can't be hot-fixed. (ambiguity-ui 2026-07-16 #5) */
+export function ordinal(n: number): string {
+  const mod100 = Math.abs(n) % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${n}th`;
+  const suffix = { 1: "st", 2: "nd", 3: "rd" }[Math.abs(n) % 10] ?? "th";
+  return `${n}${suffix}`;
+}
+
+/**
+ * Build a Slack-compatible alert message from a regression verdict. Pure — no env, no Date.
+ * The top movement attributions from the diff are included so the alert explains *why* the
+ * score moved, not just that it did.
+ */
+export function buildRegressionMessage(repo: RepoAlertRef, diff: ScanDiff, verdict: RegressionVerdict): AlertMessage {
+  const emoji = SEV_EMOJI[verdict.severity ?? "warning"];
+  const headline = `${emoji} Ascent: ${repo.fullName} regressed`;
+  const reasonLines = verdict.reasons.map((r) => `• ${r.message}`);
+  const why = diff.movements.slice(0, 3);
+
+  const textParts = [headline, ...reasonLines];
+  if (why.length) textParts.push("", "Why:", ...why.map((m) => `• ${m}`));
+  if (repo.url) textParts.push("", repo.url);
+  const text = textParts.join("\n");
+
+  const blocks: unknown[] = [
+    mrkdwnSection(`*${headline}*`),
+    mrkdwnSection(reasonLines.join("\n")),
+  ];
+  if (why.length) {
+    blocks.push(mrkdwnSection(`*Why:*\n${why.map((m) => `• ${m}`).join("\n")}`));
+  }
+  if (repo.url) {
+    blocks.push(linkContext(repo.url, "View report"));
+  }
+  return { text, blocks };
+}
+
+/**
+ * Build the Slack message for a maturity PROMOTION. Pure — same family as buildRegressionMessage
+ * (plain-text fallback + Block Kit sections + a report link), deliberately different in VOICE:
+ *
+ *   - 🎉, and the headline says "leveled up", not "regressed" — no alarm chrome anywhere.
+ *   - the movement attributions are framed as "What got you here" (credit) rather than "Why:"
+ *     (post-mortem), because this message's job is to be forwarded, not triaged.
+ *   - no severity bullet list: a promotion has exactly one reason, and stacking it like a set of
+ *     findings would make good news read like an incident report.
+ */
+export function buildPromotionMessage(repo: RepoAlertRef, diff: ScanDiff, verdict: PromotionVerdict): AlertMessage {
+  const headline = `${SEV_EMOJI.celebration} Ascent: ${repo.fullName} leveled up`;
+  const line =
+    verdict.reasons[0]?.message ??
+    `Maturity climbed ${diff.level.before.id} → ${diff.level.after.id} (${diff.level.after.name})`;
+  const detail = `${line} · overall ${diff.overall.before} → ${diff.overall.after} (${signed(diff.overall.delta)})`;
+  const why = diff.movements.slice(0, 3);
+
+  const textParts = [headline, detail];
+  if (why.length) textParts.push("", "What got you here:", ...why.map((m) => `• ${m}`));
+  if (repo.url) textParts.push("", repo.url);
+
+  const blocks: unknown[] = [mrkdwnSection(`*${headline}*\n${detail}`)];
+  if (why.length) blocks.push(mrkdwnSection(`*What got you here:*\n${why.map((m) => `• ${m}`).join("\n")}`));
+  if (repo.url) blocks.push(linkContext(repo.url, "View report"));
+  return { text: textParts.join("\n"), blocks };
+}
+
+/** Inputs for a weekly fleet digest — the periodic positive push, not just per-repo regressions. */
+export interface FleetDigestInput {
+  org: string;
+  url?: string;
+  repoCount: number;
+  scannedCount: number;
+  avgOverall: number;
+  level: string; // e.g. "L3 · Defined"
+  overallDelta: number | null; // vs the week's start (null = no baseline / unmeasurable cohort)
+  /**
+   * Matched-repo n `overallDelta` was measured over (`rollup.movement.cohortSize`). Null/0 omits
+   * the numeral — a delta without its denominator is unmeasurable, never a silent 0. A tiny
+   * positive n still prints, qualified, so a 1-repo artifact cannot read as a fleet-wide move.
+   */
+  cohortSize?: number | null;
+  gainers: { name: string; delta: number }[];
+  regressers: { name: string; delta: number }[];
+  /**
+   * Within-noise period moves (`OrgMovers.held`). Undefined or empty omits the block — never
+   * "0 held", which would claim a measurement the caller did not take (or took and found none).
+   */
+  held?: { name: string; delta: number }[];
+  /**
+   * Mid-window onboarded repos (`OrgMovers.onboarded`). `delta` is the lifetime move, or null when
+   * only one scan exists (never printed as 0). Undefined or empty omits the block.
+   */
+  onboarded?: { name: string; delta: number | null }[];
+  topRecommendation: { title: string; repoCount: number } | null;
+  /** Corpus percentile (0..100) for the exec digest, or null/undefined when no corpus yet. */
+  percentile?: number | null;
+  /** One-line forecast trajectory headline, or null/undefined when there's too little history. */
+  trajectory?: string | null;
+  /** Prepaid credits remaining, when the org is metered and running low — null/undefined omits the line. */
+  creditsRemaining?: number | null;
+  /**
+   * MOONSHOT #1 — controls observed FAILING in the period, from the control ledger.
+   *
+   * Undefined omits the block entirely (a deployment without the ledger says nothing rather than
+   * "0 controls failed", which would be a claim it cannot support). An empty array is the positive
+   * statement "we looked and none failed" and renders as such.
+   */
+  controlsFailed?: { repo: string; control: string; detail: string }[];
+  /**
+   * THE N THE CONTROLS BLOCK IS STATED WITH (UAT `DANA-L1-015`).
+   *
+   * `control-observations.ts` states the coverage law in as many words: *any surface that prints a
+   * control's state over a period must print its coverage beside it*, because "none failed this week"
+   * read off two observations is a sentence the evidence does not support. The digest is the surface
+   * that law was written for — it is the artifact a leader reads INSTEAD of opening the app, so it is
+   * the one place where an unqualified all-clear is never corrected by the page underneath it.
+   *
+   * Undefined omits the line entirely, on the same three-state terms as `controlsFailed`: a caller
+   * that could not read the ledger says nothing rather than printing a coverage of zero.
+   */
+  controlCoverage?: {
+    /** Distinct (repo, control) pairs observed in the window. */
+    pairs: number;
+    /** Total observations behind the block. */
+    observations: number;
+    /** Largest silent stretch BETWEEN observations across the fleet, or null when no pair had two. */
+    maxGapDays: number | null;
+    /** The read hit the ledger's per-read cap, so `observations` is a FLOOR. Stated, never implied. */
+    truncated: boolean;
+  };
+  /**
+   * Dimensions that have held materially below an earlier reading (`detectStandingRegressions`),
+   * newest concern per repo. Rendered as OBSERVATIONS, never as attributions — the block header says
+   * so in as many words, because the one thing this must not become is the digest guessing at cause.
+   *
+   * Same three-state contract as `controlsFailed`: undefined omits the block (a caller that did not
+   * compute it says nothing rather than "0 concerns"), an empty array is the positive statement
+   * "we looked and nothing is standing down".
+   */
+  standingConcerns?: { repo: string; observation: string; evidence?: string[] }[];
+}
+
+/**
+ * Build a Slack-compatible weekly fleet digest. Pure (no env, no Date). Turns the dashboard's
+ * pull-only aggregates into a push channel: where regressions alert per-repo on a slide, this is the
+ * positive periodic rollup (maturity, top movers, the highest-leverage gap) a leader gets without
+ * opening the app — the habit loop org-analytics products live on.
+ */
+export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
+  // G4: a delta without a positive cohort is unmeasurable — never a silent 0, never an unqualified
+  // "+N this week". Null overallDelta used to be the only "no baseline" path; a number arriving
+  // from deprecated `rollup.deltas` with no n is the same fact and must read as one.
+  const n = d.cohortSize;
+  let delta: string;
+  if (d.overallDelta == null || !isMeasurableDigestCohort(n)) {
+    delta = " (not enough history yet for a week-over-week comparison)";
+  } else {
+    const over = `, measured over ${repositories(n)}`;
+    delta = isWithinNoise(d.overallDelta)
+      ? d.overallDelta === 0
+        ? ` (no change this week${over})`
+        : ` (${signed(d.overallDelta)}, within noise this week${over})`
+      : ` (${signed(d.overallDelta)} this week${over})`;
+  }
+  const headline = `📊 Ascent weekly digest: ${d.org}`;
+  const pctile = d.percentile != null ? ` · ${ordinal(d.percentile)} pctile` : "";
+  const summary = `Fleet maturity *${d.avgOverall}/100* · ${d.level}${delta} · ${d.scannedCount}/${d.repoCount} repos scanned${pctile}`;
+  const gain = (m: { name: string; delta: number }) => `• ${m.name} ${signed(m.delta)}`;
+  const onboardLine = (m: { name: string; delta: number | null }) =>
+    m.delta == null || m.delta === 0 ? `• ${m.name}` : `• ${m.name} ${signed(m.delta)}`;
+
+  // MOONSHOT #1 — the Controls block sits ABOVE the movers, and deliberately: a control that came
+  // off a repo outranks every score delta on the page, and a reader who has to scroll past six
+  // gainers to find it will stop finding it.
+  const controlLine = (c: { repo: string; control: string; detail: string }) => `• ${c.repo} — ${c.control}: ${c.detail}`;
+  const controlsHeading = d.controlsFailed?.length
+    ? `Controls that failed this week (${d.controlsFailed.length}):`
+    : "Controls: none failed this week.";
+  // The coverage law (control-observations.ts): a state asserted over a period travels with its N, or
+  // it is not an assurance statement. It matters MOST under the all-clear — "none failed" off three
+  // observations is the sentence this line exists to qualify.
+  const cov = d.controlCoverage;
+  const coverageLine = cov
+    ? cov.observations === 0
+      ? "Coverage: no control was observed in this window — the all-clear above is not evidence."
+      : `Coverage: ${cov.observations}${cov.truncated ? "+" : ""} observation${cov.observations === 1 ? "" : "s"} across ${cov.pairs} repo/control pair${cov.pairs === 1 ? "" : "s"}` +
+        (cov.maxGapDays == null ? " (a single observation per pair — no gap measurable)." : `, largest gap ${cov.maxGapDays}d.`)
+    : null;
+
+  // Standing concerns sit beside the Controls block and for the same reason: a dimension that has been
+  // down for a month outranks this week's ±3, and a reader who has to scroll past six gainers to find
+  // it will stop finding it. The heading carries the disclaimer so the observation cannot be read as
+  // an attribution even when a line is quoted out of the message.
+  const standingLine = (c: { repo: string; observation: string; evidence?: string[] }) =>
+    [`• ${c.repo} — ${c.observation}`, ...(c.evidence ?? []).map((e) => `    ${e}`)].join("\n");
+  const standingHeading = d.standingConcerns?.length
+    ? `Standing concerns (${d.standingConcerns.length}) — observed, cause not attributed:`
+    : "Standing concerns: none open.";
+
+  const lines: string[] = [headline, summary.replace(/\*/g, "")];
+  if (d.trajectory) lines.push(d.trajectory);
+  if (d.controlsFailed) lines.push("", controlsHeading, ...d.controlsFailed.map(controlLine), ...(coverageLine ? [coverageLine] : []));
+  if (d.standingConcerns) lines.push("", standingHeading, ...d.standingConcerns.map(standingLine));
+  if (d.gainers.length) lines.push("", "Top gainers:", ...d.gainers.map(gain));
+  if (d.regressers.length) lines.push("", "Regressions:", ...d.regressers.map(gain));
+  if (d.held?.length) lines.push("", "Held within noise:", ...d.held.map(gain));
+  if (d.onboarded?.length) lines.push("", "Onboarded this week:", ...d.onboarded.map(onboardLine));
+  if (d.topRecommendation)
+    lines.push("", `Highest-leverage gap: ${d.topRecommendation.title} (affects ${d.topRecommendation.repoCount} repo${d.topRecommendation.repoCount === 1 ? "" : "s"})`);
+  if (d.creditsRemaining != null)
+    lines.push("", `Credits remaining: ${d.creditsRemaining}, top up to keep autoscans flowing`);
+  if (d.url) lines.push("", d.url);
+
+  const blocks: unknown[] = [
+    mrkdwnSection(`*${headline}*\n${summary}${d.trajectory ? `\n_${d.trajectory}_` : ""}`),
+  ];
+  if (d.controlsFailed)
+    blocks.push(
+      mrkdwnSection(
+        (d.controlsFailed.length
+          ? `*${controlsHeading}*\n${d.controlsFailed.map(controlLine).join("\n")}`
+          : `_${controlsHeading}_`) + (coverageLine ? `\n_${coverageLine}_` : ""),
+      ),
+    );
+  if (d.standingConcerns)
+    blocks.push(
+      mrkdwnSection(
+        d.standingConcerns.length
+          ? `*${standingHeading}*\n${d.standingConcerns.map(standingLine).join("\n")}`
+          : `_${standingHeading}_`,
+      ),
+    );
+  const mv: string[] = [];
+  if (d.gainers.length) mv.push(`*Top gainers:*\n${d.gainers.map(gain).join("\n")}`);
+  if (d.regressers.length) mv.push(`*Regressions:*\n${d.regressers.map(gain).join("\n")}`);
+  if (d.held?.length) mv.push(`*Held within noise:*\n${d.held.map(gain).join("\n")}`);
+  if (d.onboarded?.length) mv.push(`*Onboarded this week:*\n${d.onboarded.map(onboardLine).join("\n")}`);
+  if (mv.length) blocks.push(mrkdwnSection(mv.join("\n\n")));
+  if (d.topRecommendation)
+    blocks.push(
+      mrkdwnSection(
+        `*Highest-leverage gap:* ${d.topRecommendation.title} _(affects ${d.topRecommendation.repoCount} repo${d.topRecommendation.repoCount === 1 ? "" : "s"})_`,
+      ),
+    );
+  if (d.creditsRemaining != null)
+    blocks.push(mrkdwnSection(`*Credits remaining:* ${d.creditsRemaining}, top up to keep autoscans flowing`));
+  if (d.url) blocks.push(linkContext(d.url, "Open the dashboard"));
+  return { text: lines.join("\n"), blocks };
+}
+
+/** Inputs for a prepaid-credit lifecycle alert (low-water crossing or depletion). */
+export interface LowCreditsInput {
+  org: string;
+  /** Balance after the debit that triggered the alert. */
+  balance: number;
+  /** The configured low-water mark the balance just landed on. */
+  threshold: number;
+  /** Link to the org dashboard (where the credits control lives), when a public base is known. */
+  url?: string;
+}
+
+const DEFAULT_CREDITS_ALERT_THRESHOLD = 5;
+
+/** Low-water mark for credit alerts: CREDITS_ALERT_THRESHOLD (non-negative integer), default 5.
+ *  A blank/missing var means "default", never 0 — same blank-vs-zero rule as the cost rates. */
+export function creditsAlertThreshold(): number {
+  const raw = process.env.CREDITS_ALERT_THRESHOLD;
+  if (raw == null || raw.trim() === "") return DEFAULT_CREDITS_ALERT_THRESHOLD;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : DEFAULT_CREDITS_ALERT_THRESHOLD;
+}
+
+/**
+ * Whether a debit that moved the balance from `balanceBefore` to `balanceAfter` CROSSED an alert
+ * line (the low-water threshold, or depletion at 0). Pure, range-based: a crossing happens when the
+ * balance was strictly above the line before and at/below it after — so each line fires at most once
+ * per descent, with no dedupe state, and the predicate no longer depends on the unenforced
+ * cross-module invariant that debits are unit-sized (the old `balanceAfter === threshold` equality
+ * silently never fired if any future bulk debit stepped OVER the line). A non-debit observation
+ * (grant/refund/no-op) never alerts. (ambiguity-ui 2026-07-16 #3)
+ */
+export function isLowCreditsCrossing(balanceBefore: number, balanceAfter: number, threshold: number): boolean {
+  if (balanceAfter >= balanceBefore) return false; // not a debit — a grant/refund/top-up never alerts
+  return (balanceBefore > threshold && balanceAfter <= threshold) || (balanceBefore > 0 && balanceAfter <= 0);
+}
+
+/**
+ * Build a Slack-compatible low-credits / depleted-balance alert. Pure (no env, no Date). Running
+ * out of credits is a prepaid model's silent churn moment — autoscans stop and the trends the org
+ * paid for flatline — so the crossing gets a proactive push through the same sink as regressions
+ * and the weekly digest.
+ */
+export function buildLowCreditsMessage(d: LowCreditsInput): AlertMessage {
+  const depleted = d.balance <= 0;
+  const headline = depleted
+    ? `🪫 Ascent: ${d.org} is out of scan credits`
+    : `🪫 Ascent: ${d.org} is low on scan credits (${d.balance} left)`;
+  const body = depleted
+    ? "Private scans (manual and scheduled) are paused until the balance is topped up; maturity trends stop updating."
+    : `The prepaid balance just hit the low-water mark (${d.threshold}). Top up before it runs out to keep scheduled scans flowing.`;
+
+  const textParts = [headline, body];
+  if (d.url) textParts.push("", d.url);
+  const blocks: unknown[] = [mrkdwnSection(`*${headline}*\n${body}`)];
+  if (d.url) blocks.push(linkContext(d.url, "Manage credits"));
+  return { text: textParts.join("\n"), blocks };
+}
+
+// --- G7-03: the three trigger classes the alert layer could always compute and never pushed ---------
+// Goal-at-risk, a security flip, and a spend anomaly were each "open the dashboard and notice a number"
+// gaps on the product's one push channel. All three are PURE builders in the buildRegressionMessage
+// family (plain-text fallback + Block Kit sections + a link), so they inherit the email rendering, the
+// per-org sink routing and the dispatch deadline for free. Detection helpers live beside them so the
+// "is this worth a push" decision is unit-tested rather than restated at each call site.
+
+/** One goal's standing, in the shape the pace fields of GoalProgress already provide. */
+export interface GoalRisk {
+  label: string;
+  metricLabel: string;
+  current: number;
+  target: number;
+  targetDate: string | null;
+  /** Weekly gain still needed to hit the target by the deadline, when computable. */
+  requiredPerWeek: number | null;
+  /** Current weekly rate of change. */
+  perWeek: number;
+}
+
+export interface GoalAtRiskInput {
+  org: string;
+  url?: string;
+  goals: GoalRisk[];
+}
+
+/**
+ * Build the goal-at-risk push. Fires on goals the plan layer already marks `pace: "behind"` — the one
+ * fact a leader currently has to remember to go looking for. Pure.
+ */
+export function buildGoalAtRiskMessage(d: GoalAtRiskInput): AlertMessage {
+  const n = d.goals.length;
+  const headline = `${SEV_EMOJI.warning} Ascent: ${n} goal${n === 1 ? "" : "s"} off pace in ${d.org}`;
+  const line = (g: GoalRisk) => {
+    const by = g.targetDate ? ` by ${g.targetDate}` : "";
+    const need =
+      g.requiredPerWeek != null
+        ? `: needs ${signed(Math.round(g.requiredPerWeek * 10) / 10)}/wk, running at ${signed(Math.round(g.perWeek * 10) / 10)}/wk`
+        : `: running at ${signed(Math.round(g.perWeek * 10) / 10)}/wk`;
+    return `• ${g.label}: ${g.metricLabel} ${g.current}/${g.target}${by}${need}`;
+  };
+  const lines = d.goals.map(line);
+  const textParts = [headline, ...lines];
+  if (d.url) textParts.push("", d.url);
+  const blocks: unknown[] = [mrkdwnSection(`*${headline}*`), mrkdwnSection(lines.join("\n"))];
+  if (d.url) blocks.push(linkContext(d.url, "Open the plan"));
+  return { text: textParts.join("\n"), blocks };
+}
+
+/** A security event worth interrupting someone for: a fresh critical advisory or a gate pass→fail flip. */
+export interface SecurityAlertItem {
+  repo: string;
+  /** One-line description ("2 new critical advisories", "Branch protection gate flipped to FAIL"). */
+  detail: string;
+  kind: "advisory" | "gate";
+}
+
+export interface SecurityAlertInput {
+  org: string;
+  url?: string;
+  items: SecurityAlertItem[];
+}
+
+/**
+ * Build the security push. `critical` severity: a new critical advisory or a governance gate flipping
+ * pass→fail is the class of change a team wants to hear about the same day, not next Monday. Pure.
+ */
+export function buildSecurityAlertMessage(d: SecurityAlertInput): AlertMessage {
+  const n = d.items.length;
+  const headline = `${SEV_EMOJI.critical} Ascent: security standing dropped in ${d.org}`;
+  const summary = `${n} repo${n === 1 ? "" : "s"} crossed a security line since the last check.`;
+  const lines = d.items.map((i) => `• ${i.repo}: ${i.detail}`);
+  const textParts = [headline, summary, ...lines];
+  if (d.url) textParts.push("", d.url);
+  const blocks: unknown[] = [mrkdwnSection(`*${headline}*\n${summary}`), mrkdwnSection(lines.join("\n"))];
+  if (d.url) blocks.push(linkContext(d.url, "Open governance"));
+  return { text: textParts.join("\n"), blocks };
+}
+
+// ── MOONSHOT #1 — the CONTROL push ───────────────────────────────────────────────────────────────
+//
+// Distinct from the security push above, which is a D9 SCORE movement. This one says a NAMED control
+// changed state, with the value either side and — when a webhook observed it — who did it.
+//
+// The `source` field is load-bearing for the reader, not decoration. A `probe` transition was
+// re-read from GitHub seconds after an event; a `scan` one was noticed at the scan's cadence and may
+// be hours old; a `conformance` one came from the repo's own doctor run (W1-A #16). An examiner asks
+// which, and a message that flattens the three would be asserting a freshness it cannot support.
+
+export type ControlAlertCode = "control-failed" | "control-restored" | "control-unmeasurable";
+
+export interface ControlAlertItem {
+  repo: string;
+  /** Catalogue id, or a doctor check id when `source: "conformance"`. */
+  controlId: string;
+  /** Human label; falls back to `controlId` at the call site. */
+  label?: string;
+  code: ControlAlertCode;
+  from: string;
+  to: string;
+  /** Values either side. Rendered only when they add something the states do not (2 → 0 approvals). */
+  fromValue?: string | null;
+  toValue?: string | null;
+  source: "scan" | "probe" | "webhook" | "conformance";
+  /** GitHub login, webhook-observed only. NEVER fabricated for scan/probe/conformance. */
+  actorLogin?: string | null;
+}
+
+export interface ControlAlertInput {
+  org: string;
+  url?: string;
+  items: ControlAlertItem[];
+}
+
+const CONTROL_VERB: Record<ControlAlertCode, string> = {
+  "control-failed": "failed",
+  "control-restored": "was restored",
+  "control-unmeasurable": "became unreadable",
+};
+
+/**
+ * Build the control push. Pure — no env, no clock.
+ *
+ * Severity is the MAX over the items, and the three codes do not mix loudness by accident: a batch
+ * containing one `control-failed` is critical even if the other nine are restorations. A batch of
+ * ONLY `control-unmeasurable` items is `info`, and `scan-alerts.ts` does not dispatch it to a sink —
+ * losing a read is a fact for the record, not a page.
+ */
+export function buildControlAlertMessage(d: ControlAlertInput): AlertMessage {
+  const failed = d.items.filter((i) => i.code === "control-failed").length;
+  const severity: AlertSeverity = failed > 0 ? "critical" : d.items.some((i) => i.code === "control-restored") ? "celebration" : "warning";
+  const emoji = failed > 0 ? SEV_EMOJI.critical : severity === "celebration" ? SEV_EMOJI.celebration : "👁️";
+  const headline =
+    failed > 0
+      ? `${emoji} Ascent: a control stopped operating in ${d.org}`
+      : severity === "celebration"
+        ? `${emoji} Ascent: a control was restored in ${d.org}`
+        : `${emoji} Ascent: a control became unreadable in ${d.org}`;
+  const n = d.items.length;
+  const summary = `${n} control change${n === 1 ? "" : "s"} observed${failed > 0 ? `, ${failed} failing` : ""}.`;
+
+  const line = (i: ControlAlertItem) => {
+    const name = i.label ?? i.controlId;
+    // The values are printed only when they carry information the states do not — "2 → 0" explains a
+    // required-approvals failure that "pass → fail" alone leaves abstract.
+    const values = i.fromValue != null && i.toValue != null && i.fromValue !== i.toValue ? ` (${i.fromValue} → ${i.toValue})` : "";
+    // The actor is named ONLY when one was observed. "by unknown" would be noise; silence here means
+    // no webhook carried an actor, which is the honest reading of a probe- or scan-sourced row.
+    const who = i.actorLogin ? ` by ${i.actorLogin}` : "";
+    return `• ${i.repo} — ${name} ${CONTROL_VERB[i.code]}${values}${who} · observed via ${i.source}`;
+  };
+
+  const lines = d.items.map(line);
+  const textParts = [headline, summary, ...lines];
+  if (d.url) textParts.push("", d.url);
+  const blocks: unknown[] = [mrkdwnSection(`*${headline}*\n${summary}`), mrkdwnSection(lines.join("\n"))];
+  if (d.url) blocks.push(linkContext(d.url, "Open governance"));
+  return { text: textParts.join("\n"), blocks };
+}
+
+/** The severity a batch of control items should be recorded at. Exported so the dispatcher and the
+ *  AlertEvent row agree without re-deriving the rule. */
+export function controlAlertSeverity(items: readonly ControlAlertItem[]): "critical" | "celebration" | "info" {
+  if (items.some((i) => i.code === "control-failed")) return "critical";
+  if (items.some((i) => i.code === "control-restored")) return "celebration";
+  return "info";
+}
+
+/** Cooldown key for a control push. Per (repo, control) so a branch-protection flip is never starved
+ *  by a score push that already consumed the repo's generic regression slot, and so two different
+ *  controls failing on the same repo both get through. */
+export function controlCooldownKey(repoFullName: string, controlId: string): string {
+  return `${repoFullName}#control:${controlId}`;
+}
+
+export interface SpendAnomalyInput {
+  org: string;
+  url?: string;
+  /** Metered scans (or cost basis units) in the period that tripped the alert. */
+  periodScans: number;
+  /** Trailing per-period average the current period is measured against. */
+  baseline: number;
+  /** Ratio current/baseline, e.g. 2.4. */
+  ratio: number;
+  /**
+   * Estimated USD for the period ACROSS EVERY INFERENCE LANE, when the usage layer could price it.
+   *
+   * MC-B32: this used to be fed `UsageSummary.estimatedCostUsd`, which prices the SCAN lane alone —
+   * the same understatement MC-B12 fixed on the `/usage` headline tile, left behind in the one place
+   * that pushes a number at an operator who is not looking at the page. The digest now sends
+   * `allLanesCostUsd`, so the alert and the page it links to state the same figure.
+   */
+  estimatedCostUsd?: number | null;
+  /** Calls in the period that no basis could price. Non-zero makes `estimatedCostUsd` a FLOOR, and
+   *  the message says so — the same disclosure the lane rows and the headline tile carry. */
+  unpricedCalls?: number;
+}
+
+/** Default multiple of the trailing average that counts as a spend anomaly. */
+const DEFAULT_SPEND_ANOMALY_RATIO = 2;
+/** Below this many scans in the period, a ratio is meaningless (1 → 3 is not an anomaly). */
+const SPEND_ANOMALY_MIN_SCANS = 10;
+
+/**
+ * SPEND_ANOMALY_RATIO (a number > 1), default 2 — the multiple of the trailing average that trips the
+ * alert. Blank/missing → the default, never 0 (the blank-vs-zero rule the cost rates use).
+ */
+export function spendAnomalyRatio(): number {
+  const raw = process.env.SPEND_ANOMALY_RATIO;
+  if (raw == null || raw.trim() === "") return DEFAULT_SPEND_ANOMALY_RATIO;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 1 ? n : DEFAULT_SPEND_ANOMALY_RATIO;
+}
+
+/**
+ * Is this period's metered volume an anomaly against its trailing baseline? Pure. Deliberately
+ * one-sided (a DROP in spend is not a page) and floored at SPEND_ANOMALY_MIN_SCANS so a fleet doing
+ * single-digit scans can't trip a "3× spend" alert on two extra runs. A zero baseline with real volume
+ * counts — first spend on a previously idle org is exactly the surprise this exists to catch.
+ */
+export function isSpendAnomaly(periodScans: number, baseline: number, ratio: number = spendAnomalyRatio()): boolean {
+  if (periodScans < SPEND_ANOMALY_MIN_SCANS) return false;
+  if (baseline <= 0) return true;
+  return periodScans / baseline >= ratio;
+}
+
+/** Build the spend-anomaly push. Pure. */
+export function buildSpendAnomalyMessage(d: SpendAnomalyInput): AlertMessage {
+  const headline = `${SEV_EMOJI.warning} Ascent: scan spend spiked in ${d.org}`;
+  const mult = d.baseline > 0 ? `${(Math.round(d.ratio * 10) / 10).toFixed(1)}×` : "no prior";
+  const body =
+    d.baseline > 0
+      ? `${d.periodScans} metered scans this period vs a ${Math.round(d.baseline)} trailing average (${mult}).`
+      : `${d.periodScans} metered scans this period, against no prior activity.`;
+  // "All lanes" is stated, not implied: a FinOps reader who reconciles this against an invoice must
+  // know whether the figure covers scans alone. The unpriced count makes it readable as a floor.
+  const floor =
+    d.unpricedCalls && d.unpricedCalls > 0
+      ? ` (a floor: ${d.unpricedCalls.toLocaleString()} call${d.unpricedCalls === 1 ? "" : "s"} could not be priced)`
+      : "";
+  const cost =
+    d.estimatedCostUsd != null
+      ? `Estimated inference cost this period, all lanes: $${d.estimatedCostUsd.toFixed(2)}${floor}.`
+      : null;
+  const textParts = [headline, body];
+  if (cost) textParts.push(cost);
+  if (d.url) textParts.push("", d.url);
+  const blocks: unknown[] = [mrkdwnSection(`*${headline}*\n${body}${cost ? `\n${cost}` : ""}`)];
+  if (d.url) blocks.push(linkContext(d.url, "Open usage"));
+  return { text: textParts.join("\n"), blocks };
+}
+
+/**
+ * Build the "test alert" message an admin sends to confirm their sink is wired up. Pure — the same
+ * shape as the other builders (plain-text fallback + a single Block-Kit section), so the test send
+ * stops hand-assembling Block Kit inside the API route and joins the unit-tested builder family.
+ */
+export function buildTestAlertMessage(org: string): AlertMessage {
+  const headline = `✅ Ascent test alert for ${org}`;
+  const body = "If you can read this in your channel, alert routing works. Regression, low-credit and weekly-digest alerts will arrive here.";
+  return {
+    text: `${headline}\n${body}`,
+    blocks: [mrkdwnSection(`*${headline}*\n${body}`)],
+  };
+}
+
+export {
+  type AlertSeverity, type RegressionReason, type RegressionVerdict, type RegressionThresholds,
+  type PromotionReason, type PromotionVerdict, type StandingScanPoint, type StandingConcern,
+  DEFAULT_THRESHOLDS, detectRegression, detectPromotion,
+  STANDING_REGRESSION_DROP, STANDING_REGRESSION_SCANS, STANDING_REGRESSION_LOOKBACK,
+  detectStandingRegressions,
+} from "./alerts-detection";

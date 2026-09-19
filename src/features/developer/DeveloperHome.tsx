@@ -1,0 +1,84 @@
+"use client";
+
+// The Developer route's client root (docs/REGISTRY-AND-CARE-IMPL.md §5.3).
+//
+// ROUTING INSIDE THE MODULE IS REACT STATE, NOT SEARCH PARAMS. The old prototype selected fixtures
+// with `?demo=`, which made a preview a shareable URL and a bookmarkable lie. The whole switching
+// surface — today just "preview as", tomorrow section focus and board filters — lives in `useState`
+// here; the server hands down ONE real view model and never reads a demo param.
+//
+// The preview control is a dev/preview affordance and appears ONLY on a true empty view (`absent` or
+// `signed-out`, plus nothing shared / no moves / no repos). Withheld and unreadable still have
+// `activity: null` but they are not invitations: the strip already names those states, and Preview-as
+// must not overwrite them with "nothing of yours has landed here yet".
+//
+// The fixtures themselves are loaded with a dynamic `import()` at the moment one is chosen. They are
+// sample data for an affordance most viewers never touch; a static import shipped all of it to every
+// visitor of the page.
+
+import { useState } from "react";
+import { Kicker } from "@/components/ui";
+import { CarePreviewBanner } from "./CarePreviewBanner";
+import { DeveloperCompanion } from "./DeveloperCompanion";
+import { DEVELOPER_PREVIEW_STATES, type DeveloperView } from "@/lib/org/developer-view";
+
+/** True empty invitation: absent or signed-out, and nothing of the developer's own in the care half. */
+function isBlank(view: DeveloperView): boolean {
+  if (view.activityState !== "absent" && view.activityState !== "signed-out") return false;
+  return !view.activity && !view.profile.sharedAt && view.moves.length === 0 && view.myRepos.length === 0;
+}
+
+const tabClass = (active: boolean) =>
+  `focus-ring rounded-md px-2.5 py-1.5 type-mono-sm transition-colors ${
+    active ? "bg-surface text-slate-200" : "text-slate-500 hover:text-slate-200"
+  }`;
+
+export function DeveloperHome({ view, slug }: { view: DeveloperView; slug: string }) {
+  const [preview, setPreview] = useState<{ name: string; view: DeveloperView } | null>(null);
+
+  async function choose(name: string | null) {
+    if (name === null) {
+      setPreview(null);
+      return;
+    }
+    const { developerFixture } = await import("@/lib/org/developer-view.fixture");
+    const fixture = developerFixture(name, view.login);
+    setPreview(fixture ? { name, view: fixture } : null);
+  }
+
+  return (
+    <div className="space-y-6">
+      {isBlank(view) && (
+        <div className="rounded-2xl border border-divider bg-surface/40 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-1">
+            <Kicker tone="muted" className="mr-3">
+              Preview as
+            </Kicker>
+            <button type="button" aria-pressed={preview === null} onClick={() => choose(null)} className={tabClass(preview === null)}>
+              your view
+            </button>
+            {DEVELOPER_PREVIEW_STATES.map((p) => (
+              <button
+                key={p}
+                type="button"
+                aria-pressed={preview?.name === p}
+                onClick={() => choose(p)}
+                className={tabClass(preview?.name === p)}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 type-body-sm text-slate-500">
+            Nothing of yours has landed here yet. These are shaped examples, stamped as previews — they are not
+            anyone&apos;s data, and switching away from &quot;your view&quot; never writes anything.
+          </p>
+        </div>
+      )}
+
+      {preview ? <CarePreviewBanner name={preview.name} onExit={() => choose(null)} /> : null}
+
+      <DeveloperCompanion view={preview?.view ?? view} slug={slug} />
+    </div>
+  );
+}

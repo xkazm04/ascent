@@ -1,0 +1,97 @@
+// LOCAL MODE autopilot control (POST start is self-hosted + ASCENT_AUTOPILOT=1 only).
+//
+//   GET  ?org=…                                → { enabled, job } (the band's poll; reconciles stale
+//                                                 loop runs first, like GET /api/org/loop). Served on
+//                                                 managed cloud too — a remote single-repo run is
+//                                                 visible here the same way the loop GET is.
+//   POST { org, action:"start", fullName, maxCycles? } → arm a LOCAL run (owner-gated, self-hosted)
+//   POST { org, action:"stop" }                → cooperative stop (owner-gated, self-hosted)
+//
+// OWNER for both writes: starting spawns an editing agent inside a paired working copy — the same
+// blast radius as pairing itself. The GET is member-visible like every other war-room read.
+// The consent flag is checked HERE too (not only in the agent runner) so a disabled deployment
+// answers an honest 409 with the fix, instead of arming a job whose first agent call refuses.
+
+import { NextResponse } from "next/server";
+import { PUBLIC_ORG } from "@/lib/auth";
+import { requireOrgAccess, requireOrgRole } from "@/lib/authz";
+import { dbGuard } from "@/lib/api/orgPlan";
+import { selfHostGuard } from "@/lib/api/self-host";
+import { markStaleRunsStopped } from "@/lib/db/loop-runs";
+import { autopilotEnabled } from "@/lib/local/agent";
+import { MAX_CYCLES_CAP, getAutopilotJob, requestAutopilotStop, startAutopilot } from "@/lib/local/autopilot";
+import { isLoopRunLive } from "@/lib/local/loop-engine";
+import { getRepoLocalPath } from "@/lib/db";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function GET(request: Request) {
+  // THE READ IS NO LONGER SELF-HOSTED-ONLY (moonshot #3), and the old reasoning is what changed
+  // rather than being overruled. `selfHostGuard` 404'd here because on managed cloud the surface did
+  // not exist, and a 403 would have advertised a feature the deployment could not run. A cloud org
+  // can now arm a `remote-agent` run, so 404ing this poll would hide a remote single-repo job from
+  // the band that is supposed to render it. What is still honest is `enabled`, which stays
+  // `autopilotEnabled()` — the answer to "can this deployment run a LOCAL autopilot", which on cloud
+  // is still no. The write path keeps the guard for exactly the executor that needs it.
+  const org = new URL(request.url).searchParams.get("org")?.trim().toLowerCase() ?? "";
+  if (!org || org === PUBLIC_ORG) return NextResponse.json({ error: "Missing 'org'." }, { status: 400 });
+  const denied = await requireOrgAccess(org);
+  if (denied) return denied;
+  // Reconcile before reading: a run left `running` by a process that died is not resumable, and
+  // rendering it as active would leave the band spinning on a job nobody is driving. A run THIS
+  // process is driving is not stale — without the predicate this GET would stop the run it was
+  // rendering (same 2026-08-26 bug as GET /api/org/loop).
+  await markStaleRunsStopped(org, isLoopRunLive).catch(() => 0);
+  return NextResponse.json({ enabled: autopilotEnabled(), job: await getAutopilotJob(org) });
+}
+
+export async function POST(request: Request) {
+  // START stays self-hosted: this route's only executor is the local one. Loop POST skips the
+  // guard for `remote-agent`; this door never arms that, so the guard stays on every write.
+  const guard = selfHostGuard() ?? dbGuard("Autopilot", "The autopilot requires a database.");
+  if (guard) return guard;
+
+  const body = (await request.json().catch(() => ({}))) as {
+    org?: unknown;
+    action?: unknown;
+    fullName?: unknown;
+    maxCycles?: unknown;
+  };
+  const org = typeof body.org === "string" ? body.org.trim().toLowerCase() : "";
+  const action = body.action === "start" || body.action === "stop" ? body.action : null;
+  if (!org || !action) return NextResponse.json({ error: "Missing 'org' or 'action'." }, { status: 400 });
+  if (org === PUBLIC_ORG) return NextResponse.json({ error: "The public funnel org has no autopilot." }, { status: 403 });
+
+  const denied = await requireOrgRole(org, "owner");
+  if (denied) return denied;
+
+  if (action === "stop") {
+    const stopped = await requestAutopilotStop(org);
+    return NextResponse.json({ ok: stopped, job: await getAutopilotJob(org) }, { status: stopped ? 200 : 409 });
+  }
+
+  if (!autopilotEnabled()) {
+    return NextResponse.json(
+      { error: "Autopilot is not enabled on this deployment — set ASCENT_AUTOPILOT=1 (and make sure the claude CLI is available)." },
+      { status: 409 },
+    );
+  }
+  const fullName = typeof body.fullName === "string" ? body.fullName.trim() : "";
+  if (!fullName) return NextResponse.json({ error: "Missing 'fullName'." }, { status: 400 });
+  const path = await getRepoLocalPath(org, fullName);
+  if (!path) {
+    return NextResponse.json({ error: `${fullName} is not paired with a local path — pair it on Admin → Pairing.` }, { status: 409 });
+  }
+  const maxCycles = typeof body.maxCycles === "number" && Number.isFinite(body.maxCycles) ? Math.round(body.maxCycles) : 3;
+  if (maxCycles < 1 || maxCycles > MAX_CYCLES_CAP) {
+    return NextResponse.json({ error: `maxCycles must be 1–${MAX_CYCLES_CAP}.` }, { status: 400 });
+  }
+
+  try {
+    const job = await startAutopilot({ org, repo: fullName, path, maxCycles });
+    return NextResponse.json({ ok: true, job });
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : "Could not start the autopilot." }, { status: 409 });
+  }
+}

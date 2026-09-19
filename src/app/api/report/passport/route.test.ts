@@ -1,0 +1,109 @@
+// Route test for /api/report/passport (Passport P1). Pins the disclosure boundary the route owns: the
+// owning org is resolved from the repo owner, then the read is gated exactly like the report exports —
+// a denied (private) read returns the gate verbatim and NEVER reads the passport. Plus the 400/404/503
+// envelope and the optional download header. next/server is faked; db/auth/authz are mocked.
+
+import { describe, it, expect, beforeEach, vi } from "vitest";
+
+vi.mock("next/server", () => ({
+  NextResponse: class extends Response {
+    static json(body: unknown, init?: { status?: number }) {
+      return new Response(JSON.stringify(body), { status: init?.status ?? 200, headers: { "content-type": "application/json" } });
+    }
+  },
+}));
+
+const h = vi.hoisted(() => ({
+  isDbConfigured: vi.fn(),
+  getRepoPassport: vi.fn(),
+  readableOrgForOwner: vi.fn(),
+  requireOrgRead: vi.fn(),
+}));
+vi.mock("@/lib/db", () => ({ isDbConfigured: h.isDbConfigured, getRepoPassport: h.getRepoPassport }));
+vi.mock("@/lib/auth", () => ({ readableOrgForOwner: h.readableOrgForOwner }));
+vi.mock("@/lib/authz", () => ({ requireOrgRead: h.requireOrgRead }));
+
+import { GET } from "./route";
+
+const req = (qs: string) => new Request(`http://t/api/report/passport${qs}`);
+const samplePassport = {
+  passport: "app-passport",
+  // Current PASSPORT_VERSION, so the export path is a pass-through here and the migration behaviour is
+  // pinned by the 0.1.0 case below instead.
+  passportVersion: "0.4.0",
+  identity: { name: "web" },
+  automationReadiness: { level: "L4", artifacts: { memory: "curated", skills: "none" } },
+  productionReadiness: { band: "beta" },
+};
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  h.isDbConfigured.mockReturnValue(true);
+  h.readableOrgForOwner.mockResolvedValue("acme");
+  h.requireOrgRead.mockResolvedValue(null); // allowed
+  h.getRepoPassport.mockResolvedValue(samplePassport);
+});
+
+describe("GET /api/report/passport", () => {
+  it("503 when DB off", async () => {
+    h.isDbConfigured.mockReturnValue(false);
+    expect((await GET(req("?repo=acme/web"))).status).toBe(503);
+  });
+
+  it("400 on missing / malformed repo", async () => {
+    expect((await GET(req(""))).status).toBe(400);
+    expect((await GET(req("?repo=notarepo"))).status).toBe(400);
+  });
+
+  it("gates the read on the owning org — a DENIED private read returns the gate verbatim, no passport read", async () => {
+    h.requireOrgRead.mockResolvedValue(Response.json({ error: "no access" }, { status: 403 }));
+    const res = await GET(req("?repo=acme/web"));
+    expect(res.status).toBe(403);
+    expect(h.readableOrgForOwner).toHaveBeenCalledWith("acme");
+    expect(h.getRepoPassport).not.toHaveBeenCalled();
+  });
+
+  it("404 when the repo has no stored passport", async () => {
+    h.getRepoPassport.mockResolvedValue(null);
+    expect((await GET(req("?repo=acme/web"))).status).toBe(404);
+  });
+
+  it("returns the passport JSON on the happy path (passing the resolved org + sha)", async () => {
+    const res = await GET(req("?repo=acme/web@abc123"));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(samplePassport);
+    expect(h.getRepoPassport).toHaveBeenCalledWith("acme", "web", { orgSlug: "acme", headSha: "abc123" });
+    expect(res.headers.get("content-disposition")).toBeNull(); // no download by default
+  });
+
+  it("lifts a stored 0.1.0 row to the current shape on export, tagged so the grade isn't read as assessed", async () => {
+    h.getRepoPassport.mockResolvedValue({
+      passport: "app-passport",
+      passportVersion: "0.1.0",
+      identity: { name: "web" },
+      automationReadiness: { level: "L3", artifacts: { memory: true, skills: false } },
+      productionReadiness: { band: "beta" },
+      evidence: { confidence: 0.6, source: "static-scan", files: [] },
+    });
+    const body = (await (await GET(req("?repo=acme/web"))).json()) as {
+      passportVersion: string;
+      migratedFrom?: string;
+      automationReadiness: { artifacts: { memory: string; skills: string } };
+      evidence: { notes?: string[] };
+      autonomy?: { tier: string };
+    };
+    expect(body.passportVersion).toBe("0.4.0");
+    expect(body.migratedFrom).toBe("0.1.0");
+    expect(body.automationReadiness.artifacts).toEqual({ memory: "adhoc", skills: "none" });
+    expect(body.evidence.notes?.length).toBeGreaterThan(0);
+    // 0.3.0 lift: old rows get an autonomy tier read-time, without a rescan.
+    expect(body.autonomy?.tier).toBe("T0");
+    // 0.4.0 lift: blockers gain minted ids (this row had none, so the lists are empty, not fabricated).
+    expect((body as unknown as { productionReadiness: { findings?: unknown[] } }).productionReadiness.findings).toEqual([]);
+  });
+
+  it("sets a sanitized download filename with ?download", async () => {
+    const res = await GET(req("?repo=acme/web&download"));
+    expect(res.headers.get("content-disposition")).toBe('attachment; filename="acme-web.passport.json"');
+  });
+});

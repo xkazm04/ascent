@@ -1,0 +1,263 @@
+// Pins the single-repo PR-write tenant gate (practices-governance #2). /api/practices/apply opens a
+// DRAFT PR (a WRITE) into a customer repo using the org installation token, so the load-bearing
+// safety properties are: (a) a caller without at least the "admin" role is DENIED (the cross-tenant
+// write IDOR guard, and — since G2-01 — the least-privilege guard: a plain "member" is NOT enough for
+// an action of this blast radius) and NO PR-write / token mint happens; (b) an unauthenticated session
+// is 401'd before any write; (c) a missing installation is 403'd; (d) the authorized (admin/owner)
+// happy path opens exactly one PR and audit-logs it; (e) the 409 "file already exists on base"
+// AppApiError surfaces as 409 (the won't-overwrite-real-content guard). The GitHub-App / DB / write
+// boundaries are mocked — no real PR.
+
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+vi.mock("next/server", () => ({
+  NextResponse: class {
+    static json(body: unknown, init?: ResponseInit) {
+      return Response.json(body, init);
+    }
+  },
+}));
+
+// Real GitHubError class + real parseRepoUrl; fetchRepoContext stubbed. Class is defined INSIDE the
+// factory because vi.mock is hoisted above top-level declarations.
+vi.mock("@/lib/github/source", () => ({
+  GitHubError: class GitHubError extends Error {
+    constructor(
+      public readonly code: string,
+      message: string,
+      readonly status?: number,
+    ) {
+      super(message);
+      this.name = "GitHubError";
+    }
+  },
+  parseRepoUrl: (input: string) => {
+    const parts = String(input || "").split("/").filter(Boolean);
+    if (parts.length < 2) return null;
+    const [owner, repo] = parts;
+    if (!/^[A-Za-z0-9_.-]+$/.test(owner!) || !/^[A-Za-z0-9_.-]+$/.test(repo!)) return null;
+    return { owner, repo };
+  },
+  fetchRepoContext: vi.fn(async (ref: { owner: string; repo: string }) => ({
+    fullName: `${ref.owner}/${ref.repo}`,
+    primaryLanguage: "TypeScript",
+  })),
+}));
+
+vi.mock("@/lib/practice-artifact", () => ({
+  buildArtifact: vi.fn(() => ({
+    branch: "ascent/seed-practice",
+    path: "AGENTS.md",
+    body: "# starter",
+    commitMessage: "seed",
+    prTitle: "Seed practice",
+    prBody: "body",
+  })),
+}));
+
+vi.mock("@/lib/github/write", () => ({
+  openDraftPr: vi.fn(async () => ({ url: "https://github.com/pr/1", number: 1, reused: false })),
+}));
+
+// Real AppApiError class (route catch does `instanceof AppApiError`), defined inside the factory.
+vi.mock("@/lib/github/app", () => ({
+  AppApiError: class AppApiError extends Error {
+    constructor(
+      readonly status: number,
+      readonly path: string,
+      readonly body: string,
+    ) {
+      super(`GitHub App API ${status}`);
+      this.name = "AppApiError";
+    }
+  },
+  getInstallationToken: vi.fn(async () => "installation-token"),
+  isAppConfigured: () => true,
+}));
+
+vi.mock("@/lib/db", () => ({
+  getInstallationIdForOwner: vi.fn(async () => "inst-1"),
+  getOrgId: vi.fn(async () => "org-1"),
+  isDbConfigured: () => true,
+  recordAudit: vi.fn(async () => {}),
+  recordPracticePr: vi.fn(async () => true),
+}));
+
+vi.mock("@/lib/auth", () => ({
+  getSession: vi.fn(async () => ({ login: "alice" })),
+  isAuthConfigured: () => true,
+}));
+
+vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn(async () => null) }));
+
+import { POST } from "./route";
+import { artifactFingerprint } from "@/lib/practices/fingerprint";
+import { openDraftPr } from "@/lib/github/write";
+import { fetchRepoContext } from "@/lib/github/source";
+import { AppApiError, getInstallationToken } from "@/lib/github/app";
+import { getInstallationIdForOwner, recordAudit, recordPracticePr } from "@/lib/db";
+import { getSession } from "@/lib/auth";
+import { requireOrgRole } from "@/lib/authz";
+
+const mockOpenPr = vi.mocked(openDraftPr);
+const mockFetchCtx = vi.mocked(fetchRepoContext);
+const mockToken = vi.mocked(getInstallationToken);
+const mockInstallId = vi.mocked(getInstallationIdForOwner);
+const mockRecordAudit = vi.mocked(recordAudit);
+const mockSession = vi.mocked(getSession);
+const mockRequireOrgRole = vi.mocked(requireOrgRole);
+
+function run(body: Record<string, unknown>) {
+  return POST(
+    new Request("http://localhost/api/practices/apply", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockRequireOrgRole.mockResolvedValue(null);
+  mockInstallId.mockResolvedValue("inst-1");
+  mockToken.mockResolvedValue("installation-token");
+  mockSession.mockResolvedValue({ login: "alice" } as never);
+  mockOpenPr.mockResolvedValue({ url: "https://github.com/pr/1", number: 1, reused: false } as never);
+});
+
+describe("POST /api/practices/apply — tenant gate", () => {
+  it("DENIES a caller without org access (403) and opens NO PR (no token mint / fetch / write)", async () => {
+    mockRequireOrgRole.mockResolvedValue(
+      Response.json({ error: "You don't have access to this organization." }, { status: 403 }) as never,
+    );
+
+    const res = await run({ repo: "victim/secret", practiceId: "ci-gates" });
+
+    expect(res.status).toBe(403);
+    expect(mockToken).not.toHaveBeenCalled();
+    expect(mockFetchCtx).not.toHaveBeenCalled();
+    expect(mockOpenPr).not.toHaveBeenCalled();
+    expect(mockRecordAudit).not.toHaveBeenCalled();
+    expect(mockRequireOrgRole).toHaveBeenCalledWith("victim", "admin");
+  });
+
+  it("DENIES a plain 'member' (below the admin floor) with 403 and opens NO PR — G2-01", async () => {
+    // requireOrgRole is the real gate; here it stands in for a member whose role fails the "admin"
+    // minimum this route now requires (opening a PR/committing to a customer repo is a write of the
+    // same blast radius as segment delete / credit grants, which already require admin).
+    mockRequireOrgRole.mockResolvedValue(
+      Response.json({ error: "This action requires the admin role in this organization." }, { status: 403 }) as never,
+    );
+
+    const res = await run({ repo: "acme/app", practiceId: "ci-gates" });
+
+    expect(res.status).toBe(403);
+    expect(mockRequireOrgRole).toHaveBeenCalledWith("acme", "admin");
+    expect(mockToken).not.toHaveBeenCalled();
+    expect(mockOpenPr).not.toHaveBeenCalled();
+    expect(mockRecordAudit).not.toHaveBeenCalled();
+  });
+
+  it("ALLOWS an admin/owner (requireOrgRole passes) through to open the PR", async () => {
+    mockRequireOrgRole.mockResolvedValue(null);
+
+    const res = await run({ repo: "acme/app", practiceId: "ci-gates" });
+
+    expect(res.status).toBe(200);
+    expect(mockRequireOrgRole).toHaveBeenCalledWith("acme", "admin");
+    expect(mockOpenPr).toHaveBeenCalledTimes(1);
+  });
+
+  it("denies an unauthenticated session (401) before any write", async () => {
+    mockSession.mockResolvedValue(null as never);
+
+    const res = await run({ repo: "acme/app", practiceId: "ci-gates" });
+
+    expect(res.status).toBe(401);
+    expect(mockOpenPr).not.toHaveBeenCalled();
+  });
+
+  it("returns 403 with no writes when the org has no installation", async () => {
+    mockInstallId.mockResolvedValue(null);
+
+    const res = await run({ repo: "acme/app", practiceId: "ci-gates" });
+
+    expect(res.status).toBe(403);
+    expect(mockToken).not.toHaveBeenCalled();
+    expect(mockOpenPr).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 with no writes for a malformed repo coordinate", async () => {
+    const res = await run({ repo: "not-a-repo", practiceId: "ci-gates" });
+    expect(res.status).toBe(400);
+    expect(mockRequireOrgRole).not.toHaveBeenCalled();
+    expect(mockOpenPr).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/practices/apply — authorized path + overwrite guard", () => {
+  it("opens exactly one PR and audit-logs it on the authorized in-org happy path", async () => {
+    const res = await run({ repo: "acme/app", practiceId: "ci-gates" });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.number).toBe(1);
+    expect(mockToken).toHaveBeenCalledTimes(1);
+    expect(mockOpenPr).toHaveBeenCalledTimes(1);
+    expect(mockRecordAudit).toHaveBeenCalledTimes(1);
+  });
+
+  it("records the PR onto the shared ImprovementPr lifecycle, not just the audit log", async () => {
+    // The apply flow used to end at an audit row, so the page that offered the action never learned
+    // what happened to the PR. Every successful apply must hand the PR to the tracker that polls it
+    // to merged and measures its post-merge lift.
+    const res = await run({ repo: "acme/app", practiceId: "ci-gates" });
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(recordPracticePr)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(recordPracticePr)).toHaveBeenCalledWith({
+      orgId: "org-1",
+      repoFullName: "acme/app",
+      practiceId: "ci-gates",
+      prNumber: 1,
+      prUrl: "https://github.com/pr/1",
+      openedBy: "alice",
+    });
+  });
+
+  it("refuses with 409 content-drift when the previewed fingerprint no longer matches (no PR, no audit)", async () => {
+    // The server regenerates at apply time; a stale fingerprint means the repo's context changed
+    // since the preview — committing would land content the user never reviewed.
+    const res = await run({ repo: "acme/app", practiceId: "ci-gates", previewFingerprint: "deadbeef" });
+
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.code).toBe("content-drift");
+    expect(mockOpenPr).not.toHaveBeenCalled();
+    expect(mockRecordAudit).not.toHaveBeenCalled();
+    expect(vi.mocked(recordPracticePr)).not.toHaveBeenCalled(); // no PR ⇒ nothing to track
+  });
+
+  it("proceeds when the previewed fingerprint matches the regenerated body", async () => {
+    // buildArtifact is mocked to body "# starter" — the matching fingerprint must open the PR.
+    const res = await run({
+      repo: "acme/app",
+      practiceId: "ci-gates",
+      previewFingerprint: artifactFingerprint("# starter"),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockOpenPr).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces a 409 (file already exists on base) — the won't-overwrite-real-content guard", async () => {
+    mockOpenPr.mockRejectedValue(new AppApiError(409, "/contents", "exists"));
+
+    const res = await run({ repo: "acme/app", practiceId: "ci-gates" });
+
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(String(json.error)).toMatch(/overwrite|already exists/i);
+  });
+});

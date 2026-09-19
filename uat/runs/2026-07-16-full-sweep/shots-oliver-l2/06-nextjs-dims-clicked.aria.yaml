@@ -1,0 +1,175 @@
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Ascent":
+    - /url: /
+  - navigation:
+    - link "Leaderboard":
+      - /url: /leaderboard
+    - link "Pricing":
+      - /url: /pricing
+    - link "About":
+      - /url: /about
+    - link "vercel":
+      - /url: /org/vercel
+    - text: developer
+    - button "Sign out":
+      - text: Sign out
+      - status
+- main:
+  - text: Repository report
+  - heading "vercel/next.js" [level=1]:
+    - link "vercel/next.js":
+      - /url: https://github.com/vercel/next.js
+  - text: JavaScript ★ 141,111 updated unknown
+  - link "How scoring works":
+    - /url: /about
+  - text: Org / platform AI usage detected · 13% commits Demo · deterministic rubric confidence 59% Scanned 41m ago
+  - link "Re-test":
+    - /url: /report?repo=vercel%2Fnext.js%40153bf8ac5fa00888ef5fbb2b65cac12f0942a44f&fresh=1
+  - link "Export PDF":
+    - /url: /api/report/pdf?repo=vercel%2Fnext.js%40153bf8ac5fa00888ef5fbb2b65cac12f0942a44f
+  - link "Onboarding skill":
+    - /url: /api/report/skill?repo=vercel%2Fnext.js%40153bf8ac5fa00888ef5fbb2b65cac12f0942a44f
+  - text: App Readiness Passport
+  - heading "vercel/next.js" [level=2]
+  - paragraph: Instrument readout · 2026-07-16
+  - 'img "Automation readiness: L4, score 68 of 100"': AUTOMATION L4 68/100
+  - text: ready for agents
+  - 'img "Production readiness: PROTOTYPE, score 21 of 100"': PRODUCTION PROTOTYPE 21/100
+  - text: "trusted in prod Production rungs CI delivery Tests none Security none Observ. none Delivery migrations none Stack JavaScript Rust TypeScript host: vercel"
+  - paragraph: static-scan · confidence 59% · as of 2026-07-16 · MIT
+  - link "↓ passport.json":
+    - /url: /api/report/passport?repo=vercel%2Fnext.js&download
+  - complementary:
+    - navigation "Report sections":
+      - text: Sections
+      - button "Scoring"
+      - button "Dimensions"
+      - button "Roadmap"
+      - button "Sandbox"
+      - button "Contributors"
+  - region "Dimensions":
+    - heading "Dimension breakdown" [level=2]
+    - paragraph: Nine weighted dimensions on a 0–100 scale. Pick one — on the radar or in the list — to read its evidence, gaps, and how the deterministic signal and the AI judgment blended into the score.
+    - img "Maturity radar Scores across 9 maturity dimensions on a 0 to 100 scale. Per-dimension values are listed in the adjacent table.": AI Tooling65 Testing100 CI/CD83 Agentic15 Docs65 Quality94 Commits45 AI Process91 Security40
+    - table "Maturity score by dimension":
+      - caption: Maturity score by dimension
+      - rowgroup:
+        - row "Dimension Score out of 100 Level":
+          - columnheader "Dimension"
+          - columnheader "Score out of 100"
+          - columnheader "Level"
+      - rowgroup:
+        - row "AI Tooling & Conventions 65 L4 Integrated":
+          - rowheader "AI Tooling & Conventions"
+          - cell "65"
+          - cell "L4 Integrated"
+        - row "Automated Testing 100 L5 Autonomous":
+          - rowheader "Automated Testing"
+          - cell "100"
+          - cell "L5 Autonomous"
+        - row "CI/CD & Delivery 83 L4 Integrated":
+          - rowheader "CI/CD & Delivery"
+          - cell "83"
+          - cell "L4 Integrated"
+        - row "Agentic Workflows 15 L1 Manual":
+          - rowheader "Agentic Workflows"
+          - cell "15"
+          - cell "L1 Manual"
+        - row "Documentation & Knowledge 65 L4 Integrated":
+          - rowheader "Documentation & Knowledge"
+          - cell "65"
+          - cell "L4 Integrated"
+        - row "Code Quality & Guardrails 94 L5 Autonomous":
+          - rowheader "Code Quality & Guardrails"
+          - cell "94"
+          - cell "L5 Autonomous"
+        - row "Commit & Velocity Signals 45 L3 Augmented":
+          - rowheader "Commit & Velocity Signals"
+          - cell "45"
+          - cell "L3 Augmented"
+        - row "AI Process & Harness 91 L5 Autonomous":
+          - rowheader "AI Process & Harness"
+          - cell "91"
+          - cell "L5 Autonomous"
+        - row "Supply Chain & Security 40 L2 Assisted":
+          - rowheader "Supply Chain & Security"
+          - cell "40"
+          - cell "L2 Assisted"
+    - button "D1 AI Tooling & Conventions 15% 65" [pressed]
+    - button "D2 Automated Testing 15% 100"
+    - button "D3 CI/CD & Delivery 14% 83"
+    - button "D4 Agentic Workflows 12% 15"
+    - button "D5 Documentation & Knowledge 9% 65"
+    - button "D6 Code Quality & Guardrails 7% 94"
+    - button "D7 Commit & Velocity Signals 7% 45"
+    - button "D8 AI Process & Harness 12% 91"
+    - button "D9 Supply Chain & Security 9% 40"
+    - text: D1 AI Tooling & Conventions weight 15% 65
+    - paragraph: "AI Tooling & Conventions: found claude.md (claude code guidance); found agents.md (agent guidance); found .claude/ directory."
+    - text: Evidence
+    - list:
+      - listitem: · Found CLAUDE.md (Claude Code guidance)
+      - listitem: · Found AGENTS.md (agent guidance)
+      - listitem: · Found .claude/ directory
+      - listitem: · Found devcontainer
+      - listitem: · Substantial agent guidance
+      - listitem: · Defines explicit constraints / rules
+      - listitem: · Includes concrete examples
+    - text: "Gaps: Below target for an AI-native workflow. Is AI development operationalized with shared, machine-readable guidance?"
+    - 'img "Score provenance: signal 65, LLM 65, blended 65"'
+  - text: Go fleet-wide
+  - paragraph: Scan your whole org in one shot to see this repo ranked against the rest — common gaps to fix once, and the repo-specific ones.
+  - link "Scan your org":
+    - /url: /onboarding
+  - button "Track this repo"
+  - link "← Scan another repo":
+    - /url: /?scan=1
+  - heading "App Readiness Passport" [level=2]
+  - paragraph: The portfolio scorecard — how ready this app is for full LLM-automated development, and for production. Names the stack on purpose.
+  - link "↓ passport.json":
+    - /url: /api/report/passport?repo=vercel%2Fnext.js&download
+  - text: "Automation readiness L4 68 /100 · ready for agents self-verify: none · AI in workflow Production readiness Prototype 21 /100 · trusted in prod CI delivery Tests none Security none Observability none Delivery migrations: none Blockers"
+  - list:
+    - listitem: No in-repo .ai/manifest.yaml (agent-facing capability contract).
+    - listitem: No machine-readable context graph (context-map.json / CONTEXT.md).
+    - listitem: "Agent can't self-verify: missing build, test, lint, typecheck script(s)."
+    - listitem: "Zero observability: no error tracking, structured logs, metrics, or tracing."
+    - listitem: No dependency/secret/SAST scanning wired in.
+  - paragraph: static-scan · confidence 59% · as of 2026-07-16
+  - text: Owner settings
+  - paragraph: Fields a scan can't infer — these frame how to read the scores and (rollback) lift the production score.
+  - text: criticality
+  - combobox "Criticality":
+    - option "unset" [selected]
+    - option "experimental"
+    - option "internal"
+    - option "business"
+    - option "mission-critical"
+  - text: lifecycle
+  - combobox "Lifecycle":
+    - option "unset" [selected]
+    - option "prototype"
+    - option "alpha"
+    - option "beta"
+    - option "ga"
+    - option "maintenance"
+    - option "deprecated"
+  - checkbox "tested rollback"
+  - text: tested rollback
+  - button "Save"
+  - button "Commit .ai/passport.json →"
+- contentinfo:
+  - text: Ascent
+  - paragraph: The maturity index for AI-native engineering
+  - link "Leaderboard":
+    - /url: /leaderboard
+  - link "Badge":
+    - /url: /badge
+  - link "Connect":
+    - /url: /connect
+  - link "Usage":
+    - /url: /usage
+  - paragraph: "Built on Vercel + Aurora DSQL · #H0Hackathon"
+- alert

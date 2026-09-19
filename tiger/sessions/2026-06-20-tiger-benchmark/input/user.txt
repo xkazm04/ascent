@@ -1,0 +1,128 @@
+Assess this repository's AI-native engineering maturity, applying the rubric and producing the exact JSON shape from the system instructions. Ground every judgment in the evidence below.
+
+REPOSITORY
+- donutworks/checkout-svc
+- Language: TypeScript | Stars: 340 | Last push: 2026-06-14T09:00:00Z
+- Description: Payment + checkout service for the Donutworks storefront.
+- Inferred run-style: team (solo/early, team/product, or org/platform) — judge maturity in this context.
+
+DETERMINISTIC SIGNALS (computed from the repo; treat as ground truth and calibrate to these):
+  D1 signalScore=35
+    - AGENTS.md present (820 chars — thin)
+    - no .cursor/rules or copilot-instructions
+  D2 signalScore=22
+    - no test files detected by pattern
+  D3 signalScore=55
+    - GitHub Actions: ci.yml (install, build, lint)
+    - no deploy/release workflow
+  D4 signalScore=18
+    - no AI code-review or auto-fix/auto-PR workflows
+  D5 signalScore=60
+    - README 4.2k chars
+    - docs/ has 3 markdown files
+  D6 signalScore=48
+    - eslint config present
+    - tsconfig strict=true
+    - no pre-commit hooks
+  D7 signalScore=50
+    - 42 commits in 30d
+    - conventional-commit rate ~70%
+  D8 signalScore=40
+    - main is protected; requires PR + 1 approval
+    - no code-owner review, no signatures
+  D9 signalScore=45
+    - dependabot.yml present
+    - 3 of 5 GitHub Actions unpinned (use @v4 tags, not SHAs)
+
+PROCESS SIGNALS (review discipline, merge velocity, AI governance, branch protection — the behavioral evidence behind D3/D6/D7/D8; calibrate those dimensions to this too):
+- Pull requests: 38 analyzed of 96 total; merge rate 78%, reviewed rate 65% (merged PRs with an approving review), avg 1.1 reviews/PR.
+- Velocity & size: median time-to-merge 26h, median time-to-first-review 5h; small-PR rate 52% (≤200 line changes).
+- AI in PRs: AI-involved rate 30%; of those, governed (reviewed) rate 50%.
+- Branch protection (main): protected; requires PR yes, required approvals 1, status checks yes, code-owner review no, signatures no, linear history no, 2 ruleset rule(s).
+
+RECENT COMMIT MESSAGES (sample):
+- feat(checkout): add idempotency key to charge endpoint
+- fix(webhook): verify Stripe signature before parsing body
+- chore(deps): bump stripe to 14.2.0
+- test(checkout): cover partial-refund path
+- refactor: extract money math into cents.ts
+- ci: cache pnpm store
+
+SAMPLED FILES:
+### package.json
+```
+{
+  "name": "checkout-svc",
+  "scripts": {
+    "build": "tsc -p .",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "dev": "tsx watch src/index.ts"
+  },
+  "dependencies": { "stripe": "14.2.0", "zod": "3.23.0" },
+  "devDependencies": { "vitest": "2.1.0", "typescript": "5.6.0", "eslint": "9.0.0" }
+}
+```
+
+### tests/checkout.test.ts
+```
+import { describe, it, expect } from "vitest";
+import { computeTotalCents, applyRefund } from "../src/cents";
+
+describe("checkout money math", () => {
+  it("sums line items in integer cents (no float drift)", () => {
+    expect(computeTotalCents([{ cents: 199 }, { cents: 850 }, { cents: 1 }])).toBe(1050);
+  });
+  it("rejects a refund larger than the captured amount", () => {
+    expect(() => applyRefund(1000, 1500)).toThrow(/exceeds captured/);
+  });
+  it("applies a partial refund and returns the remaining balance", () => {
+    expect(applyRefund(1000, 300)).toBe(700);
+  });
+});
+```
+
+### .github/workflows/ci.yml
+```
+name: ci
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm lint
+```
+
+### AGENTS.md
+```
+# Agent notes
+This is a payment service. Be careful with money math — always integer cents.
+Run `pnpm test` before pushing. Stripe webhooks must verify signatures.
+```
+
+### src/cents.ts
+```
+export function computeTotalCents(items: { cents: number }[]): number {
+  return items.reduce((sum, i) => sum + i.cents, 0);
+}
+export function applyRefund(capturedCents: number, refundCents: number): number {
+  if (refundCents > capturedCents) throw new Error("refund exceeds captured amount");
+  return capturedCents - refundCents;
+}
+```
+
+### README.md
+```
+# checkout-svc
+Payment + checkout for Donutworks. Stripe-backed. Express + Zod validation.
+## Setup
+pnpm install && pnpm dev
+## Testing
+pnpm test (vitest)
+## Deploy
+Manual: build a container, push to ECR, update the ECS service. (No release automation yet.)
+```

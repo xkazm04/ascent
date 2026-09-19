@@ -1,0 +1,540 @@
+// Security/authorization test for GET /api/history — the org-scoping gate that keeps a guessable
+// owner/repo slug from leaking ANOTHER tenant's private scan history (route.ts:72-91).
+//
+// The invariant under test: org A's history is reachable ONLY through org A's resolved slug. The
+// route's two guards are (a) the auth gate — when auth is configured and there is no session, return
+// 401 and NEVER touch the DB; and (b) org-scoping — the `orgSlug` from `readableOrgForOwner(owner)`
+// MUST flow unchanged into `getRepositoryHistory(owner, repo, { orgSlug })`, so a name collision can't
+// cross tenants. We mock the auth + db boundaries so we can assert exactly which orgSlug reaches the
+// query, and that an unauthenticated (auth-on) caller is denied before any read.
+
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+vi.mock("next/server", () => ({
+  // Extends the real Response so `new NextResponse(body, init)` (the CSV / 304 paths) works as a real
+  // Response, and the static `.json()` helper mirrors NextResponse.json for the JSON path.
+  NextResponse: class extends Response {
+    static json(body: unknown, init?: ResponseInit) {
+      return new Response(JSON.stringify(body), init);
+    }
+  },
+}));
+
+vi.mock("@/lib/auth", () => ({
+  isAuthConfigured: vi.fn(),
+  readableOrgForOwner: vi.fn(),
+}));
+// The route resolves its caller through the ACTIVE Supabase wall now, not the dormant getSession().
+// Without mocking @/lib/access the real resolveViewerLogin runs, returns null, and every test 401s.
+vi.mock("@/lib/access", () => ({
+  authGateEnabled: vi.fn(),
+  resolveViewerLogin: vi.fn(),
+}));
+
+vi.mock("@/lib/db", () => ({
+  isDbConfigured: vi.fn(),
+  getRepositoryHistory: vi.fn(),
+}));
+
+import { GET } from "./route";
+import { isAuthConfigured, readableOrgForOwner } from "@/lib/auth";
+import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
+import { isDbConfigured, getRepositoryHistory } from "@/lib/db";
+import { HISTORY_SCAN_CAP } from "@/lib/history/limits";
+
+const mockGateEnabled = vi.mocked(authGateEnabled);
+const mockViewerLogin = vi.mocked(resolveViewerLogin);
+const mockIsAuthConfigured = vi.mocked(isAuthConfigured);
+const mockReadableOrg = vi.mocked(readableOrgForOwner);
+const mockIsDbConfigured = vi.mocked(isDbConfigured);
+const mockGetHistory = vi.mocked(getRepositoryHistory);
+
+function get(query: string, headers?: Record<string, string>) {
+  return GET(new Request(`http://localhost/api/history${query}`, { headers }));
+}
+
+const historyFor = (owner: string, name: string) =>
+  ({
+    repo: { owner, name, fullName: `${owner}/${name}` },
+    scans: [{ id: "s1", scannedAt: "2026-01-01T00:00:00.000Z", overallScore: 80 }],
+  }) as unknown as Awaited<ReturnType<typeof getRepositoryHistory>>;
+
+describe("GET /api/history — org-scoping & auth gate", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsDbConfigured.mockReturnValue(true);
+    // Default: the PRODUCTION shape — Supabase wall on, legacy OAuth off — with a signed-in viewer.
+    mockGateEnabled.mockReturnValue(true);
+    mockIsAuthConfigured.mockReturnValue(false);
+    mockViewerLogin.mockResolvedValue("alice");
+    mockReadableOrg.mockResolvedValue("public");
+    mockGetHistory.mockResolvedValue(null);
+  });
+
+  // --- Guard (a): auth gate fires BEFORE any DB read ---------------------------------------------
+
+  it("PROD SHAPE: denies (401) under the Supabase wall with no viewer, and never reads history", async () => {
+    // Pre-fix this returned 200: the gate keyed on the DORMANT isAuthConfigured(), false in prod.
+    mockGateEnabled.mockReturnValue(true);
+    mockIsAuthConfigured.mockReturnValue(false);
+    mockViewerLogin.mockResolvedValue(null);
+
+    const res = await get("?repo=acme/secret");
+
+    expect(res.status).toBe(401);
+    expect(mockGetHistory).not.toHaveBeenCalled();
+  });
+
+  it("skips the auth gate when NO stack is live (local/demo) and still serves", async () => {
+    mockGateEnabled.mockReturnValue(false);
+    mockIsAuthConfigured.mockReturnValue(false);
+    mockViewerLogin.mockResolvedValue(null);
+    mockReadableOrg.mockResolvedValue("public");
+    mockGetHistory.mockResolvedValue(historyFor("acme", "repo"));
+
+    const res = await get("?repo=acme/repo");
+
+    expect(res.status).toBe(200);
+    expect(mockViewerLogin).not.toHaveBeenCalled(); // short-circuited: auth-off skips the viewer check
+  });
+
+  // --- Guard (b): the resolved orgSlug flows INTO the query (the leak-prevention invariant) -------
+
+  it("scopes the query to the caller's OWN org slug from readableOrgForOwner", async () => {
+    mockReadableOrg.mockResolvedValue("acme"); // caller is a member of acme
+    mockGetHistory.mockResolvedValue(historyFor("acme", "repo"));
+
+    const res = await get("?repo=acme/repo");
+
+    expect(res.status).toBe(200);
+    expect(mockReadableOrg).toHaveBeenCalledWith("acme");
+    // The org slug the auth layer resolved MUST be the one the DB query is scoped by.
+    expect(mockGetHistory).toHaveBeenCalledWith(
+      "acme",
+      "repo",
+      expect.objectContaining({ orgSlug: "acme" }),
+    );
+  });
+
+  it("scopes a foreign/private slug to 'public' so a name collision can't leak another tenant", async () => {
+    // Caller is NOT a member of 'acme' → readableOrgForOwner downgrades them to the public org.
+    mockReadableOrg.mockResolvedValue("public");
+    mockGetHistory.mockResolvedValue(null); // no public repo by that name → empty payload
+
+    const res = await get("?repo=acme/private-repo");
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    // The query must be scoped to 'public', NEVER to the private 'acme' org the caller can't read.
+    expect(mockGetHistory).toHaveBeenCalledWith(
+      "acme",
+      "private-repo",
+      expect.objectContaining({ orgSlug: "public" }),
+    );
+    // No private rows leak: a miss yields an empty scans array, not acme's history.
+    expect(body.scans).toEqual([]);
+    // Critically, the DB was never queried with the private org slug.
+    expect(mockGetHistory).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ orgSlug: "acme" }),
+    );
+  });
+
+  it("scopes the CSV export with the same resolved org slug (no cross-tenant export)", async () => {
+    mockReadableOrg.mockResolvedValue("public");
+    mockGetHistory.mockResolvedValue(null);
+
+    const res = await get("?repo=acme/private-repo&format=csv");
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/csv");
+    expect(mockGetHistory).toHaveBeenCalledWith(
+      "acme",
+      "private-repo",
+      expect.objectContaining({ orgSlug: "public" }),
+    );
+  });
+
+  // --- Depth parity: the CSV and the chart read the SAME history (G5-24) -------------------------
+
+  it("defaults the CSV export to HISTORY_SCAN_CAP — the same depth the /trends page fetches", async () => {
+    mockReadableOrg.mockResolvedValue("acme");
+    mockGetHistory.mockResolvedValue(historyFor("acme", "repo"));
+
+    await get("?repo=acme/repo&format=csv");
+
+    expect(mockGetHistory).toHaveBeenCalledWith(
+      "acme",
+      "repo",
+      expect.objectContaining({ limit: HISTORY_SCAN_CAP, includeDimensions: true }),
+    );
+  });
+
+  it("still honours an explicit ?limit= over the CSV default", async () => {
+    mockReadableOrg.mockResolvedValue("acme");
+    mockGetHistory.mockResolvedValue(historyFor("acme", "repo"));
+
+    await get("?repo=acme/repo&format=csv&limit=10");
+
+    expect(mockGetHistory).toHaveBeenCalledWith("acme", "repo", expect.objectContaining({ limit: 10 }));
+  });
+
+  // --- Precondition guards (cheap, also pinned by the finding) -----------------------------------
+
+  it("returns 400 on missing repo and never reads history", async () => {
+    const res = await get("");
+    expect(res.status).toBe(400);
+    expect(mockGetHistory).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 on an invalid repo reference and never reads history", async () => {
+    const res = await get("?repo=" + encodeURIComponent("https://gitlab.com/a/b"));
+    expect(res.status).toBe(400);
+    expect(mockGetHistory).not.toHaveBeenCalled();
+  });
+
+  it("returns 503 when the DB is not configured, before resolving any org", async () => {
+    mockIsDbConfigured.mockReturnValue(false);
+    const res = await get("?repo=acme/repo");
+    expect(res.status).toBe(503);
+    expect(mockReadableOrg).not.toHaveBeenCalled();
+    expect(mockGetHistory).not.toHaveBeenCalled();
+  });
+
+  // --- ETag folds the WHOLE series (trends-comparison #6) -----------------------------------------
+  // An in-place fix to an OLDER scan (same id, same count, newest untouched) must still bust the cache.
+  // The old validator signed only the newest scan, so a corrected historical row returned a 304 forever.
+
+  const twoScan = (olderOverall: number) =>
+    ({
+      repo: { owner: "acme", name: "repo", fullName: "acme/repo" },
+      scans: [
+        { id: "new", scannedAt: "2026-02-01T00:00:00.000Z", overallScore: 90, level: "L5", dimensions: [] },
+        { id: "old", scannedAt: "2026-01-01T00:00:00.000Z", overallScore: olderOverall, level: "L2", dimensions: [] },
+      ],
+    }) as unknown as Awaited<ReturnType<typeof getRepositoryHistory>>;
+
+  it("changes the ETag when an OLDER scan is corrected in place (newest unchanged)", async () => {
+    mockReadableOrg.mockResolvedValue("acme");
+
+    mockGetHistory.mockResolvedValue(twoScan(40));
+    const etagBefore = (await get("?repo=acme/repo")).headers.get("etag");
+    mockGetHistory.mockResolvedValue(twoScan(55)); // only the OLDER row's score changed
+    const etagAfter = (await get("?repo=acme/repo")).headers.get("etag");
+
+    expect(etagBefore).toBeTruthy();
+    expect(etagAfter).not.toBe(etagBefore); // the historical fix busts the cache
+  });
+
+  it("serves a 304 only when the whole series is byte-identical", async () => {
+    mockReadableOrg.mockResolvedValue("acme");
+    mockGetHistory.mockResolvedValue(twoScan(40));
+
+    const etag = (await get("?repo=acme/repo")).headers.get("etag")!;
+    const same = await get("?repo=acme/repo", { "if-none-match": etag });
+    expect(same.status).toBe(304);
+
+    // After a historical correction, the stale ETag no longer matches → a full 200, not a 304.
+    mockGetHistory.mockResolvedValue(twoScan(55));
+    const stale = await get("?repo=acme/repo", { "if-none-match": etag });
+    expect(stale.status).toBe(200);
+  });
+});
+
+// --------------------------------------------------------------------------------------------------
+// CSV export escaping — the "show my boss / pull into a spreadsheet" artifact (route.ts:16-42).
+//
+// The helpers (`csvField` / `historyToCsv`) are not exported, so we pin them THROUGH the route's
+// `format=csv` path by feeding a hostile history and parsing the response body. The invariants under
+// test are the ones that keep a malicious or messy scan row from corrupting / weaponizing the export:
+//   1. column-alignment   — a cell with a comma is quoted so it can't shift downstream columns;
+//   2. RFC-4180 quoting   — a cell with a `"` is doubled; a cell with a newline is quoted (no row break);
+//   3. fixed header        — the header row is code-derived, never injectable from a data cell;
+//   4. formula injection   — a cell whose first char is `= + - @` is NEUTRALIZED: prefixed with a single
+//                            quote and quoted so it renders as literal text, never an executable formula,
+//                            while the column-shift defense still holds for a formula cell with a comma.
+// --------------------------------------------------------------------------------------------------
+
+/** RFC-4180 line splitter: split a CSV document into logical rows, honoring quoted fields so a quoted
+ *  embedded newline does NOT start a new row (the whole point of invariant #2). */
+function splitCsvRows(csv: string): string[] {
+  const rows: string[] = [];
+  let cur = "";
+  let inQuotes = false;
+  for (let i = 0; i < csv.length; i++) {
+    const ch = csv[i];
+    if (ch === '"') {
+      // A doubled quote ("") is an escaped quote, still inside the field.
+      if (inQuotes && csv[i + 1] === '"') {
+        cur += '""';
+        i++;
+        continue;
+      }
+      inQuotes = !inQuotes;
+      cur += ch;
+    } else if (ch === "\n" && !inQuotes) {
+      rows.push(cur);
+      cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  if (cur !== "") rows.push(cur);
+  return rows;
+}
+
+/** RFC-4180 field splitter for a single logical row: split on TOP-LEVEL commas only (commas inside a
+ *  quoted field don't count), so we can count columns and recover values. Returns RAW fields (still
+ *  quoted/escaped) so a caller can both count columns and unescape. */
+function splitCsvFields(row: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let inQuotes = false;
+  for (let i = 0; i < row.length; i++) {
+    const ch = row[i];
+    if (ch === '"') {
+      if (inQuotes && row[i + 1] === '"') {
+        cur += '""';
+        i++;
+        continue;
+      }
+      inQuotes = !inQuotes;
+      cur += ch;
+    } else if (ch === "," && !inQuotes) {
+      out.push(cur);
+      cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
+/** Unwrap an RFC-4180 field: strip surrounding quotes (if any) and collapse doubled quotes. */
+function unquote(field: string): string {
+  if (field.startsWith('"') && field.endsWith('"') && field.length >= 2) {
+    return field.slice(1, -1).replace(/""/g, '"');
+  }
+  return field;
+}
+
+// A scan whose cells carry every hostile shape at once. `as unknown` because we deliberately push
+// values the type doesn't normally hold (the route's csvField is total over `unknown`).
+const hostileHistory = (cells: {
+  scannedAt?: unknown;
+  overallScore?: unknown;
+  level?: unknown;
+  levelName?: unknown;
+  engineProvider?: unknown;
+  engineModel?: unknown;
+}) =>
+  ({
+    repo: { owner: "acme", name: "repo", fullName: "acme/repo" },
+    scans: [
+      {
+        id: "s1",
+        scannedAt: "2026-01-01T00:00:00.000Z",
+        overallScore: 80,
+        level: "L4",
+        levelName: "Integrated",
+        engineProvider: "openai",
+        engineModel: "gpt-4o",
+        dimensions: [],
+        ...cells,
+      },
+    ],
+  }) as unknown as Awaited<ReturnType<typeof getRepositoryHistory>>;
+
+async function csvBody(history: Awaited<ReturnType<typeof getRepositoryHistory>>): Promise<string> {
+  mockReadableOrg.mockResolvedValue("acme");
+  mockGetHistory.mockResolvedValue(history);
+  const res = await get("?repo=acme/repo&format=csv");
+  expect(res.status).toBe(200);
+  expect(res.headers.get("content-type")).toContain("text/csv");
+  return res.text();
+}
+
+describe("GET /api/history — CSV export escaping (cell-shift / injection)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsDbConfigured.mockReturnValue(true);
+    mockIsAuthConfigured.mockReturnValue(true);
+    mockViewerLogin.mockResolvedValue("alice");
+    mockReadableOrg.mockResolvedValue("acme");
+  });
+
+  it("quotes a cell containing a comma so it cannot shift downstream columns (alignment invariant)", async () => {
+    // A comma'd value in `levelName` must stay ONE field, keeping every data row's column count equal
+    // to the header's — the exact regression the route.ts:36-38 comment says was fixed.
+    const csv = await csvBody(hostileHistory({ levelName: "Integrated, mostly" }));
+    const rows = splitCsvRows(csv);
+    const headerCols = splitCsvFields(rows[0]).length;
+    const dataCols = splitCsvFields(rows[1]).length;
+
+    expect(dataCols).toBe(headerCols); // no column shift
+    const fields = splitCsvFields(rows[1]);
+    // levelName is the 4th column (scannedAt, overall, level, levelName, engine, ...dims).
+    expect(fields[3]).toBe('"Integrated, mostly"'); // quoted as a single field
+    expect(unquote(fields[3])).toBe("Integrated, mostly");
+  });
+
+  it("doubles an embedded double-quote per RFC-4180", async () => {
+    const csv = await csvBody(hostileHistory({ levelName: 'he"llo' }));
+    const fields = splitCsvFields(splitCsvRows(csv)[1]);
+    // The whole field is quoted and the inner " is doubled: "he""llo".
+    expect(fields[3]).toBe('"he""llo"');
+    expect(unquote(fields[3])).toBe('he"llo');
+  });
+
+  it("quotes a cell containing a newline so it cannot break the row into two", async () => {
+    const csv = await csvBody(hostileHistory({ levelName: "line1\nline2" }));
+    const rows = splitCsvRows(csv);
+    // Exactly header + 1 data row (+ trailing empty from the final "\n"): the embedded newline did
+    // NOT create a third logical row.
+    expect(rows.length).toBe(2);
+    const fields = splitCsvFields(rows[1]);
+    expect(fields.length).toBe(splitCsvFields(rows[0]).length); // still aligned
+    expect(unquote(fields[3])).toBe("line1\nline2");
+  });
+
+  it("keeps the header row fixed — it is code-derived, never injectable from a data cell", async () => {
+    // Even a data cell that mimics a header string lands in the DATA row, never as a second header.
+    const csv = await csvBody(hostileHistory({ engineProvider: "scannedAt,overall,level" }));
+    const rows = splitCsvRows(csv);
+    // Header is the code-derived fixed prefix + the dimension columns (D1, D2, …); it never absorbs a
+    // data value. The hostile cell did NOT replace or augment the header.
+    expect(rows[0].startsWith("scannedAt,overall,level,levelName,engine,")).toBe(true);
+    expect(splitCsvFields(rows[0])[0]).toBe("scannedAt"); // first header field is exactly the literal
+    // The header-looking value is confined to ONE quoted data field, not a new structural row.
+    const fields = splitCsvFields(rows[1]);
+    expect(fields.length).toBe(splitCsvFields(rows[0]).length);
+    // The header-mimicking value is quoted (it has commas) and confined to the engine data column.
+    expect(fields[4]).toBe('"scannedAt,overall,level"');
+    expect(unquote(fields[4])).toBe("scannedAt,overall,level"); // engine column, not a new header row
+  });
+
+  it("carries engine PROVIDER and MODEL as distinct audit columns (Tiger P1-5)", async () => {
+    // A floor-scored quarter (engine="mock") must be distinguishable from a model-scored one, and the
+    // specific model (sonnet vs haiku) must be auditable quarter to quarter.
+    const csv = await csvBody(hostileHistory({ engineProvider: "bedrock", engineModel: "us.anthropic.claude-sonnet-4-6" }));
+    const rows = splitCsvRows(csv);
+    // Header gains a "model" column right after "engine".
+    expect(rows[0].startsWith("scannedAt,overall,level,levelName,engine,model,")).toBe(true);
+    const header = splitCsvFields(rows[0]);
+    expect(header[4]).toBe("engine");
+    expect(header[5]).toBe("model");
+    const fields = splitCsvFields(rows[1]);
+    expect(fields.length).toBe(header.length); // still aligned
+    expect(unquote(fields[4])).toBe("bedrock"); // provider
+    expect(unquote(fields[5])).toBe("us.anthropic.claude-sonnet-4-6"); // model
+  });
+
+  it("neutralizes a leading = + - @ so the cell cannot execute as a spreadsheet formula", async () => {
+    // csvField prefixes a formula-leading cell (= + - @) with a single quote and quotes the field, the
+    // standard CSV-injection mitigation: Excel / Sheets render the value as literal text instead of
+    // evaluating it. The leading `'` is inside the quotes so it is unambiguously part of the data.
+    const csv = await csvBody(hostileHistory({ levelName: "=1+1", engineProvider: "@SUM(A1:A9)" }));
+    const fields = splitCsvFields(splitCsvRows(csv)[1]);
+    // Each formula cell is now `'`-prefixed and quoted — it can no longer evaluate if opened in Excel.
+    expect(fields[3]).toBe("\"'=1+1\"");
+    expect(unquote(fields[3])).toBe("'=1+1");
+    expect(fields[4]).toBe("\"'@SUM(A1:A9)\"");
+    expect(unquote(fields[4])).toBe("'@SUM(A1:A9)");
+  });
+
+  it("neutralizes AND protects column alignment for a formula cell that ALSO carries a comma", async () => {
+    // Both defenses apply at once: the leading `=` is neutralized with a `'` prefix AND the field is
+    // quoted, so the embedded comma can't shift columns and the formula can't execute.
+    const csv = await csvBody(hostileHistory({ levelName: "=cmd(),evil" }));
+    const rows = splitCsvRows(csv);
+    const fields = splitCsvFields(rows[1]);
+    expect(fields.length).toBe(splitCsvFields(rows[0]).length); // aligned despite the comma
+    expect(fields[3]).toBe("\"'=cmd(),evil\""); // `'`-prefixed and quoted as a single field
+    expect(unquote(fields[3])).toBe("'=cmd(),evil");
+  });
+});
+
+// ── MOONSHOT #32 — the compacted tail ────────────────────────────────────────────────────────────
+// `?compacted=1` opts into periods whose scans retention already deleted. Off by default, so every
+// existing caller of this endpoint keeps getting retained scans only — and the CSV says out loud
+// which rows are a summary, because a spreadsheet has no dashed line to look at.
+
+describe("GET /api/history — ?compacted=1", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsDbConfigured.mockReturnValue(true);
+    mockGateEnabled.mockReturnValue(true);
+    mockIsAuthConfigured.mockReturnValue(false);
+    mockViewerLogin.mockResolvedValue("alice");
+    mockReadableOrg.mockResolvedValue("acme");
+    mockGetHistory.mockResolvedValue(historyFor("acme", "repo"));
+  });
+
+  it("does NOT request the tail without the param", async () => {
+    await get("?repo=acme/repo");
+    expect(mockGetHistory).toHaveBeenCalledWith("acme", "repo", expect.objectContaining({ includeCompacted: false }));
+  });
+
+  it("passes the opt-in through to the reader", async () => {
+    await get("?repo=acme/repo&compacted=1");
+    expect(mockGetHistory).toHaveBeenCalledWith("acme", "repo", expect.objectContaining({ includeCompacted: true }));
+  });
+
+  it("only accepts the exact `1` — a truthy-looking value is not an opt-in", async () => {
+    await get("?repo=acme/repo&compacted=yes");
+    expect(mockGetHistory).toHaveBeenCalledWith("acme", "repo", expect.objectContaining({ includeCompacted: false }));
+  });
+
+  it("gives the compacted and plain series DIFFERENT ETags — two modes never share one validator", async () => {
+    const plain = await get("?repo=acme/repo");
+    const compacted = await get("?repo=acme/repo&compacted=1");
+    expect(plain.headers.get("etag")).not.toBe(compacted.headers.get("etag"));
+  });
+
+  it("labels compacted rows in the CSV with `compacted` and a scan count", async () => {
+    mockGetHistory.mockResolvedValue({
+      repo: { owner: "acme", name: "repo", fullName: "acme/repo" },
+      scans: [
+        {
+          id: "s1",
+          scannedAt: "2026-06-01T00:00:00.000Z",
+          overallScore: 80,
+          level: "L4",
+          levelName: "Integrated",
+          engineProvider: "openai",
+          engineModel: "gpt-4o",
+          dimensions: [],
+        },
+        {
+          id: "digest:dg_1",
+          scannedAt: "2026-03-28T00:00:00.000Z",
+          overallScore: 50,
+          level: "L2",
+          levelName: "Emerging",
+          engineProvider: "bedrock",
+          engineModel: "mixed",
+          dimensions: [],
+          compacted: true,
+          scanCount: 6,
+        },
+      ],
+    } as unknown as Awaited<ReturnType<typeof getRepositoryHistory>>);
+
+    const res = await get("?repo=acme/repo&format=csv&compacted=1");
+    const rows = splitCsvRows(await res.text());
+    const header = splitCsvFields(rows[0]!);
+    expect(header).toContain("compacted");
+    expect(header).toContain("scans");
+
+    // Rows are oldest → newest, so the compacted period comes first.
+    const older = splitCsvFields(rows[1]!);
+    const newer = splitCsvFields(rows[2]!);
+    expect(older[header.indexOf("compacted")]).toBe("yes");
+    expect(older[header.indexOf("scans")]).toBe("6");
+    // A real scan is blank rather than "no": an empty cell filters cleanly and claims nothing.
+    expect(newer[header.indexOf("compacted")]).toBe("");
+    expect(newer[header.indexOf("scans")]).toBe("1");
+  });
+});

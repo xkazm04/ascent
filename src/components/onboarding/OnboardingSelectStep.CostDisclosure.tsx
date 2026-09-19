@@ -1,0 +1,125 @@
+"use client";
+
+import { useId, useSyncExternalStore } from "react";
+import { importWatchMonthlyCredits } from "@/components/onboarding/importCost";
+import { IMPORT_WATCH_SCHEDULE } from "@/components/onboarding/importScan";
+import {
+  getAutoWatchOptIn,
+  setAutoWatchOptIn,
+  subscribeAutoWatchOptIn,
+} from "@/components/onboarding/OnboardingSelectStep.watchOptIn";
+import {
+  getPreviewFirst,
+  setPreviewFirst,
+  subscribePreviewFirst,
+} from "@/components/onboarding/OnboardingSelectStep.previewFirst";
+import { CREDIT_ESTIMATE_NOTE } from "@/lib/credit-estimate";
+import { immediateScanCredits, WatchCostTail } from "@/components/credit/WatchCostTail";
+
+/**
+ * Cost disclosure AT the commitment button, plus the recurring-autoscan OPT-IN.
+ *
+ * Extracted from OnboardingSelectStep so that file stays well inside the 300-LOC cap (AGENTS.md).
+ * Two behaviors it owns:
+ *
+ *  1. The immediate draw. The click scans every selected repo NOW — one prepaid credit each beyond the
+ *     free monthly allowance — which the old copy never mentioned; it priced only the recurring month.
+ *  2. The weekly autoscan is now OPT-IN. It used to be committed unconditionally (`watch:true`,
+ *     `schedule:"weekly"`), so the recurring cost was disclosed but never consented to.
+ *
+ * Metered App path ONLY. Scanning a public handle (no installation) is token-less — public repos only —
+ * so it draws no prepaid credit at all; quoting credits there is money confusion that scares users off
+ * the free top-of-funnel. G7-17: that path now runs a REAL scan (metered by the free monthly
+ * public-scan allowance, exactly like `/report?repo=`), so the copy below must no longer call it a
+ * preview — it stopped being one, and telling a user their real score is illustrative is its own lie.
+ */
+export function ScanCostDisclosure({
+  count,
+  sourceInstallId,
+  credit,
+}: {
+  count: number;
+  sourceInstallId: string | null;
+  /** Prepaid balance for the source org (App path only) — null when the balance couldn't be read. */
+  credit: { balance: number; unlimited: boolean; allowanceRemaining?: number | null } | null;
+}) {
+  // The checkboxes render from the SAME stores startScan reads, so the disclosed commitment and the
+  // committed request can't drift. Server snapshots are the safe defaults (false / true).
+  const optedIn = useSyncExternalStore(subscribeAutoWatchOptIn, getAutoWatchOptIn, () => false);
+  const previewFirst = useSyncExternalStore(subscribePreviewFirst, getPreviewFirst, () => true);
+  const toggleId = useId();
+  const previewFirstId = useId();
+
+  if (count === 0) return null;
+
+  if (!sourceInstallId) {
+    return (
+      <p className="mt-3 max-w-xl type-body-sm text-slate-500">
+        Free live scan: real scoring on public repositories, drawn from your free monthly scan
+        allowance. No prepaid credits are used. Install the GitHub App to scan private repos too.
+      </p>
+    );
+  }
+
+  // Net the org's included free monthly scans, exactly as canRunReal does when it qualifies this org for
+  // a real scan — otherwise a qualifying Free-tier org sees an inflated "pauses at zero" alarm at the
+  // exact moment it would convert. Zero when nothing recurring was opted into.
+  const monthlyCredits = optedIn ? importWatchMonthlyCredits(count, credit?.allowanceRemaining ?? 0) : 0;
+  const immediate = immediateScanCredits(count, credit);
+  const repoPhrase = count === 1 ? "this repo" : `these ${count} repos`;
+
+  return (
+    <div className="mt-3 max-w-xl space-y-2">
+      {/* W6b "fast preview first" (default ON): instant mock preview now; the LIVE scan auto-starts
+          from the dashboard header and replaces the preview rows in place. This is WHERE the credit
+          draw moves, so the choice sits with the money copy — the immediate credits quoted below are
+          drawn by the live upgrade on the dashboard, not by the wizard click, while it's ticked. */}
+      <label htmlFor={previewFirstId} className="flex cursor-pointer items-start gap-2 type-body-sm text-slate-400">
+        <input
+          id={previewFirstId}
+          type="checkbox"
+          checked={previewFirst}
+          onChange={(e) => setPreviewFirst(e.target.checked)}
+          className="focus-ring mt-0.5 h-4 w-4 accent-accent"
+        />
+        <span>
+          Fast preview first: instant estimated scores now (free), then the full live scan starts on
+          your dashboard and replaces them.{" "}
+          {previewFirst ? (
+            <span className="text-slate-500">
+              Credits below are drawn when the live scan starts there, never for the preview.
+            </span>
+          ) : (
+            <span className="text-slate-500">Unticked: the live scan runs here and draws credits now.</span>
+          )}
+        </span>
+      </label>
+      <label htmlFor={toggleId} className="flex cursor-pointer items-start gap-2 type-body-sm text-slate-400">
+        <input
+          id={toggleId}
+          type="checkbox"
+          checked={optedIn}
+          onChange={(e) => setAutoWatchOptIn(e.target.checked)}
+          className="focus-ring mt-0.5 h-4 w-4 accent-accent"
+        />
+        <span>
+          Also autoscan {repoPhrase} {IMPORT_WATCH_SCHEDULE} (a recurring credit draw you can change or
+          turn off anytime on Connect).
+        </span>
+      </label>
+      <p className="type-body-sm text-slate-500" title={CREDIT_ESTIMATE_NOTE}>
+        {optedIn ? (
+          <>
+            {IMPORT_WATCH_SCHEDULE[0]?.toUpperCase()}
+            {IMPORT_WATCH_SCHEDULE.slice(1)} autoscan of {repoPhrase} ≈{" "}
+            <span className="font-mono text-slate-300">{monthlyCredits}</span> prepaid credit
+            {monthlyCredits === 1 ? "" : "s"}/month
+          </>
+        ) : (
+          <>One-time scan: no recurring autoscan is set up</>
+        )}
+        <WatchCostTail credit={credit} monthlyCredits={monthlyCredits} immediateCredits={immediate} />.
+      </p>
+    </div>
+  );
+}

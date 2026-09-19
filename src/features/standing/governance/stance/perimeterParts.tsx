@@ -1,0 +1,183 @@
+// Perimeter sub-components (W3, real data) — the checkpoint, the tier bands, and the sealed zones.
+// Co-located so StancePerimeter.tsx stays the orchestrator and under 300 LOC. Server-safe except
+// the imported AckButton (its own "use client" island).
+//
+// Tier bands are fed by each repo's REAL autonomy tier from the SHARED resolver
+// (passport-autonomy.ts via the stored passport) — never a local tier derivation. Provenance % is
+// the W2 trailer-grounded aiTrailerRate. Everything is declared-vs-observed; path-scoped zones
+// carry the advisory label verbatim.
+//
+// The checkpoint and the sealed zones now live in their own co-located files (200-LOC cap) and are
+// re-exported here, so this module stays the one import site for the whole perimeter.
+//
+// RepoNode renders advisory findings that evaluateStanceCompliance already emits (path-scoped no-AI
+// zones). Filtering them off left a declared-not-checked clause invisible on the repo it binds.
+
+import { Kicker } from "@/components/ui";
+import { StateSwatch, WhyChip, stateTitle } from "@/components/org/viz";
+import { LEVEL_HEX, scoreHex, reportPermalink } from "@/lib/ui";
+import type { LevelId, AutonomyTierId } from "@/lib/types";
+import type { RepoStanceCompliance } from "@/lib/org/stance";
+import { AckMark, TIER_HEX, TIER_META } from "./stanceShared";
+import { bandState } from "./perimeterLadder";
+import { AckButton } from "./AckButton";
+
+export { CheckpointStrip } from "./CheckpointStrip";
+export { SealedZones } from "./SealedZones";
+
+/** A repo as a node inside a band — real level/overall, ack state, trailer provenance, findings. */
+export function RepoNode({
+  repo,
+  org,
+  version,
+  canAck,
+}: {
+  repo: RepoStanceCompliance;
+  org: string;
+  version: number;
+  canAck: boolean;
+}) {
+  const levelHex = LEVEL_HEX[repo.level as LevelId] ?? "#64748b";
+  // Blocking = observed contradiction (danger). Advisory = declared, not checked (muted). Both are
+  // already on `repo.findings`; dropping advisory made a path-zone clause invisible on this node.
+  const blocking = repo.findings.filter((f) => !f.advisory);
+  const advisory = repo.findings.filter((f) => f.advisory);
+  return (
+    <div
+      className="rounded-lg border border-divider bg-ink/80 px-3 py-2 transition hover:border-accent/60"
+      title={repo.findings.map((f) => f.message).join("\n") || repo.fullName}
+    >
+      <div className="flex items-center gap-2">
+        <a href={reportPermalink(repo.fullName, null, org)} className="focus-ring truncate type-mono-sm text-slate-100 hover:text-white">
+          {repo.name}
+        </a>
+        <span className="ml-auto font-mono type-micro tabular-nums" style={{ color: levelHex }}>
+          {repo.level}
+        </span>
+        <span className="font-mono type-micro tabular-nums" style={{ color: scoreHex(repo.overall) }}>
+          {repo.overall}
+        </span>
+      </div>
+      <div className="mt-1 flex items-center gap-2">
+        <AckMark ack={repo.ack} ackedVersion={repo.ackedVersion} showLabel={false} />
+        {repo.provenancePct != null && (
+          <span className="font-mono type-micro tabular-nums text-slate-500">prov {repo.provenancePct}%</span>
+        )}
+        {blocking.length > 0 && (
+          <span className="font-mono type-micro tabular-nums text-danger">
+            {blocking.length} finding{blocking.length === 1 ? "" : "s"}
+          </span>
+        )}
+        {advisory.length > 0 && (
+          <span className="font-mono type-micro tabular-nums text-slate-500">
+            {advisory.length} advisory
+          </span>
+        )}
+        {canAck && repo.ack !== "current" && (
+          <span className="ml-auto">
+            <AckButton org={org} repo={repo.fullName} version={version} />
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * One tier band. The bands stack from open (outermost, T0) to restricted (innermost, T3) and are
+ * inset progressively so the page reads as depth into the perimeter. `review` is the stance's
+ * declared requirement for the band (absent = the stance takes no position for this tier).
+ */
+export function PerimeterBand({
+  tier,
+  review,
+  repos,
+  org,
+  version,
+  canAck,
+  tierIndex,
+}: {
+  tier: AutonomyTierId;
+  review: string | null;
+  repos: RepoStanceCompliance[];
+  org: string;
+  version: number;
+  canAck: boolean;
+  tierIndex: number;
+}) {
+  const hex = TIER_HEX[tier];
+  const meta = TIER_META[tier];
+  const findings = repos.reduce((a, r) => a + r.findings.filter((f) => !f.advisory).length, 0);
+  // The SAME state the ladder above paints this band with, so the headline and the detail cannot
+  // disagree about whether a tier is declared, measured, or not judged at all.
+  const state = bandState(review != null, repos.length);
+  return (
+    <div style={{ marginLeft: `${tierIndex * 1.25}rem` }}>
+      <div className="relative overflow-hidden rounded-2xl border border-divider bg-surface/40">
+        <div aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ backgroundColor: hex }} />
+        <div className="relative p-5 pl-6">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <span className="self-center" title={stateTitle(state, `${tier} · ${meta.name}`)}>
+              <StateSwatch state={state} baseColor={hex} size={12} />
+            </span>
+            <span className="type-figure" style={{ color: hex }}>
+              {tier}
+            </span>
+            <span className="type-lede font-medium text-white">{meta.name}</span>
+            <span className="type-body-sm text-slate-400">{meta.blurb}</span>
+            <span className="ml-auto font-mono type-micro uppercase tracking-[0.18em] text-slate-500">
+              {repos.length} repos{findings ? ` · ${findings} findings` : ""}
+            </span>
+          </div>
+          <p className="mt-2 max-w-3xl type-body text-slate-200">
+            {review ?? <span className="text-slate-500">No review requirement declared for this tier.</span>}
+          </p>
+          {repos.length > 0 ? (
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {repos.map((r) => (
+                <RepoNode key={r.fullName} repo={r} org={org} version={version} canAck={canAck} />
+              ))}
+            </div>
+          ) : (
+            <p className="mt-4 type-body-sm text-slate-500">No repo currently sits in this band.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Repos whose latest scan carries no passport: the tier is NOT assessed — said plainly, never
+ *  defaulted into a band. A re-scan assigns them honestly. */
+export function UnassessedRepos({
+  repos,
+  org,
+  version,
+  canAck,
+}: {
+  repos: RepoStanceCompliance[];
+  org: string;
+  version: number;
+  canAck: boolean;
+}) {
+  if (repos.length === 0) return null;
+  return (
+    <div className="rounded-2xl border border-dashed border-divider bg-surface/20 p-5">
+      {/* The `missing` void, made pointable: the swatch IS "no band could honestly be assigned", and
+          the sentence that said so rides on it (§2.4 · D). */}
+      <div className="flex items-center gap-2">
+        <StateSwatch state="missing" size={12} />
+        <Kicker tone="muted">Tier not assessed · {repos.length}</Kicker>
+        <WhyChip
+          label="tier not assessed"
+          hint="These repos have no readiness passport on their latest scan, so no autonomy band can honestly be assigned. Re-scan to place them."
+        />
+      </div>
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {repos.map((r) => (
+          <RepoNode key={r.fullName} repo={r} org={org} version={version} canAck={canAck} />
+        ))}
+      </div>
+    </div>
+  );
+}

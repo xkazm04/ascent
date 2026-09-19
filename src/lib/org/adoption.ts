@@ -1,0 +1,353 @@
+// AI-adoption intelligence (Direction #1 phase 1) — the "people analytics" view: how much of the org's
+// work is AI-assisted, who the champions are, and the delivery health it sits alongside. Pure assembly
+// over existing aggregates (contributor AI-attribution + PR signals + team rollup); NO new commit-history
+// ingestion (that's a later phase). Delivery is shown ALONGSIDE adoption as honest context — not a
+// fabricated causal ROI. Powers /org/[slug]/adoption + its Copy-for-LLM brief.
+
+import { getContributorInsights, getOrgPrSignals, getOrgTeamRollup } from "@/lib/db";
+
+export interface AdoptionChampion {
+  login: string;
+  aiShare: number; // 0..100 of this person's commits that are AI-attributed
+  commits: number;
+  aiCommits: number;
+  repos: number; // breadth — distinct repos this person touched
+}
+
+/** Per-team AI adoption (CODEOWNERS attribution) — the "which team to pair with which" layer. */
+export interface AdoptionTeam {
+  slug: string; // "@org/team"
+  name: string;
+  /** 0..100, commit-weighted across the team's repos — NULL when the team has no commit population
+   *  to take a share of, carried straight through from `TeamRollup.aiCommitShare`. The Adoption tab
+   *  hatches such a team (`adoptionTeamMatrix.teamState`) instead of painting a red 0%. */
+  aiCommitShare: number | null;
+  contributors: number;
+  aiContributors: number;
+  repoCount: number;
+}
+
+/** A team whose AI share is a real reading — the only kind a mentor→learner pairing can be built
+ *  from, so the pairing shape narrows the nullable field once here rather than at each renderer. */
+export type MeasuredAdoptionTeam = AdoptionTeam & { aiCommitShare: number };
+
+/**
+ * Someone to INVITE to the next enablement session: an active contributor whose recent work carries no
+ * AI attribution yet. Read it as an invitation list, not a shortfall list — "not measured using AI"
+ * is not a performance finding, and the row exists to answer "who would get the most out of a seat in
+ * the room", never "who is behind". The copy every surface renders is held to that (see
+ * `enablementTargets` and the brief's section below).
+ */
+export interface EnablementTarget {
+  login: string;
+  name: string | null;
+  commits: number;
+  repos: number;
+  lastActiveAt: string | null;
+}
+
+export interface AdoptionOverview {
+  org: string;
+  generatedOn: string;
+  contributors: { total: number; aiActive: number; aiActiveShare: number };
+  /** Commit-weighted share of all human commits that are AI-attributed (0..100). */
+  orgAiShare: number;
+  /**
+   * The population `orgAiShare` is weighted over: human commits in scope. A share with no denominator
+   * is unreadable — 32% of 40 commits and 32% of 40,000 are different facts — and every neighbouring
+   * tile already carries its population.
+   *
+   * NULL, never 0, when the denominator is not derivable: `getContributorInsights` withholds the
+   * per-person rows below the naming floor (CHAMPION_MIN_POP) while still emitting the aggregate
+   * share, and no aggregate commit total is on the payload. A 0 there would read as "no commits",
+   * which is precisely the claim the suppression does not make.
+   */
+  orgCommits: number | null;
+  /** Contributors bucketed by personal AI share: heavy (>=50%), partial (1–49%), none (0%). */
+  distribution: { high: number; some: number; none: number };
+  champions: AdoptionChampion[]; // top culture carriers by championScore
+  /** Delivery signals shown as CONTEXT next to adoption (no causal claim). Null when no PR data.
+   *  aiGovernedRate = share of AI-involved PRs that got a human review — the governance half. */
+  delivery: {
+    typicalHoursToMerge: number | null;
+    reviewedRate: number | null;
+    mergeRate: number;
+    aiInvolvedRate: number;
+    aiGovernedRate: number | null;
+    prs: number;
+  } | null;
+  knowledgeLeader: { name: string; aiCommitShare: number } | null;
+  /** AI tools detected across the fleet's PRs (co-authorship/body markers), most-used first. */
+  tools: { name: string; count: number }[];
+  /** Per-team adoption, highest AI commit share first. Empty when no CODEOWNERS attribution. */
+  teams: AdoptionTeam[];
+  /** The single highest-leverage mentor→learner team pairing on AI share (gap ≥ PAIRING_MIN_GAP).
+   *  Both sides are `MeasuredAdoptionTeam`: a team with no AI-share reading cannot be a mentor or a
+   *  learner, because the gap between them would be a subtraction from an absence. */
+  teamPairing: { leader: MeasuredAdoptionTeam; learner: MeasuredAdoptionTeam; gap: number } | null;
+  /** Who to INVITE to enablement next: active contributors with no AI-attributed commits yet. */
+  enablement: EnablementTarget[];
+}
+
+/** Minimum AI-share gap (pts) between the top and bottom team before suggesting a pairing. */
+export const PAIRING_MIN_GAP = 15;
+/** Minimum commit volume before an invitation is meaningful — below it, "no AI commits yet" is more
+ *  likely a quiet month than an unmet interest, and an invitation on that basis reads as a summons. */
+const ENABLEMENT_MIN_COMMITS = 3;
+/**
+ * Recency floor. The contributor window behind these rows is ~26 weeks, so "3+ commits and no AI
+ * attribution" alone can name someone who left five months ago and put them at the top of a list
+ * headed "highest-leverage people to offer tooling to" — a list whose whole promise is that reaching
+ * these people changes something. A volume floor answers "did they work here"; only a recency floor
+ * answers "are they here now", and an invitation needs both. 90 days: long enough to keep someone on
+ * parental leave, a rotation, or a quiet quarter on the list; short enough that a leaver drops off it.
+ *
+ * Exported so the surfaces that render the cohort state the horizon in their own copy instead of
+ * implying the list covers everyone.
+ */
+export const ENABLEMENT_MAX_IDLE_DAYS = 90;
+const ENABLEMENT_LIMIT = 8;
+const TOOLS_LIMIT = 10;
+
+/**
+ * The recency half of the eligibility floor. An unparseable or MISSING `lastActiveAt` fails it: the
+ * row would render "last active —" while sitting on a list that claims recent volume, and an
+ * invitation we cannot date is exactly the row this floor exists to keep out. Unknown is not recent.
+ */
+/** The newest observed activity across the roster, capped at the wall clock; the wall clock when the
+ *  roster carries no dated activity at all. */
+function snapshotPresent(contributors: { lastActiveAt: string | null }[]): number {
+  const wall = Date.now();
+  let newest = Number.NEGATIVE_INFINITY;
+  for (const c of contributors) {
+    if (!c.lastActiveAt) continue;
+    const t = Date.parse(c.lastActiveAt);
+    if (Number.isFinite(t) && t > newest) newest = t;
+  }
+  return Number.isFinite(newest) ? Math.min(newest, wall) : wall;
+}
+
+function recentlyActive(lastActiveAt: string | null, idleFloor: number): boolean {
+  if (!lastActiveAt) return false;
+  const t = Date.parse(lastActiveAt);
+  return Number.isFinite(t) && t >= idleFloor;
+}
+
+/**
+ * The enablement INVITATION list: contributors carrying real recent volume whose commits show no AI
+ * attribution yet — the people most likely to get something out of the next enablement session.
+ *
+ * FRAMING, which is load-bearing and not decoration. The same rows can be phrased two ways: "who is
+ * behind on AI adoption" (a shortfall list about people, which invites a manager to use it as one)
+ * or "who to invite next" (an offer they can accept or ignore). This module commits to the second
+ * everywhere the rows are named — the type, the field, and the brief's section heading and prose —
+ * because the measurement is a proxy: no AI-attributed commits can equally mean not interested, not
+ * needed for this work, or using a tool we cannot attribute. A proxy that weak can support an
+ * invitation; it cannot support a judgement. The suppression floor below protects the person; the
+ * wording protects the meaning, and the two are the same guarantee.
+ *
+ * Exported because TWO surfaces need it and the cohort must be defined once. The adoption brief
+ * (adoptionMarkdown, via buildAdoptionOverview) still carries it into the LLM prompt, while the
+ * on-screen "Who to enable next" table moved to the Contributors tab (2026-08-19), which already has
+ * `getContributorInsights` in hand and must not run a whole second buildAdoptionOverview to read a
+ * list it can derive. Duplicating the two thresholds at the second call site is exactly what let
+ * three adoption surfaces drift apart before.
+ *
+ * `namingAllowed` is the CHAMPION_MIN_POP privacy guard. Below the floor, naming 1–2 identifiable
+ * people is a surveillance-y ranking, so the cohort is empty and every caller inherits the
+ * suppression — which is also why an empty list IS the render guard; no call site re-checks the
+ * population.
+ *
+ * Pure. Takes the narrow slice of ContributorInsights it reads, so a caller can pass either producer's
+ * result. `contributors` arrives sorted by commits desc, so filter order = volume order = leverage order.
+ *
+ * TWO floors, both required before anyone enters the cohort: volume (ENABLEMENT_MIN_COMMITS) and
+ * recency (ENABLEMENT_MAX_IDLE_DAYS). See each constant for why one without the other is not enough.
+ */
+export function enablementTargets(
+  insights: {
+    namingAllowed: boolean;
+    contributors: { login: string; name: string | null; aiShare: number; commits: number; repos: number; lastActiveAt: string | null }[];
+  },
+  /** Injectable clock — the recency floor is time-dependent, and a test must be able to pin "now".
+   *  When omitted, "now" is the SNAPSHOT's present: the newest `lastActiveAt` the contributor read
+   *  observed (capped at the wall clock). The insights are a per-scan snapshot, so measuring recency
+   *  from the wall clock would empty the cohort on any fleet whose latest scan is older than the
+   *  horizon — a stale snapshot, not a fleet nobody works on. The stale-repo guard in
+   *  org-contributors.ts anchors the same way. */
+  now?: number,
+): EnablementTarget[] {
+  if (!insights.namingAllowed) return [];
+  const anchor = now ?? snapshotPresent(insights.contributors);
+  const idleFloor = anchor - ENABLEMENT_MAX_IDLE_DAYS * 24 * 60 * 60 * 1000;
+  return insights.contributors
+    .filter((c) => c.aiShare === 0 && c.commits >= ENABLEMENT_MIN_COMMITS && recentlyActive(c.lastActiveAt, idleFloor))
+    .slice(0, ENABLEMENT_LIMIT)
+    .map((c) => ({ login: c.login, name: c.name, commits: c.commits, repos: c.repos, lastActiveAt: c.lastActiveAt }));
+}
+
+export async function buildAdoptionOverview(
+  orgSlug: string,
+  segmentId?: string | null,
+  techGroupId?: string | null,
+): Promise<AdoptionOverview | null> {
+  const [insights, pr, teams] = await Promise.all([
+    getContributorInsights(orgSlug, segmentId, techGroupId),
+    getOrgPrSignals(orgSlug, segmentId, techGroupId),
+    getOrgTeamRollup(orgSlug, segmentId, techGroupId),
+  ]);
+  if (!insights || insights.totalContributors === 0) return null;
+
+  // The AI-share spread is an AGGREGATE, so it comes from getContributorInsights directly rather than
+  // being recomputed by walking the per-person rows — which the producer withholds below the privacy
+  // floor (G4-03). Deriving it here from `contributors` would have silently zeroed the spread for
+  // small orgs the moment the producer started suppressing rows.
+  const distribution = insights.distribution;
+
+  // CHAMPION_MIN_POP privacy guard. It is now enforced by getContributorInsights / rollupTeams
+  // themselves (champions, per-person rows and the team knowledge leader all arrive already
+  // suppressed), so this flag only decides whether THIS builder names people in the lists it derives
+  // itself. Below the floor, naming 1–2 identifiable people is a surveillance-y ranking, and
+  // adoptionMarkdown would carry it into an LLM prompt.
+  const namingAllowed = insights.namingAllowed;
+
+  // The invitation list, through the shared helper (see enablementTargets — it applies the same
+  // `namingAllowed` guard internally). Still built here because adoptionMarkdown puts it in the LLM
+  // brief's enablement ASK; the on-screen table now lives on the Contributors tab.
+  const enablement = enablementTargets(insights);
+
+  // The denominator behind orgAiShare, derived from the payload already in hand (no second db read).
+  // Below the naming floor the producer emits no per-person rows, so the sum is not available — null,
+  // not 0, so the surfaces can drop the count rather than assert an empty repository.
+  const orgCommits = insights.contributors.length ? insights.contributors.reduce((s, c) => s + c.commits, 0) : null;
+
+  const adoptionTeams: AdoptionTeam[] = (teams?.teams ?? [])
+    .map((t) => ({
+      slug: t.slug,
+      name: t.name,
+      aiCommitShare: t.aiCommitShare,
+      contributors: t.contributors,
+      aiContributors: t.aiContributors,
+      repoCount: t.repoCount,
+    }))
+    // Highest share first, with the UNMEASURED teams last rather than sorted as if they were 0% —
+    // a team with no commit population is not "the least AI-native team", it is a team we have no
+    // reading for, and sorting it into the bottom of a ranked strip asserts the reading.
+    .sort((a, b) => (b.aiCommitShare ?? -1) - (a.aiCommitShare ?? -1));
+
+  // Mentor→learner pairing on AI share: top team vs the lowest team that has people to enable. Both
+  // ends must be MEASURED — an unmeasured team at the bottom of the list used to arrive as a 0% and
+  // could be nominated "learner" on a 60-point gap that was never observed.
+  let teamPairing: AdoptionOverview["teamPairing"] = null;
+  const measured = adoptionTeams.filter((t): t is MeasuredAdoptionTeam => t.aiCommitShare !== null);
+  if (measured.length >= 2) {
+    const leader = measured[0]!;
+    const learner = [...measured].reverse().find((t) => t !== leader && t.contributors > 0);
+    if (learner) {
+      const gap = leader.aiCommitShare - learner.aiCommitShare;
+      if (gap >= PAIRING_MIN_GAP) teamPairing = { leader, learner, gap };
+    }
+  }
+
+  return {
+    org: orgSlug,
+    generatedOn: new Date().toISOString().slice(0, 10),
+    contributors: { total: insights.totalContributors, aiActive: insights.aiActive, aiActiveShare: insights.aiActiveShare },
+    orgAiShare: insights.orgAiShare,
+    orgCommits,
+    distribution,
+    champions: !namingAllowed
+      ? []
+      : insights.champions
+          .slice(0, 6)
+          .map((c) => ({ login: c.login, aiShare: c.aiShare, commits: c.commits, aiCommits: c.aiCommits, repos: c.repos })),
+    delivery: pr
+      ? {
+          typicalHoursToMerge: pr.typicalHoursToMerge,
+          reviewedRate: pr.avgReviewedRate,
+          mergeRate: pr.avgMergeRate,
+          aiInvolvedRate: pr.avgAiInvolvedRate,
+          aiGovernedRate: pr.avgAiGovernedRate ?? null,
+          prs: pr.totalPrs,
+        }
+      : null,
+    knowledgeLeader: teams?.knowledgeLeader ? { name: teams.knowledgeLeader.name, aiCommitShare: teams.knowledgeLeader.aiCommitShare } : null,
+    tools: (pr?.tools ?? []).slice(0, TOOLS_LIMIT),
+    teams: adoptionTeams,
+    teamPairing,
+    enablement,
+  };
+}
+
+/** A markdown brief for the "Copy for LLM" action — adoption + delivery context + an enablement ASK. */
+export function adoptionMarkdown(a: AdoptionOverview): string {
+  const out: string[] = [];
+  out.push(`# AI adoption: ${a.org}`);
+  out.push(`Generated ${a.generatedOn}`);
+  out.push("");
+  out.push("## AI adoption");
+  out.push(
+    a.orgCommits != null
+      ? `- Org AI commit share: ${a.orgAiShare}% of ${a.orgCommits} commits (commit-weighted across contributors)`
+      : // No denominator below the naming floor — say so, because a share whose population is unstated
+        // is the number a model will happily scale into a fleet-wide claim.
+        `- Org AI commit share: ${a.orgAiShare}% (commit-weighted across contributors; commit total withheld below the naming floor)`,
+  );
+  out.push(`- AI-active contributors: ${a.contributors.aiActive}/${a.contributors.total} (${a.contributors.aiActiveShare}%)`);
+  out.push(`- Spread: ${a.distribution.high} heavy (>=50% AI) · ${a.distribution.some} partial · ${a.distribution.none} none`);
+  if (a.tools.length) out.push(`- AI tooling detected in PRs: ${a.tools.map((t) => `${t.name} ×${t.count}`).join(", ")}`);
+  if (a.knowledgeLeader) out.push(`- Most AI-attributed team: ${a.knowledgeLeader.name} (${a.knowledgeLeader.aiCommitShare}% AI commit share)`);
+  if (a.teams.length) {
+    out.push("");
+    out.push("## Team adoption (CODEOWNERS)");
+    for (const t of a.teams) {
+      // An LLM reading "0% AI commit share" will report it as a finding, so the brief says what the
+      // producer says: no commit population, therefore no share. (The org-intelligence Known gap
+      // named this brief as the second surface still printing the sentinel as a measurement.)
+      const share = t.aiCommitShare === null ? "AI commit share not measured (no commit history)" : `${t.aiCommitShare}% AI commit share`;
+      out.push(`- ${t.name}: ${share} · ${t.aiContributors}/${t.contributors} contributors AI-active · ${t.repoCount} repos`);
+    }
+    if (a.teamPairing) {
+      out.push(
+        `- Suggested pairing: ${a.teamPairing.leader.name} (${a.teamPairing.leader.aiCommitShare}%) mentors ${a.teamPairing.learner.name} (${a.teamPairing.learner.aiCommitShare}%)`,
+      );
+    }
+  }
+  if (a.delivery) {
+    out.push("");
+    out.push("## Delivery (context, not a causal claim)");
+    const d = a.delivery;
+    out.push(
+      `- ${d.typicalHoursToMerge != null ? `${d.typicalHoursToMerge}h typical PR merge time · ` : ""}${d.reviewedRate != null ? `${d.reviewedRate}% reviewed · ` : ""}${d.mergeRate}% merged · ${d.aiInvolvedRate}% AI-involved PRs (${d.prs} PRs)${d.aiGovernedRate != null ? ` · ${d.aiGovernedRate}% of AI PRs human-reviewed` : ""}`,
+    );
+  }
+  // Named-individual sections mirror the page's CHAMPION_MIN_POP guard: when the builder withheld
+  // the lists (small population), the brief must not carry an empty header implying suppression is a
+  // data gap — it simply omits the sections, exactly like the page.
+  if (a.champions.length) {
+    out.push("");
+    out.push("## AI champions");
+    for (const c of a.champions) out.push(`- ${c.login}: ${c.aiShare}% AI (${c.aiCommits}/${c.commits} commits across ${c.repos} repos)`);
+  }
+  if (a.enablement.length) {
+    out.push("");
+    // Invitation framing, in the one place it matters most: this text is pasted into an LLM prompt and
+    // comes back as a leadership-facing plan. "Enablement cohort" reads to a model as a deficiency
+    // list and it will write remediation copy about named people. Naming it as an offer, and saying
+    // out loud that the signal is a proxy rather than a verdict, changes what comes back.
+    out.push("## Who to invite to enablement next (an offer, not a shortfall list)");
+    for (const e of a.enablement) out.push(`- ${e.login}: ${e.commits} commits across ${e.repos} repos`);
+    out.push(
+      `- ${a.distribution.none} contributors show no AI-attributed commits yet; the ones above are simply the most active, so an invitation reaches them where they are already working.`,
+    );
+    out.push(
+      "- No AI-attributed commits is not a performance signal: it can mean not interested, not applicable to this work, or a tool we cannot attribute. Treat these as people to invite and support, never as people to correct.",
+    );
+  }
+  out.push("");
+  out.push("## Ask");
+  out.push(
+    "Given this AI-adoption and delivery snapshot, propose the 3 highest-leverage moves to (a) make AI enablement easy to opt into for the contributors and teams with low AI share, and (b) convert that adoption into faster, well-reviewed delivery. For each: who or which team to invite, the concrete support on offer, and the delivery metric it should improve. Frame every move as an invitation or an offer of support — never as corrective action against a named individual.",
+  );
+  return out.join("\n");
+}

@@ -1,0 +1,302 @@
+// POST /api/org/invites — the create path, now that it also DELIVERS the invite (G7-02). The invite
+// mail is the one message in this product sent to an address nobody has verified: an org owner types
+// it in. So what's pinned here is who can trigger a send, when it is suppressed, and that a failed or
+// unconfigured send never costs the owner the invite they just created.
+
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+vi.mock("next/server", () => ({
+  NextResponse: class {
+    static json(body: unknown, init?: ResponseInit) {
+      return new Response(JSON.stringify(body), init);
+    }
+  },
+}));
+
+vi.mock("@/lib/db", () => ({
+  isDbConfigured: vi.fn(() => true),
+  createInvite: vi.fn(async () => ({
+    id: "inv_1",
+    email: "invitee@example.test",
+    githubLogin: null,
+    role: "member",
+    token: "tok_abc",
+    invitedBy: "octocat",
+    createdAt: "2026-07-01T00:00:00.000Z",
+    expiresAt: "2026-07-08T00:00:00.000Z",
+  })),
+  listPendingInvites: vi.fn(async () => []),
+  recordOrgAudit: vi.fn(async () => {}),
+  revokeInvite: vi.fn(async () => ({ revoked: true, target: "invitee@example.test" })),
+}));
+
+vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn(async () => null) }));
+vi.mock("@/lib/auth", () => ({ requireSameOrigin: vi.fn(() => null) }));
+vi.mock("@/lib/access", () => ({ resolveViewerLogin: vi.fn(async () => "octocat") }));
+vi.mock("@/lib/email/invite", () => ({ dispatchInviteEmail: vi.fn(async () => ({ ok: true, skipped: false })) }));
+vi.mock("@/lib/db/invites", () => ({
+  resendInvite: vi.fn(async () => ({
+    id: "inv_1",
+    email: "invitee@example.test",
+    githubLogin: null,
+    role: "member",
+    token: "tok_new",
+    invitedBy: "octocat",
+    createdAt: "2026-07-01T00:00:00.000Z",
+    expiresAt: "2026-07-15T00:00:00.000Z",
+  })),
+}));
+
+import { DELETE, POST } from "./route";
+import { createInvite, recordOrgAudit, revokeInvite } from "@/lib/db";
+import { resendInvite } from "@/lib/db/invites";
+import { requireOrgRole } from "@/lib/authz";
+import { dispatchInviteEmail } from "@/lib/email/invite";
+
+const mockCreate = vi.mocked(createInvite);
+const mockAudit = vi.mocked(recordOrgAudit);
+const mockRole = vi.mocked(requireOrgRole);
+const mockSend = vi.mocked(dispatchInviteEmail);
+const mockRevoke = vi.mocked(revokeInvite);
+const mockResend = vi.mocked(resendInvite);
+
+function post(body: unknown) {
+  return new Request("http://localhost/api/org/invites", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+const bodyOf = async (res: Response) => JSON.parse(await res.text());
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  process.env.ASCENT_PUBLIC_URL = "https://ascent.test";
+  mockRole.mockResolvedValue(null as never);
+  mockSend.mockResolvedValue({ ok: true, skipped: false });
+  mockRevoke.mockResolvedValue({ revoked: true, target: "invitee@example.test" } as never);
+  mockResend.mockResolvedValue({
+    id: "inv_1",
+    email: "invitee@example.test",
+    githubLogin: null,
+    role: "member",
+    token: "tok_new",
+    invitedBy: "octocat",
+    createdAt: "2026-07-01T00:00:00.000Z",
+    expiresAt: "2026-07-15T00:00:00.000Z",
+  } as never);
+  // clearAllMocks clears CALLS, not implementations — restate the default invite each test.
+  mockCreate.mockResolvedValue({
+    id: "inv_1",
+    email: "invitee@example.test",
+    githubLogin: null,
+    role: "member",
+    token: "tok_abc",
+    invitedBy: "octocat",
+    createdAt: "2026-07-01T00:00:00.000Z",
+    expiresAt: "2026-07-08T00:00:00.000Z",
+  } as never);
+});
+
+describe("who gets mailed, and when", () => {
+  it("mails the invitee at the address the owner supplied, with the absolute accept link", async () => {
+    const res = await POST(post({ org: "acme", role: "member", email: "invitee@example.test" }));
+    expect(await bodyOf(res)).toMatchObject({ emailed: "sent" });
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    const [to, input] = mockSend.mock.calls[0]!;
+    expect(to).toBe("invitee@example.test");
+    expect(input).toMatchObject({ org: "acme", role: "member", url: "https://ascent.test/invite/tok_abc", invitedBy: "octocat" });
+  });
+
+  it("sends NOTHING for a login-pinned invite (there is no address to send to)", async () => {
+    mockCreate.mockResolvedValue({
+      id: "inv_2", email: null, githubLogin: "someone", role: "member", token: "t", invitedBy: "octocat",
+      createdAt: "2026-07-01T00:00:00.000Z", expiresAt: "2026-07-08T00:00:00.000Z",
+    } as never);
+    const res = await POST(post({ org: "acme", role: "member", githubLogin: "someone" }));
+    expect(await bodyOf(res)).toMatchObject({ emailed: null });
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it("`notify: false` is the per-request opt-out — the invite is still created", async () => {
+    const res = await POST(post({ org: "acme", role: "member", email: "invitee@example.test", notify: false }));
+    const body = await bodyOf(res);
+    expect(body.invite.token).toBe("tok_abc");
+    expect(body.emailed).toBeNull();
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it("a non-owner can't trigger a send — the role gate runs first", async () => {
+    mockRole.mockResolvedValue(new Response("nope", { status: 403 }) as never);
+    await POST(post({ org: "acme", role: "member", email: "invitee@example.test" }));
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it("a malformed email is rejected before anything is created or sent", async () => {
+    const res = await POST(post({ org: "acme", role: "member", email: "not-an-email" }));
+    expect(res.status).toBe(400);
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+});
+
+// G2-31 — the githubLogin shape check is a SECURITY boundary, not a typo guard. acceptInvite matches a
+// login-pinned invite against `viewer.login`; if an EMAIL could be stored as the pin, an unconfirmed
+// Supabase account registered at that address could satisfy it (the G2-04 hijack, one field over). `@`
+// is outside the GitHub-login character class, so an email in that field must never be persisted. The
+// other half of the pair — getViewer refusing to make an unconfirmed address the `login` — is pinned in
+// src/lib/access.test.ts, so either half alone closes the hole.
+describe("the githubLogin pin can never be an email address (G2-31)", () => {
+  for (const value of ["victim@example.com", "victim@example.com ", "VICTIM@EXAMPLE.COM", "a@b"]) {
+    it(`rejects ${JSON.stringify(value)} with 400 and creates nothing`, async () => {
+      const res = await POST(post({ org: "acme", role: "member", githubLogin: value }));
+      expect(res.status).toBe(400);
+      expect(await bodyOf(res)).toMatchObject({ error: expect.stringContaining("githubLogin") });
+      expect(mockCreate).not.toHaveBeenCalled();
+      expect(mockSend).not.toHaveBeenCalled();
+    });
+  }
+
+  it("still accepts a real GitHub login (surrounding whitespace trimmed)", async () => {
+    mockCreate.mockResolvedValue({
+      id: "inv_3", email: null, githubLogin: "octo-cat", role: "member", token: "t", invitedBy: "octocat",
+      createdAt: "2026-07-01T00:00:00.000Z", expiresAt: "2026-07-08T00:00:00.000Z",
+    } as never);
+    const res = await POST(post({ org: "acme", role: "member", githubLogin: " octo-cat " }));
+    expect(res.status ?? 200).toBe(200);
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("delivery never costs the owner the invite", () => {
+  it("reports 'skipped' (not a false success) on a deploy with no email provider", async () => {
+    mockSend.mockResolvedValue({ ok: true, skipped: true });
+    const body = await bodyOf(await POST(post({ org: "acme", role: "member", email: "invitee@example.test" })));
+    expect(body.emailed).toBe("skipped");
+    expect(body.invite.token).toBe("tok_abc"); // the manual copy/paste path is untouched
+  });
+
+  it("reports 'failed' and still returns the invite when the provider errors", async () => {
+    mockSend.mockResolvedValue({ ok: false, skipped: false });
+    const body = await bodyOf(await POST(post({ org: "acme", role: "member", email: "invitee@example.test" })));
+    expect(body.emailed).toBe("failed");
+    expect(body.invite.id).toBe("inv_1");
+  });
+
+  it("records the delivery outcome in the org audit trail", async () => {
+    await POST(post({ org: "acme", role: "member", email: "invitee@example.test" }));
+    expect(mockAudit).toHaveBeenCalledWith(
+      "org.member.invited",
+      "acme",
+      expect.objectContaining({ emailed: "sent", target: "invitee@example.test" }),
+      "octocat",
+    );
+  });
+
+  it("canonicalizes the org before the gate, the mutation AND the audit line", async () => {
+    // The sibling /api/org/members canonicalizes with a comment recording that case-divergence between
+    // these three was a real IDOR/audit risk. This route never did: requireOrgRole normalizes
+    // internally so the GATE was safe, but the raw casing reached createInvite and — the part nothing
+    // downstream corrects — the audit row's own `meta.org`, so one tenant's privilege trail was filed
+    // under two spellings depending on what the caller typed.
+    await POST(post({ org: "  AcMe ", role: "member", email: "invitee@example.test" }));
+
+    expect(mockRole).toHaveBeenCalledWith("acme", "owner");
+    expect(mockCreate.mock.calls[0]![0]).toBe("acme");
+    expect(mockAudit).toHaveBeenCalledWith(
+      "org.member.invited",
+      "acme",
+      expect.objectContaining({ org: "acme" }),
+      "octocat",
+    );
+  });
+
+  it("omits the link (rather than emitting a broken one) when no public URL is configured", async () => {
+    delete process.env.ASCENT_PUBLIC_URL;
+    delete process.env.NEXT_PUBLIC_APP_URL;
+    delete process.env.VERCEL_PROJECT_PRODUCTION_URL;
+    await POST(post({ org: "acme", role: "member", email: "invitee@example.test" }));
+    expect(mockSend.mock.calls[0]![1]).toMatchObject({ url: null });
+  });
+});
+
+// Revoking is the one member-lifecycle act that took a granted capability BACK and recorded nothing.
+// org.member.invited / .invite_accepted / .role / .removed are all audited; the trail simply stopped
+// at the withdrawal, so "this invite was cancelled, by whom, and when" was unanswerable from the log.
+describe("revoking an invite is on the record", () => {
+  const del = (qs: string) =>
+    new Request(`http://localhost/api/org/invites?${qs}`, { method: "DELETE" });
+
+  it("records org.member.invite_revoked, naming the target and the actor", async () => {
+    const res = await DELETE(del("org=acme&id=inv_1"));
+    expect(res.status).toBe(200);
+    expect(mockAudit).toHaveBeenCalledTimes(1);
+    const [action, org, meta, actor] = mockAudit.mock.calls[0]!;
+    expect(action).toBe("org.member.invite_revoked");
+    expect(org).toBe("acme");
+    expect(meta).toMatchObject({ inviteId: "inv_1", target: "invitee@example.test" });
+    expect(actor).toBe("octocat");
+  });
+
+  it("records nothing when there was no pending invite to revoke", async () => {
+    mockRevoke.mockResolvedValue({ revoked: false, target: null } as never);
+    const res = await DELETE(del("org=acme&id=nope"));
+    expect(res.status).toBe(404);
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST resend rotates the token and re-mails without creating a row", () => {
+  const resendBody = { org: "acme", id: "inv_1", action: "resend" as const };
+
+  it("mails the rotated token, does not create, and records org.member.invite_resent", async () => {
+    const res = await POST(post(resendBody));
+    expect(res.status ?? 200).toBe(200);
+    expect(await bodyOf(res)).toMatchObject({ emailed: "sent", invite: { id: "inv_1", token: "tok_new" } });
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockResend).toHaveBeenCalledWith("acme", "inv_1");
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(mockSend.mock.calls[0]![1]).toMatchObject({
+      org: "acme",
+      url: "https://ascent.test/invite/tok_new",
+    });
+    expect(mockAudit).toHaveBeenCalledWith(
+      "org.member.invite_resent",
+      "acme",
+      expect.objectContaining({ inviteId: "inv_1", emailed: "sent", target: "invitee@example.test" }),
+      "octocat",
+    );
+  });
+
+  it("a non-owner cannot resend — the role gate runs first", async () => {
+    mockRole.mockResolvedValue(new Response("nope", { status: 403 }) as never);
+    await POST(post(resendBody));
+    expect(mockResend).not.toHaveBeenCalled();
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it("404s when there is no pending invite to rotate", async () => {
+    mockResend.mockResolvedValueOnce(null);
+    const res = await POST(post(resendBody));
+    expect(res.status).toBe(404);
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+
+  it("sends nothing for a login-pinned invite (no address)", async () => {
+    mockResend.mockResolvedValueOnce({
+      id: "inv_2",
+      email: null,
+      githubLogin: "someone",
+      role: "member",
+      token: "tok_new",
+      invitedBy: "octocat",
+      createdAt: "2026-07-01T00:00:00.000Z",
+      expiresAt: "2026-07-15T00:00:00.000Z",
+    } as never);
+    const res = await POST(post({ org: "acme", id: "inv_2", action: "resend" }));
+    expect(await bodyOf(res)).toMatchObject({ emailed: null, invite: { token: "tok_new" } });
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+});

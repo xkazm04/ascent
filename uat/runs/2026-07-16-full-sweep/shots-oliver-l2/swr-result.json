@@ -1,0 +1,655 @@
+{
+  "repo": {
+    "owner": "vercel",
+    "name": "swr",
+    "url": "https://github.com/vercel/swr",
+    "description": "React Hooks for Data Fetching",
+    "isPrivate": false,
+    "stars": 32430,
+    "forks": 1361,
+    "openIssues": 209,
+    "primaryLanguage": "TypeScript",
+    "pushedAt": "2026-07-15T10:11:29Z",
+    "defaultBranch": "main",
+    "sizeKb": 8372,
+    "license": "MIT",
+    "topics": [
+      "cache",
+      "data",
+      "data-fetching",
+      "fetch",
+      "hook",
+      "hooks",
+      "nextjs",
+      "react",
+      "react-native",
+      "stale-while-revalidate",
+      "suspense",
+      "swr",
+      "vercel"
+    ],
+    "headSha": "fc7ac116b2a2bfdfa43ec8b08753a77d6c3de93e"
+  },
+  "overallScore": 47,
+  "level": {
+    "id": "L3",
+    "name": "Augmented",
+    "band": [
+      45,
+      64
+    ],
+    "tagline": "AI is part of the standard workflow",
+    "description": "AI is part of the team's standard workflow. Shared agent guidance exists and guardrails are solid (real test suite, CI gates, enforced types/lint), so AI-generated code is safe to merge."
+  },
+  "archetype": "org",
+  "adoptionScore": 18,
+  "rigorScore": 62,
+  "posture": {
+    "id": "manual",
+    "label": "Solid but Manual",
+    "blurb": "Strong engineering foundations with untapped AI leverage — operationalize AI tooling."
+  },
+  "aiUsage": {
+    "detected": true,
+    "commitFraction": 0.03,
+    "signals": [
+      "1/30 commits carry an AI co-author trailer"
+    ]
+  },
+  "contributors": [
+    {
+      "login": "huozhi",
+      "name": "Jiachi Liu",
+      "commits": 12,
+      "aiCommits": 0,
+      "lastActiveAt": "2026-07-15T10:00:48Z"
+    },
+    {
+      "login": "promer94",
+      "name": "promer94",
+      "commits": 6,
+      "aiCommits": 0,
+      "lastActiveAt": "2026-05-26T18:10:00Z"
+    },
+    {
+      "login": "vercel-release-bot",
+      "name": "vercel-release-bot",
+      "commits": 3,
+      "aiCommits": 0,
+      "lastActiveAt": "2026-02-27T16:41:47Z"
+    },
+    {
+      "login": "pengshenghai",
+      "name": "pengshenghai",
+      "commits": 1,
+      "aiCommits": 0,
+      "lastActiveAt": "2026-06-27T18:09:25Z"
+    },
+    {
+      "login": "devjiwonchoi",
+      "name": "Jiwon Choi",
+      "commits": 1,
+      "aiCommits": 0,
+      "lastActiveAt": "2026-06-19T17:23:42Z"
+    },
+    {
+      "login": "styfle",
+      "name": "Steven",
+      "commits": 1,
+      "aiCommits": 1,
+      "lastActiveAt": "2026-05-21T15:29:24Z"
+    },
+    {
+      "login": "tomohiro86",
+      "name": "Tomohiro Yamada",
+      "commits": 1,
+      "aiCommits": 0,
+      "lastActiveAt": "2026-05-10T16:50:30Z"
+    },
+    {
+      "login": "lukesandberg",
+      "name": "Luke Sandberg",
+      "commits": 1,
+      "aiCommits": 0,
+      "lastActiveAt": "2026-04-17T23:30:09Z"
+    },
+    {
+      "login": "RyanCavanaugh",
+      "name": "Ryan Cavanaugh",
+      "commits": 1,
+      "aiCommits": 0,
+      "lastActiveAt": "2026-02-04T01:57:36Z"
+    },
+    {
+      "login": "Copilot",
+      "name": "Copilot",
+      "commits": 1,
+      "aiCommits": 0,
+      "lastActiveAt": "2026-01-30T17:55:58Z"
+    },
+    {
+      "login": "CODEAbhinav-art",
+      "name": "Abhinav Mishra",
+      "commits": 1,
+      "aiCommits": 0,
+      "lastActiveAt": "2026-01-19T08:33:45Z"
+    },
+    {
+      "login": "shuding",
+      "name": "Shu Ding",
+      "commits": 1,
+      "aiCommits": 0,
+      "lastActiveAt": "2025-12-15T16:28:01Z"
+    }
+  ],
+  "dimensions": [
+    {
+      "id": "D1",
+      "name": "AI Tooling & Conventions",
+      "weight": 0.15,
+      "score": 2,
+      "signalScore": 0,
+      "llmScore": 3,
+      "summary": "No machine-readable AI/agent guidance file (CLAUDE.md, AGENTS.md, .cursorrules, copilot-instructions.md) was found anywhere in the repository. Nothing documents build/test/run commands, the module/export layout, or explicit constraints for an AI tool, so any AI usage today depends entirely on an individual developer's own prompting rather than a shared, repo-native convention.",
+      "evidence": [
+        "No machine-readable AI/agent guidance detected (e.g. CLAUDE.md, AGENTS.md, .cursorrules)"
+      ],
+      "strengths": [
+        "CONTRIBUTING.md exists and documents contributor workflow, providing a natural source to adapt into agent-facing guidance"
+      ],
+      "gaps": [
+        "No CLAUDE.md/AGENTS.md/.cursorrules/copilot-instructions.md present anywhere in the repo",
+        "No MCP config, prompt library, or .claude/ directory",
+        "No build/test/run commands packaged specifically for agent consumption",
+        "No explicit 'never/always' constraints or architecture map for AI tools to follow"
+      ]
+    },
+    {
+      "id": "D2",
+      "name": "Automated Testing",
+      "weight": 0.15,
+      "score": 96,
+      "signalScore": 100,
+      "llmScore": 93,
+      "summary": "SWR has a genuinely mature test suite: 139 test files against source with a 1.05 test-to-source ratio, a configured unit-test framework, Playwright-driven e2e tests covering dev and prod build modes plus suspense/transition edge cases, and coverage tracking - reinforced by a recent dedicated PR to re-organize and expand the e2e suite across Next.js canary and multiple React versions.",
+      "evidence": [
+        "Found 139 test files",
+        "Test framework configured",
+        "End-to-end tests configured",
+        "Coverage tracking configured",
+        "High test-to-source ratio (1.05)"
+      ],
+      "strengths": [
+        "139 test files with a 1.05 test-to-source ratio",
+        "Playwright e2e suite covering suspense, concurrent transitions, mutate/server-actions, and dev/prod build modes",
+        "Coverage tracking configured",
+        "Recent dedicated investment in e2e restructuring (#4289) and compatibility test workflows for React 17/main/canary"
+      ],
+      "gaps": [
+        "No evidence of mutation testing to validate the test suite's own effectiveness",
+        "No accessibility (axe/pa11y) or performance/load (Lighthouse CI/k6) smoke testing found",
+        "No formal contract/API-schema testing tooling, though less applicable to a client-side hook library"
+      ]
+    },
+    {
+      "id": "D3",
+      "name": "CI/CD & Delivery",
+      "weight": 0.14,
+      "score": 76,
+      "signalScore": 75,
+      "llmScore": 76,
+      "summary": "CI runs on 5 GitHub Actions workflows that gate merges with lint, build, unit test, type-check, and a matrix e2e job (dev/prod modes, containerized Playwright), plus scheduled compatibility runs against React 17 (legacy) and React canary, and a dedicated OIDC-based trusted-publishing release workflow that avoids long-lived npm tokens - a solid, multi-stage pipeline for a client library, though it has no declarative infra/GitOps layer since none is architecturally needed here.",
+      "evidence": [
+        "GitHub Actions CI present",
+        "Multiple CI workflows (5)",
+        "CI runs tests",
+        "CI runs linting",
+        "CI runs a build"
+      ],
+      "strengths": [
+        "5 workflows covering lint/build/test/type-check/e2e, gating on push and PR to main",
+        "Scheduled compatibility testing against React canary and legacy React 17",
+        "OIDC trusted publishing removes long-lived npm publish credentials",
+        "Matrix e2e testing across dev/prod build modes with artifact upload on failure"
+      ],
+      "gaps": [
+        "No IaC/GitOps/policy-as-code (expected for a library, but means no declarative deploy path exists to evaluate)",
+        "Release workflow relies on manual dispatch and string-parsing of package.json's version rather than an automated versioning tool like changesets",
+        "Branch-protection signals show required approvals and signatures but not required status checks",
+        "No progressive-delivery or feature-flag mechanism, though not clearly applicable to a published library"
+      ]
+    },
+    {
+      "id": "D4",
+      "name": "Agentic Workflows",
+      "weight": 0.12,
+      "score": 1,
+      "signalScore": 0,
+      "llmScore": 2,
+      "summary": "No agentic workflows were found anywhere in the repository or CI: no AI code-review bots, no LLM invocations inside CI, no auto-fix/auto-PR tooling, and no Dependabot/Renovate automation of any kind - corroborated by the process signal showing 0% of sampled PRs had any AI involvement. AI today plays no visible role in the actual shipping loop.",
+      "evidence": [
+        "No agentic/AI-in-CI workflows detected (e.g. AI review bots, LLM steps in CI, auto-merge)"
+      ],
+      "strengths": [
+        "The existing modular workflow structure (composite 'install' action, separate test/e2e/release jobs) would make it straightforward to slot in an AI review or auto-fix step later"
+      ],
+      "gaps": [
+        "No AI PR-review bot configured (CodeRabbit, Claude Code review action, Greptile, Sweep, etc.)",
+        "No LLM steps inside CI",
+        "No Dependabot/Renovate or other automated dependency-update tooling, let alone auto-merge",
+        "0% of analyzed PRs show any AI involvement"
+      ]
+    },
+    {
+      "id": "D5",
+      "name": "Documentation & Knowledge",
+      "weight": 0.09,
+      "score": 46,
+      "signalScore": 45,
+      "llmScore": 47,
+      "summary": "Documentation basics are in place - a substantial, well-structured README, a CONTRIBUTING.md, and an examples/ directory with runnable Next.js sample apps - but the repo defers most in-depth documentation to an external site (swr.vercel.app) rather than an in-repo docs/ or ADR trail, and no CHANGELOG.md was identified in the sampled evidence, so an agent working purely from this repository has a thinner map of 'why' than a human following the external docs link.",
+      "evidence": [
+        "Substantial README (3737 chars, 4 sections)",
+        "CONTRIBUTING.md",
+        "Examples directory"
+      ],
+      "strengths": [
+        "Substantial README (3737 chars, 4 sections) with a working quick-start example",
+        "CONTRIBUTING.md present",
+        "examples/ directory with multiple runnable sample apps",
+        "External docs site linked prominently from the README"
+      ],
+      "gaps": [
+        "No in-repo docs/ or ADR trail (docs/adr, decisions/) found",
+        "No CHANGELOG.md detected in sampled evidence",
+        "Core documentation lives outside the repo, reducing what's directly available to an agent reading only this codebase",
+        "No typedoc/API-doc generation evidenced for the public TypeScript API"
+      ]
+    },
+    {
+      "id": "D6",
+      "name": "Code Quality & Guardrails",
+      "weight": 0.07,
+      "score": 77,
+      "signalScore": 76,
+      "llmScore": 77,
+      "summary": "Code-quality guardrails are enforced rather than merely present: TypeScript strict mode is on (confirmed directly in tsconfig.json), a formatter/linter pair (oxfmt/oxlint, adopted recently) runs in CI's 'run-all-checks' step, CODEOWNERS restricts the whole tree to two maintainers, and the default branch requires a PR with at least one approval plus code-owner review and signed commits.",
+      "evidence": [
+        "Formatter configured",
+        "TypeScript strict mode",
+        "Pre-commit hooks",
+        "CODEOWNERS",
+        "PR review coverage 60% (15 merged · 73% small · 0% reverted)",
+        "Pull requests required to merge (1 approval(s) + code owners)"
+      ],
+      "strengths": [
+        "TypeScript strict mode enabled with added strictness flags (noUnusedLocals, noUnusedParameters, strictBindCallApply)",
+        "Formatter/linter (oxfmt/oxlint) enforced in CI",
+        "CODEOWNERS + required PR review + signed commits on the default branch",
+        "Pre-commit hooks configured"
+      ],
+      "gaps": [
+        "PR review coverage is only 60% of merged PRs, averaging 0.7 reviews per PR",
+        "Required status checks are not confirmed enabled on the branch-protection ruleset, only approval/code-owner/signature requirements",
+        "All review authority is concentrated in 2 codeowners - a single-point-of-failure risk for consistent enforcement",
+        "No commitlint/conventional-commit enforcement config confirmed, despite 63% informal adherence"
+      ]
+    },
+    {
+      "id": "D7",
+      "name": "Commit & Velocity Signals",
+      "weight": 0.07,
+      "score": 80,
+      "signalScore": 80,
+      "llmScore": 80,
+      "summary": "Commit history shows an actively maintained, disciplined project: 63% conventional-commit-style messages, regular cadence, a push within the last 30 days, and at least one AI-assisted commit trailer - though at just 1 of 30 recent commits, AI-attributed authorship is a minor fraction of overall velocity rather than a systemic pattern, and merge velocity (0.7h median) far outpaces first-review turnaround (18h median).",
+      "evidence": [
+        "30 recent commits analyzed",
+        "AI-assisted commits present (1 of 30)",
+        "Conventional commit style (63%)",
+        "Active commit cadence",
+        "Actively maintained (pushed within 30 days)"
+      ],
+      "strengths": [
+        "63% conventional-commit adherence",
+        "Actively maintained - pushed within 30 days, regular cadence",
+        "At least one AI-assisted commit found in recent history",
+        "73% of PRs are small (≤200 line changes), supporting fast, reviewable batches"
+      ],
+      "gaps": [
+        "Only 1 of 30 recent commits shows AI co-authorship - AI-assisted development isn't yet a visible, repeated pattern",
+        "Median time-to-merge (0.7h) far outpaces median time-to-first-review (18h), implying many merges may precede a completed review",
+        "No evidence of bot-authored commits (e.g. automated formatting or dependency-bump bots)"
+      ]
+    },
+    {
+      "id": "D8",
+      "name": "AI Process & Harness",
+      "weight": 0.12,
+      "score": 23,
+      "signalScore": 21,
+      "llmScore": 24,
+      "summary": "Beyond structured issue templates and a well-configured, signed-commit, code-owner-gated branch-protection ruleset, there is no dedicated AI-process harness: no evals/golden-test directory for LLM output and no prompt or agent-spec library (no .claude/agents/, no prompts/). Notably, the confirmed CONTRIBUTING.md (used as a D5 signal) isn't reflected in this dimension's detected signals despite the rubric explicitly counting CONTRIBUTING guidance toward a 'structured contribution process.'",
+      "evidence": [
+        "Structured issue templates",
+        "Default branch protected (7 rules) (signed commits)"
+      ],
+      "strengths": [
+        "Structured issue templates for bug reports/feature requests",
+        "Default branch protected with 7 ruleset rules including signed commits",
+        "CONTRIBUTING.md documents contributor process, though not yet leveraged as agent-facing guidance"
+      ],
+      "gaps": [
+        "No evals/golden-test setup to verify AI-generated output distinctly from human output",
+        "No prompt or agent-spec library (.claude/agents/, prompts/)",
+        "No Definition-of-Done or agent-specific contribution guidance",
+        "Any AI-produced changes route through the same generic review path with no distinguishing verification step"
+      ]
+    },
+    {
+      "id": "D9",
+      "name": "Supply Chain & Security",
+      "weight": 0.09,
+      "score": 40,
+      "signalScore": 40,
+      "llmScore": 40,
+      "summary": "Security posture is fixed at 40/100 by the deterministic check battery: strong marks on branch protection (8/10 - required approval, code-owner review, signed commits), dangerous-workflow hygiene (10/10 - no script-injection or untrusted-checkout patterns), and a documented SECURITY.md policy (10/10), but zeros across nearly every supply-chain-as-code control - no SAST wired into CI, no committed dependency-update tool, 0 of 8 Action references pinned by SHA/digest, no signed releases/provenance, and no SBOM generation. Exposure from known vulnerable dependencies could not be assessed (no lockfile/alert access).",
+      "evidence": [
+        "Branch protection [posture/high]: 8/10 — Default branch: protected, 1 approval(s), code-owner review, signed commits.",
+        "Dangerous workflow [posture/critical]: 10/10 — No script-injection or untrusted-checkout patterns detected.",
+        "Token permissions [posture/high]: 2/10 — 1/5 workflows set an explicit `permissions:` scope.",
+        "SAST [posture/medium]: 0/10 — No SAST (CodeQL/Semgrep/Sonar) wired into CI.",
+        "Dependency updates [posture/high]: 0/10 — No dependency-update tool committed.",
+        "Pinned dependencies [posture/medium]: 0/10 — 0/8 Actions/images pinned by SHA/digest (8 action refs).",
+        "Security policy [posture/medium]: 10/10 — SECURITY.md documents a vulnerability-reporting path.",
+        "Signed releases [posture/high]: 0/10 — No artifact signing / provenance in CI.",
+        "SBOM [posture/low]: 0/10 — No SBOM generation.",
+        "Known vulnerabilities [exposure/high]: n/a/10 — Dependency vulnerabilities not inspected (no lockfile / no alert access)."
+      ],
+      "strengths": [
+        "Branch protection is strong: required approval, code-owner review, signed commits (8/10)",
+        "No dangerous workflow patterns (script injection, untrusted checkout) detected (10/10)",
+        "SECURITY.md documents a vulnerability-reporting path (10/10)",
+        "OIDC trusted publishing (seen in trigger-release.yml) removes long-lived npm credentials from the release path"
+      ],
+      "gaps": [
+        "Add CodeQL (or Semgrep) scanning that runs on pull_request.",
+        "Add a `.github/dependabot.yml` (or Renovate) config.",
+        "Pin third-party Actions to a full commit SHA (and container images to a digest).",
+        "Sign releases with cosign and emit SLSA provenance (actions/attest).",
+        "Generate an SBOM (Syft/CycloneDX) on release.",
+        "Add a least-privilege top-level `permissions:` block (default `contents: read`) to every workflow."
+      ]
+    }
+  ],
+  "headline": "SWR shows strong, enforced engineering fundamentals - deep test coverage, gated CI, real code-quality guardrails - typical of a mature OSS project, but almost no AI-native tooling, governance, or agentic-workflow adoption; AI use here, if it happens, is informal and invisible rather than a shared team practice.",
+  "strengths": [
+    "Exceptional test discipline: 139 test files, a 1.05 test-to-source ratio, and a Playwright e2e suite covering suspense, transitions, and dev/prod build modes across multiple React versions",
+    "Enforced CI/CD gates: 5 workflows run lint, build, type-check, unit, and e2e tests on every PR, plus scheduled compatibility runs against React 17 and React canary",
+    "Real code-quality enforcement: TypeScript strict mode, CODEOWNERS, a formatter/linter in CI, and a branch-protection ruleset requiring approval, code-owner review, and signed commits",
+    "Modern, low-risk release mechanics: OIDC trusted publishing to npm removes long-lived publish credentials from the pipeline",
+    "Active, disciplined maintenance cadence: 63% conventional commits, regular pushes, fast merge turnaround"
+  ],
+  "risks": [
+    "No machine-readable AI guidance exists anywhere (CLAUDE.md/AGENTS.md absent) - any AI assistant working on this repo starts from zero shared context every time",
+    "AI has no visible role in the actual delivery loop: 0% of sampled PRs show AI involvement, no AI review bots, no LLM-in-CI steps, so there's no repeatable way to trust or scale AI contributions",
+    "Supply-chain controls beyond branch protection are largely absent: no SAST, no dependency-update automation, no pinned Action SHAs, no signed/attested releases - a gap that matters more, not less, as automated changes increase in volume",
+    "Review depth is thin relative to merge speed (60% reviewed rate, 0.7 avg reviews/PR, 0.7h median merge time) and concentrated on 2 codeowners - a bus-factor and consistency risk",
+    "No AI-specific verification harness (no evals, no prompt/agent library) means there's currently no way to check AI-produced changes against a distinct quality bar before human review"
+  ],
+  "roadmap": [
+    {
+      "title": "Agents currently have no shared map of this repo",
+      "dimension": "D1",
+      "impact": "high",
+      "effort": "low",
+      "rationale": "Without a CLAUDE.md/AGENTS.md, every AI session has to rediscover the pnpm build/test/e2e commands, the multi-export module layout, and dev/prod e2e conventions from scratch - knowledge that already lives in CONTRIBUTING.md and the workflow files but isn't packaged for an agent to consume directly.",
+      "explore": [
+        "What would it look like to capture the pnpm build/test/e2e commands and the dual dev/prod e2e modes in a single agent-readable file?",
+        "Is there tribal knowledge among the two codeowners (react-server export gotchas, suspense edge cases) that would help an agent avoid recently-fixed mistakes?"
+      ],
+      "levelUnlock": "L2->L3"
+    },
+    {
+      "title": "AI involvement in PRs is currently invisible or near-zero",
+      "dimension": "D4",
+      "impact": "medium",
+      "effort": "medium",
+      "rationale": "With 0% of PRs showing AI involvement and no AI review bots or LLM steps in CI, any AI assistance today is informal and untracked - there's no way to see whether AI-authored changes get scrutiny comparable to human ones, and no compounding automation like auto-fix or auto-triage exists yet.",
+      "explore": [
+        "Would it help the team to know which PRs had AI assistance, even informally, so review effort can be calibrated accordingly?",
+        "Is there appetite for trying an AI review bot on a lower-stakes subset of PRs (e.g. examples/ changes) before wider adoption?"
+      ],
+      "levelUnlock": "L2->L3"
+    },
+    {
+      "title": "Review depth doesn't fully keep pace with merge velocity",
+      "dimension": "D6",
+      "impact": "medium",
+      "effort": "low",
+      "rationale": "A 0.7h median time-to-merge against an 18h median time-to-first-review, with a 60% reviewed rate and 0.7 avg reviews/PR concentrated on two codeowners, means a growing share of AI-accelerated contributions could land with less scrutiny just as change volume rises - worth understanding before leaning further into AI-authored PRs.",
+      "explore": [
+        "Does the current review rate reflect deliberate trust in small, low-risk PRs (73% are small), or would the team want a firmer gate as AI-generated PR volume grows?",
+        "Would a lightweight second-look, even an automated one, help distribute review load beyond the two codeowners?"
+      ],
+      "levelUnlock": "L3->L4"
+    },
+    {
+      "title": "Supply-chain guardrails beyond branch protection are largely unexplored",
+      "dimension": "D9",
+      "impact": "high",
+      "effort": "medium",
+      "rationale": "Branch protection and a SECURITY.md are strong, but there's no SAST, no automated dependency updates, no pinned action SHAs, and no signed/attested releases - as AI agents start proposing or even merging changes, these controls are what let humans trust that an agent-authored dependency bump or workflow edit doesn't quietly introduce a supply-chain risk.",
+      "explore": [
+        "Would pinning the 8 GitHub Actions currently referenced by version tag to SHAs close an easy, low-effort gap?",
+        "Is a SAST pass like CodeQL something the team has considered, given the repo's size and download volume?",
+        "Now that OIDC trusted publishing is in place for npm, would extending it with build provenance/attestation be worth exploring?"
+      ],
+      "levelUnlock": "L3->L4"
+    },
+    {
+      "title": "No harness yet verifies AI-produced changes on their own terms",
+      "dimension": "D8",
+      "impact": "medium",
+      "effort": "high",
+      "rationale": "There's no evals/golden-test setup or prompt/agent library, so if AI becomes a bigger part of how changes get proposed, there's currently no repeatable, reviewable way to check that AI output meets the bar before a human reviewer sees it - everything routes through the same manual path regardless of provenance.",
+      "explore": [
+        "If AI-authored PRs became more common, what would 'good enough to send to a human reviewer' look like, and could that be captured as a lightweight check?",
+        "Is the one AI-assisted commit found in recent history worth turning into a documented, repeatable process rather than a one-off?"
+      ],
+      "levelUnlock": "L2->L3"
+    }
+  ],
+  "discrepancies": [
+    {
+      "dimension": "D8",
+      "claim": "CONTRIBUTING.md is confirmed present (used as a D5 signal) yet doesn't appear among D8's detected signals, even though the D8 rubric explicitly counts 'CONTRIBUTING guidance for agents' toward a structured contribution process - the D8 score may slightly undercount existing process structure."
+    }
+  ],
+  "confidence": 0.85,
+  "scannedAt": "2026-07-16T08:02:44.891Z",
+  "engine": {
+    "provider": "claude-cli",
+    "model": "sonnet"
+  },
+  "prStats": {
+    "analyzed": 40,
+    "totalCount": 1063,
+    "open": 19,
+    "merged": 15,
+    "closedUnmerged": 6,
+    "mergeRate": 71,
+    "reviewedRate": 60,
+    "avgReviews": 0.7,
+    "avgComments": 0.4,
+    "medianHoursToMerge": 0.7,
+    "medianHoursToFirstReview": 18,
+    "avgLineChanges": 249,
+    "avgChangedFiles": 6,
+    "smallPrRate": 73,
+    "botAuthoredRate": 0,
+    "aiInvolvedRate": 0,
+    "aiGovernedRate": null,
+    "revertRate": 0,
+    "draftRate": 10,
+    "tools": []
+  },
+  "governance": {
+    "defaultBranch": "main",
+    "protected": true,
+    "requiresPullRequest": true,
+    "requiredApprovals": 1,
+    "requiresCodeOwnerReview": true,
+    "requiresStatusChecks": false,
+    "requiresSignatures": true,
+    "linearHistory": true,
+    "ruleCount": 7,
+    "readable": true
+  },
+  "commitActivity": [
+    0,
+    0,
+    1,
+    1,
+    1,
+    1,
+    0,
+    1,
+    5,
+    3,
+    2,
+    2
+  ],
+  "teams": [],
+  "techStack": {
+    "languages": [
+      "TypeScript"
+    ],
+    "frameworks": [
+      "React"
+    ],
+    "roles": [
+      "frontend"
+    ],
+    "confidence": 0.53
+  },
+  "passport": {
+    "passport": "app-passport",
+    "passportVersion": "0.1.0",
+    "generatedAt": "2026-07-16",
+    "generatedBy": "ascent-scan",
+    "identity": {
+      "name": "swr",
+      "slug": "swr",
+      "purpose": "React Hooks for Data Fetching",
+      "repo": "https://github.com/vercel/swr",
+      "owner": "vercel",
+      "version": "2.5.0-beta.1",
+      "archetype": "org",
+      "visibility": "public",
+      "license": "MIT"
+    },
+    "stack": {
+      "languages": [
+        {
+          "name": "TypeScript",
+          "primary": true
+        }
+      ],
+      "frameworks": [
+        "React"
+      ],
+      "packageManager": "pnpm",
+      "persistence": [],
+      "monitoring": {
+        "errorTracking": null,
+        "logs": null,
+        "metrics": null,
+        "tracing": null,
+        "uptime": null
+      },
+      "hosting": null,
+      "integrations": [],
+      "secretsFrom": "env vars (.env)"
+    },
+    "automationReadiness": {
+      "level": "L3",
+      "score": 47,
+      "artifacts": {
+        "agentInstructions": [],
+        "contextGraph": "none",
+        "memory": false,
+        "manifest": false,
+        "evals": "none",
+        "skills": false
+      },
+      "selfVerify": {
+        "build": true,
+        "test": true,
+        "lint": true,
+        "typecheck": false
+      },
+      "aiInWorkflow": true,
+      "blockers": [
+        "No in-repo .ai/manifest.yaml (agent-facing capability contract).",
+        "No machine-readable context graph (context-map.json / CONTEXT.md).",
+        "Agent can't self-verify: missing typecheck script(s)."
+      ]
+    },
+    "productionReadiness": {
+      "band": "internal",
+      "score": 41,
+      "ci": {
+        "level": "checks",
+        "provider": "github-actions",
+        "gates": []
+      },
+      "tests": {
+        "level": "comprehensive",
+        "coveragePct": null,
+        "frameworks": [
+          "jest",
+          "playwright"
+        ],
+        "criticalPathCovered": true
+      },
+      "security": {
+        "level": "policy",
+        "tools": [
+          "SECURITY.md"
+        ]
+      },
+      "observability": {
+        "level": "none"
+      },
+      "delivery": {
+        "migrations": "none",
+        "iac": false,
+        "rollback": false
+      },
+      "blockers": [
+        "Zero observability: no error tracking, structured logs, metrics, or tracing.",
+        "CI does not gate merges (no enforced required checks).",
+        "No dependency/secret/SAST scanning wired in."
+      ]
+    },
+    "links": {
+      "report": "/report?repo=vercel%2Fswr"
+    },
+    "evidence": {
+      "confidence": 0.85,
+      "source": "static-scan",
+      "files": [
+        "package.json",
+        ".github/workflows/"
+      ]
+    }
+  },
+  "usage": {
+    "inputTokens": 2,
+    "outputTokens": 21400,
+    "cacheReadTokens": 28846,
+    "cacheWriteTokens": 22933,
+    "latencyMs": 209183
+  }
+}

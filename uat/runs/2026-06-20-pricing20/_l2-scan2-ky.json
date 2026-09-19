@@ -1,0 +1,455 @@
+{
+ "repo": {
+  "owner": "sindresorhus",
+  "name": "ky",
+  "url": "https://github.com/sindresorhus/ky",
+  "description": "🌳 Tiny & elegant JavaScript HTTP client based on the Fetch API",
+  "isPrivate": false,
+  "stars": 16936,
+  "forks": 472,
+  "openIssues": 2,
+  "primaryLanguage": "TypeScript",
+  "pushedAt": "2026-05-08T06:22:08Z",
+  "defaultBranch": "main",
+  "sizeKb": 1385,
+  "license": "MIT",
+  "topics": [
+   "fetch",
+   "http-client",
+   "http-request",
+   "javascript",
+   "js",
+   "json",
+   "npm-package",
+   "request",
+   "rest",
+   "tiny",
+   "whatwg-fetch"
+  ],
+  "headSha": "61d6d66d27911001b9b4d57ab93139f9ad61384b"
+ },
+ "overallScore": 29,
+ "level": {
+  "id": "L2",
+  "name": "Assisted",
+  "band": [
+   25,
+   44
+  ],
+  "tagline": "Tools adopted, basic guardrails",
+  "description": "AI tools are adopted by many developers and basic guardrails exist (some tests, a linter, CI runs). There are no shared AI conventions, so benefits are individual rather than systemic."
+ },
+ "archetype": "org",
+ "adoptionScore": 3,
+ "rigorScore": 42,
+ "posture": {
+  "id": "early",
+  "label": "Getting Started",
+  "blurb": "Early on both AI adoption and engineering rigor — pick one axis to advance first."
+ },
+ "aiUsage": {
+  "detected": false,
+  "commitFraction": 0,
+  "signals": []
+ },
+ "contributors": [
+  {
+   "login": "sindresorhus",
+   "name": "Sindre Sorhus",
+   "commits": 25,
+   "aiCommits": 0,
+   "lastActiveAt": "2026-05-07T19:17:58Z"
+  },
+  {
+   "login": "Vegapunk-debug",
+   "name": "Rohit Nair P",
+   "commits": 2,
+   "aiCommits": 0,
+   "lastActiveAt": "2026-04-04T13:05:18Z"
+  },
+  {
+   "login": "atharvasingh7007",
+   "name": "Atharva Singh",
+   "commits": 1,
+   "aiCommits": 0,
+   "lastActiveAt": "2026-04-21T08:03:27Z"
+  },
+  {
+   "login": "ayushshukla1807",
+   "name": "Ayush Shukla",
+   "commits": 1,
+   "aiCommits": 0,
+   "lastActiveAt": "2026-03-30T15:57:09Z"
+  },
+  {
+   "login": "AkaHarshit",
+   "name": "AkaHarshit",
+   "commits": 1,
+   "aiCommits": 0,
+   "lastActiveAt": "2026-03-28T21:23:28Z"
+  }
+ ],
+ "dimensions": [
+  {
+   "id": "D1",
+   "name": "AI Tooling & Conventions",
+   "weight": 0.15,
+   "score": 1,
+   "signalScore": 0,
+   "llmScore": 3,
+   "summary": "No machine-readable AI or agent guidance of any kind is present. There are no CLAUDE.md, AGENTS.md, .cursorrules, or copilot-instructions.md files, no MCP configuration, no .claude/ directory, and no prompt library. For a solo maintainer of a widely-used library this is unsurprising, but it means every AI session must rediscover build commands, test patterns, architectural constraints, and conventions from scratch — context is neither shared nor persistent across contributors or tools.",
+   "evidence": [
+    "No machine-readable AI/agent guidance detected (e.g. CLAUDE.md, AGENTS.md, .cursorrules)"
+   ],
+   "strengths": [
+    "Well-structured TypeScript source with clear module boundaries gives AI tools an inferrable architectural scaffold",
+    "Inline JSDoc on all public error classes is precise enough to partially substitute for explicit agent orientation"
+   ],
+   "gaps": [
+    "No CLAUDE.md, AGENTS.md, or equivalent file documenting build/test/run commands for agent consumption",
+    "No architectural constraints or 'never/always' rules an AI tool could follow to stay in bounds",
+    "No MCP configuration or tool-permission policy",
+    "No prompt library or slash-command conventions for common maintenance tasks"
+   ]
+  },
+  {
+   "id": "D2",
+   "name": "Automated Testing",
+   "weight": 0.15,
+   "score": 94,
+   "signalScore": 95,
+   "llmScore": 91,
+   "summary": "The test suite is a genuine standout. AVA drives 23 test files at a 0.79 test-to-source ratio with concurrent execution, and Playwright runs real cross-browser end-to-end tests against Chromium, Firefox, and WebKit — a rare rigor signal for a library. Sampled tests demonstrate thorough behavioral and edge-case discipline: test/body-size.ts exercises every TypedArray variant including subarray slicing and multi-byte Unicode; test/base-url.ts covers 18+ URL-resolution corner cases against a live Express server; test/browser.ts wires Playwright against a live ESM server. Codecov integration tracks coverage trends. The suite stops just short of 95 because no mutation testing (Stryker), API-contract testing, or coverage-threshold gates in CI are present.",
+   "evidence": [
+    "Found 23 test files",
+    "Test framework configured",
+    "End-to-end tests configured",
+    "High test-to-source ratio (0.79)",
+    "Sampled tests assert behavior (60 substantive assertions across 4 sampled test file(s))"
+   ],
+   "strengths": [
+    "Multi-browser e2e via Playwright (Chromium, Firefox, WebKit) against a live ESM server is exceptionally rare in library projects",
+    "0.79 test-to-source ratio with 23 files indicates disciplined test-alongside-source culture across the codebase",
+    "Edge-case rigor is high: TypedArray subarray slicing, multi-byte Unicode, 18+ URL-resolution variants, and live HTTP server fixtures all covered",
+    "Codecov badge confirms coverage reporting is integrated and publicly tracked"
+   ],
+   "gaps": [
+    "No mutation testing (Stryker) to verify that the suite actually catches injected faults",
+    "No coverage-threshold enforcement in CI — coverage gaps could silently widen across PRs",
+    "No contract or type-level tests for the public TypeScript API surface beyond expect-type spot checks",
+    "No performance or throughput smoke tests to catch request-pipeline regressions"
+   ]
+  },
+  {
+   "id": "D3",
+   "name": "CI/CD & Delivery",
+   "weight": 0.14,
+   "score": 46,
+   "signalScore": 50,
+   "llmScore": 38,
+   "summary": "A GitHub Actions workflow runs lint (xo), build (tsc), and AVA/Playwright tests across a Node.js 22/24/latest matrix on every push and pull_request — solid baseline CI for a library. However, the delivery pipeline ends there. Branch protection is entirely absent (confirmed by process signals: requires PR: no, required approvals: 0, status checks: none), meaning CI results are advisory rather than gates and a broken commit can be merged silently. Releases are driven by the manual `np` CLI, not by CI automation. There is no release-please, semantic-release, or changesets integration; no npm cache in the setup-node step; and no separate pipeline stages for lint, build, and test.",
+   "evidence": [
+    "GitHub Actions CI present",
+    "CI runs tests"
+   ],
+   "strengths": [
+    "CI triggers on both push and pull_request providing broad event coverage",
+    "Node.js 22/24/latest matrix with fail-fast: false catches version-specific regressions in parallel",
+    "Playwright browser installation in CI enables genuine cross-browser validation on every run",
+    "Single `npm test` integrates lint, build, and test in a deterministic order (lint fails fast)"
+   ],
+   "gaps": [
+    "Branch protection is entirely absent — CI results cannot gate merges on main",
+    "No release automation in CI; releases depend on the maintainer running `np` manually",
+    "No npm dependency caching in the workflow, adding unnecessary latency to every CI run",
+    "Single serial job with no parallelism between lint, build, and test stages"
+   ]
+  },
+  {
+   "id": "D4",
+   "name": "Agentic Workflows",
+   "weight": 0.12,
+   "score": 1,
+   "signalScore": 0,
+   "llmScore": 2,
+   "summary": "No agentic or AI-in-CI workflows exist. There are no AI review bots (CodeRabbit, Greptile, claude-code-action), no LLM steps in any CI job, no auto-fix or auto-PR tooling, and no Dependabot or Renovate configuration for automated dependency updates. Process signals confirm 0% AI involvement across all 40 analyzed pull requests. The repository is entirely human-driven with no autonomous loops of any kind.",
+   "evidence": [
+    "No agentic/AI-in-CI workflows detected (e.g. AI review bots, LLM steps in CI, auto-merge)"
+   ],
+   "strengths": [],
+   "gaps": [
+    "No AI review bot or LLM-in-CI step to close the 59% unreviewed-PR gap",
+    "No Dependabot or Renovate for automated dependency update PRs",
+    "No auto-fix or auto-format bot for routine maintenance tasks",
+    "No issue-to-PR automation"
+   ]
+  },
+  {
+   "id": "D5",
+   "name": "Documentation & Knowledge",
+   "weight": 0.09,
+   "score": 34,
+   "signalScore": 30,
+   "llmScore": 40,
+   "summary": "The README is substantial at 14,000 characters across 11 sections, covering installation, API reference, hook lifecycle, retry semantics, TypeScript generics, streaming, and browser compatibility — well above average for an open-source library and genuinely consumable by an AI agent seeking context. A secondary signal is the dense JSDoc on all public error classes: HTTPError.ts documents API contracts, pre-parsing behavior, body-size limits, and hook interaction order; KyError.ts explains cross-realm compatibility and type-guard semantics; ForceRetryError.ts documents runtime protection against non-Error causes. However, no CONTRIBUTING.md, CHANGELOG.md, /docs directory, ADRs, or formal architecture document exists.",
+   "evidence": [
+    "Substantial README (14000 chars, 11 sections)"
+   ],
+   "strengths": [
+    "README covers installation, full API reference, hooks lifecycle, retry/timeout semantics, and TypeScript generics with concrete examples",
+    "Error class JSDoc is dense and precise, explaining cross-realm behavior, body-size limits, and hook ordering — agent-consumable context",
+    "Codecov badge provides a visible, persistent coverage signal for contributors assessing test health",
+    "README includes migration notes and plain-fetch comparison aiding both newcomers and AI tools assessing scope"
+   ],
+   "gaps": [
+    "No CONTRIBUTING.md to guide new contributors or AI agents attempting their first change",
+    "No CHANGELOG.md — release history requires reading git tags or npm, not a project-managed file",
+    "No architecture document explaining module boundaries, design decisions, or ESM-only rationale",
+    "No ADRs capturing why key decisions (AVA over Jest, XO over raw ESLint, zero-dependency stance) were made"
+   ]
+  },
+  {
+   "id": "D6",
+   "name": "Code Quality & Guardrails",
+   "weight": 0.07,
+   "score": 46,
+   "signalScore": 47,
+   "llmScore": 44,
+   "summary": "Code quality tooling is present and coherent: XO (an opinionated ESLint + Prettier wrapper) enforces consistent style with TypeScript-aware rules, and the TypeScript compiler is configured for both distribution and test scenarios. The xo config in package.json shows intentional rule tuning — several overly strict rules are disabled for pragmatic reasons, reflecting considered rather than default configuration. Lint runs before tests in `npm test`, creating an early-fail signal. However, there are no pre-commit hooks, no CODEOWNERS, no commitlint or conventional-commit conventions, and PR review coverage sits at only 41% with zero required approvals — guardrails exist but are not enforced at the merge boundary.",
+   "evidence": [
+    "Linter configured",
+    "Formatter configured",
+    "TypeScript configured",
+    "PR review coverage 41% (29 merged · 68% small · 0% reverted)"
+   ],
+   "strengths": [
+    "XO integrates ESLint and Prettier into a single tool with TypeScript-aware rules, reducing configuration surface area",
+    "TypeScript configured for both distribution (tsconfig.dist.json) and test compilation",
+    "Rule configuration is thoughtfully tuned with explicit rationale rather than a stock preset",
+    "Linting is placed before tests in the test script, ensuring style gates fail fast"
+   ],
+   "gaps": [
+    "No pre-commit hooks (husky, lint-staged) — lint and type errors can reach CI without local enforcement",
+    "No CODEOWNERS file for automatic reviewer assignment on changed paths",
+    "Commit messages do not follow conventional-commit format, blocking changelog and release-note automation",
+    "41% PR review rate with zero required approvals means most merged code bypasses both human and automated review"
+   ]
+  },
+  {
+   "id": "D7",
+   "name": "Commit & Velocity Signals",
+   "weight": 0.07,
+   "score": 13,
+   "signalScore": 15,
+   "llmScore": 10,
+   "summary": "The repository shows an active commit cadence with 30 recent commits and rapid v2.x bug-fix iterations (2.0.0 → 2.0.1 → 2.0.2). However, zero AI co-author trailers appear in any analyzed commit, 0% of the 40 analyzed pull requests involved AI, and commit messages follow no conventional-commit prefix scheme ('Tweaks', 'Meta tweaks', 'Fix CI'). The velocity evidence reflects healthy solo-maintainer cadence, not an AI-augmented workflow. The 68% small-PR rate is a positive structural signal — small, focused changes are easier for AI tools to reason about — but there is no evidence this reflects deliberate AI-ready batching.",
+   "evidence": [
+    "30 recent commits analyzed",
+    "Active commit cadence"
+   ],
+   "strengths": [
+    "Active commit cadence and rapid bug-fix releases demonstrate healthy project momentum",
+    "68% small-PR rate (≤200 line changes) creates a change-batch size well-suited for AI assistance",
+    "Rapid 2.0.0→2.0.2 release cycle shows responsive, low-latency maintenance rhythm"
+   ],
+   "gaps": [
+    "Zero AI co-author trailers in any analyzed commit confirms no AI tooling is in the contribution workflow",
+    "No conventional-commit prefixes (fix:, feat:, chore:) limiting any changelog or release-note automation",
+    "Informal messages ('Tweaks', 'Meta tweaks') provide minimal semantic signal for automated tooling or bisect workflows",
+    "0% AI-involved pull requests across 40 analyzed confirms AI is not part of the contribution process"
+   ]
+  },
+  {
+   "id": "D8",
+   "name": "AI Process & Harness",
+   "weight": 0.12,
+   "score": 1,
+   "signalScore": 0,
+   "llmScore": 2,
+   "summary": "There is no evidence of a structured AI process or harness anywhere in the repository. No evals, no golden tests for AI output, no structured prompt or agent library, no agent-readable runbooks or ADRs, and no formal contribution workflow (no PR template, no issue template, no Definition-of-Done). The contribution process is entirely informal and tacit. For a solo maintainer this is understandable, but it means AI assistance cannot be systematically leveraged, verified, or reproduced across sessions or contributors.",
+   "evidence": [
+    "No dedicated AI process/harness detected (e.g. evals, prompt library, agent runbooks)"
+   ],
+   "strengths": [],
+   "gaps": [
+    "No evals or golden tests to verify AI-generated or AI-assisted output against expected behavior",
+    "No structured prompt or agent library for common maintenance tasks (bug triage, release notes, test generation)",
+    "No agent-readable runbooks covering how to safely add a feature, fix a bug, or update a dependency",
+    "No PR or issue templates to structure AI-assisted contributions toward mergeable outcomes"
+   ]
+  },
+  {
+   "id": "D9",
+   "name": "Supply Chain & Security",
+   "weight": 0.09,
+   "score": 7,
+   "signalScore": 6,
+   "llmScore": 10,
+   "summary": "A SECURITY.md policy establishes a responsible disclosure channel — a baseline positive signal. Beyond that, the supply-chain security posture is minimal: no SAST (CodeQL, Semgrep) appears in the CI workflow, no automated dependency vulnerability scanning (Dependabot security alerts, Snyk, OSV-Scanner) is configured, no secret scanning pipeline exists, and no SBOM generation or artifact signing is present. The library's zero-runtime-dependency stance eliminates transitive supply-chain risk for consumers, which is a meaningful structural advantage. Dev dependencies (ava, playwright, express, typescript — all in package.json) remain unscanned.",
+   "evidence": [
+    "SECURITY.md policy"
+   ],
+   "strengths": [
+    "SECURITY.md establishes a responsible disclosure policy and reporting contact",
+    "Zero runtime dependencies eliminates an entire class of transitive supply-chain risk for all consumers of the library",
+    "npm publish via `np` includes pre-publish checks that provide a light integrity gate at release time"
+   ],
+   "gaps": [
+    "No SAST pipeline (CodeQL, Semgrep) in GitHub Actions to catch code-level vulnerabilities",
+    "No automated dependency vulnerability scanning for dev dependencies (Dependabot security alerts, OSV-Scanner)",
+    "No secret scanning (gitleaks, trufflehog) in CI to prevent credential leaks in commits",
+    "No SBOM generation or artifact signing/provenance for npm releases"
+   ]
+  }
+ ],
+ "headline": "ky is a technically excellent library with an outstanding test suite and coherent CI, but sits firmly at L2 (Assisted) — AI tooling, agentic workflows, and AI process infrastructure are entirely absent, so any AI assistance is purely individual, ephemeral, and unverifiable.",
+ "strengths": [
+  "Exceptional automated test suite: 23 test files, 0.79 test-to-source ratio, real cross-browser Playwright e2e, and rigorous edge-case coverage give AI tools a high-confidence safety net for proposed changes",
+  "Coherent TypeScript and XO linting create a well-typed, style-enforced codebase that AI tools can navigate and generate correct idiomatic code for",
+  "Active small-batch commit cadence (68% small PRs, rapid release iterations) creates a low-merge-debt rhythm that AI assistance slots into naturally",
+  "Zero runtime dependencies structurally eliminates transitive supply-chain risk for consumers and keeps the auditable surface area minimal",
+  "Detailed README and dense error-class JSDoc provide AI-consumable context about library behavior, API contracts, and hook semantics"
+ ],
+ "risks": [
+  "Branch protection is entirely absent — CI results are advisory, meaning a broken AI-generated PR could be merged silently into a library with 16k+ stars and widespread downstream consumers",
+  "Complete absence of AI tooling conventions (no CLAUDE.md, no contributing guide, no agent runbook) means every AI session starts cold with no shared guardrails, producing inconsistent and unverifiable contributions",
+  "No automated dependency or SAST scanning leaves the CI environment and release pipeline unmonitored for vulnerabilities introduced through dev dependencies or code patterns",
+  "41% PR review rate with zero required approvals creates a review gap that widens risk as AI-assisted contributions grow — most code merges without human or automated scrutiny",
+  "No CONTRIBUTING.md or architecture document means contributors — human or AI — must reverse-engineer conventions, increasing the rate of PRs that require extensive revision before they are mergeable"
+ ],
+ "roadmap": [
+  {
+   "title": "Agent guidance is absent — AI tools have no shared scaffold to orient from",
+   "dimension": "D1",
+   "impact": "high",
+   "effort": "low",
+   "rationale": "Without a CLAUDE.md or equivalent, every AI session must rediscover build commands, test patterns, module conventions, and invariants from scratch. A single well-written orientation file transforms AI assistance from ad-hoc guessing into reliable, repeatable help — especially valuable when external contributors use AI tools to propose changes to a security-sensitive library.",
+   "explore": [
+    "What would a first-time contributor (or an AI tool acting as one) most need to know to make a correct change to ky — which files to touch, which tests to run, what invariants must never be broken?",
+    "Are there implicit conventions in the test structure or source layout that AI tools currently misread, which could be made explicit in a short guidance file?",
+    "What commands, constraints, or architectural boundaries would you want an AI agent to know before it proposes a change — and which would you want it to ask about rather than assume?"
+   ],
+   "levelUnlock": "L2->L3"
+  },
+  {
+   "title": "Branch protection is absent — CI results don't gate merges on main",
+   "dimension": "D3",
+   "impact": "high",
+   "effort": "low",
+   "rationale": "The outstanding test suite provides confidence during development but not at the merge boundary. For a library consumed by thousands of projects, a broken release is high-blast. Branch protection with required passing status checks is the missing link between 'we have tests' and 'we are protected at merge time' — a prerequisite for trusting any autonomous agent to open PRs without mandatory human review of every one.",
+   "explore": [
+    "What would need to be true for you to feel comfortable with an AI-assisted or community PR merging without you manually verifying CI passed?",
+    "Have there been cases where a fix was merged and a test failure was only caught after the fact — what did that recovery look like?",
+    "Would requiring a passing CI run before merge change the experience for external contributors in ways you'd want to avoid, or is the friction acceptable?"
+   ],
+   "levelUnlock": "L2->L3"
+  },
+  {
+   "title": "Contributing conventions are undocumented — humans and AI agents must infer the rules",
+   "dimension": "D8",
+   "impact": "medium",
+   "effort": "low",
+   "rationale": "No CONTRIBUTING.md, PR template, or Definition-of-Done means the norms for 'what makes a good change to ky' live entirely in the maintainer's head and are re-communicated in review comments. As AI-assisted contribution grows, written conventions dramatically improve the signal-to-noise ratio of incoming PRs and give AI agents a repeatable harness for producing changes worth reviewing rather than requiring extensive back-and-forth.",
+   "explore": [
+    "What do most rejected or heavily revised PRs have in common — is there a short checklist you wish contributors had followed that you find yourself repeating?",
+    "If an AI agent were going to open ten PRs on ky, what guidance would you want it to follow to maximize the chance each one was mergeable on the first pass?",
+    "Are there test patterns, API design principles, or TypeScript conventions that are currently implicit but that you consistently enforce during code review?"
+   ],
+   "levelUnlock": "L2->L3"
+  },
+  {
+   "title": "Dependency and security scanning are manual — supply-chain gaps accumulate silently",
+   "dimension": "D9",
+   "impact": "medium",
+   "effort": "low",
+   "rationale": "Even a zero-runtime-dependency library has a substantial dev dependency surface (ava, playwright, express, typescript, busboy) that is currently unscanned. Automated scanning surfaces vulnerabilities at PR time rather than post-release and is especially important as the project becomes a target for AI-assisted automated updates, where unreviewed dependency bumps could introduce risks without human scrutiny.",
+   "explore": [
+    "How would you currently learn that a dev dependency introduced a vulnerability affecting the CI environment or a contributor's local machine?",
+    "Would automated dependency security PRs (Dependabot alerts) feel like useful signal or noise given the current PR volume and review capacity?",
+    "Are there security controls you'd want confidently in place before enabling any form of automated dependency update — and what would 'confidently in place' look like to you?"
+   ],
+   "levelUnlock": "L2->L3"
+  },
+  {
+   "title": "No agentic review in the contribution loop — the 59% unreviewed-PR gap is unclosed",
+   "dimension": "D4",
+   "impact": "medium",
+   "effort": "medium",
+   "rationale": "With only 41% of merged PRs receiving a human review, a large fraction of changes merge without any quality gate beyond CI passing. An AI review bot could close that gap by flagging edge-case misses, TypeScript contract violations, or missing tests automatically — making AI contribution safer and raising the overall bar without requiring more of the maintainer's time.",
+   "explore": [
+    "What kinds of review observations do you find yourself making repeatedly on PRs that a bot could surface automatically — correctness issues, missing test cases, style inconsistencies?",
+    "Would an AI reviewer that commented on test coverage and TypeScript correctness feel helpful or disruptive given the current pace of contributions?",
+    "If an AI agent opened a PR with a proposed bug fix, what would a minimal automated review gate look like that would give you enough confidence to merge it with light manual inspection?"
+   ],
+   "levelUnlock": "L3->L4"
+  }
+ ],
+ "discrepancies": [
+  {
+   "dimension": "D5",
+   "claim": "The D5 signalScore of 30 understates documentation quality: sampled source files (HTTPError.ts, KyError.ts, NetworkError.ts, ForceRetryError.ts) contain dense, multi-paragraph JSDoc covering API contracts, body-size limits, hook ordering, cross-realm type-guard semantics, and runtime protection details — inline documentation richness that the signal did not capture and that a score of 30 fails to reflect."
+  },
+  {
+   "dimension": "D3",
+   "claim": "The D3 signalScore of 50 is likely generous: process signals confirm branch protection is entirely absent (requires PR: no, required approvals: 0, status checks: no), which means the CI pipeline cannot gate merges and its protective value is purely advisory — a structural gap that materially undermines a score of 50 for delivery maturity."
+  }
+ ],
+ "confidence": 0.61,
+ "scannedAt": "2026-06-20T09:56:47.696Z",
+ "engine": {
+  "provider": "claude-cli",
+  "model": "sonnet"
+ },
+ "prStats": {
+  "analyzed": 40,
+  "totalCount": 327,
+  "open": 2,
+  "merged": 29,
+  "closedUnmerged": 9,
+  "mergeRate": 76,
+  "reviewedRate": 41,
+  "avgReviews": 1.3,
+  "avgComments": 1.5,
+  "medianHoursToMerge": 18,
+  "medianHoursToFirstReview": 7.5,
+  "avgLineChanges": 230,
+  "avgChangedFiles": 4,
+  "smallPrRate": 68,
+  "botAuthoredRate": 0,
+  "aiInvolvedRate": 0,
+  "aiGovernedRate": null,
+  "revertRate": 0,
+  "draftRate": 3,
+  "tools": []
+ },
+ "governance": {
+  "defaultBranch": "main",
+  "protected": false,
+  "requiresPullRequest": false,
+  "requiredApprovals": 0,
+  "requiresCodeOwnerReview": false,
+  "requiresStatusChecks": false,
+  "requiresSignatures": false,
+  "linearHistory": false,
+  "ruleCount": 0,
+  "readable": true
+ },
+ "commitActivity": [
+  9,
+  3,
+  3,
+  5,
+  0,
+  1,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0
+ ],
+ "teams": [],
+ "usage": {
+  "latencyMs": 294948
+ }
+}

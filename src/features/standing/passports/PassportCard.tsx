@@ -1,0 +1,191 @@
+// The App Readiness Passport card (P2) — the per-repo scorecard rendered on the report. Server-safe (no
+// client hooks). Two readiness axes side by side, the named stack, the production sub-scale rungs, the
+// honest blockers, and a download of the raw passport.json. Sibling to the maturity report, not a
+// replacement: the report explains the maturity score; the passport names the stack + the prod posture.
+
+import { Card, Meter, SectionHeader } from "@/components/org/shared/ui";
+import { PassportOverridePin } from "@/components/report/PassportOverridePin";
+import { PassportCardDeclined } from "@/features/standing/passports/PassportCardDeclined";
+import { PassportDeclineControl } from "@/features/standing/passports/PassportDeclineControl";
+import { PassportOwnerControls } from "@/features/standing/passports/PassportOwnerControls";
+import { scoredBlockerTexts } from "@/lib/analyze/passport";
+import {
+  bandColor,
+  bandLabel,
+  passportStackChips,
+  productionRungViews,
+  RUNG_HONESTY_CLASS,
+  RUNG_HONESTY_HINT,
+  type RungHonesty,
+} from "@/lib/org/passport-display";
+import { scoreHex } from "@/lib/ui";
+import type { AppPassport } from "@/lib/types";
+
+function Rung({ label, value, honesty }: { label: string; value: string; honesty: RungHonesty }) {
+  return (
+    <div
+      className="flex items-center justify-between gap-3 border-b border-slate-800/60 py-1.5 type-body-sm last:border-0"
+      data-testid={`passport-rung-${label.toLowerCase()}`}
+      data-honesty={honesty}
+    >
+      <span className="font-mono uppercase tracking-widest text-slate-500">{label}</span>
+      <span className={`font-mono ${RUNG_HONESTY_CLASS[honesty]}`} title={RUNG_HONESTY_HINT[honesty]}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+export function PassportCard({
+  passport: pp,
+  repo,
+  canEdit = false,
+  canFilePr = canEdit,
+}: {
+  passport: AppPassport;
+  repo: string;
+  /** Owner: may set overrides and declines. */
+  canEdit?: boolean;
+  /** Admin or owner: may open the .ai/passport.json PR (the PR route accepts admins). */
+  canFilePr?: boolean;
+}) {
+  const auto = pp.automationReadiness;
+  const prod = pp.productionReadiness;
+  const chips = passportStackChips(pp);
+  // Coverage holes stay on findings (rungs name them unassessable) and are not scored blockers (G4).
+  const allBlockers = [
+    ...scoredBlockerTexts(auto.findings, auto.blockers),
+    ...scoredBlockerTexts(prod.findings, prod.blockers),
+  ];
+  const blockers = allBlockers.slice(0, 6);
+  const hidden = allBlockers.length - blockers.length;
+
+  return (
+    <Card>
+      <SectionHeader
+        size="sm"
+        title="App Readiness Passport"
+        right={
+          <a
+            href={`/api/report/passport?repo=${encodeURIComponent(repo)}&download`}
+            className="focus-ring rounded-md border border-slate-700 px-3 py-1.5 type-mono-sm text-slate-300 transition hover:border-accent hover:text-white"
+            title="Download app-passport.json"
+          >
+            ↓ passport.json
+          </a>
+        }
+      />
+
+      {/* Two readiness axes */}
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+          <div className="type-mono-sm uppercase tracking-widest text-slate-500">Automation readiness</div>
+          <div className="mt-1 flex items-baseline gap-2">
+            <span className="type-figure font-bold" style={{ color: scoreHex(auto.score) }}>{auto.level}</span>
+            <span className="font-mono type-body" style={{ color: scoreHex(auto.score) }}>{auto.score}</span>
+            <span className="type-mono-sm text-slate-500">/100 · ready for agents</span>
+          </div>
+          <Meter className="mt-2" size="sm" value={auto.score} color={scoreHex(auto.score)} />
+          <div className="mt-2 type-mono-sm text-slate-500">
+            self-verify: {(["build", "test", "lint", "typecheck"] as const).filter((k) => auto.selfVerify[k]).join(" · ") || "none"}
+            {auto.aiInWorkflow ? " · AI in workflow" : ""}
+          </div>
+        </div>
+        <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+          <div className="type-mono-sm uppercase tracking-widest text-slate-500">Production readiness</div>
+          <div className="mt-1 flex items-baseline gap-2">
+            <span className="type-figure font-bold" style={{ color: bandColor(prod.band) }}>{bandLabel(prod.band)}</span>
+            <span className="font-mono type-body" style={{ color: bandColor(prod.band) }}>{prod.score}</span>
+            <span className="type-mono-sm text-slate-500">/100 · trusted in prod</span>
+          </div>
+          <Meter className="mt-2" size="sm" value={prod.score} color={bandColor(prod.band)} />
+          {prod.overridden ? <PassportOverridePin overridden={prod.overridden} className="mt-2" /> : null}
+          <div className="mt-3 space-y-0">
+            {productionRungViews(prod).map((r) => (
+              <Rung key={r.id} label={r.label} value={r.value} honesty={r.honesty} />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Named stack */}
+      {chips.length > 0 && (
+        <div className="mt-4">
+          <div className="type-mono-sm uppercase tracking-widest text-slate-500">Stack</div>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {pp.stack.languages.map((l) => (
+              <span key={`lang-${l.name}`} className="rounded border border-accent/30 bg-accent/5 px-1.5 py-0.5 type-caption text-accent">{l.name}</span>
+            ))}
+            {chips.map((c) => (
+              <span key={c} className="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 type-caption text-slate-400">{c}</span>
+            ))}
+            {pp.stack.hosting && <span className="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 type-caption text-slate-400">host: {pp.stack.hosting}</span>}
+          </div>
+        </div>
+      )}
+
+      {/* Honest blockers */}
+      {blockers.length > 0 && (
+        <div className="mt-4">
+          <div className="type-mono-sm uppercase tracking-widest text-slate-500">Blockers</div>
+          <ul className="mt-1.5 space-y-1 type-body-sm text-slate-400">
+            {blockers.map((b, i) => (
+              <li key={i} className="flex gap-2">
+                <span aria-hidden className="select-none text-orange-400/70">▸</span>
+                <span>{b}</span>
+              </li>
+            ))}
+          </ul>
+          {/* Truncation is DISCLOSED. Six of eleven blockers under a heading that says "Blockers" reads
+              as the whole list, which is the one thing an honest scorecard must not do. */}
+          {hidden > 0 && (
+            <p className="mt-1.5 type-caption text-slate-600">
+              +{hidden} more — see the <a href={`/api/report/passport?repo=${encodeURIComponent(repo)}&download`} className="focus-ring text-slate-400 underline decoration-dotted hover:text-white">full passport</a>.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Gaps the owner has ACCEPTED. Retired from `blockers` above by the overlay, so without this
+          list an accepted gap is invisible — indistinguishable from a gap that isn't there. */}
+      <PassportCardDeclined declined={pp.declined} />
+
+      {(pp.identity.criticality || pp.identity.lifecycle) && (
+        <p className="mt-3 type-mono-sm text-slate-500">
+          {pp.identity.criticality && <>criticality: <span className="text-slate-300">{pp.identity.criticality}</span></>}
+          {pp.identity.criticality && pp.identity.lifecycle ? " · " : ""}
+          {pp.identity.lifecycle && <>lifecycle: <span className="text-slate-300">{pp.identity.lifecycle}</span></>}
+        </p>
+      )}
+
+      <p className="mt-3 type-caption text-slate-600">
+        {pp.evidence.source} · confidence {Math.round(pp.evidence.confidence * 100)}% · as of {pp.generatedAt}
+      </p>
+
+      {canEdit && (
+        <>
+          <PassportOwnerControls
+            repo={repo}
+            criticality={pp.identity.criticality}
+            lifecycle={pp.identity.lifecycle}
+            rollback={pp.productionReadiness.delivery.rollback}
+            canFilePr={canFilePr}
+          />
+          <PassportDeclineControl repo={repo} passport={pp} />
+        </>
+      )}
+      {!canEdit && canFilePr && (
+        // An admin who is not an owner: the PR route accepts them, the overrides route does not, so
+        // only the PR affordance renders (the form would 403).
+        <PassportOwnerControls
+          repo={repo}
+          criticality={pp.identity.criticality}
+          lifecycle={pp.identity.lifecycle}
+          rollback={pp.productionReadiness.delivery.rollback}
+          canFilePr
+          prOnly
+        />
+      )}
+    </Card>
+  );
+}

@@ -1,0 +1,36 @@
+# Keep the build context small and, more importantly, keep SECRETS and host-specific state out of it.
+# Anything listed here is invisible to `docker build`, including to the `COPY . .` in the build stage.
+
+# Secrets — never in an image. Configuration is supplied at `docker run` time.
+.env
+.env.*
+!.env.example
+
+# Reinstalled inside the image by `npm ci`; copying the host's tree would also drag in
+# platform-specific native binaries built for the host OS.
+node_modules
+.next
+out
+
+# Version control and editor state
+.git
+.gitignore
+.vscode
+.idea
+
+# Local tooling / agent state that the app never reads at runtime
+.claude
+.personas
+docs/harness
+coverage
+test-results
+playwright-report
+bench
+uat
+tiger
+kpi-sim
+reference-data
+
+# Build artifacts and logs
+*.log
+tsconfig.tsbuildinfo

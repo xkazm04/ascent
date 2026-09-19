@@ -1,0 +1,85 @@
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Ascent":
+    - /url: /
+  - text: vercel L4 · 72 owner
+  - button "Alerts"
+  - button "0 credits"
+  - button "Scan all watched (6)"
+  - status
+  - text: developer
+  - button "Sign out":
+    - text: Sign out
+    - status
+- main:
+  - complementary:
+    - navigation "Organization sections":
+      - button "Overview"
+      - button "Fleet , 23 awaiting a decision"
+      - button "Intel , 33 awaiting a decision"
+      - button "Plan , 17 awaiting a decision"
+      - button "Library (contains the current page)" [pressed]
+      - button "Govern"
+      - text: Library
+      - link "Skills":
+        - /url: /org/vercel/skills
+      - link "Memory":
+        - /url: /org/vercel/memory
+  - heading "Skills Library" [level=2]
+  - paragraph: Your org's reusable Claude/LLM skills — author once, the whole team discovers and reuses them. Copy a skill into Claude Code, or download it as a SKILL.md.
+  - textbox "Search skills":
+    - /placeholder: Search skills…
+  - combobox "Filter by category":
+    - option "All categories" [selected]
+    - option "CI / CD"
+    - option "Testing"
+    - option "Security"
+    - option "AI-Native"
+    - option "Docs"
+    - option "Workflow"
+    - option "Other"
+  - combobox "Sort skills":
+    - option "Recently updated" [selected]
+    - option "Most used"
+    - option "Name (A–Z)"
+  - paragraph: No skills yet — author your org's first reusable skill below.
+  - paragraph: Authoring the Skills Library is a Team-plan feature. Members can browse, copy and download existing skills.
+  - heading "API tokens" [level=2]
+  - paragraph: Give a repo, the sync CLI, or CI machine access to this library — no browser session needed. A token is shown once; store it as ASCENT_TOKEN.
+  - paragraph: No tokens yet — mint one below to connect a repo or CI.
+  - textbox "Token name (e.g. CI, laptop)"
+  - button "Create token" [disabled]
+  - checkbox "Read / download skills" [checked]
+  - text: Read / download skills
+  - checkbox "Register / update skills"
+  - text: Register / update skills
+  - checkbox "Report usage"
+  - text: Report usage
+- button "Open guided tour": Guided setup
+- text: Guided setup
+- heading "Learn this dashboard" [level=2]
+- text: 1/6
+- button "Hide guided tour": ▸
+- text: Set the scope
+- list:
+  - listitem:
+    - button "Set your scan scope"
+  - listitem:
+    - button "Choose what’s in scope"
+- text: Read the results
+- list:
+  - listitem:
+    - button "Read the fleet"
+  - listitem:
+    - button "Scope what you read"
+- text: Explore modules
+- list:
+  - listitem:
+    - button "Each module is a lens"
+  - listitem:
+    - button "Open a module"
+- paragraph: Every dashboard starts with a scan. “Scan all watched” runs the whole fleet; the scope controls that decide what gets scored live sit right here.
+- button "Back" [disabled]
+- button "Next step"
+- alert

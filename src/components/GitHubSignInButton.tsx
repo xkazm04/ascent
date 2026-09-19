@@ -1,0 +1,61 @@
+"use client";
+
+// The single GitHub sign-in CTA used everywhere sign-in appears (the SignInNotice and
+// the site header), so the affordance looks and behaves identically across the app and
+// future polish is a one-file change. It owns the pending state: on click it swaps the
+// GitHub mark for a spinner + "Redirecting to GitHub" copy, blocks further clicks, and
+// fades between states. Accessible by default: visible focus ring, stable aria-label,
+// aria-busy during the redirect, decorative glyphs hidden, and a polite status region.
+
+import { useState } from "react";
+import { SignInButtonChrome, signInBoxClass, SIGN_IN_VARIANTS, type SignInButtonVariant } from "@/components/auth/buttonChrome";
+import { useResetPendingOnPageShow } from "@/components/auth/usePendingReset";
+
+type Variant = SignInButtonVariant;
+
+export function GitHubSignInButton({
+  next = "/onboarding",
+  variant = "primary",
+  label,
+  pendingLabel,
+  className = "",
+  resync = false,
+}: {
+  next?: string;
+  variant?: Variant;
+  label?: string;
+  pendingLabel?: string;
+  className?: string;
+  /** Re-sync access instead of a fresh sign-in: same OAuth round-trip, but GitHub skips
+   *  consent and the callback refreshes installations in place. */
+  resync?: boolean;
+}) {
+  const [pending, setPending] = useState(false);
+  // Un-stick the spinner when the user BACKS OUT of GitHub's consent screen and bfcache restores this
+  // page with `pending` still true — the anchor also swallows clicks while pending, so without this
+  // the sign-in affordance is dead until a manual reload.
+  useResetPendingOnPageShow(setPending);
+  const v = SIGN_IN_VARIANTS[variant];
+  const idleLabel = label ?? v.idle;
+  const busyLabel = pendingLabel ?? v.busy;
+  const href = `/api/auth/login?next=${encodeURIComponent(next)}${resync ? "&resync=1" : ""}`;
+
+  return (
+    <a
+      href={href}
+      aria-label={idleLabel}
+      aria-busy={pending}
+      aria-disabled={pending || undefined}
+      onClick={(e) => {
+        if (pending) {
+          e.preventDefault();
+          return;
+        }
+        setPending(true);
+      }}
+      className={signInBoxClass(variant, pending, className)}
+    >
+      <SignInButtonChrome pending={pending} idleLabel={idleLabel} busyLabel={busyLabel} variant={variant} />
+    </a>
+  );
+}

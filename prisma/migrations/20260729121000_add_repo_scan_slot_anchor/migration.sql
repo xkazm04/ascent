@@ -1,0 +1,16 @@
+-- G3-13 — persisted autoscan cadence anchor.
+--
+-- WHY: `nextScanAt` is dual-purpose. It is the schedule, but `claimRescan` also overwrites it with a
+-- 15-minute LEASE before the scan runs (and `advanceScheduleAfterFailure` with a 6h backoff), so by the
+-- time `advanceToFullCadence` settles the repo the intended slot no longer exists anywhere and the next
+-- one is computed from `Date.now()`. Every run's queue latency — a delayed cron tick, a slow scan — is
+-- therefore added permanently to the cadence, and "daily"/"weekly" walk later forever. `scanSlotAt` is
+-- written ONLY by the cadence-setting paths and never by a lease, so settling can anchor on the slot
+-- that was actually intended (with catch-up: a slot missed during an outage steps forward to the next
+-- future one rather than scheduling in the past). See nextSlotFrom in src/lib/db/org-watch.ts.
+--
+-- EXISTING ROWS: nullable, no default, no backfill — every existing Repository row gets NULL. A NULL
+-- anchor is the explicit "legacy row" signal: `advanceToFullCadence` falls back to now-anchoring, which
+-- is byte-for-byte today's behavior, and stamps the anchor on that first settle so the row self-heals
+-- into slot-anchored cadence from its next cycle. Nothing is rescheduled by applying this migration.
+ALTER TABLE "Repository" ADD COLUMN "scanSlotAt" TIMESTAMP(3);

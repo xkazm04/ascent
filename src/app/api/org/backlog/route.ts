@@ -1,0 +1,118 @@
+// GET /api/org/backlog?org=slug[&segment=segmentId][&techGroup=techGroupId][&includeClosed=1][&format=csv]
+//   -> { backlog: OrgBacklog }   (or a CSV download when format=csv)
+//   -> 404 { error: "No backlog for this org yet." } when getOrgBacklog is null (both formats)
+// The org-wide recommendation backlog (owners + due dates), grouped by owner and by due-date
+// bucket. Read-only; lets the client panel refresh after a status/assignee/due-date change.
+// `segment`/`techGroup` mirror the page's ?segment=/?stack= scope (backlog-management 07-16 #2) so a
+// panel refresh stays on the same filtered view instead of snapping back to the whole org.
+
+import { NextResponse } from "next/server";
+import { getOrgBacklog, isDbConfigured, type OrgBacklog } from "@/lib/db";
+import { requireOrgRead } from "@/lib/authz";
+import { csvTable } from "@/lib/export/csv";
+import { safeFilenameSlug } from "@/lib/export/filename";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+/** One row per backlog item, flattened out of the owner/due groupings (`byOwner` is the authoritative
+ *  flat set — `byDue` re-buckets the same rows, so exporting both would double every item). */
+const CSV_HEADER = [
+  "repo",
+  "title",
+  "dimId",
+  "dimension",
+  "impact",
+  "effort",
+  "status",
+  "owner",
+  "dueDate",
+  "dueBucket",
+  "overdue",
+  "projectedPoints",
+  "unlocks",
+  // Scan-authored prompt fields. Without them an exported batch cannot rebuild
+  // buildFixPrompt without re-fetching JSON. Empty stays empty (never 0 / "[]").
+  "rationale",
+  "explore",
+  "lastActivityAt",
+  // Work-queue facts already on BacklogItem (MOONSHOT #3). A CSV without them makes a leased or
+  // needs-human row look unclaimed once the download leaves the app — assigneeLogin is the planning
+  // owner, not the claim holder.
+  "claimActor",
+  "leaseUntil",
+  "needsHuman",
+  "recommendationId",
+] as const;
+
+function backlogCsvRows(backlog: OrgBacklog): unknown[][] {
+  return backlog.byOwner.flatMap((g) =>
+    g.items.map((i) => [
+      i.repo,
+      i.title,
+      i.dimId,
+      i.dimLabel,
+      i.impact,
+      i.effort,
+      i.status,
+      // The group's login and the item's assignee are the same value; read it off the ITEM so a row is
+      // self-describing once it leaves the grouping.
+      i.assigneeLogin ?? "",
+      // Already a `YYYY-MM-DD` date literal from the date-only column — never re-derived here, per the
+      // canonical time-zone policy (src/lib/org/timezone.ts): truncating a date-only value in a
+      // non-UTC zone yields the previous day.
+      i.targetDate ?? "",
+      i.dueBucket,
+      i.overdue,
+      i.projectedPoints ?? "",
+      i.unlocks ?? "",
+      i.rationale,
+      // Same "; " join as other list cells (passport blockers). Empty array → empty cell, never 0.
+      i.explore.join("; "),
+      i.lastActivityAt,
+      i.claimActor ?? "",
+      // ISO from getOrgBacklog. Empty = no lease: on an in_progress row that means a human took it,
+      // not "expired" — the same honest-null the JSON read already carries.
+      i.leaseUntil ?? "",
+      i.needsHuman,
+      i.id,
+    ]),
+  );
+}
+
+export async function GET(request: Request) {
+  if (!isDbConfigured()) return NextResponse.json({ error: "The backlog requires a database." }, { status: 503 });
+  const { searchParams } = new URL(request.url);
+  const org = searchParams.get("org");
+  if (!org) return NextResponse.json({ error: "Missing ?org." }, { status: 400 });
+  const denied = await requireOrgRead(org);
+  if (denied) return denied;
+  const segment = searchParams.get("segment");
+  const techGroup = searchParams.get("techGroup");
+  // `includeClosed=1` is the recovery view (G6-02): done/dismissed rows are grouped too, so an item
+  // dismissed by a mis-click can be found and set back to Open. Read-only; the headline counts are
+  // unchanged by it. It also widens the CSV export the same way — the download mirrors the read scope.
+  const includeClosed = searchParams.get("includeClosed") === "1";
+  const backlog = await getOrgBacklog(org, segment, new Date(), techGroup, { includeClosed });
+  // A null backlog means the org/lookup is unavailable — distinct from an org with an empty ledger of
+  // zeros. JSON 200 { backlog: null } or a header-only CSV 200 is success theater; both formats 404.
+  if (!backlog) return NextResponse.json({ error: "No backlog for this org yet." }, { status: 404 });
+
+  if (searchParams.get("format") === "csv") {
+    // Encode the scope in the filename: a CSV carries no scope marker once it leaves the app, so a
+    // segment/stack-scoped download must be distinguishable from a whole-fleet one.
+    const scope =
+      (segment ? `-${safeFilenameSlug(segment, "segment")}` : "") +
+      (techGroup ? `-${safeFilenameSlug(techGroup, "stack")}` : "") +
+      (includeClosed ? "-all" : "");
+    return new NextResponse(csvTable(CSV_HEADER, backlogCsvRows(backlog)), {
+      headers: {
+        "content-type": "text/csv; charset=utf-8",
+        "content-disposition": `attachment; filename="ascent-backlog-${safeFilenameSlug(org, "org")}${scope}.csv"`,
+        "cache-control": "private, no-store",
+      },
+    });
+  }
+
+  return NextResponse.json({ backlog });
+}

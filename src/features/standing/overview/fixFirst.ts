@@ -1,0 +1,144 @@
+// Pure derivation for the Overview "Fix first" punch-list (kept out of the .tsx so the no-jsdom
+// vitest setup can pin it). Revived from 8fff1001 with a cheaper input set: the original mounted
+// three reads the Overview never makes (movers, gap analysis, goals) PLUS the rollup; this version
+// swaps the gap-analysis item for the shell's derived findings — already unstable_cache'd for the
+// rail badges, so the marginal cost on the landing path is movers + goals only, and both stream in
+// their own Suspense boundary (OverviewFixFirstPanel) without holding the fleet panel.
+//
+// Priority order is triage-shaped: a live regression outranks a finding awaiting a human decision,
+// which outranks a slipping goal. Capped at 3 — a punch-list, not a backlog.
+
+import { orgTabHref } from "@/lib/org/orgTabs";
+import { FINDING_MODULES, type FindingModule } from "@/lib/org/findings";
+import { findingImpact, goalImpact, regressionImpact, type FixFirstImpact } from "./fixFirstImpact";
+
+export interface FixFirstInputs {
+  /** movers.regressers — pre-sorted most-negative-first by getOrgMovers, dOverall < 0 guaranteed. */
+  regressers: { name: string; fullName: string; dOverall: number }[];
+  /** Derived findings a human hasn't resolved yet (getOrgFindings minus resolvedKeys). */
+  findings: { module: FindingModule; repo: string; title: string }[];
+  /** listGoals rows. `target`/`current`/`metricLabel` are optional because the shape is structural:
+   *  a caller that has only the triage fields still gets a band — its goal bar is simply a void. */
+  goals: { label: string; status: string; pace: string; metricLabel?: string; target?: number; current?: number }[];
+  /** `OrgMovers.comparedRepos` — the population a repo's regression is divided across to reach the
+   *  fleet scale. Absent (or 0) makes the regression bar a void rather than an undivided overclaim. */
+  comparedRepos?: number;
+  /** True when `getOrgMovers` threw. Distinct from an empty `regressers` list (nothing moved). */
+  moversFailed?: boolean;
+}
+
+export interface FixFirstItem {
+  key: "regression" | "finding" | "goal";
+  title: string;
+  detail: string;
+  href: string;
+  cta: string;
+  /** How far this candidate's bar reaches on the band's shared fleet-points scale — and whether it
+   *  may reach at all. See fixFirstImpact.ts: a candidate with no scoring model is a void. */
+  impact: FixFirstImpact;
+}
+
+/** How each finding module reads in a sentence. Keys double as the org tab the item links to. */
+const MODULE_LABEL: Record<FindingModule, string> = {
+  security: "security",
+  teams: "team ownership",
+  passports: "passport",
+  contributors: "contributor-risk",
+  // MOONSHOT #33 — a practice artifact that drifted or was removed after it landed.
+  practices: "practice-adoption",
+};
+
+/** Append the active scope query (e.g. "stack=react") to an org-internal link, inserting it BEFORE
+ *  any #fragment and choosing ?/& by whether the path already has a query. No scope → unchanged. */
+function withScope(path: string, scope?: string): string {
+  if (!scope) return path;
+  const hash = path.indexOf("#");
+  const base = hash === -1 ? path : path.slice(0, hash);
+  const frag = hash === -1 ? "" : path.slice(hash);
+  return `${base}${base.includes("?") ? "&" : "?"}${scope}${frag}`;
+}
+
+/**
+ * @param scopeQuery Active tech-stack scope as a bare query fragment (e.g. "stack=react"), carried
+ *   into the org-internal links so drilling in keeps the filter the Overview is showing. The report
+ *   permalink is scope-free (a repo report isn't fleet-scoped).
+ */
+export function deriveFixFirst(slug: string, inp: FixFirstInputs, scopeQuery?: string): FixFirstItem[] {
+  const items: FixFirstItem[] = [];
+
+  // A throw is not "no regressers": occupy the slot so findings/goals cannot silently become #1
+  // and the bar cannot read as "no scoring model".
+  if (inp.moversFailed) {
+    items.push({
+      key: "regression",
+      title: "Couldn't load regressions",
+      detail: "Repository movement could not be read this period",
+      href: withScope(orgTabHref(slug, "repositories"), scopeQuery),
+      cta: "open repositories →",
+      impact: {
+        gain: null,
+        state: "missing",
+        basis:
+          "Repository movement could not be read this period, so this bar has no length rather than a length of zero. A failed movers read is not an empty regressers list.",
+      },
+    });
+  } else {
+    const worst = inp.regressers[0];
+    if (worst) {
+      items.push({
+        key: "regression",
+        title: `Triage ${worst.name}`,
+        // Name the endpoints. "this period" is used by TWO cells on this page that measure different
+        // things: this one is latest-in-window vs the repo's last scan BEFORE the window (getOrgMovers,
+        // baselineKind "period"), while the cohort card's row delta is first-to-last WITHIN the window.
+        // Two identical labels over two different subtractions is worse than no label at all.
+        detail: `regressed ${Math.abs(worst.dOverall)} pts vs its last scan before this period`,
+        href: `/report/${worst.fullName}`,
+        cta: "open report →",
+        impact: regressionImpact(worst.name, worst.dOverall, inp.comparedRepos ?? 0),
+      });
+    }
+  }
+
+  // The busiest findings module wins the slot; ties resolve in FINDING_MODULES order (security
+  // first — the same precedence the rail lists them in). One item total: the punch-list points at
+  // the queue, it doesn't mirror it.
+  const byModule = new Map<FindingModule, { count: number; first: FixFirstInputs["findings"][number] }>();
+  for (const f of inp.findings) {
+    const cur = byModule.get(f.module);
+    if (cur) cur.count += 1;
+    else byModule.set(f.module, { count: 1, first: f });
+  }
+  let top: { module: FindingModule; count: number; first: FixFirstInputs["findings"][number] } | null = null;
+  for (const m of FINDING_MODULES) {
+    const entry = byModule.get(m);
+    if (entry && (!top || entry.count > top.count)) top = { module: m, ...entry };
+  }
+  if (top) {
+    items.push({
+      key: "finding",
+      title:
+        top.count === 1
+          ? `Decide 1 ${MODULE_LABEL[top.module]} finding`
+          : `Decide ${top.count} ${MODULE_LABEL[top.module]} findings`,
+      detail: `e.g. ${top.first.repo}: ${top.first.title}`,
+      href: withScope(orgTabHref(slug, top.module), scopeQuery),
+      cta: "review queue →",
+      impact: findingImpact(top.count, MODULE_LABEL[top.module]),
+    });
+  }
+
+  const behind = inp.goals.find((g) => g.status === "active" && g.pace === "behind");
+  if (behind) {
+    items.push({
+      key: "goal",
+      title: `Rescue “${behind.label}”`,
+      detail: "behind the pace its deadline needs",
+      href: withScope(orgTabHref(slug, "proposals"), scopeQuery),
+      cta: "work the follow-ups →",
+      impact: goalImpact(behind),
+    });
+  }
+
+  return items.slice(0, 3);
+}

@@ -1,0 +1,129 @@
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Ascent":
+    - /url: /
+  - text: vercel L4 · 72 owner
+  - button "Alerts"
+  - button "0 credits"
+  - button "Scan all watched (6)"
+  - status
+  - text: developer
+  - button "Sign out":
+    - text: Sign out
+    - status
+- main:
+  - complementary:
+    - navigation "Organization sections":
+      - button "Overview"
+      - button "Fleet , 23 awaiting a decision"
+      - button "Intel , 33 awaiting a decision"
+      - button "Plan , 17 awaiting a decision"
+      - button "Library"
+      - button "Govern (contains the current page)" [pressed]
+      - text: Govern
+      - link "Members":
+        - /url: /org/vercel/members
+      - link "Governance":
+        - /url: /org/vercel/governance
+      - link "Integrations":
+        - /url: /org/vercel/integrations
+      - link "Audit":
+        - /url: /org/vercel/audit
+      - link "Settings":
+        - /url: /org/vercel/settings
+  - heading "Governance" [level=2]
+  - paragraph: One maturity gate, applied as policy-as-code to every repo in the fleet. See who clears the bar, where the rest fall short, and copy the snippet that enforces the exact same gate in CI.
+  - button "Copy governance brief for LLM"
+  - status
+  - text: Gate pass rate 50% 3/6 repos Passing 3 clear the gate Failing 3 below the bar Repos scanned 6 in the fleet
+  - heading "Active policy" [level=2]
+  - paragraph: The bar every repo is held to — change it once, enforce it everywhere.
+  - list:
+    - listitem: Minimum overall level L3
+    - listitem: Every dimension ≥ 40
+    - listitem: No "ungoverned" posture
+  - text: Edit policy Minimum level
+  - combobox "Minimum level":
+    - option "any" [selected]
+    - option "L1"
+    - option "L2"
+    - option "L3"
+    - option "L4"
+    - option "L5"
+  - text: Min overall
+  - spinbutton "Min overall"
+  - text: Min per-dimension
+  - spinbutton "Min per-dimension"
+  - checkbox "Security floor (D9 ≥) 50"
+  - text: Security floor (D9 ≥)
+  - spinbutton [disabled]: "50"
+  - checkbox "Forbid \"ungoverned\" posture"
+  - text: Forbid "ungoverned" posture
+  - checkbox "Require a protected default branch"
+  - text: Require a protected default branch
+  - button "Save policy"
+  - button "Reset to default"
+  - heading "Where the fleet fails" [level=2]
+  - paragraph: Repos failing each gate condition (counted once per repo).
+  - text: Below required level 0 repos A dimension below floor 3 repos Ungoverned posture 0 repos Below overall score 0 repos Unprotected default branch 0 repos
+  - heading "Failing repos" [level=2]
+  - paragraph: Worst first — the specific conditions each repo misses.
+  - text: vercel/v0-sdk L3 · overall 50
+  - list:
+    - listitem: D1 AI Tooling & Conventions scored 0, below the required 40.
+    - listitem: D4 Agentic Workflows scored 15, below the required 40.
+    - listitem: D8 AI Process & Harness scored 28, below the required 40.
+  - text: vercel/next.js L4 · overall 68
+  - list:
+    - listitem: D4 Agentic Workflows scored 15, below the required 40.
+  - text: vercel/ai L4 · overall 80
+  - list:
+    - listitem: D4 Agentic Workflows scored 35, below the required 40.
+  - heading "Cheapest path to green" [level=2]
+  - paragraph: Failing repos closest to passing — fewest conditions and smallest gap first. Apply the linked practice to clear each dimension.
+  - text: vercel/ai 1 condition · +5 pts to clear
+  - 'link "D4 Agentic Workflows: 35→40 (+5) →"':
+    - /url: /org/vercel/practices#practice-agent-in-loop
+  - text: vercel/next.js 1 condition · +25 pts to clear
+  - 'link "D4 Agentic Workflows: 15→40 (+25) →"':
+    - /url: /org/vercel/practices#practice-agent-in-loop
+  - text: vercel/v0-sdk 3 conditions · +77 pts to clear
+  - 'link "D8 AI Process & Harness: 28→40 (+12) →"':
+    - /url: /org/vercel/practices#practice-ai-harness
+  - 'link "D4 Agentic Workflows: 15→40 (+25) →"':
+    - /url: /org/vercel/practices#practice-agent-in-loop
+  - 'link "D1 AI Tooling & Conventions: 0→40 (+40) →"':
+    - /url: /org/vercel/practices#practice-agent-guidance
+  - heading "Enforce in CI" [level=2]
+  - paragraph: The dashboard gate and your pipeline run the identical policy — no drift.
+  - button "Copy CI snippet"
+  - status
+  - text: "Gate API GET <ASCENT_URL>/api/gate/<owner>/<repo>?min_level=L3&min_dimension=40&no_ungoverned=1 # 200 = pass · 422 = fail (curl --fail exits non-zero) GitHub Action - uses: <owner>/ascent@v1 with: ascent-url: ${{ vars.ASCENT_URL }} min-level: L3 min-dimension: '40' no-ungoverned: 'true'"
+- button "Open guided tour": Guided setup
+- text: Guided setup
+- heading "Learn this dashboard" [level=2]
+- text: 1/6
+- button "Hide guided tour": ▸
+- text: Set the scope
+- list:
+  - listitem:
+    - button "Set your scan scope"
+  - listitem:
+    - button "Choose what’s in scope"
+- text: Read the results
+- list:
+  - listitem:
+    - button "Read the fleet"
+  - listitem:
+    - button "Scope what you read"
+- text: Explore modules
+- list:
+  - listitem:
+    - button "Each module is a lens"
+  - listitem:
+    - button "Open a module"
+- paragraph: Every dashboard starts with a scan. “Scan all watched” runs the whole fleet; the scope controls that decide what gets scored live sit right here.
+- button "Back" [disabled]
+- button "Next step"
+- alert

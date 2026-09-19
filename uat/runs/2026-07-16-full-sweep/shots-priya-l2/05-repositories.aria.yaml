@@ -1,0 +1,228 @@
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Ascent":
+    - /url: /
+  - text: vercel L4 · 72 owner
+  - button "Alerts"
+  - button "0 credits"
+  - button "Scan all watched (6)"
+  - status
+  - text: developer
+  - button "Sign out":
+    - text: Sign out
+    - status
+- main:
+  - complementary:
+    - navigation "Organization sections":
+      - button "Overview"
+      - button "Fleet (contains the current page) , 23 awaiting a decision" [pressed]
+      - button "Intel , 33 awaiting a decision"
+      - button "Plan , 17 awaiting a decision"
+      - button "Library"
+      - button "Govern"
+      - text: Fleet
+      - link "Repositories":
+        - /url: /org/vercel/repositories
+      - link "Tech Stacks":
+        - /url: /org/vercel/tech-stacks
+      - link "Passports , 23 awaiting a decision":
+        - /url: /org/vercel/passports
+      - link "Live":
+        - /url: /org/vercel/live
+  - tablist "Fleet view":
+    - tab "Repositories" [selected]
+    - tab "Segments"
+  - heading "Segments" [level=2]
+  - paragraph: Group repos into named slices (platform, mobile, legacy…). Tags scope the Overview filter and power segment-vs-segment comparison.
+  - text: No segments yet — create one to start tagging.
+  - 'button "Color #3b9eff"'
+  - 'button "Color #84cc16"'
+  - 'button "Color #f97316"'
+  - 'button "Color #a855f7"'
+  - 'button "Color #ec4899"'
+  - 'button "Color #14b8a6"'
+  - 'button "Color #eab308"'
+  - 'button "Color #64748b"'
+  - textbox "New segment name"
+  - button "Add segment" [disabled]
+  - heading "Repositories" [level=2]
+  - paragraph: 6/6 scanned — recent commits, PRs & lines changed.
+  - button "All stacks" [pressed]
+  - button "Frontend 1"
+  - button "Backend · Rust 3"
+  - link "Export CSV":
+    - /url: /api/org/repositories?org=vercel&format=csv
+  - link "All 6":
+    - /url: /org/vercel/repositories
+  - link "AI-Native 4":
+    - /url: /org/vercel/repositories?posture=ai-native
+  - link "Solid but Manual 2":
+    - /url: /org/vercel/repositories?posture=manual
+  - table:
+    - rowgroup:
+      - row "Repo Level Commits PR LoC Δ Last scan Autoscan Rescan":
+        - columnheader
+        - columnheader "Repo"
+        - columnheader "Level"
+        - columnheader "Commits":
+          - button "Commits"
+        - columnheader "PR":
+          - button "PR"
+        - columnheader "LoC Δ":
+          - button "LoC Δ"
+        - columnheader "Last scan"
+        - columnheader "Autoscan"
+        - columnheader "Rescan"
+    - rowgroup:
+      - row "vercel/workflow Backend·Rust L4 workflow weekly commits, past 4 weeks 173 19 6.6k 2026-07-16 weekly Rescan vercel/workflow":
+        - cell
+        - cell "vercel/workflow Backend·Rust":
+          - link "vercel/workflow":
+            - /url: /report/vercel/workflow
+          - text: Backend·Rust
+        - cell "L4"
+        - cell "workflow weekly commits, past 4 weeks 173":
+          - img "workflow weekly commits, past 4 weeks"
+          - text: "173"
+        - cell "19"
+        - cell "6.6k"
+        - cell "2026-07-16"
+        - cell "weekly":
+          - combobox "Autoscan cadence for vercel/workflow" [disabled]:
+            - option "off"
+            - option "daily"
+            - option "weekly" [selected]
+            - option "monthly"
+        - cell "Rescan vercel/workflow":
+          - button "Rescan vercel/workflow" [disabled]: ↻ Rescan
+      - row "vercel/ai Frontend Next.js React L4 ai weekly commits, past 4 weeks 280 17 16.4k 2026-07-16 weekly Rescan vercel/ai":
+        - cell
+        - cell "vercel/ai Frontend Next.js React":
+          - link "vercel/ai":
+            - /url: /report/vercel/ai
+          - text: Frontend Next.js React
+        - cell "L4"
+        - cell "ai weekly commits, past 4 weeks 280":
+          - img "ai weekly commits, past 4 weeks"
+          - text: "280"
+        - cell "17"
+        - cell "16.4k"
+        - cell "2026-07-16"
+        - cell "weekly":
+          - combobox "Autoscan cadence for vercel/ai" [disabled]:
+            - option "off"
+            - option "daily"
+            - option "weekly" [selected]
+            - option "monthly"
+        - cell "Rescan vercel/ai":
+          - button "Rescan vercel/ai" [disabled]: ↻ Rescan
+      - row "vercel/vercel Backend·Rust L4 vercel weekly commits, past 4 weeks 281 12 12k 2026-07-16 weekly Rescan vercel/vercel":
+        - cell
+        - cell "vercel/vercel Backend·Rust":
+          - link "vercel/vercel":
+            - /url: /report/vercel/vercel
+          - text: Backend·Rust
+        - cell "L4"
+        - cell "vercel weekly commits, past 4 weeks 281":
+          - img "vercel weekly commits, past 4 weeks"
+          - text: "281"
+        - cell "12"
+        - cell "12k"
+        - cell "2026-07-16"
+        - cell "weekly":
+          - combobox "Autoscan cadence for vercel/vercel" [disabled]:
+            - option "off"
+            - option "daily"
+            - option "weekly" [selected]
+            - option "monthly"
+        - cell "Rescan vercel/vercel":
+          - button "Rescan vercel/vercel" [disabled]: ↻ Rescan
+      - row "vercel/eve L4 eve weekly commits, past 4 weeks 306 20 17.3k 2026-07-16 weekly Rescan vercel/eve":
+        - cell
+        - cell "vercel/eve":
+          - link "vercel/eve":
+            - /url: /report/vercel/eve
+        - cell "L4"
+        - cell "eve weekly commits, past 4 weeks 306":
+          - img "eve weekly commits, past 4 weeks"
+          - text: "306"
+        - cell "20"
+        - cell "17.3k"
+        - cell "2026-07-16"
+        - cell "weekly":
+          - combobox "Autoscan cadence for vercel/eve" [disabled]:
+            - option "off"
+            - option "daily"
+            - option "weekly" [selected]
+            - option "monthly"
+        - cell "Rescan vercel/eve":
+          - button "Rescan vercel/eve" [disabled]: ↻ Rescan
+      - row "vercel/next.js Backend·Rust L4 next.js weekly commits, past 4 weeks 375 10 27.4k 2026-07-16 weekly Rescan vercel/next.js":
+        - cell
+        - cell "vercel/next.js Backend·Rust":
+          - link "vercel/next.js":
+            - /url: /report/vercel/next.js
+          - text: Backend·Rust
+        - cell "L4"
+        - cell "next.js weekly commits, past 4 weeks 375":
+          - img "next.js weekly commits, past 4 weeks"
+          - text: "375"
+        - cell "10"
+        - cell "27.4k"
+        - cell "2026-07-16"
+        - cell "weekly":
+          - combobox "Autoscan cadence for vercel/next.js" [disabled]:
+            - option "off"
+            - option "daily"
+            - option "weekly" [selected]
+            - option "monthly"
+        - cell "Rescan vercel/next.js":
+          - button "Rescan vercel/next.js" [disabled]: ↻ Rescan
+      - row "vercel/v0-sdk L3 v0-sdk weekly commits, past 4 weeks 1 31 135.4k 2026-07-16 weekly Rescan vercel/v0-sdk":
+        - cell
+        - cell "vercel/v0-sdk":
+          - link "vercel/v0-sdk":
+            - /url: /report/vercel/v0-sdk
+        - cell "L3"
+        - cell "v0-sdk weekly commits, past 4 weeks 1":
+          - img "v0-sdk weekly commits, past 4 weeks"
+          - text: "1"
+        - cell "31"
+        - cell "135.4k"
+        - cell "2026-07-16"
+        - cell "weekly":
+          - combobox "Autoscan cadence for vercel/v0-sdk" [disabled]:
+            - option "off"
+            - option "daily"
+            - option "weekly" [selected]
+            - option "monthly"
+        - cell "Rescan vercel/v0-sdk":
+          - button "Rescan vercel/v0-sdk" [disabled]: ↻ Rescan
+- button "Open guided tour": Guided setup
+- text: Guided setup
+- heading "Learn this dashboard" [level=2]
+- text: 1/6
+- button "Hide guided tour": ▸
+- text: Set the scope
+- list:
+  - listitem:
+    - button "Set your scan scope"
+  - listitem:
+    - button "Choose what’s in scope"
+- text: Read the results
+- list:
+  - listitem:
+    - button "Read the fleet"
+  - listitem:
+    - button "Scope what you read"
+- text: Explore modules
+- list:
+  - listitem:
+    - button "Each module is a lens"
+  - listitem:
+    - button "Open a module"
+- paragraph: Every dashboard starts with a scan. “Scan all watched” runs the whole fleet; the scope controls that decide what gets scored live sit right here.
+- button "Back" [disabled]
+- button "Next step"
+- alert

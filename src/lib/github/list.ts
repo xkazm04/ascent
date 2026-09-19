@@ -1,0 +1,174 @@
+// Shared GitHub repo listing — used by the onboarding selector (/api/org/repos) and the
+// bulk import (/api/org/import). Lists a public org's (falling back to a user's) repos,
+// most-recently-pushed first, filtering out forks and archived repos.
+
+import { ghFetch, githubApiBase, isListableRepo, type GhRepoRow } from "@/lib/github/host";
+
+export interface OrgRepoListItem {
+  owner: string;
+  name: string;
+  fullName: string;
+  url: string;
+  isPrivate: boolean;
+  stars: number;
+  pushedAt: string;
+  description: string;
+}
+
+interface GhRepo extends GhRepoRow {
+  stargazers_count: number;
+  pushed_at: string;
+  description: string | null;
+}
+
+// GitHub login grammar: alphanumerics and single hyphens, ≤39 chars. Validating BEFORE the value is
+// interpolated into the api.github.com URL stops a crafted `org` (e.g. containing `../`, `@`, or
+// URL-control chars) from rewriting the request path/host — an SSRF / path-injection vector, since
+// `org` reaches here unauthenticated via /api/org/repos and /api/org/import.
+const VALID_HANDLE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
+// GitHub repo names: [A-Za-z0-9._-], ≤100, never starting with a dot or containing ".." (traversal).
+const REPO_NAME_RE = /^[A-Za-z0-9._-]+$/;
+
+/** True for a valid GitHub org/user handle (login grammar). Exported so untrusted callers (the import
+ *  route's `repos[]`) can validate BEFORE any value is interpolated into a github.com URL. */
+export function isValidHandle(s: string): boolean {
+  return VALID_HANDLE.test(s);
+}
+
+/** True for a valid GitHub repository name (allows dots/underscores, unlike a login). */
+export function isValidRepoName(s: string): boolean {
+  return Boolean(s) && s.length <= 100 && REPO_NAME_RE.test(s) && !s.startsWith(".") && !s.includes("..");
+}
+
+/** Typed GitHub-listing failure so callers can map a rate-limit / auth / not-found to the RIGHT HTTP
+ *  status instead of collapsing every throw to 404 (which hid rate limits + auth outages as "no such org"). */
+/**
+ * Is this 403 a RATE LIMIT rather than a permissions denial?
+ *
+ * A present Retry-After on a 403 is GitHub's SECONDARY (abuse) limit — `x-ratelimit-remaining` stays
+ * > 0 there, so keying only on remaining===0 misreports it as an auth failure. Extracted so the
+ * error mapping and the anonymous-retry guard below cannot drift: retrying a genuine rate-limit 403
+ * without a token would hammer GitHub instead of backing off.
+ */
+function isRateLimited(res: Response): boolean {
+  return res.headers.get("x-ratelimit-remaining") === "0" || Boolean(Number(res.headers.get("retry-after")));
+}
+
+export class GitHubListError extends Error {
+  constructor(
+    message: string,
+    readonly code: "NOT_FOUND" | "RATE_LIMITED" | "AUTH" | "UPSTREAM",
+    readonly retryAfterSec?: number,
+  ) {
+    super(message);
+    this.name = "GitHubListError";
+  }
+}
+
+/** Parse the `rel="next"` URL out of a GitHub `Link` header, or null when there's no next page.
+ *  Exported so other GitHub layers (e.g. org discovery) reuse one Link-header parser. */
+export function nextPageUrl(link: string | null): string | null {
+  if (!link) return null;
+  for (const part of link.split(",")) {
+    if (/rel="next"/.test(part)) {
+      const m = part.match(/<([^>]+)>/);
+      if (m) return m[1]!;
+    }
+  }
+  return null;
+}
+
+// Backfill across up to 5 pages of 100 (≤500 raw repos) before giving up on `count` results. The
+// bound is a latency / rate-limit budget: this listing serves unauthenticated onboarding routes, so
+// an unbounded walk of a huge org could burn minutes and the shared token's quota on one request.
+// When the budget runs out with more pages available, the result says so (`truncated: true`) instead
+// of presenting the short list as the org's complete reality (github-repo-data-access 07-16 #5).
+const MAX_LIST_PAGES = 5;
+
+export interface OrgRepoListResult {
+  repos: OrgRepoListItem[];
+  /** True when the page budget (MAX_LIST_PAGES) ran out while GitHub still advertised a next page AND
+   *  fewer than `count` repos were collected — i.e. "we stopped looking", not "the org has no more".
+   *  Callers should annotate their response so a short list isn't mistaken for the full org. */
+  truncated: boolean;
+}
+
+export async function listOrgRepos(org: string, count: number, token?: string, signal?: AbortSignal): Promise<OrgRepoListResult> {
+  if (!VALID_HANDLE.test(org)) {
+    throw new GitHubListError(`Invalid GitHub org/user handle: "${org}"`, "NOT_FOUND");
+  }
+  const map = (r: GhRepo): OrgRepoListItem => ({
+    owner: r.owner.login,
+    name: r.name,
+    fullName: r.full_name,
+    url: r.html_url,
+    isPrivate: r.private,
+    stars: r.stargazers_count ?? 0,
+    pushedAt: r.pushed_at,
+    description: r.description ?? "",
+  });
+
+  // Fetch FULL 100-repo pages and FILTER forks/archived inside the pagination loop, following the
+  // Link header's rel="next" until we have `count` post-filter results or pages are exhausted. The old
+  // single `per_page=count*2` fetch returned far fewer than `count` (sometimes zero) for fork-heavy /
+  // archived-heavy orgs once count ≥ 50, and reported that short list as complete.
+  const api = githubApiBase();
+  for (const base of [`${api}/orgs/${org}/repos`, `${api}/users/${org}/repos`]) {
+    const collected: OrgRepoListItem[] = [];
+    let url: string | null = `${base}?sort=pushed&direction=desc&type=public&per_page=100`;
+    let probed = false; // have we gotten a successful first page from this base?
+    for (let page = 0; page < MAX_LIST_PAGES && url; page++) {
+      // Shared GitHub GET (canonical headers + fetchWithTimeout, with the default per-call timeout):
+      // this previously used a bare fetch() with no timeout, and a stalled connection could hang
+      // /api/org/repos · /api/org/import (github-repo-data-access #1). The canonical TitleCase header
+      // keys are equivalent on the wire to the lowercase set this listing previously sent; Authorization
+      // is added only when a token is present; the caller's `signal` aborts the page fetch too.
+      let res = await ghFetch(url, { token, userAgent: "ascent-org-listing", signal });
+      // SSO / ORG-RESTRICTED TOKEN FALLBACK. A fine-grained PAT — or a classic one under an org's SAML
+      // enforcement — is authorized only for the orgs it was granted. Listing a DIFFERENT public org
+      // with it returns 403, while the very same request ANONYMOUSLY returns 200, because the repos
+      // are public. Before this, a user whose token was scoped to their own org could not scan any
+      // public org at all: the listing failed with "GitHub denied listing" and the whole import
+      // aborted, on data that needs no credential.
+      //
+      // Retry once WITHOUT the token, and only for a 403 that is NOT a rate limit (a genuine
+      // secondary-limit 403 carries Retry-After or remaining=0 and must still back off, not hammer
+      // GitHub again anonymously). Public listing then succeeds under the anonymous quota; a 403 that
+      // survives the retry is a real denial and falls through to the error below.
+      if (res.status === 403 && token && !isRateLimited(res)) {
+        const anon = await ghFetch(url, { userAgent: "ascent-org-listing", signal });
+        if (anon.ok) res = anon;
+      }
+      if (res.status === 404 && !probed) break; // not an org → try the /users/ base
+      // Don't mask a rate limit / auth failure as "not found": surface a typed error so the route can
+      // return 429/502 with a Retry-After instead of a misleading 404 for a real account.
+      if (res.status === 403 || res.status === 429) {
+        const retryAfter = Number(res.headers.get("retry-after")) || undefined;
+        // A present Retry-After on a 403 is GitHub's SECONDARY (abuse) rate limit — x-ratelimit-remaining
+        // stays > 0, so keying only on remaining===0 misreported it as an AUTH/permissions denial ("GitHub
+        // denied listing"). Treat a present Retry-After as rate-limited too so callers back off rather than
+        // being told to fix permissions. (github-repo-data-access #2)
+        const rateLimited = res.status === 429 || isRateLimited(res);
+        throw new GitHubListError(
+          rateLimited ? `GitHub rate limit hit while listing "${org}".` : `GitHub denied listing "${org}" (403).`,
+          rateLimited ? "RATE_LIMITED" : "AUTH",
+          retryAfter,
+        );
+      }
+      if (res.status === 401) throw new GitHubListError(`GitHub auth failed listing "${org}".`, "AUTH");
+      if (!res.ok) throw new GitHubListError(`GitHub list failed (${res.status}) for "${org}".`, "UPSTREAM");
+      probed = true;
+      const all = (await res.json()) as GhRepo[];
+      for (const r of all) {
+        if (!isListableRepo(r)) continue;
+        collected.push(map(r));
+        if (collected.length >= count) return { repos: collected.slice(0, count), truncated: false };
+      }
+      url = nextPageUrl(res.headers.get("link"));
+    }
+    // Ran out of pages/repos for this base — return what we have. A still-present next-page URL means
+    // the PAGE BUDGET ended the walk (fork/archive-heavy org beyond 500 raw repos), not the org.
+    if (probed) return { repos: collected.slice(0, count), truncated: url != null };
+  }
+  throw new GitHubListError(`No public org or user named "${org}".`, "NOT_FOUND");
+}

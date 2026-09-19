@@ -1,0 +1,148 @@
+Skip to content
+ASCENT
+vercel
+L4 · 72
+OWNER
+🔔
+Alerts
+0
+credits
+Scan all watched (6)
+developer
+Sign out
+OVERVIEW
+23
+FLEET
+, 23 awaiting a decision
+33
+INTEL
+, 33 awaiting a decision
+17
+PLAN
+(contains the current page)
+, 17 awaiting a decision
+LIBRARY
+GOVERN
+PLAN
+Practices
+Plan
+Backlog
+17
+, 17 awaiting a decision
+Practice Library
+
+Your org's standards in one place — playbooks you author and practices mined from your strongest repos. Open a row for the exemplar, gaps, and apply actions; add your own with “+ New practice”.
+
++ New practice
+Practice library
+PRACTICE	CATEGORY	SOURCE	ADOPTION	
+
+Agent guidance (CLAUDE.md / AGENTS.md)
+Machine-readable project context so any AI contribution lands consistent and on-spec.
+	D1 · AI Tooling	MINED	
+2/6
+1 could adopt
+	View →
+
+AI process & harness
+Ad-hoc prompting becomes a repeatable, trustworthy part of how the team ships.
+	D8 · AI Process	MINED	
+4/6
+1 could adopt
+	View →
+
+Agent in the loop
+AI takes a first pass (review, triage, codegen) with a human confirming.
+	D4 · Agentic	MINED	
+0/6
+3 could adopt
+	View →
+
+Test discipline
+The guardrail that makes AI-generated changes safe to merge.
+	D2 · Testing	MINED	
+5/6
+well adopted
+	View →
+
+CI gates on merge
+Trust that doesn't depend on which human reviewed — checks enforce it.
+	D3 · CI/CD	MINED	
+6/6
+well adopted
+	View →
+
+Architecture docs & ADRs
+Context both humans and agents can read — less re-explaining, better changes.
+	D5 · Docs	MINED	
+2/6
+well adopted
+	View →
+
+Enforced quality
+Conventions held by tooling, not habit — slips caught at the earliest point.
+	D6 · Quality	MINED	
+5/6
+well adopted
+	View →
+
+Legible, attributable history
+You can see where AI helped and how it fared; automation gets reliable signals.
+	D7 · Commits	MINED	
+5/6
+well adopted
+	View →
+
+Supply-chain security
+The shift-left guardrail against the vulnerable or secret-leaking code AI can confidently produce.
+	D9 · Security	MINED	
+0/6
+	View →
+◂
+GUIDED SETUP
+GUIDED SETUP
+Learn this dashboard
+1/6
+▸
+SET THE SCOPE
+Set your scan scope
+Choose what’s in scope
+READ THE RESULTS
+Read the fleet
+Scope what you read
+EXPLORE MODULES
+Each module is a lens
+Open a module
+
+Every dashboard starts with a scan. “Scan all watched” runs the whole fleet; the scope controls that decide what gets scored live sit right here.
+
+Back
+Next step
+MINED PRACTICE · D1 · AI TOOLING
+Agent guidance (CLAUDE.md / AGENTS.md)
+
+Machine-readable project context so any AI contribution lands consistent and on-spec.
+
+✕
+REPOS STRONG
+2/6
+LEARN FROM
+workflow100/100
+COULD ADOPT NEXT (1)
+v0-sdk
+REUSABLE SHAPE
+·
+Build & test commands (how to run, lint, and verify)
+·
+Architecture map — entry points, key modules, data flow
+·
+“Verify after every change” rules (run tests, typecheck)
+·
+Constraints the agent must never break (security, public API, conventions)
+·
+MCP servers / hooks / subagents in use, if any
+·
+One or two examples of a good change
+APPLY TO A REPO
+v0-sdk
+Preview starter

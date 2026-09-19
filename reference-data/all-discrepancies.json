@@ -1,0 +1,1280 @@
+[
+  {
+    "org": "rust-lang",
+    "repo": "rust-lang/ci-mirrors",
+    "dimension": "D6",
+    "claim": "The D6 signal reports 'no linting/typing/guardrail config detected,' but .github/workflows/ci.yml runs a `cargo fmt --check` step as a required CI gate on every PR, which is a real formatting guardrail the detector appears to have missed."
+  },
+  {
+    "org": "rust-lang",
+    "repo": "rust-lang/ci-mirrors",
+    "dimension": "D9",
+    "claim": "The token-permissions control scores 0/10 ('0/1 workflows set an explicit permissions: scope'), but ci.yml clearly shows job-level `permissions:` blocks (`contents: read` on the build job, `id-token: write` on the apply job) — the detector likely only checks for a top-level workflow permissions block and missed these job-scoped, least-privilege declarations."
+  },
+  {
+    "org": "rust-lang",
+    "repo": "rust-lang/crates.io",
+    "dimension": "D7",
+    "claim": "The 90% 'AI/bot-attributed' commit figure appears driven almost entirely by Renovate dependency-bump commits in the sample, not genuine AI-coding-assistant co-authorship (no Claude/Copilot trailers appear; the sole non-bot co-author listed is a human), so the signal likely overstates AI-native authorship."
+  },
+  {
+    "org": "rust-lang",
+    "repo": "rust-lang/crates.io",
+    "dimension": "D8",
+    "claim": "docs/AI-TOOLS.md is a structured, repo-specific contribution-process document for AI-assisted work (acceptable/unacceptable uses, disclosure, author responsibility) that matches the rubric's 'CONTRIBUTING guidance for agents' criterion, yet the D8 signal (16/100) only credits issue templates and branch protection — this file appears to have been missed."
+  },
+  {
+    "org": "rust-lang",
+    "repo": "rust-lang/crates.io",
+    "dimension": "D5",
+    "claim": "docs/API-DESIGN.md references a generated OpenAPI spec (via utoipa) consumed by third-party tooling and the frontend's typed client, which is API documentation the D5 rubric explicitly calls out (OpenAPI/Swagger) but that isn't listed among the detected D5 signals."
+  },
+  {
+    "org": "rust-lang",
+    "repo": "rust-lang/crates.io-index",
+    "dimension": "D2",
+    "claim": "D2 lists 'Mutation testing configured', 'Performance/load smoke tests', and 'API-schema validation' as present alongside 'No test files detected' — internally inconsistent, and implausible for a repo with no sampled application code or test directories, suggesting these are false-positive detections."
+  },
+  {
+    "org": "rust-lang",
+    "repo": "rust-lang/crates.io-index",
+    "dimension": "D3",
+    "claim": "D3 lists 'Policy-as-code (OPA/conftest)', 'Progressive delivery / feature flags', and 'Versioned DB migrations' as present alongside 'No CI pipeline detected' — these delivery-as-code practices are very unlikely to exist with zero CI configuration, suggesting these are also false-positive detections."
+  },
+  {
+    "org": "rust-lang",
+    "repo": "rust-lang/crates.io-index",
+    "dimension": "D4",
+    "claim": "D4's high score (50) rests on 'AI code-review agent in the pipeline' and 'dependency auto-merge enabled', yet the process signals report 0% AI-involved PR rate and only 4 total PRs ever analyzed — worth double-checking whether the detected tooling is actually active versus merely present/configured."
+  },
+  {
+    "org": "rust-lang",
+    "repo": "rust-lang/rust",
+    "dimension": "D3",
+    "claim": "The signals list \"versioned DB migrations\" and \"progressive delivery / feature flags\" for a database-less compiler monorepo — these look like detector false positives (possibly matching Rust's own #![feature(...)] gates or unrelated config) rather than real delivery-as-code practice."
+  },
+  {
+    "org": "rust-lang",
+    "repo": "rust-lang/rust",
+    "dimension": "D6",
+    "claim": "The process signals report 0% reviewed PRs, yet the sampled commit messages show explicit reviewer approval tags on every auto-merge (\"r=weihanglo\", \"r=Mark-Simulacrum\", \"r=jhpratt\", \"r=wesleywiser\"), indicating the bors/homu merge-queue workflow captures review approval outside GitHub's native review API — the 0% figure is likely a measurement gap, not an absence of review."
+  },
+  {
+    "org": "rust-lang",
+    "repo": "rust-lang/rust",
+    "dimension": "D6",
+    "claim": "\"Static type checking (mypy/pyright)\" is listed as a signal for a pure-Rust codebase where those Python-specific tools wouldn't normally apply; this looks like a possible false positive or mismatch worth confirming against the triggering file."
+  },
+  {
+    "org": "rust-lang",
+    "repo": "rust-lang/rust",
+    "dimension": "D1",
+    "claim": "CLAUDE.md/AGENTS.md were only sampled from src/tools/rust-analyzer/ — if the D1 signal is scoring the whole repo based on this one subdirectory's guidance, it may overstate how broadly agent guidance is applied across the multi-million-line monorepo."
+  },
+  {
+    "org": "rust-lang",
+    "repo": "rust-lang/rust-analyzer",
+    "dimension": "D8",
+    "claim": "The listed 'AI-output eval / golden-test harness' signal may be misattributing the project's expect-test snapshot suite (used to verify compiler/IDE code behavior in files like crates/hir-def/src/expr_store/tests/body.rs) to an LLM-output evaluation harness, which is a distinct concept the sampled evidence does not otherwise support (no promptfoo/evals directory shown)."
+  },
+  {
+    "org": "rust-lang",
+    "repo": "rust-lang/rust-analyzer",
+    "dimension": "D7",
+    "claim": "D7's 3%-AI-involvement figure may undercount real usage, since CONTRIBUTING.md's referenced AI_POLICY.md mandates disclosure 'in commit messages' generally, not necessarily via a standard Co-Authored-By trailer — worth spot-checking whether the detector's AI-attribution heuristic misses free-text disclosures."
+  },
+  {
+    "org": "rust-lang",
+    "repo": "rust-lang/rust-analyzer",
+    "dimension": "D1",
+    "claim": "CONTRIBUTING.md references a dedicated AI_POLICY.md governing AI use and mandating disclosure, but this artifact isn't called out in the D1 signal bullets, suggesting the detector may have missed a distinctive AI-governance file that would strengthen the case for D1 (and D8)."
+  },
+  {
+    "org": "rust-lang",
+    "repo": "rust-lang/rust-clippy",
+    "dimension": "D5",
+    "claim": "CONTRIBUTING.md and CHANGELOG.md both reference a maintained 'Clippy book' developer guide (book/src/development/basics.md, book/src/development/infrastructure/changelog_update.md), suggesting a more substantial documentation set than the README/CONTRIBUTING/CHANGELOG-only signal (score 50) accounts for."
+  },
+  {
+    "org": "rust-lang",
+    "repo": "rust-lang/rust-repos",
+    "dimension": "D6",
+    "claim": "D6's signal reports 'no linting/typing/guardrail config detected,' but .github/workflows/test.yml clearly runs `cargo fmt --check` and `cargo clippy -- -Dwarnings` as hard-failing gates on every push and pull request — a real enforced guardrail even though no standalone rustfmt.toml/clippy.toml file exists."
+  },
+  {
+    "org": "golang",
+    "repo": "golang/appengine",
+    "dimension": "D7",
+    "claim": "D7 reports 'AI/bot-attributed commits present (5 of 30)', but the sampled commit messages attribute bot involvement to CI automation (e.g. 'Co-authored-by: GitHub <noreply@github.com>' on a scheduled go-version-matrix update), not to an AI coding assistant like Claude or Copilot — this dimension may be overcounting genuine AI-authorship signal."
+  },
+  {
+    "org": "golang",
+    "repo": "golang/example",
+    "dimension": "D5",
+    "claim": "The D5 signal credits only the root README (score 30), but several subdirectories (gotypes, hello, outyet, appengine-hello, slog-handler-guide) ship their own README files — some generated by the repo's own `weave` doc-generation tool per gotypes/gen.go's go:generate directive — suggesting broader per-package documentation coverage than a single-README signal implies."
+  },
+  {
+    "org": "golang",
+    "repo": "golang/example",
+    "dimension": "D6",
+    "claim": "The 0% PR-merge / n/a-reviewed-PR figures underlying D6 and D7 likely reflect that this GitHub repo is a mirror of a Gerrit-hosted project (commit messages consistently show Change-Id and 'Reviewed-on: https://go-review.googlesource.com' links) rather than an absence of code review, so the GitHub-PR-based review signal may be structurally blind to this project's actual review mechanism."
+  },
+  {
+    "org": "golang",
+    "repo": "golang/go",
+    "dimension": "D3",
+    "claim": "The 0/100 'no CI pipeline detected' score may be a visibility blind spot rather than a true absence: golang/go's GitHub presence is a mirror of the canonical Gerrit-hosted repo, and this project's actual build/test verification is known to run through infrastructure outside GitHub Actions, which a GitHub-scoped CI detector cannot see."
+  },
+  {
+    "org": "golang",
+    "repo": "golang/go",
+    "dimension": "D2",
+    "claim": "The D2 signal (73) may understate real testing rigor — fuzz_test.go shows a native go test -fuzz target (FuzzReader) exercising archive/tar round-trips, which the rubric explicitly calls out as an advanced-rigor signal, and it's unclear the 73 score credits this fuzz-testing evidence."
+  },
+  {
+    "org": "golang",
+    "repo": "golang/go",
+    "dimension": "D6",
+    "claim": "The 0% PR-merge-rate and 0.1 reviews/PR figures (feeding D6/D7) likely reflect that GitHub PRs against golang/go are conventionally closed by a bot pointing contributors to Gerrit rather than merged directly on GitHub, so these process metrics probably understate actual review/merge activity rather than indicating an inactive or unreviewed project."
+  },
+  {
+    "org": "golang",
+    "repo": "golang/net",
+    "dimension": "D6",
+    "claim": "The 'PR review coverage n/a' / 0.2 reviews-per-PR reading likely understates actual review discipline — every sampled commit message carries a Gerrit Change-Id and most carry a 'Reviewed-on: https://go-review.googlesource.com/...' trailer, direct evidence that changes are reviewed before landing, just not via GitHub's PR mechanism."
+  },
+  {
+    "org": "golang",
+    "repo": "golang/net",
+    "dimension": "D5",
+    "claim": "The D5 signal only credits README.md and CONTRIBUTING.md, but the sampled bpf/doc.go shows a substantial godoc-style package comment explaining the BPF VM model in depth — in-code documentation depth appears understated by a detector focused on top-level markdown files."
+  },
+  {
+    "org": "golang",
+    "repo": "golang/scratch",
+    "dimension": "D6",
+    "claim": "The process signal reports 0% reviewed / 0 merged PRs, but every sampled commit message carries a Gerrit `Change-Id` and a `Reviewed-on: https://go-review.googlesource.com` trailer, indicating these changes were actually code-reviewed via Gerrit — the GitHub PR-based detector can't see that off-platform review process and likely understates real review discipline."
+  },
+  {
+    "org": "golang",
+    "repo": "golang/sync",
+    "dimension": "D6",
+    "claim": "Sampled commit messages consistently include 'Change-Id:' and 'Reviewed-on: https://go-review.googlesource.com/...' trailers, showing every change passed a real per-commit review gate (Gerrit) — the D6/process signal of '0.2 reviews/PR, 0% merged' reflects GitHub mirror mechanics rather than an actual absence of review discipline, so a reading of 'no review coverage' would understate the evidence."
+  },
+  {
+    "org": "golang",
+    "repo": "golang/tools",
+    "dimension": "D5",
+    "claim": "The D5 signal (40, based on README + CONTRIBUTING.md alone) may undercount total documentation depth, since CONTRIBUTING.md explicitly references a separate gopls/doc/contributing.md guide, implying at least one additional documentation file/directory not reflected in the reported '3-section README' count."
+  },
+  {
+    "org": "golang",
+    "repo": "golang/vgo",
+    "dimension": "D2",
+    "claim": "D2 reported 'No test files detected,' but sampled files include vendor/cmd/go/go_test.go, go_unix_test.go, go_windows_test.go, and vendor/cmd/go/internal/cache/cache_test.go — a real, substantial Go test suite is present, even though it's vendored code rather than tests authored by this repo."
+  },
+  {
+    "org": "golang",
+    "repo": "golang/website",
+    "dimension": "D2",
+    "claim": "Two of the four sampled '_test.go' files (helper_test.go with `// +build OMIT`, final_test.go with `//go:build ignore`) are blog-post illustration snippets deliberately excluded from normal compilation, not active tests, so the D2 signal's file/assertion counts likely overstate the size and rigor of the real automated test suite."
+  },
+  {
+    "org": "astral-sh",
+    "repo": "astral-sh/ecosystem-analyzer",
+    "dimension": "D4",
+    "claim": "D4 reports 0 agentic workflows, but the process signals (77% bot-attributed commits, 100% PR merge rate, 0.1 average reviews per PR) strongly suggest Renovate is configured with auto-merge on dependency PRs, which the D4 rubric explicitly counts as an agentic-workflow signal — worth confirming against the renovate.json/config directly."
+  },
+  {
+    "org": "astral-sh",
+    "repo": "astral-sh/ecosystem-analyzer",
+    "dimension": "D9",
+    "claim": "The SAST check reports 0/10 for 'no CodeQL/Semgrep/Sonar,' which is accurate as scoped, but .pre-commit-config.yaml does run zizmor (a GitHub-Actions-specific security static analyzer) — a narrower SAST-adjacent tool the detector's category doesn't credit since it targets workflow files and runs only via pre-commit, not CI."
+  },
+  {
+    "org": "astral-sh",
+    "repo": "astral-sh/packse",
+    "dimension": "D3",
+    "claim": "The 'policy-as-code (OPA/conftest)' signal may be a misclassification of zizmor — a GitHub Actions security/audit linter referenced via zizmorcore/zizmor-action in recent commits — which is not an OPA/conftest-style policy-as-code framework and more plausibly explains D9's 'Dangerous workflow 10/10' result instead."
+  },
+  {
+    "org": "astral-sh",
+    "repo": "astral-sh/packse",
+    "dimension": "D4",
+    "claim": "D4 reports a flat 0 ('no agentic/AI-in-CI workflows detected'), but Renovate dependency-update automation is clearly active (confirmed by D9's dependency-update check and numerous recent 'Update X action/dependency to Y' commits, e.g. #309, #312, #313, #310, #306, #305, #302, #300, #301, #304, #303) — since the D4 rubric explicitly lists 'Renovate/Dependabot auto-merge'/auto-PR tooling as a qualifying signal, a flat zero likely understates this dimension even though full auto-merge isn't confirmed."
+  },
+  {
+    "org": "astral-sh",
+    "repo": "astral-sh/ruff",
+    "dimension": "D3",
+    "claim": "The 'versioned DB migrations' signal looks like a false positive — the sampled Cargo.toml/Dockerfile/pyproject.toml show a Rust linter/formatter CLI with no database layer anywhere in evidence."
+  },
+  {
+    "org": "astral-sh",
+    "repo": "astral-sh/ruff",
+    "dimension": "D2",
+    "claim": "CODEOWNERS explicitly lists '/python/py-fuzzer/', showing a dedicated parser fuzzing harness that the D2 signal (which only counts test files/framework/ratio) doesn't credit as an advanced testing technique."
+  },
+  {
+    "org": "astral-sh",
+    "repo": "astral-sh/ruff",
+    "dimension": "D9",
+    "claim": "The 'known vulnerabilities: n/a, no lockfile' note likely reflects scanner access limits rather than absence of a lockfile — the Dockerfile explicitly does 'COPY Cargo.lock Cargo.lock', showing a lockfile exists in the repo."
+  },
+  {
+    "org": "astral-sh",
+    "repo": "astral-sh/ruff",
+    "dimension": "D7",
+    "claim": "The 43% 'AI/bot-attributed' commit figure may conflate genuine AI-authored commits with routine Dependabot/Renovate merge commits, since none of the sampled recent commit messages show explicit AI co-author trailers."
+  },
+  {
+    "org": "astral-sh",
+    "repo": "astral-sh/ruff",
+    "dimension": "D2",
+    "claim": "The provided stack-fit caveat labels this repo an 'ML/notebook project,' but the evidence (Cargo workspace of ruff_*/ty_* crates, maturin/Rust build, Dockerfile) shows a Rust CLI linter/formatter — the 'ruff_notebook' crate only adds Jupyter-notebook linting as a product feature, not an ML/notebook development workflow — so D2 and D6 should be read at full weight rather than floored per that caveat."
+  },
+  {
+    "org": "astral-sh",
+    "repo": "astral-sh/ruff-action",
+    "dimension": "D7",
+    "claim": "D7's 'frequent AI/bot-attributed commits (60%)' appears to conflate conventional CI bots (Dependabot rollups, the scheduled checksum-updater, release-drafter) with genuine AI authorship, since the process signals separately report 0% AI involvement across sampled PRs and the sampled commit messages show no Co-Authored-By: Claude/Copilot trailers."
+  },
+  {
+    "org": "astral-sh",
+    "repo": "astral-sh/ruff-action",
+    "dimension": "D1",
+    "claim": "Commit #385 ('Add Dependabot rollup skill — add the dependabot-pr-rollup skill copied from setup-uv') references a 'skill' artifact that D1 (scored 0) and D8 (scored 8) may not have captured, since no corresponding file was present in the sampled evidence — worth verifying whether a skills/automation directory exists outside the sample."
+  },
+  {
+    "org": "astral-sh",
+    "repo": "astral-sh/ty",
+    "dimension": "D1",
+    "claim": "D1 credits AGENTS.md with 'Documents build/test/run commands,' but the sampled AGENTS.md content contains only a note about regenerating the cargo-dist release workflow and no build/test/run command documentation at all."
+  },
+  {
+    "org": "astral-sh",
+    "repo": "astral-sh/ty",
+    "dimension": "D2",
+    "claim": "D2's 'no test files detected' likely understates the org's actual testing rigor rather than reflecting a maturity gap, since CONTRIBUTING.md states the core ty codebase (and presumably its test suite) lives in the separate astral-sh/ruff repository, included here only as a submodule — this repo's scope is docs/release infra, not the type-checker's source."
+  },
+  {
+    "org": "astral-sh",
+    "repo": "astral-sh/ty-pre-commit",
+    "dimension": "D6",
+    "claim": "The 'Pre-commit hooks' signal likely credits .pre-commit-hooks.yaml, which is this repo's published hook definition (its product for downstream users), not a .pre-commit-config.yaml enforcing lint/format guardrails on the repo's own code — worth verifying this isn't a self-referential false positive."
+  },
+  {
+    "org": "astral-sh",
+    "repo": "astral-sh/ty-pre-commit",
+    "dimension": "D7",
+    "claim": "The '2 of 30 AI/bot-attributed commits' figure may conflate the genuinely AI-assisted '[codex]' PR with the scripted 'Mirror: x.y.z' release commits that mirror.py generates via automated git commits (non-AI CI automation), which would overstate real AI-authorship activity — this also appears inconsistent with the process signal reporting 0% AI-involved PRs."
+  },
+  {
+    "org": "astral-sh",
+    "repo": "astral-sh/ty-vscode",
+    "dimension": "D2",
+    "claim": "package.json defines 'compile-tests' (tsc build of tests) and a 'tests' script running vscode-test, strongly suggesting a test suite exists or was scaffolded, which conflicts with D2's 'no test files detected' result."
+  },
+  {
+    "org": "astral-sh",
+    "repo": "astral-sh/ty-vscode",
+    "dimension": "D5",
+    "claim": "scripts/release.py explicitly defines CHANGELOG_PATH = Path('CHANGELOG.md') and its docstring states it 'updates the changelog and README,' implying a CHANGELOG.md exists in the repo even though it isn't listed among D5's detected signals."
+  },
+  {
+    "org": "astral-sh",
+    "repo": "astral-sh/ty-vscode",
+    "dimension": "D4",
+    "claim": "D9 already credits 'Automated dependency updates configured (Dependabot/Renovate)' at 10/10 and commit history is dominated by Renovate-style dependency PRs, yet D4 (which explicitly lists 'Renovate/Dependabot auto-merge' as an in-scope signal) reports 0 — worth confirming whether any auto-merge behavior on those PRs should register there too."
+  },
+  {
+    "org": "astral-sh",
+    "repo": "astral-sh/uv",
+    "dimension": "D3",
+    "claim": "The 'versioned DB migrations' signal doesn't match any database component visible in the sampled evidence for a Rust CLI package manager (Cargo.toml, pyproject.toml, Dockerfile all show no DB layer), suggesting a likely detector false-positive rather than genuine migration tooling."
+  },
+  {
+    "org": "astral-sh",
+    "repo": "astral-sh/uv",
+    "dimension": "D8",
+    "claim": "CONTRIBUTING.md explicitly requires all AI-assisted contributions to follow a linked org-wide AI Policy (with PR closure as the enforcement consequence), which is stronger AI-governance evidence than the signalScore of 33 reflects — likely undercounted because the referenced policy document lives in the separate astral-sh/.github repo rather than this one."
+  },
+  {
+    "org": "astral-sh",
+    "repo": "astral-sh/uv-pre-commit",
+    "dimension": "D9",
+    "claim": "The sampled main.yml explicitly declares `permissions: contents: write` at the job level, so the signal's framing of '0/1 workflows set an explicit permissions: scope' appears inaccurate — the workflow does set an explicit scope, the real issue is that the scope is broad (write) rather than minimized, not that it's absent."
+  },
+  {
+    "org": "astral-sh",
+    "repo": "astral-sh/uv-pre-commit",
+    "dimension": "D6",
+    "claim": "The 'Pre-commit hooks' signal likely misattributes this repo's purpose — per the README, the repo publishes pre-commit hook definitions for downstream consumers — as evidence that the repo enforces pre-commit guardrails on its own source; no .pre-commit-config.yaml was found among the sampled files."
+  },
+  {
+    "org": "astral-sh",
+    "repo": "astral-sh/uv-pre-commit",
+    "dimension": "D3",
+    "claim": "The signalScore of 35 for 'GitHub Actions CI present' may overstate maturity: the single sampled workflow only triggers on schedule/workflow_dispatch (no pull_request trigger) and has no lint/test/build steps, so it functions as scheduled release automation rather than a PR-gating CI pipeline."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/ai",
+    "dimension": "D5",
+    "claim": "D5 reports 'No README detected,' which is difficult to reconcile with a 25k-star, actively maintained public monorepo that otherwise shows deep CONTRIBUTING.md, CHANGELOG, and ADR investment — this looks more like a detection miss (e.g., nonstandard path/casing or a docs-site-only front matter) than a true absence."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/ai",
+    "dimension": "D3",
+    "claim": "D3 lists 'Policy-as-code (OPA/conftest)' as present, but no Rego/OPA/conftest file appears anywhere in the sampled evidence; the only related tooling visible is 'konsistent' (a custom internal structural-consistency checker referenced in package.json), which is not an OPA/conftest-based policy-as-code system, so this signal may be misattributed."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/chat",
+    "dimension": "D1",
+    "claim": "AGENTS.md is organized hierarchically (root file plus per-package files like packages/adapter-discord/AGENTS.md) and includes a published Agent Skill (.agents/skills/add-adapter) and a separate AGENTS.md shipped to SDK consumers — this multi-file, technique-rich structure suggests D1's signalScore of 50 may understate content quality relative to a typical single-file CLAUDE.md stub."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/chat",
+    "dimension": "D8",
+    "claim": "The .agents/skills/add-adapter Agent Skill (introduced per the commit \"docs: add add-adapter skill\") is a structured agent-workflow artifact that D8's signalScore of 36 may not be fully crediting under its 'structured prompt/agent library' criterion."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/chat",
+    "dimension": "D5",
+    "claim": "apps/docs ships a full fumadocs-powered documentation site (chat-sdk.dev) with guides and resources referenced from AGENTS.md, beyond the basic README/CONTRIBUTING/CHANGELOG/examples signals counted — this could push D5 above its signalScore of 55."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/components.build",
+    "dimension": "D5",
+    "claim": "D5's signal only credits a README (1364 chars) and CONTRIBUTING.md, but commit history and code (fumadocs-based content/docs, llms.txt/llms.mdx export routes, sitemap.md, recurring 'Sync skill docs from content/docs' commits) point to a much larger structured documentation corpus than a bare README implies, so the signal likely understates documentation depth."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/components.build",
+    "dimension": "D7",
+    "claim": "The '5 of 30 AI/bot-attributed commits' figure likely includes automated github-actions[bot] commits from sync-skill-docs.yml (a scripted docs-sync job with its own git config and push step), not solely genuine AI-coding-agent commits, so the AI-native commit share may be inflated relative to true agentic authorship."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/components.build",
+    "dimension": "D1",
+    "claim": "A skills/ directory kept in sync from content/docs (via scripts/sync-skill-docs.sh and recurring CI commits) suggests structured agent-skill tooling exists that D1 ('Found Cursor rules' only) and D8 ('no dedicated AI process/harness... prompt library') may not be crediting, though it's ambiguous whether it serves internal dev agents or is purely an end-user product feature."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/eve",
+    "dimension": "D5",
+    "claim": "AGENTS.md references a `research/` directory of 'issue-backed implementation plans for proposed changes,' which functions much like an ADR trail, but the D5 signal list doesn't credit any ADR-style documentation — likely undercounted."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/eve",
+    "dimension": "D2",
+    "claim": "The 'API-schema validation' signal may actually be detecting the fixture-owned 'eve eval' e2e suites (behavioral agent evals), not a dedicated schema-validation tool like Schemathesis/Dredd/Spectral — worth confirming the detector didn't conflate the two."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/examples",
+    "dimension": "D5",
+    "claim": "D5's signalScore of 40 may undercount documentation depth: the README explicitly links to further internal docs (./internal/publishing-templates.md) and embeds a full scripted contribution workflow plus per-example compliance checklist that functions as de facto CONTRIBUTING guidance, beyond what a plain '7 sections' README count suggests."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/examples",
+    "dimension": "D1",
+    "claim": "D1's high score may be partly inflated by duplication: the identical 'VERCEL BEST PRACTICES' AGENTS.md block appears verbatim in both rust/wait-until and rust/websocket (and likely other dirs), which is boilerplate propagation rather than bespoke per-example guidance, even though the root CLAUDE.md/AGENTS.md and starter/cms-sanity-graphql-fragments/CLAUDE.md do show genuine bespoke depth."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/flags",
+    "dimension": "D5",
+    "claim": "D5's signal (45) appears to credit only README/CHANGELOG/examples, but the sampled files show a full documentation site (apps/docs, published at flags-sdk.dev) with generated agents.md and llms.txt/llms.mdx routes for LLM consumers plus a maintainer runbook (docs/REVIEWS.md), suggesting documentation depth beyond what was scored."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/flags",
+    "dimension": "D8",
+    "claim": "D8's signal (28) may undercount a structured agent-capability system: package.json includes a validate-skills.mjs script and commit history shows skill-related PRs ('use scoped skill identifier for vercel-cli install,' 'update skill'), which is the kind of 'structured prompt/agent library' D8 explicitly looks for."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/flags",
+    "dimension": "D3",
+    "claim": "D3's signal (100, implying CI fully gates delivery) sits alongside branch-protection data showing required status checks = no, meaning the 5 CI workflows must run but are not actually enforced as a hard condition for merging."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/next.js",
+    "dimension": "D6",
+    "claim": "The sampled .github/CODEOWNERS file contains only the boilerplate comment header with no actual path/owner rules, so D6's credit for a CODEOWNERS-backed code-owner review gate may overstate how substantively that gate is targeted."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/next.js",
+    "dimension": "D3",
+    "claim": "The 'versioned DB migrations' signal is unusual for a frontend framework repo and most likely comes from migration files inside example apps (e.g. Prisma-based entries under examples/) rather than the core Next.js delivery pipeline having its own database migration discipline, so D3's score may be slightly inflated by this signal."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/nft",
+    "dimension": "D9",
+    "claim": "The recent commit 'chore(deps): Bump the npm_and_yarn group across 1 directory with 3 updates (#596)' reads as a classic Dependabot grouped-update PR title, which is in tension with the D9 finding of '0/10 — No dependency-update tool committed'; a dependabot.yml may exist but wasn't in the sampled evidence."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/nft",
+    "dimension": "D5",
+    "claim": "Commit messages referencing 'skip creating a changelog entry' alongside release.config.js (semantic-release) imply an automated CHANGELOG/release-notes trail exists, which the D5 signal (scored only on README presence) may be under-crediting."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/sandbox",
+    "dimension": "D9",
+    "claim": "The sampled .github/workflows/publish.yml explicitly declares a `permissions:` block (contents: write, id-token: write, pull-requests: write), so the stated '0/1 workflows set an explicit permissions: scope' appears to undercount — the scope is explicit, just broad/non-least-privilege, which the summary should distinguish from having no permissions declaration at all."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/sdk",
+    "dimension": "D3",
+    "claim": "The 'progressive delivery / feature flags' signal is likely a false positive — sampled evidence (commit messages referencing `vercel.featureFlags.deleteFlagSegment()`, docs modeling Vercel's Feature Flags API) shows this is the SDK's coverage of Vercel's Feature Flags product, not the repo's own delivery pipeline using feature-flag-gated rollouts."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/sdk",
+    "dimension": "D2",
+    "claim": "signalScore=20 may still overstate active testing rigor — commit #308 ('disable test/mock server generation to reduce tree size') and the tsconfig exclusion of src/__tests__ suggest the 2 detected test files are vestigial artifacts rather than a maintained, growing suite."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/sdk",
+    "dimension": "D7",
+    "claim": "The 97% AI/bot-attributed commit figure conflates a deterministic Speakeasy code-generation bot with genuine AI-assisted development; only one sampled commit shows an actual LLM co-author trailer ('Co-authored-by: Claude Sonnet 4.6'), so the high score reflects automation cadence more than human-AI collaboration depth."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/shop",
+    "dimension": "D9",
+    "claim": "The Token permissions check states '0/1 workflows set an explicit permissions: scope,' but the sampled .github/workflows/release.yml clearly defines a job-level permissions block (contents: write, pull-requests: write, id-token: write) — the workflow does set explicit permissions, even though the grant is broad, so the '0 workflows' framing appears to misstate the evidence."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/shop",
+    "dimension": "D6",
+    "claim": "D6 reports 'no linting/typing/guardrail config detected,' but the sampled root package.json defines 'lint': 'turbo run lint' and 'format': 'turbo run format' scripts orchestrated across every app in the monorepo via Turborepo, indicating guardrail tooling is wired in even if the per-app config files themselves weren't sampled."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/shop",
+    "dimension": "D5",
+    "claim": "D5's score reflects only a short README and a changelog, but the repo contains a full documentation application (apps/docs, the vercel.shop docs site) with its own AGENTS.md and architecture — this substantial docs infrastructure doesn't appear to be credited in the signal."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/swr",
+    "dimension": "D9",
+    "claim": "The 'signed releases' check reports 0/10 for no artifact signing/provenance, but trigger-release.yml uses OIDC trusted publishing with npm (`permissions: id-token: write`) and installs npm >=11.5.1, which since that version automatically attaches provenance attestations on publish — this may be an undercounted signal rather than a true absence of release provenance."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/terraform-provider-vercel",
+    "dimension": "D3",
+    "claim": "The 'Infrastructure-as-Code present' and 'progressive delivery / feature flags' signals for D3 may be false positives: sampled files show this repo's own domain is Terraform resources for Vercel's product (e.g. client/deployment_protection_exception_test.go, a newFeatureFlagTestClient helper), not the repository's own IaC-driven or progressive-delivery deployment pipeline."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/terraform-provider-vercel",
+    "dimension": "D6",
+    "claim": "D6's signal list omits any 'linter/formatter present' bullet, yet AGENTS.md documents an enforced stack (staticcheck, tfproviderlint, gofmt, go vet run via `task lint`) and D3 independently confirms 'CI runs linting' — this looks like a detector miss on an existing, CI-enforced guardrail."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/turborepo",
+    "dimension": "D4",
+    "claim": "D4 reports 0 agentic workflows, but apps/agents/agent/agent.ts configures a deployed AI agent (model: anthropic/claude-opus-4.8) with a GitHub channel (apps/agents/agent/channels/github.ts) and a turborepo-ai-agents crate in Cargo.toml — the detector likely only scans CI-workflow files and misses this standalone agent-app infrastructure."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/turborepo",
+    "dimension": "D3",
+    "claim": "The \"versioned DB migrations\" signal is likely a false positive for the core pipeline — this is a Rust build-system monorepo with no apparent database backend, so the match probably comes from one of the bundled example apps rather than reflecting turborepo's own delivery pipeline."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/vercel",
+    "dimension": "D2",
+    "claim": "The 5 sampled test files are all example-deployment smoke tests (examples/__tests__/integration/*.test.ts) asserting only that deployExample() resolves, so the reported '0 substantive assertions' likely reflects an unrepresentative sample rather than the true depth of the 8593-file suite, given AGENTS.md and CODEOWNERS reference a much larger per-package unit-test layer (e.g. packages/cli/test/unit/commands/*) that wasn't sampled."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/vercel",
+    "dimension": "D1",
+    "claim": "The D1 signalScore of 58 may understate agent-guidance maturity: sampled evidence shows a hierarchical system (root AGENTS.md, package-scoped packages/cli/AGENTS.md with explicit task routing, examples/nextjs/AGENTS.md, a CLAUDE.md that @-imports AGENTS.md, and a dedicated .agents/skills/cli-ux/SKILL.md library) — nested scoping, skills, and @-imports are advanced techniques the flat signal may not fully credit."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/vercel-plugin",
+    "dimension": "D6",
+    "claim": "Signal reports 'no linting/typing/guardrail config detected', but package.json defines a typecheck script (tsc -p hooks/tsconfig.json --noEmit) chained into the main test command, and CLAUDE.md documents a pre-commit hook that auto-compiles staged .mts files — both are typing/guardrail mechanisms the detector appears to have missed."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/vercel-plugin",
+    "dimension": "D8",
+    "claim": "Signal score of 36 looks low given sampled evidence of a golden-snapshot regression harness (bun test:update-snapshots), a structural skill/manifest validator (bun run validate), and a self-diagnosis 'doctor' command — a repeatable, agent-readable verification harness that D8 is meant to reward."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/vercel-py",
+    "dimension": "D3",
+    "claim": "The D3 signal's \"Policy-as-code (OPA/conftest)\" detection is likely a mislabel of zizmor — a GitHub Actions workflow security linter run via `poe lint-zizmor` and listed as a dev dependency (`zizmor>=1.24.1`) in pyproject.toml — rather than true policy-as-code (OPA/conftest evaluating Terraform/K8s-style manifests)."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/vercel-py",
+    "dimension": "D5",
+    "claim": "D5's signalScore of 35 does not appear to credit the genuine ADR found at src/vercel/unstable/ADR.md (a substantive architecture decision record documenting the unstable SDK API design), suggesting the documentation-depth signal undercounts due to the file living outside a canonical docs/adr/ path."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/vercel-py",
+    "dimension": "D8",
+    "claim": "D8 explicitly rewards \"agent-readable operational docs/runbooks/ADRs,\" but its signalScore of 11 shows no ADR detection despite src/vercel/unstable/ADR.md existing in the sampled files, suggesting the detector's path patterns missed it."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/workflow",
+    "dimension": "D5",
+    "claim": "D5's signalScore of 60 may undercount documentation maturity — the sampled docs use a structured content model (typed frontmatter with prerequisites/related cross-links) and AGENTS.md explicitly protects an agent-discoverable llms.mdx sitemap route, indicating docs deliberately built for both humans and agents beyond a generic 'README + docs + changelog' read."
+  },
+  {
+    "org": "vercel",
+    "repo": "vercel/workflow",
+    "dimension": "D4",
+    "claim": "The process-signal figure of 0% AI-involved PRs (across the 40-PR sample) appears inconsistent with D7's commit-level signal of 8 of 30 recent commits being AI/bot-attributed; this may reflect different detection windows (PR metadata vs. commit trailers) rather than an actual absence of AI participation, and is worth reconciling rather than taken at face value."
+  },
+  {
+    "org": "stripe",
+    "repo": "stripe/ai",
+    "dimension": "D8",
+    "claim": "D8's signal of 16 looks too low given benchmarks/galtee-basic and benchmarks/card-element-to-checkout contain a full eval/grading harness (grade.rb validating outcomes against a live Stripe test API, environment/test suites, validate.sh automation) — a golden-test/eval pattern the detector likely missed because it's filed under 'benchmarks/' rather than 'evals/' or 'golden/'."
+  },
+  {
+    "org": "stripe",
+    "repo": "stripe/ai",
+    "dimension": "D1",
+    "claim": "D1's signal of 10 may undercount the repo's agent-tooling depth: commit history references an extensive, actively-synced 'agent skills' library (e.g. 'Add connect-recommend skill and company-researcher agent to claude plugin', repeated 'sync skills' commits) beyond the single MCP config file the detector credited."
+  },
+  {
+    "org": "stripe",
+    "repo": "stripe/claude-code-patches",
+    "dimension": "D1",
+    "claim": "The sampled CLAUDE.md is only ~6 lines of prose describing the pipeline conceptually (download, diff, verify, store) with no literal invocable build/test/run commands, so the signal's 'documents build/test/run commands' finding appears to overstate the file's actual command-level content."
+  },
+  {
+    "org": "stripe",
+    "repo": "stripe/pg-schema-diff",
+    "dimension": "D3",
+    "claim": "The D3 signal lists only linting and build as CI stages, but the README's run_tests workflow badge and CONTRIBUTING.md's Dockerfile.test setup (used specifically to run the test suite against multiple Postgres versions), combined with 51 test files in the repo, strongly suggest CI also runs the test suite — this stage appears to have been missed."
+  },
+  {
+    "org": "stripe",
+    "repo": "stripe/stripe-android",
+    "dimension": "D8",
+    "claim": "CLAUDE.md references a mandatory, named skill library under .claude/ (write-unit-tests, create-fake, compose-tests, network-tests) that functions as a structured prompt/agent-spec library — exactly the kind of harness evidence D8 rewards — yet this isn't reflected among the D8 signal list (score 31), suggesting the detector missed it."
+  },
+  {
+    "org": "stripe",
+    "repo": "stripe/stripe-android",
+    "dimension": "D5",
+    "claim": "CLAUDE.md documents a `:dokkaGenerate` command and recent commit history shows recurring dokka API-doc generation runs (e.g. 'Generate dokka for v23.11.1'), which is automated API reference documentation comparable to typedoc — this doesn't appear in the D5 signal list, which cites only README/changelog/examples."
+  },
+  {
+    "org": "stripe",
+    "repo": "stripe/stripe-android",
+    "dimension": "D7",
+    "claim": "The 30% AI/bot-attributed commit figure likely blends genuine coding-agent commits (Committed-By-Agent: claude/codex) with non-agentic automation bots (stripe-android-translations[bot], dokka-generation commits), which may overstate true AI-authorship relative to the separately reported 3% AI-involved PR rate — the two populations look conflated."
+  },
+  {
+    "org": "stripe",
+    "repo": "stripe/stripe-apps",
+    "dimension": "D5",
+    "claim": "The D5 signal reports the README has \"0 sections,\" but the sampled README clearly uses HTML <h2> headers (\"Resources\", \"Questions / Comments / Need Help?\", \"Publishing\") to structure content — the detector likely only counts markdown '##' syntax and missed these HTML-based section headers."
+  },
+  {
+    "org": "stripe",
+    "repo": "stripe/stripe-cli",
+    "dimension": "D3",
+    "claim": "D3's signal list credits only build/lint/test in CI but doesn't mention release automation, even though CLAUDE.md documents per-platform goreleaser configs (.goreleaser/) and the README shows a dedicated release.yml workflow badge — actual release-automation maturity may be under-credited."
+  },
+  {
+    "org": "stripe",
+    "repo": "stripe/stripe-cli-go-plugin-bootstrap",
+    "dimension": "D2",
+    "claim": "D2's signal reports 'sampled tests assert nothing' / 0 substantive assertions, but the sampled bootstrap_test.go and commandtree_test.go contain clear behavioral assertions (assert.Nil, assert.Same, require.NoError, assert.ErrorIs, require.Equal, assert.Equal) verifying nil defaults, helper propagation, error handling, and command-tree structure — the detector likely failed to parse multi-line or testify-style assertions."
+  },
+  {
+    "org": "stripe",
+    "repo": "stripe/stripe-cli-go-plugin-bootstrap",
+    "dimension": "D4",
+    "claim": "D4 (and D9's 'Dependency updates' check) report no dependency-update automation detected, but the commit history includes a merged PR from 'stripe/dependabot/go_modules/...' (#8), indicating Dependabot is active on this repo, likely configured at the GitHub UI/org level rather than via a committed dependabot.yml the detector can see."
+  },
+  {
+    "org": "stripe",
+    "repo": "stripe/stripe-ios",
+    "dimension": "D3",
+    "claim": "The Gemfile pins fastlane, cocoapods, and xcode-install — clear evidence of a mobile build/release-automation pipeline that the D3 signal (which only credits GitHub Actions workflow count) likely doesn't capture, so D3=45 may understate this repo's actual release-delivery tooling for its stack."
+  },
+  {
+    "org": "stripe",
+    "repo": "stripe/stripe-react-native",
+    "dimension": "D2",
+    "claim": "package.json defines test:e2e:ios/android (Maestro) and sampled Android tests include property-based tests (DrawableConversionPropertyTest.kt), which look like the 'advanced rigor' e2e/behavioral signals the rubric rewards but the D2 narrative (framed around generic test-file counts) doesn't explicitly credit since Maestro isn't a web-centric framework like Playwright/Cypress."
+  },
+  {
+    "org": "stripe",
+    "repo": "stripe/stripe-react-native",
+    "dimension": "D1",
+    "claim": "The D1 signal credits 'references advanced agent tooling (MCP / hooks / subagents)', but the sampled CLAUDE.md text contains no mention of MCP, hooks, or subagents — that credit may be coming from unsampled contents of .claude/ rather than CLAUDE.md itself, worth double-checking."
+  },
+  {
+    "org": "stripe",
+    "repo": "stripe/terraform-provider-stripe",
+    "dimension": "D6",
+    "claim": "D6's signal states 'no linting/typing/guardrail config detected,' but .github/workflows/ci.yml clearly shows dedicated Format (make fmt + git diff check) and Vet (go vet) jobs enforced on every push and PR — a real, CI-enforced guardrail the signal appears to undercount because there's no separate .golangci.yml file."
+  },
+  {
+    "org": "grafana",
+    "repo": "grafana/collector-configurator",
+    "dimension": "D4",
+    "claim": "Commit history shows repeated Renovate-style 'chore(deps): update dependency X [security]' commits (e.g. #24, #22, #20, #4) with datasource/package/from/to tables, which the D4 rubric explicitly counts as agentic-workflow evidence (Renovate/Dependabot automation), yet D4 signalScore reported 0 with no agentic workflows detected."
+  },
+  {
+    "org": "grafana",
+    "repo": "grafana/collector-configurator",
+    "dimension": "D9",
+    "claim": "The same Renovate-style dependency-bump commits suggest an automated dependency-update tool is actually running against this repo, which sits oddly next to the D9 'Dependency updates: 0/10 — No dependency-update tool committed' finding; the tool may be enabled at the org/GitHub-App level without a repo-local config file, which the detector wouldn't see."
+  },
+  {
+    "org": "grafana",
+    "repo": "grafana/collector-configurator",
+    "dimension": "D9",
+    "claim": "The 'dangerous workflow: untrusted input in a run step' flag on ci.yaml isn't visibly confirmed by the sampled ci.yaml — none of its `run:` steps interpolate `github.event.*` or other untrusted context (only the workflow-level `concurrency.group` key does), so this finding may warrant a second look to confirm exactly where the injection risk sits."
+  },
+  {
+    "org": "grafana",
+    "repo": "grafana/collector-lambda-extension",
+    "dimension": "D4",
+    "claim": "D4 reports 'No agentic/AI-in-CI workflows detected,' but the commit sample shows extensive renovate-sh-app[bot] activity merging dependency-update PRs with 0% human review, which is the Renovate/Dependabot auto-merge pattern D4's own rubric counts as agentic-workflow evidence."
+  },
+  {
+    "org": "grafana",
+    "repo": "grafana/collector-lambda-extension",
+    "dimension": "D9",
+    "claim": "D9's 'Dependency updates' control scores 0/10 for 'No dependency-update tool committed,' yet multiple sampled commits are signed 'Signed-off-by: renovate-sh-app[bot]' with recurring chore(deps) bumps, indicating a dependency-update tool is actually active (likely configured via GitHub App/org-level settings not visible as an in-repo file) rather than absent."
+  },
+  {
+    "org": "grafana",
+    "repo": "grafana/collector-lambda-extension",
+    "dimension": "D7",
+    "claim": "D7's 'Frequent AI/bot-attributed commits (47%)' is, in the sampled messages, entirely Renovate dependency-bump commits rather than generative-AI-authored commits (no Claude/Copilot Co-Authored-By trailers appear), so the label may read as more 'AI-native' than the underlying evidence supports even though bot commits are technically in-scope for the metric."
+  },
+  {
+    "org": "grafana",
+    "repo": "grafana/composables",
+    "dimension": "D2",
+    "claim": "D2's signalScore (50) may undercount rigor: CONTRIBUTING.md and the sampled directory layout show an enforced per-composable unit+integration test convention (test/Tiltfile plus Tiltfile.integration variants) across all composables, which reads as a deliberate testing philosophy rather than incidental file count."
+  },
+  {
+    "org": "grafana",
+    "repo": "grafana/composables",
+    "dimension": "D3",
+    "claim": "D3's 'CI runs a build' signal may be over-reading test.yml: the sampled workflow only runs a 'Set up Docker Buildx' setup step followed by `make test`, with no explicit image build/push step visible to justify a distinct build stage."
+  },
+  {
+    "org": "grafana",
+    "repo": "grafana/crossplane-function-grafana-data",
+    "dimension": "D2",
+    "claim": "The 'Performance/load smoke tests' and 'API-schema validation' signals likely misfire on go.mod dependency names (e.g. k6-cloud-openapi-client-go, grafana-openapi-client-go, synthetic-monitoring-*) rather than reflecting real k6/Locust or Schemathesis/Dredd test infrastructure, since only one basic unit test file (fn_test.go) was found in the sample."
+  },
+  {
+    "org": "grafana",
+    "repo": "grafana/crossplane-function-grafana-data",
+    "dimension": "D9",
+    "claim": "The sampled .github/workflows/ci.yml explicitly sets `permissions: contents: read` at the job level for both the lint and unit-test jobs, which appears to contradict the Token permissions check's claim that 0/1 workflows set an explicit permissions scope."
+  },
+  {
+    "org": "grafana",
+    "repo": "grafana/crossplane-function-grafana-data",
+    "dimension": "D7",
+    "claim": "The '80% AI/bot-attributed commits' figure appears driven almost entirely by Renovate dependency-bump commits (the recent commit sample is nearly all chore(deps)/fix(deps) Renovate PRs), not genuine AI-coding-assistant activity, which is corroborated by the 0% AI-involved PR rate in the process signals."
+  },
+  {
+    "org": "grafana",
+    "repo": "grafana/helm-chart-toolbox",
+    "dimension": "D9",
+    "claim": "Sampled build workflows (build-doc-generator.yaml, build-kubectl.yaml, build-query-test-image.yaml, etc.) explicitly set `provenance: false` and `sbom: false` in their docker/build-push-action steps, which appears to contradict the 'Signed releases 10/10' and 'SBOM 10/10' controls claiming these are configured in CI."
+  },
+  {
+    "org": "grafana",
+    "repo": "grafana/helm-chart-toolbox",
+    "dimension": "D4",
+    "claim": "Recent commit messages show a recurring pattern of `chore(deps): update X action to vY (#nnn)` with Renovate's characteristic tabular 'datasource | package | from | to' body, indicating an active automated dependency-PR bot that the D4 signal (0) does not appear to credit, even though the rubric explicitly lists Renovate/Dependabot automation as a D4 signal."
+  },
+  {
+    "org": "grafana",
+    "repo": "grafana/helm-chart-toolbox",
+    "dimension": "D6",
+    "claim": "The sampled .github/workflows/lint.yaml runs actionlint, shellcheck, yamllint, and zizmor plus a Makefile-driven Dockerfile-lint step on every push/PR to main, which is real enforced linting/guardrail tooling that contradicts the D6 signal's 'No linting/typing/guardrail config detected' finding."
+  },
+  {
+    "org": "grafana",
+    "repo": "grafana/helm-chart-toolbox",
+    "dimension": "D9",
+    "claim": "The same Renovate-style commit cadence noted above conflicts with the 'Dependency updates 0/10 — No dependency-update tool committed' control; a dependency-update bot appears to be active even if its configuration lives outside the sampled files (possibly centrally managed, similar to the noted org-level SECURITY.md inheritance)."
+  },
+  {
+    "org": "grafana",
+    "repo": "grafana/incident-node",
+    "dimension": "D4",
+    "claim": "D4 reports no agentic/AI-in-CI workflows, but the commit sample shows numerous merged Renovate-bot PRs (e.g. '#25 renovate/actions-setup-node-6.x', '#36 renovate/size-limit-preset-small-lib-8.x', '#17 renovate/pin-dependencies'), which the D4 rubric explicitly counts as an agentic-workflow signal — likely missed because Renovate is configured via the GitHub App/org defaults rather than a committed renovate.json in this repo."
+  },
+  {
+    "org": "grafana",
+    "repo": "grafana/incident-node",
+    "dimension": "D9",
+    "claim": "The 'Dependency updates' check scores 0/10 for 'no dependency-update tool committed,' yet the same commit history shows extensive, active Renovate-driven dependency bumps merged into main, indicating the tool is genuinely in use even though its config isn't a file in this repo."
+  },
+  {
+    "org": "grafana",
+    "repo": "grafana/incident-node",
+    "dimension": "D5",
+    "claim": "The README is scored as a strength on substance/section-count alone, but its content is stale — it documents TSDX and Jest test running, while package.json shows the project has migrated to tsup with no 'test' script, meaning the deterministic 'substantial README' signal doesn't capture that the docs are out of date with the actual toolchain."
+  },
+  {
+    "org": "grafana",
+    "repo": "grafana/issue-team-scheduler",
+    "dimension": "D6",
+    "claim": "The process signal reports a 0% PR merge rate and 'no human-merged PRs in window,' but the sampled commit history shows multiple 'Merge pull request #44–#50' entries and squash-merged references like '(#47)', indicating PRs are in fact regularly merged — the merge-detection signal appears to have missed this repo's real merge activity."
+  },
+  {
+    "org": "grafana",
+    "repo": "grafana/loki",
+    "dimension": "D3",
+    "claim": "D3 scores 100 partly on 'CI runs tests/linting/build,' but the branch-protection detail shows required status checks = no and code-owner review = no, meaning green CI is not actually enforced as a hard merge gate at the ruleset level."
+  },
+  {
+    "org": "grafana",
+    "repo": "grafana/loki",
+    "dimension": "D2",
+    "claim": "D2 credits 'Accessibility tests' present, which is atypical for Loki given it's a backend-only, non-UI log-aggregation service — this looks like a likely false-positive detection rather than genuine a11y coverage."
+  },
+  {
+    "org": "grafana",
+    "repo": "grafana/loki",
+    "dimension": "D6",
+    "claim": "Process signals report 0% merge rate and 'no human-merged PRs in window' across the 40-PR sample, which is hard to square with an actively maintained project merging many conventional-commit changes daily (per the 30-commit sample) — likely a sampling/attribution artifact rather than an actual absence of review."
+  },
+  {
+    "org": "grafana",
+    "repo": "grafana/loki",
+    "dimension": "D5",
+    "claim": "The D5 signal doesn't credit an ADR-equivalent, but AGENTS.md explicitly requires 'LIDs (Loki Improvement Documents)' for large functionality changes — a structured design-decision record a docs/adr path-matcher would likely miss."
+  },
+  {
+    "org": "grafana",
+    "repo": "grafana/synthetic-monitoring-agent",
+    "dimension": "D2",
+    "claim": "The D2 sub-signal claims sampled tests have '0 substantive assertions,' but the four sampled test files (flags_test.go, http_test.go, secret_test.go, db_test.go) each contain multiple require.Equal/NoError/Len calls verifying real behavior (state transitions, JSON redaction, CRUD lifecycle) — this sub-signal appears to be a detector miss."
+  },
+  {
+    "org": "grafana",
+    "repo": "grafana/synthetic-monitoring-agent",
+    "dimension": "D5",
+    "claim": "D5 reports the README has '0 sections,' but the README sample shows clear Setext-style headers ('Probes\\n------', 'Run your own private probe\\n---------------------') — the section-detection likely only looks for ATX '##' markup and missed the underline-style headings actually present."
+  },
+  {
+    "org": "grafana",
+    "repo": "grafana/tanka",
+    "dimension": "D2",
+    "claim": "The signal reports 'sampled tests assert nothing' / '0 substantive assertions', but the sampled acceptance-tests files clearly use testify's require.Equal (comparing round-tripped Kubernetes ConfigMap objects in show_test.go), require.Contains (checking CLI help/output content in flag_test.go and help_test.go), and assert.FileExists/NoFileExists (verifying selective export behavior in export_test.go) — these are substantive behavioral assertions, not mere file-presence counting."
+  },
+  {
+    "org": "clickhouse",
+    "repo": "ClickHouse/ClickBench",
+    "dimension": "D2",
+    "claim": "D2 reports 'No test files detected,' but validate-results.py is invoked in CI on every pull_request and push via validate-results.yml, functioning as an automated validation gate that the signal's framing likely undercounts even though the score of 6 partially credits it via 'Performance/load smoke tests.'"
+  },
+  {
+    "org": "clickhouse",
+    "repo": "ClickHouse/ClickHouse",
+    "dimension": "D4",
+    "claim": ".github/copilot-instructions.md explicitly routes Copilot to a dedicated review process ('.claude/skills/review/SKILL.md'), which suggests an operative AI-review workflow that the D4 signal (score 15, crediting only a generic issue/PR automation workflow) may be undercounting."
+  },
+  {
+    "org": "clickhouse",
+    "repo": "ClickHouse/ClickHouse",
+    "dimension": "D6",
+    "claim": "The sampled .github/CODEOWNERS file contains no content (blank lines only), so while the signal correctly detects the file's presence, it likely overstates the guardrail's actual enforcement value since no ownership rules are defined."
+  },
+  {
+    "org": "clickhouse",
+    "repo": "ClickHouse/alexeyprompts",
+    "dimension": "D8",
+    "claim": "The D8 signal reports 0 with 'no dedicated AI process/harness detected,' but classify_sessions.py implements a structured, resumable batched-prompt pipeline with a defined per-session JSON output schema — a minimal prompt-engineering artifact the detector likely missed because it's a standalone script rather than living under a prompts/, agents/, or evals/ directory."
+  },
+  {
+    "org": "clickhouse",
+    "repo": "ClickHouse/clickhousectl",
+    "dimension": "D3",
+    "claim": "D3's findings list only 'CI runs tests' and 'CI runs a build,' but the README documents an automated multi-channel release pipeline (crates.io, npm wrapper, pip wheels, cargo-binstall, direct binary archives) and D9 independently confirms signed/provenance-attested releases are configured in CI — this release-automation sophistication doesn't appear to be credited in the D3 signal."
+  },
+  {
+    "org": "clickhouse",
+    "repo": "ClickHouse/librechat-admin-panel",
+    "dimension": "D9",
+    "claim": "The 'known vulnerabilities' check reports it couldn't inspect dependencies due to 'no lockfile', but the Dockerfile explicitly runs `COPY package.json bun.lock .npmrc ./` in two separate build stages, indicating a bun.lock is committed to the repo and dependency-vulnerability exposure may in fact be assessable."
+  },
+  {
+    "org": "clickhouse",
+    "repo": "ClickHouse/musl",
+    "dimension": "D6",
+    "claim": "The D6 signal's '100% PR review coverage' is derived from a single merged pull request in the analyzed history, so it likely overstates the maturity of review-as-a-guardrail compared to what a larger sample would show."
+  },
+  {
+    "org": "clickhouse",
+    "repo": "ClickHouse/praktika",
+    "dimension": "D8",
+    "claim": "The D8 signal reports 'no dedicated AI process/harness detected,' but the sampled CLAUDE.md contains a genuine hand-authored operational runbook (a CI-result-fetching procedure and a stepwise AWS troubleshooting diagnostic sequence) that arguably counts as 'agent-readable operational docs/runbooks' under the D8 rubric — the detector may only search for evals/ or prompts/ directories and miss runbook content embedded directly in CLAUDE.md."
+  },
+  {
+    "org": "clickhouse",
+    "repo": "ClickHouse/praktika",
+    "dimension": "D5",
+    "claim": "The D5 signal only credits 'Substantial README (7921 chars, 5 sections)' at 30/100, but the README excerpt itself references a dedicated GETTING_STARTED.md, a thorough SECURITY.md, and per-module READMEs under praktika/infrastructure/ and praktika/orchestrator/ — suggesting the documentation footprint is broader than a single-file signal reflects."
+  },
+  {
+    "org": "clickhouse",
+    "repo": "ClickHouse/spark-clickhouse-connector",
+    "dimension": "D6",
+    "claim": "build.gradle and AGENTS.md show Spotless formatting is required per Spark/Scala profile and explicitly stated to fail CI if skipped, plus an optional SonarQube integration in the build — evidence of enforced code-quality guardrails that the D6 signal list (PR template, review coverage, branch protection) doesn't mention at all."
+  },
+  {
+    "org": "clickhouse",
+    "repo": "ClickHouse/spark-clickhouse-connector",
+    "dimension": "D8",
+    "claim": "Commit history references a dedicated AI_POLICY.md (PR #525) governing AI usage specifically, which is exactly the kind of structured AI-process artifact D8 measures, yet it's absent from the D8 signal list (only PR template/DoD, issue templates, and branch protection are cited)."
+  },
+  {
+    "org": "clickhouse",
+    "repo": "ClickHouse/spark-clickhouse-connector",
+    "dimension": "D3",
+    "claim": "Commit history shows meaningful release/delivery sophistication beyond generic 'CI present' — a nightly cron against ClickHouse head, release-triggered downstream ECR image builds, and PR/merge-triggered integration test dispatch — suggesting the pipeline is more mature than the bare '9 workflows' signal conveys, even though status checks still aren't required to merge."
+  },
+  {
+    "org": "clickhouse",
+    "repo": "clickhouse/alexeyprompts",
+    "dimension": "D8",
+    "claim": "The D8 signal reports 0 with 'no dedicated AI process/harness detected,' but classify_sessions.py implements a structured, resumable batched-prompt pipeline with a defined per-session JSON output schema — a minimal prompt-engineering artifact the detector likely missed because it's a standalone script rather than living under a prompts/, agents/, or evals/ directory."
+  },
+  {
+    "org": "clickhouse",
+    "repo": "clickhouse/clickbench",
+    "dimension": "D2",
+    "claim": "D2 reports 'No test files detected,' but validate-results.py is invoked in CI on every pull_request and push via validate-results.yml, functioning as an automated validation gate that the signal's framing likely undercounts even though the score of 6 partially credits it via 'Performance/load smoke tests.'"
+  },
+  {
+    "org": "clickhouse",
+    "repo": "clickhouse/clickhouse",
+    "dimension": "D4",
+    "claim": ".github/copilot-instructions.md explicitly routes Copilot to a dedicated review process ('.claude/skills/review/SKILL.md'), which suggests an operative AI-review workflow that the D4 signal (score 15, crediting only a generic issue/PR automation workflow) may be undercounting."
+  },
+  {
+    "org": "clickhouse",
+    "repo": "clickhouse/clickhouse",
+    "dimension": "D6",
+    "claim": "The sampled .github/CODEOWNERS file contains no content (blank lines only), so while the signal correctly detects the file's presence, it likely overstates the guardrail's actual enforcement value since no ownership rules are defined."
+  },
+  {
+    "org": "clickhouse",
+    "repo": "clickhouse/clickhousectl",
+    "dimension": "D3",
+    "claim": "D3's findings list only 'CI runs tests' and 'CI runs a build,' but the README documents an automated multi-channel release pipeline (crates.io, npm wrapper, pip wheels, cargo-binstall, direct binary archives) and D9 independently confirms signed/provenance-attested releases are configured in CI — this release-automation sophistication doesn't appear to be credited in the D3 signal."
+  },
+  {
+    "org": "clickhouse",
+    "repo": "clickhouse/librechat-admin-panel",
+    "dimension": "D9",
+    "claim": "The 'known vulnerabilities' check reports it couldn't inspect dependencies due to 'no lockfile', but the Dockerfile explicitly runs `COPY package.json bun.lock .npmrc ./` in two separate build stages, indicating a bun.lock is committed to the repo and dependency-vulnerability exposure may in fact be assessable."
+  },
+  {
+    "org": "clickhouse",
+    "repo": "clickhouse/musl",
+    "dimension": "D6",
+    "claim": "The D6 signal's '100% PR review coverage' is derived from a single merged pull request in the analyzed history, so it likely overstates the maturity of review-as-a-guardrail compared to what a larger sample would show."
+  },
+  {
+    "org": "clickhouse",
+    "repo": "clickhouse/praktika",
+    "dimension": "D8",
+    "claim": "The D8 signal reports 'no dedicated AI process/harness detected,' but the sampled CLAUDE.md contains a genuine hand-authored operational runbook (a CI-result-fetching procedure and a stepwise AWS troubleshooting diagnostic sequence) that arguably counts as 'agent-readable operational docs/runbooks' under the D8 rubric — the detector may only search for evals/ or prompts/ directories and miss runbook content embedded directly in CLAUDE.md."
+  },
+  {
+    "org": "clickhouse",
+    "repo": "clickhouse/praktika",
+    "dimension": "D5",
+    "claim": "The D5 signal only credits 'Substantial README (7921 chars, 5 sections)' at 30/100, but the README excerpt itself references a dedicated GETTING_STARTED.md, a thorough SECURITY.md, and per-module READMEs under praktika/infrastructure/ and praktika/orchestrator/ — suggesting the documentation footprint is broader than a single-file signal reflects."
+  },
+  {
+    "org": "clickhouse",
+    "repo": "clickhouse/spark-clickhouse-connector",
+    "dimension": "D6",
+    "claim": "build.gradle and AGENTS.md show Spotless formatting is required per Spark/Scala profile and explicitly stated to fail CI if skipped, plus an optional SonarQube integration in the build — evidence of enforced code-quality guardrails that the D6 signal list (PR template, review coverage, branch protection) doesn't mention at all."
+  },
+  {
+    "org": "clickhouse",
+    "repo": "clickhouse/spark-clickhouse-connector",
+    "dimension": "D8",
+    "claim": "Commit history references a dedicated AI_POLICY.md (PR #525) governing AI usage specifically, which is exactly the kind of structured AI-process artifact D8 measures, yet it's absent from the D8 signal list (only PR template/DoD, issue templates, and branch protection are cited)."
+  },
+  {
+    "org": "clickhouse",
+    "repo": "clickhouse/spark-clickhouse-connector",
+    "dimension": "D3",
+    "claim": "Commit history shows meaningful release/delivery sophistication beyond generic 'CI present' — a nightly cron against ClickHouse head, release-triggered downstream ECR image builds, and PR/merge-triggered integration test dispatch — suggesting the pipeline is more mature than the bare '9 workflows' signal conveys, even though status checks still aren't required to merge."
+  },
+  {
+    "org": "tokio-rs",
+    "repo": "tokio-rs/axum",
+    "dimension": "D3",
+    "claim": "The 'versioned DB migrations' signal is likely a false positive for a core HTTP-routing library with no database of its own — it probably originates from an example directory (a sqlx-postgres example is referenced in recent commit history) rather than reflecting a real delivery-automation capability of the shipped product."
+  },
+  {
+    "org": "tokio-rs",
+    "repo": "tokio-rs/axum",
+    "dimension": "D6",
+    "claim": "The sampled Cargo.toml shows workspace-wide `unsafe_code = \"forbid\"` and roughly 30 warn-level clippy lints, and CI.yml runs `cargo clippy ... -D warnings` plus `cargo fmt --all --check` as gating steps — this enforced linting/formatting discipline is stronger than the D6 signalScore of 38 (which cites only a PR template and review coverage) suggests."
+  },
+  {
+    "org": "tokio-rs",
+    "repo": "tokio-rs/axum",
+    "dimension": "D7",
+    "claim": "The '7 of 30 AI/bot-attributed commits' driving the D7 score of 80 are, per the sampled messages, Dependabot/release-plz dependency-bump commits rather than human commits carrying AI-coding-assistant co-author trailers — a materially weaker form of 'AI-attribution' than the label implies for judging AI-native human workflow."
+  },
+  {
+    "org": "tokio-rs",
+    "repo": "tokio-rs/bytes",
+    "dimension": "D6",
+    "claim": "D6 reports 'no linting/typing/guardrail config detected,' but Cargo.toml's `include` list explicitly ships `clippy.toml` and the CHANGELOG logs a 'Fix latest clippy warnings' entry, while D3's own signal confirms 'CI runs linting' — strongly suggesting the detector missed an existing clippy configuration rather than it being absent."
+  },
+  {
+    "org": "tokio-rs",
+    "repo": "tokio-rs/console",
+    "dimension": "D9",
+    "claim": "The dependency-update signal reports 0/10 ('no dependency-update tool committed'), but recent commit messages ('Bumps [bytes] from 1.10.1 to 1.11.1', 'Bumps crossbeam-channel from 0.5.13 to 0.5.15', 'chore(deps-dev): bump vite in /console-subscriber/examples/grpc_web') are textbook Dependabot-generated PR titles, suggesting an update bot is active even though its config file wasn't found in the sample."
+  },
+  {
+    "org": "tokio-rs",
+    "repo": "tokio-rs/console",
+    "dimension": "D4",
+    "claim": "D4 reports no agentic/auto-merge tooling detected, but the same Dependabot-style bump commits noted above imply at least a PR-opening dependency bot is already part of the workflow, which the D4 rubric explicitly counts (Renovate/Dependabot auto-merge) even if auto-merge itself isn't confirmed."
+  },
+  {
+    "org": "tokio-rs",
+    "repo": "tokio-rs/io-uring",
+    "dimension": "D6",
+    "claim": "ci.yml's check-tier1 job runs `cargo clippy` as an explicit 'Lint' step across the stable and MSRV 1.63 toolchains and three targets, which is a real CI-enforced linting guardrail — the D6 signal 'No linting/typing/guardrail config detected' appears to only look for dedicated config files and misses this enforced-in-CI lint step (already separately credited under D3's 'CI runs linting')."
+  },
+  {
+    "org": "tokio-rs",
+    "repo": "tokio-rs/io-uring",
+    "dimension": "D7",
+    "claim": "The sampled commit list shows the co-author line 'Co-authored-by: huang-jl <huang-jl@deepseek.com>' attributed to a named human contributor, not a bot — if this is one of the '2 of 30 AI/bot-attributed commits', the detector may be over-matching on the deepseek.com domain rather than genuine AI/bot authorship, making the true AI-attributed commit count closer to 1 (the Copilot PR) than 2."
+  },
+  {
+    "org": "tokio-rs",
+    "repo": "tokio-rs/prost",
+    "dimension": "D6",
+    "claim": "The signal reports 'no linting/typing/guardrail config detected,' but ci.yml clearly runs `cargo fmt --all --check`, `cargo clippy ... -D warnings` (under two editions), and `taplo lint`/`taplo fmt --check`, all gating the required tests-pass job — the detector likely only looks for dedicated config files and missed guardrails enforced inline in CI."
+  },
+  {
+    "org": "tokio-rs",
+    "repo": "tokio-rs/prost",
+    "dimension": "D7",
+    "claim": "The signal's '5 of 30 AI/bot-attributed commits' appears to conflate routine Dependabot version-bump commits (e.g. 'build(deps): update itertools requirement...', 'build(deps): bump actions/checkout from 6 to 7') with genuine AI-coding-assistant authorship, since no sampled commit carries a Co-Authored-By: Claude/Copilot trailer — this likely overstates real AI-native commit activity."
+  },
+  {
+    "org": "tokio-rs",
+    "repo": "tokio-rs/toasty",
+    "dimension": "D6",
+    "claim": "D6's signal of 25 may undercount enforced code-quality guardrails, since D3 confirms CI runs linting and Cargo.toml shows a workspace-wide `unsafe_code = \"deny\"` lint applied across all crates — the low score appears driven almost entirely by review-process metrics (0 required approvals, 30% review coverage) rather than by an absence of lint/type enforcement."
+  },
+  {
+    "org": "tokio-rs",
+    "repo": "tokio-rs/toasty",
+    "dimension": "D1",
+    "claim": "D1's 'references advanced agent tooling (MCP/hooks/subagents)' finding isn't corroborated by the sampled AGENTS.md/CLAUDE.md excerpts, which show only build commands, a formatting workflow rule, design philosophy, and an architecture table — no MCP, hooks, or subagent references are visible, so this detector hit may be keying off the `@AGENTS.md` file-import syntax rather than true advanced-tooling content."
+  },
+  {
+    "org": "tokio-rs",
+    "repo": "tokio-rs/tokio",
+    "dimension": "D2",
+    "claim": "D2's signalScore of 80 may undercount actual testing rigor: sampled evidence shows trybuild compile-fail snapshot tests (tests-build/tests/fail/*.stderr), a criterion benchmark suite (benches/), and commit history explicitly invoking loom and miri for concurrency/UB verification, none of which appear to be credited by the stated signal reasons (test file count and ratio only)."
+  },
+  {
+    "org": "tokio-rs",
+    "repo": "tokio-rs/tokio",
+    "dimension": "D7",
+    "claim": "D7's 'AI/bot-attributed commits present (2 of 30)' appears to be counting Dependabot Actions-bump commits (e.g. 'ci: bump actions/checkout from 6 to 7') rather than AI coding-assistant authorship; the sampled commit messages show only human Co-authored-by trailers (Mattia Pitossi, Martin Grigorov), so this signal likely overstates actual AI-assisted coding adoption."
+  },
+  {
+    "org": "tokio-rs",
+    "repo": "tokio-rs/tokio-taskdump",
+    "dimension": "D2",
+    "claim": "src/capture.rs contains executable rustdoc doctests with real assertions (e.g. `TaskTrace::empty()` examples), and rust-next.yml explicitly runs `cargo test --workspace --all-features`, yet the D2 signal reports 'no test files detected' — the detector likely only scans for tests/ dirs or *_test.rs naming and misses Rust doctests plus the CI test invocation."
+  },
+  {
+    "org": "tokio-rs",
+    "repo": "tokio-rs/tokio-taskdump",
+    "dimension": "D6",
+    "claim": "ci.yml runs `cargo fmt --all -- --check` and `cargo clippy --workspace --all-targets --all-features --keep-going -- -D warnings` as blocking jobs, and audit.yml's cargo-deny job blocks on bans/licenses/sources — clear enforced linting/guardrail config — yet the D6 signal states 'No linting/typing/guardrail config detected,' likely because Rust's ecosystem doesn't require separate config files (e.g. .eslintrc) for these checks to be active."
+  },
+  {
+    "org": "tokio-rs",
+    "repo": "tokio-rs/tracing",
+    "dimension": "D3",
+    "claim": "The 'progressive delivery / feature flags' signal likely reflects Cargo.toml's compile-time [features] declarations across the 15-crate workspace rather than genuine progressive-delivery tooling (e.g. Argo Rollouts, Flagsmith, LaunchDarkly), which may inflate D3's signal score."
+  },
+  {
+    "org": "tokio-rs",
+    "repo": "tokio-rs/tracing",
+    "dimension": "D9",
+    "claim": "A scheduled '.github/workflows/audit.yml' ('Security audit') workflow was sampled, suggesting an automated dependency-vulnerability scan (likely cargo-audit) already runs on a cron — this SCA-adjacent control isn't reflected in any of the nine graded D9 checks, which all show 0/10 or n/a for dependency-related items."
+  },
+  {
+    "org": "tokio-rs",
+    "repo": "tokio-rs/website",
+    "dimension": "D2",
+    "claim": "D2's signal reports 'No test files detected,' but the README explicitly documents two Rust test suites (`cargo test` in doc-test with tokio_unstable, and `cargo test --all` in tutorial-code) and ci.yml runs both as dedicated CI jobs — the detector appears to only scan for JS/TS test patterns and missed the Rust cargo tests that actually gate this repo's CI."
+  },
+  {
+    "org": "cloudflare",
+    "repo": "cloudflare/cloudflare-docs",
+    "dimension": "D4",
+    "claim": "The .flue/AGENTS.md evidence describes a fully-built, webhook-authenticated LLM PR-review bot with structured output and run logging, yet the process signal reports 0% AI-involvement across 40 sampled merged PRs — this looks like the AI-in-PR detector not recognizing Flue's activity rather than Flue being dormant."
+  },
+  {
+    "org": "cloudflare",
+    "repo": "cloudflare/cloudflare-docs",
+    "dimension": "D3",
+    "claim": "The D3 signal reports 'versioned DB migrations' present, but this is a static Astro/Starlight MDX documentation site with no evident database in the sampled files — likely a false-positive match against content-collection schema versioning or Flue's R2 storage rather than real migration tooling."
+  },
+  {
+    "org": "cloudflare",
+    "repo": "cloudflare/cloudflare-docs",
+    "dimension": "D2",
+    "claim": "The supplied stack-fit caveat frames this repo as an 'ML/notebook' project, but the evidence (Astro/Starlight, TypeScript, Vitest, Cloudflare Worker deployment) shows a standard application/content codebase, not experiment-driven notebook work — the floor-adjustment for D2/D6 doesn't apply and both were scored as regular application code."
+  },
+  {
+    "org": "cloudflare",
+    "repo": "cloudflare/polystella",
+    "dimension": "D8",
+    "claim": "AGENTS.md references skills/polystella-contributor/SKILL.md and skills/polystella-consumer/SKILL.md as dedicated, audience-specific agent recipe files — a structured prompt/agent library the D8 signal (25) doesn't appear to credit."
+  },
+  {
+    "org": "cloudflare",
+    "repo": "cloudflare/polystella",
+    "dimension": "D7",
+    "claim": "The reported '30% AI/bot-attributed commits' likely overstates genuine AI-native contribution — the sampled commit log shows this share is dominated by Dependabot version-bump commits ('chore(deps): bump...'), which is more consistent with the separately-reported 8% AI-involved-PR rate."
+  },
+  {
+    "org": "cloudflare",
+    "repo": "cloudflare/polystella",
+    "dimension": "D9",
+    "claim": "The 0/10 SAST finding is directly corroborated by commit history ('chore(ci): update workflow permissions and remove unused checks. Remove CodeQL and AGENTS.md check workflows'), confirming this is an active removal rather than something never configured."
+  },
+  {
+    "org": "cloudflare",
+    "repo": "cloudflare/puppeteer",
+    "dimension": "D3",
+    "claim": "D3's signalScore of 100 credits full CI/CD maturity, but the rubric explicitly lists branch-protection as a D3 factor and process signals show main is unprotected (0 required approvals, no required status checks, 25% PR review coverage) — meaning the pipelines run but don't actually gate merges, which the signal appears not to weigh."
+  },
+  {
+    "org": "cloudflare",
+    "repo": "cloudflare/research.cloudflare.com",
+    "dimension": "D3",
+    "claim": "The 'CI runs linting' signal appears to describe .github/workflows/lint.yml, but that workflow's only step is `pnpm exec prettier --check .` — a formatting check, not a static-analysis linter (no ESLint or similar is present in package.json) — so this bullet double-counts the same Prettier fact already credited separately under D6's 'Formatter configured'."
+  },
+  {
+    "org": "cloudflare",
+    "repo": "cloudflare/splunk-ta-cloudflare-r2",
+    "dimension": "D5",
+    "claim": "D5's signal lists only README.md and CONTRIBUTING.md, but CONTRIBUTING.md and multiple commit messages (e.g. 'docs: fix stale classic-TA references in CONTRIBUTING/DEVELOPMENT') reference a substantial DEVELOPMENT.md carrying architecture diagrams and local setup instructions that does not appear to have been counted, likely understating documentation depth."
+  },
+  {
+    "org": "cloudflare",
+    "repo": "cloudflare/splunk-ta-cloudflare-r2",
+    "dimension": "D8",
+    "claim": "D8 and D1 correctly report no AI harness/guidance files in the current tree, but commit messages referencing a removed AGENT_PROMPT.md/MAINTENANCE.md and an 'independent pre-publish review' indicate genuine AI-process artifacts existed and were deliberately stripped before this repo went public, which the point-in-time signal cannot see."
+  },
+  {
+    "org": "cloudflare",
+    "repo": "cloudflare/vinext",
+    "dimension": "D4",
+    "claim": "CONTRIBUTING.md describes a mandatory, structured AI-review process (BigBonk on Opus 4.8, Bonk on GPT-5.5) reviewing every PR to resolution, suggesting the D4 signalScore of 50 (crediting only an LLM-in-CI step plus PR/issue automation and a dependency bot) undercounts the depth of the autonomous review loop actually documented in the repo."
+  },
+  {
+    "org": "cloudflare",
+    "repo": "cloudflare/vinext",
+    "dimension": "D6",
+    "claim": "package.json and AGENTS.md show type-aware oxlint and oxfmt wired into `pnpm run check`/`lint`/`fmt` and enforced in CI (corroborated by the D3 'CI runs linting' signal), yet the D6 signal list omits any linter/formatter presence, suggesting D6's signalScore of 30 may undercount an actual, CI-enforced lint/format guardrail."
+  },
+  {
+    "org": "cloudflare",
+    "repo": "cloudflare/workerd",
+    "dimension": "D4",
+    "claim": "D4 reports 'dependency auto-merge enabled' while D9 reports 'No dependency-update tool committed' (0/10) — these seem to conflict and are worth reconciling (e.g. Dependabot security updates may be enabled via repo/org settings without a committed dependabot.yml, which would make both technically true but should be verified)."
+  },
+  {
+    "org": "cloudflare",
+    "repo": "cloudflare/workerd",
+    "dimension": "D1",
+    "claim": "D1's signalScore (68) may understate what the sampled files show: this isn't a single AGENTS.md but a hierarchical set (root, build/, src/cloudflare/, src/node/) each with component-specific conventions and where-to-look tables — a materially richer pattern than a lone top-level file, and arguably deserving of a score nearer the top of its band."
+  },
+  {
+    "org": "cloudflare",
+    "repo": "cloudflare/workerd-tools",
+    "dimension": "D3",
+    "claim": "D3's 'CI runs linting' signal isn't backed by the sampled workflows — llvm.yml builds an LLVM matrix, semgrep.yml runs a Semgrep SAST scan, and wpt.yml creates a release archive, with no traditional lint step (e.g. clang-format --check, cmake-format) visible in any of them, so the detector may be conflating the Semgrep security scan with linting."
+  },
+  {
+    "org": "cloudflare",
+    "repo": "cloudflare/workers-sdk",
+    "dimension": "D1",
+    "claim": "D1's signalScore of 50 may undercount depth: the sampled evidence shows not just root CLAUDE.md/AGENTS.md but distinct, content-rich per-package AGENTS.md files (create-cloudflare, miniflare) documenting concrete build/lint/test conventions, which is more than a typical single-file stub."
+  },
+  {
+    "org": "cloudflare",
+    "repo": "cloudflare/workers-sdk",
+    "dimension": "D8",
+    "claim": "D8's signalScore of 31 may not credit the multiple nested AGENTS.md files (root, create-cloudflare, miniflare) as a distributed agent-spec library analogous to the 'agents/ with multiple specs' criterion it looks for."
+  },
+  {
+    "org": "huggingface",
+    "repo": "huggingface/chat-ui",
+    "dimension": "D2",
+    "claim": "The 'end-to-end tests configured' signal likely conflates Playwright-powered browser component tests (vitest-browser-svelte, per CLAUDE.md's own description of '*.svelte.test.ts' as browser-environment tests) with genuine full user-journey e2e specs — the sampled tests are all component-level, not end-to-end flows."
+  },
+  {
+    "org": "huggingface",
+    "repo": "huggingface/chat-ui",
+    "dimension": "D3",
+    "claim": "Credit for 'versioned DB migrations' is questionable given the sampled server code (database.ts) describes schemaless MongoDB collections, not a Flyway/Alembic/Prisma-style versioned migration framework."
+  },
+  {
+    "org": "huggingface",
+    "repo": "huggingface/chat-ui",
+    "dimension": "D1",
+    "claim": "Some of D1's 'references advanced agent tooling (MCP/hooks/subagents)' credit appears to derive from CLAUDE.md describing the product's own MCP tool-calling feature (src/lib/server/mcp/, docs/mcp-tools.md) rather than Claude Code-specific MCP/hooks/subagent configuration for the agent itself."
+  },
+  {
+    "org": "huggingface",
+    "repo": "huggingface/diffusers",
+    "dimension": "D3",
+    "claim": "D3 credits 'Policy-as-code (OPA/conftest)', but none of the sampled files (dependabot.yml, pr_dependency_test.yml, pr_torch_dependency_test.yml) contain any .rego or OPA/conftest configuration — this looks like a likely false positive, possibly matched on an unrelated use of the word 'policy'."
+  },
+  {
+    "org": "huggingface",
+    "repo": "huggingface/doc-builder",
+    "dimension": "D3",
+    "claim": "The 'versioned DB migrations' signal has no supporting evidence anywhere in the samples — doc-builder is a static documentation generator with no database, and the only 'migrate' references found are commit messages about migrating Svelte components to runes syntax (#795), suggesting this signal is a keyword false-positive."
+  },
+  {
+    "org": "huggingface",
+    "repo": "huggingface/doc-builder",
+    "dimension": "D5",
+    "claim": "D5's signal appears to be driven mainly by README size; a docs/ directory with dedicated technical reference pages (e.g., docs/runnable-code-blocks.md) also exists, so the actual documentation footprint may be somewhat broader than a README-only signal suggests."
+  },
+  {
+    "org": "huggingface",
+    "repo": "huggingface/hub-docs",
+    "dimension": "D6",
+    "claim": "D6 reports 'no linting/typing/guardrail config detected,' but the D3 signal separately states 'CI runs linting' — these two detector outputs directly conflict and should be reconciled against the actual lint config/workflow step."
+  },
+  {
+    "org": "huggingface",
+    "repo": "huggingface/hub-docs",
+    "dimension": "D1",
+    "claim": "The only file matching 'agents.md' surfaced in the sampled evidence is docs/hub/agents.md, which is product documentation about the Hub's Agents feature (MCP/Skills for end users), not repository-level coding-agent guidance — worth confirming the detected AGENTS.md is a distinct root-level file and not this product doc page."
+  },
+  {
+    "org": "huggingface",
+    "repo": "huggingface/kernels-community",
+    "dimension": "D6",
+    "claim": "Commit history includes 'fix nix formatting for flash attention 3' (#1006), suggesting an automated Nix-based formatting/lint check (e.g. via flake.nix/treefmt) exists that the D6 detector — tuned to ESLint/Ruff/golangci-lint-style tooling — likely missed, so D6's linter/formatter coverage may be undercounted."
+  },
+  {
+    "org": "huggingface",
+    "repo": "huggingface/kernels-community",
+    "dimension": "D5",
+    "claim": "The sampled CONTRIBUTING.md is a fairly rich, structured guide (kernel directory layout, flake.nix, build.toml, torch-ext requirements) that functions as a lightweight architecture map, which a presence-only README/CONTRIBUTING check may be underweighting relative to its actual content depth."
+  },
+  {
+    "org": "huggingface",
+    "repo": "huggingface/lerobot",
+    "dimension": "D8",
+    "claim": "CONTRIBUTING.md explicitly links to a dedicated AI_POLICY.md governing AI-assisted contributions, which is direct evidence of structured AI governance that the D8 signal (31) does not appear to credit."
+  },
+  {
+    "org": "huggingface",
+    "repo": "huggingface/lerobot",
+    "dimension": "D9",
+    "claim": ".pre-commit-config.yaml configures a gitleaks hook for secret scanning, but the D9 check battery has no secret-scanning line item at all — worth noting even though it's pre-commit-local rather than CI-enforced, so only partial credit would apply."
+  },
+  {
+    "org": "huggingface",
+    "repo": "huggingface/pytorch-image-models",
+    "dimension": "D9",
+    "claim": "Recent commit messages explicitly reference trufflehog secret-scanning tuning in CI (e.g. 'Add unknown to verified results flag for trufflehog', 'New trufflehog version in CI surfacing unverified false positives'), indicating secret scanning is likely active in the pipeline, but the D9 control battery has no secret-scanning line item and doesn't appear to credit this, potentially understating the actual posture score."
+  },
+  {
+    "org": "huggingface",
+    "repo": "huggingface/tokenizers",
+    "dimension": "D3",
+    "claim": "The 'Policy-as-code (OPA/conftest)' signal has no corroborating evidence in any sampled file, CONTRIBUTING.md, or workflow excerpt, and is an unusual stack choice for a Rust/Python tokenizer library — this looks like a possible detector false positive worth re-checking."
+  },
+  {
+    "org": "huggingface",
+    "repo": "huggingface/tokenizers",
+    "dimension": "D7",
+    "claim": "D7 reports 6 of 30 recent commits as 'AI/bot-attributed,' but process signals separately show 0% AI-involved PRs and the one sampled co-author trailer is a human GitHub user — the bot commits are more likely CI/release-automation bots than genuine AI-assisted authorship, so this signal may be over-counting generic bot activity as AI signal."
+  },
+  {
+    "org": "huggingface",
+    "repo": "huggingface/tokenizers",
+    "dimension": "D9",
+    "claim": "D4 detected an 'issue/PR automation workflow' while D9 reports 'no dependency-update tool committed' (0/10) — if that automation workflow is actually Dependabot/Renovate, these two signals contradict each other and the D9 dependency-update sub-score may need re-verification."
+  },
+  {
+    "org": "huggingface",
+    "repo": "huggingface/transformers",
+    "dimension": "D6",
+    "claim": "AGENTS.md/CLAUDE.md explicitly document `make typing` running the `ty` type checker as a mandatory pre-PR step, yet D6's signal list credits only a linter, formatter, and PR template — type-checking enforcement appears undercounted."
+  },
+  {
+    "org": "huggingface",
+    "repo": "huggingface/transformers",
+    "dimension": "D4",
+    "claim": "AGENTS.md states that 'hosted review agents should discover this guidance from the committed root AGENTS.md / CLAUDE.md files,' implying an AI PR-review process is part of the standard workflow, yet D4's score of 25 credits only issue/PR automation and a dependency bot, suggesting agentic review-workflow presence may be undercounted (though no specific bot workflow file was directly sampled to confirm this)."
+  },
+  {
+    "org": "huggingface",
+    "repo": "huggingface/trl",
+    "dimension": "D8",
+    "claim": "CONTRIBUTING.md contains an explicit, substantive 'AI usage policy' section governing how AI-generated PRs are reviewed, which is exactly the kind of structured AI-contribution governance D8 rewards but doesn't appear reflected in the listed D8 signal bullets — the signalScore of 31 may be underrepresenting this."
+  }
+]

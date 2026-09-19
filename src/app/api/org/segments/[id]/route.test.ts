@@ -1,0 +1,160 @@
+// Gate-tests for PATCH/DELETE /api/org/segments/:id — differentiated authz + per-row tenant
+// resolution. Unlike the tag routes, this route derives the tenant from the SEGMENT itself via
+// getSegmentOrgSlug(id) (404 on unknown id), then gates: PATCH (rename/recolor) is a member-level
+// write (requireOrgAccess), DELETE is destructive and requires admin (requireOrgRole(org,"admin")).
+// A privilege downgrade of DELETE to a member gate would let any member nuke another team's segment.
+
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+vi.mock("next/server", () => ({
+  NextResponse: class {
+    static json(body: unknown, init?: ResponseInit) {
+      return Response.json(body, init);
+    }
+  },
+}));
+vi.mock("@/lib/db", async () => ({
+  isDbConfigured: () => true,
+  getSegmentOrgSlug: vi.fn(async () => "acme"),
+  updateSegment: vi.fn(async () => {}),
+  deleteSegment: vi.fn(async () => {}),
+  recordOrgAudit: vi.fn(async () => true),
+  // The REAL validator (pure) so the 400 contract below exercises production rules, not a stub.
+  segmentInputError: (await vi.importActual<typeof import("@/lib/db/segments")>("@/lib/db/segments")).segmentInputError,
+}));
+vi.mock("@/lib/authz", () => ({
+  requireOrgAccess: vi.fn(async () => null),
+  requireOrgRole: vi.fn(async () => null),
+}));
+vi.mock("@/lib/access", () => ({
+  resolveViewerLogin: vi.fn(async () => "alice"),
+}));
+
+import { PATCH, DELETE } from "./route";
+import { getSegmentOrgSlug, updateSegment, deleteSegment, recordOrgAudit } from "@/lib/db";
+import { requireOrgAccess, requireOrgRole } from "@/lib/authz";
+
+const mockOrgSlug = vi.mocked(getSegmentOrgSlug);
+const mockUpdate = vi.mocked(updateSegment);
+const mockDelete = vi.mocked(deleteSegment);
+const mockAudit = vi.mocked(recordOrgAudit);
+const mockAccess = vi.mocked(requireOrgAccess);
+const mockRole = vi.mocked(requireOrgRole);
+
+function patch(id: string, body: Record<string, unknown> = {}) {
+  return PATCH(
+    new Request(`http://localhost/api/org/segments/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+    { params: Promise.resolve({ id }) },
+  );
+}
+function del(id: string) {
+  return DELETE(new Request(`http://localhost/api/org/segments/${id}`, { method: "DELETE" }), {
+    params: Promise.resolve({ id }),
+  });
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockOrgSlug.mockResolvedValue("acme");
+  mockAccess.mockResolvedValue(null);
+  mockRole.mockResolvedValue(null);
+});
+
+describe("PATCH /api/org/segments/:id — member-gated, segment-derived tenant", () => {
+  it("gates on the segment's TRUE owner (getSegmentOrgSlug) with the MEMBER gate, not admin", async () => {
+    const res = await patch("seg-1", { name: "Renamed" });
+    expect(res.status).toBe(200);
+    expect(mockOrgSlug).toHaveBeenCalledWith("seg-1");
+    expect(mockAccess).toHaveBeenCalledWith("acme");
+    expect(mockRole).not.toHaveBeenCalled(); // PATCH must NOT escalate to an admin gate
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("404s an unknown segment id (getSegmentOrgSlug null) and never writes", async () => {
+    mockOrgSlug.mockResolvedValue(null);
+    const res = await patch("ghost", { name: "x" });
+    expect(res.status).toBe(404);
+    expect(mockAccess).not.toHaveBeenCalled();
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+
+  it("DENIES a non-member and never writes", async () => {
+    mockAccess.mockResolvedValue(Response.json({ error: "no" }, { status: 403 }) as never);
+    const res = await patch("seg-1", { name: "x" });
+    expect(res.status).toBe(403);
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+
+  it("audits `segment.updated` on success with the changed fields", async () => {
+    const res = await patch("seg-1", { name: "Renamed" });
+    expect(res.status).toBe(200);
+    expect(mockAudit).toHaveBeenCalledTimes(1);
+    expect(mockAudit.mock.calls[0][0]).toBe("segment.updated");
+    expect(mockAudit.mock.calls[0][1]).toBe("acme");
+    expect(mockAudit.mock.calls[0][2]).toEqual({ segmentId: "seg-1", changed: ["name"] });
+    expect(mockAudit.mock.calls[0][3]).toBe("alice");
+  });
+
+  it("maps P2002 (name clash) to 409 and P2025 (missing) to 404", async () => {
+    mockUpdate.mockRejectedValueOnce({ code: "P2002" } as never);
+    expect((await patch("seg-1", { name: "dup" })).status).toBe(409);
+    mockUpdate.mockRejectedValueOnce({ code: "P2025" } as never);
+    expect((await patch("seg-1", { name: "x" })).status).toBe(404);
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+
+  // repositories-segments 2026-07-16 #5: PATCH { color: "rebeccapurple" } previously recolored the
+  // segment to the brand accent and returned { ok: true }; now it is a 400 that never writes.
+  it("400s a non-hex colour / over-long name instead of silently rewriting it", async () => {
+    expect((await patch("seg-1", { color: "rebeccapurple" })).status).toBe(400);
+    expect((await patch("seg-1", { name: "x".repeat(61) })).status).toBe(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+});
+
+describe("DELETE /api/org/segments/:id — admin-gated destructive op", () => {
+  it("requires the ADMIN role on the segment's TRUE owner before deleting", async () => {
+    const res = await del("seg-1");
+    expect(res.status).toBe(200);
+    expect(mockOrgSlug).toHaveBeenCalledWith("seg-1");
+    expect(mockRole).toHaveBeenCalledWith("acme", "admin");
+    expect(mockAccess).not.toHaveBeenCalled(); // must use the admin gate, not the member gate
+    expect(mockDelete).toHaveBeenCalledTimes(1);
+  });
+
+  it("DENIES a non-admin (privilege downgrade guard) and never deletes", async () => {
+    mockRole.mockResolvedValue(
+      Response.json({ error: "This action requires the admin role." }, { status: 403 }) as never,
+    );
+    const res = await del("seg-1");
+    expect(res.status).toBe(403);
+    expect(mockDelete).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+
+  it("audits `segment.deleted` on success against the segment's true owner", async () => {
+    const res = await del("seg-1");
+    expect(res.status).toBe(200);
+    expect(mockAudit).toHaveBeenCalledTimes(1);
+    expect(mockAudit.mock.calls[0][0]).toBe("segment.deleted");
+    expect(mockAudit.mock.calls[0][1]).toBe("acme");
+    expect(mockAudit.mock.calls[0][2]).toEqual({ segmentId: "seg-1" });
+    expect(mockAudit.mock.calls[0][3]).toBe("alice");
+  });
+
+  it("404s an unknown segment id before any admin check or delete", async () => {
+    mockOrgSlug.mockResolvedValue(null);
+    const res = await del("ghost");
+    expect(res.status).toBe(404);
+    expect(mockRole).not.toHaveBeenCalled();
+    expect(mockDelete).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+});

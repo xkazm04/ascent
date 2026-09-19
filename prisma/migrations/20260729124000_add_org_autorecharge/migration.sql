@@ -1,0 +1,20 @@
+-- G1-39 — move the low-balance ("auto-recharge") preference out of the audit log and into real storage.
+--
+-- WHY: the preference was persisted as the most recent `billing.autorecharge` AuditLog row and read back
+-- with getAuditLog(limit: 1). That worked, but it made the AUDIT TRAIL load-bearing for a user SETTING:
+-- every read cost a findMany over an append-only table instead of a column select, and any audit
+-- retention/purge policy (src/lib/db/retention.ts prunes by `retentionAuditDays`) could silently erase a
+-- customer's configured warning threshold with no error anywhere. Stored as JSON in a TEXT column,
+-- mirroring `Organization.gatePolicy` — this schema's no-jsonb DSQL-safety contract. The audit row is
+-- STILL written on every change, now as what it always should have been: an audit record, not storage.
+--
+-- EXISTING ROWS: nullable, no default, no backfill — every existing Organization gets NULL, read as
+-- "never set" → DEFAULT_AUTO_RECHARGE (the feature OFF), which is the safe direction on a money surface.
+--
+-- NO AUTOMATIC BACKFILL, DELIBERATELY. Orgs that already saved a preference have it in an AuditLog row,
+-- and a SQL backfill would have to parse JSON out of `AuditLog.meta` and pick the latest row per org —
+-- fragile, and it would resurrect a preference from a row that a purge may already have half-removed.
+-- The read path handles it instead: getOrgAutoRecharge reads the column first and FALLS BACK to the
+-- legacy audit row when the column is NULL, so an existing preference keeps working immediately, and the
+-- next PUT writes it to the column. Migration-free, self-healing, and correct while both exist.
+ALTER TABLE "Organization" ADD COLUMN "autoRechargeJson" TEXT;
