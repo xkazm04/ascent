@@ -10,6 +10,7 @@
 // reader actually needs. The payload already IS the shape-carrying field; the outcome belongs in it.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import type { OrgId } from "@/lib/org/ids";
 
 export const ATHENA_PROPOSAL_STATUSES = ["open", "accepted", "declined"] as const;
 export type AthenaProposalStatus = (typeof ATHENA_PROPOSAL_STATUSES)[number];
@@ -95,7 +96,7 @@ export async function createAthenaProposal(input: CreateProposalInput): Promise<
 }
 
 /** Everything still awaiting an answer in this org — the badge query the `[orgId, status]` index serves. */
-export async function listOpenAthenaProposals(orgId: string, limit = 50): Promise<AthenaProposalRecord[]> {
+export async function listOpenAthenaProposals(orgId: OrgId, limit = 50): Promise<AthenaProposalRecord[]> {
   if (!isDbConfigured() || !orgId) return [];
   const rows = await getPrisma().athenaProposal.findMany({
     where: { orgId, status: "open" },
@@ -106,7 +107,7 @@ export async function listOpenAthenaProposals(orgId: string, limit = 50): Promis
 }
 
 /** One thread's proposals (any status), oldest first so they line up with the transcript. */
-export async function listThreadAthenaProposals(orgId: string, threadId: string): Promise<AthenaProposalRecord[]> {
+export async function listThreadAthenaProposals(orgId: OrgId, threadId: string): Promise<AthenaProposalRecord[]> {
   if (!isDbConfigured() || !orgId || !threadId) return [];
   const rows = await getPrisma().athenaProposal.findMany({
     where: { orgId, threadId },
@@ -116,7 +117,7 @@ export async function listThreadAthenaProposals(orgId: string, threadId: string)
 }
 
 /** One proposal, ANDed with `orgId` — a proposal id alone never crosses a tenant boundary. */
-export async function getAthenaProposal(orgId: string, id: string): Promise<AthenaProposalRecord | null> {
+export async function getAthenaProposal(orgId: OrgId, id: string): Promise<AthenaProposalRecord | null> {
   if (!isDbConfigured() || !orgId || !id) return null;
   const row = await getPrisma().athenaProposal.findFirst({ where: { id, orgId } });
   return row ? toRecord(row) : null;
@@ -130,7 +131,7 @@ export async function getAthenaProposal(orgId: string, id: string): Promise<Athe
  * accept that races the first changes nothing and reports `null`, rather than re-running an action.
  */
 export async function resolveAthenaProposal(
-  orgId: string,
+  orgId: OrgId,
   id: string,
   status: Exclude<AthenaProposalStatus, "open">,
   resolvedBy: string | null,
@@ -172,7 +173,7 @@ export async function resolveAthenaProposal(
  * Returns the claimed record, or null when another caller already took it (the 409).
  */
 export async function claimAthenaProposal(
-  orgId: string,
+  orgId: OrgId,
   id: string,
   claimedBy: string | null,
 ): Promise<AthenaProposalRecord | null> {
@@ -194,7 +195,7 @@ export async function claimAthenaProposal(
  * `declined`), but only while the row is still unstamped.
  */
 export async function stampAthenaProposal(
-  orgId: string,
+  orgId: OrgId,
   id: string,
   outcome: Record<string, unknown>,
   status?: Exclude<AthenaProposalStatus, "open">,
@@ -224,7 +225,7 @@ export async function stampAthenaProposal(
  * the only state this can act on is one this very request created. Used when the work THREW — the
  * proposal goes back to open so the operator can click again.
  */
-export async function releaseAthenaProposal(orgId: string, id: string): Promise<boolean> {
+export async function releaseAthenaProposal(orgId: OrgId, id: string): Promise<boolean> {
   if (!isDbConfigured() || !orgId || !id) return false;
   const { count } = await getPrisma().athenaProposal.updateMany({
     where: { id, orgId, status: "accepted", resolvedAt: null },
